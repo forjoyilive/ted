@@ -228,6 +228,13 @@ export function createApps(options: AppsOptions): Apps {
   const portsTaken = new Map<number, string>()
   let closed = false
 
+  const onThread = (taskId: string) => store.getTask(taskId) !== undefined
+  const thread: Pick<TedStore, 'appStarted' | 'appExited' | 'appStopped' | 'appStartFailed'> = {
+    appStarted: (input) => onThread(input.taskId) && store.appStarted(input),
+    appExited: (input) => onThread(input.taskId) && store.appExited(input),
+    appStopped: (input) => onThread(input.taskId) && store.appStopped(input),
+    appStartFailed: (input) => onThread(input.taskId) && store.appStartFailed(input),
+  }
   const taskDir = (taskId: string) => path.join(appsDir, taskId)
   const dirOf = (taskId: string, repo: string, name: string) =>
     path.join(taskDir(taskId), repo, slug(name))
@@ -494,7 +501,7 @@ export function createApps(options: AppsOptions): Apps {
       ended: { at, how: 'failed', problem },
     }
     await writeInstance(dir, instance)
-    store.appStartFailed({ taskId, repo, name: app.name, problem })
+    thread.appStartFailed({ taskId, repo, name: app.name, problem })
     changed(taskId)
     return toApp(taskId, repo, app, instance)
   }
@@ -628,7 +635,7 @@ export function createApps(options: AppsOptions): Apps {
       } finally {
         await sandboxed.close?.()
       }
-      store.appStarted({
+      thread.appStarted({
         taskId,
         repo: repo.name,
         name: app.name,
@@ -744,7 +751,7 @@ export function createApps(options: AppsOptions): Apps {
         ...(exit?.signal !== undefined && exit.signal !== null && { signal: exit.signal }),
         ...(exit?.error !== undefined && { problem: exit.error }),
       }
-      store.appExited({
+      thread.appExited({
         taskId,
         repo: instance.repo,
         name: instance.name,
@@ -784,7 +791,7 @@ export function createApps(options: AppsOptions): Apps {
       }
       await writeInstance(dir, instance)
       if (problem !== undefined) {
-        store.appStartFailed({ taskId, repo: instance.repo, name: instance.name, problem })
+        thread.appStartFailed({ taskId, repo: instance.repo, name: instance.name, problem })
       }
       changed(taskId)
       return 'ended' as const
@@ -867,7 +874,7 @@ export function createApps(options: AppsOptions): Apps {
           const at = new Date().toISOString()
           instance.ended = { at, how: 'failed', problem }
           await writeInstance(dir, instance)
-          store.appStartFailed({ taskId, repo: instance.repo, name: instance.name, problem })
+          thread.appStartFailed({ taskId, repo: instance.repo, name: instance.name, problem })
           changed(taskId)
           return
         }
@@ -1032,7 +1039,7 @@ export function createApps(options: AppsOptions): Apps {
       const { repo, app } = await findListed(taskId, ref)
       return serial(keyOf(taskId, repo.name, app.name), async () => {
         if (await stopNow(taskId, repo.name, app.name)) {
-          store.appStopped({ taskId, repo: repo.name, name: app.name })
+          thread.appStopped({ taskId, repo: repo.name, name: app.name })
         }
         if (isSimulatorApp(app)) await sims.shutDown(taskId, repo.name, app.name)
         return toApp(taskId, repo.name, app, await readInstance(dirOf(taskId, repo.name, app.name)))

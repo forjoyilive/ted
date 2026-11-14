@@ -4,7 +4,7 @@ import type { Attachment } from './task.ts'
 export const appStates = ['stopped', 'waiting', 'starting', 'running', 'exited', 'failed'] as const
 export type AppState = (typeof appStates)[number]
 
-export type AppStarter = 'human' | 'task-lead' | 'sub-agent'
+export type AppStarter = 'human' | 'task-lead' | 'sub-agent' | 'automation'
 
 export interface TaskApp {
   repo: string

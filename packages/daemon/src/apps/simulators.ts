@@ -119,6 +119,7 @@ interface DeviceRecord {
   device: string
   lastUsedAt: string
   shutDown?: { at: string; for?: string }
+  owner?: string
 }
 
 interface ListedDevice {
@@ -136,6 +137,8 @@ interface Recording {
 }
 
 export const simulatorToolsProblem = 'simulator-tools'
+
+const lineTicket = 'line:'
 
 const slug = (name: string) =>
   name
@@ -168,6 +171,7 @@ export function createSimulators(options: {
   let releaseIdle: (() => void) | undefined
   let closed = false
   let refreshing: Promise<void> | undefined
+  const line: string[] = []
 
   const keyOf = (taskId: string, repo: string, name: string) => `${taskId}/${repo}/${slug(name)}`
   const recordOf = (taskId: string, repo: string, name: string) =>
@@ -198,7 +202,7 @@ export function createSimulators(options: {
         return {
           udid: r.udid,
           taskId: r.taskId,
-          displayId: task?.displayId ?? r.taskId,
+          displayId: task?.displayId ?? r.owner ?? r.taskId,
           title: task?.title ?? '',
           repo: r.repo,
           app: r.name,
@@ -313,6 +317,7 @@ export function createSimulators(options: {
       name: app.name,
       device: app.device,
       lastUsedAt: new Date().toISOString(),
+      ...(store.getTask(app.taskId) === undefined && { owner: app.displayId }),
     }
     records.set(keyOf(app.taskId, app.repo, app.name), record)
     await save()
@@ -404,7 +409,7 @@ export function createSimulators(options: {
   function shutDownChoice(udid: string, requester: DeviceRecord): DeviceRecord {
     const target = bootedRecord(udid)
     if (!target) throw new RequestError(409, 'That simulator isn’t booted any more')
-    const owner = store.getTask(target.taskId)?.displayId ?? target.taskId
+    const owner = store.getTask(target.taskId)?.displayId ?? target.owner ?? target.taskId
     if (recordings.has(udid)) {
       throw new RequestError(409, `${owner}’s simulator is recording, so it can’t be shut down`)
     }
@@ -463,6 +468,21 @@ export function createSimulators(options: {
     return recording.file
   }
 
+  async function waitInLine(ticket: string, app: SimulatorApp): Promise<SimulatorWait> {
+    const record = recordOf(app.taskId, app.repo, app.name)
+    if (!record) return { state: 'gone' }
+    if (!line.includes(ticket)) line.push(ticket)
+    if (line[0] !== ticket || booted.size >= limit()) return { state: 'pending' }
+    return serial(async () => {
+      const now = await freshBooted()
+      if (line[0] !== ticket) return { state: 'pending' } as const
+      if (now.size >= limit() && !now.has(record.udid)) return { state: 'pending' } as const
+      if (!now.has(record.udid)) await boot(record)
+      line.shift()
+      return { state: 'granted', udid: record.udid } as const
+    })
+  }
+
   return {
     supported,
     slots,
@@ -488,6 +508,11 @@ export function createSimulators(options: {
         if (now.size < limit()) {
           await boot(record)
           return { udid: record.udid }
+        }
+        if (by === 'automation') {
+          const ticket = `${lineTicket}${randomUUID()}`
+          line.push(ticket)
+          return { waiting: ticket }
         }
         if (by === 'human' || runId === undefined) {
           if (shutDown === undefined) {
@@ -526,6 +551,7 @@ export function createSimulators(options: {
       })
     },
     async wait(commentId, app) {
+      if (commentId.startsWith(lineTicket)) return waitInLine(commentId, app)
       const comment = store.getComment(commentId)
       const answer = comment?.answer
       const record = recordOf(app.taskId, app.repo, app.name)
@@ -555,6 +581,11 @@ export function createSimulators(options: {
       })
     },
     withdraw(commentId) {
+      if (commentId.startsWith(lineTicket)) {
+        const at = line.indexOf(commentId)
+        if (at !== -1) line.splice(at, 1)
+        return
+      }
       if (store.getComment(commentId)?.answer) return
       store.answerPermission(commentId, {
         kind: 'withdrawn',
@@ -586,7 +617,8 @@ export function createSimulators(options: {
           async shutDown(udid) {
             const record = requester()
             const target = shutDownChoice(udid, record)
-            const owner = store.getTask(target.taskId)?.displayId ?? target.taskId
+            const owner =
+              store.getTask(target.taskId)?.displayId ?? target.owner ?? target.taskId
             const forTask = store.getTask(comment.taskId)?.displayId ?? comment.taskId
             await shutDownRecord(target, { for: forTask })
             return owner
