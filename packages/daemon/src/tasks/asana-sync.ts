@@ -207,10 +207,10 @@ export function asanaConnector(
           : 'Someone completed this Task’s Asana task while the Task is still being worked on. TED keeps going until you choose.',
       groupTitle: (project, factoryName) =>
         `Sync Tasks from the Asana project ${project.name} for Automations in ${factoryName}?`,
-      groupBody: ({ automation, task, group, factoryName }) =>
+      groupBody: ({ automation, task, factoryName }) =>
         [
-          `${automation} made ${task} from an Asana task in ${group.name}. TED doesn’t write to Asana for Tasks an Automation makes until you allow it for one of the task’s projects.`,
-          `If you allow ${group.name} for ${factoryName}, TED comments on each task in that project with its Task’s pull requests and completes the task when the Task merges. It does this for Tasks Automations already made in ${factoryName} from that project, too. A task that leaves the project stops syncing until it comes back.`,
+          `${automation} made ${task} from an Asana task in the project this question names. TED doesn’t write to Asana for Tasks an Automation makes until you allow it for one of the task’s projects.`,
+          `If you allow this project for ${factoryName}, TED comments on each task in that project with its Task’s pull requests and completes the task when the Task merges. It does this for Tasks Automations already made in ${factoryName} from that project, too. A task that leaves the project stops syncing until it comes back.`,
           'Not now keeps them as they are, and TED won’t ask about this project again. You can change either in Settings → Integrations.',
         ].join('\n\n'),
     },

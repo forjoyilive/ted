@@ -526,6 +526,7 @@ test('an allowed Asana project syncs its items, by each item’s own current pro
   expect(asks[0]?.title).toBe(
     'Sync Tasks from the Asana project Roadmap for Automations in Notebooks?',
   )
+  expect(asks[0]?.body).not.toContain('Roadmap')
 
   consent.answerGroup(store.getTask((other as Task).id) as Task, asks[1] as Comment, 'Not now', '')
   expect(store.settings().trackerSyncDeclined.asana?.[factoryId]).toEqual(['73'])
@@ -580,7 +581,7 @@ test('an allowed Asana project syncs its items, by each item’s own current pro
   expect(writes.filter((w) => w.gid === '901')).toHaveLength(3)
 
   consent.forgetGroup(factoryId, '70', 'allowed')
-  expect(store.settings().trackerSyncGroups.asana?.[factoryId]).toEqual([])
+  expect(store.settings().trackerSyncGroups.asana?.[factoryId]).toBeUndefined()
   expect(sync(inProject as Task)?.state).toBe('waiting-merge')
 })
 

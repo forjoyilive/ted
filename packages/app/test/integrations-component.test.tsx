@@ -114,4 +114,6 @@ test('Asana Settings lists each Factory’s projects by name, adds one from Asan
   expect(a.request).toHaveBeenCalledWith('allowAsanaProject', 'f1', '8')
   await user().click(screen.getByRole('button', { name: 'Remove Roadmap from Notebooks' }))
   expect(a.request).toHaveBeenCalledWith('forgetAsanaProject', 'f1', '9', 'allowed')
+  await user().click(screen.getByRole('button', { name: 'Remove Ops from Not now in Notebooks' }))
+  expect(a.request).toHaveBeenCalledWith('forgetAsanaProject', 'f1', '7', 'declined')
 })

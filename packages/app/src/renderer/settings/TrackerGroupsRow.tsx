@@ -12,6 +12,8 @@ export function TrackerGroupsRow({
   allowLabel,
   label = (group) => group,
   onAllow,
+  forgetLabel,
+  onForget,
   problem,
   children,
 }: {
@@ -23,6 +25,8 @@ export function TrackerGroupsRow({
   allowLabel(group: string): string
   label?(group: string): string
   onAllow(group: string): unknown
+  forgetLabel?(group: string): string
+  onForget?(group: string): unknown
   problem?: string
   children: ReactNode
 }) {
@@ -48,6 +52,16 @@ export function TrackerGroupsRow({
                 >
                   Allow
                 </ActionButton>
+                {onForget && (
+                  <ActionButton
+                    type="button"
+                    className={styles.allow}
+                    aria-label={forgetLabel?.(group) ?? `Remove ${label(group)}`}
+                    onClick={() => onForget(group)}
+                  >
+                    Remove
+                  </ActionButton>
+                )}
               </span>
             ))}
           </span>
