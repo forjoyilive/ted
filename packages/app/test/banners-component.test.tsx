@@ -139,6 +139,8 @@ test.each(['immediate', 'delayed'])(
         onOpenGitHubSettings={vi.fn()}
       />,
     )
+    expect(document.activeElement).toBe(screen.getByLabelText('GitHub URL or owner/repo'))
+    expect(screen.queryByRole('tooltip')).toBeNull()
     const u = user()
     await u.type(screen.getByLabelText('GitHub URL or owner/repo'), 'acme/nope{Enter}')
     await screen.findByText('Repository not found, or your GitHub account can’t see it.')
