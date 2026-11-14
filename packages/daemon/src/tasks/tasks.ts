@@ -252,7 +252,13 @@ import {
   unscoped,
   withoutCheckName,
 } from './ci-failures.ts'
-import { cleanupDoneRefusal, cleanupFailureBody, cleanupNoBack } from './cleanup.ts'
+import {
+  cleanupDoneRefusal,
+  cleanupFailureBody,
+  cleanupMoveTarget,
+  cleanupNoBack,
+  cleanupProgress,
+} from './cleanup.ts'
 import { coalesced } from './coalesced.ts'
 import type { CommandLaunch } from './command.ts'
 import { createTaskExecution } from './execution.ts'
@@ -4721,7 +4727,9 @@ export function createTasks(options: {
     const round =
       resumeSession === undefined && current.stage === 'validate'
         ? await validateRound(current, resolution.workflow)
-        : undefined
+        : resumeSession === undefined && current.stage === 'cleanup'
+          ? cleanupProgress(cleanupSteps(resolution.workflow), store.cleanupReports(task.id))
+          : undefined
     const hierarchyPrompt = hierarchyText(hierarchyView(task.id))
     const prompt = [
       overnightGuidance(overnightMode, task.setup),
@@ -5843,14 +5851,10 @@ export function createTasks(options: {
         resolution.workflow.order.indexOf(task.stage as AgentStageId)
     )
       await requireObligations(task, undefined, to)
-    const mergeOff =
-      to === 'done' &&
-      task.stage !== 'merge' &&
-      task.stage !== 'cleanup' &&
-      !resolution.workflow.stages.includes('merge')
-    const cleanup =
-      to === 'done' && task.stage === 'merge' && resolution.workflow.stages.includes('cleanup')
-    const next = mergeOff ? 'merge' : cleanup ? 'cleanup' : to
+    const target = cleanupMoveTarget(task.stage, to, resolution.workflow.stages)
+    const mergeOff = target.why === 'merge-off'
+    const cleanup = target.why === 'cleanup'
+    const next = target.next
     const message = mergeOff
       ? mergeOffMessage
       : cleanup

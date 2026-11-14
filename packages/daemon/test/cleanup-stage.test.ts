@@ -1,5 +1,5 @@
-import type { Comment, Task } from '@ted/protocol'
-import { expect, test } from 'vitest'
+import { type Comment, DaemonClient, type DaemonEvent, type Task } from '@ted/protocol'
+import { expect, onTestFinished, test } from 'vitest'
 import { commitToOrigin, waitUntil } from './helpers.ts'
 import {
   approve,
@@ -49,6 +49,22 @@ test('a merged Task goes through Cleanup: blockers are released at the merge, a 
     start: true,
     blockedBy: [task.id],
   })
+  const waiting = await client.ok<Task>('POST', '/tasks', {
+    title: 'Waits in Backlog',
+    factory: 'NB',
+    blockedBy: [task.id],
+  })
+  const daemon = ctx.daemon
+  if (!daemon) throw new Error('no daemon')
+  const updates: Task[] = []
+  const events = await new DaemonClient(
+    { port: daemon.port, token: '', pid: 0, version: 'test' },
+    '',
+    { appKey: daemon.appToken },
+  ).subscribe((event: DaemonEvent) => {
+    if (event.type === 'task-updated' && event.task.id === waiting.id) updates.push(event.task)
+  })
+  onTestFinished(() => events.close())
 
   await approve(client, signoff)
   await waitForStage(client, task, 'cleanup')
@@ -57,6 +73,10 @@ test('a merged Task goes through Cleanup: blockers are released at the merge, a 
     'the blocked Task to start at the merge',
   )
 
+  await waitUntil(
+    async () => updates.some((t) => !t.markers.some((m) => m.kind === 'blocked-by')),
+    'an update releasing the blocked Backlog Task while the first Task is in Cleanup',
+  )
   const first = await openFailure(client, task)
   expect(first).toMatchObject({
     author: { kind: 'ted' },

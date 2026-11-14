@@ -4904,7 +4904,7 @@ export async function openStore({
       for (const { id } of withdrawn) emitComment(id)
       const task = updatedTask(taskId)
       if (options?.prepare) updatedQueue(taskId)
-      if (stage === 'done') updatedDependents(taskId)
+      if (stage === 'done' || stage === 'cleanup') updatedDependents(taskId)
       return task
     },
     factoryDashboard(factoryId, range, asOf = Date.now()) {
