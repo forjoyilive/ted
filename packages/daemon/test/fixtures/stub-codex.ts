@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { createInterface } from 'node:readline'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { readStubJson } from './stub-json.ts'
 
 type Step =
   | { say: string }
@@ -43,13 +44,7 @@ function stubHealth(): {
   turnStartDelayMs?: number
   turnStartWaitFor?: string
 } {
-  try {
-    return JSON.parse(
-      readFileSync(path.join(process.env.TED_HOME ?? '', 'stub-codex.json'), 'utf8'),
-    )
-  } catch {
-    return {}
-  }
+  return readStubJson(path.join(process.env.TED_HOME ?? '', 'stub-codex.json'))
 }
 
 function healthReply(): { text: string; code: number } | undefined {

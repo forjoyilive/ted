@@ -11,6 +11,7 @@ import type {
   ReportOutcomeRequest,
   SetClarifyDepthRequest,
 } from '@ted/protocol'
+import { readStubJson } from './stub-json.ts'
 
 type DemoRequest =
   | { brief: string }
@@ -57,13 +58,7 @@ interface StubHealth {
 }
 
 function stubHealth(): StubHealth {
-  try {
-    return JSON.parse(
-      readFileSync(path.join(process.env.TED_HOME ?? '', 'stub-claude.json'), 'utf8'),
-    ) as StubHealth
-  } catch {
-    return {}
-  }
+  return readStubJson(path.join(process.env.TED_HOME ?? '', 'stub-claude.json'))
 }
 
 function healthReply(): { text: string; code: number } | undefined {
