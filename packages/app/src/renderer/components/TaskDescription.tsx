@@ -1,5 +1,5 @@
 import type { DescriptionVersion, Task } from '@ted/protocol'
-import { useEffect, useId, useRef, useState } from 'react'
+import { type MouseEvent, useEffect, useId, useRef, useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useDescriptionsState } from '../data.ts'
@@ -14,6 +14,17 @@ import styles from './TaskDescription.module.css'
 const previewComponents: Components = {
   a: ({ children }) => <span>{children}</span>,
   img: ({ alt }) => <>{alt}</>,
+}
+
+function pressedOutside(event: MouseEvent<HTMLDialogElement>): boolean {
+  if (event.target !== event.currentTarget) return false
+  const box = event.currentTarget.getBoundingClientRect()
+  return (
+    event.clientX < box.left ||
+    event.clientX > box.right ||
+    event.clientY < box.top ||
+    event.clientY > box.bottom
+  )
 }
 
 export function TaskDescription({ task }: { task: Task }) {
@@ -121,6 +132,9 @@ function DescriptionDialog({
         event.preventDefault()
         onClose()
       }}
+      onMouseDown={(event) => {
+        if (pressedOutside(event)) onClose()
+      }}
     >
       <header className={styles.historyHead}>
         <h2 id={headingId} className={styles.historyHeading}>
@@ -181,6 +195,9 @@ function DescriptionHistory({
       onCancel={(event) => {
         event.preventDefault()
         onClose()
+      }}
+      onMouseDown={(event) => {
+        if (pressedOutside(event)) onClose()
       }}
     >
       <header className={styles.historyHead}>
