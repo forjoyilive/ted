@@ -1,9 +1,11 @@
 import type { AsanaStatus } from '@ted/protocol'
 import {
   agentKinds,
+  parseAllowAsanaProjectRequest,
   parseAllowLinearTeamRequest,
   parseAsanaChoicesQuery,
   parseAsanaConfiguration,
+  parseForgetAsanaProjectRequest,
   parseLinearLookupRequest,
   parseRunFixRequest,
   parseSaveLinearKeyRequest,
@@ -161,6 +163,25 @@ export const integrationRoutes: Route[] = [
     fileToken: true,
     async handle({ body }, { linear }) {
       return [200, await linear.lookup(body.url)]
+    },
+  }),
+  {
+    method: 'GET',
+    path: /^\/integrations\/asana\/projects$/,
+    handle: async (_, { tasks }) => [200, await tasks.asanaProjects()],
+  },
+  jsonRoute(parseAllowAsanaProjectRequest, {
+    method: 'POST',
+    path: /^\/integrations\/asana\/projects$/,
+    async handle({ body }, { tasks }) {
+      return [200, await tasks.allowAsanaProject(body.factoryId, body.project)]
+    },
+  }),
+  jsonRoute(parseForgetAsanaProjectRequest, {
+    method: 'POST',
+    path: /^\/integrations\/asana\/projects\/remove$/,
+    async handle({ body }, { tasks }) {
+      return [200, await tasks.forgetAsanaProject(body.factoryId, body.project, body.list)]
     },
   }),
   jsonRoute(parseAllowLinearTeamRequest, {

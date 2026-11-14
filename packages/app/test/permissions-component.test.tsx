@@ -18,6 +18,7 @@ const view: FactorySettingsView = {
   stages: [],
   ignoredStageFiles: [],
   checks: [],
+  cleanup: { enabled: false, steps: [] },
   tries: [],
   agents: [],
   permissions: 'auto',

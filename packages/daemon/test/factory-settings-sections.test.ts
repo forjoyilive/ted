@@ -386,10 +386,15 @@ describe('Factory settings: Agents, Permissions and notes', () => {
 })
 
 describe('Factory settings: Checks', () => {
-  test('Checks list, add and save to stages.validate.checks', async () => {
+  test('Checks and Cleanup list, add and save to stages.validate.checks and stages.cleanup', async () => {
     const client = await start()
     const view = await client.settings()
     expect(view.checks).toEqual([{ was: 0, name: 'Typecheck', run: 'npm run typecheck' }])
+    expect(view.cleanup).toEqual({ enabled: false, steps: [] })
+    const steps = [
+      { name: 'Tell Asana', instruction: 'Comment on the Asana task.' },
+      { name: 'Stop stack', command: 'docker compose down', timeout: '2m' },
+    ]
     await client.save(
       {
         ...unchanged(view),
@@ -397,16 +402,20 @@ describe('Factory settings: Checks', () => {
           { was: 0, name: 'Typecheck', run: 'npm run typecheck' },
           { name: 'Unit tests', run: 'npm test', timeout: '15m' },
         ],
+        cleanup: { enabled: true, steps },
       },
       view.version,
     )
     const yaml = await originFile('.ted/workflow.yaml')
     expect(yaml).toContain('- { name: Typecheck, run: npm run typecheck }')
     expect(yaml).toMatch(/name: Unit tests[\s\S]*run: npm test[\s\S]*timeout: 15m/)
-    expect((await client.settings()).checks.map((c) => c.name)).toEqual(['Typecheck', 'Unit tests'])
+    expect(parse(yaml ?? '').stages.cleanup).toEqual({ enabled: true, steps })
+    const saved = await client.settings()
+    expect(saved.checks.map((c) => c.name)).toEqual(['Typecheck', 'Unit tests'])
+    expect(saved.cleanup).toEqual({ enabled: true, steps })
   })
 
-  test('a Check without a command isn’t saved', async () => {
+  test('a Check or a Cleanup step without a command isn’t saved', async () => {
     const client = await start()
     const view = await client.settings()
     const preview = await client.preview({
@@ -414,6 +423,14 @@ describe('Factory settings: Checks', () => {
       checks: [{ name: 'Lint', run: '' }],
     })
     expect(preview.valid).toBe(false)
+    const cleanupPreview = await client.preview({
+      ...unchanged(view),
+      cleanup: { enabled: true, steps: [{ name: 'Stop stack', command: '' }] },
+    })
+    expect(cleanupPreview.valid).toBe(false)
+    expect(cleanupPreview.problems.map((p) => p.message)).toContain(
+      'Cleanup step Stop stack: Write the command.',
+    )
   })
 
   test('Run now runs in a scratch worktree on the base branch; setup runs only when it is made', async () => {

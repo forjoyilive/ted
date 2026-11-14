@@ -35,6 +35,7 @@ import { Select } from '../components/Select.tsx'
 import { SettingsSearch } from '../components/SettingsSearch.tsx'
 import { useEventValue } from '../data.ts'
 import {
+  cleanupHasProblem,
   editedFields,
   missingCopies,
   type RepoField,
@@ -57,6 +58,7 @@ import styles from './FactorySettings.module.css'
 import {
   AgentsSection,
   ChecksSection,
+  CleanupSection,
   InvalidNotice,
   NotesSection,
   NotificationsSection,
@@ -97,6 +99,7 @@ const repoSections: ReadonlySet<FactorySectionId> = new Set([
   'repos',
   'workflow',
   'checks',
+  'cleanup',
   'agents',
   'permissions',
   'notes',
@@ -213,6 +216,7 @@ export function FactorySettings({
     [draft, base],
   )
   const count = unsaved.count
+  const stepProblem = draft !== undefined && cleanupHasProblem(draft.cleanup)
   shown.current = { clean: count === 0, version: base?.version }
   const onDraft = useCallback((change: (current: SettingsDraft) => SettingsDraft) => {
     if (mergeBusy.current) return
@@ -457,6 +461,7 @@ export function FactorySettings({
                   {section === 'checks' && (
                     <ChecksSection view={view} draft={draft} tries={tries} onDraft={onDraft} />
                   )}
+                  {section === 'cleanup' && <CleanupSection draft={draft} onDraft={onDraft} />}
                   {section === 'agents' && (
                     <AgentsSection
                       view={view}
@@ -490,11 +495,15 @@ export function FactorySettings({
           <span className={styles.unsavedDot} aria-hidden />
           <div>
             <span>{unsavedSummary(unsaved)}</span>
-            <p className={styles.saveHint}>Review your changes before creating a pull request.</p>
+            <p className={styles.saveHint}>
+              {stepProblem
+                ? 'A Cleanup step needs fixing before you can save.'
+                : 'Review your changes before creating a pull request.'}
+            </p>
           </div>
           <span className={views.headerSpacer} />
           <Button onClick={() => restart(view)}>Discard</Button>
-          <Button variant="primary" onClick={() => setReviewing(true)}>
+          <Button variant="primary" disabled={stepProblem} onClick={() => setReviewing(true)}>
             Review and save…
           </Button>
         </footer>

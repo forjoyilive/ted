@@ -62,7 +62,7 @@ export const machineRoutes: Route[] = [
     method: 'PATCH',
     path: /^\/settings$/,
     async handle({ req }, { store }) {
-      return [200, store.updateSettings(settingsChanges(await readJson(req)))]
+      return [200, store.updateSettings(settingsChanges(await readJson(req), store.settings()))]
     },
   },
   {
@@ -128,7 +128,7 @@ export const machineRoutes: Route[] = [
   },
 ]
 
-function settingsChanges(body: unknown): Partial<MachineSettings> {
+function settingsChanges(body: unknown, current: MachineSettings): Partial<MachineSettings> {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     throw new HttpError(400, 'settings must be an object')
   }
@@ -138,6 +138,12 @@ function settingsChanges(body: unknown): Partial<MachineSettings> {
   for (const [name, value] of entries) {
     if (!Object.hasOwn(settingParsers, name)) throw new HttpError(400, `unknown setting ${name}`)
     Object.assign(changes, { [name]: settingParsers[name as keyof MachineSettings](value) })
+  }
+  for (const name of ['trackerSyncGroups', 'trackerSyncDeclined'] as const) {
+    const lists = changes[name]
+    if (lists && JSON.stringify(lists.asana ?? {}) !== JSON.stringify(current[name].asana ?? {})) {
+      throw new HttpError(400, 'Change Asana projects through Settings → Integrations → Asana')
+    }
   }
   return changes
 }
@@ -392,6 +398,9 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   linearSyncDeclined: (value) => teamsByFactory('linearSyncDeclined', value),
   trackerSyncGroups: (value) => groupsByTracker('trackerSyncGroups', value),
   trackerSyncDeclined: (value) => groupsByTracker('trackerSyncDeclined', value),
+  trackerSyncGroupAccounts() {
+    throw new HttpError(400, 'TED records which account allowed a group itself')
+  },
   factoryPermissions() {
     throw new HttpError(400, 'Change permission mode through Factory settings on this computer')
   },

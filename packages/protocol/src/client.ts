@@ -33,6 +33,7 @@ import type {
   AsanaIntakeResult,
   AsanaIntakeScope,
 } from './asana-intake.ts'
+import type { AsanaProjectList, AsanaProjectListName } from './asana-sync.ts'
 import type {
   AnswerAutomationRequest,
   Automation,
@@ -95,6 +96,7 @@ import type {
   RestoreBackupResult,
   ShutdownRequest,
 } from './data.ts'
+import type { DeviceRequest, DeviceResult } from './device.ts'
 import type { Diagnostics, LogText, ProcessUsage } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
 import type {
@@ -1207,6 +1209,10 @@ export class DaemonClient {
     return this.#request('POST', `/runs/${encodeURIComponent(runId)}/browser`, request)
   }
 
+  runDeviceCommand(runId: string, request: DeviceRequest): Promise<DeviceResult> {
+    return this.#request('POST', `/runs/${encodeURIComponent(runId)}/apps/device`, request)
+  }
+
   readRunBrowserCapture(runId: string, hash: string): Promise<AttachmentBytes> {
     return this.#request(
       'GET',
@@ -1490,6 +1496,26 @@ export class DaemonClient {
 
   allowLinearTeam(factoryId: string, team: string): Promise<MachineSettings> {
     return this.#request('POST', '/integrations/linear/teams', { factoryId, team })
+  }
+
+  asanaProjects(): Promise<AsanaProjectList> {
+    return this.#request('GET', '/integrations/asana/projects')
+  }
+
+  allowAsanaProject(factoryId: string, project: string): Promise<MachineSettings> {
+    return this.#request('POST', '/integrations/asana/projects', { factoryId, project })
+  }
+
+  forgetAsanaProject(
+    factoryId: string,
+    project: string,
+    list: AsanaProjectListName,
+  ): Promise<MachineSettings> {
+    return this.#request('POST', '/integrations/asana/projects/remove', {
+      factoryId,
+      project,
+      list,
+    })
   }
 
   getActivity(): Promise<Activity> {

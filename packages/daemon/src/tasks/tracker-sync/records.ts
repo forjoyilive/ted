@@ -15,7 +15,11 @@ export function trackerRecords<Handle>(
   return {
     record,
     see(taskId, label, item) {
-      const before = record(taskId).seen
+      const current = record(taskId)
+      if (item.groups !== undefined && !sameGroups(current.groups, item.groups)) {
+        store.trackerItemGroupsSeen(taskId, tracker, label, item.groups)
+      }
+      const before = current.seen
       const group = item.group?.key
       if (before?.closed === item.closed && before.state === item.state && before.group === group)
         return
@@ -57,6 +61,16 @@ export function trackerRecords<Handle>(
     declineGroup(factoryId, group) {
       store.declineTrackerGroup(tracker, factoryId, group)
     },
+    forgetGroup(factoryId, group, list, consents) {
+      return store.forgetTrackerGroup(
+        tracker,
+        factoryId,
+        group,
+        list,
+        consents.map(({ taskId, label }) => ({ taskId, item: label })),
+        account(),
+      )
+    },
     closedPurpose: { kind: 'tracker-closed', tracker },
     isClosedQuestion(comment) {
       return comment.purpose?.kind === 'tracker-closed' && comment.purpose.tracker === tracker
@@ -76,4 +90,10 @@ export function trackerRecords<Handle>(
       return { kind: 'withdrawn', at, tracker: why }
     },
   }
+}
+
+function sameGroups(before: readonly string[] | undefined, now: readonly string[]): boolean {
+  return (
+    before !== undefined && before.length === now.length && before.every((g, i) => g === now[i])
+  )
 }

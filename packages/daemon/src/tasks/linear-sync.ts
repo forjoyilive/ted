@@ -203,6 +203,15 @@ export function linearRecords(store: TedStore): TrackerRecords<LinearIssueState>
         })
       }
     },
+    forgetGroup(factoryId, team, list) {
+      const name = list === 'allowed' ? 'linearSyncTeams' : 'linearSyncDeclined'
+      const lists = store.settings()[name]
+      const listed = lists[factoryId] ?? []
+      if (!listed.includes(team)) return store.settings()
+      return store.updateSettings({
+        [name]: { ...lists, [factoryId]: listed.filter((t) => t !== team) },
+      })
+    },
     closedPurpose: { kind: 'linear-closed' },
     isClosedQuestion: (comment) => comment.purpose?.kind === 'linear-closed',
     groupAsk: (team) => ({ linearTeam: team }),

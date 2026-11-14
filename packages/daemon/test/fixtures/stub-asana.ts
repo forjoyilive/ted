@@ -163,7 +163,7 @@ export async function startStubAsana() {
           : kind === 'workspaces'
             ? [...projects.values()]
                 .filter((p) => p.workspace === gid && !(query.archived === 'false' && p.archived))
-                .map((p) => ({ gid: p.gid, name: p.name }))
+                .map((p) => ({ gid: p.gid, name: p.name, archived: p.archived === true }))
             : (projects.get(gid)?.sections ?? [])
       if (kind === 'projects' && !projects.has(gid)) {
         res.writeHead(404)
@@ -340,7 +340,7 @@ export async function startStubAsana() {
               assignee: task.assignee ?? null,
               parent: task.parent ? { gid: task.parent } : null,
               memberships: (task.memberships ?? []).map((m) => ({
-                project: { gid: m.project },
+                project: { gid: m.project, name: projects.get(m.project)?.name ?? m.project },
                 section: m.section ? { gid: m.section } : null,
               })),
             },

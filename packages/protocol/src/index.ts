@@ -87,12 +87,19 @@ export {
   type SetFactoryAsanaIntakeRequest,
 } from './asana-intake.ts'
 export {
+  type AllowAsanaProjectRequest,
+  type AsanaProjectList,
+  type AsanaProjectListName,
+  type AsanaProjectOption,
   type AsanaSync,
   type AsanaSyncFacts,
   type AsanaSyncState,
   asanaSyncAllowable,
   asanaSyncing,
   asanaSyncOf,
+  type ForgetAsanaProjectRequest,
+  parseAllowAsanaProjectRequest,
+  parseForgetAsanaProjectRequest,
 } from './asana-sync.ts'
 export type {
   AnswerAutomationRequest,
@@ -316,6 +323,18 @@ export {
   type ShutdownRequest,
 } from './data.ts'
 export { parseRestoreBackupRequest, parseShutdownRequest } from './data-parsers.ts'
+export {
+  type DeviceAction,
+  type DeviceKey,
+  type DevicePoint,
+  type DeviceRequest,
+  type DeviceResult,
+  deviceActions,
+  deviceKeys,
+  deviceLimits,
+  devicePoint,
+} from './device.ts'
+export { parseDeviceRequest } from './device-parsers.ts'
 export type {
   Diagnostics,
   LogText,
@@ -427,7 +446,12 @@ export {
   type CheckTryRequest,
   type CheckTryState,
   type CheckView,
+  type CleanupCommandStepInput,
+  type CleanupInstructionStepInput,
+  type CleanupSettingsInput,
+  type CleanupStepInput,
   type CopyFileState,
+  cleanupStepProblem,
   type DiffLine,
   type DiffLineKind,
   type DriftCounts,
@@ -436,6 +460,7 @@ export {
   type FactorySettingsView,
   type FileChange,
   type InvalidSettings,
+  isCleanupCommand,
   type LibraryAgentRow,
   type LibraryChanges,
   type LibraryInvalid,
@@ -443,6 +468,7 @@ export {
   type LibraryStageRow,
   type LibraryView,
   type MergeSettingsRequest,
+  maxCleanupStepName,
   type RenameFactoryRequest,
   type RepoLocalFolder,
   type RepoSettingsInput,
@@ -682,6 +708,7 @@ export {
   quitChoices,
   runOutputDayLimits,
   type TimeFormat,
+  type TrackerGroupAccounts,
   type TrackerGroupLists,
   terminalFontSizes,
   textSizeLimits,

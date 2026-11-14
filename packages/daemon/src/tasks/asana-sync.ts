@@ -9,6 +9,7 @@ import {
   type TrackerRecords,
   TrackerWait,
 } from './tracker-sync/connector.ts'
+import { createTrackerConsent, type TrackerConsent } from './tracker-sync/consent.ts'
 import { trackerRecords } from './tracker-sync/records.ts'
 import {
   createTrackerSync,
@@ -135,7 +136,9 @@ export function asanaConnector(
         read++
         let body: Record<string, unknown>
         try {
-          body = await asana.read(`/tasks/${gid}`, { opt_fields: 'completed,num_subtasks' })
+          body = await asana.read(`/tasks/${gid}`, {
+            opt_fields: 'completed,num_subtasks,memberships.project.gid',
+          })
         } catch (error) {
           if (error instanceof AsanaReadError && error.retryAfterMs !== undefined)
             return { waitMs: error.retryAfterMs }
@@ -146,9 +149,11 @@ export function asanaConnector(
         const data = body.data as Record<string, unknown> | undefined
         if (!data || typeof data.completed !== 'boolean') continue
         const subtasks = typeof data.num_subtasks === 'number' ? data.num_subtasks : 1
+        const groups = projectsOf(data.memberships)
         items.set(gid, {
           closed: data.completed,
           state: data.completed ? 'Completed' : 'Open',
+          ...(groups && { groups }),
           handle: { gid, completed: data.completed, subtasks, account },
         })
       }
@@ -200,8 +205,14 @@ export function asanaConnector(
         pastSignOff
           ? 'Someone completed this Task’s Asana task after you signed off. TED keeps going until you choose.'
           : 'Someone completed this Task’s Asana task while the Task is still being worked on. TED keeps going until you choose.',
-      groupTitle: () => '',
-      groupBody: () => '',
+      groupTitle: (project, factoryName) =>
+        `Sync Tasks from the Asana project ${project.name} for Automations in ${factoryName}?`,
+      groupBody: ({ automation, task, factoryName }) =>
+        [
+          `${automation} made ${task} from an Asana task in the project this question names. TED doesn’t write to Asana for Tasks an Automation makes until you allow it for one of the task’s projects.`,
+          `If you allow this project for ${factoryName}, TED comments on each task in that project with its Task’s pull requests and completes the task when the Task merges. It does this for Tasks Automations already made in ${factoryName} from that project, too. A task that leaves the project stops syncing until it comes back.`,
+          'Not now keeps them as they are, and TED won’t ask about this project again. You can change either in Settings → Integrations.',
+        ].join('\n\n'),
     },
   }
 }
@@ -222,6 +233,7 @@ export function asanaRecords(
 
 export interface AsanaSync extends TrackerSync {
   refresh(): Promise<string | undefined>
+  consent: TrackerConsent
 }
 
 export function createAsanaSync(options: AsanaSyncOptions): AsanaSync {
@@ -241,14 +253,33 @@ export function createAsanaSync(options: AsanaSyncOptions): AsanaSync {
   options.inBackground('check the Asana connection', async () => {
     await refresh()
   })
+  const connector = asanaConnector(options.store, asana, options.requestsPerCycle)
+  const records = asanaRecords(options.store, () => options.store.asanaAccount() ?? account)
   const sync = createTrackerSync({
     store: options.store,
-    connector: asanaConnector(options.store, asana, options.requestsPerCycle),
-    records: asanaRecords(options.store, () => account),
+    connector,
+    records,
     actions: options.actions,
     everyMs: options.everyMs,
     inBackground: options.inBackground,
     ...(options.clock && { clock: options.clock }),
   })
-  return { close: () => sync.close(), refresh }
+  return {
+    close: () => sync.close(),
+    refresh,
+    consent: createTrackerConsent(options.store, connector, records),
+  }
+}
+
+const maxProjects = 50
+
+export function projectsOf(memberships: unknown): string[] | undefined {
+  if (!Array.isArray(memberships)) return undefined
+  const gids: string[] = []
+  for (const membership of memberships) {
+    const gid = (membership as { project?: { gid?: unknown } } | null)?.project?.gid
+    if (typeof gid === 'string' && /^\d{1,32}$/.test(gid) && !gids.includes(gid)) gids.push(gid)
+    if (gids.length === maxProjects) break
+  }
+  return gids
 }

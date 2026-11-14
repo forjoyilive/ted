@@ -131,6 +131,12 @@ export function createFactoryRemovals(options: {
           linearSyncDeclined: declined,
           trackerSyncGroups: withoutFactory(settings.trackerSyncGroups),
           trackerSyncDeclined: withoutFactory(settings.trackerSyncDeclined),
+          trackerSyncGroupAccounts: Object.fromEntries(
+            Object.entries(settings.trackerSyncGroupAccounts).map(([tracker, byFactory]) => {
+              const { [factory.id]: _removed, ...rest } = byFactory
+              return [tracker, rest]
+            }),
+          ),
           appsOutsideSandbox: outside,
           boardViews: boards,
         })

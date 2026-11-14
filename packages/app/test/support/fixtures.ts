@@ -99,6 +99,7 @@ export function settingsView(): import('@ted/protocol').FactorySettingsView {
     ],
     ignoredStageFiles: [],
     checks: [{ was: 0, name: 'Typecheck', run: 'npm run typecheck' }],
+    cleanup: { enabled: false, steps: [] },
     tries: [],
     agents: [
       { role: 'lead', inherited: { agent: 'claude' }, inheritedFrom: 'ted', from: 'ted' },
