@@ -677,6 +677,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   }
 
   onMenuCommand.current = (command) => {
+    if (command.kind === 'shortcuts') return setSheetOpen(true)
     if (offline) return
     if (command.kind === 'open-inbox') dispatch({ type: 'open', screen: { kind: 'inbox' } })
     if (command.kind === 'open-all-tasks') {
