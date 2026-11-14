@@ -119,6 +119,7 @@ import type {
   RepoRemoval,
   SetFactoryNotificationsRequest,
 } from './factory.ts'
+import type { FactoryIcon, SetFactoryIconRequest } from './factory-icon.ts'
 import type {
   CheckTry,
   CheckTryOutput,
@@ -1664,6 +1665,12 @@ export class DaemonClient {
     return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/name`, {
       name,
     } satisfies RenameFactoryRequest)
+  }
+
+  setFactoryIcon(factoryId: string, icon: FactoryIcon | null): Promise<Factory> {
+    return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/icon`, {
+      icon,
+    } satisfies SetFactoryIconRequest)
   }
 
   setRepoLocalFolder(factoryId: string, repoName: string, path: string): Promise<Factory> {

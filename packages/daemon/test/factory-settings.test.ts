@@ -694,6 +694,11 @@ describe('Factory settings', () => {
     ).toEqual(refused)
     expect(await fileToken.call('PUT', `/factories/${id}/name`, { name: 'X' })).toEqual(refused)
     expect(
+      await fileToken.call('PUT', `/factories/${id}/icon`, {
+        icon: { kind: 'emoji', emoji: '🐙' },
+      }),
+    ).toEqual(refused)
+    expect(
       await fileToken.call('PUT', `/factories/${id}/repos/widgets/local-folder`, { path: scratch }),
     ).toEqual(refused)
     expect(await fileToken.call('DELETE', `/factories/${id}/repos/widgets/local-folder`)).toEqual(
@@ -702,13 +707,29 @@ describe('Factory settings', () => {
     expect(await originBranches()).toEqual(['main'])
   })
 
-  test('the name and local folders save at once on this Mac', async () => {
+  test('the name, icon and local folders save at once on this Mac', async () => {
     const client = await start()
     const renamed = await client.ok<Factory>('PUT', `/factories/${client.factory.id}/name`, {
       name: 'Notebook',
     })
     expect(renamed.name).toBe('Notebook')
     expect((await client.ok<Factory[]>('GET', '/factories'))[0]?.name).toBe('Notebook')
+
+    const icon = { kind: 'symbol', name: 'rocket', color: 'teal' }
+    expect(
+      (await client.ok<Factory>('PUT', `/factories/${client.factory.id}/icon`, { icon })).icon,
+    ).toEqual(icon)
+    expect((await client.ok<Factory[]>('GET', '/factories'))[0]?.icon).toEqual(icon)
+    const svg = `data:image/svg+xml;base64,${Buffer.from('<svg/>').toString('base64')}`
+    expect(
+      (
+        await client.call('PUT', `/factories/${client.factory.id}/icon`, {
+          icon: { kind: 'image', dataUrl: svg },
+        })
+      ).status,
+    ).toBe(400)
+    await client.ok('PUT', `/factories/${client.factory.id}/icon`, { icon: null })
+    expect((await client.ok<Factory[]>('GET', '/factories'))[0]).not.toHaveProperty('icon')
 
     const folder = path.join(scratch, 'my-widgets')
     await mkdir(folder)

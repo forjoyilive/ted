@@ -11,7 +11,7 @@ describe('third-party code TED ships', () => {
 
     expect(byName.get('yaml')).toMatchObject({ runtime: true })
     expect(byName.get('@livestore/wa-sqlite')).toMatchObject({ runtime: true })
-    for (const name of ['react', 'react-markdown', 'remark-gfm']) {
+    for (const name of ['react', 'react-markdown', 'remark-gfm', 'lucide-react']) {
       expect(byName.get(name), name).toMatchObject({ runtime: false })
     }
     expect(byName.get('@fontsource-variable/geist')).toMatchObject({ runtime: false })

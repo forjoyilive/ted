@@ -23,6 +23,7 @@ import {
   defaultMachineSettings,
   downloadUrl,
   edition,
+  type Factory,
   isLoopbackUrl,
   linearKeyPage,
   type MachineSettings,
@@ -36,6 +37,7 @@ import {
   tedVersion,
   type WaitingRequest,
 } from '@ted/protocol'
+import { factoryIconEmojiOf } from '@ted/protocol/factory-icon'
 import {
   app,
   BrowserWindow,
@@ -460,6 +462,8 @@ function forward(event: DaemonEvent): void {
     loadState().catch((error: unknown) => console.error('loading settings failed:', error))
   }
   if (event.type === 'activity-changed') state = { ...state, activity: event.activity }
+  if (event.type === 'factory-added' || event.type === 'factory-updated') noteFactory(event.factory)
+  if (event.type === 'factory-removed') factoryEmoji.delete(event.factoryId)
   if (event.type === 'inbox-changed') {
     state = { ...state, waiting: countWaiting(event.waiting) }
     notifications.waiting(event.waiting)
@@ -558,6 +562,14 @@ function makeNotifier(): Notifier {
 
 const notifier = makeNotifier()
 
+const factoryEmoji = new Map<string, string>()
+
+function noteFactory(factory: Factory): void {
+  const emoji = factoryIconEmojiOf(factory.icon)
+  if (emoji === undefined) factoryEmoji.delete(factory.id)
+  else factoryEmoji.set(factory.id, emoji)
+}
+
 const notifications = createNotifications({
   notifier,
   settings: () => settings,
@@ -565,6 +577,7 @@ const notifications = createNotifications({
   asksPermission: platform === 'darwin',
   asked: () => currentNotificationState().asked,
   markAsked: () => saveNotificationState({ asked: true }),
+  factoryEmoji: (factoryId) => factoryEmoji.get(factoryId),
 })
 
 const notificationsPane =
@@ -881,11 +894,15 @@ async function loadState(): Promise<void> {
       ? await client.updateSettings({ firstLaunchDone: true })
       : loaded,
   )
-  const [activity, banners, waiting]: [Activity, Banner[], WaitingRequest[]] = await Promise.all([
-    client.getActivity(),
-    client.listBanners(),
-    client.listWaiting(),
-  ])
+  const [activity, banners, waiting, factories]: [Activity, Banner[], WaitingRequest[], Factory[]] =
+    await Promise.all([
+      client.getActivity(),
+      client.listBanners(),
+      client.listWaiting(),
+      client.listFactories(),
+    ])
+  factoryEmoji.clear()
+  for (const factory of factories) noteFactory(factory)
   state = { ...state, activity, banners, waiting: countWaiting(waiting) }
   notifications.waiting(waiting)
   refresh()

@@ -16,6 +16,7 @@
     "./linear": "./src/linear.ts",
     "./settings": "./src/settings.ts",
     "./factory": "./src/factory.ts",
+    "./factory-icon": "./src/factory-icon.ts",
     "./factory-settings": "./src/factory-settings.ts",
     "./version": "./src/version.ts",
     "./list-view": "./src/list-view.ts",

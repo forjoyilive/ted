@@ -9,6 +9,7 @@ import type {
   ApiCostReport,
   DashboardRange,
   FactoryDashboard,
+  FactoryIcon,
   MessageBox,
   MessageDraft,
   NewTaskDraft,
@@ -793,6 +794,7 @@ export interface TedStore extends TaskHistory {
   clearLocalFolder(repo: string): void
   setFactoryAutoStartBacklog(factoryId: string, enabled: boolean): StoredFactory
   renameFactory(factoryId: string, name: string): StoredFactory
+  setFactoryIcon(factoryId: string, icon: FactoryIcon | null): StoredFactory
   reorderFactories(factoryIds: readonly string[]): StoredFactory[]
   removeFactory(factoryId: string): void
   changeFactoryRepos(factoryId: string, repos: StoredFactoryRepo[]): StoredFactory
@@ -1365,9 +1367,10 @@ export async function openStore({
     return rows
       .map((row, index) => ({ row, rank: rank(row.id, index) }))
       .sort((a, b) => a.rank - b.rank)
-      .map(({ row: { clonedAt, ...row } }, position) => ({
+      .map(({ row: { clonedAt, icon, ...row } }, position) => ({
         ...row,
         position,
+        ...(icon !== null && { icon: JSON.parse(icon) as FactoryIcon }),
         repos: repos
           .filter((r) => r.factoryId === row.id)
           .map(({ repo, name, cloneUrl }) => ({ repo, name, cloneUrl })),
@@ -5135,6 +5138,17 @@ export async function openStore({
       const factory = requireFactory(factoryId)
       emit({ type: 'factory-updated', factory: basicFactory(factory) })
       return factory
+    },
+    setFactoryIcon(factoryId, icon) {
+      requireFactory(factoryId)
+      commit(
+        events.factoryIconChanged({
+          factoryId,
+          icon: icon === null ? null : JSON.stringify(icon),
+          at: new Date().toISOString(),
+        }),
+      )
+      return requireFactory(factoryId)
     },
     renameFactory(factoryId, name) {
       commit(events.factoryRenamed({ factoryId, name, at: new Date().toISOString() }))

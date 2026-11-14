@@ -419,6 +419,12 @@ export {
   suggestRepoName,
   type TaskRef,
 } from './factory.ts'
+export type {
+  FactoryIcon,
+  FactoryIconColor,
+  FactoryIconSymbol,
+  SetFactoryIconRequest,
+} from './factory-icon.ts'
 export {
   parseAddFactoryRequest,
   parseAutoStartBacklogRequest,
@@ -433,6 +439,7 @@ export {
   parseReorderFactoriesRequest,
   parseSaveLibraryRequest,
   parseSaveSettingsRequest,
+  parseSetFactoryIconRequest,
   parseSetFactoryNotificationsRequest,
   parseSetFactoryPermissionsRequest,
   parseSetLocalFolderRequest,

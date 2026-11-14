@@ -53,6 +53,7 @@ export interface CommandContext {
 export interface CommandChoice {
   id: string
   label: string
+  factory?: Factory
   checked?: boolean
   shortcut?: string
   run: () => unknown
@@ -61,6 +62,7 @@ export interface CommandChoice {
 export interface Command {
   id: string
   label: string
+  factory?: Factory
   scope: 'global' | 'task'
   shortcuts?: readonly string[]
   keywords?: string
@@ -150,6 +152,7 @@ export const globalCommands: readonly Command[] = [
         .map((factory) => ({
           id: factory.id,
           label: factory.name,
+          factory,
           run: () => dispatch({ type: 'open-plan', factoryId: factory.id }),
         })),
   },
@@ -162,6 +165,7 @@ export const globalCommands: readonly Command[] = [
       factories.map((factory) => ({
         id: factory.id,
         label: factory.name,
+        factory,
         run: () =>
           dispatch({
             type: 'open',
@@ -179,6 +183,7 @@ export const globalCommands: readonly Command[] = [
       factories.map((factory, index) => ({
         id: factory.id,
         label: factory.name,
+        factory,
         ...(index < 9 && { shortcut: factoryShortcut(index) }),
         run: () => dispatch({ type: 'open-factory', factoryId: factory.id }),
       })),
@@ -383,6 +388,7 @@ export function factoryCommands(factories: readonly Factory[]): Command[] {
   return factories.map((factory, index) => ({
     id: `open-factory:${factory.id}`,
     label: `Open ${factory.name}`,
+    factory,
     scope: 'global',
     keywords: 'factory',
     ...(index < 9 && { shortcuts: [factoryShortcut(index)] }),

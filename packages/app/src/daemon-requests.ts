@@ -172,6 +172,7 @@ export const forwardedRequests = [
   'mergeInherited',
   'setFactoryAutoStartBacklog',
   'renameFactory',
+  'setFactoryIcon',
   'reorderFactories',
   'newSetupTask',
   'factoryRemoval',

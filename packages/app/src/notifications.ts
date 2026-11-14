@@ -40,6 +40,7 @@ export interface NotificationsOptions {
   asksPermission: boolean
   asked: () => boolean
   markAsked: () => void
+  factoryEmoji?: (factoryId: string) => string | undefined
   now?: () => number
 }
 
@@ -54,6 +55,10 @@ export interface Notifications {
 export function createNotifications(options: NotificationsOptions): Notifications {
   const { notifier, settings, open, asksPermission, asked, markAsked } = options
   const now = options.now ?? Date.now
+  const withEmoji = (notice: ProblemNotice, factoryId: string): ProblemNotice => {
+    const emoji = options.factoryEmoji?.(factoryId)
+    return emoji === undefined ? notice : { ...notice, title: `${emoji} ${notice.title}` }
+  }
   let seen: Set<string> | undefined
   const merged = new Set<string>()
   let recent: { at: number; shown?: ShownNotice }[] = []
@@ -91,12 +96,14 @@ export function createNotifications(options: NotificationsOptions): Notification
       seen = ids
       if (fresh.length > 0 && !asked()) markAsked()
       if (!settings().notifyInboxItems) return
-      for (const request of fresh) if (!request.uncounted) send(inboxNotice(request))
+      for (const request of fresh) {
+        if (!request.uncounted) send(withEmoji(inboxNotice(request), request.factoryId))
+      }
     },
     problem(banner) {
       const notice = problemNotice(banner)
       if (!notice || !settings().notifyProblems || !mayNotify()) return
-      send(notice)
+      send(banner.factoryId === undefined ? notice : withEmoji(notice, banner.factoryId))
     },
     merged(task) {
       const notice = mergedNotice(task, now())
@@ -105,7 +112,7 @@ export function createNotifications(options: NotificationsOptions): Notification
       const current = settings()
       if (!current.notifyTaskMerged || !mayNotify()) return
       if (!factoryNotifications(current, task.factoryId).taskMerged) return
-      send(notice)
+      send(withEmoji(notice, task.factoryId))
     },
     tedStops(count, windowHidden) {
       if (count === 0) {

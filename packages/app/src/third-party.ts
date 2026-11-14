@@ -25,6 +25,7 @@ interface Manifest {
 
 const workspacePackages = ['app', 'daemon', 'protocol', 'cli']
 const windowOnly = new Set([
+  'lucide-react',
   'react',
   'react-dom',
   'react-markdown',

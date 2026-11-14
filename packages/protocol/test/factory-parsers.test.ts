@@ -95,6 +95,19 @@ roundTrip(P.parseSaveSettingsRequest, {
   confirmBypass: false,
 })
 roundTrip(P.parseRenameFactoryRequest, { name: 'New name' })
+roundTrip(P.parseSetFactoryIconRequest, {
+  icon: { kind: 'symbol', name: 'git-branch', color: 'teal' },
+})
+roundTrip(P.parseSetFactoryIconRequest, { icon: { kind: 'letter', color: 'orange' } })
+roundTrip(P.parseSetFactoryIconRequest, { icon: { kind: 'emoji', emoji: '🐙' } })
+roundTrip(P.parseSetFactoryIconRequest, {
+  icon: {
+    kind: 'image',
+    dataUrl:
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+  },
+})
+roundTrip(P.parseSetFactoryIconRequest, { icon: null })
 roundTrip(P.parseLibraryChanges, library)
 roundTrip(P.parseSaveLibraryRequest, { changes: library, version: 'rev' })
 
@@ -168,6 +181,47 @@ rejects(
   'mode must be',
 )
 rejects(P.parseRenameFactoryRequest, { name: 1 }, 'name is required')
+rejects(P.parseSetFactoryIconRequest, {}, 'icon.kind must be')
+rejects(
+  P.parseSetFactoryIconRequest,
+  { icon: { kind: 'symbol', name: 'skull', color: 'teal' } },
+  'not a known icon',
+)
+rejects(
+  P.parseSetFactoryIconRequest,
+  { icon: { kind: 'letter', color: '#ff0000' } },
+  'not a known colour',
+)
+rejects(
+  P.parseSetFactoryIconRequest,
+  { icon: { kind: 'emoji', emoji: '💩' } },
+  'not one of the offered emoji',
+)
+rejects(
+  P.parseSetFactoryIconRequest,
+  { icon: { kind: 'image', dataUrl: `data:image/svg+xml;base64,${btoa('<svg/>')}` } },
+  'must be a PNG data URL',
+)
+rejects(
+  P.parseSetFactoryIconRequest,
+  { icon: { kind: 'image', dataUrl: `data:image/png;base64,${btoa('GIF89a')}` } },
+  'must be a PNG',
+)
+rejects(
+  P.parseSetFactoryIconRequest,
+  { icon: { kind: 'image', dataUrl: `data:image/png;base64,${'A'.repeat(50_000)}` } },
+  'too large',
+)
+rejects(
+  P.parseSetFactoryIconRequest,
+  {
+    icon: {
+      kind: 'image',
+      dataUrl: `data:image/png;base64,${btoa(`\x89PNG\r\n\x1a\n${'x'.repeat(32 * 1024 + 1 - 8)}`)}`,
+    },
+  },
+  'too large',
+)
 rejects(P.parseLibraryChanges, { keepStageFiles: ['other'] }, 'unknown Stage')
 rejects(P.parseSaveLibraryRequest, { changes: library }, 'version is required')
 

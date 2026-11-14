@@ -6,6 +6,7 @@ import {
   type CreateFactoryRequest,
   type DaemonEvent,
   type Factory,
+  type FactoryIcon,
   keyProblem,
   type RepoCheck,
   type RepoProblem,
@@ -40,6 +41,7 @@ export interface Factories {
   setLocalFolder(key: string, folder: string): Promise<Factory>
   setAutoStartBacklog(factoryId: string, enabled: boolean): Promise<Factory>
   rename(factoryId: string, name: string): Promise<Factory>
+  setIcon(factoryId: string, icon: FactoryIcon | null): Promise<Factory>
   setRepoFolder(factoryId: string, repoName: string, folder: string | undefined): Promise<Factory>
   syncRepos(factoryId: string, repos: StoredFactoryRepo[]): Promise<void>
   approveRepos(factoryId: string, repos: string[]): void
@@ -610,6 +612,10 @@ export function createFactories(options: FactoriesOptions): Factories {
       return publish(store.setFactoryAutoStartBacklog(factoryId, enabled))
     },
     rename: renameFactory,
+    async setIcon(factoryId, icon) {
+      find(factoryId)
+      return publish(store.setFactoryIcon(factoryId, icon))
+    },
     setRepoFolder,
     syncRepos,
     approveRepos,
