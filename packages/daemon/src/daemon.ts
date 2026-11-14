@@ -187,6 +187,7 @@ async function readFakeFree(file: string): Promise<number> {
 export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon> {
   const xcrun = tedEnv('TED_XCRUN_BIN')
   const open = tedEnv('TED_OPEN_BIN')
+  const idb = tedEnv('TED_IDB_BIN')
   const emulatorBin = tedEnv('TED_EMULATOR_BIN')
   const adbBin = tedEnv('TED_ADB_BIN')
   const avdmanagerBin = tedEnv('TED_AVDMANAGER_BIN')
@@ -528,6 +529,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         simulators: {
           dir: paths.simulators,
           ...(xcrun && { xcrun }),
+          ...(idb && { idb }),
           ...(open && { open }),
           ...options.simulators,
         },

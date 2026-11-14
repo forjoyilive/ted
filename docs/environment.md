@@ -16,7 +16,7 @@ The authoritative reasons for individual inputs are beside their entries in `ted
 | --- | --- |
 | `TED_REAL_ANTIGRAVITY_BIN` | Optional native CLI for the offline tool-free compatibility test. The test uses a local model fixture, never a Google key. |
 | `TED_CLAUDE_BIN`, `TED_CODEX_BIN`, `TED_ANTIGRAVITY_BIN`, `TED_GH_BIN` | Select agent and GitHub stubs or alternate development binaries. Release discovers the normal commands on the daemon’s login-shell `PATH`. |
-| `TED_XCRUN_BIN`, `TED_OPEN_BIN`, `TED_SANDBOX_BIN` | Substitute simulator, launcher and sandbox programs. |
+| `TED_XCRUN_BIN`, `TED_IDB_BIN`, `TED_OPEN_BIN`, `TED_SANDBOX_BIN` | Substitute simulator, simulator input, launcher and sandbox programs. Release finds `idb` through the login-shell `PATH`. |
 | `TED_EMULATOR_BIN`, `TED_ADB_BIN`, `TED_AVDMANAGER_BIN` | Substitute the Android SDK’s `emulator`, `adb` and `avdmanager`. Release finds them in the SDK named by `ANDROID_HOME` or `ANDROID_SDK_ROOT`, or the standard SDK folder. |
 | `TED_KEYRING_MODULE` | Import a keyring implementation for tests. |
 | `TED_ASANA_API`, `TED_ASANA_CALLBACK_PORT` | Redirect Asana token/API requests to a loopback stub and isolate its temporary callback port. Ignored in release. |

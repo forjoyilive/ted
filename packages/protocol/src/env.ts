@@ -73,6 +73,7 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_UPDATE_FEED: false,
   TED_UPDATE_LOG: false,
   TED_XCRUN_BIN: false,
+  TED_IDB_BIN: false,
 }
 
 export function tedEnv(
