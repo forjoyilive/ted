@@ -69,6 +69,7 @@ export function ContextMenu({
   onClose,
   submenu = false,
   pending = false,
+  onShortcut,
 }: {
   at: MenuPosition
   label: string
@@ -76,6 +77,7 @@ export function ContextMenu({
   onClose: () => void
   submenu?: boolean
   pending?: boolean
+  onShortcut?: ((key: string) => boolean) | undefined
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const close = useRef(onClose)
@@ -158,6 +160,10 @@ export function ContextMenu({
         const items = enabled(menu)
         const index = items.indexOf(document.activeElement as HTMLButtonElement)
         const key = event.key
+        if (!event.metaKey && !event.ctrlKey && !event.altKey && !pending && onShortcut?.(key)) {
+          event.preventDefault()
+          return
+        }
         if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(key)) {
           event.preventDefault()
           if (!submenu) window.dispatchEvent(new CustomEvent(submenuOpened, { detail: undefined }))
@@ -248,6 +254,9 @@ export function MenuSubmenu({
 export interface MenuAction {
   label: string
   hint?: string
+  icon?: ReactNode
+  checked?: boolean
+  shortcut?: string
   action?: (() => unknown | Promise<unknown>) | undefined
   disabled?: boolean
   danger?: boolean
@@ -285,15 +294,52 @@ function menuItem(
     <ActionButton
       key={item.label}
       type="button"
-      role="menuitem"
+      role={item.checked === undefined ? 'menuitem' : 'menuitemradio'}
+      aria-checked={item.checked}
       disabled={item.disabled || (pendingLabel !== undefined && pendingLabel !== item.label)}
       pending={pendingLabel === item.label}
       className={`${styles.item} ${item.danger ? styles.danger : ''}`}
       onClick={() => choose(item)}
     >
-      {item.label}
-      {item.hint !== undefined && <span className={styles.hint}>{item.hint}</span>}
+      {item.icon !== undefined || item.checked !== undefined ? (
+        <>
+          <span className={styles.labelWithIcon}>
+            {item.icon}
+            {item.label}
+          </span>
+          <span className={styles.hint}>
+            {item.checked && <CheckMark />}
+            {item.hint ?? item.shortcut}
+          </span>
+        </>
+      ) : (
+        <>
+          {item.label}
+          {item.hint !== undefined && <span className={styles.hint}>{item.hint}</span>}
+        </>
+      )}
     </ActionButton>
+  )
+}
+
+function CheckMark() {
+  return (
+    <svg
+      className={styles.check}
+      width="12"
+      height="12"
+      viewBox="0 0 12 12"
+      fill="none"
+      aria-hidden
+    >
+      <path
+        d="M2.5 6.3 5 8.8 9.5 3.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   )
 }
 
@@ -312,6 +358,33 @@ export function useActionMenu(scope?: string) {
     menu?.operationKey ?? (scope === undefined ? undefined : `menu:${scope}`),
   )
   const close = () => setMenu(undefined)
+  const choose = (item: MenuAction) => {
+    if (!menu) return
+    setError(undefined)
+    const result = activity.run(() => item.action?.(), item.label)
+    if (result) {
+      return result.then(
+        () =>
+          setMenu((current) =>
+            (
+              menu.operationKey !== undefined
+                ? current?.operationKey === menu.operationKey
+                : current?.label === menu.label
+            )
+              ? undefined
+              : current,
+          ),
+        (failure: unknown) => setError(`${menu.label}: ${readableError(failure)}`),
+      )
+    }
+    close()
+  }
+  const shortcut = (key: string) => {
+    const item = menu?.items.find((i) => i.shortcut === key && !i.disabled && !i.items)
+    if (!item) return false
+    choose(item)
+    return true
+  }
   return {
     isOpen: menu !== undefined,
     open: (at: MenuPosition, label: string, items: MenuAction[], operationKey?: string) => {
@@ -322,30 +395,17 @@ export function useActionMenu(scope?: string) {
     menu: (
       <>
         {menu && (
-          <ContextMenu at={menu.at} label={menu.label} onClose={close} pending={activity.pending}>
+          <ContextMenu
+            at={menu.at}
+            label={menu.label}
+            onClose={close}
+            pending={activity.pending}
+            onShortcut={shortcut}
+          >
             <MenuItems
               items={menu.items}
               pendingLabel={activity.pending ? activity.label : undefined}
-              choose={(item) => {
-                setError(undefined)
-                const result = activity.run(() => item.action?.(), item.label)
-                if (result) {
-                  return result.then(
-                    () =>
-                      setMenu((current) =>
-                        (
-                          menu.operationKey !== undefined
-                            ? current?.operationKey === menu.operationKey
-                            : current?.label === menu.label
-                        )
-                          ? undefined
-                          : current,
-                      ),
-                    (failure: unknown) => setError(`${menu.label}: ${readableError(failure)}`),
-                  )
-                }
-                close()
-              }}
+              choose={choose}
             />
           </ContextMenu>
         )}

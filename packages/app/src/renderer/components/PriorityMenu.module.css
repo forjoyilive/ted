@@ -1,0 +1,16 @@
+.button {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: var(--button-height-small);
+  height: var(--button-height-small);
+  margin: -5px;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  cursor: pointer;
+}
+.button:hover, .button[aria-expanded="true"] { background: var(--surface-selected); }
+.button:focus-visible { outline: 2px solid var(--accent-default); outline-offset: 1px; }

@@ -310,7 +310,7 @@ test('List groups remember closed and open choices through Inbox and remounting'
   expect(done().getAttribute('aria-expanded')).toBe('true')
 })
 
-test('right-click uses all selected Tasks, while an unselected row has its own actions', async () => {
+test('right-click uses all selected Tasks; an unselected row and the Priority icon act on one Task', async () => {
   const a = await list()
   a.handle('setPriority', vi.fn())
   a.handle('setTaskLead', vi.fn())
@@ -358,6 +358,35 @@ test('right-click uses all selected Tasks, while an unselected row has its own a
   expect(screen.queryByRole('menu', { name: '2 selected Tasks' })).toBeNull()
   fireEvent.keyDown(menu, { key: 'Escape' })
   expect(screen.queryByRole('menu', { name: 'Task actions · NB-2' })).toBeNull()
+  await u.click(screen.getByRole('button', { name: 'Priority: High. Change priority of NB-2' }))
+  menu = await screen.findByRole('menu', { name: 'Priority' })
+  const options = within(menu).getAllByRole('menuitemradio')
+  expect(options.map((option) => option.textContent)).toEqual([
+    'No priority0',
+    'Urgent1',
+    'High2',
+    'Medium3',
+    'Low4',
+  ])
+  expect(options.map((option) => option.getAttribute('aria-checked'))).toEqual([
+    'false',
+    'false',
+    'true',
+    'false',
+    'false',
+  ])
+  fireEvent.keyDown(menu, { key: '1' })
+  await vi.waitFor(() => expect(a.request).toHaveBeenCalledWith('setPriority', 'NB-2', 'urgent'))
+  await vi.waitFor(() => expect(screen.queryByRole('menu', { name: 'Priority' })).toBeNull())
+  expect(screen.queryByRole('region', { name: 'Task thread' })).toBeNull()
+  await u.click(screen.getByRole('button', { name: 'Priority: Low. Change priority of NB-1' }))
+  await u.click(
+    within(await screen.findByRole('menu', { name: 'Priority' })).getByRole('menuitemradio', {
+      name: /Medium/,
+    }),
+  )
+  await vi.waitFor(() => expect(a.request).toHaveBeenCalledWith('setPriority', 'NB-1', 'medium'))
+  expect(a.request).not.toHaveBeenCalledWith('setPriority', 'MS-1', 'medium')
 })
 
 test('bulk context-menu Archive confirms the group and preserves blocker choices', async () => {

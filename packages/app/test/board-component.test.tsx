@@ -219,8 +219,8 @@ test('Done cards show merged metadata, request the Done List and confirm Archive
   expect(document.querySelectorAll('[data-stage="done"] [data-task]')).toHaveLength(0)
 })
 
-test('Board Priority filter narrows cards and does not offer Stage or archived filters', async () => {
-  api()
+test('Board Priority filter narrows cards and the card’s Priority icon changes Priority', async () => {
+  const bridgeApi = api()
   const p = props()
   const tasks = [
     task({ priority: 'high' }),
@@ -237,6 +237,15 @@ test('Board Priority filter narrows cards and does not offer Stage or archived f
   view.rerender(<Board {...p} tasks={tasks} filters={{ priorities: ['high'] }} />)
   expect(document.querySelector('[data-task="NB-2"]')).toBeNull()
   expect(document.querySelector('[data-task="NB-1"]')).toBeTruthy()
+  bridgeApi.handle('setPriority', () => undefined)
+  await u.click(screen.getByRole('button', { name: 'Priority: High. Change priority of NB-1' }))
+  const menu = await screen.findByRole('menu', { name: 'Priority' })
+  await u.click(within(menu).getByRole('menuitemradio', { name: /Low/ }))
+  await vi.waitFor(() =>
+    expect(bridgeApi.request).toHaveBeenCalledWith('setPriority', 'NB-1', 'low'),
+  )
+  await vi.waitFor(() => expect(screen.queryByRole('menu', { name: 'Priority' })).toBeNull())
+  expect(p.onOpen).not.toHaveBeenCalled()
 })
 
 test('Board Show all opens its Factory’s Done-filtered List and saves that view', async () => {
