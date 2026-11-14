@@ -7,6 +7,8 @@ export type FailureRun = {
   failures: string[]
   problems: string[]
   passedOnRetry?: string[]
+  load?: number
+  workers?: Record<string, number>
 }
 
 type History = { version: 1; runs: FailureRun[] }

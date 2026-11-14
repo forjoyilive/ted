@@ -2,7 +2,8 @@ import { globSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
-import { smallRunFiles } from './packages/daemon/test/support/suite-lock.ts'
+import { heldLockEnv, smallRunFiles } from './packages/daemon/test/support/suite-lock.ts'
+import { busy, busyLine, loadPerCore, scaledWorkers } from './scripts/machine-load.ts'
 
 const here = (file: string) => fileURLToPath(new URL(file, import.meta.url))
 
@@ -22,8 +23,12 @@ const flagsWithValues = new Set([
 ])
 
 // A run of 10 or more files takes the whole machine (suite-lock.ts), so it gets 6 workers;
-// smaller runs share it two at a time and get 3 each.
-export function workersFor(args: readonly string[], files: readonly string[]): number {
+// smaller runs share it two at a time and get 3 each. A busy machine gets fewer.
+export function workersFor(
+  args: readonly string[],
+  files: readonly string[],
+  load?: number,
+): number {
   const filters: string[] = []
   for (let index = 0; index < args.length; index++) {
     const arg = args[index] ?? ''
@@ -34,7 +39,7 @@ export function workersFor(args: readonly string[], files: readonly string[]): n
     filters.length === 0
       ? files.length
       : files.filter((file) => filters.some((filter) => file.includes(filter))).length
-  return matched >= smallRunFiles ? 6 : 3
+  return scaledWorkers(matched >= smallRunFiles ? 6 : 3, load)
 }
 
 export function launchesElectron(file: string, seen = new Set<string>()): boolean {
@@ -53,10 +58,21 @@ function electronTestFiles(): string[] {
 
 const electronSetup = here('./packages/app/test/support/electron-setup.ts')
 
+const load = loadPerCore()
+const allFiles = globSync(testFiles, { cwd: here('.') })
+const workers = workersFor(process.argv.slice(2), allFiles, load)
+const electronWorkers = scaledWorkers(3, load)
+const idleWorkers = workersFor(process.argv.slice(2), allFiles)
+
+// pnpm check sets the lock variable and passes its own --maxWorkers, and says this itself.
+if (busy(load) && !process.env[heldLockEnv] && workers < idleWorkers) {
+  console.warn(busyLine(load, `${workers} worker${workers === 1 ? '' : 's'}`, `${idleWorkers}`))
+}
+
 const testOptions = {
   testTimeout: 30_000,
   expect: { poll: { timeout: 10_000 } },
-  maxWorkers: workersFor(process.argv.slice(2), globSync(testFiles, { cwd: here('.') })),
+  maxWorkers: workers,
   globalSetup: [here('./packages/daemon/test/support/global-setup.ts')],
   setupFiles: [
     here('./packages/daemon/test/support/setup.ts'),
@@ -82,6 +98,7 @@ const testOptions = {
     TED_APP_TOKEN: 'test-app-token',
     TED_EDITOR_APP_DIRS: '',
     TED_TEST_FAILURES_FILE: 'off',
+    TED_TEST_LOAD: 'off',
     TED_HOLD_REQUESTS_MS: '0',
     TED_REMOTE_EXECUTION: 'on',
   },
@@ -127,7 +144,7 @@ export default defineConfig({
           name: 'electron',
           sequence: { groupOrder: 0 },
           include: codexSandbox ? [] : electron,
-          maxWorkers: 3,
+          maxWorkers: electronWorkers,
           retry: 1,
           globalSetup: [...testOptions.globalSetup, electronSetup],
         },

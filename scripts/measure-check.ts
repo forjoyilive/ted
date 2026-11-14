@@ -112,7 +112,7 @@ export async function collect(args: string[]) {
     check = spawn('pnpm', ['check'], {
       cwd: root,
       detached: true,
-      env: { ...process.env, CI: 'true', TED_CHECK_EVIDENCE_DIR: folder },
+      env: { ...process.env, CI: 'true', TED_CHECK_EVIDENCE_DIR: folder, TED_TEST_LOAD: 'off' },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
     for (const stream of [check.stdout, check.stderr]) {
@@ -168,7 +168,7 @@ export async function collect(args: string[]) {
           node: process.version,
           pnpm,
           command: ['pnpm', 'check'],
-          commandEnvironment: { CI: 'true' },
+          commandEnvironment: { CI: 'true', TED_TEST_LOAD: 'off' },
           workloadCommand,
           workers,
           workloadFailed: workloadFailed || !loadWasAlive,

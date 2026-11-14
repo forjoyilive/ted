@@ -9,6 +9,7 @@ import {
   failureLogPath,
   fileFailure,
   keepDays,
+  mostWorkers,
   observed,
   parseFailures,
   pruneFailureLog,
@@ -96,7 +97,18 @@ test('a run records the files that finished and the tests that failed or passed 
 
   const file = temp()
   recordRun(file, { checkout: '/repo', planned: 3, task: 'NB-1', ...seen }, now)
-  recordRun(file, { checkout: '/repo', planned: 12, files: ['scripts/b.test.ts'], tests: [] }, now)
+  recordRun(
+    file,
+    {
+      checkout: '/repo',
+      planned: 12,
+      load: 2.5,
+      workers: 2,
+      files: ['scripts/b.test.ts'],
+      tests: [],
+    },
+    now,
+  )
   recordRun(file, { checkout: '/repo', planned: 0, files: [], tests: [] }, now)
   const text = readFileSync(file, 'utf8')
   expect(text.split('\n').every((line) => line === '' || line.startsWith('{"at":"'))).toBe(true)
@@ -110,7 +122,17 @@ test('a run records the files that finished and the tests that failed or passed 
     files: seen.files,
   })
   expect(records[1]).toMatchObject({ run: records[0]?.run, ...seen.tests[0] })
-  expect(records[4]).toMatchObject({ kind: 'full', files: ['scripts/b.test.ts'] })
+  expect(records[0]).not.toHaveProperty('load')
+  expect(records[4]).toMatchObject({
+    kind: 'full',
+    load: 2.5,
+    workers: 2,
+    files: ['scripts/b.test.ts'],
+  })
+  expect(
+    mostWorkers({ config: { maxWorkers: 6 }, projects: [{ config: { maxWorkers: 2 } }] }),
+  ).toBe(6)
+  expect(mostWorkers({ config: {} })).toBeUndefined()
 })
 
 test('a log that can’t be written leaves the run alone', () => {
@@ -160,10 +182,10 @@ test('tests are ranked by how often they failed, with a rate over the runs that 
       failure('r1', 'a.test.ts', 'other', 'passed-on-retry'),
       run('r2', ['a.test.ts']),
       failure('r2', 'a.test.ts', 'flaky one', 'passed-on-retry'),
-      run('r3', ['a.test.ts', 'b.test.ts']),
+      { ...run('r3', ['a.test.ts', 'b.test.ts']), load: 2.5, workers: 2 },
       failure('r3', 'b.test.ts', 'b fails'),
       failure('r3', 'b.test.ts', 'b fails', 'passed-on-retry'),
-      run('r4', ['a.test.ts']),
+      { ...run('r4', ['a.test.ts']), load: 0.75 },
       run('broken', ['a.test.ts']),
       ...many,
       run('too old', ['a.test.ts'], now - 8 * day),
@@ -180,14 +202,16 @@ test('tests are ranked by how often they failed, with a rate over the runs that 
     failedRuns: 3,
     retriedRuns: 1,
     excludedRuns: 1,
+    busyRuns: 1,
+    busyFailedRuns: 1,
     tests: [
-      { name: 'a.test.ts > flaky one', failed: 1, retried: 1, runs: 4, rate: 0.5 },
-      { name: 'b.test.ts > b fails', failed: 1, retried: 0, runs: 2, rate: 0.5 },
-      { name: 'a.test.ts > other', failed: 0, retried: 1, runs: 4, rate: 0.25 },
+      { name: 'a.test.ts > flaky one', failed: 1, retried: 1, busy: 0, runs: 4, rate: 0.5 },
+      { name: 'b.test.ts > b fails', failed: 1, retried: 0, busy: 1, runs: 2, rate: 0.5 },
+      { name: 'a.test.ts > other', failed: 0, retried: 1, busy: 0, runs: 4, rate: 0.25 },
     ],
     files: [
-      { name: 'a.test.ts', failed: 1, retried: 1, runs: 4, rate: 0.5 },
-      { name: 'b.test.ts', failed: 1, retried: 0, runs: 2, rate: 0.5 },
+      { name: 'a.test.ts', failed: 1, retried: 1, busy: 0, runs: 4, rate: 0.5 },
+      { name: 'b.test.ts', failed: 1, retried: 0, busy: 1, runs: 2, rate: 0.5 },
     ],
   })
   const text = failureText(report)
@@ -195,6 +219,9 @@ test('tests are ranked by how often they failed, with a rate over the runs that 
     '5 runs: 3 with a failed test, 1 more with only tests that passed on retry.',
   )
   expect(text).toContain(`Left out below: 1 run with more than ${brokenRunTests} failed tests`)
-  expect(text).toContain('     1        1      4    50%  a.test.ts > flaky one')
+  expect(text).toContain('     1        1     0      4    50%  a.test.ts > flaky one')
+  expect(text).toContain(
+    '1 run started on a busy machine (load per core above 0.75); 1 of them had a failed test.',
+  )
   expect(failureText(failureReport([], 0))).toContain('== Tests\nNone.')
 })

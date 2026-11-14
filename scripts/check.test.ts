@@ -393,7 +393,12 @@ describe('check runner integration with stub processes', () => {
     mkdirSync(scripts, { recursive: true })
     mkdirSync(support, { recursive: true })
     mkdirSync(cache, { recursive: true })
-    for (const file of ['check.ts', 'check-history.ts', 'check-measurement.ts']) {
+    for (const file of [
+      'check.ts',
+      'check-history.ts',
+      'check-measurement.ts',
+      'machine-load.ts',
+    ]) {
       copyFileSync(path.join(import.meta.dirname, file), path.join(scripts, file))
     }
     writeFileSync(
@@ -412,13 +417,6 @@ describe('check runner integration with stub processes', () => {
       path.join(scripts, 'test-reporting.ts'),
       `export { acquireFullRun as reportedTestLock } from '../packages/daemon/test/support/suite-lock.ts'`,
     )
-    writeFileSync(
-      path.join(root, 'run.ts'),
-      `
-        import { runChecks } from ${JSON.stringify(path.join(scripts, 'check.ts'))}
-        console.log('RESULT=' + await runChecks())
-      `,
-    )
     const failed = [
       'failed',
       'missing-suites',
@@ -429,6 +427,14 @@ describe('check runner integration with stub processes', () => {
       'suite-error',
       'timing-error-with-failure',
     ].includes(mode)
+    const busyMachine = mode === 'retried'
+    writeFileSync(
+      path.join(root, 'run.ts'),
+      `
+        import { runChecks } from ${JSON.stringify(path.join(scripts, 'check.ts'))}
+        console.log('RESULT=' + await runChecks(${busyMachine ? '{ quietWait: 1 }' : ''}))
+      `,
+    )
     const value = report(failed ? 'failed' : 'passed')
     let nodeReport: Record<string, unknown> = value
     if (mode === 'malformed-counter')
@@ -507,6 +513,7 @@ describe('check runner integration with stub processes', () => {
         ...process.env,
         PATH: `${root}${path.delimiter}${process.env.PATH}`,
         TED_CHECK_EVIDENCE_DIR: root,
+        ...(busyMachine && { TED_TEST_LOAD: '2' }),
       },
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -537,12 +544,22 @@ describe('check runner integration with stub processes', () => {
     const commands = readFileSync(path.join(root, 'commands'), 'utf8')
     expect(commands).toContain('--config.confirm-modules-purge=false')
     expect(measured.phases.install.startMs).toBeGreaterThanOrEqual(measured.phases.lock.endMs)
-    expect(commands).toContain('"--project","electron","--maxWorkers","3"')
-    expect(commands).toContain('"--project","node","--maxWorkers","6"')
+    expect(commands).toContain(`"--project","electron","--maxWorkers","${busyMachine ? 1 : 3}"`)
+    expect(commands).toContain(`"--project","node","--maxWorkers","${busyMachine ? 2 : 6}"`)
+    expect(output.includes('The machine is busy (load per core 2.00')).toBe(busyMachine)
+    expect(output.includes('Waiting for the machine to be quiet: load per core is 2.00')).toBe(
+      busyMachine,
+    )
+    expect(output.includes('Starting the tests anyway.')).toBe(busyMachine)
     if (mode === 'write-error') return
     const runs = parseHistory(readFileSync(path.join(cache, 'ted-test-failures.json'), 'utf8'))
     expect(runs).toHaveLength(1)
     expect(runs[0]?.ok).toBe(mode === 'passed' || mode === 'retried')
+    expect(runs[0]).toMatchObject(
+      busyMachine
+        ? { load: 2, workers: { electron: 1, node: 2 } }
+        : { workers: { electron: 3, node: 6 } },
+    )
     expect(commands).toContain('retry-reporter.ts')
     if (mode === 'retried') {
       expect(runs[0]?.passedOnRetry).toEqual(['packages/app/test/a.test.ts > opens'])

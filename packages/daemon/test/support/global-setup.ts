@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { TestProject } from 'vitest/node'
-import { recordVitestRun } from '../../../../scripts/failure-log.ts'
+import { noteRunStart, recordVitestRun } from '../../../../scripts/failure-log.ts'
 import { reportedTestLock, withProjectTestLock } from '../../../../scripts/test-reporting.ts'
 import { killMarked } from './processes.ts'
 import { heldLockEnv } from './suite-lock.ts'
@@ -16,6 +16,7 @@ export default async function setup(project: TestProject) {
   return withProjectTestLock(
     () => reportedTestLock(project.vitest.state.getPaths().length),
     async () => {
+      noteRunStart()
       const run = process.env.TED_TEST_RUN_ID || randomUUID()
       project.provide('tedTestRun', run)
       project.provide('tedTestLockPid', Number(process.env[heldLockEnv]) || process.pid)

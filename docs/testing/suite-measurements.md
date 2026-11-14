@@ -65,7 +65,7 @@ TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts loade
 TED_HOME="$PWD/node_modules/.cache/ted-home" node scripts/measure-check.ts loaded series-2-loaded-3
 ```
 
-Each invocation starts exactly one `pnpm check` with `CI=true` so pnpm’s installation step can run without an interactive terminal. This environment override is recorded in `run.json`. Loaded mode starts its own
+Each invocation starts exactly one `pnpm check` with `CI=true` so pnpm’s installation step can run without an interactive terminal, and with `TED_TEST_LOAD=off` so the check keeps its usual worker counts (3 Electron, 6 Node) whatever the machine’s load. Both overrides are recorded in `run.json`. Loaded mode starts its own
 separate `node scripts/check-load.ts <worker-count>` process, waits for readiness,
 and stops that workload on completion or interruption. It never stops another
 Task’s App. Ctrl-C terminates the collector’s own Check process group and CPU

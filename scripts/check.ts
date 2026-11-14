@@ -5,6 +5,14 @@ import { stripVTControlCharacters } from 'node:util'
 import { heldLockEnv, waitingMessage } from '../packages/daemon/test/support/suite-lock.ts'
 import { recordFailureRun } from './check-history.ts'
 import { type CheckMeasurement, measureCheck } from './check-measurement.ts'
+import {
+  busy,
+  busyLine,
+  loadPerCore,
+  quietWaitMs,
+  scaledWorkers,
+  waitForQuiet,
+} from './machine-load.ts'
 import { reportedTestLock } from './test-reporting.ts'
 
 const root = path.resolve(import.meta.dirname, '..')
@@ -12,10 +20,22 @@ const cacheDir = path.join(root, 'node_modules', '.cache')
 export const timesFile = path.join(cacheDir, 'ted-test-times.json')
 export const failuresFile = path.join(cacheDir, 'ted-test-failures.json')
 
-const testGroups = [
+const idleGroups = [
   { project: 'electron', maxWorkers: 3 },
   { project: 'node', maxWorkers: 6 },
 ]
+
+type TestGroup = (typeof idleGroups)[number]
+
+export function groupsFor(load: number | undefined): TestGroup[] {
+  return idleGroups.map((group) => ({
+    ...group,
+    maxWorkers: scaledWorkers(group.maxWorkers, load),
+  }))
+}
+
+const groupText = (groups: readonly TestGroup[]) =>
+  groups.map((group) => `${group.project} ×${group.maxWorkers}`).join(', ')
 
 function git(...args: string[]): string {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim()
@@ -325,7 +345,13 @@ function recordTimes(reports: JsonReport[], save: boolean): void {
   }
 }
 
-export async function runChecks({ appOnly = false } = {}): Promise<boolean> {
+export async function runChecks({
+  appOnly = false,
+  quietWait,
+}: {
+  appOnly?: boolean
+  quietWait?: number
+} = {}): Promise<boolean> {
   const measurement = measureCheck(process.env.TED_CHECK_EVIDENCE_DIR, cacheDir)
   let unlock: (() => Promise<void>) | undefined
   let ok = false
@@ -348,7 +374,11 @@ export async function runChecks({ appOnly = false } = {}): Promise<boolean> {
       return false
     }
     mkdirSync(cacheDir, { recursive: true })
-    ok = await checkInParallel(appOnly, measurement)
+    if (quietWait !== undefined) await waitForQuiet({ maxWaitMs: quietWait })
+    const load = loadPerCore()
+    const testGroups = groupsFor(load)
+    if (busy(load)) console.log(`\n${busyLine(load, groupText(testGroups), groupText(idleGroups))}`)
+    ok = await checkInParallel(appOnly, testGroups, load, measurement)
     return ok
   } finally {
     try {
@@ -359,14 +389,17 @@ export async function runChecks({ appOnly = false } = {}): Promise<boolean> {
   }
 }
 
-async function checkInParallel(appOnly: boolean, measurement?: CheckMeasurement): Promise<boolean> {
+async function checkInParallel(
+  appOnly: boolean,
+  testGroups: readonly TestGroup[],
+  load: number | undefined,
+  measurement?: CheckMeasurement,
+): Promise<boolean> {
   for (const group of testGroups) {
     rmSync(reportFile(group.project), { force: true })
     rmSync(retryFile(group.project), { force: true })
   }
-  console.log(
-    `\n== Typecheck, Lint and Test (${testGroups.map((g) => `${g.project} ×${g.maxWorkers}`).join(', ')})`,
-  )
+  console.log(`\n== Typecheck, Lint and Test (${groupText(testGroups)})`)
   const printBlock = (step: Step) => {
     console.log(`\n== ${step.title} ${step.ok ? 'passed' : 'failed'}`)
     if (!step.ok || step.output.trim()) console.log(step.output.trimEnd())
@@ -443,6 +476,8 @@ async function checkInParallel(appOnly: boolean, measurement?: CheckMeasurement)
           failures: reports.flatMap((result) => failedTests(result.report)),
           problems: reports.flatMap((result) => result.problems),
           passedOnRetry: retries.flatMap((names) => names ?? []),
+          ...(load !== undefined && { load }),
+          workers: Object.fromEntries(testGroups.map((g) => [g.project, g.maxWorkers])),
         },
         (message) => console.error(message),
       )}`,
@@ -460,7 +495,13 @@ export function runRefusal(env: NodeJS.ProcessEnv = process.env): string | undef
   return 'A Run can’t run pnpm check. It runs every test, takes the whole machine and makes every other Run wait; only the human or a merge runs it. Run pnpm typecheck, pnpm lint and the test files your change touches: pnpm vitest run <files>.'
 }
 
-export async function checkAndRecord({ all = false } = {}): Promise<boolean> {
+export async function checkAndRecord({
+  all = false,
+  quietWait,
+}: {
+  all?: boolean
+  quietWait?: number
+} = {}): Promise<boolean> {
   const refusal = runRefusal()
   if (refusal) {
     console.error(`check: ${refusal}`)
@@ -473,7 +514,7 @@ export async function checkAndRecord({ all = false } = {}): Promise<boolean> {
     console.log(
       `\n== Only packages/app/src and packages/app/test changed since origin/main: running the tests in ${appTests} alone. pnpm check --all runs every test.`,
     )
-  if (!(await runChecks({ appOnly }))) return false
+  if (!(await runChecks({ appOnly, ...(quietWait !== undefined && { quietWait }) }))) return false
   if (appOnly) {
     console.log(
       '\nThe app’s checks passed. The daemon, CLI, protocol and script tests did not run, so nothing was recorded.',
@@ -491,5 +532,14 @@ export async function checkAndRecord({ all = false } = {}): Promise<boolean> {
   return true
 }
 
-if (import.meta.main)
-  process.exit((await checkAndRecord({ all: process.argv.includes('--all') })) ? 0 : 1)
+if (import.meta.main) {
+  const quietWait = quietWaitMs(process.argv.slice(2))
+  process.exit(
+    (await checkAndRecord({
+      all: process.argv.includes('--all'),
+      ...(quietWait !== undefined && { quietWait }),
+    }))
+      ? 0
+      : 1,
+  )
+}

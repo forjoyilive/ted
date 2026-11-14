@@ -52,6 +52,10 @@ test('a run of 10 or more files gets 6 workers and a smaller one 3', async () =>
     workersFor(['run', ...files.slice(0, 9), '--reporter=verbose', '--project', 'node'], files),
   ).toBe(3)
   expect(workersFor(['run', ...files.slice(0, 10)], files)).toBe(6)
+  expect(workersFor(['run'], files, 0.75)).toBe(6)
+  expect(workersFor(['run'], files, 1.5)).toBe(3)
+  expect(workersFor(['run', 'packages/app/test'], files, 1.5)).toBe(2)
+  expect(workersFor(['run'], files, 15)).toBe(1)
 })
 
 test('a full run puts projects with different worker limits in separate execution groups', async () => {

@@ -236,7 +236,7 @@ test('collects an isolated stub Check and refuses dirty trees and reused labels'
   expect(run.commit).toBe(run.endCommit)
   expect(run.dirtyAtEnd).toBe(false)
   expect(run.workers).toBe(0)
-  expect(run.commandEnvironment).toEqual({ CI: 'true' })
+  expect(run.commandEnvironment).toEqual({ CI: 'true', TED_TEST_LOAD: 'off' })
   expect(run.samples.length).toBeGreaterThan(0)
   expect(invoke('quiet-1').status).toBe(1)
   writeFileSync(path.join(root, 'dirty'), 'changed')

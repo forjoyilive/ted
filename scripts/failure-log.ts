@@ -13,6 +13,7 @@ import {
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { type RunKind, smallRunFiles } from '../packages/daemon/test/support/suite-lock.ts'
+import { loadPerCore } from './machine-load.ts'
 
 export const failureLogEnv = 'TED_TEST_FAILURES_FILE'
 export const failureLogFile = path.join(homedir(), '.cache', 'ted', 'test-failures.jsonl')
@@ -31,6 +32,8 @@ export interface RunRecord {
   kind: RunKind
   checkout: string
   task?: string
+  load?: number
+  workers?: number
   files: string[]
 }
 
@@ -157,7 +160,15 @@ export function pruneFailureLog(file: string, now: number = Date.now()): void {
 
 export function recordRun(
   file: string,
-  run: { checkout: string; planned: number; task?: string; files: string[]; tests: ObservedTest[] },
+  run: {
+    checkout: string
+    planned: number
+    task?: string
+    load?: number | undefined
+    workers?: number | undefined
+    files: string[]
+    tests: ObservedTest[]
+  },
   now: number = Date.now(),
 ): void {
   if (run.files.length === 0) return
@@ -172,6 +183,8 @@ export function recordRun(
         kind: Math.max(run.planned, run.files.length) >= smallRunFiles ? 'full' : 'small',
         checkout: run.checkout,
         ...(run.task && { task: run.task }),
+        ...(run.load !== undefined && { load: run.load }),
+        ...(run.workers !== undefined && { workers: run.workers }),
         files: run.files,
       },
       ...run.tests.map((test) => ({ at, type: 'test' as const, run: id, ...test })),
@@ -183,18 +196,39 @@ export function recordRun(
 }
 
 const recordedKey = Symbol.for('ted.vitest.failures-recorded')
+const startLoadKey = Symbol.for('ted.vitest.start-load')
 
 declare global {
   namespace NodeJS {
     interface Process {
       [recordedKey]?: boolean
+      [startLoadKey]?: { load: number | undefined }
     }
   }
 }
 
-export function recordVitestRun(vitest: {
-  state: { getPaths(): string[]; getTestModules(): ObservedModule[] }
-}): void {
+export function noteRunStart(): void {
+  try {
+    process[startLoadKey] ??= { load: loadPerCore() }
+  } catch {}
+}
+
+interface WorkerLimit {
+  config: { maxWorkers?: unknown }
+}
+
+export function mostWorkers(vitest: WorkerLimit & { projects?: readonly WorkerLimit[] }) {
+  const counts = [vitest, ...(vitest.projects ?? [])]
+    .map((item) => item.config.maxWorkers)
+    .filter((count) => typeof count === 'number')
+  return counts.length > 0 ? Math.max(...counts) : undefined
+}
+
+export function recordVitestRun(
+  vitest: {
+    state: { getPaths(): string[]; getTestModules(): ObservedModule[] }
+  } & Partial<WorkerLimit> & { projects?: readonly WorkerLimit[] },
+): void {
   try {
     const file = failureLogPath()
     if (!file || process[recordedKey]) return
@@ -203,6 +237,8 @@ export function recordVitestRun(vitest: {
       checkout: root,
       planned: vitest.state.getPaths().length,
       ...(process.env.TED_TASK && { task: process.env.TED_TASK }),
+      load: process[startLoadKey]?.load,
+      workers: vitest.config ? mostWorkers({ ...vitest, config: vitest.config }) : undefined,
       ...observed(vitest.state.getTestModules(), root),
     })
   } catch {}
