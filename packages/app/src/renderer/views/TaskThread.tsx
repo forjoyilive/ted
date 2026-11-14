@@ -47,7 +47,7 @@ import { acceptedPositions } from '../components/FailureDetails.tsx'
 import { FilesSection } from '../components/FilesSection.tsx'
 import { FileView } from '../components/FileView.tsx'
 import { FullBrief } from '../components/FullBrief.tsx'
-import { ChildrenSection, ParentField } from '../components/HierarchySection.tsx'
+import { ChildrenField, ParentField } from '../components/HierarchySection.tsx'
 import { ChevronIcon } from '../components/icons.tsx'
 import {
   DraftBar,
@@ -1327,6 +1327,38 @@ export function TaskDetails({
                   </dd>
                 </>
               )}
+              <dt>Factory</dt>
+              <dd>{factoryName(factories, task.factoryId)}</dd>
+              <dt>Stage</dt>
+              <dd>{stageName(task.stage)}</dd>
+              {task.attachments.length > 0 && (
+                <>
+                  <dt>Attachments</dt>
+                  <dd>
+                    <ul className={styles.detailList}>
+                      {task.attachments.map((a) => (
+                        <li key={`${a.hash}:${a.name}`}>
+                          {a.name}
+                          <span className={styles.detailMeta}>{formatSize(a.size)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </dd>
+                </>
+              )}
+              {task.branch !== undefined && (
+                <>
+                  <dt>Branch</dt>
+                  <dd>{task.branch}</dd>
+                </>
+              )}
+            </dl>
+            {error !== undefined && (
+              <p className={styles.fieldError} role="alert">
+                {error}
+              </p>
+            )}
+            <dl className={styles.relatedTasks}>
               <dt>Parent</dt>
               <dd>
                 <ParentField
@@ -1337,6 +1369,13 @@ export function TaskDetails({
                   searchRequest={parentPick}
                 />
               </dd>
+              <ChildrenField
+                key={task.id}
+                task={task}
+                tasks={tasks}
+                onOpenTask={onOpenTask}
+                searchRequest={childPick}
+              />
               {task.stage !== 'done' && (
                 <>
                   <dt>Blocked by</dt>
@@ -1371,44 +1410,7 @@ export function TaskDetails({
                   </dd>
                 </>
               )}
-              <dt>Factory</dt>
-              <dd>{factoryName(factories, task.factoryId)}</dd>
-              <dt>Stage</dt>
-              <dd>{stageName(task.stage)}</dd>
-              {task.attachments.length > 0 && (
-                <>
-                  <dt>Attachments</dt>
-                  <dd>
-                    <ul className={styles.detailList}>
-                      {task.attachments.map((a) => (
-                        <li key={`${a.hash}:${a.name}`}>
-                          {a.name}
-                          <span className={styles.detailMeta}>{formatSize(a.size)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </dd>
-                </>
-              )}
-              {task.branch !== undefined && (
-                <>
-                  <dt>Branch</dt>
-                  <dd>{task.branch}</dd>
-                </>
-              )}
             </dl>
-            {error !== undefined && (
-              <p className={styles.fieldError} role="alert">
-                {error}
-              </p>
-            )}
-            <ChildrenSection
-              key={task.id}
-              task={task}
-              tasks={tasks}
-              onOpenTask={onOpenTask}
-              searchRequest={childPick}
-            />
           </DetailsSection>
         )}
         {tab === 'code' && <CodeSection task={task} onOpenShell={onOpenShell} />}

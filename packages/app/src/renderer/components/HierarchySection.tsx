@@ -198,7 +198,7 @@ function TreeRows({
   )
 }
 
-export function ChildrenSection({
+export function ChildrenField({
   task,
   tasks,
   onOpenTask,
@@ -229,87 +229,86 @@ export function ChildrenSection({
       return next
     })
   return (
-    <section className={styles.section} aria-label="Children">
-      <h3 className={styles.heading}>Children</h3>
-      {progress.total > 0 && (
-        <div className={styles.progress}>
-          <span className={styles.bar} aria-hidden>
-            <span
-              className={styles.barMerged}
-              style={{ width: `${(progress.merged / progress.total) * 100}%` }}
-            />
-          </span>
-          {progressText(progress)}
-        </div>
-      )}
-      {waiting && (
-        <p className={styles.waiting} role="status">
-          {waiting.lead}{' '}
-          {waiting.tasks.map(({ task: child, stage }, i) => (
-            <span key={child.id}>
-              {i > 0 && ', '}
-              <TaskLink task={child} onOpenTask={onOpenTask} /> ({stage})
-            </span>
-          ))}
-          . {waiting.tail}
-        </p>
-      )}
-      {tree.length > 0 && (
-        <TreeRows
-          nodes={tree}
-          tasks={tasks}
-          collapsed={collapsed}
-          onToggle={toggle}
-          onOpenTask={onOpenTask}
-        />
-      )}
-      {progress.archived.length > 0 && (
-        <>
-          <p className={styles.archivedHeading}>
-            Archived without merging · doesn’t hold {task.displayId}
-          </p>
-          <TreeRows
-            nodes={archivedChildTree(task, tasks)}
-            tasks={tasks}
-            collapsed={collapsed}
-            onToggle={toggle}
-            onOpenTask={onOpenTask}
-          />
-        </>
-      )}
-      {!hasChildren && (
-        <p className={styles.none}>
-          No children. Split work into child Tasks when one pull request would be too big.
-        </p>
-      )}
-      {editable && (
-        <div className={styles.actions}>
-          <Button onClick={() => newChildTask(task)}>
-            <PlusIcon />
-            Create child
-          </Button>
-          {picking ? (
-            <TaskPicker
-              tasks={childChoices(task, tasks)}
-              label="Find a Task to add"
-              note="Open Tasks in this Factory"
-              error={error}
-              onChoose={(child) => {
-                setError(undefined)
-                return changeParent(child, task.id).then(close, (failure: unknown) =>
-                  setError(readableError(failure)),
-                )
-              }}
-              onClose={close}
-            />
-          ) : (
-            <Button onClick={() => setPicking(true)}>
-              <PlusIcon />
-              Add existing Task
-            </Button>
+    <>
+      <dt>Children</dt>
+      <dd>
+        <section aria-label="Children">
+          {progress.total > 0 && (
+            <div className={styles.progress}>
+              <span className={styles.bar} aria-hidden>
+                <span
+                  className={styles.barMerged}
+                  style={{ width: `${(progress.merged / progress.total) * 100}%` }}
+                />
+              </span>
+              {progressText(progress)}
+            </div>
           )}
-        </div>
-      )}
-    </section>
+          {waiting && (
+            <p className={styles.waiting} role="status">
+              {waiting.lead}{' '}
+              {waiting.tasks.map(({ task: child, stage }, i) => (
+                <span key={child.id}>
+                  {i > 0 && ', '}
+                  <TaskLink task={child} onOpenTask={onOpenTask} /> ({stage})
+                </span>
+              ))}
+              . {waiting.tail}
+            </p>
+          )}
+          {tree.length > 0 && (
+            <TreeRows
+              nodes={tree}
+              tasks={tasks}
+              collapsed={collapsed}
+              onToggle={toggle}
+              onOpenTask={onOpenTask}
+            />
+          )}
+          {progress.archived.length > 0 && (
+            <>
+              <p className={styles.archivedHeading}>
+                Archived without merging · doesn’t hold {task.displayId}
+              </p>
+              <TreeRows
+                nodes={archivedChildTree(task, tasks)}
+                tasks={tasks}
+                collapsed={collapsed}
+                onToggle={toggle}
+                onOpenTask={onOpenTask}
+              />
+            </>
+          )}
+          {editable && (
+            <div className={styles.actions}>
+              <Button onClick={() => newChildTask(task)}>
+                <PlusIcon />
+                Create child
+              </Button>
+              {picking ? (
+                <TaskPicker
+                  tasks={childChoices(task, tasks)}
+                  label="Find a Task to add"
+                  note="Open Tasks in this Factory"
+                  error={error}
+                  onChoose={(child) => {
+                    setError(undefined)
+                    return changeParent(child, task.id).then(close, (failure: unknown) =>
+                      setError(readableError(failure)),
+                    )
+                  }}
+                  onClose={close}
+                />
+              ) : (
+                <Button onClick={() => setPicking(true)}>
+                  <PlusIcon />
+                  Add existing Task
+                </Button>
+              )}
+            </div>
+          )}
+        </section>
+      </dd>
+    </>
   )
 }
