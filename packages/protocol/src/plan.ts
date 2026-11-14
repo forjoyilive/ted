@@ -1,7 +1,7 @@
 import type { AgentKind } from './run.ts'
 import type { CommentAnswer, Effort, Proposal, Round, StageId, TaskStatus } from './task.ts'
 
-export const planTitleLength = 60
+export const planTitleLength = 200
 
 export type PlanStatus =
   | 'queued'

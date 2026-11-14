@@ -33,11 +33,13 @@ const round: PlanRequest = {
 }
 
 describe('planning chat text', () => {
-  test('a chat is named after the first line of the first message, cut at 60 characters', () => {
+  test('a chat is named after the whole first line of the first message, up to 200 characters', () => {
     expect(planTitle('\n  Shared notebooks   with comments\nmore')).toBe(
       'Shared notebooks with comments',
     )
-    expect(planTitle('x'.repeat(80))).toHaveLength(60)
+    const line = 'Plan out how to add GitHub issues as a tracker similar to Linear and Asana'
+    expect(planTitle(line)).toBe(line)
+    expect(planTitle('x'.repeat(300))).toHaveLength(200)
   })
 
   test('Inbox rows read Plan · Round 2 and Plan · Proposal · 5 Tasks', () => {

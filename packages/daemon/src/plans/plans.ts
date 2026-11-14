@@ -19,7 +19,7 @@ import type {
   SlotHolder,
   StartPlanRequest,
 } from '@ted/protocol'
-import { planRequestLabel, planTitle } from '@ted/protocol'
+import { planRequestLabel, planTitle, planTitleLength } from '@ted/protocol'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
@@ -98,7 +98,7 @@ export interface Plans {
   close(): void
 }
 
-const maxTitleLength = 200
+const maxTitleLength = planTitleLength
 const maxMessageLength = 100_000
 
 const refuseRun = (caller: Caller) => {
