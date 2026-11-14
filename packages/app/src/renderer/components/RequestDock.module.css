@@ -79,8 +79,13 @@
   cursor: pointer;
 }
 
-.link:hover {
+.link:hover:not(:disabled) {
   text-decoration: underline;
+}
+
+.link:disabled {
+  color: var(--text-faint);
+  cursor: default;
 }
 
 .step:focus-visible,

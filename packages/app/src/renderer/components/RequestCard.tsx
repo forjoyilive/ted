@@ -431,6 +431,26 @@ function useSending(request: Comment, readOnly: boolean) {
   const [sending, setSending] = useState(false)
   const [submission, setSubmission] = useState<AnswerRequest>()
   const [error, setError] = useState<string>()
+  const [commenting, setCommenting] = useState(false)
+
+  async function comment(body: string): Promise<boolean> {
+    if (sendingRef.current || readOnly || body.trim() === '') return false
+    sendingRef.current = true
+    setCommenting(true)
+    setSending(true)
+    setError(undefined)
+    try {
+      await ted.postComment(request.taskId, { body, attachments: [] })
+      return true
+    } catch (failed) {
+      setError(readableError(failed))
+      return false
+    } finally {
+      sendingRef.current = false
+      setSending(false)
+      setCommenting(false)
+    }
+  }
 
   async function send(answer: AnswerRequest): Promise<boolean> {
     if (sendingRef.current || readOnly) return false
@@ -450,14 +470,27 @@ function useSending(request: Comment, readOnly: boolean) {
     }
   }
 
-  return { send, sending, setSending, sendingRef, submission, setSubmission, error, setError }
+  return {
+    send,
+    comment,
+    commenting,
+    sending,
+    setSending,
+    sendingRef,
+    submission,
+    setSubmission,
+    error,
+    setError,
+  }
 }
+
+export type CommentInstead = { disabled: boolean; pending: boolean; send: () => void }
 
 type AnswerProps = {
   request: Comment
   task: Task
   onOpenRun?: ((runId: string) => void) | undefined
-  lead?: ReactNode
+  lead?: ((comment: CommentInstead) => ReactNode) | undefined
 }
 
 export function RequestAnswer(props: AnswerProps) {
@@ -468,7 +501,7 @@ function ArchiveAnswer({ request, task, lead }: AnswerProps) {
   const boxId = useId()
   const kept = useMessageDraft({ kind: 'request', id: request.id })
   const { text, setText } = kept
-  const { send: post, sending, submission, error } = useSending(request, false)
+  const { send: post, comment, commenting, sending, submission, error } = useSending(request, false)
   const all = useTasks()
   const under = all.filter((t) => !t.archived && isUnder(t, task.id, all))
   const blocked = useBlocked(task)
@@ -481,6 +514,10 @@ function ArchiveAnswer({ request, task, lead }: AnswerProps) {
 
   async function send(answer: AnswerRequest) {
     if (await post(answer)) kept.clear()
+  }
+
+  async function commentInstead() {
+    if (await comment(text)) setText('')
   }
 
   return (
@@ -539,7 +576,11 @@ function ArchiveAnswer({ request, task, lead }: AnswerProps) {
         </p>
       )}
       <div className={styles.buttons}>
-        {lead}
+        {lead?.({
+          disabled: sending || !typed,
+          pending: commenting,
+          send: () => void commentInstead(),
+        })}
         <Button
           pending={
             sending && submission?.action === 'answer' && submission.choice !== archiveChoice
@@ -635,7 +676,15 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
     '',
     (value): value is string => typeof value === 'string',
   )
-  const { send: post, sending, setSending, submission, error } = useSending(request, false)
+  const {
+    send: post,
+    comment,
+    commenting,
+    sending,
+    setSending,
+    submission,
+    error,
+  } = useSending(request, false)
   const typed = text.trim() !== ''
   const simulators = useAskSlots(request)
   const [picked, setPicked] = useState<string>()
@@ -701,6 +750,12 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
             ...(answerText.trim() !== '' && { text: answerText }),
           },
     )
+  }
+
+  async function commentInstead() {
+    if (!(await comment(answerText))) return
+    if (questionChoices && other) setOtherText('')
+    else setText('')
   }
 
   function pressEnter() {
@@ -798,7 +853,11 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
         </p>
       )}
       <div className={styles.buttons}>
-        {lead}
+        {lead?.({
+          disabled: sending || answerText.trim() === '',
+          pending: commenting,
+          send: () => void commentInstead(),
+        })}
         {request.failed && onOpenRun && (
           <ActionButton
             type="button"

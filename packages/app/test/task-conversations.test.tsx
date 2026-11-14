@@ -394,11 +394,8 @@ test('the Task Lead composer keeps attachments on the Task Comment path', async 
   )
 })
 
-test('starting the first Task Lead preserves message, attachment and request drafts', async () => {
+test('starting the first Task Lead preserves message and attachment drafts', async () => {
   const a = discussion(false)
-  a.handle('listComments', () => [
-    comment({ body: 'Keep this choice?', choices: ['Yes'], readAt: createdAt }),
-  ])
   a.handle('uploadAttachment', () => ({
     hash: 'file-hash',
     name: 'note.txt',
@@ -412,10 +409,6 @@ test('starting the first Task Lead preserves message, attachment and request dra
   }
   expect(screen.getByRole('menuitem', { name: /^History/ }).textContent).toContain('Nothing yet')
   await user().keyboard('{Escape}')
-  const answer = view.getByRole('textbox', { name: 'Your answer' })
-  fireEvent.change(answer, { target: { value: 'Keep the existing choice.' } })
-  expect(view.queryByRole('textbox', { name: 'Comment' })).toBeNull()
-  await user().click(view.getByRole('button', { name: 'Comment without answering' }))
   const message = view.getByRole('textbox', { name: 'Comment' })
   fireEvent.change(message, { target: { value: 'Keep this draft too.' } })
   await user().upload(
@@ -428,9 +421,6 @@ test('starting the first Task Lead preserves message, attachment and request dra
   expect(view.getByRole('textbox', { name: 'Message the Task Lead' })).toBe(message)
   expect(message).toHaveProperty('value', 'Keep this draft too.')
   expect(view.getByRole('button', { name: 'Remove note.txt' })).toBe(attachment)
-  await user().click(view.getByRole('button', { name: 'Back to the answer' }))
-  expect(view.getByRole('textbox', { name: 'Your answer' })).toBe(answer)
-  expect(answer).toHaveProperty('value', 'Keep the existing choice.')
   expect(a.request).not.toHaveBeenCalledWith('getRunChat', undefined)
 })
 
@@ -571,15 +561,9 @@ test('earlier conversations can be reopened repeatedly from History', async () =
   expect(a.request.mock.calls.some(([name]) => name === 'sendRunMessage')).toBe(false)
 })
 
-test('replacing the Task Lead keeps the Task message and request drafts mounted', async () => {
+test('replacing the Task Lead keeps the Task message draft mounted', async () => {
   const a = discussion()
-  a.handle('listComments', () => [
-    comment({ body: 'Keep this choice?', choices: ['Yes'], readAt: createdAt }),
-  ])
   const view = within(await a.open())
-  const answer = view.getByRole('textbox', { name: 'Your answer' })
-  fireEvent.change(answer, { target: { value: 'Keep the existing choice.' } })
-  await user().click(view.getByRole('button', { name: 'Comment without answering' }))
   fireEvent.change(view.getByRole('textbox', { name: 'Message the Task Lead' }), {
     target: { value: 'Keep this draft too.' },
   })
@@ -589,7 +573,4 @@ test('replacing the Task Lead keeps the Task message and request drafts mounted'
     'value',
     'Keep this draft too.',
   )
-  await user().click(view.getByRole('button', { name: 'Back to the answer' }))
-  expect(view.getByRole('textbox', { name: 'Your answer' })).toBe(answer)
-  expect(answer).toHaveProperty('value', 'Keep the existing choice.')
 })
