@@ -82,12 +82,19 @@ export {
   type SetFactoryAsanaIntakeRequest,
 } from './asana-intake.ts'
 export {
+  type AllowAsanaProjectRequest,
+  type AsanaProjectList,
+  type AsanaProjectListName,
+  type AsanaProjectOption,
   type AsanaSync,
   type AsanaSyncFacts,
   type AsanaSyncState,
   asanaSyncAllowable,
   asanaSyncing,
   asanaSyncOf,
+  type ForgetAsanaProjectRequest,
+  parseAllowAsanaProjectRequest,
+  parseForgetAsanaProjectRequest,
 } from './asana-sync.ts'
 export type {
   AnswerAutomationRequest,
@@ -696,6 +703,7 @@ export {
   quitChoices,
   runOutputDayLimits,
   type TimeFormat,
+  type TrackerGroupAccounts,
   type TrackerGroupLists,
   terminalFontSizes,
   textSizeLimits,

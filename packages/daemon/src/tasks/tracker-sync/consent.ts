@@ -10,7 +10,9 @@ export interface TrackerConsent {
   tracker: string
   allowTask(ref: Task): Task | undefined
   askGroup(taskId: string, automationName: string, group: TrackerGroup | undefined): void
+  askGroups(taskId: string, automationName: string, groups: readonly TrackerGroup[]): void
   allowGroup(factoryId: string, group: string): MachineSettings
+  forgetGroup(factoryId: string, group: string, list: 'allowed' | 'declined'): MachineSettings
   answerGroup(task: Task, comment: Comment, choice: string | undefined, text: string): Comment
   asks(comment: Comment): boolean
 }
@@ -33,8 +35,8 @@ export function createTrackerConsent<Source, Handle>(
       if (task.factoryId !== factoryId || task.archived) return []
       if (records.syncState(task) !== 'ask') return []
       const source = task.source && connector.source(task.source.url)
-      const seen = records.record(task.id).seen
-      return source && seen?.group === group
+      const current = records.record(task.id)
+      return source && (current.seen?.group === group || current.groups?.includes(group))
         ? [{ taskId: task.id, label: connector.label(source) }]
         : []
     })
@@ -55,6 +57,33 @@ export function createTrackerConsent<Source, Handle>(
     }
   }
 
+  function askGroup(taskId: string, automationName: string, group: TrackerGroup | undefined) {
+    const task = store.getTask(taskId)
+    const factory = task && store.getFactory(task.factoryId)
+    const source = task?.source && connector.source(task.source.url)
+    if (!task || !factory || !source || !group || records.syncState(task) !== 'ask') return
+    const settings = store.settings()
+    if (!connector.enabled(settings)) return
+    const lists = records.groups(settings, factory.id)
+    if (lists.allowed.includes(group.key) || lists.declined.includes(group.key)) return
+    if (openGroupAsks(factory.id, group.key).length > 0) return
+    store.postComment({
+      taskId,
+      kind: 'question',
+      author: { kind: 'ted' },
+      title: connector.texts.groupTitle(group, factory.name),
+      body: connector.texts.groupBody({
+        automation: automationName,
+        task: task.displayId,
+        label: connector.label(source),
+        group,
+        factoryName: factory.name,
+      }),
+      choices: [allowChoice, notNowChoice],
+      ...records.groupAsk(group),
+    })
+  }
+
   return {
     tracker: connector.id,
 
@@ -65,34 +94,38 @@ export function createTrackerConsent<Source, Handle>(
       return store.getTask(task.id) ?? task
     },
 
-    askGroup(taskId, automationName, group) {
+    askGroup,
+
+    askGroups(taskId, automationName, groups) {
       const task = store.getTask(taskId)
-      const factory = task && store.getFactory(task.factoryId)
-      const source = task?.source && connector.source(task.source.url)
-      if (!task || !factory || !source || !group || records.syncState(task) !== 'ask') return
-      const settings = store.settings()
-      if (!connector.enabled(settings)) return
-      const lists = records.groups(settings, factory.id)
-      if (lists.allowed.includes(group.key) || lists.declined.includes(group.key)) return
-      if (openGroupAsks(factory.id, group.key).length > 0) return
-      store.postComment({
-        taskId,
-        kind: 'question',
-        author: { kind: 'ted' },
-        title: connector.texts.groupTitle(group, factory.name),
-        body: connector.texts.groupBody({
-          automation: automationName,
-          task: task.displayId,
-          label: connector.label(source),
-          group,
-          factoryName: factory.name,
-        }),
-        choices: [allowChoice, notNowChoice],
-        ...records.groupAsk(group),
-      })
+      if (!task) return
+      const lists = records.groups(store.settings(), task.factoryId)
+      if (groups.some((group) => lists.allowed.includes(group.key))) return
+      const next = groups.find(
+        (group) =>
+          !lists.declined.includes(group.key) &&
+          openGroupAsks(task.factoryId, group.key).length === 0,
+      )
+      askGroup(taskId, automationName, next)
     },
 
     allowGroup,
+
+    forgetGroup(factoryId, group, list) {
+      const consents =
+        list === 'allowed'
+          ? store.listTasks().flatMap((task) => {
+              if (task.factoryId !== factoryId || task.archived) return []
+              if (records.syncState(task) !== 'on') return []
+              const source = task.source && connector.source(task.source.url)
+              const current = records.record(task.id)
+              if (current.allowedGroups?.has(group)) return []
+              const through = current.seen?.group === group || current.groups?.includes(group)
+              return source && through ? [{ taskId: task.id, label: connector.label(source) }] : []
+            })
+          : []
+      return records.forgetGroup(factoryId, group, list, consents)
+    },
 
     answerGroup(task, comment, choice, text) {
       if (comment.answer?.kind === 'withdrawn') {

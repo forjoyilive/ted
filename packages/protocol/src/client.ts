@@ -27,6 +27,7 @@ import {
 import type { AsanaConfiguration, AsanaStatus } from './asana.ts'
 import type { AsanaImportPreview, AsanaImportRequest, AsanaImportResult } from './asana-import.ts'
 import type { AsanaIntakeRequest, AsanaIntakeResult, AsanaIntakeScope } from './asana-intake.ts'
+import type { AsanaProjectList, AsanaProjectListName } from './asana-sync.ts'
 import type {
   AnswerAutomationRequest,
   Automation,
@@ -1464,6 +1465,26 @@ export class DaemonClient {
 
   allowLinearTeam(factoryId: string, team: string): Promise<MachineSettings> {
     return this.#request('POST', '/integrations/linear/teams', { factoryId, team })
+  }
+
+  asanaProjects(): Promise<AsanaProjectList> {
+    return this.#request('GET', '/integrations/asana/projects')
+  }
+
+  allowAsanaProject(factoryId: string, project: string): Promise<MachineSettings> {
+    return this.#request('POST', '/integrations/asana/projects', { factoryId, project })
+  }
+
+  forgetAsanaProject(
+    factoryId: string,
+    project: string,
+    list: AsanaProjectListName,
+  ): Promise<MachineSettings> {
+    return this.#request('POST', '/integrations/asana/projects/remove', {
+      factoryId,
+      project,
+      list,
+    })
   }
 
   getActivity(): Promise<Activity> {

@@ -147,6 +147,18 @@ export async function startStubAsana() {
         failure.retryAfter === undefined ? {} : { 'retry-after': failure.retryAfter },
       )
       res.end('{}')
+    } else if (path === '/api/1.0/workspaces') {
+      if (req.headers.authorization !== 'Bearer access-secret-opaque') {
+        res.writeHead(401)
+        res.end('{}')
+        return
+      }
+      res.end(
+        JSON.stringify({
+          data: [...workspaces].map(([gid, name]) => ({ gid, name })),
+          next_page: null,
+        }),
+      )
     } else if (/^\/api\/1\.0\/(workspaces|projects|sections)\//.test(path)) {
       if (req.headers.authorization !== 'Bearer access-secret-opaque') {
         res.writeHead(401)
@@ -167,6 +179,22 @@ export async function startStubAsana() {
       if (!project && !section && workspace === undefined) {
         res.writeHead(404)
         res.end('{}')
+        return
+      }
+      if (workspace !== undefined && list === 'projects') {
+        const listed = [...projects.values()].filter(
+          (p) => p.workspace === gid && (query.archived !== 'false' || p.archived !== true),
+        )
+        const offset = Number(query.offset ?? '0')
+        const next = offset + pageSize
+        res.end(
+          JSON.stringify({
+            data: listed
+              .slice(offset, next)
+              .map((p) => ({ gid: p.gid, name: p.name, archived: p.archived === true })),
+            next_page: next < listed.length ? { offset: String(next) } : null,
+          }),
+        )
         return
       }
       if (list === 'tasks') {
@@ -309,7 +337,7 @@ export async function startStubAsana() {
               assignee: task.assignee ?? null,
               parent: task.parent ? { gid: task.parent } : null,
               memberships: (task.memberships ?? []).map((m) => ({
-                project: { gid: m.project },
+                project: { gid: m.project, name: projects.get(m.project)?.name ?? m.project },
                 section: m.section ? { gid: m.section } : null,
               })),
             },

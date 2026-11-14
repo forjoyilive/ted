@@ -204,6 +204,9 @@ roundTrip(P.parseSetFactoryAsanaIntakeRequest, {
 })
 variant(P.parseSetFactoryAsanaIntakeRequest, { scope: null })
 roundTrip(P.parseAsanaIntakeRequest, { factory: 'NB' })
+roundTrip(P.parseAllowAsanaProjectRequest, { factoryId: 'factory', project: '9' })
+roundTrip(P.parseForgetAsanaProjectRequest, { factoryId: 'factory', project: '9', list: 'allowed' })
+variant(P.parseForgetAsanaProjectRequest, { factoryId: 'factory', project: '9', list: 'declined' })
 
 roundTrip(P.parseRestoreBackupRequest, { name: 'backup', stopRuns: true })
 roundTrip(P.parseShutdownRequest, { keepRuns: true })
@@ -285,6 +288,17 @@ rejects(
 )
 rejects(P.parseSetFactoryAsanaIntakeRequest, {}, 'Choose an Asana workspace and project')
 rejects(P.parseAsanaIntakeRequest, { factory: '' }, 'Factory key')
+rejects(
+  P.parseAllowAsanaProjectRequest,
+  { factoryId: 'factory', project: 'https://app.asana.com/0/9' },
+  'Asana project ID',
+)
+rejects(P.parseAllowAsanaProjectRequest, { project: '9' }, 'Factory ID')
+rejects(
+  P.parseForgetAsanaProjectRequest,
+  { factoryId: 'factory', project: '9', list: 'all' },
+  'allowed or declined',
+)
 
 rejects(
   P.parseDraftLineCommentRequest,
