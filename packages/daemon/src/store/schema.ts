@@ -3036,6 +3036,20 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  cleanupCommandRan: Events.synced({
+    name: 'v1.CleanupCommandRan',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      step: Schema.String,
+      state: Schema.String,
+      exitCode: Schema.NullOr(Schema.Number),
+      timeout: Schema.String,
+      durationMs: Schema.Number,
+      output: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   cleanupRetried: Events.synced({
     name: 'v1.CleanupRetried',
     schema: Schema.Struct({
@@ -3629,6 +3643,15 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.SendBackCauseRecorded': (args) => task(args, { cause: args.cause }),
   'v1.CleanupStepReported': (args) =>
     task(args, { step: args.step, result: args.result, text: args.text, runId: args.runId }),
+  'v1.CleanupCommandRan': (args) =>
+    task(args, {
+      step: args.step,
+      state: args.state,
+      exitCode: args.exitCode,
+      timeout: args.timeout,
+      durationMs: args.durationMs,
+      output: args.output,
+    }),
   'v1.CleanupRetried': (args) => task(args, { steps: args.steps }),
   'v1.CleanupFinishedAnyway': (args) => task(args, { steps: args.steps }),
   'v1.BaseConflictFound': (args) =>
@@ -4511,6 +4534,16 @@ const materializers = counted(
       'v1.SendBackCauseRecorded': ({ sendBackId, cause }) =>
         sendBacks.update({ cause }).where({ id: sendBackId }),
       'v1.CleanupStepReported': (row) => cleanupReports.insert(row),
+      'v1.CleanupCommandRan': ({ id, taskId, step, state, exitCode, timeout, at }) =>
+        cleanupReports.insert({
+          id,
+          taskId,
+          step,
+          result: state === 'passed' ? 'done' : 'failed',
+          text: cleanupCommandText(state, exitCode, timeout),
+          runId: '',
+          at,
+        }),
       'v1.CleanupRetried': ({ taskId, steps }) =>
         cleanupReports.delete().where({ taskId, step: { op: 'IN', value: steps } }),
       'v1.CleanupFinishedAnyway': () => [],
@@ -5134,3 +5167,14 @@ const state = State.SQLite.makeState({
 })
 
 export const schema = makeSchema({ events, state })
+
+export function cleanupCommandText(
+  state: string,
+  exitCode: number | null,
+  timeout: string,
+): string {
+  if (state === 'passed') return 'TED ran the command; it passed'
+  if (state === 'timed-out') return `TED ran the command; it timed out after ${timeout}`
+  if (exitCode === 127) return 'TED ran the command; command not found'
+  return `TED ran the command; it failed${exitCode === null ? '' : ` with exit code ${exitCode}`}`
+}

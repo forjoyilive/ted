@@ -582,6 +582,15 @@ export interface NewLineComment {
   body: string
 }
 
+export interface CleanupCommandResult {
+  step: string
+  state: 'passed' | 'failed' | 'timed-out'
+  exitCode?: number
+  timeout: string
+  durationMs: number
+  output: string
+}
+
 export type PlannedCheck = Omit<CheckResult, 'exitCode' | 'durationMs'>
 
 export interface LoggedEvent {
@@ -966,6 +975,7 @@ export interface TedStore extends TaskHistory {
   baseConflicts(taskId?: string): BaseConflictFound[]
   reportCleanupStep(taskId: string, runId: string, report: ReportCleanupStepRequest): void
   cleanupReports(taskId: string): CleanupStepReport[]
+  recordCleanupCommand(taskId: string, result: CleanupCommandResult): void
   retryCleanup(taskId: string, steps: readonly string[]): void
   finishCleanupAnyway(taskId: string, steps: readonly string[]): void
   baseAdopted(
@@ -1932,6 +1942,7 @@ export async function openStore({
       ...(failedAt !== null && { failed: true }),
       ...(stage === 'cleanup' &&
         requests.some((row) => row.cleanupFailure !== null) && { cleanupFailed: true }),
+      ...(stage === 'cleanup' && checkingTasks.has(row.id) && { cleanupCommandsRunning: true }),
       ...(partlyMerged && { partlyMerged }),
       ...(stoppedAt !== null && {
         stopped: {
@@ -5532,6 +5543,22 @@ export async function openStore({
         })
       }
       return [...latest.values()]
+    },
+    recordCleanupCommand(taskId, result) {
+      commit(
+        events.cleanupCommandRan({
+          id: randomUUID(),
+          taskId,
+          step: result.step,
+          state: result.state,
+          exitCode: result.exitCode ?? null,
+          timeout: result.timeout,
+          durationMs: result.durationMs,
+          output: result.output,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
     },
     retryCleanup(taskId, steps) {
       commit(events.cleanupRetried({ taskId, steps: [...steps], at: new Date().toISOString() }))

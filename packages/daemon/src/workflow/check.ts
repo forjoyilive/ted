@@ -26,9 +26,21 @@ export interface CheckSettings {
   timeout?: string
 }
 
-export interface CleanupStep {
+export interface CleanupInstructionStep {
   name: string
   instruction: string
+}
+
+export interface CleanupCommandStep {
+  name: string
+  command: string
+  timeout?: string
+}
+
+export type CleanupStep = CleanupInstructionStep | CleanupCommandStep
+
+export function isCommandStep(step: CleanupStep): step is CleanupCommandStep {
+  return 'command' in step
 }
 
 export interface StageSettings {
@@ -472,25 +484,50 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
     const steps: CleanupStep[] = []
     for (const item of value.items as (Node | null)[]) {
       if (!isMap(item)) {
-        error(item, 'each Cleanup step must be a map with a `name` and an `instruction`')
+        error(
+          item,
+          'each Cleanup step must be a map with a `name` and an `instruction` or a `command`',
+        )
         continue
       }
-      const step: Partial<CleanupStep> = {}
+      const step: { name?: string; instruction?: string; command?: string; timeout?: string } = {}
+      let bad = false
       for (const entry of entries(item)) {
-        if (entry.name === 'name' || entry.name === 'instruction') {
+        if (entry.name === 'name' || entry.name === 'instruction' || entry.name === 'command') {
           if (!isText(entry.value)) {
             error(entry.value, `a Cleanup step’s \`${entry.name}\` must be text`)
+            bad = true
           } else step[entry.name] = (scalar(entry.value) as string).trim()
+        } else if (entry.name === 'timeout') {
+          if (!durationValue(entry.value)) {
+            error(entry.value, durationMessage)
+            bad = true
+          } else step.timeout = scalar(entry.value) as string
         } else warn(entry.key, `unknown key \`${entry.name}\` in a Cleanup step`)
       }
+      if (bad) continue
       if (!step.name) error(item, 'each Cleanup step needs a `name`')
       else if (/[\r\n]/.test(step.name)) error(item, 'a Cleanup step’s `name` must be one line')
       else if (step.name.length > maxStepName)
         error(item, `a Cleanup step’s \`name\` must be ${maxStepName} characters or fewer`)
-      else if (!step.instruction) error(item, 'each Cleanup step needs an `instruction`')
+      else if (step.instruction !== undefined && step.command !== undefined)
+        error(item, 'a Cleanup step has an `instruction` or a `command`, not both')
+      else if (!step.instruction && !step.command)
+        error(item, 'each Cleanup step needs an `instruction` or a `command`')
+      else if (step.instruction && step.timeout !== undefined)
+        error(item, 'only a Cleanup step with a `command` takes a `timeout`')
       else if (steps.some((other) => other.name === step.name))
         error(item, `two Cleanup steps are named \`${step.name}\``)
-      else steps.push(step as CleanupStep)
+      else
+        steps.push(
+          step.command
+            ? {
+                name: step.name,
+                command: step.command,
+                ...(step.timeout !== undefined && { timeout: step.timeout }),
+              }
+            : { name: step.name, instruction: step.instruction as string },
+        )
     }
     return steps
   }

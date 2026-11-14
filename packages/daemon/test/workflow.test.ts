@@ -451,7 +451,7 @@ describe('checking a layer', () => {
     ])
   })
 
-  test('Cleanup can’t be in order, takes only its own keys, and each step needs a unique one-line name and an instruction', () => {
+  test('Cleanup can’t be in order, takes only its own keys, and each step needs a unique one-line name and an instruction or a command', () => {
     const found = checkLayer({
       kind: 'factory',
       files: {
@@ -466,6 +466,11 @@ describe('checking a layer', () => {
           '      - { name: Drop db, instruction: Drop it. }',
           '      - { name: Drop db, instruction: Again. }',
           '      - { name: "Two\\nlines", instruction: Do it. }',
+          '      - { name: Both, instruction: Do it., command: make down }',
+          '      - { name: Wait, instruction: Do it., timeout: 5m }',
+          '      - { name: Slow, command: make down, timeout: soon }',
+          '      - { name: Stop env, command: make down, timeout: 5m }',
+          '      - { name: Prune, command: docker system prune -f }',
           '',
         ].join('\n'),
       },
@@ -474,13 +479,18 @@ describe('checking a layer', () => {
     expect(found.problems.map((p) => `${p.severity} ${p.message}`)).toEqual([
       'error `cleanup` can’t be in `order`; turn it on with `stages.cleanup.enabled`',
       'error Cleanup takes only `enabled`, `effort`, `based_on`, `steps`',
-      'error each Cleanup step needs an `instruction`',
+      'error each Cleanup step needs an `instruction` or a `command`',
       'error each Cleanup step needs a `name`',
       'error two Cleanup steps are named `Drop db`',
       'error a Cleanup step’s `name` must be one line',
+      'error a Cleanup step has an `instruction` or a `command`, not both',
+      'error only a Cleanup step with a `command` takes a `timeout`',
+      'error `timeout` must be a duration such as 30s, 15m or 1h',
     ])
     expect(found.settings.stages.cleanup?.steps).toEqual([
       { name: 'Drop db', instruction: 'Drop it.' },
+      { name: 'Stop env', command: 'make down', timeout: '5m' },
+      { name: 'Prune', command: 'docker system prune -f' },
     ])
   })
 

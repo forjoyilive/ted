@@ -609,6 +609,18 @@ export function threadEvents(
         )
         break
       }
+      case 'v1.CleanupCommandRan': {
+        const state = text(data.state)
+        const exitCode = typeof data.exitCode === 'number' ? data.exitCode : null
+        const output = text(data.output)
+        add(
+          entry,
+          state === 'passed' ? 'done' : 'failure',
+          `Cleanup command “${text(data.step)}”: ${state === 'passed' ? 'passed' : state === 'timed-out' ? `timed out after ${text(data.timeout)}` : exitCode === 127 ? 'command not found' : exitCode === null ? 'failed' : `failed with exit code ${exitCode}`}`,
+          output === '' ? '' : `\`\`\`\n${output}\n\`\`\``,
+        )
+        break
+      }
       case 'v1.CleanupRetried':
         add(entry, 'run', `Trying the failed Cleanup ${stepList(data.steps)} again`)
         break

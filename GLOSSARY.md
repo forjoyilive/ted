@@ -55,7 +55,7 @@ An optional Stage between Merge and Done, where the Task Lead carries out the Fa
 _Avoid_: Post-merge, wrap-up
 
 **Cleanup step**:
-One named instruction in a Factory’s Cleanup, such as posting the merged pull request to an Asana task or shutting down a test environment. The Task Lead reports each as done, skipped or failed.
+One named step in a Factory’s Cleanup, such as posting the merged pull request to an Asana task or shutting down a test environment. An instruction step is carried out by the Task Lead, who reports it as done, skipped or failed; a command step is a shell command TED runs itself before the Task Lead acts, and passes or fails.
 _Avoid_: Hook, after-merge action
 
 **Done**:

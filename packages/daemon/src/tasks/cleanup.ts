@@ -1,8 +1,14 @@
 import type { CleanupStepReport } from '@ted/protocol'
-import type { CleanupStep } from '../workflow/check.ts'
+import { type CleanupStep, isCommandStep } from '../workflow/check.ts'
 
 export const cleanupNoBack =
   'Cleanup can’t send a Task back: its pull requests have merged. Say what more the code needs in a note; the user can make a Follow-up Task.'
+
+export const cleanupCommandReportRefusal = (step: string): string =>
+  `“${step}” is a command step: TED runs it and records its result. Say what you found about it in your note.`
+
+export const cleanupRestartNote =
+  'TED restarted before it recorded the result of every Cleanup command, so it ran those commands again.'
 
 export const cleanupDoneRefusal = (displayId: string): string =>
   `${displayId}’s pull requests have already merged and its Cleanup is running; it moves to Done when Cleanup ends`
@@ -41,13 +47,27 @@ export function cleanupProgress(
   steps: readonly CleanupStep[],
   reports: readonly CleanupStepReport[],
 ): string | undefined {
-  const results = new Map(reports.map((r) => [r.step, r.result]))
+  const results = new Map(reports.map((r) => [r.step, r]))
   const reported = steps.filter((step) => results.has(step.name))
   if (reported.length === 0) return undefined
-  const left = steps.filter((step) => !results.has(step.name))
+  const left = steps.filter((step) => !isCommandStep(step) && !results.has(step.name))
+  const line = (step: CleanupStep) => {
+    const report = results.get(step.name)
+    return isCommandStep(step)
+      ? `- “${step.name}” (a command): ${report?.text ?? ''}`
+      : `- “${step.name}”: ${report?.result ?? ''}`
+  }
+  const failedCommands = reported.filter(
+    (step) => isCommandStep(step) && results.get(step.name)?.result === 'failed',
+  )
   return [
     '# Cleanup so far',
-    `These Cleanup steps already have a result. Don’t do them again:\n${reported.map((step) => `- “${step.name}”: ${results.get(step.name)}`).join('\n')}`,
+    `These Cleanup steps already have a result. Don’t do them again:\n${reported.map(line).join('\n')}`,
+    ...(failedCommands.length > 0
+      ? [
+          'A failed command counts as a failed step. Find out why it failed (you may run it again by hand in the worktree) and say what you found in your note; don’t report it with `ted cleanup report`.',
+        ]
+      : []),
     left.length > 0
       ? `Do only these, then report each: ${left.map((step) => `“${step.name}”`).join(', ')}.`
       : 'Every step has a result. Post your note and run `ted outcome advance`.',
