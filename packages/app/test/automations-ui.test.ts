@@ -217,6 +217,7 @@ describe('Automations in the app', () => {
     })
     expect((await ted.getAutomation(saved?.id ?? '')).history).toEqual([])
 
+    await openAutomations(window)
     await window.getByRole('button', { name: 'New Automation', exact: true }).click()
     const asana = dialog(window)
     await asana.getByRole('radio', { name: /Import my Asana work/ }).check()

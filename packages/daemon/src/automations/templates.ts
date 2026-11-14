@@ -15,7 +15,7 @@ const asana = `Bring my unfinished Asana work into TED as Backlog Tasks.
 2. Don’t use your own Asana tools, don’t import Asana tasks any other way, and don’t change anything in Asana.
 3. If TED refuses, for example because no Asana intake project is chosen or Asana isn’t connected, don’t try again or work around it.
 
-End with one line: what TED printed (the Tasks it imported, or that it imported nothing new), or its refusal.`
+End with one line: the Tasks TED imported, or that it imported nothing new, plus anything else TED reports: how many items were already tracked or left for the next run, which items it skipped, what it couldn’t list, and why it stopped early. Or TED’s refusal.`
 
 const sentry = `Turn new Sentry issues into Tasks, and catch fixes that didn’t hold.
 
