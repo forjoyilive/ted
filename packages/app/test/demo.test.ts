@@ -81,4 +81,5 @@ test('opens the populated demo and reuses it when reopened', async () => {
   const info = await readDaemonInfo(home)
   expect(info).toBeDefined()
   if (info) await verifyDemo(new DaemonClient(info, info.token))
+  expect((await seedDemoFromCli(home)).tasks).toEqual(manifest.tasks)
 }, 240_000)
