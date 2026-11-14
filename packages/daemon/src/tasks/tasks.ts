@@ -164,6 +164,7 @@ import { AsanaReadError } from '../asana/asana.ts'
 import { checkAsanaRoot, confirmAsanaScope, listAsanaIntake, scopeName } from '../asana/intake.ts'
 import { confirmAsanaProject, listAsanaProjects } from '../asana/projects.ts'
 import { type AsanaRead, type AsanaTree, readAsanaTree, retryingRead } from '../asana/tree.ts'
+import { maxTasksPerFiring } from '../automations/check-failures.ts'
 import type { Banners } from '../banners.ts'
 import { type Clock, clockWait, systemClock, type Timer } from '../clock.ts'
 import { loginShell, worktreeCommandEnv } from '../command-env.ts'
@@ -534,6 +535,11 @@ export type OutcomeInput =
   | Exclude<ReportOutcomeRequest, { outcome: 'advance' }>
   | (Omit<AdvanceRequest, 'design'> & { design?: DesignSubmission })
 
+export interface TaskReference {
+  taskId: string
+  displayId: string
+}
+
 export interface CheckFailureInput {
   automationId: string
   firingId: string
@@ -579,6 +585,8 @@ export interface Tasks {
   defaults(factoryId: string): Promise<TaskDefaults>
   setUpFactory(factoryId: string): Promise<Task | undefined>
   checkFailed(input: CheckFailureInput): Promise<{ created: string[]; updated: string[] }>
+  automationNote(ref: string, caller: Caller, body: string): TaskReference
+  automationStart(ref: string, caller: Caller): Promise<TaskReference>
   newSetupTask(factoryId: string): Promise<Task>
   board(factoryId: string): Promise<FactoryBoard>
   start(ref: string, request?: import('@ted/protocol').StartTaskRequest): Promise<Task>
@@ -8325,8 +8333,100 @@ export function createTasks(options: {
     return {
       name: automation.name,
       factoryKey: factory.key,
+      factoryId: factory.id,
       link: { automationId: automation.id, firingId: firing.id },
+      ...(automation.check && { check: { startTasks: automation.check.startTasks } }),
     }
+  }
+
+  function checkAgentCaller(caller: Caller, action: string) {
+    const automation = caller.kind === 'run' ? automationCaller(caller) : undefined
+    if (!automation?.check) {
+      throw new RequestError(403, `Only a Scheduled Check’s agent Run can ${action}.`)
+    }
+    const run = store.getRun(automation.link.firingId)
+    if (!run || run.state === 'finished') {
+      throw new RequestError(409, 'this Automation Run has finished')
+    }
+    return { ...automation, check: automation.check }
+  }
+
+  function automationTask(ref: string, factoryId: string): StoredTask {
+    const task = store.getTask(ref)
+    if (!task || task.factoryId !== factoryId) {
+      throw new RequestError(404, `no Task ${ref} in this Automation’s Factory`)
+    }
+    return task
+  }
+
+  function automationNote(ref: string, caller: Caller, body: string): TaskReference {
+    const automation = checkAgentCaller(caller, 'add notes to Tasks')
+    const task = automationTask(ref, automation.factoryId)
+    if (store.automations.createdTask(task.id)?.automationId !== automation.link.automationId) {
+      throw new RequestError(
+        403,
+        `${task.displayId} wasn’t created by this Automation; create a new Task instead`,
+      )
+    }
+    if (task.archived || task.stage === 'done') {
+      throw new RequestError(409, `${task.displayId} isn’t open; create a new Task instead`)
+    }
+    store.postAutomationNote(
+      {
+        taskId: task.id,
+        kind: 'note',
+        author: { kind: 'ted' },
+        body: redactSecrets(`From the Automation “${automation.name}”:\n\n${body.trim()}`),
+      },
+      automation.link,
+    )
+    return { taskId: task.id, displayId: task.displayId }
+  }
+
+  async function automationStart(ref: string, caller: Caller): Promise<TaskReference> {
+    const automation = checkAgentCaller(caller, 'start Tasks')
+    if (!automation.check.startTasks) {
+      throw new RequestError(
+        403,
+        'This Scheduled Check may not start Tasks. The human allows it with “Start the Tasks it creates” in the Automation’s settings; until then the Tasks wait in Backlog.',
+      )
+    }
+    const task = automationTask(ref, automation.factoryId)
+    const link = store.automations.createdTask(task.id)
+    if (
+      link?.automationId !== automation.link.automationId ||
+      link.firingId !== automation.link.firingId
+    ) {
+      throw new RequestError(403, `${task.displayId} wasn’t created by this Run; only those start`)
+    }
+    if (task.setup) throw new RequestError(403, 'an Automation never starts a setup Task')
+    if (task.archived) throw new RequestError(409, `${task.displayId} is archived`)
+    if (task.stage !== 'backlog' || task.startRequested) {
+      throw new RequestError(409, `${task.displayId} has already started`)
+    }
+    const resolution = await resolveWorkflow(factoryOf(task), { fetch: false }).catch(
+      () => undefined,
+    )
+    if (!resolution || runsInBypass(resolution)) {
+      throw new RequestError(
+        409,
+        `${task.displayId} stays in Backlog because this Factory runs in Bypass; the human starts it`,
+      )
+    }
+    if (removingFactories.has(task.factoryId)) {
+      throw new RequestError(409, 'this Factory is being removed')
+    }
+    if (!checkAgentCaller(caller, 'start Tasks').check.startTasks) {
+      throw new RequestError(403, 'The human turned off “Start the Tasks it creates”.')
+    }
+    await queueAndAnswer(task.id)
+    store.automations.taskStarted({
+      taskId: task.id,
+      automationId: automation.link.automationId,
+      firingId: automation.link.firingId,
+      name: automation.name,
+    })
+    return { taskId: task.id, displayId: task.displayId }
   }
 
   const isAsanaSource = (
@@ -9804,6 +9904,203 @@ export function createTasks(options: {
     })
   }
 
+  const checkCreates = new Map<string, Promise<void>>()
+
+  async function createTask(
+    {
+      title,
+      factory: givenKey,
+      blockedBy = [],
+      start: startNow,
+      startInBackground,
+      lead,
+      source: sourceUrl,
+      sentryId,
+      followUp,
+      parent: parentRef,
+      ...fields
+    }: CreateTaskInput,
+    caller: Caller = { kind: 'app' },
+  ): Promise<Task> {
+    if (fields.draftRevision !== undefined && caller.kind !== 'app') {
+      throw new RequestError(403, 'only the app can consume a New Task draft')
+    }
+    if (parentRef !== undefined && caller.kind !== 'app') {
+      throw new RequestError(403, 'only the app can create a Task under a parent')
+    }
+    if (parentRef !== undefined && followUp !== undefined) {
+      throw new RequestError(400, 'a follow-up Task can’t be created under a parent')
+    }
+    const automation = automationCaller(caller)
+    const files = fields.attachments ?? []
+    if (files.length > 0 && (followUp !== undefined || isAsanaSource(sourceUrl, parentRef))) {
+      throw new RequestError(400, 'files can’t be attached to a Follow-up or an Asana import')
+    }
+    if (caller.kind === 'run') {
+      const foreign = files.find((a) => !automationUploads.has(`${caller.runId}:${a.hash}`))
+      if (foreign) {
+        throw new RequestError(
+          403,
+          `${foreign.name} wasn’t uploaded by this Run; attach your own files with ted task create --attach`,
+        )
+      }
+    }
+    const key = automation?.factoryKey ?? givenKey
+    if (automation && givenKey !== undefined && givenKey !== automation.factoryKey) {
+      throw new RequestError(
+        403,
+        `this Automation creates Tasks only in ${automation.factoryKey}, its own Factory`,
+      )
+    }
+    const factory = key === undefined ? undefined : store.listFactories().find((f) => f.key === key)
+    if (key !== undefined && !factory) throw new RequestError(404, `no Factory with key ${key}`)
+    if (
+      automation &&
+      followUp !== undefined &&
+      parseAsanaTaskUrl(find(followUp).source?.url ?? sourceUrl ?? '') !== undefined
+    ) {
+      throw new RequestError(
+        403,
+        'An Automation can’t make a Follow-up of Asana work. TED imports each Asana task once; leave it for the existing Task.',
+      )
+    }
+    if (automation?.check) {
+      if (startNow === true) {
+        throw new RequestError(
+          403,
+          'A Scheduled Check creates Tasks in Backlog. To start one, create it without --start, then run `ted automation start <Task ID>`.',
+        )
+      }
+      if (followUp !== undefined || isAsanaSource(sourceUrl, parentRef)) {
+        throw new RequestError(
+          403,
+          'A Scheduled Check creates plain Tasks; it can’t make a Follow-up or import from Asana.',
+        )
+      }
+      const made = store.automations
+        .createdTasks(automation.link.automationId)
+        .filter((row) => row.firingId === automation.link.firingId).length
+      if (made >= maxTasksPerFiring) {
+        throw new RequestError(
+          409,
+          `This Run has already created ${maxTasksPerFiring} Tasks, the most a Scheduled Check makes in one firing. Group the remaining failures into those Tasks with \`ted automation note\`.`,
+        )
+      }
+    }
+    if (followUp !== undefined) {
+      return createFollowUp(followUp, {
+        ...(title !== undefined && { title }),
+        ...(fields.description !== undefined && { description: fields.description }),
+        ...(sourceUrl !== undefined && { sourceUrl }),
+        ...(factory && { factoryId: factory.id }),
+        ...(automation && { automation: { name: automation.name, link: automation.link } }),
+        linearConsent: caller.kind === 'app',
+      })
+    }
+    if (isAsanaSource(sourceUrl, parentRef)) {
+      const imported = await importAsana(
+        {
+          url: sourceUrl,
+          ...(key !== undefined && { factory: key }),
+          ...(fields.priority !== undefined && { priority: fields.priority }),
+          ...(startNow !== undefined && { start: startNow }),
+        },
+        caller,
+      )
+      if (!imported.root) throw new RequestError(409, 'the Asana import created no Task')
+      return publicTask(imported.root.taskId)
+    }
+    const refuseTracked = () => {
+      if (sourceUrl === undefined || !factory || caller.kind === 'app') return
+      const clash = sourceClash(sameSource(sourceUrl), factory.id, sourceUrl)
+      if (clash) throw new RequestError(409, clashMessage(clash))
+    }
+    refuseTracked()
+    const issue = sourceUrl === undefined ? undefined : await linearIssue(sourceUrl)
+    const linearFiles = await storedFiles(issue?.files ?? [])
+    const given = title?.trim() || issue?.title
+    const fromText = given ? undefined : titleFromText(fields.description ?? '')
+    const name = given || fromText?.title || sourceUrl || ''
+    if (name === '') throw new RequestError(400, 'a Task needs a title or a description')
+    const blockers = [...new Set(blockedBy.map((ref) => find(ref).id))]
+    const parentFor = () => {
+      if (parentRef === undefined) return undefined
+      const parent = find(parentRef)
+      if (!factory || parent.factoryId !== factory.id)
+        throw new RequestError(409, 'Parent and child must belong to the same Factory')
+      requireHierarchyIdle([parent.id])
+      safeParent(parent)
+      if (blockers.some((id) => cycleFrom(id, parent.id)))
+        throw new RequestError(409, 'Parent link would create a hierarchy or blocker cycle')
+      return parent
+    }
+    parentFor()
+    let failure: unknown
+    const resolution = factory
+      ? await resolveWorkflow(factory, { fetch: cloned(factory.id) }).catch((error: unknown) => {
+          failure = error
+          return undefined
+        })
+      : undefined
+    refuseTracked()
+    if (factory && removingFactories.has(factory.id)) {
+      throw new RequestError(409, `${factory.name} is being removed`)
+    }
+    const held = automation !== undefined && (!resolution || runsInBypass(resolution))
+    const intakeUnchanged =
+      automation && factory
+        ? await verifyLinearIntake(store, options.linear, factory.id, sourceUrl)
+        : () => undefined
+    refuseTracked()
+    if (factory && removingFactories.has(factory.id)) {
+      throw new RequestError(409, `${factory.name} is being removed`)
+    }
+    intakeUnchanged()
+    const parent = parentFor()
+    const task = await store.createTask({
+      ...fields,
+      ...(fields.description !== undefined && {
+        description: fromText?.title ? fromText.description : fields.description.trim(),
+      }),
+      ...(linearFiles.length > 0 && {
+        attachments: withoutRepeats([...(fields.attachments ?? []), ...linearFiles]),
+      }),
+      title: name,
+      ...(fields.priority === undefined && issue && { priority: issue.priority }),
+      ...(sourceUrl !== undefined && {
+        source: {
+          ...taskSource(sourceUrl, issue && withStoredFiles(issue, linearFiles)),
+          ...(sentryId !== undefined && { sentry: { shortId: sentryId } }),
+        },
+      }),
+      lead: lead ?? { ...leadFrom(resolution?.workflow.settings), effortMode: 'stage' },
+      blockedBy: blockers,
+      ...(parent && { parentId: parent.id }),
+      startRequested: startNow === true && !held,
+      ...(factory && { factoryId: factory.id }),
+      ...(automation && { automation: automation.link }),
+      linearConsent: caller.kind === 'app',
+    })
+    if (parent) {
+      holdParent(parent.id)
+      tellHierarchyChanged([parent.id])
+    }
+    if (issue) noteUnfetched(task.id, issue, linearFiles)
+    if (automation && issue) linearConsent.askGroup(task.id, automation.name, issue.team)
+    if (!factory) return task
+    if (automation && runsInBypass(resolution)) return holdInBacklog(task.id, automation.name)
+    if (!resolution) {
+      console.error(
+        `couldn’t read ${factory.repo}’s Workflow; ${task.displayId} waits in Backlog:`,
+        failure,
+      )
+    }
+    if (!resolution || unmergedBlockers(task.id).length > 0 || automation?.check) return task
+    const hasBacklog = resolution.workflow.stages.includes('backlog')
+    if (hasBacklog && startNow !== true) return task
+    return startInBackground === true ? queueAndAnswer(task.id) : start(task.id)
+  }
+
   return {
     failureContext(ref, id, caller) {
       const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
@@ -9939,181 +10236,27 @@ export function createTasks(options: {
       )
     },
 
-    async create(
-      {
-        title,
-        factory: givenKey,
-        blockedBy = [],
-        start: startNow,
-        startInBackground,
-        lead,
-        source: sourceUrl,
-        sentryId,
-        followUp,
-        parent: parentRef,
-        ...fields
-      },
-      caller = { kind: 'app' },
-    ) {
-      if (fields.draftRevision !== undefined && caller.kind !== 'app') {
-        throw new RequestError(403, 'only the app can consume a New Task draft')
-      }
-      if (parentRef !== undefined && caller.kind !== 'app') {
-        throw new RequestError(403, 'only the app can create a Task under a parent')
-      }
-      if (parentRef !== undefined && followUp !== undefined) {
-        throw new RequestError(400, 'a follow-up Task can’t be created under a parent')
-      }
-      const automation = automationCaller(caller)
-      const files = fields.attachments ?? []
-      if (files.length > 0 && (followUp !== undefined || isAsanaSource(sourceUrl, parentRef))) {
-        throw new RequestError(400, 'files can’t be attached to a Follow-up or an Asana import')
-      }
-      if (caller.kind === 'run') {
-        const foreign = files.find((a) => !automationUploads.has(`${caller.runId}:${a.hash}`))
-        if (foreign) {
-          throw new RequestError(
-            403,
-            `${foreign.name} wasn’t uploaded by this Run; attach your own files with ted task create --attach`,
-          )
-        }
-      }
-      const key = automation?.factoryKey ?? givenKey
-      if (automation && givenKey !== undefined && givenKey !== automation.factoryKey) {
-        throw new RequestError(
-          403,
-          `this Automation creates Tasks only in ${automation.factoryKey}, its own Factory`,
-        )
-      }
-      const factory =
-        key === undefined ? undefined : store.listFactories().find((f) => f.key === key)
-      if (key !== undefined && !factory) throw new RequestError(404, `no Factory with key ${key}`)
-      if (
-        automation &&
-        followUp !== undefined &&
-        parseAsanaTaskUrl(find(followUp).source?.url ?? sourceUrl ?? '') !== undefined
-      ) {
-        throw new RequestError(
-          403,
-          'An Automation can’t make a Follow-up of Asana work. TED imports each Asana task once; leave it for the existing Task.',
-        )
-      }
-      if (followUp !== undefined) {
-        return createFollowUp(followUp, {
-          ...(title !== undefined && { title }),
-          ...(fields.description !== undefined && { description: fields.description }),
-          ...(sourceUrl !== undefined && { sourceUrl }),
-          ...(factory && { factoryId: factory.id }),
-          ...(automation && { automation: { name: automation.name, link: automation.link } }),
-          linearConsent: caller.kind === 'app',
-        })
-      }
-      if (isAsanaSource(sourceUrl, parentRef)) {
-        const imported = await importAsana(
-          {
-            url: sourceUrl,
-            ...(key !== undefined && { factory: key }),
-            ...(fields.priority !== undefined && { priority: fields.priority }),
-            ...(startNow !== undefined && { start: startNow }),
-          },
-          caller,
-        )
-        if (!imported.root) throw new RequestError(409, 'the Asana import created no Task')
-        return publicTask(imported.root.taskId)
-      }
-      const refuseTracked = () => {
-        if (sourceUrl === undefined || !factory || caller.kind === 'app') return
-        const clash = sourceClash(sameSource(sourceUrl), factory.id, sourceUrl)
-        if (clash) throw new RequestError(409, clashMessage(clash))
-      }
-      refuseTracked()
-      const issue = sourceUrl === undefined ? undefined : await linearIssue(sourceUrl)
-      const linearFiles = await storedFiles(issue?.files ?? [])
-      const given = title?.trim() || issue?.title
-      const fromText = given ? undefined : titleFromText(fields.description ?? '')
-      const name = given || fromText?.title || sourceUrl || ''
-      if (name === '') throw new RequestError(400, 'a Task needs a title or a description')
-      const blockers = [...new Set(blockedBy.map((ref) => find(ref).id))]
-      const parentFor = () => {
-        if (parentRef === undefined) return undefined
-        const parent = find(parentRef)
-        if (!factory || parent.factoryId !== factory.id)
-          throw new RequestError(409, 'Parent and child must belong to the same Factory')
-        requireHierarchyIdle([parent.id])
-        safeParent(parent)
-        if (blockers.some((id) => cycleFrom(id, parent.id)))
-          throw new RequestError(409, 'Parent link would create a hierarchy or blocker cycle')
-        return parent
-      }
-      parentFor()
-      let failure: unknown
-      const resolution = factory
-        ? await resolveWorkflow(factory, { fetch: cloned(factory.id) }).catch((error: unknown) => {
-            failure = error
-            return undefined
-          })
-        : undefined
-      refuseTracked()
-      if (factory && removingFactories.has(factory.id)) {
-        throw new RequestError(409, `${factory.name} is being removed`)
-      }
-      const held = automation !== undefined && (!resolution || runsInBypass(resolution))
-      const intakeUnchanged =
-        automation && factory
-          ? await verifyLinearIntake(store, options.linear, factory.id, sourceUrl)
-          : () => undefined
-      refuseTracked()
-      if (factory && removingFactories.has(factory.id)) {
-        throw new RequestError(409, `${factory.name} is being removed`)
-      }
-      intakeUnchanged()
-      const parent = parentFor()
-      const task = await store.createTask({
-        ...fields,
-        ...(fields.description !== undefined && {
-          description: fromText?.title ? fromText.description : fields.description.trim(),
-        }),
-        ...(linearFiles.length > 0 && {
-          attachments: withoutRepeats([...(fields.attachments ?? []), ...linearFiles]),
-        }),
-        title: name,
-        ...(fields.priority === undefined && issue && { priority: issue.priority }),
-        ...(sourceUrl !== undefined && {
-          source: {
-            ...taskSource(sourceUrl, issue && withStoredFiles(issue, linearFiles)),
-            ...(sentryId !== undefined && { sentry: { shortId: sentryId } }),
-          },
-        }),
-        lead: lead ?? { ...leadFrom(resolution?.workflow.settings), effortMode: 'stage' },
-        blockedBy: blockers,
-        ...(parent && { parentId: parent.id }),
-        startRequested: startNow === true && !held,
-        ...(factory && { factoryId: factory.id }),
-        ...(automation && { automation: automation.link }),
-        linearConsent: caller.kind === 'app',
+    create(input, caller = { kind: 'app' }) {
+      const firing = caller.kind === 'run' ? store.automations.firing(caller.runId) : undefined
+      if (!firing || !store.automations.check(firing.automationId)) return createTask(input, caller)
+      const next = (checkCreates.get(firing.id) ?? Promise.resolve()).then(() =>
+        createTask(input, caller),
+      )
+      const settled = next.then(
+        () => undefined,
+        () => undefined,
+      )
+      checkCreates.set(firing.id, settled)
+      void settled.then(() => {
+        if (checkCreates.get(firing.id) === settled) checkCreates.delete(firing.id)
       })
-      if (parent) {
-        holdParent(parent.id)
-        tellHierarchyChanged([parent.id])
-      }
-      if (issue) noteUnfetched(task.id, issue, linearFiles)
-      if (automation && issue) linearConsent.askGroup(task.id, automation.name, issue.team)
-      if (!factory) return task
-      if (automation && runsInBypass(resolution)) return holdInBacklog(task.id, automation.name)
-      if (!resolution) {
-        console.error(
-          `couldn’t read ${factory.repo}’s Workflow; ${task.displayId} waits in Backlog:`,
-          failure,
-        )
-      }
-      if (!resolution || unmergedBlockers(task.id).length > 0) return task
-      const hasBacklog = resolution.workflow.stages.includes('backlog')
-      if (hasBacklog && startNow !== true) return task
-      return startInBackground === true ? queueAndAnswer(task.id) : start(task.id)
+      return next
     },
 
     asanaPreview,
     checkFailed,
+    automationNote,
+    automationStart,
     importAsana: (input, caller) => importAsana(input, caller),
     asanaIntake,
 

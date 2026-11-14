@@ -1960,6 +1960,32 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         log: console.log,
       })
     },
+    automationOutput: async () => {
+      const runId = tedEnv('TED_RUN', env)
+      await automationCommand(home, 'output', args, options, {
+        connect: withDaemon,
+        log: console.log,
+        ...(runId && { runId }),
+      })
+    },
+    automationNote: async () => {
+      await automationCommand(home, 'note', args, options, {
+        connect: withDaemon,
+        log: console.log,
+      })
+    },
+    automationStart: async () => {
+      await automationCommand(home, 'start', args, options, {
+        connect: withDaemon,
+        log: console.log,
+      })
+    },
+    automationReport: async () => {
+      await automationCommand(home, 'report', args, options, {
+        connect: withDaemon,
+        log: console.log,
+      })
+    },
   } satisfies Record<HandlerName, () => Promise<void>>
 
   try {

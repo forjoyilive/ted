@@ -233,7 +233,7 @@ A schedule in a Factory that starts a Run each time it fires, outside any Task, 
 _Avoid_: Cron job, trigger
 
 **Scheduled Check**:
-An Automation that runs its own command as a Check, with no agent, in a fresh worktree on the tip of the Factory’s default branch. When the command fails, TED creates Tasks to fix what failed, and a later failure of the same test file adds a note to its open Task instead of making another.
+An Automation that runs its own command as a Check in a fresh worktree on the tip of the Factory’s default branch. Its **agent step** (when the Check fails, after every run, or never) then starts an agent Run in a copy of the same commit, which investigates the result and creates Tasks, adds notes to open ones and, with **Start the Tasks it creates** ticked, starts the Tasks it created. Without the agent step, or when the agent Run can’t start, fails or ends without reporting, TED creates one Task per failing test file, and a later failure of the same test file adds a note to its open Task instead of making another.
 _Avoid_: Nightly build, scheduled test run
 
 **Asana intake**:

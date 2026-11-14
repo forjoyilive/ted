@@ -407,6 +407,20 @@ export class DaemonClient {
     return this.#request('POST', '/automation-runs/comments', input)
   }
 
+  noteAutomationTask(ref: string, body: string): Promise<{ taskId: string; displayId: string }> {
+    return this.#request('POST', `/automation-runs/tasks/${encodeURIComponent(ref)}/note`, {
+      body,
+    })
+  }
+
+  startAutomationTask(ref: string): Promise<{ taskId: string; displayId: string }> {
+    return this.#request('POST', `/automation-runs/tasks/${encodeURIComponent(ref)}/start`, {})
+  }
+
+  reportAutomationRun(summary: string): Promise<{ reported: true }> {
+    return this.#request('POST', '/automation-runs/report', { summary })
+  }
+
   answerAutomationRequest(id: string, answer: AnswerAutomationRequest): Promise<AutomationRequest> {
     return this.#request('POST', `/automation-requests/${encodeURIComponent(id)}/answer`, answer)
   }

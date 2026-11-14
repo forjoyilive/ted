@@ -43,6 +43,7 @@ export interface Checkouts {
     name: string
     factory: StoredFactory
     signal?: AbortSignal
+    commit?: string
   }): Promise<Checkout>
   restore(input: {
     runId: string
@@ -206,7 +207,8 @@ export function createCheckouts(options: {
           await git.fetch(clone)
           const base = await git.defaultBranch(clone)
           const repo = repoOf(entry, folder, clone)
-          await git.addScratchWorktree(clone, repo.worktree, `origin/${base}`)
+          const at = entry.primary && input.commit !== undefined ? input.commit : `origin/${base}`
+          await git.addScratchWorktree(clone, repo.worktree, at)
           repos.push(repo)
           if (entry.primary) commit = await git.headCommit(repo.worktree)
           await copyFiles(options.store.localFolder(entry.repo), repo.worktree, entry.copy)

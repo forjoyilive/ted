@@ -41,6 +41,10 @@ export interface ScheduledChecks {
     onStarted: () => void
   }): Promise<ScheduledCheckResult>
   output(automationId: string, firingId: string): Promise<AutomationRunOutput>
+  saved(
+    automationId: string,
+    firingId: string,
+  ): Promise<{ log: string; output: string; tail: string }>
   remove(automationId: string): Promise<void>
 }
 
@@ -235,6 +239,14 @@ export function createScheduledChecks(options: {
         throw new RequestError(404, 'this Run’s output is gone')
       }
       return { text: await readOutput(log), log }
+    },
+    async saved(automationId, firingId) {
+      const log = logOf(automationId, firingId)
+      return {
+        log,
+        output: await readOutput(log).catch(() => ''),
+        tail: await lastLines(log).catch(() => ''),
+      }
     },
     async remove(automationId) {
       if (!safeId.test(automationId)) return

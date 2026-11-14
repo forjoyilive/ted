@@ -223,7 +223,7 @@ test('Automation header right-click shares actions with ⋯ and Delete still ask
   expect(api.request).not.toHaveBeenCalledWith('deleteAutomation', 'automation-a')
 })
 
-test('a scheduled Check shows its command, and Output on a history row opens the firing’s output', async () => {
+test('a scheduled Check shows its command and agent step, its history row links the Tasks the agent created, noted and started, and Output opens the firing’s output', async () => {
   const shown = detail()
   const api = bridge({
     getAutomation: () => ({
@@ -232,7 +232,13 @@ test('a scheduled Check shows its command, and Output on a history row opens the
         ...shown.automation,
         name: 'Nightly tests',
         prompt: '',
-        check: { command: 'pnpm check', timeout: '2h', runBy: '07:00' },
+        check: {
+          command: 'pnpm check',
+          timeout: '2h',
+          runBy: '07:00',
+          agentStep: 'on-failure',
+          startTasks: true,
+        },
       },
       history: [
         {
@@ -242,8 +248,15 @@ test('a scheduled Check shows its command, and Output on a history row opens the
           at: createdAt,
           startedAt: createdAt,
           finishedAt: createdAt,
-          result: { kind: 'check-failed', tasks: [] },
-          check: { state: 'failed', exitCode: 1, durationMs: 90_000, failing: ['a.test.ts'] },
+          result: { kind: 'check-failed', tasks: [task('NB-4')] },
+          runId: 'firing-a',
+          check: {
+            state: 'failed',
+            exitCode: 1,
+            durationMs: 90_000,
+            failing: ['a.test.ts'],
+            agent: { state: 'reported', noted: [task('NB-1')], started: [task('NB-4')] },
+          },
         },
       ],
     }),
@@ -255,8 +268,11 @@ test('a scheduled Check shows its command, and Output on a history row opens the
   render(view('details'))
   await screen.findByRole('heading', { name: 'Nightly tests' })
   expect(screen.getByText('pnpm check')).toBeTruthy()
-  expect(screen.queryByText('Show prompt')).toBeNull()
-  expect(screen.getByText('Failed · 1 failing test file')).toBeTruthy()
+  expect(screen.getByText('When the Check fails · Claude')).toBeTruthy()
+  expect(screen.getByText('Starts the Tasks it creates')).toBeTruthy()
+  expect(screen.getByText('Show prompt')).toBeTruthy()
+  const row = screen.getByText(/^Failed · 1 failing test file/).closest('td')
+  expect(row?.textContent).toMatch(/created NB-4.* · noted NB-1 · started NB-4/)
   await user().click(screen.getByRole('button', { name: 'Output' }))
   const dialog = await screen.findByRole('dialog', { name: /^Check output/ })
   expect(await within(dialog).findByText(' FAIL  a.test.ts', { normalizer: (t) => t })).toBeTruthy()
@@ -265,6 +281,10 @@ test('a scheduled Check shows its command, and Output on a history row opens the
   ).toBeTruthy()
   expect(api.request).toHaveBeenCalledWith('automationRunOutput', 'firing-a')
 })
+
+function task(displayId: string) {
+  return { id: displayId, displayId, title: displayId, stage: 'backlog' as const }
+}
 
 const automationEdits: { label: string; change: Partial<Automation> }[] = [
   { label: 'prompt', change: { prompt: 'Triage updated requests.' } },

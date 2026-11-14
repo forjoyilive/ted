@@ -21,7 +21,13 @@ const core = {
   on: true,
   checkout: true,
 } as const
-const check = { command: 'pnpm check --wait-for-quiet', timeout: '2h', runBy: '07:00' }
+const check = {
+  command: 'pnpm check --wait-for-quiet',
+  timeout: '2h',
+  runBy: '07:00',
+  agentStep: 'always',
+  startTasks: true,
+} as const
 roundTrip(P.parseCreateAutomationRequest, {
   ...core,
   factory: 'TED',
@@ -49,6 +55,14 @@ roundTrip(P.parseDraftAutomationPromptRequest, {
 roundTrip(P.parseSchedulePreviewRequest, { schedule })
 roundTrip(P.parseAutomationCommentRequest, { body: 'Proceed?', choices: ['Yes', 'No'] })
 roundTrip(P.parseAnswerAutomationRequest, { choice: 'Yes', text: 'Continue' })
+roundTrip(P.parseAutomationNoteTaskRequest, { body: 'It failed again for the same cause.' })
+roundTrip(P.parseAutomationReportRequest, { summary: 'Two flaky tests; filed NB-4.' })
+rejects(P.parseAutomationCheck, { command: 'x', agentStep: 'sometimes' }, 'check.agentStep')
+rejects(P.parseAutomationCheck, { command: 'x', startTasks: 'yes' }, 'check.startTasks')
+rejects(P.parseAutomationNoteTaskRequest, { body: ' ' }, 'body is required')
+rejects(P.parseAutomationNoteTaskRequest, { body: 'x'.repeat(20_001) }, 'at most 20000')
+rejects(P.parseAutomationReportRequest, {}, 'summary is required')
+rejects(P.parseAutomationReportRequest, { summary: 'x'.repeat(4_001) }, 'at most 4000')
 rejects(P.parseAutomationSchedule, { kind: 'daily', at: '25:00' }, 'time as HH:MM')
 rejects(P.parseCreateAutomationRequest, {}, 'name is required')
 rejects(P.parseAutomationCheck, { command: ' ' }, 'check.command is required')

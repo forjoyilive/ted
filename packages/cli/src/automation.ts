@@ -50,7 +50,7 @@ export async function automationCommand(
   command: AutomationCommand,
   rest: string[],
   options: AutomationOptions,
-  runtime: { connect: typeof connectDaemon; log: (text: string) => void },
+  runtime: { connect: typeof connectDaemon; log: (text: string) => void; runId?: string },
 ): Promise<void> {
   const withDaemon = runtime.connect
   const console = { log: runtime.log }
@@ -118,6 +118,30 @@ export async function automationCommand(
       const ref = one()
       await withDaemon(home, (client) => client.deleteAutomation(ref, factory))
       console.log('Deleted the Automation and its history. Tasks it created stay.')
+    },
+    output: async () => {
+      const runId = rest[0] ?? runtime.runId
+      if (runId === undefined)
+        throw new AutomationUsageError('name the Run: ted automation output <run-id>')
+      const output = await withDaemon(home, (client) => client.automationRunOutput(runId))
+      console.log(output.text === '' ? 'No output.' : printable(output.text))
+    },
+    note: async () => {
+      const [task = '', ...words] = rest
+      const text = words.join(' ').trim()
+      if (text === '') throw new AutomationUsageError('give the note as text')
+      const noted = await withDaemon(home, (client) => client.noteAutomationTask(task, text))
+      console.log(`Added a note to ${noted.displayId}`)
+    },
+    start: async () => {
+      const started = await withDaemon(home, (client) => client.startAutomationTask(one()))
+      console.log(`Started ${started.displayId}. It waits in the queue for a free slot.`)
+    },
+    report: async () => {
+      const summary = rest.join(' ').trim()
+      if (summary === '') throw new AutomationUsageError('give a summary as text')
+      await withDaemon(home, (client) => client.reportAutomationRun(summary))
+      console.log('Reported. TED makes no Tasks of its own for this firing.')
     },
   }
   try {

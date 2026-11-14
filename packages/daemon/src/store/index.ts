@@ -939,6 +939,7 @@ export interface TedStore extends TaskHistory {
   ): Task
   setActivity(taskId: string, text: string, runId?: string): Task
   postComment(input: NewComment): Comment
+  postAutomationNote(input: NewComment, link: { automationId: string; firingId: string }): Comment
   heldRequests(): { id: string; runId: string; createdAt: string }[]
   releaseRequests(ids: readonly string[]): void
   listComments(taskId: string): Comment[]
@@ -5425,6 +5426,15 @@ export async function openStore({
         ...store.query(queryDb(runBrowserCaptures)).map((a) => a.hash),
         ...store.query(queryDb(commentAttachments)).map((a) => a.hash),
       ]),
+    postAutomationNote(input, link) {
+      const at = new Date().toISOString()
+      const { id, event } = commentPosted(input, at)
+      commit(event, events.automationTaskNoted({ ...link, taskId: input.taskId, at }))
+      const comment = requireComment(id)
+      emit({ type: 'comment-posted', comment })
+      emit({ type: 'automation-updated', automationId: link.automationId })
+      return comment
+    },
     postComment(input) {
       const at = new Date().toISOString()
       const { id, event, attached } = commentPosted(input, at)

@@ -2,11 +2,13 @@ import type {
   Automation,
   AutomationTemplate,
   AutomationTemplateId,
+  CheckAgentStep,
   Factory,
   SchedulePreview,
   TaskLead,
   Weekday,
 } from '@ted/protocol'
+import { scheduledCheckPrompt } from '@ted/protocol/automation'
 import { weekdays } from '@ted/protocol/schedule'
 import { defaultMachineSettings } from '@ted/protocol/settings'
 import { effectiveTimeZone, uses12HourTime } from '@ted/protocol/time'
@@ -38,6 +40,12 @@ const blankSchedule = { kind: 'every', every: 30, unit: 'minutes' } as const
 const checkSchedule = { kind: 'daily', at: '03:00' } as const
 const defaultCheckTimeout = '2h'
 const timeoutPattern = /^[1-9]\d{0,4}[smh]$/
+
+const agentStepLabels: Record<CheckAgentStep, string> = {
+  'on-failure': 'When the Check fails',
+  always: 'After every run',
+  never: 'Never',
+}
 
 const kindLabels: Record<ScheduleKind, string> = {
   every: 'Every',
@@ -92,12 +100,20 @@ export function AutomationDialog({
   )
   const [template, setTemplate] = useState<TemplateChoice>(initialTemplate)
   const [name, setName] = useState(editing?.name ?? '')
-  const [prompt, setPrompt] = useState(editing?.prompt ?? '')
+  const [prompt, setPrompt] = useState(
+    editing?.check && editing.prompt.trim() === '' ? scheduledCheckPrompt : (editing?.prompt ?? ''),
+  )
   const isCheck = editing ? editing.check !== undefined : template === 'check'
   const [command, setCommand] = useState(editing?.check?.command ?? '')
   const [timeout, setCheckTimeout] = useState(editing?.check?.timeout ?? defaultCheckTimeout)
   const [runBy, setRunBy] = useState(editing?.check?.runBy ?? '07:00')
   const [hasRunBy, setHasRunBy] = useState(editing ? editing.check?.runBy !== undefined : true)
+  const [agentStep, setAgentStep] = useState<CheckAgentStep>(
+    editing?.check?.agentStep ?? 'on-failure',
+  )
+  const [startTasks, setStartTasks] = useState(editing?.check?.startTasks === true)
+  const checkAgent = isCheck && agentStep !== 'never'
+  const showsLead = !isCheck || checkAgent
   const [draft, setDraft] = useState<ScheduleDraft>(() =>
     draftOf(editing?.schedule ?? blankSchedule),
   )
@@ -154,7 +170,7 @@ export function AutomationDialog({
       setCheckout(false)
     } else if (choice === 'check') {
       setName('Nightly full test run')
-      setPrompt('')
+      setPrompt(scheduledCheckPrompt)
       setCommand('')
       setDraft(draftOf(checkSchedule))
       setCheckout(false)
@@ -211,7 +227,8 @@ export function AutomationDialog({
   const canSave =
     chosenFactory !== undefined &&
     name.trim() !== '' &&
-    (isCheck ? checkError === undefined : prompt.trim() !== '') &&
+    (!isCheck || checkError === undefined) &&
+    ((isCheck && !checkAgent) || prompt.trim() !== '') &&
     scheduleError === undefined &&
     !busy &&
     !draftBusy
@@ -227,17 +244,19 @@ export function AutomationDialog({
           command: command.trim(),
           timeout: timeout.trim(),
           ...(hasRunBy ? { runBy } : editing ? { runBy: null } : {}),
+          agentStep,
+          startTasks: checkAgent && startTasks,
         }
       : undefined
     const fields = {
       name: name.trim(),
-      prompt: isCheck ? '' : prompt,
+      ...((!isCheck || checkAgent) && { prompt }),
       schedule,
       on,
       ...(check && { check }),
       ...(!isCheck && { checkout }),
       ...(lead &&
-        !isCheck && {
+        showsLead && {
           agent: lead.agent,
           ...(lead.model !== undefined && { model: lead.model }),
           ...(lead.effort !== undefined && { effort: lead.effort }),
@@ -246,15 +265,15 @@ export function AutomationDialog({
     try {
       let saved: Automation
       if (editing) {
-        const { prompt: _, ...edited } = fields
         saved = await ted.editAutomation(editing.id, {
-          ...(isCheck ? edited : fields),
-          ...(lead && !isCheck && lead.model === undefined && { model: null }),
-          ...(lead && !isCheck && lead.effort === undefined && { effort: null }),
+          ...fields,
+          ...(lead && showsLead && lead.model === undefined && { model: null }),
+          ...(lead && showsLead && lead.effort === undefined && { effort: null }),
         })
         if (runNow) await ted.runAutomation(saved.id)
       } else {
         saved = await ted.createAutomation({
+          prompt: '',
           ...fields,
           factory: chosenFactory.key,
           ...(template !== 'blank' && template !== 'check' && { template }),
@@ -339,7 +358,7 @@ export function AutomationDialog({
               />
               <TemplateCard
                 name="Scheduled Check"
-                note="Run a command, no agent"
+                note="Run a command; an agent looks into failures"
                 checked={template === 'check'}
                 group={id}
                 onPick={() => pick('check', templates)}
@@ -382,7 +401,7 @@ export function AutomationDialog({
               <span className={styles.hint}>required</span>
               <Help>
                 Runs in a fresh worktree on the tip of the default branch, as a Check in TED’s
-                sandbox, after the repo’s setup. If it fails, TED creates Tasks to fix it.
+                sandbox, after the repo’s setup.
               </Help>
             </span>
             <input
@@ -433,7 +452,33 @@ export function AutomationDialog({
           </div>
         )}
 
-        {!isCheck && (
+        {isCheck && (
+          <div className={styles.field}>
+            <span className={styles.labelRow}>
+              <label className={styles.label} htmlFor={`${id}-agent-step`}>
+                Agent step
+              </label>
+              <Help>
+                An agent reads the result in a copy of the same commit, reruns failing tests, and
+                creates or notes Tasks. If it can’t start, fails or ends without reporting, TED
+                creates one Task per failing test file instead. Never: TED always does that.
+              </Help>
+            </span>
+            <Select
+              id={`${id}-agent-step`}
+              value={agentStep}
+              onChange={(event) => setAgentStep(event.target.value as CheckAgentStep)}
+            >
+              {(Object.keys(agentStepLabels) as CheckAgentStep[]).map((step) => (
+                <option key={step} value={step}>
+                  {agentStepLabels[step]}
+                </option>
+              ))}
+            </Select>
+          </div>
+        )}
+
+        {(!isCheck || checkAgent) && (
           <div className={styles.field}>
             <span className={styles.labelRow}>
               <label className={styles.label} htmlFor={`${id}-prompt`}>
@@ -451,10 +496,12 @@ export function AutomationDialog({
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
             />
-            <span className={styles.note}>
-              Whether new Tasks start is up to the prompt (--start).
-            </span>
-            {lead && (
+            {!isCheck && (
+              <span className={styles.note}>
+                Whether new Tasks start is up to the prompt (--start).
+              </span>
+            )}
+            {lead && !isCheck && (
               <AutomationPromptDraft
                 key={JSON.stringify([factory, template, lead])}
                 factory={factory}
@@ -558,7 +605,26 @@ export function AutomationDialog({
 
         <p className={styles.note}>Time zone: {timeZone} · App-wide in General settings</p>
 
-        {lead && !isCheck && (
+        {checkAgent && (
+          <div className={styles.on}>
+            <input
+              id={`${id}-start-tasks`}
+              type="checkbox"
+              className={styles.checkbox}
+              checked={startTasks}
+              onChange={(event) => setStartTasks(event.target.checked)}
+            />
+            <label htmlFor={`${id}-start-tasks`} className={styles.onLabel}>
+              Start the Tasks it creates
+            </label>
+            <Help>
+              The agent may start Tasks it created in this run. They join the queue and wait for a
+              free slot like any other Task. Off, they wait in Backlog for you.
+            </Help>
+          </div>
+        )}
+
+        {lead && showsLead && (
           <fieldset className={styles.fieldset} disabled={draftBusy}>
             <LeadFields
               id={id}

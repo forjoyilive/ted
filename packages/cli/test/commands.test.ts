@@ -233,6 +233,7 @@ describe('importable CLI execution', () => {
           kind: 'round',
           round: { number: 1 },
           proposal: { rows: [] },
+          text: 'output',
         }),
       )
     })
@@ -279,8 +280,21 @@ describe('importable CLI execution', () => {
             ...runtime,
             env: { TED_PLAN: 'plan' },
           }),
+          runCli(['automation', 'note', 'NB-3', 'Same', 'cause'], {
+            ...runtime,
+            env: { TED_AUTOMATION: 'auto' },
+          }),
+          runCli(['automation', 'start', 'NB-4'], { ...runtime, env: { TED_AUTOMATION: 'auto' } }),
+          runCli(['automation', 'report', 'Filed NB-4'], {
+            ...runtime,
+            env: { TED_AUTOMATION: 'auto' },
+          }),
+          runCli(['automation', 'output'], {
+            ...runtime,
+            env: { TED_AUTOMATION: 'auto', TED_RUN: 'firing-1' },
+          }),
         ]),
-      ).toEqual([0, 0, 0, 0, 0])
+      ).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0])
       expect(requests).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ url: '/tasks/NB-1/comments', body: { body: 'Task note' } }),
@@ -294,9 +308,19 @@ describe('importable CLI execution', () => {
             url: '/plan-runs/requests',
             body: { proposal: { title: 'Split', tasks: [{ title: 'One', scope: 'First' }] } },
           }),
+          expect.objectContaining({
+            url: '/automation-runs/tasks/NB-3/note',
+            body: { body: 'Same cause' },
+          }),
+          expect.objectContaining({ url: '/automation-runs/tasks/NB-4/start', body: {} }),
+          expect.objectContaining({
+            url: '/automation-runs/report',
+            body: { summary: 'Filed NB-4' },
+          }),
+          expect.objectContaining({ url: '/automation-runs/firing-1/output' }),
         ]),
       )
-      expect(requests).toHaveLength(5)
+      expect(requests).toHaveLength(9)
       expect(requests.every((request) => request.authorization === 'Bearer test-token')).toBe(true)
     } finally {
       await new Promise<void>((resolve, reject) =>

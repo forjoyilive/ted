@@ -239,6 +239,9 @@ export function threadEvents(
           setup ? 'TED created this Task to set up this Factory' : 'You created this Task',
         )
         break
+      case 'v1.TaskStartedByAutomation':
+        add(entry, 'run', `The Automation “${text(data.name)}” started this Task`)
+        break
       case 'v1.TaskFollowsUp':
         add(entry, 'edit', `Follow-up to ${context.displayIdOf(text(data.originalId))}`)
         break

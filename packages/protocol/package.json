@@ -31,6 +31,7 @@
     "./search": "./src/search.ts",
     "./shell": "./src/shell.ts",
     "./schedule": "./src/schedule.ts",
+    "./automation": "./src/automation.ts",
     "./release": "./src/release.ts",
     "./update": "./src/update.ts",
     "./proposal": "./src/proposal.ts",

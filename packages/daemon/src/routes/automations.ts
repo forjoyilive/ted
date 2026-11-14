@@ -1,6 +1,8 @@
 import {
   parseAnswerAutomationRequest,
   parseAutomationCommentRequest,
+  parseAutomationNoteTaskRequest,
+  parseAutomationReportRequest,
   parseCreateAutomationRequest,
   parseDraftAutomationPromptRequest,
   parseEditAutomationRequest,
@@ -125,7 +127,35 @@ export const automationRoutes: Route[] = [
   {
     method: 'GET',
     path: path(`/automation-runs/${ref}/output`),
-    handle: async ({ params: [id = ''] }, { automations }) => [200, await automations.output(id)],
+    runToken: true,
+    handle: async ({ caller, params: [id = ''] }, { automations }) => [
+      200,
+      await automations.output(id, caller),
+    ],
+  },
+  jsonRoute(parseAutomationReportRequest, {
+    method: 'POST',
+    path: path('/automation-runs/report'),
+    runToken: true,
+    async handle({ body, caller }, { automations }) {
+      return [200, automations.report(caller, body.summary)]
+    },
+  }),
+  jsonRoute(parseAutomationNoteTaskRequest, {
+    method: 'POST',
+    path: path(`/automation-runs/tasks/${ref}/note`),
+    runToken: true,
+    async handle({ body, caller, params: [task = ''] }, { tasks }) {
+      return [201, tasks.automationNote(task, caller, body.body)]
+    },
+  }),
+  {
+    method: 'POST',
+    path: path(`/automation-runs/tasks/${ref}/start`),
+    runToken: true,
+    async handle({ caller, params: [task = ''] }, { tasks }) {
+      return [200, await tasks.automationStart(task, caller)]
+    },
   },
   {
     method: 'POST',

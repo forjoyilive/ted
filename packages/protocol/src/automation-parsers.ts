@@ -1,11 +1,18 @@
-import type { AutomationCommentRequest, SchedulePreviewRequest } from './automation.ts'
+import type {
+  AutomationCommentRequest,
+  AutomationNoteTaskRequest,
+  AutomationReportRequest,
+  SchedulePreviewRequest,
+} from './automation.ts'
 import {
   type AnswerAutomationRequest,
   type AutomationCheckInput,
   type AutomationInput,
   type AutomationTemplateId,
   automationTemplateIds,
+  type CheckAgentStep,
   type CreateAutomationRequest,
+  checkAgentSteps,
   type DraftAutomationPromptRequest,
   type EditAutomationRequest,
 } from './automation.ts'
@@ -104,6 +111,18 @@ export function parseAutomationCheck(value: unknown): AutomationCheckInput {
       throw new HttpError(400, 'check.runBy must be a time as HH:MM')
     }
     check.runBy = given.runBy
+  }
+  if (given.agentStep !== undefined) {
+    if (!checkAgentSteps.includes(given.agentStep as CheckAgentStep)) {
+      throw new HttpError(400, `check.agentStep must be one of ${checkAgentSteps.join(', ')}`)
+    }
+    check.agentStep = given.agentStep as CheckAgentStep
+  }
+  if (given.startTasks !== undefined) {
+    if (typeof given.startTasks !== 'boolean') {
+      throw new HttpError(400, 'check.startTasks must be true or false')
+    }
+    check.startTasks = given.startTasks
   }
   return check
 }
@@ -210,4 +229,27 @@ export function parseAnswerAutomationRequest(value: unknown): AnswerAutomationRe
   if (choice !== undefined) answer.choice = choice
   if (text !== undefined) answer.text = text
   return answer
+}
+
+export const maxAutomationNoteLength = 20_000
+export const maxAutomationReportLength = 4_000
+
+export function parseAutomationNoteTaskRequest(value: unknown): AutomationNoteTaskRequest {
+  const body = bodyObject(value)
+  const text = typeof body.body === 'string' ? body.body.trim() : ''
+  if (text === '') throw new HttpError(400, 'body is required')
+  if (text.length > maxAutomationNoteLength) {
+    throw new HttpError(413, `a note is at most ${maxAutomationNoteLength} characters`)
+  }
+  return { body: text }
+}
+
+export function parseAutomationReportRequest(value: unknown): AutomationReportRequest {
+  const body = bodyObject(value)
+  const summary = typeof body.summary === 'string' ? body.summary.trim() : ''
+  if (summary === '') throw new HttpError(400, 'summary is required')
+  if (summary.length > maxAutomationReportLength) {
+    throw new HttpError(413, `a report is at most ${maxAutomationReportLength} characters`)
+  }
+  return { summary }
 }

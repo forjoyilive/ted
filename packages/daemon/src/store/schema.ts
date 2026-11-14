@@ -915,6 +915,8 @@ export const automations = State.SQLite.table({
     checkCommand: State.SQLite.text({ nullable: true }),
     checkTimeout: State.SQLite.text({ nullable: true }),
     checkRunBy: State.SQLite.text({ nullable: true }),
+    checkAgent: State.SQLite.text({ nullable: true }),
+    checkStartTasks: State.SQLite.boolean({ default: false }),
     template: State.SQLite.text({ nullable: true }),
     handledUntil: State.SQLite.text(),
     createdAt: State.SQLite.text(),
@@ -952,6 +954,7 @@ export const automationFirings = State.SQLite.table({
     error: State.SQLite.text({ nullable: true }),
     message: State.SQLite.text({ nullable: true }),
     finishedAt: State.SQLite.text({ nullable: true }),
+    agentPhase: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -977,6 +980,21 @@ export const automationCheckResults = State.SQLite.table({
     skipped: State.SQLite.text(),
     failing: State.SQLite.text(),
     updatedTaskIds: State.SQLite.text(),
+    agentCommit: State.SQLite.text({ nullable: true }),
+    agentReport: State.SQLite.text({ nullable: true }),
+    fallbackReason: State.SQLite.text({ nullable: true }),
+  },
+})
+
+export const automationTaskActions = State.SQLite.table({
+  name: 'automationTaskActions',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    automationId: State.SQLite.text(),
+    firingId: State.SQLite.text(),
+    taskId: State.SQLite.text(),
+    action: State.SQLite.text(),
+    at: State.SQLite.text(),
   },
 })
 
@@ -3392,6 +3410,59 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  automationCheckAgentSet: Events.synced({
+    name: 'v1.AutomationCheckAgentSet',
+    schema: Schema.Struct({
+      automationId: Schema.String,
+      agentStep: Schema.String,
+      startTasks: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
+  automationCheckAgentQueued: Events.synced({
+    name: 'v1.AutomationCheckAgentQueued',
+    schema: Schema.Struct({
+      firingId: Schema.String,
+      commit: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  automationCheckAgentStarted: Events.synced({
+    name: 'v1.AutomationCheckAgentStarted',
+    schema: Schema.Struct({ firingId: Schema.String, at: Schema.String }),
+  }),
+  automationCheckAgentReported: Events.synced({
+    name: 'v1.AutomationCheckAgentReported',
+    schema: Schema.Struct({ firingId: Schema.String, summary: Schema.String, at: Schema.String }),
+  }),
+  automationCheckFallbackApplied: Events.synced({
+    name: 'v1.AutomationCheckFallbackApplied',
+    schema: Schema.Struct({
+      firingId: Schema.String,
+      reason: Schema.String,
+      updatedTaskIds: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  automationTaskNoted: Events.synced({
+    name: 'v1.AutomationTaskNoted',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      automationId: Schema.String,
+      firingId: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  taskStartedByAutomation: Events.synced({
+    name: 'v1.TaskStartedByAutomation',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      automationId: Schema.String,
+      firingId: Schema.String,
+      name: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   automationCheckTaskCreated: Events.synced({
     name: 'v1.AutomationCheckTaskCreated',
     schema: Schema.Struct({
@@ -3686,6 +3757,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskUnarchived': (args) => task(args, { queued: args.rank !== null }),
   'v1.TaskReset': (args) => task(args, { clarifyDepth: args.clarifyDepth }),
   'v1.TaskFollowsUp': (args) => task(args, { originalId: args.originalId }),
+  'v1.TaskStartedByAutomation': (args) =>
+    task(args, { automationId: args.automationId, firingId: args.firingId, name: args.name }),
   'v1.TaskFollowedUp': (args) => task(args, { followUpId: args.followUpId }),
   'v1.TaskSplitFrom': (args) => task(args, { originalId: args.originalId }),
   'v1.TaskSplit': (args) => task(args, { pieceIds: args.pieceIds, narrowedTo: args.narrowedTo }),
@@ -4299,6 +4372,7 @@ const materializers = counted(
         heldRuns.delete().where({ taskId }),
         messageDrafts.delete().where({ taskId }),
         automationCheckTasks.delete().where({ taskId }),
+        automationTaskActions.delete().where({ taskId }),
         ...(runIds.length === 0
           ? []
           : [
@@ -5005,6 +5079,7 @@ const materializers = counted(
         automationComments.delete().where({ automationId: id }),
         automationCheckResults.delete().where({ automationId: id }),
         automationCheckTasks.delete().where({ automationId: id }),
+        automationTaskActions.delete().where({ automationId: id }),
         runBrowserCaptures.delete().where({ automationId: id }),
         requestSnoozes.delete().where({ ownerId: id }),
       ],
@@ -5049,6 +5124,44 @@ const materializers = counted(
             updatedTaskIds: JSON.stringify(updatedTaskIds),
           })
           .onConflict('firingId', 'replace'),
+      'v1.AutomationCheckAgentSet': ({ automationId, agentStep, startTasks }) =>
+        automations
+          .update({ checkAgent: agentStep, checkStartTasks: startTasks })
+          .where({ id: automationId }),
+      'v1.AutomationCheckAgentQueued': ({ firingId, commit }) => [
+        automationFirings.update({ agentPhase: 'queued' }).where({ id: firingId }),
+        automationCheckResults.update({ agentCommit: commit }).where({ firingId }),
+      ],
+      'v1.AutomationCheckAgentStarted': ({ firingId }) =>
+        automationFirings.update({ agentPhase: 'started' }).where({ id: firingId }),
+      'v1.AutomationCheckAgentReported': ({ firingId, summary }) =>
+        automationCheckResults.update({ agentReport: summary }).where({ firingId }),
+      'v1.AutomationCheckFallbackApplied': ({ firingId, reason, updatedTaskIds }) =>
+        automationCheckResults
+          .update({ fallbackReason: reason, updatedTaskIds: JSON.stringify(updatedTaskIds) })
+          .where({ firingId }),
+      'v1.AutomationTaskNoted': ({ taskId, automationId, firingId, at }) =>
+        automationTaskActions
+          .insert({
+            id: `${firingId}:${taskId}:noted`,
+            automationId,
+            firingId,
+            taskId,
+            action: 'noted',
+            at,
+          })
+          .onConflict('id', 'ignore'),
+      'v1.TaskStartedByAutomation': ({ taskId, automationId, firingId, at }) =>
+        automationTaskActions
+          .insert({
+            id: `${firingId}:${taskId}:started`,
+            automationId,
+            firingId,
+            taskId,
+            action: 'started',
+            at,
+          })
+          .onConflict('id', 'ignore'),
       'v1.AutomationCheckTaskCreated': ({ at: _, ...link }) =>
         automationCheckTasks.insert(link).onConflict('taskId', 'replace'),
       'v1.AutomationCommentPosted': ({ choices, at, ...comment }) =>
@@ -5239,6 +5352,7 @@ const state = State.SQLite.makeState({
     automationComments,
     automationCheckResults,
     automationCheckTasks,
+    automationTaskActions,
     plans,
     planRequests,
     planTasks,

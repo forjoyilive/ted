@@ -10,6 +10,7 @@ import type {
   RunSummary,
   Task,
 } from '@ted/protocol'
+import { scheduledCheckPrompt } from '@ted/protocol/automation'
 import { billingNames } from '@ted/protocol/health'
 import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
@@ -774,10 +775,31 @@ export function AutomationView({
                                 <TaskLinks tasks={run.result.tasks} onOpenTask={onOpenTask} />
                               </>
                             )}
+                          {run.result.kind !== 'check-failed' &&
+                            run.check &&
+                            run.created &&
+                            run.created.length > 0 && (
+                              <>
+                                {' · created '}
+                                <TaskLinks tasks={run.created} onOpenTask={onOpenTask} />
+                              </>
+                            )}
                           {run.check?.updated && run.check.updated.length > 0 && (
                             <>
                               {' · updated '}
                               <TaskLinks tasks={run.check.updated} onOpenTask={onOpenTask} />
+                            </>
+                          )}
+                          {run.check?.agent?.noted && (
+                            <>
+                              {' · noted '}
+                              <TaskLinks tasks={run.check.agent.noted} onOpenTask={onOpenTask} />
+                            </>
+                          )}
+                          {run.check?.agent?.started && (
+                            <>
+                              {' · started '}
+                              <TaskLinks tasks={run.check.agent.started} onOpenTask={onOpenTask} />
                             </>
                           )}
                           {run.check && (
@@ -858,7 +880,47 @@ export function AutomationView({
                 : 'Runs at once: “Start fewer Runs when this computer is busy” is off'}
             </p>
           </Details>
-        ) : (
+        ) : null}
+        {automation.check && (
+          <Details title="Agent step">
+            <p className={styles.detailText}>
+              {automation.check.agentStep === 'never'
+                ? 'Never · TED creates one Task per failing test file'
+                : [
+                    automation.check.agentStep === 'always'
+                      ? 'After every run'
+                      : 'When the Check fails',
+                    agentLabels[automation.agent],
+                    automation.model,
+                    automation.effort,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+            </p>
+            {automation.check.agentStep !== 'never' && (
+              <p className={styles.detailNote}>
+                {automation.check.startTasks
+                  ? 'Starts the Tasks it creates'
+                  : 'Leaves the Tasks it creates in Backlog'}
+              </p>
+            )}
+          </Details>
+        )}
+        {automation.check && automation.check.agentStep !== 'never' && (
+          <Details title="Prompt">
+            <pre className={styles.prompt} data-open={promptOpen}>
+              {automation.prompt.trim() === '' ? scheduledCheckPrompt : automation.prompt}
+            </pre>
+            <ActionButton
+              type="button"
+              className={styles.taskLink}
+              onClick={() => setPromptOpen((o) => !o)}
+            >
+              {promptOpen ? 'Hide prompt' : 'Show prompt'}
+            </ActionButton>
+          </Details>
+        )}
+        {automation.check ? null : (
           <>
             <Details title="Agent">
               <p className={styles.detailText}>

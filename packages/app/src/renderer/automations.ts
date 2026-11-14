@@ -125,7 +125,11 @@ export function lastResult(run: AutomationRun | undefined, now: number): LastRes
       return {
         text: 'Check failed',
         failed: true,
-        tasks: [...run.result.tasks, ...(run.check?.updated ?? [])].map((t) => t.displayId),
+        tasks: [
+          ...run.result.tasks,
+          ...(run.check?.updated ?? []),
+          ...(run.check?.agent?.noted ?? []),
+        ].map((t) => t.displayId),
         ...age,
       }
     case 'no-new-tasks':
@@ -225,6 +229,12 @@ export function historyResult(run: AutomationRun): { text: string; failed?: true
     case 'queued':
       return { text: 'Queued', ...under }
     case 'running':
+      if (run.check?.agent) {
+        return {
+          text: run.check.agent.state === 'queued' ? 'Agent queued' : 'Agent working',
+          ...checkNotes(run, under),
+        }
+      }
       return { text: 'Running', ...under }
   }
 }

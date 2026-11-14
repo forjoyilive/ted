@@ -217,6 +217,27 @@ describe('the Automation view', () => {
     ).toBe('Timed out')
     expect(duration(run({ startedAt: minutes(-60), check }), now)).toBe('12m 34s')
     expect(
+      historyResult(
+        run({ result: { kind: 'running' }, check: { ...check, agent: { state: 'running' } } }),
+      ).text,
+    ).toBe('Agent working')
+    expect(
+      lastResult(
+        run({
+          finishedAt: minutes(-5),
+          result: { kind: 'check-failed', tasks: [] },
+          check: {
+            ...check,
+            agent: {
+              state: 'reported',
+              noted: [{ id: 't3', displayId: 'NB-3', title: 'z', stage: 'backlog' }],
+            },
+          },
+        }),
+        now,
+      ),
+    ).toMatchObject({ tasks: ['NB-3'] })
+    expect(
       lastResult(
         run({
           finishedAt: minutes(-5),

@@ -17,12 +17,14 @@ import {
   type AutomationTaskLink,
   type AutomationTemplate,
   type AutomationTrigger,
+  type CheckAgentRun,
   type CreateAutomationRequest,
   checkSchedule,
   describeSchedule,
   type EditAutomationRequest,
   type Effort,
   effectiveTimeZone,
+  isCommitId,
   nextFirings,
   type QueuedForSlot,
   type RunSlots,
@@ -37,12 +39,14 @@ import { type Clock, systemClock, type Timer } from '../clock.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
+import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { Sandbox } from '../sandbox.ts'
 import type {
   AutomationTaskRecord,
   StoredAutomation,
   StoredAutomationComment,
+  StoredCheckResult,
   StoredFiring,
 } from '../store/automations.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
@@ -54,6 +58,7 @@ import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import type { Workflows } from '../workflow/workflows.ts'
 import { writingGuidance } from '../writing.ts'
+import { agentRunsAfter, checkAgentPrompt } from './check-agent.ts'
 import {
   checkFailureText,
   failingTestFiles,
@@ -122,7 +127,8 @@ export interface Automations {
   setOn(ref: string, on: boolean, caller: Caller, factory?: string): Promise<Automation>
   runNow(ref: string, caller: Caller, factory?: string): Promise<AutomationRun>
   retry(firingId: string, caller: Caller): Promise<AutomationRun>
-  output(firingId: string): Promise<AutomationRunOutput>
+  output(firingId: string, caller?: Caller): Promise<AutomationRunOutput>
+  report(caller: Caller, summary: string): { reported: true }
   delete(ref: string, caller: Caller, factory?: string): Promise<void>
   removeFactory(factoryId: string): Promise<void>
   requests(): AutomationRequest[]
@@ -261,7 +267,8 @@ export function createAutomations(options: AutomationsOptions): Automations {
       if (firing.state !== 'started') continue
       const automation = saved.get(firing.automationId)
       const factory = automation && store.getFactory(automation.factoryId)
-      if (!automation?.checkout || !factory) continue
+      const agentCheckout = automation?.check !== undefined && firing.agentPhase === 'started'
+      if (!(automation?.checkout || agentCheckout) || !factory || !automation) continue
       await checkouts.restore({
         runId: firing.id,
         automationId: automation.id,
@@ -388,7 +395,11 @@ export function createAutomations(options: AutomationsOptions): Automations {
   function statusOf(firing: StoredFiring): Status {
     if (firing.state === 'queued') return 'queued'
     if (firing.state !== 'started') return 'ended'
-    if (checkOf(firing.automationId)) return checkRuns.has(firing.id) ? 'working' : 'ended'
+    if (checkOf(firing.automationId)) {
+      if (checkRuns.has(firing.id)) return 'working'
+      if (firing.agentPhase === undefined) return 'ended'
+      if (firing.agentPhase === 'queued') return 'queued'
+    }
     if (firing.resume === 'queued') return 'queued'
     const run = store.getRun(firing.id)
     if (!run) return 'queued'
@@ -405,17 +416,21 @@ export function createAutomations(options: AutomationsOptions): Automations {
     return firings.findLast((f) => f.state === 'queued' || f.state === 'started')
   }
 
-  const inQueue = (f: StoredFiring) =>
-    !starting.has(f.id) &&
-    (f.state === 'queued' || (f.state === 'started' && f.resume === 'queued'))
+  const inQueue = (f: StoredFiring) => {
+    if (starting.has(f.id) || (f.state !== 'queued' && f.state !== 'started')) return false
+    if (!checkOf(f.automationId)) return f.state === 'queued' || f.resume === 'queued'
+    return (
+      f.state === 'started' &&
+      (f.agentPhase === 'queued' || (f.agentPhase === 'started' && f.resume === 'queued'))
+    )
+  }
 
   function agentOf(firing: StoredFiring): AgentKind | undefined {
     return store.getRun(firing.id)?.agent ?? saved.get(firing.automationId)?.agent
   }
 
   function queuedFirings(): StoredFiring[] {
-    const checks = saved.checks()
-    const automationIds = new Set(live().flatMap((a) => (checks.has(a.id) ? [] : [a.id])))
+    const automationIds = new Set(live().map((a) => a.id))
     return saved.firings().filter((f) => automationIds.has(f.automationId) && inQueue(f))
   }
 
@@ -439,11 +454,16 @@ export function createAutomations(options: AutomationsOptions): Automations {
     runnable(id) {
       const firing = saved.firing(id)
       const agent = firing && agentOf(firing)
-      return (
-        agent !== undefined &&
-        !agentStartHold(store, agent, id) &&
-        store.agentPauses()[agent] === undefined
-      )
+      const hold =
+        agent === undefined
+          ? 'its agent is unknown'
+          : (agentStartHold(store, agent, id) ?? store.agentPauses()[agent])
+      if (hold !== undefined && firing?.agentPhase === 'queued' && !store.getRun(id)) {
+        setImmediate(() => {
+          void endCheckAgent(id, { why: `The agent Run couldn’t start: ${hold}` })
+        })
+      }
+      return hold === undefined
     },
     begin(id) {
       if (starting.has(id)) return
@@ -507,7 +527,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     const env = { TED_AUTOMATION: automation.id, TED_FACTORY: factory.key }
     if (firing.state === 'started' && firing.resume === 'queued') {
       try {
-        if (automation.checkout && !checkouts.get(id)) {
+        if ((automation.checkout || automation.check) && !checkouts.get(id)) {
           await checkouts.restore({
             runId: id,
             automationId: automation.id,
@@ -525,6 +545,10 @@ export function createAutomations(options: AutomationsOptions): Automations {
         saved.revived(id)
         fail(firing, `Couldn’t resume: ${messageOf(error)}`)
       }
+      return
+    }
+    if (firing.state === 'started' && firing.agentPhase === 'queued') {
+      await launchCheckAgent(firing, automation, factory, env)
       return
     }
     if (firing.state !== 'queued') return
@@ -573,6 +597,185 @@ export function createAutomations(options: AutomationsOptions): Automations {
         saved.began(id)
         fail(current, `Couldn’t start: ${messageOf(error)}`)
       }
+    }
+  }
+
+  async function launchCheckAgent(
+    firing: StoredFiring,
+    automation: StoredAutomation,
+    factory: StoredFactory,
+    env: Record<string, string>,
+  ): Promise<void> {
+    const id = firing.id
+    const check = automation.check
+    const result = saved.checkResults([id]).get(id)
+    if (!check || !result || !scheduledChecks) {
+      await endCheckAgent(id, { why: 'TED lost the Check’s result before the agent Run started' })
+      return
+    }
+    const held = store.newWorkHold()
+    if (held !== undefined) {
+      await endCheckAgent(id, { why: `The agent Run couldn’t start: ${held}` })
+      return
+    }
+    try {
+      const commit =
+        result.agentCommit !== undefined && isCommitId(result.agentCommit)
+          ? result.agentCommit
+          : undefined
+      const checkout = await checkouts.make({
+        runId: id,
+        automationId: automation.id,
+        name: automation.name,
+        factory,
+        ...(commit !== undefined && { commit }),
+      })
+      const { log, tail } = await scheduledChecks.saved(automation.id, id)
+      const tasks = createdBy(automation.id)
+      const openTasks = saved.createdTasks(automation.id).flatMap((link) => {
+        const task = tasks.get(link.taskId)
+        return task && !task.archived && task.stage !== 'done' ? [task] : []
+      })
+      const prompt = checkAgentPrompt({
+        name: automation.name,
+        factoryName: factory.name,
+        repos: checkout.repos.map((r) => r.name),
+        command: check.command,
+        timeout: check.timeout,
+        state: checkOutcome(result),
+        ...(result.exitCode !== undefined && { exitCode: result.exitCode }),
+        duration: duration(result.durationMs),
+        ranWhileBusy: result.ranWhileBusy,
+        skipped: result.skipped,
+        failing: result.failing,
+        ...(commit !== undefined && { commit }),
+        tail,
+        log,
+        startTasks: check.startTasks,
+        openTasks: openTasks.slice(-recentTasksShown),
+        instructions: automation.prompt,
+      })
+      await runs.start({
+        onStarting: () => saved.checkAgentStarted(id),
+        id,
+        agent: automation.agent,
+        prompt,
+        cwd: checkout.cwd,
+        name: automation.name,
+        permissions: 'auto',
+        env: { ...checkout.env, ...env },
+        ...(automation.model !== undefined && { model: automation.model }),
+        ...(automation.effort !== undefined && { effort: automation.effort }),
+      })
+    } catch (error) {
+      if (!store.getRun(id)) {
+        await endCheckAgent(id, { why: `The agent Run couldn’t start: ${messageOf(error)}` })
+      }
+    }
+  }
+
+  function checkOutcome(result: StoredCheckResult): 'passed' | 'failed' | 'timed-out' {
+    return result.state === 'passed' || result.state === 'timed-out' ? result.state : 'failed'
+  }
+
+  function checkAgentHold(automation: StoredAutomation): string | undefined {
+    return (
+      store.newWorkHold() ??
+      agentStartHold(store, automation.agent) ??
+      store.agentPauses()[automation.agent]
+    )
+  }
+
+  async function mechanicalTasks(
+    automation: StoredAutomation,
+    firingId: string,
+    result: {
+      state: 'failed' | 'timed-out'
+      exitCode?: number
+      commit?: string
+      failing: readonly string[]
+      tail: string
+      log: string
+    },
+  ): Promise<{ created: readonly string[]; updated: readonly string[] }> {
+    const check = automation.check
+    if (!check) return { created: [], updated: [] }
+    const at = iso(now())
+    const failures = planCheckFailures(automation.name, result.failing).map((plan) => {
+      const text = checkFailureText({
+        name: automation.name,
+        command: check.command,
+        state: result.state,
+        ...(result.exitCode !== undefined && { exitCode: result.exitCode }),
+        ...(result.commit !== undefined && { commit: result.commit }),
+        plan,
+        failing: result.failing,
+        tail: result.tail,
+        log: result.log,
+        at,
+      })
+      return {
+        key: plan.key,
+        title: plan.title,
+        description: text,
+        note: `It failed again.\n\n${text}`,
+      }
+    })
+    return (
+      (await options.checkFailed?.({
+        automationId: automation.id,
+        firingId,
+        factoryId: automation.factoryId,
+        failures,
+      })) ?? { created: [], updated: [] }
+    )
+  }
+
+  const endingAgents = new Set<string>()
+
+  async function endCheckAgent(
+    firingId: string,
+    end: { why?: string; stopped?: boolean },
+  ): Promise<void> {
+    if (closed || endingAgents.has(firingId)) return
+    endingAgents.add(firingId)
+    try {
+      const own = runOf(firingId)
+      if (own?.firing.state !== 'started') return
+      const result = saved.checkResults([firingId]).get(firingId)
+      const agentLine = store.getRun(firingId) ? finalMessage(firingId) : undefined
+      let fallback: string | undefined
+      if (result && result.agentReport === undefined && result.state !== 'passed') {
+        fallback = end.why ?? 'The agent Run ended without reporting'
+        const files = scheduledChecks
+          ? await scheduledChecks.saved(own.automation.id, firingId)
+          : { log: '', tail: '' }
+        const recorded = await mechanicalTasks(own.automation, firingId, {
+          state: result.state === 'timed-out' ? 'timed-out' : 'failed',
+          ...(result.exitCode !== undefined && { exitCode: result.exitCode }),
+          ...(result.agentCommit !== undefined && { commit: result.agentCommit }),
+          failing: result.failing,
+          tail: files.tail,
+          log: files.log,
+        })
+        if (closed) return
+        saved.checkFallbackApplied(firingId, firstLine(fallback, 500), recorded.updated)
+      }
+      const report = saved.checkResults([firingId]).get(firingId)?.agentReport
+      const message =
+        report !== undefined
+          ? firstLine(report)
+          : fallback !== undefined
+            ? `${firstLine(fallback, 200)}, so TED made its usual Tasks`
+            : agentLine
+      saved.ended(firingId, {
+        outcome: end.stopped && fallback === undefined ? 'stopped' : 'finished',
+        ...(message !== undefined && message !== '' && { message }),
+      })
+      release(firingId)
+      noteFailures(own.automation)
+    } finally {
+      endingAgents.delete(firingId)
     }
   }
 
@@ -676,6 +879,10 @@ export function createAutomations(options: AutomationsOptions): Automations {
   }
 
   function fail(firing: StoredFiring, error: string): void {
+    if (firing.agentPhase !== undefined && checkOf(firing.automationId)) {
+      void endCheckAgent(firing.id, { why: `The agent Run failed: ${firstLine(error, 300)}` })
+      return
+    }
     saved.ended(firing.id, { outcome: 'failed', error: firstLine(error, 500) })
     release(firing.id)
     const automation = saved.get(firing.automationId)
@@ -691,6 +898,14 @@ export function createAutomations(options: AutomationsOptions): Automations {
     if (limited.has(runId) || store.agentPauses()[run.agent] !== undefined) return
     if (openQuestion(own.firing)) return
     if ((unread.get(runId)?.length ?? 0) > 0) return
+    if (own.automation.check) {
+      void endCheckAgent(runId, {}).then(() =>
+        runs
+          .stop(runId)
+          .catch((error: unknown) => console.error(`couldn’t stop Run ${runId}:`, error)),
+      )
+      return
+    }
     const message = finalMessage(runId)
     saved.ended(own.firing.id, { outcome: 'finished', ...(message !== undefined && { message }) })
     release(own.firing.id)
@@ -705,6 +920,13 @@ export function createAutomations(options: AutomationsOptions): Automations {
     if (own?.firing.state !== 'started') return
     limited.delete(runId)
     const message = finalMessage(runId)
+    if (stopped && own.automation.check) {
+      void endCheckAgent(runId, {
+        stopped: true,
+        why: 'The agent Run was stopped before it reported',
+      })
+      return
+    }
     if (stopped) {
       saved.ended(runId, { outcome: 'stopped', ...(message !== undefined && { message }) })
       release(runId)
@@ -989,6 +1211,17 @@ export function createAutomations(options: AutomationsOptions): Automations {
       ranWhileBusy,
       skipped,
     }
+    if (agentRunsAfter(check, result.state)) {
+      const failing = result.state === 'passed' ? [] : failingTestFiles(result.output)
+      saved.checkAgentQueued(firingId, { ...base, failing, updatedTaskIds: [] }, result.commit)
+      const hold = checkAgentHold(automation)
+      if (hold !== undefined) {
+        await endCheckAgent(firingId, { why: `The agent Run couldn’t start: ${hold}` })
+        return
+      }
+      pump()
+      return
+    }
     if (result.state === 'passed') {
       saved.checkEnded(
         firingId,
@@ -1011,33 +1244,14 @@ export function createAutomations(options: AutomationsOptions): Automations {
       return
     }
     const failing = failingTestFiles(result.output)
-    const at = iso(now())
-    const failures = planCheckFailures(automation.name, failing).map((plan) => {
-      const text = checkFailureText({
-        name: automation.name,
-        command: check.command,
-        state: result.state === 'timed-out' ? 'timed-out' : 'failed',
-        ...(result.exitCode !== undefined && { exitCode: result.exitCode }),
-        ...(result.commit !== undefined && { commit: result.commit }),
-        plan,
-        failing,
-        tail: result.tail,
-        log: result.log,
-        at,
-      })
-      return {
-        key: plan.key,
-        title: plan.title,
-        description: text,
-        note: `It failed again.\n\n${text}`,
-      }
+    const recorded = await mechanicalTasks(automation, firingId, {
+      state: result.state === 'timed-out' ? 'timed-out' : 'failed',
+      ...(result.exitCode !== undefined && { exitCode: result.exitCode }),
+      ...(result.commit !== undefined && { commit: result.commit }),
+      failing,
+      tail: result.tail,
+      log: result.log,
     })
-    const recorded = (await options.checkFailed?.({
-      automationId: automation.id,
-      firingId,
-      factoryId: automation.factoryId,
-      failures,
-    })) ?? { created: [], updated: [] }
     if (closed) return
     saved.checkEnded(
       firingId,
@@ -1066,6 +1280,8 @@ export function createAutomations(options: AutomationsOptions): Automations {
       command: given.command,
       timeout: given.timeout ?? before?.timeout ?? defaultCheckTimeout,
       ...(runBy !== undefined && { runBy }),
+      agentStep: given.agentStep ?? before?.agentStep ?? 'on-failure',
+      startTasks: given.startTasks ?? before?.startTasks ?? false,
     }
   }
 
@@ -1083,7 +1299,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       }
     }
     if (run?.phase === 'slot') return { kind: 'paused', reason: 'waiting for a free Check slot' }
-    if (checkOf(firing.automationId)) {
+    if (checkOf(firing.automationId) && firing.agentPhase === undefined) {
       if (status === 'queued') return { kind: 'queued', place: 1 }
       return status === 'working' ? { kind: 'working' } : undefined
     }
@@ -1131,10 +1347,17 @@ export function createAutomations(options: AutomationsOptions): Automations {
     const shown = new Set(firings.map((f) => f.id))
     const theirs = links.filter((link) => shown.has(link.firingId))
     const results = saved.checkResults(firings.map((f) => f.id))
+    const actions = saved.taskActions(firings.map((f) => f.id))
     const tasks = saved.taskLinks([
       ...theirs.map((link) => link.taskId),
       ...[...results.values()].flatMap((r) => r.updatedTaskIds),
+      ...[...actions.values()].flatMap((a) => [...a.noted, ...a.started]),
     ])
+    const linksOf = (ids: readonly string[]) =>
+      ids.flatMap((id) => {
+        const task = tasks.get(id)
+        return task ? [task] : []
+      })
     const ran = saved.firingsWithRun(firings.map((f) => f.id))
     const screenshots = saved.browserCaptures(firings.map((f) => f.id))
     const created = new Map<string, AutomationTaskLink[]>()
@@ -1154,11 +1377,9 @@ export function createAutomations(options: AutomationsOptions): Automations {
         ...(result.ranWhileBusy && { ranWhileBusy: true as const }),
         ...(result.skipped.length > 0 && { skipped: result.skipped }),
         failing: result.failing,
-        ...(result.updatedTaskIds.length > 0 && {
-          updated: result.updatedTaskIds.flatMap((id) => {
-            const task = tasks.get(id)
-            return task ? [task] : []
-          }),
+        ...(result.updatedTaskIds.length > 0 && { updated: linksOf(result.updatedTaskIds) }),
+        ...(firing.agentPhase !== undefined && {
+          agent: agentOfFiring(firing, result, actions.get(firing.id), linksOf),
         }),
       }
       return historyRow(
@@ -1169,6 +1390,33 @@ export function createAutomations(options: AutomationsOptions): Automations {
         screenshots.get(firing.id),
       )
     })
+  }
+
+  function agentOfFiring(
+    firing: StoredFiring,
+    result: StoredCheckResult,
+    actions: { noted: string[]; started: string[] } | undefined,
+    linksOf: (ids: readonly string[]) => AutomationTaskLink[],
+  ): CheckAgentRun {
+    const state: CheckAgentRun['state'] =
+      firing.agentPhase === 'queued' && firing.state === 'started'
+        ? 'queued'
+        : firing.state === 'started'
+          ? 'running'
+          : result.agentReport !== undefined
+            ? 'reported'
+            : result.fallbackReason !== undefined
+              ? 'fallback'
+              : 'ended'
+    const noted = linksOf(actions?.noted ?? [])
+    const started = linksOf(actions?.started ?? [])
+    return {
+      state,
+      ...(result.agentReport !== undefined && { report: result.agentReport }),
+      ...(result.fallbackReason !== undefined && { fallback: result.fallbackReason }),
+      ...(noted.length > 0 && { noted }),
+      ...(started.length > 0 && { started }),
+    }
   }
 
   function historyRowOf(firing: StoredFiring): AutomationRun {
@@ -1275,7 +1523,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     const queued = loaded.records.flatMap(({ firings }, i) => {
       const automation = loaded.automations[i]
       const current = automation && previousRun(automation.id, firings)
-      return current && inQueue(current) && !checkOf(current.automationId) ? [current.id] : []
+      return current && inQueue(current) ? [current.id] : []
     })
     let slots: RunSlots | undefined
     if (queued.length > 0) {
@@ -1384,10 +1632,11 @@ export function createAutomations(options: AutomationsOptions): Automations {
 
   for (const firing of saved.firings()) {
     if (firing.state !== 'started' || firing.resume === 'queued') continue
-    if (checkOf(firing.automationId)) {
+    if (checkOf(firing.automationId) && firing.agentPhase === undefined) {
       fail(firing, 'TED stopped while this Check ran.')
       continue
     }
+    if (firing.agentPhase === 'queued') continue
     const run = store.getRun(firing.id)
     if (!run) {
       fail(firing, 'TED stopped before this Run started.')
@@ -1455,7 +1704,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
         {
           factoryId: factory.id,
           name: cleanName(input.name),
-          prompt: check ? '' : cleanPrompt(input.prompt),
+          prompt: check ? input.prompt : cleanPrompt(input.prompt),
           schedule: input.schedule,
           timeZone,
           agent,
@@ -1496,7 +1745,11 @@ export function createAutomations(options: AutomationsOptions): Automations {
         {
           name: input.name === undefined ? automation.name : cleanName(input.name),
           prompt:
-            before || input.prompt === undefined ? automation.prompt : cleanPrompt(input.prompt),
+            input.prompt === undefined
+              ? automation.prompt
+              : before
+                ? input.prompt
+                : cleanPrompt(input.prompt),
           schedule,
           timeZone,
           agent,
@@ -1541,7 +1794,10 @@ export function createAutomations(options: AutomationsOptions): Automations {
       }
       return historyRowOf(fireByHand(automation, 'retry', firing.id))
     },
-    async output(firingId) {
+    async output(firingId, caller = { kind: 'app' }) {
+      if (caller.kind === 'run' && caller.runId !== firingId) {
+        throw new RequestError(403, 'a Run reads only its own Check output')
+      }
       const firing = saved.firing(firingId)
       const automation = firing && saved.get(firing.automationId)
       if (!firing || !automation || !checkOf(automation.id) || !scheduledChecks) {
@@ -1558,6 +1814,15 @@ export function createAutomations(options: AutomationsOptions): Automations {
       for (const automation of saved.list().filter((a) => a.factoryId === factoryId)) {
         await remove(automation)
       }
+    },
+    report(caller, summary) {
+      const own = caller.kind === 'run' ? runOf(caller.runId) : undefined
+      if (!own?.automation.check || own.firing.agentPhase === undefined) {
+        throw new RequestError(403, 'only a Scheduled Check’s agent Run reports')
+      }
+      if (own.firing.state !== 'started') throw new RequestError(409, 'this Run has finished')
+      saved.checkAgentReported(own.firing.id, redactSecrets(summary))
+      return { reported: true }
     },
     requests() {
       const shown = new Map(live().map((a) => [a.id, a]))
@@ -1626,9 +1891,11 @@ export function createAutomations(options: AutomationsOptions): Automations {
   async function remove(automation: StoredAutomation): Promise<void> {
     await Promise.all(stopChecks(automation.id))
     const started = saved.firings(automation.id).filter((f) => f.state === 'started')
-    const open = checkOf(automation.id)
-      ? []
-      : started.filter((f) => store.getRun(f.id)?.state !== 'finished')
+    const open = started.filter((f) =>
+      checkOf(automation.id)
+        ? f.agentPhase === 'started' && store.getRun(f.id)?.state !== 'finished'
+        : store.getRun(f.id)?.state !== 'finished',
+    )
     saved.delete(automation.id)
     await scheduledChecks
       ?.remove(automation.id)

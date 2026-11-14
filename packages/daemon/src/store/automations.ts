@@ -9,6 +9,7 @@ import type {
   AutomationTaskLink,
   AutomationTemplateId,
   AutomationTrigger,
+  CheckAgentStep,
   DaemonEvent,
   Effort,
   StageId,
@@ -19,6 +20,7 @@ import {
   automationComments,
   automationFirings,
   automations,
+  automationTaskActions,
   automationTasks,
   events,
   runBrowserCaptures,
@@ -70,6 +72,7 @@ export interface StoredFiring {
   at: string
   startedAt?: string
   resume?: 'queued' | 'done'
+  agentPhase?: 'queued' | 'started'
   outcome?: FiringOutcome
   error?: string
   message?: string
@@ -93,6 +96,14 @@ export interface StoredCheckResult {
   skipped: string[]
   failing: string[]
   updatedTaskIds: string[]
+  agentCommit?: string
+  agentReport?: string
+  fallbackReason?: string
+}
+
+export interface AutomationTaskActions {
+  noted: string[]
+  started: string[]
 }
 
 export interface StoredAutomationComment {
@@ -119,6 +130,16 @@ export interface AutomationStore {
     end: { outcome: FiringOutcome; error?: string; message?: string },
     result?: Omit<StoredCheckResult, 'firingId' | 'automationId'>,
   ): void
+  checkAgentQueued(
+    id: string,
+    result: Omit<StoredCheckResult, 'firingId' | 'automationId'>,
+    commit: string | undefined,
+  ): void
+  checkAgentStarted(id: string): void
+  checkAgentReported(id: string, summary: string): void
+  checkFallbackApplied(id: string, reason: string, updatedTaskIds: readonly string[]): void
+  taskStarted(input: { taskId: string; automationId: string; firingId: string; name: string }): void
+  taskActions(firingIds: readonly string[]): Map<string, AutomationTaskActions>
   checkTasks(automationId: string): { taskId: string; key: string }[]
   touched(automationId: string): void
   switch(id: string, on: boolean, at: string): StoredAutomation
@@ -185,6 +206,8 @@ export function createAutomationStore({
     checkCommand,
     checkTimeout,
     checkRunBy,
+    checkAgent,
+    checkStartTasks,
     ...row
   }: typeof automations.Type): StoredAutomation => ({
     ...row,
@@ -193,6 +216,8 @@ export function createAutomationStore({
         command: checkCommand,
         timeout: checkTimeout ?? '2h',
         ...(checkRunBy !== null && { runBy: checkRunBy }),
+        agentStep: (checkAgent ?? 'never') as CheckAgentStep,
+        startTasks: checkStartTasks,
       },
     }),
     schedule: JSON.parse(schedule) as AutomationSchedule,
@@ -213,6 +238,7 @@ export function createAutomationStore({
     ...(row.retriedAt !== null && { retriedAt: row.retriedAt }),
     ...(row.startedAt !== null && { startedAt: row.startedAt }),
     ...(row.resume !== null && { resume: row.resume as 'queued' | 'done' }),
+    ...(row.agentPhase !== null && { agentPhase: row.agentPhase as 'queued' | 'started' }),
     ...(row.outcome !== null && { outcome: row.outcome as FiringOutcome }),
     ...(row.error !== null && { error: row.error }),
     ...(row.message !== null && { message: row.message }),
@@ -231,12 +257,38 @@ export function createAutomationStore({
     createdAt: row.createdAt,
   })
 
-  const checkEvent = (automationId: string, check: AutomationCheck, at: string) =>
+  const checkEvents = (automationId: string, check: AutomationCheck, at: string) => [
     events.automationCheckSet({
       automationId,
       command: check.command,
       timeout: check.timeout,
       runBy: check.runBy ?? null,
+      at,
+    }),
+    events.automationCheckAgentSet({
+      automationId,
+      agentStep: check.agentStep,
+      startTasks: check.startTasks,
+      at,
+    }),
+  ]
+
+  const checkFinished = (
+    firingId: string,
+    automationId: string,
+    result: Omit<StoredCheckResult, 'firingId' | 'automationId'>,
+    at: string,
+  ) =>
+    events.automationCheckFinished({
+      firingId,
+      automationId,
+      state: result.state,
+      exitCode: result.exitCode ?? null,
+      durationMs: result.durationMs,
+      ranWhileBusy: result.ranWhileBusy,
+      skipped: result.skipped,
+      failing: result.failing,
+      updatedTaskIds: result.updatedTaskIds,
       at,
     })
 
@@ -286,7 +338,7 @@ export function createAutomationStore({
           at,
         }),
         ...(checkout ? [events.automationCheckoutSet({ id, checkout, at })] : []),
-        ...(check ? [checkEvent(id, check, at)] : []),
+        ...(check ? checkEvents(id, check, at) : []),
       )
       updated(id)
       return require(id)
@@ -308,7 +360,7 @@ export function createAutomationStore({
             scheduleText !== JSON.stringify(before.schedule) || fields.timeZone !== before.timeZone,
           at,
         }),
-        ...(check ? [checkEvent(id, check, at)] : []),
+        ...(check ? checkEvents(id, check, at) : []),
       )
       updated(id)
       return require(id)
@@ -369,6 +421,9 @@ export function createAutomationStore({
             skipped: JSON.parse(row.skipped) as string[],
             failing: JSON.parse(row.failing) as string[],
             updatedTaskIds: JSON.parse(row.updatedTaskIds) as string[],
+            ...(row.agentCommit !== null && { agentCommit: row.agentCommit }),
+            ...(row.agentReport !== null && { agentReport: row.agentReport }),
+            ...(row.fallbackReason !== null && { fallbackReason: row.fallbackReason }),
           },
         ]),
       )
@@ -385,24 +440,55 @@ export function createAutomationStore({
           message: message ?? null,
           at,
         }),
-        ...(result
-          ? [
-              events.automationCheckFinished({
-                firingId: id,
-                automationId: found.automationId,
-                state: result.state,
-                exitCode: result.exitCode ?? null,
-                durationMs: result.durationMs,
-                ranWhileBusy: result.ranWhileBusy,
-                skipped: result.skipped,
-                failing: result.failing,
-                updatedTaskIds: result.updatedTaskIds,
-                at,
-              }),
-            ]
-          : []),
+        ...(result ? [checkFinished(id, found.automationId, result, at)] : []),
       )
       updated(found.automationId)
+    },
+    checkAgentQueued(id, result, agentCommit) {
+      const found = firing(id)
+      if (!found) return
+      const at = now()
+      commit(
+        checkFinished(id, found.automationId, result, at),
+        events.automationCheckAgentQueued({ firingId: id, commit: agentCommit ?? null, at }),
+      )
+      updated(found.automationId)
+    },
+    checkAgentStarted: (id) =>
+      firingEvent(id, (at) => events.automationCheckAgentStarted({ firingId: id, at })),
+    checkAgentReported: (id, summary) =>
+      firingEvent(id, (at) => events.automationCheckAgentReported({ firingId: id, summary, at })),
+    checkFallbackApplied: (id, reason, updatedTaskIds) =>
+      firingEvent(id, (at) =>
+        events.automationCheckFallbackApplied({
+          firingId: id,
+          reason,
+          updatedTaskIds: [...updatedTaskIds],
+          at,
+        }),
+      ),
+    taskStarted(input) {
+      commit(events.taskStartedByAutomation({ ...input, at: now() }))
+      updated(input.automationId)
+    },
+    taskActions(firingIds) {
+      const rows = inChunks(firingIds, (ids) =>
+        store.query(
+          queryDb(
+            automationTaskActions
+              .where({ firingId: { op: 'IN', value: ids } })
+              .orderBy('at', 'asc'),
+          ),
+        ),
+      )
+      const actions = new Map<string, AutomationTaskActions>()
+      for (const row of rows) {
+        const known = actions.get(row.firingId) ?? { noted: [], started: [] }
+        if (row.action === 'noted') known.noted.push(row.taskId)
+        else known.started.push(row.taskId)
+        actions.set(row.firingId, known)
+      }
+      return actions
     },
     touched(automationId) {
       emit({ type: 'automation-updated', automationId })

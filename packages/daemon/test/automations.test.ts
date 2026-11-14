@@ -994,7 +994,7 @@ describe('Automations', () => {
     expect(await client.ok<Automation[]>('GET', '/automations')).toEqual([])
   })
 
-  test('a scheduled Check waits while the computer is busy until its cutoff, runs sandboxed on the default branch, makes Tasks for failing tests and updates them when they fail again', async () => {
+  test('a scheduled Check waits while the computer is busy until its cutoff, runs sandboxed on the default branch, makes Tasks for failing tests and updates them when they fail again; its agent step files, notes and starts Tasks, and TED falls back when the agent doesn’t report', async () => {
     const client = await startTed()
     await client.ok('PATCH', '/settings', { adjustRunsToLoad: true })
     const fail = path.join(scratch, 'fail-check')
@@ -1007,11 +1007,11 @@ describe('Automations', () => {
     const automation = await create(client, {
       name: 'Nightly tests',
       prompt: undefined,
-      check: { command, timeout: '5m', runBy: '07:00' },
+      check: { command, timeout: '5m', runBy: '07:00', agentStep: 'never' },
     })
     expect(automation).toMatchObject({
       prompt: '',
-      check: { command, timeout: '5m', runBy: '07:00' },
+      check: { command, timeout: '5m', runBy: '07:00', agentStep: 'never', startTasks: false },
     })
     load = 5
     clock = Date.parse('2026-11-09T09:00:05Z')
@@ -1093,6 +1093,95 @@ describe('Automations', () => {
       ),
     ).toHaveLength(2)
     expect(await readdir(tedPaths(home).automationRuns).catch(() => [])).toEqual([])
+
+    const manual = await client.ok<Task>('POST', '/tasks', { factory: 'NB', title: 'Manual task' })
+    const run = (...args: string[]) => ({ run: ['ted', ...args] })
+    await client.ok('PATCH', `/automations/${automation.id}`, {
+      check: { command, agentStep: 'on-failure', startTasks: true },
+      prompt: steps(
+        run('task', 'create', '--description', 'a and b share one cause', 'Fix the shared parser'),
+        run('automation', 'note', created[0]?.displayId ?? '', 'Same cause as the parser'),
+        run('automation', 'note', manual.displayId, 'Not ours'),
+        run('automation', 'start', 'NB-4'),
+        run('automation', 'start', created[0]?.displayId ?? ''),
+        run('task', 'create', '--start', 'Started at once'),
+        run('automation', 'output'),
+        run('automation', 'report', 'One parser bug breaks a and b; filed NB-4'),
+        { endTurn: true },
+      ),
+    })
+    clock = Date.parse('2026-11-10T07:30:00Z')
+    await client.ok('POST', `/automations/${automation.id}/run`)
+    const [reported] = await waitForHistory(
+      client,
+      automation.id,
+      (r) => r[0]?.check?.agent?.state === 'reported',
+      'the agent step to report',
+    )
+    expect(reported).toMatchObject({
+      result: {
+        kind: 'check-failed',
+        tasks: [{ displayId: 'NB-4', title: 'Fix the shared parser' }],
+      },
+      message: 'One parser bug breaks a and b; filed NB-4',
+      check: {
+        state: 'failed',
+        agent: {
+          report: 'One parser bug breaks a and b; filed NB-4',
+          noted: [{ id: created[0]?.id }],
+          started: [{ displayId: 'NB-4' }],
+        },
+      },
+    })
+    expect(reported?.check?.updated).toBeUndefined()
+    const agentSaid = (await said(client, reported?.runId ?? '')).join('\n')
+    expect(agentSaid).toContain('wasn’t created by this Automation')
+    expect(agentSaid).toContain('wasn’t created by this Run')
+    expect(agentSaid).toContain('create it without --start')
+    expect(agentSaid).toContain('FAIL  |node| packages/x/test/a.test.ts')
+    const noted = await client.ok<{ body: string }[]>(
+      'GET',
+      `/tasks/${created[0]?.displayId}/comments`,
+    )
+    expect(noted.at(-1)?.body).toBe(
+      'From the Automation “Nightly tests”:\n\nSame cause as the parser',
+    )
+    await waitUntil(
+      async () =>
+        (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.displayId === 'NB-4')?.stage !==
+        'backlog',
+      'the agent’s Task to start',
+    )
+    expect(
+      (await client.ok<Task[]>('GET', '/tasks')).filter(
+        (t) => t.factoryId === automation.factoryId,
+      ),
+    ).toHaveLength(4)
+
+    await client.ok('PATCH', `/automations/${automation.id}`, {
+      check: { command, startTasks: false },
+      prompt: steps(run('automation', 'start', 'NB-4'), { endTurn: true }),
+    })
+    clock = Date.parse('2026-11-10T07:40:00Z')
+    await client.ok('POST', `/automations/${automation.id}/run`)
+    const [fellBack] = await waitForHistory(
+      client,
+      automation.id,
+      (r) => r[0]?.check?.agent?.state === 'fallback',
+      'TED to fall back after the agent ends without reporting',
+    )
+    expect(fellBack).toMatchObject({
+      result: { kind: 'check-failed', tasks: [] },
+      check: { agent: { fallback: 'The agent Run ended without reporting' } },
+    })
+    expect(fellBack?.check?.updated?.map((t) => t.id)).toEqual(created.map((t) => t.id))
+    expect((await said(client, fellBack?.runId ?? '')).join('\n')).toContain(
+      'Start the Tasks it creates',
+    )
+    await waitUntil(
+      async () => (await readdir(tedPaths(home).automationRuns).catch(() => [])).length === 0,
+      'the agent checkout to go',
+    )
 
     await client.ok('DELETE', `/automations/${automation.id}`)
     expect(await readdir(checkLogs())).toEqual([])
