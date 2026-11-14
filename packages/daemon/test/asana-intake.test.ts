@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -17,6 +17,7 @@ import {
   api,
   appClient,
   assistantTexts,
+  hostsStarted,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -222,7 +223,7 @@ test('intake imports eligible roots from the saved section with their subtasks, 
 })
 
 test('saving, stale and changing scopes, and Automation imports are checked against fresh Asana reads and one Run’s Task limit', async () => {
-  const client = await start(4)
+  let client = await start(4)
   await connect(client)
   await client.addFactory({ repo: origin, key: 'NB' })
   const factory = (await client.listFactories()).find((f) => f.key === 'NB')
@@ -277,7 +278,7 @@ test('saving, stale and changing scopes, and Automation imports are checked agai
   expect(await refused(client.runAsanaIntake({ factory: 'NB' }))).toContain('out of date')
   asanaWorld()
 
-  const local = api(daemon?.port ?? 0, { appKey: daemon?.appToken ?? '' })
+  let local = api(daemon?.port ?? 0, { appKey: daemon?.appToken ?? '' })
   const plain = await client.createTask({ factory: 'NB', title: 'Plain work' })
   const automation = (
     await local.call('POST', '/automations', {
@@ -302,6 +303,7 @@ test('saving, stale and changing scopes, and Automation imports are checked agai
               'Again',
             ],
           },
+          { waitFor: path.join(scratch, 'release') },
           { run: ['ted', 'asana', 'intake'] },
           { endTurn: true },
         ],
@@ -309,6 +311,22 @@ test('saving, stale and changing scopes, and Automation imports are checked agai
     })
   ).body as { id: string }
   expect((await local.call('POST', `/automations/${automation.id}/run`)).status).toBeLessThan(300)
+  const runId = await waitUntil(async () => {
+    const detail = (await local.call('GET', `/automations/${automation.id}`))
+      .body as AutomationDetail
+    return detail.history[0]?.runId
+  }, 'the Automation Run started')
+  await waitUntil(async () => {
+    const run = (await local.call('GET', `/runs/${runId}`)).body as RunWithConversation
+    return assistantTexts(run.conversation).filter((text) => text.includes('"code"')).length >= 4
+  }, 'the first four commands ran')
+  await hostsStarted(home)
+  await daemon?.stop()
+  daemon = undefined
+  client = await start(4)
+  const restarted = daemon as RunningDaemon | undefined
+  local = api(restarted?.port ?? 0, { appKey: restarted?.appToken ?? '' })
+  await writeFile(path.join(scratch, 'release'), '')
   const row = await waitUntil(async () => {
     const detail = (await local.call('GET', `/automations/${automation.id}`))
       .body as AutomationDetail

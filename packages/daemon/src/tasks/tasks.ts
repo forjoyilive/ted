@@ -4285,14 +4285,21 @@ export function createTasks(options: {
 
   class IntakeBudgetError extends Error {}
 
-  const asanaFiringCreated = new Map<string, number>()
   const intakeLimit = options.asana?.intakeLimit ?? maxAsanaIntakeTasks
 
-  function asanaAllowance(automation: { link: { firingId: string } } | undefined): number {
-    for (const id of asanaFiringCreated.keys())
-      if (store.automations.firing(id)?.state !== 'started') asanaFiringCreated.delete(id)
+  function asanaAllowance(
+    automation: { link: { automationId: string; firingId: string } } | undefined,
+  ): number {
     if (!automation) return Number.POSITIVE_INFINITY
-    return intakeLimit - (asanaFiringCreated.get(automation.link.firingId) ?? 0)
+    const { automationId, firingId } = automation.link
+    const used = store.automations
+      .createdTasks(automationId)
+      .filter(
+        (row) =>
+          row.firingId === firingId &&
+          parseAsanaTaskUrl(store.getTask(row.taskId)?.source?.url ?? '') !== undefined,
+      ).length
+    return intakeLimit - used
   }
 
   interface IntakeImport {
@@ -4631,10 +4638,6 @@ export function createTasks(options: {
       ],
     })
     const created = [...result.created.values()]
-    if (automation) {
-      const firingId = automation.link.firingId
-      asanaFiringCreated.set(firingId, (asanaFiringCreated.get(firingId) ?? 0) + created.length)
-    }
     const existingParents = new Set([
       ...plan.creates.flatMap(({ parent }) =>
         parent && 'taskId' in parent ? [parent.taskId] : [],
