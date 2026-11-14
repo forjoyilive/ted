@@ -151,6 +151,7 @@ export function demoEnvironment(
     TED_GH_BIN: path.resolve(home, 'bin', 'stub-gh.mjs'),
     TED_XCRUN_BIN: fixture('stub-xcrun.ts'),
     TED_OPEN_BIN: fixture('stub-xcrun.ts'),
+    TED_IDB_BIN: fixture('stub-idb.ts'),
     TED_STUB_XCRUN: path.join(home, 'xcrun.json'),
     TED_KEYRING_MODULE: fixture('stub-keyring.ts'),
     TED_LINEAR_API: 'http://127.0.0.1:9/graphql',

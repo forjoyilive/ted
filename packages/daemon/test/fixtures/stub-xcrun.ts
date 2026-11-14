@@ -6,6 +6,7 @@ interface StubDevice {
   udid: string
   name: string
   state: 'Booted' | 'Shutdown'
+  appearance?: 'light' | 'dark'
   isAvailable: boolean
   deviceTypeIdentifier: string
 }
@@ -173,6 +174,17 @@ if (verb === 'io') {
           fail('Unable to shutdown device in current state: Shutdown', 149)
         }
         target.state = 'Shutdown'
+        write(current)
+        return ''
+      }
+      case 'ui': {
+        const [udid = '', what, value] = rest
+        const target = device(current, udid)
+        if (target.state !== 'Booted')
+          fail('Unable to change appearance: device is not booted', 149)
+        if (what !== 'appearance' || (value !== 'light' && value !== 'dark'))
+          fail(`unknown ui setting ${what} ${value}`)
+        target.appearance = value
         write(current)
         return ''
       }

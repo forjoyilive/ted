@@ -9,6 +9,8 @@ import type {
   BootedSimulator,
   Comment,
   DaemonEvent,
+  DevicePoint,
+  DeviceRequest,
   SimulatorAsk,
   SimulatorSlots,
 } from '@ted/protocol'
@@ -17,6 +19,8 @@ import type { Banners } from '../banners.ts'
 import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
 import type { TedStore } from '../store/index.ts'
+import { centre, formatScreen } from './android-screen.ts'
+import { iosKeyCodes, iosText, parseIdbScreen } from './ios-screen.ts'
 
 export interface SimctlResult {
   code: number
@@ -26,16 +30,19 @@ export interface SimctlResult {
 
 export interface SimulatorTools {
   simctl(args: string[]): Promise<SimctlResult>
+  idb(args: string[]): Promise<SimctlResult>
   open(args: string[]): Promise<void>
   record(udid: string, file: string): ChildProcess
 }
 
 export function createSimulatorTools(options: {
   xcrun?: string
+  idb?: string
   open?: string
   env: () => NodeJS.ProcessEnv
 }): SimulatorTools {
   const xcrun = options.xcrun ?? 'xcrun'
+  const idb = options.idb ?? 'idb'
   const opener = options.open ?? '/usr/bin/open'
   const run = (command: string, args: string[]) =>
     new Promise<SimctlResult>((resolve) => {
@@ -52,6 +59,7 @@ export function createSimulatorTools(options: {
     })
   return {
     simctl: (args) => run(xcrun, ['simctl', ...args]),
+    idb: (args) => run(idb, args),
     async open(args) {
       await run(opener, args)
     },
@@ -104,6 +112,14 @@ export interface Simulators {
   shutDown(taskId: string, repo: string, name: string): Promise<void>
   show(taskId: string, repo: string, name: string): Promise<void>
   screenshot(taskId: string, repo: string, name: string): Promise<string>
+  control(taskId: string, repo: string, name: string, request: DeviceRequest): Promise<string>
+  deviceType(taskId: string, repo: string, name: string): string | undefined
+  chooseDeviceType(
+    taskId: string,
+    repo: string,
+    name: string,
+    size: string,
+  ): Promise<string | undefined>
   startRecording(taskId: string, repo: string, name: string): Promise<void>
   stopRecording(taskId: string, repo: string, name: string): Promise<string>
   remove(taskId: string, repo?: string): Promise<void>
@@ -138,6 +154,9 @@ interface Recording {
 
 export const simulatorToolsProblem = 'simulator-tools'
 
+export const idbMissing =
+  'TED drives iOS simulators through Meta’s idb, which isn’t installed on this Mac. Install it with brew install facebook/fb/idb-companion and pip3 install fb-idb, then try again.'
+
 const lineTicket = 'line:'
 
 const slug = (name: string) =>
@@ -167,6 +186,11 @@ export function createSimulators(options: {
   const records = new Map<string, DeviceRecord>(Object.entries(readRecords(file)))
   const booted = new Set<string>()
   const recordings = new Map<string, Recording>()
+  const screens = new Map<
+    string,
+    { refs: Map<string, DevicePoint>; width: number; height: number }
+  >()
+  const deviceTypes = new Map<string, string>()
   let queue: Promise<unknown> = Promise.resolve()
   let releaseIdle: (() => void) | undefined
   let closed = false
@@ -651,6 +675,151 @@ export function createSimulators(options: {
       touch(record)
       return out
     },
+    async control(taskId, repo, name, request) {
+      const record = needsLive(taskId, repo, name)
+      const key = keyOf(taskId, repo, name)
+      const udid = record.udid
+      const idb = async (args: string[], what: string) => {
+        const [group = '', verb = '', ...rest] = args
+        const result = await tools.idb([group, verb, '--udid', udid, ...rest])
+        if (result.code === 127 || /ENOENT/.test(result.stderr))
+          throw new RequestError(409, idbMissing)
+        if (result.code !== 0)
+          throw new RequestError(
+            409,
+            `TED couldn’t ${what}: ${firstLine(result.stderr || result.stdout)}`,
+          )
+        return result
+      }
+      const read = async () => {
+        const out = await idb(['ui', 'describe-all', '--json'], 'read the screen')
+        const screen = parseIdbScreen(out.stdout)
+        if (!screen)
+          throw new RequestError(409, 'TED couldn’t read the screen; try again in a moment')
+        screens.set(key, {
+          refs: new Map(screen.elements.map((e) => [e.ref, centre(e)])),
+          width: screen.width,
+          height: screen.height,
+        })
+        return screen
+      }
+      const inside = async (...points: DevicePoint[]) => {
+        const size = screens.get(key) ?? (await read())
+        for (const { x, y } of points) {
+          if (x >= size.width || y >= size.height)
+            throw new RequestError(
+              400,
+              `${x},${y} is off the screen, which is ${size.width}x${size.height} points`,
+            )
+        }
+      }
+      touch(record)
+      switch (request.action) {
+        case 'screen':
+          return formatScreen(name, await read(), randomUUID().slice(0, 8))
+        case 'tap': {
+          let point = request.point
+          if (request.ref !== undefined) {
+            point = screens.get(key)?.refs.get(request.ref)
+            if (!point)
+              throw new RequestError(
+                409,
+                `No element ${request.ref} on the last screen read. Run ted app screen ${name} again.`,
+              )
+          }
+          if (!point) throw new RequestError(400, 'Tap an element reference or a point x,y')
+          await inside(point)
+          await idb(['ui', 'tap', String(point.x), String(point.y)], 'tap')
+          return `Tapped ${point.x},${point.y}. Run ted app screen ${name} to see what changed.`
+        }
+        case 'swipe': {
+          const { point: from, to } = request
+          if (!from || !to) throw new RequestError(400, 'Give the swipe’s start and end points')
+          await inside(from, to)
+          await idb(['ui', 'swipe', ...[from.x, from.y, to.x, to.y].map(String)], 'swipe')
+          return `Swiped from ${from.x},${from.y} to ${to.x},${to.y}.`
+        }
+        case 'type': {
+          const text = request.text ?? ''
+          if (!iosText(text))
+            throw new RequestError(
+              400,
+              'TED can type only printable ASCII characters into an iOS simulator, without line breaks; press enter with ted app key',
+            )
+          await idb(['ui', 'text', '--', text], 'type')
+          return `Typed ${text.length} characters.`
+        }
+        case 'key': {
+          if (request.key === 'back')
+            throw new RequestError(
+              400,
+              'iOS has no back key. Tap the screen’s back button instead, usually at the top left.',
+            )
+          if (request.key === 'home') {
+            await idb(['ui', 'button', 'HOME'], 'press home')
+            return 'Pressed home.'
+          }
+          const code = request.key === undefined ? undefined : iosKeyCodes[request.key]
+          if (code === undefined) throw new RequestError(400, 'Give a key')
+          await idb(['ui', 'key', String(code)], `press ${request.key}`)
+          return `Pressed ${request.key}.`
+        }
+        case 'appearance': {
+          const dark = request.appearance === 'dark'
+          const result = await tools.simctl(['ui', udid, 'appearance', dark ? 'dark' : 'light'])
+          if (result.code !== 0)
+            throw new RequestError(
+              409,
+              `TED couldn’t switch to ${request.appearance} mode: ${firstLine(result.stderr)}`,
+            )
+          return `${name} is in ${dark ? 'dark' : 'light'} mode.`
+        }
+        default:
+          throw new RequestError(400, `ted app ${request.action} isn’t an input action`)
+      }
+    },
+    deviceType(taskId, repo, name) {
+      return deviceTypes.get(keyOf(taskId, repo, name))
+    },
+    async chooseDeviceType(taskId, repo, name, size) {
+      const key = keyOf(taskId, repo, name)
+      needsLive(taskId, repo, name)
+      if (size === 'reset') {
+        deviceTypes.delete(key)
+        screens.delete(key)
+        return undefined
+      }
+      if (/^\d+x\d+$/.test(size))
+        throw new RequestError(
+          400,
+          'An iOS simulator’s screen can’t be resized. Name a device type instead, such as ted app size <App> "iPhone SE (3rd generation)", or reset.',
+        )
+      const result = await tools.simctl(['list', 'devicetypes', '--json'])
+      if (result.code !== 0)
+        throw new RequestError(
+          409,
+          `Xcode didn’t list its device types: ${firstLine(result.stderr)}`,
+        )
+      const listed = (
+        ((parseJson(result.stdout) as { devicetypes?: unknown[] }).devicetypes ?? []) as Record<
+          string,
+          unknown
+        >[]
+      )
+        .map((t) => t.name)
+        .filter((n): n is string => typeof n === 'string')
+      const found = listed.find((n) => n.toLowerCase() === size.toLowerCase())
+      if (!found) {
+        const phones = listed.filter((n) => /^(iPhone|iPad)/.test(n)).slice(-8)
+        throw new RequestError(
+          400,
+          `Xcode has no device type called “${size}”.${phones.length > 0 ? ` Try one of: ${phones.join(', ')}.` : ''}`,
+        )
+      }
+      deviceTypes.set(key, found)
+      screens.delete(key)
+      return found
+    },
     async startRecording(taskId, repo, name) {
       const record = needsLive(taskId, repo, name)
       if (recordings.has(record.udid)) {
@@ -696,6 +865,8 @@ export function createSimulators(options: {
           await tools.simctl(['delete', record.udid])
           booted.delete(record.udid)
           records.delete(key)
+          screens.delete(key)
+          deviceTypes.delete(key)
         }
         await save()
         changed()

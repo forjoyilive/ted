@@ -84,6 +84,7 @@ export interface SimulatorOptions {
   supported?: boolean
   tools?: SimulatorTools
   xcrun?: string
+  idb?: string
   open?: string
   banners?: Banners
   pollMs?: number
@@ -278,6 +279,7 @@ export function createApps(options: AppsOptions): Apps {
       simulatorOptions.tools ??
       createSimulatorTools({
         ...(simulatorOptions.xcrun !== undefined && { xcrun: simulatorOptions.xcrun }),
+        ...(simulatorOptions.idb !== undefined && { idb: simulatorOptions.idb }),
         ...(simulatorOptions.open !== undefined && { open: simulatorOptions.open }),
         env: () => options.env?.() ?? process.env,
       }),
@@ -343,7 +345,9 @@ export function createApps(options: AppsOptions): Apps {
       factoryId: task.factoryId,
       repo,
       name: app.name,
-      device: app.device ?? (isEmulatorApp(app) ? '' : 'iPhone 16'),
+      device: isEmulatorApp(app)
+        ? (app.device ?? '')
+        : (sims.deviceType(taskId, repo, app.name) ?? app.device ?? 'iPhone 16'),
     }) satisfies SimulatorApp
 
   const deviceEnv = (app: AppDeclaration, id: string): Record<string, string> =>
@@ -1206,12 +1210,29 @@ export function createApps(options: AppsOptions): Apps {
     },
     async control(taskId, request) {
       const { repo, app } = await deviceApp(taskId, request.app)
-      if (app.kind !== 'android-emulator')
-        throw new RequestError(
-          409,
-          `TED can’t drive ${app.name} yet: only Android emulator Apps take input so far`,
+      if (isEmulatorApp(app)) return emus.control(taskId, repo.name, app.name, request)
+      if (request.action !== 'size') return sims.control(taskId, repo.name, app.name, request)
+      if (request.density !== undefined)
+        throw new RequestError(400, 'An iOS simulator’s density comes with its device type')
+      const before = sims.deviceType(taskId, repo.name, app.name)
+      const chosen = await sims.chooseDeviceType(taskId, repo.name, app.name, request.size ?? '')
+      if (chosen === before)
+        return `${app.name} already runs on ${chosen ?? app.device ?? 'iPhone 16'}.`
+      const restarted = await serial(keyOf(taskId, repo.name, app.name), async () => {
+        const instance = await readInstance(dirOf(taskId, repo.name, app.name))
+        const wasLive = await stopNow(taskId, repo.name, app.name)
+        return startNow(
+          taskId,
+          { repo: repo.name, name: app.name },
+          instance?.startedBy ?? 'automation',
+          instance?.runId === undefined ? {} : { runId: instance.runId },
+          wasLive,
         )
-      return emus.control(taskId, repo.name, app.name, request)
+      })
+      const device = chosen ?? app.device ?? 'iPhone 16'
+      return restarted.state === 'waiting'
+        ? `${app.name} will run on ${device} once a simulator slot is free; ted run-app ${app.name} waits for it.`
+        : `${app.name} now runs on ${device}. Read it again with ted app screen ${app.name}.`
     },
     async record(taskId, ref, action) {
       const { repo, app } = await simulatorApp(taskId, ref)
