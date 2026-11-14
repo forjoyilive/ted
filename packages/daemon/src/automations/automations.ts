@@ -154,7 +154,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     if (stale.length === 0) return all
     const at = iso(now())
     for (const automation of stale) {
-      const { name, prompt, schedule, agent, model, effort } = automation
+      const { name, prompt, schedule, agent, model, effort, checkout } = automation
       saved.edit(
         automation.id,
         {
@@ -162,6 +162,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
           prompt,
           schedule,
           agent,
+          checkout,
           timeZone,
           ...(model !== undefined && { model }),
           ...(effort !== undefined && { effort }),
@@ -798,6 +799,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       ...(automation.model !== undefined && { model: automation.model }),
       ...(automation.effort !== undefined && { effort: automation.effort }),
       on: automation.on,
+      ...(automation.checkout && { checkout: true as const }),
       ...(automation.template !== undefined && { template: automation.template }),
       createdAt: automation.createdAt,
       nextFirings: automation.on
@@ -1009,6 +1011,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
           ...(model !== undefined && { model }),
           ...(effort !== undefined && { effort }),
           on: input.on !== false,
+          checkout: input.checkout === true,
           ...(input.template !== undefined && { template: input.template }),
         },
         iso(now()),
@@ -1039,6 +1042,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
           schedule,
           timeZone,
           agent,
+          checkout: input.checkout ?? automation.checkout,
           ...(model !== undefined && { model }),
           ...(effort !== undefined && { effort }),
         },

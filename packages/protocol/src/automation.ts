@@ -13,6 +13,7 @@ export interface AutomationTemplate {
   summary: string
   prompt: string
   schedule: AutomationSchedule
+  checkout?: true
 }
 
 export type AutomationTrigger = 'scheduled' | 'made-up' | 'run-now' | 'retry'
@@ -83,6 +84,7 @@ export interface Automation {
   model?: string
   effort?: Effort
   on: boolean
+  checkout?: true
   template?: AutomationTemplateId
   createdAt: string
   nextFirings: string[]
@@ -106,6 +108,7 @@ export interface AutomationInput {
   model?: string
   effort?: Effort
   on?: boolean
+  checkout?: boolean
   template?: AutomationTemplateId
 }
 

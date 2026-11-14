@@ -85,6 +85,12 @@ function fields(body: Record<string, unknown>): Partial<Omit<AutomationInput, 't
     if (typeof body.on !== 'boolean') throw new HttpError(400, 'on must be true or false')
     out.on = body.on
   }
+  if (body.checkout !== undefined) {
+    if (typeof body.checkout !== 'boolean') {
+      throw new HttpError(400, 'checkout must be true or false')
+    }
+    out.checkout = body.checkout
+  }
   return out
 }
 

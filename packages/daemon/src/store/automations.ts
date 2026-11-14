@@ -33,12 +33,15 @@ export interface StoredAutomation {
   model?: string
   effort?: Effort
   on: boolean
+  checkout: boolean
   template?: AutomationTemplateId
   handledUntil: string
   createdAt: string
 }
 
-export type NewAutomation = Omit<StoredAutomation, 'id' | 'handledUntil' | 'createdAt'>
+export type NewAutomation = Omit<StoredAutomation, 'id' | 'handledUntil' | 'createdAt' | 'checkout'> & {
+  checkout?: boolean
+}
 
 export type AutomationFields = Omit<NewAutomation, 'factoryId' | 'on' | 'template'>
 
@@ -217,7 +220,7 @@ export function createAutomationStore({
     list: () =>
       store.query(queryDb(automations.orderBy('createdAt', 'asc'))).map((row) => toAutomation(row)),
     get,
-    create({ schedule, model, effort, template, ...input }, at) {
+    create({ schedule, model, effort, template, checkout, ...input }, at) {
       const id = randomUUID()
       commit(
         events.automationCreated({
@@ -229,14 +232,18 @@ export function createAutomationStore({
           template: template ?? null,
           at,
         }),
+        ...(checkout ? [events.automationCheckoutSet({ id, checkout, at })] : []),
       )
       updated(id)
       return require(id)
     },
-    edit(id, { schedule, model, effort, ...fields }, at) {
+    edit(id, { schedule, model, effort, checkout, ...fields }, at) {
       const before = require(id)
       const scheduleText = JSON.stringify(schedule)
       commit(
+        ...(checkout !== undefined && checkout !== before.checkout
+          ? [events.automationCheckoutSet({ id, checkout, at })]
+          : []),
         events.automationEdited({
           ...fields,
           id,
