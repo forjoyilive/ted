@@ -55,7 +55,7 @@ function syncNote(sync: boolean, switchOn: boolean, tracked: boolean): string {
   if (!sync)
     return `The new Tasks won’t update Asana. Choose Sync with Asana in a Task’s menu to turn it on later.${kept}`
   if (!switchOn)
-    return 'Task Sync is off in Settings, so TED won’t update Asana until you turn it on.'
+    return `Task Sync is off in Settings, so TED won’t update Asana until you turn it on.${kept}`
   return `TED comments on each Asana task with each pull request and completes it once its Task merges.${kept}`
 }
 

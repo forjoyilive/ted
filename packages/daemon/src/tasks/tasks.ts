@@ -4617,11 +4617,19 @@ export function createTasks(options: {
     return result
   }
 
-  function answeredOnSyncedTask(commentId: string, account: string): boolean {
-    const taskId = store.getComment(commentId)?.taskId
-    if (taskId === undefined) return false
+  function asanaSyncChoice(
+    input: AsanaImportRequest,
+    caller: Caller,
+    closing: AsanaClosing | undefined,
+    account: string,
+  ): 'grant' | 'decline' | undefined {
+    if (caller.kind !== 'app') return undefined
+    if (closing === undefined) return input.taskSync === false ? 'decline' : 'grant'
+    const taskId = store.getComment(closing.commentId)?.taskId
+    if (taskId === undefined) return undefined
     const record = store.trackerSync(taskId, 'asana')
-    return record.allowed && record.allowedAccount === account
+    if (record.declined) return 'decline'
+    return record.allowed && record.allowedAccount === account ? 'grant' : undefined
   }
 
   async function importAsanaNow(
@@ -4688,10 +4696,7 @@ export function createTasks(options: {
     )
     const held = automation !== undefined && (!resolution || runsInBypass(resolution))
     const lead = { ...leadFrom(resolution?.workflow.settings), effortMode: 'stage' as const }
-    const grantsSync =
-      caller.kind === 'app' &&
-      input.taskSync !== false &&
-      (closing === undefined || answeredOnSyncedTask(closing.commentId, user.gid))
+    const syncChoice = asanaSyncChoice(input, caller, closing, user.gid)
     const at = new Date().toISOString()
     const ref = (parent: ParentRef) =>
       'gid' in parent ? { key: parent.gid } : { taskId: parent.taskId }
@@ -4720,7 +4725,8 @@ export function createTasks(options: {
         sourceUrl: node.url,
         asana: asanaSource(node, tree, user.gid, at),
         ...(automation && { automation: automation.link }),
-        ...(grantsSync && { syncAccount: user.gid }),
+        ...(syncChoice === 'grant' && { syncAccount: user.gid }),
+        ...(syncChoice === 'decline' && { syncDeclined: true }),
         ...(node.projects && { projects: node.projects.map((p) => p.gid) }),
       })),
       links: plan.links.map((link) => ({ taskId: link.taskId, parent: ref(link.parent) })),

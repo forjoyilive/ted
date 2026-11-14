@@ -254,6 +254,7 @@ export interface TrackerSyncRecord {
   linked: Set<string>
   allowed: boolean
   allowedAccount?: string
+  declined?: boolean
   allowedGroups: Map<string, string | undefined>
   groups?: readonly string[]
 }
@@ -412,6 +413,7 @@ export interface NewTreeTask {
   asana: TaskAsanaSource
   automation?: { automationId: string; firingId: string }
   syncAccount?: string
+  syncDeclined?: boolean
   projects?: readonly string[]
 }
 
@@ -3051,7 +3053,10 @@ export async function openStore({
           state: String(data.state),
           ...(typeof data.group === 'string' && { group: data.group }),
         }
+      } else if (row.name === 'v1.TrackerSyncDeclined') {
+        record.declined = true
       } else if (row.name === 'v1.TrackerSyncAllowed') {
+        delete record.declined
         record.allowed = true
         if (typeof data.account === 'string') record.allowedAccount = data.account
         else delete record.allowedAccount
@@ -3097,7 +3102,7 @@ export async function openStore({
     const settings = reads.settings()
     const listed = settings.trackerSyncGroups.asana?.[row.factoryId] ?? []
     const listedAccounts = settings.trackerSyncGroupAccounts.asana?.[row.factoryId] ?? {}
-    const projectAccounts = (record.groups ?? []).flatMap((project) => [
+    const projectAccounts = (record.declined ? [] : (record.groups ?? [])).flatMap((project) => [
       ...(listed.includes(project) && listedAccounts[project] !== undefined
         ? [listedAccounts[project]]
         : []),
@@ -3956,6 +3961,16 @@ export async function openStore({
                   item: task.asana.gid,
                   by: 'import',
                   account: task.syncAccount,
+                  at,
+                }),
+              ]
+            : []),
+          ...(task.syncDeclined
+            ? [
+                events.trackerSyncDeclined({
+                  taskId: id,
+                  tracker: 'asana',
+                  item: task.asana.gid,
                   at,
                 }),
               ]

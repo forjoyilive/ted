@@ -361,6 +361,17 @@ test('a tree over the limit is refused whole, and a completed root still imports
   byGid = tasksIn(await client.listTasks()).byGid
   expect(byGid('921')?.parentId).toBe(byGid('920')?.id)
   expect(byGid('921')?.asanaSync).toMatchObject({ state: 'not-allowed' })
+  const ids = ['920', '921', '950'].map((gid) => byGid(gid)?.id ?? '')
+  await daemon?.stop()
+  daemon = undefined
+  const store = await openStore({ directory: tedPaths(home).store })
+  expect(ids.map((id) => store.trackerSync(id, 'asana'))).toMatchObject([
+    { allowed: false, declined: true },
+    { allowed: false, declined: true },
+    { allowed: false },
+  ])
+  expect(store.trackerSync(ids[2] ?? '', 'asana').declined).toBeUndefined()
+  await store.close()
 })
 
 test('Add them as Tasks imports new Asana items under a merged parent, which then waits for their Tasks', async () => {

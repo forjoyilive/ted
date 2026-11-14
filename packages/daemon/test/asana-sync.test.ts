@@ -182,6 +182,7 @@ interface Planned {
   completed?: boolean
   subtasks?: string[]
   syncAccount?: string
+  syncDeclined?: boolean
   parent?: string
   importedChildren?: string[]
   projects?: string[]
@@ -223,6 +224,7 @@ function imported(...planned: Planned[]): Map<string, Task> {
         })),
       },
       ...(item.syncAccount !== undefined && { syncAccount: item.syncAccount }),
+      ...(item.syncDeclined && { syncDeclined: true }),
       ...(item.projects && { projects: item.projects }),
       ...(item.automation && { automation: { automationId: 'auto-1', firingId: 'fire-1' } }),
     })),
@@ -728,11 +730,17 @@ test('an allowed Asana project syncs its items, by each item’s own current pro
     { gid: '903', projects: [], automation: true },
     { gid: '904', projects: ['70'], automation: true },
     { gid: '905', projects: ['73'], automation: true },
+    { gid: '906', projects: ['70'], syncDeclined: true },
   )
-  const [inProject, subtask, noProject, done, other] = ['901', '902', '903', '904', '905'].map(
-    (gid) => tree.get(gid) as Task,
-  )
-  for (const [i, task] of [inProject, subtask, noProject, done, other].entries())
+  const [inProject, subtask, noProject, done, other, declined] = [
+    '901',
+    '902',
+    '903',
+    '904',
+    '905',
+    '906',
+  ].map((gid) => tree.get(gid) as Task)
+  for (const [i, task] of [inProject, subtask, noProject, done, other, declined].entries())
     withPullRequest(task as Task, 30 + i)
   merge(done as Task)
   startSync()
@@ -779,6 +787,7 @@ test('an allowed Asana project syncs its items, by each item’s own current pro
   expect(sync(subtask as Task)?.state).toBe('not-allowed')
   expect(sync(noProject as Task)?.state).toBe('not-allowed')
   expect(sync(other as Task)?.state).toBe('not-allowed')
+  expect(sync(declined as Task)?.state).toBe('not-allowed')
 
   await cycle()
   expect(writes.map((w) => [w.kind, w.gid]).sort()).toEqual([
@@ -786,6 +795,10 @@ test('an allowed Asana project syncs its items, by each item’s own current pro
     ['comment', '904'],
     ['complete', '904'],
   ])
+  store.trackerSyncAllowed((declined as Task).id, 'asana', 'Item 906', '100')
+  expect(sync(declined as Task)?.state).toBe('waiting-merge')
+  await cycle()
+  expect(writes.filter((w) => w.gid === '906').map((w) => w.kind)).toEqual(['comment'])
 
   const item = asana.get('901') as FakeTask
   item.projects = ['71']
