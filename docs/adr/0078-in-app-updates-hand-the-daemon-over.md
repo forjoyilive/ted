@@ -27,5 +27,5 @@ Spec 3.4 asks TED to update itself without stopping Runs: one stable channel, a 
 
 - `pending-update` and `start-in-background` live in Electron’s profile folder (`TED_HOME/electron` when `TED_HOME` is set).
 - Things only a real signed release can show are listed on KRI-179 and KRI-180: Squirrel.Mac’s signature check and install, the AppImage replacing itself, `pkexec` with deb and rpm, `resources/package-type` in the Linux packages, electron-updater’s requests passing through the session filter, and a Run surviving a real install.
-- `.github/workflows/release.yml` creates a draft GitHub release with the built files and `latest*.yml` on a `v*` tag. Nothing reaches users until a human publishes the draft.
+- Releases are published by `pnpm release publish` from the user’s Mac (ADR 0154-releases-are-built-tried-and-then-published-from-this-mac). `.github/workflows/release.yml`, started by hand, still only makes a draft.
 - Linux updates are only as trustworthy as TED’s GitHub releases and TLS. Signing Linux packages and checking that signature before install is open.
