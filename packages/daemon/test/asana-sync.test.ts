@@ -161,7 +161,11 @@ function startSync(requestsPerCycle?: number): void {
           archived.push(task.id)
           store.archiveTask(task.id)
         },
-        under: (taskId) => store.childrenOf(taskId).flatMap((id) => store.getTask(id) ?? []),
+        under: (taskId) =>
+          store
+            .childrenOf(taskId)
+            .flatMap((id) => store.getTask(id) ?? [])
+            .filter((t) => !t.archived),
       },
       inBackground(_what, work) {
         jobs.push(work())
@@ -397,23 +401,41 @@ test('an item already complete gets its links but no completion, and a Task arch
   expect(archived).toEqual([])
 })
 
-test('completion in Asana archives an idle Task, asks for one with Tasks under it and names them, and withdraws on reopen', async () => {
+test('completion in Asana archives an idle Task with nothing under it, a child too, asks for one with Tasks under it and names them, and withdraws on reopen', async () => {
   const tree = imported(
     { gid: '701', syncAccount: '100' },
-    { gid: '702', syncAccount: '100', subtasks: ['703'] },
+    { gid: '702', syncAccount: '100', subtasks: ['703', '705'] },
     { gid: '703', parent: '702', syncAccount: '100' },
     { gid: '704', completed: true, syncAccount: '100' },
+    { gid: '705', parent: '702', syncAccount: '100' },
   )
+  const parent = tree.get('702') as Task
+  const child = tree.get('705') as Task
   startSync()
   await cycle()
-  for (const gid of ['701', '702']) {
+  for (const gid of ['701', '705']) {
     const item = asana.get(gid)
     if (item) item.completed = true
   }
   await cycle()
-  expect(archived).toEqual([tree.get('701')?.id])
+  expect(archived.toSorted()).toEqual([tree.get('701')?.id, child.id].toSorted())
   expect(store.getTask(tree.get('704')?.id ?? '')?.archived).toBeFalsy()
-  const parent = tree.get('702') as Task
+  expect(store.getTask(parent.id)?.archived).toBeFalsy()
+  expect(store.getTask(tree.get('703')?.id ?? '')?.archived).toBeFalsy()
+  expect(store.listOpenRequests().filter((c) => c.taskId === parent.id)).toEqual([])
+  expect(
+    store
+      .listComments(parent.id)
+      .filter((c) => c.kind === 'note')
+      .map((c) => c.body),
+  ).toContain(
+    `TED archived ${child.displayId}, a Task under this one, because its Asana task was marked complete.`,
+  )
+
+  const completed = asana.get('702')
+  if (completed) completed.completed = true
+  await cycle()
+  expect(archived).toHaveLength(2)
   const asked = store.listOpenRequests().filter((c) => c.taskId === parent.id)
   expect(asked).toHaveLength(1)
   expect(asked[0]).toMatchObject({
@@ -429,6 +451,12 @@ test('completion in Asana archives an idle Task, asks for one with Tasks under i
   await cycle()
   expect(store.listOpenRequests().filter((c) => c.taskId === parent.id)).toEqual([])
   expect(writes).toEqual([])
+
+  withPullRequest(parent, 71)
+  merge(parent)
+  await cycle()
+  expect(unfinished(parent)).toEqual([])
+  expect(sync(parent)).toMatchObject({ state: 'waiting-children', openChildren: 1 })
 })
 
 test('nothing is sent while Asana is disconnected or the switch is off; another account pauses the Task until it is allowed again; due work catches up', async () => {

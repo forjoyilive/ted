@@ -37,6 +37,7 @@ export interface TrackerAdvance {
 export interface TrackerTexts {
   closedTitle(label: string, state: string): string
   closedBody(label: string, state: string, pastSignOff: boolean): string
+  childArchived(child: string, label: string, state: string): string
   groupTitle(group: TrackerGroup, factoryName: string): string
   groupBody(ask: {
     automation: string
