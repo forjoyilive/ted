@@ -3,6 +3,7 @@ import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { Button } from '../components/Button.tsx'
 import { CloseIcon } from '../components/icons.tsx'
+import grow from '../components/TextGrow.module.css'
 import { readableError, ted } from '../ted.ts'
 import styles from './NewTaskDialog.module.css'
 
@@ -97,10 +98,9 @@ export function EditTaskDialog({ task, onClose }: { task: Task; onClose: () => v
       <div className={styles.descriptionBox}>
         <textarea
           ref={descriptionField}
-          className={styles.description}
+          className={`${styles.description} ${styles.editDescription} ${grow.text}`}
           aria-label="Description"
           placeholder="Describe what you want done."
-          rows={6}
           value={description}
           onChange={(event) => setDescription(event.target.value)}
         />

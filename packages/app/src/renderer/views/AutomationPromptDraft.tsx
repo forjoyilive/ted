@@ -3,6 +3,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { AntigravityChatWarning } from '../components/AntigravityChatWarning.tsx'
 import { Button } from '../components/Button.tsx'
 import { ChatBody } from '../components/RunChat.tsx'
+import grow from '../components/TextGrow.module.css'
 import { useConnection } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './AutomationDialog.module.css'
@@ -155,8 +156,7 @@ export function AutomationPromptDraft({
           </label>
           <textarea
             id={`${id}-request`}
-            className={styles.input}
-            rows={3}
+            className={`${styles.input} ${styles.requestText} ${grow.text}`}
             disabled={busy}
             value={request}
             placeholder="Find unassigned bugs in Linear and create Tasks in Backlog."
@@ -197,8 +197,7 @@ export function AutomationPromptDraft({
               </label>
               <textarea
                 id={`${id}-suggestion`}
-                className={styles.prompt}
-                rows={9}
+                className={`${styles.prompt} ${styles.suggestionText} ${grow.text}`}
                 value={suggestion}
                 onChange={(event) => setSuggestion(event.target.value)}
               />

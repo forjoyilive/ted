@@ -272,3 +272,52 @@ describe('button heights', () => {
     }
   })
 })
+
+describe('text boxes', () => {
+  test('every text box grows with its text through the shared rule', async () => {
+    const outside = ['WorkerWindow.tsx']
+    const boxes = (await sources())
+      .filter(({ file }) => file.endsWith('.tsx') && !outside.includes(path.basename(file)))
+      .flatMap(({ file, text }) =>
+        [...text.matchAll(/<textarea\b[\s\S]*?\/>/g)].map((m) => ({ file, tag: m[0] })),
+      )
+    expect(boxes.length).toBeGreaterThan(15)
+    for (const { file, tag } of boxes) {
+      expect(tag, path.relative(rendererDir, file)).toContain('grow.text')
+      expect(tag, path.relative(rendererDir, file)).not.toMatch(/\brows=/)
+    }
+    const rule = await readFile(path.join(rendererDir, 'components/TextGrow.module.css'), 'utf8')
+    expect(rule).toContain('field-sizing: content;')
+    expect(rule).toContain('max-height: var(--text-grow-max, 50vh);')
+  })
+
+  test('each text box starts at least as tall as the rows it showed before', async () => {
+    const boxes: [file: string, name: string, rows: number][] = [
+      ['components/LineComments.module.css', 'box', 2],
+      ['components/ArchiveDialogs.module.css', 'text', 2],
+      ['components/FailureRepairForm.module.css', 'description', 2],
+      ['components/RoundCard.module.css', 'text', 2],
+      ['components/ProposalCard.module.css', 'box', 2],
+      ['components/CommentBox.module.css', 'box', 2],
+      ['components/RequestCard.module.css', 'box', 2],
+      ['components/RunChat.module.css', 'box', 2],
+      ['views/Automations.module.css', 'answer', 2],
+      ['views/PlanChat.module.css', 'box', 2],
+      ['views/NewTaskDialog.module.css', 'description', 3],
+      ['views/NewTaskDialog.module.css', 'editDescription', 6],
+      ['views/AutomationDialog.module.css', 'prompt', 6],
+      ['views/AutomationDialog.module.css', 'requestText', 3],
+      ['views/AutomationDialog.module.css', 'suggestionText', 9],
+      ['views/FactorySettingsSections.module.css', 'cleanupText', 3],
+      ['views/FactorySettingsSections.module.css', 'fileText', 8],
+      ['views/FactorySettingsSections.module.css', 'notesText', 12],
+    ]
+    for (const [file, name, rows] of boxes) {
+      const text = await readFile(path.join(rendererDir, file), 'utf8')
+      const minimums = [...text.matchAll(/([^{}]+)\{([^}]*)\}/g)]
+        .filter((m) => (m[1] ?? '').split(',').some((s) => s.trim() === `.${name}`))
+        .flatMap((m) => [...(m[2] ?? '').matchAll(/min-height:\s*([^;]+);/g)].map((h) => h[1]))
+      expect(minimums.at(-1), `${file} .${name}`).toContain(`calc(${rows}lh + `)
+    }
+  })
+})

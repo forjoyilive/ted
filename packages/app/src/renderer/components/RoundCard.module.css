@@ -144,6 +144,10 @@
   background: transparent;
 }
 
+.text {
+  min-height: calc(2lh + 18px);
+}
+
 .note::placeholder {
   color: var(--text-muted);
 }

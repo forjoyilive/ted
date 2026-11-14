@@ -7,6 +7,7 @@ import { readableError, ted } from '../ted.ts'
 import { BlockerPicker } from './BlockerPicker.tsx'
 import { Button } from './Button.tsx'
 import styles from './FailureRepairForm.module.css'
+import grow from './TextGrow.module.css'
 
 export function FailureRepairForm({
   id,
@@ -176,7 +177,7 @@ export function FailureRepairForm({
               <label className={styles.label}>
                 Repair description
                 <textarea
-                  className={styles.description}
+                  className={`${styles.description} ${grow.text}`}
                   value={draftDescription}
                   maxLength={16000}
                   onChange={(e) => setDescription(e.target.value)}

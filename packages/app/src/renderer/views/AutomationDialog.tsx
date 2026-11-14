@@ -25,6 +25,7 @@ import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
 import { ScheduleTime } from '../components/ScheduleTime.tsx'
 import { Select } from '../components/Select.tsx'
+import grow from '../components/TextGrow.module.css'
 import { useAutomationTemplates, useSettings } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './AutomationDialog.module.css'
@@ -446,8 +447,7 @@ export function AutomationDialog({
             </span>
             <textarea
               id={`${id}-prompt`}
-              className={styles.prompt}
-              rows={6}
+              className={`${styles.prompt} ${grow.text}`}
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
             />

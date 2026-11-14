@@ -23,6 +23,7 @@ import { type RequestJump, RequestJumpBar } from './RequestJumpBar.tsx'
 import styles from './RunChat.module.css'
 import { agentNames } from './RunIcon.tsx'
 import { ScrollMemory, type ScrollReveal } from './ScrollMemory.tsx'
+import grow from './TextGrow.module.css'
 
 function useTicking(on: boolean): number {
   const [now, setNow] = useState(() => Date.now())
@@ -663,7 +664,7 @@ export function Composer({
     <div className={styles.composer}>
       {!live && endedNote && <p className={styles.endedNote}>{endedNote}</p>}
       <textarea
-        className={styles.box}
+        className={`${styles.box} ${grow.text}`}
         aria-label={label}
         placeholder={live ? placeholder : endedPlaceholder}
         disabled={!live}

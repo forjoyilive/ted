@@ -9,6 +9,7 @@ import { Button } from './Button.tsx'
 import styles from './CommentBox.module.css'
 import { Help } from './Help.tsx'
 import { PaperclipIcon, StopIcon } from './icons.tsx'
+import grow from './TextGrow.module.css'
 
 const maxAttachmentBytes = 25 * 1024 * 1024
 
@@ -160,7 +161,7 @@ export function CommentBox({
         </p>
       )}
       <textarea
-        className={styles.box}
+        className={`${styles.box} ${grow.text}`}
         data-comment-box
         aria-label={direct ? 'Message the Task Lead' : 'Comment'}
         placeholder={

@@ -10,6 +10,7 @@ import { ActionButton } from './ActionButton.tsx'
 import styles from './ArchiveDialogs.module.css'
 import { Button } from './Button.tsx'
 import { Help } from './Help.tsx'
+import grow from './TextGrow.module.css'
 
 export const archiveTaskEvent = 'ted:archive-task'
 export const deleteTaskEvent = 'ted:delete-task'
@@ -820,7 +821,7 @@ export function FollowUpDialog({
             {`${task.title}. TED creates a new Task linked to ${task.displayId} that starts from its brief and pull requests. It skips Backlog and waits for a free Run slot. ${task.displayId} stays Done.`}
           </p>
           <textarea
-            className={styles.text}
+            className={`${styles.text} ${grow.text}`}
             aria-label="What should the Follow-up change?"
             placeholder="What should change?"
             value={text}

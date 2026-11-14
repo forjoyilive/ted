@@ -26,6 +26,18 @@ import { closeApp } from './close-app.ts'
 
 setUpAppTests()
 const form = (window: Page) => window.getByRole('dialog', { name: 'New Task' })
+async function boxSize(page: Page) {
+  return form(page)
+    .getByLabel('Description', { exact: true })
+    .evaluate((box) => ({
+      height: box.getBoundingClientRect().height,
+      scrollHeight: box.scrollHeight,
+      windowHeight: window.innerHeight,
+    }))
+}
+async function boxHeight(page: Page) {
+  return (await boxSize(page)).height
+}
 async function open(window: Page) {
   await window.keyboard.press('Meta+N')
   await form(window).waitFor()
@@ -78,9 +90,19 @@ describe('New Task drafts', () => {
     const client = await daemonClient()
     const blocker = await client.createTask({ factory: 'NB', title: 'Prepare the data' })
     await form(window).getByLabel('Title', { exact: true }).fill('Keep my unfinished Task')
-    await form(window)
-      .getByLabel('Description', { exact: true })
-      .fill('Remember this description.\nAnd this second line.')
+    const description = (window: Page) => form(window).getByLabel('Description', { exact: true })
+    const emptyHeight = await boxHeight(window)
+    await description(window).fill(
+      `Remember this description.\nAnd this second line.${'\nMore detail.'.repeat(60)}`,
+    )
+    const grown = await boxSize(window)
+    expect(grown.height).toBeGreaterThan(emptyHeight)
+    expect(grown.height).toBeLessThanOrEqual(grown.windowHeight / 2 + 1)
+    expect(grown.scrollHeight).toBeGreaterThan(grown.height)
+    await description(window).fill('Remember this description.\nAnd this second line.')
+    const short = await boxHeight(window)
+    expect(short).toBeGreaterThanOrEqual(emptyHeight)
+    expect(short).toBeLessThan(grown.height)
     await form(window).getByLabel('Priority', { exact: true }).selectOption('high')
     await form(window).getByLabel('Start now', { exact: true }).uncheck()
     await form(window).getByRole('button', { name: 'Add blocker', exact: true }).click()
@@ -101,6 +123,11 @@ describe('New Task drafts', () => {
       .click()
     await form(window).getByLabel('Agent', { exact: true }).selectOption('codex')
     await form(window).getByLabel('Effort', { exact: true }).selectOption('high')
+    await description(window).fill(
+      `Remember this description.\nAnd this second line.${'\nMore detail.'.repeat(6)}`,
+    )
+    const saved = await boxHeight(window)
+    expect(saved).toBeGreaterThan(emptyHeight)
     await window.keyboard.press('Escape')
     await form(window).waitFor({ state: 'detached' })
     await open(window)
@@ -116,9 +143,8 @@ describe('New Task drafts', () => {
     expect(await form(window).getByLabel('Title', { exact: true }).inputValue()).toBe(
       'Keep my unfinished Task',
     )
-    expect(await form(window).getByLabel('Description', { exact: true }).inputValue()).toContain(
-      'And this second line.',
-    )
+    expect(await description(window).inputValue()).toContain('And this second line.')
+    expect(await boxHeight(window)).toBeCloseTo(saved, 0)
     expect(await form(window).getByLabel('Priority', { exact: true }).inputValue()).toBe('high')
     expect(await form(window).getByLabel('Agent', { exact: true }).inputValue()).toBe('codex')
     expect(await form(window).getByLabel('Effort', { exact: true }).inputValue()).toBe('high')
@@ -129,6 +155,8 @@ describe('New Task drafts', () => {
     await form(window)
       .getByRole('button', { name: `Remove ${blocker.displayId}` })
       .waitFor()
+    await description(window).fill('')
+    expect(await boxHeight(window)).toBeCloseTo(emptyHeight, 0)
     if (process.env.TED_DRAFT_SCREENSHOT) {
       const file = path.resolve(process.env.TED_DRAFT_SCREENSHOT)
       await mkdir(path.dirname(file), { recursive: true })

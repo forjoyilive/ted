@@ -66,6 +66,7 @@ import styles from './RequestCard.module.css'
 import { RequestSnoozeLine } from './RequestSnooze.tsx'
 import { RoundAnswers, RoundQuestions, roundTally } from './RoundCard.tsx'
 import { firstChoice, SimulatorChoices } from './SimulatorChoices.tsx'
+import grow from './TextGrow.module.css'
 
 function CardHead({ request, task, now }: { request: Comment; task: Task; now: number }) {
   const again = request.gate?.changes !== undefined && request.stage !== 'merge'
@@ -525,7 +526,7 @@ function ArchiveAnswer({ request, task, lead }: AnswerProps) {
       )}
       <textarea
         id={boxId}
-        className={styles.box}
+        className={`${styles.box} ${grow.text}`}
         data-answer-box
         aria-label="Message to the Task Lead"
         placeholder="Add a message for the Task Lead…"
@@ -732,7 +733,7 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
       {!isTrackerGroupAsk(request) && (
         <textarea
           id={boxId}
-          className={styles.box}
+          className={`${styles.box} ${grow.text}`}
           data-answer-box
           form={repairing ? repairFormId : undefined}
           aria-label={boxLabel ?? 'Your answer'}
