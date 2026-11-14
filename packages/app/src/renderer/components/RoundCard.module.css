@@ -8,8 +8,7 @@
 }
 
 .question {
-  padding: 12px 0;
-  border-top: 1px solid var(--border-default);
+  padding: 14px 0 4px;
 }
 
 .fieldset {
@@ -24,7 +23,6 @@
 
 .question:first-child {
   padding-top: 4px;
-  border-top: none;
 }
 
 .prompt {
@@ -45,33 +43,32 @@
 .options {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 2px;
 }
 
 .option {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 12px;
-  border: 1px solid var(--border-control);
+  padding: 6px 10px;
   border-radius: var(--radius-control);
-  background: var(--surface-card);
   color: var(--text-primary);
   font-size: var(--text-14);
   cursor: pointer;
 }
 
-.option:hover {
-  border-color: var(--accent-default);
+.fieldset:not(:disabled) .option:not(.selected):hover {
+  background: var(--surface-inset);
 }
 
-.selected {
-  border-color: var(--accent-default);
+.option.selected {
   background: var(--accent-subtle);
 }
 
 .radio {
   flex-shrink: 0;
+  width: 14px;
+  height: 14px;
   margin: 0;
   accent-color: var(--accent-default);
 }
@@ -85,19 +82,34 @@
 }
 
 .optionText {
-  flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
 .tag {
   flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-neutral);
   color: var(--text-caption);
   font-size: var(--text-12);
+  font-weight: var(--weight-medium);
 }
 
-.changed {
+.option.selected .tag {
+  background: var(--surface-card);
+}
+
+.changed,
+.option.selected .changed {
+  background: var(--status-waiting-bg);
   color: var(--status-waiting-fg);
+}
+
+.writtenTag .tag {
+  padding: 0;
+  background: none;
+  font-weight: inherit;
 }
 
 .reset {
@@ -124,6 +136,12 @@
   color: var(--text-primary);
   font: inherit;
   font-size: var(--text-14);
+}
+
+.note {
+  padding: 6px 10px 6px 34px;
+  border-color: transparent;
+  background: transparent;
 }
 
 .text {
