@@ -298,26 +298,25 @@ function menuItem(
 }
 
 export function useActionMenu(scope?: string) {
-  const [menu, setMenu] = useState<{
+  const [opened, setMenu] = useState<{
     at: MenuPosition
     label: string
     items: MenuAction[]
     operationKey?: string | undefined
+    scope: string | undefined
   }>()
+  const menu = opened?.scope === scope ? opened : undefined
+  if (opened && !menu) setMenu(undefined)
   const [error, setError] = useState<string>()
   const activity = usePendingAction(
     menu?.operationKey ?? (scope === undefined ? undefined : `menu:${scope}`),
   )
-  useEffect(() => {
-    void scope
-    setMenu(undefined)
-  }, [scope])
   const close = () => setMenu(undefined)
   return {
     isOpen: menu !== undefined,
     open: (at: MenuPosition, label: string, items: MenuAction[], operationKey?: string) => {
       setError(undefined)
-      setMenu({ at, label, items, operationKey })
+      setMenu({ at, label, items, operationKey, scope })
     },
     close,
     menu: (
