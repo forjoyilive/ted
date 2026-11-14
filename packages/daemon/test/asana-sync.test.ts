@@ -366,7 +366,7 @@ test('only allowed Tasks are written to; each pull request is commented once acr
   await cycle()
   expect(writes.filter((w) => w.kind === 'complete')).toEqual([{ kind: 'complete', gid: '501' }])
   expect(sync(parent)).toMatchObject({ state: 'completed-by-ted' })
-  expect(store.getTask(child.id)?.archived).toBeFalsy()
+  expect(archived).toEqual([child.id])
   const readsBefore = reads.length
   await cycle()
   expect(writes.filter((w) => w.kind === 'complete')).toHaveLength(1)
