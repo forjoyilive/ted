@@ -745,18 +745,18 @@ export function TaskActionsMenu({
                 <span className={styles.label}>Open source in Linear</span>
                 <span className={styles.hint}>{linear.identifier}</span>
               </ActionButton>
-              {sync?.state === 'ask' && (
-                <ActionButton
-                  type="button"
-                  role="menuitem"
-                  className={styles.item}
-                  onClick={() => act(() => sync.allow())}
-                >
-                  <span className={styles.label}>Sync with {sync.name}</span>
-                  <span className={styles.hint}>An Automation made this Task</span>
-                </ActionButton>
-              )}
             </>
+          )}
+          {sync?.state === 'ask' && (
+            <ActionButton
+              type="button"
+              role="menuitem"
+              className={styles.item}
+              onClick={() => act(() => sync.allow())}
+            >
+              <span className={styles.label}>Sync with {sync.name}</span>
+              <span className={styles.hint}>An Automation made this Task</span>
+            </ActionButton>
           )}
           <hr className={styles.separator} />
           {refusal === undefined && (

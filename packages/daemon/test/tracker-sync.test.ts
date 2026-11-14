@@ -215,7 +215,7 @@ test('the group question asks once, Allow turns on the group’s waiting Tasks, 
   expect(records().syncState(store.getTask(third.id) as Task)).toBe('ask')
 })
 
-test('an item closed outside TED archives an idle Task, asks for a working one, and withdraws the question on reopen', async () => {
+test('an item closed outside TED archives an idle Task, asks for a working one, and withdraws the question on reopen or finish', async () => {
   const baseline = await trackedTask('1', { closed: true, state: 'Done', group: 'B1' })
   const idle = await trackedTask('2', { closed: false, state: 'Open', group: 'B1' })
   const working = await trackedTask('3', { closed: false, state: 'Open', group: 'B1' })
@@ -229,7 +229,7 @@ test('an item closed outside TED archives an idle Task, asks for a working one, 
   items.set('3', { closed: true, state: 'Done', group: 'B1' })
   await cycle()
   expect(archived).toEqual([{ taskId: idle.id, why: 'F-2 was marked Done in Fake' }])
-  expect(store.getTask(baseline.id)?.archived).toBe(false)
+  expect(store.getTask(baseline.id)?.archived).toBeFalsy()
   const asked = openRequests(working.id)
   expect(asked).toHaveLength(1)
   expect(asked[0]).toMatchObject({
@@ -246,5 +246,17 @@ test('an item closed outside TED archives an idle Task, asks for a working one, 
   expect(store.getComment(asked[0]?.id ?? '')?.answer).toMatchObject({
     kind: 'withdrawn',
     tracker: 'reopened',
+  })
+
+  items.set('3', { closed: true, state: 'Done', group: 'B1' })
+  await cycle()
+  const again = openRequests(working.id)
+  expect(again).toHaveLength(1)
+  store.changeStage(working.id, 'done')
+  await cycle()
+  expect(openRequests(working.id)).toEqual([])
+  expect(store.getComment(again[0]?.id ?? '')?.answer).toMatchObject({
+    kind: 'withdrawn',
+    tracker: 'done',
   })
 })
