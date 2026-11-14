@@ -262,6 +262,7 @@
 
 .factoryName {
   padding-left: 26px;
+  font-weight: var(--weight-semibold);
 }
 
 .caret {
@@ -487,4 +488,23 @@
 .subStatus {
   display: inline-flex;
   margin-left: auto;
+}
+
+.factory + .factory {
+  margin-top: 4px;
+}
+
+.initial {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+  font-size: var(--text-11);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
 }
