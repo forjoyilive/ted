@@ -1,7 +1,19 @@
 import path from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { checkedCommits, failedTests, fileTimes, summary } from './check.ts'
-import { isNewer, parseVersion, pickSigningIdentity } from './release.ts'
+import {
+  changedFiles,
+  discardPlan,
+  isNewer,
+  notaryCredentials,
+  type PublishFacts,
+  parseVersion,
+  pickSigningIdentity,
+  publishRefusal,
+  type ReleaseRecord,
+  releaseFiles,
+  signingRefusal,
+} from './release.ts'
 
 describe('release versions', () => {
   test('reads plain versions only', () => {
@@ -65,17 +77,148 @@ describe('signing identity', () => {
   const listing = (...names: string[]) =>
     names.map((name, i) => `  ${i + 1}) ${'A'.repeat(40)} "${name}"`).join('\n')
 
-  test('prefers a Developer ID, then an Apple Development identity', () => {
+  test('picks only a Developer ID Application identity', () => {
     expect(
       pickSigningIdentity(listing('Apple Development: A (1)', 'Developer ID Application: B (2)')),
     ).toBe('Developer ID Application: B (2)')
-    expect(pickSigningIdentity(listing('Apple Development: A (1)'))).toBe(
-      'Apple Development: A (1)',
-    )
-  })
-
-  test('ignores other identities and finds none in an empty listing', () => {
+    expect(pickSigningIdentity(listing('Apple Development: A (1)'))).toBeUndefined()
     expect(pickSigningIdentity(listing('iPhone Distribution: C (3)'))).toBeUndefined()
     expect(pickSigningIdentity('     0 valid identities found')).toBeUndefined()
+  })
+})
+
+describe('signing overrides', () => {
+  test('accept only a Developer ID Application identity, and never a certificate file', () => {
+    const developerId = 'Developer ID Application: B (2)'
+    expect(signingRefusal({})).toBeUndefined()
+    expect(signingRefusal({ CSC_NAME: developerId, TED_SIGN_IDENTITY: '' })).toBeUndefined()
+    expect(signingRefusal({ TED_SIGN_IDENTITY: developerId })).toBeUndefined()
+    expect(signingRefusal({ CSC_NAME: 'Apple Development: A (1)' })).toMatch(/^CSC_NAME must name/)
+    expect(signingRefusal({ TED_SIGN_IDENTITY: 'Apple Development: A (1)' })).toMatch(
+      /^TED_SIGN_IDENTITY must name/,
+    )
+    expect(signingRefusal({ CSC_LINK: 'cert.p12', CSC_NAME: developerId })).toMatch(
+      /unset CSC_LINK/,
+    )
+  })
+})
+
+describe('notarization credentials', () => {
+  test('uses the keychain profile unless the Apple variables are all set', () => {
+    expect(notaryCredentials({})).toEqual({ kind: 'profile', name: 'ted-notary' })
+    expect(notaryCredentials({ TED_NOTARY_PROFILE: 'mine' })).toEqual({
+      kind: 'profile',
+      name: 'mine',
+    })
+    expect(notaryCredentials({ APPLE_KEYCHAIN_PROFILE: 'set' })).toEqual({
+      kind: 'profile',
+      name: 'set',
+    })
+    expect(notaryCredentials({ APPLE_API_KEY: 'k.p8', APPLE_API_KEY_ID: 'id' })).toEqual({
+      kind: 'profile',
+      name: 'ted-notary',
+    })
+    expect(
+      notaryCredentials({ APPLE_API_KEY: 'k.p8', APPLE_API_KEY_ID: 'id', APPLE_API_ISSUER: 'i' }),
+    ).toEqual({ kind: 'environment' })
+    expect(
+      notaryCredentials({ APPLE_ID: 'a', APPLE_APP_SPECIFIC_PASSWORD: 'p', APPLE_TEAM_ID: 't' }),
+    ).toEqual({ kind: 'environment' })
+  })
+})
+
+describe('release files', () => {
+  test('publishes the installers, their blockmaps and the update feed only', () => {
+    expect(
+      releaseFiles([
+        'TED-1.2.0-arm64.dmg',
+        'TED-1.2.0-arm64.dmg.blockmap',
+        'TED-1.2.0-arm64-mac.zip',
+        'TED-1.2.0-arm64-mac.zip.blockmap',
+        'latest-mac.yml',
+        'builder-debug.yml',
+        'ted-release.json',
+        'mac-arm64',
+      ]),
+    ).toEqual([
+      'TED-1.2.0-arm64.dmg',
+      'TED-1.2.0-arm64.dmg.blockmap',
+      'TED-1.2.0-arm64-mac.zip',
+      'TED-1.2.0-arm64-mac.zip.blockmap',
+      'latest-mac.yml',
+    ])
+  })
+
+  test('names files added, removed or changed since the build', () => {
+    const record = { version: '1.2.0', base: 'b', commit: 'c', files: { a: '1', b: '2' } }
+    expect(changedFiles(record, { a: '1', b: '2' })).toEqual([])
+    expect(changedFiles(record, { a: '1', b: '3', c: '4' })).toEqual(['b', 'c'])
+    expect(changedFiles(record, { a: '1' })).toEqual(['b'])
+  })
+})
+
+describe('publishing a release', () => {
+  const record: ReleaseRecord = {
+    version: '1.2.0',
+    base: 'base',
+    commit: 'release',
+    files: { 'latest-mac.yml': 'x' },
+  }
+  const ready: PublishFacts = {
+    record,
+    branch: 'main',
+    head: 'release',
+    localTag: 'release',
+    remoteTag: undefined,
+    originMain: 'base',
+    changed: [],
+    visibility: 'PUBLIC',
+  }
+
+  test('publishes the build that was tried, from where it was built', () => {
+    expect(publishRefusal(ready)).toBeUndefined()
+    expect(
+      publishRefusal({ ...ready, remoteTag: 'release', originMain: 'release' }),
+    ).toBeUndefined()
+  })
+
+  test('refuses anything that would publish something other than the tried build', () => {
+    const refused = (change: Partial<PublishFacts>) => publishRefusal({ ...ready, ...change })
+    expect(refused({ record: undefined })).toMatch(/no build to publish/)
+    expect(refused({ record: { ...record, files: {} } })).toMatch(/didn’t finish/)
+    expect(refused({ branch: 'feature' })).toMatch(/switch to main/)
+    expect(refused({ head: 'other' })).toMatch(/main isn’t at the commit/)
+    expect(refused({ localTag: undefined })).toMatch(/tag v1\.2\.0 isn’t at the commit/)
+    expect(refused({ changed: ['latest-mac.yml'] })).toMatch(/latest-mac\.yml; build again/)
+    expect(refused({ remoteTag: 'other' })).toMatch(/already on GitHub at another commit/)
+    expect(refused({ originMain: 'moved' })).toMatch(/main moved on GitHub/)
+    expect(refused({ visibility: 'PRIVATE' })).toMatch(/is private/)
+  })
+})
+
+describe('discarding a build', () => {
+  const record: ReleaseRecord = { version: '1.2.0', base: 'base', commit: 'release', files: {} }
+
+  test('deletes the tag and undoes the release commit while it is checked out', () => {
+    expect(discardPlan({ record, head: 'release', remoteTag: undefined })).toEqual({
+      tag: 'v1.2.0',
+      resetTo: 'base',
+    })
+    expect(discardPlan({ record, head: 'later', remoteTag: undefined })).toEqual({
+      tag: 'v1.2.0',
+      resetTo: undefined,
+    })
+    expect(
+      discardPlan({ record: { ...record, commit: 'base' }, head: 'base', remoteTag: undefined }),
+    ).toEqual({ tag: 'v1.2.0', resetTo: undefined })
+  })
+
+  test('refuses once the tag is on GitHub, or with nothing built', () => {
+    expect(discardPlan({ record, head: 'release', remoteTag: 'release' })).toEqual({
+      refusal: 'v1.2.0 is already on GitHub; fix the problem in a new version instead',
+    })
+    expect(discardPlan({ record: undefined, head: 'x', remoteTag: undefined })).toEqual({
+      refusal: 'there’s no build to discard',
+    })
   })
 })

@@ -21,14 +21,17 @@ const { values } = parseArgs({
 const env = process.env
 const signs = Boolean(env.CSC_LINK || env.CSC_NAME)
 const notarizes = Boolean(
-  (env.APPLE_API_KEY && env.APPLE_API_KEY_ID && env.APPLE_API_ISSUER) ||
+  env.APPLE_KEYCHAIN_PROFILE ||
+    (env.APPLE_API_KEY && env.APPLE_API_KEY_ID && env.APPLE_API_ISSUER) ||
     (env.APPLE_ID && env.APPLE_APP_SPECIFIC_PASSWORD && env.APPLE_TEAM_ID),
 )
 if (values.mac && !values.dir && !signs) {
   console.warn('Building an unsigned macOS app: set CSC_LINK and CSC_KEY_PASSWORD to sign it.')
 }
 if (values.mac && signs && !notarizes) {
-  console.warn('Signing without notarizing: set the APPLE_API_KEY variables to notarize.')
+  console.warn(
+    'Signing without notarizing: set APPLE_KEYCHAIN_PROFILE or the APPLE_API_KEY variables to notarize.',
+  )
 }
 
 const electron = JSON.parse(
