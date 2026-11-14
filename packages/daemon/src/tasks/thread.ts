@@ -25,7 +25,8 @@ export interface ThreadContext {
 }
 
 const planEndLines: Record<string, string> = {
-  approved: 'TED told the Task Lead; it carries on with Clarify.',
+  approved:
+    'The plan was approved. TED stopped the Task Lead while the Tasks it created are built.',
   stopped:
     'Planning chat stopped without approval. TED told the Task Lead to ask its size question again.',
   failed:

@@ -209,20 +209,24 @@ describe('Planning chats', () => {
       'the plan to finish',
     )
     expect(done.tasks.map((t) => [t.row, t.displayId, t.stage, t.blockedBy])).toEqual([
-      [1, 'NB-1', 'backlog', []],
-      [2, 'NB-2', 'backlog', ['NB-1']],
+      [1, 'NB-2', 'backlog', []],
+      [2, 'NB-3', 'backlog', ['NB-2']],
     ])
     expect(done.requests.at(-1)).toMatchObject({
       kind: 'note',
       author: 'ted',
-      body: 'Created 2 Tasks in Backlog: NB-1, NB-2',
+      body: 'Created 2 Tasks under NB-1: NB-2, NB-3. NB-1 waits for them to merge.',
     })
     expect(done.plan.createdTasks).toBe(2)
     const tasks = await client.ok<Task[]>('GET', '/tasks')
-    expect(tasks.map((t) => [t.displayId, t.createdBy, t.fromPlan?.title])).toEqual([
-      ['NB-1', 'planning', plan.title],
-      ['NB-2', 'planning', plan.title],
+    expect(
+      tasks.map((t) => [t.displayId, t.title, t.createdBy, t.parentId, t.fromPlan?.title]),
+    ).toEqual([
+      ['NB-1', plan.title, 'planning', undefined, undefined],
+      ['NB-2', 'Notebook owners', 'planning', tasks[0]?.id, plan.title],
+      ['NB-3', 'Share dialog', 'planning', tasks[0]?.id, plan.title],
     ])
+    expect(tasks[0]).toMatchObject({ stage: 'backlog', priority: 'high' })
     expect(await client.ok<PlanInboxItem[]>('GET', '/plan-requests')).toEqual([])
     await waitUntil(async () => !existsSync(folder) || undefined, 'the checkout to go')
     const runAfter = await client.ok<RunWithConversation>('GET', `/runs/${plan.id}`)
@@ -528,8 +532,8 @@ describe('Plans list', () => {
       'The owner only',
       'Sharing, in two Tasks',
       'Share dialog',
-      'NB-1',
       'NB-2',
+      'NB-3',
       'Reuse answers already supplied in this or an earlier planning chat',
       'ask the user to confirm your understanding and whether to split it into Tasks',
     ]) {
@@ -539,8 +543,9 @@ describe('Plans list', () => {
     await client.ok('DELETE', `/plans/${plan.id}`)
     const tasks = await client.ok<Task[]>('GET', '/tasks')
     expect(tasks.map((t) => [t.displayId, t.fromPlan])).toEqual([
-      ['NB-1', { id: plan.id, title: '', deleted: true }],
+      ['NB-1', undefined],
       ['NB-2', { id: plan.id, title: '', deleted: true }],
+      ['NB-3', { id: plan.id, title: '', deleted: true }],
     ])
     const after = await detail(client, next.id)
     expect(after.plan.fromPlan).toEqual({ id: plan.id, title: plan.title, deleted: true })

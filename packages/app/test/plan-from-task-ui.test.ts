@@ -53,7 +53,7 @@ const env = () => ({
 })
 
 describe('Plan in chat from a Task', () => {
-  test('Plan in chat starts a chat the thread opens, without leaving the Task; approval narrows the Task', async () => {
+  test('Plan in chat starts a chat the thread opens, without leaving the Task; approval makes the Task the parent', async () => {
     const parent = path.join(home, 'origin')
     const origin = await makeOriginRepo(parent)
     await commitToOrigin(parent, {
@@ -137,12 +137,11 @@ describe('Plan in chat from a Task', () => {
 
     const card = window.getByRole('region', { name: 'Proposal from the planner' })
     await card.waitFor({ timeout: 30_000 })
-    await card.getByText('(this Task) becomes the first piece:').waitFor()
-    await card.getByRole('button', { name: 'Create 2 Tasks' }).click()
+    await card.getByText('becomes the parent of these Tasks and runs after they merge.').waitFor()
+    await card.getByRole('button', { name: 'Create 3 Tasks' }).click()
     await chat
-      .getByText('TED created 2 Tasks in Backlog: NB-2, NB-3. NB-1 narrowed to Local note cache.')
+      .getByText('TED created 3 Tasks under NB-1: NB-2, NB-3, NB-4. NB-1 waits for them to merge.')
       .waitFor({ timeout: 30_000 })
-    await chat.getByText('TED told NB-1’s Task Lead; it carries on with Clarify.').waitFor()
-    await pane.getByText('Local note cache').first().waitFor()
+    await chat.getByText('TED stopped NB-1’s Task Lead while its child Tasks are built.').waitFor()
   })
 })

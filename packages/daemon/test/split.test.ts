@@ -1,15 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type {
-  Comment,
-  DescriptionVersion,
-  Factory,
-  InboxItem,
-  Run,
-  Task,
-  ThreadEvent,
-} from '@ted/protocol'
+import type { Comment, Factory, InboxItem, Run, Task, ThreadEvent } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -172,6 +164,7 @@ const tooBig = {
 }
 const propose = (file: string) => ({ run: ['ted', 'task', 'propose', '--file', file] })
 const advance = { run: ['ted', 'outcome', 'advance'] }
+const toDone = JSON.stringify({ steps: [{ everyMessage: [{ run: advance }] }, { run: advance }] })
 
 describe('Size check', () => {
   test('a too-big Task asks with four choices', async () => {
@@ -229,7 +222,7 @@ describe('Size check', () => {
 })
 
 describe('Split it', () => {
-  test('Create N Tasks puts the checked rows in Backlog with blockers by row; the original narrows and carries on', async () => {
+  test('Create N Tasks makes the checked rows children of the original, with blockers by row; the original stops and waits', async () => {
     const client = await start()
     const task = await startTask(
       client,
@@ -285,20 +278,26 @@ describe('Split it', () => {
       if (!found) throw new Error(`no Task ${title}`)
       return found
     }
+    const cache = byTitle('Local note cache')
     const sync = byTitle('Sync queue with retry')
     const conflict = byTitle('Conflict view for clashing lines')
     const badge = byTitle('Offline badge in the editor')
     expect(tasks.some((t) => t.title === 'Line-level merge for clashing edits')).toBe(false)
-    for (const piece of [sync, conflict, badge]) {
+    for (const piece of [cache, sync, conflict, badge]) {
       expect(piece).toMatchObject({
         stage: 'backlog',
         createdBy: 'split',
+        parentId: task.id,
         splitFrom: { id: task.id, displayId: task.displayId },
       })
     }
+    expect(cache).toMatchObject({
+      blockedBy: [],
+      description: 'Save every note to a local cache first; a queue syncs it later.',
+    })
     expect(sync).toMatchObject({
       priority: 'high',
-      blockedBy: [task.id],
+      blockedBy: [cache.id],
       description: 'Queue edits made offline and send them in order on reconnect.',
     })
     expect(conflict.blockedBy).toEqual([])
@@ -309,6 +308,7 @@ describe('Split it', () => {
         skipped: [3],
         startUnblocked: false,
         tasks: [
+          { row: 1, id: cache.id, displayId: cache.displayId },
           { row: 2, id: sync.id, displayId: sync.displayId },
           { row: 4, id: conflict.id, displayId: conflict.displayId },
           { row: 5, id: badge.id, displayId: badge.displayId },
@@ -319,33 +319,28 @@ describe('Split it', () => {
     const original = await getTask(client, task.id)
     expect(original).toMatchObject({
       stage: 'clarify',
-      title: 'Local note cache',
-      description: 'Save every note to a local cache first; a queue syncs it later.',
+      description: 'Let notes be edited offline and sync later.',
+      childIds: expect.arrayContaining([cache.id, sync.id, conflict.id, badge.id]),
     })
-    const versions = await client.ok<DescriptionVersion[]>('GET', `/tasks/${task.id}/descriptions`)
-    expect(versions[0]?.text).toBe('Let notes be edited offline and sync later.')
+    await waitUntil(
+      async () => (await client.getRun(run.id)).run.state === 'finished',
+      'the original’s Task Lead to stop',
+    )
     expect(await threadLines(client, task)).toContain(
-      `TED created 3 Tasks in Backlog: ${sync.displayId}, ${conflict.displayId}, ${badge.displayId}. ${task.displayId} narrowed to Local note cache.`,
+      `Split into ${cache.displayId}, ${sync.displayId}, ${conflict.displayId} and ${badge.displayId}. This Task waits for them to merge.`,
     )
     expect(await threadLines(client, sync)).toContain(`Split from ${task.displayId}`)
-    const after = await waitUntil(
-      async () =>
-        (await userMessages(client, run.id)).find((m) => m.includes('approved the split')),
-      'the split to reach the Task Lead',
-    )
-    expect(after).toContain(`${sync.displayId} (row 2)`)
-    expect(after).toContain('Carry on with Clarify')
   })
 
-  test('Start the unblocked ones starts them; Request changes sends the text to the Task Lead', async () => {
+  test('Start the unblocked ones starts them; Request changes sends the text to the Task Lead; the parent finishes when they merge', async () => {
     const client = await start()
     const two = await client.file(
       'two.json',
       JSON.stringify({
         title: 'Two pieces',
         tasks: [
-          { title: 'First piece', scope: 'The first part.' },
-          { title: 'Second piece', scope: 'The second part.' },
+          { title: 'First piece', scope: 'The first part.', description: toDone },
+          { title: 'Second piece', scope: 'The second part.', description: toDone },
         ],
       }),
     )
@@ -381,9 +376,20 @@ describe('Split it', () => {
     })
     const piece = (await allTasks(client)).find((t) => t.title === 'Second piece')
     expect(piece?.stage).not.toBe('backlog')
+    const parent = await waitUntil(async () => {
+      const now = await getTask(client, task.id)
+      return now.stage === 'done' ? now : undefined
+    }, 'the parent to finish after its child Tasks merge')
+    expect(parent.runs.filter((r) => r.state !== 'finished')).toEqual([])
+    expect(
+      (await allTasks(client)).filter((t) => t.parentId === task.id).map((t) => t.stage),
+    ).toEqual(['done', 'done'])
+    expect(await threadLines(client, task)).toContain(
+      'Every Task under this one has merged and it had no work of its own, so TED finished it.',
+    )
   })
 
-  test('proposals are checked: rows in range, no cycles, the first piece unblocked, Task Lead only', async () => {
+  test('proposals are checked: rows in range, no cycles, at least two rows, Task Lead only', async () => {
     const client = await start()
     const bad = async (name: string, tasks: unknown[]) =>
       propose(await client.file(name, JSON.stringify({ title: 'Bad', tasks })))
@@ -399,23 +405,16 @@ describe('Split it', () => {
         { title: 'B', scope: 'b', blockedBy: [3] },
         { title: 'C', scope: 'c', blockedBy: [2] },
       ]),
-      await bad('first.json', [
-        { title: 'A', scope: 'a', blockedBy: [2] },
-        { title: 'B', scope: 'b' },
-      ]),
       await bad('one.json', [{ title: 'A', scope: 'a' }]),
       { endTurn: true },
     )
     const results = await waitUntil(async () => {
       const found = await commandResults(client, task)
-      return found.length >= 5 ? found : undefined
+      return found.length >= 4 ? found : undefined
     }, 'every command to finish')
     expect(results[1]?.stderr).toContain('row 2 is blocked by row 3, which isn’t in the proposal')
     expect(results[2]?.stderr).toContain('rows 2 → 3 → 2 block each other')
-    expect(results[3]?.stderr).toContain(
-      'row 1 is this Task, which carries on now, so it can’t be blocked',
-    )
-    expect(results[4]?.stderr).toContain('a split needs at least two rows')
+    expect(results[3]?.stderr).toContain('a split needs at least two rows')
     const human = await client.call('POST', `/tasks/${task.id}/comments`, {
       proposal: {
         title: 'Mine',
@@ -446,7 +445,10 @@ describe('Plan it outside TED', () => {
     }, 'the Task to go back to Backlog')
     expect(parked.markers).toEqual([{ kind: 'needs-planning' }])
     expect(parked.status).toBeUndefined()
-    expect((await client.getRun(run.id)).run.state).toBe('finished')
+    await waitUntil(
+      async () => (await client.getRun(run.id)).run.state === 'finished',
+      'the original’s Task Lead to stop',
+    )
     const note = (await comments(client, task)).findLast((c) => c.kind === 'note')
     expect(note).toMatchObject({ author: { kind: 'run', runId: run.id } })
     expect(note?.body).toContain(

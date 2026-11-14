@@ -1770,6 +1770,12 @@ export async function openStore({
     }
   }
   type TaskReads = ReturnType<typeof taskReads>
+  const planParent = (log: readonly (typeof taskLog.Type)[]) =>
+    log.some(
+      (e) =>
+        e.name === 'v1.ChildTasksCreated' &&
+        (JSON.parse(e.data) as { from?: unknown }).from === 'plan',
+    )
   const perTask = taskReads(false)
   // Reading every table once costs about as much as reading 10 Tasks one by one.
   const readEveryTaskFrom = 10
@@ -2061,7 +2067,7 @@ export async function openStore({
             ? 'split'
             : reads.automationLinks(row.id).length > 0
               ? 'automation'
-              : planLink
+              : planLink || planParent(reads.log(row.id))
                 ? 'planning'
                 : 'human'
     const linearSync = linearSyncOf(row, source, reads)

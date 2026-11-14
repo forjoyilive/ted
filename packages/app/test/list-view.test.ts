@@ -456,6 +456,36 @@ describe('nestedRows', () => {
     ])
   })
 
+  test('a parent from another group shows faded above its children there, with its own ancestors', () => {
+    const root = task({ displayId: 'NB-80', stage: 'clarify' })
+    const parent = task({ displayId: 'NB-81', parentId: 'NB-80', stage: 'clarify' })
+    const child = task({ displayId: 'NB-82', parentId: 'NB-81' })
+    const sibling = task({ displayId: 'NB-83', parentId: 'NB-81' })
+    const loose = task({ displayId: 'NB-84' })
+    const every = [root, parent, child, sibling, loose]
+    const rows = nestedRows([child, loose, sibling], new Set(), every)
+    expect(rows.map((r) => [r.task.displayId, r.depth, r.hasChildren, r.context === true])).toEqual(
+      [
+        ['NB-80', 0, true, true],
+        ['NB-81', 1, true, true],
+        ['NB-82', 2, false, false],
+        ['NB-83', 2, false, false],
+        ['NB-84', 0, false, false],
+      ],
+    )
+    expect(
+      nestedRows([parent, child], new Set(), every).map((r) => [r.task.displayId, r.context]),
+    ).toEqual([
+      ['NB-80', true],
+      ['NB-81', undefined],
+      ['NB-82', undefined],
+    ])
+    expect(shape(nestedRows([child], new Set(['NB-81']), every))).toEqual([
+      ['NB-80', 0, true],
+      ['NB-81', 1, true],
+    ])
+  })
+
   test('a parent cycle shows every Task once without looping', () => {
     const a = task({ displayId: 'NB-70', parentId: 'NB-71' })
     const b = task({ displayId: 'NB-71', parentId: 'NB-70' })
