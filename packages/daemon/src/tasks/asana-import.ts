@@ -135,6 +135,16 @@ export function planAsanaImport(input: {
       if (anchorTask !== undefined && task.parentId === anchorTask) {
         rows.push(row(node, { kind: 'kept', ...ref }))
         childAnchor = { taskId: task.id }
+      } else if (anchorTask !== undefined && anchorTask === input.doneParent) {
+        const parent = task.parentId === undefined ? undefined : byId.get(task.parentId)
+        rows.push(
+          row(node, {
+            kind: 'conflict',
+            ...ref,
+            parentDisplayId: parent?.displayId ?? 'no parent',
+          }),
+        )
+        childAnchor = { taskId: task.id }
       } else if (task.parentId === undefined && !cycles(task.id, anchor)) {
         rows.push(row(node, { kind: 'linked', ...ref }))
         links.push({ taskId: task.id, parent: anchor })

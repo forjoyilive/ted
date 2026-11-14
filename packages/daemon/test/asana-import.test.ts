@@ -347,14 +347,17 @@ test('Add them as Tasks imports new Asana items under a merged parent, which the
   stub.setTasks([
     { gid: '1501', name: 'Billing', subtasks: ['1502'] },
     { gid: '1502', name: 'Invoices' },
+    { gid: '1504', name: 'Tax report' },
   ])
   await client.importAsana({ url: 'https://app.asana.com/0/0/1501', factory: 'NB' })
+  await client.importAsana({ url: 'https://app.asana.com/0/0/1504', factory: 'NB' })
   const parent = tasksIn(await client.listTasks()).byGid('1501') as Task
   const repo = (await client.listFactories()).find((f) => f.key === 'NB')?.repos[0]
   stub.setTasks([
-    { gid: '1501', name: 'Billing', subtasks: ['1502', '1503'] },
+    { gid: '1501', name: 'Billing', subtasks: ['1502', '1503', '1504'] },
     { gid: '1502', name: 'Invoices' },
     { gid: '1503', name: 'Refunds' },
+    { gid: '1504', name: 'Tax report' },
   ])
   await daemon?.stop()
   daemon = undefined
@@ -385,6 +388,7 @@ test('Add them as Tasks imports new Asana items under a merged parent, which the
     choices: [asanaAddChoice, asanaCompleteChoice, asanaLeaveOpenChoice],
     asanaUnfinished: { parentGid: '1501', items: [expect.objectContaining({ gid: '1503' })] },
   })
+  expect(question.asanaUnfinished?.items).toHaveLength(1)
   expect((await client.listTasks()).find((t) => t.id === parent.id)?.asanaSync?.state).toBe(
     'needs-answer',
   )
@@ -394,6 +398,7 @@ test('Add them as Tasks imports new Asana items under a merged parent, which the
   await client.answerRequest(question.id, { action: 'answer', choice: asanaAddChoice })
   const all = tasksIn(await client.listTasks())
   expect(all.byGid('1503')?.parentId).toBe(parent.id)
+  expect(all.byGid('1504')?.parentId).toBeUndefined()
   expect(all.byGid('1501')?.stage).toBe('done')
   const after = await client.listComments(parent.id)
   expect(after.find((c) => c.id === question.id)?.answer).toMatchObject({
@@ -403,6 +408,6 @@ test('Add them as Tasks imports new Asana items under a merged parent, which the
   expect(after.filter((c) => c.asanaMissing)).toEqual([])
   await expect
     .poll(async () => (await client.listTasks()).find((t) => t.id === parent.id)?.asanaSync)
-    .toMatchObject({ state: 'waiting-children', openChildren: 2 })
+    .toMatchObject({ state: 'waiting-children', openChildren: 3 })
   expect(stub.requests.filter((r) => r.method === 'PUT')).toEqual([])
 })

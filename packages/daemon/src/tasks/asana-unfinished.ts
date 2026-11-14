@@ -37,18 +37,18 @@ export type ListSubtasks = (
   gid: string,
 ) => Promise<{ rows: Record<string, unknown>[]; complete: boolean }>
 
-export const maxSubtreeLists = 40
+export const maxSubtreeRequests = 40
 
 export async function readSubtree(input: {
   root: { gid: string; name: string; url: string }
   list: ListSubtasks
+  spent: () => number
   tracked: (gid: string) => TrackedItem | undefined
 }): Promise<Subtree> {
   const nodes: SubtreeNode[] = []
   const unreadable: AsanaUnfinishedItem[] = []
   const seen = new Set([input.root.gid])
   let overLimit = false
-  let lists = 0
   const unread = (node: { gid: string; name: string; url: string }, detail: string) =>
     unreadable.push({
       key: `children:${node.gid}`,
@@ -64,11 +64,10 @@ export async function readSubtree(input: {
   while (level.length > 0 && !overLimit) {
     const next: SubtreeNode[] = []
     for (const node of level) {
-      if (lists >= maxSubtreeLists) {
+      if (input.spent() >= maxSubtreeRequests) {
         overLimit = true
         break
       }
-      lists++
       let listed: Awaited<ReturnType<ListSubtasks>>
       try {
         listed = await input.list(node.gid)
@@ -97,7 +96,10 @@ export async function readSubtree(input: {
         }
         nodes.push(child)
         const owner = input.tracked(child.gid)
-        if (child.hasChildren && (owner === undefined || owner.state === 'archived'))
+        if (
+          child.hasChildren &&
+          (owner === undefined || owner.state === 'archived' || child.completed)
+        )
           next.push(child)
       }
       if (overLimit) break
@@ -117,12 +119,6 @@ export function planUnfinished(
   tree: Subtree,
   tracked: (gid: string) => TrackedItem | undefined,
 ): UnfinishedPlan {
-  if (tree.overLimit) {
-    return {
-      waiting: 0,
-      items: [{ key: `limit:${root.gid}`, ...root, reason: 'over-limit' }],
-    }
-  }
   let waiting = 0
   const items: AsanaUnfinishedItem[] = []
   for (const node of tree.nodes) {
@@ -136,6 +132,8 @@ export function planUnfinished(
       items.push({ ...item, reason: parent?.childGids.includes(node.gid) ? 'skipped' : 'new' })
     }
   }
+  if (tree.overLimit)
+    return { waiting, items: [{ key: `limit:${root.gid}`, ...root, reason: 'over-limit' }] }
   return { waiting, items: [...items, ...tree.unreadable] }
 }
 

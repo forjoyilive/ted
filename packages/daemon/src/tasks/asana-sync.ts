@@ -5,6 +5,7 @@ import type { TedStore } from '../store/index.ts'
 import { asanaTaskUrl } from './asana-import.ts'
 import {
   coveredBy,
+  maxSubtreeRequests,
   type ParentStep,
   parentStep,
   planUnfinished,
@@ -105,6 +106,11 @@ export function asanaConnector(
 ): TrackerConnector<AsanaTaskUrl, AsanaItem> {
   let left = 0
   let start = 0
+  let cycleNo = 0
+  const treeReadIn = new Map<string, number>()
+  const starved = new Map<string, number>()
+  const waitingForTree = (taskId: string) =>
+    [...starved].some(([id, at]) => id !== taskId && at >= cycleNo - 1)
 
   const spend = () => {
     if (left <= 0) throw new TrackerWait(0)
@@ -117,6 +123,8 @@ export function asanaConnector(
   const settleParent = (taskId: string) => {
     store.setAsanaOpenChildren(taskId, undefined)
     store.setAsanaLeftOpen(taskId, false)
+    treeReadIn.delete(taskId)
+    starved.delete(taskId)
   }
   const waitOn = (error: unknown): never => {
     if (error instanceof AsanaReadError && error.retryAfterMs !== undefined)
@@ -167,6 +175,7 @@ export function asanaConnector(
       store.setAsanaConnection(account)
       if (account === undefined) return undefined
       left = requestsPerCycle
+      cycleNo++
       const gids = [...new Set(links.map((link) => link.gid))]
       const offset = gids.length === 0 ? 0 : start % gids.length
       const order = [...gids.slice(offset), ...gids.slice(0, offset)]
@@ -223,11 +232,20 @@ export function asanaConnector(
       }
       let step: ParentStep = { kind: 'complete' }
       if (item.handle.subtasks > 0) {
+        if (waitingForTree(task.id) && treeReadIn.get(task.id) === cycleNo - 1) return undefined
+        if (left < Math.min(maxSubtreeRequests + maxPages, Math.floor(requestsPerCycle / 2))) {
+          starved.set(task.id, cycleNo)
+          return undefined
+        }
+        starved.delete(task.id)
+        treeReadIn.set(task.id, cycleNo)
         const tracked = trackedItems(store, task.factoryId)
         const owner = (gid: string) => tracked.get(gid)
+        const budget = left
         const tree = await readSubtree({
           root,
           list: (gid) => pages(`/tasks/${gid}/subtasks`, subtaskFields, () => false),
+          spent: () => budget - left,
           tracked: owner,
         })
         const questions = store.listComments(task.id).filter((c) => c.asanaUnfinished)

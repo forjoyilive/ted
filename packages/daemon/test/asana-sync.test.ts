@@ -609,21 +609,30 @@ test('a merged parent waits on items with TED Tasks without asking, asks about i
   expect(asana.get('1007')?.completed).toBe(false)
 })
 
-test('unreadable items and a tree over the limit are asked about, and Complete it in Asana anyway completes only the parent', async () => {
+test('unreadable items, items below a completed item and a tree over the limit are asked about, and Complete it in Asana anyway waits for open Tasks and completes only the parent', async () => {
   const tree = imported(
     { gid: '1201', subtasks: [], syncAccount: '100' },
     { gid: '1301', subtasks: [], syncAccount: '100' },
+    { gid: '1400', parent: '1301', syncAccount: '100' },
+    { gid: '1601', subtasks: ['1602'], syncAccount: '100' },
+    { gid: '1602', parent: '1601', completed: true, syncAccount: '100' },
   )
   addItem('1201', '1202', { subtasks: ['1203'], unlisted: true, name: 'Exports' })
   for (let i = 0; i < 101; i++) addItem('1301', String(1400 + i))
+  addItem('1602', '1603')
+  store.changeStage(tree.get('1602')?.id ?? '', 'done')
   const unreadable = tree.get('1201') as Task
   const huge = tree.get('1301') as Task
+  const below = tree.get('1601') as Task
   withPullRequest(unreadable, 121)
   withPullRequest(huge, 131)
+  withPullRequest(below, 161)
   merge(unreadable)
   merge(huge)
+  merge(below)
   startSync()
   await cycle()
+  expect(listed(asking(below)[0])).toEqual([['1603', 'new', undefined]])
   const [blind] = asking(unreadable)
   expect(blind?.choices).toEqual([asanaAddChoice, asanaCompleteChoice, asanaLeaveOpenChoice])
   expect(listed(blind)).toEqual([
@@ -638,8 +647,39 @@ test('unreadable items and a tree over the limit are asked about, and Complete i
 
   answer(limit, asanaCompleteChoice)
   await cycle()
+  expect(completions()).toEqual([])
+  expect(sync(huge)).toMatchObject({ state: 'waiting-children', openChildren: 1 })
+  finish('1400')
+  await cycle()
   expect(completions()).toEqual(['1301'])
   expect(sync(huge)?.state).toBe('completed-by-ted')
   expect(sync(unreadable)?.state).toBe('needs-answer')
-  expect([...asana.entries()].filter(([gid, t]) => gid.startsWith('14') && t.completed)).toEqual([])
+  expect(
+    [...asana.entries()].filter(
+      ([gid, t]) => gid.startsWith('14') && gid !== '1400' && t.completed,
+    ),
+  ).toEqual([])
+})
+
+test('a parent that ran out of requests for its subtree is read first in the next cycle', async () => {
+  const gids = ['1701', '1801', '1901']
+  const tree = imported(...gids.map((gid) => ({ gid, syncAccount: '100' })))
+  for (const parent of gids) {
+    for (let i = 1; i <= 38; i++) {
+      const child = String(Number(parent) * 100 + i)
+      addItem(parent, child)
+      addItem(child, `${child}0`)
+    }
+  }
+  const parents = gids.map((gid) => tree.get(gid) as Task)
+  parents.forEach((task, i) => {
+    withPullRequest(task, 170 + i)
+    merge(task)
+  })
+  startSync()
+  await cycle()
+  expect(parents.map((task) => asking(task).length)).toEqual([1, 1, 0])
+  await cycle()
+  expect(parents.map((task) => asking(task).length)).toEqual([1, 1, 1])
+  expect(asking(parents[2] as Task)[0]?.asanaUnfinished?.items).toHaveLength(76)
 })
