@@ -173,6 +173,7 @@ function NewTaskForm({
   const [uploading, setUploading] = useState(0)
   const uploads = useRef(new Set<Promise<void>>())
   const [busy, setBusy] = useState(false)
+  const [moving, setMoving] = useState(false)
   const [creatingMore, setCreatingMore] = useState(false)
   const [error, setError] = useState<string>()
   const [source, setSource] = useState<Source>()
@@ -375,6 +376,7 @@ function NewTaskForm({
     description.trim() !== '' &&
     uploading === 0 &&
     !busy &&
+    !moving &&
     !fetching &&
     asanaReady
 
@@ -446,14 +448,16 @@ function NewTaskForm({
   }
 
   async function changeFactory(next: string) {
-    if (busy) return
+    if (busy || moving) return
+    setMoving(true)
     try {
       await Promise.all([...uploads.current])
       await session.flush()
       const draft = await session.moveOut()
       setDraftError(undefined)
-      onFactory(next, { ...draft, parent: undefined, blockedBy: [] })
+      onFactory(next, { ...draft, parent: undefined })
     } catch (failure) {
+      setMoving(false)
       setDraftError(`Couldn’t save the draft: ${readableError(failure)}`)
     }
   }
@@ -524,7 +528,7 @@ function NewTaskForm({
   }
 
   function attach(files: readonly File[]) {
-    if (busy) return Promise.resolve()
+    if (busy || moving) return Promise.resolve()
     if (!ready) {
       setHeldFiles((held) => [...held, ...files])
       return Promise.resolve()
@@ -615,7 +619,7 @@ function NewTaskForm({
         <Select
           aria-label="Factory"
           value={factory ?? ''}
-          disabled={factories.length === 0 || !ready || busy || uploading > 0}
+          disabled={factories.length === 0 || !ready || busy || moving || uploading > 0}
           onChange={(event) => changeFactory(event.target.value)}
         >
           {factories.length === 0 && <option value="">No Factories yet</option>}
@@ -635,7 +639,7 @@ function NewTaskForm({
         </ActionButton>
       </header>
 
-      <fieldset disabled={busy} className={styles.fields}>
+      <fieldset disabled={busy || moving} className={styles.fields}>
         <fieldset disabled={!ready} className={styles.fields}>
           <input
             className={styles.title}

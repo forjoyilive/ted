@@ -162,7 +162,7 @@ describe('New Task drafts', () => {
       async () => (await client.taskDraft(second.id)).draft?.description === 'Notebook draft',
       'draft moved to the new Factory',
     )
-    expect((await client.taskDraft(second.id)).draft?.blockedBy).toEqual([])
+    expect((await client.taskDraft(second.id)).draft?.blockedBy).toHaveLength(1)
     expect((await client.taskDraft(first.id)).draft?.description).toBe('')
 
     await description().fill('Site draft')

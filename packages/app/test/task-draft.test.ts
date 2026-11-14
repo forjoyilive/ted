@@ -309,7 +309,14 @@ describe('New Task recovery and ordered saves', () => {
     const carried = await first.moveOut()
     expect(saved.get('one')).toMatchObject({ title: '', description: '' })
     expect(setup.storage.getItem('ted.newTaskDraft.v1.one')).toBeNull()
-    const second = session('two')
+    const second = taskDraftSession('two', {
+      ...setup,
+      read: () => Promise.reject(new Error('offline')),
+      save: async (draft) => {
+        saved.set('two', draft)
+        return { draft }
+      },
+    })
     expect(await second.load(carried)).toMatchObject({
       title: 'Kept',
       description: 'Typed in one',
