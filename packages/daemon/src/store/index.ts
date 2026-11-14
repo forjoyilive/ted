@@ -252,7 +252,8 @@ export interface TrackerSyncRecord {
   linked: Set<string>
   allowed: boolean
   allowedAccount?: string
-  allowedGroups: Set<string>
+  allowedGroups: Map<string, string | undefined>
+  groups?: readonly string[]
 }
 
 export interface GitHubNoticeRecord {
@@ -409,6 +410,7 @@ export interface NewTreeTask {
   asana: TaskAsanaSource
   automation?: { automationId: string; firingId: string }
   syncAccount?: string
+  projects?: readonly string[]
 }
 
 export interface NewTaskTree {
@@ -730,6 +732,20 @@ export interface TedStore extends TaskHistory {
     account?: string,
   ): MachineSettings
   declineTrackerGroup(tracker: string, factoryId: string, group: string): void
+  forgetTrackerGroup(
+    tracker: string,
+    factoryId: string,
+    group: string,
+    list: 'allowed' | 'declined',
+    consents: readonly { taskId: string; item: string }[],
+    account?: string,
+  ): MachineSettings
+  trackerItemGroupsSeen(
+    taskId: string,
+    tracker: string,
+    item: string,
+    groups: readonly string[],
+  ): void
   linearSyncAllowed(taskId: string, identifier: string): Task
   allowLinearTeam(
     factoryId: string,
@@ -1145,6 +1161,7 @@ export interface TedStore extends TaskHistory {
   setShellsRunning(count: number): void
   setScheduledChecks(counts: { running: number; waiting: number }): void
   setAsanaConnection(account: string | undefined): void
+  asanaAccount(): string | undefined
   setAsanaOpenChildren(taskId: string, count: number | undefined): void
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
   raiseBanner(input: NewBanner): Banner
@@ -2124,7 +2141,7 @@ export async function openStore({
                 : 'human'
     const linearSync = linearSyncOf(row, source, reads)
     const asanaSync = asanaSyncFor(
-      { id: row.id, archived: archivedAt !== null },
+      { id: row.id, factoryId: row.factoryId, archived: archivedAt !== null },
       source,
       stage,
       reads,
@@ -3002,7 +3019,7 @@ export async function openStore({
     const record: TrackerSyncRecord = {
       linked: new Set(),
       allowed: false,
-      allowedGroups: new Set(),
+      allowedGroups: new Map(),
     }
     for (const row of log.filter((entry) => entry.name.startsWith('v1.Tracker'))) {
       const data = JSON.parse(row.data) as Record<string, unknown>
@@ -3018,7 +3035,12 @@ export async function openStore({
         if (typeof data.account === 'string') record.allowedAccount = data.account
         else delete record.allowedAccount
       } else if (row.name === 'v1.TrackerGroupSyncAllowed') {
-        record.allowedGroups.add(String(data.group))
+        record.allowedGroups.set(
+          String(data.group),
+          typeof data.account === 'string' ? data.account : undefined,
+        )
+      } else if (row.name === 'v1.TrackerItemGroupsSeen' && Array.isArray(data.groups)) {
+        record.groups = data.groups.map(String)
       } else if (row.name === 'v1.TrackerItemMoved') {
         record.step = String(data.step)
         record.moved = {
@@ -3036,7 +3058,7 @@ export async function openStore({
   const asanaOpenChildren = new Map<string, number>()
 
   const asanaSyncFor = (
-    row: { id: string; archived: boolean },
+    row: { id: string; factoryId: string; archived: boolean },
     source: TaskSource | undefined,
     stage: StageId,
     reads: TaskReads,
@@ -3045,10 +3067,22 @@ export async function openStore({
     const record = trackerRecordFrom(reads.log(row.id), 'asana')
     const merged = stage === 'done' && isMerged(row.id)
     const openChildren = asanaOpenChildren.get(row.id)
+    const settings = reads.settings()
+    const listed = settings.trackerSyncGroups.asana?.[row.factoryId] ?? []
+    const listedAccounts = settings.trackerSyncGroupAccounts.asana?.[row.factoryId] ?? {}
+    const projectAccounts = (record.groups ?? []).flatMap((project) => [
+      ...(listed.includes(project) && listedAccounts[project] !== undefined
+        ? [listedAccounts[project]]
+        : []),
+      ...(record.allowedGroups.get(project) !== undefined
+        ? [record.allowedGroups.get(project) as string]
+        : []),
+    ])
     return asanaSyncOf({
       allowed: record.allowed,
+      projectAccounts: [...new Set(projectAccounts)],
       ...(record.allowedAccount !== undefined && { allowedAccount: record.allowedAccount }),
-      switchOn: reads.settings().asanaSync,
+      switchOn: settings.asanaSync,
       connection: asanaConnection,
       archivedUnmerged: row.archived && !merged,
       ...(record.step === 'completed' &&
@@ -3874,6 +3908,17 @@ export async function openStore({
             at,
           }),
           events.taskSourceAsanaSet({ taskId: id, asana: JSON.stringify(task.asana), at }),
+          ...(task.projects !== undefined
+            ? [
+                events.trackerItemGroupsSeen({
+                  taskId: id,
+                  tracker: 'asana',
+                  item: task.asana.gid,
+                  groups: [...task.projects],
+                  at,
+                }),
+              ]
+            : []),
           ...(task.syncAccount !== undefined
             ? [
                 events.trackerSyncAllowed({
@@ -4820,6 +4865,16 @@ export async function openStore({
                 : otherDeclined,
           },
         }),
+        ...(account !== undefined &&
+          current.trackerSyncGroupAccounts[tracker]?.[factoryId]?.[group] !== account && {
+            trackerSyncGroupAccounts: withGroupAccount(
+              current.trackerSyncGroupAccounts,
+              tracker,
+              factoryId,
+              group,
+              account,
+            ),
+          }),
       }
       const changed = Object.keys(changes).length > 0
       const batch = [
@@ -4840,7 +4895,65 @@ export async function openStore({
       if (batch.length > 0) commit(...batch)
       if (changed) emit({ type: 'settings-changed', settings: settings() })
       for (const { taskId } of consents) updatedTask(taskId)
+      if (changed && tracker === 'asana') updatedTasks(asanaTaskIds())
       return settings()
+    },
+    forgetTrackerGroup(tracker, factoryId, group, list, consents, account) {
+      const at = new Date().toISOString()
+      const current = settings()
+      const name = list === 'allowed' ? 'trackerSyncGroups' : 'trackerSyncDeclined'
+      const byFactory = current[name][tracker] ?? {}
+      const listed = byFactory[factoryId] ?? []
+      if (!listed.includes(group)) return current
+      const kept = listed.filter((g) => g !== group)
+      const { [factoryId]: _, ...others } = byFactory
+      const accounts = current.trackerSyncGroupAccounts[tracker]?.[factoryId] ?? {}
+      const { [group]: __, ...keptAccounts } = accounts
+      const changes: Partial<MachineSettings> = {
+        [name]: {
+          ...current[name],
+          [tracker]: kept.length > 0 ? { ...others, [factoryId]: kept } : others,
+        },
+        ...(list === 'allowed' &&
+          group in accounts && {
+            trackerSyncGroupAccounts: {
+              ...current.trackerSyncGroupAccounts,
+              [tracker]: {
+                ...current.trackerSyncGroupAccounts[tracker],
+                [factoryId]: keptAccounts,
+              },
+            },
+          }),
+      }
+      commit(
+        ...consents.map(({ taskId, item }) =>
+          events.trackerGroupSyncAllowed({
+            taskId,
+            tracker,
+            item,
+            group,
+            account: account ?? null,
+            at,
+          }),
+        ),
+        events.machineSettingsChanged({ changes: JSON.stringify(changes), at }),
+      )
+      emit({ type: 'settings-changed', settings: settings() })
+      for (const { taskId } of consents) updatedTask(taskId)
+      if (tracker === 'asana') updatedTasks(asanaTaskIds())
+      return settings()
+    },
+    trackerItemGroupsSeen(taskId, tracker, item, groups) {
+      commit(
+        events.trackerItemGroupsSeen({
+          taskId,
+          tracker,
+          item,
+          groups: [...groups],
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
     },
     declineTrackerGroup(tracker, factoryId, group) {
       const current = settings().trackerSyncDeclined
@@ -6480,6 +6593,9 @@ export async function openStore({
       asanaConnection = { known: true, ...(account !== undefined && { account }) }
       updatedTasks(asanaTaskIds())
     },
+    asanaAccount() {
+      return asanaConnection.known ? asanaConnection.account : undefined
+    },
     setAsanaOpenChildren(taskId, count) {
       if (asanaOpenChildren.get(taskId) === count) return
       if (count === undefined) asanaOpenChildren.delete(taskId)
@@ -6783,5 +6899,19 @@ function androidAsk(simulator: string): boolean {
     return (JSON.parse(simulator) as SimulatorAsk).platform === 'android'
   } catch {
     return false
+  }
+}
+
+function withGroupAccount(
+  current: MachineSettings['trackerSyncGroupAccounts'],
+  tracker: string,
+  factoryId: string,
+  group: string,
+  account: string,
+): MachineSettings['trackerSyncGroupAccounts'] {
+  const byFactory = current[tracker] ?? {}
+  return {
+    ...current,
+    [tracker]: { ...byFactory, [factoryId]: { ...byFactory[factoryId], [group]: account } },
   }
 }

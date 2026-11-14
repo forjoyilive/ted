@@ -10,6 +10,7 @@ export function TrackerGroupsRow({
   allowed,
   declined,
   allowLabel,
+  label = (group) => group,
   onAllow,
   problem,
   children,
@@ -20,6 +21,7 @@ export function TrackerGroupsRow({
   allowed: readonly string[]
   declined: readonly string[]
   allowLabel(group: string): string
+  label?(group: string): string
   onAllow(group: string): unknown
   problem?: string
   children: ReactNode
@@ -37,7 +39,7 @@ export function TrackerGroupsRow({
             You chose Not now for
             {notNow.map((group) => (
               <span key={group} className={styles.notNowGroup}>
-                {group}
+                {label(group)}
                 <ActionButton
                   type="button"
                   className={styles.allow}

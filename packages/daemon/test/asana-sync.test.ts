@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { type AsanaSyncFacts, asanaSyncOf, type Task } from '@ted/protocol'
+import { type AsanaSyncFacts, asanaSyncOf, type Comment, type Task } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { AsanaReadError } from '../src/asana/asana.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
@@ -18,6 +18,7 @@ interface FakeTask {
   completed: boolean
   subtasks: string[]
   stories: string[]
+  projects?: string[]
 }
 
 const everyMs = 60_000
@@ -61,7 +62,13 @@ const api: AsanaSyncApi = {
         ],
         next_page: null,
       }
-    return { data: { completed: task.completed, num_subtasks: task.subtasks.length } }
+    return {
+      data: {
+        completed: task.completed,
+        num_subtasks: task.subtasks.length,
+        ...(task.projects && { memberships: task.projects.map((gid) => ({ project: { gid } })) }),
+      },
+    }
   },
   async comment(gid, text, writer) {
     if (writer !== account) throw new AsanaReadError('another account')
@@ -152,6 +159,8 @@ interface Planned {
   subtasks?: string[]
   syncAccount?: string
   parent?: string
+  projects?: string[]
+  automation?: boolean
 }
 
 function imported(...planned: Planned[]): Map<string, Task> {
@@ -161,6 +170,7 @@ function imported(...planned: Planned[]): Map<string, Task> {
         completed: item.completed === true,
         subtasks: item.subtasks ?? [],
         stories: [],
+        ...(item.projects && { projects: item.projects }),
       })
   }
   return store.createTaskTree({
@@ -183,6 +193,8 @@ function imported(...planned: Planned[]): Map<string, Task> {
         children: [],
       },
       ...(item.syncAccount !== undefined && { syncAccount: item.syncAccount }),
+      ...(item.projects && { projects: item.projects }),
+      ...(item.automation && { automation: { automationId: 'auto-1', firingId: 'fire-1' } }),
     })),
     links: [],
     comments: [],
@@ -472,4 +484,120 @@ test('turning Task Sync off while a read is in flight sends neither the completi
   await Promise.all(jobs.slice(before))
   expect(writes.filter((w) => w.gid === '861')).toEqual([])
   expect(sync(later)).toMatchObject({ state: 'off', linked: 0 })
+})
+
+test('an allowed Asana project syncs its items, by each item’s own current projects and the account that allowed it', async () => {
+  const tree = imported(
+    { gid: '901', subtasks: ['902'], projects: ['70', '71'], automation: true },
+    { gid: '902', parent: '901', projects: ['72'], automation: true },
+    { gid: '903', projects: [], automation: true },
+    { gid: '904', projects: ['70'], automation: true },
+    { gid: '905', projects: ['73'], automation: true },
+  )
+  const [inProject, subtask, noProject, done, other] = ['901', '902', '903', '904', '905'].map(
+    (gid) => tree.get(gid) as Task,
+  )
+  for (const [i, task] of [inProject, subtask, noProject, done, other].entries())
+    withPullRequest(task as Task, 30 + i)
+  merge(done as Task)
+  startSync()
+  const consent = (syncs[0] as AsanaSync).consent
+  await cycle()
+  expect(writes).toEqual([])
+
+  consent.askGroups((inProject as Task).id, 'Intake', [
+    { key: '70', name: 'Roadmap' },
+    { key: '71', name: 'Bugs' },
+  ])
+  consent.askGroups((done as Task).id, 'Intake', [{ key: '70', name: 'Roadmap' }])
+  consent.askGroups((noProject as Task).id, 'Intake', [])
+  consent.askGroups((other as Task).id, 'Intake', [{ key: '73', name: 'Ops' }])
+  const asks = store.listOpenRequests().filter((c) => c.purpose?.kind === 'tracker-group')
+  expect(asks.map((c) => [c.taskId, c.purpose])).toEqual([
+    [
+      (inProject as Task).id,
+      { kind: 'tracker-group', tracker: 'asana', group: { key: '70', name: 'Roadmap' } },
+    ],
+    [
+      (other as Task).id,
+      { kind: 'tracker-group', tracker: 'asana', group: { key: '73', name: 'Ops' } },
+    ],
+  ])
+  expect(asks[0]?.title).toBe(
+    'Sync Tasks from the Asana project Roadmap for Automations in Notebooks?',
+  )
+
+  consent.answerGroup(store.getTask((other as Task).id) as Task, asks[1] as Comment, 'Not now', '')
+  expect(store.settings().trackerSyncDeclined.asana?.[factoryId]).toEqual(['73'])
+  consent.answerGroup(
+    store.getTask((inProject as Task).id) as Task,
+    asks[0] as Comment,
+    'Allow',
+    '',
+  )
+  expect(store.settings().trackerSyncGroups.asana?.[factoryId]).toEqual(['70'])
+  expect(store.settings().trackerSyncGroupAccounts.asana?.[factoryId]).toEqual({ '70': '100' })
+  expect(store.listOpenRequests().filter((c) => c.purpose?.kind === 'tracker-group')).toEqual([])
+  expect(sync(inProject as Task)?.state).toBe('waiting-merge')
+  expect(sync(done as Task)?.state).toBe('waiting-merge')
+  expect(sync(subtask as Task)?.state).toBe('not-allowed')
+  expect(sync(noProject as Task)?.state).toBe('not-allowed')
+  expect(sync(other as Task)?.state).toBe('not-allowed')
+
+  await cycle()
+  expect(writes.map((w) => [w.kind, w.gid]).sort()).toEqual([
+    ['comment', '901'],
+    ['comment', '904'],
+    ['complete', '904'],
+  ])
+
+  const item = asana.get('901') as FakeTask
+  item.projects = ['71']
+  store.pullRequestOpened((inProject as Task).id, 'notes', {
+    number: 40,
+    url: prUrl(40),
+    base: 'main',
+  })
+  await cycle()
+  expect(sync(inProject as Task)?.state).toBe('not-allowed')
+  expect(writes.filter((w) => w.gid === '901')).toHaveLength(1)
+  item.projects = ['71', '70']
+  await cycle()
+  expect(writes.filter((w) => w.gid === '901')).toHaveLength(2)
+
+  account = '200'
+  store.pullRequestOpened((inProject as Task).id, 'notes', {
+    number: 41,
+    url: prUrl(41),
+    base: 'main',
+  })
+  await cycle()
+  expect(sync(inProject as Task)?.state).toBe('other-account')
+  expect(writes.filter((w) => w.gid === '901')).toHaveLength(2)
+  consent.allowGroup(factoryId, '70')
+  expect(store.settings().trackerSyncGroupAccounts.asana?.[factoryId]).toEqual({ '70': '200' })
+  await cycle()
+  expect(writes.filter((w) => w.gid === '901')).toHaveLength(3)
+
+  consent.forgetGroup(factoryId, '70', 'allowed')
+  expect(store.settings().trackerSyncGroups.asana?.[factoryId]).toEqual([])
+  expect(sync(inProject as Task)?.state).toBe('waiting-merge')
+})
+
+test('Asana project facts: another account’s project allowance doesn’t count, the Task’s own allowance still does', () => {
+  const base: AsanaSyncFacts = {
+    allowed: false,
+    switchOn: true,
+    connection: { known: true, account: '200' },
+    archivedUnmerged: false,
+    completeInAsana: false,
+    merged: false,
+    linked: 0,
+  }
+  expect(asanaSyncOf({ ...base, projectAccounts: ['100'] }).state).toBe('other-account')
+  expect(asanaSyncOf({ ...base, projectAccounts: ['100', '200'] }).state).toBe('waiting-merge')
+  expect(asanaSyncOf({ ...base, projectAccounts: [] }).state).toBe('not-allowed')
+  expect(
+    asanaSyncOf({ ...base, allowed: true, allowedAccount: '200', projectAccounts: ['100'] }).state,
+  ).toBe('waiting-merge')
 })

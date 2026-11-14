@@ -65,6 +65,10 @@ export type TrackerGroupLists = Readonly<
   Record<string, Readonly<Record<string, readonly string[]>>>
 >
 
+export type TrackerGroupAccounts = Readonly<
+  Record<string, Readonly<Record<string, Readonly<Record<string, string>>>>>
+>
+
 export interface MachineSettings {
   timeFormat: TimeFormat
   timeZone: string
@@ -105,6 +109,7 @@ export interface MachineSettings {
   linearSyncDeclined: Readonly<Record<string, readonly string[]>>
   trackerSyncGroups: TrackerGroupLists
   trackerSyncDeclined: TrackerGroupLists
+  trackerSyncGroupAccounts: TrackerGroupAccounts
   factoryPermissions: Readonly<Record<string, PermissionMode>>
   appsOutsideSandbox: Readonly<Record<string, readonly string[]>>
   lowPriorityWork: boolean
@@ -153,6 +158,7 @@ export const defaultMachineSettings: MachineSettings = {
   linearSyncDeclined: {},
   trackerSyncGroups: {},
   trackerSyncDeclined: {},
+  trackerSyncGroupAccounts: {},
   factoryPermissions: {},
   appsOutsideSandbox: {},
   lowPriorityWork: true,

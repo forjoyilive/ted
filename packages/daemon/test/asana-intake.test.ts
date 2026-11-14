@@ -8,10 +8,12 @@ import {
   type RunWithConversation,
   readDaemonInfo,
   type Task,
+  tedPaths,
 } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
 import type { Keyring } from '../src/linear/keyring.ts'
+import { loadRunTokens } from '../src/run-token.ts'
 import { type StubAsanaTask, startStubAsana, unusedPort } from './fixtures/stub-asana.ts'
 import {
   api,
@@ -354,4 +356,65 @@ test('saving, stale and changing scopes, and Automation imports are checked agai
   expect(byGid(all, '570')).toMatchObject({ createdBy: 'automation', stage: 'backlog' })
   for (const gid of ['510', '540', '550']) expect(byGid(all, gid), gid).toBeUndefined()
   expect(asanaWrites()).toEqual([])
+
+  const imported = ['501', '502', '570'].map((gid) => byGid(all, gid) as Task)
+  const projectAsks = async () =>
+    (await Promise.all(imported.map((task) => client.listComments(task.id))))
+      .flat()
+      .filter((c) => c.purpose?.kind === 'tracker-group' && c.answer === undefined)
+  const asks = await projectAsks()
+  expect(asks.map((c) => c.purpose)).toEqual([
+    { kind: 'tracker-group', tracker: 'asana', group: { key: '9', name: 'Roadmap' } },
+  ])
+  for (const task of imported) expect(task.asanaSync?.state, task.displayId).toBe('not-allowed')
+  const ask = asks[0]
+  if (!ask) throw new Error('no project question')
+  const port = restarted?.port ?? 0
+  const asRun = api(port, (await loadRunTokens(tedPaths(home).runTokenKey)).issue(row.runId ?? ''))
+  const asFile = api(port, await tokenFor(home))
+  for (const caller of [asRun, asFile]) {
+    for (const [method, route, body] of [
+      ['POST', '/integrations/asana/projects', { factoryId: factory.id, project: '9' }],
+      [
+        'POST',
+        '/integrations/asana/projects/remove',
+        { factoryId: factory.id, project: '9', list: 'allowed' },
+      ],
+      ['POST', `/comments/${ask.id}/answer`, { action: 'answer', choice: 'Allow' }],
+      ['PATCH', '/settings', { trackerSyncGroups: { asana: { [factory.id]: ['9'] } } }],
+    ] as const)
+      expect((await caller.call(method, route, body)).status, `${method} ${route}`).toBe(403)
+  }
+  expect((await asRun.call('GET', '/integrations/asana/projects')).status).toBe(403)
+  expect(
+    await refused(client.updateSettings({ trackerSyncGroups: { asana: { [factory.id]: ['9'] } } })),
+  ).toContain('Settings → Integrations → Asana')
+  expect(await refused(client.allowAsanaProject(factory.id, '404'))).toContain('can’t open it')
+  expect(await client.asanaProjects()).toEqual({
+    projects: [
+      { gid: '9', name: 'Roadmap', workspace: 'Acme' },
+      { gid: '8', name: 'Other', workspace: 'Acme' },
+      { gid: '7', name: 'Foreign', workspace: 'Elsewhere' },
+    ],
+    complete: true,
+  })
+
+  await client.answerRequest(ask.id, { action: 'answer', choice: 'Allow' })
+  const settings = await client.getSettings()
+  expect(settings.trackerSyncGroups.asana?.[factory.id]).toEqual(['9'])
+  expect(settings.trackerSyncGroupAccounts.asana?.[factory.id]).toEqual({ '9': '100' })
+  expect(await projectAsks()).toEqual([])
+  const after = await client.listTasks()
+  for (const task of imported)
+    expect(byGid(after, task.source?.asana?.gid ?? '')?.asanaSync?.state, task.displayId).toBe(
+      'waiting-merge',
+    )
+
+  await client.forgetAsanaProject(factory.id, '9', 'allowed')
+  await client.allowAsanaProject(factory.id, '8')
+  expect((await client.getSettings()).trackerSyncGroups.asana?.[factory.id]).toEqual(['8'])
+  await client.removeFactory(factory.id, { key: 'NB', closePullRequests: false })
+  const cleared = await client.getSettings()
+  expect(cleared.trackerSyncGroups.asana?.[factory.id]).toBeUndefined()
+  expect(cleared.trackerSyncGroupAccounts.asana?.[factory.id]).toBeUndefined()
 })
