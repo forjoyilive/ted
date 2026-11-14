@@ -2,7 +2,7 @@ import type { NewTaskDraft, TaskDraftState } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, efforts, priorities } from '@ted/protocol/task'
 
-export function emptyTaskDraft(): NewTaskDraft {
+export function emptyTaskDraft(start = true): NewTaskDraft {
   return {
     revision: crypto.randomUUID(),
     title: '',
@@ -10,7 +10,7 @@ export function emptyTaskDraft(): NewTaskDraft {
     priority: 'none',
     blockedBy: [],
     attachments: [],
-    start: true,
+    start,
     moreOpen: false,
     dismissed: [],
     filled: {},
@@ -31,6 +31,8 @@ export function taskDraftSession(
     save(draft: NewTaskDraft): Promise<TaskDraftState>
     changed(draft: NewTaskDraft): void
     failed(error: unknown): void
+    startDefault?(): Promise<boolean>
+    rememberStart?(start: boolean): Promise<void>
   },
 ) {
   const key = `ted.newTaskDraft.v1.${factoryId}`
@@ -38,6 +40,10 @@ export function taskDraftSession(
   let pending: NewTaskDraft | undefined
   let saving: Promise<void> | undefined
   let loaded = false
+  let startDefault = true
+  let startSaved = true
+  let startSaving = false
+  let startAskedAgain = false
 
   function remember(draft: NewTaskDraft) {
     options.storage.setItem(key, JSON.stringify(draft))
@@ -51,6 +57,28 @@ export function taskDraftSession(
     } catch (error) {
       options.failed(error)
     }
+  }
+
+  function saveStart() {
+    if (startSaving) {
+      startAskedAgain = true
+      return
+    }
+    if (!options.rememberStart || startDefault === startSaved) return
+    const start = startDefault
+    startSaving = true
+    startAskedAgain = false
+    options.rememberStart(start).then(
+      () => {
+        startSaved = start
+        startSaving = false
+        saveStart()
+      },
+      () => {
+        startSaving = false
+        if (startAskedAgain) saveStart()
+      },
+    )
   }
 
   async function drain() {
@@ -79,7 +107,12 @@ export function taskDraftSession(
 
   return {
     async load() {
-      const state = await options.read()
+      const [state, start] = await Promise.all([
+        options.read(),
+        options.startDefault?.().catch(() => true) ?? true,
+      ])
+      startDefault = start
+      startSaved = start
       let recovery: NewTaskDraft | undefined
       try {
         const text = options.storage.getItem(key)
@@ -97,7 +130,12 @@ export function taskDraftSession(
         forget(recovery.revision)
         recovery = undefined
       }
-      current = recovery ?? state.draft ?? emptyTaskDraft()
+      const draft = recovery ?? state.draft
+      current = !draft
+        ? emptyTaskDraft(startDefault)
+        : draft.startChosen
+          ? draft
+          : { ...draft, start: startDefault }
       loaded = true
       options.changed(current)
       if (recovery) {
@@ -132,7 +170,9 @@ export function taskDraftSession(
     consumed(revision: string) {
       forget(revision)
       if (current.revision === revision) {
-        current = emptyTaskDraft()
+        startDefault = current.start
+        saveStart()
+        current = emptyTaskDraft(startDefault)
         options.changed(current)
       }
     },
@@ -150,6 +190,7 @@ function recoveryDraft(value: unknown): NewTaskDraft | undefined {
     typeof value.title !== 'string' ||
     typeof value.description !== 'string' ||
     typeof value.start !== 'boolean' ||
+    (value.startChosen !== undefined && typeof value.startChosen !== 'boolean') ||
     typeof value.moreOpen !== 'boolean' ||
     !priorities.some((p) => p === value.priority) ||
     !strings(value.blockedBy) ||

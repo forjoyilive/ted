@@ -472,6 +472,7 @@ export interface NewTaskDraft {
   parent?: string | undefined
   attachments: Attachment[]
   start: boolean
+  startChosen?: boolean | undefined
   moreOpen: boolean
   clarifyDepth?: ClarifyDepth | undefined
   lead?: TaskLead | undefined

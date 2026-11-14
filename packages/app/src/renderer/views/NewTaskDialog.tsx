@@ -117,6 +117,16 @@ function NewTaskForm({
       },
       changed: showDraft,
       failed: (failure) => setDraftError(`Couldn’t save the draft: ${readableError(failure)}`),
+      startDefault: async () => (await ted.getSettings()).startNewTasks,
+      rememberStart: async (startNewTasks) => {
+        try {
+          await ted.updateSettings({ startNewTasks })
+        } catch (failure) {
+          if (mounted.current)
+            setDraftError(`Couldn’t remember Start now: ${readableError(failure)}`)
+          throw failure
+        }
+      },
     }),
   )
   const { title, description, priority, blockedBy, attachments, start, moreOpen, dismissed } = draft
@@ -128,11 +138,12 @@ function NewTaskForm({
   const clarifyDepth = draft.clarifyDepth ?? defaultDepth
   const lead = draft.lead ?? defaultLead
   const field =
-    <K extends keyof NewTaskDraft>(key: K) =>
+    <K extends keyof NewTaskDraft>(key: K, also: Partial<NewTaskDraft> = {}) =>
     (next: NewTaskDraft[K] | ((current: NewTaskDraft[K]) => NewTaskDraft[K])) => {
       session.update((current) => ({
         lead: current.lead ?? (defaultsReady ? defaultLead : undefined),
         clarifyDepth: current.clarifyDepth ?? (defaultsReady ? defaultDepth : undefined),
+        ...also,
         [key]: typeof next === 'function' ? next(current[key]) : next,
       }))
     }
@@ -141,7 +152,7 @@ function NewTaskForm({
   const setPriority = field('priority')
   const setBlockedBy = field('blockedBy')
   const setAttachments = field('attachments')
-  const setStart = field('start')
+  const setStart = field('start', { startChosen: true })
   const setMoreOpen = field('moreOpen')
   const setClarifyDepth = field('clarifyDepth')
   const setLead = field('lead')

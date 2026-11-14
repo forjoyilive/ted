@@ -87,6 +87,7 @@ roundTrip(P.parseSaveTaskDraftRequest, {
   blockedBy: ['TED-1'],
   attachments: [file],
   start: true,
+  startChosen: true,
   moreOpen: true,
   clarifyDepth: 'few',
   lead,
@@ -261,6 +262,23 @@ rejects(
   'severity must be one of p1, unfixed',
 )
 rejects(P.parseSaveTaskDraftRequest, {}, 'invalid draft priority')
+rejects(
+  P.parseSaveTaskDraftRequest,
+  {
+    revision: 'rev',
+    title: '',
+    description: '',
+    priority: 'none',
+    blockedBy: [],
+    attachments: [],
+    start: true,
+    startChosen: 'yes',
+    moreOpen: false,
+    dismissed: [],
+    filled: {},
+  },
+  'startChosen must be true or false',
+)
 rejects(P.parseSaveMessageDraftRequest, { attachments: [] }, 'text must be text')
 rejects(
   P.parseSaveMessageDraftRequest,
