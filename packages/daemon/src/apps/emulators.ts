@@ -1,20 +1,11 @@
 import { type ChildProcess, execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { closeSync, existsSync, openSync, readFileSync } from 'node:fs'
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { closeSync, existsSync, openSync } from 'node:fs'
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
-import type {
-  AppSimulator,
-  BootedSimulator,
-  Comment,
-  DaemonEvent,
-  DevicePoint,
-  DeviceRequest,
-  SimulatorAsk,
-  SimulatorSlots,
-} from '@ted/protocol'
+import type { AppSimulator, DaemonEvent, DevicePoint, DeviceRequest } from '@ted/protocol'
 import { identity } from '@ted/protocol'
 import type { Banners } from '../banners.ts'
 import { RequestError } from '../errors.ts'
@@ -30,12 +21,15 @@ import {
   parseWmSize,
   screenBounds,
 } from './android-screen.ts'
-import type {
-  SimulatorApp,
-  SimulatorRequestEffects,
-  Simulators,
-  SimulatorWait,
-} from './simulators.ts'
+import {
+  createDeviceSlots,
+  type DeviceDriver,
+  firstLine,
+  type SimulatorApp,
+  type SlotRecord,
+  slug,
+} from './device-slots.ts'
+import type { Simulators } from './simulators.ts'
 
 export interface AndroidResult {
   code: number
@@ -141,30 +135,16 @@ export interface Emulators
   taskIds(): string[]
 }
 
-interface DeviceRecord {
+interface DeviceRecord extends SlotRecord {
   avd: string
-  taskId: string
-  repo: string
-  name: string
-  device: string
   serial?: string
   window?: boolean
-  lastUsedAt: string
-  shutDown?: { at: string; for?: string }
-  owner?: string
 }
 
 export const emulatorToolsProblem = 'emulator-tools'
 
-const lineTicket = 'line:'
 const firstPort = 5554
 const showSnapshot = 'ted-show'
-
-const slug = (name: string) =>
-  name
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '_')
-    .toLowerCase()
 
 export function emulatorAvdName(
   edition: string,
@@ -229,73 +209,13 @@ export function createEmulators(options: {
 }): Emulators {
   const { dir, store, tools, supported } = options
   const pollMs = options.pollMs ?? 3_000
-  const idleMs = options.idleMs ?? 30 * 60_000
   const bootTimeoutMs = options.bootTimeoutMs ?? 5 * 60_000
-  const file = path.join(dir, 'devices.json')
   const captures = path.join(dir, 'captures')
   const logs = path.join(dir, 'logs')
-  const records = new Map<string, DeviceRecord>(Object.entries(readRecords(file)))
   const screens = new Map<string, { refs: Map<string, DevicePoint>; rotation: number }>()
   const running = new Set<string>()
-  let queue: Promise<unknown> = Promise.resolve()
-  let releaseIdle: (() => void) | undefined
-  let closed = false
-  let refreshing: Promise<void> | undefined
-  const line: string[] = []
 
-  const keyOf = (taskId: string, repo: string, name: string) => `${taskId}/${repo}/${slug(name)}`
-  const recordOf = (taskId: string, repo: string, name: string) =>
-    records.get(keyOf(taskId, repo, name))
   const isRunning = (record: DeviceRecord) => record.serial !== undefined && running.has(record.avd)
-
-  function serial<T>(work: () => Promise<T>): Promise<T> {
-    const next = queue.catch(() => undefined).then(work)
-    queue = next
-    return next
-  }
-
-  async function save(): Promise<void> {
-    await mkdir(dir, { recursive: true, mode: 0o700 })
-    const tmp = `${file}.${process.pid}.tmp`
-    await writeFile(tmp, JSON.stringify(Object.fromEntries(records)), { mode: 0o600 })
-    await rename(tmp, file)
-  }
-
-  function limit(): number {
-    return store.settings().maxRunningEmulators
-  }
-
-  function slots(): SimulatorSlots {
-    const list: BootedSimulator[] = [...records.values()]
-      .filter(isRunning)
-      .map((r) => {
-        const task = store.getTask(r.taskId)
-        return {
-          udid: r.serial as string,
-          taskId: r.taskId,
-          displayId: task?.displayId ?? r.owner ?? r.taskId,
-          title: task?.title ?? '',
-          repo: r.repo,
-          app: r.name,
-          device: r.device,
-          lastUsedAt: r.lastUsedAt,
-          recording: false,
-        }
-      })
-      .sort((a, b) => a.lastUsedAt.localeCompare(b.lastUsedAt))
-    return { supported, limit: limit(), booted: list }
-  }
-
-  function changed(): void {
-    if (running.size > 0) releaseIdle ??= options.idle?.hold()
-    else {
-      releaseIdle?.()
-      releaseIdle = undefined
-    }
-    options.emit({ type: 'emulators-changed', emulators: slots() })
-    const tasks = new Set([...records.values()].map((r) => r.taskId))
-    for (const taskId of tasks) options.emit({ type: 'apps-changed', taskId })
-  }
 
   async function adbDevices(): Promise<Map<string, string>> {
     const result = await tools.adb(['devices'])
@@ -386,18 +306,14 @@ export function createEmulators(options: {
         `TED couldn’t make an emulator from ${app.device}: ${firstLine(created.stderr || created.stdout)}`,
       )
     }
-    const record: DeviceRecord = {
+    return {
       avd,
       taskId: app.taskId,
       repo: app.repo,
       name: app.name,
       device: app.device,
       lastUsedAt: new Date().toISOString(),
-      ...(store.getTask(app.taskId) === undefined && { owner: app.displayId }),
     }
-    records.set(keyOf(app.taskId, app.repo, app.name), record)
-    await save()
-    return record
   }
 
   async function deleteAvd(record: DeviceRecord): Promise<boolean> {
@@ -413,8 +329,10 @@ export function createEmulators(options: {
     )
   }
 
-  async function ensureDevice(app: SimulatorApp): Promise<DeviceRecord> {
-    const record = recordOf(app.taskId, app.repo, app.name)
+  async function ensureDevice(
+    app: SimulatorApp,
+    record: DeviceRecord | undefined,
+  ): Promise<DeviceRecord> {
     if (record && record.device === app.device) {
       if (await avdExists(record.avd)) return record
     } else if (record && !(await deleteAvd(record))) {
@@ -430,7 +348,10 @@ export function createEmulators(options: {
     const listed = await adbDevices()
     const taken = new Set([
       ...[...listed.keys()],
-      ...[...records.values()].filter(isRunning).map((r) => r.serial),
+      ...deviceSlots
+        .records()
+        .filter(isRunning)
+        .map((r) => r.serial),
     ])
     for (let port = firstPort; port < firstPort + 32; port += 2) {
       if (!taken.has(`emulator-${port}`)) return port
@@ -464,10 +385,10 @@ export function createEmulators(options: {
     throw new RequestError(409, `The emulator for ${record.device} didn’t finish booting in time`)
   }
 
-  async function boot(record: DeviceRecord, show?: { snapshot: string }): Promise<void> {
+  async function launch(record: DeviceRecord, show?: { snapshot: string }): Promise<void> {
     const port = await freePort()
     record.serial = `emulator-${port}`
-    await save()
+    await deviceSlots.save()
     await mkdir(logs, { recursive: true, mode: 0o700 })
     const log = path.join(logs, `${record.avd}.log`)
     await writeFile(log, '', { mode: 0o600 })
@@ -489,14 +410,10 @@ export function createEmulators(options: {
       await waitForBoot(record, child, log)
     } catch (error) {
       running.delete(record.avd)
-      changed()
+      deviceSlots.changed()
       throw error
     }
-    record.lastUsedAt = new Date().toISOString()
     record.window = show !== undefined
-    delete record.shutDown
-    await save()
-    changed()
   }
 
   async function kill(record: DeviceRecord): Promise<void> {
@@ -527,120 +444,58 @@ export function createEmulators(options: {
     )
   }
 
-  async function shutDownRecord(
-    record: DeviceRecord,
-    why: { for?: string; idle?: boolean; human?: boolean },
-  ): Promise<void> {
-    await kill(record)
-    record.shutDown = {
-      at: new Date().toISOString(),
-      ...(why.for !== undefined && { for: why.for }),
-    }
-    delete record.window
-    await save()
-    if (!why.human) {
-      void options.stopApp(record.taskId, record.repo, record.name).catch(() => undefined)
-      store.emulatorShutDown({
-        taskId: record.taskId,
-        repo: record.repo,
-        name: record.name,
-        ...(why.for !== undefined && { forTask: why.for }),
-        idle: why.idle === true,
-      })
-    }
-    changed()
-  }
-
-  async function freshRunning(): Promise<Set<string>> {
-    const listed = await adbDevices()
-    const now = new Set<string>()
-    for (const record of records.values()) {
-      if (record.serial === undefined || !listed.has(record.serial)) continue
-      if ((await avdOf(record.serial)) === record.avd) now.add(record.avd)
-    }
-    const before = [...running].sort().join()
-    running.clear()
-    for (const avd of now) running.add(avd)
-    if ([...running].sort().join() !== before) changed()
-    return running
-  }
-
-  function runningRecord(serialId: string): DeviceRecord | undefined {
-    return [...records.values()].find((r) => r.serial === serialId && isRunning(r))
-  }
-
-  function needsLive(taskId: string, repo: string, name: string): DeviceRecord {
-    const record = recordOf(taskId, repo, name)
-    if (!record || !isRunning(record)) {
-      throw new RequestError(
-        409,
-        `${name}’s emulator isn’t running. Run it first with ted run-app ${name}.`,
-      )
-    }
-    return record
-  }
-
-  function shutDownChoice(serialId: string, requester: DeviceRecord): DeviceRecord {
-    const target = runningRecord(serialId)
-    if (!target) throw new RequestError(409, 'That emulator isn’t running any more')
-    if (target === requester) throw new RequestError(409, 'Pick another emulator to shut down')
-    return target
-  }
-
-  function touch(record: DeviceRecord): void {
-    record.lastUsedAt = new Date().toISOString()
-    void save().catch(() => undefined)
-  }
-
-  async function idleCheck(): Promise<void> {
-    for (const record of [...records.values()]) {
-      if (!isRunning(record)) continue
-      if (Date.now() - Date.parse(record.lastUsedAt) < idleMs) continue
-      if (await options.appLive(record.taskId, record.repo, record.name)) {
-        touch(record)
-        continue
+  const driver: DeviceDriver<DeviceRecord> = {
+    words: { noun: 'emulator', article: 'an', live: 'running', platform: 'android' },
+    limit: () => store.settings().maxRunningEmulators,
+    event: (emulators) => ({ type: 'emulators-changed', emulators }),
+    slotId: (record) => record.serial,
+    isLive: isRunning,
+    recording: () => false,
+    check,
+    ensure: ensureDevice,
+    async refreshLive(records) {
+      const listed = await adbDevices()
+      const now = new Set<string>()
+      for (const record of records) {
+        if (record.serial === undefined || !listed.has(record.serial)) continue
+        if ((await avdOf(record.serial)) === record.avd) now.add(record.avd)
       }
-      await shutDownRecord(record, { idle: true }).catch(() => undefined)
-    }
+      const before = [...running].sort().join()
+      running.clear()
+      for (const avd of now) running.add(avd)
+      return [...running].sort().join() !== before
+    },
+    boot: (record) => launch(record),
+    async stop(record) {
+      await kill(record)
+      delete record.window
+    },
+    async remove(key, record) {
+      if (!(await deleteAvd(record))) return false
+      await rm(path.join(logs, `${record.avd}.log`), { force: true })
+      screens.delete(key)
+      return true
+    },
+    shutDownRecorded: (input) => store.emulatorShutDown(input),
   }
 
-  async function refresh(): Promise<void> {
-    if (!supported || closed || records.size === 0) return
-    refreshing ??= serial(async () => {
-      await freshRunning()
-      await idleCheck()
-    })
-      .catch(() => undefined)
-      .finally(() => {
-        refreshing = undefined
-      })
-    return refreshing
-  }
-
-  const timer = supported ? setInterval(() => void refresh(), pollMs) : undefined
-  timer?.unref()
-  if (supported && records.size > 0) void refresh()
-
-  async function waitInLine(ticket: string, app: SimulatorApp): Promise<SimulatorWait> {
-    const record = recordOf(app.taskId, app.repo, app.name)
-    if (!record) return { state: 'gone' }
-    if (!line.includes(ticket)) line.push(ticket)
-    if (line[0] !== ticket || running.size >= limit()) return { state: 'pending' }
-    return serial(async () => {
-      const now = await freshRunning()
-      if (line[0] !== ticket) return { state: 'pending' } as const
-      if (now.size >= limit() && !isRunning(record)) return { state: 'pending' } as const
-      if (!isRunning(record)) await boot(record)
-      line.shift()
-      return { state: 'granted', udid: record.serial as string } as const
-    })
-  }
-
-  const granted = (record: DeviceRecord) => ({ udid: record.serial as string })
+  const deviceSlots = createDeviceSlots({
+    dir,
+    store,
+    supported,
+    driver,
+    ...(options.idle !== undefined && { idle: options.idle }),
+    emit: options.emit,
+    appLive: options.appLive,
+    stopApp: options.stopApp,
+    pollMs,
+    ...(options.idleMs !== undefined && { idleMs: options.idleMs }),
+  })
+  const { keyOf, recordOf, needsLive, touch, changed } = deviceSlots
 
   return {
     supported,
-    slots,
+    slots: deviceSlots.slots,
     info(taskId, repo, name): AppSimulator | undefined {
       const record = recordOf(taskId, repo, name)
       if (!record) return undefined
@@ -652,149 +507,19 @@ export function createEmulators(options: {
         ...(record.shutDown && !live && { shutDown: record.shutDown }),
       }
     },
-    acquire(app, by, { runId, shutDown, reason }) {
-      return serial(async () => {
-        await check(app.factoryId)
-        const record = await ensureDevice(app)
-        const now = await freshRunning()
-        if (isRunning(record)) {
-          touch(record)
-          return granted(record)
-        }
-        if (now.size < limit()) {
-          await boot(record)
-          return granted(record)
-        }
-        if (by === 'automation') {
-          const ticket = `${lineTicket}${randomUUID()}`
-          line.push(ticket)
-          return { waiting: ticket }
-        }
-        if (by === 'human' || runId === undefined) {
-          if (shutDown === undefined) {
-            throw new RequestError(
-              409,
-              limit() === 1
-                ? `The only emulator slot is taken. Choose an emulator to shut down, then run ${app.name} again.`
-                : `All ${limit()} emulators are running. Choose one to shut down, then run ${app.name} again.`,
-            )
-          }
-          await shutDownRecord(shutDownChoice(shutDown, record), { for: app.displayId })
-          await boot(record)
-          return granted(record)
-        }
-        const ask: SimulatorAsk = {
-          platform: 'android',
-          app: app.name,
-          repo: app.repo,
-          device: app.device,
-          limit: limit(),
-          booted: slots().booted,
-        }
-        const who = by === 'task-lead' ? 'the Task Lead' : 'the sub-agent'
-        const comment = store.requestSimulator({
-          taskId: app.taskId,
-          runId,
-          title: `${app.name} needs an emulator · ${ask.booted.length} of ${ask.limit} running`,
-          body: [
-            reason?.trim() ?? '',
-            `Pick one to shut down, or deny and ${who} carries on without ${app.name}.`,
-          ]
-            .filter((text) => text !== '')
-            .join(' '),
-          simulator: ask,
-        })
-        return { waiting: comment.id }
-      })
-    },
-    async wait(commentId, app) {
-      if (commentId.startsWith(lineTicket)) return waitInLine(commentId, app)
-      const comment = store.getComment(commentId)
-      const answer = comment?.answer
-      const record = recordOf(app.taskId, app.repo, app.name)
-      if (!comment || !record) return { state: 'gone' }
-      if (answer) {
-        if (record.serial === undefined) return { state: 'gone' }
-        if (answer.kind === 'approved') return { state: 'granted', udid: record.serial }
-        if (answer.kind === 'withdrawn' && 'slotFreed' in answer) {
-          return { state: 'granted', udid: record.serial }
-        }
-        if (answer.kind === 'denied') {
-          return { state: 'denied', ...(answer.text !== undefined && { text: answer.text }) }
-        }
-        return { state: 'gone' }
-      }
-      if (running.size >= limit()) return { state: 'pending' }
-      return serial(async () => {
-        if (store.getComment(commentId)?.answer) return { state: 'pending' } as const
-        const now = await freshRunning()
-        if (now.size >= limit() && !isRunning(record)) return { state: 'pending' } as const
-        if (!isRunning(record)) await boot(record)
-        store.answerPermission(commentId, {
-          kind: 'withdrawn',
-          at: new Date().toISOString(),
-          slotFreed: true,
-        })
-        return { state: 'granted', udid: record.serial as string } as const
-      })
-    },
-    withdraw(commentId) {
-      if (commentId.startsWith(lineTicket)) {
-        const at = line.indexOf(commentId)
-        if (at !== -1) line.splice(at, 1)
-        return
-      }
-      if (store.getComment(commentId)?.answer) return
-      store.answerPermission(commentId, {
-        kind: 'withdrawn',
-        at: new Date().toISOString(),
-        appGone: true,
-      })
-    },
-    withRequest<T>(
-      comment: Comment,
-      work: (effects: SimulatorRequestEffects) => Promise<T>,
-    ): Promise<T> {
-      return serial(async () => {
-        const requester = () => {
-          const ask = comment.simulator
-          const record = ask && recordOf(comment.taskId, ask.repo, ask.app)
-          if (!record) throw new RequestError(409, 'the App that asked has stopped')
-          return record
-        }
-        return work({
-          assertApp() {
-            requester()
-          },
-          async hasRoom() {
-            const record = requester()
-            const now = await freshRunning()
-            return isRunning(record) || now.size < limit()
-          },
-          async boot() {
-            const record = requester()
-            if (!isRunning(record)) await boot(record)
-          },
-          async shutDown(serialId) {
-            const record = requester()
-            const target = shutDownChoice(serialId, record)
-            const owner = store.getTask(target.taskId)?.displayId ?? target.owner ?? target.taskId
-            const forTask = store.getTask(comment.taskId)?.displayId ?? comment.taskId
-            await shutDownRecord(target, { for: forTask })
-            return owner
-          },
-        })
-      })
-    },
+    acquire: deviceSlots.acquire,
+    wait: deviceSlots.wait,
+    withdraw: deviceSlots.withdraw,
+    withRequest: deviceSlots.withRequest,
     shutDown(taskId, repo, name) {
-      return serial(async () => {
+      return deviceSlots.serial(async () => {
         const record = recordOf(taskId, repo, name)
         if (!record || !isRunning(record)) return
-        await shutDownRecord(record, { human: true })
+        await deviceSlots.shutDown(record, { human: true })
       })
     },
     show(taskId, repo, name) {
-      return serial(async () => {
+      return deviceSlots.serial(async () => {
         const record = needsLive(taskId, repo, name)
         if (record.window === true) {
           touch(record)
@@ -818,7 +543,8 @@ export function createEmulators(options: {
         }
         await kill(record)
         changed()
-        await boot(record, { snapshot: showSnapshot })
+        await launch(record, { snapshot: showSnapshot })
+        await deviceSlots.afterBoot(record)
         return { rebooted: true }
       })
     },
@@ -940,43 +666,11 @@ export function createEmulators(options: {
           throw new RequestError(400, `ted app ${request.action} isn’t an input action`)
       }
     },
-    remove(taskId, repo) {
-      return serial(async () => {
-        const gone = [...records.entries()].filter(
-          ([, r]) => r.taskId === taskId && (repo === undefined || r.repo === repo),
-        )
-        if (gone.length === 0) return
-        for (const [key, record] of gone) {
-          if (!(await deleteAvd(record))) continue
-          await rm(path.join(logs, `${record.avd}.log`), { force: true })
-          records.delete(key)
-          screens.delete(key)
-        }
-        await save()
-        changed()
-      })
-    },
-    taskIds: () => [...new Set([...records.values()].map((r) => r.taskId))],
-    refresh,
-    async close() {
-      closed = true
-      if (timer) clearInterval(timer)
-      releaseIdle?.()
-      releaseIdle = undefined
-    },
+    remove: deviceSlots.remove,
+    taskIds: deviceSlots.taskIds,
+    refresh: deviceSlots.refresh,
+    close: deviceSlots.close,
   }
-}
-
-function readRecords(file: string): Record<string, DeviceRecord> {
-  try {
-    return JSON.parse(readFileSync(file, 'utf8')) as Record<string, DeviceRecord>
-  } catch {
-    return {}
-  }
-}
-
-function firstLine(text: string): string {
-  return text.trim().split('\n')[0] ?? ''
 }
 
 function lastLine(text: string): string {
