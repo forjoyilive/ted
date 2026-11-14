@@ -897,6 +897,20 @@ export function useTaskApps(taskId: string): TaskApp[] {
   )
 }
 
+export function useRunApps(runId: string, enabled: boolean): TaskApp[] {
+  return (
+    useShared<TaskApp[]>(
+      `run-apps:${runId}:${enabled}`,
+      () => (enabled ? ted.listRunApps(runId).catch(() => []) : Promise.resolve([])),
+      (event) =>
+        (event.type === 'apps-changed' && event.taskId === runId) ||
+        (event.type === 'automation-updated' && enabled)
+          ? 'reload'
+          : undefined,
+    ).value ?? []
+  )
+}
+
 export function useTaskBrief(taskId: string): TaskBrief | null | undefined {
   return useTaskBriefState(taskId).value
 }

@@ -30,7 +30,10 @@ export function AppLogView({
       ) : (
         <h2 className={styles.logTitle}>{shown.name}</h2>
       )}
-      <LogBody key={`${task.id}:${shown.repo}:${shown.name}`} taskId={task.id} shown={shown} />
+      <LogBody
+        key={`${task.id}:${shown.repo}:${shown.name}`}
+        load={() => ted.appLog(task.id, { repo: shown.repo, name: shown.name })}
+      />
     </section>
   )
 }
@@ -82,17 +85,19 @@ function logStatus(app: TaskApp, now: number): string {
   return appStatusLine(app, now)
 }
 
-function LogBody({ taskId, shown }: { taskId: string; shown: ShownApp }) {
+export function LogBody({ load: read }: { load: () => Promise<AppLog> }) {
   const [log, setLog] = useState<AppLog>()
   const [error, setError] = useState<string>()
   const body = useRef<HTMLPreElement>(null)
   const pinned = useRef(true)
+  const readLog = useRef(read)
+  readLog.current = read
 
   useEffect(() => {
     let stopped = false
     const load = () =>
-      ted
-        .appLog(taskId, { repo: shown.repo, name: shown.name })
+      readLog
+        .current()
         .then((next) => {
           if (stopped) return
           setError(undefined)
@@ -107,7 +112,7 @@ function LogBody({ taskId, shown }: { taskId: string; shown: ShownApp }) {
       stopped = true
       clearInterval(timer)
     }
-  }, [taskId, shown.repo, shown.name])
+  }, [])
 
   useLayoutEffect(() => {
     const element = body.current

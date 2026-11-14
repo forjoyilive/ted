@@ -103,6 +103,7 @@ export function AutomationDialog({
   )
   const [factoryLead, setFactoryLead] = useState<TaskLead>()
   const [on, setOn] = useState(editing?.on ?? true)
+  const [checkout, setCheckout] = useState(editing?.checkout === true)
   const [preview, setPreview] = useState<SchedulePreview>()
   const [busy, setBusy] = useState(false)
   const [savingAndRunning, setSavingAndRunning] = useState(false)
@@ -141,10 +142,12 @@ export function AutomationDialog({
       setName('')
       setPrompt('')
       setDraft(draftOf(blankSchedule))
+      setCheckout(false)
     } else if (chosen) {
       setName(chosen.name)
       setPrompt(chosen.prompt)
       setDraft(draftOf(chosen.schedule))
+      setCheckout(chosen.checkout === true)
     }
   }
 
@@ -202,6 +205,7 @@ export function AutomationDialog({
       prompt,
       schedule,
       on,
+      checkout,
       ...(lead && {
         agent: lead.agent,
         ...(lead.model !== undefined && { model: lead.model }),
@@ -466,6 +470,23 @@ export function AutomationDialog({
             />
           </fieldset>
         )}
+
+        <div className={styles.on}>
+          <input
+            id={`${id}-checkout`}
+            type="checkbox"
+            className={styles.checkbox}
+            checked={checkout}
+            onChange={(event) => setCheckout(event.target.checked)}
+          />
+          <label htmlFor={`${id}-checkout`} className={styles.onLabel}>
+            Run in a copy of the code
+          </label>
+          <Help>
+            Each Run gets a fresh copy of the default branch and can start the Factory’s Apps there.
+            TED removes it when the Run ends.
+          </Help>
+        </div>
 
         <div className={styles.on}>
           <input

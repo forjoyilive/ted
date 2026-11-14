@@ -45,6 +45,7 @@ export interface CustomRequests {
   externalBrowser: (taskId: string) => Promise<void>
   openAppPreview: (taskId: string, repo: string, name: string) => Promise<void>
   openHostedPreview: (taskId: string, repo: string) => Promise<void>
+  openRunAppPreview: (runId: string, repo: string, name: string) => Promise<void>
   chooseFolder: (title: string) => Promise<string | undefined>
   homeFolder: () => Promise<string>
   showFactoryFolder: (factoryId: string) => Promise<void>

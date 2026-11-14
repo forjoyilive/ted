@@ -120,6 +120,8 @@ export const ted = {
   openAppPreview: (taskId: string, repo: string, name: string) =>
     request('openAppPreview', taskId, repo, name),
   openHostedPreview: (taskId: string, repo: string) => request('openHostedPreview', taskId, repo),
+  openRunAppPreview: (runId: string, repo: string, name: string) =>
+    request('openRunAppPreview', runId, repo, name),
   chooseFolder: (title: string) => request('chooseFolder', title),
   homeFolder: () => request('homeFolder'),
   showFactoryFolder: (factoryId: string) => request('showFactoryFolder', factoryId),
