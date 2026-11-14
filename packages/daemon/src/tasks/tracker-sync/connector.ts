@@ -62,7 +62,11 @@ export interface TrackerConnector<Source, Handle> {
     step: string | undefined
     item: TrackerItem<Handle>
   }): Promise<TrackerAdvance | undefined>
-  link(item: TrackerItem<Handle>, pullRequest: { url: string; title: string }): Promise<void>
+  link(
+    item: TrackerItem<Handle>,
+    pullRequest: { url: string; title: string },
+    task: Task,
+  ): Promise<void>
   ready?(): boolean
   texts: TrackerTexts
 }

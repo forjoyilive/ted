@@ -117,11 +117,15 @@ test('private configuration stays in main; browser authorization, identity, test
   stub.setTasks([{ gid: '505', name: 'Tax line' }])
   await ted('task', 'create', '--factory', 'NB', '--source', 'https://app.asana.com/0/0/505')
   await openAllTasks(window)
-  const fromCli = window.locator('tr[data-task="NB-5"]')
+  const fromCli = window.locator('tr[data-task="NB-4"]')
   await fromCli.click()
   await expect.poll(() => window.locator('[data-task-sync]').textContent()).toContain('Not syncing')
+  await window.getByRole('button', { name: '← All Tasks' }).click()
   await fromCli.click({ button: 'right' })
-  await window.getByRole('menuitem', { name: 'Sync with Asana', exact: true }).click()
+  await window
+    .getByRole('menuitem', { name: 'Sync with Asana Not syncing yet', exact: true })
+    .click()
+  await fromCli.click()
   await expect
     .poll(() => window.locator('[data-task-sync]').getAttribute('data-task-sync'))
     .toBe('waiting-merge')

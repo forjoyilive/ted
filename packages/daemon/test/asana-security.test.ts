@@ -4,7 +4,7 @@ import { connect as connectSocket, type Socket } from 'node:net'
 import path from 'node:path'
 import { type DaemonClient, identity, readDaemonInfo, tedEnv, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { AsanaReadError, createAsana } from '../src/asana/asana.ts'
+import { AsanaReadError, createAsana, retryAfterMs } from '../src/asana/asana.ts'
 import { type DaemonOptions, type RunningDaemon, startDaemon } from '../src/daemon.ts'
 import { type Keyring, keyringService, linearKeyAccount } from '../src/linear/keyring.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -396,8 +396,8 @@ test('Asana writes go only to fixed task paths as JSON, refuse redirects, honour
     await expect(asana.complete('501', '200')).rejects.toThrow('different Asana account')
     expect(stub.requests.length).toBe(sent)
 
-    stub.failNextWrite({ status: 429, retryAfter: '30' })
-    await expect(asana.complete('501', '100')).rejects.toMatchObject({ retryAfterMs: 30_000 })
+    stub.failNextWrite({ status: 429, retryAfter: '7200' })
+    await expect(asana.complete('501', '100')).rejects.toMatchObject({ retryAfterMs: 7_200_000 })
     stub.failNextWrite({ status: 500 })
     await expect(asana.complete('501', '100')).rejects.toMatchObject({ retryAfterMs: undefined })
     stub.setRedirect(true)
@@ -413,4 +413,21 @@ test('Asana writes go only to fixed task paths as JSON, refuse redirects, honour
   } finally {
     await asana.close()
   }
+})
+
+test('Retry-After is kept as Asana sends it, in seconds or as a date, with only a one-day sanity limit', () => {
+  const now = Date.parse('2026-11-14T12:00:00.000Z')
+  const answer = (status: number, value?: string) =>
+    retryAfterMs(
+      { status, headers: new Headers(value === undefined ? {} : { 'retry-after': value }) },
+      now,
+    )
+  expect(answer(429, '7200')).toBe(7_200_000)
+  expect(answer(503, '5')).toBe(5000)
+  expect(answer(429, 'Sat, 14 Nov 2026 12:03:00 GMT')).toBe(180_000)
+  expect(answer(429, 'Sat, 14 Nov 2026 11:00:00 GMT')).toBe(0)
+  expect(answer(429, '999999999')).toBe(24 * 60 * 60_000)
+  expect(answer(429)).toBeUndefined()
+  expect(answer(429, 'soon')).toBeUndefined()
+  expect(answer(500, '30')).toBeUndefined()
 })

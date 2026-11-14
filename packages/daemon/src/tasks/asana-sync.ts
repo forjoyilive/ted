@@ -2,6 +2,7 @@ import { type AsanaTaskUrl, asanaSyncing, parseAsanaTaskUrl } from '@ted/protoco
 import { AsanaReadError } from '../asana/asana.ts'
 import type { Clock } from '../clock.ts'
 import type { TedStore } from '../store/index.ts'
+import { clean } from './github-activity.ts'
 import {
   type TrackerConnector,
   type TrackerItem,
@@ -52,8 +53,10 @@ export function mentions(text: unknown, url: string): boolean {
   return false
 }
 
-export function asanaComment(pullRequest: { url: string; title: string }): string {
-  return `TED opened a pull request for this task: ${pullRequest.title} ${pullRequest.url}`
+const maxTitle = 300
+
+export function asanaComment(title: string, pullRequest: { url: string; title: string }): string {
+  return `TED opened a pull request for this task: ${clean(title, maxTitle)} (${pullRequest.title}) ${pullRequest.url}`
 }
 
 export function asanaConnector(
@@ -67,6 +70,10 @@ export function asanaConnector(
   const spend = () => {
     if (left <= 0) throw new TrackerWait(0)
     left--
+  }
+  const stillSyncing = (taskId: string): boolean => {
+    const state = store.getTask(taskId)?.asanaSync?.state
+    return store.settings().asanaSync && state !== undefined && asanaSyncing.includes(state)
   }
   const waitOn = (error: unknown): never => {
     if (error instanceof AsanaReadError && error.retryAfterMs !== undefined)
@@ -167,12 +174,13 @@ export function asanaConnector(
           return undefined
         }
       }
+      if (!stillSyncing(task.id)) return undefined
       spend()
       await asana.complete(item.handle.gid, item.handle.account).catch(waitOn)
       store.setAsanaOpenChildren(task.id, undefined)
       return { step: 'completed', moved: 'Completed' }
     },
-    async link(item, pullRequest) {
+    async link(item, pullRequest, task) {
       const { complete, rows } = await pages(
         `/tasks/${item.handle.gid}/stories`,
         'text,type',
@@ -180,9 +188,10 @@ export function asanaConnector(
       )
       if (rows.some((row) => mentions(row.text, pullRequest.url))) return
       if (!complete) throw new Error('too many comments to check for an earlier link')
+      if (!stillSyncing(task.id)) throw new TrackerWait(0)
       spend()
       await asana
-        .comment(item.handle.gid, asanaComment(pullRequest), item.handle.account)
+        .comment(item.handle.gid, asanaComment(task.title, pullRequest), item.handle.account)
         .catch(waitOn)
     },
     texts: {

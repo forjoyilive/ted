@@ -755,7 +755,7 @@ export function TaskActionsMenu({
               onClick={() => act(() => sync.allow())}
             >
               <span className={styles.label}>Sync with {sync.name}</span>
-              <span className={styles.hint}>An Automation made this Task</span>
+              <span className={styles.hint}>{sync.hint}</span>
             </ActionButton>
           )}
           <hr className={styles.separator} />

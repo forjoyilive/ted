@@ -155,7 +155,7 @@ export function createTrackerSync<Source, Handle>(
     const linked: string[] = []
     try {
       for (const pullRequest of fresh) {
-        await connector.link(item, pullRequest)
+        await connector.link(item, pullRequest, task)
         linked.push(pullRequest.url)
       }
     } finally {

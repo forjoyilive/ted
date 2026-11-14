@@ -31,6 +31,7 @@ let account: string | undefined
 let writes: { kind: 'comment' | 'complete'; gid: string; text?: string }[]
 let reads: string[]
 let failNext: { kind: 'comment' | 'complete'; error: Error; applied: boolean } | undefined
+let held: Map<string, Promise<void>>
 let syncs: AsanaSync[]
 let jobs: Promise<void>[]
 let clock: ManualClock
@@ -43,6 +44,7 @@ const api: AsanaSyncApi = {
   },
   async read(route) {
     reads.push(route)
+    await held.get(route)
     const [, , gid = '', list] = route.split('/')
     const task = asana.get(gid)
     if (!task) throw new AsanaReadError('not found', 404)
@@ -97,6 +99,7 @@ beforeEach(async () => {
   writes = []
   reads = []
   failNext = undefined
+  held = new Map()
   syncs = []
   jobs = []
   clock = new ManualClock()
@@ -240,9 +243,12 @@ test('the Task Sync state follows permission, the switch, the connection and wha
   expect(mentions(`${prUrl(1)}/files`, prUrl(1))).toBe(false)
   expect(mentions(`https://example.com/${prUrl(1)}`, prUrl(1))).toBe(false)
   expect(mentions(`(${prUrl(1)})`, prUrl(1))).toBe(true)
-  expect(asanaComment({ url: prUrl(7), title: 'acme/notes#7' })).toBe(
-    `TED opened a pull request for this task: acme/notes#7 ${prUrl(7)}`,
+  expect(asanaComment('Fix checkout totals', { url: prUrl(7), title: 'acme/notes#7' })).toBe(
+    `TED opened a pull request for this task: Fix checkout totals (acme/notes#7) ${prUrl(7)}`,
   )
+  expect(
+    asanaComment('x'.repeat(5000), { url: prUrl(7), title: 'acme/notes#7' }).length,
+  ).toBeLessThan(2000)
 })
 
 test('only allowed Tasks are written to; each pull request is commented once across a lost reply and a restart; completion waits for merge and never touches items under it', async () => {
@@ -261,7 +267,11 @@ test('only allowed Tasks are written to; each pull request is commented once acr
   expect(sync(waiting)).toMatchObject({ state: 'not-allowed' })
   expect(writes.filter((w) => w.gid === '503')).toEqual([])
   expect(writes).toEqual([
-    { kind: 'comment', gid: '501', text: asanaComment({ url: prUrl(7), title: 'acme/notes#7' }) },
+    {
+      kind: 'comment',
+      gid: '501',
+      text: asanaComment('Item 501', { url: prUrl(7), title: 'acme/notes#7' }),
+    },
   ])
   expect(sync(parent)).toMatchObject({ state: 'waiting-merge', linked: 1 })
 
@@ -314,7 +324,11 @@ test('an item already complete gets its links but no completion, and a Task arch
   merge(done)
   await cycle()
   expect(writes).toEqual([
-    { kind: 'comment', gid: '601', text: asanaComment({ url: prUrl(11), title: 'acme/notes#11' }) },
+    {
+      kind: 'comment',
+      gid: '601',
+      text: asanaComment('Item 601', { url: prUrl(11), title: 'acme/notes#11' }),
+    },
   ])
   expect(sync(done)?.state).toBe('completed-in-asana')
   expect(sync(dropped)?.state).toBe('archived')
@@ -405,4 +419,57 @@ test('a Retry-After answer stops the cycle for as long as Asana asks, and one cy
   expect(writes.length).toBeGreaterThan(0)
   for (let i = 0; i < 6; i++) await cycle()
   expect(writes).toHaveLength(6)
+})
+
+test('turning Task Sync off while a read is in flight sends neither the completion nor the comment', async () => {
+  const reached = async (route: string) => {
+    while (!reads.includes(route)) await new Promise((resolve) => setImmediate(resolve))
+  }
+  const hold = (route: string) => {
+    let release = () => {}
+    held.set(
+      route,
+      new Promise<void>((resolve) => {
+        release = resolve
+      }),
+    )
+    return () => {
+      held.delete(route)
+      release()
+    }
+  }
+  const tree = imported(
+    { gid: '851', subtasks: ['852'], syncAccount: '100' },
+    { gid: '852', completed: true },
+  )
+  const parent = tree.get('851') as Task
+  withPullRequest(parent, 51)
+  merge(parent)
+  startSync()
+  await Promise.all(jobs)
+  let release = hold('/tasks/851/subtasks')
+  clock.advance(everyMs)
+  await reached('/tasks/851/subtasks')
+  store.updateSettings({ asanaSync: false })
+  release()
+  await Promise.all(jobs)
+  expect(writes).toEqual([])
+  store.updateSettings({ asanaSync: true })
+  await cycle()
+  expect(writes.map((w) => [w.kind, w.gid])).toEqual([
+    ['complete', '851'],
+    ['comment', '851'],
+  ])
+
+  const later = imported({ gid: '861', syncAccount: '100' }).get('861') as Task
+  withPullRequest(later, 61)
+  release = hold('/tasks/861/stories')
+  const before = jobs.length
+  clock.advance(everyMs)
+  await reached('/tasks/861/stories')
+  store.updateSettings({ asanaSync: false })
+  release()
+  await Promise.all(jobs.slice(before))
+  expect(writes.filter((w) => w.gid === '861')).toEqual([])
+  expect(sync(later)).toMatchObject({ state: 'off', linked: 0 })
 })
