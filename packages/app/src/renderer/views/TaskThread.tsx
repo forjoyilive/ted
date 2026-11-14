@@ -122,7 +122,6 @@ import { readableError, ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
 import { CheckRunLine } from './CheckEvents.tsx'
 import { ReposField, showsRepos } from './ReposField.tsx'
-import { TaskGatesField } from './TaskGatesField.tsx'
 import { TaskLeadField } from './TaskLeadField.tsx'
 import { factoryName, stageName } from './TaskViews.tsx'
 import styles from './views.module.css'
@@ -1311,15 +1310,6 @@ export function TaskDetails({
               <dt>Autopilot</dt>
               <dd>
                 <AutopilotField task={task} />
-              </dd>
-              <dt>Sign-offs</dt>
-              <dd className={styles.gatesValue}>
-                <TaskGatesField
-                  key={task.id}
-                  taskId={task.id}
-                  factoryId={task.factoryId}
-                  task={task}
-                />
               </dd>
               {factory && showsRepos(factory) && (
                 <>

@@ -12,7 +12,6 @@ import { expect, test, vi } from 'vitest'
 import { OvernightContext } from '../src/renderer/overnight.tsx'
 import { LibraryPage } from '../src/renderer/settings/LibraryPage.tsx'
 import { FactorySettings } from '../src/renderer/views/FactorySettings.tsx'
-import { TaskGatesField } from '../src/renderer/views/TaskGatesField.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, user } from './support/component.ts'
 import { createdAt, factory, settingsView, task } from './support/fixtures.ts'
@@ -461,13 +460,6 @@ test('the Library page shows the overnight notice only while Autopilot is on', a
     () => <LibraryPage settings={a.state.settings} dispatch={vi.fn()} />,
     () => screen.findByRole('heading', { name: 'Library' }),
   )
-})
-
-test('a Task’s sign-offs editor shows the overnight notice only while Autopilot is on', async () => {
-  bridge({})
-  overnight(true, <TaskGatesField taskId="NB-1" factoryId="factory-1" />)
-  await user().click(await screen.findByRole('button', { name: /Use Workflow/ }))
-  expect(await screen.findByText(/Autopilot is on. Ordinary sign-offs are off/)).toBeTruthy()
 })
 
 test('the notice follows the setting live and its link opens Settings → General', async () => {
