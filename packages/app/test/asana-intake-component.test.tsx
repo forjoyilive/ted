@@ -9,7 +9,7 @@ import {
 import { render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { AsanaIntakeSection } from '../src/renderer/views/AsanaIntakeSection.tsx'
-import { bridge, user } from './support/component.ts'
+import { bridge, deferred, user } from './support/component.ts'
 
 const acme = { gid: '1', name: 'Acme' }
 const roadmap = { gid: '9', name: 'Roadmap' }
@@ -136,7 +136,7 @@ test('a failed read keeps the saved values, and a failed save leaves them as the
 })
 
 test('a stale saved project shows as stale and can’t be saved again as it is', async () => {
-  const { save } = setup(saved, {
+  const { save, request } = setup(saved, {
     checkFactoryAsanaIntake: () => ({
       state: 'stale',
       part: 'project',
@@ -150,6 +150,8 @@ test('a stale saved project shows as stale and can’t be saved again as it is',
   )
   expect(screen.queryByLabelText('Section (optional)')).toBeNull()
   expect(saveButton().disabled).toBe(true)
+  expect(request.mock.calls.some(([name]) => name === 'listAsanaSections')).toBe(false)
+  expect(screen.queryByText(/Couldn’t read Asana/)).toBeNull()
   await user().selectOptions(select('Project'), '8')
   expect(screen.queryByText(/The saved project is out of date/)).toBeNull()
   expect(saveButton().disabled).toBe(false)
@@ -160,4 +162,67 @@ test('a stale saved project shows as stale and can’t be saved again as it is',
       project: { gid: '8', name: 'Other' },
     }),
   )
+})
+
+test('a late page from the previous workspace doesn’t replace the new workspace’s projects', async () => {
+  const late = deferred<AsanaChoicesPage>()
+  setup(undefined, {
+    listAsanaWorkspaces: () => ({ items: [acme, { gid: '2', name: 'Elsewhere' }] }),
+    listAsanaProjects: (workspace: unknown, offset: unknown) =>
+      workspace === '2'
+        ? { items: [{ gid: '20', name: 'Two' }] }
+        : offset === undefined
+          ? { items: [roadmap], nextOffset: '1' }
+          : late.promise,
+  })
+  await user().click(
+    await screen.findByRole('switch', { name: 'Import Asana work into this Factory' }),
+  )
+  await waitFor(() => expect(within(select('Workspace')).getByText('Acme')).toBeTruthy())
+  await user().selectOptions(select('Workspace'), '1')
+  await user().click(await screen.findByRole('button', { name: 'Load more projects' }))
+  await user().selectOptions(select('Workspace'), '2')
+  await waitFor(() => expect(within(select('Project')).getByText('Two')).toBeTruthy())
+  late.resolve({ items: [{ gid: '10', name: 'Late' }] })
+  await late.promise
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  expect(within(select('Project')).queryByText('Late')).toBeNull()
+  expect(within(select('Project')).getByText('Two')).toBeTruthy()
+  expect(select('Project').disabled).toBe(false)
+  expect(screen.queryByText('Loading projects…')).toBeNull()
+})
+
+test('a list that fails after an edit disables every picker and Save, and shows the reason once', async () => {
+  const message = 'Couldn’t read Asana: Asana couldn’t find it. The saved choice stays as it was.'
+  setup(saved, {
+    listAsanaProjects: () => ({ items: [roadmap, { gid: '8', name: 'Other' }] }),
+    listAsanaSections: (project: unknown) => {
+      if (project === '8') throw new Error(message)
+      return { items: [now] }
+    },
+  })
+  await waitFor(() => expect(within(select('Project')).getByText('Other')).toBeTruthy())
+  await user().selectOptions(select('Project'), '8')
+  await screen.findByText(message)
+  expect(select('Workspace').disabled).toBe(true)
+  expect(select('Project').disabled).toBe(true)
+  expect(select('Section (optional)').disabled).toBe(true)
+  expect(saveButton().disabled).toBe(true)
+  expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
+})
+
+test('an Asana connection error shows its reason and can be tried again', async () => {
+  const { handle } = setup(saved, {
+    getAsana: () => ({
+      state: 'error',
+      configured: true,
+      redirectUri: '',
+      error: 'Unlock your keyring to use Asana.',
+    }),
+  })
+  await screen.findByText(/Asana: Unlock your keyring to use Asana\. The saved choice stays/)
+  expect(screen.queryByText(/Connect Asana in App Settings/)).toBeNull()
+  handle('getAsana', () => ({ state: 'connected', configured: true, redirectUri: '' }))
+  await user().click(screen.getByRole('button', { name: 'Try again' }))
+  await waitFor(() => expect(select('Project').value).toBe('9'))
 })

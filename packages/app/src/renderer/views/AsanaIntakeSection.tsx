@@ -1,5 +1,5 @@
 import type { AsanaChoicesPage, AsanaIntakeCheck, AsanaIntakeScope, AsanaRef } from '@ted/protocol'
-import { memo, useCallback, useEffect, useId, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useRef, useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Select } from '../components/Select.tsx'
 import { useConnection, useSettings } from '../data.ts'
@@ -35,14 +35,15 @@ function usePagedList(
     loading: boolean
     error?: string
   }>({ key: '', items: [], loading: false })
+  const latest = useRef(0)
   const fetchPage = useCallback(
     (offset: string | undefined, items: AsanaRef[]) => {
-      if (!load) return () => {}
-      let live = true
+      const request = ++latest.current
+      if (!load) return
       setState({ key, items, loading: true })
       load(offset).then(
         (page) => {
-          if (!live) return
+          if (request !== latest.current) return
           const seen = new Set(items.map((item) => item.gid))
           setState({
             key,
@@ -52,7 +53,7 @@ function usePagedList(
           })
         },
         (failure: unknown) => {
-          if (live)
+          if (request === latest.current)
             setState({
               key,
               items,
@@ -62,13 +63,15 @@ function usePagedList(
             })
         },
       )
-      return () => {
-        live = false
-      }
     },
     [load, key],
   )
-  useEffect(() => fetchPage(undefined, []), [fetchPage])
+  useEffect(() => {
+    fetchPage(undefined, [])
+    return () => {
+      latest.current++
+    }
+  }, [fetchPage])
   const current: Omit<PagedList, 'more'> =
     state.key === key ? state : { items: [], loading: !!load }
   return {
@@ -116,7 +119,10 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
   const saved = fromScope(scope)
   const [draft, setDraft] = useState<Choice>()
   const choice = draft ?? saved
-  const [connected, setConnected] = useState<boolean>()
+  const [connection, setConnection] = useState<
+    { state: 'connected' } | { state: 'not-connected' } | { state: 'error'; error: string }
+  >()
+  const connected = connection === undefined ? undefined : connection.state === 'connected'
   const [check, setCheck] = useState<AsanaIntakeCheck>()
   const [saveError, setSaveError] = useState<string>()
   const [saving, setSaving] = useState(false)
@@ -135,7 +141,16 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
       .getAsana()
       .then(async (status) => {
         if (!live) return
-        setConnected(status.state === 'connected')
+        setConnection(
+          status.state === 'connected'
+            ? { state: 'connected' }
+            : status.state === 'error'
+              ? {
+                  state: 'error',
+                  error: status.error ?? 'TED couldn’t check the Asana connection.',
+                }
+              : { state: 'not-connected' },
+        )
         if (status.state !== 'connected') return
         const checked = await ted.checkFactoryAsanaIntake(factoryId)
         if (live) setCheck(checked)
@@ -160,22 +175,29 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
     (offset?: string) => ted.listAsanaSections(projectGid ?? '', offset),
     [projectGid],
   )
+  const stale = check?.state === 'stale' ? check : undefined
+  const staleNow = stale !== undefined && staleIn(choice, saved, stale.part)
+  const staleWorkspace = staleNow && stale?.part === 'workspace'
+  const staleProject = staleWorkspace || (staleNow && stale?.part === 'project')
   const ready = connected === true && choice.on
   const workspaces = usePagedList(ready ? loadWorkspaces : undefined, listKey)
   const projects = usePagedList(
-    ready && workspaceGid ? loadProjects : undefined,
+    ready && workspaceGid && !staleWorkspace ? loadProjects : undefined,
     `${listKey}:${workspaceGid}`,
   )
   const sections = usePagedList(
-    ready && projectGid ? loadSections : undefined,
+    ready && projectGid && !staleProject ? loadSections : undefined,
     `${listKey}:${projectGid}`,
   )
+  const listError = workspaces.error ?? projects.error ?? sections.error
+  const unreadable = check?.state === 'unreadable' ? check.reason : undefined
+  const readError = unreadable !== undefined || listError !== undefined
 
-  const stale = check?.state === 'stale' ? check : undefined
-  const staleNow = stale !== undefined && staleIn(choice, saved, stale.part)
   const dirty = draft !== undefined && !sameChoice(draft, saved)
   const canSave =
-    dirty && !saving && (!choice.on || (!!choice.workspace && !!choice.project && !staleNow))
+    dirty &&
+    !saving &&
+    (!choice.on || (!!choice.workspace && !!choice.project && !staleNow && !readError))
 
   function edit(change: Partial<Choice>) {
     setSaveError(undefined)
@@ -207,9 +229,6 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
   const savedLabel = scope
     ? `${scope.project.name}${scope.section ? ` › ${scope.section.name}` : ''} · ${scope.workspace.name}`
     : 'Off'
-  const listError = workspaces.error ?? projects.error ?? sections.error
-  const unreadable = check?.state === 'unreadable' ? check.reason : undefined
-
   function picker(
     part: Part,
     label: string,
@@ -231,7 +250,7 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
           fullWidth
           id={`${id}-${part}`}
           controlClassName={styles.select}
-          disabled={saving || !!list.error || (list.loading && list.items.length === 0)}
+          disabled={saving || readError || (list.loading && list.items.length === 0)}
           value={value?.gid ?? ''}
           onChange={(event) => {
             const gid = event.target.value
@@ -287,13 +306,21 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
       <span className={styles.caption}>
         Choose which Asana tasks Automations can bring into this Factory.
       </span>
-      {connected === false ? (
+      {connection?.state === 'error' ? (
+        <div>
+          <p className={styles.fieldError} role="alert">
+            Asana: {connection.error}
+            {scope ? ' The saved choice stays as it was.' : ''}
+          </p>
+          <Button onClick={() => setRetry((value) => value + 1)}>Try again</Button>
+        </div>
+      ) : connection?.state === 'not-connected' ? (
         <p className={styles.caption}>
           Connect Asana in App Settings → Integrations to choose a project.
           {scope ? ' The saved choice stays as it is.' : ''}
         </p>
       ) : (
-        <div data-setting="factory.asana-intake.scope">
+        <div className={styles.section} data-setting="factory.asana-intake.scope">
           <div className={styles.autoStartRow}>
             <span className={styles.label}>Import Asana work into this Factory</span>
             <Toggle
@@ -309,6 +336,7 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
             )}
           {choice.on &&
             choice.workspace &&
+            !staleWorkspace &&
             picker('project', 'Project', projects, 'projects', (project) =>
               setDraft({
                 on: true,
@@ -339,10 +367,12 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
           The saved {stale.part} is out of date: {stale.reason}. Choose the {stale.part} again.
         </p>
       )}
-      {(unreadable ?? listError) !== undefined && (
+      {readError && (
         <div>
           <p className={styles.fieldError} role="alert">
-            Couldn’t read Asana: {unreadable ?? listError} The saved choice stays as it was.
+            {unreadable !== undefined
+              ? `Couldn’t read Asana: ${unreadable} The saved choice stays as it was.`
+              : listError}
           </p>
           <Button onClick={() => setRetry((value) => value + 1)}>Try again</Button>
         </div>
@@ -352,8 +382,8 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
           {saveError} The saved choice stays as it was.
         </p>
       )}
-      {connected !== false && (
-        <div className={styles.fieldRow}>
+      {connected === true && (
+        <div className={styles.addActions}>
           <Button variant="primary" disabled={!canSave} onClick={() => void save()}>
             Save
           </Button>
