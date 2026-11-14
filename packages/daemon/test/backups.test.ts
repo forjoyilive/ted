@@ -1,4 +1,5 @@
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type Backups, createBackups } from '../src/backups.ts'
@@ -19,10 +20,11 @@ afterEach(async () => {
   await cleanup()
 })
 
-const eventlog = (text: string) => ({
-  fileName: 'eventlog@6.db',
-  data: new TextEncoder().encode(text),
-})
+let exports = 0
+const eventlog = (text: string) => () => {
+  exports++
+  return { fileName: 'eventlog@6.db', data: new TextEncoder().encode(text) }
+}
 const nextDay = () => {
   now = new Date(now.getTime() + 24 * 60 * 60 * 1000)
 }
@@ -33,12 +35,14 @@ async function addAttachment(hash: string, content: string): Promise<void> {
 }
 
 describe('daily backups', () => {
-  test('takes one backup a day of the event log and keeps the last seven', async () => {
+  test('takes one backup a day of the event log, exporting it only then, and keeps the last five', async () => {
+    exports = 0
     for (let day = 1; day <= 9; day++) {
       expect(await backups.takeDaily(eventlog(`day ${day}`))).toBeDefined()
       expect(await backups.takeDaily(eventlog(`day ${day} again`))).toBeUndefined()
       nextDay()
     }
+    expect(exports).toBe(9)
 
     const daily = (await backups.list()).filter((b) => b.kind === 'daily')
     expect(daily.map((b) => b.name)).toEqual([
@@ -47,8 +51,6 @@ describe('daily backups', () => {
       'daily-20261107',
       'daily-20261106',
       'daily-20261105',
-      'daily-20261104',
-      'daily-20261103',
     ])
     const newest = path.join(home, 'backups', 'daily-20261109', 'store', 'ted')
     expect(await readFile(path.join(newest, 'eventlog@6.db'), 'utf8')).toBe('day 9')
@@ -58,7 +60,11 @@ describe('daily backups', () => {
     })
   })
 
-  test('copies each attachment file once, by hash, and drops ones no backup lists', async () => {
+  test('shares each attachment file once, by hash, skips links and drops ones no backup lists', async () => {
+    const outside = await mkdtemp(path.join(tmpdir(), 'ted-outside-'))
+    await writeFile(path.join(outside, 'secret'), 'not an attachment')
+    await mkdir(path.join(home, 'attachments'), { recursive: true })
+    await symlink(path.join(outside, 'secret'), path.join(home, 'attachments', 'ccc'))
     await addAttachment('aaa', 'first file')
     await backups.takeDaily(eventlog('one'))
     const copy = path.join(home, 'backups', 'attachments', 'aaa')
@@ -74,6 +80,7 @@ describe('daily backups', () => {
       'second file',
     )
     expect(await readdir(path.join(home, 'backups'))).not.toContain('aaa')
+    expect(await readdir(path.join(home, 'backups', 'attachments'))).not.toContain('ccc')
 
     await rm(path.join(home, 'attachments', 'aaa'))
     for (let day = 0; day < 7; day++) {
@@ -81,6 +88,27 @@ describe('daily backups', () => {
       await backups.takeDaily(eventlog('later'))
     }
     expect(await readdir(path.join(home, 'backups', 'attachments'))).toEqual(['bbb'])
+    await rm(outside, { recursive: true, force: true })
+  })
+
+  test('pruning never follows a link in place of a backup folder', async () => {
+    const outside = await mkdtemp(path.join(tmpdir(), 'ted-outside-'))
+    const manifest = {
+      kind: 'daily',
+      takenAt: new Date(2020, 0, 1).toISOString(),
+      takenBy: '0.1.0',
+    }
+    await writeFile(path.join(outside, 'backup.json'), JSON.stringify(manifest))
+    await mkdir(path.join(home, 'backups'), { recursive: true })
+    await symlink(outside, path.join(home, 'backups', 'daily-20200101'))
+
+    for (let day = 0; day < 6; day++) {
+      await backups.takeDaily(eventlog('day'))
+      nextDay()
+    }
+
+    expect(await readdir(outside)).toEqual(['backup.json'])
+    await rm(outside, { recursive: true, force: true })
   })
 
   test('a failure names the reason in plain words', async () => {
