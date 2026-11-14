@@ -185,6 +185,14 @@ test('import a nested tree, reuse a tracked subtree, hold the parent on missing 
   expect(byGid('503')?.parentId).toBe(root?.id)
   expect(byGid('503')?.description).toBe('')
   expect(byGid('504')).toBeUndefined()
+  expect(root?.asanaSync).toMatchObject({ state: 'waiting-merge' })
+  expect(byGid('502')?.asanaSync).toMatchObject({ state: 'waiting-merge' })
+  expect(byGid('503')?.asanaSync).toMatchObject({ state: 'not-allowed' })
+  expect(byGid('505')?.asanaSync).toMatchObject({ state: 'not-allowed' })
+  expect((await cli.call('POST', `/tasks/${byGid('505')?.id}/asana-sync`)).status).toBe(403)
+  expect((await client.allowAsanaSync(byGid('505')?.id ?? '')).asanaSync).toMatchObject({
+    state: 'waiting-merge',
+  })
   const downloads = stub.requests.filter((r) => r.path.startsWith('/files/'))
   expect(downloads).toHaveLength(1)
   expect(downloads[0]?.authorization).toBeUndefined()
@@ -232,6 +240,7 @@ test('import a nested tree, reuse a tracked subtree, hold the parent on missing 
   await client.answerRequest(question?.id ?? '', { action: 'answer', choice: 'Retry' })
   all = await client.listTasks()
   expect(tasksIn(all).byGid('506')?.parentId).toBe(root?.id)
+  expect(tasksIn(all).byGid('506')?.asanaSync).toMatchObject({ state: 'waiting-merge' })
   const afterRetry = await client.listComments(root?.id ?? '')
   expect(afterRetry.find((c) => c.id === question?.id)?.answer).toMatchObject({
     kind: 'answered',
@@ -271,6 +280,12 @@ test('import a nested tree, reuse a tracked subtree, hold the parent on missing 
   daemon = undefined
   client = await start()
   const count = (await client.listTasks()).length
+  await expect
+    .poll(async () => {
+      const after = tasksIn(await client.listTasks())
+      return ['503', '505'].map((gid) => after.byGid(gid)?.asanaSync?.state)
+    })
+    .toEqual(['not-allowed', 'waiting-merge'])
   const reread = await client.previewAsanaImport({
     url: 'https://app.asana.com/0/9/501',
     factory: 'NB',

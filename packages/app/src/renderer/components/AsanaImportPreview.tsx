@@ -101,7 +101,7 @@ export function AsanaImportPreview({
         <>
           <span className={styles.summary}>{ownershipLine(preview)}</span>
           {preview.create > 0 && (
-            <span className={styles.note} data-task-sync>
+            <span className={styles.note} data-task-sync-note>
               {syncOn
                 ? 'Task Sync is on for these Tasks: TED comments on each Asana task with each pull request and completes it once its Task merges.'
                 : 'Task Sync is allowed for these Tasks, but it is off in Settings, so TED won’t update Asana until you turn it on.'}

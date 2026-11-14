@@ -15,11 +15,14 @@ export interface StubAsanaTask {
 
 export async function startStubAsana() {
   const requests: {
+    method: string
     path: string
     query: Record<string, string>
     fields: Record<string, string>
+    json?: unknown
     authorization?: string
   }[] = []
+  let writeFailure: { status: number; retryAfter?: string; applied?: boolean } | undefined
   const tasks = new Map<string, StubAsanaTask>()
   let pageSize = 2
   let user = { gid: '100', name: 'Avery', email: 'avery@example.test' }
@@ -36,13 +39,18 @@ export async function startStubAsana() {
   const server = http.createServer(async (req, res) => {
     const chunks: Buffer[] = []
     for await (const chunk of req) chunks.push(chunk as Buffer)
-    const fields = Object.fromEntries(new URLSearchParams(Buffer.concat(chunks).toString()))
+    const raw = Buffer.concat(chunks).toString()
+    const isJson = req.headers['content-type'] === 'application/json'
+    const fields = isJson ? {} : Object.fromEntries(new URLSearchParams(raw))
+    const json = isJson ? (JSON.parse(raw) as { data?: Record<string, unknown> }) : undefined
     const path = (req.url ?? '').split('?')[0] ?? ''
     const query = Object.fromEntries(new URL(req.url ?? '/', 'http://stub').searchParams)
     requests.push({
+      method: req.method ?? 'GET',
       path,
       query,
       fields,
+      ...(json && { json }),
       ...(req.headers.authorization && { authorization: req.headers.authorization }),
     })
     if (delay) await delay
@@ -125,6 +133,41 @@ export async function startStubAsana() {
         res.end('{}')
         return
       }
+      if (req.method === 'POST' || req.method === 'PUT') {
+        const failure = writeFailure
+        writeFailure = undefined
+        if (failure && !failure.applied) {
+          res.writeHead(
+            failure.status,
+            failure.retryAfter ? { 'retry-after': failure.retryAfter } : {},
+          )
+          res.end('{}')
+          return
+        }
+        const data = json?.data ?? {}
+        if (req.method === 'POST' && list === 'stories' && typeof data.text === 'string') {
+          tasks.set(task.gid, {
+            ...task,
+            comments: [
+              ...(task.comments ?? []),
+              { author: user.name, at: new Date().toISOString(), text: data.text },
+            ],
+          })
+        } else if (req.method === 'PUT' && list === undefined && data.completed === true) {
+          tasks.set(task.gid, { ...task, completed: true })
+        } else {
+          res.writeHead(400)
+          res.end('{}')
+          return
+        }
+        if (failure) {
+          res.writeHead(failure.status)
+          res.end('{}')
+          return
+        }
+        res.end(JSON.stringify({ data: { gid: `${task.gid}9` } }))
+        return
+      }
       const page = (items: unknown[]) => {
         const offset = Number(query.offset ?? '0')
         const next = offset + pageSize
@@ -175,6 +218,7 @@ export async function startStubAsana() {
               name: task.name,
               notes: task.notes ?? '',
               completed: task.completed === true,
+              num_subtasks: (task.subtasks ?? []).length,
               permalink_url: `https://app.asana.com/1/1/project/9/task/${task.gid}`,
               assignee: task.assignee ?? null,
             },
@@ -230,6 +274,12 @@ export async function startStubAsana() {
     },
     setRedirect(value: boolean) {
       redirect = value
+    },
+    failNextWrite(failure: { status: number; retryAfter?: string; applied?: boolean }) {
+      writeFailure = failure
+    },
+    task(gid: string) {
+      return tasks.get(gid)
     },
     hold(value: Promise<void> | undefined) {
       delay = value
