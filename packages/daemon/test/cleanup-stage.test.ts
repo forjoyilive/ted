@@ -182,13 +182,13 @@ test('a Cleanup with only commands runs the unfinished ones again after a stop, 
     'the Cleanup commands to start',
   )
   const before = await getTask(client, task.id)
-  const leads = (t: Task) => t.runs.filter((run) => run.role === 'lead').length
   await client.ok('POST', `/tasks/${task.id}/stop`)
   await writeFile(path.join(before.repos[0]?.worktree ?? '', 'stub-go'), '')
   await client.ok('POST', `/tasks/${task.id}/resume`, {})
   await waitForStage(client, task, 'done')
 
-  expect(leads(await getTask(client, task.id))).toBe(leads(before))
+  expect(before.leadRunId).toBeDefined()
+  expect((await getTask(client, task.id)).leadRunId).toBe(before.leadRunId)
   const thread = await lines(client, task)
   expect(thread.filter((line) => line === 'Cleanup command “Wait”: passed')).toHaveLength(1)
   expect(thread.filter((line) => line === 'Cleanup command “Prune”: passed')).toHaveLength(1)
