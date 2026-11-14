@@ -73,6 +73,7 @@ const proposal = {
 async function start() {
   await commitToOrigin(scratch, {
     '.ted/workflow.yaml': 'version: 1\norder: [intake, clarify, work]\n',
+    '.gitignore': 'stub-*\n',
   })
   daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
   const client = api(daemon.port, { appKey: daemon.appToken })
