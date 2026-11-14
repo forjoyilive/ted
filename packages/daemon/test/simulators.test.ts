@@ -572,6 +572,48 @@ describe('iOS simulator Apps', () => {
     )
     expect((await client.call('GET', `/runs/${runId}/apps`)).status).toBe(404)
     expect((await iPhone(client, task))?.state).toBe('stopped')
+
+    const held = await client.ok<Automation>('POST', '/automations', {
+      name: 'Held check',
+      factory: 'NB',
+      schedule: { kind: 'daily', at: '09:00' },
+      on: false,
+      checkout: true,
+      runNow: true,
+      prompt: JSON.stringify({
+        steps: [
+          { run: ['ted', 'run-app', 'Web'] },
+          { waitFor: path.join(scratch, 'never') },
+          { endTurn: true },
+        ],
+      }),
+    })
+    const heldRun = await waitUntil(
+      async () =>
+        (await client.ok<AutomationDetail>('GET', `/automations/${held.id}`)).history.find(
+          (r) => r.runId !== undefined,
+        )?.runId,
+      'the held Automation Run',
+    )
+    await waitUntil(
+      async () =>
+        (await client.ok<TaskApp[]>('GET', `/runs/${heldRun}/apps`)).find(
+          (a) => a.name === 'Web' && a.state === 'running',
+        ),
+      'the held Run’s Web App',
+      30_000,
+    )
+    const cache = path.join(home, 'sandbox', `automation-${held.id}`)
+    expect(await stat(cache)).toBeTruthy()
+    await client.ok('DELETE', `/automations/${held.id}`)
+    const gone = (file: string) =>
+      stat(file).then(
+        () => false,
+        () => true,
+      )
+    expect(await gone(path.join(home, 'automation-runs', heldRun))).toBe(true)
+    expect(await gone(path.join(home, 'apps', heldRun))).toBe(true)
+    expect(await gone(cache)).toBe(true)
   })
 
   test('missing Xcode raises a stops-work Factory banner', async () => {

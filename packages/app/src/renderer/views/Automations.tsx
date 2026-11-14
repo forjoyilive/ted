@@ -1163,7 +1163,7 @@ export function AutomationRunView({
         </Details>
         {checkout && (
           <Details title={`Apps · ${apps.filter((a) => a.state === 'running').length} running`}>
-            {apps.length === 0 ? (
+            {apps.length === 0 || run.state === 'finished' ? (
               <p className={styles.detailNote}>
                 {run.state === 'finished'
                   ? 'TED stopped this Run’s Apps when it ended.'

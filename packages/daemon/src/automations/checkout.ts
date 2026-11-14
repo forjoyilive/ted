@@ -53,6 +53,7 @@ export interface Checkouts {
   appTask(runId: string): Promise<AppTask>
   release(runId: string): Promise<void>
   sweep(keep: (runId: string) => boolean): Promise<void>
+  forget(automationId: string): Promise<void>
 }
 
 export class SetupFailed extends Error {}
@@ -196,7 +197,7 @@ export function createCheckouts(options: {
               : { ...input.factory, repo: entry.repo, cloneUrl: entry.cloneUrl },
           )
           await git.fetch(clone)
-          const base = entry.baseBranch ?? (await git.defaultBranch(clone))
+          const base = await git.defaultBranch(clone)
           const repo = repoOf(entry, folder, clone)
           await git.addScratchWorktree(clone, repo.worktree, `origin/${base}`)
           repos.push(repo)
@@ -263,6 +264,15 @@ export function createCheckouts(options: {
       })().finally(() => releasing.delete(runId))
       releasing.set(runId, done)
       return done
+    },
+    async forget(automationId) {
+      await removeInside(sandboxRoot, `automation-${automationId}`).catch((error: unknown) =>
+        console.error(
+          redactSecrets(
+            `couldn’t remove the caches of Automation ${automationId}: ${String(error)}`,
+          ),
+        ),
+      )
     },
     async sweep(keep) {
       const names = await readdir(root).catch(() => [] as string[])

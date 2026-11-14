@@ -405,6 +405,7 @@ import { type CommandResult, outputTail } from './worktree.ts'
 export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: string }
 
 export interface RunAppOwner {
+  ready: Promise<void>
   owns(runId: string): boolean
   live(runId: string): boolean
   appTask(runId: string): Promise<AppTask>
@@ -828,6 +829,19 @@ export function createTasks(options: {
   const sandboxDir = path.join(path.dirname(worktreesDir), 'sandbox')
   const pullRequests = options.gh && createPullRequests({ store, gh: options.gh })
   let runAppOwner: RunAppOwner | undefined
+  let ownerSet: (owner: RunAppOwner) => void = () => {}
+  const ownerKnown = new Promise<RunAppOwner>((resolve) => {
+    ownerSet = resolve
+  })
+
+  async function ownerAppTask(id: string): Promise<AppTask> {
+    if (store.getTask(id) === undefined && store.automations.firing(id) !== undefined) {
+      const owner = await ownerKnown
+      await owner.ready
+      if (owner.owns(id)) return owner.appTask(id)
+    }
+    return appTask(id)
+  }
   const apps = createApps({
     appsDir: options.appsDir ?? path.join(path.dirname(worktreesDir), 'apps'),
     store,
@@ -847,7 +861,7 @@ export function createTasks(options: {
       if (task === undefined) return store.automations.firing(taskId)?.state === 'started'
       return !task.archived && task.stage !== 'done'
     },
-    task: (id) => (runAppOwner?.owns(id) ? runAppOwner.appTask(id) : appTask(id)),
+    task: ownerAppTask,
     sandbox: options.sandbox,
     sandboxProblem,
   })
@@ -993,10 +1007,11 @@ export function createTasks(options: {
     return attachment
   }
 
-  function ownedRun(runId: string, caller: Caller): void {
+  async function ownedRun(runId: string, caller: Caller): Promise<void> {
     if (caller.kind === 'run' && caller.runId !== runId) {
       throw new RequestError(403, 'A Run can reach only its own Apps')
     }
+    await runAppOwner?.ready
     if (runAppOwner?.owns(runId) !== true) {
       throw new RequestError(404, 'This Run has no checkout, so it has no Apps')
     }
@@ -10697,28 +10712,29 @@ export function createTasks(options: {
     simulators: () => apps.simulators(),
     setRunAppOwner(owner) {
       runAppOwner = owner
+      ownerSet(owner)
     },
     async listRunApps(runId, caller) {
-      ownedRun(runId, caller)
+      await ownedRun(runId, caller)
       return apps.list(runId)
     },
     async startRunApp(runId, caller, { shutDown: _, reason: __, ...app }) {
-      ownedRun(runId, caller)
+      await ownedRun(runId, caller)
       if (caller.kind !== 'run')
         throw new RequestError(403, 'Only the Automation’s Run starts its Apps')
       if (runAppOwner?.live(runId) !== true) throw new RequestError(409, 'This Run has ended')
       return apps.start(runId, app, 'automation', { runId })
     },
     async stopRunApp(runId, caller, app) {
-      ownedRun(runId, caller)
+      await ownedRun(runId, caller)
       return apps.stop(runId, app)
     },
     async showRunApp(runId, caller, app) {
-      ownedRun(runId, caller)
+      await ownedRun(runId, caller)
       return apps.show(runId, app)
     },
     async runAppLog(runId, caller, app) {
-      ownedRun(runId, caller)
+      await ownedRun(runId, caller)
       return apps.log(runId, app)
     },
     stopRunApps(runId) {

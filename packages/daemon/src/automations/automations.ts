@@ -167,11 +167,6 @@ export function createAutomations(options: AutomationsOptions): Automations {
     stopApps: (runId) => options.apps.stopRunApps(runId),
   })
   const checkoutLive = (runId: string) => saved.firing(runId)?.state === 'started'
-  options.apps.setRunAppOwner({
-    owns: (runId) => checkouts.get(runId) !== undefined,
-    live: (runId) => checkoutLive(runId) && store.getRun(runId)?.state !== 'finished',
-    appTask: (runId) => checkouts.appTask(runId),
-  })
   const release = (runId: string) => {
     void checkouts.release(runId)
   }
@@ -190,6 +185,12 @@ export function createAutomations(options: AutomationsOptions): Automations {
     }
     await checkouts.sweep(checkoutLive)
   })().catch((error: unknown) => console.error('couldn’t reattach Automation checkouts:', error))
+  options.apps.setRunAppOwner({
+    ready: reattached,
+    owns: (runId) => checkouts.get(runId) !== undefined,
+    live: (runId) => checkoutLive(runId) && store.getRun(runId)?.state !== 'finished',
+    appTask: (runId) => checkouts.appTask(runId),
+  })
 
   const factoryOf = (automation: StoredAutomation) => store.getFactory(automation.factoryId)
   const live = () => {
@@ -1241,9 +1242,8 @@ export function createAutomations(options: AutomationsOptions): Automations {
   }
 
   async function remove(automation: StoredAutomation): Promise<void> {
-    const open = saved
-      .firings(automation.id)
-      .filter((f) => f.state === 'started' && store.getRun(f.id)?.state !== 'finished')
+    const started = saved.firings(automation.id).filter((f) => f.state === 'started')
+    const open = started.filter((f) => store.getRun(f.id)?.state !== 'finished')
     saved.delete(automation.id)
     banners.clear({
       problem: automationFailingProblem,
@@ -1253,6 +1253,8 @@ export function createAutomations(options: AutomationsOptions): Automations {
     for (const firing of open) {
       await runs.stop(firing.id).catch((error: unknown) => console.error(error))
     }
+    for (const firing of started) await checkouts.release(firing.id)
+    await checkouts.forget(automation.id)
     changed()
     pump()
   }
