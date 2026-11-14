@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -27,17 +28,25 @@ export async function withApp<T>(
   const app = await electron.launch({
     executablePath: await prepareElectron(),
     args: [fileURLToPath(new URL('..', import.meta.url))],
-    env: { ...process.env, TED_HOME: home, TED_HIDDEN_WINDOW: '1', ...options.env },
+    env: {
+      ...process.env,
+      ...options.env,
+      TED_HOME: home,
+      TED_HIDDEN_WINDOW: '1',
+      TED_SKIP_FIRST_LAUNCH: '1',
+    },
     timeout: 120_000,
   })
   const pid = app.process().pid
+  const signal = (target: number, name: NodeJS.Signals) => {
+    try {
+      process.kill(target, name)
+    } catch {}
+  }
   const killNow = () => {
-    if (pid === undefined) return
-    for (const target of [-pid, pid]) {
-      try {
-        process.kill(target, 'SIGKILL')
-      } catch {}
-    }
+    if (pid !== undefined) for (const target of [-pid, pid]) signal(target, 'SIGKILL')
+    const daemon = daemonPid(home)
+    if (daemon !== undefined) signal(daemon, 'SIGTERM')
   }
   const interrupted = (signal: NodeJS.Signals) => {
     killNow()
@@ -54,5 +63,14 @@ export async function withApp<T>(
     process.off('exit', killNow)
     process.off('SIGINT', interrupted)
     process.off('SIGTERM', interrupted)
+  }
+}
+
+function daemonPid(home: string): number | undefined {
+  try {
+    const { pid } = JSON.parse(readFileSync(path.join(home, 'daemon.json'), 'utf8'))
+    return Number.isInteger(pid) && pid > 0 ? pid : undefined
+  } catch {
+    return undefined
   }
 }
