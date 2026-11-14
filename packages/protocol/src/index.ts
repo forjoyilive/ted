@@ -311,6 +311,18 @@ export {
   type ShutdownRequest,
 } from './data.ts'
 export { parseRestoreBackupRequest, parseShutdownRequest } from './data-parsers.ts'
+export {
+  type DeviceAction,
+  type DeviceKey,
+  type DevicePoint,
+  type DeviceRequest,
+  type DeviceResult,
+  deviceActions,
+  deviceKeys,
+  deviceLimits,
+  devicePoint,
+} from './device.ts'
+export { parseDeviceRequest } from './device-parsers.ts'
 export type {
   Diagnostics,
   LogText,

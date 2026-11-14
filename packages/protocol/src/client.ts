@@ -89,6 +89,7 @@ import type {
   RestoreBackupResult,
   ShutdownRequest,
 } from './data.ts'
+import type { DeviceRequest, DeviceResult } from './device.ts'
 import type { Diagnostics, LogText, ProcessUsage } from './diagnostics.ts'
 import type { DaemonEvent } from './events.ts'
 import type {
@@ -1196,6 +1197,10 @@ export class DaemonClient {
 
   runBrowserCommand(runId: string, request: BrowserRequest): Promise<BrowserResult> {
     return this.#request('POST', `/runs/${encodeURIComponent(runId)}/browser`, request)
+  }
+
+  runDeviceCommand(runId: string, request: DeviceRequest): Promise<DeviceResult> {
+    return this.#request('POST', `/runs/${encodeURIComponent(runId)}/apps/device`, request)
   }
 
   readRunBrowserCapture(runId: string, hash: string): Promise<AttachmentBytes> {

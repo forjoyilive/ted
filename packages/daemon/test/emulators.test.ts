@@ -1,7 +1,17 @@
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Banner, Comment, Factory, SimulatorSlots, Task, TaskApp } from '@ted/protocol'
+import type {
+  Automation,
+  AutomationDetail,
+  AutomationTemplate,
+  Banner,
+  Comment,
+  Factory,
+  SimulatorSlots,
+  Task,
+  TaskApp,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import type { StubAndroidState } from './fixtures/stub-android.ts'
@@ -145,13 +155,15 @@ describe('Android emulator Apps', () => {
         steps: [
           { run: ['ted', 'run-app', 'android'] },
           { run: ['ted', 'app', 'screenshot', 'android'] },
+          { run: ['ted', 'app', 'tap', 'android', '1'] },
           { endTurn: true },
         ],
       }),
     )
 
-    const results = await leadResults(client, task, 2)
-    expect(results.map((r) => r.code)).toEqual([0, 0])
+    const results = await leadResults(client, task, 3)
+    expect(results.map((r) => r.code)).toEqual([0, 0, 2])
+    expect(results[2]?.stderr).toContain('ted app tap works only in an Automation Run')
     expect(results[0]?.stdout).toContain('android is running on Pixel_8_API_35')
     expect(results[1]?.stdout).toBe('Saved android screenshot.png to the Task\n')
 
@@ -259,6 +271,138 @@ describe('Android emulator Apps', () => {
     )
     const slots = await client.ok<SimulatorSlots>('GET', '/emulators')
     expect(slots.booted.map((s) => s.displayId)).toEqual(['NB-2'])
+  })
+
+  test('an Audit reads its emulator’s screen, taps through two screens and files a Task with a screenshot for the planted problem', async () => {
+    const client = await start()
+    await addFactory(client)
+    const template = (await client.ok<AutomationTemplate[]>('GET', '/automations/templates')).find(
+      (t) => t.id === 'audit',
+    )
+    if (!template) throw new Error('missing audit template')
+    expect(template.prompt).toContain('ted app screen <App>')
+    const source = 'http://localhost/audit/android/details/buy-button-covers-price'
+    const app = (...args: string[]) => ({ run: ['ted', 'app', ...args] })
+    const released = path.join(scratch, 'released')
+    const automation = await client.ok<Automation>('POST', '/automations', {
+      template: template.id,
+      name: template.name,
+      factory: 'NB',
+      schedule: template.schedule,
+      on: false,
+      checkout: true,
+      runNow: true,
+      prompt: `${template.prompt}\n${JSON.stringify({
+        steps: [
+          { run: ['ted', 'run-app', 'android'] },
+          {
+            run: [
+              'sh',
+              '-c',
+              `ted app tap android "$(ted app screen android | grep '"Open details"' | cut -d ' ' -f 1)"`,
+            ],
+          },
+          app('screen', 'android'),
+          app('appearance', 'android', 'dark'),
+          app('size', 'android', '720x1280', '--density', '320'),
+          app('tap', 'android', '5000,100'),
+          app('type', 'android', "it's"),
+          {
+            run: [
+              'sh',
+              '-c',
+              `shot=$(ted app screenshot android | sed -n 's/^Saved \\(.*\\.png\\)\\. Attach.*/\\1/p') && ted task create --source ${source} --description "Details screen at 720x1280 in dark mode: the Buy button covers the price." --attach "$shot" "Buy button covers the price on Details"`,
+            ],
+          },
+          app('key', 'android', 'back'),
+          app('screen', 'android'),
+          { waitFor: released },
+          { endTurn: true },
+        ],
+      })}`,
+    })
+    const runId = await waitUntil(
+      async () =>
+        (await client.ok<AutomationDetail>('GET', `/automations/${automation.id}`)).history.find(
+          (r) => r.runId !== undefined,
+        )?.runId,
+      'the Audit Run',
+    )
+    const results = await waitUntil(
+      async () => {
+        const texts = assistantTexts((await client.getRun(runId)).conversation)
+        return texts.length >= 10
+          ? texts.map((t) => JSON.parse(t) as { code: number; stdout: string; stderr: string })
+          : undefined
+      },
+      'the Audit’s commands',
+      60_000,
+    )
+    const refused = await client.call('POST', `/runs/${runId}/apps/device`, {
+      action: 'screen',
+      app: { name: 'android' },
+    })
+    expect(refused.status).toBe(403)
+    await writeFile(released, '')
+
+    expect(results.map((r) => r.code === 0)).toEqual([
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+    ])
+    expect(results[1]?.stdout).toContain('Tapped 540,680')
+    const details = results[2]?.stdout ?? ''
+    expect(details).toMatch(/^<<<SCREEN [0-9a-f]{8}>>>$/m)
+    expect(details).toContain('"Price: 10 widgets for $5 & free <delivery>" at 540,560')
+    expect(details).toContain('Button "Buy" id="com.example.widgets:id/buy" clickable')
+    expect(results[5]?.stderr).toContain('5000,100 is off the screen, which is 720x1280')
+    expect(results[7]?.stdout).toContain('Created NB-1')
+    expect(results[9]?.stdout).toContain('"Open details"')
+    const [avdName, ui] = Object.entries((await stub()).ui ?? {})[0] ?? []
+    expect(ui).toEqual({
+      screen: 'home',
+      night: true,
+      size: '720x1280',
+      density: '320',
+      typed: "'it'\\''s'",
+    })
+
+    const finished = await waitUntil(
+      async () =>
+        (await client.ok<AutomationDetail>('GET', `/automations/${automation.id}`)).history.find(
+          (r) => r.runId === runId && r.finishedAt !== undefined,
+        ),
+      'the Audit Run to finish',
+      60_000,
+    )
+    expect(finished.result.kind).toBe('created')
+    const filed = (await client.ok<Task[]>('GET', '/tasks')).filter(
+      (t) => t.createdBy === 'automation',
+    )
+    expect(filed).toHaveLength(1)
+    expect(filed[0]).toMatchObject({
+      title: 'Buy button covers the price on Details',
+      stage: 'backlog',
+      source: { url: source },
+    })
+    const shot = filed[0]?.attachments[0]
+    expect(shot?.mediaType).toBe('image/png')
+    const bytes = await client.ok<{ data: string }>(
+      'GET',
+      `/attachments/${shot?.hash}/${encodeURIComponent(shot?.name ?? '')}`,
+    )
+    expect(Buffer.from(bytes.data, 'base64').toString()).toBe(`PNG of ${avdName}`)
+    await waitUntil(
+      async () => ((await stub()).avds?.[avdName ?? ''] === undefined ? true : undefined),
+      'the Audit’s emulator to be deleted',
+    )
   })
 
   test('a missing Android SDK raises a stops-work Factory banner', async () => {
