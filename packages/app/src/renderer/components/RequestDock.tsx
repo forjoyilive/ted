@@ -8,9 +8,7 @@ export function RequestDock({
   task,
   open,
   current,
-  commenting,
   onCurrent,
-  onCommenting,
   onJump,
   onOpenRun,
   children,
@@ -18,9 +16,7 @@ export function RequestDock({
   task: Task
   open: readonly Comment[]
   current: string | undefined
-  commenting: string | undefined
   onCurrent: (id: string) => void
-  onCommenting: (id: string | undefined) => void
   onJump: (id: string) => void
   onOpenRun?: ((runId: string) => void) | undefined
   children: ReactNode
@@ -57,7 +53,7 @@ export function RequestDock({
   )
   const label = shown && requestLabel(shown)
   const title = shown && headline(shown)
-  const answering = shown !== undefined && dockable(shown) && commenting !== shown.id
+  const answering = shown !== undefined && dockable(shown)
 
   return (
     <>
@@ -69,27 +65,13 @@ export function RequestDock({
         {shown && !answering && (
           <div className={styles.pointer} role="note" aria-label="Open request">
             <span className={styles.pointerText}>
-              {dockable(shown) ? (
-                <>
-                  Not answering <strong>{label}</strong>: {title}
-                </>
-              ) : (
-                <>
-                  <strong>{label}</strong>: {title} has its own form in the thread. This box sends a
-                  Comment and doesn’t answer it.
-                </>
-              )}
+              <strong>{label}</strong>: {title} has its own form in the thread. This box sends a
+              Comment and doesn’t answer it.
             </span>
             {switcher}
-            {dockable(shown) ? (
-              <button type="button" className={styles.link} onClick={() => onCommenting(undefined)}>
-                Back to the answer
-              </button>
-            ) : (
-              <button type="button" className={styles.link} onClick={() => onJump(shown.id)}>
-                Jump to it ↑
-              </button>
-            )}
+            <button type="button" className={styles.link} onClick={() => onJump(shown.id)}>
+              Jump to it ↑
+            </button>
           </div>
         )}
         {children}
@@ -118,15 +100,18 @@ export function RequestDock({
                 request={request}
                 task={task}
                 onOpenRun={onOpenRun}
-                lead={
+                lead={(comment) => (
                   <button
                     type="button"
                     className={`${styles.link} ${styles.comment}`}
-                    onClick={() => onCommenting(request.id)}
+                    disabled={comment.disabled}
+                    aria-busy={comment.pending || undefined}
+                    title="Post this text as a Comment and leave the request open"
+                    onClick={comment.send}
                   >
                     Comment without answering
                   </button>
-                }
+                )}
               />
             </div>
           ))}

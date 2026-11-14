@@ -665,14 +665,10 @@ export function TaskThread({
     onOpenRun(runId)
   }
   const [answering, setAnswering] = useState<string>()
-  const [commenting, setCommenting] = useState<string>()
   useEffect(() => {
     setFilter(undefined)
     setReveal(revealRequest ?? (answeredId === undefined ? undefined : { id: answeredId }))
-    if (revealRequest) {
-      setAnswering(revealRequest.id)
-      setCommenting(undefined)
-    }
+    if (revealRequest) setAnswering(revealRequest.id)
   }, [revealRequest, answeredId])
   const stage = filter?.taskId === task.id ? filter.stage : undefined
   const items: ThreadItem[] = [
@@ -712,7 +708,6 @@ export function TaskThread({
     setFilter(undefined)
     setReveal({ id })
     setAnswering(id)
-    setCommenting(undefined)
     inbox?.select(id)
   }
   const openJumps = open.map((request) => ({
@@ -1093,9 +1088,7 @@ export function TaskThread({
                     task={task}
                     open={open}
                     current={answering}
-                    commenting={commenting}
                     onCurrent={setAnswering}
-                    onCommenting={setCommenting}
                     onJump={jumpToRequest}
                     onOpenRun={onOpenRun}
                   >

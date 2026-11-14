@@ -300,27 +300,29 @@ test('requests stay in the conversation and repeated jumps preserve answer draft
     within(dock).getByRole('textbox', { name: 'Your answer' }),
     'Keep the header draft',
   )
-  await user().click(within(dock).getByRole('button', { name: 'Comment without answering' }))
-  expect(within(thread).queryByRole('region', { name: 'Answer' })).toBeNull()
-  expect(within(thread).getByRole('note', { name: 'Open request' }).textContent).toContain(
-    `Not answering Question: ${first.body}`,
+  a.handle('postComment', () => comment({ id: 'c3', kind: 'note', body: 'Keep the header draft' }))
+  const commentInstead = within(dock).getByRole('button', {
+    name: 'Comment without answering',
+  }) as HTMLButtonElement
+  await user().click(commentInstead)
+  expect(a.request).toHaveBeenCalledWith('postComment', current.id, {
+    body: 'Keep the header draft',
+    attachments: [],
+  })
+  expect(a.request.mock.calls.some(([name]) => name === 'answerRequest')).toBe(false)
+  await vi.waitFor(() =>
+    expect(within(dock).getByRole('textbox', { name: 'Your answer' })).toHaveProperty('value', ''),
   )
-  expect(within(thread).getByRole('textbox', { name: 'Comment' })).toBeTruthy()
-  fireEvent.dragOver(secondCard, { dataTransfer: { types: ['Files'] } })
-  expect(within(thread).getByText('Drop to attach')).toBeTruthy()
-  fireEvent.dragLeave(secondCard, { relatedTarget: null })
-  expect(within(thread).queryByText('Drop to attach')).toBeNull()
-  await firstJump()
-  expect(within(thread).queryByRole('note', { name: 'Open request' })).toBeNull()
-  expect(within(dock).getByDisplayValue('Keep the header draft')).toBeTruthy()
-  await user().click(within(dock).getByRole('button', { name: 'Comment without answering' }))
-  await user().click(within(inbox).getByText(second.body))
-  await user().click(within(inbox).getByText(first.body))
-  expect(within(thread).queryByRole('note', { name: 'Open request' })).toBeNull()
+  expect(commentInstead.disabled).toBe(true)
   expect(within(thread).getByRole('region', { name: 'Answer' })).toBe(dock)
   expect(within(dock).getByText('1 of 2')).toBeTruthy()
-  await user().click(within(dock).getByRole('button', { name: 'Comment without answering' }))
-  await user().click(within(thread).getByRole('button', { name: 'Back to the answer' }))
+  expect(within(thread).queryByRole('note', { name: 'Open request' })).toBeNull()
+  expect(within(thread).queryByRole('textbox', { name: 'Comment' })).toBeNull()
+  await user().type(
+    within(dock).getByRole('textbox', { name: 'Your answer' }),
+    'Keep the header draft',
+  )
+  expect(commentInstead.disabled).toBe(false)
   await user().click(within(thread).getByRole('button', { name: 'Work, now' }))
   expect(within(thread).getAllByRole('region', { name: 'Question' })).toHaveLength(1)
   await firstJump()
@@ -802,7 +804,6 @@ test('request shortcuts target the focused request and do not guess between open
   await jumpTo(thread, 'Jump to Design review: Review the draft')
   await u.keyboard('{Shift>}r{/Shift}')
   expect(document.activeElement).toBe(within(dock).getByRole('textbox', { name: 'Your answer' }))
-  await u.click(within(dock).getByRole('button', { name: 'Comment without answering' }))
   await u.click(within(thread).getByRole('heading', { name: 'Sync notes' }))
   await u.keyboard('r')
   expect(document.activeElement).not.toBe(thread.querySelector('textarea[data-comment-box]'))
