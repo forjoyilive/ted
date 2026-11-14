@@ -298,14 +298,23 @@
 }
 
 .table {
-  display: block;
+  display: grid;
+  column-gap: 16px;
   width: 100%;
   border-collapse: collapse;
 }
 
 .table thead,
-.table tbody {
-  display: block;
+.table tbody,
+.row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.row::before,
+.row::after {
+  content: '';
 }
 
 .table th {
@@ -315,6 +324,7 @@
 
 .groupRow {
   display: block;
+  grid-column: 1 / -1;
 }
 
 .groupRow th {
@@ -328,11 +338,8 @@
 
 .row {
   box-sizing: border-box;
-  display: grid;
   align-items: center;
-  column-gap: 16px;
   min-height: 38px;
-  padding: 0 20px;
   border-bottom: 1px solid var(--border-subtle);
   color: var(--text-primary);
   font-size: var(--text-14);
@@ -391,6 +398,10 @@
 
 .right {
   text-align: right;
+}
+
+.statusHead {
+  min-width: 140px;
 }
 
 .id {
@@ -484,6 +495,7 @@
 .dropLine {
   position: relative;
   display: block;
+  grid-column: 1 / -1;
   height: 0;
   border-top: 2px solid var(--accent-default);
 }

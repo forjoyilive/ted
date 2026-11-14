@@ -10,7 +10,7 @@ import {
 } from '../../daemon/src/tasks/status.ts'
 import { Help } from '../src/renderer/components/Help.tsx'
 import { Board } from '../src/renderer/views/Board.tsx'
-import { idColumnWidth, TaskList } from '../src/renderer/views/TaskList.tsx'
+import { idColumnWidth, listGrid, TaskList } from '../src/renderer/views/TaskList.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, user } from './support/component.ts'
 import { factory, task } from './support/fixtures.ts'
@@ -579,5 +579,8 @@ test('List ID column grows to fit the longest ID, the same width in the header a
   expect(idColumnWidth([])).toBe('max(56px, calc(2 * 0.65 * var(--text-14)))')
   expect(idColumnWidth([{ displayId: 'TED-9' }, { displayId: 'TED-1000' }])).toBe(
     'max(56px, calc(10 * 0.65 * var(--text-14)))',
+  )
+  expect(listGrid(['id', 'title', 'status', 'updated'], [{ displayId: 'TED-1' }])).toBe(
+    '4px 24px max(56px, calc(7 * 0.65 * var(--text-14))) minmax(160px, 1fr) fit-content(300px) 56px 4px',
   )
 })
