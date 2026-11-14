@@ -116,9 +116,11 @@ import type {
   WorktreeCommandOutcome,
 } from '@ted/protocol'
 import {
+  type AsanaStatus,
   agentShortNames,
   agentStageIds,
   archiveChoice,
+  asanaSyncAllowable,
   bannerId,
   briefHeadings,
   type CleanupStepReport,
@@ -127,6 +129,7 @@ import {
   cleanupFinishChoice,
   cleanupRetryChoice,
   isChat,
+  isLoopbackUrl,
   isTrackerClosedQuestion,
   isTrackerGroupAsk,
   keepArchiveChoice,
@@ -135,6 +138,7 @@ import {
   parseLinearUrl,
   type ResetRefusal,
   resetRefusal,
+  runOnlyBrowserActions,
   sizeChoices,
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
@@ -150,6 +154,7 @@ import {
   type SimulatorOptions,
 } from '../apps/apps.ts'
 import { type AppDeclaration, appDeclarations } from '../apps/declared.ts'
+import { createRunBrowsers } from '../apps/run-browser.ts'
 import { AsanaReadError } from '../asana/asana.ts'
 import { checkAsanaRoot, confirmAsanaScope, listAsanaIntake, scopeName } from '../asana/intake.ts'
 import { type AsanaRead, type AsanaTree, readAsanaTree, retryingRead } from '../asana/tree.ts'
@@ -233,6 +238,7 @@ import {
   type ParentRef,
   planAsanaImport,
 } from './asana-import.ts'
+import { asanaTracker, createAsanaSync } from './asana-sync.ts'
 import { ordinaryAutopilotRequest, taskAutopilot } from './autopilot.ts'
 import {
   type BaseConflict,
@@ -585,6 +591,8 @@ export interface Tasks {
   archive(ref: string, options?: ArchiveTaskRequest): Task
   requestArchive(ref: string, caller: Caller, request: RequestArchiveRequest): Promise<Comment>
   allowLinearSync(ref: string): Task
+  allowAsanaSync(ref: string): Promise<Task>
+  asanaStatusSeen(status: AsanaStatus): void
   allowLinearTeam(factoryId: string, team: string): MachineSettings
   archiveDone(factory: string): ArchiveDoneResult
   followUp(ref: string, request: { comment?: string; attachments?: Attachment[] }): Promise<Task>
@@ -696,6 +704,8 @@ export interface Tasks {
   showRunApp(runId: string, caller: Caller, app: AppRef): Promise<TaskApp>
   runAppLog(runId: string, caller: Caller, app: AppRef): Promise<AppLog>
   stopRunApps(runId: string): Promise<void>
+  runBrowserCommand(runId: string, caller: Caller, request: BrowserRequest): Promise<BrowserResult>
+  runBrowserCapture(runId: string, caller: Caller, hash: string): Attachment
   planApproved(taskId: string, input: PlanApproval): Promise<void>
   stopLeadForChildren(taskId: string): Promise<void>
   planEnded(taskId: string, input: PlanEnd): Promise<void>
@@ -744,7 +754,11 @@ export function createTasks(options: {
     files?: FileStore
     allowLoopbackFiles?: boolean
     intakeLimit?: number
+    comment?(gid: string, text: string, account: string): Promise<void>
+    complete?(gid: string, account: string): Promise<void>
+    account?(): Promise<string | undefined>
   }
+  asanaSyncMs?: number
   isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
   gh?: Gh
@@ -900,6 +914,11 @@ export function createTasks(options: {
     }
     return appTask(id)
   }
+  const runBrowsers = createRunBrowsers({
+    dir: path.join(path.dirname(worktreesDir), 'browsers'),
+    env: () => options.env?.() ?? process.env,
+    lowPriority: () => store.settings().lowPriorityWork,
+  })
   const apps = createApps({
     appsDir: options.appsDir ?? path.join(path.dirname(worktreesDir), 'apps'),
     store,
@@ -917,6 +936,13 @@ export function createTasks(options: {
       banners,
     },
     emit: (event) => {
+      if (event.type === 'apps-changed' && runBrowsers.opened(event.taskId)) {
+        const runId = event.taskId
+        void apps.list(runId).then(
+          (list) => runBrowsers.appsChanged(runId, list),
+          () => runBrowsers.close(runId),
+        )
+      }
       for (const listener of listeners) listener(event)
     },
     keep(taskId) {
@@ -1116,6 +1142,7 @@ export function createTasks(options: {
       archiveNow(find(task.id), false, why)
       wake()
     },
+    under: (taskId) => underToArchive(taskId).map((id) => find(id)),
   }
   const linearApi = options.linear
   const linearSync =
@@ -1135,6 +1162,24 @@ export function createTasks(options: {
       clock,
       everyMs: options.linearSyncMs ?? 60_000,
       // A hold released on every cycle would start the idle exit’s time again for ever.
+      inBackground: (what, work) => inBackground(what, work, false),
+    })
+  const asanaApi = options.asana
+  const asanaSync =
+    asanaApi?.comment &&
+    asanaApi.complete &&
+    asanaApi.account &&
+    createAsanaSync({
+      store,
+      asana: {
+        read: asanaApi.read,
+        comment: asanaApi.comment,
+        complete: asanaApi.complete,
+        account: asanaApi.account,
+      },
+      actions: trackerActions,
+      clock,
+      everyMs: options.asanaSyncMs ?? 60_000,
       inBackground: (what, work) => inBackground(what, work, false),
     })
   const sources: QueueSource[] = []
@@ -4611,6 +4656,7 @@ export function createTasks(options: {
         sourceUrl: node.url,
         asana: asanaSource(node, tree, user.gid, at),
         ...(automation && { automation: automation.link }),
+        ...(caller.kind === 'app' && { syncAccount: user.gid }),
       })),
       links: plan.links.map((link) => ({ taskId: link.taskId, parent: ref(link.parent) })),
       comments: [
@@ -10129,6 +10175,24 @@ export function createTasks(options: {
       return publicTask(task.id)
     },
 
+    async allowAsanaSync(ref) {
+      const task = live(ref)
+      const link = task.source && parseAsanaTaskUrl(task.source.url)
+      if (!link || !task.source?.asana)
+        throw new RequestError(400, `${task.displayId} wasn’t imported from Asana`)
+      const account = await asanaSync?.refresh()
+      if (account === undefined)
+        throw new RequestError(409, 'Connect Asana in Settings → Integrations first.')
+      if (!asanaSyncAllowable(store.getTask(task.id)?.asanaSync)) return publicTask(task.id)
+      store.trackerSyncAllowed(task.id, asanaTracker, link.gid, account)
+      return publicTask(task.id)
+    },
+
+    asanaStatusSeen(status) {
+      if (asanaSync)
+        store.setAsanaConnection(status.state === 'connected' ? status.user?.gid : undefined)
+    },
+
     allowLinearTeam(factoryId, team) {
       if (!store.getFactory(factoryId)) throw new RequestError(404, `no Factory ${factoryId}`)
       return linearConsent.allowGroup(factoryId, team.toUpperCase())
@@ -11245,6 +11309,7 @@ export function createTasks(options: {
       closed = true
       browser.close()
       browserApps.clear()
+      runBrowsers.closeAll()
       subAgents.close()
       heldRequests.close()
       leadLifecycle.close()
@@ -11257,6 +11322,7 @@ export function createTasks(options: {
       stopPumping()
       watch?.close()
       linearSync?.close()
+      asanaSync?.close()
       await pumping
       stopping.abort()
       await Promise.all(background)
@@ -11266,6 +11332,8 @@ export function createTasks(options: {
       return (await browserApp(ref, caller, app)).app
     },
     async browserCommand(ref, caller, request) {
+      if (runOnlyBrowserActions.includes(request.action))
+        throw new RequestError(400, `${request.action} works only in an Automation Run’s browser`)
       const { task, app } = await browserApp(ref, caller, request.app)
       if (store.newWorkHold() !== undefined) throw new RequestError(507, 'New work is on hold')
       const result = await browser.request({
@@ -11403,7 +11471,53 @@ export function createTasks(options: {
       return apps.log(runId, app)
     },
     stopRunApps(runId) {
+      runBrowsers.close(runId)
       return apps.stopTask(runId)
+    },
+    async runBrowserCommand(runId, caller, request) {
+      await ownedRun(runId, caller)
+      if (caller.kind !== 'run')
+        throw new RequestError(403, 'Only the Automation’s Run uses its browser')
+      if (runAppOwner?.live(runId) !== true) throw new RequestError(409, 'This Run has ended')
+      if (store.newWorkHold() !== undefined) throw new RequestError(507, 'New work is on hold')
+      const selected = request.app ?? runBrowsers.opened(runId)
+      if (!selected) throw new RequestError(409, 'Open a web App with ted browser open first')
+      const matches = (await apps.list(runId)).filter(
+        (a) =>
+          a.name === selected.name && (selected.repo === undefined || a.repo === selected.repo),
+      )
+      const shown = matches.length === 1 ? matches[0] : undefined
+      if (
+        shown?.kind !== 'web' ||
+        shown.state !== 'running' ||
+        !shown.url ||
+        shown.removed ||
+        !isLoopbackUrl(shown.url)
+      )
+        throw new RequestError(409, 'Choose a running web App this Run started, and its repo')
+      const { capture, ...result } = await runBrowsers.command(runId, shown, request)
+      if (!capture) return result
+      if (!options.saveAttachment) throw new RequestError(503, 'TED can’t save files here')
+      const dir = path.join(path.dirname(worktreesDir), 'browsers')
+      const file = path.join(dir, `capture-${randomUUID()}.png`)
+      await writeFile(file, capture, { mode: 0o600 })
+      const attachment = await options
+        .saveAttachment(file, `${shown.name} screenshot.png`, 'image/png')
+        .finally(() => rm(file, { force: true }))
+      store.automations.recordBrowserCapture(runId, attachment)
+      await store.persisted()
+      automationUploads.add(`${runId}:${attachment.hash}`)
+      return { ...result, attachment }
+    },
+    runBrowserCapture(runId, caller, hash) {
+      if (caller.kind === 'run' && caller.runId !== runId)
+        throw new RequestError(403, 'A Run can reach only its own browser')
+      const capture = store.automations
+        .browserCaptures([runId])
+        .get(runId)
+        ?.find((c) => c.hash === hash)
+      if (!capture) throw new RequestError(404, 'No browser capture on this Run')
+      return capture
     },
     stopApp(ref, app) {
       browser.cancel(find(ref).id, app)

@@ -34,6 +34,7 @@ test('Linear waits a full interval after a slow cycle, never overlaps, and does 
       liveRun: () => false,
       openRequests: () => [],
       archive() {},
+      under: () => [],
     },
     inBackground(_what, work) {
       jobs.push(work())

@@ -14,6 +14,8 @@ TED filled in this Task. Run `ted outcome advance`.
 
 Read every repo first: the README, `AGENTS.md` or `CLAUDE.md`, package manifests, CI workflows, test and lint scripts, and how the product runs locally. Then ask the human how they work, in rounds with `ted ask --round <file>`: which Stages they want, where sign-offs go, how they merge (merge method, waiting for CI or for a review), and what the Factory notes should say. Recommend an answer to each question from what you read.
 
+Ask too whether anything should happen after a pull request merges, such as a comment on the Asana task or Linear issue, a message to someone, or shutting down a test environment or emulator. That work belongs in Cleanup, an optional Stage between Merge and Done: the Task keeps its Task Lead and worktree, does each Cleanup step, and moves to Done once every step has a result. Recommend a Cleanup step for each such request, never a line in the Review or Merge sign-off and never a task the user does by hand. A step that needs judgment or another tool’s access (posting a comment, writing to an issue) is an instruction step for the Task Lead; a fixed shell command (stopping a test server, deleting a preview) is a command step that TED runs itself, in the sandbox, before the Task Lead is told anything, and that may run twice after a restart.
+
 ## Design
 
 1. Try each candidate Check on the default branch, in your worktree, before you change anything: run its command and note whether it passed and how long it took. A Check that fails on the default branch is left off the proposal’s settings; list it as failed with the reason.
@@ -28,7 +30,8 @@ Read every repo first: the README, `AGENTS.md` or `CLAUDE.md`, package manifests
        "workflow": [
          { "stage": "intake" },
          { "stage": "design", "setting": "Sign-off on" },
-         { "stage": "validate", "setting": "Send back at most 5 times · validate.md for Notebook" }
+         { "stage": "validate", "setting": "Send back at most 5 times · validate.md for Notebook" },
+         { "stage": "cleanup", "setting": "On · Comment on the Asana task (instruction) · Stop the preview (command, not tried)" }
        ],
        "checks": [
          { "name": "Unit tests", "command": "npm test", "repo": "notebook-app", "passed": true, "durationMs": 112000 },
@@ -49,9 +52,24 @@ Read every repo first: the README, `AGENTS.md` or `CLAUDE.md`, package manifests
 
    `workflow` has one line per Stage, in order; leave out `setting` for a Stage that stays as TED’s default. `checks` and `apps` list everything you tried, with the results you saw; give each App the exact `run` command you will write in `.ted/workflow.yaml`. `files` names every file Work will write, with one line on what it holds; always include `.ted/stages/validate.md`, and override other Stages only when their steps really change. `defaults` names what stays at TED’s defaults.
 
+   When the user asked for after-merge work, add a `cleanup` line after the other Stages that names each step and whether it is an instruction or a command. Don’t run command steps in Design: they act after a merge and may shut things down, so the line says they weren’t tried. Leave the line out when Cleanup stays off.
+
 ## Work
 
-Write the approved files on this branch and nothing else: `.ted/notes.md`; `.ted/workflow.yaml` with `repos`, the Checks that passed under `stages.validate.checks` (each with the same name and command as in the proposal), `apps`, and the Stage settings; and each Stage override as a full copy of the inherited Stage file, edited for this product. Run `ted workflow check` until it passes, commit, then run `ted outcome advance`.
+Write the approved files on this branch and nothing else: `.ted/notes.md`; `.ted/workflow.yaml` with `repos`, the Checks that passed under `stages.validate.checks` (each with the same name and command as in the proposal), `apps`, and the Stage settings, including `stages.cleanup` when the proposal turns Cleanup on; and each Stage override as a full copy of the inherited Stage file, edited for this product. Cleanup is never listed in `order`; turn it on with `enabled: true` and one entry under `steps` per approved step, `{name, instruction}` or `{name, command}` with an optional `timeout` (default `10m`):
+
+```yaml
+stages:
+  cleanup:
+    enabled: true
+    steps:
+      - name: Comment on the Asana task
+        instruction: Post a comment on the Asana task this Task came from, with the merged pull request’s link.
+      - name: Stop the preview
+        command: ./scripts/preview.sh stop
+```
+
+Run `ted workflow check` until it passes, commit, then run `ted outcome advance`.
 
 ## Validate
 

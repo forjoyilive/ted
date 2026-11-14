@@ -1,3 +1,4 @@
+import type { AsanaStatus } from '@ted/protocol'
 import {
   agentKinds,
   parseAllowLinearTeamRequest,
@@ -10,6 +11,7 @@ import {
 import { listAsanaChoices } from '../asana/intake.ts'
 import { retryingRead } from '../asana/tree.ts'
 import { RequestError as HttpError } from '../errors.ts'
+import type { Tasks } from '../tasks/tasks.ts'
 import { jsonRoute, type RequestContext, type Route } from './route.ts'
 
 function asanaChoices(
@@ -24,11 +26,16 @@ function asanaChoices(
   }
 }
 
+function seen(tasks: Pick<Tasks, 'asanaStatusSeen'>, status: AsanaStatus): AsanaStatus {
+  tasks.asanaStatusSeen(status)
+  return status
+}
+
 export const integrationRoutes: Route[] = [
   {
     method: 'GET',
     path: /^\/integrations\/asana$/,
-    handle: async (_, { asana }) => [200, await asana.status()],
+    handle: async (_, { asana, tasks }) => [200, seen(tasks, await asana.status())],
   },
   {
     method: 'GET',
@@ -50,7 +57,7 @@ export const integrationRoutes: Route[] = [
   jsonRoute(parseAsanaConfiguration, {
     method: 'PUT',
     path: /^\/integrations\/asana\/configuration$/,
-    handle: async ({ body }, { asana }) => [200, await asana.configure(body)],
+    handle: async ({ body }, { asana, tasks }) => [200, seen(tasks, await asana.configure(body))],
   }),
   {
     method: 'POST',
@@ -60,22 +67,22 @@ export const integrationRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/integrations\/asana\/cancel$/,
-    handle: async (_, { asana }) => [200, await asana.cancel()],
+    handle: async (_, { asana, tasks }) => [200, seen(tasks, await asana.cancel())],
   },
   {
     method: 'POST',
     path: /^\/integrations\/asana\/test$/,
-    handle: async (_, { asana }) => [200, await asana.test()],
+    handle: async (_, { asana, tasks }) => [200, seen(tasks, await asana.test())],
   },
   {
     method: 'POST',
     path: /^\/integrations\/asana\/disconnect$/,
-    handle: async (_, { asana }) => [200, await asana.disconnect()],
+    handle: async (_, { asana, tasks }) => [200, seen(tasks, await asana.disconnect())],
   },
   {
     method: 'DELETE',
     path: /^\/integrations\/asana\/configuration$/,
-    handle: async (_, { asana }) => [200, await asana.remove()],
+    handle: async (_, { asana, tasks }) => [200, seen(tasks, await asana.remove())],
   },
   {
     method: 'GET',

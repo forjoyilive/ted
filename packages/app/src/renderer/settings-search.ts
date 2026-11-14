@@ -206,8 +206,12 @@ const entries = {
   },
   'app.integrations.asana': {
     name: 'Asana',
-    help: 'Connect one account for this installation. Import and synchronization will follow separately. Agents never receive your credentials.',
+    help: 'Connect one account for this installation to import Asana tasks and keep them in step through Task Sync. Agents never receive your credentials.',
     heading: true,
+  },
+  'app.integrations.asana.sync': {
+    name: 'Task Sync',
+    help: 'For each Task allowed to sync, TED comments on its Asana task with each pull request it opens, and completes the Asana task once they all merge. When a task is completed in Asana, TED archives its Task or asks you.',
   },
 
   'app.library.workflow': { name: 'Workflow', heading: true },

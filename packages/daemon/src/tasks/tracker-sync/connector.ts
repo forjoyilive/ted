@@ -8,6 +8,14 @@ import type {
 } from '@ted/protocol'
 import type { TrackerSeen } from '../../store/index.ts'
 
+export class TrackerWait extends Error {
+  readonly waitMs: number
+  constructor(waitMs: number) {
+    super('the tracker asked TED to wait')
+    this.waitMs = waitMs
+  }
+}
+
 export interface TrackerItem<Handle> {
   closed: boolean
   state: string
@@ -54,7 +62,11 @@ export interface TrackerConnector<Source, Handle> {
     step: string | undefined
     item: TrackerItem<Handle>
   }): Promise<TrackerAdvance | undefined>
-  link(item: TrackerItem<Handle>, pullRequest: { url: string; title: string }): Promise<void>
+  link(
+    item: TrackerItem<Handle>,
+    pullRequest: { url: string; title: string },
+    task: Task,
+  ): Promise<void>
   ready?(): boolean
   texts: TrackerTexts
 }

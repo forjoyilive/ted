@@ -112,6 +112,7 @@ function startSync(): void {
           archived.push({ taskId: task.id, why })
           store.archiveTask(task.id)
         },
+        under: (taskId) => store.childrenOf(taskId).flatMap((id) => store.getTask(id) ?? []),
       },
       inBackground(_what, work) {
         jobs.push(work())

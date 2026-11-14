@@ -3,12 +3,14 @@ import { useEffect, useState } from 'react'
 import dialogStyles from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
+import { useSettings } from '../data.ts'
 import { ted } from '../ted.ts'
 import own from './asana.module.css'
-import { SettingsGroup } from './controls.tsx'
+import { SettingRow, SettingsGroup, Switch } from './controls.tsx'
 import styles from './linear.module.css'
 
 export function AsanaGroup() {
+  const sync = useSettings()?.asanaSync
   const [status, setStatus] = useState<AsanaStatus>()
   const [problem, setProblem] = useState<string>()
   const [busy, setBusy] = useState(false)
@@ -193,6 +195,15 @@ export function AsanaGroup() {
           </p>
         )}
       </div>
+      {status?.configured && sync !== undefined && (
+        <SettingRow setting="app.integrations.asana.sync">
+          <Switch
+            label="Task Sync"
+            checked={sync}
+            onChange={(on) => void ted.updateSettings({ asanaSync: on })}
+          />
+        </SettingRow>
+      )}
     </SettingsGroup>
   )
 }

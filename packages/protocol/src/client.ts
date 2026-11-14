@@ -765,6 +765,10 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/linear-sync`)
   }
 
+  allowAsanaSync(ref: string): Promise<Task> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/asana-sync`)
+  }
+
   taskHierarchy(ref: string): Promise<TaskHierarchy> {
     return this.#request('GET', `/tasks/${encodeURIComponent(ref)}/hierarchy`)
   }
@@ -1196,6 +1200,17 @@ export class DaemonClient {
     return this.#request(
       'GET',
       `/tasks/${encodeURIComponent(ref)}/browser/captures/${encodeURIComponent(hash)}`,
+    )
+  }
+
+  runBrowserCommand(runId: string, request: BrowserRequest): Promise<BrowserResult> {
+    return this.#request('POST', `/runs/${encodeURIComponent(runId)}/browser`, request)
+  }
+
+  readRunBrowserCapture(runId: string, hash: string): Promise<AttachmentBytes> {
+    return this.#request(
+      'GET',
+      `/runs/${encodeURIComponent(runId)}/browser/captures/${encodeURIComponent(hash)}`,
     )
   }
 

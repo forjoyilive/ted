@@ -4,6 +4,7 @@ import { connect as connectSocket, type Socket } from 'node:net'
 import path from 'node:path'
 import { type DaemonClient, identity, readDaemonInfo, tedEnv, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { AsanaReadError, createAsana, retryAfterMs } from '../src/asana/asana.ts'
 import { type DaemonOptions, type RunningDaemon, startDaemon } from '../src/daemon.ts'
 import { type Keyring, keyringService, linearKeyAccount } from '../src/linear/keyring.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -221,6 +222,7 @@ test('app authority only, no endpoint redirects, and credentials stay out of API
       ['DELETE', '/configuration', undefined],
     ] as const)
       expect((await caller.call(method, `/integrations/asana${route}`, body)).status).toBe(403)
+    expect((await caller.call('POST', '/tasks/NB-1/asana-sync')).status).toBe(403)
   }
   expect((await api(info.port, run).call('GET', '/integrations/asana')).status).toBe(403)
   await client.configureAsana(config)
@@ -335,4 +337,97 @@ test('authorization holds idle shutdown through browser waiting and exchange, an
   daemon = undefined
   time.advance(1000)
   expect(onIdle).toHaveBeenCalledTimes(6)
+})
+
+test('Asana writes go only to fixed task paths as JSON, refuse redirects, honour Retry-After and send nothing without a connection', async () => {
+  const asana = createAsana({
+    home,
+    keyring,
+    oauthOrigin: stub.url,
+    apiOrigin: stub.url,
+    callbackPort,
+    now: () => clock,
+  })
+  try {
+    await asana.configure(config)
+    const { url } = await asana.connect()
+    await fetch(stub.callback(url, authorizationCode))
+    await waitUntil(async () => (await asana.status()).state === 'connected', 'connected')
+    stub.setTasks([{ gid: '501', name: 'Checkout' }])
+    expect(await asana.account()).toBe('100')
+    const text =
+      'TED opened a pull request for this task: acme/notes#7 https://github.com/acme/notes/pull/7'
+    await asana.comment('501', text, '100')
+    await asana.complete('501', '100')
+    expect(
+      stub.requests
+        .filter((r) => r.method !== 'GET' && r.path.startsWith('/api/1.0/tasks/'))
+        .map(({ method, path, query, json, authorization }) => ({
+          method,
+          path,
+          query,
+          json,
+          authorization,
+        })),
+    ).toEqual([
+      {
+        method: 'POST',
+        path: '/api/1.0/tasks/501/stories',
+        query: { opt_fields: 'gid' },
+        json: { data: { text } },
+        authorization: 'Bearer access-secret-opaque',
+      },
+      {
+        method: 'PUT',
+        path: '/api/1.0/tasks/501',
+        query: { opt_fields: 'gid' },
+        json: { data: { completed: true } },
+        authorization: 'Bearer access-secret-opaque',
+      },
+    ])
+    expect(stub.task('501')).toMatchObject({ completed: true, comments: [{ text }] })
+
+    const sent = stub.requests.length
+    await expect(asana.comment('501/../../users/me', 'hi', '100')).rejects.toThrow(
+      'unexpected task',
+    )
+    await expect(asana.complete('1e3', '100')).rejects.toThrow('unexpected task')
+    await expect(asana.comment('501', 'x'.repeat(2001), '100')).rejects.toThrow('unexpected length')
+    await expect(asana.complete('501', '200')).rejects.toThrow('different Asana account')
+    expect(stub.requests.length).toBe(sent)
+
+    stub.failNextWrite({ status: 429, retryAfter: '7200' })
+    await expect(asana.complete('501', '100')).rejects.toMatchObject({ retryAfterMs: 7_200_000 })
+    stub.failNextWrite({ status: 500 })
+    await expect(asana.complete('501', '100')).rejects.toMatchObject({ retryAfterMs: undefined })
+    stub.setRedirect(true)
+    await expect(asana.complete('501', '100')).rejects.toBeInstanceOf(AsanaReadError)
+    expect(stub.requests.some((r) => r.path === '/leak')).toBe(false)
+    stub.setRedirect(false)
+
+    await asana.disconnect()
+    expect(await asana.account()).toBeUndefined()
+    const before = stub.requests.length
+    await expect(asana.comment('501', 'hi', '100')).rejects.toBeInstanceOf(AsanaReadError)
+    expect(stub.requests.length).toBe(before)
+  } finally {
+    await asana.close()
+  }
+})
+
+test('Retry-After is kept as Asana sends it, in seconds or as a date, with only a one-day sanity limit', () => {
+  const now = Date.parse('2026-11-14T12:00:00.000Z')
+  const answer = (status: number, value?: string) =>
+    retryAfterMs(
+      { status, headers: new Headers(value === undefined ? {} : { 'retry-after': value }) },
+      now,
+    )
+  expect(answer(429, '7200')).toBe(7_200_000)
+  expect(answer(503, '5')).toBe(5000)
+  expect(answer(429, 'Sat, 14 Nov 2026 12:03:00 GMT')).toBe(180_000)
+  expect(answer(429, 'Sat, 14 Nov 2026 11:00:00 GMT')).toBe(0)
+  expect(answer(429, '999999999')).toBe(24 * 60 * 60_000)
+  expect(answer(429)).toBeUndefined()
+  expect(answer(429, 'soon')).toBeUndefined()
+  expect(answer(500, '30')).toBeUndefined()
 })

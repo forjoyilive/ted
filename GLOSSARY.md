@@ -151,8 +151,12 @@ The URL of the item a Task was created from, such as a Linear, Sentry or GitHub 
 _Avoid_: Origin, link, ticket
 
 **Tracker sync**:
-TED keeping a Task’s Source item (a Linear issue, later an Asana item) up to date: it moves the item forward as the Task goes on, links its pull requests and notices when the item is closed outside TED. It runs only for a Task the human allowed, one by one or for a whole group (a Linear team) in one Factory. Each tracker plugs in through a connector.
+TED keeping a Task’s Source item (a Linear issue or an Asana item) up to date: it moves the item forward as the Task goes on, links its pull requests and notices when the item is closed outside TED. It runs only for a Task the human allowed, one by one or for a whole group (a Linear team) in one Factory. Each tracker plugs in through a connector.
 _Avoid_: Integration sync, two-way sync
+
+**Task Sync**:
+What the app calls Tracker sync for an Asana item: TED comments on the item with each pull request it opens and completes it once every pull request of the Task merged. A Task imported in the app has it from the start; any other Task gets it from **Sync with Asana** in the Task menu. It belongs to the Asana account connected when it was allowed, and the Task shows its Task Sync state.
+_Avoid_: Asana sync, auto-complete
 
 **Original request**:
 The first version of a Task’s description, kept as written when the Task was created. The human can edit the description at any time; each edit is a new version, and the Original request never changes.
@@ -225,7 +229,7 @@ A note the human attaches to one line of a Task’s diff; it stays a draft until
 _Avoid_: Inline comment, review comment, diff comment
 
 **Automation**:
-A schedule in a Factory that starts a Run each time it fires, outside any Task, usually to bring new work in as Tasks; one of several ways Tasks are created, alongside the human creating them by hand. With **Run in a copy of the code** on, each of its Runs works in a fresh copy of the default branch and can start the Factory’s Apps there; TED removes both when the Run ends.
+A schedule in a Factory that starts a Run each time it fires, outside any Task, usually to bring new work in as Tasks; one of several ways Tasks are created, alongside the human creating them by hand. With **Run in a copy of the code** on, each of its Runs works in a fresh copy of the default branch and can start the Factory’s Apps there and drive its web Apps in a headless browser; TED removes them when the Run ends.
 _Avoid_: Cron job, trigger
 
 **Scheduled Check**:

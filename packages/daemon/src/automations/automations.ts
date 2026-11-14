@@ -3,6 +3,7 @@ import path from 'node:path'
 import {
   type AgentKind,
   type AnswerAutomationRequest,
+  type Attachment,
   type Automation,
   type AutomationCheck,
   type AutomationCheckInput,
@@ -182,7 +183,9 @@ function checkoutPrompt(repos: readonly string[], commit: string | undefined): s
     '',
     '- `ted run-app [<App>] [--repo <name>]` starts one of the Factory’s Apps from this copy and prints its URL. An iOS simulator App waits until a simulator slot is free, however long that takes.',
     '- `ted app list` shows the Apps and their state; `ted app log <App>` prints an App’s output.',
-    '- TED stops every App when this Run ends.',
+    '- `ted browser open <App> [--repo <name>]` opens a running web App you started in your own headless browser, which stays on that App’s address. Then `ted browser snapshot` prints the page and element references; `ted browser click <ref>`, `fill <ref> <text>`, `press <key>`, `navigate <path>`, `back`, `forward` and `reload` act on it. Take a new snapshot after each action; old references expire.',
+    '- `ted browser resize <width>x<height>` sets the window size (such as 390x844) and `ted browser color-scheme light|dark` switches the page’s colour mode. `ted browser screenshot` saves the page on this Run, shows it on the Run page and prints a local PNG path you can pass to `ted task create --attach`.',
+    '- TED stops every App and closes the browser when this Run ends.',
   ].join('\n')
 }
 
@@ -1133,6 +1136,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       ...[...results.values()].flatMap((r) => r.updatedTaskIds),
     ])
     const ran = saved.firingsWithRun(firings.map((f) => f.id))
+    const screenshots = saved.browserCaptures(firings.map((f) => f.id))
     const created = new Map<string, AutomationTaskLink[]>()
     for (const link of theirs) {
       const task = tasks.get(link.taskId)
@@ -1157,7 +1161,13 @@ export function createAutomations(options: AutomationsOptions): Automations {
           }),
         }),
       }
-      return historyRow(firing, created.get(firing.id) ?? [], ran.has(firing.id), check)
+      return historyRow(
+        firing,
+        created.get(firing.id) ?? [],
+        ran.has(firing.id),
+        check,
+        screenshots.get(firing.id),
+      )
     })
   }
 
@@ -1171,6 +1181,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     created: AutomationTaskLink[],
     ran: boolean,
     check?: AutomationCheckRun,
+    screenshots: Attachment[] = [],
   ): AutomationRun {
     const result = ((): AutomationRun['result'] => {
       if (firing.state === 'skipped') return { kind: 'skipped' }
@@ -1198,6 +1209,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       ...(firing.message !== undefined && { message: firing.message }),
       ...(ran && { runId: firing.id }),
       ...(check && { check }),
+      ...(screenshots.length > 0 && { screenshots }),
     }
   }
 

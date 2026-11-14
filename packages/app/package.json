@@ -3,7 +3,7 @@
   "version": "0.1.17",
   "private": true,
   "type": "module",
-  "main": "src/main.ts",
+  "main": "src/entry.ts",
   "scripts": {
     "build": "vite build",
     "start": "node scripts/start.ts",

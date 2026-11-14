@@ -33,6 +33,7 @@ import dialogs from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
 import outputStyles from '../components/CheckOutputDialog.module.css'
+import { CommentFiles } from '../components/CommentFiles.tsx'
 import {
   buttonPosition,
   contextMenu,
@@ -1295,6 +1296,11 @@ export function AutomationRunView({
             ) : (
               <RunAppRows runId={runId} apps={apps} shown={shownApp} onOpen={setShownApp} />
             )}
+          </Details>
+        )}
+        {row?.screenshots && row.screenshots.length > 0 && (
+          <Details title={`Screenshots · ${row.screenshots.length}`}>
+            <CommentFiles files={row.screenshots} />
           </Details>
         )}
         {checkout && (
