@@ -76,7 +76,11 @@ export function ScrollMemory({
     seen.current = count
     if (restoring.current !== undefined) restoring.current = scrollTo(element, restoring.current)
     else if (atBottom.current && !typingInside(element)) element.scrollTop = element.scrollHeight
-    else if (added) setNewBelow(true)
+    else if (added) {
+      setNewBelow(true)
+      // Chromium can drop the scroller to the top when rows are added above a reader who scrolled up.
+      if (element.scrollTop !== lastTop.current) element.scrollTop = lastTop.current
+    }
     lastTop.current = element.scrollTop
   }, [count, grows, active])
 
@@ -101,6 +105,7 @@ export function ScrollMemory({
     atBottom.current = false
     target.scrollIntoView({ block: typeof reveal === 'string' ? 'center' : 'start' })
     target.focus({ preventScroll: true })
+    lastTop.current = element.scrollTop
     spots.set(spot, { top: element.scrollTop, atBottom: false })
   }, [spot, reveal, count, active])
 
