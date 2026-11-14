@@ -12,6 +12,7 @@ import {
   parseRenameFactoryRequest,
   parseReorderFactoriesRequest,
   parseSaveSettingsRequest,
+  parseSetFactoryAsanaIntakeRequest,
   parseSetFactoryLinearIntakeRequest,
   parseSetFactoryNotificationsRequest,
   parseSetFactoryPermissionsRequest,
@@ -19,6 +20,8 @@ import {
   parseSetRepoFolderRequest,
   parseStopCheckTryRequest,
 } from '@ted/protocol'
+import { confirmAsanaScope } from '../asana/intake.ts'
+import { retryingRead } from '../asana/tree.ts'
 import { RequestError as HttpError } from '../errors.ts'
 import { factoryExport } from '../export.ts'
 import { addFactory } from '../factories.ts'
@@ -110,6 +113,20 @@ export const factoryRoutes: Route[] = [
       return [
         200,
         store.updateSettings({ linearIntakeScopes: { ...scopes, ...(scope && { [id]: scope }) } }),
+      ]
+    },
+  }),
+  jsonRoute(parseSetFactoryAsanaIntakeRequest, {
+    method: 'PUT',
+    path: /^\/factories\/([^/]+)\/asana-intake$/,
+    async handle({ body, params: [id = ''] }, { store, asana }) {
+      if (!store.getFactory(id)) throw new HttpError(404, 'Factory not found')
+      const scope = body.scope && (await confirmAsanaScope(retryingRead(asana.read), body.scope))
+      if (!store.getFactory(id)) throw new HttpError(404, 'Factory not found')
+      const { [id]: previous, ...scopes } = store.settings().asanaIntakeScopes
+      return [
+        200,
+        store.updateSettings({ asanaIntakeScopes: { ...scopes, ...(scope && { [id]: scope }) } }),
       ]
     },
   }),

@@ -39,6 +39,7 @@
     "./execution-commands": "./src/execution-commands.ts",
     "./execution-pairing": "./src/execution-pairing.ts",
     "./waiting": "./src/waiting.ts",
-    "./asana-import": "./src/asana-import.ts"
+    "./asana-import": "./src/asana-import.ts",
+    "./asana-intake": "./src/asana-intake.ts"
   }
 }

@@ -373,6 +373,9 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     }
     return value as MachineSettings['linearIntakeScopes']
   },
+  asanaIntakeScopes() {
+    throw new HttpError(400, 'Change a Factory’s Asana intake through its own route')
+  },
   linearSync: onOff('linearSync'),
   lowPriorityWork: onOff('lowPriorityWork'),
   antigravityPlanAccepted: onOff('antigravityPlanAccepted'),

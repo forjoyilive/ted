@@ -7,6 +7,7 @@ import {
   parseAnswerTedStopsRequest,
   parseArchiveTaskRequest,
   parseAsanaImportRequest,
+  parseAsanaIntakeRequest,
   parseAssessFailureRequest,
   parseBlockTaskRequest,
   parseCancelMergeRequest,
@@ -228,6 +229,15 @@ export const taskRoutes: Route[] = [
     runToken: true,
     async handle({ body, caller }, { tasks }) {
       return [201, await tasks.importAsana(body, caller)]
+    },
+  }),
+  jsonRoute(parseAsanaIntakeRequest, {
+    method: 'POST',
+    path: /^\/asana-intake$/,
+    fileToken: true,
+    runToken: true,
+    async handle({ body, caller }, { tasks }) {
+      return [200, await tasks.asanaIntake(body, caller)]
     },
   }),
   {
