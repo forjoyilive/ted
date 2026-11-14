@@ -100,6 +100,7 @@ export interface MachineSettings {
   lowPriorityWork: boolean
   antigravityPlanAccepted: boolean
   maxChecksAtOnce: number
+  startNewTasks: boolean
 }
 
 export const defaultMachineSettings: MachineSettings = {
@@ -142,6 +143,7 @@ export const defaultMachineSettings: MachineSettings = {
   lowPriorityWork: true,
   antigravityPlanAccepted: false,
   maxChecksAtOnce: 2,
+  startNewTasks: true,
 }
 
 export interface Profile {

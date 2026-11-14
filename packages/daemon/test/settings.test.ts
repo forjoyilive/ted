@@ -252,6 +252,7 @@ describe('settings and Factories over the daemon API', () => {
     ['a declined Linear team that isn’t one', { linearSyncDeclined: { f: ['not a key'] } }],
     ['an App outside the sandbox with no name', { appsOutsideSandbox: { f: [''] } }],
     ['low priority that is not true or false', { lowPriorityWork: 'on' }],
+    ['Start now that is not true or false', { startNewTasks: 'yes' }],
     ['a profile picture that is not an image', { profilePicture: 'data:text/html;base64,PGI+' }],
     ['a profile picture that is a link', { profilePicture: 'https://example.com/me.png' }],
     [

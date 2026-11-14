@@ -2,7 +2,7 @@ import type { NewTaskDraft, TaskDraftState } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, efforts, priorities } from '@ted/protocol/task'
 
-export function emptyTaskDraft(): NewTaskDraft {
+export function emptyTaskDraft(start = true): NewTaskDraft {
   return {
     revision: crypto.randomUUID(),
     title: '',
@@ -10,7 +10,7 @@ export function emptyTaskDraft(): NewTaskDraft {
     priority: 'none',
     blockedBy: [],
     attachments: [],
-    start: true,
+    start,
     moreOpen: false,
     dismissed: [],
     filled: {},
@@ -31,6 +31,8 @@ export function taskDraftSession(
     save(draft: NewTaskDraft): Promise<TaskDraftState>
     changed(draft: NewTaskDraft): void
     failed(error: unknown): void
+    startDefault?(): Promise<boolean>
+    rememberStart?(start: boolean): void
   },
 ) {
   const key = `ted.newTaskDraft.v1.${factoryId}`
@@ -38,6 +40,7 @@ export function taskDraftSession(
   let pending: NewTaskDraft | undefined
   let saving: Promise<void> | undefined
   let loaded = false
+  let startDefault = true
 
   function remember(draft: NewTaskDraft) {
     options.storage.setItem(key, JSON.stringify(draft))
@@ -79,7 +82,11 @@ export function taskDraftSession(
 
   return {
     async load() {
-      const state = await options.read()
+      const [state, start] = await Promise.all([
+        options.read(),
+        options.startDefault?.().catch(() => true) ?? true,
+      ])
+      startDefault = start
       let recovery: NewTaskDraft | undefined
       try {
         const text = options.storage.getItem(key)
@@ -97,7 +104,7 @@ export function taskDraftSession(
         forget(recovery.revision)
         recovery = undefined
       }
-      current = recovery ?? state.draft ?? emptyTaskDraft()
+      current = recovery ?? state.draft ?? emptyTaskDraft(startDefault)
       loaded = true
       options.changed(current)
       if (recovery) {
@@ -132,7 +139,11 @@ export function taskDraftSession(
     consumed(revision: string) {
       forget(revision)
       if (current.revision === revision) {
-        current = emptyTaskDraft()
+        if (current.start !== startDefault) {
+          startDefault = current.start
+          options.rememberStart?.(startDefault)
+        }
+        current = emptyTaskDraft(startDefault)
         options.changed(current)
       }
     },

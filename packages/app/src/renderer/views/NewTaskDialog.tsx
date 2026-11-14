@@ -117,6 +117,13 @@ function NewTaskForm({
       },
       changed: showDraft,
       failed: (failure) => setDraftError(`Couldn’t save the draft: ${readableError(failure)}`),
+      startDefault: async () => (await ted.getSettings()).startNewTasks,
+      rememberStart: (startNewTasks) => {
+        ted.updateSettings({ startNewTasks }).catch((failure: unknown) => {
+          if (mounted.current)
+            setDraftError(`Couldn’t remember Start now: ${readableError(failure)}`)
+        })
+      },
     }),
   )
   const { title, description, priority, blockedBy, attachments, start, moreOpen, dismissed } = draft

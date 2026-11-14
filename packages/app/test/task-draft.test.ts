@@ -161,4 +161,30 @@ describe('New Task recovery and ordered saves', () => {
     session.consumed(session.get().revision)
     expect(session.get()).toMatchObject({ description: '', attachments: [], start: true })
   })
+
+  test('a new draft starts with the Start now choice of the last Task created', async () => {
+    let remembered = false
+    const rememberStart = vi.fn((start: boolean) => {
+      remembered = start
+    })
+    const setup = { ...options(), startDefault: async () => remembered, rememberStart }
+    const session = taskDraftSession('one', setup)
+    expect(await session.load()).toMatchObject({ start: false })
+    session.update({ description: 'Closed without creating', start: true })
+    const reopened = taskDraftSession('one', { ...setup, storage: memoryStorage() })
+    expect(await reopened.load()).toMatchObject({ start: false })
+
+    session.consumed(session.get().revision)
+    expect(rememberStart).toHaveBeenCalledWith(true)
+    expect(session.get()).toMatchObject({ description: '', start: true })
+    session.consumed(session.get().revision)
+    expect(rememberStart).toHaveBeenCalledTimes(1)
+    await session.flush()
+
+    const failing = taskDraftSession('two', {
+      ...options(),
+      startDefault: () => Promise.reject(new Error('daemon away')),
+    })
+    expect(await failing.load()).toMatchObject({ start: true })
+  })
 })
