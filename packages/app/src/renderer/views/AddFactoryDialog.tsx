@@ -1,6 +1,6 @@
 import type { Factory, IntegrationsHealth, RepoCheck, RepoFix, RepoSource } from '@ted/protocol'
 import { keyProblem, suggestFactoryName, suggestKey } from '@ted/protocol/factory'
-import { type DragEvent, useEffect, useId, useRef, useState } from 'react'
+import { type DragEvent, type Ref, useEffect, useId, useRef, useState } from 'react'
 import {
   footer,
   githubProblem,
@@ -43,6 +43,7 @@ export function AddFactoryDialog({
   onOpenGitHubSettings,
 }: AddFactoryDialogProps) {
   const dialog = useRef<HTMLDialogElement>(null)
+  const firstInput = useRef<HTMLInputElement>(null)
   const headingId = useId()
   const first = useRef(factories.length === 0).current
   const [rows, setRows] = useState<RepoRow[]>(() => [emptyRow()])
@@ -64,6 +65,7 @@ export function AddFactoryDialog({
 
   useEffect(() => {
     dialog.current?.showModal()
+    firstInput.current?.focus()
     void ted.homeFolder().then(setHome, () => undefined)
   }, [])
 
@@ -233,6 +235,7 @@ export function AddFactoryDialog({
               row={row}
               rows={rows}
               index={index}
+              inputRef={index === 0 ? firstInput : undefined}
               home={home}
               dragging={dragging}
               onDragStart={() => setDragging(index)}
@@ -349,6 +352,7 @@ export interface RepoRowViewProps {
   row: RepoRow
   rows: readonly RepoRow[]
   index: number
+  inputRef?: Ref<HTMLInputElement> | undefined
   home: string | undefined
   dragging: number | undefined
   onDragStart: () => void
@@ -366,6 +370,7 @@ export function RepoRowView({
   row,
   rows,
   index,
+  inputRef,
   home,
   dragging,
   onDragStart,
@@ -444,6 +449,7 @@ export function RepoRowView({
           <Button onClick={onChooseFolder}>Choose folder…</Button>
           <span className={styles.or}>or</span>
           <input
+            ref={inputRef}
             className={styles.input}
             aria-label="GitHub URL or owner/repo"
             placeholder="GitHub URL or owner/repo"
