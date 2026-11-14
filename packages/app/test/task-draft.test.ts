@@ -217,4 +217,35 @@ describe('New Task recovery and ordered saves', () => {
     expect(await load(saved())).toMatchObject({ description: 'Half written', start: false })
     expect(await load(saved(true))).toMatchObject({ description: 'Half written', start: true })
   })
+
+  test('a Start now save still running doesn’t overwrite a newer choice', async () => {
+    let remembered = true
+    const held: Array<() => void> = []
+    const rememberStart = vi.fn(
+      (start: boolean) =>
+        new Promise<void>((done) => {
+          held.push(() => {
+            remembered = start
+            done()
+          })
+        }),
+    )
+    const session = taskDraftSession('one', {
+      ...options(),
+      startDefault: async () => remembered,
+      rememberStart,
+    })
+    await session.load()
+    session.update({ description: 'Unticked', start: false, startChosen: true })
+    session.consumed(session.get().revision)
+    session.update({ description: 'Ticked again', start: true, startChosen: true })
+    session.consumed(session.get().revision)
+    expect(rememberStart).toHaveBeenCalledTimes(1)
+    held.shift()?.()
+    await vi.waitFor(() => expect(rememberStart).toHaveBeenCalledTimes(2))
+    held.shift()?.()
+    await vi.waitFor(() => expect(remembered).toBe(true))
+    expect(rememberStart.mock.calls).toEqual([[false], [true]])
+    await session.flush()
+  })
 })

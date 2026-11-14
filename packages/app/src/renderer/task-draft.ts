@@ -42,6 +42,7 @@ export function taskDraftSession(
   let loaded = false
   let startDefault = true
   let startSaved = true
+  let startSaving = false
 
   function remember(draft: NewTaskDraft) {
     options.storage.setItem(key, JSON.stringify(draft))
@@ -55,6 +56,23 @@ export function taskDraftSession(
     } catch (error) {
       options.failed(error)
     }
+  }
+
+  function saveStart() {
+    if (startSaving || !options.rememberStart || startDefault === startSaved) return
+    const start = startDefault
+    startSaving = true
+    options.rememberStart(start).then(
+      () => {
+        startSaved = start
+        startSaving = false
+        saveStart()
+      },
+      () => {
+        startSaving = false
+        if (startDefault !== start) saveStart()
+      },
+    )
   }
 
   async function drain() {
@@ -147,15 +165,7 @@ export function taskDraftSession(
       forget(revision)
       if (current.revision === revision) {
         startDefault = current.start
-        if (startDefault !== startSaved && options.rememberStart) {
-          const start = startDefault
-          options.rememberStart(start).then(
-            () => {
-              startSaved = start
-            },
-            () => {},
-          )
-        }
+        saveStart()
         current = emptyTaskDraft(startDefault)
         options.changed(current)
       }
