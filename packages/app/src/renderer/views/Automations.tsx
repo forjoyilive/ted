@@ -49,6 +49,7 @@ import { RunAppLog, RunAppRows } from '../components/RunApps.tsx'
 import { ChatBody, type ChatExtra, runMeta } from '../components/RunChat.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
+import grow from '../components/TextGrow.module.css'
 import { sendOnEnter } from '../composer-keys.ts'
 import {
   useAutomationState,
@@ -1067,7 +1068,7 @@ export function QuestionCard({
         />
       )}
       <textarea
-        className={styles.answer}
+        className={`${styles.answer} ${grow.text}`}
         aria-label="Your answer"
         placeholder={hasChoices && !other ? 'Add to this answer…' : 'Write your answer…'}
         value={answerText}

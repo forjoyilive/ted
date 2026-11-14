@@ -13,6 +13,7 @@ import { Help } from '../components/Help.tsx'
 import { Skeleton } from '../components/Loading.tsx'
 import { Select } from '../components/Select.tsx'
 import { StageEffort } from '../components/StageEffort.tsx'
+import grow from '../components/TextGrow.module.css'
 import { useEventValue } from '../data.ts'
 import { type SettingsDraft, type StageDraft, stageEdited } from '../factory-settings.ts'
 import {
@@ -533,10 +534,9 @@ function StageFile({
           {tab === 'edit' && (
             <textarea
               aria-label={`${title(id)} Stage file`}
-              className={sections.fileText}
+              className={`${sections.fileText} ${grow.text}`}
               value={text}
               spellCheck={false}
-              rows={Math.min(24, Math.max(8, text.split('\n').length + 1))}
               onChange={(event) => onText(event.target.value)}
             />
           )}

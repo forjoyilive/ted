@@ -1,0 +1,5 @@
+.text {
+  field-sizing: content;
+  max-height: var(--text-grow-max, 50vh);
+  resize: vertical;
+}

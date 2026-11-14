@@ -32,6 +32,7 @@ import { Help } from '../components/Help.tsx'
 import { ChevronIcon, CloseIcon, PaperclipIcon } from '../components/icons.tsx'
 import { ModelSelect } from '../components/ModelSelect.tsx'
 import { Select } from '../components/Select.tsx'
+import grow from '../components/TextGrow.module.css'
 import { useFileDrop } from '../file-drop.ts'
 import { setupNotice, setupNoticeText } from '../setup-notice.ts'
 import { emptyTaskDraft, taskDraftSession } from '../task-draft.ts'
@@ -653,10 +654,9 @@ function NewTaskForm({
           <div className={styles.descriptionBox}>
             <textarea
               ref={descriptionField}
-              className={styles.description}
+              className={`${styles.description} ${grow.text}`}
               aria-label="Description"
               placeholder="Describe what you want done, or paste a Linear issue or Asana task URL."
-              rows={3}
               value={description}
               onChange={(event) => changeDescription(event.target.value)}
             />

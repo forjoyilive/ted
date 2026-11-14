@@ -11,6 +11,7 @@ import { rowKey } from './DiffTable.tsx'
 import type { DiffSeams } from './DiffViews.tsx'
 import { Help } from './Help.tsx'
 import styles from './LineComments.module.css'
+import grow from './TextGrow.module.css'
 
 const settleMs = 1_500
 
@@ -223,7 +224,7 @@ function LineCommentEditor({
   return (
     <div className={styles.editor}>
       <textarea
-        className={styles.box}
+        className={`${styles.box} ${grow.text}`}
         aria-label="Line comment"
         value={text}
         ref={box}

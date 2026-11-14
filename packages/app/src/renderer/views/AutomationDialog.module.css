@@ -173,11 +173,19 @@
   border-color: var(--status-failed-fg);
 }
 
+.requestText {
+  min-height: calc(3lh + 16px);
+}
+
 .prompt {
-  min-height: 110px;
+  min-height: max(110px, calc(6lh + 16px));
   font-family: var(--font-mono);
   font-size: var(--text-12-5);
   resize: vertical;
+}
+
+.suggestionText {
+  min-height: calc(9lh + 16px);
 }
 
 .scheduleRow {
