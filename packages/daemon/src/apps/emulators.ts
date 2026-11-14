@@ -285,7 +285,7 @@ export function createEmulators(options: {
   async function avdOf(serialId: string): Promise<string | undefined> {
     const result = await tools.adb(['-s', serialId, 'emu', 'avd', 'name'])
     if (result.code !== 0) return undefined
-    return result.stdout.split('\n')[0]?.trim()
+    return result.stdout.split('\n')[0]?.trim() || undefined
   }
 
   async function check(factoryId: string): Promise<void> {
@@ -394,8 +394,11 @@ export function createEmulators(options: {
     const record = recordOf(app.taskId, app.repo, app.name)
     if (record && record.device === app.device) {
       if (await avdExists(record.avd)) return record
-    } else if (record) {
-      await deleteAvd(record)
+    } else if (record && !(await deleteAvd(record))) {
+      throw new RequestError(
+        409,
+        `TED couldn’t remove ${app.name}’s old emulator for ${record.device}, so it left it in place. Stop it and run ${app.name} again.`,
+      )
     }
     return createDevice(app)
   }
@@ -434,7 +437,7 @@ export function createEmulators(options: {
       if (result.code === 0 && result.stdout.trim() === '1') return
       await sleep(Math.min(pollMs, 1_000))
     }
-    await tools.adb(['-s', serialId, 'emu', 'kill'])
+    await kill(record).catch(() => undefined)
     throw new RequestError(409, `The emulator for ${record.device} didn’t finish booting in time`)
   }
 
@@ -480,8 +483,15 @@ export function createEmulators(options: {
       delete record.serial
     }
     if (serialId === undefined) return forget()
-    const listed = await adbDevices()
-    if (!listed.has(serialId) || (await avdOf(serialId)) !== record.avd) return forget()
+    if (!(await adbDevices()).has(serialId)) return forget()
+    const avd = await avdOf(serialId)
+    if (avd === undefined) {
+      throw new RequestError(
+        409,
+        `TED couldn’t tell which emulator runs as ${serialId}, so it left it running`,
+      )
+    }
+    if (avd !== record.avd) return forget()
     await tools.adb(['-s', serialId, 'emu', 'kill'])
     const deadline = Date.now() + 60_000
     while (Date.now() < deadline) {
