@@ -110,6 +110,9 @@ describe('Inbox item notifications', () => {
       '🐙 NB-3 Add dark mode',
       'NB-3 Add dark mode',
     ])
+    notifications.problem(banner({ id: 'nb-settings', factoryId: 'nb' }))
+    notifications.problem(banner({ id: 'machine' }))
+    expect(shown.slice(2).map((s) => s.notice.title.startsWith('🐙 '))).toEqual([true, false])
   })
 
   test('a request that left the waiting list while snoozed notifies again when it returns', () => {

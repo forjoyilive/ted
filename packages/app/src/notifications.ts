@@ -103,7 +103,7 @@ export function createNotifications(options: NotificationsOptions): Notification
     problem(banner) {
       const notice = problemNotice(banner)
       if (!notice || !settings().notifyProblems || !mayNotify()) return
-      send(notice)
+      send(banner.factoryId === undefined ? notice : withEmoji(notice, banner.factoryId))
     },
     merged(task) {
       const notice = mergedNotice(task, now())

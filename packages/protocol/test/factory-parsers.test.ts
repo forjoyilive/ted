@@ -212,6 +212,16 @@ rejects(
   { icon: { kind: 'image', dataUrl: `data:image/png;base64,${'A'.repeat(50_000)}` } },
   'too large',
 )
+rejects(
+  P.parseSetFactoryIconRequest,
+  {
+    icon: {
+      kind: 'image',
+      dataUrl: `data:image/png;base64,${btoa(`\x89PNG\r\n\x1a\n${'x'.repeat(32 * 1024 + 1 - 8)}`)}`,
+    },
+  },
+  'too large',
+)
 rejects(P.parseLibraryChanges, { keepStageFiles: ['other'] }, 'unknown Stage')
 rejects(P.parseSaveLibraryRequest, { changes: library }, 'version is required')
 

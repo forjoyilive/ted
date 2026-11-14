@@ -17,7 +17,6 @@ import { ago } from '../requests.ts'
 import { openSetting } from '../setting-focus.ts'
 import { findSettings, platformOf, searchFactory } from '../settings-search.ts'
 import { readableError, ted } from '../ted.ts'
-import { factoryName } from '../views/TaskViews.tsx'
 import { ActionButton } from './ActionButton.tsx'
 import { ConversationSearchView } from './ConversationSearchView.tsx'
 import { FactoryIcon, FactoryName } from './FactoryIcon.tsx'
@@ -141,10 +140,12 @@ function planContent(hit: PlanHit, factories: readonly Factory[]) {
   )
 }
 
-function factoryContent(hit: FactoryHit) {
+function factoryContent(hit: FactoryHit, factories: readonly Factory[]) {
+  const factory = factories.find((f) => f.id === hit.factoryId)
   return (
     <>
       <span className={styles.ref}>Factory</span>
+      {factory && <FactoryIcon factory={factory} size={16} />}
       <span className={styles.main}>
         <span className={styles.title}>{hit.name}</span>
       </span>
@@ -332,7 +333,7 @@ export function SearchPalette({
         key: `factory:${hit.factoryId}`,
         group: 'Factories',
         label: hit.name,
-        content: factoryContent(hit),
+        content: factoryContent(hit, context.factories),
         run: () => onOpenFactory(hit.factoryId),
       })
     }
@@ -347,7 +348,8 @@ export function SearchPalette({
             <span className={styles.main}>
               <span className={styles.quote}>{`“${hit.snippet}”`}</span>
               <span className={styles.byline}>
-                {`${factoryName(context.factories, hit.factoryId)} · ${hit.title} · ${hit.runName} · ${hit.kind === 'human' ? 'You' : hit.kind === 'tool' ? 'Tool' : 'Agent message'} · ${ago(hit.at, now)}`}
+                <FactoryName factories={context.factories} factoryId={hit.factoryId} />
+                {` · ${hit.title} · ${hit.runName} · ${hit.kind === 'human' ? 'You' : hit.kind === 'tool' ? 'Tool' : 'Agent message'} · ${ago(hit.at, now)}`}
               </span>
             </span>
           </>

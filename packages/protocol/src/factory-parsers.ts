@@ -468,6 +468,7 @@ function parseFactoryIcon(value: unknown): FactoryIcon {
     } catch {
       throw new HttpError(400, 'icon.dataUrl is not valid base64')
     }
+    if (bytes.length > factoryIconImageMaxBytes) throw new HttpError(400, 'icon image is too large')
     if (pngSignature.some((byte, index) => bytes.charCodeAt(index) !== byte)) {
       throw new HttpError(400, 'icon image must be a PNG')
     }
