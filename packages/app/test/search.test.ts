@@ -180,6 +180,8 @@ describe('Search and commands (⌘K)', () => {
     await find.getByText(/^1 of \d+$/).waitFor()
     await find.getByRole('textbox').fill('nothing like this')
     await find.getByText('No matches').waitFor()
+    await ted.postComment('NB-1', 'Here is nothing like this yet')
+    await find.getByText(/^1 of 1$/).waitFor()
     await window.keyboard.press('Escape')
     await find.waitFor({ state: 'detached' })
   })

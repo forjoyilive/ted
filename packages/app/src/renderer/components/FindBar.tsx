@@ -76,6 +76,27 @@ export function FindBar({
     const found = root ? findRanges(root, query) : []
     setRanges(found)
     setCurrent(0)
+    if (!root || query.trim() === '') return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const observer = new MutationObserver((records) => {
+      const outside = records.some((record) => {
+        const target =
+          record.target instanceof Element ? record.target : record.target.parentElement
+        return !target?.closest('[data-find-skip]')
+      })
+      if (!outside) return
+      clearTimeout(timer)
+      timer = setTimeout(() => {
+        const again = findRanges(root, query)
+        setRanges(again)
+        setCurrent((at) => Math.min(at, Math.max(0, again.length - 1)))
+      }, 100)
+    })
+    observer.observe(root, { childList: true, subtree: true, characterData: true })
+    return () => {
+      observer.disconnect()
+      clearTimeout(timer)
+    }
   }, [query, scope])
 
   useEffect(() => {
