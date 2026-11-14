@@ -120,6 +120,8 @@ import {
   clarifyDepths,
   clarifyIsOver,
   isChat,
+  isTrackerClosedQuestion,
+  isTrackerGroupAsk,
   keepArchiveChoice,
   parseAsanaTaskUrl,
   parseLinearUrl,
@@ -299,7 +301,12 @@ import {
 } from './lead-lifecycle.ts'
 import { anchorIn, lineCommentsText, markOutdated } from './line-comments.ts'
 import { verifyLinearIntake } from './linear-intake.ts'
-import { createLinearSync, type LinearClosed, type LinearSyncApi } from './linear-sync.ts'
+import {
+  createLinearSync,
+  type LinearSyncApi,
+  linearConnector,
+  linearRecords,
+} from './linear-sync.ts'
 import { createLocalLifecycle } from './local-lifecycle.ts'
 import {
   chooseMethod,
@@ -356,7 +363,6 @@ import {
   loopChoices,
   tryAgainChoice,
 } from './request-answers.ts'
-import { createLinearConsent } from './request-linear-team.ts'
 import {
   type ConflictSendBack,
   conflictReviewPrompt,
@@ -391,6 +397,8 @@ import { leadAskedAtMerge } from './status.ts'
 import { createSubAgents, type PlannedReview, type ReviewerChoice } from './sub-agents.ts'
 import { titleFromText } from './task-title.ts'
 import { nudgeMessage, taskThreadEvents } from './thread.ts'
+import { createTrackerConsent } from './tracker-sync/consent.ts'
+import type { TrackerTaskActions } from './tracker-sync/sync.ts'
 import {
   noEarlierFindingRefusal,
   p1OnlyAt,
@@ -792,7 +800,8 @@ export function createTasks(options: {
       : lineCommentsText(comment.lineComments, comment.taskId, (id) => store.getTask(id)?.displayId)
   const commentText = (comment: Comment): string =>
     [plainText(comment), linesText(comment) ?? ''].filter((part) => part !== '').join('\n\n')
-  const { allowLinearTeam, openTeamAsks } = createLinearConsent(store)
+  const linearConsent = createTrackerConsent(store, linearConnector(), linearRecords(store))
+  const trackerConsents = [linearConsent]
   const drafts = (taskId: string): string[] => store.lineCommentDrafts(taskId).map((c) => c.id)
   const stoppingByHand = new Set<string>()
   const clock = options.clock ?? systemClock
@@ -1052,6 +1061,16 @@ export function createTasks(options: {
       onRead: reactToGitHub,
       inBackground: (what, work) => inBackground(what, work),
     })
+  const trackerActions: TrackerTaskActions = {
+    gone: (taskId) => deleting.has(taskId),
+    liveRun: (task) => hasLiveRun(find(task.id)),
+    openRequests,
+    archive(task, why) {
+      settleDependents(task.id, 'unblock')
+      archiveNow(find(task.id), false, why)
+      wake()
+    },
+  }
   const linearApi = options.linear
   const linearSync =
     linearApi?.issueStates &&
@@ -1066,10 +1085,9 @@ export function createTasks(options: {
         moveIssue: linearApi.moveIssue,
         linkUrl: linearApi.linkUrl,
       },
+      actions: trackerActions,
       clock,
       everyMs: options.linearSyncMs ?? 60_000,
-      closed: (taskId, issue) => linearIssueClosed(taskId, issue),
-      settled: (taskId, why) => withdrawLinearQuestions(taskId, why),
       // A hold released on every cycle would start the idle exit’s time again for ever.
       inBackground: (what, work) => inBackground(what, work, false),
     })
@@ -2821,7 +2839,7 @@ export function createTasks(options: {
 
   function holdsMerge(taskId: string): boolean {
     return openRequests(taskId).some(
-      (c) => !isCiStuck(c) && !isLinearQuestion(c) && !isLinearTeamAsk(c),
+      (c) => !isCiStuck(c) && !isTrackerClosedQuestion(c) && !isTrackerGroupAsk(c),
     )
   }
 
@@ -5207,6 +5225,7 @@ export function createTasks(options: {
         gateName,
         firstLine,
         answerAsanaMissing,
+        trackerConsents,
         withSimulatorRequest: (comment, work) => apps.withSimulatorRequest(comment, work),
         mergeSendBack: (id, findings) =>
           mergeSendBack(id, findings, undefined, false, { counted: false }),
@@ -6937,77 +6956,6 @@ export function createTasks(options: {
     )
   }
 
-  function linearQuestions(taskId: string): Comment[] {
-    return openRequests(taskId).filter(isLinearQuestion)
-  }
-
-  async function linearIssueClosed(taskId: string, issue: LinearClosed): Promise<void> {
-    const task = store.getTask(taskId)
-    if (!task || task.archived || task.stage === 'done' || deleting.has(taskId)) return
-    const marked = `${issue.identifier} was marked ${issue.state} in Linear`
-    const pastSignOff = task.stage === 'merge'
-    if (
-      !pastSignOff &&
-      !hasLiveRun(task) &&
-      !task.parentId &&
-      store.childrenOf(task.id).length === 0
-    ) {
-      settleDependents(task.id, 'unblock')
-      archiveNow(task, false, marked)
-      wake()
-      return
-    }
-    if (linearQuestions(taskId).length > 0) return
-    store.postComment({
-      taskId,
-      kind: 'question',
-      author: { kind: 'ted' },
-      title: marked,
-      purpose: { kind: 'linear-closed' },
-      body: pastSignOff
-        ? `Someone marked ${issue.identifier} ${issue.state} in Linear after you signed off on this Task. TED keeps going until you choose.`
-        : `Someone marked ${issue.identifier} ${issue.state} in Linear while this Task is still being worked on. TED keeps going until you choose.`,
-      choices: [linearArchiveChoice, linearKeepChoice],
-    })
-  }
-
-  function askLinearTeam(taskId: string, automationName: string, issue: LinearIssue): void {
-    const task = store.getTask(taskId)
-    const factory = task && store.getFactory(task.factoryId)
-    const link = task?.source && parseLinearUrl(task.source.url)
-    if (!task || !factory || !link || !issue.team || task.linearSync !== 'ask') return
-    const team = issue.team
-    const settings = store.settings()
-    if (!settings.linearSync) return
-    if ((settings.linearSyncTeams[factory.id] ?? []).includes(team.key)) return
-    if ((settings.linearSyncDeclined[factory.id] ?? []).includes(team.key)) return
-    if (openTeamAsks(factory.id, team.key).length > 0) return
-    const named = team.name === team.key ? team.key : `${team.name} (${team.key})`
-    store.postComment({
-      taskId,
-      kind: 'question',
-      author: { kind: 'ted' },
-      title: `Sync ${named} issues with Linear for Automations in ${factory.name}?`,
-      body: [
-        `${automationName} made ${task.displayId} from ${link.identifier}. TED doesn’t change Linear issues for Tasks an Automation makes until you allow it for the issue’s team.`,
-        `If you allow ${team.key} for ${factory.name}, TED moves each issue to In Progress when its Task starts, to review at the sign-off before Merge, and to Done when the Task merges, and attaches the Task’s pull requests. It does this for ${team.key} Tasks Automations already made in ${factory.name}, too.`,
-        'Not now keeps them as they are, and TED won’t ask about this team again. You can change either in Settings → Integrations.',
-      ].join('\n\n'),
-      choices: [linearAllowChoice, linearNotNowChoice],
-      linearTeam: team,
-    })
-  }
-
-  function withdrawLinearQuestions(taskId: string, why: 'reopened' | 'done'): void {
-    for (const question of linearQuestions(taskId)) {
-      store.answerComment(question.id, {
-        kind: 'withdrawn',
-        at: new Date().toISOString(),
-        linear: why,
-      })
-    }
-  }
-
   function archiveNow(task: StoredTask, closePullRequests: boolean, why?: string): Task {
     dropWaitingMove(task.id)
     browser.cancel(task.id)
@@ -7840,7 +7788,8 @@ export function createTasks(options: {
       linearConsent: input.linearConsent,
     })
     const issue = input.automation && url !== undefined ? await linearIssue(url) : undefined
-    if (input.automation && issue) askLinearTeam(task.id, input.automation.name, issue)
+    if (input.automation && issue)
+      linearConsent.askGroup(task.id, input.automation.name, issue.team)
     if (input.automation && runsInBypass(resolution)) {
       return holdInBacklog(task.id, input.automation.name)
     }
@@ -8118,7 +8067,7 @@ export function createTasks(options: {
       return
     if (store.heldRuns().some((h) => h.taskId === task.id)) return
     if (stoppingForBlockers.has(task.id) || shouldStopForBlockers(task, run)) return
-    if (openRequests(task.id).some((c) => !isLinearTeamAsk(c))) return
+    if (openRequests(task.id).some((c) => !isTrackerGroupAsk(c))) return
     if (planningInChat(task.id)) return
     const nudged = store.latestNudge(task.id, run.id)
     if (nudged === undefined || heardSince(task, nudged)) await sendNudge(task, run)
@@ -9379,7 +9328,7 @@ export function createTasks(options: {
         tellHierarchyChanged([parent.id])
       }
       if (issue) noteUnfetched(task.id, issue, linearFiles)
-      if (automation && issue) askLinearTeam(task.id, automation.name, issue)
+      if (automation && issue) linearConsent.askGroup(task.id, automation.name, issue.team)
       if (!factory) return task
       if (automation && runsInBypass(resolution)) return holdInBacklog(task.id, automation.name)
       if (!resolution) {
@@ -9538,14 +9487,13 @@ export function createTasks(options: {
       const task = live(ref)
       const link = task.source && parseLinearUrl(task.source.url)
       if (!link) throw new RequestError(400, `${task.displayId} doesn’t come from a Linear issue`)
-      if (task.linearSync === 'on') return publicTask(task.id)
-      store.linearSyncAllowed(task.id, link.identifier)
+      linearConsent.allowTask(task)
       return publicTask(task.id)
     },
 
     allowLinearTeam(factoryId, team) {
       if (!store.getFactory(factoryId)) throw new RequestError(404, `no Factory ${factoryId}`)
-      return allowLinearTeam(factoryId, team.toUpperCase())
+      return linearConsent.allowGroup(factoryId, team.toUpperCase())
     },
 
     hierarchy,
@@ -10810,19 +10758,6 @@ const mergeOffMessage =
 
 function textOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
-}
-
-const linearArchiveChoice = 'Archive'
-const linearKeepChoice = 'Keep going'
-const linearAllowChoice = 'Allow'
-const linearNotNowChoice = 'Not now'
-
-function isLinearTeamAsk(comment: Comment): boolean {
-  return comment.purpose?.kind === 'linear-team'
-}
-
-function isLinearQuestion(comment: Comment): boolean {
-  return comment.purpose?.kind === 'linear-closed'
 }
 
 const idleTitle = 'The Task Lead stopped without saying why'

@@ -28,7 +28,7 @@ import type {
   StageId,
   Task,
 } from '@ted/protocol'
-import { archiveChoice, priorities } from '@ted/protocol'
+import { archiveChoice, isTrackerGroupAsk, priorities } from '@ted/protocol'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
@@ -709,7 +709,7 @@ export function createCoordinators(options: {
       comment.kind === 'permission' ||
       comment.permission ||
       comment.simulator ||
-      comment.linearTeam ||
+      isTrackerGroupAsk(comment) ||
       comment.asanaMissing
     )
       return 'no'

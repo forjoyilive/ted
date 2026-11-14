@@ -8,6 +8,7 @@ import { ted } from '../ted.ts'
 import { Button, SettingRow, SettingsGroup, Switch } from './controls.tsx'
 import styles from './linear.module.css'
 import settingsStyles from './settings.module.css'
+import { TrackerGroupsRow } from './TrackerGroupsRow.tsx'
 
 export function LinearGroup({
   sync,
@@ -178,7 +179,6 @@ function TeamsRow({
 }) {
   const listed = teams[factory.id] ?? []
   const saved = listed.join(', ')
-  const notNow = (declined[factory.id] ?? []).filter((team) => !listed.includes(team))
   const [draft, setDraft] = useState(saved)
   const [problem, setProblem] = useState<string>()
   const fieldId = useId()
@@ -204,31 +204,15 @@ function TeamsRow({
   }
 
   return (
-    <SettingRow
+    <TrackerGroupsRow
       title={`Linear teams for Automations in ${factory.name}`}
       labelFor={fieldId}
       help="TED syncs a Task an Automation made only when its issue is in one of these Linear teams. The first time an Automation makes a Task from another team, TED asks you in the Inbox. For a single Task, open its menu and choose Sync with Linear."
-      detail={
-        problem ??
-        (notNow.length > 0 ? (
-          <span className={styles.notNow}>
-            You chose Not now for
-            {notNow.map((team) => (
-              <span key={team} className={styles.notNowTeam}>
-                {team}
-                <ActionButton
-                  type="button"
-                  className={styles.link}
-                  aria-label={`Allow ${team} for Automations in ${factory.name}`}
-                  onClick={() => allow(team)}
-                >
-                  Allow
-                </ActionButton>
-              </span>
-            ))}
-          </span>
-        ) : undefined)
-      }
+      allowed={listed}
+      declined={declined[factory.id] ?? []}
+      allowLabel={(team) => `Allow ${team} for Automations in ${factory.name}`}
+      onAllow={allow}
+      {...(problem !== undefined && { problem })}
     >
       <input
         id={fieldId}
@@ -243,7 +227,7 @@ function TeamsRow({
           if (event.key === 'Enter') save()
         }}
       />
-    </SettingRow>
+    </TrackerGroupsRow>
   )
 }
 

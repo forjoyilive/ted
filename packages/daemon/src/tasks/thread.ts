@@ -9,6 +9,7 @@ import type {
   ThreadEventTone,
   ValidationSnapshot,
 } from '@ted/protocol'
+import { trackerName } from '@ted/protocol'
 import { diffTexts } from '../agents/diff.ts'
 import type { LoggedEvent, TedStore } from '../store/index.ts'
 import { stageTitle } from '../workflow/workflow.ts'
@@ -375,6 +376,40 @@ export function threadEvents(
           entry,
           'quiet',
           `Linked the ${count === 1 ? 'pull request' : 'pull requests'} in ${text(data.identifier)} in Linear`,
+        )
+        break
+      }
+      case 'v1.TrackerItemMoved':
+        if (text(data.state) !== '') {
+          add(
+            entry,
+            'quiet',
+            `Moved ${text(data.item)} to ${text(data.state)} in ${trackerName(text(data.tracker))}`,
+          )
+        }
+        break
+      case 'v1.TrackerSyncAllowed':
+        if (data.by === 'menu') {
+          add(
+            entry,
+            'edit',
+            `You let TED sync this Task with ${text(data.item)} in ${trackerName(text(data.tracker))}`,
+          )
+        }
+        break
+      case 'v1.TrackerGroupSyncAllowed':
+        add(
+          entry,
+          'edit',
+          `You let TED sync ${text(data.group)} with ${trackerName(text(data.tracker))} for Automations in this Factory`,
+        )
+        break
+      case 'v1.TrackerPullRequestsLinked': {
+        const count = Array.isArray(data.urls) ? data.urls.length : 0
+        add(
+          entry,
+          'quiet',
+          `Linked the ${count === 1 ? 'pull request' : 'pull requests'} in ${text(data.item)} in ${trackerName(text(data.tracker))}`,
         )
         break
       }

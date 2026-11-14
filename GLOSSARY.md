@@ -142,6 +142,10 @@ _Avoid_: Restart, retry, redo
 The URL of the item a Task was created from, such as a Linear, Sentry or GitHub issue. A Linear source also fills in the Task’s title, Priority and branch when TED has a Linear API key.
 _Avoid_: Origin, link, ticket
 
+**Tracker sync**:
+TED keeping a Task’s Source item (a Linear issue, later an Asana item) up to date: it moves the item forward as the Task goes on, links its pull requests and notices when the item is closed outside TED. It runs only for a Task the human allowed, one by one or for a whole group (a Linear team) in one Factory. Each tracker plugs in through a connector.
+_Avoid_: Integration sync, two-way sync
+
 **Original request**:
 The first version of a Task’s description, kept as written when the Task was created. The human can edit the description at any time; each edit is a new version, and the Original request never changes.
 _Avoid_: First draft, initial description

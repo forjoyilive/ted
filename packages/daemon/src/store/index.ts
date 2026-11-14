@@ -230,6 +230,20 @@ export interface LinearSyncRecord {
   allowedTeams: Set<string>
 }
 
+export interface TrackerSeen {
+  closed: boolean
+  state: string
+  group?: string
+}
+
+export interface TrackerSyncRecord {
+  seen?: TrackerSeen
+  step?: string
+  linked: Set<string>
+  allowed: boolean
+  allowedGroups: Set<string>
+}
+
 export interface GitHubNoticeRecord {
   key: string
   sig: string
@@ -664,6 +678,30 @@ export interface TedStore extends TaskHistory {
   ): void
   linearPullRequestsLinked(taskId: string, identifier: string, urls: readonly string[]): void
   linearSync(taskId: string): LinearSyncRecord
+  trackerItemSeen(taskId: string, tracker: string, item: string, seen: TrackerSeen): void
+  trackerItemMoved(
+    taskId: string,
+    tracker: string,
+    item: string,
+    step: string,
+    state: string | undefined,
+  ): void
+  trackerPullRequestsLinked(
+    taskId: string,
+    tracker: string,
+    item: string,
+    urls: readonly string[],
+  ): void
+  trackerSync(taskId: string, tracker: string): TrackerSyncRecord
+  trackerSyncAllowed(taskId: string, tracker: string, item: string, account?: string): Task
+  allowTrackerGroup(
+    tracker: string,
+    factoryId: string,
+    group: string,
+    consents: readonly { taskId: string; item: string }[],
+    account?: string,
+  ): MachineSettings
+  declineTrackerGroup(tracker: string, factoryId: string, group: string): void
   linearSyncAllowed(taskId: string, identifier: string): Task
   allowLinearTeam(
     factoryId: string,
@@ -1923,10 +1961,10 @@ export async function openStore({
       })),
       pausedRuns,
       runs: live.map((r) => r.state as RunState),
-      openRequests: requests.filter((r) => r.linearTeam === null).length,
+      openRequests: requests.filter((r) => !groupAskRow(r)).length,
       ...requestsSnoozed(
         row.id,
-        requests.filter((r) => r.linearTeam === null),
+        requests.filter((r) => !groupAskRow(r)),
       ),
       ...permissionWait(requests, lead?.id),
       ...(pausedReason !== undefined && { paused: pausedReason }),
@@ -2856,6 +2894,39 @@ export async function openStore({
         const before = record.step === undefined ? -1 : linearSteps.indexOf(record.step)
         if (step && linearSteps.indexOf(step) > before) record.step = step
       } else if (row.name === 'v1.LinearPullRequestsLinked' && Array.isArray(data.urls)) {
+        for (const url of data.urls) record.linked.add(String(url))
+      }
+    }
+    return record
+  }
+
+  const groupAskRow = (row: { linearTeam: string | null; purpose: string | null }): boolean =>
+    row.linearTeam !== null ||
+    (row.purpose !== null &&
+      (JSON.parse(row.purpose) as { kind?: unknown }).kind === 'tracker-group')
+
+  const trackerRecord = (taskId: string, tracker: string): TrackerSyncRecord => {
+    const record: TrackerSyncRecord = {
+      linked: new Set(),
+      allowed: false,
+      allowedGroups: new Set(),
+    }
+    for (const row of logRows(taskId).filter((entry) => entry.name.startsWith('v1.Tracker'))) {
+      const data = JSON.parse(row.data) as Record<string, unknown>
+      if (data.tracker !== tracker) continue
+      if (row.name === 'v1.TrackerItemSeen') {
+        record.seen = {
+          closed: data.closed === true,
+          state: String(data.state),
+          ...(typeof data.group === 'string' && { group: data.group }),
+        }
+      } else if (row.name === 'v1.TrackerSyncAllowed') {
+        record.allowed = true
+      } else if (row.name === 'v1.TrackerGroupSyncAllowed') {
+        record.allowedGroups.add(String(data.group))
+      } else if (row.name === 'v1.TrackerItemMoved') {
+        record.step = String(data.step)
+      } else if (row.name === 'v1.TrackerPullRequestsLinked' && Array.isArray(data.urls)) {
         for (const url of data.urls) record.linked.add(String(url))
       }
     }
@@ -4502,6 +4573,125 @@ export async function openStore({
       updatedTask(taskId)
     },
     linearSync: linearRecord,
+    trackerItemSeen(taskId, tracker, item, { closed, state, group }) {
+      commit(
+        events.trackerItemSeen({
+          taskId,
+          tracker,
+          item,
+          closed,
+          state,
+          group: group ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    trackerItemMoved(taskId, tracker, item, step, state) {
+      commit(
+        events.trackerItemMoved({
+          taskId,
+          tracker,
+          item,
+          step,
+          state: state ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    trackerPullRequestsLinked(taskId, tracker, item, urls) {
+      commit(
+        events.trackerPullRequestsLinked({
+          taskId,
+          tracker,
+          item,
+          urls: [...urls],
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    trackerSync: trackerRecord,
+    trackerSyncAllowed(taskId, tracker, item, account) {
+      commit(
+        events.trackerSyncAllowed({
+          taskId,
+          tracker,
+          item,
+          by: 'menu',
+          account: account ?? null,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedTask(taskId)
+    },
+    allowTrackerGroup(tracker, factoryId, group, consents, account) {
+      const at = new Date().toISOString()
+      const current = settings()
+      const allowed = current.trackerSyncGroups[tracker] ?? {}
+      const declined = current.trackerSyncDeclined[tracker] ?? {}
+      const listed = allowed[factoryId] ?? []
+      const wasDeclined = declined[factoryId] ?? []
+      const stillDeclined = wasDeclined.filter((g) => g !== group)
+      const { [factoryId]: _, ...otherDeclined } = declined
+      const changes: Partial<MachineSettings> = {
+        ...(!listed.includes(group) && {
+          trackerSyncGroups: {
+            ...current.trackerSyncGroups,
+            [tracker]: { ...allowed, [factoryId]: [...listed, group] },
+          },
+        }),
+        ...(stillDeclined.length !== wasDeclined.length && {
+          trackerSyncDeclined: {
+            ...current.trackerSyncDeclined,
+            [tracker]:
+              stillDeclined.length > 0
+                ? { ...otherDeclined, [factoryId]: stillDeclined }
+                : otherDeclined,
+          },
+        }),
+      }
+      const changed = Object.keys(changes).length > 0
+      const batch = [
+        ...(changed
+          ? [events.machineSettingsChanged({ changes: JSON.stringify(changes), at })]
+          : []),
+        ...consents.map(({ taskId, item }) =>
+          events.trackerGroupSyncAllowed({
+            taskId,
+            tracker,
+            item,
+            group,
+            account: account ?? null,
+            at,
+          }),
+        ),
+      ]
+      if (batch.length > 0) commit(...batch)
+      if (changed) emit({ type: 'settings-changed', settings: settings() })
+      for (const { taskId } of consents) updatedTask(taskId)
+      return settings()
+    },
+    declineTrackerGroup(tracker, factoryId, group) {
+      const current = settings().trackerSyncDeclined
+      const byFactory = current[tracker] ?? {}
+      const listed = byFactory[factoryId] ?? []
+      if (listed.includes(group)) return
+      const changes: Partial<MachineSettings> = {
+        trackerSyncDeclined: {
+          ...current,
+          [tracker]: { ...byFactory, [factoryId]: [...listed, group] },
+        },
+      }
+      commit(
+        events.machineSettingsChanged({
+          changes: JSON.stringify(changes),
+          at: new Date().toISOString(),
+        }),
+      )
+      emit({ type: 'settings-changed', settings: settings() })
+    },
     worktreeCreated(taskId, repo) {
       commit(events.taskWorktreeCreated({ taskId, ...repo, at: new Date().toISOString() }))
       updatedTask(taskId)

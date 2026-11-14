@@ -1,0 +1,34 @@
+.notNow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.notNowGroup {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--font-mono);
+}
+
+.allow {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-link);
+  font: inherit;
+  font-family: var(--font-sans);
+  font-size: var(--text-12-5);
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.allow:hover {
+  text-decoration: underline;
+}
+
+.allow:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}

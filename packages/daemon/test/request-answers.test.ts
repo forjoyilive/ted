@@ -10,7 +10,9 @@ import {
 } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { type NewComment, openStore, type TedStore } from '../src/store/index.ts'
+import { linearConnector, linearRecords } from '../src/tasks/linear-sync.ts'
 import { createRequestAnswers, type RequestAnswerPort } from '../src/tasks/request-answers.ts'
+import { createTrackerConsent } from '../src/tasks/tracker-sync/consent.ts'
 import { StaleCoverageError } from '../src/tasks/validation.ts'
 import { resolveWorkflow } from '../src/workflow/resolve.ts'
 
@@ -56,6 +58,7 @@ beforeEach(async () => {
     },
     resumeByHand: unexpected,
     drafts: (id) => store.lineCommentDrafts(id).map((d) => d.id),
+    trackerConsents: [createTrackerConsent(store, linearConnector(), linearRecords(store))],
     deliverAnswer: async () => {
       effects.push('delivered')
     },
