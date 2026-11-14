@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { queryDb, type Store } from '@livestore/livestore'
 import type {
   AgentKind,
+  Attachment,
   AutomationCheck,
   AutomationCheckState,
   AutomationSchedule,
@@ -20,6 +21,7 @@ import {
   automations,
   automationTasks,
   events,
+  runBrowserCaptures,
   runs,
   type schema,
   taskSources,
@@ -151,6 +153,8 @@ export interface AutomationStore {
   answerComment(id: string, text: string): StoredAutomationComment
   comments(automationId?: string): StoredAutomationComment[]
   comment(id: string): StoredAutomationComment | undefined
+  recordBrowserCapture(runId: string, attachment: Attachment): void
+  browserCaptures(runIds: readonly string[]): Map<string, Attachment[]>
 }
 
 export function createAutomationStore({
@@ -317,6 +321,36 @@ export function createAutomationStore({
           return check ? [[row.id, check] as const] : []
         }),
       )
+    },
+    recordBrowserCapture(runId, attachment) {
+      const found = firing(runId)
+      if (!found) throw new Error(`no Automation firing ${runId}`)
+      commit(
+        events.runBrowserCaptureAdded({
+          runId,
+          automationId: found.automationId,
+          ...attachment,
+          at: now(),
+        }),
+      )
+      updated(found.automationId)
+    },
+    browserCaptures(runIds) {
+      const rows = inChunks(runIds, (ids) =>
+        store.query(
+          queryDb(
+            runBrowserCaptures.where({ runId: { op: 'IN', value: ids } }).orderBy('at', 'asc'),
+          ),
+        ),
+      )
+      const captures = new Map<string, Attachment[]>()
+      for (const { runId, hash, name, size, mediaType } of rows) {
+        const known = captures.get(runId)
+        const capture = { hash, name, size, mediaType }
+        if (known) known.push(capture)
+        else captures.set(runId, [capture])
+      }
+      return captures
     },
     checkResults(firingIds) {
       const rows = inChunks(firingIds, (ids) =>

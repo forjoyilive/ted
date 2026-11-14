@@ -120,6 +120,7 @@ import {
   clarifyDepths,
   clarifyIsOver,
   isChat,
+  isLoopbackUrl,
   isTrackerClosedQuestion,
   isTrackerGroupAsk,
   keepArchiveChoice,
@@ -127,6 +128,7 @@ import {
   parseLinearUrl,
   type ResetRefusal,
   resetRefusal,
+  runOnlyBrowserActions,
   sizeChoices,
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
@@ -136,6 +138,7 @@ import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
 import { type AppsOptions, type AppTask, createApps, type SimulatorOptions } from '../apps/apps.ts'
 import { type AppDeclaration, appDeclarations } from '../apps/declared.ts'
+import { createRunBrowsers } from '../apps/run-browser.ts'
 import { AsanaReadError } from '../asana/asana.ts'
 import { type AsanaRead, type AsanaTree, readAsanaTree } from '../asana/tree.ts'
 import type { Banners } from '../banners.ts'
@@ -660,6 +663,8 @@ export interface Tasks {
   showRunApp(runId: string, caller: Caller, app: AppRef): Promise<TaskApp>
   runAppLog(runId: string, caller: Caller, app: AppRef): Promise<AppLog>
   stopRunApps(runId: string): Promise<void>
+  runBrowserCommand(runId: string, caller: Caller, request: BrowserRequest): Promise<BrowserResult>
+  runBrowserCapture(runId: string, caller: Caller, hash: string): Attachment
   planApproved(taskId: string, input: PlanApproval): Promise<void>
   planEnded(taskId: string, input: PlanEnd): Promise<void>
   close(): Promise<void>
@@ -969,6 +974,11 @@ export function createTasks(options: {
 
   const browser = createBrowserBroker()
   const browserApps = new Map<string, BrowserAppRef>()
+  const runBrowsers = createRunBrowsers({
+    dir: path.join(path.dirname(worktreesDir), 'browsers'),
+    env: () => options.env?.() ?? process.env,
+    lowPriority: () => store.settings().lowPriorityWork,
+  })
 
   async function browserApp(ref: string, caller: Caller, app?: BrowserAppRef) {
     const { task } = runnableApps(ref, caller)
@@ -10577,6 +10587,7 @@ export function createTasks(options: {
       closed = true
       browser.close()
       browserApps.clear()
+      runBrowsers.closeAll()
       subAgents.close()
       heldRequests.close()
       leadLifecycle.close()
@@ -10598,6 +10609,8 @@ export function createTasks(options: {
       return (await browserApp(ref, caller, app)).app
     },
     async browserCommand(ref, caller, request) {
+      if (runOnlyBrowserActions.includes(request.action))
+        throw new RequestError(400, `${request.action} works only in an Automation Run’s browser`)
       const { task, app } = await browserApp(ref, caller, request.app)
       if (store.newWorkHold() !== undefined) throw new RequestError(507, 'New work is on hold')
       const result = await browser.request({
@@ -10723,6 +10736,7 @@ export function createTasks(options: {
     },
     async stopRunApp(runId, caller, app) {
       await ownedRun(runId, caller)
+      runBrowsers.close(runId, app)
       return apps.stop(runId, app)
     },
     async showRunApp(runId, caller, app) {
@@ -10734,7 +10748,53 @@ export function createTasks(options: {
       return apps.log(runId, app)
     },
     stopRunApps(runId) {
+      runBrowsers.close(runId)
       return apps.stopTask(runId)
+    },
+    async runBrowserCommand(runId, caller, request) {
+      await ownedRun(runId, caller)
+      if (caller.kind !== 'run')
+        throw new RequestError(403, 'Only the Automation’s Run uses its browser')
+      if (runAppOwner?.live(runId) !== true) throw new RequestError(409, 'This Run has ended')
+      if (store.newWorkHold() !== undefined) throw new RequestError(507, 'New work is on hold')
+      const selected = request.app ?? runBrowsers.opened(runId)
+      if (!selected) throw new RequestError(409, 'Open a web App with ted browser open first')
+      const matches = (await apps.list(runId)).filter(
+        (a) =>
+          a.name === selected.name && (selected.repo === undefined || a.repo === selected.repo),
+      )
+      const shown = matches.length === 1 ? matches[0] : undefined
+      if (
+        shown?.kind !== 'web' ||
+        shown.state !== 'running' ||
+        !shown.url ||
+        shown.removed ||
+        !isLoopbackUrl(shown.url)
+      )
+        throw new RequestError(409, 'Choose a running web App this Run started, and its repo')
+      const { capture, ...result } = await runBrowsers.command(runId, shown, request)
+      if (!capture) return result
+      if (!options.saveAttachment) throw new RequestError(503, 'TED can’t save files here')
+      const dir = path.join(path.dirname(worktreesDir), 'browsers')
+      const file = path.join(dir, `capture-${randomUUID()}.png`)
+      await writeFile(file, capture, { mode: 0o600 })
+      const attachment = await options
+        .saveAttachment(file, `${shown.name} screenshot.png`, 'image/png')
+        .finally(() => rm(file, { force: true }))
+      store.automations.recordBrowserCapture(runId, attachment)
+      await store.persisted()
+      automationUploads.add(`${runId}:${attachment.hash}`)
+      return { ...result, attachment }
+    },
+    runBrowserCapture(runId, caller, hash) {
+      if (caller.kind === 'run' && caller.runId !== runId)
+        throw new RequestError(403, 'A Run can reach only its own browser')
+      const capture = store.automations
+        .browserCaptures([runId])
+        .get(runId)
+        ?.find((c) => c.hash === hash)
+      if (!capture) throw new RequestError(404, 'No browser capture on this Run')
+      return capture
     },
     stopApp(ref, app) {
       browser.cancel(find(ref).id, app)

@@ -70,7 +70,7 @@ export async function stage(): Promise<string> {
         author: 'Kriya Design',
         license: 'UNLICENSED',
         type: 'module',
-        main: 'packages/app/src/main.js',
+        main: 'packages/app/src/entry.js',
         dependencies,
       },
       null,

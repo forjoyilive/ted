@@ -6,7 +6,7 @@ TED Dev accepts every hook, including unknown names. Release accepts only explic
 
 ## Release inputs
 
-The authoritative reasons for individual inputs are beside their entries in `tedEnvironment`. They cover the shared home, Task/Run/Planning/Automation/Factory context, Run capability authentication (including the older token name), the installed app executable, simulator context, the `TED_SANDBOX` marker on commands run in TED’s OS sandbox, and Linux inherited-descriptor cleanup. Generated App port and URL names carry each Task’s actual running App addresses to its commands; they are process context, rather than overrides of TED’s services.
+The authoritative reasons for individual inputs are beside their entries in `tedEnvironment`. They cover the shared home, Task/Run/Planning/Automation/Factory context, Run capability authentication (including the older token name), the installed app executable, simulator context, the `TED_SANDBOX` marker on commands run in TED’s OS sandbox, the profile folder the daemon gives an Automation Run’s headless browser (`TED_BROWSER_PROFILE`), and Linux inherited-descriptor cleanup. Generated App port and URL names carry each Task’s actual running App addresses to its commands; they are process context, rather than overrides of TED’s services.
 
 `TED_HOME` remains a supported home override. `TED_APP_EXECUTABLE` remains the path the installed CLI uses to open the app. These inputs are intentionally retained, so this policy does not make all launch-time environment inputs trusted. Existing capability checks and descriptor identity checks still apply.
 
@@ -31,6 +31,7 @@ The authoritative reasons for individual inputs are beside their entries in `ted
 | `TED_NOTIFY_LOG`, `TED_NOTIFY_STATUS` | Record or disable notifications and badges. |
 | `TED_LOGIN_SHELL`, `TED_STAY_AWAKE`, `TED_TIME_MACHINE` | Disable login-shell loading, sleep prevention or backup exclusions during tests. |
 | `TED_EDITOR_APP_DIRS` | Substitute the folders searched for editor bundles. |
+| `TED_ELECTRON_BIN` | The Electron executable a daemon running on plain Node starts as an Automation Run’s headless browser. Under Electron the daemon uses its own executable. |
 | `TED_DEMO`, `TED_DEMO_STARTED`, `TED_STUB_GH`, `TED_STUB_XCRUN` | Prepare the isolated Dev demo and select its local fixture state; ignored in release. |
 
 Inside TED’s sandbox, `TED_SANDBOX=1` also changes this repo’s test tooling (ADR 0147): `vitest.config.ts` points `TED_SANDBOX_BIN` at `packages/daemon/test/fixtures/pass-through-sandbox.sh`, because a second sandbox can’t start inside the first, and on macOS prints `TED_SANDBOX_SKIPPED: the Electron app tests`, which a Scheduled Check shows in its result; `testCacheDir` in `packages/daemon/test/support/suite-lock.ts` keeps test locks, slots and the failure log in `$XDG_CACHE_HOME/ted`, which the sandbox points at the command’s own cache folder.

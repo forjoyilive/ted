@@ -1179,6 +1179,17 @@ export class DaemonClient {
     )
   }
 
+  runBrowserCommand(runId: string, request: BrowserRequest): Promise<BrowserResult> {
+    return this.#request('POST', `/runs/${encodeURIComponent(runId)}/browser`, request)
+  }
+
+  readRunBrowserCapture(runId: string, hash: string): Promise<AttachmentBytes> {
+    return this.#request(
+      'GET',
+      `/runs/${encodeURIComponent(runId)}/browser/captures/${encodeURIComponent(hash)}`,
+    )
+  }
+
   browserCommand(ref: string, request: BrowserRequest): Promise<BrowserResult> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/browser`, request)
   }

@@ -4,6 +4,7 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_APP_EXECUTABLE: 'Installed app executable used by the CLI to open TED.',
   TED_APP_TOKEN: false,
   TED_AUTOMATION: 'Automation context for CLI task creation.',
+  TED_BROWSER_PROFILE: 'Profile folder the daemon gives an Automation Run’s headless browser.',
   TED_CLAUDE_BIN: false,
   TED_CODEX_BIN: false,
   TED_ANTIGRAVITY_BIN: false,
@@ -14,6 +15,7 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_STUB_GH: false,
   TED_STUB_XCRUN: false,
   TED_EDITOR_APP_DIRS: false,
+  TED_ELECTRON_BIN: false,
   TED_EXECUTION_CRASH_AT: false,
   TED_EXECUTION_HOME:
     'Isolated execution-worker storage, separate from independent TED homes and credentials.',
