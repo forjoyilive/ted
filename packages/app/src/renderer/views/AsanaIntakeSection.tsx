@@ -73,7 +73,7 @@ function usePagedList(
     }
   }, [fetchPage])
   const current: Omit<PagedList, 'more'> =
-    state.key === key ? state : { items: [], loading: !!load }
+    load && state.key === key ? state : { items: [], loading: !!load }
   return {
     ...current,
     more: () => {
@@ -123,7 +123,7 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
     { state: 'connected' } | { state: 'not-connected' } | { state: 'error'; error: string }
   >()
   const connected = connection === undefined ? undefined : connection.state === 'connected'
-  const [check, setCheck] = useState<AsanaIntakeCheck>()
+  const [checked, setChecked] = useState<{ key: string; value: AsanaIntakeCheck }>()
   const [saveError, setSaveError] = useState<string>()
   const [saving, setSaving] = useState(false)
   const [retry, setRetry] = useState(0)
@@ -136,7 +136,6 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
     void retry
     void scopeKey
     let live = true
-    setCheck(undefined)
     void ted
       .getAsana()
       .then(async (status) => {
@@ -152,11 +151,15 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
               : { state: 'not-connected' },
         )
         if (status.state !== 'connected') return
-        const checked = await ted.checkFactoryAsanaIntake(factoryId)
-        if (live) setCheck(checked)
+        const answer = await ted.checkFactoryAsanaIntake(factoryId)
+        if (live) setChecked({ key: scopeKey, value: answer })
       })
       .catch((failure: unknown) => {
-        if (live) setCheck({ state: 'unreadable', reason: readableError(failure) })
+        if (live)
+          setChecked({
+            key: scopeKey,
+            value: { state: 'unreadable', reason: readableError(failure) },
+          })
       })
     return () => {
       live = false
@@ -175,6 +178,7 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
     (offset?: string) => ted.listAsanaSections(projectGid ?? '', offset),
     [projectGid],
   )
+  const check = checked?.key === scopeKey ? checked.value : undefined
   const stale = check?.state === 'stale' ? check : undefined
   const staleNow = stale !== undefined && staleIn(choice, saved, stale.part)
   const staleWorkspace = staleNow && stale?.part === 'workspace'
@@ -182,11 +186,11 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
   const ready = connected === true && choice.on
   const workspaces = usePagedList(ready ? loadWorkspaces : undefined, listKey)
   const projects = usePagedList(
-    ready && workspaceGid && !staleWorkspace ? loadProjects : undefined,
+    ready && checked && workspaceGid && !staleWorkspace ? loadProjects : undefined,
     `${listKey}:${workspaceGid}`,
   )
   const sections = usePagedList(
-    ready && projectGid && !staleProject ? loadSections : undefined,
+    ready && checked && projectGid && !staleProject ? loadSections : undefined,
     `${listKey}:${projectGid}`,
   )
   const listError = workspaces.error ?? projects.error ?? sections.error

@@ -226,3 +226,27 @@ test('an Asana connection error shows its reason and can be tried again', async 
   await user().click(screen.getByRole('button', { name: 'Try again' }))
   await waitFor(() => expect(select('Project').value).toBe('9'))
 })
+
+test('a stale check that answers after the lists shows no read error and leaves Project usable', async () => {
+  const check = deferred<AsanaIntakeCheck>()
+  const { request } = setup(saved, {
+    checkFactoryAsanaIntake: () => check.promise,
+    listAsanaProjects: () => ({ items: [{ gid: '8', name: 'Other' }] }),
+    listAsanaSections: () => {
+      throw new Error(
+        'Couldn’t read Asana: Asana couldn’t find it. The saved choice stays as it was.',
+      )
+    },
+  })
+  await waitFor(() => expect(within(select('Workspace')).getByText('Acme')).toBeTruthy())
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const listed = (name: string) => request.mock.calls.some(([called]) => called === name)
+  expect(listed('listAsanaProjects')).toBe(false)
+  expect(listed('listAsanaSections')).toBe(false)
+  check.resolve({ state: 'stale', part: 'project', reason: 'Roadmap is archived' })
+  await screen.findByText(/The saved project is out of date/)
+  await waitFor(() => expect(within(select('Project')).getByText('Other')).toBeTruthy())
+  expect(select('Project').disabled).toBe(false)
+  expect(listed('listAsanaSections')).toBe(false)
+  expect(screen.queryByText(/Couldn’t read Asana/)).toBeNull()
+})
