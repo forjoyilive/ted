@@ -18,6 +18,7 @@ import { tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { Clock } from '../src/clock.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { loadRunTokens } from '../src/run-token.ts'
 import { openStore } from '../src/store/index.ts'
 import { stubKeyring, stubKeyringFile } from './fixtures/stub-keyring.ts'
 import { startStubLinear } from './fixtures/stub-linear.ts'
@@ -329,6 +330,8 @@ describe('Automations', () => {
     )
     const source = 'https://github.com/acme/widgets/tree/main/src/parser'
     const other = 'https://github.com/acme/widgets/blob/main/src/queue.ts'
+    await writeFile(path.join(scratch, 'before.png'), 'before')
+    await writeFile(path.join(scratch, 'after.png'), 'after')
     const automation = await create(client, {
       template: template.id,
       name: template.name,
@@ -343,6 +346,10 @@ describe('Automations', () => {
             source,
             '--description',
             'Evidence at abc123; verify through the parser API.',
+            '--attach',
+            path.join(scratch, 'before.png'),
+            '--attach',
+            path.join(scratch, 'after.png'),
             'Deepen the parser boundary',
           ],
         },
@@ -379,6 +386,32 @@ describe('Automations', () => {
       'the architecture review to finish',
     )
     expect((await detail(client, blocker.id)).automation.now?.kind).toBe('working')
+    const attached = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.displayId === 'NB-1')
+    expect(attached?.attachments.map((a) => [a.name, a.mediaType])).toEqual([
+      ['before.png', 'image/png'],
+      ['after.png', 'image/png'],
+    ])
+    const slots = await client.ok<RunSlots>('GET', '/slots')
+    const [blockerRun = ''] = slots.holders.flatMap((h) =>
+      h.kind === 'automation' && h.automationId === blocker.id ? [h.runId] : [],
+    )
+    const otherRun = api(
+      daemon?.port ?? 0,
+      (await loadRunTokens(tedPaths(home).runTokenKey)).issue(blockerRun),
+    )
+    expect(
+      await otherRun.call('POST', '/tasks', {
+        title: 'Borrowed files',
+        attachments: attached?.attachments,
+      }),
+      'another Automation Run naming files it didn’t upload',
+    ).toEqual({
+      status: 403,
+      body: {
+        error:
+          'before.png wasn’t uploaded by this Run; attach your own files with ted task create --attach',
+      },
+    })
     await release()
     const tasks = await client.ok<Task[]>('GET', '/tasks')
     expect(tasks).toHaveLength(2)

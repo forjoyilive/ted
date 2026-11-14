@@ -557,6 +557,7 @@ export interface Tasks {
     },
   ): Promise<Comment>
   upload(ref: string, caller: Caller, save: () => Promise<Attachment>): Promise<Attachment>
+  uploadForCreate(caller: Caller, save: () => Promise<Attachment>): Promise<Attachment>
   taskGates(ref: string): Promise<TaskGates>
   setTaskAutopilot(ref: string, caller: Caller, request: SetTaskAutopilotRequest): Promise<Task>
   answerAutopilot(ref: string, id: string, caller: Caller, request: AnswerRequest): Promise<Comment>
@@ -741,6 +742,7 @@ export function createTasks(options: {
   const humanWaitMs = 15_000
   const stoppingForBlockers = new Set<string>()
   const runUploads = new Set<string>()
+  const automationUploads = new Set<string>()
   const checkOwnFiles = (task: StoredTask, files: readonly Attachment[]) => {
     const known = new Set(store.taskFiles(task.id).map((a) => a.hash))
     const foreign = files.find((a) => !known.has(a.hash) && !runUploads.has(`${task.id}:${a.hash}`))
@@ -7665,6 +7667,12 @@ export function createTasks(options: {
     }
   }
 
+  const isAsanaSource = (
+    sourceUrl: string | undefined,
+    parentRef: string | undefined,
+  ): sourceUrl is string =>
+    sourceUrl !== undefined && parseAsanaTaskUrl(sourceUrl) !== undefined && parentRef === undefined
+
   const runsInBypass = (resolution: WorkflowResolution | undefined) =>
     resolution?.workflow.settings.permissions === 'bypass'
 
@@ -9163,6 +9171,19 @@ export function createTasks(options: {
         throw new RequestError(400, 'a follow-up Task can’t be created under a parent')
       }
       const automation = automationCaller(caller)
+      const files = fields.attachments ?? []
+      if (files.length > 0 && (followUp !== undefined || isAsanaSource(sourceUrl, parentRef))) {
+        throw new RequestError(400, 'files can’t be attached to a Follow-up or an Asana import')
+      }
+      if (caller.kind === 'run') {
+        const foreign = files.find((a) => !automationUploads.has(`${caller.runId}:${a.hash}`))
+        if (foreign) {
+          throw new RequestError(
+            403,
+            `${foreign.name} wasn’t uploaded by this Run; attach your own files with ted task create --attach`,
+          )
+        }
+      }
       const key = automation?.factoryKey ?? givenKey
       if (automation && givenKey !== undefined && givenKey !== automation.factoryKey) {
         throw new RequestError(
@@ -9183,7 +9204,7 @@ export function createTasks(options: {
           linearConsent: caller.kind === 'app',
         })
       }
-      if (sourceUrl !== undefined && parseAsanaTaskUrl(sourceUrl) && parentRef === undefined) {
+      if (isAsanaSource(sourceUrl, parentRef)) {
         const imported = await importAsana(
           {
             url: sourceUrl,
@@ -9564,6 +9585,14 @@ export function createTasks(options: {
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
+    },
+
+    async uploadForCreate(caller, save) {
+      if (caller.kind !== 'run') return save()
+      automationCaller(caller)
+      const saved = await save()
+      automationUploads.add(`${caller.runId}:${saved.hash}`)
+      return saved
     },
 
     async upload(ref, caller, save) {

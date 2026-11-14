@@ -148,6 +148,14 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     return mediaTypes[path.extname(file).toLowerCase()] ?? 'application/octet-stream'
   }
 
+  async function fileContents(file: string) {
+    return {
+      name: path.basename(file),
+      mediaType: mediaTypeOf(file),
+      bytes: new Uint8Array(await readFile(file)),
+    }
+  }
+
   const stageName = (stage: string) => stage.charAt(0).toUpperCase() + stage.slice(1)
 
   async function taskRepos(action: 'set' | 'add' | 'remove', names: string[]): Promise<void> {
@@ -1075,13 +1083,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (files.length > 0 && choices.length > 0) {
         throw new UsageError('a question can’t carry files; post them in a note first')
       }
-      const contents = await Promise.all(
-        files.map(async (file) => ({
-          name: path.basename(file),
-          mediaType: mediaTypeOf(file),
-          bytes: new Uint8Array(await readFile(file)),
-        })),
-      )
+      const contents = await Promise.all(files.map(fileContents))
       const comment = await withDaemon(home, async (client) => {
         const attachments = []
         for (const { bytes, ...file } of contents) {
@@ -1340,6 +1342,10 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       const { factory, source, start, description } = options
       const followUp = options['follow-up']
       const sentryId = options['sentry-id']
+      const files = options.attach ?? []
+      if (files.length > 0 && (followUp !== undefined || (source && parseAsanaTaskUrl(source)))) {
+        throw new UsageError('files can’t be attached to a Follow-up or an Asana import')
+      }
       if (source !== undefined && parseAsanaTaskUrl(source) && followUp === undefined) {
         const request = {
           url: source,
@@ -1360,7 +1366,12 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       }
       if (options['dry-run'] === true)
         throw new UsageError('--dry-run works only with an Asana task URL as --source')
+      const contents = await Promise.all(files.map(fileContents))
       const task = await withDaemon(home, async (client) => {
+        const attachments = []
+        for (const { bytes, ...file } of contents) {
+          attachments.push(await client.uploadAttachment(file, bytes))
+        }
         if (source !== undefined && parseLinearUrl(source) && !runTokenFrom(env)) {
           const lookup = await client.lookupLinear(source)
           if (lookup.state === 'no-key') {
@@ -1379,6 +1390,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
           ...(description !== undefined && { description }),
           ...(followUp !== undefined && { followUp }),
           ...(start !== undefined && { start }),
+          ...(attachments.length > 0 && { attachments }),
         })
       })
       console.log(`Created ${task.displayId}  ${printable(task.title)}`)

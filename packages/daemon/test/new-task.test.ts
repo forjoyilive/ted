@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   type Attachment,
-  type DaemonClient,
+  DaemonClient,
   DaemonRequestError,
   type Factory,
   type NewTaskDraft,
@@ -268,14 +268,17 @@ describe('creating a Task from the New Task dialog', () => {
 })
 
 describe('attachments', () => {
-  test('are stored by content hash, once, and listed on the Task', async () => {
+  test('are stored by content hash, once, and listed on the Task, from the app or the terminal', async () => {
     const { client } = await withFactory()
+    const info = await readDaemonInfo(home)
+    if (!info) throw new Error('no daemon.json')
+    const terminal = new DaemonClient(info)
 
     const first = await client.uploadAttachment(
       { name: 'notes.txt', mediaType: 'text/plain' },
       bytes('hello'),
     )
-    const again = await client.uploadAttachment(
+    const again = await terminal.uploadAttachment(
       { name: 'notes.txt', mediaType: 'text/plain' },
       bytes('hello'),
     )
@@ -284,6 +287,12 @@ describe('attachments', () => {
       description: 'With a file',
       attachments: [first],
     })
+    const fromTerminal = await terminal.createTask({
+      factory: 'NB',
+      description: 'From the terminal',
+      attachments: [again],
+    })
+    expect(fromTerminal.attachments).toEqual([first])
 
     const hash = createHash('sha256').update('hello').digest('hex')
     expect(first).toEqual<Attachment>({ hash, name: 'notes.txt', size: 5, mediaType: 'text/plain' })

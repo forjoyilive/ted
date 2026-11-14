@@ -232,7 +232,12 @@ export const taskRoutes: Route[] = [
   {
     method: 'POST',
     path: /^\/attachments$/,
-    handle: async ({ req }, { attachments }) => [201, await attachments.save(req)],
+    fileToken: true,
+    runToken: true,
+    handle: async ({ req, caller }, { tasks, attachments }) => [
+      201,
+      await tasks.uploadForCreate(caller, () => attachments.save(req)),
+    ],
   },
   {
     method: 'GET',
