@@ -13,10 +13,10 @@ One repo, `forjoyilive/ted`: a pnpm workspace on Node 24.
 
 ## Running it locally
 
-- GitHub CI runs Typecheck and Lint automatically on pull requests and pushes to `main`; the full suite never runs on GitHub. Agents never start GitHub workflows. Local testing follows `AGENTS.md`.
+- Nothing runs on GitHub when a pull request opens or `main` changes: the CI workflow (typecheck and lint) runs only when the human starts it by hand, and the full suite never runs there. Agents never start GitHub workflows. Local testing follows `AGENTS.md` and [This repo’s test tooling](../docs/testing/test-tooling.md).
 - `pnpm install`, then `pnpm typecheck` and `pnpm lint`. This Factory’s Stage files reserve tests for the Task Lead in Validate: the test files the change touches, with `pnpm vitest run <files>`. No other Stage and no sub-agent runs test files. Never run `pnpm test`, `pnpm check` or a whole test folder: this repo’s test helpers refuse a Run’s test run of more than 3 files, because every test run makes other Runs wait. See [Factory validation](../docs/testing/factory-validation.md) when choosing validation rules for another Factory.
 - `pnpm app` builds the renderer and opens TED Dev from source; `pnpm ted <args>` runs the CLI from source.
-- Agents don’t run `ted run-app "TED Dev"`: an agent’s App runs in TED’s sandbox, where Electron can’t open, so `pnpm app` refuses there. To see the app, write a script that uses `withApp` from `packages/app/scripts/with-app.ts`, or extend an app test. The human can still start TED Dev with ▶.
+- TED Dev is an Electron App in `.ted/workflow.yaml` (`electron: true`), so `ted run-app "TED Dev"` starts it hidden inside TED’s sandbox. Plain `pnpm app` refuses in the sandbox, because Electron can’t open there. To drive the app from a script, use `withApp` from `packages/app/scripts/with-app.ts`, or extend an app test. The human can also start TED Dev with ▶.
 - For isolated CLI trials, use `env -u TED_RUN_CAPABILITY -u TED_RUN_TOKEN -u TED_RUN -u TED_TASK -u TED_PLAN TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm ted <args>`. Keep TED’s Task-control commands in the normal Run environment.
 - In a Task, always set `TED_HOME` to the Task’s own folder, `node_modules/.cache/ted-home` in the worktree, which the TED Dev App already uses. Never use `~/.ted` (the installed TED that runs this Factory) or `~/.ted-dev`.
 

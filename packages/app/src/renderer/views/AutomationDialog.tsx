@@ -154,7 +154,7 @@ export function AutomationDialog({
     } else if (choice === 'check') {
       setName('Nightly full test run')
       setPrompt('')
-      setCommand('pnpm check')
+      setCommand('')
       setDraft(draftOf(checkSchedule))
       setCheckout(false)
     } else if (chosen) {
@@ -389,7 +389,7 @@ export function AutomationDialog({
               className={styles.input}
               aria-invalid={checkError !== undefined && command.trim() === ''}
               spellCheck={false}
-              placeholder="pnpm check"
+              placeholder="npm test"
               value={command}
               onChange={(event) => setCommand(event.target.value)}
             />
