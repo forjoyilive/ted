@@ -213,8 +213,29 @@ describe('the app menu holds every menu-bar item', () => {
       })
       if (platform === 'darwin') {
         const names = menu.flatMap((e) => (e.type === 'submenu' ? [e.label] : []))
-        expect(names.slice(-3)).toEqual(['Edit', 'Go', 'Window'])
+        expect(names.slice(-4)).toEqual(['Edit', 'Go', 'Window', 'Help'])
       }
+    },
+  )
+
+  test.each(['darwin', 'linux'] as const)(
+    'on %s, a Help menu opens the shortcuts screen and reports a problem',
+    (platform) => {
+      const menu = appMenu(platform, state, now)
+
+      expect(menu.at(-1)).toMatchObject({
+        type: 'submenu',
+        label: 'Help',
+        role: 'help',
+        submenu: [
+          {
+            label: 'Keyboard shortcuts',
+            command: { kind: 'shortcuts' },
+            accelerator: 'CmdOrCtrl+/',
+          },
+          { label: 'Report a problem', command: { kind: 'report-problem' } },
+        ],
+      })
     },
   )
 

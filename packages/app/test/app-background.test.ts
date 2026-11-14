@@ -42,6 +42,21 @@ describe('running in the background', () => {
       return menu ? walk(menu) : []
     })
 
+  const clickMenuItem = (label: string) =>
+    (ctx.app as ElectronApplication).evaluate(({ Menu }, wanted) => {
+      const find = (menu: Electron.Menu): Electron.MenuItem | undefined => {
+        for (const item of menu.items) {
+          const found = item.label === wanted ? item : item.submenu && find(item.submenu)
+          if (found) return found
+        }
+        return undefined
+      }
+      const menu = Menu.getApplicationMenu()
+      const item = menu && find(menu)
+      if (!item) throw new Error(`no menu item ${wanted}`)
+      item.click()
+    }, label)
+
   test('closing the window keeps TED running, and the window still gets updates', async () => {
     const window = await launchApp()
     await openAllTasks(window)
@@ -114,20 +129,11 @@ describe('running in the background', () => {
       ).toBe('TED Dev (1)')
     }
 
-    await ctx.app?.evaluate(({ Menu }) => {
-      const find = (menu: Electron.Menu): Electron.MenuItem | undefined => {
-        for (const item of menu.items) {
-          const found = item.label === 'Settings…' ? item : item.submenu && find(item.submenu)
-          if (found) return found
-        }
-        return undefined
-      }
-      const menu = Menu.getApplicationMenu()
-      const settings = menu && find(menu)
-      settings?.click()
-    })
-
+    await clickMenuItem('Settings…')
     await window.getByRole('radiogroup', { name: 'Appearance' }).waitFor()
+
+    await clickMenuItem('Keyboard shortcuts')
+    await window.getByRole('dialog', { name: 'Keyboard shortcuts' }).waitFor()
   })
 
   const loginLog = () => path.join(ctx.home, 'login-item.log')

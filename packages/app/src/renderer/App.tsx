@@ -691,6 +691,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       })
     }
     if (command.kind === 'new-task') openNewTask()
+    if (command.kind === 'shortcuts') setSheetOpen(true)
     if (command.kind === 'open-task') {
       dispatch({ type: 'open-task', taskId: command.taskId, factoryId: command.factoryId })
     }

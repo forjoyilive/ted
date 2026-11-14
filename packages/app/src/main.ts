@@ -27,6 +27,7 @@ import {
   isLoopbackUrl,
   linearKeyPage,
   type MachineSettings,
+  newIssueUrl,
   noActivity,
   parseAsanaTaskUrl,
   parseLinearUrl,
@@ -586,8 +587,15 @@ const notificationsPane =
 function run(command: MenuCommand): void {
   if (command.kind === 'quit') return void requestQuit()
   if (command.kind === 'restart-to-update') return void restartToUpdate()
+  if (command.kind === 'report-problem') return void reportProblem()
   showWindow()
   if (command.kind !== 'open-ted') sendToRenderer({ type: 'menu-command', command })
+}
+
+async function reportProblem(): Promise<void> {
+  const report = await client?.getReport().catch(() => undefined)
+  if (report) clipboard.writeText(report.text)
+  await shell.openExternal(newIssueUrl)
 }
 
 function toElectron(entries: MenuEntry[]): MenuItemConstructorOptions[] {
@@ -597,7 +605,11 @@ function toElectron(entries: MenuEntry[]): MenuItemConstructorOptions[] {
     if (entry.type === 'submenu') {
       return entry.submenu.length === 0 && entry.role !== undefined
         ? { role: entry.role }
-        : { label: entry.label, submenu: toElectron(entry.submenu) }
+        : {
+            label: entry.label,
+            ...(entry.role === 'help' && { role: 'help' }),
+            submenu: toElectron(entry.submenu),
+          }
     }
     const { command, dot } = entry
     return {

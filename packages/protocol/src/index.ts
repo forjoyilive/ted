@@ -653,7 +653,7 @@ export {
   planProposal,
   proposalCycle,
 } from './proposal.ts'
-export { downloadUrl, releaseRepo, releasesUrl } from './release.ts'
+export { downloadUrl, newIssueUrl, releaseRepo, releasesUrl } from './release.ts'
 export {
   type AgentKind,
   agentKinds,

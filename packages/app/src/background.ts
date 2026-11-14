@@ -25,6 +25,8 @@ export type MenuCommand =
   | { kind: 'banner'; bannerId: string }
   | { kind: 'open-task'; taskId: string; factoryId: string }
   | { kind: 'restart-to-update' }
+  | { kind: 'shortcuts' }
+  | { kind: 'report-problem' }
   | { kind: 'quit' }
 
 export type MenuRole =
@@ -38,6 +40,7 @@ export type MenuRole =
   | 'zoom'
   | 'editMenu'
   | 'windowMenu'
+  | 'help'
 
 export type MenuEntry =
   | { type: 'separator' }
@@ -107,6 +110,15 @@ const go = (): MenuEntry => ({
     item('All Tasks', { kind: 'open-all-tasks' }, 'CmdOrCtrl+Shift+A'),
   ],
 })
+const help = (): MenuEntry => ({
+  type: 'submenu',
+  label: 'Help',
+  role: 'help',
+  submenu: [
+    item('Keyboard shortcuts', { kind: 'shortcuts' }, 'CmdOrCtrl+/'),
+    item('Report a problem', { kind: 'report-problem' }),
+  ],
+})
 
 function statusLines(
   { activity, waiting, banners, updateReady }: MenuState,
@@ -136,7 +148,12 @@ const role = (name: MenuRole): MenuEntry => ({ type: 'role', role: name })
 export function appMenu(platform: Platform, state: MenuState, now: Date = new Date()): MenuEntry[] {
   const edit: MenuEntry = { type: 'submenu', label: 'Edit', role: 'editMenu', submenu: [] }
   if (platform !== 'darwin') {
-    return [{ type: 'submenu', label: appName, submenu: statusMenu(state, now) }, edit, go()]
+    return [
+      { type: 'submenu', label: appName, submenu: statusMenu(state, now) },
+      edit,
+      go(),
+      help(),
+    ]
   }
   return [
     {
@@ -169,6 +186,7 @@ export function appMenu(platform: Platform, state: MenuState, now: Date = new Da
       role: 'windowMenu',
       submenu: sections(...statusLines(state, now), [openTed()], [role('minimize'), role('zoom')]),
     },
+    help(),
   ]
 }
 
