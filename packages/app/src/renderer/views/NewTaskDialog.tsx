@@ -66,6 +66,7 @@ export function NewTaskDialog({
   const [factory, setFactory] = useState(
     () => factories.find((f) => f.id === factoryId)?.id ?? factories[0]?.id,
   )
+  const [carried, setCarried] = useState<NewTaskDraft>()
   return (
     <NewTaskForm
       key={factory ?? ''}
@@ -74,11 +75,13 @@ export function NewTaskDialog({
       factoryId={factory}
       initialDescription={seed}
       {...(parentSeed !== undefined && { parentId: parentSeed })}
+      {...(carried && { carried })}
       onClose={onClose}
       {...(onOpenTask && { onOpenTask })}
-      onFactory={(id) => {
+      onFactory={(id, draft) => {
         setSeed('')
         setParentSeed(undefined)
+        setCarried(draft)
         setFactory(id)
       }}
     />
@@ -91,10 +94,14 @@ function NewTaskForm({
   factoryId: factory,
   initialDescription = '',
   parentId,
+  carried,
   onClose,
   onOpenTask,
   onFactory,
-}: NewTaskDialogProps & { onFactory: (id: string) => void }) {
+}: NewTaskDialogProps & {
+  carried?: NewTaskDraft
+  onFactory: (id: string, draft: NewTaskDraft) => void
+}) {
   const dialog = useRef<HTMLDialogElement>(null)
   const descriptionField = useRef<HTMLTextAreaElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -223,7 +230,7 @@ function NewTaskForm({
   useEffect(() => {
     let active = true
     mounted.current = true
-    session.load().then(
+    session.load(carried).then(
       () => {
         if (!active) return
         if (parentId !== undefined) session.update({ parent: parentId })
@@ -256,7 +263,7 @@ function NewTaskForm({
       mounted.current = false
       lookups.current++
     }
-  }, [session, initialDescription, parentId, lookUp])
+  }, [session, carried, initialDescription, parentId, lookUp])
 
   useEffect(() => {
     dialog.current?.showModal()
@@ -438,6 +445,19 @@ function NewTaskForm({
     }
   }
 
+  async function changeFactory(next: string) {
+    if (busy) return
+    try {
+      await Promise.all([...uploads.current])
+      await session.flush()
+      const draft = await session.moveOut()
+      setDraftError(undefined)
+      onFactory(next, { ...draft, parent: undefined, blockedBy: [] })
+    } catch (failure) {
+      setDraftError(`Couldn’t save the draft: ${readableError(failure)}`)
+    }
+  }
+
   async function create(more: boolean) {
     if (!canCreate || submitting.current) return
     submitting.current = true
@@ -596,10 +616,7 @@ function NewTaskForm({
           aria-label="Factory"
           value={factory ?? ''}
           disabled={factories.length === 0 || !ready || busy || uploading > 0}
-          onChange={(event) => {
-            const next = event.target.value
-            return close(() => onFactory(next))
-          }}
+          onChange={(event) => changeFactory(event.target.value)}
         >
           {factories.length === 0 && <option value="">No Factories yet</option>}
           {factories.map((f) => (
