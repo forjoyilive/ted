@@ -103,6 +103,7 @@ const view: FactorySettingsView = {
   ],
   ignoredStageFiles: [],
   checks: [{ was: 0, name: 'Typecheck', run: 'npm run typecheck' }],
+  cleanup: { enabled: false, steps: [] },
   tries: [],
   agents: [
     { role: 'lead', inherited: { agent: 'claude' }, inheritedFrom: 'ted', from: 'ted' },
@@ -143,6 +144,41 @@ describe('Factory settings draft', () => {
     expect([...unsavedSections(draft, loaded)]).toEqual(['workflow', 'checks'])
     expect([...unsavedSections(settingsDraft(view), loaded)]).toEqual([])
     expect([...stageEdited(draft, loaded, 'review')]).toEqual(['file'])
+  })
+
+  test('turning Cleanup on with two steps sends cleanup and counts each edit in workflow.yaml', () => {
+    const loaded = settingsDraft(view)
+    const draft = settingsDraft(view)
+    draft.cleanup = {
+      enabled: true,
+      steps: [
+        {
+          name: ' Tell Asana ',
+          kind: 'instruction',
+          instruction: 'Comment.',
+          command: 'x',
+          timeout: '',
+        },
+        {
+          name: 'Stop stack',
+          kind: 'command',
+          instruction: 'kept',
+          command: 'make down',
+          timeout: '2m',
+        },
+      ],
+    }
+    expect(settingsChanges(draft, loaded).cleanup).toEqual({
+      enabled: true,
+      steps: [
+        { name: 'Tell Asana', instruction: 'Comment.' },
+        { name: 'Stop stack', command: 'make down', timeout: '2m' },
+      ],
+    })
+    expect(unsavedChanges(draft, loaded)).toEqual({ count: 3, files: ['.ted/workflow.yaml'] })
+    expect([...unsavedSections(draft, loaded)]).toEqual(['cleanup'])
+    draft.cleanup = { enabled: false, steps: [] }
+    expect(settingsChanges(draft, loaded).cleanup).toBeUndefined()
   })
 
   test('Keep mine sends keepStageFiles and counts as a workflow.yaml change', () => {

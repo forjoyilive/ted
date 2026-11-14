@@ -11,6 +11,7 @@ import {
   agentStageIds,
   type CheckView,
   type ClarifyDepth,
+  type CleanupSettingsInput,
   type DaemonEvent,
   type DiffLine,
   type Effort,
@@ -60,6 +61,7 @@ import {
   type CheckedLayer,
   checkLayer,
   githubRepoOf,
+  isCommandStep,
   type LayerFiles,
   maxFactoryRepos,
   type WorkflowSettings,
@@ -585,6 +587,19 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         ...(c.repo !== undefined && { repo: c.repo }),
         ...(c.timeout !== undefined && { timeout: c.timeout }),
       }))
+      const cleanupStage = base.settings?.stages.cleanup
+      const cleanup: CleanupSettingsInput = {
+        enabled: cleanupStage?.enabled === true,
+        steps: (cleanupStage?.steps ?? []).map((step) =>
+          isCommandStep(step)
+            ? {
+                name: step.name,
+                command: step.command,
+                ...(step.timeout !== undefined && { timeout: step.timeout }),
+              }
+            : { name: step.name, instruction: step.instruction },
+        ),
+      }
       const notes = base.files['notes.md']
       const problem = await invalid(factory, base)
       return {
@@ -601,6 +616,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
           .filter((name) => name.startsWith('stages/') && !knownFile(name))
           .map((name) => `.ted/${name}`),
         checks,
+        cleanup,
         tries: await options.checkTries.list(factory.id),
         agents: agentRows(base),
         permissions: factoryPermissions(store, factory.id),

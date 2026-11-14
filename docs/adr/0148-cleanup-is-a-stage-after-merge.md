@@ -20,4 +20,4 @@ TED moved a Task to Done as soon as its last pull request merged, and Done stops
 ## Consequences
 
 - A merged Task can sit in Cleanup with a live Task Lead and its worktree, so anything that asks whether a Task is merged must decide whether Cleanup counts; `isMerged` says yes, `stage === 'done'` says no.
-- The Factory and Library settings pages leave Cleanup out of their Stage rows until TED-321 adds a Cleanup section; until then the steps are edited in `.ted/workflow.yaml`.
+- The Factory and Library settings pages leave Cleanup out of their Stage rows. Factory settings has its own Cleanup page instead (TED-321): an on/off switch and the steps, saved as `cleanup` in the settings changes and written by `writeCleanup` in `workflow/edit.ts`, which keeps the steps when Cleanup is turned off. It shows only the Factory layer’s Cleanup, as the Checks page shows only its own Checks. The Library page has no Cleanup editor; a Library Cleanup is edited in its `workflow.yaml`.

@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { applyChanges } from '../src/workflow/edit.ts'
 import {
   boardStages,
   checkLayer,
@@ -801,5 +802,62 @@ describe('shared layers', () => {
     expect(sameFiles(files, { ...files, 'notes.md': '' })).toBe(false)
     expect(sameFiles(files, { 'workflow.yaml': 'version: 1\n', 'notes.md': null })).toBe(false)
     expect(sameFiles({}, {})).toBe(true)
+  })
+})
+
+describe('Cleanup settings edits', () => {
+  const steps = [
+    { name: 'Tell Asana', instruction: 'Comment on the Asana task.\nLink the pull request.' },
+    { name: 'Stop stack', command: 'docker compose down', timeout: '2m' },
+  ]
+  const cleanupOf = (text: string) => {
+    const layer = factory({ 'workflow.yaml': text })
+    expect(layer.problems).toEqual([])
+    return layer.settings?.stages.cleanup
+  }
+
+  test('a save writes enabled and the steps, and the layer checks clean', () => {
+    const text = applyChanges('version: 1\n', { cleanup: { enabled: true, steps } }, [])
+    expect(cleanupOf(text)).toEqual({ enabled: true, steps })
+  })
+
+  test('turning Cleanup off keeps its steps, and no steps is saved as an empty list', () => {
+    const on = applyChanges('version: 1\n', { cleanup: { enabled: true, steps } }, [])
+    const off = applyChanges(on, { cleanup: { enabled: false, steps } }, [])
+    expect(cleanupOf(off)).toEqual({ enabled: false, steps })
+    const cleared = applyChanges(off, { cleanup: { enabled: true, steps: [] } }, [])
+    expect(cleanupOf(cleared)).toEqual({ enabled: true, steps: [] })
+    expect(cleared).toContain('steps: []')
+  })
+
+  test('a Factory with no Cleanup steps keeps Cleanup off over a Library that turns it on', async () => {
+    const libraryOn = library({
+      'workflow.yaml': applyChanges('version: 1\n', { cleanup: { enabled: true, steps } }, []),
+    })
+    expect(resolveWorkflow([await defaults(), libraryOn]).stages).toContain('cleanup')
+    for (const enabled of [true, false]) {
+      const text = applyChanges('version: 1\n', { cleanup: { enabled, steps: [] } }, [])
+      const resolved = resolveWorkflow([
+        await defaults(),
+        libraryOn,
+        factory({ 'workflow.yaml': text }),
+      ])
+      expect(resolved.stages).not.toContain('cleanup')
+    }
+  })
+
+  test('switching a step’s kind drops the other kind’s keys and keeps effort', () => {
+    const text =
+      'version: 1\nstages:\n  cleanup:\n    effort: low\n    enabled: true\n    steps:\n      - name: Stop stack\n        command: docker compose down\n        timeout: 2m\n'
+    const edited = applyChanges(
+      text,
+      { cleanup: { enabled: true, steps: [{ name: 'Stop stack', instruction: 'Stop it.' }] } },
+      [],
+    )
+    expect(cleanupOf(edited)).toEqual({
+      effort: 'low',
+      enabled: true,
+      steps: [{ name: 'Stop stack', instruction: 'Stop it.' }],
+    })
   })
 })

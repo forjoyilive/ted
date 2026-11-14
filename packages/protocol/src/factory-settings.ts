@@ -76,6 +76,7 @@ export interface FactorySettingsChanges {
   stageFiles?: Partial<Record<AgentStageId, string | null>>
   keepStageFiles?: AgentStageId[]
   checks?: CheckInput[]
+  cleanup?: CleanupSettingsInput
   agents?: Partial<Record<AgentRole, AgentChoiceInput | null>>
   permissions?: PermissionMode
   maxWorkingRuns?: number | null
@@ -124,6 +125,53 @@ export interface AgentRowView {
   inherited: AgentChoiceInput
   inheritedFrom: LayerKind
   from: LayerKind
+}
+
+export interface CleanupInstructionStepInput {
+  name: string
+  instruction: string
+}
+
+export interface CleanupCommandStepInput {
+  name: string
+  command: string
+  timeout?: string
+}
+
+export type CleanupStepInput = CleanupInstructionStepInput | CleanupCommandStepInput
+
+export interface CleanupSettingsInput {
+  enabled: boolean
+  steps: CleanupStepInput[]
+}
+
+export const maxCleanupStepName = 80
+
+export function isCleanupCommand(step: CleanupStepInput): step is CleanupCommandStepInput {
+  return 'command' in step
+}
+
+export function cleanupStepProblem(
+  step: CleanupStepInput,
+  others: readonly CleanupStepInput[],
+): string | undefined {
+  const name = step.name.trim()
+  if (name === '') return 'Give the step a name.'
+  if (/[\r\n]/.test(name)) return 'Keep the name to one line.'
+  if (name.length > maxCleanupStepName) {
+    return `Keep the name to ${maxCleanupStepName} characters or fewer.`
+  }
+  if (others.some((other) => other !== step && other.name.trim() === name)) {
+    return 'Another step has this name.'
+  }
+  if (!isCleanupCommand(step)) {
+    return step.instruction.trim() === '' ? 'Write the instruction.' : undefined
+  }
+  if (step.command.trim() === '') return 'Write the command.'
+  if (step.timeout !== undefined && !/^\d+[smh]$/.test(step.timeout.trim())) {
+    return 'Write the timeout like 30s, 10m or 1h.'
+  }
+  return undefined
 }
 
 export interface CheckView extends CheckInput {
@@ -197,6 +245,7 @@ export interface FactorySettingsView {
   stages: StageRowView[]
   ignoredStageFiles: string[]
   checks: CheckView[]
+  cleanup: CleanupSettingsInput
   tries: CheckTry[]
   agents: AgentRowView[]
   permissions: PermissionMode

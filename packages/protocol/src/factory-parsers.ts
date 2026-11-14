@@ -27,6 +27,8 @@ import {
   appKinds,
   type CheckInput,
   type CheckTryRequest,
+  type CleanupSettingsInput,
+  type CleanupStepInput,
   type FactorySettingsChanges,
   type RepoSettingsInput,
   type SettingsMergeMethod,
@@ -187,6 +189,35 @@ function checkInput(given: unknown): CheckInput {
   }
 }
 
+function cleanupSettings(given: unknown): CleanupSettingsInput {
+  const body = record(given)
+  if (typeof body.enabled !== 'boolean')
+    throw new HttpError(400, 'cleanup.enabled must be true or false')
+  return { enabled: body.enabled, steps: list(body.steps, 'cleanup.steps').map(cleanupStep) }
+}
+
+function cleanupStep(given: unknown): CleanupStepInput {
+  const body = record(given)
+  const name = text(body.name, 'Cleanup step name').trim()
+  const instruction = optionalText(body.instruction, 'Cleanup step instruction')
+  const command = optionalText(body.command, 'Cleanup step command')
+  const timeout = optionalText(body.timeout, 'Cleanup step timeout')?.trim() || undefined
+  if ((instruction === undefined) === (command === undefined)) {
+    throw new HttpError(400, 'a Cleanup step needs an instruction or a command, not both')
+  }
+  if (instruction !== undefined) {
+    if (timeout !== undefined) {
+      throw new HttpError(400, 'only a Cleanup step with a command takes a timeout')
+    }
+    return { name, instruction: fileText(instruction, 'Cleanup step instruction').trim() }
+  }
+  return {
+    name,
+    command: fileText(command, 'Cleanup step command').trim(),
+    ...(timeout !== undefined && { timeout }),
+  }
+}
+
 function roleChoice(given: unknown, role: string): AgentChoiceInput | null {
   if (given === null) return null
   const set = Object.entries(bodyObject(given, role)).filter(
@@ -227,6 +258,7 @@ export function parseFactorySettingsChanges(given: unknown): FactorySettingsChan
     changes.keepStageFiles = keepStageFiles(body.keepStageFiles)
   }
   if (body.checks !== undefined) changes.checks = list(body.checks, 'checks').map(checkInput)
+  if (body.cleanup !== undefined) changes.cleanup = cleanupSettings(body.cleanup)
   if (body.agents !== undefined) {
     const given = record(body.agents)
     changes.agents = {}
