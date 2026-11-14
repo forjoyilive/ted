@@ -161,6 +161,7 @@ export async function automationCommand(
       prompt,
       schedule,
       ...(template && { template: template.id }),
+      ...(template?.checkout && { checkout: true }),
       ...(options.factory !== undefined && { factory: options.factory }),
     }
   }

@@ -42,6 +42,20 @@ const architecture = `Review this Factory’s codebase architecture and create w
 7. TED enforces source deduplication across open, archived and Done Tasks. If TED says a source is already tracked, leave it; do not evade the refusal with another URL. Do not use \`--follow-up\`: Follow-ups start automatically, which this review must never do. If a Done Task’s problem appears to have returned, report the Task ID and recurrence evidence in a \`ted comment\` for the human to decide instead. Do not create issues or comments in external trackers.
 8. End with one line naming the Tasks created, or “No new Tasks”, followed by a concise review summary: inspected repos and commits, the strongest recommendation and why, duplicates skipped, and any access or coverage limitations.`
 
+const audit = `Audit this Factory’s Apps the way a person would use them, and file each problem you find as a Backlog Task with a screenshot. This Run works on a fresh checkout of the default branch; it never changes code and never blocks a merge.
+
+1. Read \`.ted/notes.md\` in your checkout, if it exists. When it has a section listing key flows (such as “Key flows” or “Audit”), go through those flows first, in order. Otherwise explore each App: its home page, its main navigation and the pages they lead to.
+2. Run \`ted app list\`. Audit each \`web\` App. There is no Audit driver yet for \`ios-simulator\`, \`android-emulator\` or \`command\` Apps (desktop apps run as \`command\`): don’t audit them, and list each one in your final message as “skipped: no Audit driver for <kind> Apps yet”. A skipped App is not a failure. Start a \`command\` App only when a web App needs it to work, such as its API server.
+3. For each web App, run \`ted run-app <App>\`, then \`ted browser open <App>\`. If an App won’t start, say so in your final message with the last lines of \`ted app log <App>\`, and go on with the others.
+4. On each page, look at it at the default window size and at \`ted browser resize 390x844\`, in light mode and with \`ted browser color-scheme dark\`. Use \`ted browser snapshot\` to read the page and find controls, and try the page’s main controls. Look at about 20 pages or screens per App at most.
+5. A problem is something a user would notice: layout that overlaps, overflows or is cut off, text that can’t be read (in either colour mode), missing images or icons, an error page or error message, a control that does nothing or goes to the wrong place, a spinner or loading state that never ends. A style preference is not a problem. When you see one, take \`ted browser screenshot\` while it is on screen; it prints the PNG’s path.
+6. Before filing, run \`ted task list\` and read TED’s “Tasks this Automation has created” context. Skip a problem an open Task already covers, even under another title. If a Done Task’s problem has come back, don’t file it again; name the Task in your final message for the human.
+7. File each new problem: \`ted task create --source http://localhost/audit/<App>/<page path>/<problem> --description "<what>" --attach <screenshot path> "<short title>"\`. The source is how TED recognises the same problem in later Audits, not a link: use the App’s name, the page’s path without its port, query or fragment, and a short lower-case slug for the problem, such as \`http://localhost/audit/web/settings/save-button-overlaps-footer\`, and give the same problem the same source every time. In the description, say the page, the window size and colour mode, the steps to see it, what is wrong and what you expected. When TED says a source is already tracked, leave it. Don’t pass \`--start\` or \`--follow-up\`: new Tasks wait in Backlog for the human.
+8. File at most 5 Tasks in one Run, the most serious first. List any further problems in your final message instead of filing them.
+9. Don’t edit the code, commit, push, or post anywhere outside TED.
+
+End with one line naming the Tasks you created, or “No new Tasks”. Then list the Apps and pages you audited, the Apps you skipped and why, problems over the limit, and Done Tasks whose problem came back.`
+
 export const automationTemplates: readonly AutomationTemplate[] = [
   {
     id: 'linear',
@@ -72,5 +86,14 @@ export const automationTemplates: readonly AutomationTemplate[] = [
     summary: 'Reviews recently changed code through GitHub and proposes up to three Backlog Tasks.',
     prompt: architecture,
     schedule: { kind: 'weekly', days: ['mon'], at: '09:00' },
+  },
+  {
+    id: 'audit',
+    name: 'Audit the Apps',
+    summary:
+      'Starts the Apps from the default branch, uses them like a person would and files a Backlog Task with a screenshot for each problem.',
+    prompt: audit,
+    schedule: { kind: 'daily', at: '03:00' },
+    checkout: true,
   },
 ]
