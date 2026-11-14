@@ -33,16 +33,16 @@ function fromTaskSection(task: PlanTaskContext): string {
     ...(task.settle.length > 0
       ? [`A plan needs to settle:\n${task.settle.map((point) => `- ${point}`).join('\n')}`]
       : []),
-    `Row 1 of your proposal is ${task.displayId} itself. On approval it narrows to row 1’s title and its \`description\` (or its \`scope\`) and carries on with Clarify, and the other rows become new Tasks. So make row 1 the piece to build first; it can’t be blocked, and a proposal needs at least one more row.`,
+    `On approval every row of your proposal becomes a new child Task of ${task.displayId}, and ${task.displayId} waits for them to merge. So cover all of its work in the rows.`,
   ].join('\n\n')
 }
 
 export function taskDetachedMessage(displayId: string, reason: string): string {
-  return `${displayId} was ${reason}, so this chat no longer narrows it. Row 1 of your proposal is now an ordinary row that becomes a new Task like the others, and it may be blocked.`
+  return `${displayId} was ${reason}, so the Tasks this chat creates won’t go under it. TED creates a new parent Task for them instead.`
 }
 
 export function taskDetachedNote(displayId: string, reason: string): string {
-  return `Unlinked this chat from ${displayId} because it was ${reason}. The chat carries on as a standalone plan, and row 1 of the proposal is now an ordinary row.`
+  return `Unlinked this chat from ${displayId} because it was ${reason}. The chat carries on as a standalone plan, and TED creates a new parent Task for the Tasks it creates.`
 }
 
 export function plannerInstructions(input: {
@@ -181,17 +181,13 @@ export function planChangesMessage(text: string): string {
 export function planApprovedMessage(
   created: readonly { row: number; displayId: string }[],
 ): string {
-  return `The human approved your proposal. TED created ${created.map((c) => `${c.displayId} (row ${c.row})`).join(', ')} in Backlog and is ending this chat. Thank you.`
+  return `The human approved your proposal. TED created ${created.map((c) => `${c.displayId} (row ${c.row})`).join(', ')} as child Tasks of one parent and is ending this chat. Thank you.`
 }
 
-export function planCreatedNote(
-  ids: readonly string[],
-  narrowed?: { displayId: string; title: string },
-): string {
-  const created = `Created ${ids.length} ${ids.length === 1 ? 'Task' : 'Tasks'} in Backlog: ${ids.join(', ')}`
-  return narrowed ? `${created}. ${narrowed.displayId} narrowed to ${narrowed.title}.` : created
+export function planCreatedNote(ids: readonly string[], parent: string): string {
+  return `Created ${ids.length} ${ids.length === 1 ? 'Task' : 'Tasks'} under ${parent}: ${ids.join(', ')}. ${parent} waits for them to merge.`
 }
 
 export function planToldLeadNote(displayId: string): string {
-  return `Told ${displayId}’s Task Lead; it carries on with Clarify.`
+  return `Stopped ${displayId}’s Task Lead while its child Tasks are built.`
 }

@@ -1,5 +1,7 @@
 # The size check is a question TED answers itself, and Split it is a `proposal` Comment the daemon turns into Tasks
 
+Split it’s pieces are now child Tasks of the original, which no longer narrows to row 1: see ADR 0148-split-and-plan-tasks-are-children-of-one-parent.
+
 Clarify’s first step checks whether a Task fits one pull request per repo. The Task Lead asks with `ted clarify too-big "<why>" --settle "<point>" …`, which posts a `question` Comment with four fixed choices (Plan in chat, Split it, Plan it outside TED, Grill anyway) and a `sizeCheck` field listing what a plan must settle. TED, not the Task Lead, carries out the human’s choice:
 
 - **Split it** sends the Task Lead the proposal format. The Task Lead posts the pieces with `ted task propose --file <file>`: JSON with a `title`, an optional `summary` and `tasks` rows (`title`, one-line `scope`, optional `description`, `priority`, `blockedBy` row numbers). Row 1 is the Task itself; it can’t be blocked. The daemon checks row numbers and refuses cycles.

@@ -594,6 +594,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         isCloned: (factoryId) => factories.isCloned(factoryId),
         startTask: (taskId) => tasks.start(taskId),
         planApproved: (taskId, input) => tasks.planApproved(taskId, input),
+        stopLeadForChildren: (taskId) => tasks.stopLeadForChildren(taskId),
         planEnded: (taskId, input) => tasks.planEnded(taskId, input),
       })
       coordinators = createCoordinators({ home: paths.home, store, runs, tasks, health, steering })

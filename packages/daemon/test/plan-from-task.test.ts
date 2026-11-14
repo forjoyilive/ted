@@ -167,7 +167,7 @@ const threadLines = async (client: Client, task: Task) =>
   (await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)).map((e) => e.text)
 
 describe('Plan in chat from a Task', () => {
-  test('opens a chat linked to the Task, which waits in Clarify; approval narrows it and its Task Lead carries on', async () => {
+  test('opens a chat linked to the Task, which waits in Clarify; approval makes it the parent of every row and stops its Task Lead', async () => {
     const client = await start()
     const lead = { agent: 'claude', effort: 'high' }
     const { task, sizeCheck } = await tooBigTask(client, { lead })
@@ -214,51 +214,51 @@ describe('Plan in chat from a Task', () => {
       text: expect.stringContaining(`Plan ${task.displayId}:`),
     })
 
-    const keepRow1 = await client.call('POST', `/plan-requests/${request.id}/answer`, {
-      action: 'approve',
-      proposal: { skip: [1], startUnblocked: false },
-    })
-    expect(keepRow1.status).toBe(400)
-
+    const leadBefore = (await getTask(client, task.id)).leadRunId
     const approved = await client.ok<PlanRequest>('POST', `/plan-requests/${request.id}/answer`, {
       action: 'approve',
       proposal: { skip: [], startUnblocked: false },
     })
     expect(approved.answer).toMatchObject({
       kind: 'approved',
-      created: { tasks: [{ row: 2 }, { row: 3 }] },
+      created: { tasks: [{ row: 1 }, { row: 2 }, { row: 3 }] },
     })
     const tasks = await client.ok<Task[]>('GET', '/tasks')
+    const cache = tasks.find((t) => t.title === 'Local note cache' && t.id !== task.id)
     const sync = tasks.find((t) => t.title === 'Sync queue')
     const badge = tasks.find((t) => t.title === 'Offline badge')
+    expect(cache).toMatchObject({ stage: 'backlog', blockedBy: [], parentId: task.id, lead })
     expect(sync).toMatchObject({
       stage: 'backlog',
-      blockedBy: [task.id],
+      blockedBy: [cache?.id],
+      parentId: task.id,
       createdBy: 'planning',
       lead,
     })
-    expect(badge).toMatchObject({ stage: 'backlog', blockedBy: [], lead })
+    expect(badge).toMatchObject({ stage: 'backlog', blockedBy: [], parentId: task.id, lead })
     expect(await getTask(client, task.id)).toMatchObject({
       stage: 'clarify',
-      title: 'Local note cache',
-      description: 'Save every note to a local cache first; a queue syncs it later.',
-      priority: 'high',
+      title: task.title,
+      description: task.description,
+      createdBy: 'human',
     })
-    expect(tasks.some((t) => t.title === 'Local note cache' && t.id !== task.id)).toBe(false)
+    await waitUntil(
+      async () => (await client.getRun(leadBefore ?? '')).run.state === 'finished',
+      'the Task Lead to stop',
+    )
 
     const done = await waitForPlan(client, planId, (d) => d.plan.status === 'finished', 'finish')
     expect(done.requests.filter((r) => r.kind === 'note').map((r) => r.body)).toEqual([
-      `Created 2 Tasks in Backlog: ${sync?.displayId}, ${badge?.displayId}. ${task.displayId} narrowed to Local note cache.`,
-      `Told ${task.displayId}’s Task Lead; it carries on with Clarify.`,
+      `Created 3 Tasks under ${task.displayId}: ${cache?.displayId}, ${sync?.displayId}, ${badge?.displayId}. ${task.displayId} waits for them to merge.`,
+      `Stopped ${task.displayId}’s Task Lead while its child Tasks are built.`,
     ])
-    const carryOn = await leadHears(client, task, 'approved the plan')
-    expect(carryOn).toContain('Carry on with Clarify')
-    expect(carryOn).toContain('Local note cache')
     const lines = await threadLines(client, task)
     expect(lines).toContain(
-      `TED created 2 Tasks in Backlog: ${sync?.displayId}, ${badge?.displayId}. ${task.displayId} narrowed to Local note cache.`,
+      `The plan created ${cache?.displayId}, ${sync?.displayId} and ${badge?.displayId}. This Task waits for them to merge.`,
     )
-    expect(lines).toContain('TED told the Task Lead; it carries on with Clarify.')
+    expect(lines).toContain(
+      'The plan was approved. TED stopped the Task Lead while the Tasks it created are built.',
+    )
     expect((await getTask(client, task.id)).activity).not.toBe('Planning in chat')
   })
 
@@ -320,7 +320,7 @@ describe('Plan in chat from a Task', () => {
     expect(told).toContain('ted clarify too-big')
   })
 
-  test('archiving the Task mid-plan unlocks row 1 and notes why; approval then creates every row', async () => {
+  test('archiving the Task mid-plan unlinks it and notes why; approval then creates a new parent for every row', async () => {
     const client = await start()
     const { task, sizeCheck } = await tooBigTask(client)
     const { planId } = await planInChat(
@@ -347,7 +347,7 @@ describe('Plan in chat from a Task', () => {
     expect(standalone.requests.at(-1)).toMatchObject({
       kind: 'note',
       author: 'ted',
-      body: `Unlinked this chat from ${task.displayId} because it was archived. The chat carries on as a standalone plan, and row 1 of the proposal is now an ordinary row.`,
+      body: `Unlinked this chat from ${task.displayId} because it was archived. The chat carries on as a standalone plan, and TED creates a new parent Task for the Tasks it creates.`,
     })
 
     const approved = await client.ok<PlanRequest>('POST', `/plan-requests/${request.id}/answer`, {
@@ -359,5 +359,17 @@ describe('Plan in chat from a Task', () => {
     })
     const archived = await getTask(client, task.id)
     expect(archived.title).toBe(task.title)
+    const all = await client.ok<Task[]>('GET', '/tasks')
+    const parent = all.find((t) => t.title === standalone.plan.title && t.id !== task.id)
+    expect(parent).toMatchObject({ stage: 'backlog', childIds: expect.any(Array) })
+    expect(
+      all
+        .filter((t) => t.parentId === parent?.id)
+        .map((t) => t.title)
+        .sort(),
+    ).toEqual(['Local note cache', 'Offline badge', 'Sync queue'])
+    expect(
+      (await threadLines(client, archived)).some((l) => l.includes('waits for them to merge')),
+    ).toBe(false)
   })
 })

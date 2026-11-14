@@ -783,6 +783,13 @@ export interface TedStore extends TaskHistory {
     taskId: string,
     input: { pieceIds: string[]; narrowedTo: string; description: string },
   ): void
+  childTasksCreated(
+    taskId: string,
+    childIds: readonly string[],
+    from: 'split' | 'plan' | 'plan-task',
+  ): void
+  madeParent(taskId: string): boolean
+  parentFinishedWithChildren(taskId: string): void
   taskPlanEnded(
     taskId: string,
     planId: string,
@@ -1794,6 +1801,12 @@ export async function openStore({
     }
   }
   type TaskReads = ReturnType<typeof taskReads>
+  const planParent = (log: readonly (typeof taskLog.Type)[]) =>
+    log.some(
+      (e) =>
+        e.name === 'v1.ChildTasksCreated' &&
+        (JSON.parse(e.data) as { from?: unknown }).from === 'plan',
+    )
   const perTask = taskReads(false)
   // Reading every table once costs about as much as reading 10 Tasks one by one.
   const readEveryTaskFrom = 10
@@ -2091,7 +2104,7 @@ export async function openStore({
             ? 'split'
             : reads.automationLinks(row.id).length > 0
               ? 'automation'
-              : planLink
+              : planLink || planParent(reads.log(row.id))
                 ? 'planning'
                 : 'human'
     const linearSync = linearSyncOf(row, source, reads)
@@ -3954,6 +3967,17 @@ export async function openStore({
       const at = new Date().toISOString()
       const edited = taskEdited(taskId, { title: narrowedTo, description }, at)
       commit(...(edited ? [edited] : []), events.taskSplit({ taskId, pieceIds, narrowedTo, at }))
+      updatedTask(taskId)
+    },
+    childTasksCreated(taskId, childIds, from) {
+      const at = new Date().toISOString()
+      commit(events.childTasksCreated({ taskId, childIds: [...childIds], from, at }))
+      updatedTask(taskId)
+    },
+    madeParent: (taskId) =>
+      store.query(queryDb(taskLog.where({ taskId, name: 'v1.ChildTasksCreated' }))).length > 0,
+    parentFinishedWithChildren(taskId) {
+      commit(events.parentFinishedWithChildren({ taskId, at: new Date().toISOString() }))
       updatedTask(taskId)
     },
     taskPlanEnded(taskId, planId, outcome) {

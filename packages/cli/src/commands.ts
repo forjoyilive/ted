@@ -965,7 +965,7 @@ export const commands = [
     handler: 'proposal',
     min: 0,
     max: 0,
-    help: '  ted task propose --file <file> [--supersedes <request-id>]\n                                             Propose splitting the Task: a JSON file with a\n                                             title, an optional summary and tasks, each with a\n                                             title, scope, optional description, priority and\n                                             blockedBy row numbers; row 1 is this Task',
+    help: '  ted task propose --file <file> [--supersedes <request-id>]\n                                             Propose splitting the Task: a JSON file with a\n                                             title, an optional summary and tasks, each with a\n                                             title, scope, optional description, priority and\n                                             blockedBy row numbers; every row becomes a\n                                             child Task of this Task',
     callers: 'Task Lead',
     scope: 'task',
     options: options('task', 'file', 'supersedes'),

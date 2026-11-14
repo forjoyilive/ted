@@ -115,7 +115,7 @@ A user’s own Stage files and Workflow settings, which apply to all of that use
 _Avoid_: Templates, presets
 
 **Task**:
-A unit of work moving through a Workflow; once code exists it has one pull request in each repo it changes. A Task too big for one pull request per repo is split into several Tasks, the original narrowing to the first piece while keeping its original request.
+A unit of work moving through a Workflow; once code exists it has one pull request in each repo it changes. A Task too big for one pull request per repo is split into several child Tasks, and the original becomes their parent.
 _Avoid_: Ticket, issue, card, session, epic
 
 **Task folder**:
@@ -127,7 +127,7 @@ The human’s own login shell in one repo’s worktree of a Task, shown in place
 _Avoid_: Terminal, console, Run
 
 **Parent Task**:
-A Task with child Tasks under it. It waits while a child that isn’t archived is unmerged, then does only the work that brings its children’s work together and the final work no child owns. Archive, delete and unarchive act on it and every Task under it unless the user detaches the children.
+A Task with child Tasks under it. It waits while a child that isn’t archived is unmerged, then does only the work that brings its children’s work together and the final work no child owns. A parent TED made from Split it or a plan moves to Done by itself once its children have merged, if it has no work of its own. Archive, delete and unarchive act on it and every Task under it unless the user detaches the children.
 _Avoid_: Epic, group, umbrella
 
 **Child Task**:

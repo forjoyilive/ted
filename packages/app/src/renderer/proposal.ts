@@ -1,3 +1,4 @@
+import type { Proposal } from '@ted/protocol'
 import type { ProposalPlanRow } from '@ted/protocol/proposal'
 
 export function rowList(rows: readonly number[]): string {
@@ -26,4 +27,10 @@ export function droppedWarning(row: ProposalPlanRow): string | undefined {
 
 export function createLabel(count: number): string {
   return `Create ${count} ${count === 1 ? 'Task' : 'Tasks'}`
+}
+
+export function parentLine(proposal: Proposal): string {
+  return proposal.firstPiece
+    ? `${proposal.firstPiece.displayId} becomes the parent of these Tasks and runs after they merge.`
+    : 'TED creates a parent Task for these Tasks. It runs after they merge.'
 }
