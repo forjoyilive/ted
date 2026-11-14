@@ -326,6 +326,9 @@ export function Sidebar({
                       return dispatch({ type: 'open-factory', factoryId: factory.id })
                     }}
                   >
+                    <span className={styles.initial} aria-hidden="true">
+                      {Array.from(factory.name)[0]}
+                    </span>
                     <span className={styles.label}>{factory.name}</span>
                     {badge.failed && <DotIcon className={styles.failedDot} />}
                     {badge.stopsWork && (

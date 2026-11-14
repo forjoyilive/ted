@@ -650,6 +650,7 @@ test('App’s Factory row menu removes that Factory and its Tasks from the sideb
   })
   a.mount()
   const row = await screen.findByRole('article', { name: 'widgets' })
+  expect(within(row).getByRole('button', { name: 'widgets' }).textContent).toBe('wwidgets')
   fireEvent.contextMenu(within(row).getByRole('button', { name: 'widgets' }))
   expect((screen.getByRole('menuitem', { name: 'Move up' }) as HTMLButtonElement).disabled).toBe(
     true,
