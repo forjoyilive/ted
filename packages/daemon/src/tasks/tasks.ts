@@ -730,6 +730,7 @@ export function createTasks(options: {
     user(): Promise<{ gid: string; name: string }>
     files?: FileStore
     allowLoopbackFiles?: boolean
+    intakeLimit?: number
   }
   isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
@@ -4284,6 +4285,16 @@ export function createTasks(options: {
 
   class IntakeBudgetError extends Error {}
 
+  const asanaFiringCreated = new Map<string, number>()
+  const intakeLimit = options.asana?.intakeLimit ?? maxAsanaIntakeTasks
+
+  function asanaAllowance(automation: { link: { firingId: string } } | undefined): number {
+    for (const id of asanaFiringCreated.keys())
+      if (store.automations.firing(id)?.state !== 'started') asanaFiringCreated.delete(id)
+    if (!automation) return Number.POSITIVE_INFINITY
+    return intakeLimit - (asanaFiringCreated.get(automation.link.firingId) ?? 0)
+  }
+
   interface IntakeImport {
     budget: number
     unchanged: () => void
@@ -4428,7 +4439,7 @@ export function createTasks(options: {
       left: 0,
       ...(listed.incomplete !== undefined && { incomplete: listed.incomplete }),
     }
-    let budget = maxAsanaIntakeTasks
+    let budget = Math.min(intakeLimit, asanaAllowance(automationCaller(caller)))
     for (const root of roots) {
       if (result.stopped !== undefined) break
       if (
@@ -4510,6 +4521,14 @@ export function createTasks(options: {
     const plan = planAsana(tree, factory.id, user.gid, caller.kind === 'app' && !intake)
     if (plan.preview.refusal !== undefined) throw new RequestError(409, plan.preview.refusal)
     if (intake && plan.creates.length > intake.budget) throw new IntakeBudgetError()
+    const allowance = asanaAllowance(automation)
+    if (plan.creates.length > allowance) {
+      if (intake) throw new IntakeBudgetError()
+      throw new RequestError(
+        409,
+        `This Automation Run has already created ${intakeLimit - allowance} Tasks from Asana. TED creates at most ${intakeLimit} per run; the rest wait for the next run.`,
+      )
+    }
     const tracked = plan.preview.tracked
     if (tracked && input.addToTree !== true && closing === undefined) {
       throw new RequestError(
@@ -4612,6 +4631,10 @@ export function createTasks(options: {
       ],
     })
     const created = [...result.created.values()]
+    if (automation) {
+      const firingId = automation.link.firingId
+      asanaFiringCreated.set(firingId, (asanaFiringCreated.get(firingId) ?? 0) + created.length)
+    }
     const existingParents = new Set([
       ...plan.creates.flatMap(({ parent }) =>
         parent && 'taskId' in parent ? [parent.taskId] : [],

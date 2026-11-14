@@ -25,6 +25,7 @@ export interface StubAsanaProject {
 
 export async function startStubAsana() {
   const requests: {
+    at: number
     method: string
     path: string
     query: Record<string, string>
@@ -34,7 +35,7 @@ export async function startStubAsana() {
   const tasks = new Map<string, StubAsanaTask>()
   const workspaces = new Map<string, string>()
   const projects = new Map<string, StubAsanaProject>()
-  const failures = new Map<string, { status: number; times: number }>()
+  const failures = new Map<string, { status: number; times: number; retryAfter?: string }>()
   const pathHolds = new Map<string, Promise<void>>()
   let pageSize = 2
   let user = { gid: '100', name: 'Avery', email: 'avery@example.test' }
@@ -55,6 +56,7 @@ export async function startStubAsana() {
     const path = (req.url ?? '').split('?')[0] ?? ''
     const query = Object.fromEntries(new URL(req.url ?? '/', 'http://stub').searchParams)
     requests.push({
+      at: Date.now(),
       method: req.method ?? 'GET',
       path,
       query,
@@ -134,7 +136,10 @@ export async function startStubAsana() {
       const failure = failures.get(path) ?? { status: 500, times: 0 }
       if (failure.times <= 1) failures.delete(path)
       else failures.set(path, { ...failure, times: failure.times - 1 })
-      res.writeHead(failure.status)
+      res.writeHead(
+        failure.status,
+        failure.retryAfter === undefined ? {} : { 'retry-after': failure.retryAfter },
+      )
       res.end('{}')
     } else if (/^\/api\/1\.0\/(workspaces|projects|sections)\//.test(path)) {
       if (req.headers.authorization !== 'Bearer access-secret-opaque') {
@@ -299,8 +304,8 @@ export async function startStubAsana() {
       if (value) pathHolds.set(path, value)
       else pathHolds.delete(path)
     },
-    failNext(path: string, status: number, times = 1) {
-      failures.set(path, { status, times })
+    failNext(path: string, status: number, times = 1, retryAfter?: string) {
+      failures.set(path, { status, times, ...(retryAfter !== undefined && { retryAfter }) })
     },
     updateTask(gid: string, change: Partial<StubAsanaTask>) {
       const task = tasks.get(gid)

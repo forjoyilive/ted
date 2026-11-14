@@ -36,22 +36,34 @@ export interface AsanaOptions {
 
 class ConnectionError extends Error {
   readonly status: number | undefined
-  constructor(message: string, status?: number) {
+  readonly retryAfterMs: number | undefined
+  constructor(message: string, status?: number, retryAfterMs?: number) {
     super(message)
     this.status = status
+    this.retryAfterMs = retryAfterMs
   }
 }
 class RevokedError extends ConnectionError {}
 
 export class AsanaReadError extends Error {
   readonly status: number | undefined
-  constructor(message: string, status?: number) {
+  readonly retryAfterMs: number | undefined
+  constructor(message: string, status?: number, retryAfterMs?: number) {
     super(message)
     this.status = status
+    this.retryAfterMs = retryAfterMs
   }
 }
 
 const maxReadBytes = 4_000_000
+const maxRetryAfterSeconds = 120
+
+function retryAfterMs(response: Response): number | undefined {
+  if (response.status !== 429) return undefined
+  const value = response.headers.get('retry-after')?.trim() ?? ''
+  if (!/^\d{1,6}$/.test(value)) return undefined
+  return Math.min(Number(value), maxRetryAfterSeconds) * 1000
+}
 
 export function createAsana(options: AsanaOptions) {
   const oauth = checkedOrigin(options.oauthOrigin ?? 'https://app.asana.com')
@@ -159,6 +171,7 @@ export function createAsana(options: AsanaOptions) {
         throw new ConnectionError(
           'Asana couldn’t complete the request. Check your connection and app permissions, then try again.',
           response.status,
+          retryAfterMs(response),
         )
       }
       if (url.endsWith('/-/oauth_revoke')) {
@@ -345,7 +358,8 @@ export function createAsana(options: AsanaOptions) {
         maxReadBytes,
       )
     } catch (error) {
-      if (error instanceof ConnectionError) throw new AsanaReadError(error.message, error.status)
+      if (error instanceof ConnectionError)
+        throw new AsanaReadError(error.message, error.status, error.retryAfterMs)
       throw new AsanaReadError('Couldn’t reach Asana or read its response. Try again.')
     }
   }

@@ -68,7 +68,7 @@ export function retryingRead(
           error instanceof AsanaReadError &&
           (error.status === 429 || (error.status !== undefined && error.status >= 500))
         if (!retryable || attempt >= retries) throw error
-        await wait(1000 * 2 ** attempt)
+        await wait(error.retryAfterMs ?? 1000 * 2 ** attempt)
       }
     }
   }

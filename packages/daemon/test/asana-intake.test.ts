@@ -64,12 +64,18 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function start(): Promise<DaemonClient> {
+async function start(intakeLimit?: number): Promise<DaemonClient> {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
-    asana: { keyring, oauthOrigin: stub.url, apiOrigin: stub.url, callbackPort },
+    asana: {
+      keyring,
+      oauthOrigin: stub.url,
+      apiOrigin: stub.url,
+      callbackPort,
+      ...(intakeLimit !== undefined && { intakeLimit }),
+    },
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('No daemon info')
@@ -176,8 +182,10 @@ test('intake imports eligible roots from the saved section with their subtasks, 
   expect(saved.asanaIntakeScopes[factory.id]).toEqual(scope)
 
   stub.failNext('/api/1.0/tasks/570', 403, 100)
-  stub.failNext('/api/1.0/sections/91/tasks', 429)
+  stub.failNext('/api/1.0/sections/91/tasks', 429, 1, '2')
   const first = await client.runAsanaIntake({ factory: 'NB' })
+  const listing = stub.requests.filter((r) => r.path === '/api/1.0/sections/91/tasks')
+  expect((listing[1]?.at ?? 0) - (listing[0]?.at ?? 0)).toBeGreaterThanOrEqual(1900)
   expect(first.imported.map((i) => i.gid).sort()).toEqual(['501', '540'])
   expect(first.tracked).toBe(2)
   expect(first.skipped).toEqual([expect.objectContaining({ gid: '570' })])
@@ -213,8 +221,8 @@ test('intake imports eligible roots from the saved section with their subtasks, 
   expect(asanaWrites()).toEqual([])
 })
 
-test('saving, stale and changing scopes, and Automation imports are checked against fresh Asana reads', async () => {
-  const client = await start()
+test('saving, stale and changing scopes, and Automation imports are checked against fresh Asana reads and one Run’s Task limit', async () => {
+  const client = await start(4)
   await connect(client)
   await client.addFactory({ repo: origin, key: 'NB' })
   const factory = (await client.listFactories()).find((f) => f.key === 'NB')
@@ -294,6 +302,7 @@ test('saving, stale and changing scopes, and Automation imports are checked agai
               'Again',
             ],
           },
+          { run: ['ted', 'asana', 'intake'] },
           { endTurn: true },
         ],
       }),
@@ -309,17 +318,22 @@ test('saving, stale and changing scopes, and Automation imports are checked agai
   const run = (await local.call('GET', `/runs/${row.runId}`)).body as RunWithConversation
   const results = assistantTexts(run.conversation).flatMap((text) => {
     try {
-      const parsed = JSON.parse(text) as { code: number; stderr: string }
+      const parsed = JSON.parse(text) as { code: number; stdout: string; stderr: string }
       return typeof parsed.code === 'number' ? [parsed] : []
     } catch {
       return []
     }
   })
-  expect(results.map((r) => r.code)).toEqual([0, 1, 1, 1])
+  expect(results.map((r) => r.code)).toEqual([0, 1, 1, 1, 0])
+  expect(results[0]?.stdout).toContain('2 more items wait for the next run')
   expect(results[1]?.stderr).toContain('isn’t in Roadmap › Now')
+  expect(results[2]?.stderr).toContain('already created 4 Tasks from Asana')
   expect(results[3]?.stderr).toContain('Follow-up of Asana work')
+  expect(results[4]?.stdout).toContain('Imported nothing new')
+  expect(results[4]?.stdout).toContain('2 more items wait for the next run')
   const all = await client.listTasks()
   expect(byGid(all, '501')).toMatchObject({ createdBy: 'automation', stage: 'backlog' })
-  expect(byGid(all, '510')).toBeUndefined()
+  expect(byGid(all, '570')).toMatchObject({ createdBy: 'automation', stage: 'backlog' })
+  for (const gid of ['510', '540', '550']) expect(byGid(all, gid), gid).toBeUndefined()
   expect(asanaWrites()).toEqual([])
 })

@@ -86,7 +86,7 @@ export interface DaemonOptions {
   healthIntervalMs?: number
   fixPollMs?: number
   integrations?: DaemonIntegrationsOptions
-  asana?: Omit<AsanaOptions, 'home' | 'keyring'> & { keyring?: Keyring }
+  asana?: Omit<AsanaOptions, 'home' | 'keyring'> & { keyring?: Keyring; intakeLimit?: number }
   linear?: { apiUrl?: string; keyring?: Keyring }
   snoozes?: { now?: () => Date; checkEveryMs?: number }
   heldRequests?: { maxMs?: number }
@@ -491,6 +491,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           },
           allowLoopbackFiles:
             new URL(options.asana?.apiOrigin ?? 'https://app.asana.com').hostname === '127.0.0.1',
+          ...(options.asana?.intakeLimit !== undefined && {
+            intakeLimit: options.asana.intakeLimit,
+          }),
         },
         ...(options.snoozes !== undefined && { snoozes: options.snoozes }),
         ...(options.heldRequests !== undefined && { heldRequests: options.heldRequests }),
