@@ -6,7 +6,15 @@ import type {
   DashboardTask,
   FactoryDashboard,
 } from '@ted/protocol'
-import { type ReactNode, useEffect, useId, useRef } from 'react'
+import {
+  Fragment,
+  type ReactNode,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import { CloseIcon } from '../components/icons.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { Select } from '../components/Select.tsx'
@@ -131,6 +139,91 @@ function Change({
   )
 }
 
+export type PointTip = {
+  heading: string
+  aligned: string | null
+  rows: { period: 'current' | 'previous'; label: string; value: string; note?: string }[]
+  change: string | null
+}
+
+const tasks = (count: number) => `${count} ${count === 1 ? 'Task' : 'Tasks'}`
+
+export function pointTip({
+  metric,
+  period,
+  bucket,
+  other,
+  label,
+  today,
+}: {
+  metric: DashboardMetric
+  period: 'current' | 'previous'
+  bucket: DashboardBucket
+  other: DashboardBucket | undefined
+  label: (bucket: DashboardBucket) => string
+  today: boolean
+}): PointTip {
+  const earlier = today ? 'Yesterday' : 'Previous'
+  const name = metric === 'completed' ? 'Completed' : 'Median'
+  const value = metricValue(bucket, metric)
+  const shown = (v: number | null, full: boolean) =>
+    metric === 'completed'
+      ? full
+        ? tasks(v ?? 0)
+        : String(v ?? 0)
+      : v === null
+        ? 'No sample'
+        : duration(v)
+  const first = {
+    period,
+    label: name,
+    value: shown(value, true),
+    ...(metric === 'completed' ? {} : { note: `from ${tasks(idsOf(bucket, metric).length)}` }),
+  }
+  if (period === 'previous')
+    return {
+      heading: `${earlier} · ${label(bucket)}`,
+      aligned: other ? `Aligned to ${label(other)}` : null,
+      rows: [first],
+      change: null,
+    }
+  const before = other ? metricValue(other, metric) : undefined
+  let change: string | null = null
+  if (before === null) change = 'No previous sample'
+  else if (before !== undefined && value !== null) {
+    const difference = value - before
+    const against = today ? 'yesterday' : 'previous'
+    if (difference === 0) change = `Same as ${against}`
+    else {
+      const sign = difference > 0 ? '+' : '−'
+      const amount =
+        metric === 'completed' ? String(Math.abs(difference)) : duration(Math.abs(difference))
+      const percent =
+        metric === 'completed' && before > 0
+          ? ` (${sign}${Math.round((Math.abs(difference) / before) * 100)}%)`
+          : ''
+      change = `${sign}${amount} vs ${against}${percent}`
+    }
+  }
+  return {
+    heading: label(bucket),
+    aligned: null,
+    rows: [
+      first,
+      ...(other
+        ? [
+            {
+              period: 'previous' as const,
+              label: `${earlier} · ${label(other)}`,
+              value: shown(before ?? null, false),
+            },
+          ]
+        : []),
+    ],
+    change,
+  }
+}
+
 function Chart({
   data,
   metric,
@@ -142,6 +235,30 @@ function Chart({
 }) {
   const a = data.current.buckets
   const b = data.previous?.buckets ?? []
+  const [hovered, setHovered] = useState<{
+    period: 'current' | 'previous'
+    index: number
+    point: HTMLElement
+    data: FactoryDashboard
+  } | null>(null)
+  const frame = useRef<HTMLDivElement>(null)
+  const tip = useRef<HTMLDivElement>(null)
+  const tipId = useId()
+  useLayoutEffect(() => {
+    const box = frame.current
+    const card = tip.current
+    if (!hovered || !box || !card) return
+    const outer = box.getBoundingClientRect()
+    const point = hovered.point.getBoundingClientRect()
+    const middle = point.left - outer.left + point.width / 2
+    let left = middle + 12
+    if (left + card.offsetWidth > outer.width - 8)
+      left = Math.max(0, middle - 12 - card.offsetWidth)
+    let top = point.top - outer.top - card.offsetHeight - 4
+    if (top < 0) top = point.bottom - outer.top + 4
+    card.style.left = `${left}px`
+    card.style.top = `${top}px`
+  }, [hovered])
   const values = [...a, ...b].flatMap((bucket) => {
     const value = metricValue(bucket, metric)
     return value === null ? [] : [value]
@@ -180,8 +297,27 @@ function Chart({
   const last = a.at(-1)
   const number = (value: number) =>
     metric === 'completed' ? String(Math.round(value)) : duration(value)
+  const pointLabel = (bucket: DashboardBucket) =>
+    today
+      ? `${clock(Date.parse(bucket.from))} – ${clock(Date.parse(bucket.to))}`
+      : dayLabel(bucket, data.asOf)
+  const shownBucket =
+    hovered?.data === data ? (hovered.period === 'current' ? a : b)[hovered.index] : undefined
+  const details =
+    hovered && shownBucket
+      ? pointTip({
+          metric,
+          period: hovered.period,
+          bucket: shownBucket,
+          other: (hovered.period === 'current' ? b : a)[hovered.index],
+          label: pointLabel,
+          today,
+        })
+      : null
+  const leave = (point: HTMLElement) =>
+    setHovered((shown) => (shown?.point === point ? null : shown))
   return (
-    <div className={styles.chart}>
+    <div className={styles.chart} ref={frame}>
       <div className={styles.legend}>
         <span>
           <i />
@@ -229,6 +365,15 @@ function Chart({
             </text>
           </>
         )}
+        {details && hovered && (
+          <line
+            className={styles.guideLine}
+            x1={x(hovered.index)}
+            x2={x(hovered.index)}
+            y1="26"
+            y2="150"
+          />
+        )}
         {data.previous && <path className={styles.previousLine} d={path(b)} />}
         <path className={styles.currentLine} d={path(a)} />
         {(
@@ -243,16 +388,28 @@ function Chart({
             return (
               <foreignObject
                 key={`${period}-${bucket.from}`}
-                x={x(index) - 6}
-                y={y(value) - 6}
-                width="12"
-                height="12"
+                x={x(index) - 9}
+                y={y(value) - 9}
+                width="18"
+                height="18"
               >
                 <button
                   type="button"
                   className={period === 'current' ? styles.point : styles.previousPoint}
                   aria-label={`${period === 'current' ? 'Selected' : 'Previous'} · ${bounds(bucket)} · ${showValue(metric, value)}`}
-                  title={`${bounds(bucket)} · ${showValue(metric, value)} · ${idsOf(bucket, metric).length} Tasks`}
+                  aria-describedby={
+                    details && hovered?.period === period && hovered.index === index
+                      ? tipId
+                      : undefined
+                  }
+                  onMouseEnter={(event) =>
+                    setHovered({ period, index, point: event.currentTarget, data })
+                  }
+                  onFocus={(event) =>
+                    setHovered({ period, index, point: event.currentTarget, data })
+                  }
+                  onMouseLeave={(event) => leave(event.currentTarget)}
+                  onBlur={(event) => leave(event.currentTarget)}
                   onClick={() => select({ metric, period, bucket: index })}
                 />
               </foreignObject>
@@ -291,6 +448,25 @@ function Chart({
               )
             })}
       </svg>
+      {details && (
+        <div className={styles.tooltip} role="tooltip" id={tipId} ref={tip}>
+          <div className={styles.tooltipHeading}>{details.heading}</div>
+          {details.aligned && <div className={styles.tooltipNote}>{details.aligned}</div>}
+          {details.rows.map((row) => (
+            <Fragment key={row.label}>
+              <div className={styles.tooltipRow}>
+                <span>
+                  <i className={row.period === 'previous' ? styles.tooltipPrevious : undefined} />
+                  {row.label}
+                </span>
+                <strong>{row.value}</strong>
+              </div>
+              {row.note && <div className={styles.tooltipNote}>{row.note}</div>}
+            </Fragment>
+          ))}
+          {details.change && <div className={styles.tooltipChange}>{details.change}</div>}
+        </div>
+      )}
       <p className={styles.caption}>
         {data.range === 'all'
           ? `${perPoint === 1 ? 'One point per calendar day' : `Each point covers ${perPoint} calendar days`}, midnight to midnight. The last point runs to now.`

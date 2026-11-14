@@ -172,7 +172,13 @@ test('graph points and their samples name the calendar days they cover', async (
       expect(completed.textContent).toContain(caption)
       const point = within(completed).getByRole('button', { name: /^Selected.*2 tasks/ })
       expect(point.getAttribute('aria-label')).toContain(label)
-      expect(point.getAttribute('title')).toContain(label)
+      expect(point.getAttribute('title')).toBeNull()
+      fireEvent.mouseEnter(point)
+      const tooltip = within(completed).getByRole('tooltip')
+      expect(point.getAttribute('aria-describedby')).toBe(tooltip.id)
+      expect(tooltip.textContent).toContain('Completed2 Tasks')
+      fireEvent.mouseLeave(point)
+      expect(within(completed).queryByRole('tooltip')).toBeNull()
       await user().click(point)
       const sample = screen.getByRole('dialog')
       expect(within(sample).getByRole('heading', { name: heading })).toBeTruthy()
@@ -691,4 +697,82 @@ test('a Stage share is a whole-number percentage of all Stage time', async () =>
   expect(share(0, 1000)).toBe('0%')
   expect(share(null, 1000)).toBe('—')
   expect(share(0, 0)).toBe('—')
+})
+
+test('a graph point’s tooltip compares it with the aligned previous point', async () => {
+  const { pointTip } = await import('../src/renderer/views/Dashboard.tsx')
+  const bucket = (from: string, ids: string[], median: number | null) => ({
+    from,
+    to: from,
+    taskIds: ids,
+    created: { value: median, taskIds: median === null ? [] : ids, missingIds: [] },
+    intake: { value: null, taskIds: [], missingIds: [] },
+  })
+  const now = bucket('now', ['a', 'b', 'c', 'd'], 3_600_000)
+  const then = bucket('then', ['a'], 5_400_000)
+  const label = (b: { from: string }) => b.from
+  expect(
+    pointTip({
+      metric: 'completed',
+      period: 'current',
+      bucket: now,
+      other: then,
+      label,
+      today: false,
+    }),
+  ).toEqual({
+    heading: 'now',
+    aligned: null,
+    rows: [
+      { period: 'current', label: 'Completed', value: '4 Tasks' },
+      { period: 'previous', label: 'Previous · then', value: '1' },
+    ],
+    change: '+3 vs previous (+300%)',
+  })
+  expect(
+    pointTip({
+      metric: 'created',
+      period: 'current',
+      bucket: now,
+      other: then,
+      label,
+      today: true,
+    }),
+  ).toMatchObject({
+    rows: [
+      { label: 'Median', value: '1h', note: 'from 4 Tasks' },
+      { label: 'Yesterday · then', value: '1h 30m' },
+    ],
+    change: '−30m vs yesterday',
+  })
+  expect(
+    pointTip({
+      metric: 'created',
+      period: 'current',
+      bucket: now,
+      other: bucket('then', [], null),
+      label,
+      today: false,
+    }),
+  ).toMatchObject({ change: 'No previous sample' })
+  expect(
+    pointTip({
+      metric: 'completed',
+      period: 'current',
+      bucket: then,
+      other: undefined,
+      label,
+      today: false,
+    }),
+  ).toMatchObject({ rows: [{ value: '1 Task' }], change: null })
+  expect(
+    pointTip({
+      metric: 'completed',
+      period: 'previous',
+      bucket: then,
+      other: now,
+      label,
+      today: false,
+    }),
+  ).toMatchObject({ heading: 'Previous · then', aligned: 'Aligned to now', change: null })
 })
