@@ -83,12 +83,23 @@ export function pickSigningIdentity(listing: string): string | undefined {
   return [...listing.matchAll(/"(Developer ID Application: [^"]+)"/g)].map((match) => match[1])[0]
 }
 
-function useSigningIdentity(): void {
-  if (process.env.CSC_LINK || process.env.CSC_NAME) return
-  const chosen = process.env.TED_SIGN_IDENTITY
-  if (chosen !== undefined && chosen !== '' && !chosen.startsWith(developerId)) {
-    fail(`TED_SIGN_IDENTITY must name a “${developerId}…” certificate, not “${chosen}”`)
+export function signingRefusal(env: NodeJS.ProcessEnv): string | undefined {
+  if (env.CSC_LINK) {
+    return 'pnpm release signs from the keychain and can’t check a CSC_LINK certificate; unset CSC_LINK'
   }
+  for (const name of ['CSC_NAME', 'TED_SIGN_IDENTITY'] as const) {
+    const chosen = env[name]
+    if (chosen && !chosen.startsWith(developerId)) {
+      return `${name} must name a “${developerId}…” certificate, not “${chosen}”`
+    }
+  }
+  return undefined
+}
+
+function useSigningIdentity(): void {
+  const refusal = signingRefusal(process.env)
+  if (refusal !== undefined) fail(refusal)
+  const chosen = process.env.CSC_NAME || process.env.TED_SIGN_IDENTITY
   const listing = execFileSync('security', ['find-identity', '-v', '-p', 'codesigning'], {
     encoding: 'utf8',
   })

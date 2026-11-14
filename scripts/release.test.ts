@@ -12,6 +12,7 @@ import {
   publishRefusal,
   type ReleaseRecord,
   releaseFiles,
+  signingRefusal,
 } from './release.ts'
 
 describe('release versions', () => {
@@ -83,6 +84,22 @@ describe('signing identity', () => {
     expect(pickSigningIdentity(listing('Apple Development: A (1)'))).toBeUndefined()
     expect(pickSigningIdentity(listing('iPhone Distribution: C (3)'))).toBeUndefined()
     expect(pickSigningIdentity('     0 valid identities found')).toBeUndefined()
+  })
+})
+
+describe('signing overrides', () => {
+  test('accept only a Developer ID Application identity, and never a certificate file', () => {
+    const developerId = 'Developer ID Application: B (2)'
+    expect(signingRefusal({})).toBeUndefined()
+    expect(signingRefusal({ CSC_NAME: developerId, TED_SIGN_IDENTITY: '' })).toBeUndefined()
+    expect(signingRefusal({ TED_SIGN_IDENTITY: developerId })).toBeUndefined()
+    expect(signingRefusal({ CSC_NAME: 'Apple Development: A (1)' })).toMatch(/^CSC_NAME must name/)
+    expect(signingRefusal({ TED_SIGN_IDENTITY: 'Apple Development: A (1)' })).toMatch(
+      /^TED_SIGN_IDENTITY must name/,
+    )
+    expect(signingRefusal({ CSC_LINK: 'cert.p12', CSC_NAME: developerId })).toMatch(
+      /unset CSC_LINK/,
+    )
   })
 })
 
