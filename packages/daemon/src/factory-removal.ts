@@ -117,6 +117,7 @@ export function createFactoryRemovals(options: {
             }),
           )
         const { [factory.id]: removedScope, ...scopes } = settings.linearIntakeScopes
+        const { [factory.id]: removedAsanaScope, ...asanaScopes } = settings.asanaIntakeScopes
         const { [factory.id]: removedBoard, ...boards } = settings.boardViews
         const { [factory.id]: permissionsRemoved, ...permissions } = settings.factoryPermissions
         const { [factory.id]: notificationsRemoved, ...notifications } =
@@ -124,6 +125,7 @@ export function createFactoryRemovals(options: {
         store.updateSettings({
           factoryNotifications: notifications,
           linearIntakeScopes: scopes,
+          asanaIntakeScopes: asanaScopes,
           factoryPermissions: permissions,
           linearSyncTeams: teams,
           linearSyncDeclined: declined,

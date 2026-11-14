@@ -26,6 +26,7 @@ import {
 } from './app-auth.ts'
 import type { AsanaConfiguration, AsanaStatus } from './asana.ts'
 import type { AsanaImportPreview, AsanaImportRequest, AsanaImportResult } from './asana-import.ts'
+import type { AsanaIntakeRequest, AsanaIntakeResult, AsanaIntakeScope } from './asana-intake.ts'
 import type {
   AnswerAutomationRequest,
   Automation,
@@ -604,6 +605,10 @@ export class DaemonClient {
 
   importAsana(input: AsanaImportRequest): Promise<AsanaImportResult> {
     return this.#request('POST', '/tasks/asana-import', input)
+  }
+
+  runAsanaIntake(input: AsanaIntakeRequest = {}): Promise<AsanaIntakeResult> {
+    return this.#request('POST', '/asana-intake', input)
   }
 
   setTaskSnooze(ref: string, snoozedUntil: string | null): Promise<Task> {
@@ -1268,6 +1273,10 @@ export class DaemonClient {
     return this.#request('GET', '/simulators')
   }
 
+  emulators(): Promise<SimulatorSlots> {
+    return this.#request('GET', '/emulators')
+  }
+
   appLog(ref: string, app: { repo: string; name: string }): Promise<AppLog> {
     return this.#request(
       'GET',
@@ -1382,6 +1391,15 @@ export class DaemonClient {
     scope: LinearIntakeScope | null,
   ): Promise<MachineSettings> {
     return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/linear-intake`, {
+      scope,
+    })
+  }
+
+  setFactoryAsanaIntake(
+    factoryId: string,
+    scope: AsanaIntakeScope | null,
+  ): Promise<MachineSettings> {
+    return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/asana-intake`, {
       scope,
     })
   }

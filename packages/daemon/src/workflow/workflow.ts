@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import type { AgentStageId, Attachment, Task } from '@ted/protocol'
 import { writingGuidance } from '../writing.ts'
-import type { CleanupStep } from './check.ts'
+import { type CleanupInstructionStep, type CleanupStep, isCommandStep } from './check.ts'
 import type { ResolvedWorkflow } from './resolve.ts'
 
 const defaults = new URL('./defaults/', import.meta.url)
@@ -36,13 +36,28 @@ export function cleanupStepsText(
   steps: readonly CleanupStep[] | undefined,
   heading = '# Cleanup steps',
 ): string {
-  const listed = (steps ?? []).map(
+  const instructions = (steps ?? []).filter(
+    (step) => !isCommandStep(step),
+  ) as CleanupInstructionStep[]
+  const commands = (steps ?? []).filter(isCommandStep)
+  const listed = instructions.map(
     (step, i) => `${i + 1}. **${step.name}**\n\n${indent(step.instruction.trim())}`,
   )
+  const ran =
+    commands.length === 0
+      ? []
+      : [
+          `TED runs ${commands.length === 1 ? 'the command step' : 'the command steps'} itself (${commands.map((step) => `“${step.name}”`).join(', ')}) and sends you the results below. Don’t report ${commands.length === 1 ? 'it' : 'them'} with \`ted cleanup report\`.`,
+        ]
   return [
     heading,
-    'From the Factory’s `.ted/workflow.yaml`. Report each with `ted cleanup report "<step name>" done|skipped|failed "<what happened>"`, using the name exactly as written.',
-    ...listed,
+    ...(instructions.length > 0
+      ? [
+          'From the Factory’s `.ted/workflow.yaml`. Report each with `ted cleanup report "<step name>" done|skipped|failed "<what happened>"`, using the name exactly as written.',
+          ...listed,
+        ]
+      : []),
+    ...ran,
   ].join('\n\n')
 }
 

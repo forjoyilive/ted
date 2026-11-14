@@ -11,10 +11,21 @@ export interface StubAsanaTask {
   comments?: { author: string; at: string; text: string }[]
   attachments?: { name: string; host?: string; bytes?: string }[]
   status?: number
+  parent?: string
+  memberships?: { project: string; section?: string }[]
+}
+
+export interface StubAsanaProject {
+  gid: string
+  name: string
+  workspace: string
+  archived?: boolean
+  sections?: { gid: string; name: string }[]
 }
 
 export async function startStubAsana() {
   const requests: {
+    at: number
     method: string
     path: string
     query: Record<string, string>
@@ -24,6 +35,10 @@ export async function startStubAsana() {
   }[] = []
   let writeFailure: { status: number; retryAfter?: string; applied?: boolean } | undefined
   const tasks = new Map<string, StubAsanaTask>()
+  const workspaces = new Map<string, string>()
+  const projects = new Map<string, StubAsanaProject>()
+  const failures = new Map<string, { status: number; times: number; retryAfter?: string }>()
+  const pathHolds = new Map<string, Promise<void>>()
   let pageSize = 2
   let user = { gid: '100', name: 'Avery', email: 'avery@example.test' }
   let expiresIn = 3600
@@ -46,6 +61,7 @@ export async function startStubAsana() {
     const path = (req.url ?? '').split('?')[0] ?? ''
     const query = Object.fromEntries(new URL(req.url ?? '/', 'http://stub').searchParams)
     requests.push({
+      at: Date.now(),
       method: req.method ?? 'GET',
       path,
       query,
@@ -54,6 +70,8 @@ export async function startStubAsana() {
       ...(req.headers.authorization && { authorization: req.headers.authorization }),
     })
     if (delay) await delay
+    const held = pathHolds.get(path)
+    if (held) await held
     res.setHeader('content-type', 'application/json')
     if (redirect) {
       res.writeHead(302, { location: '/leak' })
@@ -120,6 +138,74 @@ export async function startStubAsana() {
         return
       }
       res.end(Buffer.from(file.bytes ?? '', 'latin1'))
+    } else if (failures.has(path)) {
+      const failure = failures.get(path) ?? { status: 500, times: 0 }
+      if (failure.times <= 1) failures.delete(path)
+      else failures.set(path, { ...failure, times: failure.times - 1 })
+      res.writeHead(
+        failure.status,
+        failure.retryAfter === undefined ? {} : { 'retry-after': failure.retryAfter },
+      )
+      res.end('{}')
+    } else if (/^\/api\/1\.0\/(workspaces|projects|sections)\//.test(path)) {
+      if (req.headers.authorization !== 'Bearer access-secret-opaque') {
+        res.writeHead(401)
+        res.end('{}')
+        return
+      }
+      const [, , , kind = '', gid = '', list] = path.split('/')
+      const sectionOf = (id: string) => {
+        for (const project of projects.values()) {
+          const section = project.sections?.find((s) => s.gid === id)
+          if (section) return { ...section, project }
+        }
+        return undefined
+      }
+      const project = kind === 'projects' ? projects.get(gid) : undefined
+      const section = kind === 'sections' ? sectionOf(gid) : undefined
+      const workspace = kind === 'workspaces' ? workspaces.get(gid) : undefined
+      if (!project && !section && workspace === undefined) {
+        res.writeHead(404)
+        res.end('{}')
+        return
+      }
+      if (list === 'tasks') {
+        const members = [...tasks.values()].filter(
+          (task) =>
+            task.status === undefined &&
+            (query.completed_since !== 'now' || task.completed !== true) &&
+            (task.memberships ?? []).some((m) =>
+              project ? m.project === project.gid : m.section === section?.gid,
+            ),
+        )
+        const offset = Number(query.offset ?? '0')
+        const next = offset + pageSize
+        res.end(
+          JSON.stringify({
+            data: members.slice(offset, next).map((task) => ({
+              gid: task.gid,
+              name: task.name,
+              completed: task.completed === true,
+            })),
+            next_page: next < members.length ? { offset: String(next) } : null,
+          }),
+        )
+        return
+      }
+      res.end(
+        JSON.stringify({
+          data: project
+            ? {
+                gid: project.gid,
+                name: project.name,
+                archived: project.archived === true,
+                workspace: { gid: project.workspace },
+              }
+            : section
+              ? { gid: section.gid, name: section.name, project: { gid: section.project.gid } }
+              : { gid, name: workspace },
+        }),
+      )
     } else if (path.startsWith('/api/1.0/tasks/') || path === '/api/1.0/attachments') {
       if (req.headers.authorization !== 'Bearer access-secret-opaque') {
         res.writeHead(401)
@@ -221,6 +307,11 @@ export async function startStubAsana() {
               num_subtasks: (task.subtasks ?? []).length,
               permalink_url: `https://app.asana.com/1/1/project/9/task/${task.gid}`,
               assignee: task.assignee ?? null,
+              parent: task.parent ? { gid: task.parent } : null,
+              memberships: (task.memberships ?? []).map((m) => ({
+                project: { gid: m.project },
+                section: m.section ? { gid: m.section } : null,
+              })),
             },
           }),
         )
@@ -242,6 +333,21 @@ export async function startStubAsana() {
     setTasks(list: readonly StubAsanaTask[]) {
       tasks.clear()
       for (const task of list) tasks.set(task.gid, task)
+    },
+    setWorkspaces(list: readonly { gid: string; name: string }[]) {
+      workspaces.clear()
+      for (const workspace of list) workspaces.set(workspace.gid, workspace.name)
+    },
+    setProjects(list: readonly StubAsanaProject[]) {
+      projects.clear()
+      for (const project of list) projects.set(project.gid, project)
+    },
+    holdPath(path: string, value: Promise<void> | undefined) {
+      if (value) pathHolds.set(path, value)
+      else pathHolds.delete(path)
+    },
+    failNext(path: string, status: number, times = 1, retryAfter?: string) {
+      failures.set(path, { status, times, ...(retryAfter !== undefined && { retryAfter }) })
     },
     updateTask(gid: string, change: Partial<StubAsanaTask>) {
       const task = tasks.get(gid)

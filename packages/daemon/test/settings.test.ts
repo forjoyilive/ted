@@ -266,6 +266,7 @@ describe('settings and Factories over the daemon API', () => {
     ['no Checks at once', { maxChecksAtOnce: 0 }],
     ['more Checks at once than the limit', { maxChecksAtOnce: 17 }],
     ['more simulator slots than the limit', { maxBootedSimulators: 21 }],
+    ['more emulator slots than the limit', { maxRunningEmulators: 17 }],
     ['Run output kept for no days', { runOutputDays: 0 }],
     ['Run output kept for more than a year', { runOutputDays: 366 }],
     ['Run output kept for part of a day', { runOutputDays: 1.5 }],

@@ -1,19 +1,15 @@
-import type { Proposal, ProposalCreated, ProposalPlan } from '@ted/protocol'
-import { planProposal } from '@ted/protocol'
+import type { Priority, Proposal, ProposalCreated, ProposalPlan } from '@ted/protocol'
+import { planProposal, priorities } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import type { NewTask, TedStore } from '../store/index.ts'
 
 export function approvedShape(
   proposal: Proposal,
   requested: readonly number[] | undefined,
-  firstPiece: { name: string } | undefined,
 ): { skip: number[]; shape: ProposalPlan } {
   const skip = [...(requested ?? [])].sort((a, b) => a - b)
   const outside = skip.find((row) => row < 1 || row > proposal.rows.length)
   if (outside !== undefined) throw new RequestError(400, `the proposal has no row ${outside}`)
-  if (firstPiece && skip.includes(1)) {
-    throw new RequestError(400, `row 1 is ${firstPiece.name}, so it’s always kept`)
-  }
   const shape = planProposal(proposal, skip)
   if (shape.creates === 0) throw new RequestError(400, 'check at least one row to create')
   return { skip, shape }
@@ -24,13 +20,12 @@ export async function createProposalTasks(
   proposal: Proposal,
   shape: ProposalPlan,
   options: {
-    firstPieceId: string | undefined
+    parentId: string
     factoryId: string
     fields: (row: number) => Pick<NewTask, 'lead' | 'splitFrom' | 'plan'>
   },
 ): Promise<ProposalCreated['tasks']> {
   const ids = new Map<number, string>()
-  if (options.firstPieceId !== undefined) ids.set(1, options.firstPieceId)
   const created: ProposalCreated['tasks'] = []
   for (const row of shape.order) {
     const planned = shape.rows[row - 1]
@@ -47,10 +42,15 @@ export async function createProposalTasks(
       factoryId: options.factoryId,
       ...options.fields(row),
       blockedBy,
+      parentId: options.parentId,
       startRequested: blockedBy.length > 0,
     })
     ids.set(row, made.id)
     created.push({ row, id: made.id, displayId: made.displayId })
   }
   return created.sort((a, b) => a.row - b.row)
+}
+
+export function highestPriority(given: readonly (Priority | undefined)[]): Priority {
+  return priorities.find((p) => p !== 'none' && given.includes(p)) ?? 'none'
 }

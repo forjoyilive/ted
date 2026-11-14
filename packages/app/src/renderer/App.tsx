@@ -7,7 +7,7 @@ import type {
   ListFilters,
   Task,
 } from '@ted/protocol'
-import { simulatorsLine } from '@ted/protocol/app'
+import { emulatorsLine, simulatorsLine } from '@ted/protocol/app'
 import { runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
 import { agentKinds } from '@ted/protocol/run'
@@ -68,6 +68,7 @@ import {
   useCoordinatorConfirmations,
   useCoordinatorStatuses,
   useDrift,
+  useEmulators,
   useFactoryList,
   useInbox,
   useMenuCommands,
@@ -251,6 +252,8 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const drift = useDrift()
   const simulators = useSimulators()
   const simulatorsFooter = simulators && simulatorsLine(simulators)
+  const emulators = useEmulators()
+  const emulatorsFooter = emulators && emulatorsLine(emulators)
   const [runsOpen, setRunsOpen] = useState(false)
   const [usageOpen, setUsageOpen] = useState(false)
   const closeUsage = useCallback(() => setUsageOpen(false), [])
@@ -1251,6 +1254,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           footer={{
             ...(slots !== undefined && { runs: runsLine(slots) }),
             ...(simulatorsFooter !== undefined && { simulators: simulatorsFooter }),
+            ...(emulatorsFooter !== undefined && { emulators: emulatorsFooter }),
             ...(failedTasks.length > 0 && { failed: `${failedTasks.length} failed` }),
             ...pausedFooter(agentHealth),
             ...(settings?.overnightMode && { overnight: 'Autopilot is on' }),

@@ -293,7 +293,7 @@ Rules:
 | `stages.<id>.based_on` | Factory or Library | Hash of the inherited Stage file an override was copied from (5.5). | KRI-22, KRI-58 |
 | `stages.backlog.enabled` | any layer | The only setting Backlog takes. Done takes none. | KRI-15, KRI-58 |
 | `stages.cleanup.enabled` | any layer | `true` turns on Cleanup after Merge (6.15) when at least one step is listed. Default off. Cleanup can’t be in `order` and takes only `enabled`, `effort`, `based_on` and `steps`. | ADR 0148 |
-| `stages.cleanup.steps` | any layer | List of Cleanup steps, each `{name, instruction}`: a unique one-line name of at most 80 characters and the instruction the Task Lead follows. | ADR 0148 |
+| `stages.cleanup.steps` | any layer | List of Cleanup steps, each `{name, instruction}` or `{name, command, timeout?}`: a unique one-line name of at most 80 characters and either the instruction the Task Lead follows or a shell command TED runs itself (`timeout` like a Check’s, default `10m`). | ADR 0148, ADR 0149 |
 | `stages.clarify.depth` | any layer | `auto` (default), `none`, `few`, `grilling`. | KRI-19 |
 | `stages.validate.checks` | Factory | List of Checks (8.1). | KRI-16, KRI-57 |
 | `stages.validate.loop_check` | any layer | Send-back count at which the loop check runs; default `3`; `false` turns it off. | KRI-16 |
@@ -665,8 +665,8 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 ### 6.13 Split it
 
 - The Task Lead posts the pieces as a `proposal` with `ted task propose --file <file>` (title, one-line scope, Priority, blocked-by by row number). The card is the same as a planning chat proposal (13.4). (KRI-19, KRI-60, KRI-55)
-- **Create N Tasks** creates them in Backlog, linked back to the original; **Request changes** revises the list. (KRI-19, KRI-60)
-- The original Task becomes the first piece. It keeps its thread and history, narrows its title and description, and continues through the Workflow. Its row on the proposal is locked on. (KRI-19, KRI-66)
+- **Create N Tasks** creates them in Backlog as child Tasks of the original, linked back to it; **Request changes** revises the list. (KRI-19, KRI-60, TED-323)
+- The original Task becomes their parent. It keeps its title, description, thread and history; its Task Lead stops and it waits in its Stage until the children merge. Then TED moves it to Done if it has no commits or changes of its own, or starts its Task Lead again from the brief. Every row, row 1 included, is an ordinary row that can be unchecked or blocked. (TED-323)
 - Blocked pieces start when their blockers merge; the rest wait for the human unless **Start the unblocked ones** is ticked. (KRI-19, KRI-60)
 - Task details keeps the collapsed **Original request**, and the Task Lead gets it next to the current description at Run start. (KRI-19)
 
@@ -683,6 +683,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 - **Cleanup** is an optional agent Stage between Merge and Done, off by default. A Factory turns it on with `stages.cleanup.enabled: true` and lists named Cleanup steps under `stages.cleanup.steps`, each with an `instruction` for the Task Lead, such as posting the merged pull request to an Asana task or shutting down a test environment. With no steps it stays off. It is never listed in `order`, has no sign-off, no send-back and no skip, and Autopilot changes nothing about it. Factory settings don’t edit it yet (TED-321). (TED-307, ADR 0148)
 - When Cleanup is on, every way a Task’s pull requests finish merging (TED’s merge, a merge on GitHub, Mark done, `ted task done`, the Coordinator’s done) moves the Task to Cleanup instead of Done. Tasks blocked on it are released at once. The same Task Lead Run gets the Cleanup Stage file and the steps, takes a working-Run slot, reports each step with `ted cleanup report "<step>" done|skipped|failed "<what happened>"` and runs `ted outcome advance` once every step has a result. It may retry or work around a problem but never changes code or pushes. Apps, simulators and the worktree stay until Cleanup ends. Mark done, `ted task done` and the Coordinator’s done are refused while a Task is in Cleanup. (TED-307)
 - When a step failed, TED keeps the Task in Cleanup with the activity “Cleanup failed · waiting on you” and asks the user **Try again** or **Finish anyway**. Try again rereads the steps from `origin/<default branch>` and gives the Task Lead only the failed ones; Finish anyway posts a note naming the steps that didn’t happen and moves the Task to Done. Only the user answers: not Autopilot and not the Coordinator. To debug, the user writes to the Task Lead in the thread and fixes the step in `.ted/workflow.yaml`. (TED-307)
+- A Cleanup step can be a `command` instead of an `instruction`. On entering Cleanup, TED runs every command step first, one after another, like a Check: `$SHELL -lc` in the primary repo’s worktree, in TED’s sandbox outside Bypass, with a Check slot, a 10-minute default timeout and `timeout` per step. A failed command doesn’t stop the rest. Each result is a thread line with the last lines of output, and the Task shows “Running Cleanup commands” meanwhile. The Task Lead then gets the instruction steps with the command results, and diagnoses any failed command in its note; it never reports a command step. When every step is a command and all pass, TED moves the Task to Done without a Task Lead turn. A failed command is a failed step: Try again runs the failed commands again before the Task Lead redoes the failed instructions. Commands without a result when the daemon restarts run again, so they should be safe to repeat. (TED-320, ADR 0149)
 - Linear sync’s move to completed and the Run output retention clock wait for Done. (TED-307)
 - Done is the holding Stage at the end of the Workflow. Nothing runs there. (KRI-52)
 - When every pull request has merged, and Cleanup has ended when it is on, TED moves the Task to Done, stops the Task Lead’s Run (kept as history), stops the Apps, runs `teardown` and removes the worktrees, and releases Tasks blocked on this one. (KRI-52, KRI-58)
@@ -1362,10 +1363,10 @@ Figma: KRI-66 Automations and Plans.
 
 - Posted with `ted task propose --file <file>` as a `proposal` Comment: title, one-line scope, Priority and blocked-by (by row number) per Task. Split it uses the same card. (KRI-60, KRI-55)
 - The card: a one-line title; numbered rows, each with a checkbox (all checked), title, scope, Priority and “blocked by 2”; **Start the unblocked ones** (off by default) with which rows that would start; a comment box; **Request changes** · **Create N Tasks**. (KRI-60, KRI-66)
-- **Started from a Task:** row 1 reads “NB-41 (this Task) becomes the first piece: Local note cache”, locked on. (KRI-60, KRI-66)
+- Above the rows, one line says what Create N Tasks does: “NB-41 becomes the parent of these Tasks and runs after they merge.” for a split or a chat started from a Task, otherwise “TED creates a parent Task for these Tasks. It runs after they merge.” (TED-323)
 - **Unchecking a row others are blocked by:** each dependent row warns “⚠ Blocked by row 3, which won’t be created. This Task will have no blocker.” and strikes through its “blocked by 3”. The Task is created with no blocker; it doesn’t take on row 3’s blockers. The button count drops. (KRI-66)
 - Created Tasks land in Backlog and link back to the planning chat. Blocked ones start when their blockers merge; unblocked ones start only if **Start the unblocked ones** was ticked. (KRI-19, KRI-60)
-- **Approved** card: green, “approved by you at 14:06”, with Task IDs on each row and blockers named by ID, followed by event lines (“TED created 4 Tasks in Backlog: NB-54, …. NB-41 narrowed to Local note cache.”, “TED told NB-41’s Task Lead; it carries on with Clarify.”, “Planning Run finished”). (KRI-66)
+- **Approved** card: green, “approved by you at 14:06”, with Task IDs on each row and blockers named by ID, followed by event lines (“TED created 4 Tasks under NB-41: NB-54, …. NB-41 waits for them to merge.”, “TED stopped NB-41’s Task Lead while its child Tasks are built.”, “Planning Run finished”). A plan not started from a Task creates its parent first, titled with the plan’s title, with the proposal’s summary as its description. (KRI-66, TED-323)
 
 ### 13.5 Plans list and planning chat
 
@@ -1381,9 +1382,9 @@ Figma: KRI-66 Automations and Plans.
 ### 13.6 Plan in chat from a Task
 
 - The Task stays in Clarify, and its Task Lead Run waits, idle. The thread gets a link line, “Planning in chat: <title>”. (KRI-60)
-- On approval, the Task becomes the first piece (narrowed title and description), and TED tells its Task Lead, which carries on with Clarify. (KRI-60)
+- On approval, the Task becomes the parent of every created Task, as with Split it: its Task Lead stops and it waits for them to merge. (TED-323)
 - If the chat is stopped without approval, the Task Lead is told and asks its size question again. (KRI-60)
-- If the Task is archived or deleted mid-plan, the chat carries on as a standalone plan: the “this Task becomes the first piece” row becomes an ordinary, unlocked row, and the chat gets a note saying why. (KRI-8 coordinator decision 9)
+- If the Task is archived or deleted mid-plan, the chat carries on as a standalone plan: TED creates a new parent Task for the Tasks it creates, and the chat gets a note saying why. (KRI-8 coordinator decision 9, TED-323)
 
 ---
 

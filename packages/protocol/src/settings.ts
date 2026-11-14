@@ -1,3 +1,4 @@
+import type { AsanaIntakeScope } from './asana-intake.ts'
 import type { BoardView } from './board-view.ts'
 import type { Billing } from './health.ts'
 import type { LinearIntakeScope } from './linear.ts'
@@ -77,6 +78,7 @@ export interface MachineSettings {
   maxWorkingRuns: number
   adjustRunsToLoad: boolean
   maxBootedSimulators: number
+  maxRunningEmulators: number
   runOutputDays: number
   quitWithWorkRunning: QuitChoice
   showTrayIcon: boolean
@@ -96,6 +98,7 @@ export interface MachineSettings {
   editor: EditorChoice | null
   editorCommand: string
   linearIntakeScopes: Readonly<Record<string, LinearIntakeScope>>
+  asanaIntakeScopes: Readonly<Record<string, AsanaIntakeScope>>
   linearSync: boolean
   asanaSync: boolean
   linearSyncTeams: Readonly<Record<string, readonly string[]>>
@@ -123,6 +126,7 @@ export const defaultMachineSettings: MachineSettings = {
   maxWorkingRuns: 6,
   adjustRunsToLoad: false,
   maxBootedSimulators: 3,
+  maxRunningEmulators: 2,
   runOutputDays: 7,
   quitWithWorkRunning: 'ask',
   showTrayIcon: true,
@@ -142,6 +146,7 @@ export const defaultMachineSettings: MachineSettings = {
   editor: null,
   editorCommand: '',
   linearIntakeScopes: {},
+  asanaIntakeScopes: {},
   linearSync: true,
   asanaSync: true,
   linearSyncTeams: {},

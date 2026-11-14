@@ -58,13 +58,17 @@ export class AsanaReadError extends Error {
 const maxReadBytes = 4_000_000
 const maxWriteBytes = 65_536
 export const maxAsanaCommentLength = 2000
-const maxRetryAfterMs = 60 * 60_000
+const maxRetryAfterMs = 24 * 60 * 60_000
 
-function retryAfter(response: Response): number | undefined {
+export function retryAfterMs(response: Pick<Response, 'status' | 'headers'>, now = Date.now()) {
   if (response.status !== 429 && response.status !== 503) return undefined
-  const header = response.headers.get('retry-after')?.trim()
-  if (!header || !/^\d{1,6}$/.test(header)) return response.status === 429 ? 60_000 : undefined
-  return Math.min(Number(header) * 1000, maxRetryAfterMs)
+  const value = response.headers.get('retry-after')?.trim() ?? ''
+  const ms = /^\d{1,9}$/.test(value)
+    ? Number(value) * 1000
+    : /[a-z]/i.test(value) && Number.isFinite(Date.parse(value))
+      ? Math.max(0, Date.parse(value) - now)
+      : undefined
+  return ms === undefined ? undefined : Math.min(ms, maxRetryAfterMs)
 }
 
 export function createAsana(options: AsanaOptions) {
@@ -173,7 +177,7 @@ export function createAsana(options: AsanaOptions) {
         throw new ConnectionError(
           'Asana couldn’t complete the request. Check your connection and app permissions, then try again.',
           response.status,
-          retryAfter(response),
+          retryAfterMs(response),
         )
       }
       if (url.endsWith('/-/oauth_revoke')) {

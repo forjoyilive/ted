@@ -1532,6 +1532,17 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  emulatorShutDown: Events.synced({
+    name: 'v1.EmulatorShutDown',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      repo: Schema.String,
+      name: Schema.String,
+      forTask: Schema.NullOr(Schema.String),
+      idle: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
   appStartFailed: Events.synced({
     name: 'v1.AppStartFailed',
     schema: Schema.Struct({
@@ -1951,6 +1962,19 @@ export const events = {
       narrowedTo: Schema.String,
       at: Schema.String,
     }),
+  }),
+  childTasksCreated: Events.synced({
+    name: 'v1.ChildTasksCreated',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      childIds: Schema.Array(Schema.String),
+      from: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  parentFinishedWithChildren: Events.synced({
+    name: 'v1.ParentFinishedWithChildren',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
   }),
   taskNeedsPlanning: Events.synced({
     name: 'v1.TaskNeedsPlanning',
@@ -3025,6 +3049,20 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  cleanupCommandRan: Events.synced({
+    name: 'v1.CleanupCommandRan',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      step: Schema.String,
+      state: Schema.String,
+      exitCode: Schema.NullOr(Schema.Number),
+      timeout: Schema.String,
+      durationMs: Schema.Number,
+      output: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   cleanupRetried: Events.synced({
     name: 'v1.CleanupRetried',
     schema: Schema.Struct({
@@ -3597,6 +3635,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskFollowedUp': (args) => task(args, { followUpId: args.followUpId }),
   'v1.TaskSplitFrom': (args) => task(args, { originalId: args.originalId }),
   'v1.TaskSplit': (args) => task(args, { pieceIds: args.pieceIds, narrowedTo: args.narrowedTo }),
+  'v1.ChildTasksCreated': (args) => task(args, { childIds: args.childIds, from: args.from }),
+  'v1.ParentFinishedWithChildren': (args) => task(args),
   'v1.TaskNeedsPlanning': (args) => task(args, { runId: args.runId }),
   'v1.TaskStartedAfterPlanning': (args) => task(args, { stage: args.stage }),
   'v1.PlanStartedFromTask': (args) => task(args, { planId: args.id }),
@@ -3618,6 +3658,15 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.SendBackCauseRecorded': (args) => task(args, { cause: args.cause }),
   'v1.CleanupStepReported': (args) =>
     task(args, { step: args.step, result: args.result, text: args.text, runId: args.runId }),
+  'v1.CleanupCommandRan': (args) =>
+    task(args, {
+      step: args.step,
+      state: args.state,
+      exitCode: args.exitCode,
+      timeout: args.timeout,
+      durationMs: args.durationMs,
+      output: args.output,
+    }),
   'v1.CleanupRetried': (args) => task(args, { steps: args.steps }),
   'v1.CleanupFinishedAnyway': (args) => task(args, { steps: args.steps }),
   'v1.BaseConflictFound': (args) =>
@@ -3703,6 +3752,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.AppStartFailed': (args) =>
     task(args, { repo: args.repo, name: args.name, problem: args.problem }),
   'v1.SimulatorShutDown': (args) =>
+    task(args, { repo: args.repo, name: args.name, forTask: args.forTask, idle: args.idle }),
+  'v1.EmulatorShutDown': (args) =>
     task(args, { repo: args.repo, name: args.name, forTask: args.forTask, idle: args.idle }),
   'v1.TaskRunReleased': (args) => task(args),
   'v1.RunAutoModeUnavailable': (args) => task(args, { runId: args.runId }),
@@ -3920,6 +3971,7 @@ const materializers = counted(
       'v1.AppExited': () => [],
       'v1.AppStartFailed': () => [],
       'v1.SimulatorShutDown': () => [],
+      'v1.EmulatorShutDown': () => [],
       'v1.SimulatorRequested': ({ runId, simulator, ...comment }) =>
         comments.insert({
           ...comment,
@@ -4036,6 +4088,10 @@ const materializers = counted(
       'v1.TaskSplitFrom': ({ taskId, originalId }) =>
         tasks.update({ splitFrom: originalId }).where({ id: taskId }),
       'v1.TaskSplit': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.ChildTasksCreated': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.ParentFinishedWithChildren': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.TaskNeedsPlanning': ({ taskId, at }) => [
         taskQueue.delete().where({ taskId }),
         tasks
@@ -4497,6 +4553,16 @@ const materializers = counted(
       'v1.SendBackCauseRecorded': ({ sendBackId, cause }) =>
         sendBacks.update({ cause }).where({ id: sendBackId }),
       'v1.CleanupStepReported': (row) => cleanupReports.insert(row),
+      'v1.CleanupCommandRan': ({ id, taskId, step, state, exitCode, timeout, at }) =>
+        cleanupReports.insert({
+          id,
+          taskId,
+          step,
+          result: state === 'passed' ? 'done' : 'failed',
+          text: cleanupCommandText(state, exitCode, timeout),
+          runId: '',
+          at,
+        }),
       'v1.CleanupRetried': ({ taskId, steps }) =>
         cleanupReports.delete().where({ taskId, step: { op: 'IN', value: steps } }),
       'v1.CleanupFinishedAnyway': () => [],
@@ -5120,3 +5186,14 @@ const state = State.SQLite.makeState({
 })
 
 export const schema = makeSchema({ events, state })
+
+export function cleanupCommandText(
+  state: string,
+  exitCode: number | null,
+  timeout: string,
+): string {
+  if (state === 'passed') return 'TED ran the command; it passed'
+  if (state === 'timed-out') return `TED ran the command; it timed out after ${timeout}`
+  if (exitCode === 127) return 'TED ran the command; command not found'
+  return `TED ran the command; it failed${exitCode === null ? '' : ` with exit code ${exitCode}`}`
+}

@@ -588,6 +588,15 @@ export interface NewLineComment {
   body: string
 }
 
+export interface CleanupCommandResult {
+  step: string
+  state: 'passed' | 'failed' | 'timed-out'
+  exitCode?: number
+  timeout: string
+  durationMs: number
+  output: string
+}
+
 export type PlannedCheck = Omit<CheckResult, 'exitCode' | 'durationMs'>
 
 export interface LoggedEvent {
@@ -786,6 +795,13 @@ export interface TedStore extends TaskHistory {
     taskId: string,
     input: { pieceIds: string[]; narrowedTo: string; description: string },
   ): void
+  childTasksCreated(
+    taskId: string,
+    childIds: readonly string[],
+    from: 'split' | 'plan' | 'plan-task',
+  ): void
+  madeParent(taskId: string): boolean
+  parentFinishedWithChildren(taskId: string): void
   taskPlanEnded(
     taskId: string,
     planId: string,
@@ -855,6 +871,13 @@ export interface TedStore extends TaskHistory {
   }): void
   appStartFailed(input: { taskId: string; repo: string; name: string; problem: string }): void
   simulatorShutDown(input: {
+    taskId: string
+    repo: string
+    name: string
+    forTask?: string
+    idle: boolean
+  }): void
+  emulatorShutDown(input: {
     taskId: string
     repo: string
     name: string
@@ -971,6 +994,7 @@ export interface TedStore extends TaskHistory {
   baseConflicts(taskId?: string): BaseConflictFound[]
   reportCleanupStep(taskId: string, runId: string, report: ReportCleanupStepRequest): void
   cleanupReports(taskId: string): CleanupStepReport[]
+  recordCleanupCommand(taskId: string, result: CleanupCommandResult): void
   retryCleanup(taskId: string, steps: readonly string[]): void
   finishCleanupAnyway(taskId: string, steps: readonly string[]): void
   baseAdopted(
@@ -1791,6 +1815,12 @@ export async function openStore({
     }
   }
   type TaskReads = ReturnType<typeof taskReads>
+  const planParent = (log: readonly (typeof taskLog.Type)[]) =>
+    log.some(
+      (e) =>
+        e.name === 'v1.ChildTasksCreated' &&
+        (JSON.parse(e.data) as { from?: unknown }).from === 'plan',
+    )
   const perTask = taskReads(false)
   // Reading every table once costs about as much as reading 10 Tasks one by one.
   const readEveryTaskFrom = 10
@@ -1939,6 +1969,7 @@ export async function openStore({
       ...(failedAt !== null && { failed: true }),
       ...(stage === 'cleanup' &&
         requests.some((row) => row.cleanupFailure !== null) && { cleanupFailed: true }),
+      ...(stage === 'cleanup' && checkingTasks.has(row.id) && { cleanupCommandsRunning: true }),
       ...(partlyMerged && { partlyMerged }),
       ...(stoppedAt !== null && {
         stopped: {
@@ -2087,7 +2118,7 @@ export async function openStore({
             ? 'split'
             : reads.automationLinks(row.id).length > 0
               ? 'automation'
-              : planLink
+              : planLink || planParent(reads.log(row.id))
                 ? 'planning'
                 : 'human'
     const linearSync = linearSyncOf(row, source, reads)
@@ -2450,7 +2481,12 @@ export async function openStore({
     const asking = requests.filter((r) => r.kind === 'permission')
     if (asking.length === 0) return {}
     return {
-      ...(asking.some((r) => r.simulator !== null) && { waitingOnSimulator: true }),
+      ...(asking.some((r) => r.simulator !== null && !androidAsk(r.simulator)) && {
+        waitingOnSimulator: true,
+      }),
+      ...(asking.some((r) => r.simulator !== null && androidAsk(r.simulator)) && {
+        waitingOnEmulator: true,
+      }),
       waitingOnPermission: asking.some((r) => r.authorRunId === leadId)
         ? ('lead' as const)
         : ('sub-agent' as const),
@@ -4011,6 +4047,17 @@ export async function openStore({
       commit(...(edited ? [edited] : []), events.taskSplit({ taskId, pieceIds, narrowedTo, at }))
       updatedTask(taskId)
     },
+    childTasksCreated(taskId, childIds, from) {
+      const at = new Date().toISOString()
+      commit(events.childTasksCreated({ taskId, childIds: [...childIds], from, at }))
+      updatedTask(taskId)
+    },
+    madeParent: (taskId) =>
+      store.query(queryDb(taskLog.where({ taskId, name: 'v1.ChildTasksCreated' }))).length > 0,
+    parentFinishedWithChildren(taskId) {
+      commit(events.parentFinishedWithChildren({ taskId, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
     taskPlanEnded(taskId, planId, outcome) {
       if (!taskRow(taskId)) return
       commit(events.taskPlanEnded({ taskId, planId, outcome, at: new Date().toISOString() }))
@@ -4350,6 +4397,19 @@ export async function openStore({
     simulatorShutDown({ taskId, repo, name, forTask, idle }) {
       commit(
         events.simulatorShutDown({
+          taskId,
+          repo,
+          name,
+          forTask: forTask ?? null,
+          idle,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    emulatorShutDown({ taskId, repo, name, forTask, idle }) {
+      commit(
+        events.emulatorShutDown({
           taskId,
           repo,
           name,
@@ -5587,6 +5647,22 @@ export async function openStore({
       }
       return [...latest.values()]
     },
+    recordCleanupCommand(taskId, result) {
+      commit(
+        events.cleanupCommandRan({
+          id: randomUUID(),
+          taskId,
+          step: result.step,
+          state: result.state,
+          exitCode: result.exitCode ?? null,
+          timeout: result.timeout,
+          durationMs: result.durationMs,
+          output: result.output,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
     retryCleanup(taskId, steps) {
       commit(events.cleanupRetried({ taskId, steps: [...steps], at: new Date().toISOString() }))
       updatedTask(taskId)
@@ -6698,4 +6774,12 @@ function headlineOf(title: string | null, body: string): string {
       .map((line) => line.trim())
       .find((line) => line !== '') ?? ''
   )
+}
+
+function androidAsk(simulator: string): boolean {
+  try {
+    return (JSON.parse(simulator) as SimulatorAsk).platform === 'android'
+  } catch {
+    return false
+  }
 }

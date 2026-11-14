@@ -36,9 +36,12 @@ const buildFolders = {
 }
 
 export function buildCacheEnv(cache: string): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(buildFolders).map(([name, dir]) => [name, path.join(cache, 'xcode', dir)]),
-  )
+  return {
+    ...Object.fromEntries(
+      Object.entries(buildFolders).map(([name, dir]) => [name, path.join(cache, 'xcode', dir)]),
+    ),
+    GRADLE_USER_HOME: path.join(cache, 'gradle'),
+  }
 }
 
 async function makeBuildCaches(

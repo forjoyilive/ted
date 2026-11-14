@@ -16,6 +16,9 @@ import type {
   AsanaImportPreview,
   AsanaImportRequest,
   AsanaImportResult,
+  AsanaIntakeRequest,
+  AsanaIntakeResult,
+  AsanaIntakeScope,
   AssessFailureRequest,
   Attachment,
   BaseConflictFound,
@@ -129,6 +132,7 @@ import {
   isTrackerClosedQuestion,
   isTrackerGroupAsk,
   keepArchiveChoice,
+  maxAsanaIntakeTasks,
   parseAsanaTaskUrl,
   parseLinearUrl,
   type ResetRefusal,
@@ -140,13 +144,20 @@ import { agentStartHold } from '../agent-eligibility.ts'
 import type { AutoModeSignal } from '../agents/agent.ts'
 import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
-import { type AppsOptions, type AppTask, createApps, type SimulatorOptions } from '../apps/apps.ts'
+import {
+  type AppsOptions,
+  type AppTask,
+  createApps,
+  type EmulatorOptions,
+  type SimulatorOptions,
+} from '../apps/apps.ts'
 import { type AppDeclaration, appDeclarations } from '../apps/declared.ts'
 import { AsanaReadError } from '../asana/asana.ts'
-import { type AsanaRead, type AsanaTree, readAsanaTree } from '../asana/tree.ts'
+import { checkAsanaRoot, confirmAsanaScope, listAsanaIntake, scopeName } from '../asana/intake.ts'
+import { type AsanaRead, type AsanaTree, readAsanaTree, retryingRead } from '../asana/tree.ts'
 import type { Banners } from '../banners.ts'
 import { type Clock, clockWait, systemClock, type Timer } from '../clock.ts'
-import { worktreeCommandEnv } from '../command-env.ts'
+import { loginShell, worktreeCommandEnv } from '../command-env.ts'
 import type { FileStore } from '../downloads.ts'
 import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
@@ -167,6 +178,7 @@ import type { RunManager } from '../runs/run-manager.ts'
 import type { Steering } from '../runs/steering.ts'
 import type { Sandbox, SandboxScope } from '../sandbox.ts'
 import type {
+  CleanupCommandResult,
   FoundConflict,
   LoopCheck,
   LoopVerdict,
@@ -185,6 +197,7 @@ import {
   type CleanupStep,
   checkLayer,
   githubRepoOf,
+  isCommandStep,
   type WorkflowSettings,
 } from '../workflow/check.ts'
 import { readGitLayer } from '../workflow/layers.ts'
@@ -238,6 +251,7 @@ import type { CheckSlots } from './check-slots.ts'
 import {
   type CheckRunnerResult,
   checkEnv,
+  defaultCheckTimeout,
   failureFindings,
   lastLines,
   planChecks,
@@ -256,12 +270,15 @@ import {
   withoutCheckName,
 } from './ci-failures.ts'
 import {
+  cleanupCommandReportRefusal,
   cleanupDoneRefusal,
   cleanupFailureBody,
   cleanupMoveTarget,
   cleanupNoBack,
   cleanupProgress,
+  cleanupRestartNote,
 } from './cleanup.ts'
+import { cleanupCommandsText, runCleanupCommands } from './cleanup-commands.ts'
 import { coalesced } from './coalesced.ts'
 import type { CommandLaunch } from './command.ts'
 import { createTaskExecution } from './execution.ts'
@@ -446,7 +463,6 @@ export interface TaskPlanning {
 export interface PlanApproval {
   planId: string
   planTitle: string
-  narrowed: { title: string; description: string; priority: Priority }
   created: ProposalCreated
   text: string
 }
@@ -542,6 +558,7 @@ export interface Tasks {
   create(input: CreateTaskInput, caller?: Caller): Promise<Task>
   asanaPreview(input: AsanaImportRequest, caller?: Caller): Promise<AsanaImportPreview>
   importAsana(input: AsanaImportRequest, caller?: Caller): Promise<AsanaImportResult>
+  asanaIntake(input: AsanaIntakeRequest, caller?: Caller): Promise<AsanaIntakeResult>
   cancelMerge(ref: string, comment: string, attachments?: Attachment[]): Promise<Comment>
   markDone(ref: string, by?: 'human' | 'coordinator'): Promise<Task>
   leadDone(ref: string, caller: Caller): Promise<Task>
@@ -676,6 +693,7 @@ export interface Tasks {
   screenshotApp(ref: string, caller: Caller, app: AppRef): Promise<AppCapture>
   recordApp(ref: string, caller: Caller, request: RecordAppRequest): Promise<AppCapture>
   simulators(): SimulatorSlots
+  emulators(): SimulatorSlots
   setRunAppOwner(owner: RunAppOwner): void
   listRunApps(runId: string, caller: Caller): Promise<TaskApp[]>
   startRunApp(runId: string, caller: Caller, app: StartAppRequest): Promise<TaskApp>
@@ -684,6 +702,7 @@ export interface Tasks {
   runAppLog(runId: string, caller: Caller, app: AppRef): Promise<AppLog>
   stopRunApps(runId: string): Promise<void>
   planApproved(taskId: string, input: PlanApproval): Promise<void>
+  stopLeadForChildren(taskId: string): Promise<void>
   planEnded(taskId: string, input: PlanEnd): Promise<void>
   close(): Promise<void>
 }
@@ -729,6 +748,7 @@ export function createTasks(options: {
     user(): Promise<{ gid: string; name: string }>
     files?: FileStore
     allowLoopbackFiles?: boolean
+    intakeLimit?: number
     comment?(gid: string, text: string, account: string): Promise<void>
     complete?(gid: string, account: string): Promise<void>
     account?(): Promise<string | undefined>
@@ -751,6 +771,7 @@ export function createTasks(options: {
   appsDir?: string
   apps?: Pick<AppsOptions, 'pollMs' | 'readyTimeoutMs' | 'stopGraceMs' | 'logBytes'>
   simulators?: Omit<SimulatorOptions, 'dir' | 'banners'> & { dir?: string }
+  emulators?: Omit<EmulatorOptions, 'dir' | 'banners'> & { dir?: string }
   saveAttachment?: (file: string, name: string, mediaType: string) => Promise<Attachment>
   planning?: () => TaskPlanning | undefined
   sandbox: Sandbox
@@ -789,6 +810,8 @@ export function createTasks(options: {
   }
   const peers = createPeers(store, (id) => options.steering.syncQueuedFlag(id))
   const starting = new Set<string>()
+  const finishingParents = new Set<string>()
+  const parentsChecked = new Set<string>()
   const promptComments = new Set<string>()
   const relaunching = new Set<string>()
   const continuing = new Set<string>()
@@ -895,6 +918,11 @@ export function createTasks(options: {
     simulators: {
       dir: path.join(path.dirname(worktreesDir), 'simulators'),
       ...options.simulators,
+      banners,
+    },
+    emulators: {
+      dir: path.join(path.dirname(worktreesDir), 'emulators'),
+      ...options.emulators,
       banners,
     },
     emit: (event) => {
@@ -4297,15 +4325,101 @@ export function createTasks(options: {
   }
 
   async function asanaPreview(input: AsanaImportRequest, caller: Caller = { kind: 'app' }) {
-    const { factory, gid } = asanaTarget(input, caller)
+    const { factory, automation, gid } = asanaTarget(input, caller)
+    const unchanged = automation ? await requireIntakeRoot(factory, gid) : undefined
     const { tree, user } = await readAsana(factory.id, gid, false)
+    unchanged?.()
     return planAsana(tree, factory.id, user.gid, caller.kind === 'app').preview
+  }
+
+  class IntakeBudgetError extends Error {}
+
+  const intakeLimit = options.asana?.intakeLimit ?? maxAsanaIntakeTasks
+
+  function asanaAllowance(
+    automation: { link: { automationId: string; firingId: string } } | undefined,
+  ): number {
+    if (!automation) return Number.POSITIVE_INFINITY
+    const { automationId, firingId } = automation.link
+    const used = store.automations
+      .createdTasks(automationId)
+      .filter(
+        (row) =>
+          row.firingId === firingId &&
+          parseAsanaTaskUrl(store.getTask(row.taskId)?.source?.url ?? '') !== undefined,
+      ).length
+    return intakeLimit - used
+  }
+
+  interface IntakeImport {
+    budget: number
+    unchanged: () => void
+  }
+
+  function intakeAsana() {
+    const asana = options.asana
+    if (!asana) throw new RequestError(409, 'Connect Asana in Settings → Integrations first.')
+    return { asana, read: retryingRead(asana.read) }
+  }
+
+  function intakeGuard(factory: StoredFactory): { scope: AsanaIntakeScope; unchanged: () => void } {
+    const scope = store.settings().asanaIntakeScopes[factory.id]
+    if (!scope) {
+      throw new RequestError(
+        403,
+        `An Automation imports Asana work only from ${factory.name}’s Asana intake project. Choose one in Factory settings first.`,
+      )
+    }
+    const unchanged = () => {
+      if (
+        JSON.stringify(store.settings().asanaIntakeScopes[factory.id]) !== JSON.stringify(scope)
+      ) {
+        throw new RequestError(
+          409,
+          `${factory.name}’s Asana intake choice changed during the import. TED stopped; the next run uses the new choice.`,
+        )
+      }
+      if (removingFactories.has(factory.id) || !store.getFactory(factory.id)) {
+        throw new RequestError(409, `${factory.name} is being removed`)
+      }
+    }
+    return { scope, unchanged }
+  }
+
+  const trackedAsana = (factoryId: string, gid: string) =>
+    sourceClash(store.listTasks(), factoryId, asanaTaskUrl(gid))
+
+  async function requireIntakeRoot(factory: StoredFactory, gid: string): Promise<() => void> {
+    const { scope, unchanged } = intakeGuard(factory)
+    const { asana, read } = intakeAsana()
+    const user = await asana.user().catch((error: unknown) => {
+      throw new RequestError(409, error instanceof Error ? error.message : 'Connect Asana first')
+    })
+    await confirmAsanaScope(read, scope)
+    const check = await checkAsanaRoot({ read, scope, userGid: user.gid, gid })
+    unchanged()
+    if (check.kind !== 'root') {
+      throw new RequestError(
+        409,
+        `${check.name} isn’t work ${factory.name}’s Asana intake takes: ${check.reason}.`,
+      )
+    }
+    const above = check.ancestors.find((ancestor) => trackedAsana(factory.id, ancestor))
+    const clash = above === undefined ? undefined : trackedAsana(factory.id, above)
+    if (clash) {
+      throw new RequestError(
+        409,
+        `${check.name} sits under ${clash.task.displayId}, which TED already tracks. Add it to that tree from the app instead.`,
+      )
+    }
+    return unchanged
   }
 
   function importAsana(
     input: AsanaImportRequest,
     caller: Caller = { kind: 'app' },
     closing?: { commentId: string; choice: string },
+    intake?: IntakeImport,
   ): Promise<AsanaImportResult> {
     const target = asanaTarget(input, caller)
     if (input.dryRun === true) {
@@ -4314,11 +4428,129 @@ export function createTasks(options: {
     const prior = asanaImports.get(target.factory.id) ?? Promise.resolve()
     const next = prior
       .catch(() => undefined)
-      .then(() => importAsanaNow(input, caller, target, closing))
+      .then(() => importAsanaNow(input, caller, target, closing, intake))
     asanaImports.set(target.factory.id, next)
     return next.finally(() => {
       if (asanaImports.get(target.factory.id) === next) asanaImports.delete(target.factory.id)
     })
+  }
+
+  const asanaIntakes = new Map<string, Promise<unknown>>()
+
+  function asanaIntake(
+    input: AsanaIntakeRequest,
+    caller: Caller = { kind: 'app' },
+  ): Promise<AsanaIntakeResult> {
+    const automation = automationCaller(caller)
+    if (automation && input.factory !== undefined && input.factory !== automation.factoryKey) {
+      throw new RequestError(
+        403,
+        `this Automation imports only into ${automation.factoryKey}, its own Factory`,
+      )
+    }
+    const key = automation?.factoryKey ?? input.factory
+    if (key === undefined) throw new RequestError(400, 'name the Factory to import into')
+    const factory = store.listFactories().find((f) => f.key === key)
+    if (!factory) throw new RequestError(404, `no Factory with key ${key}`)
+    if (removingFactories.has(factory.id)) {
+      throw new RequestError(409, `${factory.name} is being removed`)
+    }
+    const prior = asanaIntakes.get(factory.id) ?? Promise.resolve()
+    const next = prior.catch(() => undefined).then(() => asanaIntakeNow(factory, caller))
+    asanaIntakes.set(factory.id, next)
+    return next.finally(() => {
+      if (asanaIntakes.get(factory.id) === next) asanaIntakes.delete(factory.id)
+    })
+  }
+
+  async function asanaIntakeNow(
+    factory: StoredFactory,
+    caller: Caller,
+  ): Promise<AsanaIntakeResult> {
+    const { scope, unchanged } = intakeGuard(factory)
+    const { asana, read } = intakeAsana()
+    const user = await asana.user().catch((error: unknown) => {
+      throw new RequestError(409, error instanceof Error ? error.message : 'Connect Asana first')
+    })
+    const confirmed = await confirmAsanaScope(read, scope)
+    unchanged()
+    const listed = await listAsanaIntake(read, scope)
+    const parents = new Map<string, string | null>()
+    const checks = []
+    for (const item of listed.items) {
+      checks.push(await checkAsanaRoot({ read, scope, userGid: user.gid, gid: item.gid, parents }))
+    }
+    const roots = checks
+      .flatMap((check) => (check.kind === 'root' ? [check] : []))
+      .sort((a, b) => a.ancestors.length - b.ancestors.length)
+    const result: AsanaIntakeResult = {
+      scope: confirmed,
+      imported: [],
+      skipped: checks.flatMap((check) =>
+        check.kind === 'unreadable'
+          ? [{ gid: check.gid, name: check.name, url: check.url, reason: check.reason }]
+          : [],
+      ),
+      tracked: 0,
+      left: 0,
+      ...(listed.incomplete !== undefined && { incomplete: listed.incomplete }),
+    }
+    let budget = Math.min(intakeLimit, asanaAllowance(automationCaller(caller)))
+    for (const root of roots) {
+      if (result.stopped !== undefined) break
+      if (
+        trackedAsana(factory.id, root.gid) ||
+        root.ancestors.some((ancestor) => trackedAsana(factory.id, ancestor))
+      ) {
+        result.tracked++
+        continue
+      }
+      if (budget <= 0) {
+        result.left++
+        continue
+      }
+      try {
+        unchanged()
+        const imported = await importAsana(
+          { url: asanaTaskUrl(root.gid), factory: factory.key },
+          caller,
+          undefined,
+          { budget, unchanged },
+        )
+        budget -= imported.created.length
+        if (imported.root) {
+          result.imported.push({
+            gid: root.gid,
+            name: root.name,
+            root: imported.root,
+            created: imported.created,
+            linked: imported.linked,
+          })
+        }
+      } catch (error) {
+        if (error instanceof IntakeBudgetError) {
+          budget = 0
+          result.left++
+          continue
+        }
+        const reason = redactSecrets(error instanceof Error ? error.message : String(error))
+        try {
+          unchanged()
+        } catch (changed) {
+          result.stopped = changed instanceof Error ? changed.message : reason
+          break
+        }
+        result.skipped.push({ gid: root.gid, name: root.name, url: root.url, reason })
+      }
+    }
+    if (result.imported.length > 0 || result.stopped !== undefined) {
+      console.log(
+        redactSecrets(
+          `Asana intake for ${factory.key} from ${scopeName(confirmed)}: imported ${result.imported.length}, skipped ${result.skipped.length}, left ${result.left}${result.stopped ? ', stopped' : ''}`,
+        ),
+      )
+    }
+    return result
   }
 
   async function importAsanaNow(
@@ -4326,7 +4558,11 @@ export function createTasks(options: {
     caller: Caller,
     { factory, automation, gid }: ReturnType<typeof asanaTarget>,
     closing?: { commentId: string; choice: string },
+    intake?: IntakeImport,
   ): Promise<AsanaImportResult> {
+    const unchanged =
+      intake?.unchanged ??
+      (automation && closing === undefined ? await requireIntakeRoot(factory, gid) : undefined)
     const { tree, user } = await readAsana(factory.id, gid, true)
     const resolution = await resolveWorkflow(factory, { fetch: cloned(factory.id) }).catch(
       (error: unknown) => {
@@ -4337,8 +4573,18 @@ export function createTasks(options: {
     if (removingFactories.has(factory.id)) {
       throw new RequestError(409, `${factory.name} is being removed`)
     }
-    const plan = planAsana(tree, factory.id, user.gid, caller.kind === 'app')
+    unchanged?.()
+    const plan = planAsana(tree, factory.id, user.gid, caller.kind === 'app' && !intake)
     if (plan.preview.refusal !== undefined) throw new RequestError(409, plan.preview.refusal)
+    if (intake && plan.creates.length > intake.budget) throw new IntakeBudgetError()
+    const allowance = asanaAllowance(automation)
+    if (plan.creates.length > allowance) {
+      if (intake) throw new IntakeBudgetError()
+      throw new RequestError(
+        409,
+        `This Automation Run has already created ${intakeLimit - allowance} Tasks from Asana. TED creates at most ${intakeLimit} per run; the rest wait for the next run.`,
+      )
+    }
     const tracked = plan.preview.tracked
     if (tracked && input.addToTree !== true && closing === undefined) {
       throw new RequestError(
@@ -5088,13 +5334,7 @@ export function createTasks(options: {
     if (input.tasks.length < 2) {
       throw new RequestError(
         400,
-        'a split needs at least two rows: row 1 is this Task, and the rest become new Tasks',
-      )
-    }
-    if ((input.tasks[0]?.blockedBy ?? []).length > 0) {
-      throw new RequestError(
-        400,
-        'row 1 is this Task, which carries on now, so it can’t be blocked',
+        'a split needs at least two rows; each becomes a child Task of this Task',
       )
     }
     const isProposal = (c: Comment) => c.kind === 'proposal'
@@ -5154,9 +5394,7 @@ export function createTasks(options: {
       .findLast((r) => r.kind === 'proposal' && r.answer?.kind === 'approved')?.answer
     if (approved?.kind === 'approved' && approved.created) {
       return planApprovedLeadMessage({
-        displayId: task.displayId,
         planTitle,
-        narrowed: { title: task.title, description: task.description },
         created: approved.created,
         text: approved.text ?? '',
       })
@@ -5185,20 +5423,13 @@ export function createTasks(options: {
   async function planApproved(taskId: string, input: PlanApproval): Promise<void> {
     const task = store.getTask(taskId)
     if (!task || task.archived) return
-    store.taskSplit(task.id, {
-      pieceIds: input.created.tasks.map((c) => c.id),
-      narrowedTo: input.narrowed.title,
-      description: input.narrowed.description,
-    })
-    if (input.narrowed.priority !== task.priority) {
-      store.setPriority(task.id, input.narrowed.priority)
-    }
-    store.taskPlanEnded(task.id, input.planId, 'approved')
-    await tellLeadAboutPlan(
+    waitForChildren(
       task.id,
-      input.planId,
-      planApprovedLeadMessage({ displayId: task.displayId, ...input }),
+      input.created.tasks.map((c) => c.id),
+      'plan-task',
     )
+    store.taskPlanEnded(task.id, input.planId, 'approved')
+    await tellLeadAboutPlan(task.id, input.planId, planApprovedLeadMessage(input))
   }
 
   async function planEnded(taskId: string, input: PlanEnd): Promise<void> {
@@ -5286,6 +5517,8 @@ export function createTasks(options: {
           mergeSendBack(id, findings, undefined, false, { counted: false }),
         startTask: (id) => start(id),
         planOutside,
+        stopLeadForChildren,
+        waitForChildren,
         ...(options.planning && { planning: options.planning }),
       },
       automatic ? { guard: (comment) => guardAutopilotAnswer(comment, expectedLead) } : undefined,
@@ -5921,11 +6154,7 @@ export function createTasks(options: {
     if (next === 'done') {
       inBackground(`finish ${task.displayId}`, () => finish(task, resolution))
     } else if (next === 'cleanup' && message !== undefined) {
-      if (!(await deliver(task, message, true))) {
-        store.resumeTask(task.id, { waitForBlockers: false })
-        await store.persisted()
-        void pump()
-      }
+      await cleanupThen(task.id, resolution.workflow, message)
     } else if (next === 'validate' && message !== undefined) {
       setChecking(task.id, true)
       inBackground(`run ${task.displayId}’s Checks`, () =>
@@ -5951,6 +6180,143 @@ export function createTasks(options: {
     return workflow.settings.stages.cleanup?.steps ?? []
   }
 
+  function pendingCleanupCommands(taskId: string, workflow: ResolvedWorkflow) {
+    const reported = new Set(store.cleanupReports(taskId).map((r) => r.step))
+    return cleanupSteps(workflow)
+      .filter(isCommandStep)
+      .filter((step) => !reported.has(step.name))
+  }
+
+  async function cleanupThen(
+    taskId: string,
+    workflow: ResolvedWorkflow,
+    message: string,
+  ): Promise<void> {
+    if (pendingCleanupCommands(taskId, workflow).length === 0) {
+      await afterCleanupCommands(taskId, workflow, message, [])
+      return
+    }
+    setChecking(taskId, true)
+    inBackground(`run ${find(taskId).displayId}’s Cleanup commands`, () =>
+      runCleanupCommandsFor(taskId, workflow, message),
+    )
+  }
+
+  async function runCleanupCommandsFor(
+    taskId: string,
+    workflow: ResolvedWorkflow,
+    message: string,
+  ): Promise<void> {
+    const wait = new AbortController()
+    checkWaits.set(taskId, wait)
+    let ran: CleanupCommandResult[] = []
+    let interrupted = false
+    try {
+      const task = find(taskId)
+      const steps = pendingCleanupCommands(taskId, workflow)
+      const factory = factoryOf(task)
+      const primary = task.repos.find((r) => !r.removed && sameRepo(r.repo, factory.repo))
+      if (!primary) {
+        ran = steps.map((step) => ({
+          step: step.name,
+          state: 'failed' as const,
+          timeout: step.timeout ?? defaultCheckTimeout,
+          durationMs: 0,
+          output: 'TED didn’t run the command: the Task has no worktree of the primary repo',
+        }))
+        for (const result of ran) store.recordCleanupCommand(taskId, result)
+      } else {
+        const signal = AbortSignal.any([stopping.signal, wait.signal])
+        const release = await options.checkSlots.take({ taskId, signal })
+        if (release === undefined) {
+          interrupted = true
+          return
+        }
+        const batch = randomUUID()
+        try {
+          const entry = repoEntry(factoryRepos(workflow, factory), primary)
+          const env = options.env?.() ?? process.env
+          const result = await runCleanupCommands({
+            steps,
+            cwd: primary.worktree,
+            env: checkEnv(task.displayId, entry?.env ?? {}, env),
+            shell: [loginShell(env), '-lc'],
+            logFor: (position) =>
+              path.join(checkDir(task, `cleanup-${batch}`), `${position + 1}.log`),
+            prepareLaunch: () => prepareCommandLaunch(find(taskId)),
+            lowPriority: store.settings().lowPriorityWork,
+            signal,
+            record: (r) => store.recordCleanupCommand(taskId, r),
+          })
+          if (result.outcome === 'interrupted') {
+            interrupted = true
+            return
+          }
+          ran = result.results
+        } finally {
+          release()
+        }
+      }
+    } finally {
+      if (checkWaits.get(taskId) === wait) checkWaits.delete(taskId)
+      setChecking(taskId, false)
+      if (interrupted && !stopping.signal.aborted) resumedDuringCleanup(taskId, workflow, message)
+    }
+    await store.persisted()
+    await afterCleanupCommands(taskId, workflow, message, ran)
+  }
+
+  function resumedDuringCleanup(taskId: string, workflow: ResolvedWorkflow, message: string) {
+    const task = store.getTask(taskId)
+    if (task?.stage !== 'cleanup' || task.archived || find(taskId).stopped) return
+    if (pendingCleanupCommands(taskId, workflow).length === 0) return
+    inBackground(`run ${task.displayId}’s Cleanup commands again`, async () => {
+      if (store.queue().some((q) => q.id === taskId)) store.dequeue(taskId)
+      await cleanupThen(taskId, workflow, message)
+    })
+  }
+
+  function cleanupLeft(taskId: string, workflow: ResolvedWorkflow): 'nothing' | 'lead' {
+    const reports = new Map(store.cleanupReports(taskId).map((r) => [r.step, r]))
+    const leadNeeded = cleanupSteps(workflow).some((step) =>
+      isCommandStep(step) ? reports.get(step.name)?.result === 'failed' : !reports.has(step.name),
+    )
+    return leadNeeded || openCleanupFailure(taskId) !== undefined ? 'lead' : 'nothing'
+  }
+
+  async function afterCleanupCommands(
+    taskId: string,
+    workflow: ResolvedWorkflow,
+    message: string,
+    ran: readonly CleanupCommandResult[],
+  ): Promise<void> {
+    const task = store.getTask(taskId)
+    if (task?.stage !== 'cleanup' || task.archived || task.stopped) return
+    const steps = cleanupSteps(workflow)
+    const reports = new Set(store.cleanupReports(taskId).map((r) => r.step))
+    const instructionsLeft = steps.filter(
+      (step) => !isCommandStep(step) && !reports.has(step.name),
+    ).length
+    if (cleanupLeft(taskId, workflow) === 'nothing') {
+      inBackground(`finish ${task.displayId}’s Cleanup`, async () => {
+        await untilFree(taskId)
+        await holding(find(taskId), async () => {
+          const current = find(taskId)
+          if (current.stage !== 'cleanup' || current.stopped || current.archived) return
+          await finishCleanup(current, await taskWorkflow(current, { fetch: false }))
+        })
+      })
+      return
+    }
+    const text =
+      ran.length > 0 ? `${message}\n\n${cleanupCommandsText(ran, instructionsLeft)}` : message
+    if (!(await deliver(task, text, true))) {
+      store.resumeTask(taskId, { waitForBlockers: false })
+      await store.persisted()
+      void pump()
+    }
+  }
+
   function openCleanupFailure(taskId: string): Comment | undefined {
     return openRequests(taskId).find((c) => c.cleanupFailure !== undefined)
   }
@@ -5966,6 +6332,18 @@ export function createTasks(options: {
         `TED asked the user what to do about the failed Cleanup steps (request ${asked.id}); wait for their answer`,
       )
     const steps = cleanupSteps(resolution.workflow)
+    if (pendingCleanupCommands(task.id, resolution.workflow).length > 0) {
+      await cleanupThen(
+        task.id,
+        resolution.workflow,
+        'TED ran the Cleanup commands that had no result yet.',
+      )
+      return {
+        task: publicTask(task.id),
+        message:
+          'TED is running the Cleanup commands that have no result yet and sends you their results. End your turn.',
+      }
+    }
     const reports = new Map(store.cleanupReports(task.id).map((r) => [r.step, r]))
     const missing = steps.filter((step) => !reports.has(step.name))
     if (missing.length > 0)
@@ -6039,13 +6417,14 @@ export function createTasks(options: {
         retry.length > 0
           ? cleanupStepsText(retry, '# Cleanup steps to redo')
           : 'The failed steps are no longer in the Factory’s Cleanup steps, so there is nothing to redo.',
-        'Report each again, post a note, then run `ted outcome advance`.',
-      ].join('\n\n')
-      if (!(await deliver(current, message, true))) {
-        store.resumeTask(current.id, { waitForBlockers: false })
-        await store.persisted()
-        void pump()
-      }
+        retry.some((step) => !isCommandStep(step))
+          ? 'Report each instruction step again, post a note, then run `ted outcome advance`.'
+          : '',
+      ]
+        .filter((part) => part !== '')
+        .join('\n\n')
+      await store.persisted()
+      await cleanupThen(current.id, resolution.workflow, message)
       return store.getComment(answered.id) ?? answered
     })
   }
@@ -6963,6 +7342,14 @@ export function createTasks(options: {
       (task.preparation !== 'ready' || store.childrenOf(taskId).length > 0)
     )
       return
+    if (
+      unmergedBlockers(taskId).length === 0 &&
+      store.madeParent(taskId) &&
+      store.childrenOf(taskId).some((c) => store.isMerged(c))
+    ) {
+      wakeTask(taskId)
+      return
+    }
     if (task.stage === 'backlog') {
       if (task.startRequested) store.setStartRequested(taskId, false)
       store.stopTask(taskId, { runs: 0, why: 'blockers-removed' })
@@ -7647,6 +8034,14 @@ export function createTasks(options: {
     await execution.local(taskId)
     const task = find(taskId)
     const factory = factoryOf(task)
+    if (task.stage === 'cleanup') {
+      const { workflow } = await taskWorkflow(task, { fetch: false })
+      if (pendingCleanupCommands(task.id, workflow).length > 0) {
+        store.dequeue(task.id)
+        if (!checking.has(task.id)) await cleanupThen(task.id, workflow, cleanupRestartNote)
+        return
+      }
+    }
     if (task.repos.some((r) => !r.removed)) {
       if (task.stage === 'work' && store.heldBeforeWork(task.id)) {
         const note = await adoptLatestBase(task)
@@ -8021,6 +8416,20 @@ export function createTasks(options: {
     )
   }
 
+  async function stopLeadForChildren(taskId: string): Promise<void> {
+    const run = liveLead(find(taskId))
+    if (run) await runs.stop(run.id)
+  }
+
+  function waitForChildren(
+    taskId: string,
+    childIds: readonly string[],
+    from: 'split' | 'plan-task',
+  ): void {
+    store.childTasksCreated(taskId, childIds, from)
+    if (!find(taskId).waitsForBlockers) store.waitForBlockers(taskId)
+  }
+
   async function stopForBlockers(taskId: string): Promise<void> {
     const task = store.getTask(taskId)
     const run = task && liveLead(task)
@@ -8044,9 +8453,27 @@ export function createTasks(options: {
 
   function wakeTask(id: string, queued = new Set(store.queue().map((q) => q.id))): void {
     if (queued.has(id) || starting.has(id) || hierarchyBusy.has(id) || deleting.has(id)) return
-    if (unmergedBlockers(id).length > 0) return
+    if (finishingParents.has(id) || unmergedBlockers(id).length > 0) return
     const task = store.getTask(id)
-    if (!task || task.archived || task.stopped) return
+    if (!task || task.archived || task.stopped || task.stage === 'done') return
+    const wakes =
+      (task.stage === 'backlog' && task.startRequested && !task.snoozedUntil) ||
+      (task.waitsForBlockers && !liveLead(task))
+    if (
+      wakes &&
+      !parentsChecked.has(id) &&
+      store.madeParent(id) &&
+      store.childrenOf(id).some((c) => store.isMerged(c))
+    ) {
+      finishingParents.add(id)
+      inBackground(`finish ${task.displayId} after its child Tasks`, () =>
+        finishParent(id).finally(() => {
+          finishingParents.delete(id)
+          wakeTask(id)
+        }),
+      )
+      return
+    }
     if (task.stage === 'backlog' && task.startRequested && !task.snoozedUntil) {
       inBackground(`start ${task.displayId}`, async () => {
         await start(id)
@@ -8054,6 +8481,41 @@ export function createTasks(options: {
     } else if (task.waitsForBlockers && !liveLead(task)) {
       store.requeueAfterBlockers(id)
     }
+  }
+
+  async function hasOwnWork(task: StoredTask): Promise<boolean> {
+    const resolution = await taskWorkflow(task, { fetch: false })
+    const entries = factoryRepos(resolution.workflow, factoryOf(task))
+    for (const repo of task.repos.filter((r) => !r.removed)) {
+      if (!(await lstat(repo.worktree).catch(() => undefined))?.isDirectory()) continue
+      const base = repoEntry(entries, repo)?.baseBranch ?? (await git.defaultBranch(repo.worktree))
+      const changes = await git.workingChanges(repo.worktree, `origin/${base}`)
+      if (changes.files.length > 0 || changes.head !== changes.mergeBase) return true
+    }
+    return false
+  }
+
+  async function finishParent(id: string): Promise<void> {
+    const before = find(id)
+    const working = await hasOwnWork(before).catch((error: unknown) => {
+      console.error(redactSecrets(`couldn’t read ${before.displayId}’s own work: ${String(error)}`))
+      return true
+    })
+    if (!working)
+      await holding(before, async () => {
+        const task = find(id)
+        if (task.archived || task.stopped || task.stage === 'done' || liveLead(task)) return
+        if (unmergedBlockers(id).length > 0) return
+        const resolution = await gateWorkflow(task)
+        await requireObligations(task, undefined, 'done')
+        store.parentFinishedWithChildren(id)
+        if (task.startRequested) store.setStartRequested(id, false)
+        store.changeStage(id, 'done', entryFor(resolution, 'done'))
+        inBackground(`finish ${task.displayId}`, () => finish(task, resolution))
+      }).catch((error: unknown) => {
+        console.error(redactSecrets(`couldn’t finish ${before.displayId}: ${String(error)}`))
+      })
+    parentsChecked.add(id)
   }
 
   function tellLead(blocker: StoredTask, run: Run): Promise<void> {
@@ -8620,6 +9082,27 @@ export function createTasks(options: {
       return task && !leftWork(task) ? [task] : []
     })
   validation.recover()
+  for (const task of store.listTasks()) {
+    if (task.stage !== 'cleanup' || find(task.id).stopped || task.archived) continue
+    if (openCleanupFailure(task.id)) continue
+    setChecking(task.id, true)
+    inBackground(`run ${task.displayId}’s Cleanup commands again`, async () => {
+      let workflow: ResolvedWorkflow
+      try {
+        workflow = (await taskWorkflow(find(task.id), { fetch: false })).workflow
+      } finally {
+        setChecking(task.id, false)
+      }
+      if (pendingCleanupCommands(task.id, workflow).length > 0) {
+        await cleanupThen(task.id, workflow, cleanupRestartNote)
+      } else if (
+        cleanupSteps(workflow).every(isCommandStep) &&
+        cleanupLeft(task.id, workflow) === 'nothing'
+      ) {
+        await afterCleanupCommands(task.id, workflow, cleanupRestartNote, [])
+      }
+    })
+  }
   for (const task of store.listTasks()) {
     const lead = task.leadRunId && store.getRun(task.leadRunId)
     if (lead && lead.state !== 'finished') scheduleRepairChecks(task.id)
@@ -9402,6 +9885,16 @@ export function createTasks(options: {
       const factory =
         key === undefined ? undefined : store.listFactories().find((f) => f.key === key)
       if (key !== undefined && !factory) throw new RequestError(404, `no Factory with key ${key}`)
+      if (
+        automation &&
+        followUp !== undefined &&
+        parseAsanaTaskUrl(find(followUp).source?.url ?? sourceUrl ?? '') !== undefined
+      ) {
+        throw new RequestError(
+          403,
+          'An Automation can’t make a Follow-up of Asana work. TED imports each Asana task once; leave it for the existing Task.',
+        )
+      }
       if (followUp !== undefined) {
         return createFollowUp(followUp, {
           ...(title !== undefined && { title }),
@@ -9519,6 +10012,7 @@ export function createTasks(options: {
     asanaPreview,
     checkFailed,
     importAsana: (input, caller) => importAsana(input, caller),
+    asanaIntake,
 
     async setUpFactory(factoryId) {
       const factory = store.getFactory(factoryId)
@@ -10499,12 +10993,14 @@ export function createTasks(options: {
             'TED asked the user what to do about the failed Cleanup steps; wait for their answer',
           )
         const { workflow } = await taskWorkflow(current, { fetch: false })
-        const names = cleanupSteps(workflow).map((step) => step.name)
-        if (!names.includes(report.step))
+        const steps = cleanupSteps(workflow)
+        const step = steps.find((s) => s.name === report.step)
+        if (!step)
           throw new RequestError(
             400,
-            `“${report.step}” isn’t one of the Cleanup steps: ${names.map((n) => `“${n}”`).join(', ')}`,
+            `“${report.step}” isn’t one of the Cleanup steps: ${steps.map((s) => `“${s.name}”`).join(', ')}`,
           )
+        if (isCommandStep(step)) throw new RequestError(409, cleanupCommandReportRefusal(step.name))
         store.reportCleanupStep(current.id, runId, { ...report, text: redactSecrets(report.text) })
         await store.persisted()
         return store.cleanupReports(current.id)
@@ -10789,6 +11285,7 @@ export function createTasks(options: {
       return () => void pump()
     },
     planApproved,
+    stopLeadForChildren,
     planEnded,
 
     async close() {
@@ -10925,6 +11422,7 @@ export function createTasks(options: {
       return { attachment, recording: false }
     },
     simulators: () => apps.simulators(),
+    emulators: () => apps.emulators(),
     setRunAppOwner(owner) {
       runAppOwner = owner
       ownerSet(owner)
@@ -11145,7 +11643,7 @@ function answerText(comment: Comment): string | undefined {
   const { answer } = comment
   if (!answer) return undefined
   if (answer.kind === 'approved' && answer.created && comment.proposal) {
-    return splitApprovedSummary(comment.proposal, answer.created, answer.text)
+    return splitApprovedSummary(answer.created, answer.text)
   }
   if (answer.kind === 'approved')
     return answer.text === undefined ? 'approved' : `approved, adding: ${answer.text}`

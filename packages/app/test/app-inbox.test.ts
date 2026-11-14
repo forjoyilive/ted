@@ -319,27 +319,29 @@ describe('Inbox and Gates', () => {
     await openTaskOutsideInbox(window)
     const card = thread.getByRole('region', { name: 'Proposal', exact: true })
     await card.getByText('NB-1').waitFor()
-    await card.getByText('(row 5 would start)').waitFor()
-    await card.getByRole('button', { name: 'Create 4 Tasks' }).waitFor()
-    await expectActionsInsideCard(window, card, ['Request changes', 'Create 4 Tasks'])
-    expect(await card.getByRole('checkbox', { name: /^Create row 1/ }).isDisabled()).toBe(true)
+    await card.getByText('becomes the parent of these Tasks and runs after they merge.').waitFor()
+    await card.getByText('(rows 1 and 5 would start)').waitFor()
+    await card.getByRole('button', { name: 'Create 5 Tasks' }).waitFor()
+    await expectActionsInsideCard(window, card, ['Request changes', 'Create 5 Tasks'])
+    expect(await card.getByRole('checkbox', { name: /^Create row 1/ }).isEnabled()).toBe(true)
     await card.getByRole('checkbox', { name: /^Create row 3/ }).uncheck()
     await card
       .getByText('Blocked by row 3, which won’t be created. This Task will have no blocker.')
       .waitFor()
-    await card.getByText('(rows 4 and 5 would start)').waitFor()
-    await card.getByRole('button', { name: 'Create 3 Tasks' }).click()
+    await card.getByText('(rows 1, 4 and 5 would start)').waitFor()
+    await card.getByRole('button', { name: 'Create 4 Tasks' }).click()
 
     const answered = thread.getByRole('region', { name: 'Proposal, answered' })
-    await answered.getByText('You approved · created 3 Tasks').waitFor()
+    await answered.getByText('You approved · created 4 Tasks').waitFor()
     await answered.getByText('NB-2').waitFor()
-    const titles = (await (await daemonClient()).listTasks()).map((t) => t.title).sort()
-    expect(titles).toEqual([
-      'Conflict view',
-      'Local note cache',
-      'Offline badge',
-      'Sync queue with retry',
-    ])
+    const tasks = await (await daemonClient()).listTasks()
+    const original = tasks.find((t) => t.displayId === 'NB-1')
+    expect(
+      tasks
+        .filter((t) => t.parentId === original?.id)
+        .map((t) => t.title)
+        .sort(),
+    ).toEqual(['Conflict view', 'Local note cache', 'Offline badge', 'Sync queue with retry'])
   })
 })
 

@@ -20,6 +20,7 @@ export interface TaskFacts {
   requestsSnoozedUntil?: string
   failed?: boolean
   cleanupFailed?: boolean
+  cleanupCommandsRunning?: boolean
   partlyMerged?: { merged: readonly string[]; open: readonly string[] }
   paused?: string
   pausedRuns?: readonly { id: string; reason: string }[]
@@ -49,6 +50,7 @@ export interface TaskFacts {
   leadLive?: boolean
   waitingOnPermission?: 'lead' | 'sub-agent'
   waitingOnSimulator?: boolean
+  waitingOnEmulator?: boolean
   retrying?: boolean
   interrupted?: boolean
 }
@@ -230,7 +232,9 @@ export function taskActivity(facts: TaskFacts): string | undefined {
   if (facts.archived) return undefined
   if (facts.failed) return 'Waiting on you to retry'
   if (facts.cleanupFailed) return 'Cleanup failed · waiting on you'
+  if (facts.cleanupCommandsRunning) return 'Running Cleanup commands'
   if (facts.waitingOnSimulator) return 'Waiting for a simulator slot'
+  if (facts.waitingOnEmulator) return 'Waiting for an emulator slot'
   if (facts.waitingOnPermission === 'lead') return 'The Task Lead is waiting on your permission'
   if (facts.waitingOnPermission === 'sub-agent') return 'A sub-agent is waiting on your permission'
   if (facts.stopped) return stoppedActivity(facts.stopped)

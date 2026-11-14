@@ -1,3 +1,5 @@
+import { readdir, readFile, writeFile } from 'node:fs/promises'
+import path from 'node:path'
 import { type Comment, DaemonClient, type DaemonEvent, type Task } from '@ted/protocol'
 import { expect, onTestFinished, test } from 'vitest'
 import { commitToOrigin, waitUntil } from './helpers.ts'
@@ -22,6 +24,11 @@ const workflow = (dropDb: string) => [
   '  cleanup:',
   '    enabled: true',
   '    steps:',
+  '      - name: Stop env',
+  '        command: echo run >> stub-cleanup-fail && echo env refused && exit 3',
+  '        timeout: 1m',
+  '      - name: Prune',
+  '        command: echo run >> stub-cleanup-ok',
   '      - name: Post note',
   '        instruction: |',
   '          Post the merged link to the tracker.',
@@ -40,7 +47,10 @@ const openFailure = (client: Awaited<ReturnType<typeof start>>, task: Task, afte
     'the Cleanup failure question',
   )
 
-test('a merged Task goes through Cleanup: blockers are released at the merge, a failed step asks Try again or Finish anyway, and the worktree goes only at Done', async () => {
+const runs = async (worktree: string, file: string) =>
+  (await readFile(path.join(worktree, file), 'utf8')).split('\n').filter(Boolean).length
+
+test('a merged Task goes through Cleanup: blockers are released at the merge, TED runs the commands before the Task Lead, a failed step asks Try again or Finish anyway, and the worktree goes only at Done', async () => {
   const client = await start({ workflow: workflow('Drop the staging database.') })
   const { task, signoff } = await toSignoff(client)
   const blocked = await client.ok<Task>('POST', '/tasks', {
@@ -81,11 +91,24 @@ test('a merged Task goes through Cleanup: blockers are released at the merge, a 
   expect(first).toMatchObject({
     author: { kind: 'ted' },
     choices: ['Try again', 'Finish anyway'],
-    cleanupFailure: { steps: ['Drop db'] },
-    title: 'A Cleanup step failed: Drop db',
+    cleanupFailure: { steps: ['Stop env', 'Drop db'] },
+    title: '2 Cleanup steps failed',
   })
   expect(first.body).toContain('Login refused')
+  expect(first.body).toContain('it failed with exit code 3')
+  const firstThread = await lines(client, task)
+  const failedCommand = 'Cleanup command “Stop env”: failed with exit code 3'
+  expect(firstThread.indexOf(failedCommand)).toBeGreaterThan(-1)
+  expect(firstThread.indexOf(failedCommand)).toBeLessThan(
+    firstThread.indexOf('Cleanup command “Prune”: passed'),
+  )
+  expect(firstThread.indexOf('Cleanup command “Prune”: passed')).toBeLessThan(
+    firstThread.indexOf('Cleanup step “Post note”: done'),
+  )
   const inCleanup = await getTask(client, task.id)
+  const worktree = inCleanup.repos[0]?.worktree ?? ''
+  expect(await runs(worktree, 'stub-cleanup-fail')).toBe(1)
+  expect(await runs(worktree, 'stub-cleanup-ok')).toBe(1)
   expect(inCleanup).toMatchObject({ stage: 'cleanup', activity: 'Cleanup failed · waiting on you' })
   expect(inCleanup.repos[0]?.removed).toBeUndefined()
   const markDone = await client.call('POST', `/tasks/${task.id}/mark-done`)
@@ -108,6 +131,9 @@ test('a merged Task goes through Cleanup: blockers are released at the merge, a 
   })
   const second = await openFailure(client, task, first.createdAt)
   expect(second.body).toContain('Second try refused')
+  expect(second.cleanupFailure).toEqual({ steps: ['Stop env', 'Drop db'] })
+  expect(await runs(worktree, 'stub-cleanup-fail')).toBe(2)
+  expect(await runs(worktree, 'stub-cleanup-ok')).toBe(1)
   expect((await getTask(client, task.id)).repos[0]?.removed).toBeUndefined()
 
   await client.ok('POST', `/comments/${second.id}/answer`, {
@@ -121,15 +147,54 @@ test('a merged Task goes through Cleanup: blockers are released at the merge, a 
   )
   const thread = await lines(client, task)
   expect(thread.filter((line) => line === 'Cleanup step “Post note”: done')).toHaveLength(1)
+  expect(thread.filter((line) => line === failedCommand)).toHaveLength(2)
+  expect(thread.filter((line) => line === 'Cleanup command “Prune”: passed')).toHaveLength(1)
   expect(thread).toEqual(
     expect.arrayContaining([
       'Cleanup step “Drop db”: failed',
-      'Trying the failed Cleanup step “Drop db” again',
-      'Finished without the failed Cleanup step “Drop db”',
+      'Trying the failed Cleanup steps “Stop env”, “Drop db” again',
+      'Finished without the failed Cleanup steps “Stop env”, “Drop db”',
     ]),
   )
   const notes = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
   expect(notes.map((c) => c.body)).toContain(
-    'The user chose Finish anyway. These Cleanup steps didn’t happen: “Drop db”.',
+    'The user chose Finish anyway. These Cleanup steps didn’t happen: “Stop env”, “Drop db”.',
   )
+})
+
+test('a Cleanup with only commands runs the unfinished ones again after a stop, finishes without a Task Lead turn, and its logs go with the Task', async () => {
+  const client = await start({
+    workflow: [
+      'stages:',
+      '  cleanup:',
+      '    enabled: true',
+      '    steps:',
+      '      - name: Wait',
+      '        command: until [ -e stub-go ]; do sleep 0.1; done',
+      '      - name: Prune',
+      '        command: echo run >> stub-cleanup-ok',
+    ],
+  })
+  const { task, signoff } = await toSignoff(client)
+  await approve(client, signoff)
+  await waitUntil(
+    async () => (await getTask(client, task.id)).activity === 'Running Cleanup commands',
+    'the Cleanup commands to start',
+  )
+  const before = await getTask(client, task.id)
+  await client.ok('POST', `/tasks/${task.id}/stop`)
+  await writeFile(path.join(before.repos[0]?.worktree ?? '', 'stub-go'), '')
+  await client.ok('POST', `/tasks/${task.id}/resume`, {})
+  await waitForStage(client, task, 'done')
+
+  expect(before.leadRunId).toBeDefined()
+  expect((await getTask(client, task.id)).leadRunId).toBe(before.leadRunId)
+  const thread = await lines(client, task)
+  expect(thread.filter((line) => line === 'Cleanup command “Wait”: passed')).toHaveLength(1)
+  expect(thread.filter((line) => line === 'Cleanup command “Prune”: passed')).toHaveLength(1)
+  expect(thread.some((line) => line.startsWith('Cleanup step '))).toBe(false)
+  const logs = path.join(ctx.home, 'logs', 'checks', task.displayId)
+  expect((await readdir(logs)).some((name) => name.startsWith('cleanup-'))).toBe(true)
+  await client.ok('POST', `/tasks/${task.id}/delete`, {})
+  await expect(readdir(logs)).rejects.toMatchObject({ code: 'ENOENT' })
 })

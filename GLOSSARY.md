@@ -55,7 +55,7 @@ An optional Stage between Merge and Done, where the Task Lead carries out the Fa
 _Avoid_: Post-merge, wrap-up
 
 **Cleanup step**:
-One named instruction in a Factory’s Cleanup, such as posting the merged pull request to an Asana task or shutting down a test environment. The Task Lead reports each as done, skipped or failed.
+One named step in a Factory’s Cleanup, such as posting the merged pull request to an Asana task or shutting down a test environment. An instruction step is carried out by the Task Lead, who reports it as done, skipped or failed; a command step is a shell command TED runs itself before the Task Lead acts, and passes or fails.
 _Avoid_: Hook, after-merge action
 
 **Done**:
@@ -103,7 +103,7 @@ Facts about a Factory’s product, such as how to run it, its conventions and it
 _Avoid_: Context file, product brief
 
 **App**:
-A program a Factory declares for running a Task’s work, such as a dev server or an iOS simulator build; each Task has at most one running instance of each App, shared by the human and agents.
+A program a Factory declares for running a Task’s work, such as a dev server, an iOS simulator build or an Android emulator build; each Task has at most one running instance of each App, shared by the human and agents.
 _Avoid_: Preview server, environment
 
 **Preview**:
@@ -115,7 +115,7 @@ A user’s own Stage files and Workflow settings, which apply to all of that use
 _Avoid_: Templates, presets
 
 **Task**:
-A unit of work moving through a Workflow; once code exists it has one pull request in each repo it changes. A Task too big for one pull request per repo is split into several Tasks, the original narrowing to the first piece while keeping its original request.
+A unit of work moving through a Workflow; once code exists it has one pull request in each repo it changes. A Task too big for one pull request per repo is split into several child Tasks, and the original becomes their parent.
 _Avoid_: Ticket, issue, card, session, epic
 
 **Task folder**:
@@ -127,7 +127,7 @@ The human’s own login shell in one repo’s worktree of a Task, shown in place
 _Avoid_: Terminal, console, Run
 
 **Parent Task**:
-A Task with child Tasks under it. It waits while a child that isn’t archived is unmerged, then does only the work that brings its children’s work together and the final work no child owns. Archive, delete and unarchive act on it and every Task under it unless the user detaches the children.
+A Task with child Tasks under it. It waits while a child that isn’t archived is unmerged, then does only the work that brings its children’s work together and the final work no child owns. A parent TED made from Split it or a plan moves to Done by itself once its children have merged, if it has no work of its own. Archive, delete and unarchive act on it and every Task under it unless the user detaches the children.
 _Avoid_: Epic, group, umbrella
 
 **Child Task**:
@@ -235,6 +235,10 @@ _Avoid_: Cron job, trigger
 **Scheduled Check**:
 An Automation that runs its own command as a Check, with no agent, in a fresh worktree on the tip of the Factory’s default branch. When the command fails, TED creates Tasks to fix what failed, and a later failure of the same test file adds a note to its open Task instead of making another.
 _Avoid_: Nightly build, scheduled test run
+
+**Asana intake**:
+TED bringing the user’s unfinished Asana work into one Factory: the user picks one Asana project, and optionally one section of it, and each run imports every task there that is assigned to them, with the unfinished tasks under it, as Tasks in Backlog. TED checks every item with Asana itself and never imports one twice.
+_Avoid_: Asana sync (that is keeping imported items up to date)
 
 **Daemon**:
 TED’s background process on each machine, which keeps Runs, Automations and the store going while no window is open. The UI calls it “TED in the background”, not the daemon.

@@ -25,7 +25,8 @@ export interface ThreadContext {
 }
 
 const planEndLines: Record<string, string> = {
-  approved: 'TED told the Task Lead; it carries on with Clarify.',
+  approved:
+    'The plan was approved. TED stopped the Task Lead while the Tasks it created are built.',
   stopped:
     'Planning chat stopped without approval. TED told the Task Lead to ask its size question again.',
   failed:
@@ -261,6 +262,21 @@ export function threadEvents(
         )
         break
       }
+      case 'v1.ChildTasksCreated': {
+        const children = Array.isArray(data.childIds)
+          ? data.childIds.map((id) => context.displayIdOf(text(id)))
+          : []
+        const made = data.from === 'split' ? 'Split into' : 'The plan created'
+        add(entry, 'done', `${made} ${joinAnd(children)}. This Task waits for them to merge.`)
+        break
+      }
+      case 'v1.ParentFinishedWithChildren':
+        add(
+          entry,
+          'done',
+          'Every Task under this one has merged and it had no work of its own, so TED finished it.',
+        )
+        break
       case 'v1.PlanStartedFromTask': {
         const planId = text(data.planId)
         const title = context.planTitleOf?.(planId)
@@ -615,6 +631,18 @@ export function threadEvents(
         )
         break
       }
+      case 'v1.CleanupCommandRan': {
+        const state = text(data.state)
+        const exitCode = typeof data.exitCode === 'number' ? data.exitCode : null
+        const output = text(data.output)
+        add(
+          entry,
+          state === 'passed' ? 'done' : 'failure',
+          `Cleanup command “${text(data.step)}”: ${state === 'passed' ? 'passed' : state === 'timed-out' ? `timed out after ${text(data.timeout)}` : exitCode === 127 ? 'command not found' : exitCode === null ? 'failed' : `failed with exit code ${exitCode}`}`,
+          output === '' ? '' : `\`\`\`\n${output}\n\`\`\``,
+        )
+        break
+      }
       case 'v1.CleanupRetried':
         add(entry, 'run', `Trying the failed Cleanup ${stepList(data.steps)} again`)
         break
@@ -744,14 +772,16 @@ export function threadEvents(
       case 'v1.AppStartFailed':
         add(entry, 'failure', `${text(data.name)} couldn’t start: ${text(data.problem)}`)
         break
-      case 'v1.SimulatorShutDown': {
+      case 'v1.SimulatorShutDown':
+      case 'v1.EmulatorShutDown': {
+        const device = entry.name === 'v1.EmulatorShutDown' ? 'emulator' : 'simulator'
         const why =
           data.idle === true
             ? 'because it was idle'
             : text(data.forTask) !== ''
               ? `to free a slot for ${text(data.forTask)}`
               : 'to free a slot'
-        add(entry, 'quiet', `TED shut down ${text(data.name)}’s simulator ${why}`)
+        add(entry, 'quiet', `TED shut down ${text(data.name)}’s ${device} ${why}`)
         break
       }
       case 'v1.TaskWorktreeSetupStarted':

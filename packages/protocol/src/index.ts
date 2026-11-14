@@ -17,6 +17,13 @@ export {
   appEnvName,
   appStates,
   type BootedSimulator,
+  type DevicePlatform,
+  devicePlatform,
+  deviceWords,
+  emulatorSlotLimits,
+  emulatorsLine,
+  isDeviceApp,
+  isEmulatorApp,
   isLoopbackUrl,
   isSimulatorApp,
   type RecordAppRequest,
@@ -61,6 +68,19 @@ export {
   parseAsanaImportRequest,
   parseAsanaTaskUrl,
 } from './asana-import.ts'
+export {
+  type AsanaIntakeImported,
+  type AsanaIntakeRequest,
+  type AsanaIntakeResult,
+  type AsanaIntakeScope,
+  type AsanaIntakeSkipped,
+  type AsanaRef,
+  isAsanaIntakeScope,
+  maxAsanaIntakeTasks,
+  parseAsanaIntakeRequest,
+  parseSetFactoryAsanaIntakeRequest,
+  type SetFactoryAsanaIntakeRequest,
+} from './asana-intake.ts'
 export {
   type AsanaSync,
   type AsanaSyncFacts,

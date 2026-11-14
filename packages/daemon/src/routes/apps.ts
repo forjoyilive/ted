@@ -9,6 +9,13 @@ export const appRoutes: Route[] = [
       return [200, tasks.simulators()]
     },
   },
+  {
+    method: 'GET',
+    path: /^\/emulators$/,
+    async handle(_, { tasks }) {
+      return [200, tasks.emulators()]
+    },
+  },
   jsonRoute(parseAppRef, {
     method: 'POST',
     path: /^\/tasks\/([^/]+)\/apps\/show$/,

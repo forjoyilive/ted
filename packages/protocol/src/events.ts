@@ -39,6 +39,7 @@ export type DaemonEvent =
   | { type: 'slots-changed'; slots: RunSlots }
   | { type: 'apps-changed'; taskId: string }
   | { type: 'simulators-changed'; simulators: SimulatorSlots }
+  | { type: 'emulators-changed'; emulators: SimulatorSlots }
   | { type: 'integrations-checked'; health: IntegrationsHealth }
   | { type: 'activity-changed'; activity: Activity }
   | { type: 'inbox-changed'; waiting: WaitingRequest[]; snoozed: SnoozedRequest[] }

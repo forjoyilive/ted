@@ -60,6 +60,8 @@ export interface RequestAnswerPort {
   mergeSendBack(id: string, findings: string): Promise<unknown>
   startTask(id: string): Promise<unknown>
   planOutside(task: StoredTask, comment: Comment): void
+  stopLeadForChildren(taskId: string): Promise<void>
+  waitForChildren(taskId: string, childIds: readonly string[], from: 'split'): void
   planning?: () =>
     | {
         fromTask(input: {
@@ -137,6 +139,8 @@ export function createRequestAnswers(
     mergeSendBack,
     startTask,
     planOutside,
+    stopLeadForChildren,
+    waitForChildren,
     planning,
     resumeByHand,
     drafts,
@@ -253,36 +257,23 @@ export function createRequestAnswers(
     if (request.action !== 'approve') {
       throw new RequestError(400, 'answer a proposal with Create Tasks or Request changes')
     }
-    const { skip, shape: plan } = approvedShape(
-      proposal,
-      request.proposal?.skip,
-      proposal.firstPiece && { name: 'this Task' },
-    )
+    const { skip, shape: plan } = approvedShape(proposal, request.proposal?.skip)
     const startUnblocked = request.proposal?.startUnblocked === true
-    const first = proposal.rows[0]
     const result = await holding(task, async () => {
       unanswered(comment)
       const current = find(task.id)
       if (current.archived) throw new RequestError(409, `${task.displayId} is archived`)
+      await stopLeadForChildren(task.id)
       const created = await createProposalTasks(store, proposal, plan, {
-        firstPieceId: proposal.firstPiece ? task.id : undefined,
+        parentId: task.id,
         factoryId: current.factoryId,
         fields: () => ({ ...(current.lead && { lead: current.lead }), splitFrom: task.id }),
       })
-      const narrowed =
-        proposal.firstPiece && first
-          ? { title: first.title, description: first.description ?? first.scope }
-          : undefined
-      if (narrowed) {
-        store.taskSplit(task.id, {
-          pieceIds: created.map((c) => c.id),
-          narrowedTo: narrowed.title,
-          description: narrowed.description,
-        })
-        if (first && first.priority !== current.priority) {
-          store.setPriority(task.id, first.priority)
-        }
-      }
+      waitForChildren(
+        task.id,
+        created.map((c) => c.id),
+        'split',
+      )
       const outcome = { tasks: created, skipped: skip, startUnblocked }
       const answered = answerRequest(task, comment, {
         kind: 'approved',
@@ -290,17 +281,7 @@ export function createRequestAnswers(
         ...(text !== '' && { text }),
         created: outcome,
       })
-      await deliverAnswer(
-        task,
-        comment,
-        splitApprovedMessage({
-          displayId: task.displayId,
-          proposal,
-          created: outcome,
-          ...(narrowed && { narrowed }),
-          text,
-        }),
-      )
+      await deliverAnswer(task, comment, splitApprovedMessage({ proposal, created: outcome, text }))
       return { answered, created }
     })
     if (startUnblocked) {

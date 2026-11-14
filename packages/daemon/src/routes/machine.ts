@@ -10,6 +10,7 @@ import {
   checkLimits,
   createdByKinds,
   editorIds,
+  emulatorSlotLimits,
   isLinearIntakeScope,
   isLinearTeamKey,
   isTimeZone,
@@ -327,6 +328,13 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     }
     return value
   },
+  maxRunningEmulators(value) {
+    const { min, max } = emulatorSlotLimits
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+      throw new HttpError(400, `maxRunningEmulators must be a whole number from ${min} to ${max}`)
+    }
+    return value
+  },
   runOutputDays(value) {
     const { min, max } = runOutputDayLimits
     if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
@@ -364,6 +372,9 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
       throw new HttpError(400, 'linearIntakeScopes must contain a valid Linear scope per Factory')
     }
     return value as MachineSettings['linearIntakeScopes']
+  },
+  asanaIntakeScopes() {
+    throw new HttpError(400, 'Change a Factory’s Asana intake through its own route')
   },
   linearSync: onOff('linearSync'),
   asanaSync: onOff('asanaSync'),

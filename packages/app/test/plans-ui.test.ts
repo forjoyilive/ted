@@ -162,13 +162,18 @@ describe('Planning chats', () => {
     const proposalCard = window.getByRole('region', { name: 'Proposal from the planner' })
     await proposalCard.waitFor({ timeout: 30_000 })
     expect(await proposalCard.evaluate((el) => el.closest('[data-scroller]') !== null)).toBe(true)
+    await proposalCard
+      .getByText('TED creates a parent Task for these Tasks. It runs after they merge.')
+      .waitFor()
     await proposalCard.getByRole('button', { name: 'Create 2 Tasks' }).click()
     await chat.getByText('Planning Run finished').waitFor({ timeout: 30_000 })
-    await chat.getByText('TED created 2 Tasks in Backlog: NB-1, NB-2').waitFor()
+    await chat
+      .getByText('TED created 2 Tasks under NB-1: NB-2, NB-3. NB-1 waits for them to merge.')
+      .waitFor()
     await chat.getByText('This planning chat is finished. It stays as history.').waitFor()
     const pane = window.getByRole('complementary', { name: 'Planning chat details' })
     await pane.getByText('Created Tasks · 2').waitFor()
-    await pane.getByText('Backlog · Blocked by NB-1').waitFor()
+    await pane.getByText('Backlog · Blocked by NB-2').waitFor()
   })
 
   test('the Plans list keeps stopped chats open, Retry clears the red dot, Mark finished moves one to Past, Plan more from here builds on it, and Delete removes one', async () => {

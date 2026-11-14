@@ -1,6 +1,6 @@
-import { simulatorSlotLimits } from '@ted/protocol/app'
+import { emulatorSlotLimits, simulatorSlotLimits } from '@ted/protocol/app'
 import { checkLimits, workingRunLimits } from '@ted/protocol/settings'
-import { useSimulators, useSlots } from '../data.ts'
+import { useEmulators, useSimulators, useSlots } from '../data.ts'
 import { nowLine } from '../slots.ts'
 import { ted } from '../ted.ts'
 import { SettingRow, SettingsGroup, SettingsPage, Stepper, Switch } from './controls.tsx'
@@ -10,6 +10,7 @@ import styles from './settings.module.css'
 export function LimitsPage({ settings }: SettingsPageProps) {
   const slots = useSlots()
   const simulators = useSimulators()
+  const emulators = useEmulators()
   return (
     <SettingsPage
       title="Limits"
@@ -45,6 +46,18 @@ export function LimitsPage({ settings }: SettingsPageProps) {
             />
           </SettingRow>
         )}
+        {emulators?.supported === true && (
+          <SettingRow setting="app.limits.emulators">
+            <Stepper
+              value={settings.maxRunningEmulators}
+              min={emulatorSlotLimits.min}
+              max={emulatorSlotLimits.max}
+              lessLabel="Fewer emulators"
+              moreLabel="More emulators"
+              onChange={(maxRunningEmulators) => ted.updateSettings({ maxRunningEmulators })}
+            />
+          </SettingRow>
+        )}
         <SettingRow setting="app.limits.checks">
           <Stepper
             value={settings.maxChecksAtOnce}
@@ -63,7 +76,7 @@ export function LimitsPage({ settings }: SettingsPageProps) {
           />
         </SettingRow>
       </SettingsGroup>
-      {slots && <p className={styles.nowLine}>{nowLine(slots, simulators)}</p>}
+      {slots && <p className={styles.nowLine}>{nowLine(slots, simulators, emulators)}</p>}
     </SettingsPage>
   )
 }

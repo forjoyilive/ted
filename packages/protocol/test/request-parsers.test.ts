@@ -195,6 +195,15 @@ roundTrip(P.parseSetFactoryLinearIntakeRequest, {
   },
 })
 variant(P.parseSetFactoryLinearIntakeRequest, { scope: null })
+roundTrip(P.parseSetFactoryAsanaIntakeRequest, {
+  scope: {
+    workspace: { gid: '1', name: 'Acme' },
+    project: { gid: '9', name: 'Roadmap' },
+    section: { gid: '91', name: 'Now' },
+  },
+})
+variant(P.parseSetFactoryAsanaIntakeRequest, { scope: null })
+roundTrip(P.parseAsanaIntakeRequest, { factory: 'NB' })
 
 roundTrip(P.parseRestoreBackupRequest, { name: 'backup', stopRuns: true })
 roundTrip(P.parseShutdownRequest, { keepRuns: true })
@@ -269,6 +278,13 @@ rejects(
   'Choose a valid Linear scope',
 )
 rejects(P.parseSetFactoryLinearIntakeRequest, {}, 'Choose a valid Linear scope')
+rejects(
+  P.parseSetFactoryAsanaIntakeRequest,
+  { scope: { workspace: { gid: '1', name: 'Acme' }, project: { gid: 'x', name: 'Roadmap' } } },
+  'Choose an Asana workspace and project',
+)
+rejects(P.parseSetFactoryAsanaIntakeRequest, {}, 'Choose an Asana workspace and project')
+rejects(P.parseAsanaIntakeRequest, { factory: '' }, 'Factory key')
 
 rejects(
   P.parseDraftLineCommentRequest,

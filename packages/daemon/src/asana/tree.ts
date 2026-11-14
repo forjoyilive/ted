@@ -50,10 +50,30 @@ export interface AsanaTree {
 const maxListed = 1000
 const pageSize = 100
 const parallel = 4
+const maxWaitMs = 120_000
 const maxName = 300
 const maxNotes = 20_000
 const maxDiscussion = 40_000
 const retries = 3
+
+export function retryingRead(
+  read: AsanaRead,
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+): AsanaRead {
+  return async (path, query = {}) => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await read(path, query)
+      } catch (error) {
+        const retryable =
+          error instanceof AsanaReadError &&
+          (error.status === 429 || (error.status !== undefined && error.status >= 500))
+        if (!retryable || attempt >= retries) throw error
+        await wait(Math.min(error.retryAfterMs ?? 1000 * 2 ** attempt, maxWaitMs))
+      }
+    }
+  }
+}
 
 export async function readAsanaTree(input: {
   read: AsanaRead
@@ -63,20 +83,7 @@ export async function readAsanaTree(input: {
   allowLoopbackFiles?: boolean
   wait?: (ms: number) => Promise<void>
 }): Promise<AsanaTree> {
-  const wait = input.wait ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)))
-  const read = async (path: string, query: Record<string, string> = {}) => {
-    for (let attempt = 0; ; attempt++) {
-      try {
-        return await input.read(path, query)
-      } catch (error) {
-        const retryable =
-          error instanceof AsanaReadError &&
-          (error.status === 429 || (error.status !== undefined && error.status >= 500))
-        if (!retryable || attempt >= retries) throw error
-        await wait(1000 * 2 ** attempt)
-      }
-    }
-  }
+  const read = retryingRead(input.read, input.wait)
   const nodes = new Map<string, AsanaNode>()
   const needsDetail = (n: AsanaNode) =>
     (n.depth === 0 || !n.completed) && !input.tracked?.has(n.gid)
@@ -164,7 +171,7 @@ export async function readAsanaTree(input: {
 const taskFields =
   'gid,name,notes,completed,permalink_url,assignee,assignee.gid,assignee.name,resource_subtype'
 
-function nodeFrom(
+export function nodeFrom(
   value: unknown,
   depth: number,
   parentGid: string | undefined,
@@ -205,7 +212,7 @@ function permalink(value: unknown, gid: string): string {
   return `https://app.asana.com/0/0/${gid}/f`
 }
 
-async function pages(
+export async function pages(
   read: AsanaRead,
   path: string,
   query: Record<string, string>,
@@ -352,7 +359,10 @@ async function attachments(
   }
 }
 
-async function each<T>(items: readonly T[], work: (item: T) => Promise<void>): Promise<void> {
+export async function each<T>(
+  items: readonly T[],
+  work: (item: T) => Promise<void>,
+): Promise<void> {
   let next = 0
   const worker = async () => {
     while (next < items.length) {
@@ -363,7 +373,7 @@ async function each<T>(items: readonly T[], work: (item: T) => Promise<void>): P
   await Promise.all(Array.from({ length: Math.min(parallel, items.length) }, worker))
 }
 
-function reasonOf(error: unknown): string {
+export function reasonOf(error: unknown): string {
   if (error instanceof AsanaReadError) {
     if (error.status === 403) return 'Asana didn’t let TED read it (no access)'
     if (error.status === 404) return 'Asana couldn’t find it'
@@ -372,7 +382,7 @@ function reasonOf(error: unknown): string {
   return 'TED couldn’t read it from Asana'
 }
 
-function oneLine(text: string): string {
+export function oneLine(text: string): string {
   return [...text]
     .map((c) => {
       const code = c.codePointAt(0) ?? 0

@@ -478,9 +478,39 @@ export interface NestedRow {
   task: Task
   depth: number
   hasChildren: boolean
+  context?: true
 }
 
-export function nestedRows(tasks: readonly Task[], collapsed: ReadonlySet<string>): NestedRow[] {
+function withAncestors(group: readonly Task[], everyTask: readonly Task[]) {
+  const byId = new Map(everyTask.map((t) => [t.id, t]))
+  const inGroup = new Set(group.map((t) => t.id))
+  const added = new Set<string>()
+  const tasks: Task[] = []
+  for (const task of group) {
+    const missing: Task[] = []
+    const seen = new Set([task.id])
+    for (let id = task.parentId; id !== undefined && !seen.has(id); ) {
+      seen.add(id)
+      const parent = byId.get(id)
+      if (!parent || inGroup.has(id)) break
+      if (!added.has(id)) missing.unshift(parent)
+      id = parent.parentId
+    }
+    for (const parent of missing) {
+      added.add(parent.id)
+      tasks.push(parent)
+    }
+    tasks.push(task)
+  }
+  return { tasks, context: added }
+}
+
+export function nestedRows(
+  group: readonly Task[],
+  collapsed: ReadonlySet<string>,
+  everyTask: readonly Task[] = group,
+): NestedRow[] {
+  const { tasks, context } = withAncestors(group, everyTask)
   const inGroup = new Map(tasks.map((t) => [t.id, t]))
   const parentIn = (task: Task) =>
     task.parentId !== undefined && task.parentId !== task.id && inGroup.has(task.parentId)
@@ -514,7 +544,12 @@ export function nestedRows(tasks: readonly Task[], collapsed: ReadonlySet<string
   const walk = (task: Task, depth: number) => {
     visited.add(task.id)
     const below = (children.get(task.id) ?? []).filter((c) => !visited.has(c.id))
-    rows.push({ task, depth, hasChildren: below.length > 0 })
+    rows.push({
+      task,
+      depth,
+      hasChildren: below.length > 0,
+      ...(context.has(task.id) && { context: true as const }),
+    })
     if (collapsed.has(task.id)) {
       hide(task)
       return

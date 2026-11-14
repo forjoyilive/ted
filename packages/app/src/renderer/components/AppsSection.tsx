@@ -1,5 +1,5 @@
 import type { SimulatorSlots, Task, TaskApp } from '@ted/protocol'
-import { isSimulatorApp } from '@ted/protocol/app'
+import { devicePlatform, deviceWords, isDeviceApp, isEmulatorApp } from '@ted/protocol/app'
 import { useEffect, useRef, useState } from 'react'
 import {
   appStatusLine,
@@ -9,7 +9,7 @@ import {
   isLive,
   needsSlot,
 } from '../apps.ts'
-import { useSimulators, useTaskApps } from '../data.ts'
+import { useEmulators, useSimulators, useTaskApps } from '../data.ts'
 import { isPromise } from '../pending-action.ts'
 import { useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
@@ -17,7 +17,7 @@ import { ActionButton } from './ActionButton.tsx'
 import styles from './Apps.module.css'
 import { Button } from './Button.tsx'
 import { DetailsSection } from './DetailsSection.tsx'
-import { OpenIcon, PlayIcon, RestartIcon, StopIcon } from './icons.tsx'
+import { CameraIcon, OpenIcon, PlayIcon, RestartIcon, StopIcon } from './icons.tsx'
 import { useOutsideSandbox } from './OutsideSandboxDialog.tsx'
 import { firstChoice, SimulatorChoices } from './SimulatorChoices.tsx'
 
@@ -38,6 +38,7 @@ export function AppsSection({
 }) {
   const apps = useTaskApps(task.id)
   const simulators = useSimulators()
+  const emulators = useEmulators()
   const hosted = hostedPreviews(task)
   if (apps.length === 0 && hosted.length === 0) {
     return (
@@ -62,7 +63,7 @@ export function AppsSection({
                   key={`${app.repo}/${app.name}`}
                   task={task}
                   app={app}
-                  simulators={simulators}
+                  simulators={isEmulatorApp(app) ? emulators : simulators}
                   selected={shown?.repo === app.repo && shown.name === app.name}
                   onOpen={() => onOpenApp({ repo: app.repo, name: app.name })}
                 />
@@ -114,6 +115,7 @@ export function useAppActions(task: Task, app: TaskApp) {
         ),
       ),
     show: () => act(() => ted.showApp(task.id, { repo: app.repo, name: app.name })),
+    screenshot: () => act(() => ted.screenshotApp(task.id, { repo: app.repo, name: app.name })),
     stop: () => act(() => ted.stopApp(task.id, { repo: app.repo, name: app.name })),
     restart: () =>
       confirm(() => act(() => ted.restartApp(task.id, { repo: app.repo, name: app.name }))),
@@ -177,12 +179,28 @@ function AppRow({
             <OpenIcon />
           </ActionButton>
         )}
-        {isSimulatorApp(app) && (
+        {isEmulatorApp(app) && (
+          <ActionButton
+            type="button"
+            className={styles.action}
+            aria-label={`Screenshot ${app.name}`}
+            title="Screenshot"
+            disabled={busy || app.simulator?.booted !== true}
+            onClick={actions.screenshot}
+          >
+            <CameraIcon />
+          </ActionButton>
+        )}
+        {isDeviceApp(app) && (
           <ActionButton
             type="button"
             className={styles.action}
             aria-label={`Show ${app.name}`}
-            title="Show the simulator"
+            title={
+              isEmulatorApp(app) && app.simulator?.window !== true
+                ? 'Show the emulator (reopens it in a window)'
+                : `Show the ${isEmulatorApp(app) ? 'emulator' : 'simulator'}`
+            }
             disabled={busy || app.simulator?.booted !== true}
             onClick={actions.show}
           >
@@ -206,7 +224,7 @@ function AppRow({
             className={styles.action}
             aria-label={`Run ${app.name}`}
             title="Run"
-            aria-expanded={isSimulatorApp(app) ? choosing !== undefined : undefined}
+            aria-expanded={isDeviceApp(app) ? choosing !== undefined : undefined}
             disabled={busy || !runnable}
             onClick={run}
           >
@@ -270,6 +288,7 @@ function SlotPopover({
     return () => window.removeEventListener('keydown', close)
   }, [onCancel])
   const count = simulators.booted.length
+  const words = deviceWords[devicePlatform(app) ?? 'ios']
   const below = window.innerHeight - anchor.bottom > 240
   const place = {
     right: Math.max(8, window.innerWidth - anchor.right),
@@ -282,10 +301,12 @@ function SlotPopover({
       className={styles.popover}
       style={place}
       role="dialog"
-      aria-label="Choose a simulator to shut down"
+      aria-label={`Choose ${words.one === 'emulator' ? 'an' : 'a'} ${words.one} to shut down`}
     >
       <h3 className={styles.popoverTitle}>
-        {count === 1 ? 'The only simulator slot is taken' : `All ${count} simulators are booted`}
+        {count === 1
+          ? `The only ${words.one} slot is taken`
+          : `All ${count} ${words.many} are ${words.on}`}
       </h3>
       <p className={styles.popoverText}>
         {`Running ${app.name} for ${task.displayId} needs one of them shut down. Its app and state stay; it boots again when needed.`}
@@ -295,7 +316,7 @@ function SlotPopover({
         chosen={chosen}
         onChoose={setChosen}
         now={now}
-        label="Simulator to shut down"
+        label={`${words.one === 'emulator' ? 'Emulator' : 'Simulator'} to shut down`}
       />
       <div className={styles.popoverButtons}>
         <Button onClick={onCancel}>Cancel</Button>

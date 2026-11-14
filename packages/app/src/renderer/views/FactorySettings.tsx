@@ -69,7 +69,12 @@ import { usePopover } from './TaskList.tsx'
 import views from './views.module.css'
 
 const machine = navigator.userAgent.includes('Mac') ? 'this Mac' : 'this computer'
-const appKindLabels = { web: 'web', command: 'command', 'ios-simulator': 'iOS simulator' }
+const appKindLabels = {
+  web: 'web',
+  command: 'command',
+  'ios-simulator': 'iOS simulator',
+  'android-emulator': 'Android emulator',
+}
 const mergeLabels: Record<SettingsMergeMethod, string> = {
   squash: 'Squash',
   merge: 'Merge',
@@ -1405,8 +1410,10 @@ function AppEditor({
             value={app.kind}
             onChange={(event) => {
               const kind = appKinds.find((k) => k === event.target.value) ?? 'web'
-              const { url: _, ...rest } = app
-              onChange(kind === 'web' ? { ...app, kind } : { ...rest, kind })
+              const { url: _, device: __, ...rest } = app
+              const device = kind === app.kind ? app.device : undefined
+              const kept = device === undefined ? rest : { ...rest, device }
+              onChange(kind === 'web' ? { ...app, kind } : { ...kept, kind })
             }}
           >
             {appKinds.map((kind) => (
@@ -1423,7 +1430,9 @@ function AppEditor({
           <Help>
             {app.kind === 'ios-simulator'
               ? 'TED passes the Task’s simulator as $TED_SIMULATOR_UDID. Build with xcodebuild -derivedDataPath "$TED_DERIVED_DATA" -packageCachePath "$TED_SWIFTPM_CACHE" so the build stays in the Task’s own folders.'
-              : 'TED passes a free port as $PORT.'}
+              : app.kind === 'android-emulator'
+                ? 'TED passes the Task’s emulator as $ANDROID_SERIAL and $TED_EMULATOR_SERIAL, and points $GRADLE_USER_HOME at the Task’s own cache folder.'
+                : 'TED passes a free port as $PORT.'}
           </Help>
         </label>
         <input
@@ -1433,6 +1442,28 @@ function AppEditor({
           onChange={(event) => onChange({ ...app, run: event.target.value })}
         />
       </div>
+      {(app.kind === 'ios-simulator' || app.kind === 'android-emulator') && (
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor={`${id}-device`}>
+            Device{' '}
+            <Help>
+              {app.kind === 'android-emulator'
+                ? 'The name of an Android virtual device from Android Studio’s Device Manager. TED makes its own copy for each Task, with the same system image and hardware.'
+                : 'The name of an iOS simulator in Xcode, such as iPhone 16. TED makes its own copy for each Task.'}
+            </Help>
+          </label>
+          <input
+            id={`${id}-device`}
+            className={`${styles.input} ${styles.mono}`}
+            placeholder={app.kind === 'android-emulator' ? 'Pixel_8_API_35' : 'iPhone 16'}
+            value={app.device ?? ''}
+            onChange={(event) => {
+              const { device: _, ...rest } = app
+              onChange(event.target.value === '' ? rest : { ...app, device: event.target.value })
+            }}
+          />
+        </div>
+      )}
       {app.kind === 'web' && (
         <div className={styles.field}>
           <label className={styles.label} htmlFor={`${id}-url`}>

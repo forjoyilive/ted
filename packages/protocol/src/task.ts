@@ -578,6 +578,7 @@ export interface ProposalRow {
 
 export interface Proposal {
   rows: ProposalRow[]
+  // Kept under its stored name: the Task that becomes the parent of every row.
   firstPiece?: TaskLink
 }
 

@@ -86,7 +86,7 @@ export interface DaemonOptions {
   healthIntervalMs?: number
   fixPollMs?: number
   integrations?: DaemonIntegrationsOptions
-  asana?: Omit<AsanaOptions, 'home' | 'keyring'> & { keyring?: Keyring }
+  asana?: Omit<AsanaOptions, 'home' | 'keyring'> & { keyring?: Keyring; intakeLimit?: number }
   linear?: { apiUrl?: string; keyring?: Keyring }
   snoozes?: { now?: () => Date; checkEveryMs?: number }
   heldRequests?: { maxMs?: number }
@@ -109,6 +109,7 @@ export interface DaemonOptions {
   apps?: { pollMs?: number; readyTimeoutMs?: number; stopGraceMs?: number; logBytes?: number }
   runs?: { stopGraceMs?: number; inputAckMs?: number }
   simulators?: { supported?: boolean; pollMs?: number; idleMs?: number }
+  emulators?: { supported?: boolean; pollMs?: number; idleMs?: number; bootTimeoutMs?: number }
   online?: DaemonOnlineOptions
   limitProbeMs?: number
   scratchMaxAgeMs?: number
@@ -186,6 +187,9 @@ async function readFakeFree(file: string): Promise<number> {
 export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon> {
   const xcrun = tedEnv('TED_XCRUN_BIN')
   const open = tedEnv('TED_OPEN_BIN')
+  const emulatorBin = tedEnv('TED_EMULATOR_BIN')
+  const adbBin = tedEnv('TED_ADB_BIN')
+  const avdmanagerBin = tedEnv('TED_AVDMANAGER_BIN')
   const sandboxProgram = tedEnv('TED_SANDBOX_BIN')
   const paths = tedPaths(options.home)
   await mkdir(paths.home, { recursive: true, mode: 0o700 })
@@ -495,6 +499,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           },
           allowLoopbackFiles:
             new URL(options.asana?.apiOrigin ?? 'https://app.asana.com').hostname === '127.0.0.1',
+          ...(options.asana?.intakeLimit !== undefined && {
+            intakeLimit: options.asana.intakeLimit,
+          }),
         },
         ...(options.snoozes !== undefined && { snoozes: options.snoozes }),
         ...(options.heldRequests !== undefined && { heldRequests: options.heldRequests }),
@@ -523,6 +530,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           ...(xcrun && { xcrun }),
           ...(open && { open }),
           ...options.simulators,
+        },
+        emulators: {
+          dir: paths.emulators,
+          ...(emulatorBin && { emulator: emulatorBin }),
+          ...(adbBin && { adb: adbBin }),
+          ...(avdmanagerBin && { avdmanager: avdmanagerBin }),
+          ...options.emulators,
         },
         saveAttachment: (file, name, mediaType) => attachments.saveFile(file, name, mediaType),
         checkSlots,
@@ -585,6 +599,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         isCloned: (factoryId) => factories.isCloned(factoryId),
         startTask: (taskId) => tasks.start(taskId),
         planApproved: (taskId, input) => tasks.planApproved(taskId, input),
+        stopLeadForChildren: (taskId) => tasks.stopLeadForChildren(taskId),
         planEnded: (taskId, input) => tasks.planEnded(taskId, input),
       })
       coordinators = createCoordinators({ home: paths.home, store, runs, tasks, health, steering })
@@ -601,6 +616,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         paths.worktrees,
         paths.repos,
         paths.simulators,
+        paths.emulators,
         paths.scratch,
         paths.plans,
         paths.automationRuns,

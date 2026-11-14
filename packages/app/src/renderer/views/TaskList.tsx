@@ -553,9 +553,11 @@ export function TaskList({
   const isCollapsed = (group: TaskGroup) => collapse.collapsed(group.key, group.collapsed)
   const rowsOf = (group: TaskGroup): NestedRow[] =>
     nested
-      ? nestedRows(group.tasks, folded)
+      ? nestedRows(group.tasks, folded, inScope)
       : group.tasks.map((task) => ({ task, depth: 0, hasChildren: false }))
-  const ordered = groups.flatMap((g) => (isCollapsed(g) ? [] : rowsOf(g).map((r) => r.task)))
+  const ordered = groups.flatMap((g) =>
+    isCollapsed(g) ? [] : rowsOf(g).flatMap((r) => (r.context ? [] : [r.task])),
+  )
   const grid = listGrid([...(queueMode ? (['queue'] as const) : []), ...columns], tasks)
   const chips = filterChips(view.filters, factories)
   const displayIds = new Map(tasks.map((t) => [t.id, t.displayId]))
@@ -724,7 +726,36 @@ export function TaskList({
 
   const rightAligned = new Set<ListColumn>(['updated', 'created', 'tokens', 'started'])
 
+  function contextRow(nest: NestedRow, group: TaskGroup) {
+    const task = nest.task
+    return (
+      <tr
+        key={`${group.key}-context-${task.id}`}
+        data-context-task={task.displayId}
+        className={`${styles.row} ${styles.contextRow}`}
+        title={`${task.displayId} is in another group`}
+        onClick={() => onOpen(task)}
+      >
+        <td className={`${styles.cell} ${styles.selectionCell}`} />
+        {queueMode && <td className={styles.queueCell} />}
+        {columns.map((column) => (
+          <td
+            key={column}
+            className={[
+              styles.cell,
+              column === 'title' ? styles.title : styles.meta,
+              rightAligned.has(column) ? styles.right : '',
+            ].join(' ')}
+          >
+            {cell(column, task, nest)}
+          </td>
+        ))}
+      </tr>
+    )
+  }
+
   function row(nest: NestedRow, group: TaskGroup, index: number) {
+    if (nest.context) return contextRow(nest, group)
     const task = nest.task
     const isSelected = selected.includes(task.id)
     const place = task.status?.kind === 'queued' && 'place' in task.status ? task.status.place : 0
