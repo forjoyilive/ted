@@ -3,7 +3,13 @@ import type { AgentKind } from './run.ts'
 import type { AutomationSchedule } from './schedule.ts'
 import type { Effort, StageId } from './task.ts'
 
-export const automationTemplateIds = ['linear', 'sentry', 'github', 'architecture'] as const
+export const automationTemplateIds = [
+  'linear',
+  'asana',
+  'sentry',
+  'github',
+  'architecture',
+] as const
 
 export type AutomationTemplateId = (typeof automationTemplateIds)[number]
 

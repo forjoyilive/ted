@@ -176,7 +176,7 @@ describe('Automations in the app', () => {
     await dialog(window).getByRole('heading', { name: 'New Automation in' }).waitFor()
   })
 
-  test('the architecture template fills a weekly review and saves without starting Tasks', async () => {
+  test('the architecture template fills a weekly review and the Asana template an interval the human changes; both save without starting Tasks', async () => {
     const { window, ted } = await launch()
     await openAutomations(window)
     await window.getByRole('button', { name: 'Use template: Review codebase architecture' }).click()
@@ -216,6 +216,30 @@ describe('Automations in the app', () => {
       schedule: { kind: 'weekly', days: ['mon'], at: '09:00' },
     })
     expect((await ted.getAutomation(saved?.id ?? '')).history).toEqual([])
+
+    await window.getByRole('button', { name: 'New Automation', exact: true }).click()
+    const asana = dialog(window)
+    await asana.getByRole('radio', { name: /Import my Asana work/ }).check()
+    await expect.poll(() => asana.getByLabel('Name').inputValue()).toBe('Import my Asana work')
+    expect(await asana.getByRole('textbox', { name: 'Prompt' }).inputValue()).toContain(
+      'ted asana intake',
+    )
+    expect(await asana.getByLabel('Repeat').inputValue()).toBe('every')
+    expect(await asana.getByLabel('How often').inputValue()).toBe('30')
+    expect(await asana.getByLabel('Unit').inputValue()).toBe('minutes')
+    await asana.getByLabel('How often').fill('2')
+    await asana.getByLabel('Unit').selectOption('hours')
+    await asana.getByText(/^Next: .+ · .+ · .+/).waitFor()
+    await asana.getByRole('button', { name: 'Save', exact: true }).click()
+    await asana.waitFor({ state: 'detached' })
+    const intake = (await ted.listAutomations()).find((a) => a.template === 'asana')
+    expect(intake).toMatchObject({
+      on: true,
+      schedule: { kind: 'every', every: 2, unit: 'hours' },
+      scheduleText: 'Every 2 hours · Europe/London',
+    })
+    const [first, second] = (intake?.nextFirings ?? []).map(Date.parse)
+    expect((second ?? 0) - (first ?? 0)).toBe(2 * 60 * 60 * 1000)
     expect(await ted.listTasks()).toEqual([])
   })
 
