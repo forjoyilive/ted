@@ -436,7 +436,7 @@ function NewTaskForm({
   }
 
   async function close(next = onClose) {
-    if (busy) return
+    if (busy || moving) return
     try {
       await Promise.all([...uploads.current])
       await session.flush()
@@ -453,9 +453,11 @@ function NewTaskForm({
     try {
       await Promise.all([...uploads.current])
       await session.flush()
-      const draft = await session.moveOut()
+      const carried = { ...session.get(), parent: undefined }
+      await ted.saveTaskDraft(next, carried)
+      await session.moveOut()
       setDraftError(undefined)
-      onFactory(next, { ...draft, parent: undefined })
+      onFactory(next, carried)
     } catch (failure) {
       setMoving(false)
       setDraftError(`Couldn’t save the draft: ${readableError(failure)}`)
@@ -607,7 +609,7 @@ function NewTaskForm({
           event.clientY < bounds.top ||
           event.clientY > bounds.bottom
         ) {
-          onClose()
+          if (!moving) onClose()
         }
       }}
     >
