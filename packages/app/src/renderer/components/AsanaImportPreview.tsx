@@ -1,5 +1,6 @@
-import type { AsanaImportRow, AsanaImportPreview as Preview, Task } from '@ted/protocol'
+import type { AsanaImportRow, AsanaSync, AsanaImportPreview as Preview, Task } from '@ted/protocol'
 import { ownershipLine } from '@ted/protocol/asana-import'
+import { useSettings } from '../data.ts'
 import { ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
 import { ActionButton } from './ActionButton.tsx'
@@ -56,6 +57,7 @@ export function AsanaImportPreview({
   onRemove: () => void
 }) {
   const { preview, error } = state
+  const syncOn = useSettings()?.asanaSync !== false
   const missing = preview?.rows.filter(
     (row) => row.action.kind === 'conflict' || row.action.kind === 'unreadable',
   )
@@ -98,6 +100,13 @@ export function AsanaImportPreview({
       {preview && preview.refusal === undefined && (
         <>
           <span className={styles.summary}>{ownershipLine(preview)}</span>
+          {preview.create > 0 && (
+            <span className={styles.note} data-task-sync-note>
+              {syncOn
+                ? 'Task Sync is on for these Tasks: TED comments on each Asana task with each pull request and completes it once its Task merges.'
+                : 'Task Sync is allowed for these Tasks, but it is off in Settings, so TED won’t update Asana until you turn it on.'}
+            </span>
+          )}
           <span className={styles.note}>
             Priority and Start now apply to every new Task. Title, Task Lead, blockers, parent and
             attachments come from Asana and the Factory’s defaults instead.
@@ -183,6 +192,72 @@ export function AsanaSourceField({ task }: { task: Task }) {
       <span className={styles.sourceFacts}>
         {`${who} · ${asana.completed ? 'Complete in Asana' : 'Not complete'} · imported ${imported}`}
       </span>
+    </span>
+  )
+}
+
+export function taskSyncText(sync: AsanaSync): { state: string; why: string } {
+  switch (sync.state) {
+    case 'not-allowed':
+      return {
+        state: 'Not syncing',
+        why: 'Choose Sync with Asana in the Task menu to let TED update this Asana task.',
+      }
+    case 'off':
+      return {
+        state: 'Paused: Task Sync is off',
+        why: 'Turn on Task Sync in Settings → Integrations → Asana.',
+      }
+    case 'disconnected':
+      return {
+        state: 'Paused: Asana isn’t connected',
+        why: 'TED catches up once you connect the same account in Settings → Integrations.',
+      }
+    case 'other-account':
+      return {
+        state: 'Paused',
+        why: 'Sync was allowed under a different Asana account than the one connected now. Choose Sync with Asana in the Task menu to allow it again.',
+      }
+    case 'waiting-merge':
+      return {
+        state: 'Syncing',
+        why: `TED comments with each pull request and completes the Asana task once they all merge.${
+          sync.linked > 0
+            ? ` ${sync.linked} ${sync.linked === 1 ? 'pull request' : 'pull requests'} linked.`
+            : ''
+        }`,
+      }
+    case 'waiting-children': {
+      const n = sync.openChildren ?? 1
+      return {
+        state: 'Not completed yet',
+        why: `Every pull request merged, but ${n} ${n === 1 ? 'task' : 'tasks'} under it in Asana ${n === 1 ? 'isn’t' : 'aren’t'} complete. TED completes it once they are.`,
+      }
+    }
+    case 'completed-by-ted':
+      return {
+        state: 'Completed by TED',
+        why: `${sync.completedAt ? `${formatDate(sync.completedAt, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}, ` : ''}after every pull request merged.`,
+      }
+    case 'completed-in-asana':
+      return {
+        state: 'Completed in Asana by someone else',
+        why: 'TED links any pull requests and leaves completion alone.',
+      }
+    case 'archived':
+      return {
+        state: 'Not syncing',
+        why: 'This Task was archived without merging, so TED leaves the Asana task as it is.',
+      }
+  }
+}
+
+export function TaskSyncField({ sync }: { sync: AsanaSync }) {
+  const text = taskSyncText(sync)
+  return (
+    <span className={styles.sourceField} data-task-sync={sync.state}>
+      <span className={styles.syncState}>{text.state}</span>
+      <span className={styles.sourceFacts}>{text.why}</span>
     </span>
   )
 }

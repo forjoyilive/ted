@@ -377,6 +377,7 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     throw new HttpError(400, 'Change a Factory’s Asana intake through its own route')
   },
   linearSync: onOff('linearSync'),
+  asanaSync: onOff('asanaSync'),
   lowPriorityWork: onOff('lowPriorityWork'),
   antigravityPlanAccepted: onOff('antigravityPlanAccepted'),
   startNewTasks: onOff('startNewTasks'),

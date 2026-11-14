@@ -153,3 +153,7 @@
   color: var(--text-caption);
   font-size: var(--text-12);
 }
+
+.syncState {
+  font-weight: 600;
+}

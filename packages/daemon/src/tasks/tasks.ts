@@ -116,9 +116,11 @@ import type {
   WorktreeCommandOutcome,
 } from '@ted/protocol'
 import {
+  type AsanaStatus,
   agentShortNames,
   agentStageIds,
   archiveChoice,
+  asanaSyncAllowable,
   bannerId,
   briefHeadings,
   type CleanupStepReport,
@@ -236,6 +238,7 @@ import {
   type ParentRef,
   planAsanaImport,
 } from './asana-import.ts'
+import { asanaTracker, createAsanaSync } from './asana-sync.ts'
 import { ordinaryAutopilotRequest, taskAutopilot } from './autopilot.ts'
 import {
   type BaseConflict,
@@ -588,6 +591,8 @@ export interface Tasks {
   archive(ref: string, options?: ArchiveTaskRequest): Task
   requestArchive(ref: string, caller: Caller, request: RequestArchiveRequest): Promise<Comment>
   allowLinearSync(ref: string): Task
+  allowAsanaSync(ref: string): Promise<Task>
+  asanaStatusSeen(status: AsanaStatus): void
   allowLinearTeam(factoryId: string, team: string): MachineSettings
   archiveDone(factory: string): ArchiveDoneResult
   followUp(ref: string, request: { comment?: string; attachments?: Attachment[] }): Promise<Task>
@@ -749,7 +754,11 @@ export function createTasks(options: {
     files?: FileStore
     allowLoopbackFiles?: boolean
     intakeLimit?: number
+    comment?(gid: string, text: string, account: string): Promise<void>
+    complete?(gid: string, account: string): Promise<void>
+    account?(): Promise<string | undefined>
   }
+  asanaSyncMs?: number
   isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
   gh?: Gh
@@ -1133,6 +1142,7 @@ export function createTasks(options: {
       archiveNow(find(task.id), false, why)
       wake()
     },
+    under: (taskId) => underToArchive(taskId).map((id) => find(id)),
   }
   const linearApi = options.linear
   const linearSync =
@@ -1152,6 +1162,24 @@ export function createTasks(options: {
       clock,
       everyMs: options.linearSyncMs ?? 60_000,
       // A hold released on every cycle would start the idle exit’s time again for ever.
+      inBackground: (what, work) => inBackground(what, work, false),
+    })
+  const asanaApi = options.asana
+  const asanaSync =
+    asanaApi?.comment &&
+    asanaApi.complete &&
+    asanaApi.account &&
+    createAsanaSync({
+      store,
+      asana: {
+        read: asanaApi.read,
+        comment: asanaApi.comment,
+        complete: asanaApi.complete,
+        account: asanaApi.account,
+      },
+      actions: trackerActions,
+      clock,
+      everyMs: options.asanaSyncMs ?? 60_000,
       inBackground: (what, work) => inBackground(what, work, false),
     })
   const sources: QueueSource[] = []
@@ -4628,6 +4656,7 @@ export function createTasks(options: {
         sourceUrl: node.url,
         asana: asanaSource(node, tree, user.gid, at),
         ...(automation && { automation: automation.link }),
+        ...(caller.kind === 'app' && { syncAccount: user.gid }),
       })),
       links: plan.links.map((link) => ({ taskId: link.taskId, parent: ref(link.parent) })),
       comments: [
@@ -10146,6 +10175,24 @@ export function createTasks(options: {
       return publicTask(task.id)
     },
 
+    async allowAsanaSync(ref) {
+      const task = live(ref)
+      const link = task.source && parseAsanaTaskUrl(task.source.url)
+      if (!link || !task.source?.asana)
+        throw new RequestError(400, `${task.displayId} wasn’t imported from Asana`)
+      const account = await asanaSync?.refresh()
+      if (account === undefined)
+        throw new RequestError(409, 'Connect Asana in Settings → Integrations first.')
+      if (!asanaSyncAllowable(store.getTask(task.id)?.asanaSync)) return publicTask(task.id)
+      store.trackerSyncAllowed(task.id, asanaTracker, link.gid, account)
+      return publicTask(task.id)
+    },
+
+    asanaStatusSeen(status) {
+      if (asanaSync)
+        store.setAsanaConnection(status.state === 'connected' ? status.user?.gid : undefined)
+    },
+
     allowLinearTeam(factoryId, team) {
       if (!store.getFactory(factoryId)) throw new RequestError(404, `no Factory ${factoryId}`)
       return linearConsent.allowGroup(factoryId, team.toUpperCase())
@@ -11275,6 +11322,7 @@ export function createTasks(options: {
       stopPumping()
       watch?.close()
       linearSync?.close()
+      asanaSync?.close()
       await pumping
       stopping.abort()
       await Promise.all(background)

@@ -8,8 +8,10 @@ import {
   ctx,
   daemonClient,
   launchApp,
+  openAllTasks,
   openSettings,
   setUpAppTests,
+  ted,
 } from './app-harness.ts'
 
 setUpAppTests()
@@ -98,6 +100,7 @@ test('private configuration stays in main; browser authorization, identity, test
     .poll(() => preview.textContent())
     .toContain('3 Tasks: 1 assigned to you, 1 to others, 1 unassigned')
   expect(await preview.getByRole('listitem').count()).toBe(4)
+  expect(await preview.textContent()).toContain('Task Sync is on for these Tasks')
   await newTask.getByLabel('Start now').uncheck()
   await newTask.getByRole('button', { name: 'Create 3 Tasks' }).click()
   await newTask.waitFor({ state: 'detached' })
@@ -110,11 +113,35 @@ test('private configuration stays in main; browser authorization, identity, test
   ])
   expect(imported.filter((t) => t.parentId === root?.id)).toHaveLength(2)
   expect(root?.source?.asana).toMatchObject({ gid: '501', completed: false })
+  expect(root?.asanaSync).toMatchObject({ state: 'waiting-merge' })
+  stub.setTasks([{ gid: '505', name: 'Tax line' }])
+  await ted('task', 'create', '--factory', 'NB', '--source', 'https://app.asana.com/0/0/505')
+  await openAllTasks(window)
+  const fromCli = window.locator('tr[data-task="NB-4"]')
+  await fromCli.click()
+  await expect.poll(() => window.locator('[data-task-sync]').textContent()).toContain('Not syncing')
+  await window.getByRole('button', { name: '← All Tasks' }).click()
+  await fromCli.click({ button: 'right' })
+  await window
+    .getByRole('menuitem', { name: 'Sync with Asana Not syncing yet', exact: true })
+    .click()
+  await fromCli.click()
+  await expect
+    .poll(() => window.locator('[data-task-sync]').getAttribute('data-task-sync'))
+    .toBe('waiting-merge')
+  const stateOf = async (id: string | undefined) =>
+    (await (await daemonClient()).listTasks()).find((t) => t.id === id)?.asanaSync?.state
   await openSettings(window)
   await window
     .getByRole('navigation', { name: 'Settings' })
     .getByRole('button', { name: 'Integrations', exact: true })
     .click()
+  const taskSync = group.getByRole('switch', { name: 'Task Sync' })
+  expect(await taskSync.getAttribute('aria-checked')).toBe('true')
+  await taskSync.click()
+  await expect.poll(() => stateOf(root?.id)).toBe('off')
+  await taskSync.click()
+  await expect.poll(() => stateOf(root?.id)).toBe('waiting-merge')
   const renderer = await window.evaluate(() => ({
     text: document.body.innerHTML,
     local: { ...localStorage },
@@ -128,6 +155,7 @@ test('private configuration stays in main; browser authorization, identity, test
     expect(JSON.stringify(renderer)).not.toContain(secret)
   await group.getByRole('button', { name: 'Disconnect', exact: true }).click()
   await expect.poll(() => group.textContent()).toContain('App configured')
+  await expect.poll(() => stateOf(root?.id)).toBe('disconnected')
   expect(
     await readFile(path.join(ctx.home, 'stub-keyring.json.asana-oauth'), 'utf8'),
   ).not.toContain('refresh-secret-opaque')
