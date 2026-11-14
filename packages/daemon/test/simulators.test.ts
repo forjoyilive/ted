@@ -795,7 +795,7 @@ describe('iOS simulator Apps', () => {
         (await stubDevices()).some((d) => d.name.startsWith('TED Dev')) ? undefined : true,
       'the Audit’s simulator to be deleted',
     )
-  })
+  }, 60_000)
 
   test('missing Xcode raises a stops-work Factory banner', async () => {
     await writeStub({ xcode: false })

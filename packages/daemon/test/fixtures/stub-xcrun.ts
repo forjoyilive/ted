@@ -32,6 +32,8 @@ function sleep(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }
 
+let heldLock: string | undefined
+
 function locked<T>(work: () => T): T {
   const lock = `${file}.lock`
   for (let tries = 0; ; tries++) {
@@ -43,9 +45,11 @@ function locked<T>(work: () => T): T {
       sleep(10)
     }
   }
+  heldLock = lock
   try {
     return work()
   } finally {
+    heldLock = undefined
     rmdirSync(lock)
   }
 }
@@ -64,6 +68,7 @@ function write(state: StubState): void {
 }
 
 function fail(message: string, code = 1): never {
+  if (heldLock !== undefined) rmdirSync(heldLock)
   process.stderr.write(`${message}\n`)
   process.exit(code)
 }
