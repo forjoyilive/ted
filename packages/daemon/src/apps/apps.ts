@@ -14,6 +14,7 @@ import {
   type AppStarter,
   appEnvName,
   type DaemonEvent,
+  type DeviceRequest,
   isDeviceApp,
   isEmulatorApp,
   isSimulatorApp,
@@ -139,6 +140,7 @@ export interface Apps {
   emulators(): SimulatorSlots
   show(taskId: string, ref: AppRef): Promise<TaskApp>
   screenshot(taskId: string, ref: AppRef): Promise<{ file: string; app: TaskApp }>
+  control(taskId: string, request: DeviceRequest): Promise<string>
   record(
     taskId: string,
     ref: AppRef,
@@ -1213,6 +1215,15 @@ export function createApps(options: AppsOptions): Apps {
       const file = await devicesFor(app.kind).screenshot(taskId, repo.name, app.name)
       const instance = await readInstance(dirOf(taskId, repo.name, app.name))
       return { file, app: toApp(taskId, repo.name, app, instance) }
+    },
+    async control(taskId, request) {
+      const { repo, app } = await deviceApp(taskId, request.app)
+      if (app.kind !== 'android-emulator')
+        throw new RequestError(
+          409,
+          `TED can’t drive ${app.name} yet: only Android emulator Apps take input so far`,
+        )
+      return emus.control(taskId, repo.name, app.name, request)
     },
     async record(taskId, ref, action) {
       const { repo, app } = await simulatorApp(taskId, ref)

@@ -4,3 +4,17 @@
   align-items: center;
   gap: 6px;
 }
+
+.projects {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px 12px;
+}
+
+.waiting {
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--text-12-5);
+}

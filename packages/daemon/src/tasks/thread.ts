@@ -421,7 +421,9 @@ export function threadEvents(
         add(
           entry,
           'edit',
-          `You let TED sync ${text(data.group)} with ${trackerName(text(data.tracker))} for Automations in this Factory`,
+          data.tracker === 'asana'
+            ? 'You allowed Task Sync with Asana for this Task’s Asana project, for Automations in this Factory'
+            : `You let TED sync ${text(data.group)} with ${trackerName(text(data.tracker))} for Automations in this Factory`,
         )
         break
       case 'v1.TrackerPullRequestsLinked': {

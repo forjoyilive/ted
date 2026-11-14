@@ -4,11 +4,12 @@ import {
   type IntegrationsHealth,
   integrationInstallPages,
 } from '@ted/protocol'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test } from 'vitest'
+import { AsanaGroup } from '../src/renderer/settings/AsanaGroup.tsx'
 import { IntegrationsPage } from '../src/renderer/settings/IntegrationsPage.tsx'
 import { bridge, user } from './support/component.ts'
-import { createdAt } from './support/fixtures.ts'
+import { createdAt, factory } from './support/fixtures.ts'
 
 test.each(['not-installed', 'too-old'] as const)(
   'Settings shows official instructions for Linux %s tools',
@@ -62,3 +63,57 @@ test.each(['not-installed', 'too-old'] as const)(
     expect(a.request).toHaveBeenCalledWith('checkIntegrations')
   },
 )
+
+test('Asana Settings lists each Factory’s projects by name, adds one from Asana’s list and asks again after another account connected', async () => {
+  const notes = factory({ id: 'f1', name: 'Notebooks' })
+  const settings = {
+    ...defaultMachineSettings,
+    trackerSyncGroups: { asana: { f1: ['9'] } },
+    trackerSyncDeclined: { asana: { f1: ['7'] } },
+    trackerSyncGroupAccounts: { asana: { f1: { '9': '200' } } },
+  }
+  const a = bridge({
+    getSettings: () => settings,
+    listFactories: () => [notes],
+    getAsana: () => ({
+      state: 'connected',
+      configured: true,
+      redirectUri: '',
+      user: { gid: '100', name: 'Avery', email: 'avery@example.test' },
+    }),
+    asanaProjects: () => ({
+      projects: [
+        { gid: '9', name: 'Roadmap', workspace: 'Acme' },
+        { gid: '8', name: 'Other', workspace: 'Acme' },
+        { gid: '7', name: 'Ops', workspace: 'Acme' },
+      ],
+      complete: true,
+    }),
+    allowAsanaProject: () => settings,
+    forgetAsanaProject: () => settings,
+  })
+  render(<AsanaGroup />)
+  await screen.findByText('Asana projects for Automations in Notebooks')
+  const picker = await screen.findByRole('combobox', {
+    name: 'Asana projects for Automations in Notebooks',
+  })
+  await waitFor(() => expect((picker as HTMLSelectElement).disabled).toBe(false))
+  expect(
+    within(picker)
+      .getAllByRole('option')
+      .map((o) => o.textContent),
+  ).toEqual(['Add a project…', 'Other · Acme', 'Ops · Acme'])
+  expect(screen.getByText('Allowed by another Asana account')).toBeTruthy()
+  expect(screen.getByText(/You chose Not now for/).textContent).toContain('Ops')
+
+  await user().click(
+    screen.getByRole('button', { name: 'Allow Roadmap again for Automations in Notebooks' }),
+  )
+  expect(a.request).toHaveBeenCalledWith('allowAsanaProject', 'f1', '9')
+  await user().selectOptions(picker, '8')
+  expect(a.request).toHaveBeenCalledWith('allowAsanaProject', 'f1', '8')
+  await user().click(screen.getByRole('button', { name: 'Remove Roadmap from Notebooks' }))
+  expect(a.request).toHaveBeenCalledWith('forgetAsanaProject', 'f1', '9', 'allowed')
+  await user().click(screen.getByRole('button', { name: 'Remove Ops from Not now in Notebooks' }))
+  expect(a.request).toHaveBeenCalledWith('forgetAsanaProject', 'f1', '7', 'declined')
+})

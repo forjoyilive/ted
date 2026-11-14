@@ -19,6 +19,8 @@ import type {
   AsanaIntakeRequest,
   AsanaIntakeResult,
   AsanaIntakeScope,
+  AsanaProjectList,
+  AsanaProjectListName,
   AssessFailureRequest,
   Attachment,
   BaseConflictFound,
@@ -39,6 +41,8 @@ import type {
   DescriptionVersion,
   DesignFile,
   DesignReview,
+  DeviceRequest,
+  DeviceResult,
   DraftLineCommentRequest,
   EditTaskRequest,
   Effort,
@@ -157,6 +161,7 @@ import { type AppDeclaration, appDeclarations } from '../apps/declared.ts'
 import { createRunBrowsers } from '../apps/run-browser.ts'
 import { AsanaReadError } from '../asana/asana.ts'
 import { checkAsanaRoot, confirmAsanaScope, listAsanaIntake, scopeName } from '../asana/intake.ts'
+import { confirmAsanaProject, listAsanaProjects } from '../asana/projects.ts'
 import { type AsanaRead, type AsanaTree, readAsanaTree, retryingRead } from '../asana/tree.ts'
 import type { Banners } from '../banners.ts'
 import { type Clock, clockWait, systemClock, type Timer } from '../clock.ts'
@@ -433,7 +438,7 @@ import { leadAskedAtMerge } from './status.ts'
 import { createSubAgents, type PlannedReview, type ReviewerChoice } from './sub-agents.ts'
 import { titleFromText } from './task-title.ts'
 import { nudgeMessage, taskThreadEvents } from './thread.ts'
-import { createTrackerConsent } from './tracker-sync/consent.ts'
+import { createTrackerConsent, type TrackerConsent } from './tracker-sync/consent.ts'
 import type { TrackerTaskActions } from './tracker-sync/sync.ts'
 import {
   noEarlierFindingRefusal,
@@ -594,6 +599,13 @@ export interface Tasks {
   allowAsanaSync(ref: string): Promise<Task>
   asanaStatusSeen(status: AsanaStatus): void
   allowLinearTeam(factoryId: string, team: string): MachineSettings
+  asanaProjects(): Promise<AsanaProjectList>
+  allowAsanaProject(factoryId: string, project: string): Promise<MachineSettings>
+  forgetAsanaProject(
+    factoryId: string,
+    project: string,
+    list: AsanaProjectListName,
+  ): Promise<MachineSettings>
   archiveDone(factory: string): ArchiveDoneResult
   followUp(ref: string, request: { comment?: string; attachments?: Attachment[] }): Promise<Task>
   hierarchy(ref: string, caller?: Caller): TaskHierarchy
@@ -706,6 +718,7 @@ export interface Tasks {
   stopRunApps(runId: string): Promise<void>
   runBrowserCommand(runId: string, caller: Caller, request: BrowserRequest): Promise<BrowserResult>
   runBrowserCapture(runId: string, caller: Caller, hash: string): Attachment
+  runDeviceCommand(runId: string, caller: Caller, request: DeviceRequest): Promise<DeviceResult>
   planApproved(taskId: string, input: PlanApproval): Promise<void>
   stopLeadForChildren(taskId: string): Promise<void>
   planEnded(taskId: string, input: PlanEnd): Promise<void>
@@ -856,7 +869,7 @@ export function createTasks(options: {
   const commentText = (comment: Comment): string =>
     [plainText(comment), linesText(comment) ?? ''].filter((part) => part !== '').join('\n\n')
   const linearConsent = createTrackerConsent(store, linearConnector(), linearRecords(store))
-  const trackerConsents = [linearConsent]
+  const trackerConsents: TrackerConsent[] = [linearConsent]
   const drafts = (taskId: string): string[] => store.lineCommentDrafts(taskId).map((c) => c.id)
   const stoppingByHand = new Set<string>()
   const clock = options.clock ?? systemClock
@@ -1096,6 +1109,17 @@ export function createTasks(options: {
     return attachment
   }
 
+  async function saveRunCapture(runId: string, file: string, app: string): Promise<Attachment> {
+    if (!options.saveAttachment) throw new RequestError(503, 'TED can’t save files here')
+    const attachment = await options
+      .saveAttachment(file, `${app} screenshot.png`, 'image/png')
+      .finally(() => rm(file, { force: true }))
+    store.automations.recordBrowserCapture(runId, attachment)
+    await store.persisted()
+    automationUploads.add(`${runId}:${attachment.hash}`)
+    return attachment
+  }
+
   async function ownedRun(runId: string, caller: Caller): Promise<void> {
     if (caller.kind === 'run' && caller.runId !== runId) {
       throw new RequestError(403, 'A Run can reach only its own Apps')
@@ -1182,6 +1206,7 @@ export function createTasks(options: {
       everyMs: options.asanaSyncMs ?? 60_000,
       inBackground: (what, work) => inBackground(what, work, false),
     })
+  if (asanaSync) trackerConsents.push(asanaSync.consent)
   const sources: QueueSource[] = []
   let pumping: Promise<void> | undefined
   let again = false
@@ -4657,6 +4682,7 @@ export function createTasks(options: {
         asana: asanaSource(node, tree, user.gid, at),
         ...(automation && { automation: automation.link }),
         ...(caller.kind === 'app' && { syncAccount: user.gid }),
+        ...(node.projects && { projects: node.projects.map((p) => p.gid) }),
       })),
       links: plan.links.map((link) => ({ taskId: link.taskId, parent: ref(link.parent) })),
       comments: [
@@ -4705,6 +4731,15 @@ export function createTasks(options: {
       ],
     })
     const created = [...result.created.values()]
+    if (automation && asanaSync) {
+      for (const { node } of plan.creates) {
+        const task = result.created.get(node.gid)
+        if (task && node.projects) {
+          const projects = node.projects.map((p) => ({ key: p.gid, name: p.name }))
+          asanaSync.consent.askGroups(task.id, automation.name, projects)
+        }
+      }
+    }
     const existingParents = new Set([
       ...plan.creates.flatMap(({ parent }) =>
         parent && 'taskId' in parent ? [parent.taskId] : [],
@@ -10198,6 +10233,31 @@ export function createTasks(options: {
       return linearConsent.allowGroup(factoryId, team.toUpperCase())
     },
 
+    async asanaProjects() {
+      const asana = options.asana
+      if (!asana || !asanaSync || (await asanaSync.refresh()) === undefined)
+        throw new RequestError(409, 'Connect Asana in Settings → Integrations first.')
+      return listAsanaProjects(retryingRead(asana.read))
+    },
+
+    async allowAsanaProject(factoryId, project) {
+      if (!store.getFactory(factoryId)) throw new RequestError(404, `no Factory ${factoryId}`)
+      const asana = options.asana
+      if (!asana || !asanaSync || (await asanaSync.refresh()) === undefined)
+        throw new RequestError(409, 'Connect Asana in Settings → Integrations first.')
+      await confirmAsanaProject(retryingRead(asana.read), project)
+      if (!store.getFactory(factoryId) || removingFactories.has(factoryId))
+        throw new RequestError(404, `no Factory ${factoryId}`)
+      return asanaSync.consent.allowGroup(factoryId, project)
+    },
+
+    async forgetAsanaProject(factoryId, project, list) {
+      if (!store.getFactory(factoryId)) throw new RequestError(404, `no Factory ${factoryId}`)
+      if (!asanaSync) throw new RequestError(409, 'Asana isn’t set up on this computer')
+      if (list === 'allowed') await asanaSync.refresh().catch(() => undefined)
+      return asanaSync.consent.forgetGroup(factoryId, project, list)
+    },
+
     hierarchy,
     hierarchyPreview,
     setParent,
@@ -11501,13 +11561,19 @@ export function createTasks(options: {
       const dir = path.join(path.dirname(worktreesDir), 'browsers')
       const file = path.join(dir, `capture-${randomUUID()}.png`)
       await writeFile(file, capture, { mode: 0o600 })
-      const attachment = await options
-        .saveAttachment(file, `${shown.name} screenshot.png`, 'image/png')
-        .finally(() => rm(file, { force: true }))
-      store.automations.recordBrowserCapture(runId, attachment)
-      await store.persisted()
-      automationUploads.add(`${runId}:${attachment.hash}`)
-      return { ...result, attachment }
+      return { ...result, attachment: await saveRunCapture(runId, file, shown.name) }
+    },
+    async runDeviceCommand(runId, caller, request) {
+      await ownedRun(runId, caller)
+      if (caller.kind !== 'run')
+        throw new RequestError(403, 'Only the Automation’s Run uses its Apps this way')
+      if (runAppOwner?.live(runId) !== true) throw new RequestError(409, 'This Run has ended')
+      if (store.newWorkHold() !== undefined) throw new RequestError(507, 'New work is on hold')
+      if (request.action !== 'screenshot') return { text: await apps.control(runId, request) }
+      if (!options.saveAttachment) throw new RequestError(503, 'TED can’t save files here')
+      const { file, app } = await apps.screenshot(runId, request.app)
+      const attachment = await saveRunCapture(runId, file, app.name)
+      return { text: `Took a screenshot of ${app.name}.`, attachment }
     },
     runBrowserCapture(runId, caller, hash) {
       if (caller.kind === 'run' && caller.runId !== runId)

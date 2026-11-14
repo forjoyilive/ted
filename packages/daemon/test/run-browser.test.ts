@@ -187,7 +187,7 @@ test('an Audit files one Backlog Task with its screenshot, and a second Audit of
   if (!template) throw new Error('missing audit template')
   expect(template.checkout).toBe(true)
   expect(template.prompt).toContain('skipped: no Audit driver for <kind> Apps yet')
-  expect(template.prompt).toContain('each `electron` App (a desktop app)')
+  expect(template.prompt).toContain('`electron` (a desktop app)')
   expect(template.prompt).toContain('File at most 5 Tasks in one Run')
   expect(template.prompt).toContain('open that image and look at it before you judge the page')
   const source = 'http://localhost/audit/web/pages/one/header-overlaps-text'

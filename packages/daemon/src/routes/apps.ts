@@ -1,4 +1,9 @@
-import { parseAppRef, parseRecordAppRequest, parseStartAppRequest } from '@ted/protocol'
+import {
+  parseAppRef,
+  parseDeviceRequest,
+  parseRecordAppRequest,
+  parseStartAppRequest,
+} from '@ted/protocol'
 import { jsonRoute, type Route } from './route.ts'
 
 export const appRoutes: Route[] = [
@@ -99,6 +104,14 @@ export const appRoutes: Route[] = [
     path: /^\/runs\/([^/]+)\/apps\/stop$/,
     async handle({ body: request, params: [runId = ''], caller }, { tasks }) {
       return [200, await tasks.stopRunApp(runId, caller, request)]
+    },
+  }),
+  jsonRoute(parseDeviceRequest, {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/apps\/device$/,
+    runToken: true,
+    async handle({ body: request, params: [runId = ''], caller }, { tasks }) {
+      return [200, await tasks.runDeviceCommand(runId, caller, request)]
     },
   }),
   jsonRoute(parseAppRef, {

@@ -38,6 +38,7 @@ export interface AsanaNode {
   partial?: string[]
   cut?: boolean
   childrenUnreadable?: string
+  projects?: { gid: string; name: string }[]
   children: string[]
 }
 
@@ -169,7 +170,7 @@ export async function readAsanaTree(input: {
 }
 
 const taskFields =
-  'gid,name,notes,completed,permalink_url,assignee,assignee.gid,assignee.name,resource_subtype'
+  'gid,name,notes,completed,permalink_url,assignee,assignee.gid,assignee.name,resource_subtype,memberships.project.gid,memberships.project.name'
 
 export function nodeFrom(
   value: unknown,
@@ -181,6 +182,7 @@ export function nodeFrom(
   const gid = typeof task.gid === 'string' && /^\d{1,32}$/.test(task.gid) ? task.gid : undefined
   if (gid === undefined) return undefined
   const assignee = task.assignee as Record<string, unknown> | null | undefined
+  const projects = projectsFrom(task.memberships)
   return {
     gid,
     name: oneLine(typeof task.name === 'string' ? task.name : '').slice(0, maxName) || '(untitled)',
@@ -200,8 +202,24 @@ export function nodeFrom(
     ...(typeof task.notes === 'string' &&
       task.notes.trim() !== '' && { notes: task.notes.slice(0, maxNotes) }),
     ...(typeof task.notes === 'string' && task.notes.length > maxNotes && { cut: true }),
+    ...(projects && { projects }),
     children: [],
   }
+}
+
+function projectsFrom(memberships: unknown): { gid: string; name: string }[] | undefined {
+  if (!Array.isArray(memberships)) return undefined
+  const projects: { gid: string; name: string }[] = []
+  for (const membership of memberships) {
+    const project = (membership as { project?: Record<string, unknown> } | null)?.project
+    const gid = project?.gid
+    if (typeof gid !== 'string' || !/^\d{1,32}$/.test(gid)) continue
+    if (projects.some((p) => p.gid === gid)) continue
+    const name = oneLine(typeof project?.name === 'string' ? project.name : '').slice(0, 200)
+    projects.push({ gid, name: name || gid })
+    if (projects.length === 50) break
+  }
+  return projects
 }
 
 function permalink(value: unknown, gid: string): string {

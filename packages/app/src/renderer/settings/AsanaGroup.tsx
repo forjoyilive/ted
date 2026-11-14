@@ -1,17 +1,40 @@
-import type { AsanaStatus } from '@ted/protocol'
+import type { AsanaProjectList, AsanaStatus } from '@ted/protocol'
 import { useEffect, useState } from 'react'
 import dialogStyles from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
-import { useSettings } from '../data.ts'
+import { useFactories, useSettings } from '../data.ts'
 import { ted } from '../ted.ts'
+import { AsanaProjectsRow } from './AsanaProjectsRow.tsx'
 import own from './asana.module.css'
 import { SettingRow, SettingsGroup, Switch } from './controls.tsx'
 import styles from './linear.module.css'
 
 export function AsanaGroup() {
-  const sync = useSettings()?.asanaSync
+  const settings = useSettings()
+  const sync = settings?.asanaSync
+  const factories = useFactories()
   const [status, setStatus] = useState<AsanaStatus>()
+  const [projects, setProjects] = useState<AsanaProjectList>()
+  const connectedAs = status?.user?.gid
+  const listing = connectedAs !== undefined && sync === true
+  useEffect(() => {
+    if (connectedAs === undefined || sync !== true) return
+    let active = true
+    setProjects(undefined)
+    ted.asanaProjects().then(
+      (list) => {
+        if (active) setProjects(list)
+      },
+      (error: unknown) => {
+        if (active)
+          setProblem(error instanceof Error ? error.message : 'Couldn’t list Asana projects.')
+      },
+    )
+    return () => {
+      active = false
+    }
+  }, [sync, connectedAs])
   const [problem, setProblem] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [confirmation, setConfirmation] = useState<{
@@ -204,6 +227,18 @@ export function AsanaGroup() {
           />
         </SettingRow>
       )}
+      {listing &&
+        settings &&
+        connectedAs !== undefined &&
+        factories.map((factory) => (
+          <AsanaProjectsRow
+            key={factory.id}
+            factory={factory}
+            settings={settings}
+            projects={projects}
+            account={connectedAs}
+          />
+        ))}
     </SettingsGroup>
   )
 }
