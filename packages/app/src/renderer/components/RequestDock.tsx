@@ -13,7 +13,6 @@ export function RequestDock({
   onCommenting,
   onJump,
   onOpenRun,
-  onOpenPlan,
   children,
 }: {
   task: Task
@@ -24,7 +23,6 @@ export function RequestDock({
   onCommenting: (id: string | undefined) => void
   onJump: (id: string) => void
   onOpenRun?: ((runId: string) => void) | undefined
-  onOpenPlan?: ((planId: string) => void) | undefined
   children: ReactNode
 }) {
   const requests = [...open].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
@@ -120,7 +118,6 @@ export function RequestDock({
                 request={request}
                 task={task}
                 onOpenRun={onOpenRun}
-                onOpenPlan={onOpenPlan}
                 lead={
                   <button
                     type="button"

@@ -414,11 +414,7 @@ const failureWords = {
   otherLabel: 'Send a message to the Task Lead',
 }
 
-function useSending(
-  request: Comment,
-  readOnly: boolean,
-  onOpenPlan: ((planId: string) => void) | undefined,
-) {
+function useSending(request: Comment, readOnly: boolean) {
   const sendingRef = useRef(false)
   const [sending, setSending] = useState(false)
   const [submission, setSubmission] = useState<AnswerRequest>()
@@ -431,10 +427,7 @@ function useSending(
     setSending(true)
     setError(undefined)
     try {
-      const answered = await ted.answerRequest(request.id, answer)
-      if (answered.answer?.kind === 'answered' && answered.answer.planId !== undefined) {
-        onOpenPlan?.(answered.answer.planId)
-      }
+      await ted.answerRequest(request.id, answer)
       return true
     } catch (failed) {
       setError(readableError(failed))
@@ -452,7 +445,6 @@ type AnswerProps = {
   request: Comment
   task: Task
   onOpenRun?: ((runId: string) => void) | undefined
-  onOpenPlan?: ((planId: string) => void) | undefined
   lead?: ReactNode
 }
 
@@ -464,7 +456,7 @@ function ArchiveAnswer({ request, task, lead }: AnswerProps) {
   const boxId = useId()
   const kept = useMessageDraft({ kind: 'request', id: request.id })
   const { text, setText } = kept
-  const { send: post, sending, submission, error } = useSending(request, false, undefined)
+  const { send: post, sending, submission, error } = useSending(request, false)
   const all = useTasks()
   const under = all.filter((t) => !t.archived && isUnder(t, task.id, all))
   const blocked = useBlocked(task)
@@ -606,7 +598,7 @@ function TaskNames({ heading, tasks }: { heading: string; tasks: readonly Task[]
   )
 }
 
-function QuestionAnswer({ request, task, onOpenRun, onOpenPlan, lead }: AnswerProps) {
+function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
   const repairFormId = useId()
   const boxId = useId()
   const box: MessageBox = { kind: 'request', id: request.id }
@@ -631,13 +623,7 @@ function QuestionAnswer({ request, task, onOpenRun, onOpenPlan, lead }: AnswerPr
     '',
     (value): value is string => typeof value === 'string',
   )
-  const {
-    send: post,
-    sending,
-    setSending,
-    submission,
-    error,
-  } = useSending(request, false, onOpenPlan)
+  const { send: post, sending, setSending, submission, error } = useSending(request, false)
   const typed = text.trim() !== ''
   const simulators = useSimulators()
   const [picked, setPicked] = useState<string>()
@@ -909,7 +895,6 @@ export function RequestCard({
   onOpenRun,
   onOpenTask,
   onOpenApp,
-  onOpenPlan,
   taskChanges,
   onOpenFile,
   onAllChanges,
@@ -925,7 +910,6 @@ export function RequestCard({
   onOpenRun?: ((runId: string) => void) | undefined
   onOpenTask?: ((id: string) => void) | undefined
   onOpenApp?: ((app: ShownApp) => void) | undefined
-  onOpenPlan?: ((planId: string) => void) | undefined
 }) {
   const [confirmTalk, setConfirmTalk] = useState(false)
   const [openWhenReady, setOpenWhenReady] = useState(false)
@@ -975,7 +959,6 @@ export function RequestCard({
   const { send, sending, setSending, sendingRef, setSubmission, error, setError } = useSending(
     request,
     readOnly,
-    onOpenPlan,
   )
   const box: MessageBox | undefined =
     readOnly || request.answer !== undefined ? undefined : { kind: 'request', id: request.id }
@@ -1193,14 +1176,7 @@ export function RequestCard({
         <p className={styles.below}>Answer at the bottom of the Task ↓</p>
       ) : (
         !readOnly &&
-        dockable(request) && (
-          <RequestAnswer
-            request={request}
-            task={task}
-            onOpenRun={onOpenRun}
-            onOpenPlan={onOpenPlan}
-          />
-        )
+        dockable(request) && <RequestAnswer request={request} task={task} onOpenRun={onOpenRun} />
       )}
     </section>
   )

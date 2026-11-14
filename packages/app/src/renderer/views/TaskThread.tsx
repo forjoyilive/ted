@@ -809,7 +809,6 @@ export function TaskThread({
           task={task}
           onOpenRun={onOpenRun}
           onOpenApp={onOpenApp}
-          onOpenPlan={onOpenPlan}
         />
       </li>
     )
@@ -1098,7 +1097,6 @@ export function TaskThread({
                     onCommenting={setCommenting}
                     onJump={jumpToRequest}
                     onOpenRun={onOpenRun}
-                    onOpenPlan={onOpenPlan}
                   >
                     <CommentBox
                       key={task.id}
