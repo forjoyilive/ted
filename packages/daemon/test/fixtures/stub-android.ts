@@ -1,4 +1,11 @@
-import { appendFileSync, mkdirSync, readFileSync, rmdirSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmdirSync,
+  writeFileSync,
+} from 'node:fs'
 import path from 'node:path'
 
 export interface StubAvd {
@@ -54,7 +61,10 @@ function read(): StubAndroidState {
 }
 
 function write(state: StubAndroidState): void {
-  if (file) writeFileSync(file, JSON.stringify(state, null, 2))
+  if (!file) return
+  const tmp = `${file}.${process.pid}.tmp`
+  writeFileSync(tmp, JSON.stringify(state, null, 2))
+  renameSync(tmp, file)
 }
 
 function fail(message: string, code = 1): never {

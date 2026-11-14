@@ -116,6 +116,7 @@ export function createAndroidTools(options: {
 
 export interface Emulators extends Omit<Simulators, 'show' | 'startRecording' | 'stopRecording'> {
   show(taskId: string, repo: string, name: string): Promise<{ rebooted: boolean }>
+  taskIds(): string[]
 }
 
 interface DeviceRecord {
@@ -143,8 +144,13 @@ const slug = (name: string) =>
     .replace(/[^A-Z0-9]/g, '_')
     .toLowerCase()
 
-export function emulatorAvdName(edition: string, displayId: string, app: string): string {
-  return `${edition}_${displayId}_${slug(app)}`.replace(/[^A-Za-z0-9._-]/g, '_')
+export function emulatorAvdName(
+  edition: string,
+  displayId: string,
+  repo: string,
+  app: string,
+): string {
+  return `${edition}_${displayId}_${slug(repo)}_${slug(app)}`.replace(/[^A-Za-z0-9._-]/g, '_')
 }
 
 export function parseAvdList(text: string): { name: string; path?: string }[] {
@@ -217,8 +223,7 @@ export function createEmulators(options: {
   const keyOf = (taskId: string, repo: string, name: string) => `${taskId}/${repo}/${slug(name)}`
   const recordOf = (taskId: string, repo: string, name: string) =>
     records.get(keyOf(taskId, repo, name))
-  const isRunning = (record: DeviceRecord) =>
-    record.serial !== undefined && running.has(record.serial)
+  const isRunning = (record: DeviceRecord) => record.serial !== undefined && running.has(record.avd)
 
   function serial<T>(work: () => Promise<T>): Promise<T> {
     const next = queue.catch(() => undefined).then(work)
@@ -338,7 +343,7 @@ export function createEmulators(options: {
         `TED couldn’t read the system image of ${app.device}. Open it once in Android Studio’s Device Manager, then run ${app.name} again.`,
       )
     }
-    const avd = emulatorAvdName(identity().name, app.displayId, app.name)
+    const avd = emulatorAvdName(identity().name, app.displayId, app.repo, app.name)
     const created = await tools.avdmanager(
       [
         'create',
@@ -372,9 +377,17 @@ export function createEmulators(options: {
     return record
   }
 
-  async function deleteAvd(record: DeviceRecord): Promise<void> {
-    if (isRunning(record)) await kill(record)
-    await tools.avdmanager(['delete', 'avd', '--name', record.avd])
+  async function deleteAvd(record: DeviceRecord): Promise<boolean> {
+    try {
+      await kill(record)
+    } catch {
+      return false
+    }
+    const result = await tools.avdmanager(['delete', 'avd', '--name', record.avd])
+    return (
+      result.code === 0 ||
+      /no Android Virtual Device named/i.test(`${result.stderr}\n${result.stdout}`)
+    )
   }
 
   async function ensureDevice(app: SimulatorApp): Promise<DeviceRecord> {
@@ -428,6 +441,7 @@ export function createEmulators(options: {
   async function boot(record: DeviceRecord, show?: { snapshot: string }): Promise<void> {
     const port = await freePort()
     record.serial = `emulator-${port}`
+    await save()
     await mkdir(logs, { recursive: true, mode: 0o700 })
     const log = path.join(logs, `${record.avd}.log`)
     await writeFile(log, '', { mode: 0o600 })
@@ -444,11 +458,11 @@ export function createEmulators(options: {
       ],
       log,
     )
-    running.add(record.serial)
+    running.add(record.avd)
     try {
       await waitForBoot(record, child, log)
     } catch (error) {
-      running.delete(record.serial)
+      running.delete(record.avd)
       changed()
       throw error
     }
@@ -461,15 +475,23 @@ export function createEmulators(options: {
 
   async function kill(record: DeviceRecord): Promise<void> {
     const serialId = record.serial
-    if (serialId === undefined) return
+    const forget = () => {
+      running.delete(record.avd)
+      delete record.serial
+    }
+    if (serialId === undefined) return forget()
+    const listed = await adbDevices()
+    if (!listed.has(serialId) || (await avdOf(serialId)) !== record.avd) return forget()
     await tools.adb(['-s', serialId, 'emu', 'kill'])
     const deadline = Date.now() + 60_000
     while (Date.now() < deadline) {
-      const listed = await adbDevices().catch(() => new Map<string, string>())
-      if (!listed.has(serialId)) break
+      if (!(await adbDevices()).has(serialId)) return forget()
       await sleep(Math.min(pollMs, 500))
     }
-    running.delete(serialId)
+    throw new RequestError(
+      409,
+      `TED couldn’t shut down the emulator for ${record.device}; it’s still running as ${serialId}`,
+    )
   }
 
   async function shutDownRecord(
@@ -498,18 +520,20 @@ export function createEmulators(options: {
 
   async function freshRunning(): Promise<Set<string>> {
     const listed = await adbDevices()
-    const before = [...running].sort().join()
-    running.clear()
+    const now = new Set<string>()
     for (const record of records.values()) {
       if (record.serial === undefined || !listed.has(record.serial)) continue
-      if ((await avdOf(record.serial)) === record.avd) running.add(record.serial)
+      if ((await avdOf(record.serial)) === record.avd) now.add(record.avd)
     }
+    const before = [...running].sort().join()
+    running.clear()
+    for (const avd of now) running.add(avd)
     if ([...running].sort().join() !== before) changed()
     return running
   }
 
   function runningRecord(serialId: string): DeviceRecord | undefined {
-    return [...records.values()].find((r) => r.serial === serialId && running.has(serialId))
+    return [...records.values()].find((r) => r.serial === serialId && isRunning(r))
   }
 
   function needsLive(taskId: string, repo: string, name: string): DeviceRecord {
@@ -784,7 +808,7 @@ export function createEmulators(options: {
         )
         if (gone.length === 0) return
         for (const [key, record] of gone) {
-          await deleteAvd(record)
+          if (!(await deleteAvd(record))) continue
           await rm(path.join(logs, `${record.avd}.log`), { force: true })
           records.delete(key)
         }
@@ -792,6 +816,7 @@ export function createEmulators(options: {
         changed()
       })
     },
+    taskIds: () => [...new Set([...records.values()].map((r) => r.taskId))],
     refresh,
     async close() {
       closed = true

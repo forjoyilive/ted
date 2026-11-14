@@ -1134,6 +1134,9 @@ export function createApps(options: AppsOptions): Apps {
         }
       }
     }
+    for (const taskId of emus.taskIds()) {
+      if (!options.keep(taskId)) await emus.remove(taskId).catch(() => undefined)
+    }
   })().catch((error: unknown) => console.error('couldn’t reattach to Apps:', error))
 
   return {
