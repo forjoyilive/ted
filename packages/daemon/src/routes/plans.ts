@@ -2,6 +2,7 @@ import {
   parseAnswerRequest,
   parsePostPlanRequest,
   parseRenamePlanRequest,
+  parseResumePlanRequest,
   parseStartPlanRequest,
 } from '@ted/protocol'
 import { jsonRoute, type Route } from './route.ts'
@@ -49,12 +50,19 @@ export const planRoutes: Route[] = [
     path: path(`/plans/${ref}/stop`),
     handle: async ({ caller, params: [id = ''] }, { plans }) => [200, await plans.stop(id, caller)],
   },
+  jsonRoute(parseResumePlanRequest, {
+    method: 'POST',
+    path: path(`/plans/${ref}/resume`),
+    async handle({ body, caller, params: [id = ''] }, { plans }) {
+      return [200, await plans.resume(id, caller, body.message)]
+    },
+  }),
   {
     method: 'POST',
-    path: path(`/plans/${ref}/retry`),
+    path: path(`/plans/${ref}/finish`),
     handle: async ({ caller, params: [id = ''] }, { plans }) => [
       200,
-      await plans.retry(id, caller),
+      await plans.markFinished(id, caller),
     ],
   },
   {

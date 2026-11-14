@@ -231,27 +231,25 @@ describe('pruning Run output', () => {
     expect((await prune(8)).removed.sort()).toEqual([first, second].sort())
   })
 
-  test('keeps a plan’s output until it is Finished or Stopped, then for 7 days; a Failed plan keeps it', async () => {
+  test('keeps a plan’s output for as long as the plan exists, whatever its outcome', async () => {
     const plan = (title: string) =>
       store.plans.start({ factoryId: 'factory-1', title, message: 'Plan it', agent: 'claude' })
-    const finishRun = async (id: string) => {
+    const open = plan('Open')
+    const failed = plan('Failed')
+    const stopped = plan('Stopped')
+    const finished = plan('Finished')
+    for (const { id } of [open, failed, stopped, finished]) {
+      store.plans.began(id, [])
       store.startRun({ id, agent: 'claude', prompt: 'Plan', cwd: '/tmp' })
       store.recordRunOutput(id, { toOffset: 1, state: 'finished' })
       await makeFolder(id)
     }
-    const open = plan('Open')
-    const failed = plan('Failed')
-    const finished = plan('Finished')
-    for (const { id } of [open, failed, finished]) {
-      store.plans.began(id, [])
-      await finishRun(id)
-    }
     store.plans.ended(failed.id, { outcome: 'failed', error: 'no' })
+    store.plans.ended(stopped.id, { outcome: 'stopped' })
     store.plans.ended(finished.id, { outcome: 'finished' })
 
-    expect(await prune(6)).toEqual({ removed: [] })
-    expect(await prune(400)).toEqual({ removed: [finished.id] })
-    expect(await kept()).toEqual([open.id, failed.id].sort())
+    expect(await prune(400)).toEqual({ removed: [] })
+    expect(await kept()).toEqual([open.id, failed.id, stopped.id, finished.id].sort())
   })
 
   test('an Automation Run is removed 7 days after its firing ended', async () => {

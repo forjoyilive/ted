@@ -171,7 +171,7 @@ describe('Planning chats', () => {
     await pane.getByText('Backlog · Blocked by NB-1').waitFor()
   })
 
-  test('the Plans list groups chats, Retry clears the red dot, Plan more from here builds on a past chat, and Delete removes one', async () => {
+  test('the Plans list keeps stopped chats open, Retry clears the red dot, Mark finished moves one to Past, Plan more from here builds on it, and Delete removes one', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     const client = await daemonAsApp(home, env())
     await client.addFactory({ repo: origin, key: 'NB' })
@@ -214,13 +214,19 @@ describe('Planning chats', () => {
       .poll(() => window.evaluate(() => document.activeElement?.textContent))
       .toBe('Failing plan')
 
+    const stoppedRow = open.getByRole('row').filter({ hasText: 'Quick plan' })
+    await stoppedRow.getByText('Stopped').waitFor()
+    await stoppedRow.getByRole('button', { name: 'Resume' }).waitFor()
+    expect(await list.getByRole('region', { name: 'Past planning chats' }).count()).toBe(0)
+    await stoppedRow.getByRole('button', { name: 'Actions for Quick plan' }).click()
+    await stoppedRow.getByRole('menuitem', { name: 'Mark finished' }).click()
     const past = list.getByRole('region', { name: 'Past planning chats' })
     const pastToggle = past.getByRole('button', { name: /Past/ })
     expect(await pastToggle.getAttribute('aria-expanded')).toBe('false')
     expect(await pastToggle.textContent()).toContain('1')
     await pastToggle.click()
     const quickRow = past.getByRole('row').filter({ hasText: 'Quick plan' })
-    await quickRow.getByText('Stopped').waitFor()
+    await quickRow.getByText('Finished').waitFor()
     await quickRow.getByText('No Tasks').waitFor()
 
     await writeFile(stubState, '{}')
@@ -245,7 +251,11 @@ describe('Planning chats', () => {
     const pane = window.getByRole('complementary', { name: 'Planning chat details' })
     await pane.getByRole('button', { name: 'Quick plan' }).waitFor()
     await chat.getByRole('button', { name: 'Stop', exact: true }).click()
-    await chat.getByRole('button', { name: 'Plan more from here' }).waitFor()
+    await chat
+      .getByText('This planning chat stopped. Resume carries on where it left off.')
+      .waitFor()
+    await chat.getByRole('button', { name: 'Resume' }).waitFor()
+    await chat.getByText('Sending resumes the planner and gives it your message.').waitFor()
 
     await chat.getByRole('button', { name: '← Plans' }).click()
     await list.getByRole('button', { name: /Past/ }).click()

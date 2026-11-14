@@ -70,6 +70,7 @@ export interface Plan {
   proposedTasks?: number
   createdTasks: number
   waitingOn?: string
+  canResume?: boolean
   fromPlan?: { id: string; title: string; deleted?: boolean }
   fromTask?: PlanFromTask
 }
@@ -111,6 +112,10 @@ export function planRequestLabel(request: PlanRequest): string {
 
 export function openPlanRequest(requests: readonly PlanRequest[]): PlanRequest | undefined {
   return requests.findLast((r) => r.kind !== 'note' && r.answer === undefined)
+}
+
+export interface ResumePlanRequest {
+  message?: string
 }
 
 export interface RenamePlanRequest {

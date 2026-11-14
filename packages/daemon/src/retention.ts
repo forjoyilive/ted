@@ -98,12 +98,7 @@ export function runOutputEnd(store: EndStore, runId: string): RunOutputEnd {
     store.automationDrafts.get(runId)
   )
     return 'keep'
-  const plan = store.plans.get(runId)
-  if (plan) {
-    return plan.state === 'ended' && plan.outcome !== 'failed'
-      ? { at: plan.finishedAt ?? stopped }
-      : 'keep'
-  }
+  if (store.plans.get(runId)) return 'keep'
   const firing = store.automations.firing(runId)
   if (firing) return firing.state === 'ended' ? { at: firing.finishedAt ?? stopped } : 'keep'
   return { at: stopped }

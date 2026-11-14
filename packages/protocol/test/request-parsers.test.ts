@@ -32,6 +32,7 @@ roundTrip(P.parseStartPlanRequest, {
   effort: 'high',
 })
 roundTrip(P.parseRenamePlanRequest, { title: 'New title' })
+roundTrip(P.parseResumePlanRequest, { message: 'Carry on' })
 const round = {
   title: 'Choices',
   summary: 'Pick',
@@ -234,6 +235,7 @@ rejects(P.parseSendRunMessageRequest, { text: 'Hi', interrupt: 1 }, 'interrupt m
 rejects(P.parseStartDevRunRequest, { prompt: 'Work', cwd: 'relative' }, 'absolute path')
 rejects(P.parseStartPlanRequest, { factory: '', message: 'Plan' }, 'name the Factory')
 rejects(P.parseRenamePlanRequest, { title: 2 }, 'title must be text')
+rejects(P.parseResumePlanRequest, { message: 2 }, 'message must be text')
 rejects(P.parsePostPlanRequest, { supersedes: 2 }, 'supersedes must be')
 rejects(P.parseSendPeerMessage, { operation: 'id' }, 'operation and text are required')
 rejects(P.parseCoordinatorMessage, { text: 1 }, 'text is required')

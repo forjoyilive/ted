@@ -1,4 +1,9 @@
-import type { PostPlanRequest, RenamePlanRequest, StartPlanRequest } from './plan.ts'
+import type {
+  PostPlanRequest,
+  RenamePlanRequest,
+  ResumePlanRequest,
+  StartPlanRequest,
+} from './plan.ts'
 import { parseProposalInput, parseRoundInput } from './task-parsers.ts'
 import { agentChoice, bodyObject, RequestValidationError as HttpError } from './validation.ts'
 
@@ -24,6 +29,14 @@ export function parseRenamePlanRequest(value: unknown): RenamePlanRequest {
   const { title } = bodyObject(value)
   if (typeof title !== 'string') throw new HttpError(400, 'title must be text')
   return { title }
+}
+
+export function parseResumePlanRequest(value: unknown): ResumePlanRequest {
+  const { message } = bodyObject(value)
+  if (message !== undefined && typeof message !== 'string') {
+    throw new HttpError(400, 'message must be text')
+  }
+  return typeof message === 'string' ? { message } : {}
 }
 
 export function parsePostPlanRequest(value: unknown): PostPlanRequest {

@@ -84,22 +84,23 @@ const plan = (fields: Partial<Plan>): Plan => ({
 })
 
 describe('Plans list', () => {
-  test('open chats come first, newest first, and finished or stopped ones are past', () => {
+  test('open chats, stopped and failed ones included, come first, newest first; finished ones are past', () => {
     const groups = planGroups([
       plan({ id: 'a', status: 'finished', createdAt: '2026-11-01T10:00:00.000Z' }),
       plan({ id: 'b', status: 'failed', createdAt: '2026-11-02T10:00:00.000Z' }),
       plan({ id: 'c', status: 'waiting', createdAt: '2026-11-03T10:00:00.000Z' }),
       plan({ id: 'd', status: 'stopped', createdAt: '2026-11-04T10:00:00.000Z' }),
     ])
-    expect(groups.open.map((p) => p.id)).toEqual(['c', 'b'])
-    expect(groups.past.map((p) => p.id)).toEqual(['d', 'a'])
+    expect(groups.open.map((p) => p.id)).toEqual(['d', 'c', 'b'])
+    expect(groups.past.map((p) => p.id)).toEqual(['a'])
   })
 
   test('the Tasks column says what a chat proposed or created', () => {
     expect(planTasksLabel(plan({ status: 'waiting', proposedTasks: 5 }))).toBe('5 proposed')
     expect(planTasksLabel(plan({ status: 'finished', createdTasks: 2 }))).toBe('Created 2 Tasks')
     expect(planTasksLabel(plan({ status: 'finished', createdTasks: 1 }))).toBe('Created 1 Task')
-    expect(planTasksLabel(plan({ status: 'stopped', proposedTasks: 3 }))).toBe('No Tasks')
+    expect(planTasksLabel(plan({ status: 'stopped', proposedTasks: 3 }))).toBe('3 proposed')
+    expect(planTasksLabel(plan({ status: 'finished' }))).toBe('No Tasks')
     expect(planTasksLabel(plan({ status: 'working' }))).toBe('—')
     expect(planTasksLabel(plan({ status: 'failed' }))).toBe('—')
   })

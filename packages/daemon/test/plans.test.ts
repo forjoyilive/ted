@@ -286,24 +286,59 @@ describe('Planning chats', () => {
     expect(stale.status).toBe(409)
   })
 
-  test('Stop ends the chat with no Tasks and withdraws its open round', async () => {
+  test('Stop keeps the open round; answering it resumes the same chat, and Mark finished ends it', async () => {
     const client = await startTed()
+    await writeFile(
+      path.join(home, 'stub-claude.json'),
+      JSON.stringify({ resumeSteps: [{ endTurn: true }] }),
+    )
     const roundFile = await file('round.json', round)
     const plan = await start(
       client,
       `Plan sharing\n${steps({ run: ['ted', 'ask', '--round', roundFile] }, { endTurn: true })}`,
     )
-    await waitForPlan(client, plan.id, (d) => d.plan.status === 'waiting', 'the round')
+    const asked = await waitForPlan(client, plan.id, (d) => d.plan.status === 'waiting', 'round')
+    const roundId = asked.requests.find((r) => r.kind === 'round')?.id as string
     const stopped = await client.ok<Plan>('POST', `/plans/${plan.id}/stop`)
-    expect(stopped.status).toBe('stopped')
-    const after = await detail(client, plan.id)
-    expect(after.requests[0]?.answer).toMatchObject({ kind: 'withdrawn' })
-    expect(await client.ok<PlanInboxItem[]>('GET', '/plan-requests')).toEqual([])
+    expect(stopped).toMatchObject({ status: 'stopped', canResume: true })
+    expect((await detail(client, plan.id)).requests[0]?.answer).toBeUndefined()
+    expect(
+      (await client.ok<PlanInboxItem[]>('GET', '/plan-requests')).map((i) => i.request.id),
+    ).toEqual([roundId])
     expect(await client.ok<Task[]>('GET', '/tasks')).toEqual([])
     await waitUntil(
       async () => !existsSync(path.join(home, 'plans', plan.id)) || undefined,
       'the checkout to go',
     )
+
+    await client.ok('POST', `/plan-requests/${roundId}/answer`, { action: 'accept-recommended' })
+    await waitUntil(async () => {
+      const sent = await client.ok<RunWithConversation>('GET', `/runs/${plan.id}`)
+      return JSON.stringify(sent.conversation).includes('The owner only (recommended)') || undefined
+    }, 'the answer to reach the resumed planner')
+    const resumed = await detail(client, plan.id)
+    expect(resumed.plan.status).not.toBe('stopped')
+    const run = await client.ok<RunWithConversation>('GET', `/runs/${plan.id}`)
+    expect(existsSync(run.run.cwd)).toBe(true)
+
+    await waitForPlan(client, plan.id, (d) => d.plan.status === 'idle', 'the planner to go idle')
+    await client.ok('POST', `/plans/${plan.id}/stop`)
+    const resumedByMessage = await client.ok<Plan>('POST', `/plans/${plan.id}/resume`, {
+      message: 'Also think about teams',
+    })
+    expect(resumedByMessage.status).not.toBe('stopped')
+    await waitUntil(async () => {
+      const sent = await client.ok<RunWithConversation>('GET', `/runs/${plan.id}`)
+      return JSON.stringify(sent.conversation).includes('Also think about teams') || undefined
+    }, 'the message to reach the resumed planner')
+
+    await waitForPlan(client, plan.id, (d) => d.plan.status === 'idle', 'the planner to go idle')
+    expect((await client.call('POST', `/plans/${plan.id}/finish`, {})).status).toBe(409)
+    await client.ok('POST', `/plans/${plan.id}/stop`)
+    const finished = await client.ok<Plan>('POST', `/plans/${plan.id}/finish`, {})
+    expect(finished).toMatchObject({ status: 'finished' })
+    expect(finished.canResume).toBeUndefined()
+    expect((await client.call('POST', `/plans/${plan.id}/resume`, {})).status).toBe(409)
   })
 
   test('Stop while the checkout is still being made keeps the chat stopped', async () => {
@@ -401,7 +436,7 @@ describe('Plans list', () => {
     await client.ok('POST', `/plans/${plan.id}/stop`)
   })
 
-  test('Retry resumes a failed chat in a fresh checkout', async () => {
+  test('Resume carries on a failed chat in a fresh checkout', async () => {
     const client = await startTed()
     const stubState = path.join(home, 'stub-claude.json')
     await writeFile(stubState, JSON.stringify({ resumeFails: true }))
@@ -411,7 +446,7 @@ describe('Plans list', () => {
     const folder = path.join(home, 'plans', plan.id)
     await waitUntil(async () => !existsSync(folder) || undefined, 'the checkout to go')
     await writeFile(stubState, '{}')
-    const retried = await client.ok<Plan>('POST', `/plans/${plan.id}/retry`)
+    const retried = await client.ok<Plan>('POST', `/plans/${plan.id}/resume`, {})
     expect(retried.status).not.toBe('failed')
     const now = await waitForPlan(
       client,
@@ -422,7 +457,7 @@ describe('Plans list', () => {
     expect(now.plan.error).toBeUndefined()
     const run = await client.ok<RunWithConversation>('GET', `/runs/${plan.id}`)
     expect(existsSync(run.run.cwd)).toBe(true)
-    const again = await client.call('POST', `/plans/${plan.id}/retry`, {})
+    const again = await client.call('POST', `/plans/${plan.id}/resume`, {})
     expect(again.status).toBe(409)
     await client.ok('POST', `/plans/${plan.id}/stop`)
   })

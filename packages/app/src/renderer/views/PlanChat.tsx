@@ -742,7 +742,7 @@ function extraItems(detail: PlanDetail, onOpenTask: (ref: string) => void): Chat
         ? 'Planning Run finished'
         : plan.status === 'failed'
           ? `Planning Run failed${plan.error !== undefined ? `: ${plan.error}` : ''}`
-          : 'Planning Run stopped by you. No Tasks were created.'
+          : 'Planning Run stopped'
     extra.push({
       id: 'ended',
       at: plan.finishedAt,
@@ -753,34 +753,49 @@ function extraItems(detail: PlanDetail, onOpenTask: (ref: string) => void): Chat
 }
 
 function EndedBar({ plan, onPlanMore }: { plan: Plan; onPlanMore: (planId: string) => void }) {
-  const [retrying, setRetrying] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
-  async function retry() {
-    setRetrying(true)
+  async function act(action: () => Promise<unknown>) {
+    setBusy(true)
     setError(undefined)
     try {
-      await ted.retryPlan(plan.id)
+      await action()
     } catch (failed) {
       setError(readableError(failed))
-      setRetrying(false)
+      setBusy(false)
     }
   }
   const failed = plan.status === 'failed'
+  const open = failed || plan.status === 'stopped'
+  const line = failed
+    ? plan.canResume
+      ? 'This planning chat failed. Retry resumes the planner where it stopped.'
+      : 'This planning chat failed before the planner started a session, so it can’t resume. Plan more from here starts a new chat from it.'
+    : plan.status === 'stopped'
+      ? plan.canResume
+        ? 'This planning chat stopped. Resume carries on where it left off.'
+        : 'The planner stopped before it started a session, so this chat can’t resume. Plan more from here starts a new chat from it.'
+      : 'This planning chat is finished. It stays as history.'
   return (
     <div className={`${styles.endedBar} ${styles.endedRow}`}>
-      <span className={styles.spacer}>
-        {failed
-          ? 'This planning chat failed. Retry resumes the planner where it stopped.'
-          : 'This planning chat is finished. It stays as history.'}
-      </span>
+      <span className={styles.spacer}>{line}</span>
       {error !== undefined && (
         <span className={styles.error} role="alert">
           {error}
         </span>
       )}
-      {failed ? (
-        <Button variant="primary" disabled={retrying} onClick={() => retry()}>
-          Retry
+      {open && (
+        <Button disabled={busy} onClick={() => act(() => ted.markPlanFinished(plan.id))}>
+          Mark finished
+        </Button>
+      )}
+      {plan.canResume ? (
+        <Button
+          variant="primary"
+          disabled={busy}
+          onClick={() => act(() => ted.resumePlan(plan.id))}
+        >
+          {failed ? 'Retry' : 'Resume'}
         </Button>
       ) : (
         <Button variant="primary" onClick={() => onPlanMore(plan.id)}>
@@ -854,7 +869,17 @@ function PlanChat({
             onJumpRequest={(id) => inbox?.select(id)}
             placeholder="Message the planner…"
             help="Goes to the planner. While a round is open, this talks it through."
-            {...(ended && { readOnly: <EndedBar plan={plan} onPlanMore={onPlanMore} /> })}
+            {...(ended &&
+              (plan.canResume
+                ? {
+                    pinned: <EndedBar plan={plan} onPlanMore={onPlanMore} />,
+                    live: true,
+                    working: false,
+                    interrupt: false,
+                    help: 'Sending resumes the planner and gives it your message.',
+                    send: (text: string) => ted.resumePlan(plan.id, { message: text }),
+                  }
+                : { readOnly: <EndedBar plan={plan} onPlanMore={onPlanMore} /> }))}
           />
         ) : (
           <>
