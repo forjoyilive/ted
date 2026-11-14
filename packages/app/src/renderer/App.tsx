@@ -679,6 +679,9 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   onMenuCommand.current = (command) => {
     if (offline) return
     if (command.kind === 'open-inbox') dispatch({ type: 'open', screen: { kind: 'inbox' } })
+    if (command.kind === 'open-all-tasks') {
+      dispatch({ type: 'open', screen: { kind: 'all-tasks' } })
+    }
     if (command.kind === 'open-inbox-request') {
       dispatch({
         type: 'open-inbox-request',

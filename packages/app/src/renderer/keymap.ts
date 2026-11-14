@@ -15,8 +15,8 @@ const sections: readonly SheetSection[] = [
     rows: [
       { id: 'search', label: 'Search and commands', keys: ['⌘K'] },
       { id: 'new-task', label: 'New Task', keys: ['⌘N', 'C'] },
-      { id: 'go-to-inbox', label: 'Go to Inbox', keys: ['G I'] },
-      { id: 'go-to-all-tasks', label: 'Go to All Tasks', keys: ['G A'] },
+      { id: 'go-to-inbox', label: 'Go to Inbox', keys: ['⌘⇧I', 'G I'] },
+      { id: 'go-to-all-tasks', label: 'Go to All Tasks', keys: ['⌘⇧A', 'G A'] },
       { id: 'go-to-dashboard', label: 'Go to Dashboard', keys: ['G D'] },
       { id: 'go-to-board', label: 'Go to Board', keys: ['G B'] },
       { id: 'go-to-list', label: 'Go to List', keys: ['G L'] },
