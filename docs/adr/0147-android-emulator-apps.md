@@ -19,5 +19,5 @@ An `android-emulator` App needs an Android emulator as well as its `run` command
 
 ## Consequences
 
-- A check with a real emulator (create from a Play Store image, boot, Show, screenshot, a Gradle build with `ANDROID_SERIAL`) is manual, on a follow-up Linear issue.
+- A check with a real emulator (create from a Play Store image, boot, Show, screenshot, a Gradle build with `ANDROID_SERIAL`) is manual, on KRI-399.
 - Show restarts the App’s `run` command, so a command that only installs and launches the app runs again.
