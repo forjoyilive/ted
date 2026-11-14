@@ -83,7 +83,7 @@ const columnWidths: Record<ListColumn | 'queue', string> = {
   title: 'minmax(160px, 1fr)',
   factory: '110px',
   stage: '80px',
-  status: 'minmax(140px, 440px)',
+  status: 'fit-content(300px)',
   'blocked-by': '90px',
   'created-by': '110px',
   tokens: '64px',
@@ -95,6 +95,18 @@ const columnWidths: Record<ListColumn | 'queue', string> = {
 export function idColumnWidth(tasks: readonly Pick<Task, 'displayId'>[]): string {
   const longest = Math.max(0, ...tasks.map((t) => t.displayId.length))
   return `max(${columnWidths.id}, calc(${longest + 2} * 0.65 * var(--text-14)))`
+}
+
+export function listGrid(
+  columns: readonly (ListColumn | 'queue')[],
+  tasks: readonly Pick<Task, 'displayId'>[],
+): string {
+  return [
+    '4px',
+    '24px',
+    ...columns.map((c) => (c === 'id' ? idColumnWidth(tasks) : columnWidths[c])),
+    '4px',
+  ].join(' ')
 }
 
 const sortHints: Partial<Record<ListSort, string>> = { manual: 'Priority, then rank' }
@@ -543,12 +555,7 @@ export function TaskList({
       ? nestedRows(group.tasks, folded)
       : group.tasks.map((task) => ({ task, depth: 0, hasChildren: false }))
   const ordered = groups.flatMap((g) => (isCollapsed(g) ? [] : rowsOf(g).map((r) => r.task)))
-  const grid = [
-    '24px',
-    ...[...(queueMode ? (['queue'] as const) : []), ...columns].map((c) =>
-      c === 'id' ? idColumnWidth(tasks) : columnWidths[c],
-    ),
-  ].join(' ')
+  const grid = listGrid([...(queueMode ? (['queue'] as const) : []), ...columns], tasks)
   const chips = filterChips(view.filters, factories)
   const displayIds = new Map(tasks.map((t) => [t.id, t.displayId]))
   const { selected, setSelected, anchor, setAnchor, toggle } = useSelection(ordered, scope)
@@ -744,7 +751,6 @@ export function TaskList({
           task.archived ? styles.archived : '',
           dragging?.task.id === task.id ? styles.dragged : '',
         ].join(' ')}
-        style={{ gridTemplateColumns: grid }}
         title={canReorder && nested ? 'Turn off Nest child Tasks to reorder' : undefined}
         draggable={canDrag && !task.archived}
         onDragStart={(event) => {
@@ -967,11 +973,12 @@ export function TaskList({
         <div className={styles.body}>
           <table
             className={styles.table}
+            style={{ gridTemplateColumns: grid }}
             aria-label={`${title} Tasks`}
             data-rank-order={canDrag ? '' : undefined}
           >
             <thead>
-              <tr className={`${styles.row} ${styles.heads}`} style={{ gridTemplateColumns: grid }}>
+              <tr className={`${styles.row} ${styles.heads}`}>
                 <th className={styles.cell} aria-label="Selection" />
                 {queueMode && <th className={styles.cell}>Queue</th>}
                 {columns.map((column) => (
