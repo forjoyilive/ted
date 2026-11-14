@@ -9,6 +9,14 @@ const linear = `Bring the Linear issues assigned to me into TED as Tasks.
 
 End with one line naming the Tasks you created, or “No new Tasks”.`
 
+const asana = `Bring my unfinished Asana work into TED as Backlog Tasks.
+
+1. Run \`ted asana intake\` once. TED reads this Factory’s chosen Asana project or section with my Asana connection, imports each unfinished task assigned to me with the tasks under it, and leaves alone what it already tracks.
+2. Don’t use your own Asana tools, don’t import Asana tasks any other way, and don’t change anything in Asana.
+3. If TED refuses, for example because no Asana intake project is chosen or Asana isn’t connected, don’t try again or work around it.
+
+End with one line: the Tasks TED imported, or that it imported nothing new, plus anything else TED reports: how many items were already tracked or left for the next run, which items it skipped, what it couldn’t list, and why it stopped early. Or TED’s refusal.`
+
 const sentry = `Turn new Sentry issues into Tasks, and catch fixes that didn’t hold.
 
 1. With your own Sentry tools (the Sentry MCP server or \`sentry-cli\`), list the unresolved issues in this Factory’s Sentry projects that are new or regressed since this Automation last ran. Skip issues with fewer than 5 events unless they crash the app.
@@ -45,9 +53,10 @@ const architecture = `Review this Factory’s codebase architecture and create w
 const audit = `Audit this Factory’s Apps the way a person would use them, and file each problem you find as a Backlog Task with a screenshot. This Run works on a fresh checkout of the default branch; it never changes code and never blocks a merge.
 
 1. Read \`.ted/notes.md\` in your checkout, if it exists. When it has a section listing key flows (such as “Key flows” or “Audit”), go through those flows first, in order. Otherwise explore each App: its home page, its main navigation and the pages they lead to.
-2. Run \`ted app list\`. Audit each \`web\` App. There is no Audit driver yet for \`ios-simulator\`, \`android-emulator\` or \`command\` Apps (desktop apps run as \`command\`): don’t audit them, and list each one in your final message as “skipped: no Audit driver for <kind> Apps yet”. A skipped App is not a failure. Start a \`command\` App only when a web App needs it to work, such as its API server.
-3. For each web App, run \`ted run-app <App>\`, then \`ted browser open <App>\`. If an App won’t start, say so in your final message with the last lines of \`ted app log <App>\`, and go on with the others.
-4. Check each page at the default window size and at \`ted browser resize 390x844\`, in light mode and with \`ted browser color-scheme dark\`. At each size and colour mode, run \`ted browser screenshot\`, which prints the PNG’s path, and open that image and look at it before you judge the page: a text snapshot can’t show overlapping layout, cut-off text or unreadable colours. Use \`ted browser snapshot\` to read the page’s text and find its controls, and try the page’s main controls. Look at about 20 pages or screens per App at most.
+2. Run \`ted app list\`. Audit each \`web\` and \`android-emulator\` App. There is no Audit driver yet for \`ios-simulator\` or \`command\` Apps (desktop apps run as \`command\`): don’t audit them, and list each one in your final message as “skipped: no Audit driver for <kind> Apps yet”. A skipped App is not a failure. Start a \`command\` App only when another App needs it to work, such as its API server.
+3. Run \`ted run-app <App>\` for each App you audit; for a web App, then run \`ted browser open <App>\`. An emulator App may wait for a free emulator slot first. If an App won’t start, say so in your final message with the last lines of \`ted app log <App>\`, and go on with the others.
+4. Check each web page at the default window size and at \`ted browser resize 390x844\`, in light mode and with \`ted browser color-scheme dark\`. At each size and colour mode, run \`ted browser screenshot\`, which prints the PNG’s path, and open that image and look at it before you judge the page: a text snapshot can’t show overlapping layout, cut-off text or unreadable colours. Use \`ted browser snapshot\` to read the page’s text and find its controls, and try the page’s main controls. Look at about 20 pages or screens per App at most.
+   For an Android emulator App, \`ted app screen <App>\` lists what is on screen with a number for each element and its bounds; elements whose bounds overlap often show a layout problem. Move with \`ted app tap <App> <number>\` (or \`<x>,<y>\`), \`ted app type <App> "<text>"\`, \`ted app key <App> back\` and \`ted app swipe <App> <x1>,<y1> <x2>,<y2>\`, and read the screen again after each step. Check each screen at its own size and at \`ted app size <App> 720x1280\` (\`ted app size <App> reset\` goes back), in light mode and with \`ted app appearance <App> dark\`. At each size and colour mode, run \`ted app screenshot <App>\`, which prints the PNG’s path, and open that image and look at it before you judge the screen. For the source in step 7, use the screen’s title as its path, such as \`http://localhost/audit/android/details/buy-button-covers-price\`.
 5. A problem is something a user would notice: layout that overlaps, overflows or is cut off, text that can’t be read (in either colour mode), missing images or icons, an error page or error message, a control that does nothing or goes to the wrong place, a spinner or loading state that never ends. A style preference is not a problem. Keep the screenshot that shows each problem; if a problem appears only after an action, take a new screenshot while it is on screen.
 6. Before filing, run \`ted task list\` and read TED’s “Tasks this Automation has created” context. Skip a problem an open Task already covers, even under another title. If a Done Task’s problem has come back, don’t file it again; name the Task in your final message for the human.
 7. File each new problem: \`ted task create --source http://localhost/audit/<App>/<page path>/<problem> --description "<what>" --attach <screenshot path> "<short title>"\`. The source is how TED recognises the same problem in later Audits, not a link: use the App’s name, the page’s path without its port, query or fragment, and a short lower-case slug for the problem, such as \`http://localhost/audit/web/settings/save-button-overlaps-footer\`, and give the same problem the same source every time. In the description, say the page, the window size and colour mode, the steps to see it, what is wrong and what you expected. When TED says a source is already tracked, leave it. Don’t pass \`--start\` or \`--follow-up\`: new Tasks wait in Backlog for the human.
@@ -63,6 +72,14 @@ export const automationTemplates: readonly AutomationTemplate[] = [
     summary:
       'Creates a Task for each new Linear issue assigned to you, using your own Linear tools.',
     prompt: linear,
+    schedule: { kind: 'every', every: 30, unit: 'minutes' },
+  },
+  {
+    id: 'asana',
+    name: 'Import my Asana work',
+    summary:
+      'Imports your unfinished Asana tasks from the Factory’s chosen project or section into Backlog.',
+    prompt: asana,
     schedule: { kind: 'every', every: 30, unit: 'minutes' },
   },
   {

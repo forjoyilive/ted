@@ -20,11 +20,89 @@ export interface StubEmulator {
   snapshot?: string
 }
 
+export interface StubScreenState {
+  screen: 'home' | 'details'
+  night?: boolean
+  size?: string
+  density?: string
+  typed?: string
+}
+
 export interface StubAndroidState {
   sdk?: boolean
   avds?: Record<string, StubAvd>
   running?: Record<string, StubEmulator>
   snapshots?: Record<string, string[]>
+  ui?: Record<string, StubScreenState>
+}
+
+interface StubNode {
+  kind: string
+  text?: string
+  id?: string
+  clickable?: boolean
+  bounds: [number, number, number, number]
+}
+
+const stubScreens: Record<StubScreenState['screen'], StubNode[]> = {
+  home: [
+    { kind: 'android.widget.TextView', text: 'Widgets', bounds: [80, 200, 1000, 320] },
+    {
+      kind: 'android.widget.Button',
+      text: 'Open details',
+      id: 'com.example.widgets:id/open',
+      clickable: true,
+      bounds: [80, 600, 1000, 760],
+    },
+  ],
+  details: [
+    { kind: 'android.widget.TextView', text: 'Details', bounds: [80, 200, 1000, 320] },
+    {
+      kind: 'android.widget.TextView',
+      text: 'Price: 10 widgets for $5 & free <delivery>',
+      bounds: [80, 500, 1000, 620],
+    },
+    {
+      kind: 'android.widget.Button',
+      text: 'Buy',
+      id: 'com.example.widgets:id/buy',
+      clickable: true,
+      bounds: [80, 560, 1000, 700],
+    },
+    {
+      kind: 'android.widget.Button',
+      text: 'Back',
+      id: 'com.example.widgets:id/back',
+      clickable: true,
+      bounds: [80, 2200, 400, 2340],
+    },
+  ],
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+}
+
+function dump(state: StubScreenState): string {
+  const nodes = stubScreens[state.screen].map((n, index) => {
+    const [l, t, r, b] = n.bounds
+    return `<node index="${index}" text="${escapeXml(n.text ?? '')}" resource-id="${n.id ?? ''}" class="${n.kind}" package="com.example.widgets" content-desc="" clickable="${n.clickable === true}" bounds="[${l},${t}][${r},${b}]" />`
+  })
+  return `<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation="0"><node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="com.example.widgets" content-desc="" clickable="false" bounds="[0,0][1080,2400]">${nodes.join('')}</node></hierarchy>UI hierchary dumped to: /dev/tty`
+}
+
+function tapped(state: StubScreenState, x: number, y: number): StubScreenState['screen'] {
+  const hit = stubScreens[state.screen].find(
+    (n) =>
+      n.clickable && x >= n.bounds[0] && x < n.bounds[2] && y >= n.bounds[1] && y < n.bounds[3],
+  )
+  if (hit?.text === 'Open details') return 'details'
+  if (hit?.text === 'Back') return 'home'
+  return state.screen
 }
 
 const file = process.env.TED_STUB_ANDROID
@@ -117,6 +195,50 @@ function adb(args: string[]): void {
     })
     return void console.log('OK')
   }
+  const ui = (change?: (current: StubScreenState) => StubScreenState): StubScreenState => {
+    if (!change) return read().ui?.[target.avd] ?? { screen: 'home' }
+    return locked(() => {
+      const state = read()
+      const next = change(state.ui?.[target.avd] ?? { screen: 'home' })
+      write({ ...state, ui: { ...state.ui, [target.avd]: next } })
+      return next
+    })
+  }
+  if (command === 'exec-out uiautomator dump /dev/tty') return void console.log(dump(ui()))
+  if (command === 'shell wm size') {
+    const { size } = ui()
+    return void console.log(
+      ['Physical size: 1080x2400', ...(size ? [`Override size: ${size}`] : [])].join('\n'),
+    )
+  }
+  const shell = rest[0] === 'shell' ? rest.slice(1) : []
+  if (shell[0] === 'wm' && (shell[1] === 'size' || shell[1] === 'density') && shell[2]) {
+    const field = shell[1]
+    const value = shell[2] === 'reset' ? undefined : shell[2]
+    ui((current) => {
+      const { [field]: _, ...others } = current
+      return value === undefined ? others : { ...others, [field]: value }
+    })
+    return
+  }
+  if (shell.join(' ').startsWith('cmd uimode night ')) {
+    const night = shell[3] === 'yes'
+    ui((current) => ({ ...current, night }))
+    return void console.log(`Night mode: ${night ? 'yes' : 'no'}`)
+  }
+  if (shell[0] === 'input' && shell[1] === 'tap' && shell.length === 4) {
+    ui((current) => ({ ...current, screen: tapped(current, Number(shell[2]), Number(shell[3])) }))
+    return
+  }
+  if (shell[0] === 'input' && shell[1] === 'keyevent' && shell.length === 3) {
+    if (shell[2] === '4') ui((current) => ({ ...current, screen: 'home' }))
+    return
+  }
+  if (shell[0] === 'input' && shell[1] === 'text' && shell.length === 3) {
+    ui((current) => ({ ...current, typed: `${current.typed ?? ''}${shell[2]}` }))
+    return
+  }
+  if (shell[0] === 'input' && shell[1] === 'swipe' && shell.length === 7) return
   if (command === 'emu kill') {
     locked(() => {
       const state = read()

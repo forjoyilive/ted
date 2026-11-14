@@ -32,6 +32,7 @@ export function libraryDraft(view: LibraryView): SettingsDraft {
     stageFiles,
     keepStageFiles: [],
     checks: [],
+    cleanup: { enabled: false, steps: [] },
     agents,
     permissions: 'auto',
     maxWorkingRuns: '',

@@ -6,6 +6,7 @@ import {
   isLoopbackUrl,
   isModelName,
   type LayerKind,
+  maxCleanupStepName,
   type StageId,
   type WorkflowProblem,
 } from '@ted/protocol'
@@ -102,7 +103,7 @@ export interface CheckedLayer {
 
 const allStageIds: readonly string[] = ['backlog', ...agentStageIds, 'done']
 const cleanupKeys = ['enabled', 'effort', 'based_on', 'steps']
-export const maxStepName = 80
+export const maxStepName = maxCleanupStepName
 const efforts = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 const depths = ['auto', 'none', 'few', 'grilling']
 const mergeMethods = ['squash', 'merge', 'rebase']

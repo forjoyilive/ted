@@ -1800,6 +1800,16 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  trackerItemGroupsSeen: Events.synced({
+    name: 'v1.TrackerItemGroupsSeen',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      tracker: Schema.String,
+      item: Schema.String,
+      groups: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   trackerItemMoved: Events.synced({
     name: 'v1.TrackerItemMoved',
     schema: Schema.Struct({
@@ -3579,6 +3589,7 @@ export const trackerSyncLog = [
   'v1.LinearTeamSyncAllowed',
   'v1.LinearPullRequestsLinked',
   'v1.TrackerItemSeen',
+  'v1.TrackerItemGroupsSeen',
   'v1.TrackerItemMoved',
   'v1.TrackerSyncAllowed',
   'v1.TrackerGroupSyncAllowed',
@@ -3648,6 +3659,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       state: args.state,
       group: args.group,
     }),
+  'v1.TrackerItemGroupsSeen': (args) =>
+    task(args, { tracker: args.tracker, item: args.item, groups: args.groups }),
   'v1.TrackerItemMoved': (args) =>
     task(args, { tracker: args.tracker, item: args.item, step: args.step, state: args.state }),
   'v1.TrackerSyncAllowed': (args) =>
@@ -3993,6 +4006,7 @@ const materializers = counted(
       'v1.LinearIssueMoved': () => [],
       'v1.LinearPullRequestsLinked': () => [],
       'v1.TrackerItemSeen': () => [],
+      'v1.TrackerItemGroupsSeen': () => [],
       'v1.TrackerItemMoved': () => [],
       'v1.TrackerSyncAllowed': () => [],
       'v1.TrackerGroupSyncAllowed': () => [],

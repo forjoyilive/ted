@@ -20,6 +20,7 @@ export interface TrackerItem<Handle> {
   closed: boolean
   state: string
   group?: TrackerGroup
+  groups?: readonly string[]
   handle: Handle
 }
 
@@ -73,6 +74,8 @@ export interface TrackerConnector<Source, Handle> {
 
 export interface TrackerRecord {
   seen?: TrackerSeen
+  groups?: readonly string[]
+  allowedGroups?: ReadonlyMap<string, string | undefined>
   step?: string
   linked: ReadonlySet<string>
 }
@@ -94,6 +97,12 @@ export interface TrackerRecords<Handle> {
     consents: readonly { taskId: string; label: string }[],
   ): MachineSettings
   declineGroup(factoryId: string, group: string): void
+  forgetGroup(
+    factoryId: string,
+    group: string,
+    list: 'allowed' | 'declined',
+    consents: readonly { taskId: string; label: string }[],
+  ): MachineSettings
   closedPurpose: RequestPurpose
   isClosedQuestion(comment: Comment): boolean
   groupAsk(group: TrackerGroup): Pick<Comment, 'linearTeam' | 'purpose'>

@@ -19,6 +19,7 @@ export const factorySections = [
   ['repos', 'Repos'],
   ['workflow', 'Workflow'],
   ['checks', 'Checks'],
+  ['cleanup', 'Cleanup'],
   ['agents', 'Agents'],
   ['permissions', 'Permissions'],
   ['notifications', 'Notifications'],
@@ -343,6 +344,17 @@ const entries = {
     keywords: 'inbox merged count badge',
     help: 'Which of this Factory’s events notify you. The same choices are in Settings → Notifications, under By Factory.',
     heading: true,
+  },
+  'factory.cleanup': {
+    name: 'Cleanup',
+    keywords: 'after merge steps commands',
+    help: 'Steps that run after a Task’s pull requests merge and before it moves to Done. TED runs the command steps itself, then the Task Lead does the instruction steps.',
+    heading: true,
+  },
+  'factory.cleanup.enabled': {
+    name: 'Turn on Cleanup',
+    keywords: 'after merge',
+    help: 'Adds a Cleanup column between Merge and Done. Cleanup stays off until it has at least one step.',
   },
   'factory.notes': {
     name: 'Factory notes',

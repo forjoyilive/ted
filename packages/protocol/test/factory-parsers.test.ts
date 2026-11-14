@@ -40,6 +40,14 @@ const settings = {
   ...library,
   repos,
   checks: [{ was: 0, name: 'Check', run: 'pnpm typecheck', repo: 'ted', timeout: '30s' }],
+  cleanup: {
+    enabled: true,
+    steps: [
+      { name: 'Tell Asana', instruction: 'Comment on the Asana task.' },
+      { name: 'Stop stack', command: 'docker compose down', timeout: '2m' },
+      { name: 'Prune', command: 'pnpm prune' },
+    ],
+  },
   permissions: 'auto',
   maxWorkingRuns: 2,
   notes: '# Notes',
@@ -107,6 +115,27 @@ rejects(
   P.parseFactorySettingsChanges,
   { ...settings, stages: { work: { gate: 'yes' } } },
   'gate must be true or false',
+)
+rejects(
+  P.parseFactorySettingsChanges,
+  {
+    ...settings,
+    cleanup: { enabled: true, steps: [{ name: 'Both', instruction: 'a', command: 'b' }] },
+  },
+  'an instruction or a command, not both',
+)
+rejects(
+  P.parseFactorySettingsChanges,
+  {
+    ...settings,
+    cleanup: { enabled: true, steps: [{ name: 'Say', instruction: 'a', timeout: '1m' }] },
+  },
+  'only a Cleanup step with a command takes a timeout',
+)
+rejects(
+  P.parseFactorySettingsChanges,
+  { ...settings, cleanup: { steps: [] } },
+  'cleanup.enabled must be',
 )
 rejects(
   P.parseLibraryChanges,

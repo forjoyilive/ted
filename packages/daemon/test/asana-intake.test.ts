@@ -4,14 +4,17 @@ import path from 'node:path'
 import {
   type AsanaIntakeScope,
   type AutomationDetail,
+  type AutomationRun,
   type DaemonClient,
   type RunWithConversation,
   readDaemonInfo,
   type Task,
+  tedPaths,
 } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
 import type { Keyring } from '../src/linear/keyring.ts'
+import { loadRunTokens } from '../src/run-token.ts'
 import { type StubAsanaTask, startStubAsana, unusedPort } from './fixtures/stub-asana.ts'
 import {
   api,
@@ -34,6 +37,7 @@ let stub: Awaited<ReturnType<typeof startStubAsana>>
 let daemon: RunningDaemon | undefined
 let callbackPort: number
 let secret: string | undefined
+let clock: number | undefined
 const keyring: Keyring = {
   kind: 'macos-keychain',
   async get() {
@@ -54,6 +58,7 @@ beforeEach(async () => {
   stub = await startStubAsana()
   callbackPort = await unusedPort()
   secret = undefined
+  clock = undefined
 })
 
 afterEach(async () => {
@@ -77,6 +82,7 @@ async function start(intakeLimit?: number): Promise<DaemonClient> {
       callbackPort,
       ...(intakeLimit !== undefined && { intakeLimit }),
     },
+    automations: { now: () => clock ?? Date.now(), checkEveryMs: 50 },
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('No daemon info')
@@ -151,6 +157,16 @@ function asanaWorld(extra: StubAsanaTask[] = []) {
     ...extra,
   ])
 }
+
+const commandResults = (run: RunWithConversation) =>
+  assistantTexts(run.conversation).flatMap((text) => {
+    try {
+      const parsed = JSON.parse(text) as { code: number; stdout: string; stderr: string }
+      return typeof parsed.code === 'number' ? [parsed] : []
+    } catch {
+      return []
+    }
+  })
 
 const byGid = (all: Task[], gid: string) => all.find((t) => t.source?.asana?.gid === gid)
 const asanaWrites = () =>
@@ -353,5 +369,155 @@ test('saving, stale and changing scopes, and Automation imports are checked agai
   expect(byGid(all, '501')).toMatchObject({ createdBy: 'automation', stage: 'backlog' })
   expect(byGid(all, '570')).toMatchObject({ createdBy: 'automation', stage: 'backlog' })
   for (const gid of ['510', '540', '550']) expect(byGid(all, gid), gid).toBeUndefined()
+  expect(asanaWrites()).toEqual([])
+
+  const imported = ['501', '502', '570'].map((gid) => byGid(all, gid) as Task)
+  const projectAsks = async () =>
+    (await Promise.all(imported.map((task) => client.listComments(task.id))))
+      .flat()
+      .filter((c) => c.purpose?.kind === 'tracker-group' && c.answer === undefined)
+  const asks = await projectAsks()
+  expect(asks.map((c) => c.purpose)).toEqual([
+    { kind: 'tracker-group', tracker: 'asana', group: { key: '9', name: 'Roadmap' } },
+  ])
+  for (const task of imported) expect(task.asanaSync?.state, task.displayId).toBe('not-allowed')
+  const ask = asks[0]
+  if (!ask) throw new Error('no project question')
+  const port = restarted?.port ?? 0
+  const asRun = api(port, (await loadRunTokens(tedPaths(home).runTokenKey)).issue(row.runId ?? ''))
+  const asFile = api(port, await tokenFor(home))
+  for (const caller of [asRun, asFile]) {
+    for (const [method, route, body] of [
+      ['POST', '/integrations/asana/projects', { factoryId: factory.id, project: '9' }],
+      [
+        'POST',
+        '/integrations/asana/projects/remove',
+        { factoryId: factory.id, project: '9', list: 'allowed' },
+      ],
+      ['POST', `/comments/${ask.id}/answer`, { action: 'answer', choice: 'Allow' }],
+      ['PATCH', '/settings', { trackerSyncGroups: { asana: { [factory.id]: ['9'] } } }],
+    ] as const)
+      expect((await caller.call(method, route, body)).status, `${method} ${route}`).toBe(403)
+  }
+  expect((await asRun.call('GET', '/integrations/asana/projects')).status).toBe(403)
+  expect(
+    await refused(client.updateSettings({ trackerSyncGroups: { asana: { [factory.id]: ['9'] } } })),
+  ).toContain('Settings → Integrations → Asana')
+  expect(await refused(client.allowAsanaProject(factory.id, '404'))).toContain('can’t open it')
+  expect(await client.asanaProjects()).toEqual({
+    projects: [
+      { gid: '9', name: 'Roadmap', workspace: 'Acme' },
+      { gid: '8', name: 'Other', workspace: 'Acme' },
+      { gid: '7', name: 'Foreign', workspace: 'Elsewhere' },
+    ],
+    complete: true,
+  })
+
+  await client.answerRequest(ask.id, { action: 'answer', choice: 'Allow' })
+  const settings = await client.getSettings()
+  expect(settings.trackerSyncGroups.asana?.[factory.id]).toEqual(['9'])
+  expect(settings.trackerSyncGroupAccounts.asana?.[factory.id]).toEqual({ '9': '100' })
+  expect(await projectAsks()).toEqual([])
+  const after = await client.listTasks()
+  for (const task of imported)
+    expect(byGid(after, task.source?.asana?.gid ?? '')?.asanaSync?.state, task.displayId).toBe(
+      'waiting-merge',
+    )
+
+  await client.forgetAsanaProject(factory.id, '9', 'allowed')
+  await client.allowAsanaProject(factory.id, '8')
+  expect((await client.getSettings()).trackerSyncGroups.asana?.[factory.id]).toEqual(['8'])
+  await client.removeFactory(factory.id, { key: 'NB', closePullRequests: false })
+  const cleared = await client.getSettings()
+  expect(cleared.trackerSyncGroups.asana?.[factory.id]).toBeUndefined()
+  expect(cleared.trackerSyncGroupAccounts.asana?.[factory.id]).toBeUndefined()
+})
+
+test('the Asana template’s scheduled firings refuse without a scope or a connection, then import into Backlog once, after a schedule change and a restart too', async () => {
+  clock = Date.parse('2026-11-09T08:55:00Z')
+  let client = await start()
+  await client.addFactory({ repo: origin, key: 'NB' })
+  const factory = (await client.listFactories()).find((f) => f.key === 'NB')
+  if (!factory) throw new Error('no Factory')
+  asanaWorld()
+  const template = (await client.automationTemplates()).find((t) => t.id === 'asana')
+  if (!template) throw new Error('missing asana template')
+  expect(template.schedule).toEqual({ kind: 'every', every: 30, unit: 'minutes' })
+  expect(template.prompt).toContain('ted asana intake')
+  const automation = await client.createAutomation({
+    template: 'asana',
+    factory: 'NB',
+    name: template.name,
+    schedule: template.schedule,
+    prompt: `${template.prompt}\n${JSON.stringify({
+      steps: [{ run: ['ted', 'asana', 'intake'] }, { endTurn: true }],
+    })}`,
+  })
+  expect(automation).toMatchObject({ template: 'asana', on: true })
+
+  let firings = 0
+  const fire = async (): Promise<{
+    row: AutomationRun
+    results: { code: number; stdout: string; stderr: string }[]
+  }> => {
+    const { automation: current } = await client.getAutomation(automation.id)
+    const slot = current.nextFirings[0]
+    if (!slot) throw new Error('no next firing')
+    clock = Date.parse(slot) + 10_000
+    firings++
+    const row = await waitUntil(async () => {
+      const { history } = await client.getAutomation(automation.id)
+      const latest = history[0]
+      return history.length === firings &&
+        latest &&
+        !['queued', 'running'].includes(latest.result.kind)
+        ? latest
+        : undefined
+    }, `firing ${firings} finished`)
+    expect(row).toMatchObject({ trigger: 'scheduled', slotAt: slot })
+    return { row, results: commandResults(await client.getRun(row.runId ?? '')) }
+  }
+
+  const noScope = await fire()
+  expect(noScope.row.result.kind).toBe('no-new-tasks')
+  expect(noScope.results).toMatchObject([{ code: 1 }])
+  expect(noScope.results[0]?.stderr).toContain('Choose one in Factory settings first')
+
+  await connect(client)
+  await client.setFactoryAsanaIntake(factory.id, scope)
+  await client.disconnectAsana()
+  const disconnected = await fire()
+  expect(disconnected.row.result.kind).toBe('no-new-tasks')
+  expect(disconnected.results[0]?.stderr).toContain('Connect Asana')
+  expect((await client.listTasks()).filter((t) => t.source?.asana)).toEqual([])
+
+  await connect(client)
+  const hourly = await client.editAutomation(automation.id, {
+    schedule: { kind: 'every', every: 1, unit: 'hours' },
+  })
+  const [next, after] = hourly.nextFirings.map(Date.parse)
+  expect((after ?? 0) - (next ?? 0)).toBe(60 * 60 * 1000)
+  const imported = await fire()
+  expect(imported.row.slotAt).toBe(hourly.nextFirings[0])
+  expect(imported.results).toMatchObject([{ code: 0 }])
+  expect(imported.row.result).toMatchObject({ kind: 'created' })
+  let all = await client.listTasks()
+  for (const gid of ['501', '502', '504', '540', '570'])
+    expect(byGid(all, gid), gid).toMatchObject({ stage: 'backlog', createdBy: 'automation' })
+  for (const gid of ['510', '520', '530'])
+    expect(byGid(all, gid), `${gid} stays out`).toBeUndefined()
+  const count = all.length
+
+  const again = await fire()
+  expect(again.row.result.kind).toBe('no-new-tasks')
+  expect(again.results[0]?.stdout).toContain('Imported nothing new')
+  await daemon?.stop()
+  daemon = undefined
+  client = await start()
+  const restarted = await fire()
+  expect(restarted.row.result.kind).toBe('no-new-tasks')
+  expect(restarted.results[0]?.stdout).toContain('Imported nothing new')
+  all = await client.listTasks()
+  expect(all.length).toBe(count)
   expect(asanaWrites()).toEqual([])
 })

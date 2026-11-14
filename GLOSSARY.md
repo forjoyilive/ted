@@ -237,7 +237,7 @@ An Automation that runs its own command as a Check, with no agent, in a fresh wo
 _Avoid_: Nightly build, scheduled test run
 
 **Asana intake**:
-TED bringing the user’s unfinished Asana work into one Factory: the user picks one Asana project, and optionally one section of it, and each run imports every task there that is assigned to them, with the unfinished tasks under it, as Tasks in Backlog. TED checks every item with Asana itself and never imports one twice.
+TED bringing the user’s unfinished Asana work into one Factory: the user picks one Asana project, and optionally one section of it, and each run imports every task there that is assigned to them, with the unfinished tasks under it, as Tasks in Backlog. TED checks every item with Asana itself and never imports one twice. The **Import my Asana work** Automation template runs it every 30 minutes by default.
 _Avoid_: Asana sync (that is keeping imported items up to date)
 
 **Daemon**:

@@ -3,6 +3,8 @@ import type {
   AgentRole,
   CheckInput,
   CheckTry,
+  CleanupSettingsInput,
+  CleanupStepInput,
   FactorySettingsChanges,
   FactorySettingsView,
   LibraryInvalid,
@@ -10,7 +12,7 @@ import type {
   RepoSettingsView,
   StageDrift,
 } from '@ted/protocol/factory-settings'
-import { agentRoles, settingsInput } from '@ted/protocol/factory-settings'
+import { agentRoles, cleanupStepProblem, settingsInput } from '@ted/protocol/factory-settings'
 import type { PermissionMode } from '@ted/protocol/run'
 import type { AgentStageId, ClarifyDepth, StageId } from '@ted/protocol/task'
 import { ago } from './requests.ts'
@@ -129,10 +131,63 @@ export interface SettingsDraft {
   stageFiles: Partial<Record<AgentStageId, string | null>>
   keepStageFiles: AgentStageId[]
   checks: CheckInput[]
+  cleanup: CleanupDraft
   agents: Record<AgentRole, AgentChoiceInput | null>
   permissions: PermissionMode
   maxWorkingRuns: string
   notes: string
+}
+
+export interface CleanupStepDraft {
+  name: string
+  kind: 'instruction' | 'command'
+  instruction: string
+  command: string
+  timeout: string
+}
+
+export interface CleanupDraft {
+  enabled: boolean
+  steps: CleanupStepDraft[]
+}
+
+export function cleanupDraft(cleanup: CleanupSettingsInput): CleanupDraft {
+  return {
+    enabled: cleanup.enabled,
+    steps: cleanup.steps.map((step) =>
+      'command' in step
+        ? {
+            name: step.name,
+            kind: 'command',
+            instruction: '',
+            command: step.command,
+            timeout: step.timeout ?? '',
+          }
+        : {
+            name: step.name,
+            kind: 'instruction',
+            instruction: step.instruction,
+            command: '',
+            timeout: '',
+          },
+    ),
+  }
+}
+
+export function cleanupStepInput(step: CleanupStepDraft): CleanupStepInput {
+  const name = step.name.trim()
+  if (step.kind === 'instruction') return { name, instruction: step.instruction.trim() }
+  const timeout = step.timeout.trim()
+  return { name, command: step.command.trim(), ...(timeout !== '' && { timeout }) }
+}
+
+export function cleanupHasProblem(cleanup: CleanupDraft): boolean {
+  const steps = cleanup.steps.map(cleanupStepInput)
+  return steps.some((step) => cleanupStepProblem(step, steps) !== undefined)
+}
+
+export function cleanupInput(cleanup: CleanupDraft): CleanupSettingsInput {
+  return { enabled: cleanup.enabled, steps: cleanup.steps.map(cleanupStepInput) }
 }
 
 export function settingsDraft(view: FactorySettingsView): SettingsDraft {
@@ -157,6 +212,7 @@ export function settingsDraft(view: FactorySettingsView): SettingsDraft {
     stageFiles,
     keepStageFiles: [],
     checks: view.checks.map((check) => ({ ...check })),
+    cleanup: cleanupDraft(view.cleanup),
     agents,
     permissions: view.permissions,
     maxWorkingRuns: view.maxWorkingRuns === undefined ? '' : String(view.maxWorkingRuns),
@@ -235,6 +291,10 @@ export function settingsChanges(
   if (draft.checks.map(checkKey).join('\n') !== loaded.checks.map(checkKey).join('\n')) {
     changes.checks = draft.checks
   }
+  const cleanup = cleanupInput(draft.cleanup)
+  if (JSON.stringify(cleanup) !== JSON.stringify(cleanupInput(loaded.cleanup))) {
+    changes.cleanup = cleanup
+  }
   for (const role of agentRoles) {
     if (sameChoice(draft.agents[role], loaded.agents[role])) continue
     changes.agents ??= {}
@@ -244,6 +304,17 @@ export function settingsChanges(
   if (limit !== limitValue(loaded.maxWorkingRuns)) changes.maxWorkingRuns = limit
   if (draft.notes !== loaded.notes) changes.notes = draft.notes
   return changes
+}
+
+function cleanupEdits(now: CleanupSettingsInput, before: CleanupSettingsInput): number {
+  const key = (step: CleanupStepInput) => JSON.stringify(step)
+  const was = new Set(before.steps.map(key))
+  const is = new Set(now.steps.map(key))
+  const edits =
+    (now.enabled !== before.enabled ? 1 : 0) +
+    now.steps.filter((s) => !was.has(key(s))).length +
+    before.steps.filter((s) => !is.has(key(s))).length
+  return Math.max(edits, 1)
 }
 
 export interface UnsavedChanges {
@@ -262,6 +333,7 @@ export function unsavedChanges(draft: SettingsDraft, loaded: SettingsDraft): Uns
       loaded.checks.filter((c) => !draft.checks.some((d) => d.was === c.was)).length
     yaml += Math.max(edited, 1)
   }
+  if (changes.cleanup) yaml += cleanupEdits(changes.cleanup, cleanupInput(loaded.cleanup))
   yaml += Object.keys(changes.agents ?? {}).length
   yaml += changes.keepStageFiles?.length ?? 0
   if (changes.maxWorkingRuns !== undefined) yaml += 1
@@ -285,6 +357,7 @@ export function unsavedSections(
   if (changeCount(draft.repos, loaded.repos) > 0) sections.add('repos')
   if (changes.stages || changes.stageFiles || changes.keepStageFiles) sections.add('workflow')
   if (changes.checks) sections.add('checks')
+  if (changes.cleanup) sections.add('cleanup')
   if (changes.agents) sections.add('agents')
   if (changes.maxWorkingRuns !== undefined) sections.add('permissions')
   if (changes.notes !== undefined) sections.add('notes')

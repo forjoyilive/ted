@@ -24,7 +24,10 @@ import {
   type DesignFileInput,
   type DesignFileSpec,
   type DesignReviewInput,
+  type DeviceAction,
+  type DeviceRequest,
   declaredSendBackCauses,
+  devicePoint,
   type Effort,
   efforts,
   type Factory,
@@ -45,6 +48,7 @@ import {
   parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
   parseDesignReviewInput,
+  parseDeviceRequest,
   parseLinearUrl,
   parseLocalDesignReviewInput,
   parseProposalInput,
@@ -926,6 +930,64 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     }
   }
 
+  async function device(action: DeviceAction): Promise<void> {
+    const runId = tedEnv('TED_RUN', env)
+    if (
+      options.task !== undefined ||
+      tedEnv('TED_TASK', env) ||
+      !tedEnv('TED_AUTOMATION', env) ||
+      !runId
+    )
+      throw new UsageError(`ted app ${action} works only in an Automation Run`)
+    const request: Record<string, unknown> = {
+      action,
+      app: { name: args[0] ?? '', ...(options.repo && { repo: options.repo }) },
+    }
+    const point = (value: string | undefined) => {
+      const found = devicePoint(value ?? '')
+      if (!found) throw new UsageError(`give a point as x,y, such as 540,1200`)
+      return found
+    }
+    if (action === 'tap') {
+      const given = args[1] ?? ''
+      if (/^\d{1,3}$/.test(given)) request.ref = given
+      else request.point = point(given)
+    }
+    if (action === 'swipe') {
+      request.point = point(args[1])
+      request.to = point(args[2])
+    }
+    if (action === 'type') request.text = args[1] ?? (await readStdin()).replace(/\r?\n$/, '')
+    if (action === 'key') request.key = args[1]
+    if (action === 'appearance') request.appearance = args[1]
+    if (action === 'size') {
+      request.size = args[1]
+      if (options.density !== undefined) {
+        if (!/^\d{1,4}$/.test(options.density))
+          throw new UsageError('--density takes a whole number of dpi, such as 420')
+        request.density = Number(options.density)
+      }
+    }
+    let parsed: DeviceRequest
+    try {
+      parsed = parseDeviceRequest(request)
+    } catch (error) {
+      if (error instanceof RequestValidationError) throw new UsageError(error.message)
+      throw error
+    }
+    const result = await withDaemon(home, (client) => client.runDeviceCommand(runId, parsed))
+    console.log(printable(result.text))
+    if (result.attachment) {
+      const attachment = result.attachment
+      const bytes = await withDaemon(home, (client) =>
+        client.readRunBrowserCapture(runId, attachment.hash),
+      )
+      const file = path.resolve(`ted-app-${randomUUID()}.png`)
+      await writeFile(file, Buffer.from(bytes.data, 'base64'), { flag: 'wx', mode: 0o600 })
+      console.log(`Saved ${printable(file)}. Attach with ted task create --attach <path>.`)
+    }
+  }
+
   function browserOwner() {
     const runId = tedEnv('TED_RUN', env)
     if (
@@ -1396,7 +1458,23 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     runApp: async () => {
       await runApp(args[0])
     },
+    appScreen: () => device('screen'),
+    appTap: () => device('tap'),
+    appType: () => device('type'),
+    appKey: () => device('key'),
+    appSwipe: () => device('swipe'),
+    appAppearance: () => device('appearance'),
+    appSize: () => device('size'),
     screenshot: async () => {
+      if (
+        options.task === undefined &&
+        !tedEnv('TED_TASK', env) &&
+        tedEnv('TED_AUTOMATION', env) &&
+        tedEnv('TED_RUN', env)
+      ) {
+        await device('screenshot')
+        return
+      }
       const ref = taskRef()
       const app = { name: args[0] ?? '', ...(options.repo && { repo: options.repo }) }
       const shot = await withDaemon(home, (client) => client.screenshotApp(ref, app))
