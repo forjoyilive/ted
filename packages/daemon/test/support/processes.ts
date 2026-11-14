@@ -45,11 +45,20 @@ async function linuxProcesses(): Promise<ProcessEntry[]> {
   return entries
 }
 
+// TED’s macOS sandbox refuses to start setuid programs such as ps, with EPERM thrown at
+// spawn. The daemon and Run hosts still exit with their TED_EXIT_WITH_PID process.
 async function psProcesses(): Promise<ProcessEntry[]> {
-  const { stdout } = await execFileAsync('ps', ['eww', '-ax', '-o', 'pid=,ppid=,pgid=,command='], {
-    env: cleanEnv(),
-    maxBuffer: 256 * 1024 * 1024,
-  })
+  let listed: { stdout: string }
+  try {
+    listed = await execFileAsync('ps', ['eww', '-ax', '-o', 'pid=,ppid=,pgid=,command='], {
+      env: cleanEnv(),
+      maxBuffer: 256 * 1024 * 1024,
+    })
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EPERM') return []
+    throw error
+  }
+  const { stdout } = listed
   const entries: ProcessEntry[] = []
   for (const line of stdout.split('\n')) {
     const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s(.*)$/.exec(line)

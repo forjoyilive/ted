@@ -236,6 +236,10 @@ export function resultText(run: AutomationRun): string {
       return 'Running'
     case 'created':
       return `Created ${result.tasks.map((t) => t.displayId).join(', ')}`
+    case 'passed':
+      return 'Passed'
+    case 'check-failed':
+      return `Failed${result.tasks.length > 0 ? ` · created ${result.tasks.map((t) => t.displayId).join(', ')}` : ''}${run.check?.updated?.length ? ` · updated ${run.check.updated.map((t) => t.displayId).join(', ')}` : ''}`
     case 'no-new-tasks':
       return 'No new Tasks'
     case 'failed':

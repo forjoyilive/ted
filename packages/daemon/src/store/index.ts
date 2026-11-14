@@ -413,6 +413,7 @@ export interface NewTask {
   changesSettings?: boolean
   splitFrom?: string
   automation?: { automationId: string; firingId: string }
+  checkFailure?: string
   plan?: { planId: string; row: number }
   setup?: boolean
   coordinatorOperation?: string
@@ -1057,6 +1058,7 @@ export interface TedStore extends TaskHistory {
   requestSnoozesPending(): boolean
   setQueueActivity(activity: QueueActivity): void
   setShellsRunning(count: number): void
+  setScheduledChecks(counts: { running: number; waiting: number }): void
   updateSettings(changes: Partial<MachineSettings>): MachineSettings
   raiseBanner(input: NewBanner): Banner
   dismissBanner(id: string, until: string): Banner | undefined
@@ -2900,6 +2902,7 @@ export async function openStore({
     startingTasks: [],
   }
   let shellsRunning = 0
+  let scheduledChecks = { running: 0, waiting: 0 }
   const activity = (): Activity => {
     const active = store.query(liveRuns)
     const runIds = new Set(active.map((run) => run.id))
@@ -2941,13 +2944,14 @@ export async function openStore({
         ).length,
       automationsOn: liveAutomations.filter((a) => a.on).length,
       factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
-      checksRunning: [
-        ...new Set([
-          ...checkingTasks,
-          ...store.query(queryDb(checkRuns.where({ finishedAt: null }))).map((r) => r.taskId),
-        ]),
-      ].filter((taskId) => !checksWaiting.has(taskId)).length,
-      checksWaiting: checksWaiting.size,
+      checksRunning:
+        [
+          ...new Set([
+            ...checkingTasks,
+            ...store.query(queryDb(checkRuns.where({ finishedAt: null }))).map((r) => r.taskId),
+          ]),
+        ].filter((taskId) => !checksWaiting.has(taskId)).length + scheduledChecks.running,
+      checksWaiting: checksWaiting.size + scheduledChecks.waiting,
       shellsRunning,
     }
   }
@@ -3457,6 +3461,7 @@ export async function openStore({
       changesSettings = false,
       splitFrom,
       automation,
+      checkFailure,
       plan,
       setup = false,
       coordinatorOperation,
@@ -3570,6 +3575,16 @@ export async function openStore({
           ? [events.taskSplitFrom({ taskId: id, originalId: splitFrom, at })]
           : []),
         ...(automation ? [events.automationTaskCreated({ ...automation, taskId: id, at })] : []),
+        ...(automation && checkFailure !== undefined
+          ? [
+              events.automationCheckTaskCreated({
+                taskId: id,
+                automationId: automation.automationId,
+                key: checkFailure,
+                at,
+              }),
+            ]
+          : []),
         ...(plan ? [events.planTaskCreated({ ...plan, taskId: id, at })] : []),
         ...(setup ? [events.setupTaskCreated({ taskId: id, factoryId, at })] : []),
         ...(coordinatorOperation !== undefined
@@ -6044,6 +6059,12 @@ export async function openStore({
     },
     setShellsRunning(count) {
       shellsRunning = count
+      noteActivity()
+    },
+    setScheduledChecks(counts) {
+      if (counts.running === scheduledChecks.running && counts.waiting === scheduledChecks.waiting)
+        return
+      scheduledChecks = counts
       noteActivity()
     },
     updateSettings(changes) {

@@ -19,6 +19,7 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { insideTedSandbox } from './support/ted-sandbox.ts'
 
 const stubApp = fileURLToPath(new URL('./fixtures/stub-app.ts', import.meta.url))
 process.env.TED_LOW_PRIORITY = 'on'
@@ -27,7 +28,8 @@ const mac = process.platform === 'darwin'
 const field = mac ? 'pri=' : 'ni='
 const level = (pid: number) =>
   Number(execFileSync('ps', ['-o', field, '-p', String(pid)], { encoding: 'utf8' }).trim())
-const own = level(process.pid)
+const psRefused = mac && insideTedSandbox
+const own = psRefused ? 0 : level(process.pid)
 const low = mac ? Math.min(own, 20) : Math.min(own + lowPriorityNiceness, 19)
 const advance = { run: ['ted', 'outcome', 'advance'] }
 const levels = { run: ['sh', '-c', `ps -o ${field} -p $PPID; ps -o ${field} -p $$`] }
@@ -113,6 +115,13 @@ async function appLevel(client: Client, task: Task, by: 'human' | 'task-lead'): 
 }
 
 describe('Low priority for the work TED starts', () => {
+  beforeEach((context) => {
+    context.skip(
+      psRefused,
+      'macOS won’t start ps, a setuid program, inside TED’s sandbox (a Scheduled Check), and these tests read priorities with ps',
+    )
+  })
+
   test('a Run’s agent and the commands it runs are lowered, and the daemon is not', async () => {
     const client = await start()
     expect(

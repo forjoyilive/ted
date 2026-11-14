@@ -216,6 +216,10 @@ _Avoid_: Inline comment, review comment, diff comment
 A schedule in a Factory that starts a Run each time it fires, outside any Task, usually to bring new work in as Tasks; one of several ways Tasks are created, alongside the human creating them by hand. With **Run in a copy of the code** on, each of its Runs works in a fresh copy of the default branch and can start the Factory’s Apps there; TED removes both when the Run ends.
 _Avoid_: Cron job, trigger
 
+**Scheduled Check**:
+An Automation that runs its own command as a Check, with no agent, in a fresh worktree on the tip of the Factory’s default branch. When the command fails, TED creates Tasks to fix what failed, and a later failure of the same test file adds a note to its open Task instead of making another.
+_Avoid_: Nightly build, scheduled test run
+
 **Daemon**:
 TED’s background process on each machine, which keeps Runs, Automations and the store going while no window is open. The UI calls it “TED in the background”, not the daemon.
 _Avoid_: Server, backend, service

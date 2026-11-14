@@ -232,6 +232,7 @@ export const forwardedRequests = [
   'setAutomationOn',
   'runAutomation',
   'retryAutomationRun',
+  'automationRunOutput',
   'deleteAutomation',
   'answerAutomationRequest',
 ] as const satisfies readonly MethodName[]

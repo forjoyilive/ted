@@ -3,11 +3,17 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 
-export const suiteLockFile = path.join(homedir(), '.cache', 'ted', 'test-suite.lock')
+export function testCacheDir(env: NodeJS.ProcessEnv = process.env): string {
+  const cache = env.XDG_CACHE_HOME
+  const sandboxed = env.TED_SANDBOX === '1' && cache?.startsWith('/') === true
+  return path.join(sandboxed && cache ? cache : path.join(homedir(), '.cache'), 'ted')
+}
+
+export const suiteLockFile = path.join(testCacheDir(), 'test-suite.lock')
 export const heldLockEnv = 'TED_TEST_SUITE_LOCK_PID'
 export const smallRunFiles = 10
 export const runTestFiles = 3
-export const slotDir = path.join(homedir(), '.cache', 'ted', 'test-slots')
+export const slotDir = path.join(testCacheDir(), 'test-slots')
 export const testSlots = 2
 export const fullRunYieldMs = 5 * 60_000
 export const waitLogName = 'test-waits.jsonl'
@@ -462,7 +468,9 @@ export async function lockRun(
   if (fileCount >= smallRunFiles) return acquireFullRun({ onWait, files: fileCount, ...options })
   const release = await acquireSlot({ onWait, files: fileCount, ...options })
   if (!release)
-    console.warn('Running without a TED test slot: can’t write ~/.cache/ted/test-slots.')
+    console.warn(
+      `Running without a TED test slot: can’t write ${(options.dir ?? slotDir).replace(homedir(), '~')}.`,
+    )
   return release
 }
 

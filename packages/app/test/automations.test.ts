@@ -180,6 +180,60 @@ describe('the Automation view', () => {
     ).toBe('Retried at 09:21')
   })
 
+  test('scheduled Check rows say passed or what failed, with their notes and the Check’s own time', () => {
+    const check = {
+      state: 'failed' as const,
+      durationMs: 754_000,
+      failing: ['a.test.ts', 'b.test.ts'],
+    }
+    expect(
+      historyResult(
+        run({
+          result: { kind: 'passed' },
+          check: {
+            ...check,
+            state: 'passed',
+            failing: [],
+            ranWhileBusy: true,
+            skipped: ['the Electron app tests'],
+          },
+        }),
+      ),
+    ).toEqual({
+      text: 'Passed',
+      under: 'Ran at its cutoff while the computer was busy · Skipped the Electron app tests',
+    })
+    expect(historyResult(run({ result: { kind: 'check-failed', tasks: [] }, check }))).toEqual({
+      text: 'Failed · 2 failing test files',
+      failed: true,
+    })
+    expect(
+      historyResult(
+        run({
+          result: { kind: 'check-failed', tasks: [] },
+          check: { ...check, state: 'timed-out' },
+        }),
+      ).text,
+    ).toBe('Timed out')
+    expect(duration(run({ startedAt: minutes(-60), check }), now)).toBe('12m 34s')
+    expect(
+      lastResult(
+        run({
+          finishedAt: minutes(-5),
+          result: {
+            kind: 'check-failed',
+            tasks: [{ id: 't1', displayId: 'NB-1', title: 'x', stage: 'backlog' }],
+          },
+          check: {
+            ...check,
+            updated: [{ id: 't2', displayId: 'NB-2', title: 'y', stage: 'work' }],
+          },
+        }),
+        now,
+      ),
+    ).toMatchObject({ text: 'Check failed', failed: true, tasks: ['NB-1', 'NB-2'] })
+  })
+
   test('durations are short, and a Run that never started has none', () => {
     expect(duration(run({ startedAt: minutes(-2), finishedAt: minutes(-0.8) }), now)).toBe('1m 12s')
     expect(duration(run({ startedAt: minutes(-1), finishedAt: minutes(-0.0333) }), now)).toBe('58s')

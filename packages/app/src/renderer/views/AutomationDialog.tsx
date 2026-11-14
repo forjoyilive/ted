@@ -31,9 +31,12 @@ import styles from './AutomationDialog.module.css'
 import { AutomationPromptDraft } from './AutomationPromptDraft.tsx'
 import { LeadFields } from './NewTaskDialog.tsx'
 
-export type TemplateChoice = AutomationTemplateId | 'blank'
+export type TemplateChoice = AutomationTemplateId | 'blank' | 'check'
 
 const blankSchedule = { kind: 'every', every: 30, unit: 'minutes' } as const
+const checkSchedule = { kind: 'daily', at: '03:00' } as const
+const defaultCheckTimeout = '2h'
+const timeoutPattern = /^[1-9]\d{0,4}[smh]$/
 
 const kindLabels: Record<ScheduleKind, string> = {
   every: 'Every',
@@ -89,6 +92,11 @@ export function AutomationDialog({
   const [template, setTemplate] = useState<TemplateChoice>(initialTemplate)
   const [name, setName] = useState(editing?.name ?? '')
   const [prompt, setPrompt] = useState(editing?.prompt ?? '')
+  const isCheck = editing ? editing.check !== undefined : template === 'check'
+  const [command, setCommand] = useState(editing?.check?.command ?? '')
+  const [timeout, setCheckTimeout] = useState(editing?.check?.timeout ?? defaultCheckTimeout)
+  const [runBy, setRunBy] = useState(editing?.check?.runBy ?? '07:00')
+  const [hasRunBy, setHasRunBy] = useState(editing ? editing.check?.runBy !== undefined : true)
   const [draft, setDraft] = useState<ScheduleDraft>(() =>
     draftOf(editing?.schedule ?? blankSchedule),
   )
@@ -143,6 +151,12 @@ export function AutomationDialog({
       setPrompt('')
       setDraft(draftOf(blankSchedule))
       setCheckout(false)
+    } else if (choice === 'check') {
+      setName('Nightly full test run')
+      setPrompt('')
+      setCommand('pnpm check')
+      setDraft(draftOf(checkSchedule))
+      setCheckout(false)
     } else if (chosen) {
       setName(chosen.name)
       setPrompt(chosen.prompt)
@@ -153,7 +167,7 @@ export function AutomationDialog({
 
   useEffect(() => {
     if (editing || applied.current !== undefined || initialTemplate === 'blank') return
-    if (templates.length === 0) return
+    if (templates.length === 0 && initialTemplate !== 'check') return
     pick(initialTemplate, templates)
   })
 
@@ -186,10 +200,17 @@ export function AutomationDialog({
 
   const chosenFactory = factories.find((f) => f.id === factory)
   const scheduleError = typeof schedule === 'string' ? schedule : preview?.error
+  const checkError = !isCheck
+    ? undefined
+    : command.trim() === ''
+      ? 'Enter the command to run.'
+      : !timeoutPattern.test(timeout.trim())
+        ? 'Enter a time limit like 90m or 2h.'
+        : undefined
   const canSave =
     chosenFactory !== undefined &&
     name.trim() !== '' &&
-    prompt.trim() !== '' &&
+    (isCheck ? checkError === undefined : prompt.trim() !== '') &&
     scheduleError === undefined &&
     !busy &&
     !draftBusy
@@ -200,32 +221,42 @@ export function AutomationDialog({
     setSavingAndRunning(runNow)
     setBusy(true)
     setError(undefined)
+    const check = isCheck
+      ? {
+          command: command.trim(),
+          timeout: timeout.trim(),
+          ...(hasRunBy ? { runBy } : editing ? { runBy: null } : {}),
+        }
+      : undefined
     const fields = {
       name: name.trim(),
-      prompt,
+      prompt: isCheck ? '' : prompt,
       schedule,
       on,
-      checkout,
-      ...(lead && {
-        agent: lead.agent,
-        ...(lead.model !== undefined && { model: lead.model }),
-        ...(lead.effort !== undefined && { effort: lead.effort }),
-      }),
+      ...(check && { check }),
+      ...(!isCheck && { checkout }),
+      ...(lead &&
+        !isCheck && {
+          agent: lead.agent,
+          ...(lead.model !== undefined && { model: lead.model }),
+          ...(lead.effort !== undefined && { effort: lead.effort }),
+        }),
     }
     try {
       let saved: Automation
       if (editing) {
+        const { prompt: _, ...edited } = fields
         saved = await ted.editAutomation(editing.id, {
-          ...fields,
-          ...(lead && lead.model === undefined && { model: null }),
-          ...(lead && lead.effort === undefined && { effort: null }),
+          ...(isCheck ? edited : fields),
+          ...(lead && !isCheck && lead.model === undefined && { model: null }),
+          ...(lead && !isCheck && lead.effort === undefined && { effort: null }),
         })
         if (runNow) await ted.runAutomation(saved.id)
       } else {
         saved = await ted.createAutomation({
           ...fields,
           factory: chosenFactory.key,
-          ...(template !== 'blank' && { template }),
+          ...(template !== 'blank' && template !== 'check' && { template }),
           ...(runNow && { runNow: true }),
         })
       }
@@ -305,6 +336,13 @@ export function AutomationDialog({
                 group={id}
                 onPick={() => pick('blank', templates)}
               />
+              <TemplateCard
+                name="Scheduled Check"
+                note="Run a command, no agent"
+                checked={template === 'check'}
+                group={id}
+                onPick={() => pick('check', templates)}
+              />
               {templates.map((t) => (
                 <TemplateCard
                   key={t.id}
@@ -334,39 +372,101 @@ export function AutomationDialog({
           />
         </div>
 
-        <div className={styles.field}>
-          <span className={styles.labelRow}>
-            <label className={styles.label} htmlFor={`${id}-prompt`}>
-              Prompt
-            </label>
-            <span className={styles.hint}>required</span>
-            <Help>
-              Markdown. The agent gets it each time the Automation fires, after TED’s own
-              instructions.
-            </Help>
-          </span>
-          <textarea
-            id={`${id}-prompt`}
-            className={styles.prompt}
-            rows={6}
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-          />
-          <span className={styles.note}>
-            Whether new Tasks start is up to the prompt (--start).
-          </span>
-          {lead && (
-            <AutomationPromptDraft
-              key={JSON.stringify([factory, template, lead])}
-              factory={factory}
-              name={name}
-              prompt={prompt}
-              lead={lead}
-              onApply={setPrompt}
-              onBusy={setDraftBusy}
+        {isCheck && (
+          <div className={styles.field}>
+            <span className={styles.labelRow}>
+              <label className={styles.label} htmlFor={`${id}-command`}>
+                Command
+              </label>
+              <span className={styles.hint}>required</span>
+              <Help>
+                Runs in a fresh worktree on the tip of the default branch, as a Check in TED’s
+                sandbox, after the repo’s setup. If it fails, TED creates Tasks to fix it.
+              </Help>
+            </span>
+            <input
+              id={`${id}-command`}
+              className={styles.input}
+              aria-invalid={checkError !== undefined && command.trim() === ''}
+              spellCheck={false}
+              placeholder="pnpm check"
+              value={command}
+              onChange={(event) => setCommand(event.target.value)}
             />
-          )}
-        </div>
+            <div className={styles.scheduleRow}>
+              <label className={styles.label} htmlFor={`${id}-timeout`}>
+                Time limit
+              </label>
+              <input
+                id={`${id}-timeout`}
+                className={`${styles.input} ${styles.short}`}
+                aria-invalid={!timeoutPattern.test(timeout.trim())}
+                spellCheck={false}
+                value={timeout}
+                onChange={(event) => setCheckTimeout(event.target.value)}
+              />
+            </div>
+            {checkError !== undefined && command.trim() !== '' && (
+              <span className={styles.scheduleError} role="alert">
+                {checkError}
+              </span>
+            )}
+            <div className={styles.on}>
+              <input
+                id={`${id}-run-by`}
+                type="checkbox"
+                className={styles.checkbox}
+                checked={hasRunBy}
+                onChange={(event) => setHasRunBy(event.target.checked)}
+              />
+              <label htmlFor={`${id}-run-by`} className={styles.onLabel}>
+                While the computer is busy, wait until
+              </label>
+              {hasRunBy && <ScheduleTime value={runBy} onChange={setRunBy} />}
+              <Help>
+                With “Start fewer Runs when this computer is busy” on, a scheduled firing waits
+                while the computer is busy, then runs anyway at this time. Without a time it waits
+                at most 4 hours. Run now never waits.
+              </Help>
+            </div>
+          </div>
+        )}
+
+        {!isCheck && (
+          <div className={styles.field}>
+            <span className={styles.labelRow}>
+              <label className={styles.label} htmlFor={`${id}-prompt`}>
+                Prompt
+              </label>
+              <span className={styles.hint}>required</span>
+              <Help>
+                Markdown. The agent gets it each time the Automation fires, after TED’s own
+                instructions.
+              </Help>
+            </span>
+            <textarea
+              id={`${id}-prompt`}
+              className={styles.prompt}
+              rows={6}
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+            />
+            <span className={styles.note}>
+              Whether new Tasks start is up to the prompt (--start).
+            </span>
+            {lead && (
+              <AutomationPromptDraft
+                key={JSON.stringify([factory, template, lead])}
+                factory={factory}
+                name={name}
+                prompt={prompt}
+                lead={lead}
+                onApply={setPrompt}
+                onBusy={setDraftBusy}
+              />
+            )}
+          </div>
+        )}
 
         <fieldset className={`${styles.fieldset} ${styles.field}`}>
           <legend className={styles.label}>Schedule</legend>
@@ -458,7 +558,7 @@ export function AutomationDialog({
 
         <p className={styles.note}>Time zone: {timeZone} · App-wide in General settings</p>
 
-        {lead && (
+        {lead && !isCheck && (
           <fieldset className={styles.fieldset} disabled={draftBusy}>
             <LeadFields
               id={id}
@@ -471,22 +571,24 @@ export function AutomationDialog({
           </fieldset>
         )}
 
-        <div className={styles.on}>
-          <input
-            id={`${id}-checkout`}
-            type="checkbox"
-            className={styles.checkbox}
-            checked={checkout}
-            onChange={(event) => setCheckout(event.target.checked)}
-          />
-          <label htmlFor={`${id}-checkout`} className={styles.onLabel}>
-            Run in a copy of the code
-          </label>
-          <Help>
-            Each Run gets a fresh copy of the default branch and can start the Factory’s Apps there.
-            TED removes it when the Run ends.
-          </Help>
-        </div>
+        {!isCheck && (
+          <div className={styles.on}>
+            <input
+              id={`${id}-checkout`}
+              type="checkbox"
+              className={styles.checkbox}
+              checked={checkout}
+              onChange={(event) => setCheckout(event.target.checked)}
+            />
+            <label htmlFor={`${id}-checkout`} className={styles.onLabel}>
+              Run in a copy of the code
+            </label>
+            <Help>
+              Each Run gets a fresh copy of the default branch and can start the Factory’s Apps
+              there. TED removes it when the Run ends.
+            </Help>
+          </div>
+        )}
 
         <div className={styles.on}>
           <input

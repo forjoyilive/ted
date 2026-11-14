@@ -64,6 +64,10 @@ export {
 export type {
   AnswerAutomationRequest,
   Automation,
+  AutomationCheck,
+  AutomationCheckInput,
+  AutomationCheckRun,
+  AutomationCheckState,
   AutomationCommentRequest,
   AutomationDetail,
   AutomationInput,
@@ -72,6 +76,7 @@ export type {
   AutomationRequest,
   AutomationResult,
   AutomationRun,
+  AutomationRunOutput,
   AutomationTaskLink,
   AutomationTemplate,
   AutomationTemplateId,
@@ -85,6 +90,7 @@ export type {
 export { automationTemplateIds } from './automation.ts'
 export {
   parseAnswerAutomationRequest,
+  parseAutomationCheck,
   parseAutomationCommentRequest,
   parseAutomationSchedule,
   parseCreateAutomationRequest,

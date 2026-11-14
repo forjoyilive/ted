@@ -141,6 +141,8 @@ const waitForHistory = (
     20_000,
   )
 
+const checkLogs = () => path.join(tedPaths(home).logs, 'automation-checks')
+
 const said = async (client: Client, runId: string) =>
   assistantTexts((await client.ok<RunWithConversation>('GET', `/runs/${runId}`)).conversation)
 
@@ -991,6 +993,110 @@ describe('Automations', () => {
     await client.ok('DELETE', `/automations/${automation.id}`)
     expect(await client.ok<Automation[]>('GET', '/automations')).toEqual([])
   })
+
+  test('a scheduled Check waits while the computer is busy until its cutoff, runs sandboxed on the default branch, makes Tasks for failing tests and updates them when they fail again', async () => {
+    const client = await startTed()
+    await client.ok('PATCH', '/settings', { adjustRunsToLoad: true })
+    const fail = path.join(scratch, 'fail-check')
+    const command = [
+      'echo "sandboxed=$TED_SANDBOX task=$TED_TASK."',
+      'cat README.md',
+      'echo "TED_SANDBOX_SKIPPED: the Electron app tests"',
+      `if [ -f '${fail}' ]; then echo ' FAIL  |node| packages/x/test/a.test.ts > t'; echo ' FAIL  |node| packages/x/test/b.test.ts'; exit 1; fi`,
+    ].join('; ')
+    const automation = await create(client, {
+      name: 'Nightly tests',
+      prompt: undefined,
+      check: { command, timeout: '5m', runBy: '07:00' },
+    })
+    expect(automation).toMatchObject({
+      prompt: '',
+      check: { command, timeout: '5m', runBy: '07:00' },
+    })
+    load = 5
+    clock = Date.parse('2026-11-09T09:00:05Z')
+    await waitUntil(async () => {
+      const now = (await detail(client, automation.id)).automation.now
+      return now?.kind === 'paused' && now.reason.includes('busy')
+    }, 'the firing to wait for a quiet computer')
+    expect(await client.ok<Activity>('GET', '/activity')).toMatchObject({ checksWaiting: 1 })
+    clock = Date.parse('2026-11-10T07:00:30Z')
+    const [passed] = await waitForHistory(
+      client,
+      automation.id,
+      (rows) => rows[0]?.result.kind === 'passed',
+      'the Check to pass',
+    )
+    expect(passed).toMatchObject({
+      trigger: 'scheduled',
+      check: { state: 'passed', exitCode: 0, failing: [], skipped: ['the Electron app tests'] },
+    })
+    expect(passed?.check?.ranWhileBusy).toBe(true)
+    await waitUntil(async () => {
+      const activity = await client.ok<Activity>('GET', '/activity')
+      return activity.checksRunning === 0 && activity.checksWaiting === 0
+    }, 'the finished Check to leave the activity counts')
+    expect(passed?.runId).toBeUndefined()
+    const firstOutput = await client.ok<{ text: string; log: string }>(
+      'GET',
+      `/automation-runs/${passed?.id}/output`,
+    )
+    expect(firstOutput.text).toContain('sandboxed=1 task=.')
+    expect(firstOutput.text).toContain('# widgets')
+    expect(firstOutput.log).toBe(path.join(checkLogs(), automation.id, `${passed?.id}.log`))
+
+    await writeFile(fail, '')
+    clock = Date.parse('2026-11-10T07:10:00Z')
+    await client.ok('POST', `/automations/${automation.id}/run`)
+    const [failed] = await waitForHistory(
+      client,
+      automation.id,
+      (rows) => rows[0]?.result.kind === 'check-failed',
+      'the Check to fail',
+    )
+    expect(failed).toMatchObject({
+      trigger: 'run-now',
+      check: {
+        state: 'failed',
+        exitCode: 1,
+        failing: ['packages/x/test/a.test.ts', 'packages/x/test/b.test.ts'],
+      },
+    })
+    const created = failed?.result.kind === 'check-failed' ? failed.result.tasks : []
+    expect(created.map((t) => [t.title, t.stage])).toEqual([
+      ['Fix failing tests in packages/x/test/a.test.ts', 'backlog'],
+      ['Fix failing tests in packages/x/test/b.test.ts', 'backlog'],
+    ])
+    const task = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === created[0]?.id)
+    expect(task?.description).toContain('- packages/x/test/a.test.ts')
+    expect(task?.description).toContain(`Full output: ${path.join(checkLogs(), automation.id)}`)
+
+    clock = Date.parse('2026-11-10T07:20:00Z')
+    await client.ok('POST', `/automations/${automation.id}/run`)
+    const rows = await waitForHistory(
+      client,
+      automation.id,
+      (r) => r.filter((row) => row.result.kind === 'check-failed').length === 2,
+      'the Check to fail again',
+    )
+    expect(rows[0]).toMatchObject({ result: { kind: 'check-failed', tasks: [] } })
+    expect(rows[0]?.check?.updated?.map((t) => t.id)).toEqual(created.map((t) => t.id))
+    const comments = await client.ok<{ body: string; author: { kind: string } }[]>(
+      'GET',
+      `/tasks/${created[0]?.displayId}/comments`,
+    )
+    expect(comments.at(-1)).toMatchObject({ author: { kind: 'ted' } })
+    expect(comments.at(-1)?.body).toMatch(/^It failed again\./)
+    expect(
+      (await client.ok<Task[]>('GET', '/tasks')).filter(
+        (t) => t.factoryId === automation.factoryId,
+      ),
+    ).toHaveLength(2)
+    expect(await readdir(tedPaths(home).automationRuns).catch(() => [])).toEqual([])
+
+    await client.ok('DELETE', `/automations/${automation.id}`)
+    expect(await readdir(checkLogs())).toEqual([])
+  })
 })
 
 test('Automation Runs use auto permissions even when the Factory is set to bypass', async () => {
@@ -1030,9 +1136,18 @@ test('Automation Runs use auto permissions even when the Factory is set to bypas
   }
 })
 
-test('removing a Factory deletes its Automations and stops their Runs', async () => {
+test('removing a Factory deletes its Automations, stops their Runs and removes scheduled Check files', async () => {
   const client = await startTed()
   const automation = await create(client, { prompt: steps(hold(), { endTurn: true }) })
+  const check = await create(client, {
+    name: 'Nightly tests',
+    prompt: undefined,
+    schedule: { kind: 'daily', at: '03:00' },
+    check: { command: 'echo ok' },
+  })
+  await client.ok('POST', `/automations/${check.id}/run`)
+  await waitForHistory(client, check.id, (rows) => rows[0]?.result.kind === 'passed', 'the Check')
+  expect(await readdir(checkLogs())).toEqual([check.id])
   clock = Date.parse('2026-11-09T09:00:05Z')
   const [row] = await waitForHistory(
     client,
@@ -1043,6 +1158,7 @@ test('removing a Factory deletes its Automations and stops their Runs', async ()
   const [factory] = await client.ok<Factory[]>('GET', '/factories')
   await client.ok('POST', `/factories/${factory?.id}/remove`, { key: 'NB' })
   expect(await client.ok<Automation[]>('GET', '/automations')).toEqual([])
+  expect(await readdir(checkLogs())).toEqual([])
   expect((await client.ok<Activity>('GET', '/activity')).automationsOn).toBe(0)
   await waitUntil(async () => {
     const run = await client.ok<RunWithConversation>('GET', `/runs/${row?.runId}`)

@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto'
 import { queryDb, type Store } from '@livestore/livestore'
 import type {
   AgentKind,
+  AutomationCheck,
+  AutomationCheckState,
   AutomationSchedule,
   AutomationTaskLink,
   AutomationTemplateId,
@@ -11,6 +13,8 @@ import type {
   StageId,
 } from '@ted/protocol'
 import {
+  automationCheckResults,
+  automationCheckTasks,
   automationComments,
   automationFirings,
   automations,
@@ -34,6 +38,7 @@ export interface StoredAutomation {
   effort?: Effort
   on: boolean
   checkout: boolean
+  check?: AutomationCheck
   template?: AutomationTemplateId
   handledUntil: string
   createdAt: string
@@ -41,7 +46,7 @@ export interface StoredAutomation {
 
 export type NewAutomation = Omit<
   StoredAutomation,
-  'id' | 'handledUntil' | 'createdAt' | 'checkout'
+  'id' | 'handledUntil' | 'createdAt' | 'checkout' | 'check'
 > & {
   checkout?: boolean
 }
@@ -76,6 +81,18 @@ export interface AutomationTaskRecord {
   at: string
 }
 
+export interface StoredCheckResult {
+  firingId: string
+  automationId: string
+  state: AutomationCheckState
+  exitCode?: number
+  durationMs: number
+  ranWhileBusy: boolean
+  skipped: string[]
+  failing: string[]
+  updatedTaskIds: string[]
+}
+
 export interface StoredAutomationComment {
   id: string
   automationId: string
@@ -90,8 +107,18 @@ export interface StoredAutomationComment {
 export interface AutomationStore {
   list(): StoredAutomation[]
   get(id: string): StoredAutomation | undefined
-  create(input: NewAutomation, at: string): StoredAutomation
-  edit(id: string, fields: AutomationFields, at: string): StoredAutomation
+  create(input: NewAutomation, at: string, check?: AutomationCheck): StoredAutomation
+  edit(id: string, fields: AutomationFields, at: string, check?: AutomationCheck): StoredAutomation
+  check(automationId: string): AutomationCheck | undefined
+  checks(): Map<string, AutomationCheck>
+  checkResults(firingIds: readonly string[]): Map<string, StoredCheckResult>
+  checkEnded(
+    id: string,
+    end: { outcome: FiringOutcome; error?: string; message?: string },
+    result?: Omit<StoredCheckResult, 'firingId' | 'automationId'>,
+  ): void
+  checkTasks(automationId: string): { taskId: string; key: string }[]
+  touched(automationId: string): void
   switch(id: string, on: boolean, at: string): StoredAutomation
   delete(id: string): void
   fire(input: {
@@ -151,9 +178,19 @@ export function createAutomationStore({
     model,
     effort,
     template,
+    checkCommand,
+    checkTimeout,
+    checkRunBy,
     ...row
   }: typeof automations.Type): StoredAutomation => ({
     ...row,
+    ...(checkCommand !== null && {
+      check: {
+        command: checkCommand,
+        timeout: checkTimeout ?? '2h',
+        ...(checkRunBy !== null && { runBy: checkRunBy }),
+      },
+    }),
     schedule: JSON.parse(schedule) as AutomationSchedule,
     agent: row.agent as AgentKind,
     ...(model !== null && { model }),
@@ -190,6 +227,15 @@ export function createAutomationStore({
     createdAt: row.createdAt,
   })
 
+  const checkEvent = (automationId: string, check: AutomationCheck, at: string) =>
+    events.automationCheckSet({
+      automationId,
+      command: check.command,
+      timeout: check.timeout,
+      runBy: check.runBy ?? null,
+      at,
+    })
+
   const get = (id: string) => {
     const row = store.query(queryDb(automations.where({ id }))).at(0)
     return row && toAutomation(row)
@@ -223,7 +269,7 @@ export function createAutomationStore({
     list: () =>
       store.query(queryDb(automations.orderBy('createdAt', 'asc'))).map((row) => toAutomation(row)),
     get,
-    create({ schedule, model, effort, template, checkout, ...input }, at) {
+    create({ schedule, model, effort, template, checkout, ...input }, at, check) {
       const id = randomUUID()
       commit(
         events.automationCreated({
@@ -236,11 +282,12 @@ export function createAutomationStore({
           at,
         }),
         ...(checkout ? [events.automationCheckoutSet({ id, checkout, at })] : []),
+        ...(check ? [checkEvent(id, check, at)] : []),
       )
       updated(id)
       return require(id)
     },
-    edit(id, { schedule, model, effort, checkout, ...fields }, at) {
+    edit(id, { schedule, model, effort, checkout, ...fields }, at, check) {
       const before = require(id)
       const scheduleText = JSON.stringify(schedule)
       commit(
@@ -257,9 +304,79 @@ export function createAutomationStore({
             scheduleText !== JSON.stringify(before.schedule) || fields.timeZone !== before.timeZone,
           at,
         }),
+        ...(check ? [checkEvent(id, check, at)] : []),
       )
       updated(id)
       return require(id)
+    },
+    check: (automationId) => get(automationId)?.check,
+    checks() {
+      return new Map(
+        store.query(queryDb(automations)).flatMap((row) => {
+          const { check } = toAutomation(row)
+          return check ? [[row.id, check] as const] : []
+        }),
+      )
+    },
+    checkResults(firingIds) {
+      const rows = inChunks(firingIds, (ids) =>
+        store.query(queryDb(automationCheckResults.where({ firingId: { op: 'IN', value: ids } }))),
+      )
+      return new Map(
+        rows.map((row) => [
+          row.firingId,
+          {
+            firingId: row.firingId,
+            automationId: row.automationId,
+            state: row.state as AutomationCheckState,
+            ...(row.exitCode !== null && { exitCode: row.exitCode }),
+            durationMs: row.durationMs,
+            ranWhileBusy: row.ranWhileBusy,
+            skipped: JSON.parse(row.skipped) as string[],
+            failing: JSON.parse(row.failing) as string[],
+            updatedTaskIds: JSON.parse(row.updatedTaskIds) as string[],
+          },
+        ]),
+      )
+    },
+    checkEnded(id, { outcome, error, message }, result) {
+      const found = firing(id)
+      if (!found) return
+      const at = now()
+      commit(
+        events.automationRunEnded({
+          id,
+          outcome,
+          error: error ?? null,
+          message: message ?? null,
+          at,
+        }),
+        ...(result
+          ? [
+              events.automationCheckFinished({
+                firingId: id,
+                automationId: found.automationId,
+                state: result.state,
+                exitCode: result.exitCode ?? null,
+                durationMs: result.durationMs,
+                ranWhileBusy: result.ranWhileBusy,
+                skipped: result.skipped,
+                failing: result.failing,
+                updatedTaskIds: result.updatedTaskIds,
+                at,
+              }),
+            ]
+          : []),
+      )
+      updated(found.automationId)
+    },
+    touched(automationId) {
+      emit({ type: 'automation-updated', automationId })
+    },
+    checkTasks(automationId) {
+      return store
+        .query(queryDb(automationCheckTasks.where({ automationId })))
+        .map(({ taskId, key }) => ({ taskId, key }))
     },
     switch(id, on, at) {
       commit(events.automationSwitched({ id, on, at }))

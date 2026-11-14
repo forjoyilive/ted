@@ -26,7 +26,7 @@ afterEach(async () => {
   await rm(home, { recursive: true, force: true })
 })
 
-function backend(program?: string) {
+function backend(program = process.env.TED_SANDBOX_BIN) {
   return createLocalLifecycle({
     store,
     banners: createBanners({ store }),

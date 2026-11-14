@@ -11,7 +11,7 @@ import type {
   Task,
 } from '@ted/protocol'
 import { billingNames } from '@ted/protocol/health'
-import { type ReactNode, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useId, useMemo, useRef, useState } from 'react'
 import {
   agentModel,
   clockOf,
@@ -32,6 +32,7 @@ import type { ShownApp } from '../components/AppsSection.tsx'
 import dialogs from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
+import outputStyles from '../components/CheckOutputDialog.module.css'
 import {
   buttonPosition,
   contextMenu,
@@ -39,8 +40,8 @@ import {
   type MenuPosition,
   useActionMenu,
 } from '../components/ContextMenu.tsx'
-import { DotIcon } from '../components/icons.tsx'
-import { LoadingError, Skeleton, SkeletonBar } from '../components/Loading.tsx'
+import { CloseIcon, DotIcon } from '../components/icons.tsx'
+import { Loading, LoadingError, Skeleton, SkeletonBar } from '../components/Loading.tsx'
 import { QuestionChoices, type QuestionSelection } from '../components/QuestionChoices.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { RunAppLog, RunAppRows } from '../components/RunApps.tsx'
@@ -540,6 +541,8 @@ function totalsLine(detail: AutomationDetail): string {
   const count = (kind: AutomationRun['result']['kind']) =>
     history.filter((r) => r.result.kind === kind).length
   const parts = [
+    count('passed') > 0 ? `${count('passed')} passed` : undefined,
+    count('check-failed') > 0 ? `${count('check-failed')} Check failures` : undefined,
     count('failed') > 0 ? `${count('failed')} failed` : undefined,
     count('skipped') > 0 ? `${count('skipped')} skipped` : undefined,
     count('stopped') > 0 ? `${count('stopped')} stopped` : undefined,
@@ -589,6 +592,7 @@ export function AutomationView({
     detail?.automation ? [detail.automation] : [],
   )
   const [promptOpen, setPromptOpen] = useState(false)
+  const [output, setOutput] = useState<AutomationRun>()
   if (detail === undefined)
     return (
       <>
@@ -663,9 +667,9 @@ export function AutomationView({
     automation.on && automation.nextFirings[0] !== undefined
       ? `next ${firingDate(automation.nextFirings[0])}`
       : 'Off',
-    agentLabels[automation.agent],
-    automation.model,
-    automation.effort,
+    ...(automation.check
+      ? ['Scheduled Check']
+      : [agentLabels[automation.agent], automation.model, automation.effort]),
   ]
     .filter(Boolean)
     .join(' · ')
@@ -761,11 +765,30 @@ export function AutomationView({
                         <span className={styles.result} data-failed={result.failed === true}>
                           {result.failed && <DotIcon className={styles.failedDot} />}
                           {result.text}
-                          {run.result.kind === 'created' && (
+                          {(run.result.kind === 'created' || run.result.kind === 'check-failed') &&
+                            run.result.tasks.length > 0 && (
+                              <>
+                                {run.result.kind === 'check-failed' ? ' · created ' : ' '}
+                                <TaskLinks tasks={run.result.tasks} onOpenTask={onOpenTask} />
+                              </>
+                            )}
+                          {run.check?.updated && run.check.updated.length > 0 && (
                             <>
-                              {' '}
-                              <TaskLinks tasks={run.result.tasks} onOpenTask={onOpenTask} />
+                              {' · updated '}
+                              <TaskLinks tasks={run.check.updated} onOpenTask={onOpenTask} />
                             </>
+                          )}
+                          {run.check && (
+                            <Button
+                              size="small"
+                              className={styles.retry}
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                setOutput(run)
+                              }}
+                            >
+                              Output
+                            </Button>
                           )}
                           {canRetry === run.id && (
                             <Button
@@ -792,6 +815,13 @@ export function AutomationView({
           )}
         </div>
         {menu.menu}
+        {output && (
+          <AutomationOutputDialog
+            run={output}
+            command={automation.check?.command}
+            onClose={() => setOutput(undefined)}
+          />
+        )}
       </section>
       <DetailsPane className={views.detailsPane} aria-label="Automation details">
         <Details title="Schedule">
@@ -811,26 +841,45 @@ export function AutomationView({
             ))
           )}
         </Details>
-        <Details title="Agent">
-          <p className={styles.detailText}>
-            {[agentLabels[automation.agent], automation.model, automation.effort]
-              .filter(Boolean)
-              .join(' · ')}
-          </p>
-          {billing && <p className={styles.detailNote}>{billingNames[billing]}</p>}
-        </Details>
-        <Details title="Prompt">
-          <pre className={styles.prompt} data-open={promptOpen}>
-            {automation.prompt}
-          </pre>
-          <ActionButton
-            type="button"
-            className={styles.taskLink}
-            onClick={() => setPromptOpen((o) => !o)}
-          >
-            {promptOpen ? 'Hide prompt' : 'Show prompt'}
-          </ActionButton>
-        </Details>
+        {automation.check ? (
+          <Details title="Command">
+            <pre className={styles.prompt} data-open>
+              {automation.check.command}
+            </pre>
+            <p className={styles.detailNote}>
+              Runs as a Check on the tip of the default branch, in TED’s sandbox · times out after{' '}
+              {automation.check.timeout}
+            </p>
+            <p className={styles.detailNote}>
+              {settings?.adjustRunsToLoad
+                ? `Waits while the computer is busy, then runs anyway ${automation.check.runBy === undefined ? 'after 4 hours' : `at ${automation.check.runBy}`}`
+                : 'Runs at once: “Start fewer Runs when this computer is busy” is off'}
+            </p>
+          </Details>
+        ) : (
+          <>
+            <Details title="Agent">
+              <p className={styles.detailText}>
+                {[agentLabels[automation.agent], automation.model, automation.effort]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </p>
+              {billing && <p className={styles.detailNote}>{billingNames[billing]}</p>}
+            </Details>
+            <Details title="Prompt">
+              <pre className={styles.prompt} data-open={promptOpen}>
+                {automation.prompt}
+              </pre>
+              <ActionButton
+                type="button"
+                className={styles.taskLink}
+                onClick={() => setPromptOpen((o) => !o)}
+              >
+                {promptOpen ? 'Hide prompt' : 'Show prompt'}
+              </ActionButton>
+            </Details>
+          </>
+        )}
         <Details title="Totals">
           <p className={styles.detailText}>{totals}</p>
           {totalsNote !== undefined && <p className={styles.detailNote}>{totalsNote}</p>}
@@ -847,6 +896,80 @@ export function AutomationView({
         </Details>
       </DetailsPane>
     </>
+  )
+}
+
+function AutomationOutputDialog({
+  run,
+  command,
+  onClose,
+}: {
+  run: AutomationRun
+  command: string | undefined
+  onClose: () => void
+}) {
+  const dialog = useRef<HTMLDialogElement>(null)
+  const headingId = useId()
+  const [output, setOutput] = useState<{ text: string; log: string }>()
+  const [error, setError] = useState<string>()
+  useEffect(() => {
+    dialog.current?.showModal()
+  }, [])
+  useEffect(() => {
+    let current = true
+    ted.automationRunOutput(run.id).then(
+      (loaded) => {
+        if (current) setOutput(loaded)
+      },
+      (failure: unknown) => {
+        if (current) setError(readableError(failure))
+      },
+    )
+    return () => {
+      current = false
+    }
+  }, [run.id])
+  return (
+    <dialog
+      ref={dialog}
+      className={outputStyles.dialog}
+      aria-labelledby={headingId}
+      onCancel={(event) => {
+        event.preventDefault()
+        onClose()
+      }}
+    >
+      <header className={outputStyles.head}>
+        <h2 id={headingId} className={outputStyles.heading}>
+          Check output · {firingDate(run.startedAt ?? run.at)}
+        </h2>
+        <button type="button" className={outputStyles.close} aria-label="Close" onClick={onClose}>
+          <CloseIcon />
+        </button>
+      </header>
+      {command !== undefined && <code className={outputStyles.command}>{command}</code>}
+      {run.check && run.check.failing.length > 0 && (
+        <p className={outputStyles.log}>Failing: {run.check.failing.join(', ')}</p>
+      )}
+      {error !== undefined ? (
+        <p className={outputStyles.error} role="alert">
+          {error}
+        </p>
+      ) : (
+        <pre
+          className={`${outputStyles.output} ${output === undefined ? outputStyles.pending : ''}`}
+        >
+          {output === undefined ? (
+            <Loading terminal label="Loading Check output…" />
+          ) : output.text === '' ? (
+            'No output.'
+          ) : (
+            output.text
+          )}
+        </pre>
+      )}
+      {output && <p className={outputStyles.log}>Full log: {output.log}</p>}
+    </dialog>
   )
 }
 

@@ -21,14 +21,22 @@ const core = {
   on: true,
   checkout: true,
 } as const
+const check = { command: 'pnpm check --wait-for-quiet', timeout: '2h', runBy: '07:00' }
 roundTrip(P.parseCreateAutomationRequest, {
   ...core,
   factory: 'TED',
   template: 'linear',
   runNow: true,
+  check,
 })
-roundTrip(P.parseEditAutomationRequest, core)
-roundTrip(P.parseEditAutomationRequest, { ...core, model: null, effort: null })
+roundTrip(P.parseEditAutomationRequest, { ...core, check })
+roundTrip(P.parseEditAutomationRequest, {
+  ...core,
+  model: null,
+  effort: null,
+  check: { ...check, runBy: null },
+})
+roundTrip(P.parseAutomationCheck, check)
 roundTrip(P.parseDraftAutomationPromptRequest, {
   factory: 'TED',
   request: 'Draft',
@@ -43,6 +51,21 @@ roundTrip(P.parseAutomationCommentRequest, { body: 'Proceed?', choices: ['Yes', 
 roundTrip(P.parseAnswerAutomationRequest, { choice: 'Yes', text: 'Continue' })
 rejects(P.parseAutomationSchedule, { kind: 'daily', at: '25:00' }, 'time as HH:MM')
 rejects(P.parseCreateAutomationRequest, {}, 'name is required')
+rejects(P.parseAutomationCheck, { command: ' ' }, 'check.command is required')
+rejects(P.parseAutomationCheck, { command: 'x', timeout: '25h' }, 'at most 24h')
+rejects(P.parseAutomationCheck, { command: 'x', timeout: '10' }, 'like 90m or 2h')
+rejects(P.parseAutomationCheck, { command: 'x', runBy: '7:00' }, 'check.runBy must be')
+rejects(
+  P.parseCreateAutomationRequest,
+  { name: 'Nightly', schedule, check: { command: 'x', runBy: null } },
+  'check.runBy must be',
+)
+
+test('a scheduled Check needs no prompt', () => {
+  expect(
+    P.parseCreateAutomationRequest({ name: 'Nightly', schedule, check: { command: 'pnpm check' } }),
+  ).toEqual({ name: 'Nightly', prompt: '', schedule, check: { command: 'pnpm check' } })
+})
 rejects(P.parseEditAutomationRequest, { template: 'linear' }, 'template is chosen at creation')
 rejects(P.parseEditAutomationRequest, { checkout: 'yes' }, 'checkout must be true or false')
 rejects(P.parseDraftAutomationPromptRequest, {}, 'factory and request are required text')

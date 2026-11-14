@@ -485,6 +485,13 @@ export type OutcomeInput =
   | Exclude<ReportOutcomeRequest, { outcome: 'advance' }>
   | (Omit<AdvanceRequest, 'design'> & { design?: DesignSubmission })
 
+export interface CheckFailureInput {
+  automationId: string
+  firingId: string
+  factoryId: string
+  failures: readonly { key: string; title: string; description: string; note: string }[]
+}
+
 export interface Tasks {
   deliveryAllowed(runId: string): boolean
   failureContext(ref: string, id: string, caller: Caller): FailureContext
@@ -516,6 +523,7 @@ export interface Tasks {
   leadDone(ref: string, caller: Caller): Promise<Task>
   defaults(factoryId: string): Promise<TaskDefaults>
   setUpFactory(factoryId: string): Promise<Task | undefined>
+  checkFailed(input: CheckFailureInput): Promise<{ created: string[]; updated: string[] }>
   newSetupTask(factoryId: string): Promise<Task>
   board(factoryId: string): Promise<FactoryBoard>
   start(ref: string, request?: import('@ted/protocol').StartTaskRequest): Promise<Task>
@@ -7715,6 +7723,45 @@ export function createTasks(options: {
   const runsInBypass = (resolution: WorkflowResolution | undefined) =>
     resolution?.workflow.settings.permissions === 'bypass'
 
+  async function checkFailed(
+    input: CheckFailureInput,
+  ): Promise<{ created: string[]; updated: string[] }> {
+    const factory = store.getFactory(input.factoryId)
+    if (!factory || removingFactories.has(factory.id)) return { created: [], updated: [] }
+    const open = new Map<string, string>()
+    for (const { taskId, key } of store.automations.checkTasks(input.automationId)) {
+      const task = store.getTask(taskId)
+      if (task && !task.archived && task.stage !== 'done') open.set(key, taskId)
+    }
+    const resolution = await resolveWorkflow(factory, { fetch: false }).catch(() => undefined)
+    const created: string[] = []
+    const updated: string[] = []
+    for (const failure of input.failures) {
+      const existing = open.get(failure.key)
+      if (existing !== undefined) {
+        store.postComment({
+          taskId: existing,
+          kind: 'note',
+          author: { kind: 'ted' },
+          body: failure.note,
+        })
+        updated.push(existing)
+        continue
+      }
+      const task = await store.createTask({
+        title: failure.title,
+        description: failure.description,
+        factoryId: factory.id,
+        lead: { ...leadFrom(resolution?.workflow.settings), effortMode: 'stage' },
+        automation: { automationId: input.automationId, firingId: input.firingId },
+        checkFailure: failure.key,
+      })
+      open.set(failure.key, task.id)
+      created.push(task.id)
+    }
+    return { created, updated }
+  }
+
   function holdInBacklog(taskId: string, automationName: string): Task {
     store.postComment({
       taskId,
@@ -9348,6 +9395,7 @@ export function createTasks(options: {
     },
 
     asanaPreview,
+    checkFailed,
     importAsana: (input, caller) => importAsana(input, caller),
 
     async setUpFactory(factoryId) {

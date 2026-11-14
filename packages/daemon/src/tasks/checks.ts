@@ -103,7 +103,7 @@ export function supportsTestReporting(command: string): boolean {
 
 export async function runChecks(input: {
   checks: readonly RunnableCheck[]
-  taskDisplayId: string
+  taskDisplayId?: string
   libraryDir: string
   env: NodeJS.ProcessEnv
   logFor: (position: number) => string
@@ -163,11 +163,15 @@ export async function runChecks(input: {
 }
 
 export function checkEnv(
-  taskDisplayId: string,
+  taskDisplayId: string | undefined,
   repoEnv: Record<string, string>,
   base: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
-  return worktreeCommandEnv(repoEnv, { CI: '1', TED_TASK: taskDisplayId }, base)
+  return worktreeCommandEnv(
+    repoEnv,
+    { CI: '1', ...(taskDisplayId !== undefined && { TED_TASK: taskDisplayId }) },
+    base,
+  )
 }
 
 async function checkSettings(

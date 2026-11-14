@@ -14,6 +14,7 @@ import {
 } from './helpers.ts'
 
 import { observe } from './support/execution-observations.ts'
+import { skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -109,7 +110,8 @@ const log = (kind: string) =>
 
 test.runIf(process.platform === 'darwin')(
   'setup and agent-edited teardown use private caches and cannot read or write the rest of TED_HOME',
-  async () => {
+  async (context) => {
+    skipInsideTedSandbox(context)
     process.env.TED_SANDBOX_BIN = '/usr/bin/sandbox-exec'
     const outside = path.join(home, 'escaped')
     const secret = path.join(home, 'private-secret')

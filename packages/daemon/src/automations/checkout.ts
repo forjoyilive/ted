@@ -42,6 +42,7 @@ export interface Checkouts {
     automationId: string
     name: string
     factory: StoredFactory
+    signal?: AbortSignal
   }): Promise<Checkout>
   restore(input: {
     runId: string
@@ -122,7 +123,11 @@ export function createCheckouts(options: {
     }
   }
 
-  async function setUp(checkout: Checkout, entries: FactoryRepoEntry[]): Promise<void> {
+  async function setUp(
+    checkout: Checkout,
+    entries: FactoryRepoEntry[],
+    signal?: AbortSignal,
+  ): Promise<void> {
     for (const entry of entries) {
       const repo = checkout.repos.find((r) => r.name === entry.name)
       if (!repo || !entry.setup) continue
@@ -145,12 +150,14 @@ export function createCheckouts(options: {
         env: worktreeCommandEnv(repo.env, {}, options.env()),
         log,
         lowPriority: options.store.settings().lowPriorityWork,
+        ...(signal !== undefined && { signal }),
         sandbox: {
           sandbox: options.sandbox,
           scope: scopeOf(checkout),
           tmpRoot: tmpRootOf(checkout.runId),
         },
       })
+      if (result.outcome === 'interrupted') throw new SetupFailed('The setup was stopped.')
       if (result.outcome !== 'passed') {
         const tail = await outputTail(log).catch(() => '')
         const how =
@@ -205,7 +212,7 @@ export function createCheckouts(options: {
           await copyFiles(options.store.localFolder(entry.repo), repo.worktree, entry.copy)
         }
         const checkout = checkoutOf(input, repos, workflow.settings.sandbox_sockets ?? [], commit)
-        await setUp(checkout, entries)
+        await setUp(checkout, entries, input.signal)
         live.set(input.runId, checkout)
         return checkout
       } catch (error) {

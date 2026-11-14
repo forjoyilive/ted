@@ -16,6 +16,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { createSandbox, SandboxUnavailable, unixSocketPaths } from '../src/sandbox.ts'
+import { skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
 const execFileAsync = promisify(execFile)
 
@@ -63,6 +64,18 @@ async function inSandbox(script: string, sockets: string[] = []) {
   )
 }
 
+const socketPathLimit = process.platform === 'darwin' ? 103 : 107
+
+function skipLongSockets(
+  context: { skip: (condition: boolean, note?: string) => void },
+  sockets: readonly string[],
+): void {
+  context.skip(
+    sockets.some((socket) => Buffer.byteLength(socket) > socketPathLimit),
+    `the temp folder ${tmpdir()} is too deep for a Unix socket path (at most ${socketPathLimit} bytes here), as it is inside TED’s sandbox`,
+  )
+}
+
 async function listen(socket: string): Promise<Server> {
   const server = createServer((connection) => connection.end())
   await new Promise<void>((resolve) => server.listen(socket, resolve))
@@ -77,7 +90,8 @@ const tryRead = (file: string) => `cat '${file}' >/dev/null 2>&1 && echo read ||
 
 describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
   let saves: string
-  beforeEach(async () => {
+  beforeEach(async (context) => {
+    skipInsideTedSandbox(context)
     const { stdout } = await execFileAsync('/usr/bin/getconf', ['DARWIN_USER_TEMP_DIR'])
     saves = path.join(await realpath(stdout.trim()), 'TemporaryItems')
   })
@@ -293,7 +307,7 @@ describe('the folders a sandbox opens', () => {
 
   test.skipIf(tmpdir().startsWith('/tmp'))(
     'on Linux, sockets outside the Task are covered and listed ones stay open',
-    async () => {
+    async (context) => {
       const runtime = path.join(outside, 'run')
       await mkdir(runtime)
       const listed = path.join(outside, 'listed.sock')
@@ -302,6 +316,7 @@ describe('the folders a sandbox opens', () => {
       const inClone = path.join(clone, 'c.s')
       const own = path.join(worktree, 'o.s')
       const sockets = [listed, listedInRuntime, other, inClone, own]
+      skipLongSockets(context, sockets)
       const servers = await Promise.all(sockets.map(listen))
       try {
         const names = [
@@ -370,8 +385,9 @@ describe('the folders a sandbox opens', () => {
     )
   })
 
-  test('on Linux, a socket named through a linked folder and .. is covered where it really is', async () => {
+  test('on Linux, a socket named through a linked folder and .. is covered where it really is', async (context) => {
     const service = path.join(clone, 's')
+    skipLongSockets(context, [path.join(service, 'c.s')])
     await mkdir(path.join(service, 'n'), { recursive: true })
     await symlink(path.join(service, 'n'), path.join(clone, 'l'))
     const server = await listen(path.join(service, 'c.s'))
@@ -393,8 +409,9 @@ describe('the folders a sandbox opens', () => {
     }
   })
 
-  test('on Linux, a socket in a clone is covered even when TED_HOME sits in the runtime folder', async () => {
+  test('on Linux, a socket in a clone is covered even when TED_HOME sits in the runtime folder', async (context) => {
     const inClone = path.join(clone, 'c.s')
+    skipLongSockets(context, [inClone])
     const server = await listen(inClone)
     try {
       const sandbox = createSandbox({
