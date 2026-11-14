@@ -1,6 +1,14 @@
 import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { closeSync, openSync, readFileSync, readSync, writeFileSync, writeSync } from 'node:fs'
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  readSync,
+  writeFileSync,
+  writeSync,
+} from 'node:fs'
 import { createInterface } from 'node:readline'
 import { pathToFileURL } from 'node:url'
 import { watchExitWith } from '../../exit-with.ts'
@@ -124,6 +132,7 @@ const forwardInput = () => {
   try {
     fd = openSync(files.input, 'r')
   } catch {
+    if (!existsSync(runDir)) stop()
     return
   }
   try {

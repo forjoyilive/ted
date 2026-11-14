@@ -220,6 +220,23 @@ describe('Runs', () => {
       'finished',
     )
   })
+  test('a host whose Run folder is deleted stops its agent and exits', async () => {
+    const client = await startWithStub()
+    const run = await client.startRun([{ waitFor: path.join(cwd, 'never') }], cwd)
+    const start = await waitUntil(
+      async () => (await hostRecords(home, run.id)).find((r) => r.t === 'start'),
+      'the host to start',
+    )
+    await daemon?.stop()
+    daemon = undefined
+
+    await rm(path.join(home, 'runs', run.id), { recursive: true, force: true })
+
+    await waitUntil(
+      () => (!isAlive(Number(start.hostPid)) && !isAlive(Number(start.agentPid))) || undefined,
+      'the host and its agent to exit',
+    )
+  })
   test('a host that exits while the daemon is stopped keeps its whole backlog', async () => {
     let client = await startWithStub()
     const gate = path.join(cwd, 'go')
