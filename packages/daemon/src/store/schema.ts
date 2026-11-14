@@ -1707,6 +1707,61 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  trackerItemSeen: Events.synced({
+    name: 'v1.TrackerItemSeen',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      tracker: Schema.String,
+      item: Schema.String,
+      closed: Schema.Boolean,
+      state: Schema.String,
+      group: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  trackerItemMoved: Events.synced({
+    name: 'v1.TrackerItemMoved',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      tracker: Schema.String,
+      item: Schema.String,
+      step: Schema.String,
+      state: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  trackerSyncAllowed: Events.synced({
+    name: 'v1.TrackerSyncAllowed',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      tracker: Schema.String,
+      item: Schema.String,
+      by: Schema.String,
+      account: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  trackerGroupSyncAllowed: Events.synced({
+    name: 'v1.TrackerGroupSyncAllowed',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      tracker: Schema.String,
+      item: Schema.String,
+      group: Schema.String,
+      account: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  trackerPullRequestsLinked: Events.synced({
+    name: 'v1.TrackerPullRequestsLinked',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      tracker: Schema.String,
+      item: Schema.String,
+      urls: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   taskUnarchived: Events.synced({
     name: 'v1.TaskUnarchived',
     schema: Schema.Struct({
@@ -3339,6 +3394,19 @@ const runStarted = (args: Args): Logged => ({
   },
 })
 
+export const trackerSyncLog = [
+  'v1.LinearIssueSeen',
+  'v1.LinearIssueMoved',
+  'v1.LinearSyncAllowed',
+  'v1.LinearTeamSyncAllowed',
+  'v1.LinearPullRequestsLinked',
+  'v1.TrackerItemSeen',
+  'v1.TrackerItemMoved',
+  'v1.TrackerSyncAllowed',
+  'v1.TrackerGroupSyncAllowed',
+  'v1.TrackerPullRequestsLinked',
+]
+
 const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskCreated': (args) => ({ taskId: str(args.id), at: String(args.createdAt) }),
   'v1.SetupTaskCreated': (args) => ({ taskId: str(args.taskId), at: String(args.at) }),
@@ -3394,6 +3462,27 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     task(args, { identifier: args.identifier, step: args.step, state: args.state }),
   'v1.LinearPullRequestsLinked': (args) =>
     task(args, { identifier: args.identifier, urls: args.urls }),
+  'v1.TrackerItemSeen': (args) =>
+    task(args, {
+      tracker: args.tracker,
+      item: args.item,
+      closed: args.closed,
+      state: args.state,
+      group: args.group,
+    }),
+  'v1.TrackerItemMoved': (args) =>
+    task(args, { tracker: args.tracker, item: args.item, step: args.step, state: args.state }),
+  'v1.TrackerSyncAllowed': (args) =>
+    task(args, { tracker: args.tracker, item: args.item, by: args.by, account: args.account }),
+  'v1.TrackerGroupSyncAllowed': (args) =>
+    task(args, {
+      tracker: args.tracker,
+      item: args.item,
+      group: args.group,
+      account: args.account,
+    }),
+  'v1.TrackerPullRequestsLinked': (args) =>
+    task(args, { tracker: args.tracker, item: args.item, urls: args.urls }),
   'v1.TaskUnarchived': (args) => task(args, { queued: args.rank !== null }),
   'v1.TaskReset': (args) => task(args, { clarifyDepth: args.clarifyDepth }),
   'v1.TaskFollowsUp': (args) => task(args, { originalId: args.originalId }),
@@ -3708,6 +3797,11 @@ const materializers = counted(
       'v1.LinearTeamSyncAllowed': () => [],
       'v1.LinearIssueMoved': () => [],
       'v1.LinearPullRequestsLinked': () => [],
+      'v1.TrackerItemSeen': () => [],
+      'v1.TrackerItemMoved': () => [],
+      'v1.TrackerSyncAllowed': () => [],
+      'v1.TrackerGroupSyncAllowed': () => [],
+      'v1.TrackerPullRequestsLinked': () => [],
       'v1.GitHubActivityHeld': () => [],
       'v1.AppStarted': () => [],
       'v1.AppStopped': () => [],
@@ -4035,7 +4129,7 @@ const materializers = counted(
         comments.delete().where({ taskId }),
         requestSnoozes.delete().where({ ownerId: taskId }),
         messageDrafts.delete().where({ taskId }),
-        taskLog.delete().where({ taskId, name: { op: 'NOT LIKE', value: 'v1.Linear%' } }),
+        taskLog.delete().where({ taskId, name: { op: 'NOT IN', value: trackerSyncLog } }),
         taskBriefs.delete().where({ taskId }),
         peerMessages.delete().where({ recipientTaskId: taskId }),
         taskDescriptions.delete().where({ taskId }),

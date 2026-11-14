@@ -1,50 +1,29 @@
 import { type LinearUrl, parseLinearUrl, type Task } from '@ted/protocol'
-import { type Clock, systemClock, type Timer } from '../clock.ts'
+import type { Clock } from '../clock.ts'
 import {
   type Linear,
   type LinearIssueState,
   type LinearWorkflowState,
   linearIssueKey,
 } from '../linear/linear.ts'
-import { redactSecrets } from '../redact.ts'
+import { type LinearStep, linearSteps, type TedStore } from '../store/index.ts'
+import type { TrackerConnector, TrackerItem, TrackerRecords } from './tracker-sync/connector.ts'
 import {
-  type LinearStep,
-  type LinearSyncRecord,
-  linearSteps,
-  type TedStore,
-} from '../store/index.ts'
-import { clean } from './github-activity.ts'
+  createTrackerSync,
+  type TrackerSync,
+  type TrackerTaskActions,
+} from './tracker-sync/sync.ts'
 
 export type LinearSyncApi = Pick<Linear, 'issueStates' | 'teamStates' | 'moveIssue' | 'linkUrl'>
-
-export interface LinearClosed {
-  identifier: string
-  state: string
-  stateType: string
-}
-
-export interface LinearSync {
-  close(): void
-}
 
 export interface LinearSyncOptions {
   store: TedStore
   linear: LinearSyncApi
+  actions: TrackerTaskActions
   clock?: Clock
   everyMs: number
-  closed(taskId: string, issue: LinearClosed): Promise<void>
-  settled(taskId: string, why: 'reopened' | 'done'): void
   inBackground(what: string, work: () => Promise<void>): void
 }
-
-interface Watched {
-  task: Task
-  link: LinearUrl
-  merged: boolean
-  record: LinearSyncRecord
-}
-
-const maxStateName = 80
 
 export function isClosedType(type: string): boolean {
   return type === 'completed' || type === 'canceled'
@@ -110,118 +89,138 @@ export function linearMove(
   return { step: target, move: rankOf(state) < stepRank(target) }
 }
 
-function pullRequestLinks(task: Task): { url: string; title: string }[] {
-  return task.repos.flatMap((repo) => {
-    const pr = repo.pullRequest
-    return pr && !repo.removed ? [{ url: pr.url, title: `${repo.repo}#${pr.number}` }] : []
-  })
-}
-
-export function createLinearSync(options: LinearSyncOptions): LinearSync {
-  const { store, linear } = options
-  const clock = options.clock ?? systemClock
-  let timer: Timer | undefined
-  let closed = false
-
-  function schedule(): void {
-    if (closed) return
-    timer = clock.timeout(() => {
-      options.inBackground('sync Tasks with Linear', () => cycle().finally(schedule))
-    }, options.everyMs)
-    timer.unref()
+export function linearConnector(
+  linearApi?: LinearSyncApi,
+): TrackerConnector<LinearUrl, LinearIssueState> {
+  const linear = (): LinearSyncApi => {
+    if (!linearApi) throw new Error('Linear sync has no Linear API')
+    return linearApi
   }
-
-  function mayNeedSync(id: string, open: boolean): boolean {
-    if (!store.isMerged(id)) return open
-    const record = store.linearSync(id)
-    return (
-      record.step !== 'done' || store.taskPullRequestUrls(id).some((url) => !record.linked.has(url))
-    )
-  }
-
-  function watched(): Watched[] {
-    const outlines = new Map(store.taskOutlines().map((task) => [task.id, task]))
-    const ids = store.taskSourceUrls().flatMap(({ taskId, url }) => {
-      const task = outlines.get(taskId)
-      if (!task || !parseLinearUrl(url)) return []
-      return mayNeedSync(taskId, !task.archived && task.stage !== 'done') ? [taskId] : []
-    })
-    return store.tasksIn(new Set(ids)).flatMap((task): Watched[] => {
-      const link = task.source && parseLinearUrl(task.source.url)
-      if (!link) return []
-      return [{ task, link, merged: store.isMerged(task.id), record: store.linearSync(task.id) }]
-    })
-  }
-
-  async function cycle(): Promise<void> {
-    if (closed || !store.settings().linearSync) return
-    const list = watched()
-    if (list.length === 0) return
-    const issues = await linear.issueStates(list.map((w) => w.link))
-    if (!issues) return
-    for (const item of list) {
-      if (closed) return
-      const issue = issues.get(linearIssueKey(item.link.workspace, item.link.identifier))
-      if (!issue) continue
-      await syncOne(item, issue).catch((error: unknown) =>
-        console.error(
-          redactSecrets(`couldn’t sync ${item.task.displayId} with Linear: ${String(error)}`),
-        ),
-      )
-    }
-  }
-
-  async function syncOne({ task, link, merged, record }: Watched, issue: LinearIssueState) {
-    const identifier = link.identifier
-    const state = clean(issue.state.name, maxStateName)
-    const stateType = issue.state.type
-    const before = record.seen
-    const team = issue.teamKey
-    if (before?.stateType !== stateType || before.state !== state || before.team !== team) {
-      store.linearIssueSeen(task.id, identifier, { stateType, state, team })
-    }
-    if (store.getTask(task.id)?.linearSync !== 'on') return
-    const open = !task.archived && task.stage !== 'done'
-    const issueClosed = open && isClosedType(stateType)
-    if (issueClosed && before !== undefined && !isClosedType(before.stateType)) {
-      await options.closed(task.id, { identifier, state, stateType })
-    }
-    if (!open) options.settled(task.id, 'done')
-    else if (!issueClosed && before !== undefined && isClosedType(before.stateType)) {
-      options.settled(task.id, 'reopened')
-    }
-    if (!merged && store.getTask(task.id)?.archived) return
-    const decision = linearMove(task, merged, record.step, issue.state)
-    if (decision) {
-      const target = decision.step
-      let moved: string | undefined
-      if (decision.move) {
-        const next = pickState(await linear.teamStates(issue.teamId), target)
-        if (next) {
-          await linear.moveIssue(issue.id, next.id)
-          moved = clean(next.name, maxStateName)
-        }
-      }
-      store.linearIssueMoved(task.id, identifier, target, moved)
-    }
-    const fresh = pullRequestLinks(task).filter((l) => !record.linked.has(l.url))
-    const linked: string[] = []
-    try {
-      for (const { url, title } of fresh) {
-        await linear.linkUrl(issue.id, url, title)
-        linked.push(url)
-      }
-    } finally {
-      if (linked.length > 0) store.linearPullRequestsLinked(task.id, identifier, linked)
-    }
-  }
-
-  schedule()
-
   return {
-    close() {
-      closed = true
-      timer?.cancel()
+    id: 'linear',
+    name: 'Linear',
+    groupNoun: 'team',
+    enabled: (settings) => settings.linearSync,
+    source: (url) => parseLinearUrl(url),
+    key: (link) => linearIssueKey(link.workspace, link.identifier),
+    label: (link) => link.identifier,
+    async read(links) {
+      const issues = await linear().issueStates(links)
+      if (!issues) return undefined
+      const items = new Map<string, TrackerItem<LinearIssueState>>()
+      for (const [key, issue] of issues) {
+        items.set(key, {
+          closed: isClosedType(issue.state.type),
+          state: issue.state.name,
+          group: { key: issue.teamKey, name: issue.teamKey },
+          handle: issue,
+        })
+      }
+      return { items }
+    },
+    steps: linearSteps,
+    async advance({ task, merged, step, item }) {
+      const previous = linearSteps.find((s) => s === step)
+      const decision = linearMove(task, merged, previous, item.handle.state)
+      if (!decision) return undefined
+      if (!decision.move) return { step: decision.step }
+      const next = pickState(await linear().teamStates(item.handle.teamId), decision.step)
+      if (!next) return { step: decision.step }
+      await linear().moveIssue(item.handle.id, next.id)
+      return { step: decision.step, moved: next.name }
+    },
+    async link(item, { url, title }) {
+      await linear().linkUrl(item.handle.id, url, title)
+    },
+    texts: {
+      closedTitle: (identifier, state) => `${identifier} was marked ${state} in Linear`,
+      closedBody: (identifier, state, pastSignOff) =>
+        pastSignOff
+          ? `Someone marked ${identifier} ${state} in Linear after you signed off on this Task. TED keeps going until you choose.`
+          : `Someone marked ${identifier} ${state} in Linear while this Task is still being worked on. TED keeps going until you choose.`,
+      groupTitle(team, factoryName) {
+        const named = team.name === team.key ? team.key : `${team.name} (${team.key})`
+        return `Sync ${named} issues with Linear for Automations in ${factoryName}?`
+      },
+      groupBody: ({ automation, task, label, group, factoryName }) =>
+        [
+          `${automation} made ${task} from ${label}. TED doesn’t change Linear issues for Tasks an Automation makes until you allow it for the issue’s team.`,
+          `If you allow ${group.key} for ${factoryName}, TED moves each issue to In Progress when its Task starts, to review at the sign-off before Merge, and to Done when the Task merges, and attaches the Task’s pull requests. It does this for ${group.key} Tasks Automations already made in ${factoryName}, too.`,
+          'Not now keeps them as they are, and TED won’t ask about this team again. You can change either in Settings → Integrations.',
+        ].join('\n\n'),
     },
   }
+}
+
+export function linearRecords(store: TedStore): TrackerRecords<LinearIssueState> {
+  return {
+    record(taskId) {
+      const { seen, step, linked } = store.linearSync(taskId)
+      return {
+        ...(seen && {
+          seen: { closed: isClosedType(seen.stateType), state: seen.state, group: seen.team },
+        }),
+        ...(step && { step }),
+        linked,
+      }
+    },
+    see(taskId, identifier, item) {
+      const before = store.linearSync(taskId).seen
+      const stateType = item.handle.state.type
+      const state = item.state
+      const team = item.handle.teamKey
+      if (before?.stateType !== stateType || before.state !== state || before.team !== team) {
+        store.linearIssueSeen(taskId, identifier, { stateType, state, team })
+      }
+    },
+    moved(taskId, identifier, step, state) {
+      const reached = linearSteps.find((s) => s === step)
+      if (reached) store.linearIssueMoved(taskId, identifier, reached, state)
+    },
+    linked(taskId, identifier, urls) {
+      store.linearPullRequestsLinked(taskId, identifier, urls)
+    },
+    syncState: (task) => task.linearSync,
+    allowTask(task, identifier) {
+      store.linearSyncAllowed(task.id, identifier)
+    },
+    groups: (settings, factoryId) => ({
+      allowed: settings.linearSyncTeams[factoryId] ?? [],
+      declined: settings.linearSyncDeclined[factoryId] ?? [],
+    }),
+    allowGroup: (factoryId, team, consents) =>
+      store.allowLinearTeam(
+        factoryId,
+        team,
+        consents.map(({ taskId, label }) => ({ taskId, identifier: label })),
+      ),
+    declineGroup(factoryId, team) {
+      const declined = store.settings().linearSyncDeclined
+      const listed = declined[factoryId] ?? []
+      if (!listed.includes(team)) {
+        store.updateSettings({
+          linearSyncDeclined: { ...declined, [factoryId]: [...listed, team] },
+        })
+      }
+    },
+    closedPurpose: { kind: 'linear-closed' },
+    isClosedQuestion: (comment) => comment.purpose?.kind === 'linear-closed',
+    groupAsk: (team) => ({ linearTeam: team }),
+    isGroupAsk: (comment) => comment.purpose?.kind === 'linear-team',
+    askedGroup: (comment) =>
+      comment.purpose?.kind === 'linear-team' ? comment.linearTeam?.key : undefined,
+    withdrawn: (why, at) => ({ kind: 'withdrawn', at, linear: why }),
+  }
+}
+
+export function createLinearSync(options: LinearSyncOptions): TrackerSync {
+  return createTrackerSync({
+    store: options.store,
+    connector: linearConnector(options.linear),
+    records: linearRecords(options.store),
+    actions: options.actions,
+    everyMs: options.everyMs,
+    inBackground: options.inBackground,
+    ...(options.clock && { clock: options.clock }),
+  })
 }

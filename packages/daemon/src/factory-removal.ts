@@ -4,6 +4,7 @@ import type {
   RepoRemoval,
   Task,
   TaskRef,
+  TrackerGroupLists,
 } from '@ted/protocol'
 import type { Automations } from './automations/automations.ts'
 import type { Banners } from './banners.ts'
@@ -108,6 +109,13 @@ export function createFactoryRemovals(options: {
         const { [factory.id]: _, ...teams } = settings.linearSyncTeams
         const { [factory.id]: __, ...declined } = settings.linearSyncDeclined
         const { [factory.id]: ___, ...outside } = settings.appsOutsideSandbox
+        const withoutFactory = (lists: TrackerGroupLists): TrackerGroupLists =>
+          Object.fromEntries(
+            Object.entries(lists).map(([tracker, byFactory]) => {
+              const { [factory.id]: _removed, ...rest } = byFactory
+              return [tracker, rest]
+            }),
+          )
         const { [factory.id]: removedScope, ...scopes } = settings.linearIntakeScopes
         const { [factory.id]: removedBoard, ...boards } = settings.boardViews
         const { [factory.id]: permissionsRemoved, ...permissions } = settings.factoryPermissions
@@ -119,6 +127,8 @@ export function createFactoryRemovals(options: {
           factoryPermissions: permissions,
           linearSyncTeams: teams,
           linearSyncDeclined: declined,
+          trackerSyncGroups: withoutFactory(settings.trackerSyncGroups),
+          trackerSyncDeclined: withoutFactory(settings.trackerSyncDeclined),
           appsOutsideSandbox: outside,
           boardViews: boards,
         })

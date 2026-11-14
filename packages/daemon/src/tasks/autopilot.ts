@@ -1,4 +1,4 @@
-import type { Comment, Task } from '@ted/protocol'
+import { type Comment, isTrackerGroupAsk, type Task } from '@ted/protocol'
 
 export function ordinaryAutopilotRequest(comment: Comment): boolean {
   if (
@@ -6,7 +6,7 @@ export function ordinaryAutopilotRequest(comment: Comment): boolean {
     comment.talk ||
     comment.permission ||
     comment.simulator ||
-    comment.linearTeam ||
+    isTrackerGroupAsk(comment) ||
     comment.sizeCheck ||
     comment.failed
   )

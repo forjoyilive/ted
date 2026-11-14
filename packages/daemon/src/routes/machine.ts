@@ -378,6 +378,8 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   },
   linearSyncTeams: (value) => teamsByFactory('linearSyncTeams', value),
   linearSyncDeclined: (value) => teamsByFactory('linearSyncDeclined', value),
+  trackerSyncGroups: (value) => groupsByTracker('trackerSyncGroups', value),
+  trackerSyncDeclined: (value) => groupsByTracker('trackerSyncDeclined', value),
   factoryPermissions() {
     throw new HttpError(400, 'Change permission mode through Factory settings on this computer')
   },
@@ -455,6 +457,31 @@ function teamsByFactory(name: string, value: unknown): Record<string, string[]> 
         throw new HttpError(400, `${name} lists Linear team keys like ENG for each Factory`)
       }
       return [factoryId, [...new Set(teams.map((t: string) => t.toUpperCase()))]]
+    }),
+  )
+}
+
+function groupsByTracker(name: string, value: unknown): Record<string, Record<string, string[]>> {
+  const problem = `${name} must list group IDs by Factory ID for each tracker`
+  const isObject = (v: unknown): v is Record<string, unknown> =>
+    typeof v === 'object' && v !== null && !Array.isArray(v)
+  if (!isObject(value)) throw new HttpError(400, problem)
+  return Object.fromEntries(
+    Object.entries(value).map(([tracker, byFactory]) => {
+      if (!/^[a-z][a-z0-9-]{0,31}$/.test(tracker) || !isObject(byFactory)) {
+        throw new HttpError(400, problem)
+      }
+      const lists = Object.entries(byFactory).map(([factoryId, groups]) => {
+        if (
+          !Array.isArray(groups) ||
+          groups.length > 100 ||
+          groups.some((g) => typeof g !== 'string' || g.trim() === '' || g.length > 200)
+        ) {
+          throw new HttpError(400, problem)
+        }
+        return [factoryId, [...new Set(groups.map((g: string) => g.trim()))]]
+      })
+      return [tracker, Object.fromEntries(lists)]
     }),
   )
 }
