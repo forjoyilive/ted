@@ -677,6 +677,7 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   }
 
   onMenuCommand.current = (command) => {
+    if (command.kind === 'shortcuts') return setSheetOpen(true)
     if (offline) return
     if (command.kind === 'open-inbox') dispatch({ type: 'open', screen: { kind: 'inbox' } })
     if (command.kind === 'open-all-tasks') {
@@ -691,7 +692,6 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
       })
     }
     if (command.kind === 'new-task') openNewTask()
-    if (command.kind === 'shortcuts') setSheetOpen(true)
     if (command.kind === 'open-task') {
       dispatch({ type: 'open-task', taskId: command.taskId, factoryId: command.factoryId })
     }

@@ -595,7 +595,7 @@ function run(command: MenuCommand): void {
 async function reportProblem(): Promise<void> {
   const report = await client?.getReport().catch(() => undefined)
   if (report) clipboard.writeText(report.text)
-  await shell.openExternal(newIssueUrl)
+  await shell.openExternal(newIssueUrl(report !== undefined))
 }
 
 function toElectron(entries: MenuEntry[]): MenuItemConstructorOptions[] {

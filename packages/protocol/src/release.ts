@@ -4,7 +4,14 @@ export const releasesUrl = `https://github.com/${releaseRepo.owner}/${releaseRep
 
 export const downloadUrl = `${releasesUrl}/latest`
 
-const newIssueBody =
-  'What happened, and what did you expect?\n\n\n\nDiagnostic report (TED copied it to your clipboard; paste it here):\n\n'
+const newIssueBodies = {
+  copied:
+    'What happened, and what did you expect?\n\n\n\nDiagnostic report (TED copied it to your clipboard; paste it here):\n\n',
+  missing:
+    'What happened, and what did you expect?\n\n\n\nTED couldn’t make a diagnostic report because its background service didn’t answer.\n',
+}
 
-export const newIssueUrl = `https://github.com/${releaseRepo.owner}/${releaseRepo.repo}/issues/new?body=${encodeURIComponent(newIssueBody)}`
+export function newIssueUrl(reportCopied: boolean): string {
+  const body = newIssueBodies[reportCopied ? 'copied' : 'missing']
+  return `https://github.com/${releaseRepo.owner}/${releaseRepo.repo}/issues/new?body=${encodeURIComponent(body)}`
+}
