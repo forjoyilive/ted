@@ -130,11 +130,13 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
   const { epoch } = useConnection()
   const id = useId()
   const scopeKey = JSON.stringify(scope ?? null)
+  const loaded = settings !== undefined
 
   useEffect(() => {
     void epoch
     void retry
     void scopeKey
+    if (!loaded) return
     let live = true
     void ted
       .getAsana()
@@ -164,7 +166,7 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
     return () => {
       live = false
     }
-  }, [epoch, retry, scopeKey, factoryId])
+  }, [epoch, retry, scopeKey, factoryId, loaded])
 
   const listKey = `${epoch}:${retry}`
   const workspaceGid = choice.workspace?.gid
@@ -186,11 +188,11 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
   const ready = connected === true && choice.on
   const workspaces = usePagedList(ready ? loadWorkspaces : undefined, listKey)
   const projects = usePagedList(
-    ready && checked && workspaceGid && !staleWorkspace ? loadProjects : undefined,
+    ready && check && workspaceGid && !staleWorkspace ? loadProjects : undefined,
     `${listKey}:${workspaceGid}`,
   )
   const sections = usePagedList(
-    ready && checked && projectGid && !staleProject ? loadSections : undefined,
+    ready && check && projectGid && !staleProject ? loadSections : undefined,
     `${listKey}:${projectGid}`,
   )
   const listError = workspaces.error ?? projects.error ?? sections.error
@@ -212,7 +214,7 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
     setSaving(true)
     setSaveError(undefined)
     try {
-      await ted.setFactoryAsanaIntake(
+      const result = await ted.setFactoryAsanaIntake(
         factoryId,
         choice.on && choice.workspace && choice.project
           ? {
@@ -222,6 +224,11 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
             }
           : null,
       )
+      const confirmed = result.asanaIntakeScopes[factoryId]
+      setChecked({
+        key: JSON.stringify(confirmed ?? null),
+        value: confirmed ? { state: 'current', scope: confirmed } : { state: 'none' },
+      })
       setDraft(undefined)
     } catch (failure) {
       setSaveError(readableError(failure))

@@ -238,7 +238,7 @@ test('a stale check that answers after the lists shows no read error and leaves 
       )
     },
   })
-  await waitFor(() => expect(within(select('Workspace')).getByText('Acme')).toBeTruthy())
+  await waitFor(() => expect(within(select('Workspace')).getByText('Workspace 001')).toBeTruthy())
   await new Promise((resolve) => setTimeout(resolve, 0))
   const listed = (name: string) => request.mock.calls.some(([called]) => called === name)
   expect(listed('listAsanaProjects')).toBe(false)
@@ -248,5 +248,39 @@ test('a stale check that answers after the lists shows no read error and leaves 
   await waitFor(() => expect(within(select('Project')).getByText('Other')).toBeTruthy())
   expect(select('Project').disabled).toBe(false)
   expect(listed('listAsanaSections')).toBe(false)
+  expect(screen.queryByText(/Couldn’t read Asana/)).toBeNull()
+})
+
+test('when the saved choice changes, the lists wait for its own check', async () => {
+  const next = deferred<AsanaIntakeCheck>()
+  const other = { gid: '8', name: 'Other' }
+  const { handle, emit, request } = setup(saved, {
+    listAsanaProjects: () => ({ items: [roadmap, other] }),
+    listAsanaSections: (project: unknown) => {
+      if (project === '8')
+        throw new Error(
+          'Couldn’t read Asana: Asana couldn’t find it. The saved choice stays as it was.',
+        )
+      return { items: [now] }
+    },
+  })
+  await waitFor(() => expect(within(select('Section (optional)')).getByText('Now')).toBeTruthy())
+  handle('checkFactoryAsanaIntake', () => next.promise)
+  emit({
+    type: 'settings-changed',
+    settings: {
+      ...defaultMachineSettings,
+      asanaIntakeScopes: { f: { workspace: acme, project: other } },
+    },
+  })
+  await screen.findByText('Saved: Other · Acme')
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const sectionsOf = (gid: string) =>
+    request.mock.calls.some(([name, project]) => name === 'listAsanaSections' && project === gid)
+  expect(sectionsOf('8')).toBe(false)
+  next.resolve({ state: 'stale', part: 'project', reason: 'Other is archived' })
+  await screen.findByText(/The saved project is out of date: Other is archived/)
+  await waitFor(() => expect(select('Project').disabled).toBe(false))
+  expect(sectionsOf('8')).toBe(false)
   expect(screen.queryByText(/Couldn’t read Asana/)).toBeNull()
 })
