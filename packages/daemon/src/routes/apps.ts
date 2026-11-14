@@ -71,4 +71,42 @@ export const appRoutes: Route[] = [
       return [200, await tasks.appLog(ref, { repo, name })]
     },
   },
+  {
+    method: 'GET',
+    path: /^\/runs\/([^/]+)\/apps$/,
+    runToken: true,
+    async handle({ params: [runId = ''], caller }, { tasks }) {
+      return [200, await tasks.listRunApps(runId, caller)]
+    },
+  },
+  jsonRoute(parseStartAppRequest, {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/apps\/start$/,
+    runToken: true,
+    async handle({ body: request, params: [runId = ''], caller }, { tasks }) {
+      return [200, await tasks.startRunApp(runId, caller, request)]
+    },
+  }),
+  jsonRoute(parseAppRef, {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/apps\/stop$/,
+    async handle({ body: request, params: [runId = ''], caller }, { tasks }) {
+      return [200, await tasks.stopRunApp(runId, caller, request)]
+    },
+  }),
+  jsonRoute(parseAppRef, {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/apps\/show$/,
+    async handle({ body: request, params: [runId = ''], caller }, { tasks }) {
+      return [200, await tasks.showRunApp(runId, caller, request)]
+    },
+  }),
+  {
+    method: 'GET',
+    path: /^\/runs\/([^/]+)\/apps\/([^/]+)\/([^/]+)\/log$/,
+    runToken: true,
+    async handle({ params: [runId = '', repo = '', name = ''], caller }, { tasks }) {
+      return [200, await tasks.runAppLog(runId, caller, { repo, name })]
+    },
+  },
 ]

@@ -59,6 +59,7 @@ import {
   remoteExecutionOn,
   runTokenFrom,
   type SetTaskReposRequest,
+  type StartAppRequest,
   type TaskLead,
   tedEnv,
   tedHome,
@@ -578,40 +579,108 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     }
   }
 
-  async function runApp(given: string | undefined): Promise<void> {
+  function appOwner() {
+    const runId = tedEnv('TED_RUN', env)
+    const automationRun =
+      options.task === undefined &&
+      !tedEnv('TED_TASK', env) &&
+      Boolean(tedEnv('TED_AUTOMATION', env)) &&
+      Boolean(runId)
+    if (automationRun && runId) {
+      return {
+        what: 'this Run',
+        ends: 'the Run ends',
+        list: (client: DaemonClient) => client.listRunApps(runId),
+        start: (client: DaemonClient, app: StartAppRequest) => client.startRunApp(runId, app),
+        log: (client: DaemonClient, app: { repo: string; name: string }) =>
+          client.runAppLog(runId, app),
+      }
+    }
     const ref = taskRef()
+    return {
+      what: 'this Task',
+      ends: 'the human stops it or the Task ends',
+      list: (client: DaemonClient) => client.listApps(ref),
+      start: (client: DaemonClient, app: StartAppRequest) => client.startApp(ref, app),
+      log: (client: DaemonClient, app: { repo: string; name: string }) => client.appLog(ref, app),
+    }
+  }
+
+  async function findApp(
+    client: DaemonClient,
+    owner: ReturnType<typeof appOwner>,
+    given: string | undefined,
+  ): Promise<{ name: string; repo: string }> {
+    const apps = (await owner.list(client)).filter(
+      (a) => options.repo === undefined || a.repo === options.repo,
+    )
+    const matches = given === undefined ? apps : apps.filter((a) => a.name === given)
+    const [only] = matches
+    if (matches.length !== 1 || only === undefined) {
+      throw new UsageError(
+        apps.length === 0
+          ? `${owner.what} has no Apps`
+          : given === undefined
+            ? `name the App: ${apps.map((a) => printable(a.name)).join(', ')}`
+            : matches.length === 0
+              ? `no App named ${printable(given)}. Apps: ${apps.map((a) => printable(a.name)).join(', ')}`
+              : `name the repo with --repo: ${matches.map((a) => printable(a.repo)).join(', ')}`,
+      )
+    }
+    return { name: only.name, repo: only.repo }
+  }
+
+  async function appList(): Promise<void> {
+    const owner = appOwner()
+    const apps = await withDaemon(home, (client) => owner.list(client))
+    if (apps.length === 0) {
+      console.log(`${owner.what === 'this Run' ? 'This Run' : 'This Task'} has no Apps.`)
+      return
+    }
+    for (const app of apps) {
+      const where = app.url ?? (app.port !== undefined ? `port ${app.port}` : app.simulator?.device)
+      const state = app.state === 'failed' && app.problem ? `failed: ${app.problem}` : app.state
+      console.log(
+        printable(
+          [app.name, app.repo, app.kind, state, where]
+            .filter((part) => part !== undefined)
+            .join(' · '),
+        ),
+      )
+    }
+  }
+
+  async function appLog(given: string): Promise<void> {
+    const owner = appOwner()
+    const log = await withDaemon(home, async (client) =>
+      owner.log(client, await findApp(client, owner, given)),
+    )
+    console.log(printable(log.text))
+  }
+
+  async function runApp(given: string | undefined): Promise<void> {
+    const owner = appOwner()
     const { app, log } = await withDaemon(home, async (client) => {
       let wanted: { name: string; repo?: string } | undefined =
         given === undefined
           ? undefined
           : { name: given, ...(options.repo && { repo: options.repo }) }
-      if (wanted === undefined) {
-        const apps = (await client.listApps(ref)).filter(
-          (a) => options.repo === undefined || a.repo === options.repo,
-        )
-        const [only] = apps
-        if (apps.length !== 1 || only === undefined) {
-          throw new UsageError(
-            apps.length === 0
-              ? 'this Task has no Apps'
-              : `name the App: ${apps.map((a) => printable(a.name)).join(', ')}`,
-          )
-        }
-        wanted = { name: only.name, repo: only.repo }
-      }
-      let app = await client.startApp(ref, {
+      if (wanted === undefined) wanted = await findApp(client, owner, undefined)
+      let app = await owner.start(client, {
         ...wanted,
         ...(options.reason !== undefined && { reason: options.reason }),
       })
       if (app.state === 'waiting') {
         console.error(
-          `Every simulator is booted, so TED asked the human which one to shut down. Waiting for an answer…`,
+          owner.what === 'this Run'
+            ? 'Every simulator slot is taken. Waiting for one to free up…'
+            : 'Every simulator is booted, so TED asked the human which one to shut down. Waiting for an answer…',
         )
       }
       while (app.state === 'starting' || app.state === 'waiting') {
         await sleep(500)
         const current = app
-        const found = (await client.listApps(ref)).find(
+        const found = (await owner.list(client)).find(
           (a) => a.repo === current.repo && a.name === current.name,
         )
         if (found === undefined || found.removed === true) {
@@ -624,21 +693,21 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       const log =
         app.state === 'running'
           ? undefined
-          : await client.appLog(ref, { repo: app.repo, name: app.name })
+          : await owner.log(client, { repo: app.repo, name: app.name })
       return { app, log }
     })
     const name = printable(app.name)
     if (app.state === 'running' && app.simulator !== undefined) {
       console.log(
-        `${name} is running on ${printable(app.simulator.device)}. It keeps running until the human stops it or the Task ends.`,
+        `${name} is running on ${printable(app.simulator.device)}. It keeps running until ${owner.ends}.`,
       )
       return
     }
     if (app.state === 'running') {
       console.log(
         app.url !== undefined
-          ? `${name} is running at ${printable(app.url)} (port ${app.port}). It keeps running until the human stops it or the Task ends.`
-          : `${name} is running on port ${app.port}. It keeps running until the human stops it or the Task ends.`,
+          ? `${name} is running at ${printable(app.url)} (port ${app.port}). It keeps running until ${owner.ends}.`
+          : `${name} is running on port ${app.port}. It keeps running until ${owner.ends}.`,
       )
       return
     }
@@ -1272,6 +1341,8 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       const sub = await withDaemon(home, (client) => client.stopSubAgent(args[0] ?? ''))
       console.log(`Stopped sub-agent “${printable(sub.name)}”`)
     },
+    appList,
+    appLog: () => appLog(args[0] ?? ''),
     runApp: async () => {
       await runApp(args[0])
     },

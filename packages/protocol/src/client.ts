@@ -1221,6 +1221,29 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/apps/record`, request)
   }
 
+  listRunApps(runId: string): Promise<TaskApp[]> {
+    return this.#request('GET', `/runs/${encodeURIComponent(runId)}/apps`)
+  }
+
+  startRunApp(runId: string, app: StartAppRequest): Promise<TaskApp> {
+    return this.#request('POST', `/runs/${encodeURIComponent(runId)}/apps/start`, app)
+  }
+
+  stopRunApp(runId: string, app: AppRef): Promise<TaskApp> {
+    return this.#request('POST', `/runs/${encodeURIComponent(runId)}/apps/stop`, app)
+  }
+
+  showRunApp(runId: string, app: AppRef): Promise<TaskApp> {
+    return this.#request('POST', `/runs/${encodeURIComponent(runId)}/apps/show`, app)
+  }
+
+  runAppLog(runId: string, app: { repo: string; name: string }): Promise<AppLog> {
+    return this.#request(
+      'GET',
+      `/runs/${encodeURIComponent(runId)}/apps/${encodeURIComponent(app.repo)}/${encodeURIComponent(app.name)}/log`,
+    )
+  }
+
   simulators(): Promise<SimulatorSlots> {
     return this.#request('GET', '/simulators')
   }
