@@ -53,7 +53,7 @@ const env = () => ({
 })
 
 describe('Plan in chat from a Task', () => {
-  test('Plan in chat opens a chat started from the Task; approval narrows the Task', async () => {
+  test('Plan in chat starts a chat the thread opens, without leaving the Task; approval narrows the Task', async () => {
     const parent = path.join(home, 'origin')
     const origin = await makeOriginRepo(parent)
     await commitToOrigin(parent, {
@@ -118,7 +118,18 @@ describe('Plan in chat from a Task', () => {
     await answer.getByRole('radio', { name: 'Plan in chat' }).check()
     await send.click()
 
+    await question.waitFor({ state: 'detached', timeout: 20_000 })
     const chat = window.getByRole('region', { name: 'Planning chat' })
+    expect(await chat.count()).toBe(0)
+    await window
+      .getByRole('navigation', { name: 'Sidebar' })
+      .getByRole('button', { name: 'All Tasks' })
+      .click()
+    await window.getByRole('row').filter({ hasText: 'NB-1' }).click()
+    const thread = window.getByRole('region', { name: 'Task thread' })
+    await thread.getByText(/^Planning in chat: /).waitFor({ timeout: 20_000 })
+    expect(await chat.count()).toBe(0)
+    await thread.getByRole('button', { name: 'Open chat' }).click()
     await chat.getByText('Planning chat · started from').waitFor({ timeout: 20_000 })
     await chat.getByRole('button', { name: 'NB-1' }).first().waitFor()
     const pane = window.getByRole('complementary', { name: 'Planning chat details' })
