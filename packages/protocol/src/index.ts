@@ -157,6 +157,9 @@ export {
   type BrowserRequest,
   type BrowserResult,
   browserActions,
+  browserViewport,
+  browserViewportLimits,
+  runOnlyBrowserActions,
 } from './browser.ts'
 export {
   parseBrowserPollRequest,

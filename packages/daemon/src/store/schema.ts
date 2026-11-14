@@ -243,6 +243,21 @@ export const taskBrowserCaptures = State.SQLite.table({
   },
 })
 
+export const runBrowserCaptures = State.SQLite.table({
+  name: 'runBrowserCaptures',
+  indexes: [{ name: 'idx_runBrowserCaptures_runId', columns: ['runId'] }],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    runId: State.SQLite.text(),
+    automationId: State.SQLite.text(),
+    hash: State.SQLite.text(),
+    name: State.SQLite.text(),
+    size: State.SQLite.integer(),
+    mediaType: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
 export const commentAttachments = State.SQLite.table({
   name: 'commentAttachments',
   indexes: [
@@ -1568,6 +1583,18 @@ export const events = {
     name: 'v1.TaskBrowserCaptureAdded',
     schema: Schema.Struct({
       taskId: Schema.String,
+      hash: Schema.String,
+      name: Schema.String,
+      size: Schema.Number,
+      mediaType: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  runBrowserCaptureAdded: Events.synced({
+    name: 'v1.RunBrowserCaptureAdded',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      automationId: Schema.String,
       hash: Schema.String,
       name: Schema.String,
       size: Schema.Number,
@@ -4046,6 +4073,10 @@ const materializers = counted(
         taskBrowserCaptures
           .insert({ id: `${taskId}:${hash}:${name}`, taskId, hash, name, ...rest })
           .onConflict('id', 'ignore'),
+      'v1.RunBrowserCaptureAdded': ({ runId, hash, name, ...rest }) =>
+        runBrowserCaptures
+          .insert({ id: `${runId}:${hash}:${name}`, runId, hash, name, ...rest })
+          .onConflict('id', 'ignore'),
       'v1.CommentAttachmentAdded': ({ commentId, hash, name, ...rest }) =>
         commentAttachments
           .insert({ id: `${commentId}:${hash}:${name}`, commentId, hash, name, ...rest })
@@ -4942,6 +4973,7 @@ const materializers = counted(
         automationComments.delete().where({ automationId: id }),
         automationCheckResults.delete().where({ automationId: id }),
         automationCheckTasks.delete().where({ automationId: id }),
+        runBrowserCaptures.delete().where({ automationId: id }),
         requestSnoozes.delete().where({ ownerId: id }),
       ],
       'v1.AutomationFired': ({ skipped, retryOf, slotAt, ...firing }) => [
@@ -5125,6 +5157,7 @@ const state = State.SQLite.makeState({
     deletedTasks,
     taskAttachments,
     taskBrowserCaptures,
+    runBrowserCaptures,
     commentAttachments,
     taskSources,
     runs,

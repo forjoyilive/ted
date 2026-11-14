@@ -59,6 +59,7 @@ import {
   readDaemonInfo,
   remoteExecutionOff,
   remoteExecutionOn,
+  runOnlyBrowserActions,
   runTokenFrom,
   type SetTaskReposRequest,
   type StartAppRequest,
@@ -894,22 +895,59 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       request.app = { name: args[0] ?? '', ...(options.repo && { repo: options.repo }) }
     if (action === 'click' || action === 'fill') request.ref = args[0] ?? ''
     if (action === 'fill') request.value = args[1] ?? (await readStdin())
-    if (action === 'press' || action === 'navigate') request.value = args[0] ?? ''
-    const ref = taskRef()
+    if (['press', 'navigate', 'resize', 'color-scheme'].includes(action))
+      request.value = args[0] ?? ''
+    const owner = browserOwner()
+    let parsed: BrowserRequest
+    try {
+      parsed = parseBrowserRequest(request)
+    } catch (error) {
+      if (error instanceof RequestValidationError) throw new UsageError(error.message)
+      throw error
+    }
+    if (!owner.run && runOnlyBrowserActions.includes(action))
+      throw new UsageError(`ted browser ${action} works only in an Automation Run`)
     const browserClient = await withDaemon(home, async (client) => {
-      await client.listApps(ref)
+      await owner.check(client)
       return client
     })
-    const result = await browserClient.browserCommand(ref, parseBrowserRequest(request))
+    const result = await owner.command(browserClient, parsed)
     console.log(printable(result.text ?? result.url ?? 'Done'))
     if (result.attachment) {
       const attachment = result.attachment
-      const bytes = await withDaemon(home, (client) =>
-        client.readBrowserCapture(taskRef(), attachment.hash),
-      )
+      const bytes = await withDaemon(home, (client) => owner.capture(client, attachment.hash))
       const file = path.resolve(`ted-browser-${randomUUID()}.png`)
       await writeFile(file, Buffer.from(bytes.data, 'base64'), { flag: 'wx', mode: 0o600 })
-      console.log(`Saved ${printable(file)}. Attach with ted comment --attach <path>.`)
+      console.log(
+        owner.run
+          ? `Saved ${printable(file)}. Attach with ted task create --attach <path>.`
+          : `Saved ${printable(file)}. Attach with ted comment --attach <path>.`,
+      )
+    }
+  }
+
+  function browserOwner() {
+    const runId = tedEnv('TED_RUN', env)
+    if (
+      options.task === undefined &&
+      !tedEnv('TED_TASK', env) &&
+      tedEnv('TED_AUTOMATION', env) &&
+      runId
+    )
+      return {
+        run: true,
+        check: (client: DaemonClient) => client.listRunApps(runId),
+        command: (client: DaemonClient, request: BrowserRequest) =>
+          client.runBrowserCommand(runId, request),
+        capture: (client: DaemonClient, hash: string) => client.readRunBrowserCapture(runId, hash),
+      }
+    const ref = taskRef()
+    return {
+      run: false,
+      check: (client: DaemonClient) => client.listApps(ref),
+      command: (client: DaemonClient, request: BrowserRequest) =>
+        client.browserCommand(ref, request),
+      capture: (client: DaemonClient, hash: string) => client.readBrowserCapture(ref, hash),
     }
   }
 
@@ -1050,6 +1088,12 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     },
     browserReload: async () => {
       await browser('reload')
+    },
+    browserResize: async () => {
+      await browser('resize')
+    },
+    browserColorScheme: async () => {
+      await browser('color-scheme')
     },
     browserScreenshot: async () => {
       await browser('screenshot')

@@ -30,6 +30,23 @@ export const browserRoutes: Route[] = [
       return [200, await tasks.browserCommand(ref, caller, body)]
     },
   }),
+  jsonRoute(parseBrowserRequest, {
+    method: 'POST',
+    path: /^\/runs\/([^/]+)\/browser$/,
+    waits: true,
+    runToken: true,
+    async handle({ body, params: [runId = ''], caller }, { tasks }) {
+      return [200, await tasks.runBrowserCommand(runId, caller, body)]
+    },
+  }),
+  {
+    method: 'GET',
+    path: /^\/runs\/([^/]+)\/browser\/captures\/([^/]+)$/,
+    runToken: true,
+    async handle({ params: [runId = '', hash = ''], caller }, { tasks, attachments }) {
+      return [200, await attachments.read(tasks.runBrowserCapture(runId, caller, hash))]
+    },
+  },
   jsonRoute(parseBrowserPollRequest, {
     method: 'POST',
     path: /^\/browser\/poll$/,

@@ -35,6 +35,17 @@ const server = http.createServer((req, res) => {
       )
       return
     }
+    if (url.pathname === '/pages/one' || url.pathname === '/pages/two') {
+      res.setHeader('content-type', 'text/html')
+      const body =
+        url.pathname === '/pages/one'
+          ? '<h1>First page</h1><a href="/pages/two">Next page</a>'
+          : '<h1>Second page</h1><p>Done</p>'
+      res.end(
+        `<!doctype html><title>Pages fixture</title><style>body{background:#fff;color:#000}@media (prefers-color-scheme: dark){body{background:#000;color:#fff}}</style>${body}`,
+      )
+      return
+    }
     res.setHeader('content-type', 'text/html')
     res.end(
       `<!doctype html><title>Browser fixture</title><h1>Project</h1><label>Name <input aria-label="Name"></label><button onclick="document.querySelector('h1').textContent='Clicked'">Try it</button><input type="file"><script>globalThis.rtcAtLoad=typeof RTCPeerConnection;document.cookie='taskSession=yes';</script>`,

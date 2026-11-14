@@ -182,6 +182,7 @@ import {
   requestSnoozes,
   reviewers,
   reviewScopes,
+  runBrowserCaptures,
   runInterrupts,
   runMessages,
   runs,
@@ -5187,6 +5188,7 @@ export async function openStore({
           ),
         ...store.query(queryDb(taskAttachments)).map((a) => a.hash),
         ...store.query(queryDb(taskBrowserCaptures)).map((a) => a.hash),
+        ...store.query(queryDb(runBrowserCaptures)).map((a) => a.hash),
         ...store.query(queryDb(commentAttachments)).map((a) => a.hash),
       ]),
     postComment(input) {

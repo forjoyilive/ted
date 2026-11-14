@@ -556,8 +556,8 @@ export const commands = [
     handler: 'browserOpen',
     min: 1,
     max: 1,
-    help: '  ted browser open <App> [--repo <name>]      Open a running web App in this Task’s browser',
-    callers: 'Task Run',
+    help: '  ted browser open <App> [--repo <name>]      Open a running web App in this Task’s browser,\n                                             or this Automation Run’s headless browser',
+    callers: 'Task Run or Automation Run',
     options: options('task', 'repo'),
   },
   {
@@ -566,7 +566,7 @@ export const commands = [
     min: 0,
     max: 0,
     help: '  ted browser snapshot                        Read the page and element references',
-    callers: 'Task Run',
+    callers: 'Task Run or Automation Run',
     options: options('task'),
   },
   {
@@ -575,7 +575,7 @@ export const commands = [
     min: 1,
     max: 1,
     help: '  ted browser click <ref>                     Click an element from the latest snapshot',
-    callers: 'Task Run',
+    callers: 'Task Run or Automation Run',
     options: options('task'),
   },
   {
@@ -584,7 +584,7 @@ export const commands = [
     min: 1,
     max: 2,
     help: '  ted browser fill <ref> [<text>]             Fill a field (reads stdin without text)',
-    callers: 'Task Run',
+    callers: 'Task Run or Automation Run',
     options: options('task'),
   },
   {
@@ -593,7 +593,7 @@ export const commands = [
     min: 1,
     max: 1,
     help: '  ted browser press <key>                     Press Enter, Tab, Escape or an arrow key',
-    callers: 'Task Run',
+    callers: 'Task Run or Automation Run',
     options: options('task'),
   },
   {
@@ -602,7 +602,7 @@ export const commands = [
     min: 1,
     max: 1,
     help: '  ted browser navigate <path>                 Navigate within the selected App',
-    callers: 'Task Run',
+    callers: 'Task Run or Automation Run',
     options: options('task'),
   },
   {
@@ -611,7 +611,7 @@ export const commands = [
     min: 0,
     max: 0,
     help: '  ted browser back                            Go back in the same page',
-    callers: 'Task Run',
+    callers: 'Task Run or Automation Run',
     options: options('task'),
   },
   {
@@ -620,7 +620,7 @@ export const commands = [
     min: 0,
     max: 0,
     help: '  ted browser forward                         Go forward in the same page',
-    callers: 'Task Run',
+    callers: 'Task Run or Automation Run',
     options: options('task'),
   },
   {
@@ -629,8 +629,26 @@ export const commands = [
     min: 0,
     max: 0,
     help: '  ted browser reload                          Reload the same page',
-    callers: 'Task Run',
+    callers: 'Task Run or Automation Run',
     options: options('task'),
+  },
+  {
+    name: 'browser resize',
+    handler: 'browserResize',
+    min: 1,
+    max: 1,
+    help: '  ted browser resize <width>x<height>         Resize an Automation Run’s browser, such as 390x844',
+    callers: 'Automation Run',
+    options: options(),
+  },
+  {
+    name: 'browser color-scheme',
+    handler: 'browserColorScheme',
+    min: 1,
+    max: 1,
+    help: '  ted browser color-scheme light|dark         Show an Automation Run’s page in light or dark mode',
+    callers: 'Automation Run',
+    options: options(),
   },
   {
     name: 'browser screenshot',
@@ -638,7 +656,7 @@ export const commands = [
     min: 0,
     max: 0,
     help: '  ted browser screenshot                      Capture the same page; post explicitly with ted comment',
-    callers: 'Task Run',
+    callers: 'Task Run or Automation Run',
     options: options('task'),
   },
   {
