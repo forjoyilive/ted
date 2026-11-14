@@ -1200,7 +1200,8 @@ export async function openStore({
   const internals = store[StoreInternalsSymbol]
   const persisted = async () => {
     const committed = Effect.runSync(internals.syncProcessor.syncState.get).localHead
-    const deadline = Date.now() + persistTimeoutMs
+    let deadline = Date.now() + persistTimeoutMs
+    let last: typeof committed | undefined
     for (;;) {
       const written = Effect.runSync(internals.clientSession.leaderThread.syncState.get).localHead
       if (
@@ -1209,6 +1210,10 @@ export async function openStore({
       ) {
         return
       }
+      if (last && (written.global !== last.global || written.client !== last.client)) {
+        deadline = Date.now() + persistTimeoutMs
+      }
+      last = written
       if (Date.now() > deadline) throw new Error('the event log did not save in time')
       await new Promise((resolve) => setTimeout(resolve, 1))
     }

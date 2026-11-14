@@ -2,7 +2,7 @@
 
 `store.commit` in LiveStore returns once the event is in the client session’s in-memory state. The leader writes it to `eventlog@*.db` later, on a following turn of the event loop. A route that answered `201` straight after the commit could be killed (SIGKILL, crash) before that write, and the Task it reported as created was gone after a restart. A CLI test lost a just-created Task this way.
 
-`TedStore.persisted()` resolves once the leader’s head has reached the session’s head at the time of the call, so every event committed before it is in the event log file. It gives up with an error after 10 seconds. `server.ts` awaits it after every non-`GET` route in the main route table and before it sends the answer, so routes don’t call it themselves.
+`TedStore.persisted()` resolves once the leader’s head has reached the session’s head at the time of the call, so every event committed before it is in the event log file. It gives up with an error once the leader has written nothing for 10 seconds; while the leader keeps writing, a long backlog is waited out. `server.ts` awaits it after every non-`GET` route in the main route table and before it sends the answer, so routes don’t call it themselves.
 
 This covers the daemon process dying. Whether the operating system has flushed the file to the disk before a power cut is a separate question this decision doesn’t answer.
 
