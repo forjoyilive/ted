@@ -250,12 +250,13 @@ describe('Planning chats', () => {
     await chat.getByRole('heading', { name: 'Plan the next part' }).waitFor()
     const pane = window.getByRole('complementary', { name: 'Planning chat details' })
     await pane.getByRole('button', { name: 'Quick plan' }).waitFor()
+    await chat.getByText('Hi', { exact: true }).waitFor({ timeout: 30_000 })
     await chat.getByRole('button', { name: 'Stop', exact: true }).click()
     await chat
       .getByText('This planning chat stopped. Resume carries on where it left off.')
       .waitFor()
     await chat.getByRole('button', { name: 'Resume' }).waitFor()
-    await chat.getByText('Sending resumes the planner and gives it your message.').waitFor()
+    await chat.getByRole('textbox', { name: 'Message to this Run' }).waitFor()
 
     await chat.getByRole('button', { name: '← Plans' }).click()
     await list.getByRole('button', { name: /Past/ }).click()
