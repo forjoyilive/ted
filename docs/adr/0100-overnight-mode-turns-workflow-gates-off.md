@@ -12,7 +12,7 @@ The Gate is decided when the Task Lead reports `advance`, not at Stage entry. A 
 
 ## What stays on
 
-- Gates TED forces: `forcedGates` on a Task (Review on a Task that changes `.ted/`), and a setup Task’s Design and Review Gates. They are applied after `withoutGates`, so overnight mode cannot reach them. Clarify’s Gate is an ordinary Workflow Gate at every depth, grilling included, so overnight mode turns it off.
+- Gates TED forces: `forcedGates` on a Task (since TED-331 no new Task gets one; older drift merge Tasks keep Review), and a setup Task’s Design and Review Gates. They are applied after `withoutGates`, so overnight mode cannot reach them. Clarify’s Gate is an ordinary Workflow Gate at every depth, grilling included, so overnight mode turns it off.
 - A Gate whose request was already posted in this visit of the Stage, answered or not. An open request stays open and the Task waits; `ted outcome advance` is refused as before. Turning the mode on is not an approval, the same rule ADR 0095 uses for editing a Task’s Gates.
 - Everything that is not a Gate: questions and Clarify rounds, permission prompts, the Bypass confirmation, the sandbox, send-back limits, the size check, Validate’s Checks and reviewer, and the merge watcher’s own conditions (CI passed, mergeable, signed-off commit unchanged, required reviews).
 
