@@ -5,6 +5,7 @@ import type { Attachment, Effort, StageId } from './task.ts'
 
 export const automationTemplateIds = [
   'linear',
+  'asana',
   'sentry',
   'github',
   'architecture',

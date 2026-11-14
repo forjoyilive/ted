@@ -9,6 +9,14 @@ const linear = `Bring the Linear issues assigned to me into TED as Tasks.
 
 End with one line naming the Tasks you created, or “No new Tasks”.`
 
+const asana = `Bring my unfinished Asana work into TED as Backlog Tasks.
+
+1. Run \`ted asana intake\` once. TED reads this Factory’s chosen Asana project or section with my Asana connection, imports each unfinished task assigned to me with the tasks under it, and leaves alone what it already tracks.
+2. Don’t use your own Asana tools, don’t import Asana tasks any other way, and don’t change anything in Asana.
+3. If TED refuses, for example because no Asana intake project is chosen or Asana isn’t connected, don’t try again or work around it.
+
+End with one line: the Tasks TED imported, or that it imported nothing new, plus anything else TED reports: how many items were already tracked or left for the next run, which items it skipped, what it couldn’t list, and why it stopped early. Or TED’s refusal.`
+
 const sentry = `Turn new Sentry issues into Tasks, and catch fixes that didn’t hold.
 
 1. With your own Sentry tools (the Sentry MCP server or \`sentry-cli\`), list the unresolved issues in this Factory’s Sentry projects that are new or regressed since this Automation last ran. Skip issues with fewer than 5 events unless they crash the app.
@@ -63,6 +71,14 @@ export const automationTemplates: readonly AutomationTemplate[] = [
     summary:
       'Creates a Task for each new Linear issue assigned to you, using your own Linear tools.',
     prompt: linear,
+    schedule: { kind: 'every', every: 30, unit: 'minutes' },
+  },
+  {
+    id: 'asana',
+    name: 'Import my Asana work',
+    summary:
+      'Imports your unfinished Asana tasks from the Factory’s chosen project or section into Backlog.',
+    prompt: asana,
     schedule: { kind: 'every', every: 30, unit: 'minutes' },
   },
   {
