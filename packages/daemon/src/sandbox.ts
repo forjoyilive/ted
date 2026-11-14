@@ -155,6 +155,7 @@ export function createSandbox(options: {
         PIP_CACHE_DIR: cache('pip'),
         GOCACHE: cache('go-build'),
         GOMODCACHE: cache('go-mod'),
+        TED_SANDBOX: '1',
         ...(await makeBuildCaches(paths.tedHome, path.resolve(options.tedHome), paths.cache)),
       }
       if (platform === 'darwin') {

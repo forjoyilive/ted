@@ -48,6 +48,8 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_RUN_CAPABILITY:
     'Run authentication, or an invocation-bound reporting-only credential for Check commands.',
   TED_RUN_TOKEN: 'Legacy Run capability name retained for older running hosts.',
+  TED_SANDBOX:
+    'Marks commands run in TED’s OS sandbox, so the development app and its tests skip Electron there.',
   TED_SANDBOX_BIN: false,
   TED_SIMULATOR_UDID: 'Task simulator context supplied to App and Run commands.',
   TED_SKIP_FIRST_LAUNCH: false,

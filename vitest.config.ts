@@ -104,15 +104,21 @@ const testOptions = {
   },
 }
 
-const codexSandbox = process.env.CODEX_SANDBOX !== undefined
-if (codexSandbox) {
+const sandboxName =
+  process.env.CODEX_SANDBOX !== undefined
+    ? 'Codex’s sandbox'
+    : process.env.TED_SANDBOX === '1' && process.platform === 'darwin'
+      ? 'TED’s sandbox'
+      : undefined
+const inSandbox = sandboxName !== undefined
+if (sandboxName) {
   console.warn(
-    'Skipping the Electron app tests: Codex’s sandbox stops Electron registering with the window server, so every launch aborts. Run them outside the sandbox.',
+    `Skipping the Electron app tests: ${sandboxName} stops Electron registering with the window server, so every launch aborts. Run them outside the sandbox.`,
   )
 }
 
 export function tedTestConfig(include: string[]) {
-  const exclude = codexSandbox
+  const exclude = inSandbox
     ? globSync(include).filter((file) => launchesElectron(path.resolve(file)))
     : []
   return defineConfig({
@@ -123,7 +129,7 @@ export function tedTestConfig(include: string[]) {
       exclude,
       globalSetup: [
         ...testOptions.globalSetup,
-        ...(!codexSandbox && globSync(include).some((file) => launchesElectron(path.resolve(file)))
+        ...(!inSandbox && globSync(include).some((file) => launchesElectron(path.resolve(file)))
           ? [electronSetup]
           : []),
       ],
@@ -143,7 +149,7 @@ export default defineConfig({
         test: {
           name: 'electron',
           sequence: { groupOrder: 0 },
-          include: codexSandbox ? [] : electron,
+          include: inSandbox ? [] : electron,
           maxWorkers: electronWorkers,
           retry: 1,
           globalSetup: [...testOptions.globalSetup, electronSetup],

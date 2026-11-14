@@ -6,7 +6,7 @@ TED Dev accepts every hook, including unknown names. Release accepts only explic
 
 ## Release inputs
 
-The authoritative reasons for individual inputs are beside their entries in `tedEnvironment`. They cover the shared home, Task/Run/Planning/Automation/Factory context, Run capability authentication (including the older token name), the installed app executable, simulator context, and Linux inherited-descriptor cleanup. Generated App port and URL names carry each Task’s actual running App addresses to its commands; they are process context, rather than overrides of TED’s services.
+The authoritative reasons for individual inputs are beside their entries in `tedEnvironment`. They cover the shared home, Task/Run/Planning/Automation/Factory context, Run capability authentication (including the older token name), the installed app executable, simulator context, the `TED_SANDBOX` marker on commands run in TED’s OS sandbox, and Linux inherited-descriptor cleanup. Generated App port and URL names carry each Task’s actual running App addresses to its commands; they are process context, rather than overrides of TED’s services.
 
 `TED_HOME` remains a supported home override. `TED_APP_EXECUTABLE` remains the path the installed CLI uses to open the app. These inputs are intentionally retained, so this policy does not make all launch-time environment inputs trusted. Existing capability checks and descriptor identity checks still apply.
 
