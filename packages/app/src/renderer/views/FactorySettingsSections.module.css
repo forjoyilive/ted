@@ -301,7 +301,14 @@
   resize: vertical;
 }
 
+.fileText {
+  --text-grow-max: calc(24lh + 22px);
+  min-height: calc(8lh + 22px);
+}
+
 .notesText {
+  --text-grow-max: calc(30lh + 32px);
+  min-height: calc(12lh + 32px);
   border: none;
   border-radius: 0 0 10px 10px;
   padding: 16px;
@@ -629,7 +636,7 @@
 }
 
 .cleanupText {
-  min-height: 56px;
+  min-height: max(56px, calc(3lh + 14px));
   resize: vertical;
 }
 

@@ -11,6 +11,7 @@ import { enterAction } from '../composer-keys.ts'
 import { draftField, useMessageDraft } from '../message-drafts.ts'
 import { Button } from './Button.tsx'
 import styles from './RoundCard.module.css'
+import grow from './TextGrow.module.css'
 
 interface Draft {
   answer: string
@@ -124,7 +125,7 @@ function Question({
             {draft.other ? (
               <div className={styles.written}>
                 <textarea
-                  className={styles.text}
+                  className={`${styles.text} ${grow.text}`}
                   aria-label={`Your answer ${number}`}
                   placeholder="Your answer…"
                   value={text}
@@ -145,7 +146,7 @@ function Question({
         ) : (
           <div className={changed ? `${styles.written} ${styles.writtenChanged}` : styles.written}>
             <textarea
-              className={styles.text}
+              className={`${styles.text} ${grow.text}`}
               aria-label={`Answer ${number}`}
               value={draft.answer}
               onChange={(event) => onChange({ ...draft, answer: event.target.value })}

@@ -25,6 +25,7 @@ import type { ScrollReveal } from '../components/ScrollMemory.tsx'
 import { Select } from '../components/Select.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
+import grow from '../components/TextGrow.module.css'
 import { sendOnEnter } from '../composer-keys.ts'
 import { usePlan, usePlanState, useRunChat } from '../data.ts'
 import { InboxRequestsContext } from '../inbox-requests.ts'
@@ -261,7 +262,7 @@ function NewPlanChat({
         </div>
         <div className={styles.composer}>
           <textarea
-            className={styles.box}
+            className={`${styles.box} ${grow.text}`}
             aria-label="What do you want to plan?"
             placeholder="What do you want to plan?"
             ref={box}

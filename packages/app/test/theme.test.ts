@@ -266,3 +266,22 @@ describe('button heights', () => {
     }
   })
 })
+
+describe('text boxes', () => {
+  test('every text box grows with its text through the shared rule', async () => {
+    const outside = ['WorkerWindow.tsx']
+    const boxes = (await sources())
+      .filter(({ file }) => file.endsWith('.tsx') && !outside.includes(path.basename(file)))
+      .flatMap(({ file, text }) =>
+        [...text.matchAll(/<textarea\b[\s\S]*?\/>/g)].map((m) => ({ file, tag: m[0] })),
+      )
+    expect(boxes.length).toBeGreaterThan(15)
+    for (const { file, tag } of boxes) {
+      expect(tag, path.relative(rendererDir, file)).toContain('grow.text')
+      expect(tag, path.relative(rendererDir, file)).not.toMatch(/\brows=/)
+    }
+    const rule = await readFile(path.join(rendererDir, 'components/TextGrow.module.css'), 'utf8')
+    expect(rule).toContain('field-sizing: content;')
+    expect(rule).toContain('max-height: var(--text-grow-max, 50vh);')
+  })
+})

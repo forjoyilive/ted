@@ -26,6 +26,7 @@ import { CloseIcon } from '../components/icons.tsx'
 import { ModelSelect } from '../components/ModelSelect.tsx'
 import { Select } from '../components/Select.tsx'
 import { StageEffort } from '../components/StageEffort.tsx'
+import grow from '../components/TextGrow.module.css'
 import { useEventValue, useSettings } from '../data.ts'
 import {
   agentEdited,
@@ -539,10 +540,9 @@ function StageRow({
           </div>
           <textarea
             aria-label={`${name} Stage file`}
-            className={styles.fileText}
+            className={`${styles.fileText} ${grow.text}`}
             value={file}
             spellCheck={false}
-            rows={Math.min(24, Math.max(8, file.split('\n').length + 1))}
             onChange={(event) => onFile(event.target.value)}
           />
         </div>
@@ -1247,11 +1247,10 @@ function NotesSectionView({
         ) : (
           <textarea
             aria-label="Factory notes"
-            className={styles.notesText}
+            className={`${styles.notesText} ${grow.text}`}
             value={draft.notes}
             spellCheck={false}
             placeholder={'# Product\n\n## Running locally\n'}
-            rows={Math.min(30, Math.max(12, draft.notes.split('\n').length + 1))}
             onChange={(event) => onDraft((d) => ({ ...d, notes: event.target.value }))}
           />
         )}
@@ -1471,8 +1470,7 @@ function CleanupSectionView({ draft, onDraft }: { draft: SettingsDraft; onDraft:
                 <span className={base.caption}>Instruction for the Task Lead</span>
                 <textarea
                   aria-label={`${label} instruction`}
-                  className={`${base.input} ${styles.cleanupText}`}
-                  rows={3}
+                  className={`${base.input} ${styles.cleanupText} ${grow.text}`}
                   placeholder="Post a comment on the Asana task linking the merged pull request."
                   value={step.instruction}
                   onChange={(event) => setStep(index, { instruction: event.target.value })}

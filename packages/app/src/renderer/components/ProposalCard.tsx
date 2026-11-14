@@ -7,6 +7,7 @@ import { priorityLabels } from '../task-fields.ts'
 import { Button } from './Button.tsx'
 import { PriorityIcon } from './PriorityIcon.tsx'
 import styles from './ProposalCard.module.css'
+import grow from './TextGrow.module.css'
 
 export function ProposalRows({
   proposal,
@@ -170,7 +171,7 @@ export function ProposalAnswer({
             <span className={styles.wouldStart}>{wouldStart(plan.unblocked)}</span>
           </label>
           <textarea
-            className={styles.box}
+            className={`${styles.box} ${grow.text}`}
             aria-label="Your answer"
             placeholder="Comment, or say what to change…"
             value={text}

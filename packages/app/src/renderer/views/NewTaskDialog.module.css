@@ -86,9 +86,14 @@
   resize: vertical;
 }
 
+.editDescription {
+  min-height: calc(6lh + 20px);
+}
+
 .descriptionBox {
   display: flex;
   flex-direction: column;
+  min-height: 0;
   border: 1px solid var(--border-control);
   border-radius: 8px;
   background: var(--surface-card);
