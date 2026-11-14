@@ -856,7 +856,7 @@ export const commands = [
     argumentOrOption: 'source',
     min: 0,
     max: null,
-    help: '  ted task create [--factory <key>] [--start] [--source <url>] [--description "<text>"]\n                [--sentry-id <SHORT-ID>] [--follow-up <id>] [--dry-run] "<title>"\n                                             Create a Task (--start starts it); a Linear URL\n                                             as the source fills it in from Linear. An Asana\n                                             task URL imports it and every unfinished task\n                                             under it as parent and child Tasks; --dry-run\n                                             prints that tree without creating it. TED refuses\n                                             a source it already tracks; --follow-up revisits\n                                             a Done Task. --sentry-id puts Fixes <SHORT-ID> in\n                                             the pull request',
+    help: '  ted task create [--factory <key>] [--start] [--source <url>] [--description "<text>"]\n                [--sentry-id <SHORT-ID>] [--follow-up <id>] [--dry-run]\n                [--attach <path> …] "<title>"\n                                             Create a Task (--start starts it); a Linear URL\n                                             as the source fills it in from Linear. An Asana\n                                             task URL imports it and every unfinished task\n                                             under it as parent and child Tasks; --dry-run\n                                             prints that tree without creating it. TED refuses\n                                             a source it already tracks; --follow-up revisits\n                                             a Done Task. --sentry-id puts Fixes <SHORT-ID> in\n                                             the pull request. --attach adds files; images show\n                                             in the thread',
     callers: 'Terminal or Automation Run',
     options: options(
       'factory',
@@ -866,6 +866,7 @@ export const commands = [
       'sentry-id',
       'follow-up',
       'dry-run',
+      'attach',
     ),
   },
   {
