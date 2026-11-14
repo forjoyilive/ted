@@ -107,9 +107,15 @@
   font-variant-numeric: tabular-nums;
 }
 
+.sectionHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 6px 6px 10px;
+}
+
 .section {
   margin: 0;
-  padding: 18px 10px 6px;
   color: var(--text-muted);
   font-size: var(--text-11-5);
   font-weight: var(--weight-medium);
@@ -330,12 +336,27 @@
 }
 
 .addFactory {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--button-height-small);
+  height: var(--button-height-small);
+  margin: -4px 0;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-control);
+  background: none;
   color: var(--text-muted);
-  font-size: var(--text-13);
 }
 
-.plus {
-  font-size: var(--text-10);
+.addFactory:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.addFactory:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
 }
 
 .spacer {

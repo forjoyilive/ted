@@ -5,7 +5,7 @@ import type { FactoryView, Navigation, NavigationAction, Screen } from '../navig
 import { readableError, ted } from '../ted.ts'
 import { ActionButton } from './ActionButton.tsx'
 import { FactoryMenu } from './FactoryMenu.tsx'
-import { ChevronIcon, DotIcon, SearchIcon, WarningIcon } from './icons.tsx'
+import { ChevronIcon, DotIcon, PlusIcon, SearchIcon, WarningIcon } from './icons.tsx'
 import { ResizableSidebar } from './ResizableSidebar.tsx'
 import { ResourceUsage } from './ResourceUsage.tsx'
 import styles from './Sidebar.module.css'
@@ -254,7 +254,18 @@ export function Sidebar({
           <span className={styles.label}>All Tasks</span>
         </ActionButton>
 
-        <h2 className={styles.section}>Factories</h2>
+        <div className={styles.sectionHeading}>
+          <h2 className={styles.section}>Factories</h2>
+          <ActionButton
+            type="button"
+            className={styles.addFactory}
+            aria-label="Add Factory"
+            title="Add Factory"
+            onClick={onAddFactory}
+          >
+            <PlusIcon />
+          </ActionButton>
+        </div>
         {factories.map((factory, index) => {
           const isCurrent = factory.id === currentFactoryId
           const expanded = openFactories[factory.id] ?? isCurrent
@@ -499,15 +510,6 @@ export function Sidebar({
             }}
           />
         )}
-        <ActionButton
-          type="button"
-          className={`${styles.row} ${styles.addFactory}`}
-          onClick={onAddFactory}
-        >
-          <span className={styles.plus}>+</span>
-          <span className={styles.label}>Add Factory</span>
-        </ActionButton>
-
         <div className={styles.spacer} />
 
         <ActionButton
