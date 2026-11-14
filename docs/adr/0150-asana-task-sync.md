@@ -12,7 +12,7 @@ A Task imported from Asana should tell its Asana item about the work: which pull
 
 **Bounded requests.** A cycle runs every minute and sends at most 100 requests: at most half go to reading items, starting where the last cycle stopped, and the rest to subtasks, comments and writes. A connector that runs out of requests, or gets `Retry-After`, throws `TrackerWait`, which ends the cycle and puts off the next one for that long. `retryAfterMs` in `asana.ts` reads the header in seconds or as a date and keeps the delay Asana asks for, limited only to one day so a broken header can’t stop sync for good; intake’s tree reader keeps its own 120-second limit because it waits inside one import. Just before each write the connector checks again that the switch is on and the Task still syncs, because the reads before it can take long enough for either to change. Every other failure is logged and tried again next cycle.
 
-**Completion in Asana** follows the shared rule. The question an Archive answer would also apply to Tasks under it now names those Tasks, for every tracker, because Archive already archives them.
+**Completion in Asana** follows the shared rule. The question an Archive answer would also apply to Tasks under it now names those Tasks, for every tracker, because Archive already archives them. Because Asana imports are mostly trees, the shared rule archives a Task with a parent too, without asking, when it has no live Run, hasn’t reached Merge and has nothing under it; its parent and siblings stay open and the parent gets a TED note naming it. Its item is complete, so a merged parent neither waits on it nor asks about it as unfinished work, and an archived Task under a parent doesn’t block that parent.
 
 ## Considered Options
 

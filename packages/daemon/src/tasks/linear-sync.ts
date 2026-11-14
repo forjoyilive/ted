@@ -138,6 +138,8 @@ export function linearConnector(
         pastSignOff
           ? `Someone marked ${identifier} ${state} in Linear after you signed off on this Task. TED keeps going until you choose.`
           : `Someone marked ${identifier} ${state} in Linear while this Task is still being worked on. TED keeps going until you choose.`,
+      childArchived: (child, identifier, state) =>
+        `TED archived ${child}, a Task under this one, because ${identifier} was marked ${state} in Linear.`,
       groupTitle(team, factoryName) {
         const named = team.name === team.key ? team.key : `${team.name} (${team.key})`
         return `Sync ${named} issues with Linear for Automations in ${factoryName}?`

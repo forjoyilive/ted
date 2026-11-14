@@ -168,17 +168,20 @@ export function createTrackerSync<Source, Handle>(
     if (!task || task.archived || task.stage === 'done' || actions.gone(taskId)) return
     const marked = connector.texts.closedTitle(label, state)
     const pastSignOff = task.stage === 'merge'
-    if (
-      !pastSignOff &&
-      !actions.liveRun(task) &&
-      !task.parentId &&
-      store.childrenOf(task.id).length === 0
-    ) {
+    const under = actions.under(taskId)
+    if (!pastSignOff && !actions.liveRun(task) && under.length === 0) {
       actions.archive(task, marked)
+      const parent = task.parentId && store.getTask(task.parentId)
+      if (parent && !parent.archived)
+        store.postComment({
+          taskId: parent.id,
+          kind: 'note',
+          author: { kind: 'ted' },
+          body: connector.texts.childArchived(task.displayId, label, state),
+        })
       return
     }
     if (actions.openRequests(taskId).some((c) => records.isClosedQuestion(c))) return
-    const under = actions.under(taskId)
     const body = connector.texts.closedBody(label, state, pastSignOff)
     store.postComment({
       taskId,

@@ -60,6 +60,7 @@ const connector: TrackerConnector<string, string> = {
   texts: {
     closedTitle: (label, state) => `${label} was marked ${state} in Fake`,
     closedBody: (label, state) => `Someone marked ${label} ${state} in Fake.`,
+    childArchived: (child, label, state) => `${child} was archived: ${label} is ${state} in Fake.`,
     groupTitle: (group, factory) => `Sync ${group.name} with Fake in ${factory}?`,
     groupBody: ({ label }) => `An Automation made a Task from ${label}.`,
   },
@@ -112,7 +113,11 @@ function startSync(): void {
           archived.push({ taskId: task.id, why })
           store.archiveTask(task.id)
         },
-        under: (taskId) => store.childrenOf(taskId).flatMap((id) => store.getTask(id) ?? []),
+        under: (taskId) =>
+          store
+            .childrenOf(taskId)
+            .flatMap((id) => store.getTask(id) ?? [])
+            .filter((t) => !t.archived),
       },
       inBackground(_what, work) {
         jobs.push(work())
@@ -216,11 +221,14 @@ test('the group question asks once, Allow turns on the group’s waiting Tasks, 
   expect(records().syncState(store.getTask(third.id) as Task)).toBe('ask')
 })
 
-test('an item closed outside TED archives an idle Task, asks for a working one, and withdraws the question on reopen or finish', async () => {
+test('an item closed outside TED archives an idle Task with nothing under it, asks for a working one or a parent, and withdraws the question on reopen or finish', async () => {
   const baseline = await trackedTask('1', { closed: true, state: 'Done', group: 'B1' })
   const idle = await trackedTask('2', { closed: false, state: 'Open', group: 'B1' })
   const working = await trackedTask('3', { closed: false, state: 'Open', group: 'B1' })
-  for (const task of [baseline, idle, working]) consent().allowTask(task)
+  const parent = await trackedTask('4', { closed: false, state: 'Open', group: 'B1' })
+  store.setTaskParent(idle.id, parent.id)
+  store.setTaskParent(working.id, parent.id)
+  for (const task of [baseline, idle, working, parent]) consent().allowTask(task)
   live.add(working.id)
   startSync()
   await cycle()
@@ -231,6 +239,14 @@ test('an item closed outside TED archives an idle Task, asks for a working one, 
   await cycle()
   expect(archived).toEqual([{ taskId: idle.id, why: 'F-2 was marked Done in Fake' }])
   expect(store.getTask(baseline.id)?.archived).toBeFalsy()
+  expect(store.getTask(parent.id)?.archived).toBeFalsy()
+  expect(openRequests(parent.id)).toEqual([])
+  expect(
+    store
+      .listComments(parent.id)
+      .filter((c) => c.kind === 'note')
+      .map((c) => [c.author.kind, c.body]),
+  ).toEqual([['ted', `${idle.displayId} was archived: F-2 is Done in Fake.`]])
   const asked = openRequests(working.id)
   expect(asked).toHaveLength(1)
   expect(asked[0]).toMatchObject({
@@ -240,6 +256,15 @@ test('an item closed outside TED archives an idle Task, asks for a working one, 
   })
   await cycle()
   expect(openRequests(working.id)).toHaveLength(1)
+
+  items.set('4', { closed: true, state: 'Done', group: 'B1' })
+  await cycle()
+  expect(archived).toHaveLength(1)
+  const parentAsked = openRequests(parent.id)
+  expect(parentAsked).toHaveLength(1)
+  expect(parentAsked[0]?.body).toContain(
+    `Archive also archives the Task under it: ${working.displayId} Item 3.`,
+  )
 
   items.set('3', { closed: false, state: 'Open', group: 'B1' })
   await cycle()

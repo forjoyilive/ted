@@ -321,6 +321,8 @@ export function asanaConnector(
         pastSignOff
           ? 'Someone completed this Task’s Asana task after you signed off. TED keeps going until you choose.'
           : 'Someone completed this Task’s Asana task while the Task is still being worked on. TED keeps going until you choose.',
+      childArchived: (child) =>
+        `TED archived ${child}, a Task under this one, because its Asana task was marked complete.`,
       groupTitle: (project, factoryName) =>
         `Sync Tasks from the Asana project ${project.name} for Automations in ${factoryName}?`,
       groupBody: ({ automation, task, factoryName }) =>
