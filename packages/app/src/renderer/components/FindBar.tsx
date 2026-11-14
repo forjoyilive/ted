@@ -65,6 +65,8 @@ export function FindBar({
   const [query, setQuery] = useState('')
   const [ranges, setRanges] = useState<Range[]>([])
   const [current, setCurrent] = useState(0)
+  const reveal = useRef(true)
+  const matchCount = useRef(0)
 
   useEffect(() => {
     input.current?.focus()
@@ -73,8 +75,9 @@ export function FindBar({
 
   useEffect(() => {
     const root = scope.current
-    const found = root ? findRanges(root, query) : []
-    setRanges(found)
+    const first = root ? findRanges(root, query) : []
+    reveal.current = true
+    setRanges(first)
     setCurrent(0)
     if (!root || query.trim() === '') return
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -88,6 +91,7 @@ export function FindBar({
       clearTimeout(timer)
       timer = setTimeout(() => {
         const again = findRanges(root, query)
+        reveal.current = matchCount.current === 0
         setRanges(again)
         setCurrent((at) => Math.min(at, Math.max(0, again.length - 1)))
       }, 100)
@@ -100,17 +104,20 @@ export function FindBar({
   }, [query, scope])
 
   useEffect(() => {
+    matchCount.current = ranges.length
     clearHighlights()
     if (ranges.length === 0) return
     CSS.highlights.set(allName, new Highlight(...ranges))
     const range = ranges[current]
     if (!range) return
     CSS.highlights.set(currentName, new Highlight(range))
-    const element = range.startContainer.parentElement
-    element?.scrollIntoView({ block: 'nearest' })
+    if (!reveal.current) return
+    reveal.current = false
+    range.startContainer.parentElement?.scrollIntoView({ block: 'nearest' })
   }, [ranges, current])
 
   function step(by: number) {
+    reveal.current = true
     const root = scope.current
     const found = root ? findRanges(root, query) : []
     if (found.length !== ranges.length) {
