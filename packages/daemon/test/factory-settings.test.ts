@@ -476,7 +476,7 @@ describe('Factory settings', () => {
           '  - name: api\n    remote: https://github.com/acme/api.git\nstages:',
         ),
       })
-      await client.settings()
+      await client.settings('first')
       const factories = await client.ok<Factory[]>('GET', '/factories')
       expect(factories[0]?.repos.map((r) => r.name)).toEqual(['widgets'])
       const banners = await client.ok<Banner[]>('GET', '/banners')
