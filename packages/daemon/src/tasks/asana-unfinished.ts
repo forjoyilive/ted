@@ -76,7 +76,8 @@ export async function readSubtree(input: {
         unread(node, reasonOf(error))
         continue
       }
-      if (!listed.complete) unread(node, 'Asana listed more items than TED reads')
+      const capped = !listed.complete && input.spent() >= maxSubtreeRequests
+      if (!listed.complete && !capped) unread(node, 'Asana listed more items than TED reads')
       for (const row of listed.rows) {
         const parsed = nodeFrom(row, node.depth + 1, node.gid)
         if (!parsed || seen.has(parsed.gid)) continue
@@ -102,6 +103,7 @@ export async function readSubtree(input: {
         )
           next.push(child)
       }
+      if (capped) overLimit = true
       if (overLimit) break
     }
     level = next

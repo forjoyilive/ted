@@ -51,12 +51,13 @@ let jobs: Promise<void>[]
 let clock: ManualClock
 let archived: string[]
 let live: Set<string>
+let subtaskPage: number
 
 const api: AsanaSyncApi = {
   async account() {
     return account
   },
-  async read(route) {
+  async read(route, query) {
     reads.push(route)
     await held.get(route)
     const [, , gid = '', list] = route.split('/')
@@ -64,14 +65,16 @@ const api: AsanaSyncApi = {
     if (!task) throw new AsanaReadError('not found', 404)
     if (list === 'subtasks') {
       if (task.unlisted) throw new AsanaReadError('no access', 403)
+      const offset = Number(query?.offset ?? '0')
+      const next = offset + subtaskPage
       return {
-        data: task.subtasks.map((child) => ({
+        data: task.subtasks.slice(offset, next).map((child) => ({
           gid: child,
           name: asana.get(child)?.name ?? `Item ${child}`,
           completed: asana.get(child)?.completed === true,
           num_subtasks: asana.get(child)?.subtasks.length ?? 0,
         })),
-        next_page: null,
+        next_page: next < task.subtasks.length ? { offset: String(next) } : null,
       }
     }
     if (list === 'stories')
@@ -132,6 +135,7 @@ beforeEach(async () => {
   clock = new ManualClock()
   archived = []
   live = new Set()
+  subtaskPage = 100
 })
 
 afterEach(async () => {
@@ -673,8 +677,8 @@ test('unreadable items, items below a completed item and a tree over the limit a
   ).toEqual([])
 })
 
-test('a parent that ran out of requests for its subtree is read first in the next cycle', async () => {
-  const gids = ['1701', '1801', '1901']
+test('parents that ran out of requests for their subtree are read first, least recently read first', async () => {
+  const gids = ['1701', '1801', '1901', '2001', '2201']
   const tree = imported(...gids.map((gid) => ({ gid, syncAccount: '100' })))
   for (const parent of gids) {
     for (let i = 1; i <= 38; i++) {
@@ -690,10 +694,31 @@ test('a parent that ran out of requests for its subtree is read first in the nex
   })
   startSync()
   await cycle()
-  expect(parents.map((task) => asking(task).length)).toEqual([1, 1, 0])
+  expect(parents.map((task) => asking(task).length)).toEqual([1, 1, 0, 0, 0])
   await cycle()
-  expect(parents.map((task) => asking(task).length)).toEqual([1, 1, 1])
-  expect(asking(parents[2] as Task)[0]?.asanaUnfinished?.items).toHaveLength(76)
+  expect(parents.map((task) => asking(task).length)).toEqual([1, 1, 1, 1, 0])
+  await cycle()
+  expect(parents.map((task) => asking(task).length)).toEqual([1, 1, 1, 1, 1])
+  expect(asking(parents[4] as Task)[0]?.asanaUnfinished?.items).toHaveLength(76)
+})
+
+test('a subtree read stops at 40 requests even in the middle of a list, and the tree counts as over the limit', async () => {
+  subtaskPage = 2
+  const parent = imported({ gid: '2301', syncAccount: '100' }).get('2301') as Task
+  const children = Array.from({ length: 10 }, (_, i) => String(230100 + i))
+  children.forEach((child, i) => {
+    addItem('2301', child)
+    const under = i < 6 ? 10 : 2
+    for (let j = 0; j < under; j++) addItem(child, String(Number(child) * 100 + j))
+  })
+  for (let k = 0; k < 10; k++) addItem('23010000', String(2301000000 + k))
+  withPullRequest(parent, 231)
+  merge(parent)
+  startSync()
+  const before = reads.length
+  await cycle()
+  expect(reads.slice(before).filter((r) => r.endsWith('/subtasks'))).toHaveLength(40)
+  expect(listed(asking(parent)[0])).toEqual([['2301', 'over-limit', undefined]])
 })
 
 test('an allowed Asana project syncs its items, by each item’s own current projects and the account that allowed it', async () => {

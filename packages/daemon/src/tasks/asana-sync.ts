@@ -110,8 +110,11 @@ export function asanaConnector(
   let cycleNo = 0
   const treeReadIn = new Map<string, number>()
   const starved = new Map<string, number>()
-  const waitingForTree = (taskId: string) =>
-    [...starved].some(([id, at]) => id !== taskId && at >= cycleNo - 1)
+  const readAt = (taskId: string) => treeReadIn.get(taskId) ?? 0
+  const behind = (taskId: string) =>
+    [...starved].some(
+      ([id, at]) => id !== taskId && at >= cycleNo - 1 && readAt(id) < readAt(taskId),
+    )
 
   const spend = () => {
     if (left <= 0) throw new TrackerWait(0)
@@ -137,10 +140,11 @@ export function asanaConnector(
     path: string,
     fields: string,
     found: (row: Record<string, unknown>) => boolean,
+    most = maxPages,
   ): Promise<{ rows: Record<string, unknown>[]; complete: boolean }> {
     const rows: Record<string, unknown>[] = []
     let offset: string | undefined
-    for (let page = 0; page < maxPages; page++) {
+    for (let page = 0; page < Math.min(maxPages, most); page++) {
       spend()
       const body = await asana
         .read(path, {
@@ -237,8 +241,8 @@ export function asanaConnector(
       }
       let step: ParentStep = { kind: 'complete' }
       if (item.handle.subtasks > 0) {
-        if (waitingForTree(task.id) && treeReadIn.get(task.id) === cycleNo - 1) return undefined
-        if (left < Math.min(maxSubtreeRequests + maxPages, Math.floor(requestsPerCycle / 2))) {
+        if (behind(task.id)) return undefined
+        if (left <= Math.min(maxSubtreeRequests, Math.floor(requestsPerCycle / 2))) {
           starved.set(task.id, cycleNo)
           return undefined
         }
@@ -249,7 +253,13 @@ export function asanaConnector(
         const budget = left
         const tree = await readSubtree({
           root,
-          list: (gid) => pages(`/tasks/${gid}/subtasks`, subtaskFields, () => false),
+          list: (gid) =>
+            pages(
+              `/tasks/${gid}/subtasks`,
+              subtaskFields,
+              () => false,
+              maxSubtreeRequests - (budget - left),
+            ),
           spent: () => budget - left,
           tracked: owner,
         })
