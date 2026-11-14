@@ -213,7 +213,7 @@ A note the human attaches to one line of a Task’s diff; it stays a draft until
 _Avoid_: Inline comment, review comment, diff comment
 
 **Automation**:
-A schedule in a Factory that starts a Run each time it fires, outside any Task, usually to bring new work in as Tasks; one of several ways Tasks are created, alongside the human creating them by hand.
+A schedule in a Factory that starts a Run each time it fires, outside any Task, usually to bring new work in as Tasks; one of several ways Tasks are created, alongside the human creating them by hand. With **Run in a copy of the code** on, each of its Runs works in a fresh copy of the default branch and can start the Factory’s Apps there; TED removes both when the Run ends.
 _Avoid_: Cron job, trigger
 
 **Daemon**:
