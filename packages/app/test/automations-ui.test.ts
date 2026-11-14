@@ -150,8 +150,13 @@ describe('Automations in the app', () => {
     await form.getByLabel('Minute', { exact: true }).selectOption('0')
     await form.getByText(/^Next: (Mon|Thu) /).waitFor()
     await form.getByLabel('On', { exact: true }).uncheck()
+    const checkout = form.getByLabel('Run in a copy of the code', { exact: true })
+    expect(await checkout.isChecked()).toBe(false)
+    await checkout.check()
     await window.keyboard.press('Meta+Enter')
     await form.waitFor({ state: 'detached' })
+    const sweep = (await ted.listAutomations()).find((a) => a.name === 'Weekly sweep')
+    expect(sweep?.checkout).toBe(true)
 
     const view = window.getByRole('region', { name: 'Automation' })
     await view.getByRole('heading', { name: 'Weekly sweep' }).waitFor()

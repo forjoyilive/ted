@@ -1,7 +1,10 @@
 import { mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import type {
+  Automation,
+  AutomationDetail,
   Banner,
   Comment,
   Factory,
@@ -463,6 +466,112 @@ describe('iOS simulator Apps', () => {
       `/attachments/${notes[1]?.attachments?.[0]?.hash}/${encodeURIComponent('iPhone recording.mov')}`,
     )
     expect(Buffer.from(bytes.data, 'base64').toString()).toBe('MOV of TED Dev NB-1 iPhone finished')
+  })
+
+  test('an Automation Run with a checkout runs its own Apps, waits in line for a simulator, and loses both when it ends', async () => {
+    const client = await start()
+    const stubApp = fileURLToPath(new URL('./fixtures/stub-app.ts', import.meta.url))
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': [
+        'version: 1',
+        'order: [intake, work, merge]',
+        'repos:',
+        '  - name: widgets',
+        '    worktree:',
+        '      setup:',
+        '        run: "touch stub-setup"',
+        '    apps:',
+        '      - name: Web',
+        '        kind: web',
+        `        run: "'${process.execPath}' '${stubApp}'"`,
+        '      - name: iPhone',
+        '        kind: ios-simulator',
+        '        device: "iPhone 17"',
+        '        run: "exec sleep 600"',
+      ].join('\n'),
+    })
+    await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+    await client.ok('PATCH', '/settings', { maxBootedSimulators: 1 })
+    const task = await taskWithWorktree(client)
+    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'iPhone' })
+
+    const automation = await client.ok<Automation>('POST', '/automations', {
+      name: 'Nightly check',
+      factory: 'NB',
+      schedule: { kind: 'daily', at: '09:00' },
+      on: false,
+      checkout: true,
+      runNow: true,
+      prompt: JSON.stringify({
+        steps: [
+          { run: ['test', '-f', 'stub-setup'] },
+          { run: ['ted', 'run-app', 'Web'] },
+          { run: ['ted', 'run-app', 'iPhone'] },
+          { run: ['ted', 'app', 'list'] },
+          { endTurn: true },
+        ],
+      }),
+    })
+    expect(automation.checkout).toBe(true)
+    const runId = await waitUntil(
+      async () =>
+        (await client.ok<AutomationDetail>('GET', `/automations/${automation.id}`)).history.find(
+          (r) => r.runId !== undefined,
+        )?.runId,
+      'the Automation Run',
+    )
+    const runApps = () => client.ok<TaskApp[]>('GET', `/runs/${runId}/apps`)
+    const waiting = await waitUntil(
+      async () => {
+        const list = await runApps()
+        return list.find((a) => a.name === 'iPhone' && a.state === 'waiting') ? list : undefined
+      },
+      'the Run’s iPhone to wait for a slot',
+      30_000,
+    )
+    expect(waiting.find((a) => a.name === 'Web')).toMatchObject({ state: 'running' })
+    expect(
+      await stat(path.join(home, 'automation-runs', runId, 'widgets', 'stub-setup')),
+    ).toBeTruthy()
+    const humanStart = await client.call('POST', `/runs/${runId}/apps/start`, { name: 'Web' })
+    expect(humanStart.status).toBe(403)
+
+    await client.ok('POST', `/tasks/${task.id}/apps/stop`, { name: 'iPhone' })
+
+    const finished = await waitUntil(
+      async () =>
+        (await client.ok<AutomationDetail>('GET', `/automations/${automation.id}`)).history.find(
+          (r) => r.runId === runId && r.finishedAt !== undefined,
+        ),
+      'the Automation Run to finish',
+      30_000,
+    )
+    expect(finished.result.kind).toBe('no-new-tasks')
+    const results = assistantTexts((await client.getRun(runId)).conversation).map(
+      (t) => JSON.parse(t) as { code: number; stdout: string },
+    )
+    expect(results.map((r) => r.code)).toEqual([0, 0, 0, 0])
+    expect(results[1]?.stdout).toContain('Web is running at http://localhost:')
+    expect(results[1]?.stdout).toContain('until the Run ends')
+    expect(results[2]?.stdout).toContain('iPhone is running on iPhone 17')
+    expect(results[3]?.stdout).toContain('iPhone · widgets · ios-simulator · running')
+
+    await waitUntil(
+      async () =>
+        (await stat(path.join(home, 'automation-runs', runId)).catch(() => undefined)) === undefined
+          ? true
+          : undefined,
+      'the checkout to be removed',
+    )
+    await waitUntil(
+      async () =>
+        (await stubDevices()).some((d) => d.name === 'TED Dev Nightly check iPhone')
+          ? undefined
+          : true,
+      'the Run’s simulator to be deleted',
+    )
+    expect((await client.call('GET', `/runs/${runId}/apps`)).status).toBe(404)
+    expect((await iPhone(client, task))?.state).toBe('stopped')
   })
 
   test('missing Xcode raises a stops-work Factory banner', async () => {

@@ -188,7 +188,7 @@ describe('the Automation view', () => {
   })
 
   test('Duplicate copies everything but turns the copy off', () => {
-    expect(duplicateOf(automation())).toEqual({
+    expect(duplicateOf(automation({ checkout: true }))).toEqual({
       factory: 'NB',
       name: 'Daily triage copy',
       prompt: 'Triage',
@@ -196,6 +196,7 @@ describe('the Automation view', () => {
       agent: 'claude',
       model: 'sonnet',
       effort: 'medium',
+      checkout: true,
       on: false,
     })
   })
