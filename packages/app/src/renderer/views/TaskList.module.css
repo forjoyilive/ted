@@ -299,7 +299,6 @@
 
 .table {
   display: grid;
-  column-gap: 16px;
   width: 100%;
   border-collapse: collapse;
 }
@@ -400,8 +399,28 @@
   text-align: right;
 }
 
-.statusHead {
-  min-width: 140px;
+.status {
+  white-space: normal;
+}
+
+.status span {
+  flex-shrink: 1;
+  min-width: 0;
+  white-space: normal;
+}
+
+.status span:has(> svg) {
+  display: block;
+}
+
+.status span:has(> svg) > svg {
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+
+.status span:has(> svg) > :not(svg) {
+  margin-left: 5px;
+  white-space: nowrap;
 }
 
 .id {

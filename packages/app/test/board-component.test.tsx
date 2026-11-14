@@ -583,13 +583,15 @@ test('Board cards select with ⌘-click, ⇧-click and X, and share the List’s
   expect(await screen.findByRole('region', { name: 'Task thread' })).toBeTruthy()
 })
 
-test('List ID column grows to fit the longest ID, the same width in the header and the rows', () => {
+test('List ID column fits the longest ID, and Status gives way before Title is under 40 characters', () => {
   expect(idColumnWidth([{ displayId: 'TED-1000' }])).not.toMatch(/\d(ch|em|ex)\b/)
   expect(idColumnWidth([])).toBe('max(56px, calc(2 * 0.65 * var(--text-14)))')
   expect(idColumnWidth([{ displayId: 'TED-9' }, { displayId: 'TED-1000' }])).toBe(
     'max(56px, calc(10 * 0.65 * var(--text-14)))',
   )
   expect(listGrid(['id', 'title', 'status', 'updated'], [{ displayId: 'TED-1' }])).toBe(
-    '4px 24px max(56px, calc(7 * 0.65 * var(--text-14))) minmax(160px, 1fr) fit-content(300px) 56px 4px',
+    '4px 24px max(56px, calc(7 * 0.65 * var(--text-14))) minmax(160px, 1fr) ' +
+      'minmax(120px, min(300px, calc(100% - 4px - 24px - max(56px, calc(7 * 0.65 * var(--text-14))) - 40ch - 56px - 4px - 6 * 16px))) 56px 4px',
   )
+  expect(listGrid(['id', 'status'], [])).toContain('minmax(120px, 300px)')
 })

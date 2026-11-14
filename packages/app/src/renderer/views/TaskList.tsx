@@ -84,7 +84,7 @@ const columnWidths: Record<ListColumn | 'queue', string> = {
   title: 'minmax(160px, 1fr)',
   factory: '110px',
   stage: '80px',
-  status: 'fit-content(300px)',
+  status: '300px',
   'blocked-by': '90px',
   'created-by': '110px',
   tokens: '64px',
@@ -98,14 +98,31 @@ export function idColumnWidth(tasks: readonly Pick<Task, 'displayId'>[]): string
   return `max(${columnWidths.id}, calc(${longest + 2} * 0.65 * var(--text-14)))`
 }
 
+export const listColumnGap = '16px'
+const statusMin = '120px'
+const titleRoom = '40ch'
+
 export function listGrid(
   columns: readonly (ListColumn | 'queue')[],
   tasks: readonly Pick<Task, 'displayId'>[],
 ): string {
+  const width = (c: ListColumn | 'queue') => (c === 'id' ? idColumnWidth(tasks) : columnWidths[c])
+  const status = (others: readonly (ListColumn | 'queue')[]) => {
+    if (!others.includes('title')) return `minmax(${statusMin}, ${columnWidths.status})`
+    const taken = [
+      '4px',
+      '24px',
+      ...others.map((c) => (c === 'title' ? titleRoom : width(c))),
+      '4px',
+    ]
+    const room = `calc(100% - ${taken.join(' - ')} - ${taken.length} * ${listColumnGap})`
+    return `minmax(${statusMin}, min(${columnWidths.status}, ${room}))`
+  }
+  const others = columns.filter((c) => c !== 'status')
   return [
     '4px',
     '24px',
-    ...columns.map((c) => (c === 'id' ? idColumnWidth(tasks) : columnWidths[c])),
+    ...columns.map((c) => (c === 'status' ? status(others) : width(c))),
     '4px',
   ].join(' ')
 }
@@ -744,6 +761,7 @@ export function TaskList({
             className={[
               styles.cell,
               column === 'title' ? styles.title : styles.meta,
+              column === 'status' ? styles.status : '',
               rightAligned.has(column) ? styles.right : '',
             ].join(' ')}
           >
@@ -838,6 +856,7 @@ export function TaskList({
             className={[
               styles.cell,
               column === 'title' ? styles.title : styles.meta,
+              column === 'status' ? styles.status : '',
               rightAligned.has(column) ? styles.right : '',
             ].join(' ')}
           >
@@ -1005,7 +1024,7 @@ export function TaskList({
         <div className={styles.body}>
           <table
             className={styles.table}
-            style={{ gridTemplateColumns: grid }}
+            style={{ gridTemplateColumns: grid, columnGap: listColumnGap }}
             aria-label={`${title} Tasks`}
             data-rank-order={canDrag ? '' : undefined}
           >
@@ -1016,7 +1035,7 @@ export function TaskList({
                 {columns.map((column) => (
                   <th
                     key={column}
-                    className={`${styles.cell} ${rightAligned.has(column) ? styles.right : ''} ${column === 'status' ? styles.statusHead : ''}`}
+                    className={`${styles.cell} ${rightAligned.has(column) ? styles.right : ''} ${column === 'status' ? styles.status : ''}`}
                   >
                     {column === 'priority'
                       ? ''
