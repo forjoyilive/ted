@@ -4,10 +4,14 @@ import {
   type AgentKind,
   type AnswerAutomationRequest,
   type Automation,
+  type AutomationCheck,
+  type AutomationCheckInput,
+  type AutomationCheckRun,
   type AutomationDetail,
   type AutomationNow,
   type AutomationRequest,
   type AutomationRun,
+  type AutomationRunOutput,
   type AutomationSchedule,
   type AutomationTaskLink,
   type AutomationTemplate,
@@ -41,15 +45,23 @@ import type {
   StoredFiring,
 } from '../store/automations.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
-import type { QueueEntry, QueueSource } from '../tasks/queue.ts'
-import type { Caller, Tasks } from '../tasks/tasks.ts'
+import type { CheckSlots } from '../tasks/check-slots.ts'
+import { heldForLoad, type QueueEntry, type QueueSource } from '../tasks/queue.ts'
+import type { Caller, CheckFailureInput, Tasks } from '../tasks/tasks.ts'
 import { messageOf } from '../text.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import type { Workflows } from '../workflow/workflows.ts'
 import { writingGuidance } from '../writing.ts'
+import {
+  checkFailureText,
+  failingTestFiles,
+  planCheckFailures,
+  sandboxSkipped,
+} from './check-failures.ts'
 import { createCheckouts } from './checkout.ts'
 import { createAutomationDrafts } from './drafts.ts'
+import { createScheduledChecks, type ScheduledCheckResult } from './scheduled-checks.ts'
 import { automationTemplates } from './templates.ts'
 
 export interface AutomationQueue {
@@ -84,6 +96,13 @@ export interface AutomationsOptions {
   checkEveryMs?: number
   draftTimeoutMs?: number
   graceMs?: number
+  checkSlots?: CheckSlots
+  libraryDir?: string
+  checkFailed?: (
+    input: CheckFailureInput,
+  ) => Promise<{ created: readonly string[]; updated: readonly string[] }>
+  loadRatio?: () => number
+  loadCheckEveryMs?: number
 }
 
 export interface Automations {
@@ -102,6 +121,7 @@ export interface Automations {
   setOn(ref: string, on: boolean, caller: Caller, factory?: string): Promise<Automation>
   runNow(ref: string, caller: Caller, factory?: string): Promise<AutomationRun>
   retry(firingId: string, caller: Caller): Promise<AutomationRun>
+  output(firingId: string): Promise<AutomationRunOutput>
   delete(ref: string, caller: Caller, factory?: string): Promise<void>
   removeFactory(factoryId: string): Promise<void>
   requests(): AutomationRequest[]
@@ -115,6 +135,41 @@ export interface Automations {
 export const automationFailingProblem = 'automation-failing'
 
 const maxNameLength = 100
+export const defaultCheckTimeout = '2h'
+export const defaultQuietWaitMs = 4 * 60 * 60_000
+
+export function quietDeadline(
+  firedAt: number,
+  runBy: string | undefined,
+  timeZone: string,
+): number {
+  if (runBy === undefined) return firedAt + defaultQuietWaitMs
+  return (
+    nextFirings({ kind: 'daily', at: runBy }, timeZone, firedAt, 1)[0] ??
+    firedAt + defaultQuietWaitMs
+  )
+}
+
+function clockText(iso: string, timeZone: string | undefined): string {
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+      ...(timeZone !== undefined && { timeZone }),
+    }).format(new Date(iso))
+  } catch {
+    return iso
+  }
+}
+
+function duration(ms: number): string {
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ${seconds % 60}s`
+  return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
+}
 const failuresForBanner = 3
 const recentTasksShown = 100
 
@@ -152,6 +207,21 @@ export function createAutomations(options: AutomationsOptions): Automations {
   const iso = (ms: number) => new Date(ms).toISOString()
   const starting = new Set<string>()
   const limited = new Set<string>()
+  const loadRatio = options.loadRatio ?? (() => 0)
+  const loadCheckEveryMs = options.loadCheckEveryMs ?? 15_000
+  type CheckPhase = 'quiet' | 'slot' | 'running'
+  const checkRuns = new Map<
+    string,
+    { abort: AbortController; phase: CheckPhase; until?: string; done: Promise<void> }
+  >()
+  const checkOf = (automationId: string) => saved.check(automationId)
+  const reportChecks = () => {
+    const entries = [...checkRuns.values()]
+    store.setScheduledChecks({
+      running: entries.filter((e) => e.phase === 'running').length,
+      waiting: entries.filter((e) => e.phase !== 'running').length,
+    })
+  }
   const unread = new Map<string, string[]>()
   let timer: Timer | undefined
   let releaseIdle: (() => void) | undefined
@@ -166,6 +236,19 @@ export function createAutomations(options: AutomationsOptions): Automations {
     env: options.env,
     stopApps: (runId) => options.apps.stopRunApps(runId),
   })
+  const scheduledChecks =
+    options.checkSlots && options.libraryDir !== undefined
+      ? createScheduledChecks({
+          home: options.home,
+          store,
+          checkSlots: options.checkSlots,
+          checkouts,
+          sandbox: options.sandbox,
+          banners,
+          libraryDir: options.libraryDir,
+          env: options.env,
+        })
+      : undefined
   const checkoutLive = (runId: string) => saved.firing(runId)?.state === 'started'
   const release = (runId: string) => {
     void checkouts.release(runId)
@@ -302,6 +385,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
   function statusOf(firing: StoredFiring): Status {
     if (firing.state === 'queued') return 'queued'
     if (firing.state !== 'started') return 'ended'
+    if (checkOf(firing.automationId)) return checkRuns.has(firing.id) ? 'working' : 'ended'
     if (firing.resume === 'queued') return 'queued'
     const run = store.getRun(firing.id)
     if (!run) return 'queued'
@@ -327,7 +411,8 @@ export function createAutomations(options: AutomationsOptions): Automations {
   }
 
   function queuedFirings(): StoredFiring[] {
-    const automationIds = new Set(live().map((a) => a.id))
+    const checks = saved.checks()
+    const automationIds = new Set(live().flatMap((a) => (checks.has(a.id) ? [] : [a.id])))
     return saved.firings().filter((f) => automationIds.has(f.automationId) && inQueue(f))
   }
 
@@ -724,7 +809,10 @@ export function createAutomations(options: AutomationsOptions): Automations {
         fired = true
       }
     }
-    if (fired) pump()
+    if (fired) {
+      pump()
+      startChecks()
+    }
     arm()
   }
 
@@ -758,12 +846,244 @@ export function createAutomations(options: AutomationsOptions): Automations {
     arm()
   }
 
+  function pause(ms: number, signal: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+      if (signal.aborted) return resolve()
+      const timer = clock.timeout(() => {
+        signal.removeEventListener('abort', stop)
+        resolve()
+      }, ms)
+      timer.unref()
+      const stop = () => {
+        timer.cancel()
+        resolve()
+      }
+      signal.addEventListener('abort', stop, { once: true })
+    })
+  }
+
+  async function waitForQuiet(
+    firing: StoredFiring,
+    check: AutomationCheck,
+    timeZone: string,
+    entry: { abort: AbortController; phase: CheckPhase; until?: string },
+  ): Promise<boolean> {
+    if (firing.trigger === 'run-now' || firing.trigger === 'retry') return false
+    const deadline = quietDeadline(Date.parse(firing.slotAt ?? firing.at), check.runBy, timeZone)
+    let held = false
+    while (!entry.abort.signal.aborted && !closed) {
+      if (!store.settings().adjustRunsToLoad) return false
+      held = heldForLoad(held, loadRatio())
+      if (!held) return false
+      const left = deadline - now()
+      if (left <= 0) return true
+      if (entry.phase !== 'quiet' || entry.until === undefined) {
+        entry.phase = 'quiet'
+        entry.until = iso(deadline)
+        saved.touched(firing.automationId)
+      }
+      await pause(Math.min(loadCheckEveryMs, left), entry.abort.signal)
+    }
+    return false
+  }
+
+  function startChecks(): void {
+    if (closed || !scheduledChecks) return
+    for (const firing of saved.firings()) {
+      if (firing.state !== 'queued' || checkRuns.has(firing.id)) continue
+      const check = checkOf(firing.automationId)
+      if (!check) continue
+      const automation = saved.get(firing.automationId)
+      const factory = automation && factoryOf(automation)
+      if (!automation || !factory) {
+        saved.dropFiring(firing.id)
+        continue
+      }
+      const entry = {
+        abort: new AbortController(),
+        phase: 'quiet' as CheckPhase,
+        done: Promise.resolve(),
+      }
+      checkRuns.set(firing.id, entry)
+      reportChecks()
+      const releaseIdle = options.idle?.hold()
+      entry.done = runCheck(automation, factory, check, firing, entry)
+        .catch((error: unknown) => {
+          console.error(`a scheduled Check of ${automation.name} failed:`, error)
+          const current = saved.firing(firing.id)
+          if (!closed && current && current.state !== 'dropped' && current.state !== 'ended') {
+            fail(current, `TED couldn’t run the Check: ${messageOf(error)}`)
+          }
+        })
+        .finally(() => {
+          checkRuns.delete(firing.id)
+          releaseIdle?.()
+          reportChecks()
+          if (!closed) saved.touched(firing.automationId)
+        })
+    }
+  }
+
+  async function runCheck(
+    automation: StoredAutomation,
+    factory: StoredFactory,
+    check: AutomationCheck,
+    firing: StoredFiring,
+    entry: { abort: AbortController; phase: CheckPhase; until?: string },
+  ): Promise<void> {
+    const checks = scheduledChecks
+    if (!checks) return
+    const ranWhileBusy = await waitForQuiet(firing, check, automation.timeZone, entry)
+    if (entry.abort.signal.aborted || closed || saved.firing(firing.id)?.state !== 'queued') return
+    const held = store.newWorkHold()
+    if (held !== undefined) {
+      fail(firing, `TED isn’t starting new work right now: ${held}`)
+      return
+    }
+    entry.phase = 'slot'
+    delete entry.until
+    const result = await checks.run({
+      automationId: automation.id,
+      name: automation.name,
+      factory,
+      check,
+      firingId: firing.id,
+      signal: entry.abort.signal,
+      onWaiting: (waiting) => {
+        entry.phase = waiting ? 'slot' : 'running'
+        reportChecks()
+        saved.touched(automation.id)
+      },
+      onStarted: () => {
+        entry.phase = 'running'
+        reportChecks()
+        saved.began(firing.id)
+      },
+    })
+    if (closed) return
+    await finishCheck(automation, check, firing.id, result, ranWhileBusy)
+  }
+
+  async function finishCheck(
+    automation: StoredAutomation,
+    check: AutomationCheck,
+    firingId: string,
+    result: ScheduledCheckResult,
+    ranWhileBusy: boolean,
+  ): Promise<void> {
+    const firing = saved.firing(firingId)
+    if (!firing || firing.state === 'dropped' || firing.state === 'ended') return
+    if (firing.state === 'queued') saved.began(firingId)
+    if (result.state === 'stopped') {
+      saved.checkEnded(firingId, { outcome: 'stopped' })
+      return
+    }
+    const skipped = sandboxSkipped(result.output)
+    const base = {
+      state: result.state,
+      ...(result.exitCode !== undefined && { exitCode: result.exitCode }),
+      durationMs: result.durationMs,
+      ranWhileBusy,
+      skipped,
+    }
+    if (result.state === 'passed') {
+      saved.checkEnded(
+        firingId,
+        { outcome: 'finished', message: `Passed in ${duration(result.durationMs)}` },
+        { ...base, failing: [], updatedTaskIds: [] },
+      )
+      noteFailures(automation)
+      return
+    }
+    if (result.state === 'setup-failed') {
+      saved.checkEnded(
+        firingId,
+        {
+          outcome: 'failed',
+          error: `Couldn’t set up the worktree: ${firstLine(result.tail.split('\n').findLast((l) => l.trim() !== '') ?? 'see the output', 300)}`,
+        },
+        { ...base, failing: [], updatedTaskIds: [] },
+      )
+      noteFailures(automation)
+      return
+    }
+    const failing = failingTestFiles(result.output)
+    const at = iso(now())
+    const failures = planCheckFailures(automation.name, failing).map((plan) => {
+      const text = checkFailureText({
+        name: automation.name,
+        command: check.command,
+        state: result.state === 'timed-out' ? 'timed-out' : 'failed',
+        ...(result.exitCode !== undefined && { exitCode: result.exitCode }),
+        ...(result.commit !== undefined && { commit: result.commit }),
+        plan,
+        failing,
+        tail: result.tail,
+        log: result.log,
+        at,
+      })
+      return {
+        key: plan.key,
+        title: plan.title,
+        description: text,
+        note: `It failed again.\n\n${text}`,
+      }
+    })
+    const recorded = (await options.checkFailed?.({
+      automationId: automation.id,
+      firingId,
+      factoryId: automation.factoryId,
+      failures,
+    })) ?? { created: [], updated: [] }
+    if (closed) return
+    saved.checkEnded(
+      firingId,
+      {
+        outcome: 'finished',
+        message: `${result.state === 'timed-out' ? `Timed out after ${check.timeout}` : 'Failed'} after ${duration(result.durationMs)}`,
+      },
+      { ...base, failing, updatedTaskIds: [...recorded.updated] },
+    )
+    noteFailures(automation)
+  }
+
+  function stopChecks(automationId: string): Promise<void>[] {
+    const waits: Promise<void>[] = []
+    for (const [firingId, entry] of checkRuns) {
+      if (saved.firing(firingId)?.automationId !== automationId) continue
+      entry.abort.abort()
+      waits.push(entry.done)
+    }
+    return waits
+  }
+
+  function checkInput(given: AutomationCheckInput, before?: AutomationCheck): AutomationCheck {
+    const runBy = given.runBy === null ? undefined : (given.runBy ?? before?.runBy)
+    return {
+      command: given.command,
+      timeout: given.timeout ?? before?.timeout ?? defaultCheckTimeout,
+      ...(runBy !== undefined && { runBy }),
+    }
+  }
+
   function nowOf(
     firing: StoredFiring | undefined,
     place: (id: string) => number,
   ): AutomationNow | undefined {
     if (!firing) return undefined
     const status = statusOf(firing)
+    const run = checkRuns.get(firing.id)
+    if (run?.phase === 'quiet') {
+      return {
+        kind: 'paused',
+        reason: `the computer is busy; runs anyway at ${run.until === undefined ? 'its cutoff' : clockText(run.until, saved.get(firing.automationId)?.timeZone)}`,
+      }
+    }
+    if (run?.phase === 'slot') return { kind: 'paused', reason: 'waiting for a free Check slot' }
+    if (checkOf(firing.automationId)) {
+      if (status === 'queued') return { kind: 'queued', place: 1 }
+      return status === 'working' ? { kind: 'working' } : undefined
+    }
     if (status === 'queued') {
       const agent = agentOf(firing)
       const reason =
@@ -807,7 +1127,11 @@ export function createAutomations(options: AutomationsOptions): Automations {
   ): AutomationRun[] {
     const shown = new Set(firings.map((f) => f.id))
     const theirs = links.filter((link) => shown.has(link.firingId))
-    const tasks = saved.taskLinks(theirs.map((link) => link.taskId))
+    const results = saved.checkResults(firings.map((f) => f.id))
+    const tasks = saved.taskLinks([
+      ...theirs.map((link) => link.taskId),
+      ...[...results.values()].flatMap((r) => r.updatedTaskIds),
+    ])
     const ran = saved.firingsWithRun(firings.map((f) => f.id))
     const created = new Map<string, AutomationTaskLink[]>()
     for (const link of theirs) {
@@ -817,9 +1141,24 @@ export function createAutomations(options: AutomationsOptions): Automations {
       if (known) known.push(task)
       else created.set(link.firingId, [task])
     }
-    return firings.map((firing) =>
-      historyRow(firing, created.get(firing.id) ?? [], ran.has(firing.id)),
-    )
+    return firings.map((firing) => {
+      const result = results.get(firing.id)
+      const check: AutomationCheckRun | undefined = result && {
+        state: result.state,
+        ...(result.exitCode !== undefined && { exitCode: result.exitCode }),
+        durationMs: result.durationMs,
+        ...(result.ranWhileBusy && { ranWhileBusy: true as const }),
+        ...(result.skipped.length > 0 && { skipped: result.skipped }),
+        failing: result.failing,
+        ...(result.updatedTaskIds.length > 0 && {
+          updated: result.updatedTaskIds.flatMap((id) => {
+            const task = tasks.get(id)
+            return task ? [task] : []
+          }),
+        }),
+      }
+      return historyRow(firing, created.get(firing.id) ?? [], ran.has(firing.id), check)
+    })
   }
 
   function historyRowOf(firing: StoredFiring): AutomationRun {
@@ -831,6 +1170,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     firing: StoredFiring,
     created: AutomationTaskLink[],
     ran: boolean,
+    check?: AutomationCheckRun,
   ): AutomationRun {
     const result = ((): AutomationRun['result'] => {
       if (firing.state === 'skipped') return { kind: 'skipped' }
@@ -839,6 +1179,8 @@ export function createAutomations(options: AutomationsOptions): Automations {
       if (firing.state === 'started') return { kind: 'running' }
       if (firing.outcome === 'failed') return { kind: 'failed', error: firing.error ?? '' }
       if (firing.outcome === 'stopped') return { kind: 'stopped' }
+      if (check?.state === 'passed') return { kind: 'passed' }
+      if (check) return { kind: 'check-failed', tasks: created }
       return created.length > 0 ? { kind: 'created', tasks: created } : { kind: 'no-new-tasks' }
     })()
     return {
@@ -855,6 +1197,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       ...(created.length > 0 && { created }),
       ...(firing.message !== undefined && { message: firing.message }),
       ...(ran && { runId: firing.id }),
+      ...(check && { check }),
     }
   }
 
@@ -869,6 +1212,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       slots?.queue.find((q) => q.kind === 'automation' && q.runId === id)?.place ?? 0
     const current = nowOf(previousRun(automation.id, firings), place)
     const at = now()
+    const check = checkOf(automation.id)
     return {
       id: automation.id,
       factoryId: automation.factoryId,
@@ -888,6 +1232,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       on: automation.on,
       ...(automation.checkout && { checkout: true as const }),
       ...(automation.template !== undefined && { template: automation.template }),
+      ...(check !== undefined && { check }),
       createdAt: automation.createdAt,
       nextFirings: automation.on
         ? nextFirings(
@@ -918,7 +1263,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     const queued = loaded.records.flatMap(({ firings }, i) => {
       const automation = loaded.automations[i]
       const current = automation && previousRun(automation.id, firings)
-      return current && inQueue(current) ? [current.id] : []
+      return current && inQueue(current) && !checkOf(current.automationId) ? [current.id] : []
     })
     let slots: RunSlots | undefined
     if (queued.length > 0) {
@@ -1021,11 +1366,16 @@ export function createAutomations(options: AutomationsOptions): Automations {
       at: iso(now()),
     })
     pump()
+    startChecks()
     return firing
   }
 
   for (const firing of saved.firings()) {
     if (firing.state !== 'started' || firing.resume === 'queued') continue
+    if (checkOf(firing.automationId)) {
+      fail(firing, 'TED stopped while this Check ran.')
+      continue
+    }
     const run = store.getRun(firing.id)
     if (!run) {
       fail(firing, 'TED stopped before this Run started.')
@@ -1037,6 +1387,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
   }
   holdIdle()
   setImmediate(check)
+  setImmediate(startChecks)
 
   return {
     templates: () => automationTemplates,
@@ -1087,21 +1438,23 @@ export function createAutomations(options: AutomationsOptions): Automations {
       const same = agent === lead.agent
       const model = input.model ?? (same ? lead.model : undefined)
       const effort: Effort | undefined = input.effort ?? (same ? lead.effort : undefined)
+      const check = input.check && checkInput(input.check)
       const automation = saved.create(
         {
           factoryId: factory.id,
           name: cleanName(input.name),
-          prompt: cleanPrompt(input.prompt),
+          prompt: check ? '' : cleanPrompt(input.prompt),
           schedule: input.schedule,
           timeZone,
           agent,
           ...(model !== undefined && { model }),
           ...(effort !== undefined && { effort }),
           on: input.on !== false,
-          checkout: input.checkout === true,
-          ...(input.template !== undefined && { template: input.template }),
+          checkout: input.checkout === true && !check,
+          ...(input.template !== undefined && !check && { template: input.template }),
         },
         iso(now()),
+        check,
       )
       changed()
       if (input.runNow === true) fireByHand(automation, 'run-now')
@@ -1121,11 +1474,17 @@ export function createAutomations(options: AutomationsOptions): Automations {
         input.model === null ? undefined : (input.model ?? (keep ? automation.model : undefined))
       const effort =
         input.effort === null ? undefined : (input.effort ?? (keep ? automation.effort : undefined))
+      const before = checkOf(automation.id)
+      if (input.check !== undefined && !before) {
+        throw new RequestError(400, 'an agent Automation can’t become a scheduled Check')
+      }
+      const check = before && input.check ? checkInput(input.check, before) : undefined
       saved.edit(
         automation.id,
         {
           name: input.name === undefined ? automation.name : cleanName(input.name),
-          prompt: input.prompt === undefined ? automation.prompt : cleanPrompt(input.prompt),
+          prompt:
+            before || input.prompt === undefined ? automation.prompt : cleanPrompt(input.prompt),
           schedule,
           timeZone,
           agent,
@@ -1134,6 +1493,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
           ...(effort !== undefined && { effort }),
         },
         iso(now()),
+        check,
       )
       if (input.on !== undefined && input.on !== automation.on) {
         switchOn(automation, input.on)
@@ -1168,6 +1528,14 @@ export function createAutomations(options: AutomationsOptions): Automations {
         throw new RequestError(409, `this Run was already retried at ${firing.retriedAt}`)
       }
       return historyRowOf(fireByHand(automation, 'retry', firing.id))
+    },
+    async output(firingId) {
+      const firing = saved.firing(firingId)
+      const automation = firing && saved.get(firing.automationId)
+      if (!firing || !automation || !checkOf(automation.id) || !scheduledChecks) {
+        throw new RequestError(404, `no scheduled Check Run ${firingId}`)
+      }
+      return scheduledChecks.output(automation.id, firing.id)
     },
     async delete(ref, caller, factory) {
       refuseRun(caller)
@@ -1234,6 +1602,8 @@ export function createAutomations(options: AutomationsOptions): Automations {
       await drafts.close()
       await reattached
       closed = true
+      for (const entry of checkRuns.values()) entry.abort.abort()
+      await Promise.all([...checkRuns.values()].map((entry) => entry.done))
       timer?.cancel()
       unsubscribe()
       releaseIdle?.()
@@ -1242,9 +1612,15 @@ export function createAutomations(options: AutomationsOptions): Automations {
   }
 
   async function remove(automation: StoredAutomation): Promise<void> {
+    await Promise.all(stopChecks(automation.id))
     const started = saved.firings(automation.id).filter((f) => f.state === 'started')
-    const open = started.filter((f) => store.getRun(f.id)?.state !== 'finished')
+    const open = checkOf(automation.id)
+      ? []
+      : started.filter((f) => store.getRun(f.id)?.state !== 'finished')
     saved.delete(automation.id)
+    await scheduledChecks
+      ?.remove(automation.id)
+      .catch((error: unknown) => console.error(`couldn’t remove a scheduled Check’s files:`, error))
     banners.clear({
       problem: automationFailingProblem,
       factoryId: automation.factoryId,
@@ -1263,7 +1639,9 @@ export function createAutomations(options: AutomationsOptions): Automations {
     saved.switch(automation.id, on, iso(now()))
     if (on) return
     for (const firing of saved.firings(automation.id)) {
-      if (firing.state === 'queued' && !starting.has(firing.id)) saved.dropFiring(firing.id)
+      if (firing.state !== 'queued' || starting.has(firing.id)) continue
+      checkRuns.get(firing.id)?.abort.abort()
+      saved.dropFiring(firing.id)
     }
   }
 }

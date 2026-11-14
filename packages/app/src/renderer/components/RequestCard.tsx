@@ -10,7 +10,12 @@ import type {
   ValidationProgress,
 } from '@ted/protocol'
 import { failureChoices, validateFailureChoices } from '@ted/protocol/failures'
-import { archiveChoice, keepArchiveChoice } from '@ted/protocol/task'
+import {
+  archiveChoice,
+  isTrackerGroupAsk,
+  keepArchiveChoice,
+  trackerName,
+} from '@ted/protocol/task'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
 import { sendOnEnter, signOffEnter } from '../composer-keys.ts'
@@ -707,7 +712,7 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
           choices={request.choices ?? []}
           selection={selection}
           onSelect={setSelection}
-          allowOther={!request.linearTeam}
+          allowOther={!isTrackerGroupAsk(request)}
           disabled={sending}
           {...(failure && failureWords)}
         />
@@ -717,7 +722,7 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
           {boxLabel}
         </label>
       )}
-      {!request.linearTeam && (
+      {!isTrackerGroupAsk(request) && (
         <textarea
           id={boxId}
           className={styles.box}
@@ -1167,7 +1172,7 @@ export function RequestCard({
           choices={request.choices ?? []}
           selection={undefined}
           onSelect={() => {}}
-          allowOther={!request.linearTeam}
+          allowOther={!isTrackerGroupAsk(request)}
           disabled
           {...(failure && failureWords)}
         />
@@ -1262,6 +1267,17 @@ function answerLine(
           text:
             answer.linear === 'reopened'
               ? 'Withdrawn · the Linear issue was reopened before you answered'
+              : 'Withdrawn · the Task merged before you answered',
+        }
+      }
+      if ('tracker' in answer) {
+        const name = request.purpose?.kind === 'tracker-closed' ? request.purpose.tracker : ''
+        return {
+          mark: '–',
+          tone: 'neutral',
+          text:
+            answer.tracker === 'reopened'
+              ? `Withdrawn · the ${trackerName(name)} item was reopened before you answered`
               : 'Withdrawn · the Task merged before you answered',
         }
       }

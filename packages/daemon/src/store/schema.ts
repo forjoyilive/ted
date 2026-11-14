@@ -895,6 +895,9 @@ export const automations = State.SQLite.table({
     effort: State.SQLite.text({ nullable: true }),
     on: State.SQLite.boolean(),
     checkout: State.SQLite.boolean({ default: false }),
+    checkCommand: State.SQLite.text({ nullable: true }),
+    checkTimeout: State.SQLite.text({ nullable: true }),
+    checkRunBy: State.SQLite.text({ nullable: true }),
     template: State.SQLite.text({ nullable: true }),
     handledUntil: State.SQLite.text(),
     createdAt: State.SQLite.text(),
@@ -942,6 +945,30 @@ export const automationTasks = State.SQLite.table({
     automationId: State.SQLite.text(),
     firingId: State.SQLite.text(),
     at: State.SQLite.text(),
+  },
+})
+
+export const automationCheckResults = State.SQLite.table({
+  name: 'automationCheckResults',
+  columns: {
+    firingId: State.SQLite.text({ primaryKey: true }),
+    automationId: State.SQLite.text(),
+    state: State.SQLite.text(),
+    exitCode: State.SQLite.integer({ nullable: true }),
+    durationMs: State.SQLite.integer(),
+    ranWhileBusy: State.SQLite.boolean(),
+    skipped: State.SQLite.text(),
+    failing: State.SQLite.text(),
+    updatedTaskIds: State.SQLite.text(),
+  },
+})
+
+export const automationCheckTasks = State.SQLite.table({
+  name: 'automationCheckTasks',
+  columns: {
+    taskId: State.SQLite.text({ primaryKey: true }),
+    automationId: State.SQLite.text(),
+    key: State.SQLite.text(),
   },
 })
 
@@ -1718,6 +1745,61 @@ export const events = {
     schema: Schema.Struct({
       taskId: Schema.String,
       identifier: Schema.String,
+      urls: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  trackerItemSeen: Events.synced({
+    name: 'v1.TrackerItemSeen',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      tracker: Schema.String,
+      item: Schema.String,
+      closed: Schema.Boolean,
+      state: Schema.String,
+      group: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  trackerItemMoved: Events.synced({
+    name: 'v1.TrackerItemMoved',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      tracker: Schema.String,
+      item: Schema.String,
+      step: Schema.String,
+      state: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  trackerSyncAllowed: Events.synced({
+    name: 'v1.TrackerSyncAllowed',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      tracker: Schema.String,
+      item: Schema.String,
+      by: Schema.String,
+      account: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  trackerGroupSyncAllowed: Events.synced({
+    name: 'v1.TrackerGroupSyncAllowed',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      tracker: Schema.String,
+      item: Schema.String,
+      group: Schema.String,
+      account: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  trackerPullRequestsLinked: Events.synced({
+    name: 'v1.TrackerPullRequestsLinked',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      tracker: Schema.String,
+      item: Schema.String,
       urls: Schema.Array(Schema.String),
       at: Schema.String,
     }),
@@ -3196,6 +3278,40 @@ export const events = {
     name: 'v1.CommentArchiveAsked',
     schema: Schema.Struct({ commentId: Schema.String, archive: Schema.String }),
   }),
+  automationCheckSet: Events.synced({
+    name: 'v1.AutomationCheckSet',
+    schema: Schema.Struct({
+      automationId: Schema.String,
+      command: Schema.String,
+      timeout: Schema.String,
+      runBy: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  automationCheckFinished: Events.synced({
+    name: 'v1.AutomationCheckFinished',
+    schema: Schema.Struct({
+      firingId: Schema.String,
+      automationId: Schema.String,
+      state: Schema.String,
+      exitCode: Schema.NullOr(Schema.Number),
+      durationMs: Schema.Number,
+      ranWhileBusy: Schema.Boolean,
+      skipped: Schema.Array(Schema.String),
+      failing: Schema.Array(Schema.String),
+      updatedTaskIds: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  automationCheckTaskCreated: Events.synced({
+    name: 'v1.AutomationCheckTaskCreated',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      automationId: Schema.String,
+      key: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   automationTaskCreated: Events.synced({
     name: 'v1.AutomationTaskCreated',
     schema: Schema.Struct({
@@ -3386,6 +3502,19 @@ const runStarted = (args: Args): Logged => ({
   },
 })
 
+export const trackerSyncLog = [
+  'v1.LinearIssueSeen',
+  'v1.LinearIssueMoved',
+  'v1.LinearSyncAllowed',
+  'v1.LinearTeamSyncAllowed',
+  'v1.LinearPullRequestsLinked',
+  'v1.TrackerItemSeen',
+  'v1.TrackerItemMoved',
+  'v1.TrackerSyncAllowed',
+  'v1.TrackerGroupSyncAllowed',
+  'v1.TrackerPullRequestsLinked',
+]
+
 const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskCreated': (args) => ({ taskId: str(args.id), at: String(args.createdAt) }),
   'v1.SetupTaskCreated': (args) => ({ taskId: str(args.taskId), at: String(args.at) }),
@@ -3441,6 +3570,27 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     task(args, { identifier: args.identifier, step: args.step, state: args.state }),
   'v1.LinearPullRequestsLinked': (args) =>
     task(args, { identifier: args.identifier, urls: args.urls }),
+  'v1.TrackerItemSeen': (args) =>
+    task(args, {
+      tracker: args.tracker,
+      item: args.item,
+      closed: args.closed,
+      state: args.state,
+      group: args.group,
+    }),
+  'v1.TrackerItemMoved': (args) =>
+    task(args, { tracker: args.tracker, item: args.item, step: args.step, state: args.state }),
+  'v1.TrackerSyncAllowed': (args) =>
+    task(args, { tracker: args.tracker, item: args.item, by: args.by, account: args.account }),
+  'v1.TrackerGroupSyncAllowed': (args) =>
+    task(args, {
+      tracker: args.tracker,
+      item: args.item,
+      group: args.group,
+      account: args.account,
+    }),
+  'v1.TrackerPullRequestsLinked': (args) =>
+    task(args, { tracker: args.tracker, item: args.item, urls: args.urls }),
   'v1.TaskUnarchived': (args) => task(args, { queued: args.rank !== null }),
   'v1.TaskReset': (args) => task(args, { clarifyDepth: args.clarifyDepth }),
   'v1.TaskFollowsUp': (args) => task(args, { originalId: args.originalId }),
@@ -3759,6 +3909,11 @@ const materializers = counted(
       'v1.LinearTeamSyncAllowed': () => [],
       'v1.LinearIssueMoved': () => [],
       'v1.LinearPullRequestsLinked': () => [],
+      'v1.TrackerItemSeen': () => [],
+      'v1.TrackerItemMoved': () => [],
+      'v1.TrackerSyncAllowed': () => [],
+      'v1.TrackerGroupSyncAllowed': () => [],
+      'v1.TrackerPullRequestsLinked': () => [],
       'v1.GitHubActivityHeld': () => [],
       'v1.AppStarted': () => [],
       'v1.AppStopped': () => [],
@@ -4026,6 +4181,7 @@ const materializers = counted(
         pullRequests.delete().where({ taskId }),
         heldRuns.delete().where({ taskId }),
         messageDrafts.delete().where({ taskId }),
+        automationCheckTasks.delete().where({ taskId }),
         ...(runIds.length === 0
           ? []
           : [
@@ -4089,7 +4245,7 @@ const materializers = counted(
         comments.delete().where({ taskId }),
         requestSnoozes.delete().where({ ownerId: taskId }),
         messageDrafts.delete().where({ taskId }),
-        taskLog.delete().where({ taskId, name: { op: 'NOT LIKE', value: 'v1.Linear%' } }),
+        taskLog.delete().where({ taskId, name: { op: 'NOT IN', value: trackerSyncLog } }),
         taskBriefs.delete().where({ taskId }),
         peerMessages.delete().where({ recipientTaskId: taskId }),
         taskDescriptions.delete().where({ taskId }),
@@ -4718,6 +4874,8 @@ const materializers = counted(
         automations.delete().where({ id }),
         automationFirings.delete().where({ automationId: id }),
         automationComments.delete().where({ automationId: id }),
+        automationCheckResults.delete().where({ automationId: id }),
+        automationCheckTasks.delete().where({ automationId: id }),
         requestSnoozes.delete().where({ ownerId: id }),
       ],
       'v1.AutomationFired': ({ skipped, retryOf, slotAt, ...firing }) => [
@@ -4748,6 +4906,21 @@ const materializers = counted(
           .where({ id }),
       'v1.AutomationTaskCreated': (link) =>
         automationTasks.insert(link).onConflict('taskId', 'ignore'),
+      'v1.AutomationCheckSet': ({ automationId, command, timeout, runBy }) =>
+        automations
+          .update({ checkCommand: command, checkTimeout: timeout, checkRunBy: runBy })
+          .where({ id: automationId }),
+      'v1.AutomationCheckFinished': ({ at: _, failing, updatedTaskIds, skipped, ...result }) =>
+        automationCheckResults
+          .insert({
+            ...result,
+            failing: JSON.stringify(failing),
+            skipped: JSON.stringify(skipped),
+            updatedTaskIds: JSON.stringify(updatedTaskIds),
+          })
+          .onConflict('firingId', 'replace'),
+      'v1.AutomationCheckTaskCreated': ({ at: _, ...link }) =>
+        automationCheckTasks.insert(link).onConflict('taskId', 'replace'),
       'v1.AutomationCommentPosted': ({ choices, at, ...comment }) =>
         automationComments.insert({
           ...comment,
@@ -4933,6 +5106,8 @@ const state = State.SQLite.makeState({
     automationPromptDrafts,
     automationTasks,
     automationComments,
+    automationCheckResults,
+    automationCheckTasks,
     plans,
     planRequests,
     planTasks,

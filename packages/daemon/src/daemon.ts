@@ -39,6 +39,7 @@ import { createLibrarySettings } from './library-settings.ts'
 import { watchLibrary } from './library-watch.ts'
 import { type Keyring, loadKeyring } from './linear/keyring.ts'
 import { createLinear } from './linear/linear.ts'
+import { machineLoadRatio } from './load.ts'
 import { acquireLock } from './lock.ts'
 import { createPlans, type Plans } from './plans/plans.ts'
 import { QuitMarkedError, quitMarkedSync } from './quit-mark.ts'
@@ -555,6 +556,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         reposDir: paths.repos,
         sandbox,
         env: environment.current,
+        checkSlots,
+        libraryDir: paths.library,
+        checkFailed: (input) => tasks.checkFailed(input),
+        loadRatio: options.load?.ratio ?? machineLoadRatio,
+        ...(options.load?.checkEveryMs !== undefined && {
+          loadCheckEveryMs: options.load.checkEveryMs,
+        }),
         ...(idle && { idle }),
         ...(options.clock && { clock: options.clock }),
         ...automationOptions,

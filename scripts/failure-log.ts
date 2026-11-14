@@ -10,13 +10,16 @@ import {
   renameSync,
   rmSync,
 } from 'node:fs'
-import { homedir } from 'node:os'
 import path from 'node:path'
-import { type RunKind, smallRunFiles } from '../packages/daemon/test/support/suite-lock.ts'
+import {
+  type RunKind,
+  smallRunFiles,
+  testCacheDir,
+} from '../packages/daemon/test/support/suite-lock.ts'
 import { loadPerCore } from './machine-load.ts'
 
 export const failureLogEnv = 'TED_TEST_FAILURES_FILE'
-export const failureLogFile = path.join(homedir(), '.cache', 'ted', 'test-failures.jsonl')
+export const failureLogFile = path.join(testCacheDir(), 'test-failures.jsonl')
 export const keepDays = 90
 export const fileFailure = '(the file or a hook failed)'
 

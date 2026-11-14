@@ -32,9 +32,40 @@ export interface AutomationTaskLink {
   source?: string
 }
 
+export interface AutomationCheck {
+  command: string
+  timeout: string
+  runBy?: string
+}
+
+export interface AutomationCheckInput {
+  command: string
+  timeout?: string
+  runBy?: string | null
+}
+
+export type AutomationCheckState = 'passed' | 'failed' | 'timed-out' | 'setup-failed'
+
+export interface AutomationCheckRun {
+  state: AutomationCheckState
+  exitCode?: number
+  durationMs: number
+  ranWhileBusy?: true
+  skipped?: string[]
+  failing: string[]
+  updated?: AutomationTaskLink[]
+}
+
+export interface AutomationRunOutput {
+  text: string
+  log: string
+}
+
 export type AutomationResult =
   | { kind: 'queued' }
   | { kind: 'running' }
+  | { kind: 'passed' }
+  | { kind: 'check-failed'; tasks: AutomationTaskLink[] }
   | { kind: 'created'; tasks: AutomationTaskLink[] }
   | { kind: 'no-new-tasks' }
   | { kind: 'failed'; error: string }
@@ -56,6 +87,7 @@ export interface AutomationRun {
   created?: AutomationTaskLink[]
   message?: string
   runId?: string
+  check?: AutomationCheckRun
 }
 
 export interface AutomationRequest {
@@ -86,6 +118,7 @@ export interface Automation {
   on: boolean
   checkout?: true
   template?: AutomationTemplateId
+  check?: AutomationCheck
   createdAt: string
   nextFirings: string[]
   now?: AutomationNow
@@ -110,6 +143,7 @@ export interface AutomationInput {
   on?: boolean
   checkout?: boolean
   template?: AutomationTemplateId
+  check?: AutomationCheckInput
 }
 
 export interface CreateAutomationRequest extends AutomationInput {

@@ -1,6 +1,7 @@
 import type { AutomationCommentRequest, SchedulePreviewRequest } from './automation.ts'
 import {
   type AnswerAutomationRequest,
+  type AutomationCheckInput,
   type AutomationInput,
   type AutomationTemplateId,
   automationTemplateIds,
@@ -70,6 +71,43 @@ export function parseAutomationSchedule(value: unknown): AutomationSchedule {
   }
 }
 
+const maxCommandLength = 2000
+const timeoutPattern = /^[1-9]\d{0,4}[smh]$/
+const maxTimeoutMs = 24 * 60 * 60 * 1000
+
+function timeoutMs(text: string): number {
+  const amount = Number.parseInt(text, 10)
+  const unit = text.at(-1)
+  return amount * (unit === 'h' ? 3_600_000 : unit === 'm' ? 60_000 : 1_000)
+}
+
+export function parseAutomationCheck(value: unknown): AutomationCheckInput {
+  const given = bodyObject(value, 'check')
+  const command = typeof given.command === 'string' ? given.command.trim() : ''
+  if (command === '') throw new HttpError(400, 'check.command is required')
+  if (command.length > maxCommandLength) throw new HttpError(400, 'check.command is too long')
+  if (command.includes('\0')) throw new HttpError(400, 'check.command can’t hold a NUL byte')
+  const check: AutomationCheckInput = { command }
+  if (given.timeout !== undefined) {
+    if (
+      typeof given.timeout !== 'string' ||
+      !timeoutPattern.test(given.timeout) ||
+      timeoutMs(given.timeout) > maxTimeoutMs
+    ) {
+      throw new HttpError(400, 'check.timeout must be like 90m or 2h, at most 24h')
+    }
+    check.timeout = given.timeout
+  }
+  if (given.runBy === null) check.runBy = null
+  else if (given.runBy !== undefined) {
+    if (typeof given.runBy !== 'string' || !clock.test(given.runBy)) {
+      throw new HttpError(400, 'check.runBy must be a time as HH:MM')
+    }
+    check.runBy = given.runBy
+  }
+  return check
+}
+
 function fields(body: Record<string, unknown>): Partial<Omit<AutomationInput, 'template'>> {
   const out: Partial<Omit<AutomationInput, 'template'>> = {}
   const name = optionalText(body.name, 'name')
@@ -91,6 +129,7 @@ function fields(body: Record<string, unknown>): Partial<Omit<AutomationInput, 't
     }
     out.checkout = body.checkout
   }
+  if (body.check !== undefined) out.check = parseAutomationCheck(body.check)
   return out
 }
 
@@ -98,9 +137,12 @@ export function parseCreateAutomationRequest(value: unknown): CreateAutomationRe
   const body = bodyObject(value)
   const { name, prompt, schedule, ...rest } = fields(body)
   if (name === undefined) throw new HttpError(400, 'name is required')
-  if (prompt === undefined) throw new HttpError(400, 'prompt is required')
+  if (prompt === undefined && rest.check === undefined) {
+    throw new HttpError(400, 'prompt is required')
+  }
   if (schedule === undefined) throw new HttpError(400, 'schedule is required')
-  const input: CreateAutomationRequest = { name, prompt, schedule, ...rest }
+  if (rest.check?.runBy === null) throw new HttpError(400, 'check.runBy must be a time as HH:MM')
+  const input: CreateAutomationRequest = { name, prompt: prompt ?? '', schedule, ...rest }
   const factory = optionalText(body.factory, 'factory')
   if (factory !== undefined) input.factory = factory
   if (body.template !== undefined) {

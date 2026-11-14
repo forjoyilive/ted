@@ -69,6 +69,8 @@ if (busy(load) && !process.env[heldLockEnv] && workers < idleWorkers) {
   console.warn(busyLine(load, `${workers} worker${workers === 1 ? '' : 's'}`, `${idleWorkers}`))
 }
 
+const tedSandbox = process.env.TED_SANDBOX === '1'
+
 const testOptions = {
   testTimeout: 30_000,
   expect: { poll: { timeout: 10_000 } },
@@ -101,6 +103,9 @@ const testOptions = {
     TED_TEST_LOAD: 'off',
     TED_HOLD_REQUESTS_MS: '0',
     TED_REMOTE_EXECUTION: 'on',
+    ...(tedSandbox && {
+      TED_SANDBOX_BIN: here('./packages/daemon/test/fixtures/pass-through-sandbox.sh'),
+    }),
   },
 }
 
@@ -111,6 +116,9 @@ const sandboxName =
       ? 'TED’s sandbox'
       : undefined
 const inSandbox = sandboxName !== undefined
+if (sandboxName === 'TED’s sandbox') {
+  console.warn('TED_SANDBOX_SKIPPED: the Electron app tests')
+}
 if (sandboxName) {
   console.warn(
     `Skipping the Electron app tests: ${sandboxName} stops Electron registering with the window server, so every launch aborts. Run them outside the sandbox.`,
@@ -143,6 +151,7 @@ export default defineConfig({
   oxc: { jsx: { runtime: 'automatic' } },
   test: {
     ...testOptions,
+    passWithNoTests: inSandbox,
     projects: [
       {
         extends: true,

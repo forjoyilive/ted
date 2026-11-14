@@ -28,6 +28,7 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
 const execFileAsync = promisify(execFile)
 const stubApp = fileURLToPath(new URL('./fixtures/stub-app.ts', import.meta.url))
@@ -458,7 +459,8 @@ describe('the Apps’ sandbox', () => {
 
   test.runIf(process.platform === 'darwin')(
     'an App ted run-app starts writes its worktree but not TED_HOME',
-    async () => {
+    async (context) => {
+      skipInsideTedSandbox(context)
       const planted = path.join(home, 'planted')
       await commitToOrigin(scratch, {
         '.gitignore': 'stub-*\n',
@@ -478,7 +480,8 @@ describe('the Apps’ sandbox', () => {
 
   test.runIf(process.platform === 'darwin')(
     'the human’s ▶ restarts an App a Run started sandboxed, outside the sandbox',
-    async () => {
+    async (context) => {
+      skipInsideTedSandbox(context)
       const outside = path.join(scratch, 'outside')
       await commitToOrigin(scratch, { '.ted/workflow.yaml': appsYaml(toucher(outside)) })
       const client = await start()
@@ -503,9 +506,10 @@ describe('the Apps’ sandbox', () => {
     },
   )
 
-  test.each([false, true])(
+  test.for([false, true])(
     'repo Bypass only removes an agent’s App sandbox with local consent: %s',
-    async (consent) => {
+    async (consent, context) => {
+      if (!consent) skipInsideTedSandbox(context)
       const outside = path.join(scratch, 'outside')
       await commitToOrigin(scratch, {
         '.ted/workflow.yaml': `permissions: bypass\n${appsYaml(toucher(outside))}`,

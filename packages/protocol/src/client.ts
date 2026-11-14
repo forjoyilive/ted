@@ -33,6 +33,7 @@ import type {
   AutomationPromptDraft,
   AutomationRequest,
   AutomationRun,
+  AutomationRunOutput,
   AutomationTemplate,
   CreateAutomationRequest,
   DraftAutomationPromptRequest,
@@ -372,6 +373,10 @@ export class DaemonClient {
       `/automations/${encodeURIComponent(ref)}/run${factoryQuery(factory)}`,
       {},
     )
+  }
+
+  automationRunOutput(runId: string): Promise<AutomationRunOutput> {
+    return this.#request('GET', `/automation-runs/${encodeURIComponent(runId)}/output`)
   }
 
   retryAutomationRun(runId: string): Promise<AutomationRun> {

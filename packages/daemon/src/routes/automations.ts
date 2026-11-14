@@ -123,6 +123,11 @@ export const automationRoutes: Route[] = [
     },
   },
   {
+    method: 'GET',
+    path: path(`/automation-runs/${ref}/output`),
+    handle: async ({ params: [id = ''] }, { automations }) => [200, await automations.output(id)],
+  },
+  {
     method: 'POST',
     path: path(`/automation-runs/${ref}/retry`),
     runToken: true,

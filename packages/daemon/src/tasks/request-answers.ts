@@ -12,6 +12,7 @@ import type {
 import {
   archiveChoice,
   failureChoices,
+  isTrackerClosedQuestion,
   keepArchiveChoice,
   sizeChoices,
   validateFailureChoices,
@@ -29,7 +30,6 @@ import { type createFailureCases, failureText } from './failure-cases.ts'
 import { mergeAnywayChoice, sendToLeadChoice } from './merge-watcher.ts'
 import { checkPreparationWorkflow } from './preparation.ts'
 import { approvedShape, createProposalTasks } from './proposal-tasks.ts'
-import { createLinearConsent } from './request-linear-team.ts'
 import { roundAnswerMessage, roundAnswers } from './rounds.ts'
 import {
   grillAnywayMessage,
@@ -38,6 +38,8 @@ import {
   splitApprovedMessage,
   splitChosenMessage,
 } from './split.ts'
+import type { TrackerConsent } from './tracker-sync/consent.ts'
+import { archiveChoice as trackerArchiveChoice } from './tracker-sync/sync.ts'
 import { StaleCoverageError } from './validation.ts'
 
 export interface RequestAnswerPort {
@@ -109,6 +111,7 @@ export interface RequestAnswerPort {
     choice: string | undefined,
     text: string,
   ): Promise<Comment>
+  trackerConsents: readonly TrackerConsent[]
   answerCleanupFailure(
     task: StoredTask,
     comment: Comment,
@@ -160,9 +163,9 @@ export function createRequestAnswers(
     gateName,
     firstLine,
     answerAsanaMissing,
+    trackerConsents,
     answerCleanupFailure,
   } = port
-  const { answerLinearTeam } = createLinearConsent(store)
   const answerRequest = (
     task: Task,
     comment: Comment,
@@ -179,7 +182,6 @@ export function createRequestAnswers(
       automatic !== undefined,
       queueAnswer,
     )
-  const linearArchiveChoice = 'Archive'
   const nudgeAgainChoice = 'Nudge again'
   const useDefaultChoice = 'Use the default model'
   const retryChoice = 'Retry'
@@ -667,8 +669,9 @@ export function createRequestAnswers(
     if (comment.purpose?.kind === 'asana-missing' && request.action === 'answer') {
       return answerAsanaMissing(task, comment, request.choice, text)
     }
-    if (comment.purpose?.kind === 'linear-team' && request.action === 'answer') {
-      return answerLinearTeam(task, comment, request.choice, text)
+    const consent = trackerConsents.find((c) => c.asks(comment))
+    if (consent && request.action === 'answer') {
+      return consent.answerGroup(task, comment, request.choice, text)
     }
     if (
       comment.purpose?.kind === 'size-check' &&
@@ -814,8 +817,8 @@ export function createRequestAnswers(
         wake()
         return store.getComment(comment.id) ?? answered
       }
-      if (comment.purpose?.kind === 'linear-closed' && choice !== undefined) {
-        if (choice === linearArchiveChoice && !find(task.id).archived)
+      if (isTrackerClosedQuestion(comment) && choice !== undefined) {
+        if (choice === trackerArchiveChoice && !find(task.id).archived)
           port.beforeArchive?.(find(task.id))
         const answered = answerRequest(task, comment, {
           kind: 'answered',
@@ -823,7 +826,7 @@ export function createRequestAnswers(
           choice,
           ...(text !== '' && { text }),
         })
-        if (choice === linearArchiveChoice && !find(task.id).archived) {
+        if (choice === trackerArchiveChoice && !find(task.id).archived) {
           settleDependents(task.id, 'unblock')
           archiveNow(find(task.id), false)
           wake()

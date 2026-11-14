@@ -33,6 +33,8 @@ The authoritative reasons for individual inputs are beside their entries in `ted
 | `TED_EDITOR_APP_DIRS` | Substitute the folders searched for editor bundles. |
 | `TED_DEMO`, `TED_DEMO_STARTED`, `TED_STUB_GH`, `TED_STUB_XCRUN` | Prepare the isolated Dev demo and select its local fixture state; ignored in release. |
 
+Inside TED’s sandbox, `TED_SANDBOX=1` also changes this repo’s test tooling (ADR 0147): `vitest.config.ts` points `TED_SANDBOX_BIN` at `packages/daemon/test/fixtures/pass-through-sandbox.sh`, because a second sandbox can’t start inside the first, and on macOS prints `TED_SANDBOX_SKIPPED: the Electron app tests`, which a Scheduled Check shows in its result; `testCacheDir` in `packages/daemon/test/support/suite-lock.ts` keeps test locks, slots and the failure log in `$XDG_CACHE_HOME/ted`, which the sandbox points at the command’s own cache folder.
+
 Internal output names such as `TED_COMMAND_SCRIPT` (a generated script marker) and `__TED_LOGIN_ENV__` (a shell-output delimiter) are not environment inputs. Test fixtures can have their own `TED_STUB_*` inputs outside runtime `packages/*/src`.
 
 The regression tests exercise both editions, including starting a release-edition daemon with a keyring module that writes an import marker and throws. The release starts without executing it; the Dev control executes it. No test accesses OS credentials or a real integration service.

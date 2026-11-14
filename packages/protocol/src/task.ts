@@ -674,12 +674,20 @@ export type CommentAnswer =
   | { kind: 'withdrawn'; at: string; slotFreed: true }
   | { kind: 'withdrawn'; at: string; appGone: true }
   | { kind: 'withdrawn'; at: string; linear: 'reopened' | 'done' }
+  | { kind: 'withdrawn'; at: string; tracker: 'reopened' | 'done' }
   | { kind: 'withdrawn'; at: string; asanaReread: true }
   | { kind: 'denied'; at: string; text?: string }
   | { kind: 'superseded'; at: string; by: string }
 
+export interface TrackerGroup {
+  key: string
+  name: string
+}
+
 export type RequestPurpose =
   | { kind: 'model'; runId: string }
+  | { kind: 'tracker-closed'; tracker: string }
+  | { kind: 'tracker-group'; tracker: string; group: TrackerGroup }
   | {
       kind:
         | 'question'
@@ -700,6 +708,20 @@ export type RequestPurpose =
         | 'idle-run'
         | 'ci-stuck'
     }
+
+const trackerNames: Readonly<Record<string, string>> = { linear: 'Linear' }
+
+export function trackerName(tracker: string): string {
+  return trackerNames[tracker] ?? tracker
+}
+
+export function isTrackerGroupAsk(comment: Pick<Comment, 'linearTeam' | 'purpose'>): boolean {
+  return comment.linearTeam !== undefined || comment.purpose?.kind === 'tracker-group'
+}
+
+export function isTrackerClosedQuestion(comment: Pick<Comment, 'purpose'>): boolean {
+  return comment.purpose?.kind === 'linear-closed' || comment.purpose?.kind === 'tracker-closed'
+}
 
 export interface Comment {
   autopilotAnswered?: boolean

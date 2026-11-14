@@ -25,6 +25,7 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
 const execFileAsync = promisify(execFile)
 const gitEnv = {
@@ -269,7 +270,8 @@ describe('a multi-repo Task', () => {
 
   test.runIf(process.platform === 'darwin')(
     'a Run cannot escape through an edited teardown script when removing a repo',
-    async () => {
+    async (context) => {
+      skipInsideTedSandbox(context)
       await twoRepos(['    worktree:', '      teardown: "sh cleanup.sh"', ''].join('\n'))
       const client = await start()
       await addFactory(client)

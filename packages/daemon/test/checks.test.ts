@@ -27,6 +27,7 @@ import {
   stubCodexPath,
   waitUntil,
 } from './helpers.ts'
+import { skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -581,9 +582,12 @@ describe('Checks across restarts', () => {
     const preparing = path.join(scratch, 'preparing')
     const release = path.join(scratch, 'release')
     const program = path.join(scratch, 'sandbox-prepare')
+    const sandboxProgram =
+      process.env.TED_SANDBOX_BIN ??
+      (process.platform === 'darwin' ? '/usr/bin/sandbox-exec' : 'bwrap')
     await writeFile(
       program,
-      `#!/bin/sh\necho waiting > '${preparing}'\nwhile [ ! -e '${release}' ]; do sleep 0.01; done\nexec ${process.platform === 'darwin' ? '/usr/bin/sandbox-exec' : 'bwrap'} "$@"\n`,
+      `#!/bin/sh\necho waiting > '${preparing}'\nwhile [ ! -e '${release}' ]; do sleep 0.01; done\nexec '${sandboxProgram}' "$@"\n`,
       { mode: 0o755 },
     )
     const previous = process.env.TED_SANDBOX_BIN
@@ -944,7 +948,8 @@ describe('the Checks’ sandbox', () => {
 
   test.runIf(process.platform === 'darwin')(
     'a Check an agent starts writes its worktree, but can’t write TED_HOME or the home folder or read daemon.json',
-    async () => {
+    async (context) => {
+      skipInsideTedSandbox(context)
       const homeFile = path.join(homedir(), `.ted-check-escape-${randomUUID()}`)
       const targets = [path.join(home, 'planted'), homeFile, path.join(scratch, 'out')]
       try {
@@ -984,7 +989,8 @@ describe('the Checks’ sandbox', () => {
 
   test.runIf(process.platform === 'darwin')(
     'the Checks TED runs before Validate are sandboxed too, since they run the code the agent wrote',
-    async () => {
+    async (context) => {
+      skipInsideTedSandbox(context)
       await workflow(escapeCheck([path.join(home, 'planted')]))
       const client = await startTed()
       const task = await startTask(
@@ -1003,9 +1009,10 @@ describe('the Checks’ sandbox', () => {
     },
   )
 
-  test.each([false, true])(
+  test.for([false, true])(
     'repo Bypass only removes the Checks’ sandbox with local consent: %s',
-    async (consent) => {
+    async (consent, context) => {
+      if (!consent) skipInsideTedSandbox(context)
       await commitToOrigin(scratch, {
         '.gitignore': 'stub-*\n',
         '.ted/workflow.yaml': [
@@ -1038,7 +1045,8 @@ describe('the Checks’ sandbox', () => {
 
   test.runIf(process.platform === 'darwin')(
     'revoking Bypass while a Check runs sandboxes the next Check in the batch',
-    async () => {
+    async (context) => {
+      skipInsideTedSandbox(context)
       await workflow(
         [
           '      - { name: Hold, run: "touch stub-check-started; while [ ! -f stub-release ]; do sleep 0.02; done" }',

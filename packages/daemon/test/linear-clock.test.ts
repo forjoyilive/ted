@@ -29,8 +29,12 @@ test('Linear waits a full interval after a slow cycle, never overlaps, and does 
       async moveIssue() {},
       async linkUrl() {},
     },
-    async closed() {},
-    settled() {},
+    actions: {
+      gone: () => false,
+      liveRun: () => false,
+      openRequests: () => [],
+      archive() {},
+    },
     inBackground(_what, work) {
       jobs.push(work())
     },

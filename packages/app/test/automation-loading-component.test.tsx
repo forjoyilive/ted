@@ -223,6 +223,49 @@ test('Automation header right-click shares actions with ⋯ and Delete still ask
   expect(api.request).not.toHaveBeenCalledWith('deleteAutomation', 'automation-a')
 })
 
+test('a scheduled Check shows its command, and Output on a history row opens the firing’s output', async () => {
+  const shown = detail()
+  const api = bridge({
+    getAutomation: () => ({
+      ...shown,
+      automation: {
+        ...shown.automation,
+        name: 'Nightly tests',
+        prompt: '',
+        check: { command: 'pnpm check', timeout: '2h', runBy: '07:00' },
+      },
+      history: [
+        {
+          id: 'firing-a',
+          automationId: 'automation-a',
+          trigger: 'scheduled',
+          at: createdAt,
+          startedAt: createdAt,
+          finishedAt: createdAt,
+          result: { kind: 'check-failed', tasks: [] },
+          check: { state: 'failed', exitCode: 1, durationMs: 90_000, failing: ['a.test.ts'] },
+        },
+      ],
+    }),
+    automationRunOutput: () => ({
+      text: ' FAIL  a.test.ts',
+      log: '/ted/automation-checks/a/logs/firing-a.log',
+    }),
+  })
+  render(view('details'))
+  await screen.findByRole('heading', { name: 'Nightly tests' })
+  expect(screen.getByText('pnpm check')).toBeTruthy()
+  expect(screen.queryByText('Show prompt')).toBeNull()
+  expect(screen.getByText('Failed · 1 failing test file')).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'Output' }))
+  const dialog = await screen.findByRole('dialog', { name: /^Check output/ })
+  expect(await within(dialog).findByText(' FAIL  a.test.ts', { normalizer: (t) => t })).toBeTruthy()
+  expect(
+    within(dialog).getByText('Full log: /ted/automation-checks/a/logs/firing-a.log'),
+  ).toBeTruthy()
+  expect(api.request).toHaveBeenCalledWith('automationRunOutput', 'firing-a')
+})
+
 const automationEdits: { label: string; change: Partial<Automation> }[] = [
   { label: 'prompt', change: { prompt: 'Triage updated requests.' } },
   { label: 'schedule', change: { schedule: { kind: 'weekly', days: ['fri'], at: '14:00' } } },

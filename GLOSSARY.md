@@ -150,6 +150,10 @@ _Avoid_: Restart, retry, redo
 The URL of the item a Task was created from, such as a Linear, Sentry or GitHub issue. A Linear source also fills in the Task’s title, Priority and branch when TED has a Linear API key.
 _Avoid_: Origin, link, ticket
 
+**Tracker sync**:
+TED keeping a Task’s Source item (a Linear issue, later an Asana item) up to date: it moves the item forward as the Task goes on, links its pull requests and notices when the item is closed outside TED. It runs only for a Task the human allowed, one by one or for a whole group (a Linear team) in one Factory. Each tracker plugs in through a connector.
+_Avoid_: Integration sync, two-way sync
+
 **Original request**:
 The first version of a Task’s description, kept as written when the Task was created. The human can edit the description at any time; each edit is a new version, and the Original request never changes.
 _Avoid_: First draft, initial description
@@ -223,6 +227,10 @@ _Avoid_: Inline comment, review comment, diff comment
 **Automation**:
 A schedule in a Factory that starts a Run each time it fires, outside any Task, usually to bring new work in as Tasks; one of several ways Tasks are created, alongside the human creating them by hand. With **Run in a copy of the code** on, each of its Runs works in a fresh copy of the default branch and can start the Factory’s Apps there; TED removes both when the Run ends.
 _Avoid_: Cron job, trigger
+
+**Scheduled Check**:
+An Automation that runs its own command as a Check, with no agent, in a fresh worktree on the tip of the Factory’s default branch. When the command fails, TED creates Tasks to fix what failed, and a later failure of the same test file adds a note to its open Task instead of making another.
+_Avoid_: Nightly build, scheduled test run
 
 **Daemon**:
 TED’s background process on each machine, which keeps Runs, Automations and the store going while no window is open. The UI calls it “TED in the background”, not the daemon.

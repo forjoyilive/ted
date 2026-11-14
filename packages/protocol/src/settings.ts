@@ -60,6 +60,10 @@ export function firstFactoryNotifications(
     : {}
 }
 
+export type TrackerGroupLists = Readonly<
+  Record<string, Readonly<Record<string, readonly string[]>>>
+>
+
 export interface MachineSettings {
   timeFormat: TimeFormat
   timeZone: string
@@ -95,6 +99,8 @@ export interface MachineSettings {
   linearSync: boolean
   linearSyncTeams: Readonly<Record<string, readonly string[]>>
   linearSyncDeclined: Readonly<Record<string, readonly string[]>>
+  trackerSyncGroups: TrackerGroupLists
+  trackerSyncDeclined: TrackerGroupLists
   factoryPermissions: Readonly<Record<string, PermissionMode>>
   appsOutsideSandbox: Readonly<Record<string, readonly string[]>>
   lowPriorityWork: boolean
@@ -138,6 +144,8 @@ export const defaultMachineSettings: MachineSettings = {
   linearSync: true,
   linearSyncTeams: {},
   linearSyncDeclined: {},
+  trackerSyncGroups: {},
+  trackerSyncDeclined: {},
   factoryPermissions: {},
   appsOutsideSandbox: {},
   lowPriorityWork: true,

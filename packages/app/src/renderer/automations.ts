@@ -119,6 +119,15 @@ export function lastResult(run: AutomationRun | undefined, now: number): LastRes
   switch (run.result.kind) {
     case 'created':
       return { text: 'Created', tasks: run.result.tasks.map((t) => t.displayId), ...age }
+    case 'passed':
+      return { text: 'Passed', ...age }
+    case 'check-failed':
+      return {
+        text: 'Check failed',
+        failed: true,
+        tasks: [...run.result.tasks, ...(run.check?.updated ?? [])].map((t) => t.displayId),
+        ...age,
+      }
     case 'no-new-tasks':
       return { text: 'No new Tasks', ...age }
     case 'failed':
@@ -158,7 +167,8 @@ export function nowChip(
   }
 }
 
-export function agentModel(automation: Pick<Automation, 'agent' | 'model'>): string {
+export function agentModel(automation: Pick<Automation, 'agent' | 'model' | 'check'>): string {
+  if (automation.check) return 'Check · no agent'
   return [agentLabels[automation.agent], automation.model].filter(Boolean).join(' · ')
 }
 
@@ -198,6 +208,10 @@ export function historyResult(run: AutomationRun): { text: string; failed?: true
   switch (run.result.kind) {
     case 'created':
       return { text: 'Created', ...under }
+    case 'passed':
+      return { text: 'Passed', ...checkNotes(run, under) }
+    case 'check-failed':
+      return { text: checkFailedText(run), failed: true, ...checkNotes(run, under) }
     case 'no-new-tasks':
       return { text: 'No new Tasks', ...under }
     case 'failed':
@@ -215,10 +229,31 @@ export function historyResult(run: AutomationRun): { text: string; failed?: true
   }
 }
 
+function checkFailedText(run: AutomationRun): string {
+  const check = run.check
+  if (check?.state === 'timed-out') return 'Timed out'
+  const count = check?.failing.length ?? 0
+  return count === 0 ? 'Failed' : `Failed · ${count} failing test ${count === 1 ? 'file' : 'files'}`
+}
+
+function checkNotes(run: AutomationRun, under: { under?: string }): { under?: string } {
+  const notes = [
+    ...(run.check?.ranWhileBusy ? ['Ran at its cutoff while the computer was busy'] : []),
+    ...(run.check?.skipped ?? []).map((note) => `Skipped ${note}`),
+    ...(under.under !== undefined ? [under.under] : []),
+  ]
+  return notes.length > 0 ? { under: notes.join(' · ') } : {}
+}
+
 export function duration(run: AutomationRun, now: number): string {
+  if (run.check) return durationText(run.check.durationMs)
   if (run.startedAt === undefined) return '—'
   const end = run.finishedAt === undefined ? now : Date.parse(run.finishedAt)
-  const seconds = Math.max(Math.round((end - Date.parse(run.startedAt)) / 1000), 0)
+  return durationText(end - Date.parse(run.startedAt))
+}
+
+function durationText(ms: number): string {
+  const seconds = Math.max(Math.round(ms / 1000), 0)
   if (seconds < 60) return `${seconds}s`
   const minutes = Math.floor(seconds / 60)
   if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, '0')}s`
@@ -235,6 +270,7 @@ export function duplicateOf(automation: Automation): CreateAutomationRequest {
     ...(automation.model !== undefined && { model: automation.model }),
     ...(automation.effort !== undefined && { effort: automation.effort }),
     ...(automation.checkout && { checkout: true }),
+    ...(automation.check && { check: automation.check }),
     on: false,
   }
 }
