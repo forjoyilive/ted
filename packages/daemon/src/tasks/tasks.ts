@@ -1021,7 +1021,8 @@ export function createTasks(options: {
       everyMs: options.linearSyncMs ?? 60_000,
       closed: (taskId, issue) => linearIssueClosed(taskId, issue),
       settled: (taskId, why) => withdrawLinearQuestions(taskId, why),
-      inBackground: (what, work) => inBackground(what, work),
+      // A hold released on every cycle would start the idle exit’s time again for ever.
+      inBackground: (what, work) => inBackground(what, work, false),
     })
   const sources: QueueSource[] = []
   let pumping: Promise<void> | undefined
@@ -2124,8 +2125,8 @@ export function createTasks(options: {
     })
   }
 
-  function inBackground(what: string, work: () => Promise<void>): void {
-    const release = options.idle?.hold()
+  function inBackground(what: string, work: () => Promise<void>, holdIdle = true): void {
+    const release = holdIdle ? options.idle?.hold() : undefined
     const done = work()
       .catch((error: unknown) => console.error(`couldn’t ${what}:`, error))
       .finally(() => {

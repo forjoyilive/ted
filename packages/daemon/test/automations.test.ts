@@ -1017,7 +1017,7 @@ test('removing a Factory deletes its Automations and stops their Runs', async ()
   }, 'the Run to stop')
 })
 
-test('an Automation that is on keeps a daemon started by ted from exiting when idle', async () => {
+test('an Automation that is on keeps a daemon started by ted from exiting when idle, and the Linear sync timer doesn’t', async () => {
   const timers = new ManualClock()
   let idled = 0
   daemon = await startDaemon({
@@ -1027,6 +1027,7 @@ test('an Automation that is on keeps a daemon started by ted from exiting when i
     clock: timers,
     idleExit: { afterMs: 300, onIdle: () => idled++ },
     automations: { now: () => clock, checkEveryMs: 50 },
+    linearSyncMs: 100,
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
   await client.call('POST', '/dev/factories', {
