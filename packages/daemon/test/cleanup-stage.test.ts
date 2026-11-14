@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { type Comment, DaemonClient, type DaemonEvent, type Task } from '@ted/protocol'
 import { expect, onTestFinished, test } from 'vitest'
@@ -162,21 +162,39 @@ test('a merged Task goes through Cleanup: blockers are released at the merge, TE
   )
 })
 
-test('a Cleanup with only commands that all pass moves the Task to Done without a Task Lead turn', async () => {
+test('a Cleanup with only commands runs the unfinished ones again after a stop, finishes without a Task Lead turn, and its logs go with the Task', async () => {
   const client = await start({
     workflow: [
       'stages:',
       '  cleanup:',
       '    enabled: true',
       '    steps:',
+      '      - name: Wait',
+      '        command: until [ -e stub-go ]; do sleep 0.1; done',
       '      - name: Prune',
       '        command: echo run >> stub-cleanup-ok',
     ],
   })
   const { task, signoff } = await toSignoff(client)
   await approve(client, signoff)
+  await waitUntil(
+    async () => (await getTask(client, task.id)).activity === 'Running Cleanup commands',
+    'the Cleanup commands to start',
+  )
+  const before = await getTask(client, task.id)
+  const leads = (t: Task) => t.runs.filter((run) => run.role === 'lead').length
+  await client.ok('POST', `/tasks/${task.id}/stop`)
+  await writeFile(path.join(before.repos[0]?.worktree ?? '', 'stub-go'), '')
+  await client.ok('POST', `/tasks/${task.id}/resume`, {})
   await waitForStage(client, task, 'done')
+
+  expect(leads(await getTask(client, task.id))).toBe(leads(before))
   const thread = await lines(client, task)
-  expect(thread).toContain('Cleanup command “Prune”: passed')
+  expect(thread.filter((line) => line === 'Cleanup command “Wait”: passed')).toHaveLength(1)
+  expect(thread.filter((line) => line === 'Cleanup command “Prune”: passed')).toHaveLength(1)
   expect(thread.some((line) => line.startsWith('Cleanup step '))).toBe(false)
+  const logs = path.join(ctx.home, 'logs', 'checks', task.displayId)
+  expect((await readdir(logs)).some((name) => name.startsWith('cleanup-'))).toBe(true)
+  await client.ok('POST', `/tasks/${task.id}/delete`, {})
+  await expect(readdir(logs)).rejects.toMatchObject({ code: 'ENOENT' })
 })

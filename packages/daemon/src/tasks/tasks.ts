@@ -5954,6 +5954,7 @@ export function createTasks(options: {
     const wait = new AbortController()
     checkWaits.set(taskId, wait)
     let ran: CleanupCommandResult[] = []
+    let interrupted = false
     try {
       const task = find(taskId)
       const steps = pendingCleanupCommands(taskId, workflow)
@@ -5971,7 +5972,10 @@ export function createTasks(options: {
       } else {
         const signal = AbortSignal.any([stopping.signal, wait.signal])
         const release = await options.checkSlots.take({ taskId, signal })
-        if (release === undefined) return
+        if (release === undefined) {
+          interrupted = true
+          return
+        }
         const batch = randomUUID()
         try {
           const entry = repoEntry(factoryRepos(workflow, factory), primary)
@@ -5982,13 +5986,16 @@ export function createTasks(options: {
             env: checkEnv(task.displayId, entry?.env ?? {}, env),
             shell: [loginShell(env), '-lc'],
             logFor: (position) =>
-              path.join(logsDir, 'cleanup', task.displayId, batch, `${position + 1}.log`),
+              path.join(checkDir(task, `cleanup-${batch}`), `${position + 1}.log`),
             prepareLaunch: () => prepareCommandLaunch(find(taskId)),
             lowPriority: store.settings().lowPriorityWork,
             signal,
             record: (r) => store.recordCleanupCommand(taskId, r),
           })
-          if (result.outcome === 'interrupted') return
+          if (result.outcome === 'interrupted') {
+            interrupted = true
+            return
+          }
           ran = result.results
         } finally {
           release()
@@ -5997,9 +6004,28 @@ export function createTasks(options: {
     } finally {
       if (checkWaits.get(taskId) === wait) checkWaits.delete(taskId)
       setChecking(taskId, false)
+      if (interrupted && !stopping.signal.aborted) resumedDuringCleanup(taskId, workflow, message)
     }
     await store.persisted()
     await afterCleanupCommands(taskId, workflow, message, ran)
+  }
+
+  function resumedDuringCleanup(taskId: string, workflow: ResolvedWorkflow, message: string) {
+    const task = store.getTask(taskId)
+    if (task?.stage !== 'cleanup' || task.archived || find(taskId).stopped) return
+    if (pendingCleanupCommands(taskId, workflow).length === 0) return
+    inBackground(`run ${task.displayId}’s Cleanup commands again`, async () => {
+      if (store.queue().some((q) => q.id === taskId)) store.dequeue(taskId)
+      await cleanupThen(taskId, workflow, message)
+    })
+  }
+
+  function cleanupLeft(taskId: string, workflow: ResolvedWorkflow): 'nothing' | 'lead' {
+    const reports = new Map(store.cleanupReports(taskId).map((r) => [r.step, r]))
+    const leadNeeded = cleanupSteps(workflow).some((step) =>
+      isCommandStep(step) ? reports.get(step.name)?.result === 'failed' : !reports.has(step.name),
+    )
+    return leadNeeded || openCleanupFailure(taskId) !== undefined ? 'lead' : 'nothing'
   }
 
   async function afterCleanupCommands(
@@ -6011,14 +6037,11 @@ export function createTasks(options: {
     const task = store.getTask(taskId)
     if (task?.stage !== 'cleanup' || task.archived || task.stopped) return
     const steps = cleanupSteps(workflow)
-    const reports = new Map(store.cleanupReports(taskId).map((r) => [r.step, r]))
+    const reports = new Set(store.cleanupReports(taskId).map((r) => r.step))
     const instructionsLeft = steps.filter(
       (step) => !isCommandStep(step) && !reports.has(step.name),
     ).length
-    const failedCommand = steps.some(
-      (step) => isCommandStep(step) && reports.get(step.name)?.result === 'failed',
-    )
-    if (instructionsLeft === 0 && !failedCommand && openCleanupFailure(taskId) === undefined) {
+    if (cleanupLeft(taskId, workflow) === 'nothing') {
       inBackground(`finish ${task.displayId}’s Cleanup`, async () => {
         await untilFree(taskId)
         await holding(find(taskId), async () => {
@@ -7747,6 +7770,14 @@ export function createTasks(options: {
     await execution.local(taskId)
     const task = find(taskId)
     const factory = factoryOf(task)
+    if (task.stage === 'cleanup') {
+      const { workflow } = await taskWorkflow(task, { fetch: false })
+      if (pendingCleanupCommands(task.id, workflow).length > 0) {
+        store.dequeue(task.id)
+        if (!checking.has(task.id)) await cleanupThen(task.id, workflow, cleanupRestartNote)
+        return
+      }
+    }
     if (task.repos.some((r) => !r.removed)) {
       if (task.stage === 'work' && store.heldBeforeWork(task.id)) {
         const note = await adoptLatestBase(task)
@@ -8731,8 +8762,14 @@ export function createTasks(options: {
       } finally {
         setChecking(task.id, false)
       }
-      if (pendingCleanupCommands(task.id, workflow).length === 0) return
-      await cleanupThen(task.id, workflow, cleanupRestartNote)
+      if (pendingCleanupCommands(task.id, workflow).length > 0) {
+        await cleanupThen(task.id, workflow, cleanupRestartNote)
+      } else if (
+        cleanupSteps(workflow).every(isCommandStep) &&
+        cleanupLeft(task.id, workflow) === 'nothing'
+      ) {
+        await afterCleanupCommands(task.id, workflow, cleanupRestartNote, [])
+      }
     })
   }
   for (const task of store.listTasks()) {
