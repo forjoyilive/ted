@@ -356,15 +356,19 @@
   right: 10px;
   display: none;
   align-items: center;
-  gap: 5px;
+  justify-content: center;
+  width: var(--button-height-small);
   height: var(--button-height-small);
-  padding: 0 7px;
-  border: 1px solid var(--border-strong);
+  padding: 0;
+  border: none;
   border-radius: var(--radius-control);
-  background: var(--surface-card);
+  background: none;
   color: var(--text-secondary);
-  font: inherit;
-  font-size: var(--text-12);
+}
+
+.snoozeIcon {
+  width: 14px;
+  height: 14px;
 }
 
 .item:hover .snooze,
@@ -380,23 +384,14 @@
 }
 
 .snooze:hover {
-  background: var(--surface-hover);
+  background: var(--surface-neutral);
+  color: var(--text-primary);
 }
 
 .snooze:focus-visible,
 .group:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
-}
-
-.key {
-  padding: 0 4px;
-  border: 1px solid var(--border-strong);
-  border-radius: 4px;
-  background: var(--surface-inset);
-  color: var(--text-tertiary);
-  font-family: var(--font-mono);
-  font-size: var(--text-11);
 }
 
 .group {
