@@ -91,7 +91,7 @@ test('Backlog stays collapsed after visiting Inbox and reloading the app', async
     expect(await actions.count()).toBe(0)
     await daemon.startTask(task.id, { prepare: true })
     await window.getByText('Ready for Work', { exact: true }).waitFor()
-    await daemon.createTask({ factory: 'NB', title: 'Not started yet' })
+    const later = await daemon.createTask({ factory: 'NB', title: 'Not started yet' })
     const headers = await window.locator('thead th').allTextContents()
     expect(headers.slice(-2)).toEqual(['Updated', 'Started'])
     const started = window
@@ -104,6 +104,21 @@ test('Backlog stays collapsed after visiting Inbox and reloading the app', async
       .locator('td')
       .last()
     await expect.poll(() => neverStarted.textContent()).toBe('—')
+    await daemon.blockTask(later.id, task.id)
+    await window.setViewportSize({ width: 900, height: 640 })
+    const blockedStatus = window
+      .getByRole('row', { name: /Not started yet/ })
+      .locator('td')
+      .nth(headers.indexOf('Status'))
+    await expect.poll(() => blockedStatus.textContent()).toMatch(/^Blocked by NB-/)
+    const fits = await blockedStatus.evaluate((cell) => {
+      const right = cell.getBoundingClientRect().right
+      return [...cell.querySelectorAll('*')].every(
+        (el) => el.getBoundingClientRect().right <= right + 0.5,
+      )
+    })
+    expect(fits, 'status badges wrap inside the Status cell').toBe(true)
+    if (size) await window.setViewportSize(size)
     if (captures) await window.screenshot({ path: path.join(captures, 'ready-for-work.png') })
   } finally {
     await closeApp(app)
