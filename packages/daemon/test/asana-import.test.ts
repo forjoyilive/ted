@@ -4,13 +4,18 @@ import path from 'node:path'
 import {
   type AsanaImportPreview,
   type AsanaImportResult,
+  asanaAddChoice,
+  asanaCompleteChoice,
+  asanaLeaveOpenChoice,
   type DaemonClient,
   readDaemonInfo,
   type Task,
+  tedPaths,
 } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
 import type { Keyring } from '../src/linear/keyring.ts'
+import { openStore } from '../src/store/index.ts'
 import { startStubAsana, unusedPort } from './fixtures/stub-asana.ts'
 import {
   api,
@@ -61,11 +66,12 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function start(): Promise<DaemonClient> {
+async function start(asanaSyncMs?: number): Promise<DaemonClient> {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
     asana: { keyring, oauthOrigin: stub.url, apiOrigin: stub.url, callbackPort },
+    ...(asanaSyncMs !== undefined && { asanaSyncMs }),
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('No daemon info')
@@ -331,4 +337,77 @@ test('a tree over the limit is refused whole, and a completed root still imports
     async () => (await client.listTasks()).find((t) => t.id === shipped?.id)?.stage !== 'backlog',
     'the root starts once its question is answered',
   )
+})
+
+test('Add them as Tasks imports new Asana items under a merged parent, which then waits for their Tasks', async () => {
+  let client = await start()
+  await connect(client)
+  await client.addFactory({ repo: origin, key: 'NB' })
+  stub.setPageSize(100)
+  stub.setTasks([
+    { gid: '1501', name: 'Billing', subtasks: ['1502'] },
+    { gid: '1502', name: 'Invoices' },
+    { gid: '1504', name: 'Tax report' },
+  ])
+  await client.importAsana({ url: 'https://app.asana.com/0/0/1501', factory: 'NB' })
+  await client.importAsana({ url: 'https://app.asana.com/0/0/1504', factory: 'NB' })
+  const parent = tasksIn(await client.listTasks()).byGid('1501') as Task
+  const repo = (await client.listFactories()).find((f) => f.key === 'NB')?.repos[0]
+  stub.setTasks([
+    { gid: '1501', name: 'Billing', subtasks: ['1502', '1503', '1504'] },
+    { gid: '1502', name: 'Invoices' },
+    { gid: '1503', name: 'Refunds' },
+    { gid: '1504', name: 'Tax report' },
+  ])
+  await daemon?.stop()
+  daemon = undefined
+  const store = await openStore({ directory: tedPaths(home).store })
+  store.startTask({
+    taskId: parent.id,
+    stage: 'work',
+    branch: 'ted/billing',
+    worktree: path.join(scratch, 'billing'),
+    entry: { layers: [], order: [{ stage: 'work', enabled: true }] },
+    repo: { name: repo?.name ?? '', repo: repo?.repo ?? '', copied: [], skipped: [] },
+  })
+  store.pullRequestOpened(parent.id, repo?.name ?? '', {
+    number: 15,
+    url: 'https://github.com/acme/notes/pull/15',
+    base: 'main',
+  })
+  store.pullRequestMerged(parent.id, repo?.name ?? '', { noCi: true, byTed: true })
+  store.changeStage(parent.id, 'done')
+  await store.close()
+
+  client = await start(100)
+  const question = await waitUntil(
+    async () => (await client.listComments(parent.id)).find((c) => c.asanaUnfinished && !c.answer),
+    'the merged parent asks about the new Asana item',
+  )
+  expect(question).toMatchObject({
+    choices: [asanaAddChoice, asanaCompleteChoice, asanaLeaveOpenChoice],
+    asanaUnfinished: { parentGid: '1501', items: [expect.objectContaining({ gid: '1503' })] },
+  })
+  expect(question.asanaUnfinished?.items).toHaveLength(1)
+  expect((await client.listTasks()).find((t) => t.id === parent.id)?.asanaSync?.state).toBe(
+    'needs-answer',
+  )
+  await expect(
+    client.answerRequest(question.id, { action: 'answer', choice: 'Archive' }),
+  ).rejects.toThrow()
+  await client.answerRequest(question.id, { action: 'answer', choice: asanaAddChoice })
+  const all = tasksIn(await client.listTasks())
+  expect(all.byGid('1503')?.parentId).toBe(parent.id)
+  expect(all.byGid('1504')?.parentId).toBeUndefined()
+  expect(all.byGid('1501')?.stage).toBe('done')
+  const after = await client.listComments(parent.id)
+  expect(after.find((c) => c.id === question.id)?.answer).toMatchObject({
+    kind: 'answered',
+    choice: asanaAddChoice,
+  })
+  expect(after.filter((c) => c.asanaMissing)).toEqual([])
+  await expect
+    .poll(async () => (await client.listTasks()).find((t) => t.id === parent.id)?.asanaSync)
+    .toMatchObject({ state: 'waiting-children', openChildren: 3 })
+  expect(stub.requests.filter((r) => r.method === 'PUT')).toEqual([])
 })

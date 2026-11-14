@@ -312,7 +312,14 @@ export async function startStubAsana() {
           (task.subtasks ?? []).flatMap((child) => {
             const found = tasks.get(child)
             return found
-              ? [{ gid: found.gid, name: found.name, completed: found.completed === true }]
+              ? [
+                  {
+                    gid: found.gid,
+                    name: found.name,
+                    completed: found.completed === true,
+                    num_subtasks: (found.subtasks ?? []).length,
+                  },
+                ]
               : [{ gid: child, name: `Missing ${child}`, completed: false }]
           }),
         )

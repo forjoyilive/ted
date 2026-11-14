@@ -1,9 +1,18 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { type AsanaSyncFacts, asanaSyncOf, type Comment, type Task } from '@ted/protocol'
+import {
+  type AsanaSyncFacts,
+  asanaAddChoice,
+  asanaCompleteChoice,
+  asanaLeaveOpenChoice,
+  asanaSyncOf,
+  type Comment,
+  type Task,
+} from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { AsanaReadError } from '../src/asana/asana.ts'
+import { coordinatorNeverAnswers } from '../src/coordinators/coordinators.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
 import {
   type AsanaSync,
@@ -12,12 +21,16 @@ import {
   createAsanaSync,
   mentions,
 } from '../src/tasks/asana-sync.ts'
+import { unfinishedTitle } from '../src/tasks/asana-unfinished.ts'
+import { ordinaryAutopilotRequest } from '../src/tasks/autopilot.ts'
 import { ManualClock } from './support/manual-clock.ts'
 
 interface FakeTask {
   completed: boolean
   subtasks: string[]
   stories: string[]
+  name?: string
+  unlisted?: boolean
   projects?: string[]
 }
 
@@ -38,22 +51,32 @@ let jobs: Promise<void>[]
 let clock: ManualClock
 let archived: string[]
 let live: Set<string>
+let subtaskPage: number
 
 const api: AsanaSyncApi = {
   async account() {
     return account
   },
-  async read(route) {
+  async read(route, query) {
     reads.push(route)
     await held.get(route)
     const [, , gid = '', list] = route.split('/')
     const task = asana.get(gid)
     if (!task) throw new AsanaReadError('not found', 404)
-    if (list === 'subtasks')
+    if (list === 'subtasks') {
+      if (task.unlisted) throw new AsanaReadError('no access', 403)
+      const offset = Number(query?.offset ?? '0')
+      const next = offset + subtaskPage
       return {
-        data: task.subtasks.map((child) => ({ completed: asana.get(child)?.completed === true })),
-        next_page: null,
+        data: task.subtasks.slice(offset, next).map((child) => ({
+          gid: child,
+          name: asana.get(child)?.name ?? `Item ${child}`,
+          completed: asana.get(child)?.completed === true,
+          num_subtasks: asana.get(child)?.subtasks.length ?? 0,
+        })),
+        next_page: next < task.subtasks.length ? { offset: String(next) } : null,
       }
+    }
     if (list === 'stories')
       return {
         data: [
@@ -112,6 +135,7 @@ beforeEach(async () => {
   clock = new ManualClock()
   archived = []
   live = new Set()
+  subtaskPage = 100
 })
 
 afterEach(async () => {
@@ -159,6 +183,7 @@ interface Planned {
   subtasks?: string[]
   syncAccount?: string
   parent?: string
+  importedChildren?: string[]
   projects?: string[]
   automation?: boolean
 }
@@ -190,7 +215,12 @@ function imported(...planned: Planned[]): Map<string, Task> {
         completed: item.completed === true,
         importedAt: new Date().toISOString(),
         context: '',
-        children: [],
+        children: (item.importedChildren ?? []).map((gid) => ({
+          gid,
+          name: `Item ${gid}`,
+          url: `https://app.asana.com/0/0/${gid}/f`,
+          completed: false,
+        })),
       },
       ...(item.syncAccount !== undefined && { syncAccount: item.syncAccount }),
       ...(item.projects && { projects: item.projects }),
@@ -219,6 +249,26 @@ function merge(task: Task): void {
 }
 
 const sync = (task: Task) => store.getTask(task.id)?.asanaSync
+
+function addItem(parentGid: string, gid: string, extra: Partial<FakeTask> = {}): void {
+  if (!asana.has(gid)) asana.set(gid, { completed: false, subtasks: [], stories: [], ...extra })
+  asana.get(parentGid)?.subtasks.push(gid)
+}
+
+function finish(...gids: string[]): void {
+  for (const gid of gids) {
+    const item = asana.get(gid)
+    if (item) item.completed = true
+  }
+}
+
+const unfinished = (task: Task) => store.listComments(task.id).filter((c) => c.asanaUnfinished)
+const asking = (task: Task) => unfinished(task).filter((c) => c.answer === undefined)
+const listed = (comment: Comment | undefined) =>
+  comment?.asanaUnfinished?.items.map((item) => [item.gid, item.reason, item.detail])
+const answer = (comment: Comment | undefined, choice: string) =>
+  store.answerComment(comment?.id ?? '', { kind: 'answered', at: new Date().toISOString(), choice })
+const completions = () => writes.filter((w) => w.kind === 'complete').map((w) => w.gid)
 
 test('the Task Sync state follows permission, the switch, the connection and what TED did', () => {
   const base: AsanaSyncFacts = {
@@ -484,6 +534,191 @@ test('turning Task Sync off while a read is in flight sends neither the completi
   await Promise.all(jobs.slice(before))
   expect(writes.filter((w) => w.gid === '861')).toEqual([])
   expect(sync(later)).toMatchObject({ state: 'off', linked: 0 })
+})
+
+test('a merged parent waits on items with TED Tasks without asking, asks about items without one, keeps its question across a restart, and each answer covers only the items it listed', async () => {
+  const tree = imported(
+    { gid: '1001', subtasks: ['1002'], syncAccount: '100', importedChildren: ['1002', '1004'] },
+    { gid: '1002', parent: '1001', syncAccount: '100' },
+    { gid: '1005', parent: '1001', syncAccount: '100' },
+  )
+  const parent = tree.get('1001') as Task
+  store.archiveTask(tree.get('1005')?.id ?? '')
+  withPullRequest(parent, 101)
+  merge(parent)
+  startSync()
+  await cycle()
+  expect(unfinished(parent)).toEqual([])
+  expect(sync(parent)).toMatchObject({ state: 'waiting-children', openChildren: 1 })
+
+  addItem('1001', '1003')
+  await cycle()
+  const first = asking(parent)
+  expect(first).toHaveLength(1)
+  expect(first[0]).toMatchObject({
+    kind: 'question',
+    author: { kind: 'ted' },
+    title: unfinishedTitle,
+    choices: [asanaAddChoice, asanaCompleteChoice, asanaLeaveOpenChoice],
+    purpose: { kind: 'asana-unfinished' },
+  })
+  expect(listed(first[0])).toEqual([['1003', 'new', undefined]])
+  expect(sync(parent)?.state).toBe('needs-answer')
+  expect(store.listOpenRequests().map((c) => c.id)).toContain(first[0]?.id)
+  expect(ordinaryAutopilotRequest(first[0] as Comment)).toBe(false)
+  expect(coordinatorNeverAnswers(first[0] as Comment)).toBe(true)
+
+  addItem('1001', '1004')
+  addItem('1001', '1005')
+  await cycle()
+  expect(unfinished(parent).find((c) => c.id === first[0]?.id)?.answer).toMatchObject({
+    kind: 'withdrawn',
+    asanaReread: true,
+  })
+  const second = asking(parent)
+  expect(second).toHaveLength(1)
+  expect(listed(second[0])).toEqual([
+    ['1003', 'new', undefined],
+    ['1004', 'skipped', undefined],
+    ['1005', 'archived', tree.get('1005')?.displayId],
+  ])
+
+  for (const s of syncs.splice(0)) s.close()
+  await Promise.all(jobs)
+  await store.close()
+  store = await openStore({ directory: dir })
+  startSync()
+  await cycle()
+  expect(asking(parent).map((c) => c.id)).toEqual([second[0]?.id])
+  expect(sync(parent)?.state).toBe('needs-answer')
+
+  answer(second[0], asanaLeaveOpenChoice)
+  await cycle()
+  expect(sync(parent)).toMatchObject({ state: 'waiting-children', openChildren: 1 })
+  finish('1002')
+  await cycle()
+  expect(sync(parent)?.state).toBe('left-open')
+  expect(completions()).toEqual([])
+
+  addItem('1001', '1006')
+  await cycle()
+  const third = asking(parent)
+  expect(listed(third[0])).toEqual([['1006', 'new', undefined]])
+  finish('1006')
+  await cycle()
+  expect(unfinished(parent).find((c) => c.id === third[0]?.id)?.answer).toMatchObject({
+    kind: 'withdrawn',
+  })
+  expect(asking(parent)).toEqual([])
+  expect(sync(parent)?.state).toBe('left-open')
+
+  addItem('1001', '1007')
+  await cycle()
+  answer(asking(parent)[0], asanaCompleteChoice)
+  await cycle()
+  expect(sync(parent)?.state).toBe('left-open')
+  expect(completions()).toEqual([])
+  finish('1003', '1004', '1005')
+  await cycle()
+  expect(completions()).toEqual(['1001'])
+  expect(sync(parent)?.state).toBe('completed-by-ted')
+  expect(asana.get('1007')?.completed).toBe(false)
+})
+
+test('unreadable items, items below a completed item and a tree over the limit are asked about, and Complete it in Asana anyway waits for open Tasks and completes only the parent', async () => {
+  const tree = imported(
+    { gid: '1201', subtasks: [], syncAccount: '100' },
+    { gid: '1301', subtasks: [], syncAccount: '100' },
+    { gid: '1400', parent: '1301', syncAccount: '100' },
+    { gid: '1601', subtasks: ['1602'], syncAccount: '100' },
+    { gid: '1602', parent: '1601', completed: true, syncAccount: '100' },
+  )
+  addItem('1201', '1202', { subtasks: ['1203'], unlisted: true, name: 'Exports' })
+  for (let i = 0; i < 101; i++) addItem('1301', String(1400 + i))
+  addItem('1602', '1603')
+  store.changeStage(tree.get('1602')?.id ?? '', 'done')
+  const unreadable = tree.get('1201') as Task
+  const huge = tree.get('1301') as Task
+  const below = tree.get('1601') as Task
+  withPullRequest(unreadable, 121)
+  withPullRequest(huge, 131)
+  withPullRequest(below, 161)
+  merge(unreadable)
+  merge(huge)
+  merge(below)
+  startSync()
+  await cycle()
+  expect(listed(asking(below)[0])).toEqual([['1603', 'new', undefined]])
+  const [blind] = asking(unreadable)
+  expect(blind?.choices).toEqual([asanaAddChoice, asanaCompleteChoice, asanaLeaveOpenChoice])
+  expect(listed(blind)).toEqual([
+    ['1202', 'new', undefined],
+    ['1202', 'unreadable', 'Asana didn’t let TED read it (no access)'],
+  ])
+  expect(blind?.asanaUnfinished?.items[1]?.name).toBe('Items under Exports')
+  const [limit] = asking(huge)
+  expect(limit?.choices).toEqual([asanaCompleteChoice, asanaLeaveOpenChoice])
+  expect(listed(limit)).toEqual([['1301', 'over-limit', undefined]])
+  expect(limit?.body).toContain('100 items or 10 levels')
+
+  answer(limit, asanaCompleteChoice)
+  await cycle()
+  expect(completions()).toEqual([])
+  expect(sync(huge)).toMatchObject({ state: 'waiting-children', openChildren: 1 })
+  finish('1400')
+  await cycle()
+  expect(completions()).toEqual(['1301'])
+  expect(sync(huge)?.state).toBe('completed-by-ted')
+  expect(sync(unreadable)?.state).toBe('needs-answer')
+  expect(
+    [...asana.entries()].filter(
+      ([gid, t]) => gid.startsWith('14') && gid !== '1400' && t.completed,
+    ),
+  ).toEqual([])
+})
+
+test('parents that ran out of requests for their subtree are read first, least recently read first', async () => {
+  const gids = ['1701', '1801', '1901', '2001', '2201']
+  const tree = imported(...gids.map((gid) => ({ gid, syncAccount: '100' })))
+  for (const parent of gids) {
+    for (let i = 1; i <= 38; i++) {
+      const child = String(Number(parent) * 100 + i)
+      addItem(parent, child)
+      addItem(child, `${child}0`)
+    }
+  }
+  const parents = gids.map((gid) => tree.get(gid) as Task)
+  parents.forEach((task, i) => {
+    withPullRequest(task, 170 + i)
+    merge(task)
+  })
+  startSync()
+  await cycle()
+  expect(parents.map((task) => asking(task).length)).toEqual([1, 1, 0, 0, 0])
+  await cycle()
+  expect(parents.map((task) => asking(task).length)).toEqual([1, 1, 1, 1, 0])
+  await cycle()
+  expect(parents.map((task) => asking(task).length)).toEqual([1, 1, 1, 1, 1])
+  expect(asking(parents[4] as Task)[0]?.asanaUnfinished?.items).toHaveLength(76)
+})
+
+test('a subtree read stops at 40 requests even in the middle of a list, and the tree counts as over the limit', async () => {
+  subtaskPage = 2
+  const parent = imported({ gid: '2301', syncAccount: '100' }).get('2301') as Task
+  const children = Array.from({ length: 10 }, (_, i) => String(230100 + i))
+  children.forEach((child, i) => {
+    addItem('2301', child)
+    const under = i < 6 ? 10 : 2
+    for (let j = 0; j < under; j++) addItem(child, String(Number(child) * 100 + j))
+  })
+  for (let k = 0; k < 10; k++) addItem('23010000', String(2301000000 + k))
+  withPullRequest(parent, 231)
+  merge(parent)
+  startSync()
+  const before = reads.length
+  await cycle()
+  expect(reads.slice(before).filter((r) => r.endsWith('/subtasks'))).toHaveLength(40)
+  expect(listed(asking(parent)[0])).toEqual([['2301', 'over-limit', undefined]])
 })
 
 test('an allowed Asana project syncs its items, by each item’s own current projects and the account that allowed it', async () => {

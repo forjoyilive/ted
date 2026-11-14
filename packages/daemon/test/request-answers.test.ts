@@ -121,6 +121,10 @@ beforeEach(async () => {
       effects.push('asana-missing')
       return comment
     },
+    answerAsanaUnfinished: async (_task, comment) => {
+      effects.push('asana-unfinished')
+      return comment
+    },
     answerCleanupFailure: async (_task, comment) => {
       effects.push('cleanup-failure')
       return comment

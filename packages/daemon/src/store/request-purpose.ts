@@ -9,6 +9,7 @@ export function structuralPurpose(
     | 'sizeCheck'
     | 'linearTeam'
     | 'asanaMissing'
+    | 'asanaUnfinished'
     | 'archive'
     | 'cleanupFailure'
     | 'failed'
@@ -21,6 +22,7 @@ export function structuralPurpose(
   if (comment.sizeCheck) return { kind: 'size-check' }
   if (comment.linearTeam) return { kind: 'linear-team' }
   if (comment.asanaMissing) return { kind: 'asana-missing' }
+  if (comment.asanaUnfinished) return { kind: 'asana-unfinished' }
   if (comment.archive) return { kind: 'archive' }
   if (comment.cleanupFailure) return { kind: 'cleanup-failure' }
   if (comment.failed) return { kind: 'failed-run' }
