@@ -1851,6 +1851,15 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  trackerSyncDeclined: Events.synced({
+    name: 'v1.TrackerSyncDeclined',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      tracker: Schema.String,
+      item: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   trackerGroupSyncAllowed: Events.synced({
     name: 'v1.TrackerGroupSyncAllowed',
     schema: Schema.Struct({
@@ -3672,6 +3681,7 @@ export const trackerSyncLog = [
   'v1.TrackerItemGroupsSeen',
   'v1.TrackerItemMoved',
   'v1.TrackerSyncAllowed',
+  'v1.TrackerSyncDeclined',
   'v1.TrackerGroupSyncAllowed',
   'v1.TrackerPullRequestsLinked',
 ]
@@ -3745,6 +3755,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     task(args, { tracker: args.tracker, item: args.item, step: args.step, state: args.state }),
   'v1.TrackerSyncAllowed': (args) =>
     task(args, { tracker: args.tracker, item: args.item, by: args.by, account: args.account }),
+  'v1.TrackerSyncDeclined': (args) => task(args, { tracker: args.tracker, item: args.item }),
   'v1.TrackerGroupSyncAllowed': (args) =>
     task(args, {
       tracker: args.tracker,
@@ -4091,6 +4102,7 @@ const materializers = counted(
       'v1.TrackerItemGroupsSeen': () => [],
       'v1.TrackerItemMoved': () => [],
       'v1.TrackerSyncAllowed': () => [],
+      'v1.TrackerSyncDeclined': () => [],
       'v1.TrackerGroupSyncAllowed': () => [],
       'v1.TrackerPullRequestsLinked': () => [],
       'v1.GitHubActivityHeld': () => [],

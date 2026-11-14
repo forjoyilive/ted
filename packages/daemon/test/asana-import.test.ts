@@ -320,6 +320,9 @@ test('a tree over the limit is refused whole, and a completed root still imports
     ...children.map((gid) => ({ gid, name: `Child ${gid}` })),
     { gid: '900', name: 'Already shipped', completed: true, subtasks: ['901'] },
     { gid: '901', name: 'Hidden', status: 403 },
+    { gid: '920', name: 'Declined', subtasks: ['921'] },
+    { gid: '921', name: 'Hidden for now', status: 403 },
+    { gid: '950', name: 'From the terminal' },
   ])
   const refused = await client
     .importAsana({ url: 'https://app.asana.com/0/0/600', factory: 'NB' })
@@ -337,6 +340,38 @@ test('a tree over the limit is refused whole, and a completed root still imports
     async () => (await client.listTasks()).find((t) => t.id === shipped?.id)?.stage !== 'backlog',
     'the root starts once its question is answered',
   )
+
+  const cli = api(daemon?.port ?? 0, await tokenFor(home))
+  const fromCli = await cli.call('POST', '/tasks/asana-import', {
+    url: 'https://app.asana.com/0/0/950',
+    factory: 'NB',
+    taskSync: true,
+  })
+  expect(fromCli.status).toBe(201)
+  await client.importAsana({ url: 'https://app.asana.com/0/0/920', factory: 'NB', taskSync: false })
+  let byGid = tasksIn(await client.listTasks()).byGid
+  expect(byGid('950')?.asanaSync).toMatchObject({ state: 'not-allowed' })
+  expect(byGid('920')?.asanaSync).toMatchObject({ state: 'not-allowed' })
+  const declined = (await client.listComments(byGid('920')?.id ?? '')).find((c) => c.asanaMissing)
+  stub.setTasks([
+    { gid: '920', name: 'Declined', subtasks: ['921'] },
+    { gid: '921', name: 'Hidden for now' },
+  ])
+  await client.answerRequest(declined?.id ?? '', { action: 'answer', choice: 'Retry' })
+  byGid = tasksIn(await client.listTasks()).byGid
+  expect(byGid('921')?.parentId).toBe(byGid('920')?.id)
+  expect(byGid('921')?.asanaSync).toMatchObject({ state: 'not-allowed' })
+  const ids = ['920', '921', '950'].map((gid) => byGid(gid)?.id ?? '')
+  await daemon?.stop()
+  daemon = undefined
+  const store = await openStore({ directory: tedPaths(home).store })
+  expect(ids.map((id) => store.trackerSync(id, 'asana'))).toMatchObject([
+    { allowed: false, declined: true },
+    { allowed: false, declined: true },
+    { allowed: false },
+  ])
+  expect(store.trackerSync(ids[2] ?? '', 'asana').declined).toBeUndefined()
+  await store.close()
 })
 
 test('Add them as Tasks imports new Asana items under a merged parent, which then waits for their Tasks', async () => {

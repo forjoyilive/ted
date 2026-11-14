@@ -1,5 +1,6 @@
 import type { AsanaImportRow, AsanaSync, AsanaImportPreview as Preview, Task } from '@ted/protocol'
 import { ownershipLine } from '@ted/protocol/asana-import'
+import { useId } from 'react'
 import { useSettings } from '../data.ts'
 import { ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
@@ -49,14 +50,28 @@ export function asanaCreateLabel(preview: Preview): string {
   return `Create ${preview.create} ${preview.create === 1 ? 'Task' : 'Tasks'}`
 }
 
+function syncNote(sync: boolean, switchOn: boolean, tracked: boolean): string {
+  const kept = tracked ? ' Tasks TED already tracks keep their own setting.' : ''
+  if (!sync)
+    return `The new Tasks won’t update Asana. Choose Sync with Asana in a Task’s menu to turn it on later.${kept}`
+  if (!switchOn)
+    return `Task Sync is off in Settings, so TED won’t update Asana until you turn it on.${kept}`
+  return `TED comments on each Asana task with each pull request and completes it once its Task merges.${kept}`
+}
+
 export function AsanaImportPreview({
   state,
+  sync,
+  onSyncChange,
   onRemove,
 }: {
   state: AsanaPreviewState
+  sync: boolean
+  onSyncChange: (sync: boolean) => void
   onRemove: () => void
 }) {
   const { preview, error } = state
+  const syncId = useId()
   const syncOn = useSettings()?.asanaSync !== false
   const missing = preview?.rows.filter(
     (row) => row.action.kind === 'conflict' || row.action.kind === 'unreadable',
@@ -101,11 +116,23 @@ export function AsanaImportPreview({
         <>
           <span className={styles.summary}>{ownershipLine(preview)}</span>
           {preview.create > 0 && (
-            <span className={styles.note} data-task-sync-note>
-              {syncOn
-                ? 'Task Sync is on for these Tasks: TED comments on each Asana task with each pull request and completes it once its Task merges.'
-                : 'Task Sync is allowed for these Tasks, but it is off in Settings, so TED won’t update Asana until you turn it on.'}
-            </span>
+            <div className={styles.sync}>
+              <input
+                id={syncId}
+                type="checkbox"
+                className={styles.checkbox}
+                checked={sync}
+                onChange={(event) => onSyncChange(event.target.checked)}
+              />
+              <span className={styles.syncText}>
+                <label className={styles.syncLabel} htmlFor={syncId}>
+                  Sync these Tasks with Asana
+                </label>
+                <span className={styles.note} data-task-sync-note>
+                  {syncNote(sync, syncOn, preview.tracked !== undefined)}
+                </span>
+              </span>
+            </div>
           )}
           <span className={styles.note}>
             Priority and Start now apply to every new Task. Title, Task Lead, blockers, parent and

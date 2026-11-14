@@ -38,6 +38,7 @@ export function trackerRecords<Handle>(
     syncState(task: Task) {
       const current = record(task.id)
       if (current.allowed) return 'on'
+      if (current.declined) return 'ask'
       const group = current.seen?.group
       if (group === undefined) return 'ask'
       return groups(store.settings(), task.factoryId).allowed.includes(group) ||
