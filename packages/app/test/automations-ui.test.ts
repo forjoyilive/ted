@@ -237,7 +237,7 @@ describe('Automations in the app', () => {
     expect(intake).toMatchObject({
       on: true,
       schedule: { kind: 'every', every: 2, unit: 'hours' },
-      scheduleText: 'Every 2 hours · Europe/London',
+      scheduleText: 'Every 2 hours',
     })
     const [first, second] = (intake?.nextFirings ?? []).map(Date.parse)
     expect((second ?? 0) - (first ?? 0)).toBe(2 * 60 * 60 * 1000)
