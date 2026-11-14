@@ -45,6 +45,9 @@ import {
   type CiSignal,
   type ClarifyDepth,
   type ClarifyDepthChooser,
+  type CleanupFailureAsk,
+  type CleanupStepReport,
+  type CleanupStepResult,
   type Comment,
   type CommentAnswer,
   type CommentAuthor,
@@ -78,6 +81,7 @@ import {
   type Proposal,
   type PullRequestPreview,
   parseLinearUrl,
+  type ReportCleanupStepRequest,
   type RequestPurpose,
   type Round,
   type Run,
@@ -151,6 +155,7 @@ import {
   checkBoundaries,
   checkResults,
   checkRuns,
+  cleanupReports,
   commentAttachments,
   comments,
   conversationTabs,
@@ -562,6 +567,7 @@ export interface NewComment {
   linearTeam?: LinearTeam
   asanaMissing?: AsanaMissing
   archive?: ArchiveAsk
+  cleanupFailure?: CleanupFailureAsk
 }
 
 export interface NewLineComment {
@@ -951,6 +957,10 @@ export interface TedStore extends TaskHistory {
   listSendBacks(taskId: string): SendBack[]
   recordBaseConflict(taskId: string, conflict: FoundConflict): BaseConflictFound
   baseConflicts(taskId?: string): BaseConflictFound[]
+  reportCleanupStep(taskId: string, runId: string, report: ReportCleanupStepRequest): void
+  cleanupReports(taskId: string): CleanupStepReport[]
+  retryCleanup(taskId: string, steps: readonly string[]): void
+  finishCleanupAnyway(taskId: string, steps: readonly string[]): void
   baseAdopted(
     taskId: string,
     moved: readonly { repo: string; base: string; from: string; to: string }[],
@@ -1913,6 +1923,8 @@ export async function openStore({
       ...(snoozedUntil !== null && { snoozedUntil }),
       ...(archivedAt !== null && { archived: true }),
       ...(failedAt !== null && { failed: true }),
+      ...(stage === 'cleanup' &&
+        requests.some((row) => row.cleanupFailure !== null) && { cleanupFailed: true }),
       ...(partlyMerged && { partlyMerged }),
       ...(stoppedAt !== null && {
         stopped: {
@@ -2040,9 +2052,12 @@ export async function openStore({
     const planLink = reads.planLinks(row.id).at(0)
     const planTitle = planLink && reads.plan(planLink.planId).at(0)?.title
     const merged =
-      stage === 'done'
+      stage === 'done' || stage === 'cleanup'
         ? {
-            at: entries.findLast((e) => e.stage === 'done')?.at ?? row.createdAt,
+            at:
+              entries.findLast((e) => e.stage === 'cleanup')?.at ??
+              entries.findLast((e) => e.stage === 'done')?.at ??
+              row.createdAt,
             pullRequests: repos.flatMap((r) =>
               r.pullRequest?.state === 'merged' ? [r.pullRequest.number] : [],
             ),
@@ -2290,6 +2305,7 @@ export async function openStore({
     linearTeam,
     asanaMissing,
     archive,
+    cleanupFailure,
     purpose,
     heldFor,
     ...row
@@ -2340,6 +2356,9 @@ export async function openStore({
         ...(linearTeam !== null && { linearTeam: JSON.parse(linearTeam) as LinearTeam }),
         ...(asanaMissing !== null && { asanaMissing: JSON.parse(asanaMissing) as AsanaMissing }),
         ...(archive !== null && { archive: JSON.parse(archive) as ArchiveAsk }),
+        ...(cleanupFailure !== null && {
+          cleanupFailure: JSON.parse(cleanupFailure) as CleanupFailureAsk,
+        }),
         ...(design !== null && { design: JSON.parse(design) as DesignReview }),
         ...withFiles(row.id),
         ...withLineComments(row.id),
@@ -2697,6 +2716,7 @@ export async function openStore({
       linearTeam,
       asanaMissing,
       archive,
+      cleanupFailure,
       purpose,
     }: NewComment,
     createdAt: string,
@@ -2747,6 +2767,7 @@ export async function openStore({
         ...(linearTeam && { linearTeam }),
         ...(asanaMissing && { asanaMissing }),
         ...(archive && { archive }),
+        ...(cleanupFailure && { cleanupFailure }),
       })
     const heldFor =
       askedBy !== undefined &&
@@ -2781,6 +2802,14 @@ export async function openStore({
         : []),
       ...(archive
         ? [events.commentArchiveAsked({ commentId: id, archive: JSON.stringify(archive) })]
+        : []),
+      ...(cleanupFailure
+        ? [
+            events.commentCleanupFailureAsked({
+              commentId: id,
+              failure: JSON.stringify(cleanupFailure),
+            }),
+          ]
         : []),
     ]
     return { id, event, attached }
@@ -4875,7 +4904,7 @@ export async function openStore({
       for (const { id } of withdrawn) emitComment(id)
       const task = updatedTask(taskId)
       if (options?.prepare) updatedQueue(taskId)
-      if (stage === 'done') updatedDependents(taskId)
+      if (stage === 'done' || stage === 'cleanup') updatedDependents(taskId)
       return task
     },
     factoryDashboard(factoryId, range, asOf = Date.now()) {
@@ -5450,6 +5479,44 @@ export async function openStore({
           ),
         )
         .map(toBaseConflict),
+    reportCleanupStep(taskId, runId, { step, result, text }) {
+      commit(
+        events.cleanupStepReported({
+          id: randomUUID(),
+          taskId,
+          step,
+          result,
+          text,
+          runId,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    cleanupReports: (taskId) => {
+      const latest = new Map<string, CleanupStepReport>()
+      for (const row of store.query(
+        queryDb(cleanupReports.where({ taskId }).orderBy('at', 'asc')),
+      )) {
+        latest.set(row.step, {
+          step: row.step,
+          result: row.result as CleanupStepResult,
+          text: row.text,
+          runId: row.runId,
+          at: row.at,
+        })
+      }
+      return [...latest.values()]
+    },
+    retryCleanup(taskId, steps) {
+      commit(events.cleanupRetried({ taskId, steps: [...steps], at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
+    finishCleanupAnyway(taskId, steps) {
+      commit(
+        events.cleanupFinishedAnyway({ taskId, steps: [...steps], at: new Date().toISOString() }),
+      )
+    },
     baseAdopted(taskId, moved) {
       if (moved.length === 0) return
       const at = new Date().toISOString()
@@ -6481,7 +6548,7 @@ function track(stage: StageId, entries: readonly (typeof stageEntries.Type)[]): 
   const saved = entries.findLast((e) => e.order !== null)?.order
   const plan: PlannedStage[] = saved
     ? (JSON.parse(saved) as PlannedStage[])
-    : agentStageIds.map((id) => ({ stage: id, enabled: true }))
+    : agentStageIds.filter((id) => id !== 'cleanup').map((id) => ({ stage: id, enabled: true }))
   const order: StageId[] = plan.map((p) => p.stage)
   const entered = new Set(entries.map((e) => e.stage))
   const inOrder = order.includes(stage)

@@ -369,6 +369,20 @@ export const baseConflicts = State.SQLite.table({
   },
 })
 
+export const cleanupReports = State.SQLite.table({
+  name: 'cleanupReports',
+  indexes: [{ name: 'idx_cleanupReports_taskId', columns: ['taskId'] }],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    step: State.SQLite.text(),
+    result: State.SQLite.text(),
+    text: State.SQLite.text(),
+    runId: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
 export const p1OnlyReviews = State.SQLite.table({
   name: 'p1OnlyReviews',
   indexes: [{ name: 'idx_p1OnlyReviews_taskId', columns: ['taskId'] }],
@@ -506,6 +520,7 @@ export const comments = State.SQLite.table({
     linearTeam: State.SQLite.text({ nullable: true }),
     asanaMissing: State.SQLite.text({ nullable: true }),
     archive: State.SQLite.text({ nullable: true }),
+    cleanupFailure: State.SQLite.text({ nullable: true }),
     purpose: State.SQLite.text({ nullable: true }),
     heldFor: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
@@ -2998,6 +3013,34 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  cleanupStepReported: Events.synced({
+    name: 'v1.CleanupStepReported',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      step: Schema.String,
+      result: Schema.String,
+      text: Schema.String,
+      runId: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  cleanupRetried: Events.synced({
+    name: 'v1.CleanupRetried',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      steps: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  cleanupFinishedAnyway: Events.synced({
+    name: 'v1.CleanupFinishedAnyway',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      steps: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   baseConflictFound: Events.synced({
     name: 'v1.BaseConflictFound',
     schema: Schema.Struct({
@@ -3226,6 +3269,10 @@ export const events = {
   commentAsanaMissingAsked: Events.synced({
     name: 'v1.CommentAsanaMissingAsked',
     schema: Schema.Struct({ commentId: Schema.String, missing: Schema.String }),
+  }),
+  commentCleanupFailureAsked: Events.synced({
+    name: 'v1.CommentCleanupFailureAsked',
+    schema: Schema.Struct({ commentId: Schema.String, failure: Schema.String }),
   }),
   commentArchiveAsked: Events.synced({
     name: 'v1.CommentArchiveAsked',
@@ -3569,6 +3616,10 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       checkRunId: args.checkRunId,
     }),
   'v1.SendBackCauseRecorded': (args) => task(args, { cause: args.cause }),
+  'v1.CleanupStepReported': (args) =>
+    task(args, { step: args.step, result: args.result, text: args.text, runId: args.runId }),
+  'v1.CleanupRetried': (args) => task(args, { steps: args.steps }),
+  'v1.CleanupFinishedAnyway': (args) => task(args, { steps: args.steps }),
   'v1.BaseConflictFound': (args) =>
     task(args, {
       stage: args.stage,
@@ -3958,6 +4009,8 @@ const materializers = counted(
         comments.update({ asanaMissing: missing }).where({ id: commentId }),
       'v1.CommentArchiveAsked': ({ commentId, archive }) =>
         comments.update({ archive }).where({ id: commentId }),
+      'v1.CommentCleanupFailureAsked': ({ commentId, failure }) =>
+        comments.update({ cleanupFailure: failure }).where({ id: commentId }),
       'v1.RequestHeld': ({ commentId, runId }) =>
         comments.update({ heldFor: runId }).where({ id: commentId }),
       'v1.RequestReleased': ({ commentId, at }) =>
@@ -4114,6 +4167,7 @@ const materializers = counted(
         sendBacks.delete().where({ taskId }),
         reviewScopes.delete().where({ taskId }),
         baseConflicts.delete().where({ taskId }),
+        cleanupReports.delete().where({ taskId }),
         p1OnlyReviews.delete().where({ taskId }),
         severityDeclarations.delete().where({ taskId }),
         sendBackResets.delete().where({ taskId }),
@@ -4200,6 +4254,7 @@ const materializers = counted(
         taskTreeArchives.delete().where({ rootId: taskId }),
         taskTreeArchives.delete().where({ taskId }),
         baseConflicts.delete().where({ taskId }),
+        cleanupReports.delete().where({ taskId }),
         p1OnlyReviews.delete().where({ taskId }),
         severityDeclarations.delete().where({ taskId }),
         sendBackResets.delete().where({ taskId }),
@@ -4441,6 +4496,10 @@ const materializers = counted(
         }),
       'v1.SendBackCauseRecorded': ({ sendBackId, cause }) =>
         sendBacks.update({ cause }).where({ id: sendBackId }),
+      'v1.CleanupStepReported': (row) => cleanupReports.insert(row),
+      'v1.CleanupRetried': ({ taskId, steps }) =>
+        cleanupReports.delete().where({ taskId, step: { op: 'IN', value: steps } }),
+      'v1.CleanupFinishedAnyway': () => [],
       'v1.BaseConflictFound': ({ files, ...row }) =>
         baseConflicts.insert({ ...row, files: JSON.stringify(files) }),
       'v1.SeverityRuleReviewRecorded': (row) => p1OnlyReviews.insert(row),
@@ -5007,6 +5066,7 @@ const state = State.SQLite.makeState({
     reviewers,
     reviewScopes,
     baseConflicts,
+    cleanupReports,
     p1OnlyReviews,
     severityDeclarations,
     loopChecks,

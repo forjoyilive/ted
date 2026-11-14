@@ -301,7 +301,8 @@ export function problemNotice(banner: Banner): ProblemNotice | undefined {
 const mergedNoticeWindowMs = 60_000
 
 export function mergedNotice(task: Task, now: number): ProblemNotice | undefined {
-  if (task.stage !== 'done' || !task.merged || task.archived) return undefined
+  if ((task.stage !== 'done' && task.stage !== 'cleanup') || !task.merged || task.archived)
+    return undefined
   if (now - Date.parse(task.merged.at) > mergedNoticeWindowMs) return undefined
   const { pullRequests } = task.merged
   return {

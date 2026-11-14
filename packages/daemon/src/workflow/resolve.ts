@@ -72,13 +72,21 @@ export function resolveWorkflow(layers: CheckedLayer[]): ResolvedWorkflow {
   return built(settings, (id) => stageFiles.get(id), notes)
 }
 
+export function cleanupOn(settings: WorkflowSettings): boolean {
+  const cleanup = settings.stages.cleanup
+  return cleanup?.enabled === true && (cleanup.steps?.length ?? 0) > 0
+}
+
 function built(
   settings: WorkflowSettings,
   stageFile: (id: AgentStageId) => ResolvedStageFile | undefined,
   notes: string | undefined,
 ): ResolvedWorkflow {
   const enabled = (id: StageId) => settings.stages[id]?.enabled !== false
-  const order: AgentStageId[] = settings.order ?? ['intake', 'work']
+  const order: AgentStageId[] = [
+    ...(settings.order ?? ['intake', 'work']).filter((id) => id !== 'cleanup'),
+    ...(cleanupOn(settings) ? (['cleanup'] as const) : []),
+  ]
   const stages: StageId[] = [
     ...(enabled('backlog') ? (['backlog'] as const) : []),
     ...order.filter(enabled),

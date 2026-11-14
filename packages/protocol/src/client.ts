@@ -191,6 +191,7 @@ import type {
   AttachmentBytes,
   AttachmentRef,
   CancelMergeRequest,
+  CleanupStepReport,
   CloseRoundRequest,
   Comment,
   CreateTaskRequest,
@@ -204,6 +205,7 @@ import type {
   OutcomeResult,
   PostCommentRequest,
   Priority,
+  ReportCleanupStepRequest,
   ReportOutcomeRequest,
   RepoSetupReport,
   RequestArchiveRequest,
@@ -723,6 +725,10 @@ export class DaemonClient {
 
   archiveTask(ref: string, options: ArchiveTaskRequest = {}): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/archive`, options)
+  }
+
+  reportCleanupStep(ref: string, request: ReportCleanupStepRequest): Promise<CleanupStepReport[]> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/cleanup-steps`, request)
   }
 
   requestArchive(ref: string, request: RequestArchiveRequest): Promise<Comment> {

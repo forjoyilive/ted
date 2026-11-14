@@ -599,6 +599,22 @@ export function threadEvents(
           )
         }
         break
+      case 'v1.CleanupStepReported': {
+        const result = text(data.result)
+        add(
+          entry,
+          result === 'done' ? 'done' : result === 'failed' ? 'failure' : 'quiet',
+          `Cleanup step “${text(data.step)}”: ${result}`,
+          text(data.text),
+        )
+        break
+      }
+      case 'v1.CleanupRetried':
+        add(entry, 'run', `Trying the failed Cleanup ${stepList(data.steps)} again`)
+        break
+      case 'v1.CleanupFinishedAnyway':
+        add(entry, 'quiet', `Finished without the failed Cleanup ${stepList(data.steps)}`)
+        break
       case 'v1.BaseBranchAdopted':
         add(entry, 'quiet', `TED moved ${text(data.repo)} to the latest ${text(data.base)}`)
         break
@@ -895,4 +911,10 @@ function gitHubSummary(notices: unknown): string {
 function joinAnd(items: readonly string[]): string {
   if (items.length < 2) return items.join('')
   return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
+}
+
+function stepList(steps: unknown): string {
+  const names = Array.isArray(steps) ? steps.filter((s): s is string => typeof s === 'string') : []
+  const quoted = names.map((name) => `“${name}”`).join(', ')
+  return `${names.length === 1 ? 'step' : 'steps'} ${quoted}`
 }

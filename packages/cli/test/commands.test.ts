@@ -322,6 +322,22 @@ describe('marking a merged Task done', () => {
   })
 })
 
+describe('reporting a Cleanup step', () => {
+  test('parses ted cleanup report with the step, the result and what happened', () => {
+    const parsed = parseInvocation(['cleanup', 'report', 'Post note', 'done', 'Posted the link'], {
+      TED_TASK: 'NB-1',
+    })
+    expect(parsed).toMatchObject({
+      handler: 'cleanupReport',
+      args: ['Post note', 'done', 'Posted the link'],
+    })
+    expect(() => parseInvocation(['cleanup', 'report', 'Post note', 'done'], {})).toThrow(
+      UsageError,
+    )
+    expect(helpText()).toContain('ted cleanup report')
+  })
+})
+
 describe('asking to archive a Task', () => {
   test('parses ted task archive with its reason and pull request flags', () => {
     const lead = { TED_TASK: 'NB-1' }

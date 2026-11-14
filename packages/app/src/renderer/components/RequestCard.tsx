@@ -1334,6 +1334,7 @@ const stageOrder: readonly string[] = [
   'validate',
   'review',
   'merge',
+  'cleanup',
   'done',
 ]
 

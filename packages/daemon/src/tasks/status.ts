@@ -19,6 +19,7 @@ export interface TaskFacts {
   openRequests?: number
   requestsSnoozedUntil?: string
   failed?: boolean
+  cleanupFailed?: boolean
   partlyMerged?: { merged: readonly string[]; open: readonly string[] }
   paused?: string
   pausedRuns?: readonly { id: string; reason: string }[]
@@ -228,6 +229,7 @@ export function taskMarkers(facts: TaskFacts, status: TaskStatus | undefined): T
 export function taskActivity(facts: TaskFacts): string | undefined {
   if (facts.archived) return undefined
   if (facts.failed) return 'Waiting on you to retry'
+  if (facts.cleanupFailed) return 'Cleanup failed · waiting on you'
   if (facts.waitingOnSimulator) return 'Waiting for a simulator slot'
   if (facts.waitingOnPermission === 'lead') return 'The Task Lead is waiting on your permission'
   if (facts.waitingOnPermission === 'sub-agent') return 'A sub-agent is waiting on your permission'
@@ -368,7 +370,7 @@ export function taskIsMerged(
   pullRequests: readonly { number: number | null; state: string | null }[],
 ): boolean {
   return (
-    stage === 'done' &&
+    (stage === 'done' || stage === 'cleanup') &&
     pullRequests.every((request) => request.number === null || request.state === 'merged')
   )
 }

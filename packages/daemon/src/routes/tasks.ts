@@ -21,6 +21,7 @@ import {
   parseMoveTaskRequest,
   parsePostCommentRequest,
   parseRecordFailureRequest,
+  parseReportCleanupStepRequest,
   parseReportOutcomeRequest,
   parseRequestArchiveRequest,
   parseResolveFailureRequest,
@@ -329,6 +330,14 @@ export const taskRoutes: Route[] = [
     path: /^\/tasks\/([^/]+)\/archive$/,
     async handle({ body, params: [ref = ''] }, { tasks }) {
       return [200, tasks.archive(ref, body)]
+    },
+  }),
+  jsonRoute(parseReportCleanupStepRequest, {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/cleanup-steps$/,
+    runToken: true,
+    async handle({ body, params: [ref = ''], caller }, { tasks }) {
+      return [201, await tasks.reportCleanupStep(ref, caller, body)]
     },
   }),
   jsonRoute(parseRequestArchiveRequest, {

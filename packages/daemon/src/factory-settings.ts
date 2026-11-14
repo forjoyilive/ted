@@ -364,7 +364,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     const inherited = resolveWorkflow(base.inherited)
     const full = resolveWorkflow([...base.inherited, own])
     const drifts = findDrift(base.inherited, own)
-    const ids: StageId[] = ['backlog', ...agentStageIds, 'done']
+    const ids: StageId[] = ['backlog', ...agentStageIds.filter((id) => id !== 'cleanup'), 'done']
     const { overnightMode } = store.settings()
     return ids.map((id) => {
       const stage = full.settings.stages[id]
