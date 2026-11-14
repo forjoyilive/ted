@@ -28,6 +28,7 @@ import {
   inputText,
   parseUiDump,
   parseWmSize,
+  screenBounds,
 } from './android-screen.ts'
 import type {
   SimulatorApp,
@@ -225,7 +226,7 @@ export function createEmulators(options: {
   const captures = path.join(dir, 'captures')
   const logs = path.join(dir, 'logs')
   const records = new Map<string, DeviceRecord>(Object.entries(readRecords(file)))
-  const screens = new Map<string, Map<string, DevicePoint>>()
+  const screens = new Map<string, { refs: Map<string, DevicePoint>; rotation: number }>()
   const running = new Set<string>()
   let queue: Promise<unknown> = Promise.resolve()
   let releaseIdle: (() => void) | undefined
@@ -837,10 +838,11 @@ export function createEmulators(options: {
         return result
       }
       const inside = async (...points: DevicePoint[]) => {
-        const size = parseWmSize(
+        const natural = parseWmSize(
           (await adb(['shell', 'wm', 'size'], 'read the screen size')).stdout,
         )
-        if (!size) throw new RequestError(409, 'TED couldn’t read the screen size')
+        if (!natural) throw new RequestError(409, 'TED couldn’t read the screen size')
+        const size = screenBounds(natural, screens.get(key)?.rotation ?? 0)
         for (const { x, y } of points) {
           if (x >= size.width || y >= size.height)
             throw new RequestError(
@@ -856,13 +858,16 @@ export function createEmulators(options: {
           const screen = parseUiDump(out.stdout)
           if (!screen)
             throw new RequestError(409, 'TED couldn’t read the screen; try again in a moment')
-          screens.set(key, new Map(screen.elements.map((e) => [e.ref, centre(e)])))
+          screens.set(key, {
+            refs: new Map(screen.elements.map((e) => [e.ref, centre(e)])),
+            rotation: screen.rotation,
+          })
           return formatScreen(name, screen, randomUUID().slice(0, 8))
         }
         case 'tap': {
           let point = request.point
           if (request.ref !== undefined) {
-            point = screens.get(key)?.get(request.ref)
+            point = screens.get(key)?.refs.get(request.ref)
             if (!point)
               throw new RequestError(
                 409,
@@ -889,7 +894,7 @@ export function createEmulators(options: {
           if (typed === undefined)
             throw new RequestError(
               400,
-              'TED can type only printable ASCII characters into an Android emulator, without line breaks; press enter with ted app key',
+              'TED can type only printable ASCII characters into an Android emulator, without line breaks or %s (Android types %s as a space); press enter with ted app key',
             )
           await adb(['shell', 'input', 'text', typed], 'type')
           return `Typed ${(request.text ?? '').length} characters.`

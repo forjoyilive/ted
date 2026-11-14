@@ -363,7 +363,7 @@ describe('Android emulator Apps', () => {
     expect(details).toContain('"Price: 10 widgets for $5 & free <delivery>" at 540,560')
     expect(details).toContain('Button "Buy" id="com.example.widgets:id/buy" clickable')
     expect(results[5]?.stderr).toContain('5000,100 is off the screen, which is 720x1280')
-    expect(results[7]?.stdout).toContain('Attach with ted task create --attach')
+    expect(results[7]?.stdout).toContain('Created NB-1')
     expect(results[9]?.stdout).toContain('"Open details"')
     const [avdName, ui] = Object.entries((await stub()).ui ?? {})[0] ?? []
     expect(ui).toEqual({

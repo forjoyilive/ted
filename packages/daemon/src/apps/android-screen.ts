@@ -16,6 +16,7 @@ export interface ScreenElement {
 export interface Screen {
   width: number
   height: number
+  rotation: number
   elements: ScreenElement[]
 }
 
@@ -68,6 +69,7 @@ export function parseUiDump(output: string): Screen | undefined {
   const end = output.lastIndexOf('</hierarchy>')
   if (start === -1 || end === -1) return undefined
   const xml = output.slice(start, end)
+  const rotation = Number(/^<hierarchy\b[^>]*\brotation="([0-3])"/.exec(xml)?.[1] ?? 0)
   let width = 0
   let height = 0
   const elements: ScreenElement[] = []
@@ -100,7 +102,7 @@ export function parseUiDump(output: string): Screen | undefined {
       bottom,
     })
   }
-  return { width, height, elements }
+  return { width, height, rotation, elements }
 }
 
 export function centre(element: ScreenElement): DevicePoint {
@@ -137,7 +139,7 @@ export function formatScreen(app: string, screen: Screen, nonce: string): string
 }
 
 export function inputText(text: string): string | undefined {
-  if (!/^[\x20-\x7e]+$/.test(text)) return undefined
+  if (!/^[\x20-\x7e]+$/.test(text) || text.includes('%s')) return undefined
   return `'${text.replaceAll(' ', '%s').replaceAll("'", `'\\''`)}'`
 }
 
@@ -147,6 +149,13 @@ export function parseWmSize(output: string): { width: number; height: number } |
     return match ? { width: Number(match[1]), height: Number(match[2]) } : undefined
   }
   return read('Override') ?? read('Physical')
+}
+
+export function screenBounds(
+  natural: { width: number; height: number },
+  rotation: number,
+): { width: number; height: number } {
+  return rotation % 2 === 1 ? { width: natural.height, height: natural.width } : natural
 }
 
 export function androidSize(value: string): { width: number; height: number } | 'reset' | string {

@@ -9,6 +9,7 @@ import {
   maxScreenElements,
   parseUiDump,
   parseWmSize,
+  screenBounds,
 } from '../src/apps/android-screen.ts'
 import { type AndroidResult, type AndroidTools, createEmulators } from '../src/apps/emulators.ts'
 import type { TedStore } from '../src/store/index.ts'
@@ -123,6 +124,7 @@ test('parseUiDump keeps elements with text, a label or a tap target, decoded and
   expect(screen).toEqual({
     width: 1080,
     height: 2400,
+    rotation: 0,
     elements: [
       {
         ref: '1',
@@ -172,6 +174,8 @@ test('inputText quotes printable ASCII for the device shell and refuses the rest
   expect(inputText("it's a $(test); `x`")).toBe("'it'\\''s%sa%s$(test);%s`x`'")
   expect(inputText('line\nbreak')).toBeUndefined()
   expect(inputText('café')).toBeUndefined()
+  expect(inputText('foo%sbar')).toBeUndefined()
+  expect(inputText('100%')).toBe("'100%'")
 })
 
 test('parseWmSize prefers the override and androidSize checks its limits', () => {
@@ -180,6 +184,9 @@ test('parseWmSize prefers the override and androidSize checks its limits', () =>
     width: 720,
     height: 1280,
   })
+  expect(screenBounds({ width: 1080, height: 2400 }, 1)).toEqual({ width: 2400, height: 1080 })
+  expect(screenBounds({ width: 1080, height: 2400 }, 2)).toEqual({ width: 1080, height: 2400 })
+  expect(parseUiDump('<hierarchy rotation="3"></hierarchy>')?.rotation).toBe(3)
   expect(androidSize('720x1280')).toEqual({ width: 720, height: 1280 })
   expect(androidSize('reset')).toBe('reset')
   expect(androidSize('100x1280')).toContain('like 1080x1920')
