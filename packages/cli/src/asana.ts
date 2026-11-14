@@ -1,5 +1,11 @@
 import { stripVTControlCharacters } from 'node:util'
-import type { AsanaImportPreview, AsanaImportResult, AsanaImportRow } from '@ted/protocol'
+import {
+  type AsanaImportPreview,
+  type AsanaImportResult,
+  type AsanaImportRow,
+  type AsanaIntakeResult,
+  maxAsanaIntakeTasks,
+} from '@ted/protocol'
 
 function printable(text: string): string {
   return [...stripVTControlCharacters(text)]
@@ -71,4 +77,35 @@ export function asanaImportedText(result: AsanaImportResult): string {
       ? `\nTED waits for your answer about ${result.preview.missing} ${result.preview.missing === 1 ? 'item' : 'items'} that didn’t come across.`
       : ''
   return `${created}${linked}.${waiting}`
+}
+
+export function asanaIntakeText(result: AsanaIntakeResult): string {
+  const from = result.scope.section
+    ? `${result.scope.project.name} › ${result.scope.section.name}`
+    : result.scope.project.name
+  const lines = [
+    printable(
+      result.imported.length === 0
+        ? `Imported nothing new from ${from}.`
+        : `Imported ${result.imported.length} Asana ${result.imported.length === 1 ? 'item' : 'items'} from ${from}:`,
+    ),
+    ...result.imported.map((item) =>
+      printable(
+        `  ${item.root.displayId} ${item.name}${item.created.length > 1 ? ` (with ${item.created.length - 1} under it)` : ''}`,
+      ),
+    ),
+  ]
+  if (result.tracked > 0)
+    lines.push(
+      `${result.tracked} ${result.tracked === 1 ? 'item is' : 'items are'} already tracked or under a tracked Task; new subtasks of a tracked Task are added from the app.`,
+    )
+  for (const item of result.skipped)
+    lines.push(printable(`Skipped ${item.name} (${item.url}): ${item.reason}`))
+  if (result.left > 0)
+    lines.push(
+      `${result.left} more ${result.left === 1 ? 'item waits' : 'items wait'} for the next run; TED creates at most ${maxAsanaIntakeTasks} Tasks per run.`,
+    )
+  if (result.incomplete !== undefined) lines.push(printable(result.incomplete))
+  if (result.stopped !== undefined) lines.push(printable(result.stopped))
+  return lines.join('\n')
 }

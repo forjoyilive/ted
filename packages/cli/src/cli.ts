@@ -70,7 +70,7 @@ import {
 } from '@ted/protocol'
 import { executionCapacity, parseWorkerPairRequest } from '@ted/protocol/execution-pairing'
 import { matchReference, shortReference } from '@ted/protocol/reference'
-import { asanaImportedText, asanaTreeText } from './asana.ts'
+import { asanaImportedText, asanaIntakeText, asanaTreeText } from './asana.ts'
 import { AutomationUsageError, automationCommand } from './automation.ts'
 import {
   type HandlerName,
@@ -1409,6 +1409,13 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       const ref = taskRef()
       const brief = await withDaemon(home, (client) => client.getBrief(ref))
       write(printable(brief.text))
+    },
+    asanaIntake: async () => {
+      const { factory } = options
+      const result = await withDaemon(home, (client) =>
+        client.runAsanaIntake(factory === undefined ? {} : { factory }),
+      )
+      write(`${asanaIntakeText(result)}\n`)
     },
     createTask: async () => {
       const title = args.join(' ')

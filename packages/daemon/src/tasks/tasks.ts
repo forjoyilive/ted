@@ -16,6 +16,9 @@ import type {
   AsanaImportPreview,
   AsanaImportRequest,
   AsanaImportResult,
+  AsanaIntakeRequest,
+  AsanaIntakeResult,
+  AsanaIntakeScope,
   AssessFailureRequest,
   Attachment,
   BaseConflictFound,
@@ -127,6 +130,7 @@ import {
   isTrackerClosedQuestion,
   isTrackerGroupAsk,
   keepArchiveChoice,
+  maxAsanaIntakeTasks,
   parseAsanaTaskUrl,
   parseLinearUrl,
   type ResetRefusal,
@@ -141,7 +145,8 @@ import type { Agents } from '../agents/index.ts'
 import { type AppsOptions, type AppTask, createApps, type SimulatorOptions } from '../apps/apps.ts'
 import { type AppDeclaration, appDeclarations } from '../apps/declared.ts'
 import { AsanaReadError } from '../asana/asana.ts'
-import { type AsanaRead, type AsanaTree, readAsanaTree } from '../asana/tree.ts'
+import { checkAsanaRoot, confirmAsanaScope, listAsanaIntake, scopeName } from '../asana/intake.ts'
+import { type AsanaRead, type AsanaTree, readAsanaTree, retryingRead } from '../asana/tree.ts'
 import type { Banners } from '../banners.ts'
 import { type Clock, clockWait, systemClock, type Timer } from '../clock.ts'
 import { worktreeCommandEnv } from '../command-env.ts'
@@ -539,6 +544,7 @@ export interface Tasks {
   create(input: CreateTaskInput, caller?: Caller): Promise<Task>
   asanaPreview(input: AsanaImportRequest, caller?: Caller): Promise<AsanaImportPreview>
   importAsana(input: AsanaImportRequest, caller?: Caller): Promise<AsanaImportResult>
+  asanaIntake(input: AsanaIntakeRequest, caller?: Caller): Promise<AsanaIntakeResult>
   cancelMerge(ref: string, comment: string, attachments?: Attachment[]): Promise<Comment>
   markDone(ref: string, by?: 'human' | 'coordinator'): Promise<Task>
   leadDone(ref: string, caller: Caller): Promise<Task>
@@ -4269,15 +4275,84 @@ export function createTasks(options: {
   }
 
   async function asanaPreview(input: AsanaImportRequest, caller: Caller = { kind: 'app' }) {
-    const { factory, gid } = asanaTarget(input, caller)
+    const { factory, automation, gid } = asanaTarget(input, caller)
+    const unchanged = automation ? await requireIntakeRoot(factory, gid) : undefined
     const { tree, user } = await readAsana(factory.id, gid, false)
+    unchanged?.()
     return planAsana(tree, factory.id, user.gid, caller.kind === 'app').preview
+  }
+
+  class IntakeBudgetError extends Error {}
+
+  interface IntakeImport {
+    budget: number
+    unchanged: () => void
+  }
+
+  function intakeAsana() {
+    const asana = options.asana
+    if (!asana) throw new RequestError(409, 'Connect Asana in Settings → Integrations first.')
+    return { asana, read: retryingRead(asana.read) }
+  }
+
+  function intakeGuard(factory: StoredFactory): { scope: AsanaIntakeScope; unchanged: () => void } {
+    const scope = store.settings().asanaIntakeScopes[factory.id]
+    if (!scope) {
+      throw new RequestError(
+        403,
+        `An Automation imports Asana work only from ${factory.name}’s Asana intake project. Choose one in Factory settings first.`,
+      )
+    }
+    const unchanged = () => {
+      if (
+        JSON.stringify(store.settings().asanaIntakeScopes[factory.id]) !== JSON.stringify(scope)
+      ) {
+        throw new RequestError(
+          409,
+          `${factory.name}’s Asana intake choice changed during the import. TED stopped; the next run uses the new choice.`,
+        )
+      }
+      if (removingFactories.has(factory.id) || !store.getFactory(factory.id)) {
+        throw new RequestError(409, `${factory.name} is being removed`)
+      }
+    }
+    return { scope, unchanged }
+  }
+
+  const trackedAsana = (factoryId: string, gid: string) =>
+    sourceClash(store.listTasks(), factoryId, asanaTaskUrl(gid))
+
+  async function requireIntakeRoot(factory: StoredFactory, gid: string): Promise<() => void> {
+    const { scope, unchanged } = intakeGuard(factory)
+    const { asana, read } = intakeAsana()
+    const user = await asana.user().catch((error: unknown) => {
+      throw new RequestError(409, error instanceof Error ? error.message : 'Connect Asana first')
+    })
+    await confirmAsanaScope(read, scope)
+    const check = await checkAsanaRoot({ read, scope, userGid: user.gid, gid })
+    unchanged()
+    if (check.kind !== 'root') {
+      throw new RequestError(
+        409,
+        `${check.name} isn’t work ${factory.name}’s Asana intake takes: ${check.reason}.`,
+      )
+    }
+    const above = check.ancestors.find((ancestor) => trackedAsana(factory.id, ancestor))
+    const clash = above === undefined ? undefined : trackedAsana(factory.id, above)
+    if (clash) {
+      throw new RequestError(
+        409,
+        `${check.name} sits under ${clash.task.displayId}, which TED already tracks. Add it to that tree from the app instead.`,
+      )
+    }
+    return unchanged
   }
 
   function importAsana(
     input: AsanaImportRequest,
     caller: Caller = { kind: 'app' },
     closing?: { commentId: string; choice: string },
+    intake?: IntakeImport,
   ): Promise<AsanaImportResult> {
     const target = asanaTarget(input, caller)
     if (input.dryRun === true) {
@@ -4286,11 +4361,129 @@ export function createTasks(options: {
     const prior = asanaImports.get(target.factory.id) ?? Promise.resolve()
     const next = prior
       .catch(() => undefined)
-      .then(() => importAsanaNow(input, caller, target, closing))
+      .then(() => importAsanaNow(input, caller, target, closing, intake))
     asanaImports.set(target.factory.id, next)
     return next.finally(() => {
       if (asanaImports.get(target.factory.id) === next) asanaImports.delete(target.factory.id)
     })
+  }
+
+  const asanaIntakes = new Map<string, Promise<unknown>>()
+
+  function asanaIntake(
+    input: AsanaIntakeRequest,
+    caller: Caller = { kind: 'app' },
+  ): Promise<AsanaIntakeResult> {
+    const automation = automationCaller(caller)
+    if (automation && input.factory !== undefined && input.factory !== automation.factoryKey) {
+      throw new RequestError(
+        403,
+        `this Automation imports only into ${automation.factoryKey}, its own Factory`,
+      )
+    }
+    const key = automation?.factoryKey ?? input.factory
+    if (key === undefined) throw new RequestError(400, 'name the Factory to import into')
+    const factory = store.listFactories().find((f) => f.key === key)
+    if (!factory) throw new RequestError(404, `no Factory with key ${key}`)
+    if (removingFactories.has(factory.id)) {
+      throw new RequestError(409, `${factory.name} is being removed`)
+    }
+    const prior = asanaIntakes.get(factory.id) ?? Promise.resolve()
+    const next = prior.catch(() => undefined).then(() => asanaIntakeNow(factory, caller))
+    asanaIntakes.set(factory.id, next)
+    return next.finally(() => {
+      if (asanaIntakes.get(factory.id) === next) asanaIntakes.delete(factory.id)
+    })
+  }
+
+  async function asanaIntakeNow(
+    factory: StoredFactory,
+    caller: Caller,
+  ): Promise<AsanaIntakeResult> {
+    const { scope, unchanged } = intakeGuard(factory)
+    const { asana, read } = intakeAsana()
+    const user = await asana.user().catch((error: unknown) => {
+      throw new RequestError(409, error instanceof Error ? error.message : 'Connect Asana first')
+    })
+    const confirmed = await confirmAsanaScope(read, scope)
+    unchanged()
+    const listed = await listAsanaIntake(read, scope)
+    const parents = new Map<string, string | null>()
+    const checks = []
+    for (const item of listed.items) {
+      checks.push(await checkAsanaRoot({ read, scope, userGid: user.gid, gid: item.gid, parents }))
+    }
+    const roots = checks
+      .flatMap((check) => (check.kind === 'root' ? [check] : []))
+      .sort((a, b) => a.ancestors.length - b.ancestors.length)
+    const result: AsanaIntakeResult = {
+      scope: confirmed,
+      imported: [],
+      skipped: checks.flatMap((check) =>
+        check.kind === 'unreadable'
+          ? [{ gid: check.gid, name: check.name, url: check.url, reason: check.reason }]
+          : [],
+      ),
+      tracked: 0,
+      left: 0,
+      ...(listed.incomplete !== undefined && { incomplete: listed.incomplete }),
+    }
+    let budget = maxAsanaIntakeTasks
+    for (const root of roots) {
+      if (result.stopped !== undefined) break
+      if (
+        trackedAsana(factory.id, root.gid) ||
+        root.ancestors.some((ancestor) => trackedAsana(factory.id, ancestor))
+      ) {
+        result.tracked++
+        continue
+      }
+      if (budget <= 0) {
+        result.left++
+        continue
+      }
+      try {
+        unchanged()
+        const imported = await importAsana(
+          { url: asanaTaskUrl(root.gid), factory: factory.key },
+          caller,
+          undefined,
+          { budget, unchanged },
+        )
+        budget -= imported.created.length
+        if (imported.root) {
+          result.imported.push({
+            gid: root.gid,
+            name: root.name,
+            root: imported.root,
+            created: imported.created,
+            linked: imported.linked,
+          })
+        }
+      } catch (error) {
+        if (error instanceof IntakeBudgetError) {
+          budget = 0
+          result.left++
+          continue
+        }
+        const reason = redactSecrets(error instanceof Error ? error.message : String(error))
+        try {
+          unchanged()
+        } catch (changed) {
+          result.stopped = changed instanceof Error ? changed.message : reason
+          break
+        }
+        result.skipped.push({ gid: root.gid, name: root.name, url: root.url, reason })
+      }
+    }
+    if (result.imported.length > 0 || result.stopped !== undefined) {
+      console.log(
+        redactSecrets(
+          `Asana intake for ${factory.key} from ${scopeName(confirmed)}: imported ${result.imported.length}, skipped ${result.skipped.length}, left ${result.left}${result.stopped ? ', stopped' : ''}`,
+        ),
+      )
+    }
+    return result
   }
 
   async function importAsanaNow(
@@ -4298,7 +4491,11 @@ export function createTasks(options: {
     caller: Caller,
     { factory, automation, gid }: ReturnType<typeof asanaTarget>,
     closing?: { commentId: string; choice: string },
+    intake?: IntakeImport,
   ): Promise<AsanaImportResult> {
+    const unchanged =
+      intake?.unchanged ??
+      (automation && closing === undefined ? await requireIntakeRoot(factory, gid) : undefined)
     const { tree, user } = await readAsana(factory.id, gid, true)
     const resolution = await resolveWorkflow(factory, { fetch: cloned(factory.id) }).catch(
       (error: unknown) => {
@@ -4309,8 +4506,10 @@ export function createTasks(options: {
     if (removingFactories.has(factory.id)) {
       throw new RequestError(409, `${factory.name} is being removed`)
     }
-    const plan = planAsana(tree, factory.id, user.gid, caller.kind === 'app')
+    unchanged?.()
+    const plan = planAsana(tree, factory.id, user.gid, caller.kind === 'app' && !intake)
     if (plan.preview.refusal !== undefined) throw new RequestError(409, plan.preview.refusal)
+    if (intake && plan.creates.length > intake.budget) throw new IntakeBudgetError()
     const tracked = plan.preview.tracked
     if (tracked && input.addToTree !== true && closing === undefined) {
       throw new RequestError(
@@ -9373,6 +9572,16 @@ export function createTasks(options: {
       const factory =
         key === undefined ? undefined : store.listFactories().find((f) => f.key === key)
       if (key !== undefined && !factory) throw new RequestError(404, `no Factory with key ${key}`)
+      if (
+        automation &&
+        followUp !== undefined &&
+        parseAsanaTaskUrl(find(followUp).source?.url ?? sourceUrl ?? '') !== undefined
+      ) {
+        throw new RequestError(
+          403,
+          'An Automation can’t make a Follow-up of Asana work. TED imports each Asana task once; leave it for the existing Task.',
+        )
+      }
       if (followUp !== undefined) {
         return createFollowUp(followUp, {
           ...(title !== undefined && { title }),
@@ -9490,6 +9699,7 @@ export function createTasks(options: {
     asanaPreview,
     checkFailed,
     importAsana: (input, caller) => importAsana(input, caller),
+    asanaIntake,
 
     async setUpFactory(factoryId) {
       const factory = store.getFactory(factoryId)

@@ -869,6 +869,15 @@ export const commands = [
     callers: 'Coordinator Run',
   },
   {
+    name: 'asana intake',
+    handler: 'asanaIntake',
+    min: 0,
+    max: 0,
+    help: '  ted asana intake [--factory <key>]         Import your unfinished Asana work from the Factory’s\n                                             chosen Asana project or section into Backlog',
+    callers: 'Terminal or Automation Run',
+    options: options('factory'),
+  },
+  {
     name: 'task create',
     handler: 'createTask',
     argumentOrOption: 'source',

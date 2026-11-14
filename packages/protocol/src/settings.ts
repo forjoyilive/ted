@@ -1,3 +1,4 @@
+import type { AsanaIntakeScope } from './asana-intake.ts'
 import type { BoardView } from './board-view.ts'
 import type { Billing } from './health.ts'
 import type { LinearIntakeScope } from './linear.ts'
@@ -96,6 +97,7 @@ export interface MachineSettings {
   editor: EditorChoice | null
   editorCommand: string
   linearIntakeScopes: Readonly<Record<string, LinearIntakeScope>>
+  asanaIntakeScopes: Readonly<Record<string, AsanaIntakeScope>>
   linearSync: boolean
   linearSyncTeams: Readonly<Record<string, readonly string[]>>
   linearSyncDeclined: Readonly<Record<string, readonly string[]>>
@@ -141,6 +143,7 @@ export const defaultMachineSettings: MachineSettings = {
   editor: null,
   editorCommand: '',
   linearIntakeScopes: {},
+  asanaIntakeScopes: {},
   linearSync: true,
   linearSyncTeams: {},
   linearSyncDeclined: {},

@@ -61,6 +61,19 @@ export {
   parseAsanaImportRequest,
   parseAsanaTaskUrl,
 } from './asana-import.ts'
+export {
+  type AsanaIntakeImported,
+  type AsanaIntakeRequest,
+  type AsanaIntakeResult,
+  type AsanaIntakeScope,
+  type AsanaIntakeSkipped,
+  type AsanaRef,
+  isAsanaIntakeScope,
+  maxAsanaIntakeTasks,
+  parseAsanaIntakeRequest,
+  parseSetFactoryAsanaIntakeRequest,
+  type SetFactoryAsanaIntakeRequest,
+} from './asana-intake.ts'
 export type {
   AnswerAutomationRequest,
   Automation,
