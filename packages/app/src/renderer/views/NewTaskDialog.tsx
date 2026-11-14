@@ -66,6 +66,7 @@ export function NewTaskDialog({
   const [factory, setFactory] = useState(
     () => factories.find((f) => f.id === factoryId)?.id ?? factories[0]?.id,
   )
+  const [carried, setCarried] = useState<NewTaskDraft>()
   return (
     <NewTaskForm
       key={factory ?? ''}
@@ -74,11 +75,13 @@ export function NewTaskDialog({
       factoryId={factory}
       initialDescription={seed}
       {...(parentSeed !== undefined && { parentId: parentSeed })}
+      {...(carried && { carried })}
       onClose={onClose}
       {...(onOpenTask && { onOpenTask })}
-      onFactory={(id) => {
+      onFactory={(id, draft) => {
         setSeed('')
         setParentSeed(undefined)
+        setCarried(draft)
         setFactory(id)
       }}
     />
@@ -91,10 +94,14 @@ function NewTaskForm({
   factoryId: factory,
   initialDescription = '',
   parentId,
+  carried,
   onClose,
   onOpenTask,
   onFactory,
-}: NewTaskDialogProps & { onFactory: (id: string) => void }) {
+}: NewTaskDialogProps & {
+  carried?: NewTaskDraft
+  onFactory: (id: string, draft: NewTaskDraft) => void
+}) {
   const dialog = useRef<HTMLDialogElement>(null)
   const descriptionField = useRef<HTMLTextAreaElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
@@ -166,6 +173,7 @@ function NewTaskForm({
   const [uploading, setUploading] = useState(0)
   const uploads = useRef(new Set<Promise<void>>())
   const [busy, setBusy] = useState(false)
+  const [moving, setMoving] = useState(false)
   const [creatingMore, setCreatingMore] = useState(false)
   const [error, setError] = useState<string>()
   const [source, setSource] = useState<Source>()
@@ -223,7 +231,7 @@ function NewTaskForm({
   useEffect(() => {
     let active = true
     mounted.current = true
-    session.load().then(
+    session.load(carried).then(
       () => {
         if (!active) return
         if (parentId !== undefined) session.update({ parent: parentId })
@@ -256,7 +264,7 @@ function NewTaskForm({
       mounted.current = false
       lookups.current++
     }
-  }, [session, initialDescription, parentId, lookUp])
+  }, [session, carried, initialDescription, parentId, lookUp])
 
   useEffect(() => {
     dialog.current?.showModal()
@@ -368,6 +376,7 @@ function NewTaskForm({
     description.trim() !== '' &&
     uploading === 0 &&
     !busy &&
+    !moving &&
     !fetching &&
     asanaReady
 
@@ -427,13 +436,30 @@ function NewTaskForm({
   }
 
   async function close(next = onClose) {
-    if (busy) return
+    if (busy || moving) return
     try {
       await Promise.all([...uploads.current])
       await session.flush()
       setDraftError(undefined)
       next()
     } catch (failure) {
+      setDraftError(`Couldn’t save the draft: ${readableError(failure)}`)
+    }
+  }
+
+  async function changeFactory(next: string) {
+    if (busy || moving) return
+    setMoving(true)
+    try {
+      await Promise.all([...uploads.current])
+      await session.flush()
+      const carried = { ...session.get(), parent: undefined }
+      await ted.saveTaskDraft(next, carried)
+      await session.moveOut()
+      setDraftError(undefined)
+      onFactory(next, carried)
+    } catch (failure) {
+      setMoving(false)
       setDraftError(`Couldn’t save the draft: ${readableError(failure)}`)
     }
   }
@@ -504,7 +530,7 @@ function NewTaskForm({
   }
 
   function attach(files: readonly File[]) {
-    if (busy) return Promise.resolve()
+    if (busy || moving) return Promise.resolve()
     if (!ready) {
       setHeldFiles((held) => [...held, ...files])
       return Promise.resolve()
@@ -583,7 +609,7 @@ function NewTaskForm({
           event.clientY < bounds.top ||
           event.clientY > bounds.bottom
         ) {
-          onClose()
+          if (!moving) onClose()
         }
       }}
     >
@@ -595,11 +621,8 @@ function NewTaskForm({
         <Select
           aria-label="Factory"
           value={factory ?? ''}
-          disabled={factories.length === 0 || !ready || busy || uploading > 0}
-          onChange={(event) => {
-            const next = event.target.value
-            return close(() => onFactory(next))
-          }}
+          disabled={factories.length === 0 || !ready || busy || moving || uploading > 0}
+          onChange={(event) => changeFactory(event.target.value)}
         >
           {factories.length === 0 && <option value="">No Factories yet</option>}
           {factories.map((f) => (
@@ -618,7 +641,7 @@ function NewTaskForm({
         </ActionButton>
       </header>
 
-      <fieldset disabled={busy} className={styles.fields}>
+      <fieldset disabled={busy || moving} className={styles.fields}>
         <fieldset disabled={!ready} className={styles.fields}>
           <input
             className={styles.title}

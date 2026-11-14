@@ -136,50 +136,54 @@ describe('New Task drafts', () => {
     }
   })
 
-  test('switches independent Factory drafts and clears only the submitted draft with Create more and Create; a removed Linear source stays dismissed on reopening', async () => {
+  test('keeps the form when the Factory changes, clears only the submitted draft with Create more and Create; a removed Linear source stays dismissed on reopening', async () => {
     const window = await setup()
     const client = await daemonClient()
     const factories = await client.listFactories()
     const first = factories.find((f) => f.key === 'NB')
     const second = factories.find((f) => f.key === 'MS')
     if (!first || !second) throw new Error('missing Factory')
-    await form(window).getByLabel('Description', { exact: true }).fill('Notebook draft')
-    await form(window).getByLabel('Factory', { exact: true }).selectOption(second.id)
-    await expect
-      .poll(() => form(window).getByLabel('Description', { exact: true }).inputValue())
-      .toBe('')
-    await waitFor(() => form(window).getByLabel('Description', { exact: true }).isEnabled())
-    await form(window).getByLabel('Description', { exact: true }).fill('Site draft')
+    const description = () => form(window).getByLabel('Description', { exact: true })
+    const notebookBlocker = await client.createTask({ factory: 'NB', title: 'Notebook blocker' })
+    await description().fill('Notebook draft')
     await form(window).getByLabel('Start now', { exact: true }).uncheck()
-    await form(window).getByLabel('Factory', { exact: true }).selectOption(first.id)
-    await waitFor(
-      async () =>
-        (await form(window).getByLabel('Description', { exact: true }).inputValue()) ===
-        'Notebook draft',
+    await form(window).getByRole('button', { name: 'Add blocker', exact: true }).click()
+    await form(window).getByLabel('Find a Task').fill(notebookBlocker.displayId)
+    await form(window).getByRole('option').filter({ hasText: notebookBlocker.displayId }).click()
+    await waitUntil(
+      async () => (await client.taskDraft(first.id)).draft?.blockedBy.length === 1,
+      'blocker saved',
     )
-    await form(window).getByLabel('Start now', { exact: true }).uncheck()
+    await form(window).getByLabel('Factory', { exact: true }).selectOption(second.id)
+    await waitFor(() => description().isEnabled())
+    expect(await description().inputValue()).toBe('Notebook draft')
+    expect(await form(window).getByLabel('Start now', { exact: true }).isChecked()).toBe(false)
+    await waitUntil(
+      async () => (await client.taskDraft(second.id)).draft?.description === 'Notebook draft',
+      'draft moved to the new Factory',
+    )
+    expect((await client.taskDraft(second.id)).draft?.blockedBy).toHaveLength(1)
+    expect((await client.taskDraft(first.id)).draft?.description).toBe('')
+
+    await description().fill('Site draft')
     await form(window).getByRole('button', { name: 'Create more', exact: true }).click()
-    await waitFor(
-      async () =>
-        (await form(window).getByLabel('Description', { exact: true }).inputValue()) === '',
+    await waitFor(async () => (await description().inputValue()) === '')
+    expect((await client.taskDraft(second.id)).draft).toBeNull()
+    await waitFor(() => description().evaluate((field) => field === document.activeElement))
+    expect((await client.listTasks()).find((t) => t.title === 'Site draft')?.factoryId).toBe(
+      second.id,
     )
-    expect((await client.taskDraft(first.id)).draft).toBeNull()
-    await waitFor(() =>
-      form(window)
-        .getByLabel('Description', { exact: true })
-        .evaluate((field) => field === document.activeElement),
-    )
-    expect((await client.taskDraft(second.id)).draft?.description).toBe('Site draft')
-    await form(window).getByLabel('Factory', { exact: true }).selectOption(second.id)
-    await waitFor(
-      async () =>
-        (await form(window).getByLabel('Description', { exact: true }).inputValue()) ===
-        'Site draft',
-    )
+
+    await description().fill('Moved back')
+    await form(window).getByLabel('Factory', { exact: true }).selectOption(first.id)
+    await waitFor(() => description().isEnabled())
+    expect(await description().inputValue()).toBe('Moved back')
     await form(window).getByRole('button', { name: 'Create', exact: true }).click()
     await form(window).waitFor({ state: 'detached' })
-    expect((await client.taskDraft(second.id)).draft).toBeNull()
-    expect((await client.listTasks()).some((t) => t.title === 'Site draft')).toBe(true)
+    expect((await client.taskDraft(first.id)).draft).toBeNull()
+    expect((await client.listTasks()).find((t) => t.title === 'Moved back')?.factoryId).toBe(
+      first.id,
+    )
 
     await openFactoryView(window, 'notebook', 'Dashboard')
     await open(window)

@@ -106,7 +106,27 @@ export function taskDraftSession(
   }
 
   return {
-    async load() {
+    async load(carried?: NewTaskDraft) {
+      if (carried) {
+        current = { ...carried, revision: crypto.randomUUID() }
+        loaded = true
+        try {
+          remember(current)
+        } catch (error) {
+          options.failed(error)
+        }
+        options.changed(current)
+        pending = current
+        void persist()
+        startDefault = current.start
+        void options.startDefault?.().then(
+          (start) => {
+            if (!startSaving) startSaved = start
+          },
+          () => {},
+        )
+        return current
+      }
       const [state, start] = await Promise.all([
         options.read(),
         options.startDefault?.().catch(() => true) ?? true,
@@ -166,6 +186,22 @@ export function taskDraftSession(
     async flush() {
       if (saving) await saving
       if (pending) await persist()
+    },
+    async moveOut() {
+      const carried = current
+      const empty = emptyTaskDraft(startDefault)
+      loaded = false
+      pending = empty
+      try {
+        await persist()
+      } catch (error) {
+        if (pending === empty) pending = undefined
+        loaded = true
+        throw error
+      }
+      forget(carried.revision)
+      current = empty
+      return carried
     },
     consumed(revision: string) {
       forget(revision)

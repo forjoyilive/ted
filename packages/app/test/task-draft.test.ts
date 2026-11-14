@@ -285,4 +285,44 @@ describe('New Task recovery and ordered saves', () => {
     expect(rememberStart.mock.calls).toEqual([[false], [false], [false]])
     await session.flush()
   })
+
+  test('moving a draft to another Factory empties the old one and replaces the new one’s saved draft', async () => {
+    const setup = options()
+    const saved = new Map<string, NewTaskDraft>()
+    const session = (factoryId: string) =>
+      taskDraftSession(factoryId, {
+        ...setup,
+        read: async () => ({ draft: saved.get(factoryId) ?? null }),
+        save: async (draft) => {
+          saved.set(factoryId, draft)
+          return { draft }
+        },
+      })
+    const other = session('two')
+    await other.load()
+    other.update({ description: 'Older draft in two' })
+    await other.flush()
+    const first = session('one')
+    await first.load()
+    first.update({ title: 'Kept', description: 'Typed in one', priority: 'high' })
+    await first.flush()
+    const carried = await first.moveOut()
+    expect(saved.get('one')).toMatchObject({ title: '', description: '' })
+    expect(setup.storage.getItem('ted.newTaskDraft.v1.one')).toBeNull()
+    const second = taskDraftSession('two', {
+      ...setup,
+      read: () => Promise.reject(new Error('offline')),
+      save: async (draft) => {
+        saved.set('two', draft)
+        return { draft }
+      },
+    })
+    expect(await second.load(carried)).toMatchObject({
+      title: 'Kept',
+      description: 'Typed in one',
+      priority: 'high',
+    })
+    await second.flush()
+    expect(saved.get('two')).toMatchObject({ description: 'Typed in one' })
+  })
 })
