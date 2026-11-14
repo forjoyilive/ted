@@ -14,7 +14,10 @@ const repos = [
     teardown: { run: 'cleanup', timeout: '1m' },
     env: [{ name: 'KEY', value: 'value' }],
     copy: ['.env'],
-    apps: [{ was: 0, name: 'Dev', kind: 'web', run: 'pnpm dev', url: 'http://localhost:3000' }],
+    apps: [
+      { was: 0, name: 'Dev', kind: 'web', run: 'pnpm dev', url: 'http://localhost:3000' },
+      { name: 'Phone', kind: 'android-emulator', run: './gradlew installDebug', device: 'Pixel_8' },
+    ],
   },
 ] satisfies P.RepoSettingsInput[]
 const library = {

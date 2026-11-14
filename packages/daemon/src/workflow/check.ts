@@ -26,6 +26,11 @@ export interface CheckSettings {
   timeout?: string
 }
 
+export interface CleanupStep {
+  name: string
+  instruction: string
+}
+
 export interface StageSettings {
   effort?: string
   enabled?: boolean
@@ -38,6 +43,7 @@ export interface StageSettings {
   p1_only_from?: number | false
   sub_agents?: boolean
   lead_closes_failures?: boolean
+  steps?: CleanupStep[]
 }
 
 export interface WorktreeCommand {
@@ -83,6 +89,8 @@ export interface CheckedLayer {
 }
 
 const allStageIds: readonly string[] = ['backlog', ...agentStageIds, 'done']
+const cleanupKeys = ['enabled', 'effort', 'based_on', 'steps']
+export const maxStepName = 80
 const efforts = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 const depths = ['auto', 'none', 'few', 'grilling']
 const mergeMethods = ['squash', 'merge', 'rebase']
@@ -319,6 +327,9 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
         const where = id === 'backlog' ? 'first' : 'last'
         error(item, `\`${id}\` can’t be in \`order\`; it is always ${where}`)
         ok = false
+      } else if (id === 'cleanup') {
+        error(item, '`cleanup` can’t be in `order`; turn it on with `stages.cleanup.enabled`')
+        ok = false
       } else if (typeof id !== 'string' || !(agentStageIds as readonly string[]).includes(id)) {
         error(item, `unknown Stage \`${String(id)}\``)
         ok = false
@@ -359,6 +370,10 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
         }
         if (id === 'backlog' && entry.name !== 'enabled') {
           error(entry.key, 'Backlog takes only `enabled`')
+          continue
+        }
+        if (id === 'cleanup' && !cleanupKeys.includes(entry.name)) {
+          error(entry.key, `Cleanup takes only ${cleanupKeys.map((k) => `\`${k}\``).join(', ')}`)
           continue
         }
         switch (entry.name) {
@@ -417,6 +432,13 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
               error(node, `\`${path}\` must be true or false`)
             } else stage.lead_closes_failures = scalar(node) as boolean
             break
+          case 'steps':
+            if (id !== 'cleanup') warn(entry.key, `unknown key \`${path}\``)
+            else {
+              const steps = checkSteps(node)
+              if (steps) stage.steps = steps
+            }
+            break
           case 'checks':
             if (id !== 'validate') warn(entry.key, `unknown key \`${path}\``)
             else if (context.kind === 'library') warn(entry.key, `\`${path}${factoryOnly}`)
@@ -443,6 +465,34 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
       }
       settings.stages[id as StageId] = stage
     }
+  }
+
+  function checkSteps(value: Node | null): CleanupStep[] | undefined {
+    if (!isSeq(value)) return void error(value, '`stages.cleanup.steps` must be a list')
+    const steps: CleanupStep[] = []
+    for (const item of value.items as (Node | null)[]) {
+      if (!isMap(item)) {
+        error(item, 'each Cleanup step must be a map with a `name` and an `instruction`')
+        continue
+      }
+      const step: Partial<CleanupStep> = {}
+      for (const entry of entries(item)) {
+        if (entry.name === 'name' || entry.name === 'instruction') {
+          if (!isText(entry.value)) {
+            error(entry.value, `a Cleanup step’s \`${entry.name}\` must be text`)
+          } else step[entry.name] = (scalar(entry.value) as string).trim()
+        } else warn(entry.key, `unknown key \`${entry.name}\` in a Cleanup step`)
+      }
+      if (!step.name) error(item, 'each Cleanup step needs a `name`')
+      else if (/[\r\n]/.test(step.name)) error(item, 'a Cleanup step’s `name` must be one line')
+      else if (step.name.length > maxStepName)
+        error(item, `a Cleanup step’s \`name\` must be ${maxStepName} characters or fewer`)
+      else if (!step.instruction) error(item, 'each Cleanup step needs an `instruction`')
+      else if (steps.some((other) => other.name === step.name))
+        error(item, `two Cleanup steps are named \`${step.name}\``)
+      else steps.push(step as CleanupStep)
+    }
+    return steps
   }
 
   function checkChecks(value: Node | null): CheckSettings[] | undefined {
@@ -591,7 +641,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             break
           case 'kind':
             if (!oneOf(node, [...appKinds])) {
-              error(node, '`kind` must be web, command or ios-simulator')
+              error(node, '`kind` must be web, command, ios-simulator or android-emulator')
             }
             break
           case 'url': {
@@ -643,6 +693,12 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
       }
       if (typeof name !== 'string') error(item, 'each App needs a `name`')
       else if (!item.has('run')) error(item, `the App ${name} needs a \`run\` command`)
+      else if (kind === 'android-emulator' && !item.has('device')) {
+        error(
+          item,
+          `the Android emulator App ${name} needs a \`device\`: an Android virtual device name`,
+        )
+      }
     }
   }
 

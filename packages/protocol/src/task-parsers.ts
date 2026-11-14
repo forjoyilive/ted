@@ -18,6 +18,7 @@ import type {
   LocalDesignReviewInput,
   MoveTaskRequest,
   PullRequestAdvice,
+  ReportCleanupStepRequest,
   ReportOutcomeRequest,
   RequestArchiveRequest,
   SaveTaskDraftRequest,
@@ -37,6 +38,7 @@ import {
   type CloseRoundRequest,
   type CreateTaskRequest,
   clarifyDepths,
+  cleanupStepResults,
   type EditTaskRequest,
   type FollowUpRequest,
   type MarkDoneRequest,
@@ -998,6 +1000,27 @@ export function parseRequestArchiveRequest(value: unknown): RequestArchiveReques
     ...(body.pullRequests !== undefined && {
       pullRequests: parsePullRequestAdvice(body.pullRequests),
     }),
+  }
+}
+
+export const maxCleanupReport = 4000
+
+export function parseReportCleanupStepRequest(value: unknown): ReportCleanupStepRequest {
+  const body = objectOrNull(value, 'the request')
+  if (typeof body.step !== 'string' || oneLine(body.step) === '')
+    throw new HttpError(400, 'give the Cleanup step’s name')
+  const result = body.result
+  if (typeof result !== 'string' || !(cleanupStepResults as readonly string[]).includes(result))
+    throw new HttpError(400, `result must be one of ${cleanupStepResults.join(', ')}`)
+  if (typeof body.text !== 'string' || body.text.trim() === '')
+    throw new HttpError(400, 'say what happened in the step')
+  const text = body.text.trim()
+  if (text.length > maxCleanupReport)
+    throw new HttpError(400, `the report must be at most ${maxCleanupReport} characters`)
+  return {
+    step: oneLine(body.step),
+    result: result as ReportCleanupStepRequest['result'],
+    text,
   }
 }
 

@@ -78,6 +78,7 @@ function appsFrom(entry: RepoSettings): AppInput[] {
         kind,
         run: typeof fields.run === 'string' ? fields.run : '',
         ...(typeof fields.url === 'string' && { url: fields.url }),
+        ...(typeof fields.device === 'string' && { device: fields.device }),
       },
     ]
   })
@@ -461,6 +462,13 @@ function writeRepo(doc: Document, map: YAMLMap, repo: RepoSettingsInput, primary
       else setKeepingStyle(appMap, 'kind', app.kind)
       setKeepingStyle(appMap, 'run', app.run.trim())
       setOrDelete(appMap, 'url', app.kind === 'web' ? app.url?.trim() || undefined : undefined)
+      setOrDelete(
+        appMap,
+        'device',
+        app.kind === 'ios-simulator' || app.kind === 'android-emulator'
+          ? app.device?.trim() || undefined
+          : undefined,
+      )
       apps.items.push(appMap)
     }
     if (isSeq(appsNode)) appsNode.items = apps.items
@@ -511,6 +519,7 @@ const keyOrder = [
   'kind',
   'run',
   'url',
+  'device',
   'repo',
   'timeout',
   'agent',

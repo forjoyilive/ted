@@ -283,18 +283,20 @@ function settingsApp(given: unknown): AppInput {
   const body = record(given)
   const kind = appKinds.find((k) => k === body.kind)
   if (kind === undefined)
-    throw new HttpError(400, 'an App kind must be web, command or ios-simulator')
+    throw new HttpError(400, 'an App kind must be web, command, ios-simulator or android-emulator')
   const was = body.was
   if (was !== undefined && (typeof was !== 'number' || !Number.isInteger(was) || was < 0)) {
     throw new HttpError(400, 'an App’s was must be a list position')
   }
   const url = optionalText(body.url, 'url')
+  const device = optionalText(body.device, 'device')
   return {
     ...(typeof was === 'number' && { was }),
     name: text(body.name, 'App name'),
     kind,
     run: text(body.run, 'App run'),
     ...(url !== undefined && { url }),
+    ...(device !== undefined && { device }),
   }
 }
 

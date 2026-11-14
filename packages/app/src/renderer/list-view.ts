@@ -24,6 +24,7 @@ export const stageOrder: readonly StageId[] = [
   'validate',
   'review',
   'merge',
+  'cleanup',
   'done',
 ]
 

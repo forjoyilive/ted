@@ -10,6 +10,7 @@ export function structuralPurpose(
     | 'linearTeam'
     | 'asanaMissing'
     | 'archive'
+    | 'cleanupFailure'
     | 'failed'
   >,
 ): RequestPurpose | undefined {
@@ -21,6 +22,7 @@ export function structuralPurpose(
   if (comment.linearTeam) return { kind: 'linear-team' }
   if (comment.asanaMissing) return { kind: 'asana-missing' }
   if (comment.archive) return { kind: 'archive' }
+  if (comment.cleanupFailure) return { kind: 'cleanup-failure' }
   if (comment.failed) return { kind: 'failed-run' }
   if (comment.kind === 'round' || comment.kind === 'proposal') return { kind: comment.kind }
   return { kind: 'question' }

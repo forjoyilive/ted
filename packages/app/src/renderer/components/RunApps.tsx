@@ -1,5 +1,5 @@
 import type { TaskApp } from '@ted/protocol'
-import { isSimulatorApp } from '@ted/protocol/app'
+import { isDeviceApp, isEmulatorApp } from '@ted/protocol/app'
 import { useState } from 'react'
 import { appStatusLine, isLive } from '../apps.ts'
 import { useNow } from '../requests.ts'
@@ -64,7 +64,11 @@ export function RunAppRows({
 function runAppStatus(app: TaskApp, now: number): string {
   if (app.state === 'waiting') {
     const since = app.startedAt === undefined ? undefined : minutesSince(app.startedAt, now)
-    return ['Waiting for a simulator slot', since, app.simulator?.device]
+    return [
+      `Waiting for ${isEmulatorApp(app) ? 'an emulator' : 'a simulator'} slot`,
+      since,
+      app.simulator?.device,
+    ]
       .filter((part) => part !== undefined)
       .join(' · ')
   }
@@ -125,12 +129,12 @@ function RunAppRow({
             <OpenIcon />
           </ActionButton>
         )}
-        {isSimulatorApp(app) && (
+        {isDeviceApp(app) && (
           <ActionButton
             type="button"
             className={styles.action}
             aria-label={`Show ${app.name}`}
-            title="Show the simulator"
+            title={`Show the ${isEmulatorApp(app) ? 'emulator' : 'simulator'}`}
             disabled={actions.busy || app.simulator?.booted !== true}
             onClick={actions.show}
           >

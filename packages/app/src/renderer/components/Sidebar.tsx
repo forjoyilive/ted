@@ -28,6 +28,7 @@ export interface SidebarFooter {
   paused?: string
   overnight?: string
   simulators?: string
+  emulators?: string
   update?: { label: string; busy: boolean }
 }
 
@@ -557,6 +558,9 @@ export function Sidebar({
             {footer.overnight !== undefined && <p className={styles.runs}>{footer.overnight}</p>}
             {footer.simulators !== undefined && (
               <p className={styles.simulators}>{footer.simulators}</p>
+            )}
+            {footer.emulators !== undefined && (
+              <p className={styles.simulators}>{footer.emulators}</p>
             )}
             {footer.update !== undefined && (
               <ActionButton

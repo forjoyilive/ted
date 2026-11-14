@@ -29,6 +29,7 @@ export interface AppSimulator {
   device: string
   booted: boolean
   recording?: boolean
+  window?: boolean
   shutDown?: { at: string; for?: string }
 }
 
@@ -50,7 +51,10 @@ export interface SimulatorSlots {
   booted: BootedSimulator[]
 }
 
+export type DevicePlatform = 'ios' | 'android'
+
 export interface SimulatorAsk {
+  platform?: 'android'
   app: string
   repo: string
   device: string
@@ -88,6 +92,29 @@ export function isSimulatorApp<T extends { kind: AppKind }>(
   return app.kind === 'ios-simulator'
 }
 
+export function isEmulatorApp<T extends { kind: AppKind }>(
+  app: T,
+): app is T & { kind: 'android-emulator' } {
+  return app.kind === 'android-emulator'
+}
+
+export function isDeviceApp<T extends { kind: AppKind }>(
+  app: T,
+): app is T & { kind: 'ios-simulator' | 'android-emulator' } {
+  return isSimulatorApp(app) || isEmulatorApp(app)
+}
+
+export function devicePlatform(app: { kind: AppKind }): DevicePlatform | undefined {
+  if (isSimulatorApp(app)) return 'ios'
+  if (isEmulatorApp(app)) return 'android'
+  return undefined
+}
+
+export const deviceWords = {
+  ios: { one: 'simulator', many: 'simulators', on: 'booted', title: 'iOS simulator' },
+  android: { one: 'emulator', many: 'emulators', on: 'running', title: 'Android emulator' },
+} as const
+
 export function appEnvName(name: string): string {
   return name.toUpperCase().replace(/[^A-Z0-9]/g, '_')
 }
@@ -107,7 +134,14 @@ export function isLoopbackUrl(text: string): boolean {
 
 export const simulatorSlotLimits = { min: 1, max: 20 } as const
 
+export const emulatorSlotLimits = { min: 1, max: 16 } as const
+
 export function simulatorsLine(slots: SimulatorSlots): string | undefined {
   if (!slots.supported || slots.booted.length === 0) return undefined
   return `Simulators ${slots.booted.length} of ${slots.limit} booted`
+}
+
+export function emulatorsLine(slots: SimulatorSlots): string | undefined {
+  if (!slots.supported || slots.booted.length === 0) return undefined
+  return `Emulators ${slots.booted.length} of ${slots.limit} running`
 }

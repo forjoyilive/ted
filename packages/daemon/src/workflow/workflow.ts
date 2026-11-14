@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import type { AgentStageId, Attachment, Task } from '@ted/protocol'
 import { writingGuidance } from '../writing.ts'
+import type { CleanupStep } from './check.ts'
 import type { ResolvedWorkflow } from './resolve.ts'
 
 const defaults = new URL('./defaults/', import.meta.url)
@@ -26,7 +27,30 @@ function stageFileText(workflow: ResolvedWorkflow, stage: AgentStageId): string 
           `${stageTitle(stage)} has a sign-off. When its work is done, write the Task brief with \`ted brief write\`, then run \`ted outcome advance\`. TED posts your brief to the human as a request and sends you their answer.`,
         ]
       : []
-  return [file.text.trim(), ...gate].join('\n\n')
+  const steps =
+    stage === 'cleanup' ? [cleanupStepsText(workflow.settings.stages.cleanup?.steps)] : []
+  return [file.text.trim(), ...gate, ...steps].join('\n\n')
+}
+
+export function cleanupStepsText(
+  steps: readonly CleanupStep[] | undefined,
+  heading = '# Cleanup steps',
+): string {
+  const listed = (steps ?? []).map(
+    (step, i) => `${i + 1}. **${step.name}**\n\n${indent(step.instruction.trim())}`,
+  )
+  return [
+    heading,
+    'From the Factory’s `.ted/workflow.yaml`. Report each with `ted cleanup report "<step name>" done|skipped|failed "<what happened>"`, using the name exactly as written.',
+    ...listed,
+  ].join('\n\n')
+}
+
+function indent(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => (line === '' ? line : `   ${line}`))
+    .join('\n')
 }
 
 export async function preambleText(): Promise<string> {

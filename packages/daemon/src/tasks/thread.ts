@@ -599,6 +599,22 @@ export function threadEvents(
           )
         }
         break
+      case 'v1.CleanupStepReported': {
+        const result = text(data.result)
+        add(
+          entry,
+          result === 'done' ? 'done' : result === 'failed' ? 'failure' : 'quiet',
+          `Cleanup step “${text(data.step)}”: ${result}`,
+          text(data.text),
+        )
+        break
+      }
+      case 'v1.CleanupRetried':
+        add(entry, 'run', `Trying the failed Cleanup ${stepList(data.steps)} again`)
+        break
+      case 'v1.CleanupFinishedAnyway':
+        add(entry, 'quiet', `Finished without the failed Cleanup ${stepList(data.steps)}`)
+        break
       case 'v1.BaseBranchAdopted':
         add(entry, 'quiet', `TED moved ${text(data.repo)} to the latest ${text(data.base)}`)
         break
@@ -722,14 +738,16 @@ export function threadEvents(
       case 'v1.AppStartFailed':
         add(entry, 'failure', `${text(data.name)} couldn’t start: ${text(data.problem)}`)
         break
-      case 'v1.SimulatorShutDown': {
+      case 'v1.SimulatorShutDown':
+      case 'v1.EmulatorShutDown': {
+        const device = entry.name === 'v1.EmulatorShutDown' ? 'emulator' : 'simulator'
         const why =
           data.idle === true
             ? 'because it was idle'
             : text(data.forTask) !== ''
               ? `to free a slot for ${text(data.forTask)}`
               : 'to free a slot'
-        add(entry, 'quiet', `TED shut down ${text(data.name)}’s simulator ${why}`)
+        add(entry, 'quiet', `TED shut down ${text(data.name)}’s ${device} ${why}`)
         break
       }
       case 'v1.TaskWorktreeSetupStarted':
@@ -895,4 +913,10 @@ function gitHubSummary(notices: unknown): string {
 function joinAnd(items: readonly string[]): string {
   if (items.length < 2) return items.join('')
   return `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
+}
+
+function stepList(steps: unknown): string {
+  const names = Array.isArray(steps) ? steps.filter((s): s is string => typeof s === 'string') : []
+  const quoted = names.map((name) => `“${name}”`).join(', ')
+  return `${names.length === 1 ? 'step' : 'steps'} ${quoted}`
 }

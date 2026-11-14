@@ -150,7 +150,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
     const defaults = resolveWorkflow([base.defaults])
     const full = resolveWorkflow([base.defaults, own])
     const drifts = findDrift([base.defaults], own)
-    const ids: StageId[] = ['backlog', ...agentStageIds, 'done']
+    const ids: StageId[] = ['backlog', ...agentStageIds.filter((id) => id !== 'cleanup'), 'done']
     const { overnightMode } = store.settings()
     return ids.map((id) => {
       const stage = full.settings.stages[id]

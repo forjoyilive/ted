@@ -13,9 +13,11 @@ import {
   type Banner,
   type BrowserRequest,
   type ClarifyDepth,
+  type CleanupStepResult,
   type CoordinatorAction,
   type CoordinatorRemovalKind,
   type CoordinatorTaskQuery,
+  cleanupStepResults,
   DaemonClient,
   DaemonUnreachableError,
   type DeclaredSendBackCause,
@@ -672,10 +674,13 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         ...(options.reason !== undefined && { reason: options.reason }),
       })
       if (app.state === 'waiting') {
+        const android = app.kind === 'android-emulator'
         console.error(
           owner.what === 'this Run'
-            ? 'Every simulator slot is taken. Waiting for one to free up…'
-            : 'Every simulator is booted, so TED asked the human which one to shut down. Waiting for an answer…',
+            ? `Every ${android ? 'emulator' : 'simulator'} slot is taken. Waiting for one to free up…`
+            : android
+              ? 'Every emulator slot is taken, so TED asked the human which one to shut down. Waiting for an answer…'
+              : 'Every simulator is booted, so TED asked the human which one to shut down. Waiting for an answer…',
         )
       }
       while (app.state === 'starting' || app.state === 'waiting') {
@@ -712,8 +717,9 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       )
       return
     }
-    if (app.state === 'failed' && app.problem?.startsWith('No simulator slot') === true) {
-      console.error(printable(app.problem))
+    const noSlot = app.state === 'failed' ? app.problem : undefined
+    if (noSlot !== undefined && /^No (simulator|emulator) slot/.test(noSlot)) {
+      console.error(printable(noSlot))
       exitCode = 1
       return
     }
@@ -1563,7 +1569,29 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       const ref = tedEnv('TED_TASK', env)
       if (!ref) throw new UsageError('ted task done works only inside a Task Lead’s Run')
       const task = await withDaemon(home, (client) => client.leadDone(ref))
-      console.log(`${task.displayId} is Done`)
+      console.log(
+        task.stage === 'cleanup'
+          ? `${task.displayId}’s pull requests have merged; it moved to Cleanup`
+          : `${task.displayId} is Done`,
+      )
+    },
+    cleanupReport: async () => {
+      const ref = tedEnv('TED_TASK', env)
+      if (!ref) throw new UsageError('ted cleanup report works only inside a Task Lead’s Run')
+      const [step = '', result = '', text = ''] = args
+      if (!(cleanupStepResults as readonly string[]).includes(result))
+        throw new UsageError(`the result must be one of ${cleanupStepResults.join(', ')}`)
+      const reports = await withDaemon(home, (client) =>
+        client.reportCleanupStep(ref, {
+          step,
+          result: result as CleanupStepResult,
+          text,
+        }),
+      )
+      const left = reports.length
+      console.log(
+        `Reported “${step}” as ${result} · ${left} ${left === 1 ? 'step' : 'steps'} reported so far`,
+      )
     },
     unblock: async () => {
       const ref = taskRef(args[0])

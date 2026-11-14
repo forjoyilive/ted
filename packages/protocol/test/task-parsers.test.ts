@@ -132,6 +132,36 @@ rejects(
   'pullRequests.recommend must be close or keep',
 )
 rejects(P.parseAnswerRequest, { action: 'answer', archive: true }, 'archive must be an object')
+roundTrip(P.parseReportCleanupStepRequest, {
+  step: 'Post note',
+  result: 'failed',
+  text: 'The tracker refused the login.\nI tried twice.',
+})
+test('parseReportCleanupStepRequest keeps the step name to one line and trims the report', () => {
+  expect(
+    P.parseReportCleanupStepRequest({ step: ' Post\n note ', result: 'done', text: ' Posted \n' }),
+  ).toEqual({ step: 'Post note', result: 'done', text: 'Posted' })
+})
+rejects(
+  P.parseReportCleanupStepRequest,
+  { result: 'done', text: 'x' },
+  'give the Cleanup step’s name',
+)
+rejects(
+  P.parseReportCleanupStepRequest,
+  { step: 'Post note', result: 'passed', text: 'x' },
+  'result must be one of done, skipped, failed',
+)
+rejects(
+  P.parseReportCleanupStepRequest,
+  { step: 'Post note', result: 'done', text: ' ' },
+  'say what happened in the step',
+)
+rejects(
+  P.parseReportCleanupStepRequest,
+  { step: 'Post note', result: 'done', text: 'x'.repeat(4001) },
+  'at most 4000 characters',
+)
 roundTrip(P.parseDeleteTaskRequest, {
   blocked: 'unblock',
   children: 'delete',

@@ -6,6 +6,7 @@ import {
   type TaskFacts,
   taskActivity,
   taskCanResume,
+  taskIsMerged,
   taskMarkers,
   taskStatus,
 } from '../src/tasks/status.ts'
@@ -262,5 +263,18 @@ describe('an answer at Merge', () => {
     { openRequests: 1 },
   ])('leaves it when %o', (change) => {
     expect(leadAskedAtMerge({ ...asked, ...change })).toBe(false)
+  })
+})
+
+describe('Cleanup', () => {
+  test('a failed Cleanup waits on the user, and a Task in Cleanup or Done counts as merged', () => {
+    const failed = at({ stage: 'cleanup', openRequests: 1, cleanupFailed: true })
+    expect(taskStatus(failed)).toMatchObject({ kind: 'waiting-on-you' })
+    expect(taskActivity(failed)).toBe('Cleanup failed · waiting on you')
+    const merged = [{ number: 7, state: 'merged' }]
+    expect(taskIsMerged('cleanup', merged)).toBe(true)
+    expect(taskIsMerged('done', merged)).toBe(true)
+    expect(taskIsMerged('merge', merged)).toBe(false)
+    expect(taskIsMerged('cleanup', [{ number: 7, state: 'open' }])).toBe(false)
   })
 })

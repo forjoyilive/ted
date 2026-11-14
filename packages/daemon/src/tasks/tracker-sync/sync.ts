@@ -65,8 +65,11 @@ export function createTrackerSync<Source, Handle>(
     timer.unref()
   }
 
+  const doneAndMerged = (id: string): boolean =>
+    store.getTask(id)?.stage === 'done' && store.isMerged(id)
+
   function mayNeedSync(id: string, open: boolean): boolean {
-    if (!store.isMerged(id)) return open
+    if (!doneAndMerged(id)) return open
     const record = records.record(id)
     return (
       record.step !== finalStep ||
@@ -84,7 +87,7 @@ export function createTrackerSync<Source, Handle>(
     return store.tasksIn(new Set(ids)).flatMap((task): Watched<Source>[] => {
       const source = task.source && connector.source(task.source.url)
       if (!source) return []
-      return [{ task, source, merged: store.isMerged(task.id), record: records.record(task.id) }]
+      return [{ task, source, merged: doneAndMerged(task.id), record: records.record(task.id) }]
     })
   }
 
