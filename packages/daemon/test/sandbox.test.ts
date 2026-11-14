@@ -94,7 +94,7 @@ describe.runIf(process.platform === 'darwin')('the sandbox on macOS', () => {
         tryWrite(path.join(worktree, 'a.txt')),
         'echo x > "$TMPDIR/b.txt" && echo wrote',
         'mkdir -p "$npm_config_cache" && echo x > "$npm_config_cache/c" && echo wrote',
-        'echo x > "$TED_DERIVED_DATA/d" && test -d "$TED_SWIFTPM_CACHE" && test -d "$CLANG_MODULE_CACHE_PATH" && echo wrote',
+        'echo x > "$TED_DERIVED_DATA/d" && test -d "$TED_SWIFTPM_CACHE" && test -d "$CLANG_MODULE_CACHE_PATH" && test "$TED_SANDBOX" = 1 && echo wrote',
         `mkdir '${xcodeSave}' && ${tryWrite(path.join(xcodeSave, 'x'))}`,
         tryWrite(path.join(otherSave, 'x')),
         tryWrite(looseSave),

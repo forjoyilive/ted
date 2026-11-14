@@ -3,7 +3,13 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { demoEnvironment, demoHome, seedDemoFromCli } from '@ted/daemon/demo'
 import { installedElectron } from './electron-path.ts'
+import { sandboxRefusal } from './sandbox-refusal.ts'
 
+const refusal = sandboxRefusal()
+if (refusal) {
+  console.error(refusal)
+  process.exit(1)
+}
 const args = process.argv.slice(2)
 const demo = args.includes('--demo')
 const forwarded = args.filter((arg) => arg !== '--demo')
