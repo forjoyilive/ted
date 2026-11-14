@@ -2,7 +2,7 @@ import type { PermissionMode } from './run.ts'
 import type { AgentStageId, ClarifyDepth, Effort, StageId } from './task.ts'
 import type { LayerKind, WorkflowProblem } from './workflow.ts'
 
-export const appKinds = ['web', 'command', 'ios-simulator'] as const
+export const appKinds = ['web', 'command', 'ios-simulator', 'android-emulator'] as const
 export type AppKind = (typeof appKinds)[number]
 
 export const settingsMergeMethods = ['squash', 'merge', 'rebase'] as const
@@ -24,6 +24,7 @@ export interface AppInput {
   kind: AppKind
   run: string
   url?: string
+  device?: string
 }
 
 export interface RepoSettingsInput {

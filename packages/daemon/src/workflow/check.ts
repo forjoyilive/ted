@@ -641,7 +641,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             break
           case 'kind':
             if (!oneOf(node, [...appKinds])) {
-              error(node, '`kind` must be web, command or ios-simulator')
+              error(node, '`kind` must be web, command, ios-simulator or android-emulator')
             }
             break
           case 'url': {
@@ -693,6 +693,12 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
       }
       if (typeof name !== 'string') error(item, 'each App needs a `name`')
       else if (!item.has('run')) error(item, `the App ${name} needs a \`run\` command`)
+      else if (kind === 'android-emulator' && !item.has('device')) {
+        error(
+          item,
+          `the Android emulator App ${name} needs a \`device\`: an Android virtual device name`,
+        )
+      }
     }
   }
 

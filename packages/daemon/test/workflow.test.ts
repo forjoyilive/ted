@@ -390,6 +390,9 @@ describe('checking a layer', () => {
       '        kind: server',
       '        ready: soon',
       '        env: { PORT: "1" }',
+      '      - name: Phone',
+      '        kind: android-emulator',
+      '        run: ./gradlew installDebug',
       '',
     ].join('\n')
     expect(problems({ 'workflow.yaml': apps })).toEqual([
@@ -398,9 +401,10 @@ describe('checking a layer', () => {
       'error .ted/workflow.yaml 10 15 `port` must be a number from 1 to 65535',
       'error .ted/workflow.yaml 11 9 each App needs a `name`',
       'error .ted/workflow.yaml 12 9 the App API needs a `run` command',
-      'error .ted/workflow.yaml 13 15 `kind` must be web, command or ios-simulator',
+      'error .ted/workflow.yaml 13 15 `kind` must be web, command, ios-simulator or android-emulator',
       'error .ted/workflow.yaml 14 16 `ready` must be url or start',
       'warning .ted/workflow.yaml 15 16 TED sets `PORT` itself or keeps it out of worktrees, so it ignores it here',
+      'error .ted/workflow.yaml 16 9 the Android emulator App Phone needs a `device`: an Android virtual device name',
     ])
   })
 

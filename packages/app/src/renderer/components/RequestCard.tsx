@@ -22,6 +22,7 @@ import { sendOnEnter, signOffEnter } from '../composer-keys.ts'
 import {
   useCheckRuns,
   useComments,
+  useEmulators,
   useSimulators,
   useTasks,
   useThreadEvents,
@@ -375,7 +376,7 @@ function SimulatorRequest({
   onChoose: (udid: string) => void
 }) {
   const now = useNow()
-  const live = useSimulators()
+  const live = useAskSlots(request)
   const ask = request.simulator
   if (!ask) return null
   const booted = !readOnly && live?.supported === true ? live.booted : ask.booted
@@ -385,11 +386,17 @@ function SimulatorRequest({
       chosen={chosen}
       onChoose={onChoose}
       now={now}
-      label="Simulator to shut down"
+      label={ask.platform === 'android' ? 'Emulator to shut down' : 'Simulator to shut down'}
       showApp
       disabled={readOnly}
     />
   )
+}
+
+function useAskSlots(request: Comment) {
+  const simulators = useSimulators()
+  const emulators = useEmulators()
+  return request.simulator?.platform === 'android' ? emulators : simulators
 }
 
 function reasonChoicesOf(request: Comment): string[] {
@@ -630,7 +637,7 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
   )
   const { send: post, sending, setSending, submission, error } = useSending(request, false)
   const typed = text.trim() !== ''
-  const simulators = useSimulators()
+  const simulators = useAskSlots(request)
   const [picked, setPicked] = useState<string>()
   const offered = simulators?.booted ?? request.simulator?.booted ?? []
   const chosen =
@@ -1215,7 +1222,7 @@ function answerLine(
         tone: 'good',
         text:
           answer.shutDown !== undefined
-            ? `You shut down ${answer.shutDown}’s simulator`
+            ? `You shut down ${answer.shutDown}’s ${request.simulator?.platform === 'android' ? 'emulator' : 'simulator'}`
             : request.permission
               ? 'You approved · this request only'
               : 'You approved',
@@ -1251,7 +1258,11 @@ function answerLine(
         return { mark: '–', tone: 'neutral', text: 'Withdrawn · the agent no longer needs it' }
       }
       if ('slotFreed' in answer) {
-        return { mark: '–', tone: 'neutral', text: 'A simulator freed up; nothing was shut down' }
+        return {
+          mark: '–',
+          tone: 'neutral',
+          text: `${request.simulator?.platform === 'android' ? 'An emulator' : 'A simulator'} freed up; nothing was shut down`,
+        }
       }
       if ('appGone' in answer) {
         return {

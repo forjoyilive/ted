@@ -849,6 +849,13 @@ export interface TedStore extends TaskHistory {
     forTask?: string
     idle: boolean
   }): void
+  emulatorShutDown(input: {
+    taskId: string
+    repo: string
+    name: string
+    forTask?: string
+    idle: boolean
+  }): void
   requestSimulator(input: {
     taskId: string
     runId: string
@@ -2429,7 +2436,12 @@ export async function openStore({
     const asking = requests.filter((r) => r.kind === 'permission')
     if (asking.length === 0) return {}
     return {
-      ...(asking.some((r) => r.simulator !== null) && { waitingOnSimulator: true }),
+      ...(asking.some((r) => r.simulator !== null && !androidAsk(r.simulator)) && {
+        waitingOnSimulator: true,
+      }),
+      ...(asking.some((r) => r.simulator !== null && androidAsk(r.simulator)) && {
+        waitingOnEmulator: true,
+      }),
       waitingOnPermission: asking.some((r) => r.authorRunId === leadId)
         ? ('lead' as const)
         : ('sub-agent' as const),
@@ -4272,6 +4284,19 @@ export async function openStore({
     simulatorShutDown({ taskId, repo, name, forTask, idle }) {
       commit(
         events.simulatorShutDown({
+          taskId,
+          repo,
+          name,
+          forTask: forTask ?? null,
+          idle,
+          at: new Date().toISOString(),
+        }),
+      )
+      updatedTask(taskId)
+    },
+    emulatorShutDown({ taskId, repo, name, forTask, idle }) {
+      commit(
+        events.emulatorShutDown({
           taskId,
           repo,
           name,
@@ -6607,4 +6632,12 @@ function headlineOf(title: string | null, body: string): string {
       .map((line) => line.trim())
       .find((line) => line !== '') ?? ''
   )
+}
+
+function androidAsk(simulator: string): boolean {
+  try {
+    return (JSON.parse(simulator) as SimulatorAsk).platform === 'android'
+  } catch {
+    return false
+  }
 }

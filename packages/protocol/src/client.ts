@@ -1264,6 +1264,10 @@ export class DaemonClient {
     return this.#request('GET', '/simulators')
   }
 
+  emulators(): Promise<SimulatorSlots> {
+    return this.#request('GET', '/emulators')
+  }
+
   appLog(ref: string, app: { repo: string; name: string }): Promise<AppLog> {
     return this.#request(
       'GET',

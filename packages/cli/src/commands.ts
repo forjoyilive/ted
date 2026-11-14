@@ -673,7 +673,7 @@ export const commands = [
     handler: 'screenshot',
     min: 1,
     max: 1,
-    help: '  ted app screenshot <App> [--repo <name>]   Save a screenshot of an iOS simulator App to the Task',
+    help: '  ted app screenshot <App> [--repo <name>]   Save a screenshot of a simulator or emulator App to the Task',
     callers: 'Task Run',
     options: options('task', 'repo'),
   },

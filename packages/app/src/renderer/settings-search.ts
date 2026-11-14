@@ -169,6 +169,10 @@ const entries = {
     help: 'iOS simulator Apps share these slots. When they’re all taken, TED asks which simulator to shut down; it never shuts one down on its own to make room.',
     platform: 'mac',
   },
+  'app.limits.emulators': {
+    name: 'Android emulators running at once',
+    help: 'Android emulator Apps share these slots, separately from iOS simulators. When they’re all taken, TED asks which emulator to shut down; it never shuts one down on its own to make room.',
+  },
   'app.limits.checks': {
     name: 'Checks running at once',
     help: 'A Task’s Checks run one after another and count as one. When this many Tasks are running Checks, the next waits its turn; a Check you try with Run now in Factory settings waits too. Lowering the limit doesn’t stop Checks that are running.',

@@ -1,5 +1,5 @@
 import type { PullRequestPreview, SimulatorSlots, Task, TaskApp } from '@ted/protocol'
-import { isSimulatorApp } from '@ted/protocol/app'
+import { isDeviceApp, isEmulatorApp } from '@ted/protocol/app'
 import { age, ago } from './requests.ts'
 
 export interface HostedPreview {
@@ -40,7 +40,7 @@ export const isLive = (app: TaskApp) =>
 
 export function needsSlot(app: TaskApp, slots: SimulatorSlots | undefined): boolean {
   return (
-    isSimulatorApp(app) &&
+    isDeviceApp(app) &&
     slots !== undefined &&
     app.simulator?.booted !== true &&
     slots.booted.length >= slots.limit
@@ -59,8 +59,14 @@ export function appStatusLine(app: TaskApp, now: number): string {
 function simulatorLine(app: TaskApp, now: number): string | undefined {
   const simulator = app.simulator
   if (!simulator) return undefined
-  if (app.state === 'waiting') return `Waiting for a simulator · ${simulator.device}`
+  const android = isEmulatorApp(app)
+  if (app.state === 'waiting') {
+    return `Waiting for ${android ? 'an emulator' : 'a simulator'} · ${simulator.device}`
+  }
   if (simulator.booted) {
+    if (android) {
+      return `${simulator.device} · ${simulator.window ? 'running in a window' : 'running, no window'}`
+    }
     return `${simulator.device} · ${simulator.recording ? 'recording' : 'booted'}`
   }
   const shutDown = simulator.shutDown
@@ -75,7 +81,7 @@ function stateLine(app: TaskApp, now: number): string {
   if (simulator !== undefined) return simulator
   switch (app.state) {
     case 'waiting':
-      return 'Waiting for a simulator'
+      return isEmulatorApp(app) ? 'Waiting for an emulator' : 'Waiting for a simulator'
     case 'running':
       return app.url !== undefined
         ? hostOf(app.url)
