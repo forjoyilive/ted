@@ -93,12 +93,16 @@ test('Design approval durably holds before Work; Resume and Overnight release on
       outcome: 'advance',
     })
     expect(designOutcome.status, JSON.stringify(designOutcome.body)).toBe(200)
-    const comments = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
-    const gate = comments.find((c) => c.stage === 'design' && c.gate && !c.answer)
-    expect(gate).toBeDefined()
+    const gate = await waitUntil(
+      async () =>
+        (await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)).find(
+          (c) => c.stage === 'design' && c.gate && !c.answer,
+        ),
+      'the Design sign-off, which TED holds while the Lead is working',
+    )
     expect((await get(task.id))?.stage).toBe('design')
     if (overnightOnApproval) await client.ok('PATCH', '/settings', { overnightMode: true })
-    await client.ok('POST', `/comments/${gate?.id}/answer`, { action: 'approve' })
+    await client.ok('POST', `/comments/${gate.id}/answer`, { action: 'approve' })
     if (overnightOnApproval) {
       const resumed = await waitUntil(async () => {
         const t = await get(task.id)
@@ -174,7 +178,7 @@ test('Design approval durably holds before Work; Resume and Overnight release on
   expect((await client.call('POST', `/tasks/${next.id}/start`, { prepare: 'yes' })).status).toBe(
     400,
   )
-})
+}, 60_000)
 
 test('omitting Clarify and Design still holds before Work and later Design is refused', async () => {
   const origin = await makeOriginRepo(scratch)
