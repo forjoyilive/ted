@@ -492,10 +492,10 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2)
   const named = args.find((arg) => !arg.startsWith('--'))
   if (!inReleaseCheckout() && (named !== undefined || args.includes('--install'))) {
-    forward(
-      args,
-      named !== undefined && !['publish', 'discard'].includes(named) && !args.includes('--install'),
-    )
+    const fresh =
+      named !== undefined && !['publish', 'discard'].includes(named) && !args.includes('--install')
+    if (fresh && parseVersion(named) === undefined) fail(`“${named}” isn’t a version like 1.2.3`)
+    forward(args, fresh)
   }
   if (args.includes('--install')) return install()
   const command = args.find((arg) => !arg.startsWith('--'))
