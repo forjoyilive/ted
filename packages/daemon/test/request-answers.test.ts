@@ -42,6 +42,7 @@ beforeEach(async () => {
       return task
     },
     untilFree: async () => {},
+    untilChecksReported: async () => {},
     holding: async (_task, work) => work(),
     holdingSignoff: async (_task, work) => work(),
     failures: { findDecision: () => undefined, resolve: unexpected },

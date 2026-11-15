@@ -45,6 +45,7 @@ import { StaleCoverageError } from './validation.ts'
 export interface RequestAnswerPort {
   store: TedStore
   untilFree(id: string): Promise<void>
+  untilChecksReported(id: string): Promise<void>
   find(id: string): StoredTask
   holding<T>(task: Task, work: () => Promise<T>): Promise<T>
   holdingSignoff<T>(task: Task, work: () => Promise<T>): Promise<T>
@@ -135,6 +136,7 @@ export function createRequestAnswers(
   const {
     store,
     untilFree,
+    untilChecksReported,
     find,
     holding,
     holdingSignoff,
@@ -594,6 +596,8 @@ export function createRequestAnswers(
       if (!resolution) throw new RequestError(400, 'choose a failure resolution')
       if (comment.choices && !comment.choices.includes(request.choice))
         throw new RequestError(400, `“${request.choice}” isn’t one of the question’s choices`)
+      await untilChecksReported(task.id)
+      await untilFree(task.id)
       return holding(task, async () => {
         await failures.resolve(
           find(task.id),

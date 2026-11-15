@@ -973,6 +973,19 @@ export function createTasks(options: {
           checksIdle.set(taskId, [...(checksIdle.get(taskId) ?? []), resolve]),
         )
       : Promise.resolve()
+  async function untilChecksReported(taskId: string): Promise<void> {
+    const progress = store.failures.progress(taskId)
+    if (
+      !inFlight.is(taskId, 'checking') ||
+      !progress ||
+      progress.pending ||
+      store.listCheckRuns(taskId).some((run) => run.finishedAt === undefined)
+    )
+      return
+    const timer = new AbortController()
+    await Promise.race([untilChecksIdle(taskId), clockWait(clock, humanWaitMs, timer.signal)])
+    timer.abort()
+  }
   const sandboxDir = path.join(path.dirname(worktreesDir), 'sandbox')
   const pullRequests = options.gh && createPullRequests({ store, gh: options.gh })
   let runAppOwner: RunAppOwner | undefined
@@ -5817,6 +5830,7 @@ export function createTasks(options: {
       {
         store,
         untilFree,
+        untilChecksReported,
         find,
         holding,
         failures: { findDecision: failures.findDecision, resolve: validation.resolve },
@@ -10577,6 +10591,7 @@ export function createTasks(options: {
       failureLead(ref, caller, (task, runId) => failures.request(task, id, runId)),
     async resolveFailure(ref, id, input) {
       const task = find(ref)
+      await untilChecksReported(task.id)
       return holdingSignoff(task, () =>
         input.resolution === 'repair'
           ? waitForRepair(find(task.id), id, input)
