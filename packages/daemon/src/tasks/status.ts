@@ -1,6 +1,7 @@
 import {
   type ActiveTestInvocations,
   type BlockerEnded,
+  type BusyHold,
   busyHold,
   type CommentBox,
   type GitHubWait,
@@ -39,7 +40,7 @@ export interface TaskFacts {
   blockerEnded?: BlockerEnded
   queue?: { place: number } | { hold: string }
   queuedSubAgents?: readonly { id: string; hold?: string; paused?: string }[]
-  heldForLoad?: boolean
+  busy?: BusyHold
   github?: GitHubWait
   mergePending?: boolean
   autoMergeLeft?: boolean
@@ -126,8 +127,10 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
     }
   }
   if (facts.queue) {
-    const busy = facts.heldForLoad && 'place' in facts.queue
-    return { kind: 'queued', ...(busy ? { hold: busyHold } : facts.queue) }
+    if (facts.busy !== undefined && 'place' in facts.queue) {
+      return { kind: 'queued', hold: busyHold, busy: facts.busy }
+    }
+    return { kind: 'queued', ...facts.queue }
   }
   if (facts.github) return { kind: 'waiting-for-github', on: facts.github }
   return undefined
@@ -327,7 +330,7 @@ export function taskWaitReasons(taskId: string, facts: TaskFacts): TaskWaitReaso
       reason: 'run-slot',
       id: taskId,
       detail:
-        facts.heldForLoad && 'place' in facts.queue
+        facts.busy !== undefined && 'place' in facts.queue
           ? busyHold
           : 'hold' in facts.queue
             ? facts.queue.hold

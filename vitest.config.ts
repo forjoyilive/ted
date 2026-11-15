@@ -94,6 +94,7 @@ const testOptions = {
     TED_LOGIN_SHELL: 'off',
     TED_FREE_BYTES_FILE: here('./packages/daemon/test/fixtures/free-bytes.txt'),
     TED_LOAD_FILE: here('./packages/daemon/test/fixtures/load.txt'),
+    TED_MEMORY_FILE: here('./packages/daemon/test/fixtures/memory.json'),
     TED_ONLINE_FILE: here('./packages/daemon/test/fixtures/online.txt'),
     TED_KEYRING_MODULE: here('./packages/daemon/test/fixtures/stub-keyring.ts'),
     TED_LINEAR_API: 'http://127.0.0.1:9/graphql',

@@ -2,6 +2,16 @@ import type { Priority } from './task.ts'
 
 export const busyHold = 'this computer is busy'
 
+export const busyMarks = {
+  load: { holdAt: 1, resumeBelow: 0.75 },
+  memory: { holdBelow: 0.1, resumeAbove: 0.2 },
+} as const
+
+export interface BusyHold {
+  loadRatio?: number
+  memoryAvailable?: number
+}
+
 export const chatKinds = ['coordinator', 'side-chat', 'planning'] as const
 
 export type ChatKind = (typeof chatKinds)[number]
@@ -124,6 +134,5 @@ export interface RunSlots {
   holders: SlotHolder[]
   queue: QueuedForSlot[]
   factories: FactorySlots[]
-  heldForLoad?: true
-  loadRatio?: number
+  busy?: BusyHold
 }

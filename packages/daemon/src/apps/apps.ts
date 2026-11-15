@@ -113,6 +113,7 @@ export interface StartOptions {
 export interface AppsOptions {
   appsDir: string
   store: TedStore
+  busy?: () => Promise<boolean>
   env?: () => NodeJS.ProcessEnv
   task(taskId: string): Promise<AppTask>
   keep(taskId: string): boolean
@@ -287,6 +288,7 @@ export function createApps(options: AppsOptions): Apps {
     supported: simulatorOptions.supported ?? process.platform === 'darwin',
     ...(simulatorOptions.banners !== undefined && { banners: simulatorOptions.banners }),
     ...(options.idle !== undefined && { idle: options.idle }),
+    ...(options.busy !== undefined && { busy: options.busy }),
     ...(simulatorOptions.pollMs !== undefined && { pollMs: simulatorOptions.pollMs }),
     ...(simulatorOptions.idleMs !== undefined && { idleMs: simulatorOptions.idleMs }),
     emit: options.emit,
@@ -320,6 +322,7 @@ export function createApps(options: AppsOptions): Apps {
       emulatorOptions.supported ?? (process.platform === 'darwin' || process.platform === 'linux'),
     ...(emulatorOptions.banners !== undefined && { banners: emulatorOptions.banners }),
     ...(options.idle !== undefined && { idle: options.idle }),
+    ...(options.busy !== undefined && { busy: options.busy }),
     ...(emulatorOptions.pollMs !== undefined && { pollMs: emulatorOptions.pollMs }),
     ...(emulatorOptions.idleMs !== undefined && { idleMs: emulatorOptions.idleMs }),
     ...(emulatorOptions.bootTimeoutMs !== undefined && {

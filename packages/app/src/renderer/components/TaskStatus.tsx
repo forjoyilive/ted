@@ -1,6 +1,7 @@
 import type { BlockerEnded, GitHubWait, Task, TaskMarker, TaskRun, TaskStatus } from '@ted/protocol'
 import { snoozeTime } from '../request-snooze.ts'
 import { ago, useNow } from '../requests.ts'
+import { statusDetail } from '../slots.ts'
 import { formatDate } from '../time.ts'
 import { RunIcon, type RunIconState } from './RunIcon.tsx'
 import { StatusChip, type StatusGlyph, type StatusTone } from './StatusChip.tsx'
@@ -189,7 +190,7 @@ export function TaskStatusChips({
         <BlockedBy by={status.by} ended={status.ended} onOpenTask={onOpenTask} tall={tall} />
       ) : (
         status && (
-          <StatusChip {...look(status)} tall={tall}>
+          <StatusChip {...look(status)} tall={tall} title={statusDetail(status)}>
             {detailed ? detailedLabel(status, now) : statusLabel(status)}
           </StatusChip>
         )

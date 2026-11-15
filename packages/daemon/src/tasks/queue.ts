@@ -34,16 +34,7 @@ export interface SlotUse {
   byFactory: Readonly<Record<string, number>>
   caps: Readonly<Record<string, number | undefined>>
   handoffs?: ReadonlySet<string>
-  heldForLoad?: boolean
-}
-
-export const loadMarks = { holdAt: 1, resumeBelow: 0.75 } as const
-
-export function heldForLoad(held: boolean, ratio: number): boolean {
-  if (!Number.isFinite(ratio)) return false
-  if (ratio >= loadMarks.holdAt) return true
-  if (ratio < loadMarks.resumeBelow) return false
-  return held
+  busy?: boolean
 }
 
 export function queueOrder<T extends QueueEntry>(entries: readonly T[]): T[] {
@@ -77,7 +68,7 @@ export function startsNow<T extends QueueEntry>(ordered: readonly T[], use: Slot
       !use.handoffs?.has(entry.id)
     ) {
       if (working >= use.limit) continue
-      if (use.heldForLoad && working > 0) continue
+      if (use.busy && working > 0) continue
       const cap = factory === undefined ? undefined : use.caps[factory]
       if (factory !== undefined && cap !== undefined && (byFactory[factory] ?? 0) >= cap) continue
     }

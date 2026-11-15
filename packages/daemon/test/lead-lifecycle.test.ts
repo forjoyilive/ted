@@ -397,7 +397,7 @@ test.each(['stopped', 'archived', 'revived'] as const)(
     const { lifecycle } = harness()
     await lifecycle.failed('lead')
     store.pauseAgent('codex', 'offline')
-    store.holdForLoad(true)
+    store.holdWhenBusy({ loadRatio: 2 })
     store.holdNewWork('disk full')
     expect(lifecycle.pendingRecoveryTaskIds()).toEqual([taskId])
 
@@ -405,7 +405,7 @@ test.each(['stopped', 'archived', 'revived'] as const)(
     if (ending === 'archived') store.archiveTask(taskId)
     if (ending === 'revived') {
       store.pauseAgent('codex', undefined)
-      store.holdForLoad(false)
+      store.holdWhenBusy(undefined)
       store.holdNewWork(undefined)
       await lifecycle.beginRevive(taskId)
     }

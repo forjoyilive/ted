@@ -935,7 +935,6 @@ describe('Automations', () => {
     }, 'the Task to hold the slot')
     const automation = await create(client, { prompt: steps(hold(), { endTurn: true }) })
     load = 2
-    await client.ok('PATCH', '/settings', { adjustRunsToLoad: true })
     const second = await client.ok<Task>('POST', '/tasks', {
       factory: 'NB',
       start: true,
@@ -947,7 +946,7 @@ describe('Automations', () => {
       'the firing to start despite the occupied slot',
     )
     const slots = await client.ok<RunSlots>('GET', '/slots')
-    expect(slots).toMatchObject({ working: 2, heldForLoad: true })
+    expect(slots).toMatchObject({ working: 2, busy: { loadRatio: 2 } })
     expect(slots.queue.map((q) => q.kind)).toEqual(['task'])
     expect(slots.holders.map((h) => h.kind)).toContain('automation')
     const tasks = await client.ok<Task[]>('GET', '/tasks')
@@ -996,7 +995,6 @@ describe('Automations', () => {
 
   test('a scheduled Check waits while the computer is busy until its cutoff, runs sandboxed on the default branch, makes Tasks for failing tests and updates them when they fail again; its agent step files, notes and starts Tasks, and TED falls back when the agent doesn’t report', async () => {
     const client = await startTed()
-    await client.ok('PATCH', '/settings', { adjustRunsToLoad: true })
     const fail = path.join(scratch, 'fail-check')
     const command = [
       'echo "sandboxed=$TED_SANDBOX task=$TED_TASK."',

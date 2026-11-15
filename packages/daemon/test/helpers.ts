@@ -421,6 +421,7 @@ export function fixtureEnvironment(home: string): NodeJS.ProcessEnv {
     TED_STUB_GH_LOG: path.join(home, 'gh.jsonl'),
     TED_FREE_BYTES_FILE: fileURLToPath(new URL('./fixtures/free-bytes.txt', import.meta.url)),
     TED_LOAD_FILE: fileURLToPath(new URL('./fixtures/load.txt', import.meta.url)),
+    TED_MEMORY_FILE: fileURLToPath(new URL('./fixtures/memory.json', import.meta.url)),
     TED_ONLINE_FILE: fileURLToPath(new URL('./fixtures/online.txt', import.meta.url)),
   }
 }

@@ -167,8 +167,8 @@ const entries = {
     help: 'A new Run starts only when a slot is free. Runs waiting on you, Paused Runs, Apps and Checks don’t take a slot; a Task setting up its worktree does. A Factory’s own max_working_runs can lower it further.',
   },
   'app.limits.busy': {
-    name: 'Start fewer Runs when this computer is busy',
-    help: 'While this computer is busy, TED starts no new Run unless none is working. Runs already working carry on. The limit above is still the most TED runs at once.',
+    name: 'Wait to start new work when this computer is busy',
+    help: 'While the CPU is busy or memory is low, TED starts no new Run, sub-agent, simulator or emulator unless none is working, and Scheduled Checks wait. Work already running carries on. The limit above is still the most TED runs at once.',
   },
   'app.limits.simulators': {
     name: 'Simulators booted at once',

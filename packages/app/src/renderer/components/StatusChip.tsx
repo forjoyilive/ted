@@ -133,7 +133,7 @@ export function StatusChip({
   tone: StatusTone
   glyph?: StatusGlyph
   children: ReactNode
-  title?: string
+  title?: string | undefined
   tall?: boolean
 }) {
   return (

@@ -2,7 +2,7 @@ import type { RunSlots, SimulatorSlots, Task, TaskApp } from '@ted/protocol'
 import { emulatorsLine, simulatorsLine } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { appStatusLine, needsSlot, previewChoice } from '../src/renderer/apps.ts'
-import { nowLine, runsLine } from '../src/renderer/slots.ts'
+import { busyDetail, nowLine, runsLine, statusDetail } from '../src/renderer/slots.ts'
 
 const task = (preview?: { url: string; label: string }) =>
   ({
@@ -204,5 +204,18 @@ test('the sidebar names slot usage and its limit, including above-limit and queu
   expect(runsLine({ ...slots, working: 1, queued: 0 })).toBe('1 slot in use · limit 6')
   expect(runsLine({ ...slots, working: 0 })).toBe('0 slots in use · limit 6 · 1 queued')
   expect(runsLine({ ...slots, working: 0, queued: 0 })).toBe('0 slots in use · limit 6')
-  expect(runsLine({ ...slots, heldForLoad: true })).toContain('this computer is busy')
+  expect(runsLine({ ...slots, busy: { loadRatio: 1.4 } })).toContain('this computer is busy')
+})
+
+test('hovering a busy hold names each resource that holds, with its figure and marks', () => {
+  expect(busyDetail({ memoryAvailable: 0.07, loadRatio: 1.3 })).toBe(
+    [
+      'Memory available: 7% · waits below 10%, starts again above 20%',
+      'CPU load: 1.30 per core · waits at 1, starts again below 0.75',
+    ].join('\n'),
+  )
+  expect(
+    statusDetail({ kind: 'queued', hold: 'this computer is busy', busy: { loadRatio: 2 } }),
+  ).toBe('CPU load: 2.00 per core · waits at 1, starts again below 0.75')
+  expect(statusDetail({ kind: 'queued', place: 2 })).toBeUndefined()
 })

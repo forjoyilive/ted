@@ -28,12 +28,14 @@ let origin: string
 let daemon: RunningDaemon | undefined
 let subscription: { close(): void } | undefined
 let ratio = 0
+let memory = 1
 
 beforeEach(async () => {
   ;({ home, cleanup } = await makeTempHome())
   scratch = await mkdtemp(path.join(tmpdir(), 'ted-origin-'))
   origin = await makeOriginRepo(scratch)
   ratio = 0
+  memory = 1
 })
 
 afterEach(async () => {
@@ -52,7 +54,7 @@ async function startWithStub(checkEveryMs = 50) {
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
-    load: { ratio: () => ratio, checkEveryMs },
+    load: { ratio: () => ratio, memoryAvailable: () => memory, checkEveryMs },
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('no daemon.json')
@@ -92,9 +94,8 @@ const waitForLead = (client: Client, task: Task) =>
 
 const slotsOf = (client: Client) => client.ok<RunSlots>('GET', '/slots')
 
-test('while this computer is busy a second Task stays queued, and starts once the load falls with no other event', async () => {
+test('while this computer is busy a second Task stays queued, and starts once the load falls and memory recovers with no other event', async () => {
   const client = await startWithStub()
-  await client.ok('PATCH', '/settings', { adjustRunsToLoad: true })
   ratio = 2.004
   const a = await startTask(client, workingUntil(never()))
   expect(a.leadRunId).toBeDefined()
@@ -102,13 +103,16 @@ test('while this computer is busy a second Task stays queued, and starts once th
   const b = await startTask(client, workingUntil(never()))
 
   expect(b.leadRunId).toBeUndefined()
-  expect(b.status).toEqual({ kind: 'queued', hold: 'this computer is busy' })
+  expect(b.status).toEqual({
+    kind: 'queued',
+    hold: 'this computer is busy',
+    busy: { loadRatio: 2 },
+  })
   expect(await slotsOf(client)).toMatchObject({
     limit: 6,
     working: 1,
     queued: 1,
-    heldForLoad: true,
-    loadRatio: 2,
+    busy: { loadRatio: 2 },
   })
   await sleep(300)
   expect((await getTask(client, b.id)).leadRunId).toBeUndefined()
@@ -117,26 +121,40 @@ test('while this computer is busy a second Task stays queued, and starts once th
   ratio = 0.9
   await sleep(300)
   expect((await getTask(client, b.id)).leadRunId).toBeUndefined()
-  expect((await slotsOf(client)).heldForLoad).toBe(true)
+  expect((await slotsOf(client)).busy).toEqual({ loadRatio: 0.9 })
+
+  ratio = 0.5
+  memory = 0.05
+  await waitUntil(
+    async () => (await slotsOf(client)).busy?.memoryAvailable === 0.05 || undefined,
+    'the hold to move from load to memory',
+  )
+  expect((await getTask(client, b.id)).status).toEqual({
+    kind: 'queued',
+    hold: 'this computer is busy',
+    busy: { memoryAvailable: 0.05 },
+  })
+  memory = 0.15
+  await sleep(300)
+  expect((await getTask(client, b.id)).leadRunId).toBeUndefined()
+  expect((await slotsOf(client)).busy).toEqual({ memoryAvailable: 0.15 })
 
   client.events.length = 0
-  ratio = 0.5
+  memory = 0.5
   await waitForLead(client, b)
   const after = await waitUntil(async () => {
     const slots = await slotsOf(client)
     return slots.working === 2 ? slots : undefined
   }, 'both Tasks to hold a slot')
-  expect(after.heldForLoad).toBeUndefined()
-  expect(after.loadRatio).toBeUndefined()
-  expect(
-    client.events.some((e) => e.type === 'slots-changed' && e.slots.heldForLoad === undefined),
-  ).toBe(true)
+  expect(after.busy).toBeUndefined()
+  expect(client.events.some((e) => e.type === 'slots-changed' && e.slots.busy === undefined)).toBe(
+    true,
+  )
   expect((await getTask(client, a.id)).runs[0]?.state).toBe('working')
 })
 
 test('a subscribed client hears slots-changed when the hold starts', async () => {
   const client = await startWithStub()
-  await client.ok('PATCH', '/settings', { adjustRunsToLoad: true })
   await startTask(client, workingUntil(never()))
   const b = await startTask(client, workingUntil(never()))
   await waitForLead(client, b)
@@ -144,16 +162,15 @@ test('a subscribed client hears slots-changed when the hold starts', async () =>
 
   const c = await startTask(client, 'C')
 
-  expect(c.status).toEqual({ kind: 'queued', hold: 'this computer is busy' })
+  expect(c.status).toMatchObject({ kind: 'queued', hold: 'this computer is busy' })
   await waitUntil(
-    () => client.events.some((e) => e.type === 'slots-changed' && e.slots.heldForLoad === true),
+    () => client.events.some((e) => e.type === 'slots-changed' && e.slots.busy !== undefined),
     'slots-changed with the hold',
   )
 })
 
 test('with nothing working, the first Task starts even when this computer is busy', async () => {
   const client = await startWithStub()
-  await client.ok('PATCH', '/settings', { adjustRunsToLoad: true })
   ratio = 5
   const free = path.join(scratch, 'free-a')
 
@@ -168,7 +185,6 @@ test('with nothing working, the first Task starts even when this computer is bus
 
 test('a waiting Task Lead’s first sub-agent still starts while this computer is busy, and its second waits', async () => {
   const client = await startWithStub()
-  await client.ok('PATCH', '/settings', { adjustRunsToLoad: true })
   const go = path.join(scratch, 'go')
   const release = path.join(scratch, 'release')
   const prompt = path.join(scratch, 'review.md')
@@ -208,7 +224,7 @@ test('a waiting Task Lead’s first sub-agent still starts while this computer i
 
   expect(handedOff.runs.map((r) => r.name)).toEqual(['Task Lead', 'First'])
   const slots = await slotsOf(client)
-  expect(slots).toMatchObject({ limit: 6, working: 2, queued: 1, heldForLoad: true })
+  expect(slots).toMatchObject({ limit: 6, working: 2, queued: 1, busy: { loadRatio: 3 } })
   expect(slots.queue).toEqual([
     expect.objectContaining({ kind: 'sub-agent', name: 'Second', taskId: task.id }),
   ])
@@ -225,7 +241,9 @@ test('a waiting Task Lead’s first sub-agent still starts while this computer i
 
 test('with the setting off, a busy computer changes nothing', async () => {
   const client = await startWithStub()
+  await client.ok('PATCH', '/settings', { waitWhenBusy: false })
   ratio = 5
+  memory = 0.01
   const a = await startTask(client, workingUntil(never()))
   const b = await startTask(client, workingUntil(never()))
 
@@ -233,39 +251,47 @@ test('with the setting off, a busy computer changes nothing', async () => {
   expect(b.leadRunId).toBeDefined()
   const slots = await slotsOf(client)
   expect(slots.working).toBe(2)
-  expect(slots.heldForLoad).toBeUndefined()
+  expect(slots.busy).toBeUndefined()
 })
 
 test('turning the setting off starts what the load was holding', async () => {
   const client = await startWithStub(60_000)
-  await client.ok('PATCH', '/settings', { adjustRunsToLoad: true })
   ratio = 3
   await startTask(client, workingUntil(never()))
   const b = await startTask(client, workingUntil(never()))
-  expect(b.status).toEqual({ kind: 'queued', hold: 'this computer is busy' })
+  expect(b.status).toMatchObject({ kind: 'queued', hold: 'this computer is busy' })
 
-  await client.ok('PATCH', '/settings', { adjustRunsToLoad: false })
+  await client.ok('PATCH', '/settings', { waitWhenBusy: false })
 
   await waitForLead(client, b)
-  expect((await slotsOf(client)).heldForLoad).toBeUndefined()
+  expect((await slotsOf(client)).busy).toBeUndefined()
 })
 
 test('the limit above is still the most TED runs when this computer is quiet', async () => {
   const client = await startWithStub()
-  await client.ok('PATCH', '/settings', { adjustRunsToLoad: true, maxWorkingRuns: 1 })
+  await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
   await startTask(client, workingUntil(never()))
 
   const b = await startTask(client, 'B')
 
   expect(b.status).toEqual({ kind: 'queued', place: 1 })
-  expect((await slotsOf(client)).heldForLoad).toBeUndefined()
+  expect((await slotsOf(client)).busy).toBeUndefined()
 })
 
-test('adjustRunsToLoad is off by default and must be true or false', async () => {
-  const client = await startWithStub()
-  const settings = await client.ok<{ adjustRunsToLoad: boolean }>('GET', '/settings')
-  expect(settings.adjustRunsToLoad).toBe(false)
+test('waitWhenBusy is on by default and must be true or false, and the working Run default follows memory', async () => {
+  const memoryFile = path.join(scratch, 'memory.json')
+  await writeFile(memoryFile, JSON.stringify({ totalBytes: 16 * 1024 ** 3, availableBytes: 1 }))
+  const fixture = process.env.TED_MEMORY_FILE
+  process.env.TED_MEMORY_FILE = memoryFile
+  const client = await startWithStub().finally(() => {
+    process.env.TED_MEMORY_FILE = fixture
+  })
+  const settings = await client.ok<{ waitWhenBusy: boolean; maxWorkingRuns: number }>(
+    'GET',
+    '/settings',
+  )
+  expect(settings).toMatchObject({ waitWhenBusy: true, maxWorkingRuns: 4 })
   for (const value of ['yes', 1, null]) {
-    expect((await client.call('PATCH', '/settings', { adjustRunsToLoad: value })).status).toBe(400)
+    expect((await client.call('PATCH', '/settings', { waitWhenBusy: value })).status).toBe(400)
   }
 })

@@ -26,7 +26,7 @@ The authoritative reasons for individual inputs are beside their entries in `ted
 | `TED_HIDDEN_WINDOW`, `TED_SKIP_FIRST_LAUNCH` | Hide the test app and bypass first-launch setup. |
 | `TED_EXIT_WITH_PID`, `TED_TEST_RUN`, `TED_TEST_FILE` | Track and clean up test processes. |
 | `TED_STALL_AFTER_MS`, `TED_NUDGE_AFTER_MS`, `TED_IDLE_EXIT_MS`, `TED_UNATTENDED_EXIT_MS`, `TED_RESTART_DELAYS_MS`, `TED_HOLD_REQUESTS_MS` | Shorten timing for tests. |
-| `TED_FREE_BYTES_FILE`, `TED_ONLINE_FILE` | Simulate disk space and connectivity. |
+| `TED_FREE_BYTES_FILE`, `TED_ONLINE_FILE`, `TED_LOAD_FILE`, `TED_MEMORY_FILE` | Simulate disk space, connectivity, CPU load and memory. |
 | `TED_FIX_LOG` | Record terminal fix commands instead of opening a terminal. |
 | `TED_LOGIN_ITEM_LOG`, `TED_LOGIN_ITEM_STATUS` | Simulate login items. |
 | `TED_NOTIFY_LOG`, `TED_NOTIFY_STATUS` | Record or disable notifications and badges. |

@@ -142,6 +142,7 @@ export function createSimulators(options: {
   supported: boolean
   banners?: Banners
   idle?: IdleTimer
+  busy?: () => Promise<boolean>
   emit(event: DaemonEvent): void
   appLive(taskId: string, repo: string, name: string): Promise<boolean>
   stopApp(taskId: string, repo: string, name: string): Promise<void>
@@ -334,6 +335,7 @@ export function createSimulators(options: {
     supported,
     driver,
     ...(options.idle !== undefined && { idle: options.idle }),
+    ...(options.busy !== undefined && { busy: options.busy }),
     emit: options.emit,
     appLive: options.appLive,
     stopApp: options.stopApp,

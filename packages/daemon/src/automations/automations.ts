@@ -51,7 +51,7 @@ import type {
 } from '../store/automations.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import type { CheckSlots } from '../tasks/check-slots.ts'
-import { heldForLoad, type QueueEntry, type QueueSource } from '../tasks/queue.ts'
+import type { QueueEntry, QueueSource } from '../tasks/queue.ts'
 import type { Caller, CheckFailureInput, Tasks } from '../tasks/tasks.ts'
 import { messageOf } from '../text.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
@@ -107,8 +107,8 @@ export interface AutomationsOptions {
   checkFailed?: (
     input: CheckFailureInput,
   ) => Promise<{ created: readonly string[]; updated: readonly string[] }>
-  loadRatio?: () => number
-  loadCheckEveryMs?: number
+  busy?: () => Promise<boolean>
+  busyCheckEveryMs?: number
 }
 
 export interface Automations {
@@ -216,8 +216,8 @@ export function createAutomations(options: AutomationsOptions): Automations {
   const iso = (ms: number) => new Date(ms).toISOString()
   const starting = new Set<string>()
   const limited = new Set<string>()
-  const loadRatio = options.loadRatio ?? (() => 0)
-  const loadCheckEveryMs = options.loadCheckEveryMs ?? 15_000
+  const busy = options.busy ?? (async () => false)
+  const busyCheckEveryMs = options.busyCheckEveryMs ?? 15_000
   type CheckPhase = 'quiet' | 'slot' | 'running'
   const checkRuns = new Map<
     string,
@@ -1100,11 +1100,8 @@ export function createAutomations(options: AutomationsOptions): Automations {
   ): Promise<boolean> {
     if (firing.trigger === 'run-now' || firing.trigger === 'retry') return false
     const deadline = quietDeadline(Date.parse(firing.slotAt ?? firing.at), check.runBy, timeZone)
-    let held = false
     while (!entry.abort.signal.aborted && !closed) {
-      if (!store.settings().adjustRunsToLoad) return false
-      held = heldForLoad(held, loadRatio())
-      if (!held) return false
+      if (!(await busy())) return false
       const left = deadline - now()
       if (left <= 0) return true
       if (entry.phase !== 'quiet' || entry.until === undefined) {
@@ -1112,7 +1109,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
         entry.until = iso(deadline)
         saved.touched(firing.automationId)
       }
-      await pause(Math.min(loadCheckEveryMs, left), entry.abort.signal)
+      await pause(Math.min(busyCheckEveryMs, left), entry.abort.signal)
     }
     return false
   }

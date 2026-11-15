@@ -271,7 +271,6 @@ describe('Automation Prompt drafting', () => {
     })
     await until(client, first.id, 'working')
     load = 2
-    await client.call('PATCH', '/settings', { adjustRunsToLoad: true })
     const second = await request(client, {
       request: script(
         { waitFor: path.join(scratch, 'second-release') },
@@ -290,7 +289,7 @@ describe('Automation Prompt drafting', () => {
       .poll(async () => (await client.call('GET', '/activity')).body as Activity)
       .toMatchObject({ runs: { active: 2, queued: 1 } })
     const slots = (await client.call('GET', '/slots')).body as RunSlots
-    expect(slots).toMatchObject({ working: 2, heldForLoad: true })
+    expect(slots).toMatchObject({ working: 2, busy: { loadRatio: 2 } })
     expect(slots.holders.filter((h) => h.kind === 'automation-draft').map((h) => h.runId)).toEqual(
       expect.arrayContaining([first.id, second.id]),
     )

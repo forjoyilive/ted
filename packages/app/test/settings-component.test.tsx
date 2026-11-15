@@ -662,14 +662,16 @@ test('an asynchronous settings switch acknowledges activation and blocks repeat 
     emulators: () => ({ supported: false }),
   })
   render(<LimitsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
-  const toggle = screen.getByRole('switch', { name: 'Start fewer Runs when this computer is busy' })
+  const toggle = screen.getByRole('switch', {
+    name: 'Wait to start new work when this computer is busy',
+  })
   await user().click(toggle)
   expect(toggle.getAttribute('aria-busy')).toBe('true')
   fireEvent.click(toggle)
   expect(update).toHaveBeenCalledTimes(1)
   await user().click(screen.getByRole('button', { name: 'More working Runs' }))
   expect(update).toHaveBeenCalledWith({
-    adjustRunsToLoad: !defaultMachineSettings.adjustRunsToLoad,
+    waitWhenBusy: !defaultMachineSettings.waitWhenBusy,
   })
   await act(async () => completion.resolve({}))
   expect(toggle.getAttribute('aria-busy')).toBeNull()
