@@ -54,6 +54,7 @@ function ArchivedTasksRow({ days }: { days: number | null }) {
   const [kept, setKept] = useState(0)
   const [confirm, setConfirm] = useState<{ days: number; due: number }>()
   const [error, setError] = useState<string>()
+  const latestChoice = useRef(0)
 
   useEffect(() => {
     void epoch
@@ -82,14 +83,16 @@ function ArchivedTasksRow({ days }: { days: number | null }) {
   }
 
   const choose = async (value: number) => {
+    const choice = ++latestChoice.current
     const next = value === 0 ? null : value
     if (next === null || (days !== null && next >= days)) return save(next)
     try {
       const { due } = await ted.archiveExpiry(next)
+      if (choice !== latestChoice.current) return
       if (due === 0) return save(next)
       setConfirm({ days: next, due })
     } catch (failure) {
-      setError(readableError(failure))
+      if (choice === latestChoice.current) setError(readableError(failure))
     }
   }
 

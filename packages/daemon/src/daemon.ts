@@ -805,6 +805,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           disk.close()
           clearInterval(pruneTimer)
           stopPruningOnChange()
+          await archiveCleanup.close()
           stopWatchingWrites()
           online.close()
           health.close()

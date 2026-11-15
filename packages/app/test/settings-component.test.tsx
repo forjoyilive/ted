@@ -124,6 +124,7 @@ test('Limits changes how many Checks run at once and turns low priority off', as
 
 test('Storage sets when chats and archived tasks are deleted and measures again only on Refresh', async () => {
   const update = vi.fn()
+  const pending = deferred<{ due: number; kept: number }>()
   const viewed = vi.fn()
   const api = bridge({
     listFactories: () => [],
@@ -143,12 +144,17 @@ test('Storage sets when chats and archived tasks are deleted and measures again 
       measuredAt: new Date(Date.now() - 3.5 * 60_000).toISOString(),
     }),
     updateSettings: update,
-    archiveExpiry: (days) => (Number(days) < 90 ? { due: 2, kept: 1 } : { due: 0, kept: 0 }),
+    archiveExpiry: (days) =>
+      Number(days) === 7
+        ? pending.promise
+        : Number(days) < 90
+          ? { due: 2, kept: 1 }
+          : { due: 0, kept: 0 },
   })
   const { rerender, unmount } = render(
     <StoragePage settings={defaultMachineSettings} dispatch={vi.fn()} />,
   )
-  const group = await screen.findByRole('group', { name: 'Cleanup' })
+  const group = await screen.findByRole('group', { name: 'Delete automatically' })
   const days = within(group).getByRole<HTMLSelectElement>('combobox', {
     name: 'Delete agent chats',
   })
@@ -199,6 +205,18 @@ test('Storage sets when chats and archived tasks are deleted and measures again 
   expect(await screen.findByText(/^Kept for now: 1 archived task, because it has/)).toBeTruthy()
   await user().selectOptions(archived, '0')
   expect(update.mock.calls.at(-1)).toEqual([{ deleteArchivedAfterDays: null }])
+
+  rerender(
+    <StoragePage
+      settings={{ ...defaultMachineSettings, deleteArchivedAfterDays: 30 }}
+      dispatch={vi.fn()}
+    />,
+  )
+  update.mockClear()
+  await user().selectOptions(archived, '7')
+  await user().selectOptions(archived, '0')
+  await act(async () => pending.resolve({ due: 0, kept: 0 }))
+  expect(update.mock.calls).toEqual([[{ deleteArchivedAfterDays: null }]])
 
   const store = screen.getByRole('group', { name: 'Store and backups' })
   expect(

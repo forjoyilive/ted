@@ -244,7 +244,7 @@ const entries = {
   'app.storage.clean-up': { name: 'Clean up', heading: true },
   'app.storage.clean-up.clones': { name: 'Remove clones of removed Factories' },
   'app.storage.clean-up.simulators': { name: 'Erase simulators not used by a running Task' },
-  'app.storage.run-output': { name: 'Cleanup', heading: true },
+  'app.storage.run-output': { name: 'Delete automatically', heading: true },
   'app.storage.run-output.days': {
     name: 'Delete agent chats',
     help: 'Only the chats go. The task, its comments and its brief stay. Counted from when the task is done or archived, or for a chat with no task, from when it ends.',

@@ -357,6 +357,7 @@ describe('which archived Tasks are due for deletion', () => {
   const archived = (days: number) =>
     ({ archived: { at: ago(days), ended: { kind: 'never-started' } } }) as Partial<Task>
   const ids = (tasks: readonly Task[]) => tasks.map((t) => t.id)
+  const roots = (due: readonly { root: Task }[]) => due.map((d) => d.root.id)
 
   test('only Tasks archived longer ago than the days are due; Done Tasks that aren’t archived stay', () => {
     const tasks = [
@@ -365,17 +366,15 @@ describe('which archived Tasks are due for deletion', () => {
       task('done', { stage: 'done' }),
       task('open'),
     ]
-    expect(ids(archivedDue(tasks, 30, now).due)).toEqual(['old'])
+    expect(roots(archivedDue(tasks, 30, now).due)).toEqual(['old'])
     expect(archivedDue(tasks, 30, now).kept).toEqual([])
-    expect(ids(archivedDue(tasks, 7, now).due)).toEqual(['old', 'recent'])
+    expect(roots(archivedDue(tasks, 7, now).due)).toEqual(['old', 'recent'])
   })
 
-  test('keeps a Task with Tasks under it, an open pull request, or a Task it blocks that isn’t archived', () => {
+  test('keeps a Task with an open pull request or a Task it blocks that isn’t archived', () => {
     const pr = (state: 'draft' | 'ready' | 'merged' | 'closed') =>
       [{ pullRequest: { state } }] as unknown as Task['repos']
     const tasks = [
-      task('parent', { ...archived(40), childIds: ['child'] }),
-      task('child', { ...archived(50), parentId: 'parent' } as Partial<Task>),
       task('draft', { ...archived(40), repos: pr('draft') }),
       task('ready', { ...archived(40), repos: pr('ready') }),
       task('closed', { ...archived(40), repos: pr('closed') }),
@@ -385,8 +384,37 @@ describe('which archived Tasks are due for deletion', () => {
       task('also-archived', { ...archived(1), blockedBy: ['blocks-archived'] }),
     ]
     const result = archivedDue(tasks, 30, now)
-    expect(ids(result.due)).toEqual(['child', 'closed', 'blocks-archived'])
-    expect(ids(result.kept)).toEqual(['parent', 'draft', 'ready', 'blocker'])
+    expect(roots(result.due)).toEqual(['closed', 'blocks-archived'])
+    expect(ids(result.kept)).toEqual(['draft', 'ready', 'blocker'])
+  })
+
+  test('an archived tree goes as one, only when every Task in it is due', () => {
+    const tree = (prefix: string, childDays: number, parent: Partial<Task> = archived(40)) => [
+      task(`${prefix}-parent`, { ...parent, childIds: [`${prefix}-child`] }),
+      task(`${prefix}-child`, {
+        ...archived(childDays),
+        parentId: `${prefix}-parent`,
+        childIds: [`${prefix}-grandchild`],
+      }),
+      task(`${prefix}-grandchild`, { ...archived(50), parentId: `${prefix}-child` }),
+    ]
+    const tasks = [
+      ...tree('due', 35),
+      ...tree('young', 10),
+      ...tree('open', 35, {}),
+      ...tree('done', 35, { stage: 'done' }),
+    ]
+    const result = archivedDue(tasks, 30, now)
+    expect(result.due.map((d) => [d.root.id, ids(d.tasks)])).toEqual([
+      ['due-parent', ['due-parent', 'due-child', 'due-grandchild']],
+      ['open-child', ['open-child', 'open-grandchild']],
+    ])
+    expect(ids(result.kept)).toEqual([
+      'young-parent',
+      'young-grandchild',
+      'done-child',
+      'done-grandchild',
+    ])
   })
 })
 
@@ -512,16 +540,31 @@ describe('Run output retention in the daemon', () => {
     expect(JSON.stringify(kept.body.items)).toContain('still here')
 
     await ok('POST', `/tasks/${open.id}/archive`, {})
+    const parent = await ok<Task>('POST', '/tasks', { title: 'Parent', factory: 'NB' })
+    const child = await ok<Task>('POST', '/tasks', { title: 'Child', factory: 'NB' })
+    await ok('PUT', `/tasks/${child.id}/parent`, {
+      parentId: parent.id,
+      revision: (await ok<{ revision: string }>('GET', `/tasks/${child.id}/hierarchy`)).revision,
+    })
+    await ok('POST', `/tasks/${parent.id}/archive`, {
+      children: 'archive',
+      hierarchyRevision: (
+        await ok<{ revision: string }>('GET', `/tasks/${parent.id}/hierarchy/preview`)
+      ).revision,
+    })
     expect(await ok('GET', '/archive-expiry?days=7')).toEqual({ due: 0, kept: 0 })
-    expect(await ok('GET', '/archive-expiry?days=5')).toEqual({ due: 1, kept: 0 })
+    expect(await ok('GET', '/archive-expiry?days=5')).toEqual({ due: 3, kept: 0 })
     expect((await client.call('GET', '/archive-expiry?days=0')).status).toBe(400)
     await ok('PATCH', '/settings', { deleteArchivedAfterDays: 7 })
     await new Promise((resolve) => setTimeout(resolve, 1000))
     expect((await ok<Task[]>('GET', '/tasks')).map((t) => t.id)).toContain(open.id)
     await ok('PATCH', '/settings', { deleteArchivedAfterDays: 5 })
     await waitUntil(
-      async () => (await ok<Task[]>('GET', '/tasks')).every((t) => t.id !== open.id) || undefined,
-      'the archived Task to be deleted',
+      async () =>
+        (await ok<Task[]>('GET', '/tasks')).every(
+          (t) => ![open.id, parent.id, child.id].includes(t.id),
+        ) || undefined,
+      'the archived Task and the archived parent with its child to be deleted',
     )
     expect((await task(done.id)).stage).toBe('done')
   })
