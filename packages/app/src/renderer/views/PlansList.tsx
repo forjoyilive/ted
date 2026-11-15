@@ -272,6 +272,7 @@ function RenameField({ plan, onDone }: { plan: Plan; onDone: () => void }) {
         ref={field}
         className={styles.renameInput}
         aria-label="Planning chat title"
+        data-arrows
         value={title}
         onChange={(event) => setTitle(event.target.value)}
         onKeyDown={(event) => {

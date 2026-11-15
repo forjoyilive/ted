@@ -648,6 +648,7 @@ function NewTaskForm({
           <input
             className={styles.title}
             aria-label="Title"
+            data-arrows
             placeholder="Title (optional). Blank uses the first line of the description."
             value={title}
             onChange={(event) => setTitle(event.target.value)}

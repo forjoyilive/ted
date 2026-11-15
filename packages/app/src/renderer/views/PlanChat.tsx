@@ -376,6 +376,7 @@ function TitleEditor({ plan, renameSignal }: { plan: Plan; renameSignal: number 
         ref={input}
         className={styles.titleInput}
         aria-label="Title"
+        data-arrows
         value={value}
         onChange={(event) => setValue(event.target.value)}
         onBlur={() => save()}

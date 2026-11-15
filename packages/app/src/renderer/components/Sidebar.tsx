@@ -99,6 +99,7 @@ function RenameRow({ factory, onDone }: { factory: Factory; onDone: () => void }
       <input
         className={styles.renameInput}
         aria-label={`Rename ${factory.name}`}
+        data-arrows
         value={name}
         maxLength={60}
         ref={field}

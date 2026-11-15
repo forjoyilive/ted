@@ -180,6 +180,7 @@ function Question({
                 type="text"
                 className={styles.note}
                 aria-label={`Add to answer ${number}`}
+                data-arrows
                 placeholder="Add to this answer…"
                 value={text}
                 onChange={(event) => write(event.target.value)}
