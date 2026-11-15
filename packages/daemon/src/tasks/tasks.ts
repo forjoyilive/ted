@@ -9490,13 +9490,19 @@ export function createTasks(options: {
     }
   }
 
-  inBackground('remove what closed Tasks left behind', async () => {
-    const swept = await sweepLeftovers({ home: path.dirname(worktreesDir), hold: holdLeftBehind })
-    if (swept.tasks.length > 0)
-      console.log(
-        `ended ${swept.processes} processes and removed ${swept.folders} folders left by ${swept.tasks.join(', ')}`,
-      )
-  })
+  // No idle hold: close() waits for this sweep anyway, and lsof can take seconds,
+  // which kept a daemon started on a test clock from ever scheduling its idle exit.
+  inBackground(
+    'remove what closed Tasks left behind',
+    async () => {
+      const swept = await sweepLeftovers({ home: path.dirname(worktreesDir), hold: holdLeftBehind })
+      if (swept.tasks.length > 0)
+        console.log(
+          `ended ${swept.processes} processes and removed ${swept.folders} folders left by ${swept.tasks.join(', ')}`,
+        )
+    },
+    false,
+  )
 
   for (const task of store.listTasks()) {
     if (task.archived || task.leadRunId === undefined) continue
