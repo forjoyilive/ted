@@ -23,3 +23,7 @@ The first step, when someone takes this on, is to put the per-Task in-flight sta
 
 - Parallel tickets will keep conflicting in `tasks.ts`; resolve them by area.
 - Code with no closure dependencies (the text helpers at the end of the file) can move out at any time; it is about 250 lines, so it was not worth a pass on its own.
+
+## First step done (TED-350)
+
+`packages/daemon/src/tasks/in-flight.ts` now holds the per-Task in-flight state: the one-transition lock (`advancing` and `released`, now `transition`, `transitionWhenFree` and `untilFree`), counted holds, and the `starting`, `checking`, `deleting`, `hierarchy`, `stoppingForBlockers` and `merging` marks. `tasks.ts` asks it with `is`, `busy` and `inHierarchyWork`, and passes the side effects of a release (queue activity, pending talks, the pump) as callbacks. Each busy check kept its exact kinds. Other per-Task sets (`stoppingByHand`, `beginning`, `relaunching`, `settingUp`) are still in the closure and can join it when an area that reads them moves out.
