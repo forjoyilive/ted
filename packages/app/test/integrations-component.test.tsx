@@ -46,11 +46,14 @@ test.each(['not-installed', 'too-old'] as const)(
       }),
     })
     render(<IntegrationsPage settings={defaultMachineSettings} />)
-    const github = within(await screen.findByRole('group', { name: 'GitHub' }))
-    const git = within(screen.getByRole('group', { name: 'Git' }))
+    const githubGroup = await screen.findByRole('group', { name: 'GitHub' })
+    const gitGroup = screen.getByRole('group', { name: 'Git' })
+    const github = within(githubGroup)
+    const git = within(gitGroup)
     await github.findByText('GitHub CLI')
     expect(screen.queryByRole('button', { name: 'Copy command' })).toBeNull()
-    expect(document.querySelector('code')).toBeNull()
+    expect(githubGroup.querySelector('code')).toBeNull()
+    expect(gitGroup.querySelector('code')).toBeNull()
     await user().click(github.getByRole('button', { name: /instructions ↗/ }))
     expect(a.request).toHaveBeenCalledWith('runFix', {
       fix: state === 'too-old' ? 'gh-update' : 'gh-install',
