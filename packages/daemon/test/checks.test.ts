@@ -332,11 +332,7 @@ describe('Checks killed for lack of memory', () => {
     await client.ok('PATCH', '/settings', { waitWhenBusy: false })
     const task = await startTask(
       client,
-      steps(
-        { everyMessage: [{ endTurn: true }] },
-        { run: ['sh', '-c', 'echo x > a.txt'] },
-        advance,
-      ),
+      steps({ everyMessage: [{ run: ['sh', '-c', 'echo x > a.txt'] }, advance] }, advance),
     )
     const counter = await worktreeFile(client, task, 'stub-n')
     const started = (n: number) =>
@@ -389,16 +385,14 @@ describe('Checks killed for lack of memory', () => {
       action: 'answer',
       choice: 'Count it as failed',
     })
-    const [finished] = await finishedRuns(client, task, 1)
-    expect(finished).toMatchObject({ trigger: 'hand-off', outcome: 'failed' })
-    expect(states(finished)).toEqual([['Tests', 'failed']])
-    await waitUntil(
-      async () =>
-        (await leadMessages(client, task)).some((m) => m.startsWith('# A Check failed')) ||
-        undefined,
-      'the Task Lead to hear the Check failed',
+    const [failed, passed] = await finishedRuns(client, task, 2)
+    expect(failed).toMatchObject({ trigger: 'hand-off', outcome: 'failed' })
+    expect(states(failed)).toEqual([['Tests', 'failed']])
+    expect(passed).toMatchObject({ trigger: 'hand-off', outcome: 'passed' })
+    expect((await leadMessages(client, task)).some((m) => m.startsWith('# A Check failed'))).toBe(
+      true,
     )
-    expect((await getTask(client, task.id))?.stage).toBe('work')
+    expect(await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)).toEqual([])
     expect(await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)).toEqual([])
   }, 120_000)
 })

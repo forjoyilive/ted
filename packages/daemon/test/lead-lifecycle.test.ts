@@ -833,6 +833,7 @@ test('a Task Lead killed for lack of memory names memory, resumes once memory fr
   free(true)
   await Promise.all(work)
   expect(lifecycle.reviveCandidates()).toMatchObject([{ taskId }])
+  advance(1)
   await lifecycle.beginRevive(taskId)
   advance(1)
   finishLead()
