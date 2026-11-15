@@ -148,24 +148,30 @@ test('pasted app credentials reach the daemon; browser authorization, identity, 
     { gid: '9', name: 'Roadmap', workspace: '1', sections: [{ gid: '91', name: 'Now' }] },
     { gid: '8', name: 'Other', workspace: '1' },
   ])
-  const nav = sidebar(window)
-  const factorySettings = nav.getByRole('button', { name: 'Settings', exact: true }).first()
-  if ((await factorySettings.count()) === 0)
-    await nav.getByRole('button', { name: 'widgets' }).click()
-  await factorySettings.click()
+  const factoryRow = sidebar(window).getByRole('article', { name: 'widgets', exact: true })
+  if (
+    (await factoryRow.getByRole('button', { name: 'Views' }).getAttribute('aria-expanded')) !==
+    'true'
+  )
+    await factoryRow.getByRole('button', { name: 'widgets', exact: true }).click()
+  await factoryRow.locator('..').getByRole('button', { name: 'Settings', exact: true }).click()
   await window
     .getByRole('navigation', { name: 'Factory settings' })
-    .getByRole('button', { name: 'Asana intake' })
+    .getByRole('button', { name: 'Intake', exact: true })
     .click()
-  const intake = window.getByRole('region', { name: 'Asana intake', exact: true })
+  const intake = window
+    .getByRole('region', { name: 'Intake', exact: true })
+    .getByRole('region', { name: 'Asana', exact: true })
+  const saveIntake = intake.getByRole('button', { name: 'Save', exact: true })
   await intake.getByRole('switch', { name: 'Import Asana work into this Factory' }).click()
   await intake.getByRole('button', { name: 'Load more workspaces' }).click()
   await intake.getByLabel('Workspace').selectOption('1')
   await intake.getByRole('button', { name: 'Load more projects' }).click()
   await intake.getByLabel('Project').selectOption('8')
   await intake.getByText('No sections found.').waitFor()
-  await intake.getByRole('button', { name: 'Save', exact: true }).click()
-  await intake.getByText('Saved: Other · Acme').waitFor()
+  await intake.getByText('Saved: Off').waitFor()
+  await saveIntake.click()
+  await saveIntake.waitFor({ state: 'detached' })
   const client = await daemonClient()
   expect((await client.getSettings()).asanaIntakeScopes[root?.factoryId ?? '']).toEqual({
     workspace: { gid: '1', name: 'Acme' },
@@ -173,8 +179,9 @@ test('pasted app credentials reach the daemon; browser authorization, identity, 
   })
   await intake.getByLabel('Project').selectOption('9')
   await intake.getByLabel('Section (optional)').selectOption('91')
-  await intake.getByRole('button', { name: 'Save', exact: true }).click()
-  await intake.getByText('Saved: Roadmap › Now · Acme').waitFor()
+  await intake.getByText('Saved: Other · Acme').waitFor()
+  await saveIntake.click()
+  await saveIntake.waitFor({ state: 'detached' })
   expect((await client.getSettings()).asanaIntakeScopes[root?.factoryId ?? '']).toEqual({
     workspace: { gid: '1', name: 'Acme' },
     project: { gid: '9', name: 'Roadmap' },
@@ -236,7 +243,7 @@ test('pasted app credentials reach the daemon; browser authorization, identity, 
 
 test('setup steps link the console and copy the redirect URL; a bad client ID is refused; file storage without a keyring, also when replacing; Replace app cancels; cancel closes the callback', async () => {
   const { window, group } = await settings()
-  expect(await group.locator('details').getAttribute('open')).not.toBeNull()
+  await expect.poll(() => group.locator('details').getAttribute('open')).not.toBeNull()
   expect(await group.locator('ol code').allTextContents()).toEqual([
     `http://127.0.0.1:${ctx.extraEnv?.TED_ASANA_CALLBACK_PORT}/asana/callback`,
     'attachments:read',
