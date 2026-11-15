@@ -503,6 +503,11 @@ test(
       )
       const request = await ask(client, task, failure)
       expect((await resolve(client, task, failure, request, 'accepted')).status).toBe(200)
+      await waitUntil(
+        async () => (await runs(client, task)).at(-1)?.outcome === 'passed',
+        'the remaining Checks to pass',
+      )
+      await waitUntil(async () => (await merges()).length === 2, 'both pull requests to merge')
       await waitForStage(client, task, 'done')
       expect((await merges()).map((args) => args[args.indexOf('--repo') + 1])).toEqual([
         'acme/widgets',

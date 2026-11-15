@@ -93,3 +93,22 @@ test('the start-up sweep removes only under plain roots, skips held Tasks and li
   expect((await stat(path.join(home, 'worktrees', 'NB-2'))).isDirectory()).toBe(true)
   expect((await stat(path.join(outside, 'NB-99'))).isDirectory()).toBe(true)
 })
+
+test('a start-up sweep stopped while it lists processes removes nothing', async () => {
+  const home = path.join(dir, 'home')
+  await mkdir(path.join(home, 'worktrees', 'NB-99', 'widgets'), { recursive: true })
+  const stop = new AbortController()
+
+  const swept = await sweepLeftovers({
+    home,
+    signal: stop.signal,
+    list: async () => {
+      stop.abort()
+      return []
+    },
+    hold: (_name, work) => work(),
+  })
+
+  expect(swept).toEqual({ tasks: [], processes: 0, folders: 0 })
+  expect((await stat(path.join(home, 'worktrees', 'NB-99'))).isDirectory()).toBe(true)
+})

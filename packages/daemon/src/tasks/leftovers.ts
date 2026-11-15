@@ -42,7 +42,9 @@ export async function sweepLeftovers(options: {
   hold: (displayId: string, work: () => Promise<void>) => Promise<void>
   list?: () => Promise<ProcessPath[]>
   graceMs?: number
+  signal?: AbortSignal
 }): Promise<SweepResult> {
+  const { signal } = options
   const list = options.list ?? processPaths
   const roots: { real: string }[] = []
   const names = new Set<string>()
@@ -54,10 +56,14 @@ export async function sweepLeftovers(options: {
       if (taskName.test(name)) names.add(name)
     }
   }
-  const running = await list().catch((error: unknown) => {
-    console.error('couldn’t list processes left in Task folders:', error)
-    return []
-  })
+  const result: SweepResult = { tasks: [], processes: 0, folders: 0 }
+  const running = await (options.list ? options.list() : processPaths(signal)).catch(
+    (error: unknown) => {
+      if (!signal?.aborted) console.error('couldn’t list processes left in Task folders:', error)
+      return []
+    },
+  )
+  if (signal?.aborted) return result
   const withProcesses = new Set<string>()
   for (const { path: file } of running) {
     for (const { real } of roots) {
@@ -69,8 +75,8 @@ export async function sweepLeftovers(options: {
       }
     }
   }
-  const result: SweepResult = { tasks: [], processes: 0, folders: 0 }
   for (const name of [...names].sort()) {
+    if (signal?.aborted) break
     await options.hold(name, async () => {
       result.tasks.push(name)
       if (withProcesses.has(name))

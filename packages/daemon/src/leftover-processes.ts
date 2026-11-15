@@ -88,18 +88,18 @@ function alive(pid: number): boolean {
   }
 }
 
-export function processPaths(): Promise<ProcessPath[]> {
-  return process.platform === 'linux' ? pathsOnLinux() : pathsFromLsof()
+export function processPaths(signal?: AbortSignal): Promise<ProcessPath[]> {
+  return process.platform === 'linux' ? pathsOnLinux(signal) : pathsFromLsof(signal)
 }
 
 // lsof exits 1 when it finds nothing to list; any other failure is an error.
-async function pathsFromLsof(): Promise<ProcessPath[]> {
+async function pathsFromLsof(signal?: AbortSignal): Promise<ProcessPath[]> {
   const uid = process.getuid?.()
   const args = ['-n', '-P', '-w', '-a', ...(uid !== undefined ? ['-u', String(uid)] : [])]
   const { stdout } = await promisify(execFile)(
     '/usr/sbin/lsof',
     [...args, '-d', 'cwd,txt', '-Fpn'],
-    { maxBuffer: 64 * 1024 * 1024 },
+    { maxBuffer: 64 * 1024 * 1024, ...(signal && { signal }) },
   ).catch((error: { code?: unknown; stdout?: string }) => {
     if (error.code !== 1) throw error
     return { stdout: error.stdout ?? '' }
@@ -121,10 +121,11 @@ export function parseLsof(output: string): ProcessPath[] {
   return found
 }
 
-async function pathsOnLinux(): Promise<ProcessPath[]> {
+async function pathsOnLinux(signal?: AbortSignal): Promise<ProcessPath[]> {
   const pids = (await readdir('/proc').catch(() => [])).filter((name) => /^\d+$/.test(name))
   const found: ProcessPath[] = []
   for (const name of pids) {
+    signal?.throwIfAborted()
     for (const link of ['cwd', 'exe']) {
       const target = await readlink(`/proc/${name}/${link}`).catch(() => undefined)
       if (target?.startsWith('/'))
