@@ -67,11 +67,17 @@ function setup(
 
 const select = (label: string) => screen.getByLabelText(label) as HTMLSelectElement
 const saveButton = () => screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement
+const toggle = () => screen.getByRole('switch', { name: 'Import Asana work into this Factory' })
+const settled = async () =>
+  waitFor(() => expect(screen.queryByRole('button', { name: 'Save' })).toBeNull())
 
 test('pages through long lists and saves a project without, then with, a section', async () => {
   const { save } = setup(undefined)
-  await screen.findByText('Saved: Off')
-  await user().click(screen.getByRole('switch', { name: 'Import Asana work into this Factory' }))
+  await screen.findByRole('switch', { name: 'Import Asana work into this Factory' })
+  expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+  expect(screen.queryByText(/^Saved:/)).toBeNull()
+  await user().click(toggle())
+  expect(screen.getByText('Saved: Off')).toBeTruthy()
   await screen.findByText('Showing 2 workspaces.')
   expect(within(select('Workspace')).queryByText('Acme')).toBeNull()
   await user().click(screen.getByRole('button', { name: 'Load more workspaces' }))
@@ -86,18 +92,21 @@ test('pages through long lists and saves a project without, then with, a section
   await waitFor(() => expect(within(select('Section (optional)')).getByText('Later')).toBeTruthy())
   expect(select('Section (optional)').value).toBe('')
   await user().click(saveButton())
-  await screen.findByText('Saved: Roadmap · Acme')
+  await settled()
   expect(save).toHaveBeenLastCalledWith('f', { workspace: acme, project: roadmap })
 
   await user().selectOptions(await screen.findByLabelText('Section (optional)'), '91')
+  expect(screen.getByText('Saved: Roadmap · Acme')).toBeTruthy()
   await user().click(saveButton())
-  await screen.findByText('Saved: Roadmap › Now · Acme')
+  await settled()
   expect(save).toHaveBeenLastCalledWith('f', saved)
 
-  await user().click(screen.getByRole('switch', { name: 'Import Asana work into this Factory' }))
+  await user().click(toggle())
+  expect(screen.getByText('Saved: Roadmap › Now · Acme')).toBeTruthy()
   await user().click(saveButton())
-  await screen.findByText('Saved: Off')
+  await settled()
   expect(save).toHaveBeenLastCalledWith('f', null)
+  expect(toggle().getAttribute('aria-checked')).toBe('false')
 })
 
 test('a failed read keeps the saved values, and a failed save leaves them as they were', async () => {
@@ -116,8 +125,7 @@ test('a failed read keeps the saved values, and a failed save leaves them as the
   expect(select('Workspace').disabled).toBe(true)
   expect(within(select('Project')).getByText('Roadmap (saved)')).toBeTruthy()
   expect(within(select('Section (optional)')).getByText('Now (saved)')).toBeTruthy()
-  expect(saveButton().disabled).toBe(true)
-  expect(screen.getByText('Saved: Roadmap › Now · Acme')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
 
   handle('checkFactoryAsanaIntake', () => ({ state: 'current', scope: saved }))
   handle('listAsanaWorkspaces', paged([acme], 100))
@@ -149,7 +157,7 @@ test('a stale saved project shows as stale and can’t be saved again as it is',
     expect(within(select('Project')).getByText('Roadmap (saved; no longer in Asana)')).toBeTruthy(),
   )
   expect(screen.queryByLabelText('Section (optional)')).toBeNull()
-  expect(saveButton().disabled).toBe(true)
+  expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
   expect(request.mock.calls.some(([name]) => name === 'listAsanaSections')).toBe(false)
   expect(screen.queryByText(/Couldn’t read Asana/)).toBeNull()
   await user().selectOptions(select('Project'), '8')
@@ -273,7 +281,7 @@ test('when the saved choice changes, the lists wait for its own check', async ()
       asanaIntakeScopes: { f: { workspace: acme, project: other } },
     },
   })
-  await screen.findByText('Saved: Other · Acme')
+  await waitFor(() => expect(select('Project').value).toBe('8'))
   await new Promise((resolve) => setTimeout(resolve, 0))
   const sectionsOf = (gid: string) =>
     request.mock.calls.some(([name, project]) => name === 'listAsanaSections' && project === gid)

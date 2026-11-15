@@ -43,36 +43,40 @@ function setup(
   return { ...api, save }
 }
 
+const field = (label: string) => screen.getByLabelText(label) as HTMLSelectElement
+
 test('saves only a complete selection and restores it through settings events', async () => {
   const { save } = setup()
-  await screen.findByText('Saved scope: Unscoped')
-  await waitFor(() => expect(screen.queryByText('Loading Linear Teams and Projects…')).toBeNull())
-  fireEvent.change(screen.getByLabelText('Scope'), { target: { value: 'project' } })
+  await waitFor(() => expect(field('Scope').value).toBe('none'))
+  fireEvent.change(field('Scope'), { target: { value: 'project' } })
   expect(save).not.toHaveBeenCalled()
-  await user().selectOptions(screen.getByLabelText('Project'), 'project-one')
-  await screen.findByText('Saved scope: Project: Product · acme')
-  expect(save).toHaveBeenCalledWith('f', {
-    kind: 'project',
-    id: 'project-one',
-    name: 'Product',
-    workspaceId: 'workspace-acme',
-    workspace: 'acme',
-  })
-  await user().selectOptions(screen.getByLabelText('Scope'), 'none')
-  await screen.findByText('Saved scope: Unscoped')
-  expect(save).toHaveBeenLastCalledWith('f', null)
+  await user().selectOptions(field('Project'), 'project-one')
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith('f', {
+      kind: 'project',
+      id: 'project-one',
+      name: 'Product',
+      workspaceId: 'workspace-acme',
+      workspace: 'acme',
+    }),
+  )
+  await waitFor(() => expect(field('Project').value).toBe('project-one'))
+  await user().selectOptions(field('Scope'), 'none')
+  await waitFor(() => expect(save).toHaveBeenLastCalledWith('f', null))
+  await waitFor(() => expect(field('Scope').value).toBe('none'))
+  expect(screen.queryByLabelText('Project')).toBeNull()
 })
 
-test('keeps a saved scope during loading and permits clearing it without a key', async () => {
+test('while loading and without a key, shows only the connect line with the saved scope', async () => {
   const pending = deferred<{ state: string }>()
-  const { save } = setup(scope, { getLinear: () => pending.promise })
-  await screen.findByText('Saved scope: Team: One · acme')
-  expect((screen.getByLabelText('Team') as HTMLSelectElement).disabled).toBe(true)
+  setup(scope, { getLinear: () => pending.promise })
+  await screen.findByText('Loading Linear Teams and Projects…')
+  expect(screen.queryByLabelText('Scope')).toBeNull()
   pending.resolve({ state: 'no-key' })
-  await screen.findByText(/Connect Linear in App Settings/)
-  await user().selectOptions(screen.getByLabelText('Scope'), 'none')
-  await screen.findByText('Saved scope: Unscoped')
-  expect(save).toHaveBeenCalledWith('f', null)
+  await screen.findByText(
+    'Connect Linear in App Settings → Integrations to choose a Team or Project. The saved scope (Team: One · acme) stays in effect.',
+  )
+  expect(screen.queryByLabelText('Scope')).toBeNull()
 })
 
 test('shows a retained inaccessible target, empty choices, and retry after a connection failure', async () => {
@@ -86,7 +90,7 @@ test('shows a retained inaccessible target, empty choices, and retry after a con
   handle('getLinearIntakeChoices', () => ({ ...choices, teams: [] }))
   await user().click(screen.getByRole('button', { name: 'Try again' }))
   await screen.findByText('No accessible Teams found.')
-  expect(screen.getByText('Saved scope: Team: One · acme')).toBeTruthy()
+  expect(field('Team').value).toBe('saved-unavailable')
 })
 
 test('a failed save keeps the persisted scope and allows retrying Unscoped', async () => {
@@ -95,13 +99,13 @@ test('a failed save keeps the persisted scope and allows retrying Unscoped', asy
       throw new Error('Save unavailable')
     },
   })
-  await screen.findByText('Saved scope: Team: One · acme')
-  await user().selectOptions(screen.getByLabelText('Scope'), 'none')
+  await waitFor(() => expect(field('Team').value).toBe('team-one'))
+  await user().selectOptions(field('Scope'), 'none')
   await screen.findByRole('alert')
-  expect((screen.getByLabelText('Scope') as HTMLSelectElement).value).toBe('team')
-  expect(screen.getByText('Saved scope: Team: One · acme')).toBeTruthy()
+  expect(field('Scope').value).toBe('team')
+  expect(field('Team').value).toBe('team-one')
   const again = vi.fn(() => defaultMachineSettings)
   handle('setFactoryLinearIntake', again)
-  await user().selectOptions(screen.getByLabelText('Scope'), 'none')
+  await user().selectOptions(field('Scope'), 'none')
   await waitFor(() => expect(again).toHaveBeenCalledWith('f', null))
 })
