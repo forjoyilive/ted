@@ -1,4 +1,5 @@
-import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -14,6 +15,7 @@ import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
   api,
   commitToOrigin,
+  hostsStarted,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
@@ -94,6 +96,34 @@ const cleared = (client: Client, task: Task) =>
 const threadTexts = async (client: Client, task: Task) =>
   (await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)).map((e) => e.text)
 
+const alive = (pid: number) => {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+const detachedSleep = (pidFile: string) => ({
+  run: [
+    process.execPath,
+    '-e',
+    `const c = require('node:child_process').spawn('sleep', ['300'], { detached: true, stdio: 'ignore' }); c.unref(); require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(c.pid))`,
+  ],
+})
+
+const sleepIn = (cwd: string) => {
+  const child = spawn('sleep', ['300'], {
+    cwd,
+    detached: true,
+    stdio: 'ignore',
+    env: { ...process.env },
+  })
+  child.unref()
+  return child.pid ?? 0
+}
+
 const commitFile = (name: string) => ({
   run: [
     'sh',
@@ -165,9 +195,36 @@ describe('unarchive', () => {
   test('a Done Task goes back to Done with no Run and no worktree', async () => {
     const client = await startTed()
     const gate = path.join(scratch, 'gate')
-    const task = await create(client, doneWhen(gate), { start: true })
+    const pidFile = path.join(scratch, 'sleep.pid')
+    const task = await create(
+      client,
+      steps(
+        detachedSleep(pidFile),
+        { waitFor: gate },
+        { everyMessage: [{ run: advance }] },
+        { run: advance },
+      ),
+      { start: true },
+    )
+    const pid = Number(
+      await waitUntil(
+        () => readFile(pidFile, 'utf8').catch(() => undefined),
+        'the detached process',
+      ),
+    )
+    expect(alive(pid)).toBe(true)
     await writeFile(gate, '')
     await waitFor(client, task, (t) => t.stage === 'done', 'to reach Done')
+    const folder = path.join(home, 'worktrees', task.displayId)
+    await waitUntil(
+      () =>
+        stat(folder).then(
+          () => false,
+          () => true,
+        ),
+      'the worktree folder to go',
+    )
+    expect(alive(pid)).toBe(false)
     await client.ok('POST', `/tasks/${task.id}/archive`)
 
     const back = await client.ok<Task>('POST', `/tasks/${task.id}/unarchive`)
@@ -178,6 +235,58 @@ describe('unarchive', () => {
     expect(later.runs).toEqual([])
     expect(later.repos.every((r) => r.removed)).toBe(true)
     expect(later.statuses).toEqual([])
+    await expect(stat(folder)).rejects.toThrow()
+  })
+})
+
+describe('at start', () => {
+  test('ends processes and removes folders left by closed Tasks, and leaves an open Task alone', async () => {
+    const client = await startTed()
+    const gate = path.join(scratch, 'gate')
+    const done = await create(client, doneWhen(gate), { start: true })
+    await writeFile(gate, '')
+    await waitFor(client, done, (t) => t.stage === 'done', 'to reach Done')
+    await cleared(client, done)
+    const open = await create(client, never(), { start: true })
+    await waitFor(client, open, (t) => t.leadRunId !== undefined, 'to start')
+    const openFolder = path.join(home, 'worktrees', open.displayId, 'widgets')
+    await waitUntil(
+      () =>
+        stat(openFolder).then(
+          () => true,
+          () => false,
+        ),
+      'the open worktree',
+    )
+    await hostsStarted(home)
+    await daemon?.stop()
+    daemon = undefined
+
+    const doneFolder = path.join(home, 'worktrees', done.displayId, 'widgets', 'node_modules')
+    const goneTask = path.join(home, 'sandbox', 'NB-99', 'tmp')
+    await mkdir(doneFolder, { recursive: true })
+    await mkdir(goneTask, { recursive: true })
+    const leftover = [sleepIn(doneFolder), sleepIn(goneTask)]
+    const kept = sleepIn(openFolder)
+
+    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+    for (const pid of leftover) await waitUntil(() => !alive(pid), `process ${pid} to end`)
+    for (const folder of [
+      path.join(home, 'worktrees', done.displayId),
+      path.join(home, 'sandbox', 'NB-99'),
+    ]) {
+      await waitUntil(
+        () =>
+          stat(folder).then(
+            () => false,
+            () => true,
+          ),
+        `${folder} to go`,
+      )
+    }
+    expect(alive(kept)).toBe(true)
+    expect((await stat(openFolder)).isDirectory()).toBe(true)
+    process.kill(kept, 'SIGKILL')
   })
 })
 

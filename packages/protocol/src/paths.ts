@@ -20,6 +20,7 @@ export function tedPaths(home: string) {
     runTokenKey: path.join(home, 'run-token.key'),
     repos: path.join(home, 'repos'),
     worktrees: path.join(home, 'worktrees'),
+    sandbox: path.join(home, 'sandbox'),
     library: path.join(home, 'library'),
     backups: path.join(home, 'backups'),
     attachments: path.join(home, 'attachments'),
