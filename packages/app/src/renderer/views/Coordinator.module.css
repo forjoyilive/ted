@@ -3,7 +3,7 @@
 .header p { color: var(--text-tertiary); font-size: var(--text-12); margin: 10px 0 0; }
 .titleRow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .meta { color: var(--text-tertiary); font-size: var(--text-12); }
-.intro { flex: 1; padding: 28px 22px; }
+.intro { box-sizing: border-box; flex: 1; width: 100%; max-width: calc(var(--chat-column) + 44px); margin-inline: auto; padding: 28px 22px; }
 .intro h2 { font-size: var(--text-15); font-weight: var(--weight-medium); }
 .intro p { max-width: 600px; }
 .muted { color: var(--text-tertiary); font-size: var(--text-12); line-height: var(--leading-body); }

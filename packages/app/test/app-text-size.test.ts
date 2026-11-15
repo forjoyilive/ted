@@ -127,6 +127,31 @@ test('large app text fits settings controls, Task lists, details and a new Task 
   await window.screenshot({ path: path.join(captures, 'settings-200-narrow-dark.png') })
 })
 
+type Rect = { left: number; width: number }
+const center = (rect: Rect) => rect.left + rect.width / 2
+
+function chatLayout(el: Element) {
+  const rect = (node: Element | null | undefined) => {
+    const r = node?.getBoundingClientRect()
+    return { left: r?.left ?? Number.NaN, width: r?.width ?? Number.NaN }
+  }
+  const row = el.closest('[data-chat-item]')
+  const list = row?.parentElement
+  const style = list ? getComputedStyle(list) : undefined
+  const padding = style ? Number.parseFloat(style.paddingLeft) : 0
+  const listRect = rect(list)
+  return {
+    list: { left: listRect.left + padding, width: (list?.clientWidth ?? 0) - 2 * padding },
+    row: rect(row),
+    wide: rect(row?.querySelector('[data-chat-wide]')),
+    composer: rect(
+      [...(list?.parentElement?.querySelectorAll('fieldset') ?? [])].find(
+        (box) => !list?.contains(box),
+      ),
+    ),
+  }
+}
+
 test('Run chat and a thread Comment use the text scale', async () => {
   const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
   await addFactory(origin, 'NB')
@@ -136,13 +161,41 @@ test('Run chat and a thread Comment use the text scale', async () => {
   const window = await launchApp()
   const client = await daemonClient()
   await client.updateSettings({ textSize: 200 })
-  await client.postComment('NB-1', 'A readable Comment in the Task thread.')
+  const image = await client.uploadAttachment(
+    { name: 'screen.svg', mediaType: 'image/svg+xml' },
+    Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900"><rect width="100%" height="100%" fill="steelblue"/></svg>',
+    ),
+  )
+  await client.postComment('NB-1', {
+    body: 'A readable Comment in the Task thread.',
+    attachments: [{ hash: image.hash, name: image.name, mediaType: image.mediaType }],
+  })
+  await ctx.app?.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0]?.setSize(1800, 1000),
+  )
   await openAllTasks(window)
   await taskRow(window, 'NB-1').click()
   const thread = window.getByRole('region', { name: 'Task thread' })
   const comment = thread.getByText('A readable Comment in the Task thread.', { exact: true })
   await comment.waitFor()
   expect(await comment.evaluate((el) => getComputedStyle(el).fontSize)).toBe('30.8px')
+  const large = await comment.evaluate(chatLayout)
+  expect(large.list.width).toBeLessThan(1300)
+  expect(large.row.width).toBeCloseTo(large.list.width, 0)
+  expect(large.wide.width).toBeCloseTo(large.list.width, 0)
+  await client.updateSettings({ textSize: 100 })
+  await expect.poll(async () => (await comment.evaluate(chatLayout)).row.width).toBe(650)
+  const normal = await comment.evaluate(chatLayout)
+  expect(normal.list.width).toBeGreaterThan(800)
+  expect(center(normal.row)).toBeCloseTo(center(normal.list), 0)
+  expect(normal.composer.width).toBeCloseTo(650, 0)
+  expect(normal.composer.left).toBeCloseTo(normal.row.left, 0)
+  expect(normal.wide.width).toBeCloseTo(Math.min(1200, normal.list.width), 0)
+  expect(center(normal.wide)).toBeCloseTo(center(normal.list), 0)
+  await mkdir(captures, { recursive: true })
+  await window.screenshot({ path: path.join(captures, 'thread-100-wide.png') })
+  await client.updateSettings({ textSize: 200 })
   await expect.poll(async () => (await client.listTaskRuns('NB-1')).length).toBeGreaterThan(0)
   const run = (await client.listTaskRuns('NB-1'))[0]
   if (!run) throw new Error('no Task Lead Run')
@@ -158,4 +211,7 @@ test('Run chat and a thread Comment use the text scale', async () => {
       chat.getByText(message, { exact: true }).evaluate((el) => getComputedStyle(el).fontSize),
     )
     .toBe('15.4px')
+  const runChat = await chat.getByText(message, { exact: true }).evaluate(chatLayout)
+  expect(runChat.row.width).toBeCloseTo(650, 0)
+  expect(center(runChat.row)).toBeCloseTo(center(runChat.list), 0)
 })

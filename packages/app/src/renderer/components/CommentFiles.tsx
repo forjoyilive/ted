@@ -128,6 +128,7 @@ function ImageRow({ images, children }: { images: string; children: ReactNode })
     <div
       ref={row}
       className={styles.images}
+      data-chat-wide
       data-more-before={more.before || undefined}
       data-more-after={more.after || undefined}
     >
@@ -146,7 +147,7 @@ export function decode(data: string): string {
 function HtmlFile({ attachment }: { attachment: Attachment }) {
   const { data, error } = useBytes(attachment)
   return (
-    <section className={styles.frame} aria-label={attachment.name}>
+    <section className={styles.frame} aria-label={attachment.name} data-chat-wide>
       <header className={styles.frameHead}>
         <span className={styles.frameName}>{attachment.name}</span>
         <span className={styles.meta}>HTML · sandboxed</span>

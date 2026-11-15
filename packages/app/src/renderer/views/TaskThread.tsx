@@ -33,6 +33,7 @@ import { AgentAvatar, PersonAvatar } from '../components/Avatar.tsx'
 import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
 import { ChangesSection } from '../components/ChangesSection.tsx'
+import column from '../components/ChatColumn.module.css'
 import { CheckOutputDialog } from '../components/CheckOutputDialog.tsx'
 import { ChecksRow } from '../components/ChecksRow.tsx'
 import { CommentBox } from '../components/CommentBox.tsx'
@@ -1078,7 +1079,7 @@ export function TaskThread({
                   : []),
               ]}
               footer={(chat) => (
-                <div className={styles.threadComposer}>
+                <div className={`${styles.threadComposer} ${column.composer}`}>
                   <UnsentChip
                     drafts={(lines?.current ?? []).filter(isDraft)}
                     onOpen={(c) => lines?.onOpen(c)}

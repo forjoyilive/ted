@@ -14,6 +14,7 @@ import { type ToolGroup, toolGroupSummary, toolGroups } from '../tool-groups.ts'
 import { ActionButton } from './ActionButton.tsx'
 import { AgentAvatar, PersonAvatar } from './Avatar.tsx'
 import { Button } from './Button.tsx'
+import column from './ChatColumn.module.css'
 import { EventLine } from './EventLine.tsx'
 import { Help } from './Help.tsx'
 import { ChevronIcon, ClockIcon, StopIcon } from './icons.tsx'
@@ -159,7 +160,7 @@ const numbered = <T,>(value: T, n: number) => ({ ...value, n })
 export function Diff({ diff, showPath }: { diff: ChatDiff; showPath: boolean }) {
   const marks = { context: ' ', added: '+', removed: '-' } as const
   return (
-    <div className={styles.diff}>
+    <div className={styles.diff} data-chat-wide-row>
       {showPath && <div className={styles.diffPath}>{diff.path}</div>}
       {diff.lines.map(numbered).map(({ n, ...line }) => (
         <div key={n} className={`${styles.diffLine} ${styles[line.kind]}`}>
@@ -661,7 +662,7 @@ export function Composer({
   }
 
   return (
-    <div className={styles.composer}>
+    <div className={`${styles.composer} ${column.composer}`}>
       {!live && endedNote && <p className={styles.endedNote}>{endedNote}</p>}
       <textarea
         className={`${styles.box} ${grow.text}`}
@@ -868,7 +869,7 @@ export function ChatBody({
         reveal={options.matchItemId ?? requestReveal}
         count={rows.length}
         grows={lastText}
-        className={styles.items}
+        className={`${styles.items} ${column.list}`}
       >
         <ChatTimeline chat={chat} options={options} />
       </ScrollMemory>

@@ -193,6 +193,8 @@
   --sidebar-width: 210px;
   --list-pane-width: 330px;
   --details-pane-width: 320px;
+  --chat-column: calc(650px * var(--text-scale));
+  --chat-wide: calc(1200px * var(--text-scale));
   --changes-index-width: 260px;
   --settings-column-width: 720px;
 

@@ -107,7 +107,7 @@ function Prototype({ file }: { file: DesignFile }) {
   const [loads, setLoads] = useState(0)
   const [full, setFull] = useState(false)
   return (
-    <section className={styles.prototype} aria-label="Prototype">
+    <section className={styles.prototype} aria-label="Prototype" data-chat-wide-row>
       <header className={styles.prototypeHead}>
         <span className={styles.prototypeLabel}>Prototype</span>
         <span className={styles.meta}>{`${file.name} · interactive · sandboxed`}</span>

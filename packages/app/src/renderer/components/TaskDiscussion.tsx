@@ -3,6 +3,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { clockTime } from '../requests.ts'
 import { conversationInStage } from '../task-conversations.ts'
 import { formatDate } from '../time.ts'
+import column from './ChatColumn.module.css'
 import { LoadingError, Skeleton } from './Loading.tsx'
 import { type ChatExtra, ChatTimeline } from './RunChat.tsx'
 import { ScrollMemory, type ScrollReveal } from './ScrollMemory.tsx'
@@ -80,7 +81,7 @@ export function TaskDiscussion({
               : revealRequest
           }
           active={active}
-          className={styles.items}
+          className={`${styles.items} ${column.list}`}
         >
           {earlier.map((run) => (
             <EarlierConversation
@@ -193,7 +194,7 @@ function EarlierMessages({
       openSideChat={openSideChat}
       onSideChatOpened={onSideChatOpened}
       renderSource={(resource) => (
-        <div className={styles.olderItems}>
+        <div className={`${styles.olderItems} ${column.nested}`}>
           {resource.error && <LoadingError error={resource.error} retry={resource.retry} />}
           {!resource.value && !resource.error && (
             <Skeleton shape="history" label="Loading earlier conversation…" />
