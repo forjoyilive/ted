@@ -48,6 +48,7 @@ export function appState() {
     getSettings: () => state.settings,
     getLinear: () => ({ state: 'no-key' }),
     notificationsOff: () => false,
+    notificationOffer: () => 'done',
     updateStatus: () => ({ state: 'unavailable' }),
     getProfile: () => ({ name: 'Nabha Cosley' }),
     getCommandLine: () => ({ state: 'unavailable' }),

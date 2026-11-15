@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -70,6 +70,14 @@ const bodies = async () =>
   (await logged()).flatMap((l) => (l.kind === 'notification' ? [l.body] : []))
 const lastBadge = async () => (await logged()).filter((l) => l.kind === 'badge').at(-1)
 
+async function notificationsAsked(): Promise<void> {
+  await mkdir(path.join(home, 'electron'), { recursive: true })
+  await writeFile(
+    path.join(home, 'electron', 'notifications.json'),
+    JSON.stringify({ asked: true }),
+  )
+}
+
 async function launchApp(extra: Record<string, string> = {}): Promise<Page> {
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env(extra) })
   const window = await loadedWindow(app)
@@ -110,6 +118,7 @@ async function askingTask(): Promise<void> {
 describe('notifications and badges', () => {
   test('a new Inbox item notifies once; a burst folds; the badge and sidebar agree', async () => {
     await askingTask()
+    await notificationsAsked()
     const window = await launchApp()
     await expect.poll(lastBadge).toEqual({ kind: 'badge', count: 0 })
 
@@ -130,12 +139,19 @@ describe('notifications and badges', () => {
     expect(closed).toEqual(expect.arrayContaining(['Question: Q1', 'Question: Q2', 'Question: Q3']))
   })
 
-  test('a Task notification opens its selected request in the Inbox from All Tasks', async () => {
+  test('on macOS the first Inbox item offers notifications first; a notification opens its request from All Tasks', async () => {
     await askingTask()
     const window = await launchApp()
     await sidebar(window).getByRole('button', { name: 'All Tasks', exact: true }).click()
     await ted('task', 'start', 'NB-1')
-    await expect.poll(bodies, { timeout: 30_000 }).toEqual(['Question: Q1'])
+    if (process.platform === 'darwin') {
+      const offer = window.getByRole('region', { name: 'Notifications', exact: true })
+      await offer.getByRole('button', { name: 'Turn on', exact: true }).click({ timeout: 30_000 })
+      await expect.poll(bodies).toEqual(['TED will tell you when something needs you.'])
+      expect(await offer.count()).toBe(0)
+    } else {
+      await expect.poll(bodies, { timeout: 30_000 }).toEqual(['Question: Q1'])
+    }
     const client = await daemonAsApp(home, env())
     const request = (await client.listWaiting())[0]
     if (!request) throw new Error('Expected a waiting request')

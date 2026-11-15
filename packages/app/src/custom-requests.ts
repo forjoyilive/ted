@@ -12,6 +12,7 @@ import type {
   TaskBrief,
 } from '@ted/protocol'
 import type { LoginItemState } from './login-item.ts'
+import type { NotificationOffer } from './notifications.ts'
 import type { UpdateStatus } from './updates.ts'
 
 export interface CustomRequests {
@@ -64,6 +65,9 @@ export interface CustomRequests {
   startSettled: () => Promise<void>
   openLoginItemsSettings: () => Promise<void>
   notificationsOff: () => Promise<boolean>
+  notificationOffer: () => Promise<NotificationOffer>
+  turnOnNotifications: () => Promise<void>
+  declineNotifications: () => Promise<void>
   openNotificationSettings: () => Promise<void>
   connection: () => Promise<DaemonConnection>
   restartDaemon: () => Promise<void>

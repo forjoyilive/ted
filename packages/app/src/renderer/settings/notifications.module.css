@@ -8,6 +8,16 @@
   background: var(--status-failed-bg);
 }
 
+.notAsked {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  background: var(--accent-subtle);
+}
+
 .mark {
   display: flex;
   flex-shrink: 0;

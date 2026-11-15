@@ -129,6 +129,27 @@ export function moveRow<T>(rows: readonly T[], from: number, to: number): T[] {
   return next
 }
 
+const protectedFolders = [
+  { folder: 'Documents', name: 'Documents folder' },
+  { folder: 'Desktop', name: 'Desktop folder' },
+  { folder: 'Downloads', name: 'Downloads folder' },
+  { folder: 'Library/Mobile Documents', name: 'iCloud Drive' },
+]
+
+export function protectedFolderNote(
+  folder: string,
+  home: string | undefined,
+  mac: boolean,
+): string | undefined {
+  if (!mac || !home) return undefined
+  const found = protectedFolders.find(({ folder: inHome }) => {
+    const root = `${home}/${inHome}`
+    return folder === root || folder.startsWith(`${root}/`)
+  })
+  if (!found) return undefined
+  return `macOS may ask whether TED can use your ${found.name}. Allow it: TED reads this folder to check the repo and copies the files you list from it into each Task.`
+}
+
 export function shortPath(folder: string, home: string | undefined): string {
   if (home && (folder === home || folder.startsWith(`${home}/`)))
     return `~${folder.slice(home.length)}`

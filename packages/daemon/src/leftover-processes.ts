@@ -89,16 +89,32 @@ function alive(pid: number): boolean {
 }
 
 export function processPaths(signal?: AbortSignal): Promise<ProcessPath[]> {
-  return process.platform === 'linux' ? pathsOnLinux(signal) : pathsFromLsof(signal)
+  return process.platform === 'linux' ? pathsOnLinux(signal) : openPaths('cwd,txt', signal)
 }
 
-// lsof exits 1 when it finds nothing to list; any other failure is an error.
-async function pathsFromLsof(signal?: AbortSignal): Promise<ProcessPath[]> {
-  const uid = process.getuid?.()
-  const args = ['-n', '-P', '-w', '-a', ...(uid !== undefined ? ['-u', String(uid)] : [])]
+export function lsofArgs(uid: number | undefined, descriptors?: string): string[] {
+  return [
+    '-b',
+    '-n',
+    '-P',
+    '-w',
+    '-a',
+    ...(uid !== undefined ? ['-u', String(uid)] : []),
+    ...(descriptors !== undefined ? ['-d', descriptors] : []),
+    '-Fpn',
+  ]
+}
+
+// -b keeps lsof from calling stat on files and mount points: stat on an attached drive
+// makes macOS ask whether TED may use removable volumes. lsof exits 1 when it finds
+// nothing to list; any other failure is an error.
+export async function openPaths(
+  descriptors?: string,
+  signal?: AbortSignal,
+): Promise<ProcessPath[]> {
   const { stdout } = await promisify(execFile)(
     '/usr/sbin/lsof',
-    [...args, '-d', 'cwd,txt', '-Fpn'],
+    lsofArgs(process.getuid?.(), descriptors),
     { maxBuffer: 64 * 1024 * 1024, ...(signal && { signal }) },
   ).catch((error: { code?: unknown; stdout?: string }) => {
     if (error.code !== 1) throw error

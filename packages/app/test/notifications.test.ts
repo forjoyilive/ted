@@ -7,7 +7,12 @@ import {
 } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import type { MenuCommand } from '../src/background.ts'
-import { createNotifications, foldWindowMs, type NoticeToShow } from '../src/notifications.ts'
+import {
+  createNotifications,
+  foldWindowMs,
+  type NoticeToShow,
+  notificationOffer,
+} from '../src/notifications.ts'
 import { initialNavigation, navigate } from '../src/renderer/navigation.ts'
 import { tedStopsText } from '../src/renderer/ted-stops.ts'
 
@@ -45,6 +50,7 @@ function harness(
 ) {
   let clock = Date.parse('2026-11-09T10:00:00.000Z')
   let asked = options.asked ?? true
+  let offers = 0
   const settings = { ...defaultMachineSettings, ...options.settings }
   const shown: { notice: NoticeToShow; open: () => void; closed: boolean }[] = []
   const opened: MenuCommand[] = []
@@ -68,6 +74,9 @@ function harness(
     markAsked: () => {
       asked = true
     },
+    offer: () => {
+      offers++
+    },
     factoryEmoji: (factoryId) => options.emoji?.[factoryId],
     now: () => clock,
   })
@@ -81,6 +90,10 @@ function harness(
       clock += ms
     },
     asked: () => asked,
+    offers: () => offers,
+    answer: () => {
+      asked = true
+    },
   }
 }
 
@@ -359,28 +372,51 @@ describe('Tasks stopped when TED quit', () => {
 })
 
 describe('notification permission', () => {
-  test('macOS is asked when the first Inbox item arrives, and nothing notifies before that', () => {
+  test('on macOS the first Inbox item offers notifications, and nothing notifies until the user turns them on', () => {
     const h = harness({ asksPermission: true, asked: false, settings: { notifyTaskMerged: true } })
     h.notifications.problem(banner({}))
-    expect(h.shown).toEqual([])
-    expect(h.asked()).toBe(false)
-
     h.notifications.waiting([])
-    expect(h.asked()).toBe(false)
-    h.notifications.waiting([request('a')])
-    expect(h.asked()).toBe(true)
-    expect(h.shown).toHaveLength(1)
+    expect(h.offers()).toBe(0)
 
+    h.notifications.waiting([request('a')])
+    expect(h.offers()).toBe(1)
+    expect(h.asked()).toBe(false)
+    h.notifications.waiting([request('a'), request('b')])
     h.notifications.problem(banner({ id: 'offline', text: 'You’re offline' }))
+    expect(h.shown).toEqual([])
+
+    h.answer()
+    h.notifications.waiting([request('a'), request('b'), request('c')])
+    h.notifications.problem(banner({ id: 'disk', text: 'The disk is full' }))
     expect(h.shown).toHaveLength(2)
   })
 
-  test('with Inbox items off, the first Inbox item still lets the other kinds notify', () => {
+  test('without a macOS permission request, the first Inbox item notifies at once', () => {
+    const h = harness({ asksPermission: false, asked: false })
+    h.notifications.waiting([])
+    h.notifications.waiting([request('a')])
+    expect(h.offers()).toBe(0)
+    expect(h.asked()).toBe(true)
+    expect(h.shown).toHaveLength(1)
+  })
+
+  test('the offer shows only on macOS, until the user answers it', () => {
+    const fresh = { asked: false, declined: false }
+    expect(notificationOffer(fresh, true, false)).toBe('not-asked')
+    expect(notificationOffer(fresh, true, true)).toBe('offered')
+    expect(notificationOffer({ asked: false, declined: true }, true, true)).toBe('not-asked')
+    expect(notificationOffer({ asked: true, declined: false }, true, true)).toBe('done')
+    expect(notificationOffer(fresh, false, true)).toBe('done')
+  })
+
+  test('with Inbox items off, the first Inbox item still offers notifications for the other kinds', () => {
     const h = harness({ asksPermission: true, asked: false, settings: { notifyInboxItems: false } })
     h.notifications.waiting([])
     h.notifications.waiting([request('a')])
+    expect(h.offers()).toBe(1)
+    h.answer()
+    h.notifications.waiting([request('a'), request('b')])
     expect(h.shown).toEqual([])
-    expect(h.asked()).toBe(true)
 
     h.notifications.problem(banner({}))
     expect(h.shown).toHaveLength(1)

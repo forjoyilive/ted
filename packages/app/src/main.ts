@@ -91,7 +91,11 @@ import {
 } from './login-item.ts'
 import {
   createNotifications,
+  type NotificationAsk,
+  type NotificationOffer,
   type Notifier,
+  notificationOffer,
+  notificationsOnNotice,
   recordingNotifier,
   silentNotifier,
 } from './notifications.ts'
@@ -501,8 +505,7 @@ function forward(event: DaemonEvent): void {
   if (state !== drawn || event.type === 'settings-changed') refresh()
 }
 
-interface NotificationState {
-  asked: boolean
+interface NotificationState extends NotificationAsk {
   off: boolean
 }
 
@@ -511,28 +514,55 @@ const notificationFile = () => path.join(app.getPath('userData'), 'notifications
 function readNotificationState(): NotificationState {
   try {
     const saved = JSON.parse(readFileSync(notificationFile(), 'utf8')) as Partial<NotificationState>
-    return { asked: saved.asked === true, off: saved.off === true }
+    return {
+      asked: saved.asked === true,
+      declined: saved.declined === true,
+      off: saved.off === true,
+    }
   } catch {
-    return { asked: false, off: false }
+    return { asked: false, declined: false, off: false }
   }
 }
 
 let notificationState: NotificationState | undefined
+let notificationOffered = false
 
 function currentNotificationState(): NotificationState {
   notificationState ??= readNotificationState()
   return notificationState
 }
 
+function currentNotificationOffer(): NotificationOffer {
+  return notificationOffer(currentNotificationState(), platform === 'darwin', notificationOffered)
+}
+
 function saveNotificationState(changes: Partial<NotificationState>): void {
   const before = currentNotificationState()
+  const offerBefore = currentNotificationOffer()
   const next = { ...before, ...changes }
-  if (next.asked === before.asked && next.off === before.off) return
+  if (next.asked === before.asked && next.declined === before.declined && next.off === before.off)
+    return
   notificationState = next
   writeFile(notificationFile(), JSON.stringify(next)).catch((error: unknown) =>
     console.error('saving the notification state failed:', error),
   )
   if (next.off !== before.off) sendToRenderer({ type: 'notifications-off', off: next.off })
+  const offer = currentNotificationOffer()
+  if (offer !== offerBefore) sendToRenderer({ type: 'notification-offer', offer })
+}
+
+function offerNotifications(): void {
+  if (notificationOffered) return
+  notificationOffered = true
+  const offer = currentNotificationOffer()
+  if (offer === 'offered') sendToRenderer({ type: 'notification-offer', offer })
+}
+
+function answerNotificationOffer(turnOn: boolean): void {
+  notificationOffered = false
+  saveNotificationState(turnOn ? { asked: true, declined: false } : { declined: true })
+  sendToRenderer({ type: 'notification-offer', offer: currentNotificationOffer() })
+  if (turnOn) notifier.show({ ...notificationsOnNotice, silent: !settings.notifySound }, showWindow)
 }
 
 const liveNotifications = new Set<Notification>()
@@ -591,6 +621,7 @@ const notifications = createNotifications({
   asksPermission: platform === 'darwin',
   asked: () => currentNotificationState().asked,
   markAsked: () => saveNotificationState({ asked: true }),
+  offer: offerNotifications,
   factoryEmoji: (factoryId) => factoryEmoji.get(factoryId),
 })
 
@@ -1075,6 +1106,9 @@ async function start(): Promise<void> {
       if (platform === 'darwin') await shell.openExternal(loginItemsPane)
     },
     notificationsOff: async () => currentNotificationState().off,
+    notificationOffer: async () => currentNotificationOffer(),
+    turnOnNotifications: async () => answerNotificationOffer(true),
+    declineNotifications: async () => answerNotificationOffer(false),
     openNotificationSettings: async () => {
       if (platform === 'darwin') await shell.openExternal(notificationsPane)
     },
@@ -1101,6 +1135,9 @@ async function start(): Promise<void> {
     | 'loginItem'
     | 'openLoginItemsSettings'
     | 'notificationsOff'
+    | 'notificationOffer'
+    | 'turnOnNotifications'
+    | 'declineNotifications'
     | 'openNotificationSettings'
     | 'restartDaemon'
     | 'updateStatus'

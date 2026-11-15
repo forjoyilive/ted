@@ -12,6 +12,7 @@ import type { MenuCommand } from '../background.ts'
 import { type CustomRequests, customRequest } from '../custom-requests.ts'
 import { daemonRequests } from '../daemon-requests.ts'
 import type { LoginItemState } from '../login-item.ts'
+import type { NotificationOffer } from '../notifications.ts'
 import type { UpdateStatus } from '../updates.ts'
 
 export type TedEvent =
@@ -22,6 +23,7 @@ export type TedEvent =
   | { type: 'login-item'; state: LoginItemState }
   | { type: 'update'; status: UpdateStatus }
   | { type: 'notifications-off'; off: boolean }
+  | { type: 'notification-offer'; offer: NotificationOffer }
 
 export interface TedBridge {
   request(name: string, ...args: unknown[]): Promise<unknown>
@@ -145,6 +147,9 @@ export const ted = {
   startSettled: () => request('startSettled'),
   openLoginItemsSettings: () => request('openLoginItemsSettings'),
   notificationsOff: () => request('notificationsOff'),
+  notificationOffer: () => request('notificationOffer'),
+  turnOnNotifications: () => request('turnOnNotifications'),
+  declineNotifications: () => request('declineNotifications'),
   openNotificationSettings: () => request('openNotificationSettings'),
   connection: () => request('connection'),
   restartDaemon: () => request('restartDaemon'),

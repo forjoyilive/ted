@@ -1,5 +1,6 @@
 import type { MachineSettings } from '@ted/protocol'
 import { FactoryNotificationsTable } from '../components/FactoryNotifications.tsx'
+import { useNotificationOffer } from '../components/NotificationOffer.tsx'
 import { useEventValue, useFactories } from '../data.ts'
 import { type SettingId, settingEntry } from '../settings-search.ts'
 import { ted } from '../ted.ts'
@@ -45,6 +46,7 @@ function NotifySwitch({
 
 export function NotificationsPage({ settings }: SettingsPageProps) {
   const off = useNotificationsOff()
+  const offer = useNotificationOffer()
   const factories = useFactories()
   return (
     <SettingsPage
@@ -61,6 +63,19 @@ export function NotificationsPage({ settings }: SettingsPageProps) {
             <span className={styles.detail}>TED can’t notify you until you turn them on.</span>
           </div>
           <Button onClick={() => ted.openNotificationSettings()}>Open System Settings</Button>
+        </div>
+      )}
+      {offer === 'not-asked' && (
+        <div className={styles.notAsked} role="status">
+          <div className={styles.text}>
+            <span className={styles.title}>TED doesn’t send notifications yet</span>
+            <span className={styles.detail}>
+              Turn them on and macOS will ask whether TED may send them.
+            </span>
+          </div>
+          <Button primary onClick={() => ted.turnOnNotifications()}>
+            Turn on
+          </Button>
         </div>
       )}
       <SettingsGroup setting="app.notifications.send">

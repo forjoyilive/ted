@@ -40,6 +40,7 @@ export interface NotificationsOptions {
   asksPermission: boolean
   asked: () => boolean
   markAsked: () => void
+  offer: () => void
   factoryEmoji?: (factoryId: string) => string | undefined
   now?: () => number
 }
@@ -52,8 +53,29 @@ export interface Notifications {
   forget(): void
 }
 
+export type NotificationOffer = 'offered' | 'not-asked' | 'done'
+
+export interface NotificationAsk {
+  asked: boolean
+  declined: boolean
+}
+
+export function notificationOffer(
+  state: NotificationAsk,
+  asksPermission: boolean,
+  offered: boolean,
+): NotificationOffer {
+  if (!asksPermission || state.asked) return 'done'
+  return offered && !state.declined ? 'offered' : 'not-asked'
+}
+
+export const notificationsOnNotice = {
+  title: 'Notifications are on',
+  body: 'TED will tell you when something needs you.',
+}
+
 export function createNotifications(options: NotificationsOptions): Notifications {
-  const { notifier, settings, open, asksPermission, asked, markAsked } = options
+  const { notifier, settings, open, asksPermission, asked, markAsked, offer } = options
   const now = options.now ?? Date.now
   const withEmoji = (notice: ProblemNotice, factoryId: string): ProblemNotice => {
     const emoji = options.factoryEmoji?.(factoryId)
@@ -94,7 +116,13 @@ export function createNotifications(options: NotificationsOptions): Notification
       const ids = new Set(requests.map((r) => r.id))
       const fresh = seen === undefined ? [] : requests.filter((r) => !seen?.has(r.id))
       seen = ids
-      if (fresh.length > 0 && !asked()) markAsked()
+      if (fresh.length > 0 && !asked()) {
+        if (asksPermission) {
+          offer()
+          return
+        }
+        markAsked()
+      }
       if (!settings().notifyInboxItems) return
       for (const request of fresh) {
         if (!request.uncounted) send(withEmoji(inboxNotice(request), request.factoryId))

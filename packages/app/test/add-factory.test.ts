@@ -7,6 +7,7 @@ import {
   githubProblem,
   moveRow,
   nameProblem,
+  protectedFolderNote,
   type RepoRow,
   shortPath,
 } from '../src/renderer/add-factory.ts'
@@ -119,6 +120,21 @@ describe('Add Factory fields', () => {
   test('folders under home show with ~', () => {
     expect(shortPath('/Users/n/code/web', '/Users/n')).toBe('~/code/web')
     expect(shortPath('/opt/web', '/Users/n')).toBe('/opt/web')
+  })
+
+  test('a folder macOS protects gets a note saying macOS may ask, only on macOS', () => {
+    const home = '/Users/n'
+    expect(protectedFolderNote('/Users/n/Documents/code/web', home, true)).toContain(
+      'your Documents folder',
+    )
+    expect(protectedFolderNote('/Users/n/Desktop', home, true)).toContain('your Desktop folder')
+    expect(protectedFolderNote('/Users/n/Library/Mobile Documents/web', home, true)).toContain(
+      'your iCloud Drive',
+    )
+    expect(protectedFolderNote('/Users/n/Documents-old/web', home, true)).toBeUndefined()
+    expect(protectedFolderNote('/Users/n/code/web', home, true)).toBeUndefined()
+    expect(protectedFolderNote('/Users/n/Documents/web', home, false)).toBeUndefined()
+    expect(protectedFolderNote('/Users/n/Documents/web', undefined, true)).toBeUndefined()
   })
 })
 
