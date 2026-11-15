@@ -6455,7 +6455,7 @@ export function createTasks(options: {
       pullRequestWork(task.id, 'signoff')
     }
     if (next === 'done') {
-      inBackground(`finish ${task.displayId}`, () => finish(task, resolution))
+      inBackground(`finish ${task.displayId}`, () => finishing(task, resolution))
     } else if (next === 'cleanup' && message !== undefined) {
       await cleanupThen(task.id, resolution.workflow, message)
     } else if (next === 'validate' && message !== undefined) {
@@ -7821,6 +7821,16 @@ export function createTasks(options: {
     return work
   }
 
+  function finishing(task: StoredTask, resolution: WorkflowResolution): Promise<void> {
+    const running = clearingAway.get(task.id)
+    if (running) return running
+    const work: Promise<void> = finish(task, resolution).finally(() => {
+      if (clearingAway.get(task.id) === work) clearingAway.delete(task.id)
+    })
+    clearingAway.set(task.id, work)
+    return work
+  }
+
   function hasLiveRun(task: StoredTask): boolean {
     return (
       liveLead(task) !== undefined ||
@@ -8941,7 +8951,7 @@ export function createTasks(options: {
         store.parentFinishedWithChildren(id)
         if (task.startRequested) store.setStartRequested(id, false)
         store.changeStage(id, 'done', entryFor(resolution, 'done'))
-        inBackground(`finish ${task.displayId}`, () => finish(task, resolution))
+        inBackground(`finish ${task.displayId}`, () => finishing(task, resolution))
       }).catch((error: unknown) => {
         console.error(redactSecrets(`couldn’t finish ${before.displayId}: ${String(error)}`))
       })

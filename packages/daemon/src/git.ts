@@ -1,5 +1,5 @@
 import { execFile, spawn } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -260,6 +260,14 @@ export async function deleteBranch(repo: string, branch: string): Promise<void> 
 }
 
 export async function removeWorktree(repo: string, worktree: string): Promise<void> {
+  const found = await lstat(worktree).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== 'ENOENT') throw error
+    return undefined
+  })
+  if (!found) {
+    await git(repo, 'worktree', 'prune')
+    return
+  }
   await git(repo, 'worktree', 'remove', '--force', worktree)
 }
 
