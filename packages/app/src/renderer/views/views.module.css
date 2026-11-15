@@ -273,6 +273,7 @@
 }
 
 .comment {
+  --chat-wide-lead: 30px;
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr);
   gap: 8px;

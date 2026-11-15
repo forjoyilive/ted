@@ -1,0 +1,32 @@
+.list,
+.nested {
+  container-type: inline-size;
+}
+
+.list > *,
+.nested > *,
+.composer > * {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--chat-column);
+  margin-inline: auto;
+}
+
+.list > :has([data-chat-wide-row], .nested [data-chat-wide]),
+.nested > :has([data-chat-wide-row]) {
+  max-width: var(--chat-wide);
+}
+
+:is(.list, .nested)
+  > :has([data-chat-wide-row])
+  :where(p, ul, ol, blockquote):not(:has([data-chat-wide-row], [data-chat-wide])) {
+  max-width: var(--chat-column);
+}
+
+:is(.list, .nested) [data-chat-wide] {
+  --chat-wide-width: min(var(--chat-wide), 100cqi);
+  box-sizing: border-box;
+  width: var(--chat-wide-width);
+  margin-inline-start: calc((100% - var(--chat-wide-width) - var(--chat-wide-lead, 0px)) / 2);
+  justify-content: safe center;
+}

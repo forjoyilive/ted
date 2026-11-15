@@ -107,7 +107,7 @@ function Prototype({ file }: { file: DesignFile }) {
   const [loads, setLoads] = useState(0)
   const [full, setFull] = useState(false)
   return (
-    <section className={styles.prototype} aria-label="Prototype">
+    <section className={styles.prototype} aria-label="Prototype" data-chat-wide-row>
       <header className={styles.prototypeHead}>
         <span className={styles.prototypeLabel}>Prototype</span>
         <span className={styles.meta}>{`${file.name} · interactive · sandboxed`}</span>
@@ -302,7 +302,7 @@ export function DesignReviewContent({
         <Markdown className={styles.summary} text={design.summary} />
       )}
       {(shots.length > 0 || design.video) && (
-        <div className={styles.tiles}>
+        <div className={styles.tiles} data-chat-wide-row>
           {shots.map((shot, index) => (
             <ScreenshotTile
               key={`${shot.hash}:${shot.name}`}

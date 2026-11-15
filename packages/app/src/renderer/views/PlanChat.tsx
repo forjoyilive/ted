@@ -13,6 +13,7 @@ import { type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
+import column from '../components/ChatColumn.module.css'
 import { Help } from '../components/Help.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { Markdown } from '../components/Markdown.tsx'
@@ -261,7 +262,7 @@ function NewPlanChat({
             </p>
           )}
         </div>
-        <div className={styles.composer}>
+        <div className={`${styles.composer} ${column.composer}`}>
           <textarea
             className={`${styles.box} ${grow.text}`}
             aria-label="What do you want to plan?"
