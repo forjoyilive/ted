@@ -178,6 +178,7 @@ import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
 import { fetchGitHubFiles, type GitHubUploads, uploadRefs } from '../github/files.ts'
 import { type Gh, GhError } from '../github/gh.ts'
+import { gitHubIssueSyncApi } from '../github/issue-sync.ts'
 import {
   choosePosts,
   type GitHubIssue,
@@ -234,6 +235,7 @@ import {
   boardStages,
   type OvernightGuard,
   onDefaultBranch,
+  overnightGuardTexts,
   type ResolvedWorkflow,
   setupWorkflow,
   withForcedGates,
@@ -266,7 +268,7 @@ import {
   planAsanaImport,
 } from './asana-import.ts'
 import { asanaTracker, createAsanaSync } from './asana-sync.ts'
-import { ordinaryAutopilotRequest, taskAutopilot } from './autopilot.ts'
+import { ordinaryAutopilotRequest, taskAutopilot, unvettedReason } from './autopilot.ts'
 import {
   type BaseConflict,
   baseCheckTimeoutMs,
@@ -345,6 +347,7 @@ import {
   githubUnreadableWhy,
   trackedParentRefusal,
 } from './github-intake.ts'
+import { createGitHubSync } from './github-sync.ts'
 import { createPullRequestWatch } from './github-watch.ts'
 import { createHeldRequests } from './held-requests.ts'
 import {
@@ -406,6 +409,7 @@ import { checkPreparationWorkflow } from './preparation.ts'
 import { readPullRequestChanges } from './pull-request-changes.ts'
 import {
   createPullRequests,
+  type IssueRef,
   type PullRequestTarget,
   type PullRequestTask,
 } from './pull-requests.ts'
@@ -810,6 +814,7 @@ export function createTasks(options: {
     account?(): Promise<string | undefined>
   }
   asanaSyncMs?: number
+  githubSyncMs?: number
   isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
   gh?: Gh
@@ -1247,6 +1252,16 @@ export function createTasks(options: {
       inBackground: (what, work) => inBackground(what, work, false),
     })
   if (asanaSync) trackerConsents.push(asanaSync.consent)
+  const githubSync =
+    options.gh &&
+    createGitHubSync({
+      store,
+      github: gitHubIssueSyncApi(options.gh),
+      actions: trackerActions,
+      clock,
+      everyMs: options.githubSyncMs ?? 60_000,
+      inBackground: (what, work) => inBackground(what, work, false),
+    })
   const sources: QueueSource[] = []
   let pumping: Promise<void> | undefined
   let again = false
@@ -1367,13 +1382,27 @@ export function createTasks(options: {
     }
   }
 
+  function unvettedGuard(task: StoredTask): OvernightGuard | undefined {
+    return unvettedReason(
+      { fromAutomation: store.createdByAutomation(task.id), source: task.source },
+      store.settings(),
+    )
+  }
+
+  async function overnightGuard(
+    task: StoredTask,
+    workflow: ResolvedWorkflow,
+  ): Promise<OvernightGuard | undefined> {
+    return unvettedGuard(task) ?? (await settingsGuard(task, workflow))
+  }
+
   async function gateWorkflow(
     task: StoredTask,
     options?: { fetch?: boolean },
   ): Promise<WorkflowResolution> {
     const plain = await taskWorkflow(task, options)
     if (!taskAutopilot(task)) return plain
-    const guard = await settingsGuard(task, plain.workflow)
+    const guard = await overnightGuard(task, plain.workflow)
     if (guard === undefined) return plain
     const kept = await taskWorkflow(task, { fetch: false, keepGates: guard })
     const { workflow } = kept
@@ -1469,7 +1498,8 @@ export function createTasks(options: {
     const task = find(taskId)
     const finished = task.archived || task.stage === 'done'
     const overnightMode = taskAutopilot(task)
-    const guard = overnightMode && !finished ? await settingsGuard(task, plain.workflow) : undefined
+    const guard =
+      overnightMode && !finished ? await overnightGuard(task, plain.workflow) : undefined
     const { workflow } =
       guard === undefined
         ? plain
@@ -1483,11 +1513,9 @@ export function createTasks(options: {
           ? 'Required by TED for this Task'
           : task.setup && ['design', 'review'].includes(stage)
             ? 'Required for Factory setup'
-            : stage === 'review' && guard === 'settings'
-              ? 'Required while Autopilot is on: this Task changes .ted/'
-              : stage === 'review' && guard === 'unreadable'
-                ? 'Required while Autopilot is on: TED couldn’t read this Task’s changes'
-                : undefined
+            : stage === 'review' && guard !== undefined
+              ? `Required while Autopilot is on: ${overnightGuardTexts[guard]}`
+              : undefined
         const posted = stage === task.stage && gateRequested(task)
         const locked = finished
           ? 'This Task has finished'
@@ -2905,6 +2933,17 @@ export function createTasks(options: {
       ...(goal !== undefined && goal !== '' && { goal }),
       ...(task.source?.url !== undefined && { sourceUrl: task.source.url }),
       ...(task.source?.sentry && { fixes: task.source.sentry.shortId }),
+      ...(task.source?.github && { issue: () => issueRefOf(task.id) }),
+    }
+  }
+
+  function issueRefOf(taskId: string): IssueRef | undefined {
+    const task = store.getTask(taskId)
+    const github = task?.source?.github
+    if (!store.settings().githubIssueSync || !task || !github || task.archived) return undefined
+    return {
+      ref: `${github.repo}#${github.number}`,
+      several: manyRepos(task) || githubSync?.openSubIssues(task) !== 0,
     }
   }
 
@@ -5876,6 +5915,7 @@ export function createTasks(options: {
       )
         throw new RequestError(403, 'this sign-off needs the user')
       const plain = await taskWorkflow(task, { fetch: false, inheritedGates: true })
+      if (unvettedGuard(task)) throw new RequestError(403, 'this sign-off needs the user')
       if (await settingsGuard(task, plain.workflow))
         throw new RequestError(403, 'Workflow changes need the user’s sign-off')
     }
@@ -11849,6 +11889,7 @@ export function createTasks(options: {
       watch?.close()
       linearSync?.close()
       asanaSync?.close()
+      githubSync?.close()
       await pumping
       stopping.abort()
       await Promise.all(background)

@@ -51,9 +51,11 @@ test('a name match comes first, a setting before a heading with the same words',
   expect(find('autopilot').map((hit) => hit.name)).toEqual([
     'Autopilot across all Factories',
     'Autopilot',
+    'Review Tasks from Automations and public issues',
   ])
   expect(find('overnight').map((hit) => hit.name)).toEqual([
     'Autopilot across all Factories',
+    'Review Tasks from Automations and public issues',
     'Autopilot',
   ])
   expect(find('linear').map((hit) => hit.id)).toEqual([

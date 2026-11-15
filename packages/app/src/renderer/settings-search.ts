@@ -81,6 +81,11 @@ const entries = {
     detail:
       'Stays on until you turn it off, on this computer only. Turning it off leaves started work running.',
   },
+  'app.general.autopilot.unvetted': {
+    name: 'Review Tasks from Automations and public issues',
+    keywords: 'overnight mode review gate sign-off automation github issue outsider',
+    help: 'While Autopilot is on, Tasks an Automation created and Tasks from a GitHub issue with text from outsiders still wait for your Review sign-off, and merge only the code you approved.',
+  },
   'app.general.startup': { name: 'Startup and quitting', heading: true },
   'app.general.startup.login': {
     name: 'Start TED in the background when you log in',
@@ -191,6 +196,11 @@ const entries = {
     name: 'GitHub',
     help: 'TED uses the GitHub CLI’s own login and never reads its token. One row for each host your Factories use.',
     heading: true,
+  },
+  'app.integrations.github.sync': {
+    name: 'Keep issues up to date',
+    help: 'When a Task comes from an issue in one of its Factory’s repos, TED comments on the issue when work starts, links it from each pull request, and comments and closes it once every pull request merges. It writes as your GitHub account, so what it writes can be public. If someone closes the issue on GitHub, TED archives a Task that hasn’t started, or asks you.',
+    keywords: 'github issue sync close comment fixes',
   },
   'app.integrations.git': { name: 'Git', heading: true },
   'app.integrations.linear': {

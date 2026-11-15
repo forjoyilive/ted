@@ -80,6 +80,7 @@ export interface MachineSettings {
   developerMode: boolean
   preparationNoticeSeen: boolean
   overnightMode: boolean
+  reviewUnvettedTasks: boolean
   maxWorkingRuns: number
   adjustRunsToLoad: boolean
   maxBootedSimulators: number
@@ -107,6 +108,7 @@ export interface MachineSettings {
   githubIntakeScopes: Readonly<Record<string, GitHubIntakeScope>>
   linearSync: boolean
   asanaSync: boolean
+  githubIssueSync: boolean
   linearSyncTeams: Readonly<Record<string, readonly string[]>>
   linearSyncDeclined: Readonly<Record<string, readonly string[]>>
   trackerSyncGroups: TrackerGroupLists
@@ -130,6 +132,7 @@ export const defaultMachineSettings: MachineSettings = {
   developerMode: false,
   preparationNoticeSeen: false,
   overnightMode: false,
+  reviewUnvettedTasks: true,
   maxWorkingRuns: 6,
   adjustRunsToLoad: false,
   maxBootedSimulators: 3,
@@ -157,6 +160,7 @@ export const defaultMachineSettings: MachineSettings = {
   githubIntakeScopes: {},
   linearSync: true,
   asanaSync: true,
+  githubIssueSync: false,
   linearSyncTeams: {},
   linearSyncDeclined: {},
   trackerSyncGroups: {},

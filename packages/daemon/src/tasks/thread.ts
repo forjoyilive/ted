@@ -12,6 +12,7 @@ import type {
 import { trackerName } from '@ted/protocol'
 import { diffTexts } from '../agents/diff.ts'
 import type { LoggedEvent, TedStore } from '../store/index.ts'
+import { type OvernightGuard, overnightGuardTexts } from '../workflow/resolve.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import { summary } from './github-activity.ts'
 import { depthNames } from './rounds.ts'
@@ -405,7 +406,9 @@ export function threadEvents(
             'quiet',
             data.tracker === 'asana'
               ? 'Completed the Asana task'
-              : `Moved ${text(data.item)} to ${text(data.state)} in ${trackerName(text(data.tracker))}`,
+              : data.tracker === 'github'
+                ? `Closed ${text(data.item)} on GitHub`
+                : `Moved ${text(data.item)} to ${text(data.state)} in ${trackerName(text(data.tracker))}`,
           )
         }
         break
@@ -430,6 +433,7 @@ export function threadEvents(
         )
         break
       case 'v1.TrackerPullRequestsLinked': {
+        if (data.tracker === 'github') break
         const count = Array.isArray(data.urls) ? data.urls.length : 0
         add(
           entry,
@@ -731,9 +735,7 @@ export function threadEvents(
           entry,
           'quiet',
           `Autopilot is on, but ${
-            data.reason === 'unreadable'
-              ? 'TED couldn’t read this Task’s changes'
-              : 'this Task changes .ted/'
+            overnightGuardTexts[text(data.reason) as OvernightGuard] ?? overnightGuardTexts.settings
           }, so its ${stageTitle(text(data.stage))} sign-off stays on`,
         )
         break
