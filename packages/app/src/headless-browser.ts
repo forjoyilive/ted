@@ -40,7 +40,7 @@ void app.whenReady().then(() => {
   let remote: RemotePage | undefined
   let size = { width: 1280, height: 800 }
   let sized = false
-  let scheme: 'light' | 'dark' | undefined
+  let scheme: 'light' | 'dark' = 'light'
   const drop = () => {
     if (page) closeGuest(page)
     page = undefined
@@ -61,10 +61,9 @@ void app.whenReady().then(() => {
       })
       remote = opened
       if (sized) await opened.resize(size.width, size.height)
-      if (scheme)
-        await opened.driver.send('Emulation.setEmulatedMedia', {
-          features: [{ name: 'prefers-color-scheme', value: scheme }],
-        })
+      await opened.driver.send('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-color-scheme', value: scheme }],
+      })
       return { url: opened.driver.url() }
     }
     if (command.request.action === 'open') {
@@ -96,10 +95,9 @@ void app.whenReady().then(() => {
           if (page === guest) drop()
         },
       })
-      if (scheme)
-        await opened.contents.debugger.sendCommand('Emulation.setEmulatedMedia', {
-          features: [{ name: 'prefers-color-scheme', value: scheme }],
-        })
+      await opened.contents.debugger.sendCommand('Emulation.setEmulatedMedia', {
+        features: [{ name: 'prefers-color-scheme', value: scheme }],
+      })
       return { url: opened.contents.getURL(), ...(opened.error && { text: opened.error }) }
     }
     const current =
