@@ -275,19 +275,27 @@ export function apiCostLines(
 function ApiCostSection({
   agent,
   report,
+  billing,
 }: {
   agent: AgentKind
   report: ApiCostReport | undefined
+  billing: Billing
 }) {
   const lines = apiCostLines(agent, report)
   if (!lines) return null
+  const days = report?.days ?? 30
   return (
     <div className={styles.section}>
       <div className={styles.sectionHead}>
-        <h3 className={styles.sectionTitle}>On an API key, last {report?.days ?? 30} days</h3>
+        <h3 className={styles.sectionTitle}>
+          {billing === 'subscription'
+            ? `If it had been on an API key, last ${days} days`
+            : `On an API key, last ${days} days`}
+        </h3>
         <Help>
-          What this agent’s finished Runs would have cost at API prices, whichever way you pay for
-          them.
+          {billing === 'subscription'
+            ? 'What this agent’s finished Runs would have cost on an API key, at API prices.'
+            : 'What this agent’s finished Runs cost on your API key.'}
         </Help>
       </div>
       <p className={styles.line}>{lines.figure}</p>
@@ -446,7 +454,7 @@ function AgentCard({
       </div>
       {enabled && (
         <>
-          <ApiCostSection agent={health.agent} report={apiCost} />
+          <ApiCostSection agent={health.agent} report={apiCost} billing={billing} />
           <BillingChoice
             agent={health.agent}
             billing={billing}

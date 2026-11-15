@@ -262,15 +262,24 @@ test('each agent’s panel shows what its Runs of the last 30 days would cost on
       ],
     }),
   })
-  render(<AgentsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  render(
+    <AgentsPage
+      settings={{
+        ...defaultMachineSettings,
+        billing: { ...defaultMachineSettings.billing, codex: 'api-key' },
+      }}
+      dispatch={vi.fn()}
+    />,
+  )
   const claude = within(await screen.findByRole('region', { name: 'Claude Code' }))
-  expect(await claude.findByText('On an API key, last 30 days')).toBeTruthy()
+  expect(await claude.findByText('If it had been on an API key, last 30 days')).toBeTruthy()
   expect(claude.getByText('$1,234.50 for 12 Runs')).toBeTruthy()
   expect(claude.getByText('2.4M input and 310K output tokens.')).toBeTruthy()
   expect(claude.getByText('The cost Claude Code reported for each Run.')).toBeTruthy()
   expect(claude.getByText('1 of them reported no cost and are left out.')).toBeTruthy()
   expect(claude.getByText(/^Counted since .*, when TED began saving this\.$/)).toBeTruthy()
   const codex = within(screen.getByRole('region', { name: 'Codex' }))
+  expect(codex.getByText('On an API key, last 30 days')).toBeTruthy()
   expect(codex.getByText('No finished Runs yet')).toBeTruthy()
   const antigravity = within(screen.getByRole('region', { name: 'Antigravity' }))
   expect(antigravity.getByText('Not available')).toBeTruthy()
