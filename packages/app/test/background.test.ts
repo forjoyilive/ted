@@ -209,6 +209,11 @@ describe('the app menu holds every menu-bar item', () => {
             command: { kind: 'open-all-tasks' },
             accelerator: 'CmdOrCtrl+Shift+A',
           },
+          {
+            label: 'Dashboard',
+            command: { kind: 'open-dashboard' },
+            accelerator: 'CmdOrCtrl+Shift+D',
+          },
         ],
       })
       if (platform === 'darwin') {

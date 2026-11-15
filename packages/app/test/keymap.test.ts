@@ -70,6 +70,7 @@ describe('the shortcut sheet', () => {
     expect(keysFor('new-task')).toEqual(['⌘N', 'C'])
     expect(keysFor('go-to-inbox')).toEqual(['⌘⇧I', 'G I'])
     expect(keysFor('go-to-all-tasks')).toEqual(['⌘⇧A', 'G A'])
+    expect(keysFor('go-to-dashboard')).toEqual(['⌘⇧D', 'G D'])
     expect(keysFor('archive')).toEqual(['⌘⌫'])
   })
 
@@ -84,6 +85,7 @@ describe('the shortcut sheet', () => {
     expect(press('A', { shiftKey: true })).toBeUndefined()
     expect(press('I', { metaKey: true, shiftKey: true })).toMatchObject({ id: 'go-to-inbox' })
     expect(press('A', { metaKey: true, shiftKey: true })).toMatchObject({ id: 'go-to-all-tasks' })
+    expect(press('D', { metaKey: true, shiftKey: true })).toMatchObject({ id: 'go-to-dashboard' })
     expect(press('r')).toMatchObject({ id: 'reply' })
     expect(press('g')).toBe('pending')
     expect(press('b')).toMatchObject({ id: 'go-to-board' })
