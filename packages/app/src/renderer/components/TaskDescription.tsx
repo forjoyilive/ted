@@ -7,13 +7,22 @@ import { formatDate } from '../time.ts'
 import { CommentFiles, showsInline } from './CommentFiles.tsx'
 import { CloseIcon } from './icons.tsx'
 import { LoadingError, Skeleton } from './Loading.tsx'
-import markdownStyles from './Markdown.module.css'
 import { Markdown } from './Markdown.tsx'
 import styles from './TaskDescription.module.css'
 
+const noHeading = () => null
+
+const previewElements = ['p', 'img', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']
+
 const previewComponents: Components = {
-  a: ({ children }) => <span>{children}</span>,
+  p: ({ children }) => <>{children} </>,
   img: ({ alt }) => <>{alt}</>,
+  h1: noHeading,
+  h2: noHeading,
+  h3: noHeading,
+  h4: noHeading,
+  h5: noHeading,
+  h6: noHeading,
 }
 
 function pressedOutside(event: MouseEvent<HTMLDialogElement>): boolean {
@@ -57,11 +66,14 @@ function Description({ task }: { task: Task }) {
         <div className={styles.row}>
           {original.trim() ? (
             <div className={styles.preview}>
-              <div className={`${markdownStyles.markdown} ${styles.text}`}>
-                <ReactMarkdown remarkPlugins={[remarkGfm]} components={previewComponents}>
-                  {original}
-                </ReactMarkdown>
-              </div>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                allowedElements={previewElements}
+                unwrapDisallowed
+                components={previewComponents}
+              >
+                {original}
+              </ReactMarkdown>
             </div>
           ) : (
             blank && <p className={styles.empty}>No description.</p>
