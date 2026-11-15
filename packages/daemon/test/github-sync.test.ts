@@ -39,6 +39,8 @@ let bodies: Map<string, string>
 let writes: Write[]
 let reads: number
 let lostReply: boolean
+let incomplete: Set<string>
+let duringBodyRead: { pr: string; run: () => void } | undefined
 let archived: string[]
 let live: Set<string>
 let syncs: TrackerSync[]
@@ -58,7 +60,11 @@ const api: GitHubIssueSyncApi = {
     return found
   },
   async comments(issue) {
-    return { viewer, comments: [...(issues.get(issueKey(issue))?.comments ?? [])] }
+    return {
+      viewer,
+      comments: [...(issues.get(issueKey(issue))?.comments ?? [])],
+      complete: !incomplete.has(issueKey(issue)),
+    }
   },
   async comment(issue, body) {
     writes.push({ kind: 'comment', issue: issueKey(issue), body })
@@ -74,7 +80,13 @@ const api: GitHubIssueSyncApi = {
     if (fake) fake.state = { open: false, closedAs: 'completed', openSubIssues: 0 }
   },
   async pullRequestBody(pr) {
-    return bodies.get(prKey(pr)) ?? ''
+    const body = bodies.get(prKey(pr)) ?? ''
+    if (duringBodyRead?.pr === prKey(pr)) {
+      const { run } = duringBodyRead
+      duringBodyRead = undefined
+      run()
+    }
+    return body
   },
   async setPullRequestBody(pr, body) {
     writes.push({ kind: 'body', pr: prKey(pr), body })
@@ -97,6 +109,8 @@ beforeEach(async () => {
   writes = []
   reads = 0
   lostReply = false
+  incomplete = new Set()
+  duringBodyRead = undefined
   archived = []
   live = new Set()
   syncs = []
@@ -246,6 +260,10 @@ test('with the switch off nothing is read or written; with it on a one-repo Task
   expect(commentsOn(5)).toEqual([startedText])
 
   openPullRequest(fresh, 'notes', 'acme/notes', 8, 'Goal\n\n---\n\nOpened by TED for NB-2.')
+  duringBodyRead = { pr: 'acme/notes#8', run: () => syncOn(false) }
+  await cycle()
+  expect(writes.filter((w) => w.kind === 'body')).toEqual([])
+  syncOn(true)
   await cycle()
   expect(bodies.get('acme/notes#8')).toBe(
     'Goal\n\n---\n\nOpened by TED for NB-2.\n\nFixes acme/notes#5',
@@ -289,14 +307,31 @@ test('a two-repo Task says Part of in each pull request and leaves the issue ope
   openPullRequest(parent, 'notes', 'acme/notes', 22)
   const dropped = await fromIssue(12)
   start(dropped)
+  const gainsSubIssue = await fromIssue(13)
+  start(gainsSubIssue)
+  openPullRequest(gainsSubIssue, 'notes', 'acme/notes', 23)
+  const crowded = await fromIssue(14)
+  start(crowded)
+  incomplete.add('acme/notes#14')
   startSync()
   await cycle()
   expect(bodies.get('acme/notes#20')).toBe('Goal\n\nPart of acme/notes#10')
   expect(bodies.get('acme/api#21')).toBe('Goal\n\nPart of acme/notes#10')
-  expect(bodies.get('acme/notes#22')).toBe('Goal\n\nFixes acme/notes#11')
+  expect(bodies.get('acme/notes#22')).toBe('Goal\n\nPart of acme/notes#11')
+  expect(bodies.get('acme/notes#23')).toBe('Goal\n\nFixes acme/notes#13')
   expect(commentsOn(12)).toEqual([startedText])
+  expect(commentsOn(14)).toEqual([])
 
-  store.archiveTask(dropped.id)
+  const sub = issues.get('acme/notes#13')
+  if (sub) sub.state = { open: true, openSubIssues: 1 }
+  openPullRequest(dropped, 'notes', 'acme/notes', 24)
+  duringBodyRead = { pr: 'acme/notes#24', run: () => store.archiveTask(dropped.id) }
+  await cycle()
+  await cycle()
+  expect(bodies.get('acme/notes#24')).toBe('Goal')
+  expect(bodies.get('acme/notes#23')).toBe('Goal\n\nPart of acme/notes#13')
+  incomplete.delete('acme/notes#14')
+
   merge(task, 'notes')
   await cycle()
   expect(writes.filter((w) => w.kind === 'close')).toEqual([])
@@ -321,6 +356,7 @@ test('a two-repo Task says Part of in each pull request and leaves the issue ope
       .map((c) => c.body),
   ).toEqual([leftOpenNote('acme/notes#11', 2)])
   expect(commentsOn(12)).toEqual([startedText])
+  expect(commentsOn(14)).toEqual([startedText])
 })
 
 test('closing the issue on GitHub archives an unstarted Task and asks for a started one; a close by the Task’s own pull request doesn’t count, and reopening withdraws the question', async () => {
@@ -375,12 +411,13 @@ describe('the pull request line', () => {
   test('Fixes for one repo, Part of for several, only when asked for, replacing an out-of-date line', () => {
     const task = { id: 't', displayId: 'NB-1', title: 'T', goal: 'Goal' }
     expect(pullRequestBody(task, [])).not.toMatch(/Fixes|Part of/)
+    expect(pullRequestBody({ ...task, issue: () => undefined }, [])).not.toMatch(/Fixes|Part of/)
     expect(
-      pullRequestBody({ ...task, issue: { ref: 'acme/notes#4', several: false } }, []),
+      pullRequestBody({ ...task, issue: () => ({ ref: 'acme/notes#4', several: false }) }, []),
     ).toMatch(/\n\nFixes acme\/notes#4$/)
-    expect(pullRequestBody({ ...task, issue: { ref: 'acme/notes#4', several: true } }, [])).toMatch(
-      /\n\nPart of acme\/notes#4$/,
-    )
+    expect(
+      pullRequestBody({ ...task, issue: () => ({ ref: 'acme/notes#4', several: true }) }, []),
+    ).toMatch(/\n\nPart of acme\/notes#4$/)
     const fixes = 'Goal\n\nFixes acme/notes#4'
     expect(withIssueLine(fixes, { ref: 'acme/notes#4', several: false })).toBe(fixes)
     expect(withIssueLine(fixes, { ref: 'ACME/notes#4', several: true })).toBe(
@@ -480,16 +517,21 @@ describe('the gh calls', () => {
   })
 
   test('writes go only to the issue’s own fixed paths, as fixed JSON', async () => {
+    const page = (older: boolean, nodes: unknown[]) => ({
+      data: {
+        viewer: { login: viewer },
+        repository: {
+          issue: {
+            comments: { pageInfo: { hasPreviousPage: older, startCursor: 'c1' }, nodes },
+          },
+        },
+      },
+    })
     const { gh, calls } = fakeGh((call) =>
       call.kind === 'graphql'
-        ? {
-            data: {
-              viewer: { login: viewer },
-              repository: {
-                issue: { comments: { nodes: [{ author: { login: 'a' }, body: 'hi' }, null] } },
-              },
-            },
-          }
+        ? call.variables?.before === 'c1'
+          ? page(false, [{ author: { login: 'b' }, body: 'older' }])
+          : page(true, [{ author: { login: 'a' }, body: 'hi' }, null])
         : call.method === 'GET'
           ? { body: 'Goal' }
           : undefined,
@@ -497,8 +539,17 @@ describe('the gh calls', () => {
     const github = gitHubIssueSyncApi(gh)
     expect(await github.comments(issue(4))).toEqual({
       viewer,
-      comments: [{ author: 'a', body: 'hi' }],
+      comments: [
+        { author: 'a', body: 'hi' },
+        { author: 'b', body: 'older' },
+      ],
+      complete: true,
     })
+    const endless = fakeGh(() => page(true, [{ author: { login: 'a' }, body: 'hi' }]))
+    expect(await gitHubIssueSyncApi(endless.gh).comments(issue(4))).toMatchObject({
+      complete: false,
+    })
+    expect(endless.calls).toHaveLength(5)
     await github.comment(issue(4), startedText)
     await github.close(issue(4))
     expect(await github.pullRequestBody({ repo: 'acme/notes', number: 7 })).toBe('Goal')

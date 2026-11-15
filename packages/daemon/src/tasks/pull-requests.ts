@@ -21,7 +21,7 @@ export interface PullRequestTask {
   goal?: string
   sourceUrl?: string
   fixes?: string
-  issue?: IssueRef
+  issue?: () => IssueRef | undefined
 }
 
 export interface IssueRef {
@@ -261,7 +261,8 @@ export function pullRequestBody(task: PullRequestTask, others: string[]): string
     : `Opened by TED for ${task.displayId}.`
   const linked = others.length > 0 ? [`Part of the same Task: ${others.join(', ')}`] : []
   const fixes = task.fixes === undefined ? [] : [`Fixes ${task.fixes}`]
-  const issue = task.issue === undefined ? [] : [issueLine(task.issue)]
+  const ref = task.issue?.()
+  const issue = ref === undefined ? [] : [issueLine(ref)]
   return [goal, '---', from, ...linked, ...fixes, ...issue].join('\n\n')
 }
 

@@ -391,6 +391,7 @@ import { checkPreparationWorkflow } from './preparation.ts'
 import { readPullRequestChanges } from './pull-request-changes.ts'
 import {
   createPullRequests,
+  type IssueRef,
   type PullRequestTarget,
   type PullRequestTask,
 } from './pull-requests.ts'
@@ -2900,13 +2901,17 @@ export function createTasks(options: {
       ...(goal !== undefined && goal !== '' && { goal }),
       ...(task.source?.url !== undefined && { sourceUrl: task.source.url }),
       ...(task.source?.sentry && { fixes: task.source.sentry.shortId }),
-      ...(store.settings().githubIssueSync &&
-        task.source?.github && {
-          issue: {
-            ref: `${task.source.github.repo}#${task.source.github.number}`,
-            several: manyRepos(task),
-          },
-        }),
+      ...(task.source?.github && { issue: () => issueRefOf(task.id) }),
+    }
+  }
+
+  function issueRefOf(taskId: string): IssueRef | undefined {
+    const task = store.getTask(taskId)
+    const github = task?.source?.github
+    if (!store.settings().githubIssueSync || !task || !github || task.archived) return undefined
+    return {
+      ref: `${github.repo}#${github.number}`,
+      several: manyRepos(task) || githubSync?.openSubIssues(task) !== 0,
     }
   }
 

@@ -10,11 +10,17 @@ import {
   type GitHubIssueSyncApi,
   type IssueSyncState,
   issueKey,
+  type PullRequestRef,
   parsePullRequestRef,
 } from '../github/issue-sync.ts'
 import type { TedStore } from '../store/index.ts'
-import { withIssueLine } from './pull-requests.ts'
-import type { TrackerConnector, TrackerItem, TrackerRecords } from './tracker-sync/connector.ts'
+import { type IssueRef, withIssueLine } from './pull-requests.ts'
+import {
+  type TrackerConnector,
+  type TrackerItem,
+  type TrackerRecords,
+  TrackerWait,
+} from './tracker-sync/connector.ts'
 import { trackerRecords } from './tracker-sync/records.ts'
 import {
   createTrackerSync,
@@ -59,11 +65,29 @@ function stateName(state: IssueSyncState): string {
     : `closed as ${state.closedAs}`
 }
 
-export function githubConnector(
-  store: TedStore,
-  github: GitHubIssueSyncApi,
-): TrackerConnector<GitHubIssueUrl, IssueSyncState & { issue: GitHubIssueUrl }> {
+type Handle = IssueSyncState & { issue: GitHubIssueUrl }
+
+export interface GitHubConnector extends TrackerConnector<GitHubIssueUrl, Handle> {
+  openSubIssues(task: Pick<Task, 'source'>): number | undefined
+}
+
+export function githubConnector(store: TedStore, github: GitHubIssueSyncApi): GitHubConnector {
   const switchOn = () => store.settings().githubIssueSync
+  const subIssues = new Map<string, number>()
+  const partOfConfirmed = new Set<string>()
+
+  const writable = (taskId: string): boolean => {
+    const task = store.getTask(taskId)
+    return switchOn() && task !== undefined && (!task.archived || store.isMerged(taskId))
+  }
+
+  async function setLine(pr: PullRequestRef, taskId: string, ref: IssueRef): Promise<void> {
+    const body = await github.pullRequestBody(pr)
+    const next = withIssueLine(body, ref)
+    if (next === body) return
+    if (!writable(taskId)) throw new TrackerWait(0)
+    await github.setPullRequestBody(pr, next)
+  }
 
   function ownPullRequest(issue: GitHubIssueUrl, url: string | undefined): boolean {
     if (url === undefined) return false
@@ -77,11 +101,12 @@ export function githubConnector(
   }
 
   async function postOnce(issue: GitHubIssueUrl, text: string, still: () => boolean) {
-    const { viewer, comments } = await github.comments(issue)
+    const { viewer, comments, complete } = await github.comments(issue)
     const posted = comments.some(
       (c) => c.author.toLowerCase() === viewer.toLowerCase() && c.body.trim() === text,
     )
     if (posted) return true
+    if (!complete) return false
     if (!switchOn() || !still()) return false
     await github.comment(issue, text)
     return true
@@ -102,6 +127,7 @@ export function githubConnector(
       for (const issue of issues) {
         const state = states.get(issueKey(issue))
         if (!state) continue
+        subIssues.set(issueKey(issue), state.openSubIssues)
         items.set(issueKey(issue), {
           closed: !state.open && !ownPullRequest(issue, state.closedBy),
           state: stateName(state),
@@ -138,6 +164,16 @@ export function githubConnector(
         }
         return { step: 'fixed' }
       }
+      if (item.handle.openSubIssues > 0 && !task.archived) {
+        const ref = { ref: issueRef(issue), several: true }
+        const linked = store.trackerSync(task.id, githubTracker).linked
+        for (const url of pullRequestUrls(task)) {
+          const pr = parsePullRequestRef(url)
+          if (!pr || !linked.has(url) || partOfConfirmed.has(url)) continue
+          await setLine(pr, task.id, ref)
+          partOfConfirmed.add(url)
+        }
+      }
       if (step !== undefined || task.archived || beforeWork.has(task.stage)) return undefined
       if (task.stage === 'done' || item.closed || !item.handle.open) return undefined
       const stillOpen = () => {
@@ -147,15 +183,17 @@ export function githubConnector(
       if (!(await postOnce(issue, startedText, stillOpen))) return undefined
       return { step: 'started' }
     },
-    async link(_item, { url }, task) {
+    async link(item, { url }, task) {
       const pr = parsePullRequestRef(url)
       const source = task.source && parseGitHubIssueUrl(task.source.url)
       if (!pr || !source) return
-      const several = task.repos.filter((repo) => !repo.removed).length > 1
-      const body = await github.pullRequestBody(pr)
-      const next = withIssueLine(body, { ref: issueRef(source), several })
-      if (next === body || !switchOn()) return
-      await github.setPullRequestBody(pr, next)
+      const several =
+        task.repos.filter((repo) => !repo.removed).length > 1 || item.handle.openSubIssues > 0
+      await setLine(pr, task.id, { ref: issueRef(source), several })
+    },
+    openSubIssues(task) {
+      const source = task.source && parseGitHubIssueUrl(task.source.url)
+      return source && subIssues.get(issueKey(source))
     },
     texts: {
       closedTitle: (label, state) => `${label} was ${state} on GitHub`,
@@ -188,14 +226,20 @@ export function githubRecords(
   }
 }
 
-export function createGitHubSync(options: GitHubSyncOptions): TrackerSync {
-  return createTrackerSync({
+export interface GitHubSync extends TrackerSync {
+  openSubIssues(task: Pick<Task, 'source'>): number | undefined
+}
+
+export function createGitHubSync(options: GitHubSyncOptions): GitHubSync {
+  const connector = githubConnector(options.store, options.github)
+  const sync = createTrackerSync({
     store: options.store,
-    connector: githubConnector(options.store, options.github),
+    connector,
     records: githubRecords(options.store),
     actions: options.actions,
     everyMs: options.everyMs,
     inBackground: options.inBackground,
     ...(options.clock && { clock: options.clock }),
   })
+  return { close: () => sync.close(), openSubIssues: (task) => connector.openSubIssues(task) }
 }

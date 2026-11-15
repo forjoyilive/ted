@@ -13,6 +13,7 @@ export interface IssueSyncState {
 export interface IssueComments {
   viewer: string
   comments: { author: string; body: string }[]
+  complete: boolean
 }
 
 export interface PullRequestRef {
@@ -30,7 +31,8 @@ export interface GitHubIssueSyncApi {
 }
 
 export const issuesPerQuery = 50
-export const commentsRead = 100
+export const commentsPerPage = 100
+export const commentPages = 5
 const segment = /^[A-Za-z0-9_.-]+$/
 const safe = (part: string) => segment.test(part) && !/^\.+$/.test(part)
 
@@ -66,14 +68,31 @@ function statesQuery(count: number): string {
   return `query TedIssueStates(${variables}) {\n  ${parts}\n}`
 }
 
-const commentsQuery = `query TedIssueComments($owner: String!, $name: String!, $number: Int!) {
+const commentsQuery = `query TedIssueComments($owner: String!, $name: String!, $number: Int!, $before: String) {
   viewer { login }
   repository(owner: $owner, name: $name) {
     issue(number: $number) {
-      comments(last: ${commentsRead}) { nodes { author { login } body } }
+      comments(last: ${commentsPerPage}, before: $before) {
+        pageInfo { hasPreviousPage startCursor }
+        nodes { author { login } body }
+      }
     }
   }
 }`
+
+interface RawCommentPage {
+  data?: {
+    viewer?: { login?: unknown } | null
+    repository?: {
+      issue?: {
+        comments?: {
+          pageInfo?: { hasPreviousPage?: unknown; startCursor?: unknown } | null
+          nodes?: ({ author?: { login?: unknown } | null; body?: unknown } | null)[] | null
+        } | null
+      } | null
+    } | null
+  }
+}
 
 interface RawState {
   state?: unknown
@@ -154,35 +173,33 @@ export function gitHubIssueSyncApi(gh: Pick<Gh, 'graphql' | 'api'>): GitHubIssue
       return found
     },
     async comments(issue) {
-      const answer = (await gh.graphql(commentsQuery, {
-        owner: issue.owner,
-        name: issue.repo,
-        number: issue.number,
-      })) as {
-        data?: {
-          viewer?: { login?: unknown } | null
-          repository?: {
-            issue?: {
-              comments?: {
-                nodes?: ({ author?: { login?: unknown } | null; body?: unknown } | null)[] | null
-              } | null
-            } | null
-          } | null
+      let viewer: string | undefined
+      let before: string | undefined
+      const comments: IssueComments['comments'] = []
+      for (let page = 0; page < commentPages; page++) {
+        const answer = (await gh.graphql(commentsQuery, {
+          owner: issue.owner,
+          name: issue.repo,
+          number: issue.number,
+          ...(before !== undefined && { before }),
+        })) as RawCommentPage
+        const login = answer?.data?.viewer?.login
+        const list = answer?.data?.repository?.issue?.comments
+        const nodes = list?.nodes
+        if (typeof login !== 'string' || !Array.isArray(nodes)) {
+          throw new Error(`couldn’t read the comments of ${issueKey(issue)}`)
         }
+        viewer = login
+        for (const node of nodes) {
+          if (typeof node?.author?.login === 'string' && typeof node.body === 'string')
+            comments.push({ author: node.author.login, body: node.body })
+        }
+        const cursor = list?.pageInfo?.startCursor
+        if (list?.pageInfo?.hasPreviousPage !== true) return { viewer, comments, complete: true }
+        if (typeof cursor !== 'string') break
+        before = cursor
       }
-      const viewer = answer?.data?.viewer?.login
-      const nodes = answer?.data?.repository?.issue?.comments?.nodes
-      if (typeof viewer !== 'string' || !Array.isArray(nodes)) {
-        throw new Error(`couldn’t read the comments of ${issueKey(issue)}`)
-      }
-      return {
-        viewer,
-        comments: nodes.flatMap((node) =>
-          typeof node?.author?.login === 'string' && typeof node.body === 'string'
-            ? [{ author: node.author.login, body: node.body }]
-            : [],
-        ),
-      }
+      return { viewer: viewer ?? '', comments, complete: false }
     },
     async comment(issue, body) {
       await gh.api(issuePath(issue, '/comments'), { method: 'POST', body: { body } })
