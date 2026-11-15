@@ -113,6 +113,17 @@ export function createRepoSetup({
     }
   }
 
+  async function createdEarlier(owner: string, name: string): Promise<boolean> {
+    const info = (await gh.api(`repos/${owner}/${name}`).catch(() => undefined)) as
+      | { private?: unknown; permissions?: { admin?: unknown } }
+      | undefined
+    if (info?.private !== true || info.permissions?.admin !== true) return false
+    return gh.api(`repos/${owner}/${name}/commits?per_page=1`).then(
+      () => false,
+      (error: unknown) => error instanceof GhError && error.status === 409,
+    )
+  }
+
   async function step(request: GitHubSetupStepRequest): Promise<GitHubSetupStepResult> {
     const branchProblem = branchNameProblem(request.branch)
     if (branchProblem !== undefined) throw new RequestError(400, branchProblem)
@@ -145,8 +156,33 @@ export function createRepoSetup({
           await git(root, ['symbolic-ref', 'HEAD', `refs/heads/${request.branch}`])
         }
         await git(root, ['add', '--all'])
-        const staged = await git(root, ['diff', '--cached', '--name-only', '-z'])
-        if (staged === '') throw new RequestError(409, 'The folder has no files to commit.')
+        const stagedNow = async () =>
+          (await git(root, ['ls-files', '-z', '--cached'])).split('\0').filter((f) => f !== '')
+        const unwanted = leftOut(await stagedNow(), request.leaveOut)
+        if (unwanted.length > 0) {
+          await git(
+            root,
+            [
+              '--literal-pathspecs',
+              'rm',
+              '-r',
+              '--cached',
+              '--quiet',
+              '--ignore-unmatch',
+              '--pathspec-from-file=-',
+              '--pathspec-file-nul',
+            ],
+            { input: unwanted.map((f) => `${f}\0`).join('') },
+          )
+        }
+        const staged = await stagedNow()
+        if (leftOut(staged, request.leaveOut).length > 0) {
+          throw new RequestError(
+            409,
+            'Couldn’t leave out the files you chose. Nothing was committed.',
+          )
+        }
+        if (staged.length === 0) throw new RequestError(409, 'The folder has no files to commit.')
         await git(root, ['commit', '--quiet', '--no-verify', '-m', 'Initial commit'])
         return { done: true }
       }
@@ -157,6 +193,7 @@ export function createRepoSetup({
         if (!known.owners.includes(request.owner)) {
           throw new RequestError(400, `${request.owner} isn’t one of your GitHub accounts.`)
         }
+        if (await createdEarlier(request.owner, request.name)) return { done: false }
         const { available } = await nameAvailable(request)
         if (!available) {
           throw new RequestError(409, `${request.owner}/${request.name} already exists.`)
@@ -184,12 +221,17 @@ export function createRepoSetup({
           const url = `https://github.com/${request.owner}/${request.name}.git`
           await git(root, ['remote', 'add', remote, url])
         }
+        const tracked =
+          state.branch !== undefined &&
+          (await git(root, ['config', '--get', `branch.${state.branch}.remote`]).catch(
+            () => '',
+          )) !== ''
         const args =
-          state.branch === request.branch
+          state.branch === request.branch && !tracked
             ? ['push', '--quiet', '--set-upstream', remote, request.branch]
             : ['push', '--quiet', remote, `HEAD:refs/heads/${request.branch}`]
         try {
-          await git(root, args, pushTimeoutMs)
+          await git(root, args, { timeout: pushTimeoutMs })
         } catch (error) {
           if (existing === undefined) {
             await git(root, ['remote', 'remove', remote]).catch(() => undefined)
@@ -303,19 +345,26 @@ async function listFiles(state: FolderState): Promise<string[]> {
   }
 }
 
+export function ignoreLine(file: string): string {
+  return `/${file.replace(/[\\[\]*?]/g, '\\$&').replace(/ +$/, (spaces) => '\\ '.repeat(spaces.length))}`
+}
+
+function candidateFor(file: string): { path: string; secret: boolean } | undefined {
+  const parts = file.split('/')
+  const big = parts.slice(0, -1).find((p) => bigFolders.has(p))
+  if (big !== undefined) return { path: `${big}/`, secret: false }
+  if (secretName.test(parts.at(-1) ?? '')) return { path: ignoreLine(file), secret: true }
+  return undefined
+}
+
 export function candidates(files: readonly string[]): LeaveOutCandidate[] {
   const folders = new Map<string, number>()
   const secrets: LeaveOutCandidate[] = []
   for (const file of files) {
-    const parts = file.split('/')
-    const big = parts.slice(0, -1).find((p) => bigFolders.has(p))
-    if (big !== undefined) {
-      folders.set(`${big}/`, (folders.get(`${big}/`) ?? 0) + 1)
-      continue
-    }
-    if (secrets.length < maxSecrets && secretName.test(parts.at(-1) ?? '')) {
-      secrets.push({ path: `/${file}`, files: 1, secret: true })
-    }
+    const found = candidateFor(file)
+    if (found === undefined) continue
+    if (!found.secret) folders.set(found.path, (folders.get(found.path) ?? 0) + 1)
+    else if (secrets.length < maxSecrets) secrets.push({ path: found.path, files: 1, secret: true })
   }
   return [
     ...[...folders].map(([folder, count]) => ({ path: folder, files: count, secret: false })),
@@ -323,9 +372,21 @@ export function candidates(files: readonly string[]): LeaveOutCandidate[] {
   ]
 }
 
-function git(cwd: string, args: string[], timeout = 60_000): Promise<string> {
+export function leftOut(files: readonly string[], leaveOut: readonly string[]): string[] {
+  const chosen = new Set(leaveOut)
+  return files.filter((file) => {
+    const found = candidateFor(file)
+    return found !== undefined && chosen.has(found.path)
+  })
+}
+
+function git(
+  cwd: string,
+  args: string[],
+  { timeout = 60_000, input }: { timeout?: number; input?: string } = {},
+): Promise<string> {
   return new Promise((resolve, reject) => {
-    execFile(
+    const child = execFile(
       'git',
       ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', ...args],
       { cwd, env: gitEnv(), timeout, maxBuffer: 128 * 1024 * 1024 },
@@ -345,5 +406,7 @@ function git(cwd: string, args: string[], timeout = 60_000): Promise<string> {
         reject(new RequestError(502, redactSecrets(message)))
       },
     )
+    child.stdin?.on('error', () => {})
+    child.stdin?.end(input ?? '')
   })
 }

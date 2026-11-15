@@ -427,6 +427,13 @@ describe('setting up a GitHub repo', () => {
       'repos/stub-user/taken': repoInfo('stub-user/taken'),
       'orgs/acme/repos': { status: 403, message: 'Must have admin rights to Repository.' },
       'user/repos': { body: {} },
+      'repos/stub-user/lost': {
+        body: { full_name: 'stub-user/lost', private: true, permissions: { admin: true } },
+      },
+      'repos/stub-user/lost/commits?per_page=1': {
+        status: 409,
+        message: 'Git Repository is empty.',
+      },
     })
     const bare = async (repo: string) => {
       await mkdir(path.join(scratch, 'stub-user'), { recursive: true })
@@ -451,6 +458,7 @@ describe('setting up a GitHub repo', () => {
     await writeFile(path.join(plain, 'node_modules', 'left', 'index.js'), '')
     await writeFile(path.join(plain, 'node_modules', 'left', 'more.js'), '')
     await writeFile(path.join(plain, '.env'), 'TOKEN=x\n')
+    await writeFile(path.join(plain, 'prod[1].key'), 'secret\n')
 
     const plan = await client.ok<GitHubSetupPlan>('POST', '/factories/github-setup/plan', {
       folder: plain,
@@ -460,11 +468,12 @@ describe('setting up a GitHub repo', () => {
       git: false,
       commits: false,
       uncommitted: 0,
-      files: 5,
+      files: 6,
       hasIgnoreFile: false,
       leaveOut: [
         { path: 'node_modules/', files: 2, secret: false },
         { path: '/.env', files: 1, secret: true },
+        { path: '/prod\\[1\\].key', files: 1, secret: true },
       ],
       remoteName: 'origin',
       owners: ['stub-user', 'acme'],
@@ -483,15 +492,18 @@ describe('setting up a GitHub repo', () => {
       }),
     ).toEqual({ available: false })
 
-    const leaveOut = ['node_modules/', '/.env']
+    const leaveOut = ['node_modules/', '/.env', '/prod\\[1\\].key']
     for (const step of ['init', 'ignore', 'commit'] as const) {
       expect((await run(plain, step, { name: 'notes', leaveOut })).body).toEqual({ done: true })
     }
-    expect(await readFile(path.join(plain, '.gitignore'), 'utf8')).toBe('node_modules/\n/.env\n')
+    expect(await readFile(path.join(plain, '.gitignore'), 'utf8')).toBe(
+      'node_modules/\n/.env\n/prod\\[1\\].key\n',
+    )
     const refused = await run(plain, 'create', { owner: 'acme', name: 'notes' })
     expect(refused.status).toBe(403)
     expect(JSON.stringify(refused.body)).toContain('permission to create repos in acme')
     expect((await run(plain, 'create', { name: 'taken' })).status).toBe(409)
+    expect((await run(plain, 'create', { name: 'lost' })).body).toEqual({ done: false })
     expect((await run(plain, 'create', { name: 'notes' })).body).toEqual({ done: true })
     await bare('stub-user/notes')
     expect((await run(plain, 'push', { name: 'notes' })).body).toEqual({ done: true })
@@ -501,6 +513,26 @@ describe('setting up a GitHub repo', () => {
     expect(pushed.stdout.trim().split('\n').sort()).toEqual(['.gitignore', 'README.md', 'src/a.ts'])
     const message = await execFileAsync('git', ['log', '-1', '--format=%s'], { cwd: plain })
     expect(message.stdout.trim()).toBe('Initial commit')
+
+    const staged = path.join(await mkdtemp(path.join(scratch, 'staged-')), 'staged')
+    await mkdir(staged)
+    await execFileAsync('git', ['init', '--quiet', '--initial-branch=main'], { cwd: staged })
+    await writeFile(path.join(staged, '.env'), 'TOKEN=x\n')
+    await writeFile(path.join(staged, 'a.txt'), 'a\n')
+    await execFileAsync('git', ['add', '.env'], { cwd: staged })
+    expect(
+      await client.ok<GitHubSetupPlan>('POST', '/factories/github-setup/plan', { folder: staged }),
+    ).toMatchObject({ git: true, commits: false, leaveOut: [{ path: '/.env', secret: true }] })
+    for (const step of ['ignore', 'commit'] as const) {
+      expect((await run(staged, step, { name: 'staged', leaveOut: ['/.env'] })).body).toEqual({
+        done: true,
+      })
+    }
+    const committed = await execFileAsync('git', ['ls-tree', '-r', '--name-only', 'HEAD'], {
+      cwd: staged,
+    })
+    expect(committed.stdout.trim().split('\n').sort()).toEqual(['.gitignore', 'a.txt'])
+    expect(await readFile(path.join(staged, '.env'), 'utf8')).toBe('TOKEN=x\n')
 
     const gitlab = await userFolder('https://gitlab.com/acme/widgets.git')
     await writeFile(path.join(gitlab, 'README.md'), 'changed\n')
@@ -518,9 +550,11 @@ describe('setting up a GitHub repo', () => {
     expect((await run(gitlab, 'create', { name: 'gadgets' })).body).toEqual({ done: true })
     await bare('stub-user/gadgets')
     expect((await run(gitlab, 'push', { name: 'gadgets' })).body).toEqual({ done: true })
-    const remotes = await execFileAsync('git', ['remote', '-v'], { cwd: gitlab })
-    expect(remotes.stdout).toContain('origin\thttps://gitlab.com/acme/widgets.git')
-    expect(remotes.stdout).toContain('github\thttps://github.com/stub-user/gadgets.git')
+    const config = async (key: string) =>
+      (await execFileAsync('git', ['config', '--get', key], { cwd: gitlab })).stdout.trim()
+    expect(await config('remote.origin.url')).toBe('https://gitlab.com/acme/widgets.git')
+    expect(await config('remote.github.url')).toBe('https://github.com/stub-user/gadgets.git')
+    expect(await config('branch.main.remote')).toBe('origin')
     const status = await execFileAsync('git', ['status', '--porcelain'], { cwd: gitlab })
     expect(status.stdout.trim()).toBe('M README.md')
 
