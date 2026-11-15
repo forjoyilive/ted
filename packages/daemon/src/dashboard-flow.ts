@@ -2,12 +2,17 @@ import type {
   DashboardFlow,
   FailureCase,
   FlowFailure,
+  FlowInterval,
   FlowPeriod,
+  FlowReasonId,
   FlowSendBack,
   FlowStage,
+  FlowStageSample,
   FlowValidateSample,
+  StageParts,
   ValidationSnapshot,
 } from '@ted/protocol'
+import { addStageParts, noStageParts, splitStage } from '@ted/protocol/stage-parts'
 import type { DashboardTaskFacts } from './dashboard.ts'
 import { type FlowTimingFacts, summarizeReasons, timingSamples } from './dashboard-timing.ts'
 
@@ -163,6 +168,16 @@ function timing(task: DashboardTaskFacts, asOf: number) {
 
 type Timing = ReturnType<typeof timing>
 
+export function stageSampleParts(
+  sample: Pick<FlowStageSample, 'intervals'>,
+  reasons: ReadonlyMap<FlowReasonId, { intervals: readonly FlowInterval[] }>,
+): StageParts {
+  return splitStage(
+    sample.intervals,
+    new Map([...reasons].map(([reason, s]) => [reason, s.intervals])),
+  )
+}
+
 function firstVisit(task: DashboardTaskFacts, asOf: number): FlowValidateSample {
   const result: FlowValidateSample = {
     taskId: task.id,
@@ -313,6 +328,7 @@ function period(
         medianMs: null,
         p25Ms: null,
         p75Ms: null,
+        parts: noStageParts(),
         samples: [],
       },
     ]),
@@ -337,21 +353,23 @@ function period(
         taskId: task.id,
         elapsedMs: 0,
         intervals: [],
+        parts: noStageParts(),
       }
       sample.elapsedMs += b - a
       sample.intervals.push({ from: iso(a), to: iso(b) })
       perStage.set(interval.stage, sample)
     }
-    if (overlaps && measured.start !== undefined)
-      reasonSamples.push(
-        timingSamples(
-          task.id,
-          task.activity,
-          [...perStage.values()].flatMap((s) => s.intervals),
-          task.activity?.history.asOf ?? iso(to),
-          measured.reasons,
-        ),
+    if (overlaps && measured.start !== undefined) {
+      const own = timingSamples(
+        task.id,
+        task.activity,
+        [...perStage.values()].flatMap((s) => s.intervals),
+        task.activity?.history.asOf ?? iso(to),
+        measured.reasons,
       )
+      reasonSamples.push(own)
+      for (const sample of perStage.values()) sample.parts = stageSampleParts(sample, own)
+    }
     for (const [name, sample] of perStage) {
       const stage = stages.get(name) ?? {
         stage: name,
@@ -360,9 +378,11 @@ function period(
         medianMs: null,
         p25Ms: null,
         p75Ms: null,
+        parts: noStageParts(),
         samples: [],
       }
       stage.totalMs += sample.elapsedMs
+      addStageParts(stage.parts, sample.parts)
       stage.samples.push(sample)
       if (!stage.factoryIds.includes(task.factoryId)) stage.factoryIds.push(task.factoryId)
       stages.set(name, stage)

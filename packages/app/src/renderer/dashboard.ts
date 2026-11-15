@@ -5,10 +5,11 @@ import type {
   FlowFailureOutcome,
   FlowReasonId,
   FlowValidateOutcome,
+  StagePart,
 } from '@ted/protocol'
 
 export type FlowSelection = { period: 'current' | 'previous' } & (
-  | { kind: 'stage'; stage: string }
+  | { kind: 'stage'; stage: string; part?: StagePart }
   | { kind: 'reason'; reason: FlowReasonId }
   | { kind: 'guide' }
   | { kind: 'send-back'; from: string; to: string }

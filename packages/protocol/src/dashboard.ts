@@ -105,6 +105,7 @@ export interface FlowStageSample {
   taskId: string
   elapsedMs: number
   intervals: FlowInterval[]
+  parts: import('./stage-parts.ts').StageParts
 }
 
 export interface FlowStage {
@@ -114,6 +115,7 @@ export interface FlowStage {
   medianMs: number | null
   p25Ms: number | null
   p75Ms: number | null
+  parts: import('./stage-parts.ts').StageParts
   samples: FlowStageSample[]
 }
 

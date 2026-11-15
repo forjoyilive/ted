@@ -1,4 +1,7 @@
 import type { DashboardPeriod, DashboardReport, FlowPeriod, FlowReasonId } from '@ted/protocol'
+import { noStageParts } from '@ted/protocol/stage-parts'
+
+const hour = 3_600_000
 
 export function dashboardFixture(empty = false): DashboardReport {
   const current: DashboardPeriod = {
@@ -238,6 +241,7 @@ function flowPeriod(empty: boolean, period: DashboardPeriod): FlowPeriod {
         medianMs: empty ? null : 7 * 3_600_000,
         p25Ms: empty ? null : 6 * 3_600_000,
         p75Ms: empty ? null : 8 * 3_600_000,
+        parts: empty ? noStageParts() : { ...noStageParts(), working: 5 * hour, other: 9 * hour },
         samples: empty
           ? []
           : [
@@ -245,11 +249,13 @@ function flowPeriod(empty: boolean, period: DashboardPeriod): FlowPeriod {
                 taskId: 't1',
                 elapsedMs: 5 * 3_600_000,
                 intervals: [{ from: '2026-11-04T00:00:00.000Z', to: '2026-11-04T05:00:00.000Z' }],
+                parts: { ...noStageParts(), working: 2 * hour, other: 3 * hour },
               },
               {
                 taskId: 't3',
                 elapsedMs: 9 * 3_600_000,
                 intervals: [{ from: '2026-11-04T03:00:00.000Z', to: period.to }],
+                parts: { ...noStageParts(), working: 3 * hour, other: 6 * hour },
               },
             ],
       },

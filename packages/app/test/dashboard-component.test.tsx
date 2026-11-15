@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { noStageParts } from '@ted/protocol/stage-parts'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { useState } from 'react'
 import { expect, test, vi } from 'vitest'
@@ -74,7 +75,7 @@ test('the shared App shortcuts navigate only the top sample dialog and preserve 
 
   await u.click(screen.getByRole('tab', { name: 'Stages' }))
   const stageTime = screen.getByRole('region', { name: 'Elapsed time by Stage' })
-  await u.click(within(stageTime).getByRole('button', { name: '2 Tasks' }))
+  await u.click(within(stageTime).getByRole('button', { name: 'All 2 Tasks' }))
   sample = screen.getByRole('dialog')
   first = within(sample).getByRole('button', { name: /NB-1.*Fix login/ })
   const openFlowTask = within(sample).getByRole('button', { name: /NB-3.*Open Task/ })
@@ -357,11 +358,13 @@ test('Flow keeps its open-Task sample separate, shows distributions and opens ex
     medianMs: 3_600_000,
     p25Ms: 3_600_000,
     p75Ms: 3_600_000,
+    parts: { ...noStageParts(), blocked: 3_600_000 },
     samples: [
       {
         taskId: 't2',
         elapsedMs: 3_600_000,
         intervals: [{ from: '2026-11-05T00:00:00.000Z', to: '2026-11-05T01:00:00.000Z' }],
+        parts: { ...noStageParts(), blocked: 3_600_000 },
       },
     ],
   })
@@ -379,10 +382,10 @@ test('Flow keeps its open-Task sample separate, shows distributions and opens ex
   expect(within(region).queryByText('14h')).toBeNull()
   expect(within(region).getByText('100%')).toBeTruthy()
   expect(within(region).getByText('Share')).toBeTruthy()
-  expect(within(region).getByRole('button', { name: '0 Tasks' })).toBeTruthy()
+  expect(within(region).getByRole('button', { name: '0 of 2 Tasks' })).toBeTruthy()
   expect(screen.getByText(/without the time Tasks spent waiting for you/)).toBeTruthy()
   expect(region.textContent).toContain('Tasks without a complete record of those requests')
-  await user().click(within(region).getByRole('button', { name: '2 Tasks' }))
+  await user().click(within(region).getByRole('button', { name: 'All 2 Tasks' }))
   let sample = screen.getByRole('dialog')
   expect(sample.textContent).toContain('Without time waiting for you.')
   expect(sample.textContent).toContain('6h · 1 measured visit · 3h waiting for you left out')
@@ -396,7 +399,7 @@ test('Flow keeps its open-Task sample separate, shows distributions and opens ex
   await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
   await user().click(waits())
   expect(within(region).queryByRole('button', { name: /left out/ })).toBeNull()
-  expect(within(region).getByRole('button', { name: '1 Task' })).toBeTruthy()
+  expect(within(region).getByRole('button', { name: '1 of 2 Tasks' })).toBeTruthy()
   expect(screen.getByText(/including time waiting for you and repeat visits/)).toBeTruthy()
   view.unmount()
   render(<DashboardView open={open} />)
@@ -404,7 +407,7 @@ test('Flow keeps its open-Task sample separate, shows distributions and opens ex
   expect(waits().checked).toBe(true)
   const region2 = screen.getByRole('region', { name: 'Elapsed time by Stage' })
   expect(within(region2).getByText('14h')).toBeTruthy()
-  const opener = within(region2).getByRole('button', { name: '2 Tasks' })
+  const opener = within(region2).getByRole('button', { name: 'All 2 Tasks' })
   await user().click(opener)
   sample = screen.getByRole('dialog')
   expect(sample.textContent).toContain('Includes time waiting for you.')
@@ -419,6 +422,32 @@ test('Flow keeps its open-Task sample separate, shows distributions and opens ex
   expect(open).toHaveBeenCalledWith('t3')
   await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
   expect(document.activeElement).toBe(opener)
+  const row = (name: string) =>
+    within(region2).getByRole('button', { name }).closest('li') as HTMLElement
+  expect(within(row('Work')).getByText('Most time')).toBeTruthy()
+  expect(within(row('Review')).queryByText('Most time')).toBeNull()
+  expect(within(region2).getByText('Blocked or paused')).toBeTruthy()
+  expect(within(region2).getByTestId('stage-bar-work').style.width).toBe('100%')
+  expect(
+    Number.parseFloat(within(region2).getByTestId('stage-bar-review').style.width),
+  ).toBeCloseTo(100 / 14)
+  const shares = within(region2).getByRole('button', { name: 'Share of each Stage' })
+  await user().click(shares)
+  expect(shares.getAttribute('aria-pressed')).toBe('true')
+  expect(within(region2).getByTestId('stage-bar-review').style.width).toBe('100%')
+  const working = within(region2).getByRole('button', { name: 'Work · Agent working: 5h' })
+  expect(working.getAttribute('title')).toBe('Work · Agent working: 5h')
+  await user().click(working)
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading', { name: 'Work · Agent working' })).toBeTruthy()
+  expect(sample.textContent).toContain('Agent working: 5h of this Stage’s 14h.')
+  expect(
+    within(sample)
+      .getAllByRole('button', { name: /Open history/ })
+      .map((b) => b.textContent?.slice(0, 4)),
+  ).toEqual(['NB-3', 'NB-1'])
+  expect(sample.textContent).toContain('Agent working: 3h of 9h')
+  await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
   await user().click(screen.getByRole('button', { name: /1 Task has incomplete/ }))
   sample = screen.getByRole('dialog')
   expect(sample.textContent).toContain('First Intake timestamp is missing.')
@@ -521,11 +550,13 @@ test('previous-period Flow samples retain their own period and restore focus aft
       medianMs: 3_600_000,
       p25Ms: 3_600_000,
       p75Ms: 3_600_000,
+      parts: { ...noStageParts(), other: 3_600_000 },
       samples: [
         {
           taskId: 't1',
           elapsedMs: 3_600_000,
           intervals: [{ from: '2026-10-26T00:00:00.000Z', to: '2026-10-26T01:00:00.000Z' }],
+          parts: { ...noStageParts(), other: 3_600_000 },
         },
       ],
     },

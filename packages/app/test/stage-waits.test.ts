@@ -1,4 +1,5 @@
 import type { FlowPeriod, FlowReasonSample, FlowStageSample } from '@ted/protocol'
+import { noStageParts } from '@ted/protocol/stage-parts'
 import { expect, test } from 'vitest'
 import { withoutUserWaits } from '../src/renderer/views/stage-waits.ts'
 
@@ -7,10 +8,12 @@ const at = (h: number) => new Date(Date.parse('2026-11-04T00:00:00.000Z') + h * 
 const span = (from: number, to: number) => ({ from: at(from), to: at(to) })
 
 function visit(taskId: string, ...spans: [number, number][]): FlowStageSample {
+  const elapsedMs = spans.reduce((n, [from, to]) => n + (to - from) * hour, 0)
   return {
     taskId,
-    elapsedMs: spans.reduce((n, [from, to]) => n + (to - from) * hour, 0),
+    elapsedMs,
     intervals: spans.map(([from, to]) => span(from, to)),
+    parts: { ...noStageParts(), other: elapsedMs },
   }
 }
 
@@ -33,7 +36,11 @@ function requests(
   }
 }
 
-function period(stages: Record<string, FlowStageSample[]>, samples: FlowReasonSample[]) {
+function period(
+  stages: Record<string, FlowStageSample[]>,
+  samples: FlowReasonSample[],
+  working: FlowReasonSample[] = [],
+) {
   return {
     stages: Object.entries(stages).map(([stage, samples]) => ({
       stage,
@@ -46,6 +53,14 @@ function period(stages: Record<string, FlowStageSample[]>, samples: FlowReasonSa
     })),
     reasons: [
       { reason: 'user-request', totalMs: 0, medianMs: null, p25Ms: null, p75Ms: null, samples },
+      {
+        reason: 'run-working',
+        totalMs: 0,
+        medianMs: null,
+        p25Ms: null,
+        p75Ms: null,
+        samples: working,
+      },
     ],
   } as unknown as FlowPeriod
 }
@@ -65,6 +80,7 @@ test('time with an open request is taken out of each Stage visit it overlaps', (
         ]),
         requests('b', 'full', []),
       ],
+      [requests('a', 'full', [[0, 2]])],
     ),
   )
   expect(result.leftOut).toEqual([])
@@ -82,6 +98,8 @@ test('time with an open request is taken out of each Stage visit it overlaps', (
   })
   expect(design?.samples.map((s) => s.elapsedMs / hour)).toEqual([5])
   expect(design).toMatchObject({ totalMs: 5 * hour, medianMs: 5 * hour })
+  expect(clarify?.samples[0]?.parts).toMatchObject({ working: hour, you: 0, other: 1.5 * hour })
+  expect(clarify?.parts).toMatchObject({ working: hour, you: 0, other: 3.5 * hour })
 })
 
 test('a Task without a complete record of requests is left out of every Stage and its Factory’s count', () => {

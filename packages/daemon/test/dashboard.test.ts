@@ -1,6 +1,8 @@
-import type { DashboardRange, FailureCase } from '@ted/protocol'
+import type { DashboardRange, FailureCase, FlowInterval, FlowReasonId } from '@ted/protocol'
+import { splitStage } from '@ted/protocol/stage-parts'
 import { expect, test } from 'vitest'
 import { type DashboardTaskFacts, dashboardReport } from '../src/dashboard.ts'
+import { stageSampleParts } from '../src/dashboard-flow.ts'
 import { sendBackSeverities } from '../src/store/dashboard.ts'
 
 type Facts = Omit<DashboardTaskFacts, 'factoryId'> & { factoryId?: string }
@@ -876,6 +878,45 @@ test('unions every observed reason independently and preserves direct/Check test
   expect(flow.previous?.reasons.every((r) => r.samples.length === 0 && r.medianMs === null)).toBe(
     true,
   )
+})
+
+test('each Stage hour counts once, under the first reason that covers it, and the rest is Other', () => {
+  const work = required(
+    factoryDashboard([observedTask()], '7d', now).flow.current.stages.find(
+      (s) => s.stage === 'work',
+    ),
+  )
+  const split = { working: 5, checks: 4, you: 0, slot: 0, github: 0, blocked: 1, other: 0 }
+  const inHours = (parts: Record<string, number>) =>
+    Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, v / hour]))
+  expect(inHours(work.parts)).toEqual(split)
+  expect(inHours(required(work.samples[0]).parts)).toEqual(split)
+
+  const at = (h: number) => iso(now + h * hour)
+  const spans = (...list: [number, number][]) => list.map(([a, b]) => ({ from: at(a), to: at(b) }))
+  const reasons = new Map<FlowReasonId, { intervals: FlowInterval[] }>([
+    ['user-request', { intervals: spans([0, 2]) }],
+    ['run-slot', { intervals: spans([1, 3]) }],
+    ['check-slot', { intervals: spans([2, 4]) }],
+    ['github', { intervals: spans([3, 6]) }],
+    ['blocker', { intervals: spans([5, 7]) }],
+    ['stopped', { intervals: spans([6, 8]) }],
+  ])
+  expect(inHours(stageSampleParts({ intervals: spans([0, 10]) }, reasons))).toEqual({
+    working: 0,
+    checks: 0,
+    you: 2,
+    slot: 2,
+    github: 2,
+    blocked: 2,
+    other: 2,
+  })
+  const withoutYou = splitStage(
+    spans([0, 10]),
+    new Map([...reasons].map(([r, s]) => [r, s.intervals])),
+    ['you'],
+  )
+  expect(inHours(withoutYou)).toMatchObject({ you: 0, slot: 2, other: 2 })
 })
 
 test('clips all reasons to active Stage windows, excludes Backlog, and uses one as-of for both periods', () => {

@@ -755,7 +755,7 @@
 
 .stageRows {
   display: grid;
-  grid-template-columns: 1fr auto auto auto auto;
+  grid-template-columns: minmax(110px, auto) minmax(120px, 1fr) auto auto auto auto auto;
 }
 
 .stageRows > .timingRow {
@@ -770,8 +770,16 @@
   text-align: right;
 }
 
+.stageRows > .timingRow > :nth-child(2) {
+  padding-left: 12px;
+}
+
 .stageRows > .timingRow > :nth-child(3) {
   padding-left: 20px;
+}
+
+.stageRows > .timingRow > :nth-child(6) {
+  text-align: left;
 }
 
 .stageNumber {
@@ -1021,4 +1029,146 @@
 .severityP1 {
   background: var(--status-failed-bg);
   color: var(--status-failed-fg);
+}
+
+.partWorking {
+  background: var(--chart-sapphire);
+}
+
+.partChecks {
+  background: var(--chart-amethyst);
+}
+
+.partYou {
+  background: var(--chart-tourmaline);
+}
+
+.partSlot {
+  background: var(--chart-aquamarine);
+}
+
+.partGithub {
+  background: var(--chart-teal);
+}
+
+.partBlocked {
+  background: var(--chart-slate);
+}
+
+.partOther {
+  background: var(--chart-other);
+}
+
+.stageControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin: 8px 0 4px;
+}
+
+.stageLegend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+
+.stageLegend i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+.segToggle {
+  display: inline-flex;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+}
+
+.segToggle button {
+  height: var(--button-height-small);
+  padding: 0 9px;
+  border: none;
+  background: var(--surface-card);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  cursor: pointer;
+}
+
+.segToggle button[aria-pressed='true'] {
+  background: var(--surface-inverse);
+  color: var(--text-on-inverse);
+}
+
+.segToggle button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.stageTrack {
+  min-width: 0;
+}
+
+.stageBar {
+  display: flex;
+  gap: 1px;
+  height: 14px;
+  overflow: hidden;
+  border-radius: 3px;
+}
+
+.stageBar button {
+  flex-basis: 0;
+  min-width: 2px;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+}
+
+.stageBar button:hover {
+  filter: brightness(0.9);
+}
+
+.stageBar button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.mostTime {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--chart-amethyst-bg);
+  color: var(--chart-amethyst-text);
+  font-size: var(--text-10);
+  white-space: nowrap;
+}
+
+.coversAll {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  background: var(--surface-neutral);
+  color: var(--text-secondary);
+  font-size: var(--text-10);
+  font-family: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+button.coverage {
+  font-family: inherit;
+  cursor: pointer;
 }

@@ -814,6 +814,7 @@ export {
   slowThresholds,
 } from './slow.ts'
 export { parseProfileRequest } from './slow-parsers.ts'
+export type { StagePart, StageParts } from './stage-parts.ts'
 export {
   diskFullHold,
   diskLimits,

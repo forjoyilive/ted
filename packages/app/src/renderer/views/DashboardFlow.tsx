@@ -5,10 +5,13 @@ import type {
   FlowFailureOutcome,
   FlowPeriod,
   FlowSendBack,
+  FlowStageSample,
   FlowValidateOutcome,
+  StagePart,
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
-import { useEffect, useId, useRef } from 'react'
+import { stageParts } from '@ted/protocol/stage-parts'
+import { useEffect, useId, useRef, useState } from 'react'
 import { CloseIcon } from '../components/icons.tsx'
 import type { FlowSelection } from '../dashboard.ts'
 import { stageName as label } from '../list-view.ts'
@@ -47,84 +50,171 @@ const outcomes: Record<FlowValidateOutcome, string> = {
   'no-visit': 'No recorded Validate visit',
 }
 
+export const partNames: Record<StagePart, string> = {
+  working: 'Agent working',
+  checks: 'Running Checks',
+  you: 'Waiting on you',
+  slot: 'Waiting for a slot',
+  github: 'Waiting on GitHub',
+  blocked: 'Blocked or paused',
+  other: 'Other',
+}
+
+const partClass: Record<StagePart, string | undefined> = {
+  working: styles.partWorking,
+  checks: styles.partChecks,
+  you: styles.partYou,
+  slot: styles.partSlot,
+  github: styles.partGithub,
+  blocked: styles.partBlocked,
+  other: styles.partOther,
+}
+
 function coverage(
   stage: FlowPeriod['stages'][number],
-  period: FlowPeriod,
+  eligible: number,
   factories: readonly { id: string; name: string }[],
-): { text: string; names: string } | null {
-  if (factories.length < 2 || stage.samples.length === 0) return null
+): { text: string; names?: string; full: boolean } {
+  const n = stage.samples.length
+  const full = n > 0 && n === eligible
+  const tasks = `${n} of ${eligible} ${eligible === 1 ? 'Task' : 'Tasks'}`
   const having = factories.filter((f) => stage.factoryIds.includes(f.id))
-  if (having.length === factories.length) return null
+  if (factories.length < 2 || n === 0 || having.length === factories.length)
+    return { text: full ? (n === 1 ? '1 Task' : `All ${n} Tasks`) : tasks, full }
   return {
-    text: `${having.length} of ${factories.length} Factories · ${stage.samples.length} of ${period.taskIds.length} Tasks`,
+    text: `${having.length} of ${factories.length} Factories · ${tasks}`,
     names: having.map((f) => f.name).join(', '),
+    full: false,
   }
 }
 
 function StageTable({
   period,
   previous,
+  eligible,
   factories,
   select,
 }: {
   period: FlowPeriod
   previous: FlowPeriod | null
+  eligible: number
   factories: readonly { id: string; name: string }[]
   select: (s: FlowSelection) => void
 }) {
+  const [mode, setMode] = useState<'total' | 'share'>('total')
   const total = period.stages.reduce((sum, s) => sum + (totalValue(s) ?? 0), 0)
+  const most = Math.max(0, ...period.stages.map((s) => totalValue(s) ?? 0))
+  const top = most > 0 ? period.stages.find((s) => totalValue(s) === most) : undefined
+  const used = stageParts.filter((part) => period.stages.some((s) => s.parts[part] > 0))
   return (
     <>
       <p className={styles.caption}>{bounds(period)}</p>
+      {used.length > 0 && (
+        <div className={styles.stageControls}>
+          <div className={styles.stageLegend}>
+            {used.map((part) => (
+              <span key={part}>
+                <i className={partClass[part]} />
+                {partNames[part]}
+              </span>
+            ))}
+          </div>
+          <fieldset className={styles.segToggle} aria-label="Bar length">
+            <button type="button" aria-pressed={mode === 'total'} onClick={() => setMode('total')}>
+              Total time
+            </button>
+            <button type="button" aria-pressed={mode === 'share'} onClick={() => setMode('share')}>
+              Share of each Stage
+            </button>
+          </fieldset>
+        </div>
+      )}
       <ul className={`${styles.timingRows} ${styles.stageRows}`}>
         {period.stages.length > 0 && (
           <li className={`${styles.timingRow} ${styles.stageColumns}`}>
             <span>Stage</span>
+            <span />
             <span className={styles.stageNumber}>Share</span>
             <span className={styles.stageNumber}>Time</span>
+            <span className={styles.stageNumber}>Median</span>
+            <span>Covers</span>
             <span>{previous && 'vs previous'}</span>
-            <span />
           </li>
         )}
         {period.stages.map((s) => {
           const prior = previous?.stages.find((p) => p.stage === s.stage)
           const choose = () => select({ kind: 'stage', stage: s.stage, period: 'current' })
-          const partial = coverage(s, period, factories)
+          const covers = coverage(s, eligible, factories)
+          const value = totalValue(s)
+          const parts = stageParts.filter((part) => s.parts[part] > 0)
+          const split = parts.reduce((n, part) => n + s.parts[part], 0)
+          const width = mode === 'share' ? 100 : most > 0 ? ((value ?? 0) / most) * 100 : 0
           return (
             <li key={s.stage} className={styles.timingRow}>
               <div>
                 <button type="button" data-nav-item className={styles.link} onClick={choose}>
                   {label(s.stage)}
                 </button>
-                <p>
-                  <button type="button" data-nav-item className={styles.link} onClick={choose}>
-                    {s.samples.length} {s.samples.length === 1 ? 'Task' : 'Tasks'}
-                  </button>
-                  {partial && (
-                    <span className={styles.coverage} title={`Only in ${partial.names}`}>
-                      {partial.text}
-                    </span>
-                  )}
-                </p>
+                {s === top && <span className={styles.mostTime}>Most time</span>}
               </div>
-              <strong className={styles.stageNumber}>{share(totalValue(s), total)}</strong>
-              <span className={styles.stageNumber}>{hours(totalValue(s))}</span>
-              <span>
-                {previous && <TimingChange current={totalValue(s)} previous={totalValue(prior)} />}
+              <div className={styles.stageTrack}>
+                {split > 0 && (
+                  <div
+                    className={styles.stageBar}
+                    data-testid={`stage-bar-${s.stage}`}
+                    style={{ width: `${width}%` }}
+                  >
+                    {parts.map((part) => {
+                      const text = `${label(s.stage)} · ${partNames[part]}: ${hours(s.parts[part])}`
+                      return (
+                        <button
+                          key={part}
+                          type="button"
+                          className={partClass[part]}
+                          style={{ flexGrow: s.parts[part] / split }}
+                          aria-label={text}
+                          title={text}
+                          onClick={() =>
+                            select({ kind: 'stage', stage: s.stage, part, period: 'current' })
+                          }
+                        />
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+              <strong className={styles.stageNumber}>{share(value, total)}</strong>
+              <span className={styles.stageNumber}>{hours(value)}</span>
+              <span className={styles.stageNumber}>
+                {s.samples.length ? hours(s.medianMs) : '—'}
               </span>
-              <button
-                type="button"
-                data-nav-item
-                className={styles.link}
-                aria-label={`Inspect ${label(s.stage)} Stage`}
-                onClick={choose}
-              >
-                →
-              </button>
+              <span>
+                <button
+                  type="button"
+                  data-nav-item
+                  className={covers.full ? styles.coversAll : styles.coverage}
+                  title={covers.names && `Only in ${covers.names}`}
+                  onClick={choose}
+                >
+                  {covers.text}
+                </button>
+              </span>
+              <span>
+                {previous && <TimingChange current={value} previous={totalValue(prior)} />}
+              </span>
             </li>
           )
         })}
       </ul>
+      {used.length > 0 && (
+        <p className={styles.caption}>
+          Reasons can overlap, for example a Run waiting for a slot while Checks run. Each hour
+          counts once, under the first reason that applies, in the legend’s order: Agent working,
+          Running Checks, Waiting on you, Waiting for a slot, Waiting on GitHub, then Blocked or
+          paused. Other is time no recorded reason covers, including history TED didn’t record.
+          Hover a segment for its hours; click it for the Tasks.
+        </p>
+      )}
       {period.stages.every((s) => s.samples.length === 0) && (
         <p className={styles.empty}>
           No measurable Stage intervals in this period. Total and distribution unavailable.
@@ -653,7 +743,7 @@ function FlowSample({
       : selection.kind === 'guide'
         ? 'Follow the time to the Task'
         : selection.kind === 'stage'
-          ? `${label(selection.stage)} · Per-Task elapsed time`
+          ? `${label(selection.stage)} · ${selection.part ? partNames[selection.part] : 'Per-Task elapsed time'}`
           : selection.kind === 'send-back'
             ? `${label(selection.from)} → ${label(selection.to)} · Actual transitions`
             : selection.kind === 'affected'
@@ -708,9 +798,11 @@ function FlowSample({
         ],
       })
   } else if (selection.kind === 'stage') {
-    for (const s of (
-      period.stages.find((s) => s.stage === selection.stage)?.samples ?? []
-    ).toSorted((a, b) => b.elapsedMs - a.elapsedMs || a.taskId.localeCompare(b.taskId))) {
+    const part = selection.part
+    const spent = (s: FlowStageSample) => (part ? s.parts[part] : s.elapsedMs)
+    for (const s of (period.stages.find((s) => s.stage === selection.stage)?.samples ?? [])
+      .filter((s) => spent(s) > 0 || !part)
+      .toSorted((a, b) => spent(b) - spent(a) || a.taskId.localeCompare(b.taskId))) {
       const incomplete = period.incomplete.find((i) => i.taskId === s.taskId)
       const withWaits = (
         selection.period === 'previous'
@@ -723,6 +815,7 @@ function FlowSample({
         key: s.taskId,
         taskId: s.taskId,
         lines: [
+          ...(part ? [`${partNames[part]}: ${hours(s.parts[part])} of ${hours(s.elapsedMs)}`] : []),
           `${hours(s.elapsedMs)} · ${s.intervals.length} measured ${s.intervals.length === 1 ? 'visit' : 'visits'}${withWaits ? ` · ${hours(withWaits.elapsedMs - s.elapsedMs)} waiting for you left out` : ''}`,
           ...s.intervals.map((i) => `${at(i.from)} – ${at(i.to)} (end excluded)`),
           ...(incomplete?.reasons ?? []),
@@ -890,6 +983,12 @@ function FlowSample({
             </div>
           </div>
           {reason && <p>{coverageLabel(reason)}. Partial measured samples may understate delay.</p>}
+          {stage && selection.kind === 'stage' && selection.part && (
+            <p>
+              {partNames[selection.part]}: {hours(stage.parts[selection.part])} of this Stage’s{' '}
+              {hours(totalValue(stage))}. Longest first.
+            </p>
+          )}
           {selection.period === 'current' &&
             data.previous &&
             (selection.kind === 'reason' || selection.kind === 'stage') && (
@@ -1073,6 +1172,11 @@ export function Flow({
           <StageTable
             period={data.current}
             previous={data.previous}
+            eligible={
+              data.current.taskIds.filter(
+                (id) => !reduced?.leftOut.current.some((t) => t.taskId === id),
+              ).length
+            }
             factories={factories}
             select={select}
           />

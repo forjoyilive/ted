@@ -131,6 +131,7 @@
   --chart-tourmaline: light-dark(#c2368f, #ee8fcb);
   --chart-aquamarine: light-dark(#5aa8d6, #8ccbf0);
   --chart-slate: light-dark(#b4b8c8, #6f7386);
+  --chart-other: light-dark(#dddbd4, #45443f);
   --chart-amethyst-bg: light-dark(#f3edfc, #30243f);
   --chart-amethyst-border: light-dark(#dccbf3, #4f3a6b);
   --chart-amethyst-text: light-dark(#7d44c2, #c09cf0);
