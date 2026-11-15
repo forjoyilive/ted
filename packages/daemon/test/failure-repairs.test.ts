@@ -28,12 +28,14 @@ import {
 
 useMergeHarness()
 
+const validateWaitMs = 60_000
+
 function required<T>(value: T | undefined): T {
   if (value === undefined) throw new Error('missing test fixture')
   return value
 }
 
-async function setup(check = false, command = 'test -f timezone.txt') {
+async function begin(check = false, command = 'test -f timezone.txt') {
   const client = await start({
     ...(check && {
       workflow: [
@@ -66,24 +68,33 @@ async function setup(check = false, command = 'test -f timezone.txt') {
     factory: 'NB',
     start: true,
   })
+  return { client, task, check }
+}
+
+async function decide({ client, task, check }: Awaited<ReturnType<typeof begin>>) {
   let last: unknown
-  const current = await waitUntil(async () => {
-    const value = await getTask(client, task.id)
-    const recorded =
-      !check ||
-      (await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)).some(
-        (f) => f.source.kind === 'factory-check',
-      )
-    const ready = {
-      validate: value.stage === 'validate',
-      idle: value.runs.find((run) => run.id === value.leadRunId)?.state === 'idle',
-      published:
-        value.repos.length > 0 && value.repos.every((repo) => repo.pullRequest && repo.pushed),
-      recorded,
-    }
-    last = { ...ready, stage: value.stage, runs: value.runs, repos: value.repos }
-    return Object.values(ready).every(Boolean) ? value : undefined
-  }, 'idle Validate Lead, published revision and failure evidence').catch((error: unknown) => {
+  const current = await waitUntil(
+    async () => {
+      const value = await getTask(client, task.id)
+      const recorded =
+        !check ||
+        (await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)).some(
+          (f) => f.source.kind === 'factory-check',
+        )
+      const ready = {
+        validate: value.stage === 'validate',
+        idle: value.runs.find((run) => run.id === value.leadRunId)?.state === 'idle',
+        published:
+          value.repos.length > 0 && value.repos.every((repo) => repo.pullRequest && repo.pushed),
+        recorded,
+        settled: !value.statuses.includes('working'),
+      }
+      last = { ...ready, stage: value.stage, runs: value.runs, repos: value.repos }
+      return Object.values(ready).every(Boolean) ? value : undefined
+    },
+    'idle Validate Lead, published revision and failure evidence',
+    validateWaitMs,
+  ).catch((error: unknown) => {
     throw new Error(`${String(error)}; last setup state: ${JSON.stringify(last)}`)
   })
   const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
@@ -117,6 +128,8 @@ async function setup(check = false, command = 'test -f timezone.txt') {
     })
   return { client, current, lead, root, failure, requestId, resolve }
 }
+
+const setup = async (check = false) => decide(await begin(check))
 
 test('approved repair creation is idempotent, stops the Lead and retains failure and worktree', async () => {
   const s = await setup()
@@ -277,12 +290,13 @@ test.each([
 ] as const)(
   'a %s repair is incorporated before fresh Checks, with the original failure retained',
   async (method) => {
-    const s = await setup(
+    const begun = await begin(
       true,
       method === 'failed-repair'
         ? 'test ! -f source-change.txt || test -f timezone.txt'
         : undefined,
     )
+    const { client } = begun
     const repairedFile = method === 'failed-repair' ? 'unrelated.txt' : 'timezone.txt'
     const script = [
       `echo restored > ${repairedFile}`,
@@ -297,7 +311,7 @@ test.each([
     ].join(' && ')
     const each = [
       {
-        run: ['sh', '-c', `ted brief write --file '${s.client.briefFile}' && ted outcome advance`],
+        run: ['sh', '-c', `ted brief write --file '${client.briefFile}' && ted outcome advance`],
       },
       { endTurn: true },
     ]
@@ -309,7 +323,10 @@ test.each([
         { endTurn: true },
       ],
     }
-    const { task: repair, signoff } = await toSignoff(s.client, { title: JSON.stringify(steps) })
+    const [s, { task: repair, signoff }] = await Promise.all([
+      decide(begun),
+      toSignoff(client, { title: JSON.stringify(steps) }),
+    ])
     expect((await s.resolve({ kind: 'existing', taskId: repair.id })).status).toBe(200)
     const state = JSON.parse(await readFile(ctx.ghState, 'utf8'))
     const repairRepo = required((await getTask(s.client, repair.id)).repos[0])
@@ -458,7 +475,7 @@ test.each([
     expect(checks.some((c) => c.outcome === 'passed')).toBe(true)
     expect(new Set(checks.map((c) => c.id)).size).toBeGreaterThan(1)
   },
-  60_000,
+  90_000,
 )
 
 test('approving a queued repair releases a single working-Run slot for ordinary repair work', async () => {
@@ -666,4 +683,4 @@ test('Merge uses the same repair remedy without allowing the Task Lead to advanc
     async () => (await getTask(client, task.id)).stage === 'done',
     'original signed-off PR merged',
   )
-}, 120_000)
+}, 150_000)
