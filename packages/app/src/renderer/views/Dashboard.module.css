@@ -734,3 +734,126 @@
   background: var(--surface-inset);
   font-size: var(--text-12);
 }
+
+.factoryChips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 14px;
+  padding: 0;
+  list-style: none;
+}
+
+.factoryChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--button-height-small);
+  padding: 0 4px 0 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-inset);
+  font-size: var(--text-12);
+}
+
+.chipRemove {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--text-caption);
+  cursor: pointer;
+}
+
+.chipRemove:hover {
+  background: var(--border-subtle);
+}
+
+.chipRemove:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.chipRemove svg {
+  width: 10px;
+  height: 10px;
+}
+
+.byFactory {
+  margin-top: 18px;
+}
+
+.factoryTable {
+  width: calc(100% - 40px);
+  margin: 0 20px;
+  border-collapse: collapse;
+  font-size: var(--text-12);
+}
+
+.factoryTable th,
+.factoryTable td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  font-weight: var(--weight-regular);
+}
+
+.factoryTable thead th {
+  color: var(--text-caption);
+  font-size: var(--text-11);
+  font-weight: var(--weight-medium);
+}
+
+.factoryTable .number {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.factoryName {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.factoryName:hover {
+  color: var(--accent-link);
+}
+
+.factoryName:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.share {
+  display: inline-block;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 3px;
+  vertical-align: middle;
+}
+
+.byFactoryFoot {
+  padding: 10px 20px 16px;
+}
+
+.coverage {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: 5px;
+  background: var(--status-waiting-bg);
+  color: var(--status-warning-text);
+  font-size: var(--text-10);
+  white-space: nowrap;
+}

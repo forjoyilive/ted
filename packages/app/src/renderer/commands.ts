@@ -110,7 +110,7 @@ export const globalCommands: readonly Command[] = [
     label: 'Go to Dashboard',
     scope: 'global',
     shortcuts: keysFor('go-to-dashboard'),
-    run: goToView('dashboard'),
+    run: ({ dispatch }) => dispatch({ type: 'open', screen: { kind: 'dashboard' } }),
   },
   {
     id: 'go-to-board',

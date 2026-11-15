@@ -125,7 +125,6 @@ function RenameRow({ factory, onDone }: { factory: Factory; onDone: () => void }
 }
 
 const factoryViews: { view: FactoryView | 'tasks'; label: string; nested?: true }[] = [
-  { view: 'dashboard', label: 'Dashboard' },
   { view: 'coordinator', label: 'Coordinator' },
   { view: 'tasks', label: 'Tasks' },
   { view: 'board', label: 'Board', nested: true },
@@ -254,6 +253,14 @@ export function Sidebar({
           {...current({ kind: 'all-tasks' })}
         >
           <span className={styles.label}>All Tasks</span>
+        </ActionButton>
+        <ActionButton
+          type="button"
+          className={styles.row}
+          onClick={() => open({ kind: 'dashboard' })}
+          {...current({ kind: 'dashboard' })}
+        >
+          <span className={styles.label}>Dashboard</span>
         </ActionButton>
 
         <div className={styles.sectionHeading}>

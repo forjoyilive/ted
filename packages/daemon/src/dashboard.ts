@@ -1,16 +1,18 @@
 import type {
   DashboardBucket,
   DashboardChange,
+  DashboardFactoryPeriod,
   DashboardPeriod,
   DashboardRange,
+  DashboardReport,
   DashboardSample,
   DashboardTask,
-  FactoryDashboard,
 } from '@ted/protocol'
 import { dashboardFlow, type FlowFacts } from './dashboard-flow.ts'
 
 export interface DashboardTaskFacts extends FlowFacts {
   id: string
+  factoryId: string
   displayId: string
   title: string
   createdAt: string
@@ -116,18 +118,42 @@ export function rangeWindows(range: Exclude<DashboardRange, 'all'>, asOf: number
   }
 }
 
+function byFactory(
+  tasks: readonly DashboardTask[],
+  taskIds: readonly string[],
+  factoryIds: readonly string[],
+): DashboardFactoryPeriod[] {
+  const inPeriod = new Set(taskIds)
+  return factoryIds.map((factoryId) => {
+    const selected = tasks.filter((task) => task.factoryId === factoryId && inPeriod.has(task.id))
+    return {
+      factoryId,
+      taskIds: selected.map((task) => task.id),
+      created: sample(selected, 'createdMs'),
+      intake: sample(selected, 'intakeMs'),
+    }
+  })
+}
+
 function period(
   tasks: readonly DashboardTask[],
   from: number | null,
   to: number,
   edges: Edges,
+  factoryIds: readonly string[],
 ): DashboardPeriod {
   const whole =
     from === null
       ? { taskIds: [], created: sample([], 'createdMs'), intake: sample([], 'intakeMs') }
       : bucket(tasks, from, to)
   const buckets = edges.map(([start, end]) => bucket(tasks, start, end))
-  return { ...whole, from: from === null ? null : iso(from), to: iso(to), buckets }
+  return {
+    ...whole,
+    from: from === null ? null : iso(from),
+    to: iso(to),
+    buckets,
+    byFactory: byFactory(tasks, whole.taskIds, factoryIds),
+  }
 }
 
 function change(value: number | null, previous: number | null): DashboardChange {
@@ -139,11 +165,12 @@ function change(value: number | null, previous: number | null): DashboardChange 
   }
 }
 
-export function factoryDashboard(
+export function dashboardReport(
   facts: readonly DashboardTaskFacts[],
+  factoryIds: readonly string[],
   range: DashboardRange,
   asOf: number,
-): FactoryDashboard {
+): DashboardReport {
   const tasks: DashboardTask[] = []
   const unavailableIds: string[] = []
   for (const task of facts) {
@@ -158,6 +185,7 @@ export function factoryDashboard(
         unavailableIds.push(task.id)
         tasks.push({
           id: task.id,
+          factoryId: task.factoryId,
           displayId: task.displayId,
           title: task.title,
           archived: task.archived,
@@ -175,6 +203,7 @@ export function factoryDashboard(
       .filter(Number.isFinite)
     tasks.push({
       id: task.id,
+      factoryId: task.factoryId,
       displayId: task.displayId,
       title: task.title,
       archived: task.archived,
@@ -197,6 +226,7 @@ export function factoryDashboard(
       : range === 'today'
         ? hours(from, to)
         : days(from, to, history ? history.perPoint : 1),
+    factoryIds,
   )
   const previous = windows
     ? period(
@@ -206,6 +236,7 @@ export function factoryDashboard(
         windows.previousDay === null
           ? days(windows.previous.from, windows.previous.to, 1)
           : hours(windows.previousDay, windows.from),
+        factoryIds,
       )
     : null
   const selected = new Set([
@@ -217,6 +248,7 @@ export function factoryDashboard(
   return {
     asOf: iso(asOf),
     range,
+    factoryIds: [...factoryIds],
     tasks: tasks.filter((task) => selected.has(task.id)),
     unavailableIds,
     current,

@@ -8,7 +8,7 @@ import type {
   AgentApiCost,
   ApiCostReport,
   DashboardRange,
-  FactoryDashboard,
+  DashboardReport,
   FactoryIcon,
   MessageBox,
   MessageDraft,
@@ -142,7 +142,7 @@ import {
   createCoordinatorStore,
   type StoredCoordinator,
 } from './coordinators.ts'
-import { readFactoryDashboard } from './dashboard.ts'
+import { readDashboard } from './dashboard.ts'
 import { createExecutionStore, type ExecutionStore } from './execution.ts'
 import { createOperationStore, type OperationStore } from './execution-operations.ts'
 import { createPairingStore, type PairingStore } from './execution-pairing.ts'
@@ -931,7 +931,7 @@ export interface TedStore extends TaskHistory {
     entry?: NewStageEntry,
     options?: { prepare?: boolean },
   ): Task
-  factoryDashboard(factoryId: string, range: DashboardRange, asOf?: number): FactoryDashboard
+  dashboard(factoryIds: readonly string[], range: DashboardRange, asOf?: number): DashboardReport
   listStageEntries(taskId: string): StageEntry[]
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
@@ -5313,8 +5313,8 @@ export async function openStore({
       if (stage === 'done' || stage === 'cleanup') updatedDependents(taskId)
       return task
     },
-    factoryDashboard(factoryId, range, asOf = Date.now()) {
-      return readFactoryDashboard(store, factoryId, range, asOf, observationSessionId)
+    dashboard(factoryIds, range, asOf = Date.now()) {
+      return readDashboard(store, factoryIds, range, asOf, observationSessionId)
     },
     listStageEntries: (taskId) =>
       store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc'))).map(toStageEntry),

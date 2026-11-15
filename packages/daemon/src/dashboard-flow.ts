@@ -270,6 +270,7 @@ function period(
       stage,
       {
         stage,
+        factoryIds: [],
         totalMs: 0,
         medianMs: null,
         p25Ms: null,
@@ -316,6 +317,7 @@ function period(
     for (const [name, sample] of perStage) {
       const stage = stages.get(name) ?? {
         stage: name,
+        factoryIds: [],
         totalMs: 0,
         medianMs: null,
         p25Ms: null,
@@ -324,6 +326,7 @@ function period(
       }
       stage.totalMs += sample.elapsedMs
       stage.samples.push(sample)
+      if (!stage.factoryIds.includes(task.factoryId)) stage.factoryIds.push(task.factoryId)
       stages.set(name, stage)
     }
     for (const sendBack of task.sendBacks ?? []) {
@@ -406,10 +409,11 @@ export function dashboardFlow(
   return {
     tasks: facts
       .filter((t) => selected.has(t.id))
-      .map(({ id, displayId, title, archived }) => {
+      .map(({ id, factoryId, displayId, title, archived }) => {
         const timing = timings.get(id)
         return {
           id,
+          factoryId,
           displayId,
           title,
           archived,

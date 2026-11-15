@@ -1,6 +1,6 @@
-import type { DashboardPeriod, FactoryDashboard, FlowPeriod, FlowReasonId } from '@ted/protocol'
+import type { DashboardPeriod, DashboardReport, FlowPeriod, FlowReasonId } from '@ted/protocol'
 
-export function dashboardFixture(empty = false): FactoryDashboard {
+export function dashboardFixture(empty = false): DashboardReport {
   const current: DashboardPeriod = {
     from: '2026-11-01T12:00:00.000Z',
     to: '2026-11-08T12:00:00.000Z',
@@ -16,7 +16,11 @@ export function dashboardFixture(empty = false): FactoryDashboard {
       missingIds: empty ? [] : ['t2'],
     },
     buckets: [],
+    byFactory: [],
   }
+  current.byFactory = [
+    { factoryId: 'nb', taskIds: current.taskIds, created: current.created, intake: current.intake },
+  ]
   current.buckets = [
     {
       from: current.from ?? '',
@@ -33,6 +37,7 @@ export function dashboardFixture(empty = false): FactoryDashboard {
     created: { value: null, taskIds: [], missingIds: [] },
     intake: { value: null, taskIds: [], missingIds: [] },
     buckets: [],
+    byFactory: [],
   }
   return {
     flow: {
@@ -41,6 +46,7 @@ export function dashboardFixture(empty = false): FactoryDashboard {
         : [
             {
               id: 't1',
+              factoryId: 'nb',
               displayId: 'NB-1',
               title: 'Fix login',
               archived: true,
@@ -49,6 +55,7 @@ export function dashboardFixture(empty = false): FactoryDashboard {
             },
             {
               id: 't2',
+              factoryId: 'nb',
               displayId: 'NB-2',
               title: 'Improve search',
               archived: false,
@@ -57,6 +64,7 @@ export function dashboardFixture(empty = false): FactoryDashboard {
             },
             {
               id: 't3',
+              factoryId: 'nb',
               displayId: 'NB-3',
               title: 'Open Task',
               archived: false,
@@ -69,6 +77,7 @@ export function dashboardFixture(empty = false): FactoryDashboard {
     },
     asOf: current.to,
     range: '7d',
+    factoryIds: ['nb'],
     current,
     previous,
     unavailableIds: [],
@@ -82,6 +91,7 @@ export function dashboardFixture(empty = false): FactoryDashboard {
       : [
           {
             id: 't1',
+            factoryId: 'nb',
             displayId: 'NB-1',
             title: 'Fix login',
             archived: true,
@@ -91,6 +101,7 @@ export function dashboardFixture(empty = false): FactoryDashboard {
           },
           {
             id: 't2',
+            factoryId: 'nb',
             displayId: 'NB-2',
             title: 'Improve search',
             archived: false,
@@ -179,6 +190,7 @@ function flowPeriod(empty: boolean, period: DashboardPeriod): FlowPeriod {
     stages: [
       {
         stage: 'work',
+        factoryIds: empty ? [] : ['nb'],
         totalMs: empty ? 0 : 14 * 3_600_000,
         medianMs: empty ? null : 7 * 3_600_000,
         p25Ms: empty ? null : 6 * 3_600_000,

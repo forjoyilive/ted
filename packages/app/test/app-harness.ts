@@ -101,11 +101,15 @@ export async function openFactoryView(
 ): Promise<void> {
   const row = sidebar(window).getByRole('article', { name: factory, exact: true })
   const group = row.locator('..')
-  if (
-    (await row.getByRole('button', { name: 'Views' }).getAttribute('aria-expanded')) === 'false'
-  ) {
-    await row.getByRole('button', { name: factory, exact: true }).click()
+  const expanded =
+    (await row.getByRole('button', { name: 'Views' }).getAttribute('aria-expanded')) === 'true'
+  if (view === 'Dashboard') {
+    const name = row.getByRole('button', { name: factory, exact: true })
+    if (expanded) await name.click()
+    await name.click()
+    return
   }
+  if (!expanded) await row.getByRole('button', { name: factory, exact: true }).click()
   if (view === 'Board' || view === 'List') {
     const taskViews = group.getByRole('button', { name: 'Task views' })
     if ((await taskViews.getAttribute('aria-expanded')) === 'false') await taskViews.click()

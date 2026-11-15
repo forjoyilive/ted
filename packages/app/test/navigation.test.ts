@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { dashboardState, rememberDashboard, shownFactoryIds } from '../src/renderer/dashboard.ts'
 import {
   backLink,
   currentFactoryId,
@@ -315,18 +316,64 @@ test('Tasks opens the last-used of Board, List and Map, and a Task opened from M
   expect(backLink(opened)).toBe('← Map')
 })
 
-test('Task return and history preserve a Dashboard range and metric sample', () => {
+test('Task return and history preserve a Dashboard range, Factories and metric sample', () => {
   const screen = {
-    kind: 'factory',
-    factoryId: 'nb',
-    view: 'dashboard',
-    dashboard: { range: '7d', sample: { metric: 'intake', period: 'previous', bucket: 2 } },
+    kind: 'dashboard',
+    dashboard: {
+      range: '7d',
+      factoryIds: ['nb'],
+      sample: { metric: 'intake', period: 'previous', bucket: 2 },
+    },
   } as const
   const start = startHistory(navigate(initialNavigation, { type: 'open', screen }))
   const opened = withHistory(start, { type: 'open-task', taskId: 't1', factoryId: 'nb' })
   expect(backLink(opened.now)).toBe('← Dashboard')
   expect(navigate(opened.now, { type: 'close-task' }).screen).toEqual(screen)
   expect(withHistory(opened, { type: 'back' }).now.screen).toEqual(screen)
+})
+
+test('a Factory’s name opens the Dashboard narrowed to it until the Factory has a last view', () => {
+  const first = navigate(initialNavigation, { type: 'open-factory', factoryId: 'nb' })
+  expect(first).toMatchObject({
+    screen: { kind: 'dashboard', dashboard: { factoryIds: ['nb'] } },
+    lastFactoryId: 'nb',
+  })
+  const board = navigate(first, {
+    type: 'open',
+    screen: { kind: 'factory', factoryId: 'nb', view: 'board' },
+  })
+  expect(navigate(board, { type: 'open-factory', factoryId: 'nb' }).screen).toEqual({
+    kind: 'factory',
+    factoryId: 'nb',
+    view: 'board',
+  })
+})
+
+test('the Dashboard reopens on the remembered Factories, period and tab', () => {
+  const stored = new Map<string, string>()
+  const storage = {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => void stored.set(key, value),
+  }
+  expect(dashboardState(undefined, storage)).toEqual({ range: '30d' })
+  rememberDashboard({ range: '7d', panel: 'stages', factoryIds: ['nb', 'ms'] }, storage)
+  expect(dashboardState(undefined, storage)).toEqual({
+    range: '7d',
+    panel: 'stages',
+    factoryIds: ['nb', 'ms'],
+  })
+  expect(dashboardState({ factoryIds: ['nb'] }, storage)).toEqual({
+    range: '7d',
+    panel: 'stages',
+    factoryIds: ['nb'],
+  })
+  expect(dashboardState({ range: 'all' }, storage)).toEqual({ range: 'all' })
+  stored.set('ted.dashboard', '{"range":"bad","factoryIds":[1]}')
+  expect(dashboardState(undefined, storage)).toEqual({ range: '30d' })
+  const factories = [{ id: 'nb' }, { id: 'ms' }]
+  expect(shownFactoryIds(['nb', 'gone'], factories)).toEqual(['nb'])
+  expect(shownFactoryIds(['ms', 'nb'], factories)).toBeUndefined()
+  expect(shownFactoryIds(['gone'], factories)).toBeUndefined()
 })
 
 test('Inbox Planning requests preserve Inbox navigation, then yield to Tasks and Automations', () => {
