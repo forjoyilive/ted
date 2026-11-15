@@ -352,12 +352,12 @@ test('a round question that allows several answers sends every ticked choice', a
   expect(f.getAllByText('Recommended')).toHaveLength(2)
   const submit = screen.getByRole('button', { name: 'Submit answers' }) as HTMLButtonElement
   expect(submit.disabled).toBe(true)
-  await u.click(f.getByRole('checkbox', { name: 'Map' }))
-  await u.click(f.getByRole('checkbox', { name: 'Board' }))
+  await u.click(f.getByRole('checkbox', { name: /^Map/ }))
+  await u.click(f.getByRole('checkbox', { name: /^Board/ }))
   expect(f.queryByText('Changed ·')).toBeNull()
-  await u.click(f.getByRole('checkbox', { name: 'List' }))
+  await u.click(f.getByRole('checkbox', { name: /^List/ }))
   expect(f.getByText('Changed ·')).toBeTruthy()
-  await u.click(f.getByRole('checkbox', { name: 'Map' }))
+  await u.click(f.getByRole('checkbox', { name: /^Map/ }))
   await u.type(f.getByLabelText('Add to answer 1'), 'Map later.')
   await u.click(submit)
   expect(answer).toHaveBeenCalledWith('c1', {

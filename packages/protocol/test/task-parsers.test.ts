@@ -369,6 +369,8 @@ test('a question that allows several answers keeps its recommended choices', () 
     P.parseRoundInput({ ...round, questions: [{ ...several, recommended: 'List' }] }).questions[0]
       ?.recommendedChoices,
   ).toEqual(['List'])
+  const parsed = P.parseRoundInput({ ...round, questions: [several] })
+  expect(P.parseRoundInput(parsed)).toEqual(parsed)
   expect(
     P.parseRoundInput({ ...round, questions: [{ ...question, multiple: false }] }).questions,
   ).toEqual([question])
@@ -395,6 +397,11 @@ rejects(
 )
 rejects(P.parsePostCommentRequest, { body: 'Which?', multiple: true }, 'needs choices')
 rejects(P.parseAnswerRequest, { action: 'answer', choices: ['Board', 3] }, 'choices must be a list')
+rejects(
+  P.parseAnswerRequest,
+  { action: 'answer', choices: ['1', '2', '3', '4', '5', '6', '7'] },
+  'at most 6 choices',
+)
 test('long choices keep their line breaks and match a multi-line recommended answer', () => {
   const long = `Keep both\n${'x'.repeat(990)}`
   const parsed = P.parseRoundInput({

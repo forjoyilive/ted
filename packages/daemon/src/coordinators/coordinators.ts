@@ -1377,6 +1377,7 @@ export function createCoordinators(options: {
                         .digest('hex'),
                       input.request,
                       input.choice,
+                      input.choices,
                     ]
                   : []),
                 ...(input.decision !== undefined ||

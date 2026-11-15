@@ -187,8 +187,9 @@ function redactedAction(action: CoordinatorAction): CoordinatorAction {
     ...action,
     ...(action.message !== undefined && { message: redactSecrets(action.message) }),
     ...(action.answers !== undefined && {
-      answers: action.answers.map(({ answer, note }) => ({
+      answers: action.answers.map(({ answer, choices, note }) => ({
         answer: redactSecrets(answer),
+        ...(choices !== undefined && { choices }),
         ...(note !== undefined && { note: redactSecrets(note) }),
       })),
     }),

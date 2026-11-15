@@ -264,7 +264,10 @@ export function parseRoundInput(value: unknown): RoundInput {
 }
 
 function roundQuestion(item: unknown, number: number): RoundQuestion {
-  const { question, choices, recommended, multiple } = (item ?? {}) as Record<string, unknown>
+  const { question, choices, recommended, recommendedChoices, multiple } = (item ?? {}) as Record<
+    string,
+    unknown
+  >
   const text = typeof question === 'string' ? question.trim() : ''
   if (text === '') throw new HttpError(400, `question ${number} needs its question`)
   if ([...text].length > maxRoundQuestionLength) {
@@ -277,7 +280,7 @@ function roundQuestion(item: unknown, number: number): RoundQuestion {
   const several = multipleFlag(multiple, `question ${number}’s multiple`)
   if (several) {
     if (!options) throw new HttpError(400, `question ${number} needs choices to allow several`)
-    const picks = recommendedList(recommended, number)
+    const picks = recommendedList(recommendedChoices ?? recommended, number)
     if (picks.some((p) => !options.includes(p))) {
       throw new HttpError(
         400,
@@ -329,6 +332,9 @@ function choicePicks(value: unknown): string[] | undefined {
   if (value === undefined) return undefined
   if (!Array.isArray(value) || value.some((c) => typeof c !== 'string')) {
     throw new HttpError(400, 'choices must be a list of strings')
+  }
+  if (value.length > maxChoices) {
+    throw new HttpError(400, `a question has at most ${maxChoices} choices`)
   }
   return [...new Set(value as string[])]
 }
