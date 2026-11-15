@@ -92,6 +92,7 @@ describe('Settings → Storage', () => {
         'Backups',
         'Clones',
         'Conversations and logs',
+        'Sandbox caches',
         'Scratch worktrees',
         'Simulators',
         'Store',
@@ -109,6 +110,9 @@ describe('Settings → Storage', () => {
     expect(storage.largestWorktrees[0]?.bytes).toBeGreaterThan(0)
     expect(storage.backups.map((b) => b.kind)).toEqual(['daily'])
     expect(storage.backups[0]?.bytes).toBeGreaterThan(0)
+    expect(storage.storeFiles.eventLogBytes).toBeGreaterThan(0)
+    expect(storage.storeFiles.stateBytes).toBeGreaterThan(0)
+    expect(storage.storeFiles.backupsBytes).toBe(bytesOf('backups'))
     expect(storage.removableClones).toEqual({ count: 0, bytes: 0 })
   })
 
