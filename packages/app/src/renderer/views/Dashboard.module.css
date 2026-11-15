@@ -1248,3 +1248,66 @@ button.coverage {
   height: 100%;
   background: var(--chart-tourmaline);
 }
+
+.newBadge {
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--accent-subtle);
+  color: var(--accent-text);
+  font-size: var(--text-10);
+  font-weight: var(--weight-regular);
+}
+
+.costCards {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 12px;
+}
+
+@container dashboard (width < 780px) {
+  .costCards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.costWide {
+  margin-top: 18px;
+}
+
+.costPad {
+  margin: 0 20px 12px;
+}
+
+.rangeBar {
+  display: block;
+  width: 100%;
+  margin: 6px 0 2px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+.rangeBar:focus-visible {
+  outline: 2px solid var(--focus-ring);
+}
+
+.rangeBar svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.rangeTrack {
+  stroke: var(--border-default);
+}
+
+.rangeBox {
+  fill: var(--accent-subtle);
+  stroke: var(--accent-border);
+}
+
+.rangeMedian {
+  stroke: var(--accent-default);
+  stroke-width: 2px;
+}

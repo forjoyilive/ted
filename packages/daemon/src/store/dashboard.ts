@@ -1,5 +1,6 @@
 import { queryDb, type Store } from '@livestore/livestore'
 import type {
+  CostTask,
   DashboardRange,
   DashboardReport,
   FailureCase,
@@ -9,18 +10,28 @@ import type {
   ValidationSnapshot,
 } from '@ted/protocol'
 import { type DashboardTaskFacts, dashboardReport, rangeWindows } from '../dashboard.ts'
+import { type CostOwners, type CostUsage, costUsage } from '../dashboard-cost.ts'
 import type { FlowCheck, FlowJudgment } from '../dashboard-flow.ts'
 import { readDashboardTiming } from './dashboard-timing.ts'
 import { intervalBoundaries } from './interval-schema.ts'
 import {
+  automationFirings,
+  automations,
   checkResults,
   checkRuns,
+  coordinatorConversations,
+  coordinators,
   factories,
   failureCases,
+  plans,
   pullRequests,
+  reviewers,
+  runs,
+  runUsage,
   type schema,
   sendBacks,
   severityDeclarations,
+  sideChats,
   taskLog,
   tasks,
 } from './schema.ts'
@@ -64,6 +75,101 @@ function chunks<T>(values: T[]): T[][] {
   const result: T[][] = []
   for (let i = 0; i < values.length; i += 400) result.push(values.slice(i, i + 400))
   return result
+}
+
+export function readCostInput(
+  store: Store<typeof schema>,
+  factoryIds: readonly string[],
+  asOf: number,
+): { usage: CostUsage[]; tasks: CostTask[]; allFactories: boolean } {
+  const known = store.query(queryDb(factories))
+  const keys = new Map(known.map((factory) => [factory.id, factory.key]))
+  const allFactories = known.every((factory) => factoryIds.includes(factory.id))
+  const before = new Date(asOf).toISOString()
+  const rows = store.query(queryDb(runUsage.where({ at: { op: '<', value: before } })))
+  const automationFactory = new Map(
+    store.query(queryDb(automations.select('id', 'factoryId'))).map((a) => [a.id, a.factoryId]),
+  )
+  const owners: CostOwners = {
+    automations: new Map(),
+    plans: new Map(),
+    coordinators: new Map(),
+    sideChats: new Map(),
+    runs: new Map(),
+    reviewers: new Set(),
+    taskFactories: new Map(),
+  }
+  for (const ids of chunks(rows.map((row) => row.id))) {
+    for (const firing of store.query(
+      queryDb(
+        automationFirings.select('id', 'automationId').where({ id: { op: 'IN', value: ids } }),
+      ),
+    ))
+      owners.automations.set(firing.id, automationFactory.get(firing.automationId) ?? null)
+    for (const plan of store.query(
+      queryDb(plans.select('id', 'factoryId').where({ id: { op: 'IN', value: ids } })),
+    ))
+      owners.plans.set(plan.id, plan.factoryId)
+    for (const run of store.query(
+      queryDb(runs.select('id', 'taskId', 'parentRunId').where({ id: { op: 'IN', value: ids } })),
+    ))
+      owners.runs.set(run.id, run)
+    for (const reviewer of store.query(
+      queryDb(reviewers.select('runId', 'purpose').where({ runId: { op: 'IN', value: ids } })),
+    ))
+      if (reviewer.purpose === 'review') owners.reviewers.add(reviewer.runId)
+  }
+  const coordinatorChats = [
+    ...store.query(queryDb(coordinators)).map((row) => JSON.parse(row.data)),
+    ...store.query(queryDb(coordinatorConversations)).map((row) => JSON.parse(row.data).chat),
+  ] as { factoryId: string; runId?: string; runIds?: string[] }[]
+  for (const chat of coordinatorChats)
+    for (const runId of [chat.runId, ...(chat.runIds ?? [])])
+      if (runId && !owners.coordinators.has(runId)) owners.coordinators.set(runId, chat.factoryId)
+  for (const row of store.query(queryDb(sideChats))) {
+    const chat = JSON.parse(row.data) as { id: string; taskId: string; factoryId: string }
+    owners.sideChats.set(chat.id, { taskId: chat.taskId, factoryId: chat.factoryId })
+  }
+  const taskIds = new Set([
+    ...[...owners.runs.values()].flatMap((run) => (run.taskId ? [run.taskId] : [])),
+    ...[...owners.sideChats.values()].map((chat) => chat.taskId),
+  ])
+  const taskRows = chunks([...taskIds]).flatMap((ids) =>
+    store.query(
+      queryDb(
+        tasks.select('id', 'factoryId', 'number', 'title').where({ id: { op: 'IN', value: ids } }),
+      ),
+    ),
+  )
+  for (const task of taskRows) owners.taskFactories.set(task.id, task.factoryId)
+  const usage = costUsage(rows, owners)
+  const spentOn = new Set(usage.flatMap((row) => (row.taskId ? [row.taskId] : [])))
+  const runCounts = new Map<string, number>()
+  const backCounts = new Map<string, number>()
+  for (const ids of chunks([...spentOn])) {
+    for (const run of store.query(
+      queryDb(runs.select('id', 'taskId').where({ taskId: { op: 'IN', value: ids } })),
+    ))
+      if (run.taskId) runCounts.set(run.taskId, (runCounts.get(run.taskId) ?? 0) + 1)
+    for (const back of store.query(
+      queryDb(sendBacks.select('id', 'taskId').where({ taskId: { op: 'IN', value: ids } })),
+    ))
+      backCounts.set(back.taskId, (backCounts.get(back.taskId) ?? 0) + 1)
+  }
+  return {
+    usage,
+    tasks: taskRows
+      .filter((task) => spentOn.has(task.id))
+      .map((task) => ({
+        id: task.id,
+        factoryId: task.factoryId,
+        displayId: `${keys.get(task.factoryId) ?? ''}-${task.number}`,
+        title: task.title,
+        runs: runCounts.get(task.id) ?? 0,
+        sendBacks: backCounts.get(task.id) ?? 0,
+      })),
+    allFactories,
+  }
 }
 
 export function readDashboard(
@@ -283,5 +389,11 @@ export function readDashboard(
     const measured = activity.get(id)
     if (measured) task.activity = measured
   }
-  return dashboardReport([...facts.values()], factoryIds, range, asOf)
+  return dashboardReport(
+    [...facts.values()],
+    factoryIds,
+    range,
+    asOf,
+    readCostInput(store, factoryIds, asOf),
+  )
 }

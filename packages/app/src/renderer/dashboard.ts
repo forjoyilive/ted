@@ -1,4 +1,5 @@
 import type {
+  CostKind,
   DashboardMetric,
   DashboardRange,
   FlowFailureKind,
@@ -21,17 +22,22 @@ export type FlowSelection = { period: 'current' | 'previous' } & (
   | { kind: 'failure'; failure?: FlowFailureKind; outcome?: FlowFailureOutcome; id?: string }
 )
 
+export type CostSelection =
+  | { of: 'spend'; kind?: CostKind; model?: string; factoryId?: string | null }
+  | { of: 'per-pull-request'; factoryId?: string; taskId?: string }
+
 export interface DashboardSelection {
-  metric: DashboardMetric | 'unavailable' | 'open' | 'waiting'
+  metric: DashboardMetric | 'unavailable' | 'open' | 'waiting' | 'cost'
   period: 'current' | 'previous'
   bucket?: number
   missing?: boolean
   stage?: string
   requestId?: string
+  cost?: CostSelection
 }
 
 export interface DashboardViewState {
-  panel?: 'overview' | 'flow' | 'stages'
+  panel?: 'overview' | 'flow' | 'stages' | 'cost'
   range: DashboardRange
   factoryIds?: readonly string[]
   sample?: DashboardSelection
@@ -42,7 +48,7 @@ type Remembered = Pick<DashboardViewState, 'panel' | 'range' | 'factoryIds'>
 
 const storageKey = 'ted.dashboard'
 const ranges: readonly DashboardRange[] = ['today', '7d', '30d', 'all']
-const panels = ['overview', 'flow', 'stages'] as const
+const panels = ['overview', 'flow', 'stages', 'cost'] as const
 
 export function rememberedDashboard(storage: Pick<Storage, 'getItem'> = localStorage): Remembered {
   let stored: unknown

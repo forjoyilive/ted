@@ -49,7 +49,7 @@ const iso = (at: number) => new Date(at).toISOString()
 const time = (at: string | null | undefined) => Date.parse(at ?? '')
 const finite = Number.isFinite
 const failed = (state: string) => state === 'failed' || state === 'timed-out'
-const quantile = (values: number[], p: number): number | null => {
+export const quantile = (values: number[], p: number): number | null => {
   if (!values.length) return null
   const index = (values.length - 1) * p
   const lower = values[Math.floor(index)] ?? 0

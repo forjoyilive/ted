@@ -2,6 +2,7 @@ import type { DashboardRange, FailureCase, FlowInterval, FlowReasonId } from '@t
 import { splitStage } from '@ted/protocol/stage-parts'
 import { expect, test } from 'vitest'
 import { type DashboardTaskFacts, dashboardReport } from '../src/dashboard.ts'
+import { type CostOwners, costUsage, dashboardCost } from '../src/dashboard-cost.ts'
 import { stageSampleParts } from '../src/dashboard-flow.ts'
 import { sendBackSeverities } from '../src/store/dashboard.ts'
 
@@ -1267,4 +1268,160 @@ test('Waiting on you sums each completed Task’s requests by Stage, names each 
     previous: null,
     change: null,
   })
+})
+
+test('Cost splits spend by kind of work, gives one cost per merged pull request and counts unpriced Runs only in tokens', () => {
+  const day = 24 * hour
+  const start = now - 2 * day
+  const at = (n: number) => iso(n)
+  const row = (
+    id: string,
+    time: number,
+    cost: number | null,
+    agent = 'claude',
+    model = 'opus',
+  ) => ({
+    id,
+    agent,
+    model,
+    input: 10,
+    output: 1,
+    cost,
+    at: at(time),
+  })
+  const owners: CostOwners = {
+    automations: new Map([['auto', 'nb']]),
+    plans: new Map([['plan', 'nb']]),
+    coordinators: new Map([['coord', 'nb']]),
+    sideChats: new Map([['side', { taskId: 't1', factoryId: 'nb' }]]),
+    runs: new Map([
+      ['lead1', { taskId: 't1', parentRunId: null }],
+      ['review1', { taskId: 't1', parentRunId: 'lead1' }],
+      ['sub2', { taskId: 't2', parentRunId: 'lead2' }],
+      ['lead2', { taskId: 't2', parentRunId: null }],
+      ['gar', { taskId: 't3', parentRunId: null }],
+      ['gone', { taskId: 'deleted', parentRunId: null }],
+    ]),
+    reviewers: new Set(['review1']),
+    taskFactories: new Map([
+      ['t1', 'nb'],
+      ['t2', 'nb'],
+      ['t3', 'gar'],
+    ]),
+  }
+  const usage = costUsage(
+    [
+      row('lead1', start + hour, 6),
+      row('review1', start + day + hour, 2),
+      row('sub2', start + day + 2 * hour, null),
+      row('lead2', start - day, 3, 'codex', 'gpt-5.5'),
+      row('coord', start + 2 * hour, 1),
+      row('auto', start + 3 * hour, 0.5),
+      row('plan', start + 4 * hour, 0.25),
+      row('side', start + 5 * hour, 0.25),
+      row('loose', start + 6 * hour, 4),
+      row('gone', start + 7 * hour, 1),
+      row('gar', start + 8 * hour, 5),
+    ],
+    owners,
+  )
+  expect(Object.fromEntries(usage.map((u) => [u.runId, [u.kind, u.factoryId, u.taskId]]))).toEqual({
+    lead1: ['lead', 'nb', 't1'],
+    review1: ['reviewer', 'nb', 't1'],
+    sub2: ['sub-agent', 'nb', 't2'],
+    lead2: ['lead', 'nb', 't2'],
+    coord: ['coordinator', 'nb', null],
+    auto: ['automation', 'nb', null],
+    plan: ['planning', 'nb', null],
+    side: ['sub-agent', 'nb', 't1'],
+    loose: ['other', null, null],
+    gone: ['lead', null, null],
+    gar: ['lead', 'gar', 't3'],
+  })
+  const tasks = ['t1', 't2', 't3'].map((id) => ({
+    id,
+    factoryId: id === 't3' ? 'gar' : 'nb',
+    displayId: id,
+    title: id,
+    runs: 1,
+    sendBacks: 0,
+  }))
+  const current = {
+    from: at(start),
+    to: at(now),
+    buckets: [
+      { from: at(start), to: at(start + day) },
+      { from: at(start + day), to: at(now) },
+    ],
+    completed: [
+      { taskId: 't1', pullRequests: 2 },
+      { taskId: 't2', pullRequests: 1 },
+      { taskId: 'no-usage', pullRequests: 1 },
+    ],
+  }
+  const previous = { from: at(start - 2 * day), to: at(start), buckets: [], completed: [] }
+  const one = dashboardCost({
+    usage,
+    tasks,
+    factoryIds: ['nb'],
+    allFactories: false,
+    current,
+    previous,
+  })
+  expect(one.current).toMatchObject({
+    cost: 10,
+    runs: 7,
+    unpricedRuns: 1,
+    input: 70,
+    output: 7,
+    perPullRequest: {
+      median: 4.125,
+      p25: 3.5625,
+      p75: 4.125,
+      pullRequests: 3,
+      samples: [
+        { taskId: 't1', cost: 8.25, pullRequests: 2, perPullRequest: 4.125 },
+        { taskId: 't2', cost: 3, pullRequests: 1, perPullRequest: 3 },
+      ],
+    },
+  })
+  expect(one.current.kinds.map((k) => [k.key, k.cost, k.runs])).toEqual([
+    ['lead', 6, 1],
+    ['reviewer', 2, 1],
+    ['sub-agent', 0.25, 2],
+    ['coordinator', 1, 1],
+    ['automation', 0.5, 1],
+    ['planning', 0.25, 1],
+  ])
+  expect(one.current.buckets.map((b) => b.cost)).toEqual([8, 2])
+  expect(one.current.buckets[1]?.kinds.map((k) => k.key)).toEqual(['reviewer', 'sub-agent'])
+  expect(one.current.models.map((m) => m.key)).toEqual(['claude·opus'])
+  expect(one.current.tasks).toEqual([
+    { taskId: 't1', cost: 8.25 },
+    { taskId: 't2', cost: 0 },
+  ])
+  expect(one.current.byFactory.map((f) => f.factoryId)).toEqual(['nb'])
+  expect(one.previous).toMatchObject({
+    cost: 3,
+    models: [{ key: 'codex·gpt-5.5', agent: 'codex' }],
+  })
+  expect(one.change?.spend.percent).toBeCloseTo((10 / 3 - 1) * 100)
+  expect(one.tasks.map((t) => t.id)).toEqual(['t1', 't2'])
+
+  const all = dashboardCost({
+    usage,
+    tasks,
+    factoryIds: ['nb', 'gar'],
+    allFactories: true,
+    current,
+    previous,
+  })
+  expect(all.current.cost).toBe(20)
+  expect(all.current.byFactory.map((f) => [f.factoryId, f.cost])).toEqual([
+    ['nb', 10],
+    ['gar', 5],
+    [null, 5],
+  ])
+  expect(all.current.byFactory[0]?.perPullRequest.median).toBe(4.125)
+  expect(all.current.kinds.find((k) => k.key === 'other')).toMatchObject({ cost: 4, tasks: [] })
 })

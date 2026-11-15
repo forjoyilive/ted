@@ -32,6 +32,7 @@ import { useDashboard } from '../data.ts'
 import { stageName } from '../list-view.ts'
 import { formatDate } from '../time.ts'
 import styles from './Dashboard.module.css'
+import { Cost, costSample, money } from './DashboardCost.tsx'
 import { Flow } from './DashboardFlow.tsx'
 import { CheckItem, MenuButton } from './TaskList.tsx'
 import views from './views.module.css'
@@ -59,6 +60,12 @@ const openStateName: Record<DashboardOpenState, string> = {
   backlog: 'In Backlog',
   other: 'Other',
 }
+const panelNames = {
+  overview: 'Overview',
+  flow: 'Flow',
+  stages: 'Stages',
+  cost: 'Cost',
+} as const
 const openOrder: DashboardOpenState[] = ['working', 'waiting-on-you', 'backlog', 'blocked', 'other']
 
 function duration(value: number | null): string {
@@ -98,13 +105,14 @@ const shortDate = (at: string) => machineDate(at, { month: 'short', day: 'numeri
 const clock = (at: number) => formatDate(new Date(at), { hour: '2-digit', minute: '2-digit' })
 const hourMs = 3_600_000
 const dayMs = 86_400_000
-const lastDay = (bucket: DashboardBucket) => new Date(Date.parse(bucket.to) - 1)
+type Span = Pick<DashboardBucket, 'from' | 'to'>
+const lastDay = (bucket: Span) => new Date(Date.parse(bucket.to) - 1)
 const calendarDate = (at: Date) =>
   machineDate(at, { year: 'numeric', month: 'numeric', day: 'numeric' })
-const dayCount = (bucket: DashboardBucket) =>
+const dayCount = (bucket: Span) =>
   Math.round((Date.parse(bucket.to) - Date.parse(bucket.from)) / dayMs)
 
-function dayLabel(bucket: DashboardBucket, asOf: string): string {
+function dayLabel(bucket: Span, asOf: string): string {
   const first = new Date(bucket.from)
   const last = lastDay(bucket)
   const soFar = bucket.to === asOf ? ' (today so far)' : ''
@@ -968,16 +976,25 @@ function Waiting({
   )
 }
 
+function spanLabel(data: DashboardReport, bucket: Span | undefined): string {
+  if (!bucket) return ''
+  return data.range === 'today'
+    ? `${clock(Date.parse(bucket.from))} – ${clock(Date.parse(bucket.to))}`
+    : dayLabel(bucket, data.asOf)
+}
+
 function Sample({
   data,
   selection,
   onClose,
   onOpenTask,
+  factories,
 }: {
   data: DashboardReport
   selection: DashboardSelection
   onClose: () => void
   onOpenTask: (id: string) => void
+  factories: readonly Factory[]
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const heading = useId()
@@ -995,9 +1012,28 @@ function Sample({
   const metric =
     selection.metric === 'unavailable' ||
     selection.metric === 'open' ||
-    selection.metric === 'waiting'
+    selection.metric === 'waiting' ||
+    selection.metric === 'cost'
       ? null
       : selection.metric
+  const spent =
+    selection.metric === 'cost'
+      ? costSample(
+          data.cost,
+          selection,
+          (index) =>
+            spanLabel(
+              data,
+              (selection.period === 'previous' ? data.cost.previous : data.cost.current)?.buckets[
+                index
+              ],
+            ),
+          (id) =>
+            id === null
+              ? 'Not in a Factory'
+              : (factories.find((f) => f.id === id)?.name ?? 'Removed Factory'),
+        )
+      : null
   const waited =
     selection.metric !== 'waiting'
       ? null
@@ -1053,8 +1089,9 @@ function Sample({
               )
             : []
   const days = data.range !== 'today' && bucket !== undefined
-  const title =
-    selection.metric === 'unavailable'
+  const title = spent
+    ? spent.title
+    : selection.metric === 'unavailable' || selection.metric === 'cost'
       ? 'Unavailable completion history'
       : selection.metric === 'open'
         ? 'Open Tasks right now'
@@ -1128,7 +1165,8 @@ function Sample({
         </button>
       </header>
       <p>
-        {ids.length} Tasks · As of {timestamp(data.asOf)}
+        {spent ? spent.items.filter((item) => item.taskId).length : ids.length} Tasks · As of{' '}
+        {timestamp(data.asOf)}
       </p>
       {selection.metric !== 'open' && sample?.from && (
         <p className={styles.caption}>
@@ -1137,17 +1175,49 @@ function Sample({
             : `${timestamp(sample.from)} – ${timestamp(sample.to)} (end excluded)`}
         </p>
       )}
-      <p className={styles.caption}>
-        {selection.metric === 'unavailable'
-          ? 'Completion period unknown. Excluded from period metrics because no Done timestamp was recorded.'
-          : selection.metric === 'open'
-            ? 'Tasks that are not Done and not archived, by what each is doing now.'
-            : waited
-              ? 'Completed Tasks of this period and how long each waited on your answers, longest first. Snoozed time counts as waiting.'
-              : selection.missing
-                ? 'Included in the completed count; excluded from this duration’s median.'
-                : `Exact Tasks behind this sample. Archived Done Tasks are included.${metric === 'created' || metric === 'backlog' || metric === 'intake' ? ' Slowest first.' : ''}`}
-      </p>
+      {spent && (
+        <>
+          <p className={styles.caption}>{spent.caption}</p>
+          <ul className={styles.taskList}>
+            {spent.items.map((item) => (
+              <li key={item.key}>
+                {item.taskId ? (
+                  <button
+                    type="button"
+                    data-nav-item
+                    className={styles.task}
+                    onClick={() => item.taskId && onOpenTask(item.taskId)}
+                  >
+                    <span>
+                      {item.displayId} &nbsp; {item.label}
+                    </span>
+                    <small>{item.note}</small>
+                  </button>
+                ) : (
+                  <div className={styles.task}>
+                    <span>{item.label}</span>
+                    <small>{item.note}</small>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+          {spent.items.length === 0 && <p>No recorded spend in this sample.</p>}
+        </>
+      )}
+      {!spent && (
+        <p className={styles.caption}>
+          {selection.metric === 'unavailable'
+            ? 'Completion period unknown. Excluded from period metrics because no Done timestamp was recorded.'
+            : selection.metric === 'open'
+              ? 'Tasks that are not Done and not archived, by what each is doing now.'
+              : waited
+                ? 'Completed Tasks of this period and how long each waited on your answers, longest first. Snoozed time counts as waiting.'
+                : selection.missing
+                  ? 'Included in the completed count; excluded from this duration’s median.'
+                  : `Exact Tasks behind this sample. Archived Done Tasks are included.${metric === 'created' || metric === 'backlog' || metric === 'intake' ? ' Slowest first.' : ''}`}
+        </p>
+      )}
       <ul className={styles.taskList}>
         {ids.map((id) => {
           const task = rowOf(id)
@@ -1168,7 +1238,7 @@ function Sample({
           ) : null
         })}
       </ul>
-      {ids.length === 0 && <p>No Tasks in this sample.</p>}
+      {ids.length === 0 && !spent && <p>No Tasks in this sample.</p>}
     </dialog>
   )
 }
@@ -1278,6 +1348,9 @@ function ByFactory({
   )
   const rows = data.current.byFactory.toSorted((a, b) => b.taskIds.length - a.taskIds.length)
   const waits = new Map(data.waiting.current.byFactory.map((row) => [row.factoryId, row.totalMs]))
+  const perPr = new Map(
+    data.cost.current.byFactory.map((row) => [row.factoryId, row.perPullRequest.median]),
+  )
   return (
     <section className={`${styles.panel} ${styles.byFactory}`} aria-labelledby={heading}>
       <header className={styles.panelHead}>
@@ -1310,6 +1383,9 @@ function ByFactory({
             </th>
             <th scope="col" className={styles.number}>
               Waiting on you
+            </th>
+            <th scope="col" className={styles.number}>
+              Cost per pull request
             </th>
           </tr>
         </thead>
@@ -1349,6 +1425,7 @@ function ByFactory({
                 <td className={styles.number}>{duration(row.backlog.value)}</td>
                 <td className={styles.number}>{duration(row.intake.value)}</td>
                 <td className={styles.number}>{hours(waits.get(row.factoryId) ?? 0)}</td>
+                <td className={styles.number}>{money(perPr.get(row.factoryId) ?? null)}</td>
               </tr>
             )
           })}
@@ -1401,7 +1478,7 @@ export function Dashboard({
     const { factoryIds: _, ...rest } = kept
     onChange({ ...rest, ...(ids && { factoryIds: ids }) })
   }
-  const panels = ['overview', 'flow', 'stages'] as const
+  const panels = ['overview', 'flow', 'stages', 'cost'] as const
   const choosePanel = (panel: NonNullable<DashboardViewState['panel']>) =>
     onChange({ ...kept, panel })
   const select = (sample: DashboardSelection) => onChange({ ...state, sample })
@@ -1458,7 +1535,12 @@ export function Dashboard({
                 }
               }}
             >
-              {name === 'overview' ? 'Overview' : name === 'flow' ? 'Flow' : 'Stages'}
+              {panelNames[name]}
+              {name === 'cost' && (
+                <span className={styles.newBadge} aria-hidden="true">
+                  New
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -1535,6 +1617,35 @@ export function Dashboard({
                     selection={state.sample}
                     onClose={() => onChange(kept)}
                     onOpenTask={onOpenTask}
+                    factories={factories}
+                  />
+                )}
+              </>
+            ) : panel === 'cost' ? (
+              <>
+                <Cost
+                  data={data.cost.current}
+                  previousData={data.cost.previous}
+                  change={data.cost.change}
+                  tasks={data.cost.tasks}
+                  factories={factories}
+                  today={data.range === 'today'}
+                  all={data.previous === null}
+                  bounds={`${
+                    data.cost.current.from
+                      ? `${timestamp(data.cost.current.from)} – ${timestamp(data.cost.current.to)} (end excluded) · `
+                      : 'All retained history · '
+                  }As of ${timestamp(data.asOf)}`}
+                  label={(index) => spanLabel(data, data.cost.current.buckets[index])}
+                  select={select}
+                />
+                {state.sample && (
+                  <Sample
+                    data={data}
+                    selection={state.sample}
+                    onClose={() => onChange(kept)}
+                    onOpenTask={onOpenTask}
+                    factories={factories}
                   />
                 )}
               </>

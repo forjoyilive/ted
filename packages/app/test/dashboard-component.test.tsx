@@ -332,7 +332,12 @@ test('Factory and range changes discard late responses instead of mixing samples
   expect(api.request).toHaveBeenCalledWith('dashboard', '30d', ['f2'])
   view.rerender(<Dashboard {...props} state={{ range: '30d' }} />)
   const byFactory = await screen.findByRole('region', { name: 'By Factory' })
-  for (const column of ['Pull requests merged', 'Waiting in Backlog', 'Waiting on you'])
+  for (const column of [
+    'Pull requests merged',
+    'Waiting in Backlog',
+    'Waiting on you',
+    'Cost per pull request',
+  ])
     expect(within(byFactory).getByRole('columnheader', { name: column })).toBeTruthy()
 })
 
@@ -631,7 +636,7 @@ test('previous-period Flow samples retain their own period and restore focus aft
   expect(document.activeElement).toBe(within(region).getByRole('button', { name: 'Work' }))
 })
 
-test('three Dashboard tabs preserve Overview, share the period and close samples when switching', async () => {
+test('four Dashboard tabs preserve Overview, share the period and close samples when switching', async () => {
   bridge({ dashboard: () => dashboardFixture() })
   render(<DashboardView open={vi.fn()} />)
   await screen.findByRole('region', { name: 'Tasks completed' })
@@ -650,6 +655,9 @@ test('three Dashboard tabs preserve Overview, share the period and close samples
   await user().selectOptions(select, '30d')
   expect(screen.getByRole('tab', { name: 'Stages' }).getAttribute('aria-selected')).toBe('true')
   screen.getByRole('tab', { name: 'Stages' }).focus()
+  await user().keyboard('{ArrowRight}')
+  expect(screen.getByRole('tab', { name: 'Cost' }).getAttribute('aria-selected')).toBe('true')
+  expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Cost' }))
   await user().keyboard('{ArrowRight}')
   expect(screen.getByRole('tab', { name: 'Overview' }).getAttribute('aria-selected')).toBe('true')
   expect((select as HTMLSelectElement).value).toBe('30d')
@@ -939,6 +947,10 @@ test('a graph point’s tooltip compares it with the aligned previous point', as
 
 test('the completed chart’s scale and Factory split', async () => {
   const { byFactoryCount, countScale } = await import('../src/renderer/views/Dashboard.tsx')
+  const { moneyScale } = await import('../src/renderer/views/DashboardCost.tsx')
+  expect(moneyScale(0)).toEqual([0, 1])
+  expect(moneyScale(0.3)).toEqual([0, 0.1, 0.2, 0.3])
+  expect(moneyScale(12)).toEqual([0, 5, 10, 15])
   expect(countScale(1)).toEqual([0, 1])
   expect(countScale(7)).toEqual([0, 2, 4, 6, 8])
   expect(countScale(13)).toEqual([0, 4, 8, 12, 16])
@@ -951,4 +963,80 @@ test('the completed chart’s scale and Factory split', async () => {
     { factoryId: 'two', count: 2 },
     { factoryId: 'one', count: 1 },
   ])
+})
+
+test('the Cost tab shows cost per merged pull request, spend by kind of work and by model, and opens what is behind each figure', async () => {
+  bridge({ dashboard: () => dashboardFixture() })
+  const open = vi.fn()
+  render(<DashboardView open={open} />)
+  await screen.findByRole('region', { name: 'Tasks completed' })
+  await user().click(screen.getByRole('tab', { name: 'Cost' }))
+  expect(
+    screen.getByText(/whatever your billing\. Runs still going aren’t counted yet\./),
+  ).toBeTruthy()
+  expect(screen.getByText(/1 Run in this period has no known price/)).toBeTruthy()
+  const close = () =>
+    user().click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close sample' }))
+
+  const perPr = screen.getByRole('region', { name: 'Cost per merged pull request' })
+  expect(within(perPr).getByText('−20%')).toBeTruthy()
+  expect(within(perPr).getByText(/Middle half \$3\.50 – \$4\.00 · 3 pull requests/)).toBeTruthy()
+  const spend = screen.getByRole('region', { name: 'Spend in this period' })
+  expect(within(spend).getByText('+20%')).toBeTruthy()
+  expect(within(spend).getByText(/^92% went to Task work/)).toBeTruthy()
+  const tokens = screen.getByRole('region', { name: 'Tokens' })
+  expect(within(tokens).getByRole('button').textContent).toBe('1.5M in · 40K out')
+  expect(within(tokens).getByText('across 5 Runs')).toBeTruthy()
+
+  const chart = screen.getByRole('region', { name: 'Spend over time' })
+  expect(within(chart).getByText('Task Leads $9.00')).toBeTruthy()
+  expect(within(chart).getByText('Coordinator $1.00')).toBeTruthy()
+  await user().click(within(chart).getByRole('button', { name: 'By agent and model' }))
+  expect(within(chart).getByText('Claude · opus $9.00')).toBeTruthy()
+  expect(within(chart).getByText('Codex · gpt-5.5 $3.00')).toBeTruthy()
+  await user().click(
+    within(chart).getAllByRole('button', { name: /· \$12\.00$/ })[0] as HTMLElement,
+  )
+  expect(
+    within(screen.getByRole('dialog')).getByRole('button', { name: /NB-1.*Fix login/ }),
+  ).toBeTruthy()
+  await close()
+
+  await user().click(within(spend).getByRole('button', { name: 'Spend in this period $12.00' }))
+  let sample = screen.getByRole('dialog')
+  const items = within(sample)
+    .getAllByRole('listitem')
+    .map((item) => item.textContent)
+  expect(items).toHaveLength(3)
+  expect(items[0]).toMatch(/NB-1.*Fix login.*\$8\.00 · 3 Runs · 1 send-back/)
+  expect(items[1]).toMatch(/NB-2.*Improve search.*\$3\.00/)
+  expect(items[2]).toBe('Coordinator$1.00 not tied to a Task')
+  await close()
+  await user().click(within(spend).getByRole('button', { name: 'Coordinator $1.00' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe('Coordinator · Selected period')
+  expect(within(sample).queryAllByRole('button', { name: /NB-/ })).toHaveLength(0)
+  await close()
+
+  const expensive = screen.getByRole('region', { name: 'Most expensive pull requests' })
+  const [, first] = within(expensive).getAllByRole('row')
+  expect(
+    within(first as HTMLElement)
+      .getAllByRole('cell')
+      .map((cell) => cell.textContent),
+  ).toEqual(['3', '1', '$4.00'])
+  expect(first?.textContent).toContain('$8.00 over 2 pull requests')
+  await user().click(within(expensive).getByRole('button', { name: 'NB-1 Fix login' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe(
+    'Cost per merged pull request · NB-1',
+  )
+  await user().click(within(sample).getByRole('button', { name: /NB-1.*\$4\.00 per pull request/ }))
+  expect(open).toHaveBeenCalledWith('t1')
+
+  const byFactory = screen.getByRole('region', { name: 'Spend by Factory' })
+  const [, nb] = within(byFactory).getAllByRole('row')
+  expect(nb?.textContent).toContain('$12.00')
+  expect(nb?.textContent).toContain('$4.00')
+  expect(byFactory.textContent).toContain('Codex cost comes from TED’s own price table')
 })

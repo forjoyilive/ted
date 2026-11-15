@@ -307,8 +307,18 @@ export {
 } from './coordinator-parsers.ts'
 export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export type {
+  CostBucket,
+  CostFactory,
+  CostKind,
+  CostPeriod,
+  CostPerPullRequest,
+  CostPullRequestSample,
+  CostShare,
+  CostTask,
+  CostTaskSpend,
   DashboardBucket,
   DashboardChange,
+  DashboardCost,
   DashboardDuration,
   DashboardFactoryPeriod,
   DashboardFlow,

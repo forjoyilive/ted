@@ -13,6 +13,7 @@ import type {
   DashboardTask,
   TaskStatusKind,
 } from '@ted/protocol'
+import { type CostInput, type CostWindow, dashboardCost } from './dashboard-cost.ts'
 import { dashboardFlow, type FlowFacts } from './dashboard-flow.ts'
 import { dashboardWaiting } from './dashboard-waiting.ts'
 
@@ -233,6 +234,11 @@ export function dashboardReport(
   factoryIds: readonly string[],
   range: DashboardRange,
   asOf: number,
+  spend: Pick<CostInput, 'usage' | 'tasks' | 'allFactories'> = {
+    usage: [],
+    tasks: [],
+    allFactories: false,
+  },
 ): DashboardReport {
   const tasks: DashboardTask[] = []
   const unavailableIds: string[] = []
@@ -324,6 +330,13 @@ export function dashboardReport(
     : null
   const waiting = dashboardWaiting(facts, current.taskIds, factoryIds, asOf)
   const waitedBefore = previous ? dashboardWaiting(facts, previous.taskIds, factoryIds, asOf) : null
+  const pullRequests = new Map(tasks.map((task) => [task.id, task.merges]))
+  const costWindow = (p: DashboardPeriod): CostWindow => ({
+    from: p.from,
+    to: p.to,
+    buckets: p.buckets.map((b) => ({ from: b.from, to: b.to })),
+    completed: p.taskIds.map((taskId) => ({ taskId, pullRequests: pullRequests.get(taskId) ?? 0 })),
+  })
   const selected = new Set([
     ...current.taskIds,
     ...current.merged.taskIds,
@@ -365,5 +378,11 @@ export function dashboardReport(
       previous: waitedBefore,
       change: waitedBefore ? change(waiting.totalMs, waitedBefore.totalMs) : null,
     },
+    cost: dashboardCost({
+      ...spend,
+      factoryIds,
+      current: costWindow(current),
+      previous: previous ? costWindow(previous) : null,
+    }),
   }
 }

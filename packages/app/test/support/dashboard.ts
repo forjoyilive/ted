@@ -1,4 +1,11 @@
-import type { DashboardPeriod, DashboardReport, FlowPeriod, FlowReasonId } from '@ted/protocol'
+import type {
+  CostPeriod,
+  DashboardCost,
+  DashboardPeriod,
+  DashboardReport,
+  FlowPeriod,
+  FlowReasonId,
+} from '@ted/protocol'
 import { noStageParts } from '@ted/protocol/stage-parts'
 
 const hour = 3_600_000
@@ -166,6 +173,7 @@ export function dashboardFixture(empty = false): DashboardReport {
     asOf: current.to,
     range: '7d',
     factoryIds: ['nb'],
+    cost: costFixture(empty, current),
     current,
     previous,
     unavailableIds: [],
@@ -224,6 +232,115 @@ export function dashboardFixture(empty = false): DashboardReport {
             merges: 1,
           },
         ],
+  }
+}
+
+function costFixture(empty: boolean, current: DashboardPeriod): DashboardCost {
+  const none = { median: null, p25: null, p75: null, pullRequests: 0, samples: [] }
+  const t1 = [{ taskId: 't1', cost: 6 }]
+  const kinds = empty
+    ? []
+    : [
+        { key: 'lead', cost: 9, runs: 2, tasks: [...t1, { taskId: 't2', cost: 3 }] },
+        { key: 'reviewer', cost: 2, runs: 1, tasks: [{ taskId: 't1', cost: 2 }] },
+        { key: 'coordinator', cost: 1, runs: 1, tasks: [] },
+      ]
+  const models = empty
+    ? []
+    : [
+        {
+          key: 'claude·opus',
+          agent: 'claude',
+          model: 'opus',
+          cost: 9,
+          runs: 3,
+          tasks: [{ taskId: 't1', cost: 8 }],
+        },
+        {
+          key: 'codex·gpt-5.5',
+          agent: 'codex',
+          model: 'gpt-5.5',
+          cost: 3,
+          runs: 2,
+          tasks: [{ taskId: 't2', cost: 3 }],
+        },
+      ]
+  const tasks = empty
+    ? []
+    : [
+        { taskId: 't1', cost: 8 },
+        { taskId: 't2', cost: 3 },
+      ]
+  const perPullRequest = empty
+    ? none
+    : {
+        median: 4,
+        p25: 3.5,
+        p75: 4,
+        pullRequests: 3,
+        samples: [
+          { taskId: 't1', cost: 8, pullRequests: 2, perPullRequest: 4 },
+          { taskId: 't2', cost: 3, pullRequests: 1, perPullRequest: 3 },
+        ],
+      }
+  const period: CostPeriod = {
+    from: current.from,
+    to: current.to,
+    cost: empty ? 0 : 12,
+    input: empty ? 0 : 1_500_000,
+    output: empty ? 0 : 40_000,
+    runs: empty ? 0 : 5,
+    unpricedRuns: empty ? 0 : 1,
+    kinds,
+    models,
+    tasks,
+    buckets: current.buckets.map((b) => ({
+      from: b.from,
+      to: b.to,
+      cost: empty ? 0 : 12,
+      kinds,
+      models,
+      tasks,
+    })),
+    perPullRequest,
+    byFactory: [
+      { factoryId: 'nb', cost: empty ? 0 : 12, runs: empty ? 0 : 5, kinds, tasks, perPullRequest },
+    ],
+  }
+  return {
+    tasks: empty
+      ? []
+      : [
+          {
+            id: 't1',
+            factoryId: 'nb',
+            displayId: 'NB-1',
+            title: 'Fix login',
+            runs: 3,
+            sendBacks: 1,
+          },
+          {
+            id: 't2',
+            factoryId: 'nb',
+            displayId: 'NB-2',
+            title: 'Improve search',
+            runs: 2,
+            sendBacks: 0,
+          },
+        ],
+    current: period,
+    previous: {
+      ...period,
+      from: '2026-10-25T12:00:00.000Z',
+      to: '2026-11-01T12:00:00.000Z',
+      cost: 10,
+      buckets: [],
+      perPullRequest: { ...none, median: 5 },
+    },
+    change: {
+      spend: { absolute: empty ? -10 : 2, percent: empty ? -100 : 20 },
+      perPullRequest: { absolute: empty ? null : -1, percent: empty ? null : -20 },
+    },
   }
 }
 

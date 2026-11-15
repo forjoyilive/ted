@@ -89,6 +89,7 @@ export interface DashboardReport {
     previous: DashboardWaiting | null
     change: DashboardChange | null
   }
+  cost: DashboardCost
 }
 
 export interface DashboardWait {
@@ -261,4 +262,92 @@ export interface FlowReason {
   p25Ms: number | null
   p75Ms: number | null
   samples: FlowReasonSample[]
+}
+
+export type CostKind =
+  | 'lead'
+  | 'reviewer'
+  | 'sub-agent'
+  | 'coordinator'
+  | 'automation'
+  | 'planning'
+  | 'other'
+
+export interface CostTask {
+  id: string
+  factoryId: string
+  displayId: string
+  title: string
+  runs: number
+  sendBacks: number
+}
+
+export interface CostTaskSpend {
+  taskId: string
+  cost: number
+}
+
+export interface CostShare {
+  key: string
+  agent?: string
+  model?: string | null
+  cost: number
+  runs: number
+  tasks: CostTaskSpend[]
+}
+
+export interface CostBucket {
+  from: string
+  to: string
+  cost: number
+  kinds: CostShare[]
+  models: CostShare[]
+  tasks: CostTaskSpend[]
+}
+
+export interface CostPullRequestSample {
+  taskId: string
+  cost: number
+  pullRequests: number
+  perPullRequest: number
+}
+
+export interface CostPerPullRequest {
+  median: number | null
+  p25: number | null
+  p75: number | null
+  pullRequests: number
+  samples: CostPullRequestSample[]
+}
+
+export interface CostFactory {
+  factoryId: string | null
+  cost: number
+  runs: number
+  kinds: CostShare[]
+  tasks: CostTaskSpend[]
+  perPullRequest: CostPerPullRequest
+}
+
+export interface CostPeriod {
+  from: string | null
+  to: string
+  cost: number
+  input: number
+  output: number
+  runs: number
+  unpricedRuns: number
+  kinds: CostShare[]
+  models: CostShare[]
+  tasks: CostTaskSpend[]
+  buckets: CostBucket[]
+  perPullRequest: CostPerPullRequest
+  byFactory: CostFactory[]
+}
+
+export interface DashboardCost {
+  tasks: CostTask[]
+  current: CostPeriod
+  previous: CostPeriod | null
+  change: { spend: DashboardChange; perPullRequest: DashboardChange } | null
 }

@@ -47,6 +47,14 @@ test('read-only Dashboard request combines or narrows Factories and validates it
     vi.setSystemTime(now - 3_600_000)
     store.changeStage(task.id, 'done', { layers: [], order: [] })
     store.archiveTask(task.id)
+    store.recordRunUsage({
+      runId: 'run-without-owner',
+      agent: 'claude',
+      model: 'opus',
+      input: 10,
+      output: 5,
+      cost: 1.5,
+    })
     const other = store.createFactory({
       key: 'ZZ',
       name: 'Other',
@@ -75,6 +83,7 @@ test('read-only Dashboard request combines or narrows Factories and validates it
     expect(result.current.intake.value).toBe(14_400_000)
     expect(result.tasks).toMatchObject([{ id: taskId, factoryId, archived: true }])
     expect(result.current.byFactory).toMatchObject([{ factoryId, taskIds: [taskId] }])
+    expect(result.cost.current).toMatchObject({ cost: 0, runs: 0, byFactory: [{ factoryId }] })
     expect(await client.dashboard('all', [factoryId])).toMatchObject({
       previous: null,
       comparison: null,
@@ -89,6 +98,11 @@ test('read-only Dashboard request combines or narrows Factories and validates it
       displayId: otherDisplayId,
     })
     expect(all.current.byFactory.map((row) => row.factoryId)).toEqual(sidebarOrder)
+    expect(all.cost.current).toMatchObject({ cost: 1.5, input: 10, output: 5, runs: 1 })
+    expect(all.cost.current.byFactory.find((row) => row.factoryId === null)).toMatchObject({
+      cost: 1.5,
+      kinds: [{ key: 'other', cost: 1.5 }],
+    })
     expect(all.current.byFactory).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ factoryId, taskIds: [taskId] }),
