@@ -1,5 +1,5 @@
 import type { Factory, MachineSettings } from '@ted/protocol'
-import { useRef } from 'react'
+import { type ReactNode, useRef } from 'react'
 import { DotIcon } from '../components/icons.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { ResizableSidebar } from '../components/ResizableSidebar.tsx'
@@ -20,6 +20,7 @@ interface SettingsShellProps {
   inboxCount: number
   stopsWork?: Partial<Record<SettingsSectionId, boolean>>
   counts?: Partial<Record<SettingsSectionId, number>>
+  guide?: ReactNode
   dispatch: (action: NavigationAction) => void
 }
 
@@ -33,6 +34,7 @@ export function SettingsShell({
   inboxCount,
   stopsWork = {},
   counts = {},
+  guide,
   dispatch,
 }: SettingsShellProps) {
   const current = settingsSections.find((s) => s.id === section) ?? settingsSections[0]
@@ -98,6 +100,7 @@ export function SettingsShell({
               </button>
             ))}
           </SettingsSearch>
+          {guide && <div className={styles.guide}>{guide}</div>}
         </nav>
       </ResizableSidebar>
       <main ref={main} className={styles.main} aria-label={current?.label}>

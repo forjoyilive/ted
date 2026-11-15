@@ -103,6 +103,7 @@ export interface MachineSettings {
   boardViews: Readonly<Record<string, BoardView>>
   firstLaunchDone: boolean
   onboardingOnNextOpen: boolean
+  guideNextFactory: boolean
   enabledAgents: readonly AgentKind[]
   billing: Readonly<Record<AgentKind, Billing>>
   editor: EditorChoice | null
@@ -157,6 +158,7 @@ export const defaultMachineSettings: MachineSettings = {
   boardViews: {},
   firstLaunchDone: false,
   onboardingOnNextOpen: false,
+  guideNextFactory: false,
   enabledAgents: [...agentKinds],
   billing: { claude: 'subscription', codex: 'subscription', antigravity: 'subscription' },
   editor: null,

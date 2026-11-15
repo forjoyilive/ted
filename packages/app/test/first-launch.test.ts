@@ -230,7 +230,7 @@ describe('first launch', () => {
     const dialog = window.getByRole('dialog', { name: 'Add your first Factory' })
     await dialog.waitFor()
     await dialog.getByText('Step 4 of 4').waitFor()
-    expect(await dialog.getByRole('checkbox', { name: 'Show the tutorial' }).isChecked()).toBe(true)
+    expect(await dialog.getByText('Show the tutorial').count()).toBe(0)
     expect(await settings()).toMatchObject({ firstLaunchDone: false })
 
     await dialog.getByRole('button', { name: 'Skip' }).click()

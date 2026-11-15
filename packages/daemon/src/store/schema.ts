@@ -13,6 +13,7 @@ export const factories = State.SQLite.table({
     cloneUrl: State.SQLite.text(),
     defaultBranch: State.SQLite.text(),
     showTutorial: State.SQLite.boolean({ default: false }),
+    guide: State.SQLite.text({ nullable: true }),
     autoStartBacklog: State.SQLite.boolean({ default: false }),
     icon: State.SQLite.text({ nullable: true }),
     clonedAt: State.SQLite.text({ nullable: true }),
@@ -1390,6 +1391,14 @@ export const events = {
       showTutorial: Schema.Boolean,
       createdAt: Schema.String,
     }),
+  }),
+  factoryGuideStarted: Events.synced({
+    name: 'v1.FactoryGuideStarted',
+    schema: Schema.Struct({ factoryId: Schema.String, at: Schema.String }),
+  }),
+  factoryGuideEnded: Events.synced({
+    name: 'v1.FactoryGuideEnded',
+    schema: Schema.Struct({ factoryId: Schema.String, reason: Schema.String, at: Schema.String }),
   }),
   factoryCloned: Events.synced({
     name: 'v1.FactoryCloned',
@@ -4086,6 +4095,10 @@ const materializers = counted(
           }),
         ),
       ],
+      'v1.FactoryGuideStarted': ({ factoryId }) =>
+        factories.update({ guide: 'live' }).where({ id: factoryId }),
+      'v1.FactoryGuideEnded': ({ factoryId, reason }) =>
+        factories.update({ guide: reason }).where({ id: factoryId }),
       'v1.FactoryCloned': ({ factoryId, at }) =>
         factories.update({ clonedAt: at }).where({ id: factoryId }),
       'v1.ExecutionControllerConfigured': ({ data }) =>

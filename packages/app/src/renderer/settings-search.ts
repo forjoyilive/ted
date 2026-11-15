@@ -279,8 +279,8 @@ const entries = {
   'app.developer.onboarding': {
     name: 'Show onboarding again',
     detail:
-      'Shows the first-launch steps from the start the next time TED opens. Factories, Tasks and settings stay as they are.',
-    keywords: 'first launch welcome set up TED reset',
+      'Shows the first-launch steps from the start the next time TED opens, and gives the next Factory added the setup guide. Factories, Tasks and settings stay as they are.',
+    keywords: 'first launch welcome set up TED reset guide',
   },
   'app.developer.diagnostics': { name: 'Diagnostics', heading: true },
   'app.developer.diagnostics.memory': {

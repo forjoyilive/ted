@@ -431,7 +431,7 @@ Figma: KRI-65 Factory setup and settings.
 
 ### 5.1 Add Factory form
 
-- Opened from **+ Add Factory** at the end of the sidebar’s Factories section, and from first launch. A 640-wide dialog over the current page. The first Factory uses the same dialog titled “Add your first Factory”, with **Show the tutorial** ticked. (KRI-58, KRI-65, KRI-57)
+- Opened from **+ Add Factory** at the end of the sidebar’s Factories section, and from first launch. A 640-wide dialog over the current page. The first Factory uses the same dialog titled “Add your first Factory”. (KRI-58, KRI-65, KRI-57, TED-370)
 - **Repos:** an ordered list, starting with one row. The first row is labelled **Primary** and can’t be dragged below others; other rows have a drag handle and ×. An empty row shows **Choose folder…** and a “GitHub URL or owner/repo” box side by side. A filled row shows `owner/repo`, the folder path when chosen from a folder, an editable **Name** (`name`), and an access line. **+ Add another repo** sits below. (KRI-58, KRI-65)
 - From a folder, TED reads the GitHub remote (`origin`, else the only GitHub remote) and clones that. (KRI-58)
 - **Access check**, by TED with no agent, through `gh`: `gh api repos/{owner}/{repo}` using `permissions.push`, the default branch, and `gh api repos/{owner}/{repo}/contents/.ted?ref=<default>` (404 means no `.ted/`). Messages name “the GitHub account TED uses (nabha)”, never `gh` or a token. Problems, each with a fix button: (KRI-57, KRI-58, KRI-65)
@@ -442,7 +442,7 @@ Figma: KRI-65 Factory setup and settings.
   - folder with no GitHub remote → **Choose folder…**
 - Notes: “Also used by Factory Notebook. TED shares one clone between them.” on a secondary repo; “Has TED settings already. They’ll be used, and the setup Task will wait in Backlog” on a primary repo with `.ted/`. (KRI-22, KRI-58, KRI-65)
 - If `gh` is missing or signed out, the form shows the GitHub row with Fix and doesn’t start setup. (KRI-57)
-- **Name:** required, defaults to the primary repo’s name with its first letter capitalized. **Key:** defaults from Name, live check for format and uniqueness, “Task IDs look like NB-1. Can’t be changed later.” **Show the tutorial:** on by default only for the first Factory. (KRI-58, KRI-22)
+- **Name:** required, defaults to the primary repo’s name with its first letter capitalized. **Key:** defaults from Name, live check for format and uniqueness, “Task IDs look like NB-1. Can’t be changed later.” (KRI-58, KRI-22)
 - **Add Factory** stays disabled until every repo row shows ✓ and Name and Key are valid. The footer says why (“Fix the 4 repo problems and the key to continue”) or what happens next (“TED clones both repos, then starts the setup Task BL-1”). (KRI-58, KRI-65)
 - Nothing about agents, permissions or Checks is asked here. (KRI-58)
 
@@ -470,7 +470,25 @@ Factory setup is the Factory’s first Task, run through the inherited Workflow.
   - **Review** and **Merge** follow.
 - Setup tries each proposed Check on the default branch and tries to start each App, reporting pass or fail and the time taken. The proposal card shows, top to bottom: a two-sentence summary; **Workflow**, one line per Stage, unchanged Stages in grey as “As TED’s default”; **Checks · tried on main** (✓ or ✕, name, command, repo, duration; a Check that fails is listed as “left off” with the reason); **Apps · started on main** (kind, how it became ready, time taken); **Files it will write**, each with one line on what it holds; and a grey line naming what stays at TED’s defaults. No per-item checkboxes; changes go through Request changes. (KRI-22, KRI-65)
 - Setup doesn’t propose repos; it may note a sign that one is missing. It suggests `lead`, `reviewer` or `planner` values only if asked. (KRI-22, KRI-53)
-- **Tutorial:** when on, the Task Lead posts an ordinary Comment with a **Tutorial** chip as each Stage starts: what the Stage does, what it will do here, and “Change it later: Factory settings → Workflow → Design.” (KRI-22, KRI-65)
+- **Guide card:** a Factory added while no other Factory exists, or the next one added after Developer mode’s **Show on next open**, gets a guide card at the bottom of the sidebar, above Settings, on every page. It names the Factory, has a **Hide guide** link and at most one button, and its text follows the setup Task: (TED-370, ADR 0162)
+
+  | Setup Task state | Card text | Button |
+  |---|---|---|
+  | Cloning | TED is cloning your repos. | none |
+  | A clone failed | TED couldn’t clone your repos. See the banner at the top. | none |
+  | Before Clarify, or in Clarify with the agent working | The Task Lead is reading your repos. It will ask how you work. | Open the Task |
+  | A Clarify round waiting | The Task Lead has questions for you. | Open questions |
+  | Design, agent working | The Task Lead is trying your Checks and Apps. | Open the Task |
+  | Design sign-off waiting | Review the proposed setup. | Open the proposal |
+  | Work and Validate | The Task Lead is writing the settings and checking them. | Open the Task |
+  | Review sign-off waiting | Approve the settings to merge them. | Open the sign-off |
+  | Merging | TED is merging the pull request. | none |
+  | Done, or waiting in Backlog because the repo had `.ted/` | Your Factory is set up. Create your first Task. | New Task |
+  | Any other open request | The Task Lead needs you. | Open the request |
+  | Stopped | Setup is stopped. Open the Task to start it again. | Open the Task |
+  | Failed | Setup failed. Open the Task to see what went wrong. | Open the Task |
+
+  New Task opens the New Task dialog with the Factory picked. The guide ends for good when the user creates a Task in the Factory after setup is Done (not a Task an Automation or the Coordinator creates), when they click **Hide guide** (no confirmation), or when the setup Task is archived or deleted. With several live guides, the card is the most recently added Factory’s. The agent writes none of the card.
 - **What setup writes:** Factory notes (`.ted/notes.md`); Stage overrides (`.ted/stages/<id>.md`), full copies edited for this product, always `validate.md`, others only when the steps really change; and `workflow.yaml` with `repos`, Checks, `apps` and Stage settings. (KRI-22, KRI-58)
 - **Around setup:** the Factory can be used during setup; Tasks use the inherited layers until setup merges. While a setup Task is open, creating or starting a Task shows “Setup isn’t finished. This Task will use TED’s defaults” with **Start anyway** and **Open setup Task**. If setup never finished and no setup Task is open, the first Task started shows “This Factory hasn’t been set up” with **Start anyway** and **New setup Task**. These never block and are never Inbox items. (KRI-22, ADR 0005)
 - **New setup Task** is always at the top of Factory settings. A later setup Task proposes changes to the current files, shown as a diff. (KRI-22, KRI-58)
@@ -1243,8 +1261,8 @@ Figma: KRI-64 First launch and Settings.
 - **Next** is enabled when Git (including name and email) and at least one agent are ready. A grey line explains: “Next needs Git and at least one agent ready. Skip lets you in; Runs stay Paused until an agent is ready.” GitHub isn’t required here. **Skip** is always there. (KRI-57, KRI-64)
 - An agent signed in with an API key doesn’t block Next. If the user goes on without choosing, billing stays on Subscription and that kind’s first Run pauses with “Using an API key, not your subscription”. (KRI-64)
 - Below the rows: **Start TED in the background when you log in**, unticked on a new machine. Its value is saved when onboarding ends, Skip included, and applied only then. (KRI-57)
-- **Next** opens the Add Factory form with **Show the tutorial** on. Closing it leads to the No Factories state (10.12). (KRI-57)
-- With Developer mode on, Settings → Developer has **Show onboarding again** with **Show on next open**. It changes nothing in the running app; the row then says “Onboarding will show the next time TED opens.” with **Undo**. The next time the app starts, every step runs from the first, with Factories, Tasks and settings kept. When a Factory exists there are three steps and Set up TED’s button reads **Finish**, and the checkbox starts at the current setting.
+- **Next** opens the Add Factory form. Closing it leads to the No Factories state (10.12). (KRI-57)
+- With Developer mode on, Settings → Developer has **Show onboarding again** with **Show on next open**. It changes nothing in the running app, except that the next Factory added gets the guide card (5.3); the row then says “Onboarding will show the next time TED opens.” with **Undo**. The next time the app starts, every step runs from the first, with Factories, Tasks and settings kept. When a Factory exists there are three steps and Set up TED’s button reads **Finish**, and the checkbox starts at the current setting.
 - First launch doesn’t ask for the Linear key, notification permission, the editor, the `ted` command, or `lead`, `reviewer` and `planner` (TED’s defaults choose from the installed agents). (KRI-57)
 - After first launch, the same rows live in Settings → Agents and Settings → Integrations. (KRI-57)
 

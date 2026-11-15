@@ -95,12 +95,11 @@ const banners = (client: Client) => client.ok<Banner[]>('GET', '/banners')
 const inbox = (client: Client) => client.ok<InboxItem[]>('GET', '/inbox')
 const steps = (...list: unknown[]) => JSON.stringify({ steps: list })
 
-async function addWidgets(client: Client, showTutorial = false): Promise<Factory> {
+async function addWidgets(client: Client): Promise<Factory> {
   return client.ok<Factory>('POST', '/factories', {
     name: 'Widgets',
     key: 'WD',
     repos: [{ source: { remote: 'acme/widgets' }, name: 'widgets' }],
-    showTutorial,
   })
 }
 
@@ -303,7 +302,7 @@ describe('the proposal', () => {
         ].join('\n'),
       })
       const client = await start()
-      await addWidgets(client, true)
+      await addWidgets(client)
       const setup = await setupTask(client)
       const brief = path.join(scratch, 'brief.md')
       await writeFile(
@@ -356,7 +355,6 @@ describe('the proposal', () => {
       )
       const writeSettings = `grep -q Sneaky .ted/workflow.yaml || (cp ${branchSettings} .ted/workflow.yaml && git add .ted && git -c user.name=T -c user.email=t@example.com commit -qm settings)`
       const each = [
-        { run: ['ted', 'comment', '--tutorial', 'Each Stage, explained.'] },
         { run: ['ted', 'brief', 'write', '--file', brief] },
         { run: ['ted', 'outcome', 'advance', '--skip'] },
         { run: ['ted', 'outcome', 'advance', '--design', missingSetup] },
@@ -435,39 +433,31 @@ describe('the proposal', () => {
 
       const comments = await client.ok<Comment[]>('GET', `/tasks/${setup.id}/comments`)
       expect(comments.some((c) => c.kind === 'signoff' && c.stage === 'clarify')).toBe(false)
-      expect(comments.filter((c) => c.tutorial).map((c) => c.body)).toContain(
-        'Each Stage, explained.',
-      )
     },
     60_000,
   )
 
-  test('the setup Task Lead posts a tutorial Comment with its Run token, even when Claude Code scrubs credentials', async () => {
+  test('the setup Task Lead posts a Comment with its Run token, even when Claude Code scrubs credentials', async () => {
     await commitToOrigin(scratch, { '.ted/workflow.yaml': 'version: 1\n' })
     const client = await start()
     await client.ok('PATCH', '/settings', { billing: { claude: 'api-key', codex: 'subscription' } })
-    await addWidgets(client, true)
+    await addWidgets(client)
     const setup = await setupTask(client)
     await client.ok('PUT', `/tasks/${setup.id}`, {
-      title: steps(
-        { run: ['ted', 'comment', '--tutorial', 'Intake, explained.'] },
-        { run: ['ted', 'comment', 'A plain note.'] },
-        { endTurn: true },
-      ),
+      title: steps({ run: ['ted', 'comment', 'A plain note.'] }, { endTurn: true }),
     })
     await client.ok('POST', `/tasks/${setup.id}/start`)
 
     const comments = await waitUntil(async () => {
       const list = await client.ok<Comment[]>('GET', `/tasks/${setup.id}/comments`)
       return list.some((c) => c.body === 'A plain note.') ? list : undefined
-    }, 'both Comments')
-    expect(comments.find((c) => c.body === 'Intake, explained.')).toMatchObject({
-      tutorial: true,
+    }, 'the Comment')
+    expect(comments.find((c) => c.body === 'A plain note.')).toMatchObject({
       author: { kind: 'run' },
     })
   }, 30_000)
 
-  test('only a setup Task can post a setup proposal or a tutorial Comment', async () => {
+  test('only a setup Task can post a setup proposal', async () => {
     await commitToOrigin(scratch, {
       '.ted/workflow.yaml': 'version: 1\norder: [intake, design, work, merge]\n',
     })
@@ -488,7 +478,6 @@ describe('the proposal', () => {
       title: steps(
         {
           everyMessage: [
-            { run: ['ted', 'comment', '--tutorial', 'Not mine to post.'] },
             { run: ['ted', 'brief', 'write', '--file', brief] },
             { run: ['ted', 'outcome', 'advance', '--design', design] },
             { endTurn: true },
@@ -503,9 +492,8 @@ describe('the proposal', () => {
       const t = await getTask(client, task.id)
       if (t.stage !== 'design' || t.runs[0]?.state !== 'idle') return undefined
       const text = JSON.stringify((await client.getRun(t.leadRunId ?? '')).conversation)
-      return text.includes('# Design') && text.includes('tutorial Comments') ? text : undefined
+      return text.includes('# Design') && text.includes('proposes TED settings') ? text : undefined
     }, 'Design to finish its turn')
     expect(said).toContain('only a setup Task proposes TED settings')
-    expect(said).toContain('only a setup Task’s Task Lead posts tutorial Comments')
   }, 30_000)
 })

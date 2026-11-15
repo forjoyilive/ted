@@ -62,7 +62,6 @@ roundTrip(P.parseCreateFactoryRequest, {
     { name: 'ted', source: { remote: 'https://github.com/owner/ted' } },
     { name: 'local', source: { folder: '/tmp/local' } },
   ],
-  showTutorial: true,
 })
 roundTrip(P.parseReorderFactoriesRequest, { factoryIds: ['one', 'two'] })
 roundTrip(P.parseRemoveFactoryRequest, { key: 'TED', closePullRequests: true })
@@ -230,8 +229,10 @@ test('legacy Factory normalization and defaults', () => {
     name: '',
     key: '',
     repos: [],
-    showTutorial: false,
   })
+  expect(
+    P.parseCreateFactoryRequest({ name: 'TED', key: 'TED', repos: [], showTutorial: true }),
+  ).toEqual({ name: 'TED', key: 'TED', repos: [] })
   expect(P.parseCheckRepoRequest(null)).toEqual({ source: { remote: '' }, primary: false })
   expect(P.parseRemoveFactoryRequest({ key: 'TED' })).toEqual({
     key: 'TED',

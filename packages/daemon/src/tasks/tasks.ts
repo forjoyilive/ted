@@ -675,7 +675,6 @@ export interface Tasks {
       sizeCheck?: SizeCheckInput
       supersedes?: string
       attachments?: Attachment[]
-      tutorial?: boolean
     },
   ): Promise<Comment>
   upload(ref: string, caller: Caller, save: () => Promise<Attachment>): Promise<Attachment>
@@ -1326,9 +1325,7 @@ export function createTasks(options: {
         : task.forcedGates,
     )
     const based = task.changesSettings ? onDefaultBranch(forced) : forced
-    const workflow = task.setup
-      ? setupWorkflow(based, await setupInstructions(factory.showTutorial))
-      : based
+    const workflow = task.setup ? setupWorkflow(based, await setupInstructions()) : based
     const overnightGates = night.off.filter((id) => workflow.settings.stages[id]?.gate !== true)
     if (kept !== undefined) {
       const stages = agentStageIds.filter(
@@ -10925,16 +10922,7 @@ export function createTasks(options: {
     async comment(
       ref,
       caller,
-      {
-        body,
-        choices = [],
-        round,
-        proposal,
-        sizeCheck,
-        supersedes,
-        attachments = [],
-        tutorial = false,
-      },
+      { body, choices = [], round, proposal, sizeCheck, supersedes, attachments = [] },
     ) {
       if (caller.kind !== 'run') {
         if (choices.length > 0) throw new RequestError(400, 'only a Run can ask a question')
@@ -10954,21 +10942,6 @@ export function createTasks(options: {
       }
       const { task, runId } = ownTask(ref, caller)
       checkOwnFiles(task, attachments)
-      if (tutorial) {
-        if (!task.setup || task.leadRunId !== runId) {
-          throw new RequestError(403, 'only a setup Task’s Task Lead posts tutorial Comments')
-        }
-        if (choices.length > 0 || round !== undefined || supersedes !== undefined) {
-          throw new RequestError(400, 'a tutorial Comment is a plain note')
-        }
-        return store.postComment({
-          taskId: task.id,
-          body,
-          author: { kind: 'run', runId },
-          attachments,
-          tutorial: true,
-        })
-      }
       if (task.leadRunId !== runId) {
         if (
           choices.length > 0 ||

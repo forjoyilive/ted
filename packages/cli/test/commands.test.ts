@@ -35,8 +35,15 @@ describe('command definitions', () => {
     ['task', 'made-up'],
     ['ask', '--round', 'round.json', '--close', '--summary', 'summary.md'],
     ['task', 'lead', 'NB-1', 'codex', '--default-model'],
+    ['comment', '--tutorial', 'Each Stage, explained.'],
   ])('refuses invalid invocation %j', (...args) => {
     expect(() => parseInvocation(args, terminal)).toThrow(UsageError)
+  })
+
+  test('--tutorial is an unknown option', () => {
+    expect(() => parseInvocation(['comment', '--tutorial', 'Hi'], terminal)).toThrow(
+      "Unknown option '--tutorial'",
+    )
   })
 
   test('ambiguous definitions fail instead of choosing the first match', () => {

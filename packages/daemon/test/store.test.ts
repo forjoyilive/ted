@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { agentStageIds, type DaemonEvent, type Task } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { eventlogFile } from '../src/store/files.ts'
-import { openStore } from '../src/store/index.ts'
+import { type NewTreeTask, openStore } from '../src/store/index.ts'
 import { events } from '../src/store/schema.ts'
 
 let dir: string
@@ -645,7 +645,6 @@ describe('TedStore', () => {
           name: key,
           repos: [],
           defaultBranch: 'main',
-          showTutorial: false,
         })
       const other = factory('OTHER')
       const dashed = factory('MY-APP')
@@ -841,6 +840,141 @@ describe('TedStore', () => {
       expect(store.taskBuilds() - builds).toBe(ids.length)
       expect(store.taskVersion()).toBeGreaterThan(version)
       expect(updated).toEqual(ids.map((id) => store.tasksIn(new Set([id])).at(0)))
+    } finally {
+      await store.close()
+    }
+  })
+
+  test('only the first Factory, or the next one after the reset, gets a guide, and each ending is kept', async () => {
+    let store = await openStore({ directory: dir })
+    const entry = { layers: [], order: agentStages.map((stage) => ({ stage, enabled: true })) }
+    const factory = (key: string) =>
+      store.createFactory({ key, name: key, repos: [], defaultBranch: 'main' })
+    const live = () => store.guides().map((g) => g.factoryId)
+    const seen: DaemonEvent[] = []
+    store.subscribe((event) => seen.push(event))
+    const first = factory('ONE')
+    const second = factory('TWO')
+    expect(live()).toEqual([first.id])
+    expect(seen.filter((e) => e.type === 'guides-changed')).toHaveLength(1)
+    expect(first).not.toHaveProperty('showTutorial')
+
+    store.updateSettings({ guideNextFactory: true })
+    const third = factory('THREE')
+    expect(store.settings().guideNextFactory).toBe(false)
+    factory('FOUR')
+    expect(live()).toEqual([first.id, third.id])
+
+    const setup = await store.createTask({ factoryId: first.id, title: 'Set up ONE', setup: true })
+    store.queueTask(setup.id, 'intake')
+    await store.createTask({ factoryId: first.id, title: 'Before setup is done' })
+    await store.createTask({ factoryId: first.id, title: 'Split piece', splitFrom: setup.id })
+    expect(live()).toContain(first.id)
+    store.changeStage(setup.id, 'done', entry)
+    await store.createTask({
+      factoryId: first.id,
+      title: 'Made by the Coordinator',
+      coordinatorOperation: 'operation-1',
+    })
+    expect(live()).toContain(first.id)
+    await store.createTask({ factoryId: first.id, title: 'My first Task' })
+    expect(live()).toEqual([third.id])
+
+    const thirdSetup = await store.createTask({
+      factoryId: third.id,
+      title: 'Set up THREE',
+      setup: true,
+    })
+    store.archiveTask(thirdSetup.id)
+    expect(live()).toEqual([])
+    expect(store.hideGuide(third.id)).toBe(false)
+    expect(store.hideGuide(second.id)).toBe(false)
+
+    store.updateSettings({ guideNextFactory: true })
+    const fifth = factory('FIVE')
+    store.updateSettings({ guideNextFactory: true })
+    const sixth = factory('SIX')
+    const fifthSetup = await store.createTask({
+      factoryId: fifth.id,
+      title: 'Set up FIVE',
+      setup: true,
+    })
+    store.deleteTask(fifthSetup.id)
+    expect(store.hideGuide(sixth.id)).toBe(true)
+    expect(live()).toEqual([])
+    expect(store.hideGuide(sixth.id)).toBe(false)
+
+    const treeTask = (key: string, extra: Partial<NewTreeTask> = {}): NewTreeTask => ({
+      key,
+      title: key,
+      description: '',
+      priority: 'none',
+      startRequested: false,
+      attachments: [],
+      sourceUrl: `https://app.asana.com/0/1/${key}`,
+      ...extra,
+    })
+    store.updateSettings({ guideNextFactory: true })
+    const seventh = factory('SEVEN')
+    const waiting = await store.createTask({
+      factoryId: seventh.id,
+      title: 'Set up SEVEN',
+      setup: true,
+    })
+    store.queueTask(waiting.id, 'intake')
+    await store.createTask({ factoryId: seventh.id, title: 'While setup is queued' })
+    expect(live()).toEqual([seventh.id])
+    store.moveToBacklog(waiting.id)
+    store.createTaskTree({
+      factoryId: seventh.id,
+      tasks: [treeTask('1', { automation: { automationId: 'a', firingId: 'f' } })],
+      links: [],
+      comments: [],
+    })
+    expect(live()).toEqual([seventh.id])
+    store.createTaskTree({ factoryId: seventh.id, tasks: [treeTask('2')], links: [], comments: [] })
+    expect(live()).toEqual([])
+
+    await store.persisted()
+    await store.close()
+    store = await openStore({ directory: dir })
+    try {
+      expect(live()).toEqual([])
+    } finally {
+      await store.close()
+    }
+  })
+
+  test('Comments the old tutorial marked are left out of every Comment list', async () => {
+    let store = await openStore({ directory: dir })
+    const task = await store.createTask({ title: 'Set up' })
+    const note = (body: string) =>
+      store.postComment({ taskId: task.id, body, author: { kind: 'ted' } })
+    const tutorial = note('Tutorial: what Design does')
+    const kept = note('A plain note')
+    await store.createTask({ title: 'Its rank becomes the tutorial mark' })
+    await store.persisted()
+    await store.close()
+
+    const log = (await eventlogFile(dir)) as string
+    const db = new DatabaseSync(log)
+    try {
+      db.prepare(
+        `UPDATE eventlog SET name = 'v1.CommentMarkedTutorial', argsJson = ?
+         WHERE seqNumGlobal = (SELECT MAX(seqNumGlobal) FROM eventlog WHERE name = 'v1.TaskRanked')`,
+      ).run(JSON.stringify({ commentId: tutorial.id }))
+    } finally {
+      db.close()
+    }
+    const folder = path.dirname(log)
+    for (const name of await readdir(folder)) {
+      if (name.startsWith('state')) await rm(path.join(folder, name), { force: true })
+    }
+
+    store = await openStore({ directory: dir })
+    try {
+      expect(store.listComments(task.id).map((c) => c.body)).toEqual(['A plain note'])
+      expect(store.commentTexts().map((c) => c.id)).toEqual([kept.id])
     } finally {
       await store.close()
     }

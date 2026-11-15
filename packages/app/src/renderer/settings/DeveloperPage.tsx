@@ -149,16 +149,21 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
           <SettingsGroup>
             <SettingRow
               setting="app.developer.onboarding"
-              {...(settings.onboardingOnNextOpen && {
-                detail: 'Onboarding will show the next time TED opens.',
-              })}
+              {...(settings.onboardingOnNextOpen
+                ? { detail: 'Onboarding will show the next time TED opens.' }
+                : settings.guideNextFactory && {
+                    detail: 'The next Factory you add gets the setup guide.',
+                  })}
             >
               <Button
-                onClick={() =>
-                  ted.updateSettings({ onboardingOnNextOpen: !settings.onboardingOnNextOpen })
-                }
+                onClick={() => {
+                  const on = !(settings.onboardingOnNextOpen || settings.guideNextFactory)
+                  return ted.updateSettings({ onboardingOnNextOpen: on, guideNextFactory: on })
+                }}
               >
-                {settings.onboardingOnNextOpen ? 'Undo' : 'Show on next open'}
+                {settings.onboardingOnNextOpen || settings.guideNextFactory
+                  ? 'Undo'
+                  : 'Show on next open'}
               </Button>
             </SettingRow>
           </SettingsGroup>

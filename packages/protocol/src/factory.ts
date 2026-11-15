@@ -31,7 +31,6 @@ export interface Factory {
   defaultBranch: string
   localFolder?: LocalFolder
   repos: FactoryRepo[]
-  showTutorial: boolean
   autoStartBacklog: boolean
   icon?: FactoryIcon
   cloned: boolean
@@ -134,7 +133,6 @@ export interface CreateFactoryRequest {
   name: string
   key: string
   repos: NewFactoryRepo[]
-  showTutorial: boolean
 }
 
 export const repoNamePattern = /^[a-z0-9-]+$/

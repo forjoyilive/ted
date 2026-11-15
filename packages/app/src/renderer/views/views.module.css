@@ -587,16 +587,6 @@
   line-height: 1.45;
 }
 
-.tutorialTag {
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--accent-subtle);
-  color: var(--accent-text);
-  font-size: var(--text-11-5);
-  font-weight: var(--weight-medium);
-  line-height: 1.45;
-}
-
 @container task-details (width < 14em) {
   .details {
     grid-template-columns: minmax(0, 1fr);

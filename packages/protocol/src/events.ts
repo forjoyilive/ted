@@ -5,6 +5,7 @@ import type { CheckRun, SendBack } from './checks.ts'
 import type { DataStatus } from './data.ts'
 import type { Factory } from './factory.ts'
 import type { CheckTry, DriftCounts } from './factory-settings.ts'
+import type { FactoryGuide } from './guide.ts'
 import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth } from './integrations.ts'
 import type { Run } from './run.ts'
@@ -30,6 +31,7 @@ export type DaemonEvent =
   | { type: 'factory-updated'; factory: Factory }
   | { type: 'factory-removed'; factoryId: string }
   | { type: 'factory-settings-changed'; factoryId: string }
+  | { type: 'guides-changed'; guides: FactoryGuide[] }
   | { type: 'settings-changed'; settings: MachineSettings }
   | { type: 'banner-raised'; banner: Banner }
   | { type: 'banner-updated'; banner: Banner }

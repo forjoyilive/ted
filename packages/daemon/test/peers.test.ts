@@ -67,7 +67,6 @@ test('Factory boundaries, archived targets and Lead ownership are enforced', asy
     name: 'Other',
     repos: [],
     defaultBranch: 'main',
-    showTutorial: false,
   })
   const other = await store.createTask({ factoryId: factory.id, title: 'Private' })
   expect(peers.list(caller).tasks.map((t) => t.id)).not.toContain(other.id)
@@ -251,7 +250,6 @@ test('snapshots build only this Factory’s Tasks, and details build one peer', 
     name: 'Other',
     repos: [],
     defaultBranch: 'main',
-    showTutorial: false,
   })
   for (let i = 0; i < 12; i++) {
     await store.createTask({ factoryId: factory.id, title: `Other Factory ${i}` })
@@ -272,7 +270,6 @@ test('watch ignores raw output and other Factories, and coalesces relevant updat
     name: 'Other',
     repos: [],
     defaultBranch: 'main',
-    showTutorial: false,
   })
   const other = await store.createTask({ factoryId: factory.id, title: 'Unrelated peer' })
   const cursor = peers.list(caller).cursor

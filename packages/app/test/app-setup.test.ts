@@ -2,20 +2,12 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { commitToOrigin, makeOriginRepo, waitUntil } from '../../daemon/test/helpers.ts'
-import {
-  ctx,
-  daemonClient,
-  githubReady,
-  launchApp,
-  openAllTasks,
-  setUpAppTests,
-  taskRow,
-} from './app-harness.ts'
+import { ctx, daemonClient, githubReady, launchApp, setUpAppTests } from './app-harness.ts'
 
 setUpAppTests()
 
 describe('setup Tasks', () => {
-  test('the setup Task shows its Setup chip, its note, Tutorial Comments and the proposal card', async () => {
+  test('the setup Task shows its Setup chip, its note, the guide card and the proposal card', async () => {
     const parent = path.join(ctx.home, 'origin')
     await makeOriginRepo(parent)
     await commitToOrigin(parent, { '.ted/workflow.yaml': 'version: 1\n' })
@@ -80,7 +72,6 @@ describe('setup Tasks', () => {
       }),
     )
     const each = [
-      { run: ['ted', 'comment', '--tutorial', 'Design is where the Task Lead writes the plan.'] },
       { run: ['ted', 'brief', 'write', '--file', at('brief.md')] },
       { run: ['ted', 'outcome', 'advance', '--design', at('design.json')] },
       { run: ['ted', 'outcome', 'advance'] },
@@ -92,7 +83,6 @@ describe('setup Tasks', () => {
       name: 'Widgets',
       key: 'WD',
       repos: [{ source: { remote: 'acme/widgets' }, name: 'widgets' }],
-      showTutorial: true,
     })
     const setup = await waitUntil(
       async () => (await client.listTasks()).find((t) => t.setup),
@@ -112,8 +102,10 @@ describe('setup Tasks', () => {
       ),
     ).toBe(false)
 
-    await openAllTasks(window)
-    await taskRow(window, 'WD-1').click()
+    const guide = window.getByRole('region', { name: 'Setup guide' })
+    await guide.getByText('Setting up Widgets').waitFor()
+    await guide.getByText('Review the proposed setup.').waitFor()
+    await guide.getByRole('button', { name: 'Open the proposal' }).click()
     const thread = window.getByRole('region', { name: 'Task thread' })
     await thread.getByText(/WD-1\s+·\s+Brief\s+·\s+Created by TED/).waitFor()
     await thread.getByText('Setup', { exact: true }).waitFor()
@@ -128,7 +120,6 @@ describe('setup Tasks', () => {
     await expect(panel.locator('p').first().textContent()).resolves.toContain(
       'always on for a setup Task',
     )
-    await thread.getByText('Tutorial', { exact: true }).first().waitFor()
 
     const card = thread.getByRole('region', { name: 'Design review' })
     await card.waitFor({ timeout: 40_000 })
@@ -154,5 +145,10 @@ describe('setup Tasks', () => {
       .getByRole('button', { name: 'Approve' })
       .waitFor()
     await thread.getByText('TED created this Task to set up this Factory').waitFor()
+    expect(await thread.getByText('Tutorial', { exact: true }).count()).toBe(0)
+
+    await guide.getByRole('button', { name: 'Hide guide' }).click()
+    await guide.waitFor({ state: 'detached' })
+    expect(await client.guides()).toEqual([])
   }, 90_000)
 })

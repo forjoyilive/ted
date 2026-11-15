@@ -1274,7 +1274,6 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
           body,
           ...(choices.length > 0 && { choices }),
           ...(attachments.length > 0 && { attachments }),
-          ...(options.tutorial === true && { tutorial: true }),
         })
       })
       console.log(

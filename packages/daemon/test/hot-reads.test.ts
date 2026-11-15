@@ -26,7 +26,6 @@ async function seed(store: TedStore, cwd: string) {
       name: key,
       repos: repos(key.toLowerCase()),
       defaultBranch: 'main',
-      showTutorial: false,
     })
     store.factoryCloned(factory.id)
     return factory

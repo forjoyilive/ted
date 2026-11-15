@@ -176,6 +176,8 @@ export const forwardedRequests = [
   'setFactoryIcon',
   'reorderFactories',
   'newSetupTask',
+  'guides',
+  'hideGuide',
   'factoryRemoval',
   'removeFactory',
   'repoRemoval',
