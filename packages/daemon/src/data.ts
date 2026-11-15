@@ -48,10 +48,11 @@ import {
   readReplacedText,
   readStoreMeta,
   removeStaleStateFiles,
+  storeFileSizes,
   writeStoreMeta,
 } from './store/files.ts'
 import { openStore, type TedStore } from './store/index.ts'
-import { type TrimOptions, trimChangesets } from './store/trim-changesets.ts'
+import { type TrimOptions, trimChangesets, trimChangesetsAtBytes } from './store/trim-changesets.ts'
 import type { ArchiveCleanup } from './tasks/archive-expiry.ts'
 import type { Tasks } from './tasks/tasks.ts'
 import { plural } from './text.ts'
@@ -271,6 +272,11 @@ export function createData(options: DataOptions): Data {
           }
         },
       })
+      if (rebuilds && (await rebuiltStateIsLarge())) {
+        await store.close()
+        await trimStateChangesets()
+        store = await openStore({ directory: paths.store })
+      }
     } catch (error) {
       console.error('opening the store failed:', error)
       setStatus(
@@ -321,6 +327,13 @@ export function createData(options: DataOptions): Data {
       dropped: 0,
     })
     return false
+  }
+
+  // ADR 0156: a rebuild writes a changeset row for every event, and LiveStore keeps the state
+  // database in memory, so the store is closed, trimmed and opened again before services start.
+  async function rebuiltStateIsLarge(): Promise<boolean> {
+    const { stateBytes } = await storeFileSizes(paths.store)
+    return stateBytes >= (options.changesetTrim?.atLeastBytes ?? trimChangesetsAtBytes)
   }
 
   async function trimStateChangesets(): Promise<void> {

@@ -18,7 +18,9 @@ TED opens LiveStore with `makeAdapter` and file storage only (`packages/daemon/s
 
 `trimChangesets` in `packages/daemon/src/store/trim-changesets.ts`, called by `data.ts` before `openStore`, while the store is closed and only when `checkStore` says `current` and no output drop is about to rebuild the state. When the table and its index take 20 MB or more (read from SQLite’s `dbstat`), it deletes every row and runs `VACUUM`. It never drops the table: LiveStore would then treat the state as incomplete and rebuild it.
 
-It runs at every such open, not once per home, because the table refills as new events commit and a state rebuild writes a row back for every event. A failure is logged through `redactSecrets` and the store opens as before; a failed `VACUUM` leaves free pages in the file and no other harm.
+It runs at every such open, not once per home, because the table refills as new events commit and a state rebuild writes a row back for every event.
+
+After a state rebuild `data.ts` also closes the store it just opened, runs the same trim and opens the store again, before any service starts, when the state database is at or over the same 20 MB. A rebuild happens at the first open after most updates, and the daemon that rebuilt used to keep every row in memory until it was next restarted: on a copy of one machine’s store (91,631 events, a 213 MB state database after the rebuild) the trim took 840 ms, left a 95 MB file, and the open store’s memory fell from 1,366 MB to 995 MB. A failure is logged through `redactSecrets` and the store opens as before; a failed `VACUUM` leaves free pages in the file and no other harm.
 
 Measured on a copy of that machine’s store, rebuilt with the current schema: the delete and `VACUUM` took 463 ms and left a 91 MB file. The store then opened as `current`, every state table matched row for row, a new Task committed and was there after a reopen. Because the boot read loads every event since the backend head (all of them, with no backend) together with its changeset, the daemon’s memory just after opening fell from about 1,830 MB to 1,110 MB. At under a second the step needs no progress on the data screen.
 
@@ -33,3 +35,4 @@ Measured on a copy of that machine’s store, rebuilt with the current schema: t
 
 - Revisit this before TED adds a sync backend or upgrades LiveStore: with a backend the rows are needed for rebases, and a new LiveStore version may read them elsewhere.
 - Between opens the table grows as before; the space comes back at the next open of the daemon.
+- The first open after a rebuild opens the store twice. The second open reads the state that the first one built, so it takes seconds, not the rebuild’s time.

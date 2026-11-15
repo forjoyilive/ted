@@ -1245,6 +1245,38 @@ function pick(values: Record<string, unknown>, names: string[]): Record<string, 
 
 const persistTimeoutMs = 10_000
 
+const runFields = [
+  'id',
+  'agent',
+  'sessionId',
+  'model',
+  'effort',
+  'usesDefaultModel',
+  'problem',
+  'problemAt',
+  'permissions',
+  'manualPermissions',
+  'cwd',
+  'taskId',
+  'parentRunId',
+  'name',
+  'failure',
+  'state',
+  'readOffset',
+  'lastOutputAt',
+  'startedAt',
+  'revivedAt',
+  'ended',
+  'retrying',
+  'steeringRelease',
+] as const
+
+type RunRow = Omit<typeof runs.Type, 'prompt' | 'promptParts'>
+
+// LiveStore keeps every query result in memory, so lists leave the long text columns out.
+const runRows = runs.select(...runFields)
+const briefTimes = taskBriefs.select('taskId', 'version', 'createdAt')
+
 export type NewBanner = Omit<Banner, 'raisedAt' | 'dismissedUntil'>
 
 export interface OpenProgress {
@@ -1349,9 +1381,9 @@ export async function openStore({
 
   const allFactories = queryDb(factories.orderBy('createdAt', 'asc'))
   const allTasks = queryDb(tasks.orderBy('number', 'asc'))
-  const allRuns = queryDb(runs.orderBy('startedAt', 'asc'))
+  const allRuns = queryDb(runRows.orderBy('startedAt', 'asc'))
   const liveRuns = queryDb(
-    runs.where({ state: { op: '!=', value: 'finished' } }).orderBy('startedAt', 'asc'),
+    runRows.where({ state: { op: '!=', value: 'finished' } }).orderBy('startedAt', 'asc'),
   )
 
   const allFactoryRepos = queryDb(factoryRepos.orderBy('position', 'asc'))
@@ -1443,7 +1475,7 @@ export async function openStore({
       : (list.find((f) => f.id === factoryId)?.key ?? '?')
   const factoryKey = (factoryId: string) => keyAmong(listFactories(), factoryId)
 
-  const runName = (run: typeof runs.Type) =>
+  const runName = (run: RunRow) =>
     run.name ?? (run.taskId !== null && run.parentRunId === null ? 'Task Lead' : 'Run')
 
   const toReviewer = ({ unavailable, ...row }: typeof reviewers.Type): Reviewer => ({
@@ -1492,7 +1524,7 @@ export async function openStore({
   })
 
   const taskRuns = (taskId: string) =>
-    store.query(queryDb(runs.where({ taskId }).orderBy('startedAt', 'desc')))
+    store.query(queryDb(runRows.where({ taskId }).orderBy('startedAt', 'desc')))
 
   const pullRequestFields = (row: typeof pullRequests.Type | undefined): Partial<TaskRepo> => {
     if (!row) return {}
@@ -1783,7 +1815,7 @@ export async function openStore({
       factoryKey: (factoryId: string) => keyAmong(factories(), factoryId),
       runs: rows(
         taskRuns,
-        () => store.query(queryDb(runs.orderBy('startedAt', 'desc'))),
+        () => store.query(queryDb(runRows.orderBy('startedAt', 'desc'))),
         (r) => r.taskId,
       ),
       entries: rows(
@@ -1860,8 +1892,8 @@ export async function openStore({
         (r) => r.taskId,
       ),
       briefs: rows(
-        (taskId) => briefRows(taskId),
-        () => store.query(queryDb(taskBriefs.orderBy('version', 'asc'))),
+        (taskId) => store.query(queryDb(briefTimes.where({ taskId }).orderBy('version', 'asc'))),
+        () => store.query(queryDb(briefTimes.orderBy('version', 'asc'))),
         (r) => r.taskId,
       ),
       sources: rows(
@@ -2341,8 +2373,6 @@ export async function openStore({
   }
 
   const toRun = ({
-    prompt: _prompt,
-    promptParts: _promptParts,
     readOffset: _,
     lastOutputAt: _lastOutputAt,
     taskId,
@@ -2362,7 +2392,7 @@ export async function openStore({
     retrying: _retrying,
     steeringRelease: _steeringRelease,
     ...row
-  }: typeof runs.Type): Run => ({
+  }: RunRow): Run => ({
     ...row,
     ...(parentRunId !== null && { parentRunId }),
     ...(name !== null && { name }),
@@ -2396,7 +2426,7 @@ export async function openStore({
         ? { kind: 'failure' as const }
         : legacyPurpose(comment, () => {
             const modelRun = store
-              .query(queryDb(runs.where({ taskId: comment.taskId }).orderBy('startedAt', 'asc')))
+              .query(queryDb(runRows.where({ taskId: comment.taskId }).orderBy('startedAt', 'asc')))
               .filter((r) => r.parentRunId === null && r.startedAt <= comment.createdAt)
               .at(-1)
             return modelRun?.id
@@ -2810,7 +2840,7 @@ export async function openStore({
     store
       .query(queryDb(tasks.select('rank', 'number')))
       .reduce((highest, t) => Math.max(highest, t.rank ?? t.number), 0) + 1
-  const runRow = (id: string) => store.query(queryDb(runs.where({ id }))).at(0)
+  const runRow = (id: string) => store.query(queryDb(runRows.where({ id }))).at(0)
   const heldOutput = new Map<string, { toOffset: number; lastOutputAt?: string }>()
   const listTasks = () => {
     const reads = taskReads(true)
@@ -6218,8 +6248,6 @@ export async function openStore({
       observedRuns.add(row.id)
       const run = toRun({
         ...row,
-        prompt: '',
-        promptParts: JSON.stringify(parts),
         retrying: false,
         steeringRelease: null,
         usesDefaultModel: false,
@@ -6642,7 +6670,7 @@ export async function openStore({
     listRuns: () => store.query(allRuns).map(toRun),
     liveRuns: () => store.query(liveRuns).map(toRun),
     busyTaskIds: () => [
-      ...store.query(queryDb(runs.where({ state: 'working' }))).flatMap((r) => r.taskId ?? []),
+      ...store.query(queryDb(runRows.where({ state: 'working' }))).flatMap((r) => r.taskId ?? []),
       ...store.query(queryDb(taskRepos.where({ setupState: 'running' }))).map((r) => r.taskId),
     ],
     tasksIn: (ids) => {
@@ -6974,7 +7002,7 @@ export async function openStore({
       )
       const affected = new Set([
         ...store
-          .query(queryDb(runs.where({ agent })))
+          .query(queryDb(runRows.where({ agent })))
           .filter((r) => r.state !== 'finished' && r.taskId !== null)
           .map((r) => r.taskId as string),
         ...store.query(queryDb(heldRuns.where({ agent }))).map((h) => h.taskId),
@@ -7015,7 +7043,7 @@ export async function openStore({
         ...(row.sessionId !== null && { sessionId: row.sessionId }),
       })),
     pausedRunCount: (agent) =>
-      store.query(queryDb(runs.where({ agent }))).filter((r) => r.state !== 'finished').length +
+      store.query(queryDb(runRows.where({ agent }))).filter((r) => r.state !== 'finished').length +
       store.query(queryDb(heldRuns.where({ agent }))).length,
     exportEventlog: () => ({
       fileName: eventlogName,
