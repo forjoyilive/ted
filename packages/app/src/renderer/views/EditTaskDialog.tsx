@@ -91,6 +91,7 @@ export function EditTaskDialog({ task, onClose }: { task: Task; onClose: () => v
       <input
         className={styles.title}
         aria-label="Title"
+        data-arrows
         placeholder="Title"
         value={title}
         onChange={(event) => setTitle(event.target.value)}

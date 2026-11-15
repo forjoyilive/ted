@@ -85,9 +85,13 @@ describe('Editing a Task', () => {
 
     await window.keyboard.press('e')
     const dialog = window.getByRole('dialog', { name: 'Edit NB-1' })
-    await dialog
-      .getByRole('textbox', { name: 'Description' })
-      .fill('Typing cafe should find Café.\nIn titles and bodies.')
+    const descriptionBox = dialog.getByRole('textbox', { name: 'Description' })
+    await descriptionBox.fill('Keep `a -> b`')
+    await descriptionBox.pressSequentially(' and swap x ->')
+    await expect.poll(() => descriptionBox.inputValue()).toBe('Keep `a -> b` and swap x →')
+    await window.keyboard.press('Meta+z')
+    await expect.poll(() => descriptionBox.inputValue()).toBe('Keep `a -> b` and swap x ->')
+    await descriptionBox.fill('Typing cafe should find Café.\nIn titles and bodies.')
     await dialog.getByRole('button', { name: /^Save/ }).click()
     await dialog.waitFor({ state: 'detached' })
 
@@ -121,10 +125,12 @@ describe('Editing a Task', () => {
 
     await thread.getByRole('button', { name: 'Task actions' }).click()
     await window.getByRole('menuitem', { name: /Edit title and description/ }).click()
-    await dialog.getByRole('textbox', { name: 'Title' }).fill('Accent-blind search')
+    const titleBox = dialog.getByRole('textbox', { name: 'Title' })
+    await titleBox.fill('Accent-blind search')
+    await titleBox.pressSequentially(' <-> cafe')
     await window.keyboard.press('Meta+Enter')
-    await thread.getByRole('heading', { name: 'Accent-blind search' }).waitFor()
-    await thread.getByText('You renamed this Task to “Accent-blind search”').waitFor()
+    await thread.getByRole('heading', { name: 'Accent-blind search ↔ cafe' }).waitFor()
+    await thread.getByText('You renamed this Task to “Accent-blind search ↔ cafe”').waitFor()
 
     const subPrompt = path.join(home, 'layout-helper.md')
     await writeFile(

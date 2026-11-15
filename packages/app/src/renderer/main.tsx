@@ -7,7 +7,10 @@ import { createRoot } from 'react-dom/client'
 import { ConnectionContext, useConnectionState } from './data.ts'
 import { recoverMessageDrafts } from './message-drafts.ts'
 import { Root } from './Root.tsx'
+import { watchTypedArrows } from './typed-arrows.ts'
 import { WorkerWindow } from './WorkerWindow.tsx'
+
+watchTypedArrows(document)
 
 function Connected() {
   const connection = useConnectionState()
