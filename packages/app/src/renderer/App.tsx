@@ -730,6 +730,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
     if (command.kind === 'open-all-tasks') {
       dispatch({ type: 'open', screen: { kind: 'all-tasks' } })
     }
+    if (command.kind === 'open-dashboard') dispatch({ type: 'open', screen: { kind: 'dashboard' } })
     if (command.kind === 'open-inbox-request') {
       dispatch({
         type: 'open-inbox-request',

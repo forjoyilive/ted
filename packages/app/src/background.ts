@@ -19,6 +19,7 @@ export type MenuCommand =
   | { kind: 'open-inbox' }
   | { kind: 'open-inbox-request'; taskId: string; factoryId: string; requestId: string }
   | { kind: 'open-all-tasks' }
+  | { kind: 'open-dashboard' }
   | { kind: 'open-ted' }
   | { kind: 'new-task' }
   | { kind: 'settings'; section?: string }
@@ -108,6 +109,7 @@ const go = (): MenuEntry => ({
   submenu: [
     item('Inbox', { kind: 'open-inbox' }, 'CmdOrCtrl+Shift+I'),
     item('All Tasks', { kind: 'open-all-tasks' }, 'CmdOrCtrl+Shift+A'),
+    item('Dashboard', { kind: 'open-dashboard' }, 'CmdOrCtrl+Shift+D'),
   ],
 })
 const help = (): MenuEntry => ({
