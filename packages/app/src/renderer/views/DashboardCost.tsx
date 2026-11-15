@@ -466,7 +466,7 @@ export function Cost({
       <header className={styles.flowHead}>
         <div>
           <h2 id={heading}>Cost</h2>
-          <p className={styles.caption}>
+          <p className={styles.lead}>
             API-equivalent cost: what these Runs would have cost on an API key, whatever your
             billing. Runs still going aren’t counted yet.
           </p>
