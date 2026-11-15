@@ -166,6 +166,7 @@ function takeDelivered(
 
 export function chatItems(input: {
   run: Run
+  prompt: string
   entries: readonly AgentChatEntry[]
   messages: readonly RunMessage[]
   interrupts?: readonly { id: string; at: string }[]
@@ -175,9 +176,10 @@ export function chatItems(input: {
   promptParts?: readonly PromptPart[] | undefined
   bundle?: (messages: readonly RunMessage[]) => string
 }): ChatItem[] {
-  const { run, entries, messages, interrupts = [], preamble, promptFromHuman = false } = input
+  const { run, prompt, entries, messages, interrupts = [], preamble } = input
+  const promptFromHuman = input.promptFromHuman ?? false
   const items: ChatItem[] = []
-  const { instructions, rest: wholeRest } = splitPrompt(run.prompt, preamble)
+  const { instructions, rest: wholeRest } = splitPrompt(prompt, preamble)
   const tedAt = input.tedHeading === undefined ? -1 : wholeRest.indexOf(input.tedHeading)
   const rest = tedAt === -1 ? wholeRest : wholeRest.slice(0, tedAt).trim()
   const fromTed =
@@ -200,7 +202,7 @@ export function chatItems(input: {
   })
   const parts = input.promptParts ?? []
   for (const part of parts) {
-    const text = run.prompt.slice(part.start, part.end)
+    const text = prompt.slice(part.start, part.end)
     items.push(
       part.from === 'ted'
         ? fromTedItem(part.id, text, run.startedAt)
@@ -220,10 +222,10 @@ export function chatItems(input: {
   const deliveredAt = new Map<ChatItem, string>()
   const unmatched = messages.filter((m) => m.queued !== true)
   const waiting = messages.filter((m) => m.queued === true && m.from !== 'ted')
-  let promptSeen = run.prompt === ''
+  let promptSeen = prompt === ''
   for (const entry of entries) {
     if (entry.kind === 'user') {
-      if (!promptSeen && entry.text.trim() === run.prompt.trim()) {
+      if (!promptSeen && entry.text.trim() === prompt.trim()) {
         promptSeen = true
         continue
       }
@@ -508,6 +510,7 @@ export function createConversations(options: {
   return {
     async chat(runId) {
       const run = requireRun(runId)
+      const prompt = store.runPrompt(runId)
       const entries = parsedOutput(runs.output, agents, run).chat.entries()
       preamble ??= preambleText().catch(() => '')
       subPreamble ??= subAgentPreamble().catch(() => '')
@@ -515,14 +518,12 @@ export function createConversations(options: {
       const coordinated = owner !== undefined
       const planned = store.plans.get(runId) !== undefined
       const openingText = coordinated ? coordinatorOpening : planOpening
-      const opening = coordinated
-        ? run.prompt.lastIndexOf(openingText)
-        : run.prompt.indexOf(openingText)
+      const opening = coordinated ? prompt.lastIndexOf(openingText) : prompt.indexOf(openingText)
       const firstPart = owner?.prompts?.[runId]?.[0]
       const planPreamble = firstPart
-        ? run.prompt.slice(0, firstPart.start).trim()
+        ? prompt.slice(0, firstPart.start).trim()
         : (planned || coordinated) && opening !== -1
-          ? run.prompt.slice(0, opening + openingText.length)
+          ? prompt.slice(0, opening + openingText.length)
           : undefined
       const kept = runs.output.kept(runId)
       return {
@@ -532,6 +533,7 @@ export function createConversations(options: {
             kept,
             chatItems({
               run,
+              prompt,
               entries,
               messages: store.runMessages(runId),
               interrupts: store.runInterrupts(runId),

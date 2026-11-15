@@ -53,9 +53,13 @@ export function createAutomationDrafts(options: AutomationsOptions) {
     const run = store.getRun(id)
     if (!run || chatToolPolicy(run.agent) !== 'isolated') return {}
     const entries = agents.get(run.agent).chat(runs.output.entries(id), run.cwd)
-    const items = chatItems({ run, entries, messages: [], preamble: '' }).filter(
-      (item) => item.kind === 'tool',
-    )
+    const items = chatItems({
+      run,
+      prompt: store.runPrompt(id),
+      entries,
+      messages: [],
+      preamble: '',
+    }).filter((item) => item.kind === 'tool')
     if (items.length === 0) return {}
     return {
       chat: {

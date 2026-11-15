@@ -222,7 +222,7 @@ describe('Editing a Task', () => {
     const { run } = await client.getRun(started.leadRunId ?? '')
     expect(run.prompt).toContain('Make search ignore accents and case.')
     expect(run.prompt).toContain('# Original request')
-    const original = run.prompt.slice(run.prompt.indexOf('# Original request'))
+    const original = (run.prompt ?? '').slice((run.prompt ?? '').indexOf('# Original request'))
     expect(original).toContain('Make search ignore accents.')
   })
 
