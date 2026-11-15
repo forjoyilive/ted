@@ -60,6 +60,7 @@ type EndStore = Pick<
   | 'listStageEntries'
   | 'coordinators'
   | 'sideChats'
+  | 'reviewerOf'
   | 'automationDrafts'
   | 'plans'
   | 'automations'
@@ -87,6 +88,15 @@ export function runOutputEnd(store: EndStore, runId: string): RunOutputEnd {
   if (run.taskId !== undefined) {
     const task = store.getTask(run.taskId)
     if (!task) return { at: stopped }
+    if (run.parentRunId !== undefined && !store.sideChats.get(runId)) {
+      const reviewer = store.reviewerOf(runId)
+      const inVisit =
+        reviewer !== undefined &&
+        reviewer.stage === task.stage &&
+        !task.archived &&
+        reviewer.at >= (lastEntry(store, task.id, task.stage) ?? '')
+      if (!inVisit) return { at: stopped }
+    }
     const closed = [task.archived?.at, task.stage === 'done' ? doneAt(store, task) : undefined]
       .filter((at) => at !== undefined)
       .sort()[0]
@@ -102,6 +112,10 @@ export function runOutputEnd(store: EndStore, runId: string): RunOutputEnd {
   const firing = store.automations.firing(runId)
   if (firing) return firing.state === 'ended' ? { at: firing.finishedAt ?? stopped } : 'keep'
   return { at: stopped }
+}
+
+function lastEntry(store: EndStore, taskId: string, stage: string): string | undefined {
+  return store.listStageEntries(taskId).findLast((entry) => entry.stage === stage)?.at
 }
 
 function doneAt(
