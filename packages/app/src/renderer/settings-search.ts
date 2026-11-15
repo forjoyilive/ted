@@ -191,6 +191,11 @@ const entries = {
     help: 'TED uses the GitHub CLI’s own login and never reads its token. One row for each host your Factories use.',
     heading: true,
   },
+  'app.integrations.github.sync': {
+    name: 'Keep issues up to date',
+    help: 'When a Task comes from an issue in one of its Factory’s repos, TED comments on the issue when work starts, links it from each pull request, and comments and closes it once every pull request merges. It writes as your GitHub account, so what it writes can be public. If someone closes the issue on GitHub, TED archives a Task that hasn’t started, or asks you.',
+    keywords: 'github issue sync close comment fixes',
+  },
   'app.integrations.git': { name: 'Git', heading: true },
   'app.integrations.linear': {
     name: 'Linear',

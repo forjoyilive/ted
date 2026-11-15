@@ -176,6 +176,7 @@ import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
 import { fetchGitHubFiles, type GitHubUploads, uploadRefs } from '../github/files.ts'
 import { type Gh, GhError } from '../github/gh.ts'
+import { gitHubIssueSyncApi } from '../github/issue-sync.ts'
 import {
   choosePosts,
   type GitHubUnreadable,
@@ -328,6 +329,7 @@ import {
   trustedCheck,
   unseen,
 } from './github-activity.ts'
+import { createGitHubSync } from './github-sync.ts'
 import { createPullRequestWatch } from './github-watch.ts'
 import { createHeldRequests } from './held-requests.ts'
 import {
@@ -793,6 +795,7 @@ export function createTasks(options: {
     account?(): Promise<string | undefined>
   }
   asanaSyncMs?: number
+  githubSyncMs?: number
   isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
   gh?: Gh
@@ -1230,6 +1233,16 @@ export function createTasks(options: {
       inBackground: (what, work) => inBackground(what, work, false),
     })
   if (asanaSync) trackerConsents.push(asanaSync.consent)
+  const githubSync =
+    options.gh &&
+    createGitHubSync({
+      store,
+      github: gitHubIssueSyncApi(options.gh),
+      actions: trackerActions,
+      clock,
+      everyMs: options.githubSyncMs ?? 60_000,
+      inBackground: (what, work) => inBackground(what, work, false),
+    })
   const sources: QueueSource[] = []
   let pumping: Promise<void> | undefined
   let again = false
@@ -2887,6 +2900,13 @@ export function createTasks(options: {
       ...(goal !== undefined && goal !== '' && { goal }),
       ...(task.source?.url !== undefined && { sourceUrl: task.source.url }),
       ...(task.source?.sentry && { fixes: task.source.sentry.shortId }),
+      ...(store.settings().githubIssueSync &&
+        task.source?.github && {
+          issue: {
+            ref: `${task.source.github.repo}#${task.source.github.number}`,
+            several: manyRepos(task),
+          },
+        }),
     }
   }
 
@@ -11681,6 +11701,7 @@ export function createTasks(options: {
       watch?.close()
       linearSync?.close()
       asanaSync?.close()
+      githubSync?.close()
       await pumping
       stopping.abort()
       await Promise.all(background)

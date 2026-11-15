@@ -21,6 +21,12 @@ export interface PullRequestTask {
   goal?: string
   sourceUrl?: string
   fixes?: string
+  issue?: IssueRef
+}
+
+export interface IssueRef {
+  ref: string
+  several: boolean
 }
 
 export interface PullRequests {
@@ -255,7 +261,25 @@ export function pullRequestBody(task: PullRequestTask, others: string[]): string
     : `Opened by TED for ${task.displayId}.`
   const linked = others.length > 0 ? [`Part of the same Task: ${others.join(', ')}`] : []
   const fixes = task.fixes === undefined ? [] : [`Fixes ${task.fixes}`]
-  return [goal, '---', from, ...linked, ...fixes].join('\n\n')
+  const issue = task.issue === undefined ? [] : [issueLine(task.issue)]
+  return [goal, '---', from, ...linked, ...fixes, ...issue].join('\n\n')
+}
+
+export function issueLine({ ref, several }: IssueRef): string {
+  return several ? `Part of ${ref}` : `Fixes ${ref}`
+}
+
+export function withIssueLine(body: string, issue: IssueRef): string {
+  const line = issueLine(issue)
+  const lines = body.split(/\r?\n/)
+  if (lines.includes(line)) return body
+  const ref = issue.ref.toLowerCase()
+  const kept = lines.filter((l) => {
+    const match = /^(?:Fixes|Part of) (\S+)$/.exec(l)
+    return match?.[1]?.toLowerCase() !== ref
+  })
+  const text = kept.join('\n').trimEnd()
+  return text === '' ? line : `${text}\n\n${line}`
 }
 
 export function parsePullRequestUrl(out: string): { number: number; url: string } | undefined {

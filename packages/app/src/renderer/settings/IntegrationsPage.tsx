@@ -13,7 +13,7 @@ import { StatusChip, type StatusTone } from '../components/StatusChip.tsx'
 import { useEventValue } from '../data.ts'
 import { ted } from '../ted.ts'
 import { AsanaGroup } from './AsanaGroup.tsx'
-import { Button, SettingsGroup, SettingsPage } from './controls.tsx'
+import { Button, SettingRow, SettingsGroup, SettingsPage, Switch } from './controls.tsx'
 import styles from './integrations.module.css'
 import { LinearGroup } from './LinearGroup.tsx'
 import type { SettingsPageProps } from './sections.tsx'
@@ -109,6 +109,13 @@ export function IntegrationsPage({ settings }: Pick<SettingsPageProps, 'settings
             />
           ))
         )}
+        <SettingRow setting="app.integrations.github.sync">
+          <Switch
+            label="Keep issues up to date"
+            checked={settings.githubIssueSync}
+            onChange={(on) => void ted.updateSettings({ githubIssueSync: on })}
+          />
+        </SettingRow>
       </SettingsGroup>
       <SettingsGroup setting="app.integrations.git">
         {!health ? (

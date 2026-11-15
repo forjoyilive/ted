@@ -714,7 +714,11 @@ export type RequestPurpose =
         | 'ci-stuck'
     }
 
-const trackerNames: Readonly<Record<string, string>> = { linear: 'Linear', asana: 'Asana' }
+const trackerNames: Readonly<Record<string, string>> = {
+  linear: 'Linear',
+  asana: 'Asana',
+  github: 'GitHub',
+}
 
 export function trackerName(tracker: string): string {
   return trackerNames[tracker] ?? tracker

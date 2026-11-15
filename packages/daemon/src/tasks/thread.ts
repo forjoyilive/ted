@@ -405,7 +405,9 @@ export function threadEvents(
             'quiet',
             data.tracker === 'asana'
               ? 'Completed the Asana task'
-              : `Moved ${text(data.item)} to ${text(data.state)} in ${trackerName(text(data.tracker))}`,
+              : data.tracker === 'github'
+                ? `Closed ${text(data.item)} on GitHub`
+                : `Moved ${text(data.item)} to ${text(data.state)} in ${trackerName(text(data.tracker))}`,
           )
         }
         break
@@ -430,6 +432,7 @@ export function threadEvents(
         )
         break
       case 'v1.TrackerPullRequestsLinked': {
+        if (data.tracker === 'github') break
         const count = Array.isArray(data.urls) ? data.urls.length : 0
         add(
           entry,
