@@ -69,6 +69,10 @@ export function notificationOffer(
   return offered && !state.declined ? 'offered' : 'not-asked'
 }
 
+export function notificationsAllowed(asksPermission: boolean, asked: boolean): boolean {
+  return !asksPermission || asked
+}
+
 export const notificationsOnNotice = {
   title: 'Notifications are on',
   body: 'TED will tell you when something needs you.',
@@ -109,7 +113,7 @@ export function createNotifications(options: NotificationsOptions): Notification
     folded = display(foldedNotice(recent.length))
   }
 
-  const mayNotify = () => !asksPermission || asked()
+  const mayNotify = () => notificationsAllowed(asksPermission, asked())
 
   return {
     waiting(requests) {

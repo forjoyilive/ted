@@ -95,6 +95,7 @@ import {
   type NotificationOffer,
   type Notifier,
   notificationOffer,
+  notificationsAllowed,
   notificationsOnNotice,
   recordingNotifier,
   silentNotifier,
@@ -551,6 +552,9 @@ function saveNotificationState(changes: Partial<NotificationState>): void {
   if (offer !== offerBefore) sendToRenderer({ type: 'notification-offer', offer })
 }
 
+const mayNotify = () =>
+  notificationsAllowed(platform === 'darwin', currentNotificationState().asked)
+
 function offerNotifications(): void {
   if (notificationOffered) return
   notificationOffered = true
@@ -723,7 +727,7 @@ async function closeToBackground(): Promise<void> {
     return restartToUpdate()
   }
   const notice = closeNotice(platform, existsSync(noticeFile()))
-  if (!notice || hiddenWindow) return
+  if (!notice || hiddenWindow || !mayNotify()) return
   new Notification(notice).show()
   await writeFile(noticeFile(), '')
 }
@@ -1006,7 +1010,7 @@ function onConnection(connection: DaemonConnection): void {
     notifications.forget()
     client = supervisor?.client
     loadStateWhenReady().catch((error: unknown) => console.error('loading state failed:', error))
-  } else if (connection.state === 'stopped' && !hiddenWindow) {
+  } else if (connection.state === 'stopped' && !hiddenWindow && mayNotify()) {
     new Notification({ title: appName, body: keepsStopping }).show()
   }
 }

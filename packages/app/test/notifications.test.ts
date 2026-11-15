@@ -12,6 +12,7 @@ import {
   foldWindowMs,
   type NoticeToShow,
   notificationOffer,
+  notificationsAllowed,
 } from '../src/notifications.ts'
 import { initialNavigation, navigate } from '../src/renderer/navigation.ts'
 import { tedStopsText } from '../src/renderer/ted-stops.ts'
@@ -398,6 +399,12 @@ describe('notification permission', () => {
     expect(h.offers()).toBe(0)
     expect(h.asked()).toBe(true)
     expect(h.shown).toHaveLength(1)
+  })
+
+  test('on macOS nothing notifies before Turn on or after Not now, so no other path makes macOS ask', () => {
+    expect(notificationsAllowed(true, false)).toBe(false)
+    expect(notificationsAllowed(true, true)).toBe(true)
+    expect(notificationsAllowed(false, false)).toBe(true)
   })
 
   test('the offer shows only on macOS, until the user answers it', () => {
