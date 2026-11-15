@@ -1,5 +1,6 @@
 import {
   type Attachment,
+  archivedTaskDayLimits,
   maxCommitLookups,
   type NewTaskDraft,
   parseAddFailureEvidenceRequest,
@@ -56,6 +57,18 @@ import type {
 import { jsonRoute, type Route } from './route.ts'
 
 export const taskRoutes: Route[] = [
+  {
+    method: 'GET',
+    path: /^\/archive-expiry(?:\?.*)?$/,
+    handle: async ({ req }, { archiveCleanup }) => {
+      const days = Number(new URL(req.url ?? '/', 'http://localhost').searchParams.get('days'))
+      const { min, max } = archivedTaskDayLimits
+      if (!Number.isInteger(days) || days < min || days > max) {
+        throw new HttpError(400, `days must be a whole number from ${min} to ${max}`)
+      }
+      return [200, archiveCleanup.preview(days)]
+    },
+  },
   {
     method: 'GET',
     path: /^\/ted-stops$/,

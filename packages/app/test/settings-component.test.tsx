@@ -122,7 +122,7 @@ test('Limits changes how many Checks run at once and turns low priority off', as
   ])
 })
 
-test('Storage sets how long Run output is kept and measures again only on Refresh', async () => {
+test('Storage sets when chats and archived tasks are deleted and measures again only on Refresh', async () => {
   const update = vi.fn()
   const viewed = vi.fn()
   const api = bridge({
@@ -143,13 +143,14 @@ test('Storage sets how long Run output is kept and measures again only on Refres
       measuredAt: new Date(Date.now() - 3.5 * 60_000).toISOString(),
     }),
     updateSettings: update,
+    archiveExpiry: (days) => (Number(days) < 90 ? { due: 2, kept: 1 } : { due: 0, kept: 0 }),
   })
   const { rerender, unmount } = render(
     <StoragePage settings={defaultMachineSettings} dispatch={vi.fn()} />,
   )
-  const group = await screen.findByRole('group', { name: 'Run output' })
+  const group = await screen.findByRole('group', { name: 'Cleanup' })
   const days = within(group).getByRole<HTMLSelectElement>('combobox', {
-    name: 'Keep Run output after a Task is done',
+    name: 'Delete agent chats',
   })
   expect(days.value).toBe('7')
   expect(
@@ -165,6 +166,39 @@ test('Storage sets how long Run output is kept and measures again only on Refres
   )
   expect(days.value).toBe('45')
   expect(within(days).getByRole('option', { name: '45 days' })).toBeTruthy()
+
+  const archived = within(group).getByRole<HTMLSelectElement>('combobox', {
+    name: 'Delete archived tasks',
+  })
+  expect(archived.value).toBe('0')
+  expect(
+    within(archived)
+      .getAllByRole('option')
+      .map((o) => o.textContent),
+  ).toEqual(['Never', '7 days', '14 days', '30 days', '90 days', '365 days'])
+  update.mockClear()
+  await user().selectOptions(archived, '90')
+  await waitFor(() => expect(update.mock.calls).toEqual([[{ deleteArchivedAfterDays: 90 }]]))
+  rerender(
+    <StoragePage
+      settings={{ ...defaultMachineSettings, deleteArchivedAfterDays: 90 }}
+      dispatch={vi.fn()}
+    />,
+  )
+  await user().selectOptions(archived, '30')
+  const confirm = await screen.findByRole('dialog', { name: 'Delete 2 archived tasks now?' })
+  expect(update.mock.calls).toHaveLength(1)
+  await user().click(within(confirm).getByRole('button', { name: 'Delete 2 tasks' }))
+  expect(update.mock.calls.at(-1)).toEqual([{ deleteArchivedAfterDays: 30 }])
+  rerender(
+    <StoragePage
+      settings={{ ...defaultMachineSettings, deleteArchivedAfterDays: 30 }}
+      dispatch={vi.fn()}
+    />,
+  )
+  expect(await screen.findByText(/^Kept for now: 1 archived task, because it has/)).toBeTruthy()
+  await user().selectOptions(archived, '0')
+  expect(update.mock.calls.at(-1)).toEqual([{ deleteArchivedAfterDays: null }])
 
   const store = screen.getByRole('group', { name: 'Store and backups' })
   expect(

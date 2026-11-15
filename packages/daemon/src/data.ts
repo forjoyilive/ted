@@ -52,6 +52,7 @@ import {
 } from './store/files.ts'
 import { openStore, type TedStore } from './store/index.ts'
 import { type TrimOptions, trimChangesets } from './store/trim-changesets.ts'
+import type { ArchiveCleanup } from './tasks/archive-expiry.ts'
 import type { Tasks } from './tasks/tasks.ts'
 import { plural } from './text.ts'
 import type { Workflows } from './workflow/workflows.ts'
@@ -80,6 +81,7 @@ export interface Services {
   conversations: Conversations
   shells: Shells
   editors: Editors
+  archiveCleanup: ArchiveCleanup
 }
 
 export interface StartedServices extends Omit<Services, 'store'> {

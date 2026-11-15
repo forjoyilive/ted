@@ -104,6 +104,11 @@ export type TaskEnding =
   | { kind: 'pull-request-closed'; at: string }
   | { kind: 'stopped'; stage: StageId }
 
+export interface ArchiveExpiry {
+  due: number
+  kept: number
+}
+
 export interface TaskArchive {
   at: string
   ended: TaskEnding

@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { pruneRunOutput, runOutputEnd } from '../src/retention.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
+import { archivedDue } from '../src/tasks/archive-expiry.ts'
 import {
   api,
   commitToOrigin,
@@ -348,6 +349,47 @@ describe('pruning Run output', () => {
   })
 })
 
+describe('which archived Tasks are due for deletion', () => {
+  const now = new Date('2026-06-30T12:00:00.000Z')
+  const ago = (days: number) => new Date(now.getTime() - days * day).toISOString()
+  const task = (id: string, fields: Partial<Task> = {}) =>
+    ({ id, displayId: id, blockedBy: [], repos: [], stage: 'work', ...fields }) as Task
+  const archived = (days: number) =>
+    ({ archived: { at: ago(days), ended: { kind: 'never-started' } } }) as Partial<Task>
+  const ids = (tasks: readonly Task[]) => tasks.map((t) => t.id)
+
+  test('only Tasks archived longer ago than the days are due; Done Tasks that aren’t archived stay', () => {
+    const tasks = [
+      task('old', archived(31)),
+      task('recent', archived(29)),
+      task('done', { stage: 'done' }),
+      task('open'),
+    ]
+    expect(ids(archivedDue(tasks, 30, now).due)).toEqual(['old'])
+    expect(archivedDue(tasks, 30, now).kept).toEqual([])
+    expect(ids(archivedDue(tasks, 7, now).due)).toEqual(['old', 'recent'])
+  })
+
+  test('keeps a Task with Tasks under it, an open pull request, or a Task it blocks that isn’t archived', () => {
+    const pr = (state: 'draft' | 'ready' | 'merged' | 'closed') =>
+      [{ pullRequest: { state } }] as unknown as Task['repos']
+    const tasks = [
+      task('parent', { ...archived(40), childIds: ['child'] }),
+      task('child', { ...archived(50), parentId: 'parent' } as Partial<Task>),
+      task('draft', { ...archived(40), repos: pr('draft') }),
+      task('ready', { ...archived(40), repos: pr('ready') }),
+      task('closed', { ...archived(40), repos: pr('closed') }),
+      task('blocker', archived(40)),
+      task('blocked', { blockedBy: ['blocker', 'gone'] }),
+      task('blocks-archived', archived(40)),
+      task('also-archived', { ...archived(1), blockedBy: ['blocks-archived'] }),
+    ]
+    const result = archivedDue(tasks, 30, now)
+    expect(ids(result.due)).toEqual(['child', 'closed', 'blocks-archived'])
+    expect(ids(result.kept)).toEqual(['parent', 'draft', 'ready', 'blocker'])
+  })
+})
+
 describe('Run output retention in the daemon', () => {
   let home: string
   let cleanup: () => Promise<void>
@@ -384,7 +426,7 @@ describe('Run output retention in the daemon', () => {
 
   const runFolders = () => readdir(path.join(home, 'runs'))
 
-  test('a Done Task’s Run chat stays for 7 days, then shows “Output no longer kept”; a shorter setting removes it sooner', async () => {
+  test('a Done Task’s Run chat stays for 7 days, then shows “Output no longer kept”; a shorter setting removes it sooner; an archived Task is deleted once deleteArchivedAfterDays pass', async () => {
     let client = await start()
     const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
       const res = await client.call(method, route, body)
@@ -468,5 +510,19 @@ describe('Run output retention in the daemon', () => {
     expect((await task(done.id)).stage).toBe('done')
     const kept = await client.call('GET', `/runs/${openRun}/chat`)
     expect(JSON.stringify(kept.body.items)).toContain('still here')
+
+    await ok('POST', `/tasks/${open.id}/archive`, {})
+    expect(await ok('GET', '/archive-expiry?days=7')).toEqual({ due: 0, kept: 0 })
+    expect(await ok('GET', '/archive-expiry?days=5')).toEqual({ due: 1, kept: 0 })
+    expect((await client.call('GET', '/archive-expiry?days=0')).status).toBe(400)
+    await ok('PATCH', '/settings', { deleteArchivedAfterDays: 7 })
+    await new Promise((resolve) => setTimeout(resolve, 1000))
+    expect((await ok<Task[]>('GET', '/tasks')).map((t) => t.id)).toContain(open.id)
+    await ok('PATCH', '/settings', { deleteArchivedAfterDays: 5 })
+    await waitUntil(
+      async () => (await ok<Task[]>('GET', '/tasks')).every((t) => t.id !== open.id) || undefined,
+      'the archived Task to be deleted',
+    )
+    expect((await task(done.id)).stage).toBe('done')
   })
 })

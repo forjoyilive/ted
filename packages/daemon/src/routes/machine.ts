@@ -3,6 +3,7 @@ import {
   agentStageIds,
   appearances,
   archivedFilters,
+  archivedTaskDayLimits,
   type BoardView,
   billings,
   boardCardSizes,
@@ -345,6 +346,17 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     const { min, max } = runOutputDayLimits
     if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
       throw new HttpError(400, `runOutputDays must be a whole number from ${min} to ${max}`)
+    }
+    return value
+  },
+  deleteArchivedAfterDays(value) {
+    if (value === null) return null
+    const { min, max } = archivedTaskDayLimits
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+      throw new HttpError(
+        400,
+        `deleteArchivedAfterDays must be null or a whole number from ${min} to ${max}`,
+      )
     }
     return value
   },

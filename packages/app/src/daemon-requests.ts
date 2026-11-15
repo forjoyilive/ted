@@ -105,6 +105,7 @@ export const forwardedRequests = [
   'unarchiveTask',
   'taskHierarchy',
   'taskHierarchyPreview',
+  'archiveExpiry',
   'setTaskParent',
   'allowLinearSync',
   'allowAsanaSync',

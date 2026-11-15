@@ -1,12 +1,14 @@
 import type { StorageSummary, StoredBackup } from '@ted/protocol'
-import { runOutputDayLimits } from '@ted/protocol/settings'
+import { archivedTaskDayLimits, runOutputDayLimits } from '@ted/protocol/settings'
 import { formatBytes, storageKeptForMs } from '@ted/protocol/storage'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
+import dialogStyles from '../components/ArchiveDialogs.module.css'
+import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Skeleton } from '../components/Loading.tsx'
 import { useConnection } from '../data.ts'
 import { ago, useNow } from '../requests.ts'
-import { ted } from '../ted.ts'
+import { readableError, ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
 import { plural } from '../words.ts'
 import { Button, Select, SettingRow, SettingsGroup, SettingsPage } from './controls.tsx'
@@ -29,6 +31,7 @@ const day = {
 }
 
 const runOutputChoices = [1, 3, 7, 14, 30, 90, 365]
+const archivedChoices = [7, 14, 30, 90, 365]
 
 function runOutputOptions(current: number) {
   const { min, max } = runOutputDayLimits
@@ -36,6 +39,105 @@ function runOutputOptions(current: number) {
     .filter((days) => days >= min && days <= max)
     .sort((a, b) => a - b)
     .map((days) => ({ value: days, label: plural(days, 'day') }))
+}
+
+function archivedOptions(current: number | null) {
+  const { min, max } = archivedTaskDayLimits
+  const days = [...new Set([...archivedChoices, ...(current === null ? [] : [current])])]
+    .filter((d) => d >= min && d <= max)
+    .sort((a, b) => a - b)
+  return [{ value: 0, label: 'Never' }, ...days.map((d) => ({ value: d, label: plural(d, 'day') }))]
+}
+
+function ArchivedTasksRow({ days }: { days: number | null }) {
+  const { epoch } = useConnection()
+  const [kept, setKept] = useState(0)
+  const [confirm, setConfirm] = useState<{ days: number; due: number }>()
+  const [error, setError] = useState<string>()
+
+  useEffect(() => {
+    void epoch
+    if (days === null) {
+      setKept(0)
+      return
+    }
+    let current = true
+    ted
+      .archiveExpiry(days)
+      .then((expiry) => current && setKept(expiry.kept))
+      .catch(() => undefined)
+    return () => {
+      current = false
+    }
+  }, [days, epoch])
+
+  const save = async (next: number | null) => {
+    setConfirm(undefined)
+    try {
+      await ted.updateSettings({ deleteArchivedAfterDays: next })
+      setError(undefined)
+    } catch (failure) {
+      setError(readableError(failure))
+    }
+  }
+
+  const choose = async (value: number) => {
+    const next = value === 0 ? null : value
+    if (next === null || (days !== null && next >= days)) return save(next)
+    try {
+      const { due } = await ted.archiveExpiry(next)
+      if (due === 0) return save(next)
+      setConfirm({ days: next, due })
+    } catch (failure) {
+      setError(readableError(failure))
+    }
+  }
+
+  return (
+    <>
+      <SettingRow setting="app.storage.archived-tasks" labelFor="archived-task-days">
+        <Select
+          id="archived-task-days"
+          value={days ?? 0}
+          options={archivedOptions(days)}
+          width={110}
+          onChange={(value) => void choose(value)}
+        />
+      </SettingRow>
+      {kept > 0 && (
+        <p className={styles.archivedNote}>
+          {`Kept for now: ${plural(kept, 'archived task')}, because ${kept === 1 ? 'it has' : 'each has'} tasks under it, an open pull request or a task it still blocks.`}
+        </p>
+      )}
+      {error !== undefined && (
+        <p className={styles.archivedNote} role="alert">
+          {error}
+        </p>
+      )}
+      {confirm && (
+        <Dialog onClose={() => setConfirm(undefined)}>
+          {(headingId) => (
+            <>
+              <h2 id={headingId} className={dialogStyles.heading}>
+                {`Delete ${plural(confirm.due, 'archived task')} now?`}
+              </h2>
+              <p className={dialogStyles.body}>
+                {confirm.due === 1
+                  ? `It was archived more than ${plural(confirm.days, 'day')} ago, so TED deletes it with its comments, brief and chats. This can’t be undone.`
+                  : `They were archived more than ${plural(confirm.days, 'day')} ago, so TED deletes them with their comments, briefs and chats. This can’t be undone.`}
+              </p>
+              <div className={dialogStyles.buttons}>
+                <Button onClick={() => setConfirm(undefined)}>Cancel</Button>
+                <Button danger onClick={() => void save(confirm.days)}>
+                  {`Delete ${plural(confirm.due, 'task')}`}
+                </Button>
+              </div>
+            </>
+          )}
+        </Dialog>
+      )}
+    </>
+  )
 }
 
 function backupTitle(backup: StoredBackup): string {
@@ -230,6 +332,7 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
                 onChange={(runOutputDays) => ted.updateSettings({ runOutputDays })}
               />
             </SettingRow>
+            <ArchivedTasksRow days={settings.deleteArchivedAfterDays} />
           </SettingsGroup>
 
           <ExportGroup />
