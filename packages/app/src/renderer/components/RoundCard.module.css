@@ -40,6 +40,12 @@
   flex-shrink: 0;
 }
 
+.promptText {
+  min-width: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
 .options {
   display: flex;
   flex-direction: column;
@@ -48,7 +54,8 @@
 
 .option {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  line-height: var(--leading-body);
   gap: 10px;
   padding: 6px 10px;
   border-radius: var(--radius-control);
@@ -69,7 +76,7 @@
   flex-shrink: 0;
   width: 14px;
   height: 14px;
-  margin: 0;
+  margin: calc((var(--text-14) * var(--leading-body) - 14px) / 2) 0 0;
   accent-color: var(--accent-default);
 }
 
@@ -82,6 +89,7 @@
 }
 
 .optionText {
+  flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -226,6 +234,7 @@
 .answerText {
   flex: 1;
   min-width: 0;
+  white-space: pre-line;
   overflow-wrap: anywhere;
 }
 

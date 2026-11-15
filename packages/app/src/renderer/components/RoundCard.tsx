@@ -10,6 +10,7 @@ import { type KeyboardEvent, useId } from 'react'
 import { enterAction } from '../composer-keys.ts'
 import { draftField, useMessageDraft } from '../message-drafts.ts'
 import { Button } from './Button.tsx'
+import { ChoiceText } from './ChoiceText.tsx'
 import styles from './RoundCard.module.css'
 import grow from './TextGrow.module.css'
 
@@ -77,7 +78,7 @@ function Question({
       <fieldset className={styles.fieldset} disabled={disabled}>
         <legend className={styles.prompt}>
           <span className={styles.number}>{number}.</span>
-          {question.question}
+          <span className={styles.promptText}>{question.question}</span>
         </legend>
         {question.choices ? (
           <>
@@ -97,7 +98,7 @@ function Question({
                       checked={selected}
                       onChange={() => onChange({ ...draft, answer: choice, other: false })}
                     />
-                    <span className={styles.optionText}>{choice}</span>
+                    <ChoiceText choice={choice} className={styles.optionText} />
                     {tagged ? (
                       <Tag changed={changed} onReset={reset} />
                     ) : (

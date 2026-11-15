@@ -17,7 +17,8 @@
 
 .choice {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  line-height: var(--leading-body);
   gap: 10px;
   cursor: pointer;
   padding: 6px 10px;
@@ -37,10 +38,11 @@
   width: 14px;
   height: 14px;
   margin: 0;
+  margin-top: calc((var(--text-14) * var(--leading-body) - 14px) / 2);
   accent-color: var(--accent-default);
 }
 
-.choice > span {
+.text {
   min-width: 0;
   overflow-wrap: anywhere;
 }

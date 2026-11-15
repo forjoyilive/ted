@@ -15,6 +15,7 @@ import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
+import { Markdown } from '../components/Markdown.tsx'
 import { ModelSelect } from '../components/ModelSelect.tsx'
 import { ProposalAnswer, ProposalRows } from '../components/ProposalCard.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
@@ -673,7 +674,7 @@ function PlanRequestCard({ request }: { request: PlanRequest }) {
       {request.title !== undefined && request.title !== '' && (
         <p className={styles.cardTitle}>{request.title}</p>
       )}
-      {request.body !== '' && <p className={styles.summary}>{request.body}</p>}
+      {request.body !== '' && <Markdown className={styles.summary} text={request.body} />}
       {request.round && (
         <>
           <RoundQuestions

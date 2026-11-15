@@ -176,7 +176,11 @@ test('rounds require explicit choices and keep written recommendations prefilled
   const { answer } = requestApi()
   const questions = [
     ...round.questions,
-    { question: 'When to sync?', choices: ['Now', 'Later'], recommended: 'Now' },
+    {
+      question: 'When to sync?',
+      choices: ['Now', 'Later\n\nAfter the next app start.'],
+      recommended: 'Now',
+    },
   ]
   render(
     <RequestCard
@@ -198,7 +202,10 @@ test('rounds require explicit choices and keep written recommendations prefilled
   expect(submit.disabled).toBe(true)
   await u.click(screen.getByRole('radio', { name: /Keep both/ }))
   expect(submit.disabled).toBe(true)
-  await u.click(screen.getByRole('radio', { name: 'Later' }))
+  const detail = screen.getByText('After the next app start.')
+  expect(detail.textContent).toBe('\nAfter the next app start.')
+  expect(screen.getByText('Later').className).not.toBe(detail.className)
+  await u.click(screen.getByRole('radio', { name: /^Later/ }))
   expect(submit.disabled).toBe(false)
   await u.click(submit)
   expect(answer).toHaveBeenCalledWith('c1', {
@@ -206,7 +213,7 @@ test('rounds require explicit choices and keep written recommendations prefilled
     answers: [
       { answer: 'Keep both', note: 'Clashes are rare.' },
       { answer: 'The edit wins.' },
-      { answer: 'Later' },
+      { answer: 'Later\n\nAfter the next app start.' },
     ],
   })
 })

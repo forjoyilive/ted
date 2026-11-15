@@ -209,14 +209,16 @@ function sourceUrl(text: string | undefined): string | undefined {
 
 const maxChoices = 6
 
-const maxChoiceLength = 200
+const maxChoiceLength = 1000
+
+const maxTitleLength = 200
 
 function choiceList(value: unknown): string[] | undefined {
   if (value === undefined) return undefined
   if (!Array.isArray(value) || value.some((c) => typeof c !== 'string')) {
     throw new HttpError(400, 'choices must be a list of strings')
   }
-  const choices = (value as string[]).map(oneLine).filter((c) => c !== '')
+  const choices = (value as string[]).map(choiceText).filter((c) => c !== '')
   if (choices.length > maxChoices) {
     throw new HttpError(400, `a question has at most ${maxChoices} choices`)
   }
@@ -230,6 +232,8 @@ const maxQuestions = 12
 
 const maxQuestionLength = 1000
 
+const maxRoundQuestionLength = 4000
+
 const maxRecommendedLength = 2000
 
 export function parseRoundInput(value: unknown): RoundInput {
@@ -239,8 +243,8 @@ export function parseRoundInput(value: unknown): RoundInput {
   const { title, summary, questions } = value as Record<string, unknown>
   const heading = typeof title === 'string' ? oneLine(title) : ''
   if (heading === '') throw new HttpError(400, 'a round needs a title')
-  if ([...heading].length > maxChoiceLength) {
-    throw new HttpError(400, `a round’s title is limited to ${maxChoiceLength} characters`)
+  if ([...heading].length > maxTitleLength) {
+    throw new HttpError(400, `a round’s title is limited to ${maxTitleLength} characters`)
   }
   if (summary !== undefined && typeof summary !== 'string') {
     throw new HttpError(400, 'a round’s summary must be text')
@@ -262,11 +266,15 @@ function roundQuestion(item: unknown, number: number): RoundQuestion {
   const { question, choices, recommended } = (item ?? {}) as Record<string, unknown>
   const text = typeof question === 'string' ? question.trim() : ''
   if (text === '') throw new HttpError(400, `question ${number} needs its question`)
-  if ([...text].length > maxQuestionLength) {
-    throw new HttpError(400, `question ${number} is limited to ${maxQuestionLength} characters`)
+  if ([...text].length > maxRoundQuestionLength) {
+    throw new HttpError(
+      400,
+      `question ${number} is limited to ${maxRoundQuestionLength} characters`,
+    )
   }
   const options = choiceList(choices)
-  const pick = typeof recommended === 'string' ? recommended.trim() : ''
+  const given = typeof recommended === 'string' ? recommended : ''
+  const pick = options ? choiceText(given) : given.trim()
   if (pick === '') throw new HttpError(400, `question ${number} needs a recommended answer`)
   if ([...pick].length > maxRecommendedLength) {
     throw new HttpError(
@@ -293,8 +301,8 @@ export function parseProposalInput(value: unknown): ProposalInput {
   const { title, summary, tasks } = value as Record<string, unknown>
   const heading = typeof title === 'string' ? oneLine(title) : ''
   if (heading === '') throw new HttpError(400, 'a proposal needs a title')
-  if ([...heading].length > maxChoiceLength) {
-    throw new HttpError(400, `a proposal’s title is limited to ${maxChoiceLength} characters`)
+  if ([...heading].length > maxTitleLength) {
+    throw new HttpError(400, `a proposal’s title is limited to ${maxTitleLength} characters`)
   }
   if (summary !== undefined && typeof summary !== 'string') {
     throw new HttpError(400, 'a proposal’s summary must be text')
@@ -319,8 +327,8 @@ function proposalRow(item: unknown, row: number, count: number): ProposalRowInpu
   const { title, scope, description, priority, blockedBy } = (item ?? {}) as Record<string, unknown>
   const name = typeof title === 'string' ? oneLine(title) : ''
   if (name === '') throw new HttpError(400, `row ${row} needs a title`)
-  if ([...name].length > maxChoiceLength) {
-    throw new HttpError(400, `row ${row}’s title is limited to ${maxChoiceLength} characters`)
+  if ([...name].length > maxTitleLength) {
+    throw new HttpError(400, `row ${row}’s title is limited to ${maxTitleLength} characters`)
   }
   const line = typeof scope === 'string' ? oneLine(scope) : ''
   if (line === '') throw new HttpError(400, `row ${row} needs a one-line scope`)
@@ -735,6 +743,22 @@ function oneLine(text: string): string {
     .map((c) => (isControl(c) ? ' ' : c))
     .join('')
     .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function choiceText(text: string): string {
+  return stripVTControlCharacters(text)
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) =>
+      [...line]
+        .map((c) => (isControl(c) || /\s/.test(c) ? ' ' : c))
+        .join('')
+        .replace(/ +/g, ' ')
+        .trim(),
+    )
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
     .trim()
 }
 
