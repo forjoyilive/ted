@@ -987,7 +987,7 @@ test('the Cost tab shows cost per merged pull request, spend by kind of work and
   const perPr = screen.getByRole('region', { name: 'Cost per merged pull request' })
   expect(within(perPr).getByText('−20%')).toBeTruthy()
   expect(within(perPr).getByText(/Middle half \$3\.50 – \$4\.00 · 3 pull requests/)).toBeTruthy()
-  const spend = screen.getByRole('region', { name: 'Spend in this period' })
+  const spend = screen.getByRole('region', { name: 'API-equivalent spend in this period' })
   expect(within(spend).getByText('+20%')).toBeTruthy()
   expect(within(spend).getByText(/^92% went to Task work/)).toBeTruthy()
   const tokens = screen.getByRole('region', { name: 'Tokens' })
@@ -1008,7 +1008,9 @@ test('the Cost tab shows cost per merged pull request, spend by kind of work and
   ).toBeTruthy()
   await close()
 
-  await user().click(within(spend).getByRole('button', { name: 'Spend in this period $12.00' }))
+  await user().click(
+    within(spend).getByRole('button', { name: 'API-equivalent spend in this period $12.00' }),
+  )
   let sample = screen.getByRole('dialog')
   const items = within(sample)
     .getAllByRole('listitem')
