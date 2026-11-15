@@ -230,6 +230,7 @@ import {
   setupInstructions,
   stageTitle,
   taskLeadPrompt,
+  taskLeadSharedTexts,
 } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
 import { answerMessage } from './answer-message.ts'
@@ -344,6 +345,7 @@ import {
   type SetupStep,
   sameChoice,
 } from './lead-lifecycle.ts'
+import { sweepLeftovers } from './leftovers.ts'
 import { anchorIn, lineCommentsText, markOutdated } from './line-comments.ts'
 import { verifyLinearIntake } from './linear-intake.ts'
 import {
@@ -4171,6 +4173,7 @@ export function createTasks(options: {
   ): Promise<string> {
     const items = chatItems({
       run,
+      prompt: store.runPrompt(run.id),
       entries: parsedOutput(runs.output, agents, run).chat.entries(),
       messages: store.runMessages(run.id),
       interrupts: store.runInterrupts(run.id),
@@ -4948,6 +4951,7 @@ export function createTasks(options: {
     )
     const factory = factoryOf(task)
     const ref = await execution.local(task.id)
+    await lifecycle.endProcesses(ref)
     const live = task.repos.filter((r) => !r.removed)
     for (const handle of lifecycle.auxiliaryWorktrees(ref)) {
       await lifecycle.remove(handle).catch((error: unknown) => {
@@ -5150,7 +5154,13 @@ export function createTasks(options: {
         ? [nextStageMessage(resolution.workflow, current.stage as AgentStageId)]
         : []),
     ].join('\n\n')
-    return { prompt, cwd, waiting, overnight: overnightMode }
+    return {
+      prompt,
+      cwd,
+      waiting,
+      overnight: overnightMode,
+      shared: taskLeadSharedTexts(resolution.workflow, current.stage as AgentStageId),
+    }
   }
 
   function scheduleRepairChecks(taskId: string): void {
@@ -7562,6 +7572,29 @@ export function createTasks(options: {
     }
   }
 
+  function leftBehind(displayId: string): boolean {
+    const task = store.getTask(displayId)
+    if (!task) return true
+    return (
+      (task.archived || task.stage === 'done') &&
+      !task.repos.some((r) => !r.removed) &&
+      !clearingAway.has(task.id) &&
+      !deleting.has(task.id) &&
+      !hierarchyBusy.has(task.id)
+    )
+  }
+
+  function holdLeftBehind(displayId: string, work: () => Promise<void>): Promise<void> {
+    if (!leftBehind(displayId)) return Promise.resolve()
+    const task = store.getTask(displayId)
+    if (!task) return work()
+    const held: Promise<void> = work().finally(() => {
+      if (clearingAway.get(task.id) === held) clearingAway.delete(task.id)
+    })
+    clearingAway.set(task.id, held)
+    return held
+  }
+
   function clearing(taskId: string): Promise<void> {
     const running = clearingAway.get(taskId)
     if (running) return running
@@ -9207,6 +9240,10 @@ export function createTasks(options: {
       inBackground(`finish archiving ${task.displayId}`, () => clearing(task.id))
       continue
     }
+    if (task.stage === 'done' && task.repos.some((r) => !r.removed)) {
+      inBackground(`finish ${task.displayId}`, () => clearing(task.id))
+      continue
+    }
     if (
       task.markers.some((m) => m.kind === 'needs-planning') &&
       (task.runs.length > 0 || task.repos.some((r) => !r.removed))
@@ -9219,6 +9256,14 @@ export function createTasks(options: {
       inBackground(`resume ${task.displayId}`, () => resume(task.id))
     }
   }
+
+  inBackground('remove what closed Tasks left behind', async () => {
+    const swept = await sweepLeftovers({ home: path.dirname(worktreesDir), hold: holdLeftBehind })
+    if (swept.tasks.length > 0)
+      console.log(
+        `ended ${swept.processes} processes and removed ${swept.folders} folders left by ${swept.tasks.join(', ')}`,
+      )
+  })
 
   for (const task of store.listTasks()) {
     if (task.archived || task.leadRunId === undefined) continue

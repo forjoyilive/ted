@@ -708,6 +708,7 @@ export function threadEvents(
         add(entry, 'run', `Task Lead started · ${agentLine(data)}`)
         break
       case 'v4.RunStarted':
+      case 'v5.RunStarted':
         add(
           entry,
           'run',

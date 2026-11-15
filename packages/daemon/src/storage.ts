@@ -13,6 +13,7 @@ import { displayPath } from './backups.ts'
 import type { Data } from './data.ts'
 import type { DiskWatch } from './disk.ts'
 import { isCloning, removeClone } from './factories.ts'
+import { storeFileSizes } from './store/files.ts'
 import type { TedStore } from './store/index.ts'
 
 export interface Storage {
@@ -45,6 +46,7 @@ export function createStorage(options: {
 
   const categoryDirs: Record<StorageCategoryId, string[]> = {
     worktrees: [paths.worktrees, paths.plans, paths.automationRuns],
+    'sandbox-caches': [paths.sandbox, paths.seeds],
     simulators: [paths.simulators],
     clones: [paths.repos],
     'conversations-and-logs': [paths.logs, paths.runs, paths.apps],
@@ -52,7 +54,6 @@ export function createStorage(options: {
     attachments: [paths.attachments],
     backups: [paths.backups],
     'scratch-worktrees': [paths.scratch],
-    'package-caches': [paths.sandbox, paths.seeds],
   }
 
   async function clones(): Promise<{ repo: string; dir: string }[]> {
@@ -88,7 +89,7 @@ export function createStorage(options: {
   async function measure(): Promise<StorageSummary> {
     const measuredAt = new Date(now()).toISOString()
     const counter = createCounter()
-    const [categories, usedBytes, reading, backups] = await Promise.all([
+    const [categories, usedBytes, reading, backups, storeFiles] = await Promise.all([
       Promise.all(
         storageCategories.map(async ({ id, label }) => ({
           id,
@@ -102,6 +103,7 @@ export function createStorage(options: {
       diskUsage(paths.home),
       disk.check(),
       options.data.summary(),
+      storeFileSizes(paths.store),
     ])
     const tasks = new Map(store.listTasks().map((t) => [t.displayId, t]))
     const factories = new Map(store.listFactories().map((f) => [f.id, f]))
@@ -142,6 +144,10 @@ export function createStorage(options: {
         })),
       ),
       backupsDir: `${displayPath(paths.backups)}${path.sep}`,
+      storeFiles: {
+        ...storeFiles,
+        backupsBytes: categories.find((c) => c.id === 'backups')?.bytes ?? 0,
+      },
       measuredAt,
     }
   }

@@ -103,6 +103,31 @@ test('the history link appears in the description dialog once there is an edit, 
   expect(screen.queryByRole('dialog')).toBeNull()
 })
 
+test('the description preview is one plain line that leaves out headings', async () => {
+  const text = [
+    '## What is wrong',
+    '',
+    'Each open Task holds **490 MB** in `worktrees/`.',
+    '',
+    '## What changes',
+    '',
+    '- Clone the [seed](https://example.com)',
+  ].join('\n')
+  bridge({ ...detailHandlers(), taskDescriptions: () => [{ version: 1, text, at: createdAt }] })
+  render(<TaskDescription task={task({ description: text })} />)
+  const request = await screen.findByRole('region', { name: 'Original request' })
+  await waitFor(() => expect(request.textContent).toContain('Each open Task'))
+  expect(request.textContent).not.toContain('What is wrong')
+  expect(request.textContent).not.toContain('What changes')
+  expect(request.querySelector('h1, h2, h3, h4, h5, h6, p, ul, li, strong, code, a')).toBeNull()
+  expect(request.textContent?.replace(/\s+/g, ' ')).toContain(
+    'Each open Task holds 490 MB in worktrees/. Clone the seed',
+  )
+  await user().click(within(request).getByRole('button', { name: 'See description' }))
+  const dialog = screen.getByRole('dialog', { name: 'NB-1 · Sync notes' })
+  expect(within(dialog).getByRole('heading', { name: 'What is wrong' })).toBeTruthy()
+})
+
 test('Answer in the header closes a shown App so the request appears', async () => {
   bridge({
     ...detailHandlers(),
@@ -536,7 +561,7 @@ test('the header shows a one-line preview and See description; the dialog holds 
   })
   const view = render(<TaskDescription task={current} />)
   const request = screen.getByRole('region', { name: 'Original request' })
-  await within(request).findByText('Original scope')
+  await within(request).findByText(/Original scope/)
   expect(within(request).queryByRole('img')).toBeNull()
   expect(within(request).queryByText(file.name)).toBeNull()
   expect(within(request).queryByText(current.description)).toBeNull()

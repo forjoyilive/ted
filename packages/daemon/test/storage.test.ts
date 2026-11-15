@@ -94,7 +94,7 @@ describe('Settings → Storage', () => {
         'Backups',
         'Clones',
         'Conversations and logs',
-        'Package caches',
+        'Sandbox caches',
         'Scratch worktrees',
         'Simulators',
         'Store',
@@ -105,7 +105,7 @@ describe('Settings → Storage', () => {
     expect(bytesOf('clones')).toBeGreaterThan(0)
     expect(bytesOf('worktrees')).toBeGreaterThan(0)
     expect(bytesOf('store')).toBeGreaterThan(0)
-    expect(bytesOf('package-caches')).toBeGreaterThanOrEqual(8192)
+    expect(bytesOf('sandbox-caches')).toBeGreaterThanOrEqual(8192)
     expect(storage.usedBytes).toBeGreaterThanOrEqual(bytesOf('clones') + bytesOf('store'))
     expect(storage.largestWorktrees).toMatchObject([
       { displayId: 'NB-1', taskId: created.id, factoryName: expect.any(String) },
@@ -113,6 +113,9 @@ describe('Settings → Storage', () => {
     expect(storage.largestWorktrees[0]?.bytes).toBeGreaterThan(0)
     expect(storage.backups.map((b) => b.kind)).toEqual(['daily'])
     expect(storage.backups[0]?.bytes).toBeGreaterThan(0)
+    expect(storage.storeFiles.eventLogBytes).toBeGreaterThan(0)
+    expect(storage.storeFiles.stateBytes).toBeGreaterThan(0)
+    expect(storage.storeFiles.backupsBytes).toBe(bytesOf('backups'))
     expect(storage.removableClones).toEqual({ count: 0, bytes: 0 })
   })
 

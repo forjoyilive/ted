@@ -150,6 +150,18 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
             ))}
           </SettingsGroup>
 
+          <SettingsGroup setting="app.storage.store">
+            <SettingRow setting="app.storage.store.event-log">
+              <span className={styles.size}>{formatBytes(storage.storeFiles.eventLogBytes)}</span>
+            </SettingRow>
+            <SettingRow setting="app.storage.store.state">
+              <span className={styles.size}>{formatBytes(storage.storeFiles.stateBytes)}</span>
+            </SettingRow>
+            <SettingRow setting="app.storage.store.backups">
+              <span className={styles.size}>{formatBytes(storage.storeFiles.backupsBytes)}</span>
+            </SettingRow>
+          </SettingsGroup>
+
           {storage.largestWorktrees.length > 0 && (
             <SettingsGroup setting="app.storage.worktrees">
               {storage.largestWorktrees.map((worktree) => (

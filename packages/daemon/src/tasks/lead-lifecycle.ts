@@ -60,6 +60,7 @@ export interface LeadLifecycleOptions {
     cwd: string
     waiting: { comments: Comment[]; answers: Comment[] }
     overnight: boolean
+    shared?: string[]
   }>
   appEnv(taskId: string): Promise<Record<string, string>>
   protectComments(comments: Comment[], on: boolean): void
@@ -369,7 +370,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       })
       return
     }
-    const { prompt, cwd, waiting, overnight } = await context(
+    const { prompt, cwd, waiting, overnight, shared } = await context(
       task,
       current,
       resolution,
@@ -386,6 +387,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       run = await runs.start({
         agent,
         prompt,
+        ...(shared !== undefined && { shared }),
         cwd,
         messageIds: pending.map((message) => message.id),
         taskId: task.id,

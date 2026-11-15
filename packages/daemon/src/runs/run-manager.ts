@@ -52,6 +52,7 @@ import type { RunTokens } from '../run-token.ts'
 import { sideFolder } from '../side-chats/context.ts'
 import { signalGroup, signalProcess } from '../signal.ts'
 import type { RunFlags, TedStore } from '../store/index.ts'
+import { fixedPromptTexts } from '../workflow/workflow.ts'
 import {
   forGeneration,
   type HostRecord,
@@ -117,6 +118,7 @@ export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
   resume?: string
   messageIds?: string[]
   permissions?: PermissionMode
+  shared?: readonly string[]
 }
 
 export interface ReviveRunInput {
@@ -880,6 +882,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       name,
       permissions = 'auto',
       messageIds,
+      shared = [],
     }) {
       return serializeStarts(async () => {
         refuseWhileShuttingDown()
@@ -933,6 +936,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
             ...(parentRunId !== undefined && { parentRunId }),
             ...(name !== undefined && { name }),
             permissions,
+            shared: [...(await fixedPromptTexts()), ...shared],
           })
           const host = spawnHost(runDir, launch.env)
           follow(id)
@@ -1195,9 +1199,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       return inputRecords(runId).some((record) => record.deliveryIds.includes(messageId))
     },
     initialInputIds(runId) {
-      const run = store.getRun(runId)
+      const prompt = store.getRun(runId) ? store.runPrompt(runId) : undefined
       return inputRecords(runId, Buffer.alloc(0))
-        .filter((record) => record.forGeneration === 1 && record.text === run?.prompt)
+        .filter((record) => record.forGeneration === 1 && record.text === prompt)
         .flatMap((record) => record.deliveryIds)
     },
     consumedInputs(runId) {

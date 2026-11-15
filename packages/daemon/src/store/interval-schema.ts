@@ -22,7 +22,7 @@ function boundary(
   name: string,
   args: Args,
 ): { subject: string; data: Args; at: string } | undefined {
-  if (/^v[234]\.RunStarted$/.test(name)) {
+  if (isRunStarted(name)) {
     return { subject: `run:${args.id}`, data: { state: 'working' }, at: String(args.startedAt) }
   }
   if (name === 'v1.RunStateChanged' || name === 'v1.RunStateObserved') {
@@ -58,7 +58,7 @@ function boundary(
       at: String(args.at),
     }
   }
-  if (name === 'v1.SubAgentRequested') {
+  if (isSubAgentRequested(name)) {
     return {
       subject: `task:${args.taskId}`,
       data: { queuedRunId: args.id, agent: args.agent },
@@ -141,4 +141,12 @@ export function withIntervalBoundaries<T extends Record<string, (...args: never[
       ]
     }),
   ) as unknown as T
+}
+
+export function isSubAgentRequested(name: string): boolean {
+  return name === 'v1.SubAgentRequested' || name === 'v2.SubAgentRequested'
+}
+
+export function isRunStarted(name: string): boolean {
+  return /^v[2345]\.RunStarted$/.test(name)
 }

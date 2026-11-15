@@ -354,6 +354,83 @@ describe('TedStore', () => {
     }
   })
 
+  test('Run starts store shared prompt text once and rebuild the same prompts from a mixed log', async () => {
+    const fixed = `# Working in TED\n\n${'Fixed guidance. '.repeat(40)}`
+    const stage = `# Work\n\n${'Stage steps. '.repeat(30)}`
+    const instructions = `# Review\n\n${'Read the diff. '.repeat(30)}`
+    const leadPrompt = (title: string) => `${fixed}\n\n${stage}\n\n# Your Task: ${title}`
+    const subPrompt = `${fixed}\n\n# Your instructions\n\n${instructions}`
+    const first = await openStore({ directory: dir })
+    const task = await first.createTask({ title: 'Fix login' })
+    const start = (id: string, prompt: string, parentRunId?: string) =>
+      first.startRun({
+        id,
+        taskId: task.id,
+        agent: 'claude',
+        prompt,
+        cwd: '/tmp',
+        shared: [fixed, stage, 'too short to share'],
+        ...(parentRunId !== undefined && { parentRunId }),
+      })
+    start('old-lead', leadPrompt('Old'))
+    start('new-lead', leadPrompt('New'))
+    first.requestSubAgent({
+      id: 'sub-1',
+      taskId: task.id,
+      parentRunId: 'new-lead',
+      name: 'Review',
+      agent: 'claude',
+      prompt: `\n${instructions}\n`,
+      ownWorktree: false,
+    })
+    start('sub-1', subPrompt, 'new-lead')
+    const run = first.getRun('new-lead')
+    expect(run?.prompt).toBeUndefined()
+    expect(first.runPrompt('new-lead')).toBe(leadPrompt('New'))
+    expect(first.runPrompt('sub-1')).toBe(subPrompt)
+    expect(first.subAgentRequests(task.id)).toEqual([])
+    await first.persisted()
+    await first.close()
+
+    const log = new DatabaseSync((await eventlogFile(dir)) as string)
+    try {
+      const rows = log
+        .prepare(`SELECT name, argsJson FROM eventlog ORDER BY seqNumGlobal`)
+        .all() as { name: string; argsJson: string }[]
+      const starts = rows.filter((r) => r.name === 'v5.RunStarted')
+      expect(starts).toHaveLength(3)
+      for (const r of starts) {
+        expect(r.argsJson).not.toContain('Fixed guidance.')
+        expect(r.argsJson).not.toContain('Read the diff.')
+      }
+      const seen = rows.filter((r) => r.name === 'v1.PromptTextSeen')
+      expect(seen.map((r) => (JSON.parse(r.argsJson) as { text: string }).text).sort()).toEqual(
+        [fixed, stage].sort(),
+      )
+      const oldStart = starts.find((r) => r.argsJson.includes('"old-lead"'))?.argsJson ?? ''
+      const { promptParts: _, ...oldArgs } = JSON.parse(oldStart) as Record<string, unknown>
+      log
+        .prepare(`UPDATE eventlog SET name = 'v4.RunStarted', argsJson = ? WHERE argsJson = ?`)
+        .run(JSON.stringify({ ...oldArgs, prompt: leadPrompt('Old') }), oldStart)
+    } finally {
+      log.close()
+    }
+    const folder = path.dirname((await eventlogFile(dir)) as string)
+    for (const file of await readdir(folder)) {
+      if (file.startsWith('state')) await rm(path.join(folder, file))
+    }
+
+    const second = await openStore({ directory: dir })
+    try {
+      expect(second.runPrompt('old-lead')).toBe(leadPrompt('Old'))
+      expect(second.runPrompt('new-lead')).toBe(leadPrompt('New'))
+      expect(second.runPrompt('sub-1')).toBe(subPrompt)
+      expect(second.runPrompt('missing')).toBe('')
+    } finally {
+      await second.close()
+    }
+  })
+
   test('an event log that holds v2.RunOutputRead lines loads, and its lines stay out of the state database', async () => {
     const first = await openStore({ directory: dir })
     first.startRun({ id: 'run-1', agent: 'claude', sessionId: 's', prompt: 'Hello', cwd: '/tmp' })

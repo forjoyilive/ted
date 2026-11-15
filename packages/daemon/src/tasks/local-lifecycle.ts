@@ -17,6 +17,7 @@ import { acquireFactoryPermissions, factoryPermissions } from '../permissions.ts
 import type { Sandbox } from '../sandbox.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import { type CommandLaunch, runTaskCommand } from './command.ts'
+import { endTaskProcesses } from './leftovers.ts'
 import { removeInside } from './remove-files.ts'
 import { type FactoryRepoEntry, isSafeRepo } from './repos.ts'
 import { type CommandResult, type CopyResult, copyFiles, type WorktreeCommand } from './worktree.ts'
@@ -69,6 +70,7 @@ export interface TaskWorktreeLifecycle {
   auxiliaryWorktrees(ref: ExecutionRef): LifecycleHandle[]
   legacyWorktree(ref: ExecutionRef): LifecycleHandle | undefined
   cleanFolders(ref: ExecutionRef): Promise<void>
+  endProcesses(ref: ExecutionRef): Promise<void>
 }
 
 export interface LocalLifecycle extends TaskWorktreeLifecycle {
@@ -459,8 +461,15 @@ export function createLocalLifecycle(options: {
     )
   }
 
+  async function endProcesses(ref: ExecutionRef): Promise<void> {
+    const task = await ready(ref)
+    await endTaskProcesses(path.dirname(options.worktreesDir), task.displayId)
+  }
+
   async function cleanFolders(ref: ExecutionRef): Promise<void> {
     const task = await ready(ref)
+    const home = path.dirname(options.worktreesDir)
+    await endTaskProcesses(home, task.displayId)
     const worktrees = await lstat(options.worktreesDir).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== 'ENOENT') throw error
       return undefined
@@ -472,7 +481,6 @@ export function createLocalLifecycle(options: {
         false,
         true,
       )
-    const home = path.dirname(options.worktreesDir)
     const sandboxDir = path.join(home, 'sandbox')
     await plain(home, sandboxDir, false, true)
     await removeInside(options.worktreesDir, task.displayId)
@@ -561,6 +569,7 @@ export function createLocalLifecycle(options: {
     auxiliaryWorktrees,
     legacyWorktree,
     cleanFolders,
+    endProcesses,
     rollback,
   }
 }

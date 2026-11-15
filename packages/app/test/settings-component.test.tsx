@@ -139,6 +139,7 @@ test('Storage sets how long Run output is kept and measures again only on Refres
       simulators: { count: 0, bytes: 0 },
       backups: [],
       backupsDir: '~/.ted/backups/',
+      storeFiles: { eventLogBytes: 150e6, stateBytes: 270e6, backupsBytes: 2.4e9 },
       measuredAt: new Date(Date.now() - 3.5 * 60_000).toISOString(),
     }),
     updateSettings: update,
@@ -164,6 +165,13 @@ test('Storage sets how long Run output is kept and measures again only on Refres
   )
   expect(days.value).toBe('45')
   expect(within(days).getByRole('option', { name: '45 days' })).toBeTruthy()
+
+  const store = screen.getByRole('group', { name: 'Store and backups' })
+  expect(
+    ['Event log', 'State database', 'Backups'].map(
+      (name) => within(store).getByText(name).closest('[data-setting]')?.textContent,
+    ),
+  ).toEqual(['Event log150 MB', 'State database270 MB', 'Backups2.4 GB'])
 
   expect(screen.getByText(/· Measured 3m ago$/)).toBeTruthy()
   expect(api.request).toHaveBeenCalledWith('getStorage', { refresh: false })
