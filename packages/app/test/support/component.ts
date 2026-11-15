@@ -23,6 +23,7 @@ export function bridge(given: Record<string, Handler>) {
     getAsana: () => ({ state: 'unconfigured', configured: false, redirectUri: '' }),
     tedStops: () => [],
     listTasks: () => [],
+    guides: () => [],
     ...given,
   }
   const listeners = new Set<(event: TedEvent) => void>()

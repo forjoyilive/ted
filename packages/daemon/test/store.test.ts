@@ -866,6 +866,7 @@ describe('TedStore', () => {
     expect(live()).toEqual([first.id, third.id])
 
     const setup = await store.createTask({ factoryId: first.id, title: 'Set up ONE', setup: true })
+    store.queueTask(setup.id, 'intake')
     await store.createTask({ factoryId: first.id, title: 'Before setup is done' })
     await store.createTask({ factoryId: first.id, title: 'Split piece', splitFrom: setup.id })
     expect(live()).toContain(first.id)
