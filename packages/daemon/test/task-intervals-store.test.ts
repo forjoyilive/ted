@@ -623,3 +623,23 @@ test('orders request creation and lifecycle boundaries even when their timestamp
     { start: at(1), end: at(3), contributors: [{ id: request.id, endSource: 'query' }] },
   ])
 })
+
+test('a restart writes no wait observation for a Task with nothing waiting', async () => {
+  await store.createTask({ title: 'Also idle' })
+  await store.persisted()
+  await store.close()
+  store = await openStore({ directory })
+  await store.persisted()
+  const file = await eventlogFile(directory)
+  if (!file) throw new Error('missing event log')
+  const db = new DatabaseSync(file, { readOnly: true })
+  try {
+    const row = db
+      .prepare("SELECT COUNT(*) AS count FROM eventlog WHERE name = 'v1.TaskWaitObserved'")
+      .get() as { count: number }
+    expect(row.count).toBe(0)
+  } finally {
+    db.close()
+  }
+  expect(store.taskIntervalHistory(taskId).intervals).toEqual([])
+})

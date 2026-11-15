@@ -1,4 +1,4 @@
-import { readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { lstat, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { events, schema } from './schema.ts'
@@ -102,13 +102,18 @@ export async function checkStore(directory: string): Promise<StoreCheck> {
   }))
   const unknownEvents = names.map((row) => row.name).filter((name) => !knownEvents.has(name))
   if (unknownEvents.length > 0) return { kind: 'newer', unknownEvents }
-  const state = (await filesIn(directory)).find(
-    (file) => file.startsWith(statePrefix) && file.endsWith('.db'),
-  )
-  if (count > 0 && (!state || !stateIsComplete(path.join(directory, storeFolder, state)))) {
+  const state = await stateFile(directory)
+  if (count > 0 && (!state || !stateIsComplete(state))) {
     return { kind: 'rebuild', events: count }
   }
   return { kind: 'current' }
+}
+
+export async function stateFile(directory: string): Promise<string | undefined> {
+  const state = (await filesIn(directory)).find(
+    (file) => file.startsWith(statePrefix) && file.endsWith('.db'),
+  )
+  return state && path.join(directory, storeFolder, state)
 }
 
 export async function eventCount(directory: string): Promise<number> {
@@ -118,6 +123,23 @@ export async function eventCount(directory: string): Promise<number> {
     eventlog,
     (db) => (db.prepare('SELECT COUNT(*) AS count FROM eventlog').get() as { count: number }).count,
   )
+}
+
+export async function storeFileSizes(
+  directory: string,
+): Promise<{ eventLogBytes: number; stateBytes: number }> {
+  const sizes = { eventLogBytes: 0, stateBytes: 0 }
+  for (const file of await filesIn(directory)) {
+    const kind = file.startsWith('eventlog@')
+      ? 'eventLogBytes'
+      : file.startsWith(statePrefix)
+        ? 'stateBytes'
+        : undefined
+    if (!kind) continue
+    const entry = await lstat(path.join(directory, storeFolder, file)).catch(() => undefined)
+    if (entry?.isFile()) sizes[kind] += entry.size
+  }
+  return sizes
 }
 
 export async function removeStaleStateFiles(directory: string): Promise<void> {

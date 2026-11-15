@@ -6,7 +6,7 @@ import { promisify } from 'node:util'
 import { readDaemonInfo } from '@ted/protocol'
 import { afterEach, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
-import { appClient, commitToOrigin, makeOriginRepo, makeTempHome } from './helpers.ts'
+import { appClient, commitToOrigin, eventCount, makeOriginRepo, makeTempHome } from './helpers.ts'
 
 const exec = promisify(execFile)
 let daemon: RunningDaemon | undefined
@@ -77,6 +77,12 @@ process.exit(result.status ?? 1)
   for (const board of concurrent) expect(board).toEqual(before)
   expect((await readFile(refs, 'utf8')).trim().split('\n')).toHaveLength(1)
   await rm(slowRefs)
+  const accepted = () => eventCount(temporary.home, 'v1.WorkflowLayerAccepted')
+  await expect.poll(accepted).toBeGreaterThan(0)
+  const acceptedBefore = await accepted()
+  await commitToOrigin(scratch, { 'README.md': 'A commit that leaves .ted/ alone\n' })
+  await client.factorySettings(factory.id, { refresh: 'first' })
+  await client.factoryBoard(factory.id)
   await commitToOrigin(scratch, {
     '.ted/workflow.yaml': 'version: 1\norder: [intake, design, work]\n',
   })
@@ -86,4 +92,5 @@ process.exit(result.status ?? 1)
     (await client.factoryBoard(factory.id)).stages.some((stage) => stage.id === 'design'),
   ).toBe(true)
   expect(await readFile(log, 'utf8')).not.toBe('')
+  await expect.poll(accepted).toBe(acceptedBefore + 1)
 }, 30_000)

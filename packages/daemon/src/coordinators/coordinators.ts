@@ -506,7 +506,7 @@ export function createCoordinators(options: {
         const previous = c
         const nextId = randomUUID()
         const context = c.runIds.map((id) => ({
-          prompt: store.getRun(id)?.prompt,
+          prompt: store.getRun(id) ? store.runPrompt(id) : undefined,
           entries: runs.output.entries(id).map((e) => e.line),
           messages: store.runMessages(id),
         }))

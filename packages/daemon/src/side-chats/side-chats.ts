@@ -98,7 +98,13 @@ export function createSideChats(options: {
       })
     return {
       run: summary,
-      items: chatItems({ run, entries, messages: store.runMessages(c.id), preamble: '' }),
+      items: chatItems({
+        run,
+        prompt: store.runPrompt(run.id),
+        entries,
+        messages: store.runMessages(c.id),
+        preamble: '',
+      }),
     }
   }
   async function view(c: StoredSideChat): Promise<SideChat> {
@@ -367,7 +373,7 @@ export function createSideChats(options: {
           )
         const entries = agents.get(source.agent).chat(runs.output.entries(id), source.cwd)
         const snapshot = boundSnapshot(
-          redactSecrets(source.prompt),
+          redactSecrets(store.runPrompt(id)),
           redactSecrets(
             entries
               .map((e) =>

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { cp, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -96,7 +96,10 @@ describe('store migrations', () => {
       path.join(home, 'backups', preUpdate[0]?.name ?? '', 'store', 'ted'),
     )
     expect(copied.some((f) => f.startsWith('eventlog'))).toBe(true)
-    expect(copied.some((f) => f.startsWith('stateold'))).toBe(true)
+    expect(copied.some((f) => f.startsWith('state'))).toBe(false)
+    expect(await readdir(path.join(home, 'backups', preUpdate[0]?.name ?? '', 'store'))).toContain(
+      'ted-store.json',
+    )
     expect((await storeFiles()).some((f) => f.startsWith('stateold'))).toBe(false)
   })
 
@@ -328,6 +331,31 @@ describe('restore', () => {
         `^Restored ${newer?.name}, but TED couldn’t open it: This data needs a newer TED\\. Your data from before the restore is in backup before-restore-\\d{8}-\\d{6}\\.$`,
       ),
     )
+  })
+
+  test('restores a backup taken before backups left out the state database', async () => {
+    let ted = await start('1.0.0')
+    await ted.call('POST', '/tasks', { title: 'In the old backup' })
+    await stop()
+    const old = path.join(home, 'backups', 'pre-update-20200101-090000')
+    await cp(path.join(home, 'store'), path.join(old, 'store'), { recursive: true })
+    const manifest = { kind: 'pre-update', takenAt: '2020-01-01T09:00:00.000Z', takenBy: '1.0.0' }
+    await writeFile(
+      path.join(old, 'backup.json'),
+      JSON.stringify({ ...manifest, dataFrom: '1.0.0' }),
+    )
+    expect(
+      (await storeFiles(path.join(old, 'store', 'ted'))).some((f) => f.startsWith('state')),
+    ).toBe(true)
+    ted = await start('1.0.0')
+    await ted.call('POST', '/tasks', { title: 'After the old backup' })
+
+    const res = await ted.call('POST', '/backups/restore', { name: 'pre-update-20200101-090000' })
+
+    expect(res.status).toBe(200)
+    expect(((await ted.call('GET', '/tasks')).body as Task[]).map((t) => t.title)).toEqual([
+      'In the old backup',
+    ])
   })
 
   test('refuses a name that isn’t a backup', async () => {

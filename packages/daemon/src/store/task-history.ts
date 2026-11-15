@@ -1,6 +1,7 @@
 import type { ClarifyDepth, StageId } from '@ted/protocol'
 import type { GitHubNotice } from '../tasks/github-activity.ts'
 import type { LoggedEvent } from './index.ts'
+import { isRunStarted } from './interval-schema.ts'
 
 export interface MergeHistory {
   started: boolean
@@ -119,12 +120,7 @@ export function createTaskHistory(
       const asked = log.findLastIndex(asksForFreshRun)
       const last = log[asked]
       if (!last) return undefined
-      const pending =
-        asked >
-        log.findLastIndex(
-          (e) =>
-            e.name === 'v2.RunStarted' || e.name === 'v3.RunStarted' || e.name === 'v4.RunStarted',
-        )
+      const pending = asked > log.findLastIndex((e) => isRunStarted(e.name))
       switch (last.name) {
         case 'v1.TaskResumedOvernight':
           return { kind: 'overnight', pending }
@@ -157,13 +153,7 @@ export function createTaskHistory(
         held >= 0 &&
         !log
           .slice(held + 1)
-          .some(
-            (e) =>
-              (e.name === 'v2.RunStarted' ||
-                e.name === 'v3.RunStarted' ||
-                e.name === 'v4.RunStarted') &&
-              typeof e.data.parentRunId !== 'string',
-          )
+          .some((e) => isRunStarted(e.name) && typeof e.data.parentRunId !== 'string')
       )
     },
     failureHistory(

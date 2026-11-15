@@ -1,4 +1,5 @@
 import { Events, makeSchema, Schema, State } from '@livestore/livestore'
+import { applyCoordinatorChange } from './coordinator-change.ts'
 import { intervalBoundaries, withIntervalBoundaries } from './interval-schema.ts'
 import { counted } from './progress.ts'
 
@@ -321,6 +322,26 @@ export const runs = State.SQLite.table({
     ended: State.SQLite.text({ nullable: true }),
     retrying: State.SQLite.boolean({ default: false }),
     steeringRelease: State.SQLite.text({ nullable: true }),
+    promptParts: State.SQLite.text({ nullable: true }),
+  },
+})
+
+export const promptTexts = State.SQLite.table({
+  name: 'promptTexts',
+  columns: {
+    hash: State.SQLite.text({ primaryKey: true }),
+    text: State.SQLite.text(),
+    seenAt: State.SQLite.text(),
+  },
+})
+
+export const subAgentInstructions = State.SQLite.table({
+  name: 'subAgentInstructions',
+  indexes: [{ name: 'idx_subAgentInstructions_taskId', columns: ['taskId'] }],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    text: State.SQLite.text(),
   },
 })
 
@@ -1227,6 +1248,15 @@ export const events = {
   coordinatorChanged: Events.synced({
     name: 'v1.CoordinatorChanged',
     schema: Schema.Struct({ factoryId: Schema.String, data: Schema.String }),
+  }),
+  coordinatorPatched: Events.synced({
+    name: 'v2.CoordinatorChanged',
+    schema: Schema.Struct({
+      factoryId: Schema.String,
+      set: Schema.String,
+      unset: Schema.Array(Schema.String),
+      lists: Schema.NullOr(Schema.String),
+    }),
   }),
   coordinatorRemoved: Events.synced({
     name: 'v1.CoordinatorRemoved',
@@ -3017,6 +3047,47 @@ export const events = {
       name: Schema.NullOr(Schema.String),
     }),
   }),
+  runStartedV5: Events.synced({
+    name: 'v5.RunStarted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      agent: Schema.String,
+      sessionId: Schema.String,
+      promptParts: Schema.Array(
+        Schema.Union([
+          Schema.Struct({ text: Schema.String }),
+          Schema.Struct({ hash: Schema.String }),
+          Schema.Struct({ request: Schema.String }),
+        ]),
+      ),
+      cwd: Schema.String,
+      startedAt: Schema.String,
+      taskId: Schema.NullOr(Schema.String),
+      model: Schema.NullOr(Schema.String),
+      effort: Schema.NullOr(Schema.String),
+      parentRunId: Schema.NullOr(Schema.String),
+      name: Schema.NullOr(Schema.String),
+    }),
+  }),
+  promptTextSeen: Events.synced({
+    name: 'v1.PromptTextSeen',
+    schema: Schema.Struct({ hash: Schema.String, text: Schema.String, at: Schema.String }),
+  }),
+  subAgentRequestedV2: Events.synced({
+    name: 'v2.SubAgentRequested',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      parentRunId: Schema.String,
+      name: Schema.String,
+      agent: Schema.String,
+      model: Schema.NullOr(Schema.String),
+      effort: Schema.NullOr(Schema.String),
+      prompt: Schema.String,
+      ownWorktree: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
   subAgentRequested: Events.synced({
     name: 'v1.SubAgentRequested',
     schema: Schema.Struct({
@@ -3831,6 +3902,10 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     const logged = runStarted(args)
     return { ...logged, data: { ...logged.data, parentRunId: args.parentRunId, name: args.name } }
   },
+  'v5.RunStarted': (args) => {
+    const logged = runStarted(args)
+    return { ...logged, data: { ...logged.data, parentRunId: args.parentRunId, name: args.name } }
+  },
   'v1.ClarifyDepthSet': (args) =>
     task(args, { depth: args.depth, by: args.by, runId: args.runId, why: args.why }),
   'v1.TaskLeadSet': (args) =>
@@ -4366,6 +4441,7 @@ const materializers = counted(
         taskSources.delete().where({ taskId }),
         runs.delete().where({ taskId }),
         subAgentRequests.delete().where({ taskId }),
+        subAgentInstructions.delete().where({ taskId }),
         conversationTabs.delete().where({ taskId }),
         comments.delete().where({ taskId }),
         requestSnoozes.delete().where({ ownerId: taskId }),
@@ -4448,6 +4524,7 @@ const materializers = counted(
         lineComments.delete().where({ taskId }),
         runs.delete().where({ taskId }),
         subAgentRequests.delete().where({ taskId }),
+        subAgentInstructions.delete().where({ taskId }),
         reviewers.delete().where({ taskId }),
         loopChecks.delete().where({ taskId }),
         sendBackAsks.delete().where({ taskId }),
@@ -4695,8 +4772,31 @@ const materializers = counted(
         runs.insert({ ...run, state: 'working', readOffset: 0 }),
         subAgentRequests.delete().where({ id: run.id }),
       ],
+      'v5.RunStarted': ({ promptParts, ...run }) => [
+        runs.insert({
+          ...run,
+          prompt: '',
+          promptParts: JSON.stringify(promptParts),
+          state: 'working',
+          readOffset: 0,
+        }),
+        subAgentRequests.delete().where({ id: run.id }),
+      ],
+      'v1.PromptTextSeen': ({ at, ...seen }) =>
+        promptTexts.insert({ ...seen, seenAt: at }).onConflict('hash', 'ignore'),
       'v1.SubAgentRequested': (request) => subAgentRequests.insert(request),
-      'v1.SubAgentRequestDropped': ({ id }) => subAgentRequests.delete().where({ id }),
+      'v2.SubAgentRequested': (request) => [
+        subAgentRequests.insert(request),
+        subAgentInstructions.insert({
+          id: request.id,
+          taskId: request.taskId,
+          text: request.prompt.trim(),
+        }),
+      ],
+      'v1.SubAgentRequestDropped': ({ id }) => [
+        subAgentRequests.delete().where({ id }),
+        subAgentInstructions.delete().where({ id }),
+      ],
       'v1.ReviewerChosen': (row) => reviewers.insert(row),
       'v1.ReviewScopeRecorded': ({ commits, since, ...row }) =>
         reviewScopes.insert({
@@ -5218,6 +5318,13 @@ const materializers = counted(
         runInterrupts.delete().where({ runId }),
       ],
       'v1.CoordinatorChanged': (row) => coordinators.insert(row).onConflict('factoryId', 'replace'),
+      'v2.CoordinatorChanged': ({ factoryId, ...change }, { query }) => {
+        const row = query(coordinators.where({ factoryId }).first())
+        const before = row ? (JSON.parse(row.data) as Record<string, unknown>) : undefined
+        return coordinators
+          .insert({ factoryId, data: JSON.stringify(applyCoordinatorChange(before, change)) })
+          .onConflict('factoryId', 'replace')
+      },
       'v1.CoordinatorRemoved': ({ factoryId, runIds }) => [
         coordinators.delete().where({ factoryId }),
         ...runIds.flatMap((id) => [
@@ -5326,6 +5433,8 @@ const state = State.SQLite.makeState({
     taskSources,
     runs,
     subAgentRequests,
+    subAgentInstructions,
+    promptTexts,
     reviewers,
     reviewScopes,
     baseConflicts,

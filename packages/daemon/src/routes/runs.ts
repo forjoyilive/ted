@@ -229,7 +229,10 @@ const routes: Route[] = [
     async handle({ params: [id = ''] }, { store, runs }) {
       const run = store.getRun(id)
       if (!run) throw new HttpError(404, 'no such Run')
-      return [200, { run, conversation: runs.output.entries(run.id) }]
+      return [
+        200,
+        { run: { ...run, prompt: store.runPrompt(id) }, conversation: runs.output.entries(run.id) },
+      ]
     },
   },
 ]

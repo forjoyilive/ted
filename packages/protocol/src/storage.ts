@@ -12,6 +12,7 @@ export const storageKeptForMs = 10 * 60_000
 
 export const storageCategories = [
   { id: 'worktrees', label: 'Worktrees' },
+  { id: 'sandbox-caches', label: 'Sandbox caches' },
   { id: 'simulators', label: 'Simulators' },
   { id: 'clones', label: 'Clones' },
   { id: 'conversations-and-logs', label: 'Conversations and logs' },
@@ -53,6 +54,7 @@ export interface StorageSummary {
   simulators: { count: number; bytes: number }
   backups: StoredBackup[]
   backupsDir: string
+  storeFiles: { eventLogBytes: number; stateBytes: number; backupsBytes: number }
   measuredAt: string
 }
 
