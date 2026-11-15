@@ -1,10 +1,15 @@
-import type { StageId, TaskStatus } from '@ted/protocol'
+import type { Factory, StageId, TaskStatus } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { guideCard, setupTaskOf, shownGuide } from '../src/renderer/guide.ts'
 import { comment, factory, task } from './support/fixtures.ts'
 
 const setup = (stage: StageId, status?: TaskStatus) =>
   task({ id: 't1', setup: true, stage, ...(status && { status }) })
+
+const guided = (setUp = false, f: Factory = factory()) => ({
+  factory: f,
+  guide: { factoryId: f.id, addedAt: '2026-11-01T00:00:00.000Z', setUp },
+})
 
 const card = (...args: Parameters<typeof guideCard>) => {
   const { text, button } = guideCard(...args)
@@ -14,9 +19,11 @@ const card = (...args: Parameters<typeof guideCard>) => {
 describe('the guide card follows the setup Task', () => {
   test('while cloning, and when a clone fails', () => {
     const cloning = factory({ cloned: false, setup: [{ repo: 'acme/widgets', state: 'cloning' }] })
-    expect(card(cloning, undefined, [])).toEqual({ text: 'TED is cloning your repos.' })
+    expect(card(guided(false, cloning), undefined, [])).toEqual({
+      text: 'TED is cloning your repos.',
+    })
     const failed = factory({ cloned: false, setup: [{ repo: 'acme/widgets', state: 'failed' }] })
-    expect(card(failed, undefined, [])).toEqual({
+    expect(card(guided(false, failed), undefined, [])).toEqual({
       text: 'TED couldn’t clone your repos. See the banner at the top.',
     })
   })
@@ -29,7 +36,7 @@ describe('the guide card follows the setup Task', () => {
     ['validate', 'The Task Lead is writing the settings and checking them.'],
     ['review', 'The Task Lead is writing the settings and checking them.'],
   ] as const)('working in %s', (stage, text) => {
-    expect(card(factory(), setup(stage, { kind: 'working' }), [])).toEqual({
+    expect(card(guided(), setup(stage, { kind: 'working' }), [])).toEqual({
       text,
       button: { label: 'Open the Task', open: 'task' },
     })
@@ -37,22 +44,22 @@ describe('the guide card follows the setup Task', () => {
 
   test('each open request names what it opens', () => {
     const round = comment({ id: 'r1', taskId: 't1', kind: 'round', stage: 'clarify' })
-    expect(card(factory(), setup('clarify'), [round])).toEqual({
+    expect(card(guided(), setup('clarify'), [round])).toEqual({
       text: 'The Task Lead has questions for you.',
       button: { label: 'Open questions', open: 'request', requestId: 'r1' },
     })
     const proposal = comment({ id: 'p1', taskId: 't1', kind: 'review', stage: 'design' })
-    expect(card(factory(), setup('design'), [proposal])).toEqual({
+    expect(card(guided(), setup('design'), [proposal])).toEqual({
       text: 'Review the proposed setup.',
       button: { label: 'Open the proposal', open: 'request', requestId: 'p1' },
     })
     const signOff = comment({ id: 's1', taskId: 't1', kind: 'signoff', stage: 'review' })
-    expect(card(factory(), setup('review'), [signOff])).toEqual({
+    expect(card(guided(), setup('review'), [signOff])).toEqual({
       text: 'Approve the settings to merge them.',
       button: { label: 'Open the sign-off', open: 'request', requestId: 's1' },
     })
     const permission = comment({ id: 'q1', taskId: 't1', kind: 'permission', stage: 'work' })
-    expect(card(factory(), setup('work'), [permission])).toEqual({
+    expect(card(guided(), setup('work'), [permission])).toEqual({
       text: 'The Task Lead needs you.',
       button: { label: 'Open the request', open: 'request', requestId: 'q1' },
     })
@@ -63,39 +70,32 @@ describe('the guide card follows the setup Task', () => {
       kind: 'round',
       answer: { kind: 'answered', at: '2026-11-09T12:00:00.000Z' },
     })
-    expect(card(factory(), setup('clarify'), [elsewhere, answered]).button).toEqual({
+    expect(card(guided(), setup('clarify'), [elsewhere, answered]).button).toEqual({
       label: 'Open the Task',
       open: 'task',
     })
   })
 
   test('merging, done, stopped and failed', () => {
-    expect(card(factory(), setup('merge'), [])).toEqual({
+    expect(card(guided(), setup('merge'), [])).toEqual({
       text: 'TED is merging the pull request.',
     })
     const newTask = { label: 'New Task', open: 'new-task' }
-    expect(card(factory(), setup('done'), [])).toEqual({
+    expect(card(guided(true), setup('done'), [])).toEqual({
       text: 'Your Factory is set up. Create your first Task.',
       button: newTask,
     })
-    expect(card(factory(), setup('backlog'), []).button).toEqual(newTask)
-    expect(card(factory(), setup('backlog', { kind: 'queued', place: 1 }), []).button).toEqual({
-      label: 'Open the Task',
-      open: 'task',
+    expect(card(guided(true), setup('backlog'), []).button).toEqual(newTask)
+    expect(card(guided(false), setup('backlog'), [])).toEqual({
+      text: 'The Task Lead is reading your repos. It will ask how you work.',
+      button: { label: 'Open the Task', open: 'task' },
     })
-    const ran = task({
-      id: 't1',
-      setup: true,
-      stage: 'backlog',
-      runs: [{ id: 'r1', agent: 'claude', role: 'lead', name: 'Task Lead', state: 'idle' }],
-    })
-    expect(card(factory(), ran, []).button).toEqual({ label: 'Open the Task', open: 'task' })
-    expect(card(factory(), setup('work', { kind: 'stopped' }), [])).toEqual({
+    expect(card(guided(), setup('work', { kind: 'stopped' }), [])).toEqual({
       text: 'Setup is stopped. Open the Task to start it again.',
       button: { label: 'Open the Task', open: 'task' },
     })
     const failure = comment({ id: 'f1', taskId: 't1', kind: 'question', stage: 'validate' })
-    expect(card(factory(), setup('validate', { kind: 'failed' }), [failure])).toEqual({
+    expect(card(guided(), setup('validate', { kind: 'failed' }), [failure])).toEqual({
       text: 'Setup failed. Open the Task to see what went wrong.',
       button: { label: 'Open the Task', open: 'task' },
     })
@@ -106,12 +106,12 @@ test('the newest live guide whose Factory exists is shown, with its first open s
   const one = factory({ id: 'one', name: 'One' })
   const two = factory({ id: 'two', name: 'Two' })
   const guides = [
-    { factoryId: 'one', addedAt: '2026-11-01T00:00:00.000Z' },
-    { factoryId: 'gone', addedAt: '2026-11-03T00:00:00.000Z' },
-    { factoryId: 'two', addedAt: '2026-11-02T00:00:00.000Z' },
+    { factoryId: 'one', addedAt: '2026-11-01T00:00:00.000Z', setUp: false },
+    { factoryId: 'gone', addedAt: '2026-11-03T00:00:00.000Z', setUp: false },
+    { factoryId: 'two', addedAt: '2026-11-02T00:00:00.000Z', setUp: false },
   ]
-  expect(shownGuide(guides, [one, two])?.id).toBe('two')
-  expect(shownGuide(guides.slice(0, 2), [one, two])?.id).toBe('one')
+  expect(shownGuide(guides, [one, two])?.factory.id).toBe('two')
+  expect(shownGuide(guides.slice(0, 2), [one, two])?.factory.id).toBe('one')
   expect(shownGuide([], [one])).toBeUndefined()
 
   const tasks = [

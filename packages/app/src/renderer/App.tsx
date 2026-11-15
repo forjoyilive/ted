@@ -401,7 +401,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
     guided &&
     guideCard(
       guided,
-      setupTaskOf(guided.id, tasks),
+      setupTaskOf(guided.factory.id, tasks),
       inbox.map((item) => item.request),
     )
   const guide = guideView && (

@@ -470,13 +470,13 @@ Factory setup is the Factory’s first Task, run through the inherited Workflow.
   - **Review** and **Merge** follow.
 - Setup tries each proposed Check on the default branch and tries to start each App, reporting pass or fail and the time taken. The proposal card shows, top to bottom: a two-sentence summary; **Workflow**, one line per Stage, unchanged Stages in grey as “As TED’s default”; **Checks · tried on main** (✓ or ✕, name, command, repo, duration; a Check that fails is listed as “left off” with the reason); **Apps · started on main** (kind, how it became ready, time taken); **Files it will write**, each with one line on what it holds; and a grey line naming what stays at TED’s defaults. No per-item checkboxes; changes go through Request changes. (KRI-22, KRI-65)
 - Setup doesn’t propose repos; it may note a sign that one is missing. It suggests `lead`, `reviewer` or `planner` values only if asked. (KRI-22, KRI-53)
-- **Guide card:** a Factory added while no other Factory exists, or the next one added after Developer mode’s **Show on next open**, gets a guide card at the bottom of the sidebar, above Settings, on every page. It names the Factory, has a **Hide guide** link and at most one button, and its text follows the setup Task: (TED-370, ADR 0162)
+- **Guide card:** a Factory added while no other Factory exists, or the next one added after Developer mode’s **Show on next open**, gets a guide card at the bottom of the sidebar, above Settings, on every page. It names the Factory, with a **Hide guide** link on the same row, has at most one button, and its text follows the setup Task: (TED-370, ADR 0162)
 
   | Setup Task state | Card text | Button |
   |---|---|---|
   | Cloning | TED is cloning your repos. | none |
   | A clone failed | TED couldn’t clone your repos. See the banner at the top. | none |
-  | Before Clarify, or in Clarify with the agent working | The Task Lead is reading your repos. It will ask how you work. | Open the Task |
+  | Before Clarify (including the moment before TED queues it), or in Clarify with the agent working | The Task Lead is reading your repos. It will ask how you work. | Open the Task |
   | A Clarify round waiting | The Task Lead has questions for you. | Open questions |
   | Design, agent working | The Task Lead is trying your Checks and Apps. | Open the Task |
   | Design sign-off waiting | Review the proposed setup. | Open the proposal |

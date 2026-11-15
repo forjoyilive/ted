@@ -8196,6 +8196,7 @@ export function createTasks(options: {
     const hasSettings = resolution
       ? resolution.layers.some((l) => l.layer === 'factory' && l.status !== 'absent')
       : factoryHasSettings(factory.id)
+    const starts = !hasSettings || byHand
     const task = await store.createTask({
       title: `Set up ${factory.name}`,
       description: hasSettings ? laterSetupDescription : firstSetupDescription,
@@ -8204,10 +8205,18 @@ export function createTasks(options: {
       lead: { ...leadFrom(resolution?.workflow.settings), effortMode: 'stage' },
       factoryId: factory.id,
       setup: true,
+      startRequested: starts,
     })
     reportSetup(factory.id)
-    if (hasSettings && !byHand) return task
-    return start(task.id)
+    if (!starts) return task
+    try {
+      return await start(task.id)
+    } catch (error) {
+      const current = store.getTask(task.id)
+      if (current?.stage === 'backlog' && current.startRequested)
+        store.setStartRequested(task.id, false)
+      throw error
+    }
   }
 
   function factoryHasSettings(factoryId: string): boolean {

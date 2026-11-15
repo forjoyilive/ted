@@ -62,7 +62,7 @@ Test runs share the machine through `packages/daemon/test/support/suite-lock.ts`
 
 - Resolve the native test executable with `resolveElectron` from `packages/app/test/support/electron-installation.ts`, never by requiring `electron`: its loader can install concurrently in workers. The native project’s preflight prepares it once before collection.
 - Launch an app in a test with `firstWindow` from `packages/app/test/first-window.ts`, which waits 60 seconds for the window.
-- To try the app from a one-off script, launch it only through `withApp` in `packages/app/scripts/with-app.ts`. It builds the renderer, opens a hidden window with its own `TED_HOME`, and always closes the app and stops its daemon, even when the script throws or calls `process.exit`. Never launch Electron from a script by hand or leave it running.
+- To try the app from a one-off script, launch it only through `withApp` in `packages/app/scripts/with-app.ts`. It builds the renderer, opens a hidden window with its own `TED_HOME`, skips the onboarding steps unless `onboarding: true`, and always closes the app and stops its daemon, even when the script throws or calls `process.exit`. Never launch Electron from a script by hand or leave it running.
 
 ## Inside a sandbox
 

@@ -6,7 +6,7 @@ import { type ElectronApplication, _electron as electron, type Page } from 'play
 import { stopDaemonIn } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from '../test/build-renderer.ts'
 import { closeApp } from '../test/close-app.ts'
-import { loadedWindow } from '../test/first-window.ts'
+import { firstWindow, loadedWindow } from '../test/first-window.ts'
 import { prepareElectron } from '../test/support/electron-installation.ts'
 import { sandboxRefusal } from './sandbox-refusal.ts'
 
@@ -14,6 +14,7 @@ export interface WithAppOptions {
   home: string
   env?: NodeJS.ProcessEnv
   build?: boolean
+  onboarding?: boolean
 }
 
 export async function withApp<T>(
@@ -33,7 +34,7 @@ export async function withApp<T>(
       ...options.env,
       TED_HOME: home,
       TED_HIDDEN_WINDOW: '1',
-      TED_SKIP_FIRST_LAUNCH: '1',
+      TED_SKIP_FIRST_LAUNCH: options.onboarding ? '' : '1',
     },
     timeout: 120_000,
   })
@@ -56,7 +57,7 @@ export async function withApp<T>(
   process.once('SIGINT', interrupted)
   process.once('SIGTERM', interrupted)
   try {
-    return await use(app, await loadedWindow(app))
+    return await use(app, await (options.onboarding ? firstWindow(app) : loadedWindow(app)))
   } finally {
     await closeApp(app)
     await stopDaemonIn(home)

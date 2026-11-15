@@ -18,11 +18,11 @@ const openTask: GuideButton = { label: 'Open the Task', open: 'task' }
 export function shownGuide(
   guides: readonly FactoryGuide[],
   factories: readonly Factory[],
-): Factory | undefined {
+): { factory: Factory; guide: FactoryGuide } | undefined {
   const live = [...guides].sort((a, b) => b.addedAt.localeCompare(a.addedAt))
   for (const guide of live) {
     const factory = factories.find((f) => f.id === guide.factoryId)
-    if (factory) return factory
+    if (factory) return { factory, guide }
   }
   return undefined
 }
@@ -34,7 +34,7 @@ export function setupTaskOf(factoryId: string, tasks: readonly Task[]): Task | u
 }
 
 export function guideCard(
-  factory: Factory,
+  { factory, guide }: { factory: Factory; guide: FactoryGuide },
   task: Task | undefined,
   requests: readonly Comment[],
 ): GuideCardView {
@@ -50,11 +50,7 @@ export function guideCard(
       ? card('TED couldn’t clone your repos. See the banner at the top.')
       : card('TED is cloning your repos.')
   }
-  const setUp =
-    task.stage === 'done' ||
-    task.stage === 'cleanup' ||
-    (task.stage === 'backlog' && task.status === undefined && task.runs.length === 0)
-  if (setUp) {
+  if (guide.setUp) {
     return card('Your Factory is set up. Create your first Task.', {
       label: 'New Task',
       open: 'new-task',

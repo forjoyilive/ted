@@ -277,7 +277,7 @@ describe('adding a Factory', () => {
       ],
     })
     expect(second.repos.map((r) => r.repo)).toEqual(['acme/gadgets', 'acme/widgets'])
-    expect(await client.ok<FactoryGuide[]>('GET', '/guides')).toEqual([
+    expect(await client.ok<FactoryGuide[]>('GET', '/guides')).toMatchObject([
       { factoryId: first.id, addedAt: first.createdAt },
     ])
     expect(await client.ok('POST', `/factories/${second.id}/guide/hide`)).toHaveLength(1)

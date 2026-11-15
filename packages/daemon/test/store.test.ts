@@ -865,12 +865,29 @@ describe('TedStore', () => {
     factory('FOUR')
     expect(live()).toEqual([first.id, third.id])
 
-    const setup = await store.createTask({ factoryId: first.id, title: 'Set up ONE', setup: true })
+    const setUpOf = (id: string) => store.guides().find((g) => g.factoryId === id)?.setUp
+    const setUpSent = () =>
+      seen.flatMap((e) =>
+        e.type === 'guides-changed' ? [e.guides.find((g) => g.factoryId === first.id)?.setUp] : [],
+      )
+    const setup = await store.createTask({
+      factoryId: first.id,
+      title: 'Set up ONE',
+      setup: true,
+      startRequested: true,
+    })
+    await store.createTask({ factoryId: first.id, title: 'While setup starts' })
+    expect(live()).toContain(first.id)
+    expect(setUpOf(first.id)).toBe(false)
     store.queueTask(setup.id, 'intake')
+    expect(store.getTask(setup.id)?.startRequested).toBe(false)
     await store.createTask({ factoryId: first.id, title: 'Before setup is done' })
     await store.createTask({ factoryId: first.id, title: 'Split piece', splitFrom: setup.id })
     expect(live()).toContain(first.id)
+    expect(setUpSent().at(-1)).toBe(false)
     store.changeStage(setup.id, 'done', entry)
+    expect(setUpOf(first.id)).toBe(true)
+    expect(setUpSent().at(-1)).toBe(true)
     await store.createTask({
       factoryId: first.id,
       title: 'Made by the Coordinator',

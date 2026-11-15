@@ -1398,10 +1398,20 @@ export async function openStore({
         }),
       )
   }
+  const sentSetUp = new Map<string, boolean>()
   const guides = (): FactoryGuide[] =>
     store
       .query(queryDb(factories.where({ guide: 'live' }).orderBy('createdAt', 'asc')))
-      .map((row) => ({ factoryId: row.id, addedAt: row.createdAt }))
+      .map((row) => {
+        const setUp = setUpDone(row.id)
+        sentSetUp.set(row.id, setUp)
+        return { factoryId: row.id, addedAt: row.createdAt, setUp }
+      })
+  const setUpChanged = (event: DaemonEvent) =>
+    (event.type === 'task-created' || event.type === 'task-updated') &&
+    event.task.setup === true &&
+    store.query(queryDb(factories.where({ id: event.task.factoryId, guide: 'live' }))).length > 0 &&
+    sentSetUp.get(event.task.factoryId) !== setUpDone(event.task.factoryId)
   const emitGuides = () => emit({ type: 'guides-changed', guides: guides() })
   const guideEnding = (factoryId: string, reason: GuideEnding) =>
     store.query(queryDb(factories.where({ id: factoryId, guide: 'live' }))).length > 0
@@ -1415,7 +1425,10 @@ export async function openStore({
         (row) =>
           row.stage === 'done' ||
           row.stage === 'cleanup' ||
-          (row.stage === 'backlog' && !queued.has(row.id) && taskRuns(row.id).length === 0),
+          (row.stage === 'backlog' &&
+            !row.startRequested &&
+            !queued.has(row.id) &&
+            taskRuns(row.id).length === 0),
       )
   }
   const requireFactory = (id: string) => {
@@ -2811,6 +2824,7 @@ export async function openStore({
     for (let next = emitting[0]; next; next = emitting[0]) {
       try {
         for (const listener of listeners) listener(next)
+        if (setUpChanged(next)) emitting.push({ type: 'guides-changed', guides: guides() })
       } catch (error) {
         failure ??= { error }
       }
