@@ -1,0 +1,180 @@
+.setup {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 2px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-default);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--text-13);
+  font-weight: var(--weight-semibold);
+}
+
+.private {
+  padding: 0 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+
+.problem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--status-failed-border);
+  border-radius: 6px;
+  background: var(--status-failed-bg);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 112px 1fr;
+  gap: 8px 10px;
+  align-items: center;
+}
+
+.label {
+  color: var(--text-secondary);
+}
+
+.ownerName {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.slash {
+  color: var(--text-caption);
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+.branch {
+  max-width: 200px;
+}
+
+.fieldNote {
+  grid-column: 2;
+  margin-top: -4px;
+}
+
+.warn {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--status-warning-border);
+  border-radius: 6px;
+  background: var(--status-waiting-bg);
+  color: var(--status-warning-text);
+  font-size: var(--text-12-5);
+}
+
+.warn code {
+  font-family: var(--font-mono);
+}
+
+.warnBody {
+  color: var(--text-primary);
+}
+
+.list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+}
+
+.plan {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--surface-selected);
+  font-size: var(--text-12-5);
+}
+
+.planHeading {
+  margin: 0;
+  font-size: var(--text-12-5);
+  font-weight: var(--weight-semibold);
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: var(--text-12-5);
+}
+
+.mark {
+  display: inline-flex;
+  width: 14px;
+  flex-shrink: 0;
+  justify-content: center;
+}
+
+.spinner {
+  box-sizing: border-box;
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--border-default);
+  border-top-color: var(--text-secondary);
+  border-radius: var(--radius-pill);
+  animation: spin 800ms linear infinite;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: none;
+  }
+}

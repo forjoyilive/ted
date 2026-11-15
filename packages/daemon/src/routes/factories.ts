@@ -8,6 +8,9 @@ import {
   parseCheckTryRequest,
   parseCreateFactoryRequest,
   parseFactorySettingsChanges,
+  parseGitHubNameRequest,
+  parseGitHubSetupPlanRequest,
+  parseGitHubSetupStepRequest,
   parseMergeSettingsRequest,
   parseRemoveFactoryRequest,
   parseRenameFactoryRequest,
@@ -240,6 +243,27 @@ export const factoryRoutes: Route[] = [
     path: /^\/factories\/check-repo$/,
     async handle({ body }, { factories }) {
       return [200, await factories.checkRepo(body)]
+    },
+  }),
+  jsonRoute(parseGitHubSetupPlanRequest, {
+    method: 'POST',
+    path: /^\/factories\/github-setup\/plan$/,
+    async handle({ body }, { factories }) {
+      return [200, await factories.planGitHubRepo(body.folder)]
+    },
+  }),
+  jsonRoute(parseGitHubNameRequest, {
+    method: 'POST',
+    path: /^\/factories\/github-setup\/name$/,
+    async handle({ body }, { factories }) {
+      return [200, await factories.checkGitHubName(body)]
+    },
+  }),
+  jsonRoute(parseGitHubSetupStepRequest, {
+    method: 'POST',
+    path: /^\/factories\/github-setup\/step$/,
+    async handle({ body }, { factories }) {
+      return [200, await factories.runGitHubSetupStep(body)]
     },
   }),
   {

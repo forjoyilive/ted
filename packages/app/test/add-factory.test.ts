@@ -1,5 +1,6 @@
-import type { IntegrationsHealth } from '@ted/protocol'
+import type { GitHubSetupPlan, IntegrationsHealth } from '@ted/protocol'
 import { keyProblem, suggestFactoryName, suggestKey } from '@ted/protocol/factory'
+import { setupSteps } from '@ted/protocol/github-setup'
 import { describe, expect, test } from 'vitest'
 import {
   footer,
@@ -9,6 +10,7 @@ import {
   type RepoRow,
   shortPath,
 } from '../src/renderer/add-factory.ts'
+import { stepLabel, suggestedRepoName } from '../src/renderer/github-setup.ts'
 
 let n = 0
 function row(fields: Partial<RepoRow> = {}): RepoRow {
@@ -117,5 +119,51 @@ describe('Add Factory fields', () => {
   test('folders under home show with ~', () => {
     expect(shortPath('/Users/n/code/web', '/Users/n')).toBe('~/code/web')
     expect(shortPath('/opt/web', '/Users/n')).toBe('/opt/web')
+  })
+})
+
+describe('GitHub repo setup', () => {
+  const plan: GitHubSetupPlan = {
+    folder: '/Users/me/Websites/ted and bill',
+    git: false,
+    commits: false,
+    uncommitted: 0,
+    files: 216,
+    hasIgnoreFile: false,
+    leaveOut: [
+      { path: 'node_modules/', files: 12, secret: false },
+      { path: '/.env', files: 1, secret: true },
+    ],
+    remoteName: 'origin',
+    owners: ['me', 'acme'],
+    signedIn: true,
+  }
+  const choice = {
+    owner: 'acme',
+    name: 'ted-and-bill',
+    description: '',
+    branch: 'main',
+    leaveOut: ['node_modules/', '/.env'],
+  }
+
+  test('the plan lists each step TED takes, in order', () => {
+    const steps = setupSteps(plan, choice)
+    expect(steps).toEqual(['init', 'ignore', 'commit', 'create', 'push'])
+    expect(steps.map((step) => stepLabel(step, plan, choice))).toEqual([
+      'Start git in this folder',
+      'Write a .gitignore that leaves out node_modules/ and /.env',
+      'Commit 203 files on main as “Initial commit”',
+      'Create the private repo acme/ted-and-bill',
+      'Add it as the remote origin and push main',
+    ])
+    const kept = { ...choice, leaveOut: [] }
+    expect(setupSteps(plan, kept)).toEqual(['init', 'commit', 'create', 'push'])
+    expect(stepLabel('commit', plan, kept)).toBe('Commit 216 files on main as “Initial commit”')
+    expect(setupSteps({ ...plan, git: true, commits: true }, choice)).toEqual(['create', 'push'])
+  })
+
+  test('the suggested name comes from the folder', () => {
+    expect(suggestedRepoName(plan.folder)).toBe('ted-and-bill')
+    expect(suggestedRepoName('/x/Notes!')).toBe('Notes')
   })
 })

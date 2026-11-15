@@ -18,6 +18,7 @@
     "./settings": "./src/settings.ts",
     "./factory": "./src/factory.ts",
     "./factory-icon": "./src/factory-icon.ts",
+    "./github-setup": "./src/github-setup.ts",
     "./factory-settings": "./src/factory-settings.ts",
     "./version": "./src/version.ts",
     "./list-view": "./src/list-view.ts",

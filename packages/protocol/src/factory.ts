@@ -106,6 +106,7 @@ export type RepoFix =
   | { kind: 'check-again' }
   | { kind: 'github-settings' }
   | { kind: 'choose-folder' }
+  | { kind: 'set-up-github' }
 
 export interface RepoProblem {
   kind: RepoProblemKind

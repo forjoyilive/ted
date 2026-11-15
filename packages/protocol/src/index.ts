@@ -566,6 +566,12 @@ export {
   parseGitHubIssueUrl,
   type TaskGitHubSource,
 } from './github-issue.ts'
+export * from './github-setup.ts'
+export {
+  parseGitHubNameRequest,
+  parseGitHubSetupPlanRequest,
+  parseGitHubSetupStepRequest,
+} from './github-setup-parsers.ts'
 export type * from './guide.ts'
 export {
   type AgentHealth,

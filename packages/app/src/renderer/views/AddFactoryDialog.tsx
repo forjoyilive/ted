@@ -17,6 +17,7 @@ import { CloseIcon } from '../components/icons.tsx'
 import { useEventValue } from '../data.ts'
 import { ted } from '../ted.ts'
 import styles from './AddFactoryDialog.module.css'
+import { GitHubSetupForm } from './GitHubSetupForm.tsx'
 
 interface AddFactoryDialogProps {
   factories: readonly Factory[]
@@ -209,7 +210,8 @@ export function AddFactoryDialog({
         </h2>
         <Help>
           A Factory carries Tasks from creation to merge for one product. TED works in its own
-          clones of these repos and never writes directly to your folders.
+          clones of these repos. It changes your folder only when you ask it to set up a GitHub
+          repo.
         </Help>
       </header>
 
@@ -385,6 +387,7 @@ export function RepoRowView({
   onFix,
 }: RepoRowViewProps) {
   const nameId = useId()
+  const [settingUp, setSettingUp] = useState(false)
   const isPrimary = index === 0
   const filled = isFilled(row)
   const fromFolder = row.source !== undefined && 'folder' in row.source
@@ -497,15 +500,31 @@ export function RepoRowView({
           <p className={styles.problem}>
             <span aria-hidden>✕</span> {problem.text}
           </p>
-          {problem.detail !== undefined && <p className={styles.detail}>{problem.detail}</p>}
-          {problem.fixes.length > 0 && (
-            <div className={styles.fixes}>
-              {problem.fixes.map((f) => (
-                <Button key={f.kind} onClick={() => onFix(f)}>
-                  {fixLabel(f)}
-                </Button>
-              ))}
-            </div>
+          {problem.detail !== undefined && !settingUp && (
+            <p className={styles.detail}>{problem.detail}</p>
+          )}
+          {settingUp && folder !== undefined ? (
+            <GitHubSetupForm
+              folder={folder}
+              onCancel={() => setSettingUp(false)}
+              onDone={() => {
+                setSettingUp(false)
+                onFix({ kind: 'check-again' })
+              }}
+            />
+          ) : (
+            problem.fixes.length > 0 && (
+              <div className={styles.fixes}>
+                {problem.fixes.map((f) => (
+                  <Button
+                    key={f.kind}
+                    onClick={() => (f.kind === 'set-up-github' ? setSettingUp(true) : onFix(f))}
+                  >
+                    {fixLabel(f)}
+                  </Button>
+                ))}
+              </div>
+            )
           )}
         </>
       )}
@@ -531,6 +550,8 @@ function fixLabel(fix: RepoFix): string {
       return 'GitHub settings'
     case 'choose-folder':
       return 'Choose folder…'
+    case 'set-up-github':
+      return 'Set up a GitHub repo…'
   }
 }
 
