@@ -1,15 +1,17 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, expect, test } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { codexPlanWindows, readCodexPlanUsage } from '../src/agents/codex-usage.ts'
 import { stubCodexPath, waitUntil } from './helpers.ts'
 
 let home: string
 beforeEach(async () => {
   home = await mkdtemp(path.join(tmpdir(), 'ted-codex-usage-'))
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
 })
 afterEach(async () => {
+  vi.useRealTimers()
   await rm(home, { recursive: true, force: true })
 })
 const state = (value: unknown) =>
@@ -56,8 +58,11 @@ test('the account probe returns zero and independent windows without starting a 
 
 test('timeout kills the child and returns no reading', async () => {
   await state({ rateLimitsHang: true })
-  expect(await read(undefined, 500)).toBeUndefined()
-  expect(alive((await record()).pid)).toBe(false)
+  const reading = read(undefined, 500)
+  const { pid } = await waitUntil(() => record().catch(() => undefined), 'probe process')
+  vi.advanceTimersByTime(500)
+  expect(await reading).toBeUndefined()
+  expect(alive(pid)).toBe(false)
 })
 
 test('cancellation kills an active child and an already cancelled probe starts nothing', async () => {
@@ -122,24 +127,16 @@ child.on('exit', code => process.exit(code ?? 0))
       timeoutMs: 500,
     })
     let childPid: number | undefined
-    let deadline: NodeJS.Timeout | undefined
     try {
       childPid = (await waitUntil(() => record().catch(() => undefined), 'native child')).pid
       if (mode === 'abort') controller.abort()
-      const result = await Promise.race([
-        reading,
-        new Promise<'pending'>((resolve) => {
-          deadline = setTimeout(() => resolve('pending'), 1500)
-        }),
-      ])
-      expect(result).not.toBe('pending')
-      expect(result).toEqual(
+      if (mode === 'timeout') vi.advanceTimersByTime(500)
+      expect(await reading).toEqual(
         mode === 'response' ? [{ window: 'five-hour', percent: 0 }] : undefined,
       )
       const pid = childPid
       await waitUntil(() => !alive(pid), 'native child exit')
     } finally {
-      clearTimeout(deadline)
       controller.abort()
       if (childPid && alive(childPid)) process.kill(childPid, 'SIGKILL')
       await reading

@@ -55,7 +55,9 @@ export async function executeScenario(command: ScenarioCommand): Promise<Command
         if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, value)
         else child.kill(value)
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error
+        // macOS answers EPERM, not ESRCH, for a group whose only members are zombies.
+        const code = (error as NodeJS.ErrnoException).code
+        if (code !== 'ESRCH' && code !== 'EPERM') throw error
       }
     }
     const stdout = new ExecutionDiagnostics()
