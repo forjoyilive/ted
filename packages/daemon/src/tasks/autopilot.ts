@@ -28,11 +28,11 @@ export function taskAutopilot(task: Task): boolean {
 }
 
 export function unvettedReason(
-  task: Pick<Task, 'createdBy' | 'source'>,
+  task: { fromAutomation: boolean; source?: Task['source'] },
   settings: Pick<MachineSettings, 'reviewUnvettedTasks'>,
 ): 'automation' | 'outsider' | undefined {
   if (!settings.reviewUnvettedTasks) return undefined
-  if (task.createdBy === 'automation') return 'automation'
+  if (task.fromAutomation) return 'automation'
   if (task.source?.github?.outsiderText === true) return 'outsider'
   return undefined
 }

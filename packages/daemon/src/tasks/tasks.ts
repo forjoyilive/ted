@@ -1352,7 +1352,10 @@ export function createTasks(options: {
   }
 
   function unvettedGuard(task: StoredTask): OvernightGuard | undefined {
-    return unvettedReason(task, store.settings())
+    return unvettedReason(
+      { fromAutomation: store.createdByAutomation(task.id), source: task.source },
+      store.settings(),
+    )
   }
 
   async function overnightGuard(

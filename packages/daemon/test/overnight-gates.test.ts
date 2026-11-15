@@ -174,6 +174,7 @@ describe('Autopilot turns Sign-offs off', () => {
         await client.ok('PATCH', '/settings', { reviewUnvettedTasks: false })
         const task = await begin(client, { source })
         expect(task.source?.github?.outsiderText).toBe(true)
+        await lead(client, task)
         expect(row(await gates(client, task), 'review')).toMatchObject({
           effective: false,
           overnight: true,
@@ -653,15 +654,14 @@ test('only Tasks an Automation created or whose GitHub issue has outsider text a
       outsiderText,
     },
   })
-  expect(unvettedReason({ createdBy: 'automation' }, on)).toBe('automation')
-  expect(unvettedReason({ createdBy: 'automation', source: github(false) }, on)).toBe('automation')
-  expect(unvettedReason({ createdBy: 'human', source: github(true) }, on)).toBe('outsider')
-  expect(unvettedReason({ createdBy: 'human', source: github(false) }, on)).toBeUndefined()
-  expect(unvettedReason({ createdBy: 'human' }, on)).toBeUndefined()
-  expect(unvettedReason({ createdBy: 'split', source: github(false) }, on)).toBeUndefined()
+  expect(unvettedReason({ fromAutomation: true }, on)).toBe('automation')
+  expect(unvettedReason({ fromAutomation: true, source: github(false) }, on)).toBe('automation')
+  expect(unvettedReason({ fromAutomation: false, source: github(true) }, on)).toBe('outsider')
+  expect(unvettedReason({ fromAutomation: false, source: github(false) }, on)).toBeUndefined()
+  expect(unvettedReason({ fromAutomation: false }, on)).toBeUndefined()
   const off = { reviewUnvettedTasks: false }
-  expect(unvettedReason({ createdBy: 'automation' }, off)).toBeUndefined()
-  expect(unvettedReason({ createdBy: 'human', source: github(true) }, off)).toBeUndefined()
+  expect(unvettedReason({ fromAutomation: true }, off)).toBeUndefined()
+  expect(unvettedReason({ fromAutomation: false, source: github(true) }, off)).toBeUndefined()
 })
 
 test('Task Autopilot answers recommended rounds, lets only its current Lead answer ordinary questions and approves its archive request', async () => {
