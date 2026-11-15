@@ -1,13 +1,21 @@
-import { globSync, readFileSync } from 'node:fs'
+import { globSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import { heldLockEnv, smallRunFiles } from './packages/daemon/test/support/suite-lock.ts'
 import { busy, busyLine, loadPerCore, scaledWorkers } from './scripts/machine-load.ts'
+import {
+  electronFiles,
+  electronSandbox,
+  launchesElectron,
+  testFilePatterns,
+} from './scripts/test-files.ts'
+
+export { launchesElectron }
 
 const here = (file: string) => fileURLToPath(new URL(file, import.meta.url))
 
-const testFiles = ['packages/*/test/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts']
+const testFiles = testFilePatterns
 
 const flagsWithValues = new Set([
   '-t',
@@ -42,18 +50,8 @@ export function workersFor(
   return scaledWorkers(matched >= smallRunFiles ? 6 : 3, load)
 }
 
-export function launchesElectron(file: string, seen = new Set<string>()): boolean {
-  if (seen.has(file)) return false
-  seen.add(file)
-  const source = readFileSync(file, 'utf8')
-  if (/\b_electron\b|\bresolveElectron\s*\(\s*\)/.test(source)) return true
-  return [...source.matchAll(/from '(\.\.?\/[^']+\.tsx?)'/g)].some((match) =>
-    launchesElectron(path.resolve(path.dirname(file), match[1] ?? ''), seen),
-  )
-}
-
 function electronTestFiles(): string[] {
-  return globSync(testFiles, { cwd: here('.') }).filter((file) => launchesElectron(here(file)))
+  return electronFiles(globSync(testFiles, { cwd: here('.') }), here)
 }
 
 const electronSetup = here('./packages/app/test/support/electron-setup.ts')
@@ -114,12 +112,7 @@ const testOptions = {
   },
 }
 
-const sandboxName =
-  process.env.CODEX_SANDBOX !== undefined
-    ? 'Codex’s sandbox'
-    : process.env.TED_SANDBOX === '1' && process.platform === 'darwin'
-      ? 'TED’s sandbox'
-      : undefined
+const sandboxName = electronSandbox()
 const inSandbox = sandboxName !== undefined
 if (sandboxName === 'TED’s sandbox') {
   console.warn('TED_SANDBOX_SKIPPED: the Electron app tests')
@@ -131,9 +124,7 @@ if (sandboxName) {
 }
 
 export function tedTestConfig(include: string[]) {
-  const exclude = inSandbox
-    ? globSync(include).filter((file) => launchesElectron(path.resolve(file)))
-    : []
+  const exclude = inSandbox ? electronFiles(globSync(include), (file) => path.resolve(file)) : []
   return defineConfig({
     oxc: { jsx: { runtime: 'automatic' } },
     test: {
@@ -142,7 +133,7 @@ export function tedTestConfig(include: string[]) {
       exclude,
       globalSetup: [
         ...testOptions.globalSetup,
-        ...(!inSandbox && globSync(include).some((file) => launchesElectron(path.resolve(file)))
+        ...(!inSandbox && electronFiles(globSync(include), (file) => path.resolve(file)).length > 0
           ? [electronSetup]
           : []),
       ],

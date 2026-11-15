@@ -9,19 +9,47 @@ The rules an agent must follow are repeated in `AGENTS.md`. This page holds the 
 - `pnpm install`, then `pnpm typecheck`, `pnpm lint` (Biome; `pnpm format` fixes) and `pnpm test` (Vitest).
 - Run all three locally before merging to `main`: nothing runs them on GitHub. The CI workflow (`.github/workflows/ci.yml`, typecheck and lint) runs only when started by hand, so a Task’s pull request reports no checks and TED merges it without waiting for CI. Agents never start GitHub workflows.
 - `pnpm check` runs typecheck, lint and two Vitest processes at once.
+- `pnpm check --affected` runs only the test files a branch’s changes affect, without typecheck or lint. `pnpm check --affected --list` prints the selection and stops. See [Affected tests](#affected-tests).
 - `pnpm flaky <file> [-t <name>] [--runs N] [--load N]` runs one test file N times (default 5) alone under the full-run lock with one busy thread per core and no retry, and reports how many runs passed and which tests failed. Use it on a test that fails only in full runs, and fix the test’s timing rather than retrying it.
 
 ## What a Run may run
 
-- Agents, TED’s own Runs included, run only the test files their change touches (`pnpm vitest run <files>`) and never `pnpm test` or `pnpm check`. The full suite runs only when the human or a merge runs `pnpm check`.
-- A Run in this Factory runs test files only in Validate, as the Task Lead, once per visit. Work, the other Stages and sub-agents run none (`.ted/stages/work.md`, `.ted/stages/validate.md`).
-- With `TED_RUN` set, `pnpm check` and any Vitest run of more than 3 test files (`runTestFiles`) are refused before they take a lock (`runRefusal` in `scripts/check.ts` and in `packages/daemon/test/support/suite-lock.ts`). `pnpm flaky` is refused under `TED_RUN` too.
+- Agents, TED’s own Runs included, never run `pnpm test` or `pnpm check`. The full suite runs only when the human or a merge runs `pnpm check`.
+- In this Factory TED runs a Task’s tests itself, as the Affected tests Check (`pnpm check --affected` in `.ted/workflow.yaml`), before the Task leaves Work and at Validate entry. A Run picks no test files for coverage.
+- The Task Lead in Validate runs test files only in two cases: the Electron app tests a sandboxed Check left out, and a single file to look into a failure. Work, the other Stages and sub-agents run none (`.ted/stages/work.md`, `.ted/stages/validate.md`).
+- With `TED_RUN` set, `pnpm check`, `pnpm check --affected` (but not `--list`) and any Vitest run of more than 3 test files (`runTestFiles`) are refused before they take a lock (`runRefusal` and `affectedRefusal` in `scripts/check.ts`, `runRefusal` in `packages/daemon/test/support/suite-lock.ts`). `pnpm flaky` is refused under `TED_RUN` too.
+- A Check is not a Run: TED starts it with `TED_TASK` and `CI=1` and without `TED_RUN` (`checkEnv` in `packages/daemon/src/tasks/checks.ts`, which drops every inherited `TED_*` variable), so the Check may run the whole affected set. Nothing else tells the two apart. An agent that unsets `TED_RUN` in its own shell gets past every one of these refusals, as it always could; they stop mistakes, not a Run that sets out to break the rule.
 
 These limits are code in this repo, not TED settings. TED has no setting for a test-file limit.
 
+## Affected tests
+
+`pnpm check --affected` compares the working tree and `HEAD` with the merge-base of `HEAD` and `origin/<default branch>`, picks test files, prints each with the reason it was picked, and runs them. The selection is `affectedTests` in `scripts/affected.ts`; `checkAffected` in `scripts/check.ts` runs it.
+
+A test file is picked for one of three reasons:
+
+- **changed**: the change added or changed the test file, and it still exists.
+- **imports**: the test file reaches a changed file through the import graph. The graph is read from the source text: a file points at every relative path (`./…`, `../…`) and every `@ted/<package>` entry it names in a quoted string, when that path is a file in the repo. That covers `import`, `import()`, and a fixture named with `new URL('./fixtures/stub-app.ts', import.meta.url)`. Test helpers, harnesses and fixtures are files like any other, so changing one runs the tests that use it.
+- **app area** or **app smoke set**: for a changed file under `packages/app/src`, the Electron app tests in `packages/app/test`. Those tests launch the app instead of importing it, so the import graph can’t see them. A test’s area is its file name without `app-` in front and `-ui` or `-app` at the end (`app-settings.test.ts` is “setting”, `plans-ui.test.ts` is “plan”). A source file’s areas are its own name and its folders, leaving out `renderer`, `components`, `views` and `styles` (`renderer/settings/AgentsPage.tsx` is “agent page” and “setting”). Names are split into lower-case words and lose a plural `s`. A test is picked when its area and one of the file’s areas are the same words, or one starts with the other. A source file that matches no test runs the smoke set instead: `app.test.ts`, `app-settings.test.ts` and `app-task.test.ts` (`appSmokeTests`). The files every screen goes through (`main.ts`, `entry.ts`, `preload.cjs`, the renderer’s `index.html`, `main.tsx`, `Root.tsx`, `App.tsx` and `components/Sidebar.tsx`) run the smoke set as well as their own matches.
+
+It runs every test instead when the change touches what the test runner is made of (`runsEverything`): `vitest.config.ts` or `scripts/check.ts`, any file either of them reaches through the same graph (the setup files, `suite-lock.ts`, the stubs `vitest.config.ts` names, and the protocol modules the global setup imports), the root or a package’s `package.json`, `pnpm-lock.yaml` or `pnpm-workspace.yaml`. It also runs every test when git can’t say what changed.
+
+What to expect from it:
+
+- Nearly every daemon test starts the daemon in-process, and the app’s Electron tests import the daemon’s test helpers. A change to most files in `packages/daemon/src` therefore picks 270 or more test files, all the Electron ones included, and a change to `packages/protocol/src` usually runs everything. A change to the renderer alone picks tens of files.
+- The Check’s timeout in `.ted/workflow.yaml` is 90 minutes, because a run of every test takes 20 to 30 minutes on a quiet machine and can wait for the test lock first.
+- With nothing affected (docs only, for example) it says so and passes.
+
+How it runs:
+
+- It runs the `electron` and `node` projects as `pnpm check` does, each only when it has files, and no typecheck or lint.
+- Ten or more files, or every test, take the suite lock and get `pnpm check`’s worker counts. Fewer take one test slot and at most 3 workers per project, like any small run. Both scale down on a busy machine.
+- It records no passing commit and doesn’t rewrite `ted-test-times.json`. Only a full `pnpm check` does.
+- Inside a sandbox where Electron can’t start (see [Inside a sandbox](#inside-a-sandbox)), it leaves the Electron files out, prints them, and writes `node_modules/.cache/ted-affected-left-out.txt`: the Electron files that were changed or picked by name, to run by hand, and how many others were left out. A run outside the sandbox deletes the file. TED runs Checks in its sandbox unless the Factory is in Bypass, so on macOS the Task Lead runs the listed files in Validate, 3 per command.
+
 ## Vitest projects and workers
 
-- The `electron` project holds the test files that use Playwright’s `_electron` or resolve the installed Electron executable, directly or through a relative import. The `node` project holds the rest.
+- The `electron` project holds the test files that use Playwright’s `_electron` or resolve the installed Electron executable, directly or through a relative import (`electronFiles` in `scripts/test-files.ts`). The `node` project holds the rest.
 - `pnpm check` runs the `electron` project with 3 workers and the `node` project with 6. Any other run of 10 or more test files also gets 6 workers, because it runs alone. A smaller run gets 3, so two small runs side by side don’t take every core (`workersFor` in `vitest.config.ts`).
 - On a branch whose changes since `origin/main` are all in `packages/app/src`, `packages/app/test` or docs, `pnpm check` runs only the tests in `packages/app/test` (`onlyAppChanged` in `scripts/check.ts`) and records no passing commit. `pnpm check --all`, any run on `main` and `pnpm release` run every test.
 - Nearly every daemon test starts the whole daemon, so a change to `packages/daemon` or `packages/protocol` always needs them all.

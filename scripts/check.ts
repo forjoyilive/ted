@@ -2,7 +2,12 @@ import { execFileSync, spawn, spawnSync } from 'node:child_process'
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
-import { heldLockEnv, waitingMessage } from '../packages/daemon/test/support/suite-lock.ts'
+import {
+  heldLockEnv,
+  smallRunFiles,
+  waitingMessage,
+} from '../packages/daemon/test/support/suite-lock.ts'
+import type { Selection } from './affected.ts'
 import { recordFailureRun } from './check-history.ts'
 import { type CheckMeasurement, measureCheck } from './check-measurement.ts'
 import {
@@ -19,6 +24,7 @@ const root = path.resolve(import.meta.dirname, '..')
 const cacheDir = path.join(root, 'node_modules', '.cache')
 export const timesFile = path.join(cacheDir, 'ted-test-times.json')
 export const failuresFile = path.join(cacheDir, 'ted-test-failures.json')
+export const leftOutFile = path.join(cacheDir, 'ted-affected-left-out.txt')
 
 const idleGroups = [
   { project: 'electron', maxWorkers: 3 },
@@ -27,11 +33,20 @@ const idleGroups = [
 
 type TestGroup = (typeof idleGroups)[number]
 
-export function groupsFor(load: number | undefined): TestGroup[] {
-  return idleGroups.map((group) => ({
-    ...group,
-    maxWorkers: scaledWorkers(group.maxWorkers, load),
-  }))
+export type TestFiles = Record<string, readonly string[]>
+
+export function groupsFor(load: number | undefined, files?: TestFiles): TestGroup[] {
+  const shared = files !== undefined && fileCount(files) < smallRunFiles
+  return idleGroups
+    .filter((group) => files === undefined || (files[group.project]?.length ?? 0) > 0)
+    .map((group) => ({
+      ...group,
+      maxWorkers: scaledWorkers(shared ? Math.min(group.maxWorkers, 3) : group.maxWorkers, load),
+    }))
+}
+
+function fileCount(files: TestFiles): number {
+  return Object.values(files).reduce((sum, list) => sum + list.length, 0)
 }
 
 const groupText = (groups: readonly TestGroup[]) =>
@@ -348,16 +363,21 @@ function recordTimes(reports: JsonReport[], save: boolean): void {
 export async function runChecks({
   appOnly = false,
   quietWait,
+  testsOnly = false,
+  files,
 }: {
   appOnly?: boolean
   quietWait?: number
+  testsOnly?: boolean
+  files?: TestFiles
 } = {}): Promise<boolean> {
   const measurement = measureCheck(process.env.TED_CHECK_EVIDENCE_DIR, cacheDir)
   let unlock: (() => Promise<void>) | undefined
   let ok = false
   try {
     measurement?.start('lock')
-    unlock = await reportedTestLock('check', {
+    const count = files === undefined ? smallRunFiles : fileCount(files)
+    unlock = await reportedTestLock(count < smallRunFiles ? count : 'check', {
       onWait: (pid) => console.log(waitingMessage(pid)),
     })
     measurement?.end('lock')
@@ -376,9 +396,17 @@ export async function runChecks({
     mkdirSync(cacheDir, { recursive: true })
     if (quietWait !== undefined) await waitForQuiet({ maxWaitMs: quietWait })
     const load = loadPerCore()
-    const testGroups = groupsFor(load)
-    if (busy(load)) console.log(`\n${busyLine(load, groupText(testGroups), groupText(idleGroups))}`)
-    ok = await checkInParallel(appOnly, testGroups, load, measurement)
+    const testGroups = groupsFor(load, files)
+    if (busy(load))
+      console.log(
+        `\n${busyLine(load, groupText(testGroups), groupText(groupsFor(undefined, files)))}`,
+      )
+    ok = await checkInParallel(
+      { appOnly, testsOnly, ...(files !== undefined && { files }) },
+      testGroups,
+      load,
+      measurement,
+    )
     return ok
   } finally {
     try {
@@ -390,7 +418,7 @@ export async function runChecks({
 }
 
 async function checkInParallel(
-  appOnly: boolean,
+  scope: { appOnly: boolean; testsOnly: boolean; files?: TestFiles },
   testGroups: readonly TestGroup[],
   load: number | undefined,
   measurement?: CheckMeasurement,
@@ -399,7 +427,8 @@ async function checkInParallel(
     rmSync(reportFile(group.project), { force: true })
     rmSync(retryFile(group.project), { force: true })
   }
-  console.log(`\n== Typecheck, Lint and Test (${groupText(testGroups)})`)
+  const { appOnly, testsOnly, files } = scope
+  console.log(`\n== ${testsOnly ? 'Test' : 'Typecheck, Lint and Test'} (${groupText(testGroups)})`)
   const printBlock = (step: Step) => {
     console.log(`\n== ${step.title} ${step.ok ? 'passed' : 'failed'}`)
     if (!step.ok || step.output.trim()) console.log(step.output.trimEnd())
@@ -425,7 +454,7 @@ async function checkInParallel(
         path.join(root, 'scripts', 'retry-reporter.ts'),
         '--outputFile.json',
         reportFile(group.project),
-        ...(appOnly ? [appTests] : []),
+        ...(files?.[group.project] ?? (appOnly ? [appTests] : [])),
       ],
       (line) => console.log(`${tag} ${line}`),
       { TED_RETRY_REPORT: retryFile(group.project) },
@@ -433,15 +462,16 @@ async function checkInParallel(
     )
   })
   const steps = await Promise.all([
-    run('Typecheck', ['typecheck']).then(printBlock),
-    run('Lint', ['lint']).then(printBlock),
     ...tests,
+    ...(testsOnly
+      ? []
+      : [run('Typecheck', ['typecheck']).then(printBlock), run('Lint', ['lint']).then(printBlock)]),
   ])
   const reports = testGroups.map((group, index) =>
-    readReport(group.project, steps[index + 2]?.ok === true),
+    readReport(group.project, steps[index]?.ok === true),
   )
   const retries = testGroups.map((group) => readRetries(group.project))
-  for (const [index, step] of steps.slice(2).entries()) {
+  for (const [index, step] of steps.slice(0, testGroups.length).entries()) {
     const result = reports[index]
     console.log(`\n== ${step.title} ${result?.ok ? 'passed' : 'failed'}`)
     console.log(summary(step.output))
@@ -455,12 +485,12 @@ async function checkInParallel(
     for (const problem of result?.problems ?? []) console.error(`  ! ${problem}`)
   }
   const failed = steps
-    .filter((step, index) => !step.ok || (index >= 2 && !reports[index - 2]?.ok))
+    .filter((step, index) => !step.ok || (index < testGroups.length && !reports[index]?.ok))
     .map((step) => step.title)
   try {
     recordTimes(
       reports.map((result) => result.report),
-      !appOnly,
+      !appOnly && !testsOnly,
     )
   } catch (error) {
     console.error(`check: Could not save test timings: ${String(error)}`)
@@ -532,13 +562,77 @@ export async function checkAndRecord({
   return true
 }
 
+export function affectedRefusal(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (!env.TED_RUN) return undefined
+  return 'A Run can’t run pnpm check --affected: TED runs it as the Affected tests Check. pnpm check --affected --list prints what it selects without running anything. To look into a failure, run that test file: pnpm vitest run <file>.'
+}
+
+export async function checkAffected({
+  list = false,
+  quietWait,
+}: {
+  list?: boolean
+  quietWait?: number
+} = {}): Promise<boolean> {
+  const refusal = list ? undefined : affectedRefusal()
+  if (refusal) {
+    console.error(`check: ${refusal}`)
+    return false
+  }
+  const affected = await import('./affected.ts')
+  const base = affected.defaultBranch(root)
+  let electron: ReadonlySet<string> = new Set()
+  let selection: Selection
+  try {
+    const repo = affected.readRepo(root)
+    electron = repo.electron
+    selection = affected.affectedTests({ changed: affected.changedSince(root, base), ...repo })
+  } catch (error) {
+    const message = error instanceof Error ? error.message.split('\n')[0] : String(error)
+    selection = { all: `the changes since ${base} can’t be read (${message})`, picks: [] }
+  }
+  console.log(`\n${affected.selectionText(selection, base, electron)}`)
+  const sandbox = affected.electronSandbox()
+  const leftOut = sandbox && affected.leftOutText(selection, electron, sandbox)
+  if (leftOut) console.log(`\n${leftOut}`)
+  if (list) return true
+  mkdirSync(cacheDir, { recursive: true })
+  if (leftOut) writeFileSync(leftOutFile, `${leftOut}\n`)
+  else rmSync(leftOutFile, { force: true })
+  const picked = selection.picks.map((pick) => pick.file)
+  const files =
+    selection.all !== undefined
+      ? undefined
+      : {
+          electron: sandbox ? [] : picked.filter((file) => electron.has(file)),
+          node: picked.filter((file) => !electron.has(file)),
+        }
+  if (files && files.electron.length + files.node.length === 0) {
+    console.log('\nNo affected tests to run.')
+    return true
+  }
+  const ok = await runChecks({
+    testsOnly: true,
+    ...(files && { files }),
+    ...(quietWait !== undefined && { quietWait }),
+  })
+  if (ok)
+    console.log(
+      '\nThe affected tests passed. Nothing was recorded: only a full pnpm check records a passing commit.',
+    )
+  return ok
+}
+
 if (import.meta.main) {
-  const quietWait = quietWaitMs(process.argv.slice(2))
+  const args = process.argv.slice(2)
+  const quietWait = quietWaitMs(args)
+  const wait = quietWait !== undefined && { quietWait }
   process.exit(
-    (await checkAndRecord({
-      all: process.argv.includes('--all'),
-      ...(quietWait !== undefined && { quietWait }),
-    }))
+    (
+      args.includes('--affected')
+        ? await checkAffected({ list: args.includes('--list'), ...wait })
+        : await checkAndRecord({ all: args.includes('--all'), ...wait })
+    )
       ? 0
       : 1,
   )
