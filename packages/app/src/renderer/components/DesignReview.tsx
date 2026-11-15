@@ -302,7 +302,7 @@ export function DesignReviewContent({
         <Markdown className={styles.summary} text={design.summary} />
       )}
       {(shots.length > 0 || design.video) && (
-        <div className={styles.tiles}>
+        <div className={styles.tiles} data-chat-wide-row>
           {shots.map((shot, index) => (
             <ScreenshotTile
               key={`${shot.hash}:${shot.name}`}

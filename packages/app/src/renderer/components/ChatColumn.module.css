@@ -17,7 +17,9 @@
   max-width: var(--chat-wide);
 }
 
-:is(.list, .nested) > :has([data-chat-wide-row]) :where(p, ul, ol, blockquote) {
+:is(.list, .nested)
+  > :has([data-chat-wide-row])
+  :where(p, ul, ol, blockquote):not(:has([data-chat-wide-row], [data-chat-wide])) {
   max-width: var(--chat-column);
 }
 
