@@ -364,14 +364,14 @@ test('the Dashboard reopens on the remembered Factories, period and tab', () => 
     setItem: (key: string, value: string) => void stored.set(key, value),
   }
   expect(dashboardState(undefined, storage)).toEqual({ range: '30d' })
-  rememberDashboard({ range: '7d', panel: 'stages', factoryIds: ['nb', 'ms'] }, storage)
+  rememberDashboard({ range: '90d', panel: 'stages', factoryIds: ['nb', 'ms'] }, storage)
   expect(dashboardState(undefined, storage)).toEqual({
-    range: '7d',
+    range: '90d',
     panel: 'stages',
     factoryIds: ['nb', 'ms'],
   })
   expect(dashboardState({ factoryIds: ['nb'] }, storage)).toEqual({
-    range: '7d',
+    range: '90d',
     panel: 'stages',
     factoryIds: ['nb'],
   })

@@ -5,12 +5,18 @@ import type {
   CostShare,
   DashboardChange,
   DashboardCost,
+  DashboardRange,
   Factory,
   MachineSettings,
 } from '@ted/protocol'
 import { useId, useLayoutEffect, useRef, useState } from 'react'
 import { FactoryIcon } from '../components/FactoryIcon.tsx'
-import type { CostSelection, DashboardSelection } from '../dashboard.ts'
+import {
+  type CostSelection,
+  type DashboardSelection,
+  rangeComparison,
+  rangeLabels,
+} from '../dashboard.ts'
 import { useSettings } from '../data.ts'
 import { agentLabels } from '../task-fields.ts'
 import { formatDate } from '../time.ts'
@@ -94,26 +100,26 @@ function CostChange({
   change,
   what,
   previous,
-  today,
+  range,
 }: {
   change: DashboardChange | undefined
   what: string
   previous: number | null | undefined
-  today: boolean
+  range: DashboardRange
 }) {
   const shown = percent(change)
   const value = change?.percent ?? 0
   return (
     <p className={`${styles.change} ${value ? (value < 0 ? styles.good : styles.bad) : ''}`}>
       {previous === undefined ? (
-        'All retained history'
+        rangeLabels.all
       ) : shown === null ? (
         `Nothing to compare · Previous: ${money(previous)}`
       ) : (
         <>
           <strong>{shown}</strong>
           <span>
-            {what} {today ? 'vs yesterday to this time' : 'vs previous period'} ({money(previous)})
+            {what} {rangeComparison(range).versus} ({money(previous)})
           </span>
         </>
       )}
@@ -432,7 +438,7 @@ export function Cost({
   change,
   tasks,
   factories,
-  today,
+  range,
   all,
   bounds,
   label,
@@ -443,7 +449,7 @@ export function Cost({
   change: DashboardCost['change']
   tasks: DashboardCost['tasks']
   factories: readonly Factory[]
-  today: boolean
+  range: DashboardRange
   all: boolean
   bounds: string
   label: (index: number) => string
@@ -512,7 +518,7 @@ export function Cost({
               change={change?.perPullRequest}
               what="median"
               previous={all ? undefined : (previousData?.perPullRequest.median ?? null)}
-              today={today}
+              range={range}
             />
             <RangeBar period={data} onClick={() => spend({ of: 'per-pull-request' })} />
             <p className={styles.caption}>
@@ -542,7 +548,7 @@ export function Cost({
               change={change?.spend}
               what="spend"
               previous={all ? undefined : (previousData?.cost ?? null)}
-              today={today}
+              range={range}
             />
             {kinds.length > 0 && (
               <div className={styles.split}>
@@ -590,7 +596,7 @@ export function Cost({
         </header>
         <SpendChart
           period={data}
-          today={today}
+          today={range === 'today'}
           equivalent={equivalent}
           label={label}
           select={select}

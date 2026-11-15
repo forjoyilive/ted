@@ -16,9 +16,11 @@ export const share = (ms: number | null, totalMs: number) => {
 export function TimingChange({
   current,
   previous,
+  versus = 'vs previous equal period',
 }: {
   current: number | null
   previous: number | null
+  versus?: string
 }) {
   const percent =
     current === null || previous === null || previous === 0
@@ -36,7 +38,7 @@ export function TimingChange({
   return (
     <span
       className={`${styles.timingChange} ${tone}`}
-      title={`Selected: ${hours(current)}; previous equal period: ${hours(previous)}. Samples and coverage may differ.`}
+      title={`Selected: ${hours(current)}; ${versus}: ${hours(previous)}. Samples and coverage may differ.`}
     >
       <strong>{display}</strong>
     </span>

@@ -48,6 +48,7 @@
     "./asana": "./src/asana.ts",
     "./asana-import": "./src/asana-import.ts",
     "./asana-intake": "./src/asana-intake.ts",
-    "./asana-sync": "./src/asana-sync.ts"
+    "./asana-sync": "./src/asana-sync.ts",
+    "./dashboard": "./src/dashboard.ts"
   }
 }

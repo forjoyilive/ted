@@ -1,6 +1,8 @@
 import {
   type AsanaIntakeCheck,
   agentStageIds,
+  dashboardRange,
+  dashboardRanges,
   factoryNotifications,
   parseAddFactoryRequest,
   parseAutoStartBacklogRequest,
@@ -41,9 +43,8 @@ export const factoryRoutes: Route[] = [
     path: /^\/dashboard(?:\?.*)?$/,
     async handle({ req }, { store }) {
       const query = new URL(req.url ?? '', 'http://localhost').searchParams
-      const range = query.get('range') ?? '30d'
-      if (range !== 'today' && range !== '7d' && range !== '30d' && range !== 'all')
-        throw new HttpError(400, 'Choose today, 7d, 30d or all')
+      const range = dashboardRange(query.get('range') ?? '30d')
+      if (!range) throw new HttpError(400, `Choose ${dashboardRanges.join(', ')}`)
       const asked = new Set(query.getAll('factory'))
       const known = store.listFactories().map((factory) => factory.id)
       for (const id of asked) if (!known.includes(id)) throw new HttpError(404, 'Factory not found')
