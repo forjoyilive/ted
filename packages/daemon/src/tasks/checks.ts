@@ -129,16 +129,16 @@ export async function runChecks(input: {
     if (input.signal?.aborted) return { outcome: 'interrupted', notFound }
     input.onStart(position)
     const started = Date.now()
-    const watching = check.builtIn === 'ted-settings' ? undefined : input.memory?.watch()
     const log = input.logFor(position)
     const reporting =
       (await input
         .reportingEnv?.(position, supportsTestReporting(check.command))
         .catch(() => ({}))) ?? {}
-    const result =
+    const watching = check.builtIn === 'ted-settings' ? undefined : input.memory?.watch()
+    const ran =
       check.builtIn === 'ted-settings'
-        ? await checkSettings(cwd, log, input.libraryDir)
-        : await runTaskCommand({
+        ? checkSettings(cwd, log, input.libraryDir)
+        : runTaskCommand({
             label: 'this Check',
             command: { run: check.command, timeoutMs: durationMs(check.timeout) },
             cwd,
@@ -149,6 +149,7 @@ export async function runChecks(input: {
             ...(input.signal !== undefined && { signal: input.signal }),
             prepareLaunch: input.prepareLaunch,
           })
+    const result = await ran.finally(() => watching?.finish())
     const lowestMemory = await watching?.finish()
     if (result.outcome === 'interrupted') {
       input.onInterrupted?.(position)
