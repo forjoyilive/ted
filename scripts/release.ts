@@ -3,12 +3,14 @@ import { createHash } from 'node:crypto'
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { releaseRepo } from '../packages/protocol/src/release.ts'
 import { checkAndRecord, hasPassed } from './check.ts'
@@ -306,6 +308,7 @@ function publish(): void {
     ])
   }
   mergeBack(record)
+  updateWebsite(record)
   console.log(
     `\nTED ${record.version} is published. Installed copies pick it up at their next check.`,
   )
@@ -489,6 +492,92 @@ function forward(args: string[], fresh: boolean): never {
   const result = spawnSync(process.execPath, [script, ...args], { cwd: checkout, stdio: 'inherit' })
   if (result.status === 0 && args.includes('publish')) pullMain()
   process.exit(result.status ?? 1)
+}
+
+export interface WebsiteRelease {
+  version: string
+  updated: string
+  download: string
+}
+
+export function websiteRelease(record: ReleaseRecord, published: Date): WebsiteRelease {
+  const dmg = Object.keys(record.files).find((name) => name.endsWith('.dmg'))
+  if (dmg === undefined) throw new Error(`the build of ${record.version} has no .dmg`)
+  return {
+    version: `v${record.version}`,
+    updated: published.toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
+    download: `https://github.com/${repo}/releases/download/v${record.version}/${encodeURIComponent(dmg)}`,
+  }
+}
+
+const websiteFile = 'src/data/release.json'
+
+// The website deploys every push to its main, so the release is committed there from a scratch
+// worktree of origin/main and the website checkout, which may hold other work, is left alone.
+function updateWebsite(record: ReleaseRecord): void {
+  const website = process.env.TED_WEBSITE_DIR || path.join(os.homedir(), 'Websites/ted-and-bill')
+  if (!existsSync(path.join(website, websiteFile))) {
+    console.log(`\nNo ${websiteFile} in ${website}; update the website yourself.`)
+    return
+  }
+  const facts = websiteRelease(record, new Date())
+  const run = (dir: string, title: string, args: string[]): boolean => {
+    console.log(`\n== ${title}`)
+    return spawnSync('git', args, { cwd: dir, stdio: 'inherit' }).status === 0
+  }
+  const scratch = path.join(mkdtempSync(path.join(os.tmpdir(), 'ted-website-')), 'site')
+  if (
+    !run(website, 'Fetch the website', ['fetch', 'origin', 'main']) ||
+    !run(website, 'Check out the website', ['worktree', 'add', '--detach', scratch, 'origin/main'])
+  ) {
+    fail('couldn’t check out the website; run pnpm release publish again to retry')
+  }
+  let outcome: 'pushed' | 'current' | 'failed' = 'failed'
+  try {
+    const file = path.join(scratch, websiteFile)
+    const current = JSON.parse(readFileSync(file, 'utf8')) as WebsiteRelease
+    if (current.version === facts.version && current.download === facts.download) {
+      outcome = 'current'
+    } else {
+      writeFileSync(file, `${JSON.stringify(facts, null, 2)}\n`)
+      const message = `Offer TED ${facts.version}`
+      if (run(scratch, 'Commit the website', ['commit', '-qm', message, '--', websiteFile])) {
+        for (let attempt = 0; attempt < 3 && outcome === 'failed'; attempt++) {
+          if (attempt > 0) {
+            const caughtUp =
+              run(scratch, 'Fetch the website', ['fetch', 'origin', 'main']) &&
+              run(scratch, 'Rebase the website change', ['rebase', 'origin/main'])
+            if (!caughtUp) break
+          }
+          if (run(scratch, 'Push the website', ['push', 'origin', 'HEAD:refs/heads/main'])) {
+            outcome = 'pushed'
+          }
+        }
+      }
+    }
+  } finally {
+    spawnSync('git', ['worktree', 'remove', '--force', scratch], { cwd: website, stdio: 'inherit' })
+  }
+  if (outcome === 'failed') {
+    fail('couldn’t update the website; run pnpm release publish again to retry')
+  }
+  if (outcome === 'current') {
+    console.log(`\nThe website already offers ${facts.version}.`)
+    return
+  }
+  console.log(
+    `\nThe website now offers ${facts.version}; Cloudflare deploys it in a minute or two.`,
+  )
+  const branch = execFileSync('git', ['branch', '--show-current'], {
+    cwd: website,
+    encoding: 'utf8',
+  }).trim()
+  if (branch === 'main') {
+    spawnSync('git', ['pull', '--ff-only', '--quiet', 'origin', 'main'], {
+      cwd: website,
+      stdio: 'inherit',
+    })
+  }
 }
 
 function pullMain(): void {
