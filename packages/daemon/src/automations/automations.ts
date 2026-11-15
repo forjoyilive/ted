@@ -39,6 +39,7 @@ import { type Clock, systemClock, type Timer } from '../clock.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
+import type { MemoryWatch } from '../memory-kills.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { Sandbox } from '../sandbox.ts'
@@ -67,7 +68,11 @@ import {
 } from './check-failures.ts'
 import { createCheckouts } from './checkout.ts'
 import { createAutomationDrafts } from './drafts.ts'
-import { createScheduledChecks, type ScheduledCheckResult } from './scheduled-checks.ts'
+import {
+  createScheduledChecks,
+  memoryStopMessage,
+  type ScheduledCheckResult,
+} from './scheduled-checks.ts'
 import { automationTemplates } from './templates.ts'
 
 export interface AutomationQueue {
@@ -108,6 +113,7 @@ export interface AutomationsOptions {
     input: CheckFailureInput,
   ) => Promise<{ created: readonly string[]; updated: readonly string[] }>
   busy?: () => Promise<boolean>
+  memory?: MemoryWatch
   busyCheckEveryMs?: number
 }
 
@@ -256,6 +262,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
           banners,
           libraryDir: options.libraryDir,
           env: options.env,
+          ...(options.memory && { memory: options.memory }),
         })
       : undefined
   const checkoutLive = (runId: string) => saved.firing(runId)?.state === 'started'
@@ -1202,7 +1209,10 @@ export function createAutomations(options: AutomationsOptions): Automations {
     if (!firing || firing.state === 'dropped' || firing.state === 'ended') return
     if (firing.state === 'queued') saved.began(firingId)
     if (result.state === 'stopped') {
-      saved.checkEnded(firingId, { outcome: 'stopped' })
+      saved.checkEnded(firingId, {
+        outcome: 'stopped',
+        ...(result.outOfMemory && { message: memoryStopMessage }),
+      })
       return
     }
     const skipped = sandboxSkipped(result.output)

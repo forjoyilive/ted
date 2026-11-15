@@ -173,7 +173,8 @@ export function coordinatorNeverAnswers(comment: Comment): boolean {
       isTrackerGroupAsk(comment) ||
       comment.asanaMissing ||
       comment.asanaUnfinished ||
-      comment.cleanupFailure,
+      comment.cleanupFailure ||
+      comment.memoryKill,
   )
 }
 

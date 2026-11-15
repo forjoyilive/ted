@@ -725,6 +725,7 @@ export type RequestPurpose =
         | 'asana-missing'
         | 'asana-unfinished'
         | 'cleanup-failure'
+        | 'memory-kill'
         | 'archive'
         | 'idle-run'
         | 'ci-stuck'
@@ -784,6 +785,15 @@ export interface Comment {
   asanaUnfinished?: import('./asana-import.ts').AsanaUnfinished
   archive?: ArchiveAsk
   cleanupFailure?: CleanupFailureAsk
+  memoryKill?: MemoryKillAsk
+}
+
+export const memoryRetryChoice = 'Try again'
+export const memoryFailedChoice = 'Count it as failed'
+
+export interface MemoryKillAsk {
+  checkRunId: string
+  position: number
 }
 
 export const cleanupRetryChoice = 'Try again'

@@ -159,6 +159,7 @@ function harness(overrides: Partial<LeadLifecycleOptions> = {}) {
     },
     hasAnswerText: (comment) => comment.answer !== undefined,
     refreshSteering: async () => {},
+    memoryFreed: async () => true,
     ...overrides,
   }
   const lifecycle = createLeadLifecycle(options)
@@ -190,6 +191,14 @@ function finishLead(id = 'lead', resumeFailed = false): Run {
   const run = store.getRun(id)
   if (!run) throw new Error('missing Run')
   return run
+}
+function killForMemory(id = 'lead', lowestMemory = 0.04): void {
+  store.recordRunOutput(id, {
+    toOffset: store.runReadOffset(id) + 1,
+    state: 'finished',
+    ending: { how: 'exited', signal: 'SIGKILL', at: new Date().toISOString(), errorLines: [] },
+    memoryKilled: { lowestMemory },
+  })
 }
 function advance(ms: number): void {
   vi.setSystemTime(clock.now() + ms)
@@ -798,5 +807,53 @@ test('interrupted setup releases its slot without launching a Lead', async () =>
   })
   expect(starts).toEqual([])
   expect(held).toBe(0)
+  lifecycle.close()
+})
+
+test('a Task Lead killed for lack of memory names memory, resumes once memory frees up and never counts toward Failed', async () => {
+  let free = (_freed: boolean) => {}
+  const freed = new Promise<boolean>((resolve) => {
+    free = resolve
+  })
+  const { lifecycle, work } = harness({ memoryFreed: () => freed })
+  startLead()
+  finishLead()
+  await lifecycle.failed('lead')
+  advance(1)
+  await lifecycle.beginRevive(taskId)
+  advance(1)
+  killForMemory()
+  await lifecycle.failed('lead')
+  expect(store.latestLeadFailure(taskId)).toMatchObject({
+    runId: 'lead',
+    recovery: 'resume',
+    reason: 'was stopped because this computer ran out of memory',
+  })
+  expect(lifecycle.reviveCandidates()).toEqual([])
+
+  let freeAfterRestart = (_freed: boolean) => {}
+  const restarted = harness({
+    memoryFreed: () =>
+      new Promise<boolean>((resolve) => {
+        freeAfterRestart = resolve
+      }),
+  })
+  restarted.lifecycle.recoverStartup()
+  expect(restarted.lifecycle.reviveCandidates()).toEqual([])
+  freeAfterRestart(true)
+  await Promise.all(restarted.work)
+  expect(restarted.lifecycle.reviveCandidates()).toMatchObject([{ taskId }])
+  restarted.lifecycle.close()
+
+  free(true)
+  await Promise.all(work)
+  expect(lifecycle.reviveCandidates()).toMatchObject([{ taskId }])
+  advance(1)
+  await lifecycle.beginRevive(taskId)
+  advance(1)
+  finishLead()
+  await lifecycle.failed('lead')
+  expect(store.latestLeadFailure(taskId)).toMatchObject({ recovery: 'failed' })
+  expect(store.failureHistory(taskId, clock.now()).recent).toHaveLength(2)
   lifecycle.close()
 })

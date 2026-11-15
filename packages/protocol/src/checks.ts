@@ -8,6 +8,7 @@ export type CheckState =
   | 'timed-out'
   | 'skipped'
   | 'not-run'
+  | 'out-of-memory'
 
 export interface CheckResult {
   name: string

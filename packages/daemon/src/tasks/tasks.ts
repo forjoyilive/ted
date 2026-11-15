@@ -133,6 +133,7 @@ import {
   bannerId,
   briefHeadings,
   type CleanupStepReport,
+  checkLabel,
   clarifyDepths,
   clarifyIsOver,
   cleanupFinishChoice,
@@ -144,6 +145,8 @@ import {
   joinChoices,
   keepArchiveChoice,
   maxAsanaIntakeTasks,
+  memoryFailedChoice,
+  memoryRetryChoice,
   parseAsanaTaskUrl,
   parseGitHubIssueUrl,
   parseLinearUrl,
@@ -200,6 +203,7 @@ import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import { linkedFilesRewritten } from '../linear/files.ts'
 import type { Linear } from '../linear/linear.ts'
+import { createMemoryWatch, type MemoryWatch } from '../memory-kills.ts'
 import { acquireFactoryPermissions, factoryPermissions } from '../permissions.ts'
 import { redactSecrets } from '../redact.ts'
 import { resolveReference } from '../references.ts'
@@ -828,6 +832,7 @@ export function createTasks(options: {
   heldRequests?: { maxMs?: number }
   busy?: Busy
   busyCheckEveryMs?: number
+  memory?: MemoryWatch
   appsDir?: string
   apps?: Pick<AppsOptions, 'pollMs' | 'readyTimeoutMs' | 'stopGraceMs' | 'logBytes'>
   simulators?: Omit<SimulatorOptions, 'dir' | 'banners'> & { dir?: string }
@@ -948,6 +953,8 @@ export function createTasks(options: {
   const listeners = new Set<(event: DaemonEvent) => void>()
   const mergeWaits = new Map<string, AbortController>()
   const checkWaits = new Map<string, AbortController>()
+  const memoryWaits = new Map<string, AbortController>()
+  const memoryAnswers = new Map<string, (choice: string | undefined) => void>()
   options.checkSlots.watch((places) => store.setChecksWaiting(places))
   const checksIdle = new Map<string, (() => void)[]>()
   function setChecking(taskId: string, on: boolean): void {
@@ -1003,6 +1010,12 @@ export function createTasks(options: {
     lowPriority: () => store.settings().lowPriorityWork,
   })
   const busy = options.busy ?? createBusyHold({ on: () => store.settings().waitWhenBusy })
+  const memory =
+    options.memory ??
+    createMemoryWatch({
+      read: () => busy.memory(),
+      ...(options.busyCheckEveryMs !== undefined && { everyMs: options.busyCheckEveryMs }),
+    })
   const apps = createApps({
     appsDir: options.appsDir ?? path.join(path.dirname(worktreesDir), 'apps'),
     store,
@@ -4128,6 +4141,7 @@ export function createTasks(options: {
 
   const heldRequests = createHeldRequests(store, runs, options.heldRequests)
   const leadLifecycle = createLeadLifecycle({
+    memoryFreed: () => memory.freed(stopping.signal),
     store,
     runs,
     clock,
@@ -5871,6 +5885,7 @@ export function createTasks(options: {
         answerAsanaUnfinished,
         trackerConsents,
         answerCleanupFailure,
+        answerMemoryKill,
         withSimulatorRequest: (comment, work) => apps.withSimulatorRequest(comment, work),
         mergeSendBack: (id, findings) =>
           mergeSendBack(id, findings, undefined, false, { counted: false }),
@@ -6694,6 +6709,78 @@ export function createTasks(options: {
       message: `TED asked the user whether to try the failed Cleanup steps again or finish anyway (request ${request.id}). End your turn; TED sends you their answer.`,
       request,
     }
+  }
+
+  async function checkKilledForMemory(
+    taskId: string,
+    checkRunId: string,
+    killed: { position: number; lowestMemory: number; durationMs: number },
+  ): Promise<'retry' | 'failed' | 'interrupted'> {
+    const run = store.checkKilledForMemory(checkRunId, killed.position, killed)
+    await store.persisted()
+    const wait = new AbortController()
+    memoryWaits.set(taskId, wait)
+    const signal = AbortSignal.any([stopping.signal, wait.signal])
+    try {
+      const task = find(taskId)
+      if (store.memoryKills(task.id, task.stage, visitStart(task)) >= 2) {
+        const check = run.checks[killed.position]
+        const name = check ? checkLabel(check) : 'a Check'
+        const question = store.postComment({
+          taskId: task.id,
+          kind: 'question',
+          author: { kind: 'ted' },
+          title: `This computer ran out of memory again: ${name}`,
+          body: `This computer ran out of memory, so the Check “${name}” was stopped for the second time in this Stage. TED didn’t count either stop as a failure.\n\n**${memoryRetryChoice}** runs it again once memory frees up. **${memoryFailedChoice}** records it as a failed Check, the same as when the code fails it.`,
+          choices: [memoryRetryChoice, memoryFailedChoice],
+          memoryKill: { checkRunId, position: killed.position },
+        })
+        await store.persisted()
+        const choice = await new Promise<string | undefined>((resolve) => {
+          memoryAnswers.set(question.id, resolve)
+          if (signal.aborted) resolve(undefined)
+          else signal.addEventListener('abort', () => resolve(undefined), { once: true })
+        })
+        memoryAnswers.delete(question.id)
+        if (choice === undefined) {
+          const open = store.getComment(question.id)
+          if (open && !open.answer && !stopping.signal.aborted) {
+            answerRequest(find(task.id), open, {
+              kind: 'withdrawn',
+              at: new Date().toISOString(),
+              cancelled: true,
+            })
+            await store.persisted()
+          }
+          return 'interrupted'
+        }
+        if (choice === memoryFailedChoice) return 'failed'
+      }
+      return (await memory.freed(signal)) ? 'retry' : 'interrupted'
+    } finally {
+      if (memoryWaits.get(taskId) === wait) memoryWaits.delete(taskId)
+    }
+  }
+
+  async function answerMemoryKill(
+    task: StoredTask,
+    comment: Comment,
+    choice: string | undefined,
+    text: string,
+  ): Promise<Comment> {
+    if (choice !== memoryRetryChoice && choice !== memoryFailedChoice)
+      throw new RequestError(400, `answer with ${memoryRetryChoice} or ${memoryFailedChoice}`)
+    const open = store.getComment(comment.id)
+    if (open?.answer) throw new RequestError(409, 'this request has already been answered')
+    const answered = answerRequest(
+      task,
+      comment,
+      { kind: 'answered', at: new Date().toISOString(), choice, ...(text !== '' && { text }) },
+      drafts(task.id),
+    )
+    await store.persisted()
+    memoryAnswers.get(comment.id)?.(choice)
+    return store.getComment(answered.id) ?? answered
   }
 
   async function answerCleanupFailure(
@@ -8179,6 +8266,7 @@ export function createTasks(options: {
   async function clearAway(taskId: string): Promise<void> {
     if (store.heldRuns().some((h) => h.taskId === taskId)) store.releaseTaskRun(taskId)
     checkWaits.get(taskId)?.abort()
+    memoryWaits.get(taskId)?.abort()
     settingUp.get(taskId)?.abort()
     for (const [key, cancel] of repoSetups) if (key.startsWith(`${taskId}:`)) cancel.abort()
     await beginning.get(taskId)?.catch(() => undefined)
@@ -9016,6 +9104,7 @@ export function createTasks(options: {
       store.stopTask(task.id, { runs: task.runs.length, why: 'human' })
       dropWaitingMove(task.id)
       checkWaits.get(task.id)?.abort()
+      memoryWaits.get(task.id)?.abort()
       subAgents.dropFor(task.id)
       settingUp.get(task.id)?.abort()
       await beginning.get(task.id)?.catch(() => undefined)
@@ -9447,6 +9536,8 @@ export function createTasks(options: {
     libraryDir: options.libraryDir ?? path.join(path.dirname(logsDir), 'library'),
     signal: stopping.signal,
     lowPriority: () => store.settings().lowPriorityWork,
+    memory,
+    memoryKilled: checkKilledForMemory,
     takeCheckSlot: async (taskId, checkRunId) => {
       const wait = new AbortController()
       checkWaits.set(taskId, wait)
@@ -9489,6 +9580,17 @@ export function createTasks(options: {
   })
 
   leadLifecycle.restoreHealth()
+
+  for (const task of store.listTasks()) {
+    for (const comment of openRequests(task.id)) {
+      if (comment.memoryKill)
+        answerRequest(task, comment, {
+          kind: 'withdrawn',
+          at: new Date().toISOString(),
+          cancelled: true,
+        })
+    }
+  }
 
   for (const task of store.listTasks()) {
     if (watched(store.getTask(task.id))) watchMerge(task.id)

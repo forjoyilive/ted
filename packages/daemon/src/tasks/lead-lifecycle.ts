@@ -9,7 +9,7 @@ import type { RunManager } from '../runs/run-manager.ts'
 import type { RecordedSetup, RunFlags, StoredTask, TedStore } from '../store/index.ts'
 import type { WorkflowSettings } from '../workflow/check.ts'
 import type { WorkflowResolution } from '../workflow/workflows.ts'
-import { endingReason, failedAsk, revivedMessage, silentReason } from './failures.ts'
+import { endingReason, failedAsk, memoryReason, revivedMessage, silentReason } from './failures.ts'
 import { overnightGuidance } from './overnight.ts'
 import { type FactoryRepoEntry, repoEntry, sameRepo } from './repos.ts'
 
@@ -84,6 +84,7 @@ export interface LeadLifecycleOptions {
   background(what: string, work: () => Promise<void>): void
   hasAnswerText(comment: Comment): boolean
   refreshSteering(runId: string): Promise<void>
+  memoryFreed(): Promise<boolean>
   stallAfterMs: number
 }
 
@@ -547,7 +548,10 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     if (store.heldRuns().some((h) => h.taskId === task.id)) return
     if (store.alreadyFailed(task.id, run.id, run.revivedAt ?? run.startedAt)) return
     const ended = run.ended
-    const reason = silence ?? endingReason(ended)
+    const killedForMemory =
+      silence === undefined &&
+      store.killedForMemory(task.id, run.id, run.revivedAt ?? run.startedAt)
+    const reason = killedForMemory ? memoryReason : (silence ?? endingReason(ended))
     const resumeFailed = silence === undefined && ended?.resumeFailed === true
     const now = clock.now()
     const history = store.failureHistory(task.id, now)
@@ -558,7 +562,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       store.newWorkHold() === undefined
     const recovery = resumeFailed
       ? 'fresh'
-      : earlier.length > 0
+      : earlier.length > 0 && !killedForMemory
         ? 'failed'
         : canResume
           ? 'resume'
@@ -573,8 +577,20 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
         ask: failedAsk(run.agent, history.sinceFirst, reason, ended, now),
       }),
     })
+    if (recovery === 'resume' && killedForMemory) {
+      reviveWhenMemoryFrees(task.id)
+      return
+    }
     if (recovery === 'resume') awaitingRevive.add(task.id)
     wake()
+  }
+
+  function reviveWhenMemoryFrees(taskId: string): void {
+    background('resume a Task Lead after memory frees up', async () => {
+      if (!(await options.memoryFreed()) || closed) return
+      awaitingRevive.add(taskId)
+      wake()
+    })
   }
 
   function pendingRevive(
@@ -747,8 +763,12 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
   }
   function recoverStartup(): void {
     for (const task of store.listTasks()) {
-      if (pendingRevive(task.id)) {
-        awaitingRevive.add(task.id)
+      const pending = pendingRevive(task.id)
+      if (pending) {
+        const { run } = pending
+        if (store.killedForMemory(task.id, run.id, run.revivedAt ?? run.startedAt))
+          reviveWhenMemoryFrees(task.id)
+        else awaitingRevive.add(task.id)
         continue
       }
       const run = task.leadRunId === undefined ? undefined : store.getRun(task.leadRunId)

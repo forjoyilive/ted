@@ -3,6 +3,7 @@ import path from 'node:path'
 import { type CheckResult, type CheckState, checkFailed, checkLabel } from '@ted/protocol'
 import { loginShell, worktreeCommandEnv } from '../command-env.ts'
 import * as git from '../git.ts'
+import { type MemoryWatch, memoryKill } from '../memory-kills.ts'
 import { redactSecrets } from '../redact.ts'
 import type { PlannedCheck } from '../store/index.ts'
 import { plural } from '../text.ts'
@@ -29,8 +30,9 @@ export interface RunnableCheck {
 }
 
 export interface CheckRunnerResult {
-  outcome: 'passed' | 'failed' | 'interrupted'
+  outcome: 'passed' | 'failed' | 'interrupted' | 'memory'
   failed?: { position: number; check: PlannedCheck; state: CheckState; exitCode?: number }
+  killed?: { position: number; check: PlannedCheck; lowestMemory: number; durationMs: number }
   notFound: string[]
 }
 
@@ -110,6 +112,8 @@ export async function runChecks(input: {
   prepareLaunch: () => Promise<CommandLaunch>
   signal?: AbortSignal
   lowPriority: boolean
+  memory?: MemoryWatch
+  from?: number
   onInterrupted?: (position: number) => void
   reportingEnv?: (position: number, supported: boolean) => Promise<Record<string, string>>
   onStart: (position: number) => void
@@ -120,6 +124,7 @@ export async function runChecks(input: {
 }): Promise<CheckRunnerResult> {
   const notFound: string[] = []
   for (const [position, { check, cwd, env }] of input.checks.entries()) {
+    if (position < (input.from ?? 0)) continue
     if (check.state === 'skipped' || cwd === undefined) continue
     if (input.signal?.aborted) return { outcome: 'interrupted', notFound }
     input.onStart(position)
@@ -129,10 +134,11 @@ export async function runChecks(input: {
       (await input
         .reportingEnv?.(position, supportsTestReporting(check.command))
         .catch(() => ({}))) ?? {}
-    const result =
+    const watching = check.builtIn === 'ted-settings' ? undefined : input.memory?.watch()
+    const ran =
       check.builtIn === 'ted-settings'
-        ? await checkSettings(cwd, log, input.libraryDir)
-        : await runTaskCommand({
+        ? checkSettings(cwd, log, input.libraryDir)
+        : runTaskCommand({
             label: 'this Check',
             command: { run: check.command, timeoutMs: durationMs(check.timeout) },
             cwd,
@@ -143,9 +149,25 @@ export async function runChecks(input: {
             ...(input.signal !== undefined && { signal: input.signal }),
             prepareLaunch: input.prepareLaunch,
           })
+    const result = await ran.finally(() => watching?.finish())
+    const lowestMemory = await watching?.finish()
     if (result.outcome === 'interrupted') {
       input.onInterrupted?.(position)
       return { outcome: 'interrupted', notFound }
+    }
+    if (
+      result.outcome === 'failed' &&
+      lowestMemory !== undefined &&
+      memoryKill(
+        { signal: 'signal' in result ? result.signal : undefined, exitCode: result.exitCode },
+        lowestMemory,
+      )
+    ) {
+      return {
+        outcome: 'memory',
+        killed: { position, check, lowestMemory, durationMs: Date.now() - started },
+        notFound,
+      }
     }
     const state: CheckState = result.outcome
     const finished = {
@@ -250,6 +272,8 @@ export function describeResult(
       return `– ${label} · not run`
     case 'running':
       return `… ${label} · running`
+    case 'out-of-memory':
+      return `! ${label} · stopped: out of memory`
     default:
       return `– ${label} · waiting`
   }

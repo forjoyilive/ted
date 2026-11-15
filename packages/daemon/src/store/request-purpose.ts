@@ -12,6 +12,7 @@ export function structuralPurpose(
     | 'asanaUnfinished'
     | 'archive'
     | 'cleanupFailure'
+    | 'memoryKill'
     | 'failed'
   >,
 ): RequestPurpose | undefined {
@@ -25,6 +26,7 @@ export function structuralPurpose(
   if (comment.asanaUnfinished) return { kind: 'asana-unfinished' }
   if (comment.archive) return { kind: 'archive' }
   if (comment.cleanupFailure) return { kind: 'cleanup-failure' }
+  if (comment.memoryKill) return { kind: 'memory-kill' }
   if (comment.failed) return { kind: 'failed-run' }
   if (comment.kind === 'round' || comment.kind === 'proposal') return { kind: comment.kind }
   return { kind: 'question' }

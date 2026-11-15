@@ -572,6 +572,7 @@ export const comments = State.SQLite.table({
     asanaUnfinished: State.SQLite.text({ nullable: true }),
     archive: State.SQLite.text({ nullable: true }),
     cleanupFailure: State.SQLite.text({ nullable: true }),
+    memoryKill: State.SQLite.text({ nullable: true }),
     multiple: State.SQLite.boolean({ default: false }),
     purpose: State.SQLite.text({ nullable: true }),
     heldFor: State.SQLite.text({ nullable: true }),
@@ -2528,6 +2529,28 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  checkKilledForMemory: Events.synced({
+    name: 'v1.CheckKilledForMemory',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      checkRunId: Schema.String,
+      position: Schema.Number,
+      name: Schema.String,
+      stage: Schema.String,
+      lowestMemory: Schema.Number,
+      durationMs: Schema.Number,
+      at: Schema.String,
+    }),
+  }),
+  runKilledForMemory: Events.synced({
+    name: 'v1.RunKilledForMemory',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      taskId: Schema.NullOr(Schema.String),
+      lowestMemory: Schema.Number,
+      at: Schema.String,
+    }),
+  }),
   checksFinished: Events.synced({
     name: 'v1.ChecksFinished',
     schema: Schema.Struct({ checkRunId: Schema.String, outcome: Schema.String, at: Schema.String }),
@@ -3505,6 +3528,10 @@ export const events = {
     name: 'v1.CommentCleanupFailureAsked',
     schema: Schema.Struct({ commentId: Schema.String, failure: Schema.String }),
   }),
+  commentMemoryKillAsked: Events.synced({
+    name: 'v1.CommentMemoryKillAsked',
+    schema: Schema.Struct({ commentId: Schema.String, memoryKill: Schema.String }),
+  }),
   commentArchiveAsked: Events.synced({
     name: 'v1.CommentArchiveAsked',
     schema: Schema.Struct({ commentId: Schema.String, archive: Schema.String }),
@@ -3831,6 +3858,16 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskStoppedByTed': (args) => task(args, { runId: args.runId, cause: args.cause }),
   'v1.TedStopAnswered': (args) => task(args, { choice: args.choice }),
   'v1.TaskLeadNudged': (args) => task(args, { runId: args.runId }),
+  'v1.CheckKilledForMemory': (args) =>
+    task(args, {
+      checkRunId: args.checkRunId,
+      position: args.position,
+      name: args.name,
+      stage: args.stage,
+      lowestMemory: args.lowestMemory,
+    }),
+  'v1.RunKilledForMemory': (args) =>
+    task(args, { runId: args.runId, lowestMemory: args.lowestMemory }),
   'v1.TaskLeadFailed': (args) =>
     task(args, {
       runId: args.runId,
@@ -4338,6 +4375,8 @@ const materializers = counted(
         comments.update({ multiple: true }).where({ id: commentId }),
       'v1.CommentCleanupFailureAsked': ({ commentId, failure }) =>
         comments.update({ cleanupFailure: failure }).where({ id: commentId }),
+      'v1.CommentMemoryKillAsked': ({ commentId, memoryKill }) =>
+        comments.update({ memoryKill }).where({ id: commentId }),
       'v1.RequestHeld': ({ commentId, runId }) =>
         comments.update({ heldFor: runId }).where({ id: commentId }),
       'v1.RequestReleased': ({ commentId, at }) =>
@@ -4804,6 +4843,14 @@ const materializers = counted(
           at,
         }),
       ],
+      'v1.CheckKilledForMemory': ({ checkRunId, position, durationMs }) => [
+        testInvocations.update({ ownerEnded: true }).where({ checkRunId, position }),
+        checkResults
+          .update({ state: 'out-of-memory', exitCode: null, durationMs })
+          .where({ id: `${checkRunId}:${position}` }),
+        checkBoundaries.delete().where({ id: `${checkRunId}:start:${position}` }),
+      ],
+      'v1.RunKilledForMemory': () => [],
       'v1.ChecksFinished': ({ checkRunId, outcome, at }) => [
         testInvocations.update({ ownerEnded: true }).where({ checkRunId }),
         checkRuns.update({ outcome, finishedAt: at }).where({ id: checkRunId }),

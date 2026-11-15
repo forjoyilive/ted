@@ -46,6 +46,17 @@ const failureOf = (entry: LoggedEvent): FailureHistory => ({
   resumeFailed: entry.data.resumeFailed === true,
 })
 
+function memoryFailures(log: readonly LoggedEvent[]): Set<LoggedEvent> {
+  const killed = new Set<unknown>()
+  const failures = new Set<LoggedEvent>()
+  for (const entry of log) {
+    if (entry.name === 'v1.RunKilledForMemory') killed.add(entry.data.runId)
+    else if (entry.name === 'v1.TaskLeadFailed' && killed.delete(entry.data.runId))
+      failures.add(entry)
+  }
+  return failures
+}
+
 export function createTaskHistory(
   read: (taskId: string) => LoggedEvent[],
   mergeVisit: (taskId: string) => string,
@@ -167,12 +178,14 @@ export function createTaskHistory(
           e.name === 'v1.TaskResumed' ||
           e.name === 'v1.TaskResumedOvernight',
       )
+      const memory = memoryFailures(log)
       const recent = log
         .slice(reset + 1)
         .filter(
           (e) =>
             e.name === 'v1.TaskLeadFailed' &&
             e.data.resumeFailed !== true &&
+            !memory.has(e) &&
             now - Date.parse(e.at) < 30 * 60_000,
         )
       const first = recent[0]
@@ -185,6 +198,16 @@ export function createTaskHistory(
               .map(failureOf)
           : [],
       }
+    },
+    killedForMemory(taskId: string, runId: string, since: string): boolean {
+      return read(taskId).some(
+        (e) => e.name === 'v1.RunKilledForMemory' && e.data.runId === runId && e.at >= since,
+      )
+    },
+    memoryKills(taskId: string, stage: StageId, since: string): number {
+      return read(taskId).filter(
+        (e) => e.name === 'v1.CheckKilledForMemory' && e.data.stage === stage && e.at >= since,
+      ).length
     },
     alreadyFailed(taskId: string, runId: string, since: string): boolean {
       return read(taskId).some(

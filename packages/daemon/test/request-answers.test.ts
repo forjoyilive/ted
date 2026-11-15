@@ -132,6 +132,10 @@ beforeEach(async () => {
       effects.push('cleanup-failure')
       return comment
     },
+    answerMemoryKill: async (_task, comment) => {
+      effects.push('memory-kill')
+      return comment
+    },
   }
 })
 afterEach(async () => {

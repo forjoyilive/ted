@@ -7,6 +7,8 @@ export const retryChoice = 'Retry'
 
 const binaries: Record<AgentKind, string> = { claude: 'claude', codex: 'codex', antigravity: 'agy' }
 
+export const memoryReason = 'was stopped because this computer ran out of memory'
+
 export function endingReason(ending: RunEnding | undefined): string {
   if (ending?.how === 'lost') return 'stopped unexpectedly'
   if (ending?.signal !== undefined) return `was killed (${ending.signal})`

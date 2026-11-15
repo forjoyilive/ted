@@ -4,6 +4,7 @@ import type {
   AgentStageId,
   CheckRun,
   CheckRunTrigger,
+  CheckState,
   FailureCase,
   FailureContext,
   ResolveFailureRequest,
@@ -12,6 +13,7 @@ import type {
 import { validationExecution } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
 import { RequestError } from '../errors.ts'
+import type { MemoryWatch } from '../memory-kills.ts'
 import { redactSecrets } from '../redact.ts'
 import type { StoredTask, TedStore } from '../store/index.ts'
 import type { WorkflowResolution } from '../workflow/workflows.ts'
@@ -39,6 +41,12 @@ interface ValidationOptions {
   libraryDir: string
   signal: AbortSignal
   lowPriority(): boolean
+  memory?: MemoryWatch
+  memoryKilled(
+    taskId: string,
+    checkRunId: string,
+    killed: NonNullable<CheckRunnerResult['killed']>,
+  ): Promise<'retry' | 'failed' | 'interrupted'>
   takeCheckSlot(taskId: string, checkRunId: string): Promise<(() => void) | undefined>
   checkLog(task: Task, id: string, position: number): string
   checkDir(task: Task, id: string): string
@@ -308,10 +316,32 @@ export function createValidation(options: ValidationOptions) {
         if (!options.signal.aborted) store.finishChecks(checkRun.id, 'interrupted')
         return { outcome: 'interrupted' as const, notFound: [] }
       }
-      const result = await (async () => {
-        await store.persisted()
-        return runChecks({
+      const finishedCheck = (
+        position: number,
+        finished: { state: CheckState; exitCode?: number; durationMs: number },
+      ) => {
+        store.checkFinished(checkRun.id, position, finished)
+        if (tracking) {
+          const executed = store.getCheckRun(checkRun.id)
+          if (executed) verifyPassed(find(task.id), executed)
+          const current = store.failures.progress(task.id)
+          if (current?.executions.at(-1)?.runId === checkRun.id) {
+            const checks = [...current.checks]
+            const original = checks[start + position]
+            if (!original) throw new Error('missing planned Check')
+            checks[start + position] = { ...original, ...finished }
+            store.failures.saveProgress({
+              ...current,
+              checks,
+              next: finished.state === 'passed' ? start + position + 1 : start + position,
+            })
+          }
+        }
+      }
+      const runFrom = (from: number) =>
+        runChecks({
           checks: plan,
+          from,
           taskDisplayId: task.displayId,
           libraryDir: options.libraryDir,
           env: options.env(),
@@ -319,32 +349,40 @@ export function createValidation(options: ValidationOptions) {
           prepareLaunch: () => options.prepareLaunch(find(task.id)),
           signal: options.signal,
           lowPriority: options.lowPriority(),
+          ...(options.memory && { memory: options.memory }),
           onInterrupted: (position) => store.checkInterrupted(checkRun.id, position),
           ...(reportingEnv && {
             reportingEnv: (position: number, supported: boolean) =>
               reportingEnv(task, checkRun.id, position, supported),
           }),
           onStart: (position) => store.checkStarted(checkRun.id, position),
-          onFinish: (position, finished) => {
-            store.checkFinished(checkRun.id, position, finished)
-            if (tracking) {
-              const executed = store.getCheckRun(checkRun.id)
-              if (executed) verifyPassed(find(task.id), executed)
-              const current = store.failures.progress(task.id)
-              if (current?.executions.at(-1)?.runId === checkRun.id) {
-                const checks = [...current.checks]
-                const original = checks[start + position]
-                if (!original) throw new Error('missing planned Check')
-                checks[start + position] = { ...original, ...finished }
-                store.failures.saveProgress({
-                  ...current,
-                  checks,
-                  next: finished.state === 'passed' ? start + position + 1 : start + position,
-                })
-              }
-            }
-          },
+          onFinish: finishedCheck,
         })
+      const result = await (async (): Promise<
+        Omit<CheckRunnerResult, 'outcome'> & { outcome: 'passed' | 'failed' | 'interrupted' }
+      > => {
+        await store.persisted()
+        const notFound: string[] = []
+        let from = 0
+        for (;;) {
+          const ran = await runFrom(from)
+          notFound.push(...ran.notFound)
+          if (ran.outcome !== 'memory') return { ...ran, outcome: ran.outcome, notFound }
+          const killed = ran.killed
+          if (!killed) return { outcome: 'interrupted', notFound }
+          const next = await options.memoryKilled(task.id, checkRun.id, killed)
+          if (next === 'interrupted') return { outcome: 'interrupted', notFound }
+          if (next === 'failed') {
+            const finished = { state: 'failed' as const, durationMs: killed.durationMs }
+            finishedCheck(killed.position, finished)
+            return {
+              outcome: 'failed',
+              failed: { position: killed.position, check: killed.check, ...finished },
+              notFound,
+            }
+          }
+          from = killed.position
+        }
       })()
         .catch((error: unknown) => {
           console.error(`couldn’t run ${task.displayId}’s Checks:`, error)

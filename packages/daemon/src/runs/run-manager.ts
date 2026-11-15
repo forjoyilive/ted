@@ -44,6 +44,7 @@ import type { AgentLaunch, Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
 import { holdsLock, isLockHeld } from '../lock.ts'
+import { type MemoryWatch, type MemoryWatching, runKilledForMemory } from '../memory-kills.ts'
 import { nodeEntry, shellScript } from '../node-entry.ts'
 import { acquireRunPermissions, runPermissions, withRunPermissions } from '../permissions.ts'
 import { workCommand } from '../priority.ts'
@@ -88,6 +89,7 @@ export interface RunManagerOptions {
   oldestHost?: number
   stopGraceMs?: number
   inputAckMs?: number
+  memory?: MemoryWatch
 }
 
 export interface RunObserver {
@@ -186,6 +188,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   const generations = new Map<string, Generation>()
   const stopRequested = new Set<string>()
   const launchStops = new Map<string, AbortController>()
+  const memoryWatches = new Map<string, MemoryWatching>()
   const heard = new Map<string, number>()
   const observers = new Set<RunObserver>()
   const stoppedOutsideUntold: { runId: string; at: string | undefined }[] = []
@@ -255,6 +258,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const release = options.idle?.hold()
     const controller = new AbortController()
     launchStops.set(runId, controller)
+    const watching = options.memory?.watch()
+    if (watching) memoryWatches.set(runId, watching)
     const done = followHostLog(runId, revived, controller.signal)
       .catch((error: unknown) => console.error(`stopped following Run ${runId}:`, error))
       .finally(() => {
@@ -264,6 +269,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         replacing.delete(runId)
         outdated.delete(runId)
         stopRequested.delete(runId)
+        if (watching && memoryWatches.get(runId) === watching) memoryWatches.delete(runId)
+        void watching?.finish()
         release?.()
       })
     following.set(runId, done)
@@ -538,6 +545,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const asked = askable
       ? prompts.filter((prompt) => prompt.refuse !== true && prompt.generation === generation.count)
       : []
+    const ended = state === 'finished' ? ending(runId, exit, generation) : undefined
+    const lowestMemory = memoryWatches.get(runId)?.lowest()
     const saved = store.recordRunOutput(runId, {
       ...(asked.length > 0 && { permissionPrompts: asked }),
       ...(closedPermissions.length > 0 && { closedPermissions }),
@@ -548,7 +557,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...(state && { state }),
       ...(sessionId !== undefined && { sessionId }),
       ...(problem !== undefined && { problem }),
-      ...(state === 'finished' && { ending: ending(runId, exit, generation) }),
+      ...(ended && { ending: ended }),
+      ...(ended &&
+        lowestMemory !== undefined &&
+        runKilledForMemory(ended, lowestMemory) && { memoryKilled: { lowestMemory } }),
       ...(retrying !== undefined && { retrying }),
     })
     if (!saved) holdRead(runId, batch.toOffset)
