@@ -84,6 +84,40 @@ export interface DashboardReport {
   previous: DashboardPeriod | null
   comparison: Record<DashboardMetric, DashboardChange> | null
   flow: DashboardFlow
+  waiting: {
+    current: DashboardWaiting
+    previous: DashboardWaiting | null
+    change: DashboardChange | null
+  }
+}
+
+export interface DashboardWait {
+  taskId: string
+  requestId: string
+  kind: string
+  stage: string | null
+  waitedMs: number
+}
+
+export interface DashboardWaitSample {
+  taskId: string
+  waitedMs: number
+}
+
+export interface DashboardWaitStage {
+  stage: string
+  totalMs: number
+  kinds: string[]
+  samples: DashboardWaitSample[]
+}
+
+export interface DashboardWaiting {
+  totalMs: number
+  medianMs: number | null
+  samples: DashboardWaitSample[]
+  stages: DashboardWaitStage[]
+  waits: DashboardWait[]
+  byFactory: { factoryId: string; totalMs: number; taskIds: string[] }[]
 }
 
 export interface FlowTask {

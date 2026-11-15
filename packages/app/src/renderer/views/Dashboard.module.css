@@ -1172,3 +1172,79 @@ button.coverage {
   font-family: inherit;
   cursor: pointer;
 }
+
+.waitFigures {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 28px;
+  margin-bottom: 12px;
+}
+
+.waitStages,
+.waitList {
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+}
+
+.waitRow {
+  display: grid;
+  grid-template-columns: minmax(90px, 30%) minmax(60px, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 7px 0;
+  border: none;
+  border-bottom: 1px solid var(--border-subtle);
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-12);
+  text-align: left;
+  cursor: pointer;
+}
+
+.waitList .waitRow {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.waitRow:hover {
+  background: var(--surface-hover);
+}
+
+.waitRow:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.waitRow small {
+  display: block;
+  color: var(--text-caption);
+  font-size: var(--text-10);
+}
+
+.waitRow b {
+  margin-right: 6px;
+  color: var(--text-secondary);
+  font-weight: var(--weight-medium);
+}
+
+.waitRow strong {
+  font-weight: var(--weight-medium);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.waitTrack {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--surface-inset);
+}
+
+.waitTrack i {
+  display: block;
+  height: 100%;
+  background: var(--chart-tourmaline);
+}

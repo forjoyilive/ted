@@ -95,6 +95,74 @@ export function dashboardFixture(empty = false): DashboardReport {
       current: flowPeriod(empty, current),
       previous: flowPeriod(true, previous),
     },
+    waiting: {
+      current: {
+        totalMs: empty ? 0 : 30 * hour,
+        medianMs: empty ? null : 6 * hour,
+        samples: empty
+          ? []
+          : [
+              { taskId: 't1', waitedMs: 26 * hour },
+              { taskId: 't2', waitedMs: 4 * hour },
+            ],
+        stages: empty
+          ? []
+          : [
+              {
+                stage: 'review',
+                totalMs: 24 * hour,
+                kinds: ['Review sign-off'],
+                samples: [{ taskId: 't1', waitedMs: 24 * hour }],
+              },
+              {
+                stage: 'clarify',
+                totalMs: 6 * hour,
+                kinds: ['Clarify round', 'Question'],
+                samples: [
+                  { taskId: 't2', waitedMs: 4 * hour },
+                  { taskId: 't1', waitedMs: 2 * hour },
+                ],
+              },
+            ],
+        waits: empty
+          ? []
+          : [
+              {
+                taskId: 't1',
+                requestId: 'c1',
+                kind: 'Review sign-off',
+                stage: 'review',
+                waitedMs: 24 * hour,
+              },
+              {
+                taskId: 't2',
+                requestId: 'c2',
+                kind: 'Clarify round',
+                stage: 'clarify',
+                waitedMs: 4 * hour,
+              },
+              {
+                taskId: 't1',
+                requestId: 'c3',
+                kind: 'Question',
+                stage: 'clarify',
+                waitedMs: 2 * hour,
+              },
+            ],
+        byFactory: [
+          { factoryId: 'nb', totalMs: empty ? 0 : 30 * hour, taskIds: empty ? [] : ['t1', 't2'] },
+        ],
+      },
+      previous: {
+        totalMs: 40 * hour,
+        medianMs: 8 * hour,
+        samples: [],
+        stages: [],
+        waits: [],
+        byFactory: [{ factoryId: 'nb', totalMs: 40 * hour, taskIds: [] }],
+      },
+      change: { absolute: -10 * hour, percent: -25 },
+    },
     asOf: current.to,
     range: '7d',
     factoryIds: ['nb'],

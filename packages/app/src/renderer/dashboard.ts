@@ -22,10 +22,12 @@ export type FlowSelection = { period: 'current' | 'previous' } & (
 )
 
 export interface DashboardSelection {
-  metric: DashboardMetric | 'unavailable' | 'open'
+  metric: DashboardMetric | 'unavailable' | 'open' | 'waiting'
   period: 'current' | 'previous'
   bucket?: number
   missing?: boolean
+  stage?: string
+  requestId?: string
 }
 
 export interface DashboardViewState {

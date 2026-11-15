@@ -1158,3 +1158,113 @@ test('Today compares with the same clock time yesterday on a day the clocks chan
     else process.env.TZ = zone
   }
 })
+
+function waitedTask(
+  id: string,
+  ago: number,
+  stages: [string, number][],
+  requests: {
+    id: string
+    kind: string
+    stage: string | null
+    purpose: string | null
+    from: number
+    to: number
+  }[],
+): Facts {
+  const done = now - ago * hour
+  const at = (h: number) => iso(done - h * hour)
+  return {
+    id,
+    displayId: `NB-${id}`,
+    title: `Task ${id}`,
+    stage: 'done',
+    setup: false,
+    archived: false,
+    createdAt: at(30),
+    entries: [...stages.map(([stage, h]) => ({ stage, at: at(h) })), { stage: 'done', at: at(0) }],
+    activity: {
+      checks: [],
+      invocations: [],
+      requests: requests.map(({ id, kind, stage, purpose }) => ({ id, kind, stage, purpose })),
+      history: {
+        taskId: id,
+        asOf: iso(now),
+        lifecycle: [],
+        coverage: [],
+        intervals: requests.map((r) => ({
+          reason: 'user-request',
+          start: at(r.from),
+          end: at(r.to),
+          contributors: [
+            {
+              id: r.id,
+              start: at(r.from),
+              end: at(r.to),
+              startSource: 'CommentPosted',
+              endSource: 'CommentAnswered',
+            },
+          ],
+        })),
+      },
+    },
+  }
+}
+
+test('Waiting on you sums each completed Task’s requests by Stage, names each request and compares periods', () => {
+  const current = waitedTask(
+    'w1',
+    2,
+    [
+      ['intake', 20],
+      ['clarify', 20],
+      ['design', 14],
+      ['review', 8],
+    ],
+    [
+      { id: 'c1', kind: 'round', stage: 'clarify', purpose: 'round', from: 19, to: 16 },
+      { id: 'c2', kind: 'question', stage: null, purpose: 'failure', from: 18, to: 15 },
+      { id: 'c3', kind: 'review', stage: 'design', purpose: 'gate', from: 10, to: 6 },
+      { id: 'c4', kind: 'signoff', stage: 'review', purpose: 'gate', from: 5, to: 1 },
+    ],
+  )
+  const before = waitedTask(
+    'w2',
+    8 * 24 + 2,
+    [
+      ['intake', 20],
+      ['work', 20],
+    ],
+    [{ id: 'c5', kind: 'permission', stage: 'work', purpose: null, from: 15, to: 5 }],
+  )
+  const open = observedTask()
+  const report = factoryDashboard([current, before, open], '7d', now)
+  const waiting = report.waiting.current
+  expect(waiting).toMatchObject({
+    totalMs: 12 * hour,
+    medianMs: 3.5 * hour,
+    samples: [{ taskId: 'w1', waitedMs: 12 * hour }],
+    byFactory: [{ factoryId: 'nb', totalMs: 12 * hour, taskIds: ['w1'] }],
+  })
+  expect(waiting.stages.map((s) => [s.stage, s.totalMs / hour, s.kinds])).toEqual([
+    ['review', 6, ['Design sign-off', 'Review sign-off']],
+    ['clarify', 4, ['Clarify round', 'Failure decision']],
+    ['design', 2, ['Design sign-off']],
+  ])
+  expect(waiting.waits.map((w) => [w.requestId, w.kind, w.stage, w.waitedMs / hour])).toEqual([
+    ['c3', 'Design sign-off', 'design', 4],
+    ['c4', 'Review sign-off', 'review', 4],
+    ['c1', 'Clarify round', 'clarify', 3],
+    ['c2', 'Failure decision', 'clarify', 3],
+  ])
+  expect(report.waiting.previous).toMatchObject({
+    totalMs: 10 * hour,
+    waits: [{ requestId: 'c5', kind: 'Permission', waitedMs: 10 * hour }],
+  })
+  expect(report.waiting.change).toMatchObject({ absolute: 2 * hour, percent: 20 })
+  expect(factoryDashboard([open], 'all', now).waiting).toMatchObject({
+    current: { totalMs: 0, medianMs: null, stages: [], waits: [] },
+    previous: null,
+    change: null,
+  })
+})

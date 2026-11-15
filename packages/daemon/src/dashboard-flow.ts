@@ -91,7 +91,7 @@ export function flowFailure(value: FailureCase): FlowFailure | null {
   }
 }
 
-function timing(task: DashboardTaskFacts, asOf: number) {
+export function stageTiming(task: DashboardTaskFacts, asOf: number) {
   const entries = (task.transitions ?? task.entries).map((entry, index) => ({
     ...entry,
     index,
@@ -166,7 +166,7 @@ function timing(task: DashboardTaskFacts, asOf: number) {
   }
 }
 
-type Timing = ReturnType<typeof timing>
+type Timing = ReturnType<typeof stageTiming>
 
 export function stageSampleParts(
   sample: Pick<FlowStageSample, 'intervals'>,
@@ -450,7 +450,7 @@ export function dashboardFlow(
   previousCompleted: readonly string[],
 ): DashboardFlow {
   const facts = input.filter((task) => !task.setup)
-  const timings = new Map(facts.map((task) => [task.id, timing(task, asOf)]))
+  const timings = new Map(facts.map((task) => [task.id, stageTiming(task, asOf)]))
   const completed = new Set([...currentCompleted, ...previousCompleted])
   const visits = new Map(
     facts.filter((task) => completed.has(task.id)).map((task) => [task.id, firstVisit(task, asOf)]),

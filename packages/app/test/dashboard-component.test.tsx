@@ -256,6 +256,59 @@ test('Overview figures open the Tasks behind them, durations slowest first', asy
   expect(waiting.textContent).toContain('Review · Waiting on you')
   await user().click(waiting)
   expect(open).toHaveBeenCalledWith('t4')
+  await close()
+
+  const waits = screen.getByRole('region', { name: 'Waiting on you' })
+  expect(waits.textContent).toContain('-25%')
+  expect(waits.textContent).toContain('Previous: 40h')
+  expect(waits.textContent).toContain('median answer time · 3 requests')
+  const stageRows = within(waits).getAllByRole('button', { name: /^Waiting on you in/ })
+  expect(stageRows.map((row) => row.getAttribute('aria-label'))).toEqual([
+    'Waiting on you in Review 24h',
+    'Waiting on you in Clarify 6h',
+  ])
+  expect(stageRows[1]?.textContent).toContain('Clarify round, Question')
+  await user().click(within(waits).getByRole('button', { name: 'Waiting on you 30h' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe('Waiting on you · Selected period')
+  expect(
+    within(sample)
+      .getAllByRole('button', { name: /NB-/ })
+      .map((row) => row.textContent?.slice(0, 4)),
+  ).toEqual(['NB-1', 'NB-2'])
+  expect(within(sample).getByRole('button', { name: /NB-1.*Fix login/ }).textContent).toContain(
+    'Waited 1d 2h · Review sign-off, Question',
+  )
+  await close()
+  await user().click(within(waits).getByRole('button', { name: 'Median answer time 6h' }))
+  expect(within(screen.getByRole('dialog')).getAllByRole('button', { name: /NB-/ })).toHaveLength(2)
+  await close()
+  await user().click(stageRows[1] as HTMLElement)
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe('Waiting on you · In Clarify')
+  expect(
+    within(sample).getByRole('button', { name: /NB-2.*Improve search/ }).textContent,
+  ).toContain('Waited 4h · Clarify round')
+  expect(within(sample).getByRole('button', { name: /NB-1.*Fix login/ }).textContent).toContain(
+    'Waited 2h · Question',
+  )
+  await close()
+  const longest = screen.getByRole('region', { name: 'Longest waits on you' })
+  const longestRows = within(longest).getAllByRole('button')
+  expect(longestRows.map((row) => row.textContent)).toEqual([
+    'NB-1 Review sign-off1d',
+    'NB-2 Clarify round4h',
+    'NB-1 Question2h',
+  ])
+  expect(longest.textContent).toContain('Snoozed time counts as waiting.')
+  await user().click(longestRows[0] as HTMLElement)
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe(
+    'Waiting on you · Review sign-off in Review',
+  )
+  expect(within(sample).getAllByRole('button', { name: /NB-/ })).toHaveLength(1)
+  await user().click(within(sample).getByRole('button', { name: /NB-1.*Fix login/ }))
+  expect(open).toHaveBeenCalledWith('t1')
 })
 
 test('Factory and range changes discard late responses instead of mixing samples', async () => {
@@ -279,7 +332,7 @@ test('Factory and range changes discard late responses instead of mixing samples
   expect(api.request).toHaveBeenCalledWith('dashboard', '30d', ['f2'])
   view.rerender(<Dashboard {...props} state={{ range: '30d' }} />)
   const byFactory = await screen.findByRole('region', { name: 'By Factory' })
-  for (const column of ['Pull requests merged', 'Waiting in Backlog'])
+  for (const column of ['Pull requests merged', 'Waiting in Backlog', 'Waiting on you'])
     expect(within(byFactory).getByRole('columnheader', { name: column })).toBeTruthy()
 })
 

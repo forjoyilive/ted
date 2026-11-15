@@ -14,6 +14,7 @@ import type {
   TaskStatusKind,
 } from '@ted/protocol'
 import { dashboardFlow, type FlowFacts } from './dashboard-flow.ts'
+import { dashboardWaiting } from './dashboard-waiting.ts'
 
 export interface DashboardTaskFacts extends FlowFacts {
   id: string
@@ -321,6 +322,8 @@ export function dashboardReport(
         factoryIds,
       )
     : null
+  const waiting = dashboardWaiting(facts, current.taskIds, factoryIds, asOf)
+  const waitedBefore = previous ? dashboardWaiting(facts, previous.taskIds, factoryIds, asOf) : null
   const selected = new Set([
     ...current.taskIds,
     ...current.merged.taskIds,
@@ -357,5 +360,10 @@ export function dashboardReport(
       current.taskIds,
       previous?.taskIds ?? [],
     ),
+    waiting: {
+      current: waiting,
+      previous: waitedBefore,
+      change: waitedBefore ? change(waiting.totalMs, waitedBefore.totalMs) : null,
+    },
   }
 }

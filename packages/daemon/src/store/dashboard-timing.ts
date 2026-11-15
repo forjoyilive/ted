@@ -35,6 +35,15 @@ const order = (id: string) => {
   const [global = 0, client = 0] = id.split('.').map(Number)
   return global * 1_000_000 + client
 }
+function purposeKind(purpose: string | null): string | null {
+  if (purpose === null) return null
+  try {
+    const kind = (JSON.parse(purpose) as { kind?: unknown }).kind
+    return typeof kind === 'string' ? kind : null
+  } catch {
+    return null
+  }
+}
 const logRow = (r: typeof taskLog.Type): LoggedEvent => ({
   id: r.id,
   name: r.name,
@@ -83,7 +92,7 @@ export function readDashboardTiming(
         .query(
           queryDb(
             comments
-              .select('id', 'taskId', 'kind', 'createdAt', 'answer')
+              .select('id', 'taskId', 'kind', 'createdAt', 'answer', 'stage', 'purpose')
               .where({ taskId: { op: 'IN', value: ids } }),
           ),
         )
@@ -185,7 +194,14 @@ export function readDashboardTiming(
       const own = boundaries.get(`task:${task.id}`) ?? []
       const taskRuns = runGroups.get(task.id) ?? []
       const log = (logs.get(task.id) ?? []).sort((a, b) => order(a.id) - order(b.id))
+      const requests = requestGroups.get(task.id) ?? []
       result.set(task.id, {
+        requests: requests.map((r) => ({
+          id: r.id,
+          kind: r.kind,
+          stage: r.stage,
+          purpose: purposeKind(r.purpose),
+        })),
         checks: checks.get(task.id) ?? [],
         invocations: invocations.get(task.id) ?? [],
         history: taskIntervalHistory({
@@ -215,7 +231,7 @@ export function readDashboardTiming(
               ),
             ),
           ].flatMap((id) => blockerChanges.get(id) ?? []),
-          comments: (requestGroups.get(task.id) ?? []).map((r) => ({
+          comments: requests.map((r) => ({
             id: r.id,
             kind: r.kind as CommentKind,
             createdAt: r.createdAt,

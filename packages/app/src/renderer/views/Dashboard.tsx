@@ -43,7 +43,8 @@ const labels: Record<DashboardMetric, string> = {
   backlog: 'Waiting in Backlog',
   intake: 'First Intake → Done',
 }
-const counts = (metric: DashboardMetric) => metric === 'completed' || metric === 'merged'
+const counts = (metric: DashboardMetric | 'waiting') =>
+  metric === 'completed' || metric === 'merged'
 const openLabels: Record<DashboardOpenState, string> = {
   working: 'Working',
   'waiting-on-you': 'waiting on you',
@@ -71,6 +72,10 @@ function duration(value: number | null): string {
   return [days ? `${days}d` : '', hours ? `${hours}h` : '', rest ? `${rest}m` : '']
     .filter(Boolean)
     .join(' ')
+}
+
+function hours(value: number): string {
+  return value >= hourMs ? `${Math.round(value / hourMs)}h` : duration(value)
 }
 
 const timestamp = (at: string) =>
@@ -143,7 +148,7 @@ function Change({
   today,
 }: {
   change: DashboardChange | undefined
-  metric: DashboardMetric
+  metric: DashboardMetric | 'waiting'
   all: boolean
   today: boolean
 }) {
@@ -167,7 +172,7 @@ function Change({
             {Number(percent.toFixed(1))}%
           </strong>
           <span>
-            {`${counts(metric) ? '' : 'elapsed time '}${today ? 'vs yesterday to this time' : 'vs previous period'}`}
+            {`${counts(metric) || metric === 'waiting' ? '' : 'elapsed time '}${today ? 'vs yesterday to this time' : 'vs previous period'}`}
           </span>
         </>
       )}
@@ -839,6 +844,130 @@ function TaskTime({
   )
 }
 
+function Waiting({
+  data,
+  select,
+}: {
+  data: DashboardReport
+  select: (sample: DashboardSelection) => void
+}) {
+  const heading = useId()
+  const longestHeading = useId()
+  const { current, previous, change } = data.waiting
+  const top = current.stages[0]?.totalMs ?? 0
+  const records = new Map(data.tasks.map((task) => [task.id, task]))
+  const whole = () => select({ metric: 'waiting', period: 'current' })
+  return (
+    <div className={styles.grid}>
+      <section className={styles.panel} aria-labelledby={heading}>
+        <header className={styles.panelHead}>
+          <h2 id={heading}>Waiting on you</h2>
+          <span>Completed Tasks</span>
+        </header>
+        <div className={styles.headline}>
+          <div className={styles.waitFigures}>
+            <div>
+              <button
+                type="button"
+                data-nav-item
+                className={styles.value}
+                aria-label={`Waiting on you ${hours(current.totalMs)}`}
+                onClick={whole}
+              >
+                {hours(current.totalMs)}
+              </button>
+              <Change
+                change={change ?? undefined}
+                metric="waiting"
+                all={previous === null}
+                today={data.range === 'today'}
+              />
+              <p className={styles.caption}>
+                Tasks waited on your answers
+                {previous && ` · Previous: ${hours(previous.totalMs)}`}
+              </p>
+            </div>
+            <div>
+              <button
+                type="button"
+                data-nav-item
+                className={`${styles.value} ${styles.smallValue}`}
+                aria-label={`Median answer time ${duration(current.medianMs)}`}
+                onClick={whole}
+              >
+                {duration(current.medianMs)}
+              </button>
+              <p className={styles.caption}>
+                median answer time · {current.waits.length}{' '}
+                {current.waits.length === 1 ? 'request' : 'requests'}
+              </p>
+            </div>
+          </div>
+          {current.stages.length === 0 ? (
+            <p className={styles.empty}>No completed Task waited on you in this period.</p>
+          ) : (
+            <ul className={styles.waitStages}>
+              {current.stages.map((stage) => (
+                <li key={stage.stage}>
+                  <button
+                    type="button"
+                    data-nav-item
+                    className={styles.waitRow}
+                    aria-label={`Waiting on you in ${stageName(stage.stage)} ${hours(stage.totalMs)}`}
+                    onClick={() =>
+                      select({ metric: 'waiting', period: 'current', stage: stage.stage })
+                    }
+                  >
+                    <span>
+                      {stageName(stage.stage)}
+                      <small>{stage.kinds.join(', ')}</small>
+                    </span>
+                    <span className={styles.waitTrack}>
+                      <i style={{ width: `${top ? (stage.totalMs / top) * 100 : 0}%` }} />
+                    </span>
+                    <strong>{hours(stage.totalMs)}</strong>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+      <section className={styles.panel} aria-labelledby={longestHeading}>
+        <header className={styles.panelHead}>
+          <h2 id={longestHeading}>Longest waits on you</h2>
+        </header>
+        <div className={styles.headline}>
+          {current.waits.length === 0 ? (
+            <p className={styles.empty}>No requests waited in this period.</p>
+          ) : (
+            <ul className={styles.waitList}>
+              {current.waits.slice(0, 5).map((wait) => (
+                <li key={wait.requestId}>
+                  <button
+                    type="button"
+                    data-nav-item
+                    className={styles.waitRow}
+                    onClick={() =>
+                      select({ metric: 'waiting', period: 'current', requestId: wait.requestId })
+                    }
+                  >
+                    <span>
+                      <b>{records.get(wait.taskId)?.displayId ?? 'Task'}</b> {wait.kind}
+                    </span>
+                    <strong>{duration(wait.waitedMs)}</strong>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p className={styles.caption}>Snoozed time counts as waiting.</p>
+        </div>
+      </section>
+    </div>
+  )
+}
+
 function Sample({
   data,
   selection,
@@ -864,7 +993,44 @@ function Sample({
   const period = selection.period === 'previous' ? data.previous : data.current
   const bucket = selection.bucket === undefined ? undefined : period?.buckets[selection.bucket]
   const metric =
-    selection.metric === 'unavailable' || selection.metric === 'open' ? null : selection.metric
+    selection.metric === 'unavailable' ||
+    selection.metric === 'open' ||
+    selection.metric === 'waiting'
+      ? null
+      : selection.metric
+  const waited =
+    selection.metric !== 'waiting'
+      ? null
+      : selection.period === 'previous'
+        ? data.waiting.previous
+        : data.waiting.current
+  const request =
+    selection.requestId === undefined
+      ? undefined
+      : waited?.waits.find((w) => w.requestId === selection.requestId)
+  const waitSamples = !waited
+    ? []
+    : request
+      ? [{ taskId: request.taskId, waitedMs: request.waitedMs }]
+      : selection.stage !== undefined
+        ? (waited.stages.find((s) => s.stage === selection.stage)?.samples ?? [])
+        : waited.samples
+  const waitNote = (id: string) => {
+    const ms = waitSamples.find((s) => s.taskId === id)?.waitedMs ?? 0
+    const kinds = request
+      ? [request.kind]
+      : [
+          ...new Set(
+            (waited?.waits ?? [])
+              .filter(
+                (w) =>
+                  w.taskId === id && (selection.stage === undefined || w.stage === selection.stage),
+              )
+              .map((w) => w.kind),
+          ),
+        ]
+    return [`Waited ${duration(ms)}`, kinds.join(', ')].filter(Boolean).join(' · ')
+  }
   const sample = metric === null ? null : selection.bucket === undefined ? period : bucket
   const records = new Map(data.tasks.map((task) => [task.id, task]))
   const opened = new Map(data.open.map((task) => [task.id, task]))
@@ -879,26 +1045,38 @@ function Sample({
       ? data.unavailableIds
       : selection.metric === 'open'
         ? data.open.map((task) => task.id)
-        : sample && metric
-          ? idsOf(sample, metric, selection.missing).toSorted(
-              (x, y) => (durationOf(y) ?? -1) - (durationOf(x) ?? -1),
-            )
-          : []
+        : waited
+          ? waitSamples.map((s) => s.taskId)
+          : sample && metric
+            ? idsOf(sample, metric, selection.missing).toSorted(
+                (x, y) => (durationOf(y) ?? -1) - (durationOf(x) ?? -1),
+              )
+            : []
   const days = data.range !== 'today' && bucket !== undefined
   const title =
     selection.metric === 'unavailable'
       ? 'Unavailable completion history'
       : selection.metric === 'open'
         ? 'Open Tasks right now'
-        : `${labels[selection.metric]} · ${
-            selection.missing
-              ? 'Missing starts'
-              : days
-                ? `${selection.period === 'previous' ? 'Previous · ' : ''}${dayLabel(bucket, data.asOf)}`
-                : selection.period === 'current'
-                  ? 'Selected period'
-                  : 'Previous period'
-          }`
+        : selection.metric === 'waiting'
+          ? `Waiting on you · ${
+              request
+                ? `${request.kind}${request.stage ? ` in ${stageName(request.stage)}` : ''}`
+                : selection.stage !== undefined
+                  ? `In ${stageName(selection.stage)}`
+                  : selection.period === 'current'
+                    ? 'Selected period'
+                    : 'Previous period'
+            }`
+          : `${labels[selection.metric]} · ${
+              selection.missing
+                ? 'Missing starts'
+                : days
+                  ? `${selection.period === 'previous' ? 'Previous · ' : ''}${dayLabel(bucket, data.asOf)}`
+                  : selection.period === 'current'
+                    ? 'Selected period'
+                    : 'Previous period'
+            }`
   const describe = (task: DashboardTask) =>
     selection.metric === 'unavailable'
       ? 'Done timestamp unavailable'
@@ -918,7 +1096,11 @@ function Sample({
   const rowOf = (id: string) => {
     const task = records.get(id)
     if (selection.metric !== 'open' && task)
-      return { displayId: task.displayId, title: task.title, note: describe(task) }
+      return {
+        displayId: task.displayId,
+        title: task.title,
+        note: waited ? waitNote(id) : describe(task),
+      }
     const open = opened.get(id)
     return open
       ? {
@@ -960,9 +1142,11 @@ function Sample({
           ? 'Completion period unknown. Excluded from period metrics because no Done timestamp was recorded.'
           : selection.metric === 'open'
             ? 'Tasks that are not Done and not archived, by what each is doing now.'
-            : selection.missing
-              ? 'Included in the completed count; excluded from this duration’s median.'
-              : `Exact Tasks behind this sample. Archived Done Tasks are included.${metric === 'created' || metric === 'backlog' || metric === 'intake' ? ' Slowest first.' : ''}`}
+            : waited
+              ? 'Completed Tasks of this period and how long each waited on your answers, longest first. Snoozed time counts as waiting.'
+              : selection.missing
+                ? 'Included in the completed count; excluded from this duration’s median.'
+                : `Exact Tasks behind this sample. Archived Done Tasks are included.${metric === 'created' || metric === 'backlog' || metric === 'intake' ? ' Slowest first.' : ''}`}
       </p>
       <ul className={styles.taskList}>
         {ids.map((id) => {
@@ -1093,6 +1277,7 @@ function ByFactory({
     (data.previous?.byFactory ?? []).map((row) => [row.factoryId, row]),
   )
   const rows = data.current.byFactory.toSorted((a, b) => b.taskIds.length - a.taskIds.length)
+  const waits = new Map(data.waiting.current.byFactory.map((row) => [row.factoryId, row.totalMs]))
   return (
     <section className={`${styles.panel} ${styles.byFactory}`} aria-labelledby={heading}>
       <header className={styles.panelHead}>
@@ -1122,6 +1307,9 @@ function ByFactory({
             </th>
             <th scope="col" className={styles.number}>
               {labels.intake}
+            </th>
+            <th scope="col" className={styles.number}>
+              Waiting on you
             </th>
           </tr>
         </thead>
@@ -1160,6 +1348,7 @@ function ByFactory({
                 <td className={styles.number}>{duration(row.created.value)}</td>
                 <td className={styles.number}>{duration(row.backlog.value)}</td>
                 <td className={styles.number}>{duration(row.intake.value)}</td>
+                <td className={styles.number}>{hours(waits.get(row.factoryId) ?? 0)}</td>
               </tr>
             )
           })}
@@ -1328,6 +1517,7 @@ export function Dashboard({
                   <Throughput data={data} select={select} />
                   <TaskTime data={data} select={select} />
                 </div>
+                <Waiting data={data} select={select} />
                 {shown.length > 1 && (
                   <ByFactory data={data} factories={factories} onOnly={(id) => choose([id])} />
                 )}
