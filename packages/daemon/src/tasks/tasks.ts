@@ -178,10 +178,18 @@ import { fetchGitHubFiles, type GitHubUploads, uploadRefs } from '../github/file
 import { type Gh, GhError } from '../github/gh.ts'
 import {
   choosePosts,
+  type GitHubIssue,
   type GitHubUnreadable,
   githubIssueContext,
   readGitHubIssue,
 } from '../github/issues.ts'
+import {
+  issueKey,
+  readSubIssueTree,
+  type SubIssueTree,
+  subIssueNote,
+  withoutTracked,
+} from '../github/sub-issues.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import { linkedFilesRewritten } from '../linear/files.ts'
@@ -4281,11 +4289,24 @@ export function createTasks(options: {
     source?: TaskGitHubSource
     files: LinearFile[]
     notes: string[]
+    children: GitHubChildImport[]
+    tree?: { label: string; url: string; read: SubIssueTree }
+  }
+
+  interface GitHubChildImport {
+    key: string
+    parent: string
+    url: string
+    title: string
+    source: TaskGitHubSource
+    files: LinearFile[]
+    notes: string[]
   }
 
   async function githubIssue(
     url: string,
     factory: StoredFactory,
+    withSubIssues: boolean,
   ): Promise<GitHubImport | undefined> {
     const link = parseGitHubIssueUrl(url)
     if (!link || !options.gh) return undefined
@@ -4297,9 +4318,43 @@ export function createTasks(options: {
     const read = await readGitHubIssue(options.gh, link, repos)
     if (read.state === 'outside-factory') return undefined
     if (read.state === 'unreadable') {
-      return { files: [], notes: [githubUnreadableNote(label, read.reason, link.url)] }
+      return {
+        files: [],
+        notes: [githubUnreadableNote(label, read.reason, link.url)],
+        children: [],
+      }
     }
-    const { issue } = read
+    const tree = withSubIssues
+      ? await readSubIssueTree({
+          gh: options.gh,
+          root: read.issue,
+          factoryRepos: repos,
+          tracked: (child) => sourceClash(sameSource(child), factory.id, child)?.task.displayId,
+        })
+      : undefined
+    const root = await githubImportOf(read.issue, label, link.url)
+    const children: GitHubChildImport[] = []
+    for (const child of tree?.state === 'read' ? tree.children : []) {
+      const { issue } = child
+      const imported = await githubImportOf(issue, `${issue.repo}#${issue.number}`, child.url)
+      children.push({
+        key: issueKey(issue.repo, issue.number),
+        parent: child.parent,
+        url: child.url,
+        title: imported.title,
+        source: imported.source,
+        files: imported.files,
+        notes: imported.notes,
+      })
+    }
+    return {
+      ...root,
+      children,
+      ...(tree && { tree: { label, url: link.url, read: tree } }),
+    }
+  }
+
+  async function githubImportOf(issue: GitHubIssue, label: string, url: string) {
     const chosen = choosePosts(issue)
     const uploads = options.github?.uploads ?? {}
     const refs = uploadRefs([chosen.body, ...chosen.comments], uploads)
@@ -4333,7 +4388,7 @@ export function createTasks(options: {
               `TED didn’t copy all of GitHub issue ${label}:`,
               ...chosen.warnings.map((warning) => `- ${warning}`),
               '',
-              `Read the full issue on GitHub: ${link.url}`,
+              `Read the full issue on GitHub: ${url}`,
             ].join('\n'),
           ]
         : []),
@@ -4346,23 +4401,19 @@ export function createTasks(options: {
           ]
         : []),
     ]
-    return {
+    const source: TaskGitHubSource = {
+      repo: issue.repo,
+      number: issue.number,
       title: issue.title,
-      files,
-      notes,
-      source: {
-        repo: issue.repo,
-        number: issue.number,
-        title: issue.title,
-        state: issue.state,
-        locked: issue.locked,
-        comments: issue.totalComments,
-        hiddenComments: issue.hiddenComments,
-        importedAt,
-        context,
-        outsiderText,
-      },
+      state: issue.state,
+      locked: issue.locked,
+      comments: issue.totalComments,
+      hiddenComments: issue.hiddenComments,
+      importedAt,
+      context,
+      outsiderText,
     }
+    return { title: issue.title, files, notes, source }
   }
 
   const asanaImports = new Map<string, Promise<unknown>>()
@@ -10109,7 +10160,7 @@ export function createTasks(options: {
     const linearFiles = await storedFiles(issue?.files ?? [])
     const github =
       issue === undefined && sourceUrl !== undefined && factory
-        ? await githubIssue(sourceUrl, factory)
+        ? await githubIssue(sourceUrl, factory, automation?.check === undefined)
         : undefined
     const importedFiles = [...linearFiles, ...(github?.files ?? [])]
     const given = title?.trim() || issue?.title || github?.title
@@ -10151,6 +10202,37 @@ export function createTasks(options: {
     }
     intakeUnchanged()
     const parent = parentFor()
+    const leadNow = lead ?? {
+      ...leadFrom(resolution?.workflow.settings),
+      effortMode: 'stage' as const,
+    }
+    const rootKey = github?.source && issueKey(github.source.repo, github.source.number)
+    const tree =
+      github?.tree &&
+      withoutTracked(github.tree.read, (url) =>
+        factory ? sourceClash(sameSource(url), factory.id, url)?.task.displayId : undefined,
+      )
+    const kept = new Set(
+      tree?.state === 'read'
+        ? tree.children.map((child) => issueKey(child.issue.repo, child.issue.number))
+        : [],
+    )
+    const fresh = (github?.children ?? []).filter((child) => kept.has(child.key))
+    const children = fresh.map((child) => ({
+      key: child.key,
+      ...(child.parent !== rootKey && { parent: { key: child.parent } }),
+      title: child.title,
+      description: '',
+      priority: fields.priority ?? ('none' as const),
+      lead: leadNow,
+      startRequested: startNow === true && !held,
+      attachments: withoutRepeats(
+        child.files.map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType })),
+      ),
+      sourceUrl: child.url,
+      github: child.source,
+      ...(automation && { automation: automation.link }),
+    }))
     const task = await store.createTask({
       ...fields,
       ...(fields.description !== undefined && {
@@ -10168,22 +10250,31 @@ export function createTasks(options: {
           ...(github?.source && { github: github.source }),
         },
       }),
-      lead: lead ?? { ...leadFrom(resolution?.workflow.settings), effortMode: 'stage' },
+      lead: leadNow,
       blockedBy: blockers,
       ...(parent && { parentId: parent.id }),
       startRequested: startNow === true && !held,
       ...(factory && { factoryId: factory.id }),
       ...(automation && { automation: automation.link }),
       linearConsent: caller.kind === 'app',
+      ...(children.length > 0 && { children }),
+      ...(github && {
+        notes: [
+          ...github.notes.map((body) => ({ body })),
+          ...(github.tree && tree
+            ? subIssueNote(github.tree.label, github.tree.url, tree).map((body) => ({ body }))
+            : []),
+          ...fresh.flatMap((child) =>
+            child.notes.map((body) => ({ task: { key: child.key }, body })),
+          ),
+        ],
+      }),
     })
     if (parent) {
       holdParent(parent.id)
       tellHierarchyChanged([parent.id])
     }
     if (issue) noteUnfetched(task.id, issue, linearFiles)
-    for (const body of github?.notes ?? []) {
-      store.postComment({ taskId: task.id, kind: 'note', author: { kind: 'ted' }, body })
-    }
     if (automation && issue) linearConsent.askGroup(task.id, automation.name, issue.team)
     if (!factory) return task
     if (automation && runsInBypass(resolution)) return holdInBacklog(task.id, automation.name)
@@ -10192,6 +10283,18 @@ export function createTasks(options: {
         `couldn’t read ${factory.repo}’s Workflow; ${task.displayId} waits in Backlog:`,
         failure,
       )
+    }
+    if (
+      children.length > 0 &&
+      resolution &&
+      !automation?.check &&
+      (startNow === true || !resolution.workflow.stages.includes('backlog'))
+    ) {
+      for (const id of descendants(task.id)) {
+        await queueAndAnswer(id).catch((error: unknown) => {
+          console.error(redactSecrets(`couldn’t start ${find(id).displayId}: ${String(error)}`))
+        })
+      }
     }
     if (!resolution || unmergedBlockers(task.id).length > 0 || automation?.check) return task
     const hasBacklog = resolution.workflow.stages.includes('backlog')
