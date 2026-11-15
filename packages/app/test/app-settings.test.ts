@@ -74,7 +74,8 @@ describe('Add Factory', () => {
   const dialog = (window: Page) => window.getByRole('dialog')
 
   async function openForm(window: Page) {
-    await sidebar(window).getByRole('button', { name: 'Add Factory' }).click()
+    await sidebar(window).getByRole('button', { name: 'New Factory or group' }).click()
+    await window.getByRole('menuitem', { name: 'New Factory…' }).click()
     await dialog(window).waitFor()
   }
 
