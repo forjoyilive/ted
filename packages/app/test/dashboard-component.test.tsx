@@ -447,9 +447,11 @@ test('Flow distinguishes counted transitions and unknown verification from compl
 
   const causes = screen.getByRole('region', { name: 'Why Tasks were sent back' })
   expect(causes.textContent).toContain(
-    '1 send-back across 1 Task · Validate → Work is the most common',
+    '2 send-backs across 1 Task · Validate → Work is the most common',
   )
-  expect(within(causes).queryByRole('button', { name: /Base conflict/ })).toBeNull()
+  expect(within(causes).getAllByRole('button', { name: 'Base conflict 1' }).length).toBeGreaterThan(
+    0,
+  )
   const [reviewSegment] = within(causes).getAllByRole('button', { name: 'Review Findings 1' })
   if (!reviewSegment) throw new Error('Missing review segment')
   await user().click(reviewSegment)

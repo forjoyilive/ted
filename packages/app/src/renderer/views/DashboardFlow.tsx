@@ -275,8 +275,7 @@ function failureTitle(s: { failure?: FlowFailureKind; outcome?: FlowFailureOutco
   ].join(' · ')
 }
 
-const countedBacks = (period: FlowPeriod) =>
-  period.sendBacks.flatMap((g) => g.transitions).filter((t) => t.counted)
+const allBacks = (period: FlowPeriod) => period.sendBacks.flatMap((g) => g.transitions)
 const causeOf = (s: FlowSendBack) => s.cause ?? notRecorded
 
 function sentBackMatches(
@@ -284,7 +283,6 @@ function sentBackMatches(
   selection: { cause?: string; severity?: string; from?: string; to?: string },
 ) {
   return (
-    s.counted &&
     (selection.cause === undefined || causeOf(s) === selection.cause) &&
     (selection.severity === undefined || s.severity === selection.severity) &&
     (selection.from === undefined || s.from === selection.from) &&
@@ -312,7 +310,7 @@ function SendBackCauses({
   factories: readonly { id: string; name: string }[]
   select: (s: FlowSelection) => void
 }) {
-  const backs = countedBacks(data.current)
+  const backs = allBacks(data.current)
   const tasks = new Set(backs.map((s) => s.taskId))
   const known = new Set(causes.map((c) => c.key))
   const shown = [
@@ -459,12 +457,7 @@ function SendBackCauses({
           </tbody>
         </table>
       </div>
-      {!backs.length && (
-        <p className={styles.empty}>No send-backs counted toward limits in this period.</p>
-      )}
-      <p className={styles.flowFoot}>
-        Only send-backs that count toward limits. Actual send-backs below include the rest.
-      </p>
+      {!backs.length && <p className={styles.empty}>No send-backs in this period.</p>}
     </section>
   )
 }
@@ -764,7 +757,7 @@ function FlowSample({
       }
     }
   } else if (selection.kind === 'sent-back') {
-    for (const s of countedBacks(period).filter((s) => sentBackMatches(s, selection)))
+    for (const s of allBacks(period).filter((s) => sentBackMatches(s, selection)))
       items.push({
         key: s.id,
         taskId: s.taskId,
