@@ -141,6 +141,7 @@ export const ted = {
   showTedFolder: () => request('showTedFolder'),
   showBackupInFolder: (name: string) => request('showBackupInFolder', name),
   loginItem: () => request('loginItem'),
+  onboardingAgain: () => request('onboardingAgain'),
   openLoginItemsSettings: () => request('openLoginItemsSettings'),
   notificationsOff: () => request('notificationsOff'),
   openNotificationSettings: () => request('openNotificationSettings'),

@@ -262,6 +262,7 @@ describe('settings and Factories over the daemon API', () => {
     ['Start at login that is not true or false', { startAtLogin: 'on' }],
     ['Stay Awake that is not true or false', { stayAwake: 1 }],
     ['first launch done that is not true or false', { firstLaunchDone: 'yes' }],
+    ['onboarding on next open that is not true or false', { onboardingOnNextOpen: 1 }],
     ['no simulator slots', { maxBootedSimulators: 0 }],
     ['no Checks at once', { maxChecksAtOnce: 0 }],
     ['more Checks at once than the limit', { maxChecksAtOnce: 17 }],
@@ -348,12 +349,15 @@ describe('settings and Factories over the daemon API', () => {
     expect((await ted.getSettings()).factoryNotifications).toEqual({})
   })
 
-  test('a client marks first launch done', async () => {
+  test('a client marks first launch done and asks for onboarding again', async () => {
     daemon = await startDaemon({ home, version: '9.9.9' })
     const ted = await client()
 
-    await ted.updateSettings({ firstLaunchDone: true })
-    expect(await ted.getSettings()).toMatchObject({ firstLaunchDone: true })
+    await ted.updateSettings({ firstLaunchDone: true, onboardingOnNextOpen: true })
+    expect(await ted.getSettings()).toMatchObject({
+      firstLaunchDone: true,
+      onboardingOnNextOpen: true,
+    })
   })
 
   test('the profile gives a name for the human’s initials', async () => {

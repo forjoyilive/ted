@@ -900,9 +900,23 @@ async function createWindow(): Promise<void> {
   traceStartup('renderer-load-finished')
 }
 
+let onboardingChecked = false
+let onboardingAgain = false
+
+async function showOnboardingAgain(
+  daemon: DaemonClient,
+  loaded: MachineSettings,
+): Promise<MachineSettings> {
+  if (onboardingChecked) return loaded
+  onboardingChecked = true
+  if (!loaded.onboardingOnNextOpen) return loaded
+  onboardingAgain = true
+  return daemon.updateSettings({ onboardingOnNextOpen: false, firstLaunchDone: false })
+}
+
 async function loadState(): Promise<void> {
   if (!client) return
-  const loaded = await client.getSettings()
+  const loaded = await showOnboardingAgain(client, await client.getSettings())
   applySettings(
     skipFirstLaunch && !loaded.firstLaunchDone
       ? await client.updateSettings({ firstLaunchDone: true })
@@ -1042,6 +1056,7 @@ async function start(): Promise<void> {
 
   const appRequests = {
     connection: async () => supervised.connection,
+    onboardingAgain: async () => onboardingAgain,
     loginItem: async () => {
       await loginItemWork
       return loginItem?.state() ?? 'unavailable'
@@ -1072,6 +1087,7 @@ async function start(): Promise<void> {
   } satisfies Pick<
     CustomRequests,
     | 'connection'
+    | 'onboardingAgain'
     | 'loginItem'
     | 'openLoginItemsSettings'
     | 'notificationsOff'

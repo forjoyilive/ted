@@ -1,7 +1,7 @@
 import type { Factory, InboxItem, MachineSettings, RunSlots, Task } from '@ted/protocol'
 import { defaultMachineSettings } from '@ted/protocol/settings'
 import { act, render, screen, within } from '@testing-library/react'
-import { App } from '../../src/renderer/App.tsx'
+import { App, type AppStart } from '../../src/renderer/App.tsx'
 import { bridge, user } from './component.ts'
 import { dashboardFixture } from './dashboard.ts'
 import { factory } from './fixtures.ts'
@@ -51,6 +51,7 @@ export function appState() {
     getProfile: () => ({ name: 'Nabha Cosley' }),
     getCommandLine: () => ({ state: 'unavailable' }),
     loginItem: () => 'unavailable',
+    onboardingAgain: () => false,
     foundEditors: () => [],
     listEditors: () => [],
     taskDefaults: () => ({ lead: { agent: 'claude' }, clarifyDepth: 'auto' }),
@@ -85,7 +86,7 @@ export function appState() {
   return {
     state,
     ...api,
-    mount: (props: { addFactoryFirst?: boolean } = {}) => render(<App {...props} />),
+    mount: (props: { start?: AppStart } = {}) => render(<App {...props} />),
     async settings() {
       const nav = await screen.findByRole('navigation', { name: 'Sidebar' })
       await user().click(within(nav).getByRole('button', { name: /^Settings/ }))

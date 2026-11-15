@@ -462,7 +462,14 @@ test('first-launch Git identity copy waits for the clipboard and exposes errors 
     }),
     copyText: copy,
   })
-  render(<FirstLaunch settings={defaultMachineSettings} onFinish={vi.fn()} />)
+  render(
+    <FirstLaunch
+      settings={defaultMachineSettings}
+      startAtLogin={false}
+      onStartAtLogin={vi.fn()}
+      footer={() => null}
+    />,
+  )
   const git = within(await screen.findByRole('group', { name: 'Git' }))
   const button = await git.findByRole('button', { name: 'Copy' })
   await user().click(button)

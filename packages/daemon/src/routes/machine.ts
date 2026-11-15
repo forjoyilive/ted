@@ -369,6 +369,7 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     throw new HttpError(400, 'Change a Factory’s notifications through its own route')
   },
   firstLaunchDone: onOff('firstLaunchDone'),
+  onboardingOnNextOpen: onOff('onboardingOnNextOpen'),
   linearIntakeScopes(value) {
     if (
       typeof value !== 'object' ||

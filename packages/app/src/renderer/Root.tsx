@@ -1,17 +1,17 @@
 import { useEffect, useState } from 'react'
-import { App } from './App.tsx'
+import { App, type AppStart } from './App.tsx'
 import { ConnectionNotice } from './ConnectionNotice.tsx'
 import { LoadingError, LoadingScreen } from './components/Loading.tsx'
 import { useDataStatusState, useSettingsState } from './data.ts'
 import { useTimeSettings } from './TimeSettings.ts'
 import { DataScreen } from './views/DataScreen.tsx'
-import { FirstLaunch } from './views/FirstLaunch.tsx'
+import { Onboarding } from './views/Onboarding.tsx'
 
 function Opened() {
   const resource = useSettingsState()
   const settings = resource.settings
   useTimeSettings(settings)
-  const [addFactoryFirst, setAddFactoryFirst] = useState(false)
+  const [start, setStart] = useState<AppStart>()
   if (!settings)
     return resource.error ? (
       <LoadingError error={resource.error} retry={resource.retry} />
@@ -19,9 +19,9 @@ function Opened() {
       <LoadingScreen />
     )
   if (!settings.firstLaunchDone) {
-    return <FirstLaunch settings={settings} onFinish={setAddFactoryFirst} />
+    return <Onboarding settings={settings} onFinish={setStart} />
   }
-  return <App addFactoryFirst={addFactoryFirst} />
+  return <App start={start} />
 }
 
 export function Root() {

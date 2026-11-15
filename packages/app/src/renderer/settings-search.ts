@@ -272,6 +272,12 @@ const entries = {
     keywords:
       'Records where TED’s background process spends its time and saves a .cpuprofile file in TED’s folder, under logs/profiles. Open it in Chrome DevTools or VS Code. The file lists TED’s own functions and file paths, with no Task content, prompts or tokens. TED keeps the newest five. Nothing is uploaded.',
   },
+  'app.developer.onboarding': {
+    name: 'Show onboarding again',
+    detail:
+      'Shows the first-launch steps from the start the next time TED opens. Factories, Tasks and settings stay as they are.',
+    keywords: 'first launch welcome set up TED reset',
+  },
   'app.developer.diagnostics': { name: 'Diagnostics', heading: true },
   'app.developer.diagnostics.memory': {
     name: 'System memory usage',

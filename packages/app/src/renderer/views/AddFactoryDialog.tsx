@@ -1,6 +1,6 @@
 import type { Factory, IntegrationsHealth, RepoCheck, RepoFix, RepoSource } from '@ted/protocol'
 import { keyProblem, suggestFactoryName, suggestKey } from '@ted/protocol/factory'
-import { type DragEvent, type Ref, useEffect, useId, useRef, useState } from 'react'
+import { type DragEvent, type ReactNode, type Ref, useEffect, useId, useRef, useState } from 'react'
 import {
   footer,
   githubProblem,
@@ -24,6 +24,7 @@ interface AddFactoryDialogProps {
   onAdded: (factory: Factory) => void
   onOpenFactory: (factoryId: string) => void
   onOpenGitHubSettings: () => void
+  steps?: { indicator: ReactNode; onBack: () => void } | undefined
 }
 
 let nextRow = 0
@@ -41,6 +42,7 @@ export function AddFactoryDialog({
   onAdded,
   onOpenFactory,
   onOpenGitHubSettings,
+  steps,
 }: AddFactoryDialogProps) {
   const dialog = useRef<HTMLDialogElement>(null)
   const firstInput = useRef<HTMLInputElement>(null)
@@ -333,13 +335,19 @@ export function AddFactoryDialog({
         </p>
       )}
       <footer className={styles.footer}>
+        {steps?.indicator}
         <span className={shown.problem ? styles.footerProblem : styles.footerNote}>
           {shown.text}
         </span>
         <span className={styles.spacer} />
-        <Button disabled={busy} onClick={onClose}>
-          Cancel
+        <Button variant={steps ? 'quiet' : 'secondary'} disabled={busy} onClick={onClose}>
+          {steps ? 'Skip' : 'Cancel'}
         </Button>
+        {steps && (
+          <Button disabled={busy} onClick={steps.onBack}>
+            Back
+          </Button>
+        )}
         <Button variant="primary" disabled={shown.blocked || busy} onClick={() => add()}>
           Add Factory
         </Button>
