@@ -10,6 +10,7 @@ export type InFlightKind =
   | 'hierarchy'
   | 'stoppingForBlockers'
   | 'merging'
+  | 'removingWorktrees'
 
 export type MarkKind = Exclude<InFlightKind, 'transition' | 'held'>
 
@@ -52,13 +53,14 @@ export function createInFlight(options: InFlightOptions): InFlight {
   const { clock } = options
   const transitions = new Map<string, Promise<void>>()
   const holds = new Map<string, number>()
-  const marks: Record<MarkKind, Set<string>> = {
-    starting: new Set(),
-    checking: new Set(),
-    deleting: new Set(),
-    hierarchy: new Set(),
-    stoppingForBlockers: new Set(),
-    merging: new Set(),
+  const marks: Record<MarkKind, Map<string, number>> = {
+    starting: new Map(),
+    checking: new Map(),
+    deleting: new Map(),
+    hierarchy: new Map(),
+    stoppingForBlockers: new Map(),
+    merging: new Map(),
+    removingWorktrees: new Map(),
   }
 
   function is(taskId: string, kind: InFlightKind): boolean {
@@ -150,12 +152,16 @@ export function createInFlight(options: InFlightOptions): InFlight {
     held: () => [...holds.keys()],
     mark(ids, kind) {
       const marked = typeof ids === 'string' ? [ids] : [...ids]
-      for (const id of marked) marks[kind].add(id)
+      for (const id of marked) marks[kind].set(id, (marks[kind].get(id) ?? 0) + 1)
       let released = false
       return () => {
         if (released) return
         released = true
-        for (const id of marked) marks[kind].delete(id)
+        for (const id of marked) {
+          const left = (marks[kind].get(id) ?? 1) - 1
+          if (left > 0) marks[kind].set(id, left)
+          else marks[kind].delete(id)
+        }
       }
     },
     unmark(taskId, kind) {

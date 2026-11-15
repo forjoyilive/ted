@@ -160,7 +160,7 @@ test('untilFree returns when the Task is free or at its limit', async () => {
   await first
 })
 
-test('a mark is released exactly once', () => {
+test('a mark is released exactly once, and overlapping marks of one kind are counted', () => {
   const { inFlight } = setup()
   const done = inFlight.mark(['task-1', 'task-2'], 'hierarchy')
   expect(inFlight.is('task-1', 'hierarchy') && inFlight.is('task-2', 'hierarchy')).toBe(true)
@@ -170,6 +170,12 @@ test('a mark is released exactly once', () => {
   done()
   expect(inFlight.is('task-1', 'hierarchy')).toBe(true)
   later()
+  const first = inFlight.mark(task.id, 'removingWorktrees')
+  const second = inFlight.mark(task.id, 'removingWorktrees')
+  first()
+  expect(inFlight.is(task.id, 'removingWorktrees')).toBe(true)
+  second()
+  expect(inFlight.is(task.id, 'removingWorktrees')).toBe(false)
   inFlight.mark(task.id, 'checking')
   inFlight.unmark(task.id, 'checking')
   expect(inFlight.is(task.id, 'checking')).toBe(false)
@@ -200,6 +206,7 @@ test('busy reflects each kind', async () => {
     'hierarchy',
     'stoppingForBlockers',
     'merging',
+    'removingWorktrees',
   ]
   const all: InFlightKind[] = ['transition', 'held', ...marks]
   for (const kind of marks) {

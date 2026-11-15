@@ -5154,6 +5154,15 @@ export function createTasks(options: {
   }
 
   async function finish(task: StoredTask, resolution: WorkflowResolution): Promise<void> {
+    const removingDone = inFlight.mark(task.id, 'removingWorktrees')
+    try {
+      await removeWorktrees(task, resolution)
+    } finally {
+      removingDone()
+    }
+  }
+
+  async function removeWorktrees(task: StoredTask, resolution: WorkflowResolution): Promise<void> {
     await pullRequestQueue.get(task.id)
     subAgents.dropFor(task.id)
     browser.cancel(task.id)
@@ -11634,6 +11643,8 @@ export function createTasks(options: {
       const task = find(ref)
       const repo = task.repos.find((r) => r.name === name && !r.removed)
       if (!repo) throw new RequestError(404, `${task.displayId} has no worktree for ${name}`)
+      if (clearingAway.has(task.id) || inFlight.is(task.id, 'removingWorktrees'))
+        throw new RequestError(404, `${task.displayId}’s worktree for ${name} is being removed`)
       let fileScope: WorktreeFileScope
       try {
         fileScope = await worktreeFileScope(worktreesDir, repo.worktree)
