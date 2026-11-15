@@ -57,27 +57,66 @@ test('a transition is refused while the Task has hierarchy work or is being dele
   }
 })
 
-test('transitionWhenFree waits for the current transition and then runs on the re-read Task', async () => {
+test('transitionWhenFree on a free Task takes the lock in the same step', async () => {
+  const { inFlight } = setup()
+  const gate = Promise.withResolvers<void>()
+  const signoff = inFlight.transitionWhenFree(task, () => gate.promise, 60_000)
+  expect(inFlight.is(task.id, 'transition')).toBe(true)
+  await expect(inFlight.transition(task, async () => 'other')).rejects.toMatchObject({
+    message: 'NB-1 is already moving; try again',
+  })
+  gate.resolve()
+  await signoff
+})
+
+test('waiting sign-offs each take the lock in turn when it is released', async () => {
   const { inFlight } = setup()
   const gate = Promise.withResolvers<void>()
   const first = inFlight.transition(task, () => gate.promise)
   const ran: string[] = []
-  const reread = { id: task.id, displayId: 'NB-1 renamed' }
+  const waiter = (name: string) =>
+    inFlight.transitionWhenFree(
+      task,
+      async () => {
+        ran.push(name)
+        await Promise.resolve()
+        return name
+      },
+      60_000,
+    )
+  const both = Promise.all([waiter('a'), waiter('b')])
+  gate.resolve()
+  await first
+  await expect(both).resolves.toEqual(['a', 'b'])
+  expect(ran).toEqual(['a', 'b'])
+})
+
+test('transitionWhenFree runs on the Task as re-read after the wait', async () => {
+  const { inFlight } = setup()
+  const gate = Promise.withResolvers<void>()
+  const first = inFlight.transition(task, () => gate.promise)
+  const calls: string[] = []
   const waiting = inFlight.transitionWhenFree(
     task,
     async () => {
-      ran.push('second')
-      return 'second'
+      calls.push('work')
     },
     60_000,
-    () => reread,
+    () => {
+      calls.push('current')
+      return { id: task.id, displayId: 'NB-1 renamed' }
+    },
   )
   await Promise.resolve()
-  expect(ran).toEqual([])
+  expect(calls).toEqual([])
+  const hierarchyDone = inFlight.mark(task.id, 'hierarchy')
   gate.resolve()
   await first
-  await expect(waiting).resolves.toBe('second')
-  expect(ran).toEqual(['second'])
+  await expect(waiting).rejects.toMatchObject({
+    message: 'NB-1 renamed has a hierarchy operation underway; try again',
+  })
+  expect(calls).toEqual(['current'])
+  hierarchyDone()
 })
 
 test('transitionWhenFree gives up after its limit without running', async () => {

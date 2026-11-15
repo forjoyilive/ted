@@ -103,17 +103,31 @@ export function createInFlight(options: InFlightOptions): InFlight {
     return true
   }
 
-  return {
-    transition,
-    async transitionWhenFree(task, work, waitMs, current = () => task) {
-      if (!(await waitFree(task.id, waitMs))) {
+  async function transitionWhenFree<T>(
+    task: TaskRef,
+    work: () => Promise<T>,
+    waitMs: number,
+    current: () => TaskRef = () => task,
+  ): Promise<T> {
+    const deadline = clock.now() + waitMs
+    for (let held = transitions.get(task.id); held; held = transitions.get(task.id)) {
+      const left = deadline - clock.now()
+      if (left <= 0) {
         throw new RequestError(
           409,
           `${task.displayId} is still busy after waiting a minute. No answer was applied; try again when its current operation finishes.`,
         )
       }
-      return transition(current(), work)
-    },
+      const timer = new AbortController()
+      await Promise.race([held, clockWait(clock, left, timer.signal)])
+      timer.abort()
+    }
+    return transition(current(), work)
+  }
+
+  return {
+    transition,
+    transitionWhenFree,
     async untilFree(taskId, waitMs) {
       await waitFree(taskId, waitMs)
     },
