@@ -3,9 +3,13 @@ import { describe, expect, test } from 'vitest'
 import { checkedCommits, failedTests, fileTimes, summary } from './check.ts'
 import {
   builderIdentity,
+  type Change,
   changedFiles,
+  changeKind,
   discardPlan,
+  draftNotes,
   isNewer,
+  majorWritten,
   notaryCredentials,
   type PublishFacts,
   parseVersion,
@@ -173,6 +177,7 @@ describe('publishing a release', () => {
   }
   const ready: PublishFacts = {
     record,
+    notes: 'ready',
     head: 'release',
     localTag: 'release',
     remoteTag: undefined,
@@ -194,6 +199,8 @@ describe('publishing a release', () => {
     expect(refused({ changed: ['latest-mac.yml'] })).toMatch(/latest-mac\.yml; build again/)
     expect(refused({ remoteTag: 'other' })).toMatch(/already on GitHub at another commit/)
     expect(refused({ visibility: 'PRIVATE' })).toMatch(/is private/)
+    expect(refused({ notes: 'missing' })).toMatch(/no release notes/)
+    expect(refused({ notes: 'no-major' })).toMatch(/Major section/)
   })
 })
 
@@ -238,5 +245,50 @@ describe('the website', () => {
       download: 'https://github.com/forjoyilive/ted/releases/download/v1.2.0/TED-1.2.0-arm64.dmg',
     })
     expect(() => websiteRelease({ ...record, files: {} }, new Date())).toThrow(/no \.dmg/)
+  })
+})
+
+describe('release notes', () => {
+  const change = (title: string, files: string[], extra: Partial<Change> = {}): Change => ({
+    title,
+    files,
+    ...extra,
+  })
+
+  test('sorts changes into features, fixes and other', () => {
+    const app = ['packages/app/src/renderer/Sidebar.tsx']
+    expect(changeKind(change('Show Factory groups in the sidebar', app))).toBe('feature')
+    expect(changeKind(change('Stop an answered Task spinning', app))).toBe('fix')
+    expect(changeKind(change('Don’t reopen a closed chat', app))).toBe('fix')
+    expect(changeKind(change('Tidy the sidebar', app, { branch: 'fix/sidebar' }))).toBe('fix')
+    expect(changeKind(change('Fix a flaky test', ['packages/app/test/a.test.ts']))).toBe('other')
+    expect(
+      changeKind(change('Build releases elsewhere', ['scripts/release.ts', 'docs/a.md'])),
+    ).toBe('other')
+  })
+
+  test('drafts an empty Major section, the groups and a changelog link', () => {
+    const notes = draftNotes(
+      [
+        change('Show Factory groups', ['packages/app/src/a.ts'], { pullRequest: 431 }),
+        change('Fix the Inbox count', ['packages/app/src/b.ts']),
+      ],
+      '1.2.0',
+      'v1.1.0',
+    )
+    expect(notes).toContain('## Major')
+    expect(notes).toContain('## Features\n\n- Show Factory groups (#431)\n')
+    expect(notes).toContain('## Fixes\n\n- Fix the Inbox count\n')
+    expect(notes).not.toContain('## Other')
+    expect(notes).toContain('compare/v1.1.0...v1.2.0')
+    expect(majorWritten(notes)).toBe(false)
+  })
+
+  test('the Major section counts as written once it has text outside comments', () => {
+    const draft = draftNotes([], '1.2.0', undefined)
+    expect(majorWritten(draft)).toBe(false)
+    expect(majorWritten(draft.replace('## Major\n', '## Major\n\nFactory groups.\n'))).toBe(true)
+    expect(majorWritten('## Features\n\n- a\n')).toBe(false)
+    expect(majorWritten('## Major\n\nOnly this.')).toBe(true)
   })
 })

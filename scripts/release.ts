@@ -19,6 +19,7 @@ const root = path.resolve(import.meta.dirname, '..')
 const manifests = ['package.json', 'packages/app/package.json']
 const releaseDir = path.join(root, 'packages/app/dist/release')
 const recordFile = path.join(releaseDir, 'ted-release.json')
+const notesFile = path.join(releaseDir, 'release-notes.md')
 const repo = `${releaseRepo.owner}/${releaseRepo.repo}`
 
 export function parseVersion(text: string): [number, number, number] | undefined {
@@ -212,6 +213,7 @@ function remoteTagCommit(tag: string): string | undefined {
 
 export interface PublishFacts {
   record: ReleaseRecord | undefined
+  notes: 'missing' | 'no-major' | 'ready'
   head: string
   localTag: string | undefined
   remoteTag: string | undefined
@@ -237,6 +239,12 @@ export function publishRefusal(facts: PublishFacts): string | undefined {
   }
   if (facts.remoteTag !== undefined && facts.remoteTag !== record.commit) {
     return `${tag} is already on GitHub at another commit; release a new version`
+  }
+  if (facts.notes === 'missing') {
+    return `there are no release notes at ${notesFile}; run pnpm release discard, then build again`
+  }
+  if (facts.notes === 'no-major') {
+    return `write the Major section of the release notes in ${notesFile} first`
   }
   if (facts.visibility !== 'PUBLIC') {
     return `${repo} is private, so the updater and other people can’t read its releases; make it public first`
@@ -277,6 +285,11 @@ function publish(): void {
   ).trim()
   const facts: PublishFacts = {
     record,
+    notes: !existsSync(notesFile)
+      ? 'missing'
+      : majorWritten(readFileSync(notesFile, 'utf8'))
+        ? 'ready'
+        : 'no-major',
     head: git('rev-parse', 'HEAD'),
     localTag: record === undefined ? undefined : gitMaybe('rev-parse', `${tag}^{commit}`),
     remoteTag: record === undefined ? undefined : remoteTagCommit(tag),
@@ -291,7 +304,17 @@ function publish(): void {
   const exists = spawnSync('gh', ['release', 'view', tag, '--repo', repo], { stdio: 'ignore' })
   if (exists.status === 0) {
     step('Upload', 'gh', ['release', 'upload', tag, ...files, '--repo', repo, '--clobber'])
-    step('Publish', 'gh', ['release', 'edit', tag, '--repo', repo, '--draft=false', '--latest'])
+    step('Publish', 'gh', [
+      'release',
+      'edit',
+      tag,
+      '--repo',
+      repo,
+      '--notes-file',
+      notesFile,
+      '--draft=false',
+      '--latest',
+    ])
   } else {
     step('Publish', 'gh', [
       'release',
@@ -302,7 +325,8 @@ function publish(): void {
       repo,
       '--title',
       `TED ${record.version}`,
-      '--generate-notes',
+      '--notes-file',
+      notesFile,
       '--verify-tag',
       '--latest',
     ])
@@ -312,6 +336,101 @@ function publish(): void {
   console.log(
     `\nTED ${record.version} is published. Installed copies pick it up at their next check.`,
   )
+}
+
+export interface Change {
+  title: string
+  branch?: string
+  pullRequest?: number
+  files: string[]
+}
+
+export type ChangeKind = 'feature' | 'fix' | 'other'
+
+const housekeeping =
+  /^(docs\/|scripts\/|\.ted\/|\.github\/|test\/|packages\/[^/]+\/test\/|[^/]+\.md$|vitest\.config\.ts$|biome\.json$)/
+const fixWords =
+  /^(fix|fixes|stop|stops|don[’']t|wait|refuse|restore|prevent|avoid|correct|repair)\b/i
+
+export function changeKind(change: Change): ChangeKind {
+  if (change.files.length > 0 && change.files.every((file) => housekeeping.test(file))) {
+    return 'other'
+  }
+  if (/^(fix|bugfix|hotfix)\//.test(change.branch ?? '') || fixWords.test(change.title)) {
+    return 'fix'
+  }
+  return 'feature'
+}
+
+const majorHint =
+  '<!-- The changes people will notice most, in a sentence or two each. pnpm release publish refuses while this section is empty. -->'
+
+export function draftNotes(
+  changes: Change[],
+  version: string,
+  previous: string | undefined,
+): string {
+  const line = (change: Change) =>
+    `- ${change.title}${change.pullRequest === undefined ? '' : ` (#${change.pullRequest})`}`
+  const section = (heading: string, kind: ChangeKind) => {
+    const lines = changes.filter((change) => changeKind(change) === kind).map(line)
+    return lines.length === 0 ? [] : [`## ${heading}`, '', ...lines, '']
+  }
+  return [
+    '## Major',
+    '',
+    majorHint,
+    '',
+    ...section('Features', 'feature'),
+    ...section('Fixes', 'fix'),
+    ...section('Other', 'other'),
+    ...(previous === undefined
+      ? []
+      : [`**Full changelog**: https://github.com/${repo}/compare/${previous}...v${version}`, '']),
+  ].join('\n')
+}
+
+export function majorWritten(notes: string): boolean {
+  const match = /^## Major[ \t]*\n([\s\S]*?)(?=^## |^\*\*Full changelog|(?![\s\S]))/m.exec(notes)
+  if (match === null) return false
+  return (match[1] ?? '').replace(/<!--[\s\S]*?-->/g, '').trim() !== ''
+}
+
+function changesSince(previous: string | undefined, head: string): Change[] {
+  const range = previous === undefined ? [head, '-n', '200'] : [`${previous}..${head}`]
+  const log = git('log', '--first-parent', '--format=%H%x1f%P%x1f%s%x1f%b%x1e', ...range)
+  const changes: Change[] = []
+  for (const record of log.split('\x1e')) {
+    const [hash = '', parentList = '', subject = '', body = ''] = record.trim().split('\x1f')
+    if (hash === '' || /^Release \d+\.\d+\.\d+$/.test(subject)) continue
+    const parents = parentList.split(' ').filter((parent) => parent !== '')
+    const files = git('diff', '--name-only', parents[0] ?? `${hash}^`, hash)
+      .split('\n')
+      .filter((file) => file !== '')
+    const pull = /^Merge pull request #(\d+) from [^/\s]+\/(\S+)/.exec(subject)
+    const branch = /^Merge branch '([^']+)'/.exec(subject)
+    const merged =
+      parents.length === 2
+        ? git('log', '--no-merges', '--reverse', '--format=%s', `${parents[0]}..${parents[1]}`)
+            .split('\n')
+            .find((text) => text !== '')
+        : undefined
+    if (pull !== null) {
+      const title =
+        merged ??
+        body
+          .split('\n')
+          .find((text) => text.trim() !== '')
+          ?.trim() ??
+        subject
+      changes.push({ title, branch: pull[2] ?? '', pullRequest: Number(pull[1]), files })
+    } else if (branch !== null) {
+      changes.push({ title: merged ?? subject, branch: branch[1] ?? '', files })
+    } else if (!subject.startsWith('Merge ')) {
+      changes.push({ title: subject, files })
+    }
+  }
+  return changes.reverse()
 }
 
 function isAncestor(older: string, newer: string): boolean {
@@ -417,6 +536,9 @@ async function build(version: string, skipChecks: boolean): Promise<void> {
     fail('checks failed')
   }
 
+  const previous = gitMaybe('describe', '--tags', '--abbrev=0', '--match', 'v*', base)
+  const changes = changesSince(previous, base)
+
   if (version !== current) {
     setVersion(version)
     step('Commit', 'git', ['commit', '-am', `Release ${version}`])
@@ -433,6 +555,9 @@ async function build(version: string, skipChecks: boolean): Promise<void> {
     fail(`the build made no latest-mac.yml or .zip in ${releaseDir}`)
   }
   writeRecord({ ...record, files: hashes(files) })
+  writeFileSync(notesFile, draftNotes(changes, version, previous))
+  console.log(`\n== Release notes drafted in ${notesFile}`)
+  console.log('Write the Major section and check the rest before you publish.')
   install()
   console.log(
     `\nTED ${version} is built from ${base.slice(0, 8)}, tagged on this Mac only and installed in ${installed}.`,
