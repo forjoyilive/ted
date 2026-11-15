@@ -6,6 +6,7 @@ import { promisify } from 'node:util'
 import type {
   Banner,
   Factory,
+  FactoryLayout,
   FactoryRemoval,
   FactorySettingsView,
   RepoRemoval,
@@ -170,25 +171,73 @@ describe('Factory order', () => {
       'AP',
     ])
 
-    const moved = await client.ok<Factory[]>('PUT', '/factories/order', {
-      factoryIds: [apiFactory.id, notebook.id],
+    expect(await client.ok<FactoryLayout>('GET', '/factories/layout')).toEqual({
+      items: [{ factoryId: notebook.id }, { factoryId: apiFactory.id }],
     })
-    expect(moved.map((f) => [f.key, f.position])).toEqual([
-      ['AP', 0],
-      ['NB', 1],
-    ])
+
+    const grouped: FactoryLayout = {
+      items: [
+        { group: { id: 'empty', name: 'Personal', factoryIds: [] } },
+        { group: { id: 'acme', name: 'Acme', factoryIds: [apiFactory.id] } },
+        { factoryId: notebook.id },
+      ],
+    }
+    expect(await client.ok<FactoryLayout>('PUT', '/factories/layout', grouped)).toEqual(grouped)
     const listed = await client.ok<Factory[]>('GET', '/factories')
     expect(listed.map((f) => [f.key, f.position])).toEqual([
       ['AP', 0],
       ['NB', 1],
     ])
 
-    const missing = await client.call('PUT', '/factories/order', { factoryIds: [notebook.id] })
+    const reordered = await client.ok<Factory[]>('PUT', '/factories/order', {
+      factoryIds: [notebook.id, apiFactory.id],
+    })
+    expect(reordered.map((f) => [f.key, f.position])).toEqual([
+      ['NB', 0],
+      ['AP', 1],
+    ])
+    expect(await client.ok<FactoryLayout>('GET', '/factories/layout')).toEqual({
+      items: [
+        { group: { id: 'empty', name: 'Personal', factoryIds: [] } },
+        { factoryId: notebook.id },
+        { group: { id: 'acme', name: 'Acme', factoryIds: [apiFactory.id] } },
+      ],
+    })
+    expect(await client.call('PUT', '/factories/order', { factoryIds: [notebook.id] })).toEqual({
+      status: 400,
+      body: { error: 'list every Factory once' },
+    })
+
+    const missing = await client.call('PUT', '/factories/layout', {
+      items: [{ factoryId: notebook.id }],
+    })
     expect(missing).toEqual({ status: 400, body: { error: 'list every Factory once' } })
-    const twice = await client.call('PUT', '/factories/order', {
-      factoryIds: [notebook.id, notebook.id],
+    const twice = await client.call('PUT', '/factories/layout', {
+      items: [
+        { factoryId: notebook.id },
+        { group: { id: 'acme', name: 'Acme', factoryIds: [notebook.id, apiFactory.id] } },
+      ],
     })
     expect(twice.status).toBe(400)
+    const sameGroup = await client.call('PUT', '/factories/layout', {
+      items: [
+        { group: { id: 'acme', name: 'Acme', factoryIds: [notebook.id] } },
+        { group: { id: 'acme', name: 'Other', factoryIds: [apiFactory.id] } },
+      ],
+    })
+    expect(sameGroup).toEqual({ status: 400, body: { error: 'each group needs its own id' } })
+
+    await client.ok('POST', `/factories/${apiFactory.id}/remove`, {
+      key: 'AP',
+      closePullRequests: true,
+    })
+    expect(await client.ok<FactoryLayout>('GET', '/factories/layout')).toEqual({
+      items: [
+        { group: { id: 'empty', name: 'Personal', factoryIds: [] } },
+        { factoryId: notebook.id },
+        { group: { id: 'acme', name: 'Acme', factoryIds: [] } },
+      ],
+    })
   })
 
   test('renaming keeps the key and every Task ID', async () => {
@@ -219,6 +268,9 @@ describe('Remove Factory', () => {
         key: 'NB',
         closePullRequests: true,
       }),
+    ).toEqual(refused)
+    expect(
+      await fileToken.call('PUT', '/factories/layout', { items: [{ factoryId: factory.id }] }),
     ).toEqual(refused)
     expect(await fileToken.call('PUT', '/factories/order', { factoryIds: [factory.id] })).toEqual(
       refused,

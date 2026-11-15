@@ -178,6 +178,11 @@ function listFilters(value: unknown): ListFilters {
         throw new HttpError(400, 'factories must list Factory IDs')
       }
       filters.factories = item as string[]
+    } else if (name === 'factoryGroups') {
+      if (!Array.isArray(item) || item.some((g) => typeof g !== 'string')) {
+        throw new HttpError(400, 'factoryGroups must list Factory group IDs')
+      }
+      filters.factoryGroups = item as string[]
     } else if (name === 'stages') filters.stages = oneOfList(name, item, stageIds)
     else if (name === 'statuses') filters.statuses = oneOfList(name, item, statusFilters)
     else if (name === 'priorities') filters.priorities = oneOfList(name, item, priorities)

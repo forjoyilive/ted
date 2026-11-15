@@ -1,6 +1,7 @@
-import type { Factory, ListGroup, RunSlots, Task } from '@ted/protocol'
+import type { Factory, FactoryLayout, ListGroup, RunSlots, Task } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import {
+  activeFilterCount,
   columnSelection,
   defaultView,
   doneView,
@@ -164,6 +165,30 @@ describe('filters', () => {
       archived: 'only',
     })
   })
+
+  test('a Factory group filter shows every Factory now in the group, and a gone group filters nothing', () => {
+    const grouped: FactoryLayout = {
+      items: [{ factoryId: 'nb' }, { group: { id: 'g1', name: 'Clients', factoryIds: ['ms'] } }],
+    }
+    const filters = { factoryGroups: ['g1'] }
+    expect(ids(filterTasks(all, filters, '', grouped))).toEqual(['MS-1'])
+    expect(ids(filterTasks(all, { ...filters, factories: ['nb'] }, '', grouped))).toContain('NB-1')
+    const later: FactoryLayout = {
+      items: [{ group: { id: 'g1', name: 'Clients', factoryIds: ['ms', 'nb'] } }],
+    }
+    expect(ids(filterTasks(all, filters, '', later))).toEqual(ids(filterTasks(all, {})))
+    const emptied: FactoryLayout = {
+      items: [{ group: { id: 'g1', name: 'Clients', factoryIds: [] } }],
+    }
+    expect(filterTasks(all, filters, '', emptied)).toEqual([])
+    expect(ids(filterTasks(all, filters, '', { items: [] }))).toEqual(ids(filterTasks(all, {})))
+    expect(activeFilterCount(filters, grouped)).toBe(1)
+    expect(activeFilterCount(filters, { items: [] })).toBe(0)
+    expect(filterChips(filters, factories, grouped).map((c) => c.label)).toEqual([
+      'Factory group is Clients',
+    ])
+    expect(filterChips(filters, factories, { items: [] })).toEqual([])
+  })
 })
 
 describe('sort and group', () => {
@@ -221,6 +246,19 @@ describe('sort and group', () => {
     expect(
       groupTasks(all, { ...view, group: 'none' }, factories).map((g) => g.tasks.length),
     ).toEqual([4])
+  })
+
+  test('grouping by Factory group follows the layout, then No group', () => {
+    const layout: FactoryLayout = {
+      items: [{ factoryId: 'nb' }, { group: { id: 'g1', name: 'Clients', factoryIds: ['ms'] } }],
+    }
+    const view = { ...defaultView('all'), group: 'factory-group' as const }
+    expect(
+      groupTasks(all, view, factories, [], layout).map((g) => [g.label, ids(g.tasks)]),
+    ).toEqual([
+      ['Clients', ['MS-10']],
+      ['No group', ['NB-11', 'NB-12', 'NB-10']],
+    ])
   })
 })
 
@@ -380,7 +418,7 @@ describe('Show all from the Board’s Done column', () => {
 })
 
 describe('empty groups', () => {
-  test.each(['stage', 'factory', 'status', 'priority'] as ListGroup[])(
+  test.each(['stage', 'factory', 'factory-group', 'status', 'priority'] as ListGroup[])(
     '%s groups stay visible after all Tasks are filtered out when enabled',
     (group) => {
       const view = { ...defaultView('all'), group, showEmptyGroups: true }

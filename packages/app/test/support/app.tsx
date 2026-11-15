@@ -1,4 +1,11 @@
-import type { Factory, InboxItem, MachineSettings, RunSlots, Task } from '@ted/protocol'
+import type {
+  Factory,
+  FactoryLayout,
+  InboxItem,
+  MachineSettings,
+  RunSlots,
+  Task,
+} from '@ted/protocol'
 import { defaultMachineSettings } from '@ted/protocol/settings'
 import { act, render, screen, within } from '@testing-library/react'
 import { App, type AppStart } from '../../src/renderer/App.tsx'
@@ -9,12 +16,14 @@ import { factory } from './fixtures.ts'
 export function appState() {
   const state: {
     factories: Factory[]
+    layout: FactoryLayout
     tasks: Task[]
     inbox: InboxItem[]
     settings: MachineSettings
     slots: RunSlots
   } = {
     factories: [factory()],
+    layout: { items: [] },
     tasks: [],
     inbox: [],
     settings: { ...defaultMachineSettings, firstLaunchDone: true },
@@ -23,6 +32,7 @@ export function appState() {
   const api = bridge({
     dashboard: () => dashboardFixture(true),
     listFactories: () => state.factories,
+    factoryLayout: () => state.layout,
     listTasks: () => state.tasks,
     listInbox: () => state.inbox,
     listAnswered: () => [],

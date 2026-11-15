@@ -44,6 +44,20 @@ export interface ReorderFactoriesRequest {
   factoryIds: string[]
 }
 
+export interface FactoryGroup {
+  id: string
+  name: string
+  factoryIds: string[]
+}
+
+export type FactoryLayoutItem = { factoryId: string } | { group: FactoryGroup }
+
+export interface FactoryLayout {
+  items: FactoryLayoutItem[]
+}
+
+export const factoryGroupNameMax = 40
+
 export interface TaskRef {
   id: string
   displayId: string

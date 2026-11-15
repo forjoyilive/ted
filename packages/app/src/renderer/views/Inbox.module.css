@@ -205,6 +205,10 @@
   color: var(--control-selected-fg);
 }
 
+.groupChip[aria-pressed='false'] {
+  border-style: dashed;
+}
+
 .chipCount {
   color: var(--text-muted);
   font-size: var(--text-12);

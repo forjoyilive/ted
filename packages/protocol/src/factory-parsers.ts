@@ -3,6 +3,8 @@ import type {
   AutoStartBacklogRequest,
   CheckRepoRequest,
   CreateFactoryRequest,
+  FactoryLayout,
+  FactoryLayoutItem,
   NewFactoryRepo,
   RemoveFactoryRequest,
   ReorderFactoriesRequest,
@@ -13,6 +15,7 @@ import type {
   SetRepoFolderRequest,
   StopCheckTryRequest,
 } from './factory.ts'
+import { factoryGroupNameMax } from './factory.ts'
 import {
   type FactoryIcon,
   type FactoryIconColor,
@@ -377,6 +380,30 @@ export function parseReorderFactoriesRequest(value: unknown): ReorderFactoriesRe
   const body = record(value)
   const ids = list(body.factoryIds, 'factoryIds').map((id) => text(id, 'a Factory id'))
   return { factoryIds: ids }
+}
+
+const groupIdPattern = /^[A-Za-z0-9-]{1,64}$/
+
+function layoutItem(given: unknown): FactoryLayoutItem {
+  const item = record(given)
+  if (item.group === undefined) return { factoryId: text(item.factoryId, 'a Factory id') }
+  const group = record(item.group)
+  const id = text(group.id, 'a group id')
+  if (!groupIdPattern.test(id)) throw new HttpError(400, 'a group id must be letters, digits or -')
+  const name = text(group.name, 'a group name').trim()
+  if (name.length === 0) throw new HttpError(400, 'name the group')
+  if ([...name].length > factoryGroupNameMax) {
+    throw new HttpError(400, `a group name is at most ${factoryGroupNameMax} characters`)
+  }
+  const factoryIds = list(group.factoryIds, 'factoryIds').map((f) => text(f, 'a Factory id'))
+  return { group: { id, name, factoryIds } }
+}
+
+export function parseFactoryLayout(value: unknown): FactoryLayout {
+  const body = record(value)
+  const items = list(body.items, 'items')
+  if (items.length > maxListItems) throw new HttpError(400, 'too many items')
+  return { items: items.map(layoutItem) }
 }
 
 export function parseRemoveFactoryRequest(value: unknown): RemoveFactoryRequest {

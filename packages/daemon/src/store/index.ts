@@ -9,8 +9,11 @@ import type {
   ApiCostReport,
   DashboardRange,
   DashboardReport,
+  FactoryGroup,
   FactoryGuide,
   FactoryIcon,
+  FactoryLayout,
+  FactoryLayoutItem,
   GuideEnding,
   MessageBox,
   MessageDraft,
@@ -177,6 +180,7 @@ import {
   deletedTasks,
   events,
   factories,
+  factoryLayout as factoryLayoutRows,
   factoryOrder,
   factoryRepos,
   heldRuns,
@@ -814,7 +818,8 @@ export interface TedStore extends TaskHistory {
   setFactoryAutoStartBacklog(factoryId: string, enabled: boolean): StoredFactory
   renameFactory(factoryId: string, name: string): StoredFactory
   setFactoryIcon(factoryId: string, icon: FactoryIcon | null): StoredFactory
-  reorderFactories(factoryIds: readonly string[]): StoredFactory[]
+  factoryLayout(): FactoryLayout
+  saveFactoryLayout(layout: FactoryLayout): StoredFactory[] | undefined
   removeFactory(factoryId: string): void
   changeFactoryRepos(factoryId: string, repos: StoredFactoryRepo[]): StoredFactory
   localFolder(repo: string): string | undefined
@@ -1443,6 +1448,32 @@ export async function openStore({
           ...(clonedAt !== null && { clonedAt }),
         }),
       )
+  }
+  const allFactoryLayout = queryDb(factoryLayoutRows.orderBy('position', 'asc'))
+  const readFactoryLayout = (): FactoryLayout => {
+    const existing = listFactories()
+    const known = new Set(existing.map((f) => f.id))
+    const placed = new Set<string>()
+    const groups = new Map<string, { group: FactoryGroup }>()
+    const items: FactoryLayoutItem[] = []
+    for (const row of store.query(allFactoryLayout)) {
+      if (row.factoryId === null) {
+        if (row.groupId === null || row.name === null) continue
+        const item = { group: { id: row.groupId, name: row.name, factoryIds: [] } }
+        groups.set(row.groupId, item)
+        items.push(item)
+        continue
+      }
+      if (!known.has(row.factoryId) || placed.has(row.factoryId)) continue
+      placed.add(row.factoryId)
+      const group = row.groupId === null ? undefined : groups.get(row.groupId)
+      if (group) group.group.factoryIds.push(row.factoryId)
+      else items.push({ factoryId: row.factoryId })
+    }
+    for (const factory of existing) {
+      if (!placed.has(factory.id)) items.push({ factoryId: factory.id })
+    }
+    return { items }
   }
   const sentSetUp = new Map<string, boolean>()
   const guides = (): FactoryGuide[] =>
@@ -5406,10 +5437,11 @@ export async function openStore({
       commit(events.factoryRenamed({ factoryId, name, at: new Date().toISOString() }))
       return requireFactory(factoryId)
     },
-    reorderFactories(factoryIds) {
-      commit(
-        events.factoriesReordered({ factoryIds: [...factoryIds], at: new Date().toISOString() }),
-      )
+    factoryLayout: readFactoryLayout,
+    saveFactoryLayout(layout) {
+      if (JSON.stringify(layout) === JSON.stringify(readFactoryLayout())) return undefined
+      commit(events.factoryLayoutSaved({ items: layout.items, at: new Date().toISOString() }))
+      emit({ type: 'factory-layout-changed', layout: readFactoryLayout() })
       return listFactories()
     },
     removeFactory(factoryId) {

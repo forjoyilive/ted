@@ -7,6 +7,7 @@ import {
   parseCheckRepoRequest,
   parseCheckTryRequest,
   parseCreateFactoryRequest,
+  parseFactoryLayout,
   parseFactorySettingsChanges,
   parseGitHubNameRequest,
   parseGitHubSetupPlanRequest,
@@ -193,6 +194,18 @@ export const factoryRoutes: Route[] = [
     path: /^\/factories\/order$/,
     async handle({ body }, { factories }) {
       return [200, await factories.reorder(body.factoryIds)]
+    },
+  }),
+  {
+    method: 'GET',
+    path: /^\/factories\/layout$/,
+    handle: async (_, { factories }) => [200, factories.layout()],
+  },
+  jsonRoute(parseFactoryLayout, {
+    method: 'PUT',
+    path: /^\/factories\/layout$/,
+    async handle({ body }, { factories }) {
+      return [200, await factories.saveLayout(body)]
     },
   }),
   {

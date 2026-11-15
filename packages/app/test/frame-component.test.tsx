@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
-import { act, fireEvent, screen, within } from '@testing-library/react'
+
+import type { FactoryLayout } from '@ted/protocol'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
+import { Sidebar } from '../src/renderer/components/Sidebar.tsx'
+import { initialNavigation } from '../src/renderer/navigation.ts'
 import { appState } from './support/app.tsx'
-import { deferred, required, user } from './support/component.ts'
+import { bridge, deferred, required, user } from './support/component.ts'
 import { factory } from './support/fixtures.ts'
 
 const nav = () => screen.getByRole('navigation', { name: 'Sidebar' })
@@ -393,22 +397,26 @@ test('Factory Rename saves on Enter and cancels on Escape', async () => {
   expect(a.request.mock.calls.filter(([name]) => name === 'renameFactory')).toHaveLength(1)
 })
 
-test('Move down sends Factory order and the numbered shortcut follows the new order', async () => {
+test('Move down saves the Factory layout and the numbered shortcut follows the new order', async () => {
   const a = appState()
   a.state.factories = [factory(), factory({ id: 'f2', name: 'site', key: 'MS', position: 1 })]
-  a.handle('reorderFactories', () => {
+  a.handle('saveFactoryLayout', (layout) => {
     const updated = [
       factory({ id: 'f2', name: 'site', key: 'MS', position: 0 }),
       factory({ position: 1 }),
     ]
     a.state.factories = updated
+    a.state.layout = layout as FactoryLayout
     for (const f of updated) a.emit({ type: 'factory-updated', factory: f })
-    return updated
+    a.emit({ type: 'factory-layout-changed', layout: a.state.layout })
+    return a.state.layout
   })
   a.mount()
   fireEvent.contextMenu(await screen.findByRole('article', { name: 'widgets' }))
   await user().click(screen.getByRole('menuitem', { name: 'Move down' }))
-  expect(a.request).toHaveBeenCalledWith('reorderFactories', ['f2', 'f1'])
+  expect(a.request).toHaveBeenCalledWith('saveFactoryLayout', {
+    items: [{ factoryId: 'f2' }, { factoryId: 'f1' }],
+  })
   expect(
     within(nav())
       .getAllByRole('article')
@@ -416,4 +424,131 @@ test('Move down sends Factory order and the numbered shortcut follows the new or
   ).toEqual(['site', 'widgets'])
   fireEvent.keyDown(window, { key: '1', metaKey: true })
   await screen.findByRole('heading', { name: /site.*Dashboard/ })
+})
+
+test('opening a Factory expands its collapsed group, even when it was already the current one', async () => {
+  const a = appState()
+  a.state.factories = [factory(), factory({ id: 'f2', name: 'site', key: 'MS', position: 1 })]
+  a.state.layout = {
+    items: [{ group: { id: 'acme', name: 'Acme', factoryIds: ['f1'] } }, { factoryId: 'f2' }],
+  }
+  a.mount()
+  const u = user()
+  const acme = await within(nav()).findByRole('region', { name: 'Acme' })
+  await within(acme).findByRole('article', { name: 'widgets' })
+  fireEvent.keyDown(window, { key: '1', metaKey: true })
+  await screen.findByRole('heading', { name: /widgets.*Dashboard/ })
+  await u.click(within(acme).getByRole('button', { name: 'Acme' }))
+  expect(within(acme).queryByRole('article', { name: 'widgets' })).toBeNull()
+  await u.click(within(nav()).getByRole('button', { name: /^Inbox/ }))
+  expect(within(acme).queryByRole('article', { name: 'widgets' })).toBeNull()
+  fireEvent.keyDown(window, { key: '1', metaKey: true })
+  await within(acme).findByRole('article', { name: 'widgets' })
+})
+
+test('a Dashboard filtered to one Factory expands that Factory’s group, not the current one’s', () => {
+  bridge({})
+  localStorage.setItem('ted.sidebar.groupsOpen', JSON.stringify({ acme: false, home: false }))
+  const props = {
+    factories: [factory(), factory({ id: 'f2', name: 'site', key: 'MS', position: 1 })],
+    factoryLayout: {
+      items: [
+        { group: { id: 'acme', name: 'Acme', factoryIds: ['f1'] } },
+        { group: { id: 'home', name: 'Home', factoryIds: ['f2'] } },
+      ],
+    },
+    currentFactoryId: 'f1',
+    inboxCount: 0,
+    dispatch: vi.fn(),
+    onNewTask: vi.fn(),
+    onSearch: vi.fn(),
+    onAddFactory: vi.fn(),
+  }
+  const view = render(
+    <Sidebar {...props} navigation={{ ...initialNavigation, screen: { kind: 'inbox' } }} />,
+  )
+  const group = (name: string) => screen.getByRole('region', { name })
+  expect(within(group('Home')).queryByRole('article', { name: 'site' })).toBeNull()
+  view.rerender(
+    <Sidebar
+      {...props}
+      navigation={{
+        ...initialNavigation,
+        screen: { kind: 'dashboard', dashboard: { factoryIds: ['f2'] } },
+      }}
+    />,
+  )
+  expect(within(group('Home')).getByRole('article', { name: 'site' })).toBeTruthy()
+  expect(within(group('Acme')).queryByRole('article', { name: 'widgets' })).toBeNull()
+})
+
+test('an open Task expands its own Factory’s group, not the group of the screen under it', () => {
+  bridge({})
+  localStorage.setItem('ted.sidebar.groupsOpen', JSON.stringify({ acme: false, home: false }))
+  const props = {
+    factories: [factory(), factory({ id: 'f2', name: 'site', key: 'MS', position: 1 })],
+    factoryLayout: {
+      items: [
+        { group: { id: 'acme', name: 'Acme', factoryIds: ['f1'] } },
+        { group: { id: 'home', name: 'Home', factoryIds: ['f2'] } },
+      ],
+    },
+    currentFactoryId: 'f2',
+    inboxCount: 0,
+    dispatch: vi.fn(),
+    onNewTask: vi.fn(),
+    onSearch: vi.fn(),
+    onAddFactory: vi.fn(),
+  }
+  const group = (name: string) => screen.getByRole('region', { name })
+  for (const under of [
+    { kind: 'dashboard', dashboard: { factoryIds: ['f1'] } },
+    { kind: 'factory', factoryId: 'f1', view: 'board' },
+  ] as const) {
+    localStorage.setItem('ted.sidebar.groupsOpen', JSON.stringify({ acme: false, home: false }))
+    const view = render(
+      <Sidebar {...props} navigation={{ ...initialNavigation, screen: under, taskId: 't1' }} />,
+    )
+    expect(within(group('Home')).getByRole('article', { name: 'site' })).toBeTruthy()
+    expect(within(group('Acme')).queryByRole('article', { name: 'widgets' })).toBeNull()
+    view.unmount()
+  }
+})
+
+test('Factory groups: New group from the + menu, Move to group, collapse and Ungroup', async () => {
+  const a = appState()
+  a.state.factories = [factory(), factory({ id: 'f2', name: 'site', key: 'MS', position: 1 })]
+  a.handle('saveFactoryLayout', (layout) => {
+    a.state.layout = layout as FactoryLayout
+    a.emit({ type: 'factory-layout-changed', layout: a.state.layout })
+    return a.state.layout
+  })
+  a.mount()
+  const u = user()
+  await screen.findByRole('article', { name: 'widgets' })
+  await u.click(within(nav()).getByRole('button', { name: 'New Factory or group' }))
+  await u.click(screen.getByRole('menuitem', { name: 'New group' }))
+  await u.type(screen.getByLabelText('Group name'), 'Acme{Enter}')
+  const saved = a.request.mock.calls.filter(([name]) => name === 'saveFactoryLayout')
+  const created = (required(saved.at(-1))[1] as FactoryLayout).items[0]
+  expect(created).toMatchObject({ group: { name: 'Acme', factoryIds: [] } })
+  const groupId = created && 'group' in created ? created.group.id : ''
+  const acme = await within(nav()).findByRole('region', { name: 'Acme' })
+  expect(within(acme).getByText('Drag a Factory here')).toBeTruthy()
+
+  fireEvent.contextMenu(screen.getByRole('article', { name: 'site' }))
+  await u.click(screen.getByRole('menuitem', { name: 'Move to group…' }))
+  await u.click(screen.getByRole('menuitemradio', { name: 'Acme' }))
+  expect(a.state.layout).toEqual({
+    items: [{ group: { id: groupId, name: 'Acme', factoryIds: ['f2'] } }, { factoryId: 'f1' }],
+  })
+  expect(within(acme).getByRole('article', { name: 'site' })).toBeTruthy()
+
+  await u.click(within(acme).getByRole('button', { name: 'Acme' }))
+  expect(within(acme).queryByRole('article', { name: 'site' })).toBeNull()
+
+  fireEvent.contextMenu(within(acme).getByRole('article', { name: 'Acme' }))
+  await u.click(screen.getByRole('menuitem', { name: 'Ungroup' }))
+  expect(a.state.layout).toEqual({ items: [{ factoryId: 'f2' }, { factoryId: 'f1' }] })
+  expect(within(nav()).queryByRole('region', { name: 'Acme' })).toBeNull()
 })

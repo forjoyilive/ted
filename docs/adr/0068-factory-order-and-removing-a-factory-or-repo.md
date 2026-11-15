@@ -1,5 +1,7 @@
 # Factory order lives in the store; removing a Factory or a repo deletes local data in the daemon
 
+The Order part is superseded by ADR 0166-factory-groups-are-one-layout-saved-on-this-mac: the order is now part of the Factory layout, saved through `PUT /factories/layout`. `PUT /factories/order` still works and saves a layout with the given order and the groups kept.
+
 Spec 5.6 lets the human rename, reorder and remove Factories from the sidebar row menu, and remove a secondary repo from Factory settings.
 
 **Order.** `v1.FactoriesReordered` stores the full list of Factory ids in the `factoryOrder` table; `listFactories` sorts by it, and a Factory missing from the list (one added since) follows in creation order. Each `Factory` carries its `position`, and the app sorts by it, so ⌘1 to ⌘9 open the Factory at that place. `PUT /factories/order` is app-only and refuses a list that doesn’t name every Factory exactly once. Rename keeps using `v1.FactoryRenamed`; the key and Task IDs never change.

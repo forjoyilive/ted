@@ -112,6 +112,7 @@ import type {
   CheckRepoRequest,
   CreateFactoryRequest,
   Factory,
+  FactoryLayout,
   FactoryRemoval,
   RemoveFactoryRequest,
   ReorderFactoriesRequest,
@@ -1746,6 +1747,14 @@ export class DaemonClient {
     return this.#request('PUT', '/factories/order', {
       factoryIds,
     } satisfies ReorderFactoriesRequest)
+  }
+
+  factoryLayout(): Promise<FactoryLayout> {
+    return this.#request('GET', '/factories/layout')
+  }
+
+  saveFactoryLayout(layout: FactoryLayout): Promise<FactoryLayout> {
+    return this.#request('PUT', '/factories/layout', layout satisfies FactoryLayout)
   }
 
   guides(): Promise<FactoryGuide[]> {

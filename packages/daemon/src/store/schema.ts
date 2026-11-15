@@ -70,6 +70,17 @@ export const factoryOrder = State.SQLite.table({
   },
 })
 
+export const factoryLayout = State.SQLite.table({
+  name: 'factoryLayout',
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    factoryId: State.SQLite.text({ nullable: true }),
+    groupId: State.SQLite.text({ nullable: true }),
+    name: State.SQLite.text({ nullable: true }),
+    position: State.SQLite.integer(),
+  },
+})
+
 export const tasks = State.SQLite.table({
   name: 'tasks',
   indexes: [
@@ -2699,6 +2710,24 @@ export const events = {
     name: 'v1.FactoriesReordered',
     schema: Schema.Struct({ factoryIds: Schema.Array(Schema.String), at: Schema.String }),
   }),
+  factoryLayoutSaved: Events.synced({
+    name: 'v1.FactoryLayoutSaved',
+    schema: Schema.Struct({
+      items: Schema.Array(
+        Schema.Union([
+          Schema.Struct({ factoryId: Schema.String }),
+          Schema.Struct({
+            group: Schema.Struct({
+              id: Schema.String,
+              name: Schema.String,
+              factoryIds: Schema.Array(Schema.String),
+            }),
+          }),
+        ]),
+      ),
+      at: Schema.String,
+    }),
+  }),
   taskDraftSaved: Events.synced({
     name: 'v1.TaskDraftSaved',
     schema: Schema.Struct({ factoryId: Schema.String, draft: Schema.String, at: Schema.String }),
@@ -5113,6 +5142,46 @@ const materializers = counted(
         factoryOrder.delete(),
         ...factoryIds.map((factoryId, position) => factoryOrder.insert({ factoryId, position })),
       ],
+      'v1.FactoryLayoutSaved': ({ items }) => {
+        type Row = {
+          id: string
+          factoryId: string | null
+          groupId: string | null
+          name: string | null
+        }
+        const rows = items.flatMap<Row>((item) =>
+          'group' in item
+            ? [
+                {
+                  id: `group:${item.group.id}`,
+                  factoryId: null,
+                  groupId: item.group.id,
+                  name: item.group.name,
+                },
+                ...item.group.factoryIds.map((factoryId) => ({
+                  id: `factory:${factoryId}`,
+                  factoryId,
+                  groupId: item.group.id,
+                  name: null,
+                })),
+              ]
+            : [
+                {
+                  id: `factory:${item.factoryId}`,
+                  factoryId: item.factoryId,
+                  groupId: null,
+                  name: null,
+                },
+              ],
+        )
+        const order = rows.flatMap((row) => (row.factoryId === null ? [] : [row.factoryId]))
+        return [
+          factoryLayout.delete(),
+          ...rows.map((row, position) => factoryLayout.insert({ ...row, position })),
+          factoryOrder.delete(),
+          ...order.map((factoryId, position) => factoryOrder.insert({ factoryId, position })),
+        ]
+      },
       'v1.TaskDraftSaved': ({ factoryId, draft }) =>
         taskDrafts.insert({ factoryId, draft }).onConflict('factoryId', 'replace'),
       'v1.TaskDraftCleared': ({ factoryId, revision }) => [
@@ -5145,6 +5214,7 @@ const materializers = counted(
         factories.delete().where({ id: factoryId }),
         factoryRepos.delete().where({ factoryId }),
         factoryOrder.delete().where({ factoryId }),
+        factoryLayout.delete().where({ id: `factory:${factoryId}` }),
         deletedTasks.delete().where({ factoryId }),
         banners.delete().where({ factoryId }),
         workflowLayers.delete().where({ layer: `factory:${factoryId}` }),
@@ -5436,6 +5506,7 @@ const state = State.SQLite.makeState({
     factories,
     factoryRepos,
     factoryOrder,
+    factoryLayout,
     tasks,
     taskQueue,
     executionPairing,
