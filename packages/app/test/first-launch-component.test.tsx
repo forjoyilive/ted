@@ -173,6 +173,7 @@ test('Next waits for Git and an agent, then Add Factory is step 4 with Back and 
     }),
   )
   await act(async () => a.emit({ type: 'agent-health-changed', health: health() }))
+  a.handle('agentHealth', () => [health(), health({ agent: 'codex', state: 'not-installed' })])
   expect(next.disabled).toBe(true)
   await act(async () => a.emit({ type: 'integrations-checked', health: integrations }))
   expect(next.disabled).toBe(false)
