@@ -14,7 +14,7 @@ import {
   parseMergeSettingsRequest,
   parseRemoveFactoryRequest,
   parseRenameFactoryRequest,
-  parseReorderFactoriesRequest,
+  parseFactoryLayout,
   parseSaveSettingsRequest,
   parseSetFactoryAsanaIntakeRequest,
   parseSetFactoryGitHubIntakeRequest,
@@ -188,11 +188,16 @@ export const factoryRoutes: Route[] = [
       return [201, await factories.create(body)]
     },
   }),
-  jsonRoute(parseReorderFactoriesRequest, {
+  {
+    method: 'GET',
+    path: /^\/factories\/layout$/,
+    handle: async (_, { factories }) => [200, factories.layout()],
+  },
+  jsonRoute(parseFactoryLayout, {
     method: 'PUT',
-    path: /^\/factories\/order$/,
+    path: /^\/factories\/layout$/,
     async handle({ body }, { factories }) {
-      return [200, await factories.reorder(body.factoryIds)]
+      return [200, await factories.saveLayout(body)]
     },
   }),
   {

@@ -6,6 +6,7 @@ import {
   type CreateFactoryRequest,
   type DaemonEvent,
   type Factory,
+  type FactoryLayout,
   type FactoryIcon,
   type GitHubNameCheck,
   type GitHubNameRequest,
@@ -56,7 +57,8 @@ export interface Factories {
   approveRepos(factoryId: string, repos: string[]): void
   checkLocalFolders(): Promise<void>
   isCloned(factoryId: string): boolean
-  reorder(factoryIds: readonly string[]): Promise<Factory[]>
+  layout(): FactoryLayout
+  saveLayout(layout: FactoryLayout): Promise<FactoryLayout>
   forget(factoryId: string): Promise<void>
   start(): void
   close(): Promise<void>
@@ -633,8 +635,12 @@ export function createFactories(options: FactoriesOptions): Factories {
     approveRepos,
     checkLocalFolders,
     isCloned: (id) => store.getFactory(id)?.clonedAt !== undefined,
-    async reorder(factoryIds) {
+    layout: () => store.factoryLayout(),
+    async saveLayout(layout) {
       const current = store.listFactories()
+      const factoryIds = layout.items.flatMap((item) =>
+        'group' in item ? item.group.factoryIds : [item.factoryId],
+      )
       const ids = new Set(factoryIds)
       if (
         ids.size !== factoryIds.length ||
@@ -643,7 +649,16 @@ export function createFactories(options: FactoriesOptions): Factories {
       ) {
         throw new RequestError(400, 'list every Factory once')
       }
-      return Promise.all(store.reorderFactories(factoryIds).map(publish))
+      const groupIds = layout.items.flatMap((item) => ('group' in item ? [item.group.id] : []))
+      if (new Set(groupIds).size !== groupIds.length) {
+        throw new RequestError(400, 'each group needs its own id')
+      }
+      const before = new Map(current.map((f) => [f.id, f.position]))
+      const saved = store.saveFactoryLayout(layout)
+      await Promise.all(
+        (saved ?? []).filter((f) => before.get(f.id) !== f.position).map(publish),
+      )
+      return store.factoryLayout()
     },
     async forget(factoryId) {
       await running.get(factoryId)

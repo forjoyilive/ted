@@ -63,7 +63,13 @@ roundTrip(P.parseCreateFactoryRequest, {
     { name: 'local', source: { folder: '/tmp/local' } },
   ],
 })
-roundTrip(P.parseReorderFactoriesRequest, { factoryIds: ['one', 'two'] })
+roundTrip(P.parseFactoryLayout, {
+  items: [
+    { factoryId: 'one' },
+    { group: { id: 'acme-1', name: 'Acme', factoryIds: ['two', 'three'] } },
+    { group: { id: 'empty', name: 'Personal', factoryIds: [] } },
+  ],
+})
 roundTrip(P.parseRemoveFactoryRequest, { key: 'TED', closePullRequests: true })
 roundTrip(P.parseCheckRepoRequest, {
   source: { remote: 'https://github.com/owner/ted' },
@@ -152,7 +158,28 @@ roundTrip(P.parseLibraryChanges, library)
 roundTrip(P.parseSaveLibraryRequest, { changes: library, version: 'rev' })
 
 rejects(P.parseAutoStartBacklogRequest, { enabled: 1 }, 'enabled must be')
-rejects(P.parseReorderFactoriesRequest, { factoryIds: 'one' }, 'factoryIds must be a list')
+rejects(P.parseFactoryLayout, { items: 'one' }, 'items must be a list')
+rejects(P.parseFactoryLayout, { items: [{ factoryId: 1 }] }, 'a Factory id must be text')
+rejects(
+  P.parseFactoryLayout,
+  { items: [{ group: { id: 'a/b', name: 'Acme', factoryIds: [] } }] },
+  'a group id must be',
+)
+rejects(
+  P.parseFactoryLayout,
+  { items: [{ group: { id: 'a', name: '  ', factoryIds: [] } }] },
+  'name the group',
+)
+rejects(
+  P.parseFactoryLayout,
+  { items: [{ group: { id: 'a', name: 'x'.repeat(41), factoryIds: [] } }] },
+  'at most 40 characters',
+)
+rejects(
+  P.parseFactoryLayout,
+  { items: [{ group: { id: 'a', name: 'Acme', factoryIds: 'one' } }] },
+  'factoryIds must be a list',
+)
 rejects(P.parseRemoveFactoryRequest, {}, 'key must be text')
 rejects(P.parseSetLocalFolderRequest, {}, 'path is required')
 rejects(P.parseSetRepoFolderRequest, { path: '' }, 'path is required')

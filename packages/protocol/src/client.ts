@@ -114,7 +114,7 @@ import type {
   Factory,
   FactoryRemoval,
   RemoveFactoryRequest,
-  ReorderFactoriesRequest,
+  FactoryLayout,
   RepoCheck,
   RepoRemoval,
   SetFactoryNotificationsRequest,
@@ -1742,10 +1742,12 @@ export class DaemonClient {
     )
   }
 
-  reorderFactories(factoryIds: string[]): Promise<Factory[]> {
-    return this.#request('PUT', '/factories/order', {
-      factoryIds,
-    } satisfies ReorderFactoriesRequest)
+  factoryLayout(): Promise<FactoryLayout> {
+    return this.#request('GET', '/factories/layout')
+  }
+
+  saveFactoryLayout(layout: FactoryLayout): Promise<FactoryLayout> {
+    return this.#request('PUT', '/factories/layout', layout satisfies FactoryLayout)
   }
 
   guides(): Promise<FactoryGuide[]> {

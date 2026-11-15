@@ -16,6 +16,7 @@ import type {
   DescriptionVersion,
   DriftCounts,
   Factory,
+  FactoryLayout,
   FactoryGuide,
   FailureCase,
   InboxItem,
@@ -53,6 +54,7 @@ import {
 import type { UpdateStatus } from '../updates.ts'
 import { nextReturn } from './banners.ts'
 import { type EventChange, eventValue, type ValueUpdate } from './event-value.ts'
+import { emptyLayout } from './factory-layout.ts'
 import { inboxChange } from './inbox-events.ts'
 import { useRefreshAction } from './refresh-action.ts'
 import { sharedValues } from './shared-value.ts'
@@ -368,6 +370,19 @@ const removedFactory = (event: TedEvent) =>
 
 export function useFactories(): Factory[] {
   return useLive(ted.listFactories, factoryFrom, byPosition, removedFactory)
+}
+
+export function useFactoryLayout(): FactoryLayout {
+  return useEventValue<FactoryLayout>({
+    initial: emptyLayout,
+    load: ted.factoryLayout,
+    event: (event) =>
+      event.type === 'factory-layout-changed'
+        ? () => event.layout
+        : event.type === 'factory-added' || event.type === 'factory-removed'
+          ? 'reload'
+          : undefined,
+  }).value
 }
 
 export function useFactoryList(): { factories: Factory[]; loaded: boolean } {
