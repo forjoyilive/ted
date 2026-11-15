@@ -384,7 +384,7 @@ function verifyBuild(): void {
   step('Check the notarization', 'xcrun', ['stapler', 'validate', built])
 }
 
-async function build(version: string): Promise<void> {
+async function build(version: string, skipChecks: boolean): Promise<void> {
   const current = currentVersion()
   if (parseVersion(version) === undefined) fail(`“${version}” isn’t a version like 1.2.3`)
   if (git('status', '--porcelain') !== '')
@@ -405,7 +405,12 @@ async function build(version: string): Promise<void> {
   useSigningIdentity()
   useNotaryCredentials()
 
-  if (hasPassed(base)) {
+  if (skipChecks) {
+    console.log(
+      `\n== Skipping the checks (--skip-checks): ${base.slice(0, 8)} hasn’t passed a full run`,
+    )
+    step('Install', 'pnpm', ['install', '--frozen-lockfile'])
+  } else if (hasPassed(base)) {
     console.log('\n== Checks already passed on this commit; skipping them')
     step('Install', 'pnpm', ['install', '--frozen-lockfile'])
   } else if (!(await checkAndRecord({ all: true }))) {
@@ -607,9 +612,11 @@ async function main(): Promise<void> {
   if (command === 'publish') return publish()
   if (command === 'discard') return discard()
   if (command === undefined) {
-    fail(`usage: pnpm release <version> | publish | discard | --install (now ${currentVersion()})`)
+    fail(
+      `usage: pnpm release <version> [--skip-checks] | publish | discard | --install (now ${currentVersion()})`,
+    )
   }
-  await build(command)
+  await build(command, args.includes('--skip-checks'))
 }
 
 if (import.meta.main) await main()
