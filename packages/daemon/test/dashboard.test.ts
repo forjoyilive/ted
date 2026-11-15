@@ -32,13 +32,20 @@ function completed(id: string, ago: number, created: number, intake: number | nu
 }
 
 test('compares completion cohorts using raw elapsed times and exposes the exact median samples', () => {
-  const a = completed('1', 10, 20, 6)
-  const b = { ...completed('2', 20, 40, 10), archived: true }
-  const c = completed('3', 30, 60, null)
-  const previous = completed('4', 180, 80, 16)
+  const a = { ...completed('1', 10, 20, 6), merges: [iso(now - 12 * hour), iso(now - 11 * hour)] }
+  const b = { ...completed('2', 20, 40, 10), archived: true, merges: [iso(now - 200 * hour)] }
+  const c = { ...completed('3', 30, 60, null), merges: [iso(now + hour)] }
+  const previous = { ...completed('4', 180, 80, 16), merges: [iso(now - 181 * hour)] }
   const setup = { ...completed('5', 40, 1, 1), setup: true }
-  const open = { ...completed('6', 20, 2, 1), stage: 'work', entries: [] }
-  const result = factoryDashboard([a, b, c, previous, setup, open], '7d', now)
+  const open = {
+    ...completed('6', 20, 2, 1),
+    stage: 'work',
+    entries: [],
+    status: 'working' as const,
+  }
+  const backlog = { ...completed('7', 20, 2, 1), stage: 'backlog', entries: [] }
+  const shelved = { ...completed('8', 20, 2, 1), stage: 'work', entries: [], archived: true }
+  const result = factoryDashboard([a, b, c, previous, setup, open, backlog, shelved], '7d', now)
   expect(result.current.taskIds).toEqual(['1', '2', '3'])
   expect(result.current.created).toMatchObject({
     value: 40 * hour,
@@ -60,6 +67,45 @@ test('compares completion cohorts using raw elapsed times and exposes the exact 
   expect(result.current.buckets).toHaveLength(7)
   expect(result.current.buckets.flatMap((b) => b.taskIds).sort()).toEqual(['1', '2', '3'])
   expect(result.current.buckets[0]?.intake.value).toBeNull()
+  expect(result.current.merged).toEqual({ count: 2, taskIds: ['1'] })
+  expect(result.previous?.merged).toEqual({ count: 2, taskIds: ['2', '4'] })
+  expect(result.current.buckets.reduce((sum, b) => sum + b.merged.count, 0)).toBe(2)
+  expect(result.current.backlog).toEqual({
+    value: 22 * hour,
+    taskIds: ['1', '2'],
+    missingIds: ['3'],
+  })
+  expect(result.current.byFactory[0]).toMatchObject({
+    merged: { count: 2 },
+    backlog: { value: 22 * hour },
+  })
+  expect(result.comparison).toMatchObject({
+    merged: { absolute: 0, percent: 0 },
+    backlog: { absolute: -42 * hour },
+  })
+  expect(result.tasks.find((t) => t.id === '1')).toMatchObject({
+    backlogMs: 14 * hour,
+    intakeMs: 6 * hour,
+    merges: 2,
+  })
+  expect(result.open).toEqual([
+    {
+      id: '6',
+      factoryId: 'nb',
+      displayId: 'NB-6',
+      title: 'Task 6',
+      stage: 'work',
+      state: 'working',
+    },
+    {
+      id: '7',
+      factoryId: 'nb',
+      displayId: 'NB-7',
+      title: 'Task 7',
+      stage: 'backlog',
+      state: 'backlog',
+    },
+  ])
 })
 
 test('uses latest Done and first Intake, keeps timestamp boundaries half-open and discloses unrecorded history', () => {

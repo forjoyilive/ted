@@ -3,6 +3,7 @@ import type {
   DashboardChange,
   DashboardFactoryPeriod,
   DashboardMetric,
+  DashboardOpenState,
   DashboardPeriod,
   DashboardReport,
   DashboardTask,
@@ -28,6 +29,7 @@ import {
   shownFactoryIds,
 } from '../dashboard.ts'
 import { useDashboard } from '../data.ts'
+import { stageName } from '../list-view.ts'
 import { formatDate } from '../time.ts'
 import styles from './Dashboard.module.css'
 import { Flow } from './DashboardFlow.tsx'
@@ -36,10 +38,27 @@ import views from './views.module.css'
 
 const labels: Record<DashboardMetric, string> = {
   completed: 'Tasks completed',
+  merged: 'Pull requests merged',
   created: 'Created → Done',
+  backlog: 'Waiting in Backlog',
   intake: 'First Intake → Done',
 }
-const metrics: DashboardMetric[] = ['completed', 'created', 'intake']
+const counts = (metric: DashboardMetric) => metric === 'completed' || metric === 'merged'
+const openLabels: Record<DashboardOpenState, string> = {
+  working: 'Working',
+  'waiting-on-you': 'waiting on you',
+  blocked: 'Blocked',
+  backlog: 'in Backlog',
+  other: 'other',
+}
+const openStateName: Record<DashboardOpenState, string> = {
+  working: 'Working',
+  'waiting-on-you': 'Waiting on you',
+  blocked: 'Blocked',
+  backlog: 'In Backlog',
+  other: 'Other',
+}
+const openOrder: DashboardOpenState[] = ['working', 'waiting-on-you', 'backlog', 'blocked', 'other']
 
 function duration(value: number | null): string {
   if (value === null) return 'Unavailable'
@@ -93,7 +112,11 @@ function dayLabel(bucket: DashboardBucket, asOf: string): string {
   return `${start}–${shortDate(last.toISOString())}${soFar}`
 }
 const metricValue = (period: DashboardPeriod | DashboardBucket, metric: DashboardMetric) =>
-  metric === 'completed' ? period.taskIds.length : period[metric].value
+  metric === 'completed'
+    ? period.taskIds.length
+    : metric === 'merged'
+      ? period.merged.count
+      : period[metric].value
 const idsOf = (
   period: DashboardPeriod | DashboardBucket,
   metric: DashboardMetric,
@@ -101,11 +124,17 @@ const idsOf = (
 ) =>
   metric === 'completed'
     ? period.taskIds
-    : missing
-      ? period[metric].missingIds
-      : period[metric].taskIds
+    : metric === 'merged'
+      ? period.merged.taskIds
+      : missing
+        ? period[metric].missingIds
+        : period[metric].taskIds
 const showValue = (metric: DashboardMetric, value: number | null) =>
-  metric === 'completed' ? `${value ?? 0} tasks` : duration(value)
+  metric === 'completed'
+    ? `${value ?? 0} tasks`
+    : metric === 'merged'
+      ? String(value ?? 0)
+      : duration(value)
 
 function Change({
   change,
@@ -120,9 +149,7 @@ function Change({
 }) {
   const percent = change?.percent
   const good =
-    percent !== null &&
-    percent !== undefined &&
-    (metric === 'completed' ? percent > 0 : percent < 0)
+    percent !== null && percent !== undefined && (counts(metric) ? percent > 0 : percent < 0)
   return (
     <p className={`${styles.change} ${percent ? (good ? styles.good : styles.bad) : ''}`}>
       {all ? (
@@ -140,7 +167,7 @@ function Change({
             {Number(percent.toFixed(1))}%
           </strong>
           <span>
-            {`${metric === 'completed' ? '' : 'elapsed time '}${today ? 'vs yesterday to this time' : 'vs previous period'}`}
+            {`${counts(metric) ? '' : 'elapsed time '}${today ? 'vs yesterday to this time' : 'vs previous period'}`}
           </span>
         </>
       )}
@@ -233,15 +260,36 @@ export function pointTip({
   }
 }
 
+export function countScale(maximum: number): number[] {
+  const step = maximum <= 4 ? 1 : Math.ceil(maximum / 4)
+  const top = Math.max(1, Math.ceil(maximum / step)) * step
+  return Array.from({ length: top / step + 1 }, (_, i) => i * step)
+}
+
+export function byFactoryCount(
+  taskIds: readonly string[],
+  tasks: readonly { id: string; factoryId: string }[],
+  factoryIds: readonly string[],
+): { factoryId: string; count: number }[] {
+  const factoryOf = new Map(tasks.map((task) => [task.id, task.factoryId]))
+  return factoryIds
+    .map((factoryId) => ({
+      factoryId,
+      count: taskIds.filter((id) => factoryOf.get(id) === factoryId).length,
+    }))
+    .filter((row) => row.count > 0)
+}
+
 function Chart({
   data,
-  metric,
+  factories,
   select,
 }: {
   data: DashboardReport
-  metric: DashboardMetric
+  factories: readonly Factory[]
   select: (sample: DashboardSelection) => void
 }) {
+  const metric = 'completed'
   const a = data.current.buckets
   const b = data.previous?.buckets ?? []
   const [hovered, setHovered] = useState<{
@@ -259,53 +307,38 @@ function Chart({
     if (!hovered || !box || !card) return
     const outer = box.getBoundingClientRect()
     const point = hovered.point.getBoundingClientRect()
-    const middle = point.left - outer.left + point.width / 2
-    let left = middle + 12
+    let left = point.right - outer.left + 8
     if (left + card.offsetWidth > outer.width - 8)
-      left = Math.max(0, middle - 12 - card.offsetWidth)
-    let top = point.top - outer.top - card.offsetHeight - 4
-    if (top < 0) top = point.bottom - outer.top + 4
+      left = Math.max(0, point.left - outer.left - 8 - card.offsetWidth)
+    const top = point.top - outer.top + point.height / 2 - card.offsetHeight / 2
     card.style.left = `${left}px`
-    card.style.top = `${top}px`
+    card.style.top = `${Math.max(0, top)}px`
   }, [hovered])
-  const values = [...a, ...b].flatMap((bucket) => {
-    const value = metricValue(bucket, metric)
-    return value === null ? [] : [value]
-  })
   if (a.length === 0) return <p className={styles.chartEmpty}>No recorded completions to plot.</p>
-  const rawMaximum = Math.max(metric === 'completed' ? 1 : 60_000, ...values)
-  const maximum = metric === 'completed' ? Math.ceil(rawMaximum / 2) * 2 : rawMaximum
+  const scale = countScale(Math.max(1, ...[...a, ...b].map((bucket) => bucket.taskIds.length)))
+  const maximum = scale.at(-1) ?? 1
   const today = data.range === 'today'
   const start = Date.parse(data.current.from ?? data.asOf)
-  const steps = today ? Math.max(1, a.length, b.length) : Math.max(1, a.length - 1)
-  const x = (i: number) => 42 + (i * 438) / steps
-  const now = x((Date.parse(data.asOf) - start) / hourMs)
+  const slots = today ? Math.max(1, a.length, b.length) : a.length
+  const plot = { left: 42, right: 990, top: 14, bottom: 196 }
+  const width = (plot.right - plot.left) / slots
+  const edge = (i: number) => plot.left + i * width
+  const centre = (i: number) => edge(i + 0.5)
+  const now = edge((Date.parse(data.asOf) - start) / hourMs)
   const rows = Array.from({ length: today ? Math.max(a.length, b.length) : a.length }, (_, i) => i)
-  const y = (value: number) => 150 - (value / maximum) * 120
-  const path = (buckets: DashboardBucket[]) => {
-    let gap = true
-    return buckets
-      .map((bucket, index) => {
-        const value = metricValue(bucket, metric)
-        if (value === null) {
-          gap = true
-          return ''
-        }
-        const segment = `${gap ? 'M' : 'L'}${x(index)},${y(value)}`
-        gap = false
-        return segment
-      })
-      .join(' ')
-  }
-  const unit = metric === 'completed' ? 'Tasks' : 'Median elapsed time'
+  const y = (value: number) => plot.bottom - (value / maximum) * (plot.bottom - plot.top)
+  const bar = Math.max(2, Math.min(width * 0.7, 40))
+  const previousPath = b
+    .map(
+      (bucket, index) => `${index === 0 ? 'M' : 'L'}${centre(index)},${y(bucket.taskIds.length)}`,
+    )
+    .join(' ')
+  const unit = 'Tasks'
   const bounds = (bucket: DashboardBucket) =>
     today
       ? `${timestamp(bucket.from)} – ${timestamp(bucket.to)} (end excluded)`
       : dayLabel(bucket, data.asOf)
   const perPoint = Math.max(1, a[0] ? dayCount(a[0]) : 1)
-  const last = a.at(-1)
-  const number = (value: number) =>
-    metric === 'completed' ? String(Math.round(value)) : duration(value)
   const pointLabel = (bucket: DashboardBucket) =>
     today
       ? `${clock(Date.parse(bucket.from))} – ${clock(Date.parse(bucket.to))}`
@@ -323,18 +356,54 @@ function Chart({
           today,
         })
       : null
+  const factoryRows =
+    shownBucket && data.factoryIds.length > 1
+      ? byFactoryCount(shownBucket.taskIds, data.tasks, data.factoryIds)
+      : []
+  const factory = (id: string) => factories.find((f) => f.id === id)
   const leave = (point: HTMLElement) =>
     setHovered((shown) => (shown?.point === point ? null : shown))
+  const hover = (period: 'current' | 'previous', index: number) => ({
+    onMouseEnter: (event: { currentTarget: HTMLElement }) =>
+      setHovered({ period, index, point: event.currentTarget, data }),
+    onFocus: (event: { currentTarget: HTMLElement }) =>
+      setHovered({ period, index, point: event.currentTarget, data }),
+    onMouseLeave: (event: { currentTarget: HTMLElement }) => leave(event.currentTarget),
+    onBlur: (event: { currentTarget: HTMLElement }) => leave(event.currentTarget),
+    'aria-describedby':
+      details && hovered?.period === period && hovered.index === index ? tipId : undefined,
+  })
+  const ticks = today
+    ? [0, 6, 12, 18, slots].map((i) => ({
+        key: i,
+        x: edge(i),
+        anchor: i === 0 ? ('start' as const) : i === slots ? ('end' as const) : ('middle' as const),
+        text: clock(start + i * hourMs),
+      }))
+    : a.flatMap((bucket, i) => {
+        const every = data.range === '7d' ? 1 : Math.ceil(a.length / 6)
+        if (i % every !== 0) return []
+        return [
+          {
+            key: i,
+            x: centre(i),
+            anchor: 'middle' as const,
+            text:
+              data.range === '7d'
+                ? machineDate(bucket.from, { weekday: 'short', day: 'numeric' })
+                : shortDate(bucket.from),
+          },
+        ]
+      })
   return (
     <div className={styles.chart} ref={frame}>
       <div className={styles.legend}>
-        <span>
-          <i />
-          {today
-            ? 'Today'
-            : last &&
-              `${shortDate(a[0]?.from ?? data.asOf)} – ${shortDate(lastDay(last).toISOString())}`}
-        </span>
+        {data.factoryIds.map((id) => (
+          <span key={id}>
+            <i className={styles.swatch} style={{ background: factoryColor(factory(id)) }} />
+            {factory(id)?.name ?? 'Removed Factory'}
+          </span>
+        ))}
         {data.previous && (
           <span>
             <i className={styles.previousKey} />
@@ -343,119 +412,90 @@ function Chart({
         )}
       </div>
       <svg
-        viewBox="0 0 500 185"
+        viewBox="0 0 1000 222"
         aria-label={`${labels[metric]} by ${today ? 'hour' : perPoint === 1 ? 'day' : `${perPoint} days`}`}
       >
-        <title>
-          {unit}.{' '}
-          {metric !== 'completed'
-            ? 'Buckets without a duration sample are gaps.'
-            : 'Empty buckets count as zero.'}
-        </title>
-        {[0, 0.5, 1].map((part) => (
-          <g key={part}>
+        <title>{unit}. Empty bars count as zero.</title>
+        {scale.map((value) => (
+          <g key={value}>
             <line
               className={styles.gridline}
-              x1="42"
-              x2="480"
-              y1={y(maximum * part)}
-              y2={y(maximum * part)}
+              x1={plot.left}
+              x2={plot.right}
+              y1={y(value)}
+              y2={y(value)}
             />
-            <text x="36" y={y(maximum * part) + 4} textAnchor="end">
-              {number(maximum * part)}
+            <text x={plot.left - 6} y={y(value) + 4} textAnchor="end">
+              {value}
             </text>
           </g>
         ))}
+        {a.map((bucket, index) => (
+          <foreignObject
+            key={`column-${bucket.from}`}
+            x={edge(index)}
+            y={plot.top}
+            width={width}
+            height={plot.bottom - plot.top}
+          >
+            <button
+              type="button"
+              className={styles.column}
+              aria-label={`Selected · ${bounds(bucket)} · ${showValue(metric, bucket.taskIds.length)}`}
+              {...hover('current', index)}
+              onClick={() => select({ metric, period: 'current', bucket: index })}
+            />
+          </foreignObject>
+        ))}
+        {a.map((bucket, index) => {
+          let base = 0
+          return byFactoryCount(bucket.taskIds, data.tasks, data.factoryIds).map((part) => {
+            const from = base
+            base += part.count
+            return (
+              <rect
+                key={`${bucket.from}-${part.factoryId}`}
+                className={styles.bar}
+                x={centre(index) - bar / 2}
+                y={y(base)}
+                width={bar}
+                height={y(from) - y(base)}
+                style={{ fill: factoryColor(factory(part.factoryId)) }}
+              />
+            )
+          })
+        })}
         {today && (
           <>
-            <line className={styles.nowLine} x1={now} x2={now} y1="26" y2="150" />
-            <text x={now} y="20" textAnchor="middle">
+            <line className={styles.nowLine} x1={now} x2={now} y1={plot.top} y2={plot.bottom} />
+            <text x={now} y={plot.top - 4} textAnchor="middle">
               Now
             </text>
           </>
         )}
-        {details && hovered && (
-          <line
-            className={styles.guideLine}
-            x1={x(hovered.index)}
-            x2={x(hovered.index)}
-            y1="26"
-            y2="150"
-          />
-        )}
-        {data.previous && <path className={styles.previousLine} d={path(b)} />}
-        <path className={styles.currentLine} d={path(a)} />
-        {(
-          [
-            ['previous', b],
-            ['current', a],
-          ] as const
-        ).flatMap(([period, buckets]) =>
-          buckets.map((bucket, index) => {
-            const value = metricValue(bucket, metric)
-            if (value === null) return null
-            return (
-              <foreignObject
-                key={`${period}-${bucket.from}`}
-                x={x(index) - 9}
-                y={y(value) - 9}
-                width="18"
-                height="18"
-              >
-                <button
-                  type="button"
-                  className={period === 'current' ? styles.point : styles.previousPoint}
-                  aria-label={`${period === 'current' ? 'Selected' : 'Previous'} · ${bounds(bucket)} · ${showValue(metric, value)}`}
-                  aria-describedby={
-                    details && hovered?.period === period && hovered.index === index
-                      ? tipId
-                      : undefined
-                  }
-                  onMouseEnter={(event) =>
-                    setHovered({ period, index, point: event.currentTarget, data })
-                  }
-                  onFocus={(event) =>
-                    setHovered({ period, index, point: event.currentTarget, data })
-                  }
-                  onMouseLeave={(event) => leave(event.currentTarget)}
-                  onBlur={(event) => leave(event.currentTarget)}
-                  onClick={() => select({ metric, period, bucket: index })}
-                />
-              </foreignObject>
-            )
-          }),
-        )}
-        {today
-          ? [0, 6, 12, 18, steps].map((i) => (
-              <text
-                key={i}
-                x={x(i)}
-                y="175"
-                textAnchor={i === 0 ? 'start' : i === steps ? 'end' : 'middle'}
-              >
-                {clock(start + i * hourMs)}
-              </text>
-            ))
-          : (data.range === '7d'
-              ? a.map((_, i) => i)
-              : [...new Set([0, Math.floor((a.length - 1) / 2), a.length - 1])]
-            ).map((i) => {
-              const bucket = a[i]
-              if (!bucket) return null
-              const end = i === a.length - 1 && i > 0
-              return (
-                <text
-                  key={i}
-                  x={x(i)}
-                  y="175"
-                  textAnchor={i === 0 ? 'start' : end ? 'end' : 'middle'}
-                >
-                  {data.range === '7d'
-                    ? machineDate(bucket.from, { weekday: 'short', day: 'numeric' })
-                    : shortDate(end ? lastDay(bucket).toISOString() : bucket.from)}
-                </text>
-              )
-            })}
+        {data.previous && <path className={styles.previousLine} d={previousPath} />}
+        {b.map((bucket, index) => (
+          <foreignObject
+            key={`previous-${bucket.from}`}
+            x={centre(index) - 9}
+            y={y(bucket.taskIds.length) - 9}
+            width="18"
+            height="18"
+          >
+            <button
+              type="button"
+              className={styles.previousPoint}
+              aria-label={`Previous · ${bounds(bucket)} · ${showValue(metric, bucket.taskIds.length)}`}
+              {...hover('previous', index)}
+              onClick={() => select({ metric, period: 'previous', bucket: index })}
+            />
+          </foreignObject>
+        ))}
+        {ticks.map((tick) => (
+          <text key={tick.key} x={tick.x} y={plot.bottom + 20} textAnchor={tick.anchor}>
+            {tick.text}
+          </text>
+        ))}
       </svg>
       {details && (
         <div className={styles.tooltip} role="tooltip" id={tipId} ref={tip}>
@@ -473,18 +513,28 @@ function Chart({
               {row.note && <div className={styles.tooltipNote}>{row.note}</div>}
             </Fragment>
           ))}
+          {factoryRows.map((row) => (
+            <div key={row.factoryId} className={styles.tooltipRow}>
+              <span>
+                <i
+                  className={styles.swatch}
+                  style={{ background: factoryColor(factory(row.factoryId)) }}
+                />
+                {factory(row.factoryId)?.name ?? 'Removed Factory'}
+              </span>
+              <strong>{row.count}</strong>
+            </div>
+          ))}
           {details.change && <div className={styles.tooltipChange}>{details.change}</div>}
         </div>
       )}
       <p className={styles.caption}>
         {data.range === 'all'
-          ? `${perPoint === 1 ? 'One point per calendar day' : `Each point covers ${perPoint} calendar days`}, midnight to midnight. The last point runs to now.`
+          ? `${perPoint === 1 ? 'One bar per calendar day' : `Each bar covers ${perPoint} calendar days`}, midnight to midnight. The last bar runs to now.`
           : today
-            ? 'One point per hour since midnight. Today’s last hour is still running. Yesterday’s line shows the whole day; the figures above count it only to this time.'
-            : 'One point per calendar day, midnight to midnight. Today is not included.'}{' '}
-        {metric === 'completed'
-          ? 'Tasks per point.'
-          : 'Graph shows medians per point, not the whole-period median above. No sample = gap.'}
+            ? 'One bar per hour since midnight. Today’s last hour is still running. Yesterday’s line shows the whole day; the figures above count it only to this time.'
+            : 'One bar per calendar day, midnight to midnight. Today is not included.'}{' '}
+        Tasks per bar, split by Factory.
       </p>
       <details className={styles.dataTable}>
         <summary>Graph data and samples</summary>
@@ -514,8 +564,7 @@ function Chart({
                         className={styles.link}
                         onClick={() => select({ metric, period: 'current', bucket: index })}
                       >
-                        {showValue(metric, metricValue(bucket, metric))} ·{' '}
-                        {idsOf(bucket, metric).length} Tasks
+                        {showValue(metric, bucket.taskIds.length)} · {bucket.taskIds.length} Tasks
                       </button>
                     )}
                   </td>
@@ -529,8 +578,8 @@ function Chart({
                           title={bounds(b[index])}
                           onClick={() => select({ metric, period: 'previous', bucket: index })}
                         >
-                          {showValue(metric, metricValue(b[index], metric))} ·{' '}
-                          {idsOf(b[index], metric).length} Tasks
+                          {showValue(metric, b[index].taskIds.length)} · {b[index].taskIds.length}{' '}
+                          Tasks
                           <br />
                           {bounds(b[index])}
                         </button>
@@ -547,27 +596,26 @@ function Chart({
   )
 }
 
-function MetricPanel({
+function Completed({
   data,
-  metric,
+  factories,
   select,
 }: {
   data: DashboardReport
-  metric: DashboardMetric
+  factories: readonly Factory[]
   select: (sample: DashboardSelection) => void
 }) {
   const heading = useId()
-  const value = metricValue(data.current, metric)
-  const change = data.comparison?.[metric]
-  const sample = idsOf(data.current, metric)
-  const missing = metric === 'completed' ? [] : data.current[metric].missingIds
+  const metric = 'completed'
+  const value = data.current.taskIds.length
+  const change = data.comparison?.completed
   const previous = data.previous
   const absolute = change?.absolute
   return (
-    <section className={styles.panel} aria-labelledby={heading}>
+    <section className={`${styles.panel} ${styles.wide}`} aria-labelledby={heading}>
       <header className={styles.panelHead}>
-        <h2 id={heading}>{labels[metric]}</h2>
-        <span>{metric === 'completed' ? 'Completed Tasks' : 'Median elapsed time'}</span>
+        <h2 id={heading}>{labels.completed}</h2>
+        <span>Completed Tasks</span>
       </header>
       <div className={styles.headline}>
         <button
@@ -588,49 +636,26 @@ function MetricPanel({
           <details className={styles.comparison}>
             <summary>Comparison details</summary>
             <p>
-              Previous: {showValue(metric, metricValue(previous, metric))}
+              Previous: {showValue(metric, previous.taskIds.length)}
               <br />
               Absolute difference:{' '}
               {absolute === null || absolute === undefined
                 ? 'Unavailable'
-                : `${absolute > 0 ? '+' : absolute < 0 ? '−' : ''}${metric === 'completed' ? `${Math.abs(absolute)} tasks` : duration(Math.abs(absolute))}`}
-              <br />
-              Selected sample: {sample.length} Tasks · Previous sample:{' '}
-              {idsOf(previous, metric).length} Tasks
+                : `${absolute > 0 ? '+' : absolute < 0 ? '−' : ''}${Math.abs(absolute)} tasks`}
             </p>
           </details>
         )}
       </div>
-      {data.current.taskIds.length === 0 && (
-        <p className={styles.empty}>No Tasks completed in this period.</p>
-      )}
-      {value === null && data.current.taskIds.length > 0 && (
-        <p className={styles.empty}>
-          No recorded start times for this duration. These Tasks remain in the completed count.
-        </p>
-      )}
-      <Chart data={data} metric={metric} select={select} />
+      {value === 0 && <p className={styles.empty}>No Tasks completed in this period.</p>}
+      <Chart data={data} factories={factories} select={select} />
       <footer className={styles.panelFoot}>
-        <p className={styles.caption}>
-          Sample: {sample.length} Tasks
-          {metric !== 'completed' && <> · {missing.length} missing starts</>}
-          {previous && (
-            <>
-              {' '}
-              · Previous: {idsOf(previous, metric).length} Tasks
-              {metric !== 'completed' && (
-                <> · {previous[metric].missingIds.length} missing starts</>
-              )}
-            </>
-          )}
-        </p>
         <div className={styles.links}>
           <button
             type="button"
             className={styles.link}
             onClick={() => select({ metric, period: 'current' })}
           >
-            View {sample.length} Tasks
+            View {value} Tasks
           </button>
           {previous && (
             <button
@@ -638,29 +663,178 @@ function MetricPanel({
               className={styles.link}
               onClick={() => select({ metric, period: 'previous' })}
             >
-              Previous {idsOf(previous, metric).length} Tasks
-            </button>
-          )}
-          {missing.length > 0 && (
-            <button
-              type="button"
-              className={styles.link}
-              onClick={() => select({ metric, period: 'current', missing: true })}
-            >
-              {missing.length} missing starts
-            </button>
-          )}
-          {previous && metric !== 'completed' && previous[metric].missingIds.length > 0 && (
-            <button
-              type="button"
-              className={styles.link}
-              onClick={() => select({ metric, period: 'previous', missing: true })}
-            >
-              Previous {previous[metric].missingIds.length} missing starts
+              Previous {previous.taskIds.length} Tasks
             </button>
           )}
         </div>
       </footer>
+    </section>
+  )
+}
+
+function comparedWith(data: DashboardReport, metric: DashboardMetric): string | null {
+  if (!data.previous) return null
+  const value = metricValue(data.previous, metric)
+  return `Previous: ${counts(metric) ? (value ?? 0) : duration(value)}`
+}
+
+function Throughput({
+  data,
+  select,
+}: {
+  data: DashboardReport
+  select: (sample: DashboardSelection) => void
+}) {
+  const merged = useId()
+  const open = useId()
+  const today = data.range === 'today'
+  const states = openOrder.flatMap((state) => {
+    const count = data.open.filter((task) => task.state === state).length
+    return count === 0 ? [] : [`${count} ${openLabels[state]}`]
+  })
+  return (
+    <div className={styles.panel}>
+      <section className={styles.figure} aria-labelledby={merged}>
+        <h2 id={merged}>{labels.merged}</h2>
+        <button
+          type="button"
+          data-nav-item
+          className={styles.value}
+          aria-label={`${data.current.merged.count} pull requests merged`}
+          onClick={() => select({ metric: 'merged', period: 'current' })}
+        >
+          {data.current.merged.count}
+        </button>
+        <Change
+          change={data.comparison?.merged}
+          metric="merged"
+          all={data.previous === null}
+          today={today}
+        />
+        <p className={styles.caption}>
+          {[
+            comparedWith(data, 'merged'),
+            `From ${data.current.merged.taskIds.length} completed Tasks. A Task with several repos merges several pull requests.`,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
+      </section>
+      <section className={styles.figure} aria-labelledby={open}>
+        <h2 id={open}>Open Tasks right now</h2>
+        <button
+          type="button"
+          data-nav-item
+          className={`${styles.value} ${styles.smallValue}`}
+          aria-label={`${data.open.length} open Tasks`}
+          onClick={() => select({ metric: 'open', period: 'current' })}
+        >
+          {data.open.length}
+        </button>
+        <p className={styles.change}>
+          {states.length === 0 ? 'No open Tasks' : states.join(' · ')}
+        </p>
+      </section>
+    </div>
+  )
+}
+
+function TaskTime({
+  data,
+  select,
+}: {
+  data: DashboardReport
+  select: (sample: DashboardSelection) => void
+}) {
+  const heading = useId()
+  const { created, backlog, intake } = data.current
+  const parts = (['backlog', 'intake'] as const).map((metric) => ({
+    metric,
+    value: data.current[metric].value,
+  }))
+  const whole = (backlog.value ?? 0) + (intake.value ?? 0)
+  return (
+    <section className={styles.panel} aria-labelledby={heading}>
+      <header className={styles.panelHead}>
+        <h2 id={heading}>How long a Task takes</h2>
+        <span>Median elapsed time</span>
+      </header>
+      <div className={styles.headline}>
+        <button
+          type="button"
+          data-nav-item
+          className={styles.value}
+          aria-label={`${labels.created} ${duration(created.value)}`}
+          onClick={() => select({ metric: 'created', period: 'current' })}
+        >
+          {duration(created.value)}
+        </button>
+        <Change
+          change={data.comparison?.created}
+          metric="created"
+          all={data.previous === null}
+          today={data.range === 'today'}
+        />
+        <p className={styles.caption}>
+          {labels.created}, median of {created.taskIds.length} Tasks
+          {comparedWith(data, 'created') && ` · ${comparedWith(data, 'created')}`}
+        </p>
+        {whole > 0 && (
+          <div className={styles.split}>
+            {parts.map(
+              (part) =>
+                part.value !== null &&
+                part.value > 0 && (
+                  <button
+                    key={part.metric}
+                    type="button"
+                    className={styles[part.metric]}
+                    style={{ flexGrow: part.value / whole }}
+                    aria-label={`${labels[part.metric]} ${duration(part.value)}`}
+                    onClick={() => select({ metric: part.metric, period: 'current' })}
+                  />
+                ),
+            )}
+          </div>
+        )}
+        <div className={styles.splitLabels}>
+          {parts.map((part) => (
+            <div key={part.metric}>
+              <button
+                type="button"
+                data-nav-item
+                className={styles.link}
+                onClick={() => select({ metric: part.metric, period: 'current' })}
+              >
+                <i className={styles[part.metric]} />
+                <strong>{duration(part.value)}</strong> {labels[part.metric]}
+              </button>
+              <Change
+                change={data.comparison?.[part.metric]}
+                metric={part.metric}
+                all={data.previous === null}
+                today={data.range === 'today'}
+              />
+            </div>
+          ))}
+        </div>
+        <p className={styles.caption}>
+          Each part is its own median, so the two can differ a little from the whole. Waiting in
+          Backlog runs from Created to first Intake.
+          {intake.missingIds.length > 0 && (
+            <>
+              {' '}
+              <button
+                type="button"
+                className={styles.link}
+                onClick={() => select({ metric: 'intake', period: 'current', missing: true })}
+              >
+                {intake.missingIds.length} missing starts
+              </button>
+            </>
+          )}
+        </p>
+      </div>
     </section>
   )
 }
@@ -689,46 +863,71 @@ function Sample({
   }, [])
   const period = selection.period === 'previous' ? data.previous : data.current
   const bucket = selection.bucket === undefined ? undefined : period?.buckets[selection.bucket]
-  const sample =
-    selection.metric === 'unavailable' ? null : selection.bucket === undefined ? period : bucket
+  const metric =
+    selection.metric === 'unavailable' || selection.metric === 'open' ? null : selection.metric
+  const sample = metric === null ? null : selection.bucket === undefined ? period : bucket
+  const records = new Map(data.tasks.map((task) => [task.id, task]))
+  const opened = new Map(data.open.map((task) => [task.id, task]))
+  const durationOf = (id: string) => {
+    const task = records.get(id)
+    return task && metric && metric !== 'completed' && metric !== 'merged'
+      ? task[`${metric}Ms`]
+      : null
+  }
   const ids =
     selection.metric === 'unavailable'
       ? data.unavailableIds
-      : sample
-        ? idsOf(sample, selection.metric, selection.missing)
-        : []
-  const records = new Map(data.tasks.map((task) => [task.id, task]))
+      : selection.metric === 'open'
+        ? data.open.map((task) => task.id)
+        : sample && metric
+          ? idsOf(sample, metric, selection.missing).toSorted(
+              (x, y) => (durationOf(y) ?? -1) - (durationOf(x) ?? -1),
+            )
+          : []
   const days = data.range !== 'today' && bucket !== undefined
   const title =
     selection.metric === 'unavailable'
       ? 'Unavailable completion history'
-      : `${labels[selection.metric]} · ${
-          selection.missing
-            ? 'Missing starts'
-            : days
-              ? `${selection.period === 'previous' ? 'Previous · ' : ''}${dayLabel(bucket, data.asOf)}`
-              : selection.period === 'current'
-                ? 'Selected period'
-                : 'Previous period'
-        }`
+      : selection.metric === 'open'
+        ? 'Open Tasks right now'
+        : `${labels[selection.metric]} · ${
+            selection.missing
+              ? 'Missing starts'
+              : days
+                ? `${selection.period === 'previous' ? 'Previous · ' : ''}${dayLabel(bucket, data.asOf)}`
+                : selection.period === 'current'
+                  ? 'Selected period'
+                  : 'Previous period'
+          }`
   const describe = (task: DashboardTask) =>
     selection.metric === 'unavailable'
       ? 'Done timestamp unavailable'
       : [
           task.doneAt ? `Done ${timestamp(task.doneAt)}` : '',
           task.archived ? 'Archived' : '',
-          selection.metric === 'created'
-            ? task.createdMs === null
-              ? 'Start unavailable'
-              : duration(task.createdMs)
-            : selection.metric === 'intake'
-              ? task.intakeMs === null
+          metric === 'merged'
+            ? `${task.merges} ${task.merges === 1 ? 'pull request' : 'pull requests'} merged`
+            : metric === 'created' || metric === 'backlog' || metric === 'intake'
+              ? task[`${metric}Ms`] === null
                 ? 'Start unavailable'
-                : duration(task.intakeMs)
+                : duration(task[`${metric}Ms`])
               : '',
         ]
           .filter(Boolean)
           .join(' · ')
+  const rowOf = (id: string) => {
+    const task = records.get(id)
+    if (selection.metric !== 'open' && task)
+      return { displayId: task.displayId, title: task.title, note: describe(task) }
+    const open = opened.get(id)
+    return open
+      ? {
+          displayId: open.displayId,
+          title: open.title,
+          note: `${stageName(open.stage)} · ${openStateName[open.state]}`,
+        }
+      : null
+  }
   return (
     <dialog
       ref={dialog}
@@ -749,7 +948,7 @@ function Sample({
       <p>
         {ids.length} Tasks · As of {timestamp(data.asOf)}
       </p>
-      {sample?.from && (
+      {selection.metric !== 'open' && sample?.from && (
         <p className={styles.caption}>
           {days && bucket && bucket.to !== data.asOf && dayCount(bucket) === 1
             ? 'Midnight to midnight'
@@ -759,13 +958,15 @@ function Sample({
       <p className={styles.caption}>
         {selection.metric === 'unavailable'
           ? 'Completion period unknown. Excluded from period metrics because no Done timestamp was recorded.'
-          : selection.missing
-            ? 'Included in the completed count; excluded from this duration’s median.'
-            : 'Exact Tasks behind this sample. Archived Done Tasks are included.'}
+          : selection.metric === 'open'
+            ? 'Tasks that are not Done and not archived, by what each is doing now.'
+            : selection.missing
+              ? 'Included in the completed count; excluded from this duration’s median.'
+              : `Exact Tasks behind this sample. Archived Done Tasks are included.${metric === 'created' || metric === 'backlog' || metric === 'intake' ? ' Slowest first.' : ''}`}
       </p>
       <ul className={styles.taskList}>
         {ids.map((id) => {
-          const task = records.get(id)
+          const task = rowOf(id)
           return task ? (
             <li key={id}>
               <button
@@ -777,7 +978,7 @@ function Sample({
                 <span>
                   {task.displayId} &nbsp; {task.title}
                 </span>
-                <small>{describe(task)}</small>
+                <small>{task.note}</small>
               </button>
             </li>
           ) : null
@@ -911,7 +1112,13 @@ function ByFactory({
               </th>
             )}
             <th scope="col" className={styles.number}>
+              {labels.merged}
+            </th>
+            <th scope="col" className={styles.number}>
               {labels.created}
+            </th>
+            <th scope="col" className={styles.number}>
+              {labels.backlog}
             </th>
             <th scope="col" className={styles.number}>
               {labels.intake}
@@ -949,7 +1156,9 @@ function ByFactory({
                     {change(row.taskIds.length, previous.get(row.factoryId)?.taskIds.length)}
                   </td>
                 )}
+                <td className={styles.number}>{row.merged.count}</td>
                 <td className={styles.number}>{duration(row.created.value)}</td>
+                <td className={styles.number}>{duration(row.backlog.value)}</td>
                 <td className={styles.number}>{duration(row.intake.value)}</td>
               </tr>
             )
@@ -1115,9 +1324,9 @@ export function Dashboard({
                   </p>
                 )}
                 <div className={styles.grid}>
-                  {metrics.map((metric) => (
-                    <MetricPanel key={metric} data={data} metric={metric} select={select} />
-                  ))}
+                  <Completed data={data} factories={factories} select={select} />
+                  <Throughput data={data} select={select} />
+                  <TaskTime data={data} select={select} />
                 </div>
                 {shown.length > 1 && (
                   <ByFactory data={data} factories={factories} onOnly={(id) => choose([id])} />

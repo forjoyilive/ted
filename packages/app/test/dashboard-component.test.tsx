@@ -140,28 +140,28 @@ test('graph points and their samples name the calendar days they cover', async (
         'Wed 11 Nov',
         'Tasks completed · Wed 11 Nov',
         'Midnight to midnight',
-        'One point per calendar day, midnight to midnight. Today is not included.',
+        'One bar per calendar day, midnight to midnight. Today is not included.',
       ],
       [
         all,
         '9–12 Nov (today so far)',
         'Tasks completed · 9–12 Nov (today so far)',
         '22:26:00 UTC (end excluded)',
-        'Each point covers 4 calendar days',
+        'Each bar covers 4 calendar days',
       ],
       [
         early,
         'Thu 12 Nov (today so far)',
         'Tasks completed · Thu 12 Nov (today so far)',
         '14:00:00 UTC (end excluded)',
-        'One point per calendar day, midnight to midnight. The last point runs to now.',
+        'One bar per calendar day, midnight to midnight. The last bar runs to now.',
       ],
       [
         today,
         '14:00:30.125 UTC',
         'Tasks completed · Selected period',
         '14:26:45.500 UTC (end excluded)',
-        'One point per hour since midnight.',
+        'One bar per hour since midnight.',
       ],
     ] as const) {
       bridge({ dashboard: () => data })
@@ -190,7 +190,7 @@ test('graph points and their samples name the calendar days they cover', async (
   }
 })
 
-test('Dashboard preserves completion metrics and opens contributing and missing-start Tasks', async () => {
+test('Overview figures open the Tasks behind them, durations slowest first', async () => {
   bridge({ dashboard: () => dashboardFixture() })
   const open = vi.fn()
   render(<DashboardView open={open} />)
@@ -204,8 +204,10 @@ test('Dashboard preserves completion metrics and opens contributing and missing-
   const graphSample = screen.getByRole('dialog')
   expect(within(graphSample).getByRole('button', { name: /NB-2.*Improve search/ })).toBeTruthy()
   await user().click(within(graphSample).getByRole('button', { name: 'Close sample' }))
-  const intake = screen.getByRole('region', { name: 'First Intake → Done' })
-  await user().click(within(intake).getByRole('button', { name: 'View 1 Tasks' }))
+  const close = () =>
+    user().click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close sample' }))
+  const time = screen.getByRole('region', { name: 'How long a Task takes' })
+  await user().click(within(time).getByRole('button', { name: 'First Intake → Done 5h' }))
   let sample = screen.getByRole('dialog')
   expect(within(sample).getByRole('button', { name: /NB-1.*Fix login/ }).textContent).toContain(
     'Archived',
@@ -213,11 +215,46 @@ test('Dashboard preserves completion metrics and opens contributing and missing-
   expect(within(sample).queryByText(/Improve search/)).toBeNull()
   await user().click(within(sample).getByRole('button', { name: /NB-1.*Fix login/ }))
   expect(open).toHaveBeenCalledWith('t1')
-  await user().click(within(sample).getByRole('button', { name: 'Close sample' }))
-  await user().click(within(intake).getByRole('button', { name: '1 missing starts' }))
+  await close()
+  await user().click(within(time).getByRole('button', { name: '1 missing starts' }))
   sample = screen.getByRole('dialog')
   expect(within(sample).getByText(/Improve search/)).toBeTruthy()
   expect(within(sample).getByText(/Start unavailable/)).toBeTruthy()
+  await close()
+  await user().click(within(time).getByRole('button', { name: 'Created → Done 20h' }))
+  sample = screen.getByRole('dialog')
+  expect(
+    within(sample)
+      .getAllByRole('button', { name: /NB-/ })
+      .map((row) => row.textContent?.slice(0, 4)),
+  ).toEqual(['NB-2', 'NB-1'])
+  await close()
+  await user().click(within(time).getByRole('button', { name: /5h\s*Waiting in Backlog/ }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe(
+    'Waiting in Backlog · Selected period',
+  )
+  expect(within(sample).getByRole('button', { name: /NB-1.*Fix login/ }).textContent).toContain(
+    '5h',
+  )
+  await close()
+
+  const merged = screen.getByRole('region', { name: 'Pull requests merged' })
+  await user().click(within(merged).getByRole('button', { name: '3 pull requests merged' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('button', { name: /NB-1.*Fix login/ }).textContent).toContain(
+    '2 pull requests merged',
+  )
+  await close()
+  const openTasks = screen.getByRole('region', { name: 'Open Tasks right now' })
+  expect(openTasks.textContent).toContain('1 Working · 1 waiting on you')
+  await user().click(within(openTasks).getByRole('button', { name: '2 open Tasks' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe('Open Tasks right now')
+  const waiting = within(sample).getByRole('button', { name: /NB-4.*Answer me/ })
+  expect(waiting.textContent).toContain('Review · Waiting on you')
+  await user().click(waiting)
+  expect(open).toHaveBeenCalledWith('t4')
 })
 
 test('Factory and range changes discard late responses instead of mixing samples', async () => {
@@ -239,6 +276,10 @@ test('Factory and range changes discard late responses instead of mixing samples
   await act(async () => pending.resolve(dashboardFixture()))
   expect(within(region).queryByRole('button', { name: '2 tasks' })).toBeNull()
   expect(api.request).toHaveBeenCalledWith('dashboard', '30d', ['f2'])
+  view.rerender(<Dashboard {...props} state={{ range: '30d' }} />)
+  const byFactory = await screen.findByRole('region', { name: 'By Factory' })
+  for (const column of ['Pull requests merged', 'Waiting in Backlog'])
+    expect(within(byFactory).getByRole('columnheader', { name: column })).toBeTruthy()
 })
 
 test('load failures retry, events refresh completed metrics and clock/focus advance rolling boundaries', async () => {
@@ -286,7 +327,9 @@ test('unavailable completion history never assigns an unrecorded completion to t
     archived: true,
     doneAt: null,
     createdMs: null,
+    backlogMs: null,
     intakeMs: null,
+    merges: 0,
   })
   bridge({ dashboard: () => data })
   render(
@@ -649,7 +692,9 @@ test('Today draws hours against all of yesterday and compares with yesterday to 
       from: at(day, index),
       to: index === count - 1 ? end : at(day, index + 1),
       taskIds: index === 1 ? ['t1'] : [],
+      merged: { count: 0, taskIds: [] },
       created: { value: null, taskIds: [], missingIds: [] },
+      backlog: { value: null, taskIds: [], missingIds: [] },
       intake: { value: null, taskIds: [], missingIds: [] },
     }))
   data.range = 'today'
@@ -693,7 +738,9 @@ test('a graph point’s tooltip compares it with the aligned previous point', as
     from,
     to: from,
     taskIds: ids,
+    merged: { count: 0, taskIds: [] },
     created: { value: median, taskIds: median === null ? [] : ids, missingIds: [] },
+    backlog: { value: null, taskIds: [], missingIds: [] },
     intake: { value: null, taskIds: [], missingIds: [] },
   })
   const now = bucket('now', ['a', 'b', 'c', 'd'], 3_600_000)
@@ -763,4 +810,20 @@ test('a graph point’s tooltip compares it with the aligned previous point', as
       today: false,
     }),
   ).toMatchObject({ heading: 'Previous · then', aligned: 'Aligned to now', change: null })
+})
+
+test('the completed chart’s scale and Factory split', async () => {
+  const { byFactoryCount, countScale } = await import('../src/renderer/views/Dashboard.tsx')
+  expect(countScale(1)).toEqual([0, 1])
+  expect(countScale(7)).toEqual([0, 2, 4, 6, 8])
+  expect(countScale(13)).toEqual([0, 4, 8, 12, 16])
+  const tasks = [
+    { id: 'a', factoryId: 'one' },
+    { id: 'b', factoryId: 'two' },
+    { id: 'c', factoryId: 'two' },
+  ]
+  expect(byFactoryCount(['a', 'b', 'c'], tasks, ['two', 'one', 'three'])).toEqual([
+    { factoryId: 'two', count: 2 },
+    { factoryId: 'one', count: 1 },
+  ])
 })

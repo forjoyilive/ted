@@ -17,7 +17,7 @@ export type FlowSelection = { period: 'current' | 'previous' } & (
 )
 
 export interface DashboardSelection {
-  metric: DashboardMetric | 'unavailable'
+  metric: DashboardMetric | 'unavailable' | 'open'
   period: 'current' | 'previous'
   bucket?: number
   missing?: boolean

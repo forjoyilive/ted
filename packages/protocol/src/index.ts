@@ -309,9 +309,13 @@ export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.
 export type {
   DashboardBucket,
   DashboardChange,
+  DashboardDuration,
   DashboardFactoryPeriod,
   DashboardFlow,
+  DashboardMerged,
   DashboardMetric,
+  DashboardOpenState,
+  DashboardOpenTask,
   DashboardPeriod,
   DashboardRange,
   DashboardReport,

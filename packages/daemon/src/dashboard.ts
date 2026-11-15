@@ -1,12 +1,17 @@
 import type {
   DashboardBucket,
   DashboardChange,
+  DashboardDuration,
   DashboardFactoryPeriod,
+  DashboardMerged,
+  DashboardOpenState,
+  DashboardOpenTask,
   DashboardPeriod,
   DashboardRange,
   DashboardReport,
   DashboardSample,
   DashboardTask,
+  TaskStatusKind,
 } from '@ted/protocol'
 import { dashboardFlow, type FlowFacts } from './dashboard-flow.ts'
 
@@ -20,6 +25,8 @@ export interface DashboardTaskFacts extends FlowFacts {
   setup: boolean
   stage: string
   entries: readonly { stage: string; at: string; sequence?: number }[]
+  merges?: readonly string[]
+  status?: TaskStatusKind
 }
 
 const dayMs = 86_400_000
@@ -30,7 +37,14 @@ function elapsed(start: number, end: number): number | null {
   return Number.isFinite(start) && start <= end ? end - start : null
 }
 
-function sample(tasks: readonly DashboardTask[], field: 'createdMs' | 'intakeMs'): DashboardSample {
+const durationField = {
+  created: 'createdMs',
+  backlog: 'backlogMs',
+  intake: 'intakeMs',
+} as const satisfies Record<DashboardDuration, keyof DashboardTask>
+
+function sample(tasks: readonly DashboardTask[], duration: DashboardDuration): DashboardSample {
+  const field = durationField[duration]
   const values: number[] = []
   const taskIds: string[] = []
   const missingIds: string[] = []
@@ -49,7 +63,40 @@ function sample(tasks: readonly DashboardTask[], field: 'createdMs' | 'intakeMs'
   return { value, taskIds, missingIds }
 }
 
-function bucket(tasks: readonly DashboardTask[], from: number, to: number): DashboardBucket {
+type Merges = ReadonlyMap<string, readonly number[]>
+
+function merged(
+  tasks: readonly DashboardTask[],
+  merges: Merges,
+  from: number,
+  to: number,
+): DashboardMerged {
+  let count = 0
+  const taskIds: string[] = []
+  for (const task of tasks) {
+    const inPeriod = (merges.get(task.id) ?? []).filter((at) => at >= from && at < to).length
+    if (inPeriod === 0) continue
+    count += inPeriod
+    taskIds.push(task.id)
+  }
+  return { count, taskIds }
+}
+
+function samples(selected: readonly DashboardTask[]) {
+  return {
+    taskIds: selected.map((task) => task.id),
+    created: sample(selected, 'created'),
+    backlog: sample(selected, 'backlog'),
+    intake: sample(selected, 'intake'),
+  }
+}
+
+function bucket(
+  tasks: readonly DashboardTask[],
+  merges: Merges,
+  from: number,
+  to: number,
+): DashboardBucket {
   const selected = tasks.filter((task) => {
     const at = Date.parse(task.doneAt ?? '')
     return at >= from && at < to
@@ -57,9 +104,8 @@ function bucket(tasks: readonly DashboardTask[], from: number, to: number): Dash
   return {
     from: iso(from),
     to: iso(to),
-    taskIds: selected.map((task) => task.id),
-    created: sample(selected, 'createdMs'),
-    intake: sample(selected, 'intakeMs'),
+    merged: merged(tasks, merges, from, to),
+    ...samples(selected),
   }
 }
 
@@ -120,23 +166,25 @@ export function rangeWindows(range: Exclude<DashboardRange, 'all'>, asOf: number
 
 function byFactory(
   tasks: readonly DashboardTask[],
+  merges: Merges,
+  window: readonly [number, number] | null,
   taskIds: readonly string[],
   factoryIds: readonly string[],
 ): DashboardFactoryPeriod[] {
   const inPeriod = new Set(taskIds)
   return factoryIds.map((factoryId) => {
-    const selected = tasks.filter((task) => task.factoryId === factoryId && inPeriod.has(task.id))
+    const own = tasks.filter((task) => task.factoryId === factoryId)
     return {
       factoryId,
-      taskIds: selected.map((task) => task.id),
-      created: sample(selected, 'createdMs'),
-      intake: sample(selected, 'intakeMs'),
+      merged: window ? merged(own, merges, ...window) : { count: 0, taskIds: [] },
+      ...samples(own.filter((task) => inPeriod.has(task.id))),
     }
   })
 }
 
 function period(
   tasks: readonly DashboardTask[],
+  merges: Merges,
   from: number | null,
   to: number,
   edges: Edges,
@@ -144,16 +192,30 @@ function period(
 ): DashboardPeriod {
   const whole =
     from === null
-      ? { taskIds: [], created: sample([], 'createdMs'), intake: sample([], 'intakeMs') }
-      : bucket(tasks, from, to)
-  const buckets = edges.map(([start, end]) => bucket(tasks, start, end))
+      ? { merged: { count: 0, taskIds: [] }, ...samples([]) }
+      : bucket(tasks, merges, from, to)
+  const buckets = edges.map(([start, end]) => bucket(tasks, merges, start, end))
   return {
     ...whole,
     from: from === null ? null : iso(from),
     to: iso(to),
     buckets,
-    byFactory: byFactory(tasks, whole.taskIds, factoryIds),
+    byFactory: byFactory(
+      tasks,
+      merges,
+      from === null ? null : [from, to],
+      whole.taskIds,
+      factoryIds,
+    ),
   }
+}
+
+function openState(task: DashboardTaskFacts): DashboardOpenState {
+  if (task.status === 'waiting-on-you') return 'waiting-on-you'
+  if (task.status === 'working') return 'working'
+  if (task.status === 'blocked') return 'blocked'
+  if (task.stage === 'backlog') return 'backlog'
+  return 'other'
 }
 
 function change(value: number | null, previous: number | null): DashboardChange {
@@ -173,8 +235,19 @@ export function dashboardReport(
 ): DashboardReport {
   const tasks: DashboardTask[] = []
   const unavailableIds: string[] = []
+  const open: DashboardOpenTask[] = []
+  const merges = new Map<string, number[]>()
   for (const task of facts) {
     if (task.setup) continue
+    if (!task.archived && task.stage !== 'done')
+      open.push({
+        id: task.id,
+        factoryId: task.factoryId,
+        displayId: task.displayId,
+        title: task.title,
+        stage: task.stage,
+        state: openState(task),
+      })
     const ends = task.entries
       .filter((entry) => entry.stage === 'done')
       .map((entry) => Date.parse(entry.at))
@@ -191,7 +264,9 @@ export function dashboardReport(
           archived: task.archived,
           doneAt: null,
           createdMs: null,
+          backlogMs: null,
           intakeMs: null,
+          merges: 0,
         })
       }
       continue
@@ -201,6 +276,9 @@ export function dashboardReport(
       .filter((entry) => entry.stage === 'intake')
       .map((entry) => Date.parse(entry.at))
       .filter(Number.isFinite)
+    const first = starts.length === 0 ? null : Math.min(...starts)
+    const mergedAt = (task.merges ?? []).map(Date.parse).filter((at) => at < asOf)
+    merges.set(task.id, mergedAt)
     tasks.push({
       id: task.id,
       factoryId: task.factoryId,
@@ -209,7 +287,9 @@ export function dashboardReport(
       archived: task.archived,
       doneAt: iso(done),
       createdMs: elapsed(Date.parse(task.createdAt), done),
-      intakeMs: starts.length === 0 ? null : elapsed(Math.min(...starts), done),
+      backlogMs: first === null ? null : elapsed(Date.parse(task.createdAt), first),
+      intakeMs: first === null ? null : elapsed(first, done),
+      merges: mergedAt.length,
     })
   }
   const times = tasks.flatMap((task) => (task.doneAt === null ? [] : [Date.parse(task.doneAt)]))
@@ -219,6 +299,7 @@ export function dashboardReport(
   const to = windows ? windows.to : asOf
   const current = period(
     tasks,
+    merges,
     from,
     to,
     from === null
@@ -231,6 +312,7 @@ export function dashboardReport(
   const previous = windows
     ? period(
         tasks,
+        merges,
         windows.previous.from,
         windows.previous.to,
         windows.previousDay === null
@@ -241,7 +323,9 @@ export function dashboardReport(
     : null
   const selected = new Set([
     ...current.taskIds,
+    ...current.merged.taskIds,
     ...(previous?.taskIds ?? []),
+    ...(previous?.merged.taskIds ?? []),
     ...(previous?.buckets.flatMap((b) => b.taskIds) ?? []),
     ...unavailableIds,
   ])
@@ -251,6 +335,7 @@ export function dashboardReport(
     factoryIds: [...factoryIds],
     tasks: tasks.filter((task) => selected.has(task.id)),
     unavailableIds,
+    open,
     current,
     previous,
     comparison:
@@ -258,7 +343,9 @@ export function dashboardReport(
         ? null
         : {
             completed: change(current.taskIds.length, previous.taskIds.length),
+            merged: change(current.merged.count, previous.merged.count),
             created: change(current.created.value, previous.created.value),
+            backlog: change(current.backlog.value, previous.backlog.value),
             intake: change(current.intake.value, previous.intake.value),
           },
     flow: dashboardFlow(

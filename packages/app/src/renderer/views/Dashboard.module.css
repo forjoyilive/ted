@@ -28,8 +28,95 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 18px;
   align-items: stretch;
-  grid-auto-rows: minmax(510px, auto);
   margin-top: 20px;
+}
+
+.wide {
+  grid-column: 1 / -1;
+}
+
+.figure {
+  padding: 18px 20px 12px;
+}
+
+.figure + .figure {
+  border-top: 1px solid var(--border-subtle);
+}
+
+.figure h2 {
+  margin: 0 0 6px;
+  font-size: var(--text-14);
+  font-weight: var(--weight-semibold);
+}
+
+.smallValue {
+  font-size: var(--text-22);
+}
+
+.split {
+  display: flex;
+  gap: 2px;
+  height: 14px;
+  margin: 14px 0 8px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--surface-inset);
+}
+
+.split button {
+  flex-basis: 0;
+  min-width: 4px;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+}
+
+.split button:hover {
+  filter: brightness(0.9);
+}
+
+.split button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.backlog {
+  background: var(--chart-aquamarine);
+}
+
+.intake {
+  background: var(--chart-sapphire);
+}
+
+.splitLabels {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-bottom: 8px;
+}
+
+.splitLabels .link {
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+}
+
+.splitLabels i {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  margin-right: 5px;
+  border-radius: 2px;
+  vertical-align: -1px;
+}
+
+.splitLabels strong {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
+
+.splitLabels .change {
+  margin: 2px 0 0;
 }
 
 .panel {
@@ -137,24 +224,55 @@
   font-size: var(--text-10);
 }
 
-.legend i {
+.chart i.swatch {
   display: inline-block;
-  width: 15px;
+  width: 9px;
+  height: 9px;
   margin-right: 5px;
-  border-top: 2px solid var(--accent-default);
-  vertical-align: middle;
+  border: none;
+  border-radius: 2px;
+  vertical-align: -1px;
 }
 
 .legend .previousKey {
-  border-top-color: var(--text-muted);
-  border-top-style: dashed;
+  display: inline-block;
+  width: 15px;
+  margin-right: 5px;
+  border-top: 2px dashed var(--text-muted);
+  vertical-align: middle;
 }
 
 .chart svg {
   display: block;
   width: 100%;
-  height: 185px;
+  height: auto;
+  min-height: 200px;
   overflow: visible;
+}
+
+.column {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+}
+
+.column:hover,
+.column:focus-visible {
+  background: var(--surface-inset);
+}
+
+.column:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.bar {
+  pointer-events: none;
 }
 
 .chart text {
@@ -173,21 +291,15 @@
   stroke-width: 1px;
   stroke-dasharray: 2 3;
 }
-.currentLine,
 .previousLine {
   fill: none;
-  stroke: var(--accent-default);
-  stroke-width: 2.3px;
-  stroke-linejoin: round;
-}
-
-.previousLine {
   stroke: var(--text-muted);
   stroke-width: 1.8px;
   stroke-dasharray: 5 4;
+  stroke-linejoin: round;
+  pointer-events: none;
 }
 
-.point,
 .previousPoint {
   display: grid;
   place-items: center;
@@ -200,37 +312,23 @@
   cursor: pointer;
 }
 
-.point::before,
 .previousPoint::before {
   content: "";
-  width: 9px;
-  height: 9px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: var(--accent-default);
+  background: var(--text-muted);
   transition: transform 80ms ease-out;
 }
 
-.previousPoint::before {
-  background: var(--text-muted);
-}
-
-.point:focus-visible,
 .previousPoint:focus-visible {
   outline: none;
 }
 
-.point:hover::before,
-.point:focus-visible::before,
 .previousPoint:hover::before,
 .previousPoint:focus-visible::before {
   outline: 2px solid var(--focus-ring);
   transform: scale(1.3);
-}
-
-.guideLine {
-  stroke: var(--text-muted);
-  stroke-width: 1px;
-  stroke-dasharray: 2 3;
 }
 
 .tooltip {
@@ -703,8 +801,8 @@
   margin-left: 7px;
   padding: 2px 5px;
   border-radius: var(--radius-control);
-  background: var(--status-waiting-bg);
-  color: var(--status-warning-text);
+  background: var(--chart-amethyst-bg);
+  color: var(--chart-amethyst-text);
   font-size: var(--text-10);
 }
 
@@ -852,10 +950,10 @@
   display: inline-block;
   margin-left: 8px;
   padding: 1px 6px;
-  border: 1px solid var(--status-warning-border);
+  border: 1px solid var(--chart-amethyst-border);
   border-radius: 5px;
-  background: var(--status-waiting-bg);
-  color: var(--status-warning-text);
+  background: var(--chart-amethyst-bg);
+  color: var(--chart-amethyst-text);
   font-size: var(--text-10);
   white-space: nowrap;
 }

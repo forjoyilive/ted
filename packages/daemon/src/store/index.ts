@@ -5401,7 +5401,21 @@ export async function openStore({
       return task
     },
     dashboard(factoryIds, range, asOf = Date.now()) {
-      return readDashboard(store, factoryIds, range, asOf, observationSessionId)
+      const shown = new Set(factoryIds)
+      const reads = taskReads(true)
+      const statuses = new Map(
+        store
+          .query(allTasks)
+          .filter(
+            (row) =>
+              shown.has(row.factoryId) &&
+              row.archivedAt === null &&
+              !row.setup &&
+              row.stage !== 'done',
+          )
+          .map((row) => [row.id, toTask(row, false, reads).status?.kind]),
+      )
+      return readDashboard(store, factoryIds, range, asOf, observationSessionId, statuses)
     },
     listStageEntries: (taskId) =>
       store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc'))).map(toStageEntry),

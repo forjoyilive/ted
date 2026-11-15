@@ -3,6 +3,7 @@ import type {
   DashboardRange,
   DashboardReport,
   FlowSendBack,
+  TaskStatusKind,
   ValidationSnapshot,
 } from '@ted/protocol'
 import { type DashboardTaskFacts, dashboardReport, rangeWindows } from '../dashboard.ts'
@@ -13,6 +14,7 @@ import {
   checkResults,
   checkRuns,
   factories,
+  pullRequests,
   type schema,
   sendBacks,
   taskLog,
@@ -52,6 +54,7 @@ export function readDashboard(
   range: DashboardRange,
   asOf: number,
   sessionId: string,
+  statuses: ReadonlyMap<string, TaskStatusKind | undefined> = new Map(),
 ): DashboardReport {
   const keys = new Map(
     store
@@ -72,6 +75,7 @@ export function readDashboard(
     string,
     DashboardTaskFacts & {
       entries: { stage: string; at: string; sequence: number }[]
+      merges: string[]
       transitions: { stage: string; at: string; sequence: number }[]
       archives: string[]
       judgments: FlowJudgment[]
@@ -80,6 +84,7 @@ export function readDashboard(
     }
   >()
   for (const row of rows) {
+    const status = statuses.get(row.id)
     facts.set(row.id, {
       id: row.id,
       factoryId: row.factoryId,
@@ -90,7 +95,9 @@ export function readDashboard(
       archivedAt: row.archivedAt,
       setup: row.setup,
       stage: row.stage,
+      ...(status !== undefined && { status }),
       entries: [],
+      merges: [],
       transitions: [],
       archives: [],
       judgments: [],
@@ -190,6 +197,11 @@ export function readDashboard(
           cause: row.cause,
           ...(order !== undefined && { sequence: order }),
         })
+    }
+    for (const row of store.query(
+      queryDb(pullRequests.where({ taskId: { op: 'IN', value: ids }, state: 'merged' })),
+    )) {
+      if (row.mergedAt !== null) facts.get(row.taskId)?.merges.push(row.mergedAt)
     }
     const runs = store.query(queryDb(checkRuns.where({ taskId: { op: 'IN', value: ids } })))
     const checks = new Map<string, FlowCheck>()

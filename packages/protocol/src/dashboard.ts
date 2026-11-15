@@ -1,5 +1,6 @@
 export type DashboardRange = 'today' | '7d' | '30d' | 'all'
-export type DashboardMetric = 'completed' | 'created' | 'intake'
+export type DashboardMetric = 'completed' | 'merged' | 'created' | 'backlog' | 'intake'
+export type DashboardDuration = 'created' | 'backlog' | 'intake'
 
 export interface DashboardTask {
   id: string
@@ -9,7 +10,9 @@ export interface DashboardTask {
   archived: boolean
   doneAt: string | null
   createdMs: number | null
+  backlogMs: number | null
   intakeMs: number | null
+  merges: number
 }
 
 export interface DashboardSample {
@@ -18,18 +21,27 @@ export interface DashboardSample {
   missingIds: string[]
 }
 
+export interface DashboardMerged {
+  count: number
+  taskIds: string[]
+}
+
 export interface DashboardBucket {
   from: string
   to: string
   taskIds: string[]
+  merged: DashboardMerged
   created: DashboardSample
+  backlog: DashboardSample
   intake: DashboardSample
 }
 
 export interface DashboardFactoryPeriod {
   factoryId: string
   taskIds: string[]
+  merged: DashboardMerged
   created: DashboardSample
+  backlog: DashboardSample
   intake: DashboardSample
 }
 
@@ -37,7 +49,9 @@ export interface DashboardPeriod {
   from: string | null
   to: string
   taskIds: string[]
+  merged: DashboardMerged
   created: DashboardSample
+  backlog: DashboardSample
   intake: DashboardSample
   buckets: DashboardBucket[]
   byFactory: DashboardFactoryPeriod[]
@@ -48,12 +62,24 @@ export interface DashboardChange {
   percent: number | null
 }
 
+export type DashboardOpenState = 'working' | 'waiting-on-you' | 'blocked' | 'backlog' | 'other'
+
+export interface DashboardOpenTask {
+  id: string
+  factoryId: string
+  displayId: string
+  title: string
+  stage: string
+  state: DashboardOpenState
+}
+
 export interface DashboardReport {
   asOf: string
   range: DashboardRange
   factoryIds: string[]
   tasks: DashboardTask[]
   unavailableIds: string[]
+  open: DashboardOpenTask[]
   current: DashboardPeriod
   previous: DashboardPeriod | null
   comparison: Record<DashboardMetric, DashboardChange> | null

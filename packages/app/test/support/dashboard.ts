@@ -5,10 +5,16 @@ export function dashboardFixture(empty = false): DashboardReport {
     from: '2026-11-01T12:00:00.000Z',
     to: '2026-11-08T12:00:00.000Z',
     taskIds: empty ? [] : ['t1', 't2'],
+    merged: { count: empty ? 0 : 3, taskIds: empty ? [] : ['t1', 't2'] },
     created: {
       value: empty ? null : 72_000_000,
       taskIds: empty ? [] : ['t1', 't2'],
       missingIds: [],
+    },
+    backlog: {
+      value: empty ? null : 18_000_000,
+      taskIds: empty ? [] : ['t1'],
+      missingIds: empty ? [] : ['t2'],
     },
     intake: {
       value: empty ? null : 18_000_000,
@@ -19,14 +25,23 @@ export function dashboardFixture(empty = false): DashboardReport {
     byFactory: [],
   }
   current.byFactory = [
-    { factoryId: 'nb', taskIds: current.taskIds, created: current.created, intake: current.intake },
+    {
+      factoryId: 'nb',
+      taskIds: current.taskIds,
+      merged: current.merged,
+      created: current.created,
+      backlog: current.backlog,
+      intake: current.intake,
+    },
   ]
   current.buckets = [
     {
       from: current.from ?? '',
       to: current.to,
       taskIds: current.taskIds,
+      merged: current.merged,
       created: current.created,
+      backlog: current.backlog,
       intake: current.intake,
     },
   ]
@@ -34,7 +49,9 @@ export function dashboardFixture(empty = false): DashboardReport {
     from: '2026-10-25T12:00:00.000Z',
     to: '2026-11-01T12:00:00.000Z',
     taskIds: [],
+    merged: { count: 0, taskIds: [] },
     created: { value: null, taskIds: [], missingIds: [] },
+    backlog: { value: null, taskIds: [], missingIds: [] },
     intake: { value: null, taskIds: [], missingIds: [] },
     buckets: [],
     byFactory: [],
@@ -81,9 +98,31 @@ export function dashboardFixture(empty = false): DashboardReport {
     current,
     previous,
     unavailableIds: [],
+    open: empty
+      ? []
+      : [
+          {
+            id: 't3',
+            factoryId: 'nb',
+            displayId: 'NB-3',
+            title: 'Open Task',
+            stage: 'work',
+            state: 'working',
+          },
+          {
+            id: 't4',
+            factoryId: 'nb',
+            displayId: 'NB-4',
+            title: 'Answer me',
+            stage: 'review',
+            state: 'waiting-on-you',
+          },
+        ],
     comparison: {
       completed: { absolute: empty ? 0 : 2, percent: null },
+      merged: { absolute: empty ? 0 : 3, percent: null },
       created: { absolute: null, percent: null },
+      backlog: { absolute: null, percent: null },
       intake: { absolute: null, percent: null },
     },
     tasks: empty
@@ -97,7 +136,9 @@ export function dashboardFixture(empty = false): DashboardReport {
             archived: true,
             doneAt: '2026-11-07T12:00:00.000Z',
             createdMs: 36_000_000,
+            backlogMs: 18_000_000,
             intakeMs: 18_000_000,
+            merges: 2,
           },
           {
             id: 't2',
@@ -107,7 +148,9 @@ export function dashboardFixture(empty = false): DashboardReport {
             archived: false,
             doneAt: '2026-11-06T12:00:00.000Z',
             createdMs: 108_000_000,
+            backlogMs: null,
             intakeMs: null,
+            merges: 1,
           },
         ],
   }
