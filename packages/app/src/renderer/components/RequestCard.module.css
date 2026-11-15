@@ -3,9 +3,16 @@
   flex-direction: column;
   gap: 10px;
   padding: 14px 14px 12px;
-  border: 1px solid var(--status-waiting-fg);
+  border: 1px solid var(--border-default);
   border-radius: 10px;
   background: var(--surface-card);
+}
+
+.card:not(.readOnly) > .headRow {
+  margin: -14px -14px 2px;
+  padding: 8px 14px;
+  border-radius: 9px 9px 0 0;
+  background: var(--status-waiting-bg);
 }
 
 .head {
@@ -242,10 +249,6 @@
   white-space: pre-wrap;
 }
 
-.readOnly {
-  border-color: var(--border-default);
-}
-
 .answeredHead {
   display: flex;
   align-items: baseline;
@@ -277,8 +280,8 @@
 }
 
 
-.failedCard {
-  border-color: var(--status-failed-fg);
+.failedCard:not(.readOnly) > .headRow {
+  background: var(--status-failed-bg);
 }
 
 .failedKind {

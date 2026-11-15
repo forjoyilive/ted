@@ -314,8 +314,15 @@
 }
 
 .permission[data-open='true'] {
-  border-color: var(--status-waiting-fg);
+  border-color: var(--border-default);
   background: var(--surface-card);
+}
+
+.permission[data-open='true'] > .permissionHead {
+  margin: -8px -10px 0;
+  padding: 6px 10px;
+  border-radius: calc(var(--radius-control) - 1px) calc(var(--radius-control) - 1px) 0 0;
+  background: var(--status-waiting-bg);
 }
 
 .permissionHead {
