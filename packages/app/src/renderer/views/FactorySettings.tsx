@@ -416,15 +416,7 @@ export function FactorySettings({
               )}
               {inRepo && view?.invalid && <InvalidNotice invalid={view.invalid} />}
               {section === 'general' && <GeneralSection factory={factory} />}
-              {section === 'linear-intake' && (
-                <LinearIntakeSection key={factory.id} factoryId={factory.id} />
-              )}
-              {section === 'asana-intake' && (
-                <AsanaIntakeSection key={factory.id} factoryId={factory.id} />
-              )}
-              {section === 'github-intake' && (
-                <GitHubIntakeSection key={factory.id} factoryId={factory.id} />
-              )}
+              {section === 'intake' && <IntakeSection key={factory.id} factoryId={factory.id} />}
               {inRepo && !view && !loadError && (
                 <div className={styles.wideSection}>
                   <Skeleton shape="settings" label="Loading Factory settings…" />
@@ -624,6 +616,22 @@ function SectionHeading({
       {help !== undefined && <Help>{help}</Help>}
       <Chip where={where} />
     </div>
+  )
+}
+
+function IntakeSection({ factoryId }: { factoryId: string }) {
+  return (
+    <section className={`${styles.section} ${styles.compactSection}`} aria-labelledby="intake">
+      <SectionHeading id="intake" setting="factory.intake" title="Intake" where="machine" />
+      <span className={styles.caption}>
+        Choose which issues and tasks Automations can bring into this Factory.
+      </span>
+      <div className={styles.intakeGroups}>
+        <GitHubIntakeSection factoryId={factoryId} />
+        <LinearIntakeSection factoryId={factoryId} />
+        <AsanaIntakeSection factoryId={factoryId} />
+      </div>
+    </section>
   )
 }
 

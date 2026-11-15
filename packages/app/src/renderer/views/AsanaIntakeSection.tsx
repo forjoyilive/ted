@@ -302,18 +302,10 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
   }
 
   return (
-    <section
-      className={`${styles.section} ${styles.compactSection}`}
-      aria-labelledby={`${id}-heading`}
-    >
-      <div className={styles.sectionHeading} id="asana-intake" data-setting="factory.asana-intake">
-        <h2 id={`${id}-heading`} className={styles.sectionTitle}>
-          Asana intake
-        </h2>
-        <span className={styles.machineChip}>
-          Saved on {navigator.userAgent.includes('Mac') ? 'this Mac' : 'this computer'}
-        </span>
-      </div>
+    <section className={styles.section} aria-labelledby={`${id}-heading`}>
+      <h3 id={`${id}-heading`} className={styles.groupLabel} data-setting="factory.intake.asana">
+        Asana
+      </h3>
       <span className={styles.caption}>
         Choose which Asana tasks Automations can bring into this Factory.
       </span>
@@ -331,7 +323,7 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
           {scope ? ' The saved choice stays as it is.' : ''}
         </p>
       ) : (
-        <div className={styles.section} data-setting="factory.asana-intake.scope">
+        <div className={styles.section} data-setting="factory.intake.asana.scope">
           <div className={styles.autoStartRow}>
             <span className={styles.label}>Import Asana work into this Factory</span>
             <Toggle
@@ -393,31 +385,33 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
           {saveError} The saved choice stays as it was.
         </p>
       )}
-      {connected === true && (
+      {connected === true && dirty && (
         <div className={styles.addActions}>
           <Button variant="primary" disabled={!canSave} onClick={() => void save()}>
             Save
           </Button>
-          {dirty && (
-            <Button
-              disabled={saving}
-              onClick={() => {
-                setDraft(undefined)
-                setSaveError(undefined)
-              }}
-            >
-              Cancel
-            </Button>
-          )}
+          <Button
+            disabled={saving}
+            onClick={() => {
+              setDraft(undefined)
+              setSaveError(undefined)
+            }}
+          >
+            Cancel
+          </Button>
         </div>
       )}
-      <span className={styles.caption} role="status">
-        {saving ? 'Saving…' : settings ? `Saved: ${savedLabel}` : 'Loading saved choice…'}
-      </span>
-      <span className={styles.caption}>
-        When its Automation runs, Asana intake imports unfinished tasks assigned to you in this
-        project or section, with the tasks under them. Existing Tasks stay as they are.
-      </span>
+      {(saving || dirty || !settings) && (
+        <span className={styles.caption} role="status">
+          {saving ? 'Saving…' : settings ? `Saved: ${savedLabel}` : 'Loading saved choice…'}
+        </span>
+      )}
+      {connected === true && choice.on && (
+        <span className={styles.caption}>
+          When its Automation runs, Asana intake imports unfinished tasks assigned to you in this
+          project or section, with the tasks under them. Existing Tasks stay as they are.
+        </span>
+      )}
     </section>
   )
 })

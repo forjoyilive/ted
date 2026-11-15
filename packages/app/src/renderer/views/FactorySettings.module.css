@@ -315,6 +315,17 @@
   font-size: var(--text-12-5);
 }
 
+.intakeGroups {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.intakeGroups > section + section {
+  padding-top: 18px;
+  border-top: 1px solid var(--border-subtle);
+}
+
 .groupLabel {
   display: flex;
   align-items: center;
