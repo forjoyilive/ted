@@ -151,7 +151,6 @@ export const ted = {
   restartToUpdate: () => request('restartToUpdate'),
   copyCrashReport: () => request('copyCrashReport'),
   runFix: (input: RunFixRequest) => request('runFix', input),
-  importAsanaConfiguration: (inFile?: boolean) => request('importAsanaConfiguration', inFile),
   authorizeAsana: () => request('authorizeAsana'),
   openAsanaSetup: () => request('openAsanaSetup'),
   openLinearKeyPage: () => request('openLinearKeyPage'),

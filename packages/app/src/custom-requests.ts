@@ -14,7 +14,6 @@ import type { LoginItemState } from './login-item.ts'
 import type { UpdateStatus } from './updates.ts'
 
 export interface CustomRequests {
-  importAsanaConfiguration: (inFile?: boolean) => Promise<AsanaStatus>
   authorizeAsana: () => Promise<AsanaStatus>
   openAsanaSetup: () => Promise<void>
   openWorker: () => Promise<void>

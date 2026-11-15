@@ -1,5 +1,6 @@
 import type { AsanaProjectList, AsanaStatus } from '@ted/protocol'
-import { useEffect, useState } from 'react'
+import { asanaScopes } from '@ted/protocol/asana'
+import { useEffect, useId, useState } from 'react'
 import dialogStyles from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
@@ -40,10 +41,38 @@ export function AsanaGroup() {
   const [confirmation, setConfirmation] = useState<{
     title: string
     text: string
-    work: () => Promise<AsanaStatus>
+    run: () => void
   }>()
   function confirm(title: string, text: string, work: () => Promise<AsanaStatus>) {
-    setConfirmation({ title, text, work })
+    setConfirmation({ title, text, run: () => act(work) })
+  }
+  const fieldId = useId()
+  const [clientId, setClientId] = useState('')
+  const [clientSecret, setClientSecret] = useState('')
+  const [replacing, setReplacing] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const pasting = status !== undefined && (!status.configured || replacing)
+  const noKeyring = status?.storageProblem === 'no-keyring'
+  useEffect(() => {
+    if (!copied) return
+    const timer = setTimeout(() => setCopied(false), 1500)
+    return () => clearTimeout(timer)
+  }, [copied])
+  function copyRedirect(url: string) {
+    void ted.copyText(url).then(() => setCopied(true))
+  }
+  function save(inFile: boolean) {
+    act(async () => {
+      const next = await ted.configureAsana({
+        clientId: clientId.trim(),
+        clientSecret: clientSecret.trim(),
+        inFile,
+      })
+      setClientId('')
+      setClientSecret('')
+      setReplacing(false)
+      return next
+    })
   }
   useEffect(() => {
     let active = true
@@ -93,9 +122,9 @@ export function AsanaGroup() {
                 <Button
                   variant="danger"
                   onClick={() => {
-                    const work = confirmation.work
+                    const run = confirmation.run
                     setConfirmation(undefined)
-                    act(work)
+                    run()
                   }}
                 >
                   Continue
@@ -106,36 +135,70 @@ export function AsanaGroup() {
         </Dialog>
       )}
       <div className={styles.row}>
-        <details>
+        <details key={pasting ? 'setup' : 'configured'} open={pasting} className={own.setup}>
           <summary>Set up your own Asana app</summary>
+          <ol className={own.steps}>
+            <li>
+              Open Asana’s developer console and click <b>Create new app</b>. Name it TED.
+              <br />
+              <button
+                type="button"
+                className={styles.link}
+                onClick={() => void ted.openAsanaSetup()}
+              >
+                Open Asana developer console ↗
+              </button>
+            </li>
+            <li>
+              Under <b>OAuth</b>, add this redirect URL exactly:
+              <span className={own.copyLine}>
+                <code className={own.code}>{status?.redirectUri ?? 'Loading…'}</code>
+                {status?.redirectUri && (
+                  <Button size="small" onClick={() => copyRedirect(status.redirectUri)}>
+                    {copied ? 'Copied' : 'Copy'}
+                  </Button>
+                )}
+              </span>
+            </li>
+            <li>
+              Under <b>OAuth</b> → <b>Permission scopes</b>, turn on:
+              <span className={own.scopes}>
+                {asanaScopes.map((scope) => (
+                  <code key={scope} className={own.code}>
+                    {scope}
+                  </code>
+                ))}
+              </span>
+              <span className={own.note}>
+                TED reads tasks and their files to import them, and writes comments and completes
+                tasks only when Task Sync is on.
+              </span>
+            </li>
+            <li>
+              Under <b>Manage distribution</b>, choose <b>Specific workspace</b> and add your
+              workspace.
+            </li>
+            <li>
+              Copy the <b>Client ID</b> and <b>Client secret</b> from <b>OAuth</b> and paste them
+              below.
+            </li>
+          </ol>
           <p className={styles.explain}>
-            Create an app in Asana’s developer console. Make it available in your workspace under
-            Manage distribution. Use a separate registration for TED Dev.
+            TED and TED Dev each need an app of their own, because their redirect URLs differ.
           </p>
-          <p className={styles.explain}>
-            Register this exact redirect URL: {status?.redirectUri ?? 'Loading…'}
-          </p>
-          <p className={styles.explain}>
-            Enable users:read, workspaces:read, projects:read, tasks:read, attachments:read,
-            stories:read, tasks:write and stories:write. These permissions prepare for future import
-            and sync; connecting alone writes no tasks.
-          </p>
-          <p className={styles.explain}>
-            Create a private JSON file outside repos with client_id and client_secret. Set its
-            permissions to 0600, import it below, then delete the temporary file. TED keeps the
-            secret and refresh credentials in your OS keyring.
-          </p>
-          <Button onClick={() => void ted.openAsanaSetup()}>Asana setup instructions ↗</Button>
         </details>
         <p role="status" className={styles.explain}>
           {status?.state === 'authorizing'
             ? 'Waiting for browser authorization…'
-            : status?.user
-              ? `Connected as ${status.user.name} · ${status.user.email}`
-              : status?.configured
-                ? 'App configured. Connect to authorize your account.'
-                : 'Import your app configuration to get started.'}
+            : replacing
+              ? 'Paste the new app’s client ID and secret.'
+              : status?.user
+                ? `Connected as ${status.user.name} · ${status.user.email}`
+                : status?.configured
+                  ? 'App configured. Connect to authorize your account.'
+                  : 'Set up an Asana app, then paste its client ID and secret.'}
           {status?.storedIn === 'file' &&
+            !pasting &&
             ' Credentials are stored in a private file in your TED home folder.'}
         </p>
         {(problem || status?.error) && (
@@ -143,75 +206,120 @@ export function AsanaGroup() {
             {problem ?? status?.error}
           </p>
         )}
-        <div className={own.controls}>
-          <Button
-            disabled={busy || status?.state === 'authorizing'}
-            onClick={() =>
-              status?.configured
-                ? confirm(
-                    'Replace Asana configuration?',
-                    'This disconnects the current account and replaces the registered app. You will need to authorize again.',
-                    () => ted.importAsanaConfiguration(),
+        {pasting && (
+          <>
+            <div className={own.fields}>
+              <label htmlFor={`${fieldId}-id`}>Client ID</label>
+              <input
+                id={`${fieldId}-id`}
+                className={styles.field}
+                spellCheck={false}
+                autoComplete="off"
+                inputMode="numeric"
+                value={clientId}
+                onChange={(event) => setClientId(event.target.value)}
+              />
+              <label htmlFor={`${fieldId}-secret`}>Client secret</label>
+              <input
+                id={`${fieldId}-secret`}
+                className={styles.field}
+                type="password"
+                spellCheck={false}
+                autoComplete="off"
+                value={clientSecret}
+                onChange={(event) => setClientSecret(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') save(noKeyring)
+                }}
+              />
+            </div>
+            {noKeyring && (
+              <p className={styles.explain}>
+                No keyring is available on this computer. TED can keep the secret in a private file
+                in its home folder instead.
+              </p>
+            )}
+            <div className={own.controls}>
+              <Button variant="primary" disabled={busy} onClick={() => save(noKeyring)}>
+                {noKeyring ? 'Save in a file only you can read' : 'Save'}
+              </Button>
+              {replacing && (
+                <Button disabled={busy} onClick={() => setReplacing(false)}>
+                  Cancel
+                </Button>
+              )}
+            </div>
+          </>
+        )}
+        {!pasting && (
+          <div className={own.controls}>
+            {status?.configured && status.state !== 'authorizing' && (
+              <Button
+                variant="primary"
+                disabled={busy}
+                onClick={() =>
+                  status.user
+                    ? confirm(
+                        'Reconnect Asana?',
+                        'This disconnects the current account first. Canceling browser authorization leaves TED disconnected.',
+                        ted.authorizeAsana,
+                      )
+                    : act(ted.authorizeAsana)
+                }
+              >
+                {status.user ? 'Reconnect as another user' : 'Connect'}
+              </Button>
+            )}
+            {status?.state === 'authorizing' && (
+              <Button disabled={busy} onClick={() => act(ted.cancelAsana)}>
+                Cancel authorization
+              </Button>
+            )}
+            {status?.user && (
+              <>
+                <Button disabled={busy} onClick={() => act(ted.testAsana)}>
+                  Test connection
+                </Button>
+                <Button disabled={busy} onClick={() => act(ted.disconnectAsana)}>
+                  Disconnect
+                </Button>
+              </>
+            )}
+            {status?.configured && status.state !== 'authorizing' && (
+              <Button
+                disabled={busy}
+                onClick={() =>
+                  setConfirmation({
+                    title: 'Replace the Asana app?',
+                    text: 'Saving a new app’s client ID and secret disconnects the current account. You then click Connect to authorize again.',
+                    run: () => {
+                      setProblem(undefined)
+                      setReplacing(true)
+                    },
+                  })
+                }
+              >
+                Replace app
+              </Button>
+            )}
+            {status?.configured && (
+              <Button
+                variant="danger"
+                disabled={busy}
+                onClick={() =>
+                  confirm(
+                    'Remove Asana configuration?',
+                    'This disconnects the account and deletes its tokens and client secret. To connect again, set up the app again.',
+                    ted.removeAsana,
                   )
-                : act(() => ted.importAsanaConfiguration())
-            }
-          >
-            Import app configuration
-          </Button>
-          {status?.storageProblem === 'no-keyring' && (
-            <Button disabled={busy} onClick={() => act(() => ted.importAsanaConfiguration(true))}>
-              Import and store in a private file
-            </Button>
-          )}
-          {status?.configured && status.state !== 'authorizing' && (
-            <Button
-              variant="primary"
-              disabled={busy}
-              onClick={() =>
-                status.user
-                  ? confirm(
-                      'Reconnect Asana?',
-                      'This disconnects the current account first. Canceling browser authorization leaves TED disconnected.',
-                      ted.authorizeAsana,
-                    )
-                  : act(ted.authorizeAsana)
-              }
-            >
-              {status.user ? 'Reconnect as another user' : 'Connect'}
-            </Button>
-          )}
-          {status?.state === 'authorizing' && (
-            <Button disabled={busy} onClick={() => act(ted.cancelAsana)}>
-              Cancel authorization
-            </Button>
-          )}
-          {status?.user && (
-            <>
-              <Button disabled={busy} onClick={() => act(ted.testAsana)}>
-                Test connection
+                }
+              >
+                Remove configuration
               </Button>
-              <Button disabled={busy} onClick={() => act(ted.disconnectAsana)}>
-                Disconnect
-              </Button>
-            </>
-          )}
-          {status?.configured && (
-            <Button
-              variant="danger"
-              disabled={busy}
-              onClick={() =>
-                confirm(
-                  'Remove Asana configuration?',
-                  'This disconnects the account and deletes its tokens and client secret. To connect again, import your app configuration.',
-                  ted.removeAsana,
-                )
-              }
-            >
-              Remove configuration
-            </Button>
-          )}
-        </div>
-        {status?.user && (
+            )}
+          </div>
+        )}
+        {status?.user && !pasting && (
           <p className={styles.explain}>
             Reconnect first disconnects this account. Canceling leaves TED disconnected. Disconnect
             retains app configuration; Remove configuration deletes it too.

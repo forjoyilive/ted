@@ -3,6 +3,7 @@ import http from 'node:http'
 import {
   type AsanaConfiguration,
   type AsanaStatus,
+  asanaScopes,
   edition,
   parseAsanaConfiguration,
 } from '@ted/protocol'
@@ -11,16 +12,6 @@ import { RequestError } from '../errors.ts'
 import { type Keyring, KeyringUnavailableError } from '../linear/keyring.ts'
 import { CredentialCleanupError, type Credentials, credentialStore } from './credentials.ts'
 
-export const asanaScopes = [
-  'users:read',
-  'workspaces:read',
-  'projects:read',
-  'tasks:read',
-  'attachments:read',
-  'stories:read',
-  'tasks:write',
-  'stories:write',
-]
 export interface AsanaOptions {
   home: string
   keyring: Keyring

@@ -57,7 +57,7 @@ import {
   Tray,
 } from 'electron'
 import { appIconPng } from './app-icon.ts'
-import { authorizeAsana, importAsanaConfiguration } from './asana.ts'
+import { authorizeAsana } from './asana.ts'
 import { showAttachmentInFolder } from './attachment-preview.ts'
 import {
   appMenu,
@@ -272,9 +272,8 @@ const requests = {
     if ('url' in result) await openIntegrationInstructions(result.url, shell.openExternal)
     return result
   },
-  importAsanaConfiguration: (client, inFile) => importAsanaConfiguration(client, dialog, inFile),
   authorizeAsana: (client) => authorizeAsana(client, shell.openExternal),
-  openAsanaSetup: () => shell.openExternal('https://developers.asana.com/docs/oauth'),
+  openAsanaSetup: () => shell.openExternal('https://app.asana.com/0/my-apps'),
   openLinearKeyPage: () => shell.openExternal(linearKeyPage),
   openWorker: async () => workerWindow.open(),
   getAutomation,
@@ -308,7 +307,6 @@ const requests = {
   | 'showTedFolder'
   | 'chooseProfilePicture'
   | 'runFix'
-  | 'importAsanaConfiguration'
   | 'authorizeAsana'
   | 'openAsanaSetup'
   | 'openLinearKeyPage'
