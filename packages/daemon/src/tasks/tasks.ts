@@ -10570,10 +10570,7 @@ export function createTasks(options: {
       failureLead(ref, caller, (task, runId) => failures.request(task, id, runId)),
     async resolveFailure(ref, id, input) {
       const task = find(ref)
-      await untilFree(task.id)
-      while (input.resolution === 'repair' && inFlight.is(task.id, 'transition'))
-        await untilFree(task.id)
-      return holding(find(task.id), () =>
+      return holdingSignoff(task, () =>
         input.resolution === 'repair'
           ? waitForRepair(find(task.id), id, input)
           : validation.resolve(find(task.id), id, input),
