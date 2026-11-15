@@ -10,7 +10,7 @@ import type {
 } from '@ted/protocol'
 import { type TaskWaitReason, taskIsMerged, taskPauses, taskWaitReasons } from '../tasks/status.ts'
 import type { LoggedEvent } from './index.ts'
-import type { intervalBoundaries } from './interval-schema.ts'
+import { type intervalBoundaries, isSubAgentRequested } from './interval-schema.ts'
 
 export function taskIntervalHistory(input: {
   taskId: string
@@ -434,7 +434,7 @@ function durableWaits(input: {
   for (const event of [...timeline.values()].sort((a, b) => eventOrder(a.id) - eventOrder(b.id))) {
     if (event.at > input.asOf) continue
     const data = event.data
-    if (event.name === 'v1.SubAgentRequested')
+    if (isSubAgentRequested(event.name))
       pendingRuns.set(String(data.queuedRunId), String(data.agent))
     if (event.name === 'v1.SubAgentRequestDropped') pendingRuns.delete(String(data.id))
     if (typeof data.intervalBlockerId === 'string') {

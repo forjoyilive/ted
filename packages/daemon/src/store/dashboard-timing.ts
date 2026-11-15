@@ -3,7 +3,7 @@ import type { CheckRun, CommentAnswer, CommentKind, TestInvocation } from '@ted/
 import type { FlowTimingFacts } from '../dashboard-timing.ts'
 import { checkRunTiming } from './check-timing.ts'
 import type { LoggedEvent } from './index.ts'
-import { intervalBoundaries } from './interval-schema.ts'
+import { intervalBoundaries, isSubAgentRequested } from './interval-schema.ts'
 import {
   checkBoundaries,
   checkResults,
@@ -71,7 +71,7 @@ export function readDashboardTiming(
       queryDb(runs.select('id', 'taskId', 'agent').where({ taskId: { op: 'IN', value: ids } })),
     )
     const queued = taskRows
-      .filter((r) => r.name === 'v1.SubAgentRequested')
+      .filter((r) => isSubAgentRequested(r.name))
       .map((r) => `sub-agent:${String(JSON.parse(r.data).queuedRunId)}`)
     const extra = chunks([...ownRuns.map((r) => `run:${r.id}`), ...queued]).flatMap((subjects) =>
       store.query(queryDb(intervalBoundaries.where({ subject: { op: 'IN', value: subjects } }))),
@@ -200,7 +200,7 @@ export function readDashboardTiming(
             ...own,
             ...taskRuns.flatMap((r) => boundaries.get(`run:${r.id}`) ?? []),
             ...own
-              .filter((r) => r.name === 'v1.SubAgentRequested')
+              .filter((r) => isSubAgentRequested(r.name))
               .flatMap(
                 (r) => boundaries.get(`sub-agent:${String(JSON.parse(r.data).queuedRunId)}`) ?? [],
               ),

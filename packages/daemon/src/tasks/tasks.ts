@@ -230,6 +230,7 @@ import {
   setupInstructions,
   stageTitle,
   taskLeadPrompt,
+  taskLeadSharedTexts,
 } from '../workflow/workflow.ts'
 import type { WorkflowResolution, Workflows } from '../workflow/workflows.ts'
 import { answerMessage } from './answer-message.ts'
@@ -4185,6 +4186,7 @@ export function createTasks(options: {
   ): Promise<string> {
     const items = chatItems({
       run,
+      prompt: store.runPrompt(run.id),
       entries: parsedOutput(runs.output, agents, run).chat.entries(),
       messages: store.runMessages(run.id),
       interrupts: store.runInterrupts(run.id),
@@ -5164,7 +5166,13 @@ export function createTasks(options: {
         ? [nextStageMessage(resolution.workflow, current.stage as AgentStageId)]
         : []),
     ].join('\n\n')
-    return { prompt, cwd, waiting, overnight: overnightMode }
+    return {
+      prompt,
+      cwd,
+      waiting,
+      overnight: overnightMode,
+      shared: taskLeadSharedTexts(resolution.workflow, current.stage as AgentStageId),
+    }
   }
 
   function scheduleRepairChecks(taskId: string): void {

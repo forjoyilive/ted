@@ -74,6 +74,24 @@ export async function preambleText(): Promise<string> {
   )
 }
 
+export async function fixedPromptTexts(): Promise<string[]> {
+  return [
+    ...(await Promise.all([preambleText(), subAgentPreamble()]).catch(() => [])),
+    writingGuidance,
+  ]
+}
+
+export function taskLeadSharedTexts(workflow: ResolvedWorkflow, stage: AgentStageId): string[] {
+  return [
+    ...(workflow.stageFile(stage) ? [stageFileText(workflow, stage)] : []),
+    ...(workflow.notes?.trim() ? [factoryNotesText(workflow.notes)] : []),
+  ]
+}
+
+function factoryNotesText(notes: string): string {
+  return `# Factory notes\n\n${notes.trim()}`
+}
+
 export async function setupInstructions(
   tutorial: boolean,
 ): Promise<(stage: AgentStageId) => string> {
@@ -135,7 +153,7 @@ export async function taskLeadPrompt(
     await preambleText(),
     ...(repos && repos.factory.length > 1 ? [reposText(repos)] : []),
     stageFileText(workflow, stage),
-    ...(workflow.notes?.trim() ? [`# Factory notes\n\n${workflow.notes.trim()}`] : []),
+    ...(workflow.notes?.trim() ? [factoryNotesText(workflow.notes)] : []),
     `# Your Task: ${task.displayId}\n\n${task.title}`,
     ...(task.description !== '' ? [task.description] : []),
     ...(task.original !== undefined

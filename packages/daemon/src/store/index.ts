@@ -146,9 +146,10 @@ import { createOperationStore, type OperationStore } from './execution-operation
 import { createPairingStore, type PairingStore } from './execution-pairing.ts'
 import { createFailureStore, type FailureStore } from './failures.ts'
 import { eventCount, eventlogFile, storeId } from './files.ts'
-import { intervalBoundaries } from './interval-schema.ts'
+import { intervalBoundaries, isSubAgentRequested } from './interval-schema.ts'
 import { createPlanStore, type PlanStore } from './plans.ts'
 import { countMaterialized } from './progress.ts'
+import { joinPrompt, type PromptPart, splitPrompt } from './prompt-parts.ts'
 import { legacyPurpose, structuralPurpose } from './request-purpose.ts'
 import {
   agentPauses,
@@ -183,6 +184,7 @@ import {
   planRequests,
   plans,
   planTasks,
+  promptTexts,
   pullRequests,
   requestSnoozes,
   reviewers,
@@ -199,6 +201,7 @@ import {
   severityDeclarations,
   stageEntries,
   stageFileTexts,
+  subAgentInstructions,
   subAgentRequests,
   taskAttachments,
   taskBlockers,
@@ -1071,7 +1074,9 @@ export interface TedStore extends TaskHistory {
     parentRunId?: string
     name?: string
     permissions?: PermissionMode
+    shared?: readonly string[]
   }): Run
+  runPrompt(runId: string): string
   failRun(runId: string, error: string): void
   requestSubAgent(request: Omit<SubAgentRequest, 'at'>): SubAgentRequest
   subAgentRequests(taskId?: string): SubAgentRequest[]
@@ -2278,7 +2283,18 @@ export async function openStore({
     ...task
   }: StoredTask): Task => task
 
+  const promptTextCache = new Map<string, string>()
+  const promptText = (hash: string): string | undefined => {
+    const cached = promptTextCache.get(hash)
+    if (cached !== undefined) return cached
+    const text = store.query(queryDb(promptTexts.select('text').where({ hash }))).at(0)
+    if (text !== undefined) promptTextCache.set(hash, text)
+    return text
+  }
+
   const toRun = ({
+    prompt: _prompt,
+    promptParts: _promptParts,
     readOffset: _,
     lastOutputAt: _lastOutputAt,
     taskId,
@@ -5654,7 +5670,7 @@ export async function openStore({
         queryDb(intervalBoundaries.where({ subject: `task:${taskId}` })),
       )
       const queuedRunIds = taskBoundaries
-        .filter((b) => b.name === 'v1.SubAgentRequested')
+        .filter((b) => isSubAgentRequested(b.name))
         .map((b) => String(JSON.parse(b.data).queuedRunId))
       return taskIntervalHistory({
         taskId,
@@ -5999,8 +6015,18 @@ export async function openStore({
       permissions = 'auto',
       parentRunId,
       name,
+      prompt,
+      shared = [],
       ...input
     }) {
+      const instructions = store
+        .query(queryDb(subAgentInstructions.select('text').where({ id: input.id })))
+        .at(0)
+      const { parts, texts } = splitPrompt(
+        prompt,
+        shared,
+        instructions === undefined ? undefined : { id: input.id, text: instructions },
+      )
       const row = {
         ...input,
         sessionId: sessionId ?? '',
@@ -6011,13 +6037,17 @@ export async function openStore({
         name: name ?? null,
         startedAt: new Date().toISOString(),
       }
+      const unseen = [...texts].filter(([hash]) => promptText(hash) === undefined)
       commit(
-        events.runStartedV4(row),
+        ...unseen.map(([hash, text]) => events.promptTextSeen({ hash, text, at: row.startedAt })),
+        events.runStartedV5({ ...row, promptParts: parts }),
         events.runPermissionsSet({ runId: row.id, permissions, at: row.startedAt }),
       )
       observedRuns.add(row.id)
       const run = toRun({
         ...row,
+        prompt: '',
+        promptParts: JSON.stringify(parts),
         retrying: false,
         steeringRelease: null,
         usesDefaultModel: false,
@@ -6037,6 +6067,16 @@ export async function openStore({
       noteActivity()
       return run
     },
+    runPrompt(runId) {
+      const row = store
+        .query(queryDb(runs.select('prompt', 'promptParts').where({ id: runId })))
+        .at(0)
+      if (row === undefined) return ''
+      if (row.promptParts === null) return row.prompt
+      return joinPrompt(JSON.parse(row.promptParts) as PromptPart[], promptText, (id) =>
+        store.query(queryDb(subAgentInstructions.select('text').where({ id }))).at(0),
+      )
+    },
     failRun(runId, error) {
       commit(events.runFailed({ runId, error, at: new Date().toISOString() }))
       const row = runRow(runId)
@@ -6047,7 +6087,12 @@ export async function openStore({
     requestSubAgent({ model, effort, ...request }) {
       const at = new Date().toISOString()
       commit(
-        events.subAgentRequested({ ...request, model: model ?? null, effort: effort ?? null, at }),
+        events.subAgentRequestedV2({
+          ...request,
+          model: model ?? null,
+          effort: effort ?? null,
+          at,
+        }),
       )
       updatedTask(request.taskId)
       return {

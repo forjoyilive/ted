@@ -45,7 +45,8 @@ export interface Run {
   problem?: RunProblem
   permissions: PermissionMode
   manualPermissions?: boolean
-  prompt: string
+  /** Only `GET /runs/:id` fills this; Run events and lists leave it out. */
+  prompt?: string
   cwd: string
   taskId?: string
   parentRunId?: string
