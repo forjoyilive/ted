@@ -9,6 +9,7 @@ import type {
   DashboardReport,
   DashboardTask,
   Factory,
+  FactoryLayout,
 } from '@ted/protocol'
 import { dashboardRange, dashboardRanges } from '@ted/protocol/dashboard'
 import {
@@ -20,6 +21,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { ActionButton } from '../components/ActionButton.tsx'
 import { FactoryIcon } from '../components/FactoryIcon.tsx'
 import { CloseIcon } from '../components/icons.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
@@ -28,18 +30,21 @@ import {
   type DashboardSelection,
   type DashboardViewState,
   dashboardPanels,
+  pickFactories,
   rangeComparison,
   rangeLabels,
   rememberDashboard,
   shownFactoryIds,
 } from '../dashboard.ts'
 import { useDashboard, useSettings } from '../data.ts'
+import { emptyLayout, groups } from '../factory-layout.ts'
 import { stageName } from '../list-view.ts'
 import { formatDate } from '../time.ts'
 import styles from './Dashboard.module.css'
 import { apiEquivalent, Cost, costSample, money } from './DashboardCost.tsx'
 import { Stages } from './DashboardStages.tsx'
-import { CheckItem, MenuButton } from './TaskList.tsx'
+import listStyles from './TaskList.module.css'
+import { CheckItem, FilterIcon, MenuButton } from './TaskList.tsx'
 import views from './views.module.css'
 
 const labels: Record<DashboardMetric, string> = {
@@ -1278,21 +1283,25 @@ const factoryColor = (factory: Factory | undefined) => {
 
 function FactoriesMenu({
   factories,
+  layout,
   shown,
   onChoose,
 }: {
   factories: readonly Factory[]
+  layout: FactoryLayout
   shown: readonly string[] | undefined
   onChoose: (ids: readonly string[] | undefined) => void
 }) {
-  const showing = (id: string) => shown === undefined || shown.includes(id)
-  const toggle = (id: string) => {
-    const now = factories.filter((f) => showing(f.id)).map((f) => f.id)
-    const next = showing(id) ? now.filter((other) => other !== id) : [...now, id]
-    if (next.length > 0) onChoose(next)
-  }
+  const known = (ids: readonly string[]) =>
+    factories.filter((f) => ids.includes(f.id)).map((f) => f.id)
+  const withFactories = groups(layout)
+    .map((group) => ({ group, ids: known(group.factoryIds) }))
+    .filter(({ ids }) => ids.length > 0)
+  const chosen = (ids: readonly string[]) =>
+    shown !== undefined && ids.every((id) => shown.includes(id))
+  const pick = (ids: readonly string[]) => onChoose(pickFactories(shown, ids, factories))
   return (
-    <MenuButton label="Factories" icon={null} {...(shown && { badge: shown.length })}>
+    <MenuButton label="Filter" icon={<FilterIcon />} {...(shown && { badge: shown.length })}>
       {() => (
         <>
           <CheckItem
@@ -1300,16 +1309,38 @@ function FactoriesMenu({
             checked={shown === undefined}
             onChange={() => onChoose(undefined)}
           />
+          <div className={listStyles.menuDivider} />
+          {withFactories.map(({ group, ids }) => (
+            <CheckItem
+              key={`group:${group.id}`}
+              label={group.name}
+              checked={chosen(ids)}
+              onChange={() => pick(ids)}
+            />
+          ))}
+          {withFactories.length > 0 && <div className={listStyles.menuDivider} />}
           {factories.map((factory) => (
             <CheckItem
               key={factory.id}
               label={factory.name}
               icon={<FactoryIcon factory={factory} size={16} />}
-              checked={showing(factory.id)}
-              disabled={shown?.length === 1 && showing(factory.id)}
-              onChange={() => toggle(factory.id)}
+              checked={chosen([factory.id])}
+              onChange={() => pick([factory.id])}
             />
           ))}
+          {shown !== undefined && (
+            <>
+              <div className={listStyles.menuDivider} />
+              <ActionButton
+                type="button"
+                role="menuitem"
+                className={listStyles.menuItem}
+                onClick={() => onChoose(undefined)}
+              >
+                <span className={listStyles.menuLabel}>Clear filter</span>
+              </ActionButton>
+            </>
+          )}
         </>
       )}
     </MenuButton>
@@ -1532,8 +1563,10 @@ export function Dashboard({
   onChange,
   onOpenTask,
   banners,
+  layout = emptyLayout,
 }: {
   factories: readonly Factory[]
+  layout?: FactoryLayout
   state: DashboardViewState
   onChange: (state: DashboardViewState) => void
   onOpenTask: (id: string) => void
@@ -1575,7 +1608,12 @@ export function Dashboard({
         <h1 className={views.title}>{scope} › Dashboard</h1>
         <span className={views.headerSpacer} />
         {factories.length > 1 && (
-          <FactoriesMenu factories={factories} shown={factoryIds} onChoose={choose} />
+          <FactoriesMenu
+            factories={factories}
+            layout={layout}
+            shown={factoryIds}
+            onChoose={choose}
+          />
         )}
         <Select
           aria-label="Historical period"
