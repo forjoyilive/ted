@@ -6,23 +6,15 @@ export function Tooltip({
   ref,
   id,
   className,
-  popover,
   children,
 }: {
   ref?: Ref<HTMLSpanElement>
   id?: string
   className?: string | undefined
-  popover?: 'manual'
   children: ReactNode
 }) {
   return (
-    <span
-      ref={ref}
-      className={`${styles.tooltip} ${className ?? ''}`}
-      role="tooltip"
-      id={id}
-      popover={popover}
-    >
+    <span ref={ref} className={`${styles.tooltip} ${className ?? ''}`} role="tooltip" id={id}>
       {children}
     </span>
   )
@@ -38,7 +30,10 @@ export function Help({ children, align }: { children: ReactNode; align?: 'end' }
     const anchor = button.current
     const bubble = tip.current
     if (!open || !anchor || !bubble) return
-    bubble.showPopover?.()
+    if (typeof bubble.showPopover === 'function') {
+      bubble.popover = 'manual'
+      bubble.showPopover()
+    }
     const place = () => {
       const { left, top } = besideAnchor(
         anchor.getBoundingClientRect(),
@@ -78,7 +73,7 @@ export function Help({ children, align }: { children: ReactNode; align?: 'end' }
         ?
       </button>
       {open && (
-        <Tooltip ref={tip} id={id} className={styles.floating} popover="manual">
+        <Tooltip ref={tip} id={id} className={styles.floating}>
           {children}
         </Tooltip>
       )}
