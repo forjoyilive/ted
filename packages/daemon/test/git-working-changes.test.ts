@@ -13,6 +13,7 @@ import {
   ownCommits,
   workingChanges,
 } from '../src/git.ts'
+import { worktreeReads } from '../src/tasks/worktree-reads.ts'
 
 const run = promisify(execFile)
 let dir: string
@@ -398,4 +399,35 @@ test('a commit is found by its short or full hash and read against its first par
   expect(merged?.parents).toHaveLength(2)
   expect(merged?.files.map((f) => f.path)).toEqual(['main.txt'])
   expect(await commitDiff(repo, '0'.repeat(12))).toBeUndefined()
+})
+
+test('one operation reads a worktree once, and again when HEAD or the base tip moves', async () => {
+  await taskBranch()
+  const reads = worktreeReads()
+
+  const first = await reads.changes(repo, 'main')
+  expect(await reads.changes(repo, 'main')).toBe(first)
+  expect(first.files.map((f) => f.path)).toEqual(['src/search/SearchPanel.tsx'])
+
+  await commit({ 'notes.md': 'more\n' }, 'more work')
+  const committed = await reads.changes(repo, 'main')
+  expect(committed.head).toBe(await git('rev-parse', 'HEAD'))
+  expect(committed.files.map((f) => f.path)).toEqual(['notes.md', 'src/search/SearchPanel.tsx'])
+  expect(await reads.changes(repo, 'main')).toBe(committed)
+
+  await git('branch', '-f', 'main', 'main~1')
+  const moved = await reads.changes(repo, 'main')
+  expect(moved).not.toBe(committed)
+  expect(moved.base).toBe(await git('rev-parse', 'main'))
+
+  await write({ 'draft.md': 'not committed\n' })
+  expect(await reads.changes(repo, 'main')).toBe(moved)
+  const another = await worktreeReads().changes(repo, 'main')
+  expect(another.files.map((f) => f.path)).toContain('draft.md')
+  reads.forget()
+  expect((await reads.changes(repo, 'main')).files.map((f) => f.path)).toContain('draft.md')
+
+  await expect(reads.changes(repo, 'missing-branch')).rejects.toThrow()
+  await git('branch', 'missing-branch', 'main')
+  expect((await reads.changes(repo, 'missing-branch')).base).toBe(await git('rev-parse', 'main'))
 })

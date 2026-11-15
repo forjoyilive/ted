@@ -2,7 +2,6 @@ import { mkdir, open, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { type CheckResult, type CheckState, checkFailed, checkLabel } from '@ted/protocol'
 import { loginShell, worktreeCommandEnv } from '../command-env.ts'
-import * as git from '../git.ts'
 import { type MemoryWatch, memoryKill } from '../memory-kills.ts'
 import { redactSecrets } from '../redact.ts'
 import type { PlannedCheck } from '../store/index.ts'
@@ -11,6 +10,7 @@ import type { CheckSettings } from '../workflow/check.ts'
 import { checkWorkflowPath } from '../workflow/check-path.ts'
 import { type CommandLaunch, runTaskCommand } from './command.ts'
 import { durationMs } from './worktree.ts'
+import { readChanges, type WorktreeReads } from './worktree-reads.ts'
 
 export const defaultCheckTimeout = '10m'
 export const tedSettingsCheck = 'TED settings'
@@ -45,12 +45,16 @@ export async function planChecks(input: {
   repos: readonly CheckRepo[]
   primary: string
   only?: string
+  reads?: WorktreeReads
 }): Promise<RunnableCheck[]> {
   const changes = new Map<string, string[] | undefined>()
   for (const repo of input.repos) {
     changes.set(
       repo.name,
-      await git.changedFiles(repo.worktree, `origin/${repo.baseBranch}`).catch(() => undefined),
+      await readChanges(input.reads, repo.worktree, `origin/${repo.baseBranch}`).then(
+        (changes) => changes.files.map((f) => f.path),
+        () => undefined,
+      ),
     )
   }
   const changed = (name: string) => {

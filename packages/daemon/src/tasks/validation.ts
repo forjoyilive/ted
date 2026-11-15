@@ -21,14 +21,20 @@ import { type CheckRunnerResult, type RunnableCheck, runChecks, summary } from '
 import type { CommandLaunch } from './command.ts'
 import { type createFailureCases, generatedFailureText } from './failure-cases.ts'
 import { sameCheckPlan, validationReport } from './validation-report.ts'
+import { type WorktreeReads, worktreeReads } from './worktree-reads.ts'
 
 interface ValidationOptions {
   store: TedStore
   failures: ReturnType<typeof createFailureCases>
   find(id: string): StoredTask
-  context(task: Task): Promise<Pick<FailureContext, 'repos' | 'checks'>>
+  context(task: Task, reads?: WorktreeReads): Promise<Pick<FailureContext, 'repos' | 'checks'>>
   workflow(task: StoredTask): Promise<WorkflowResolution>
-  plan(task: StoredTask, resolution: WorkflowResolution, only?: string): Promise<RunnableCheck[]>
+  plan(
+    task: StoredTask,
+    resolution: WorkflowResolution,
+    only?: string,
+    reads?: WorktreeReads,
+  ): Promise<RunnableCheck[]>
   checkSandbox(task: StoredTask): Promise<void>
   prepareLaunch(task: StoredTask): Promise<CommandLaunch>
   reportingEnv?: (
@@ -94,9 +100,9 @@ export function createValidation(options: ValidationOptions) {
       repos: context.repos.map(({ repo, head, tree }) => ({ repo, head, tree })),
       checks: context.checks,
     })
-  const coverage = async (task: Task) =>
+  const coverage = async (task: Task, reads?: WorktreeReads) =>
     options
-      .context(task)
+      .context(task, reads)
       .then(coverageOf)
       .catch(() => undefined)
   const codeOf = (covered: string) => JSON.stringify(JSON.parse(covered).repos)
@@ -178,6 +184,7 @@ export function createValidation(options: ValidationOptions) {
     resolution: WorkflowResolution,
     trigger: CheckRunTrigger,
     only?: string,
+    reads: WorktreeReads = worktreeReads(),
   ): Promise<{ checkRun: CheckRun; done: Promise<CheckRunnerResult> } | undefined> {
     const hold = store.newWorkHold()
     if (hold) throw new RequestError(409, hold)
@@ -199,7 +206,7 @@ export function createValidation(options: ValidationOptions) {
       (visitStart(task) !== '' &&
         only === undefined &&
         order.indexOf(task.stage as AgentStageId) > order.indexOf('validate'))
-    let plan = await options.plan(task, resolution, merging ? undefined : only)
+    let plan = await options.plan(task, resolution, merging ? undefined : only, reads)
     if (plan.length === 0) {
       if (tracking) {
         store.failures.saveProgress({
@@ -218,7 +225,7 @@ export function createValidation(options: ValidationOptions) {
     let start = 0
     let contextId: string | undefined
     if (tracking) {
-      const local = await coverage(task)
+      const local = await coverage(task, reads)
       const context = diagnosing ? await failures.snapshot(task).catch(() => undefined) : undefined
       if (context) contextId = store.failures.capture(context).id
       if (context) await failures.obligations(task, context)
@@ -576,9 +583,10 @@ export function createValidation(options: ValidationOptions) {
     task: StoredTask,
     resolution: WorkflowResolution,
     { run: checked, coverage: tested }: HandOffChecks,
+    reads: WorktreeReads,
   ): Promise<boolean> {
-    const plan = await options.plan(task, resolution)
-    const local = await coverage(task)
+    const plan = await options.plan(task, resolution, undefined, reads)
+    const local = await coverage(task, reads)
     if (
       checked.outcome !== 'passed' ||
       !local ||
@@ -617,7 +625,8 @@ export function createValidation(options: ValidationOptions) {
         const apps = current.setup ? await options.apps(current) : undefined
         return apps === undefined ? text : `${text}\n\n${apps}`
       }
-      if (checked && (await adoptHandOff(task, resolution, checked))) {
+      const reads = worktreeReads()
+      if (checked && (await adoptHandOff(task, resolution, checked, reads))) {
         await options.deliver(
           task,
           await withApps(
@@ -626,7 +635,7 @@ export function createValidation(options: ValidationOptions) {
         )
         return
       }
-      const started = await beginChecks(task, resolution, 'validate')
+      const started = await beginChecks(task, resolution, 'validate', undefined, reads)
       if (!started) {
         const progress = store.failures.progress(taskId)
         const report = progress
@@ -833,6 +842,7 @@ export function createValidation(options: ValidationOptions) {
     task: StoredTask,
     refreshPending = false,
     mergedOnGitHub = false,
+    reads: WorktreeReads = worktreeReads(),
   ): Promise<boolean> {
     const progress = store.failures.progress(task.id)
     if (task.stage === 'done') return true
@@ -854,11 +864,11 @@ export function createValidation(options: ValidationOptions) {
       )
         return false
       if (progress.checks.every((c) => c.state === 'skipped')) return true
-      const local = await coverage(task)
+      const local = await coverage(task, reads)
       return local !== undefined && tested !== undefined && codeOf(local) === codeOf(tested)
     }
     const resolution = await options.workflow(task)
-    const plan = await options.plan(task, resolution)
+    const plan = await options.plan(task, resolution, undefined, reads)
     const samePlan =
       progress.visit === visitStart(task) &&
       sameCheckPlan(progress.checks) === sameCheckPlan(plan.map((p) => p.check)) &&
@@ -866,7 +876,7 @@ export function createValidation(options: ValidationOptions) {
     const skipped =
       progress.checks.every((c) => c.state === 'skipped') &&
       plan.every((p) => p.check.state === 'skipped')
-    const local = samePlan && !skipped ? await coverage(task) : undefined
+    const local = samePlan && !skipped ? await coverage(task, reads) : undefined
     if (samePlan && (skipped || (local && tested === local)))
       return !progress.pending && progress.next >= progress.checks.length
     store.failures.saveProgress({
@@ -961,8 +971,12 @@ export function createValidation(options: ValidationOptions) {
     )
   }
 
-  async function requireCoverage(task: StoredTask, mergedOnGitHub = false): Promise<void> {
-    if (await currentCoverage(task, false, mergedOnGitHub)) return
+  async function requireCoverage(
+    task: StoredTask,
+    mergedOnGitHub = false,
+    reads?: WorktreeReads,
+  ): Promise<void> {
+    if (await currentCoverage(task, false, mergedOnGitHub, reads)) return
     const progress = store.failures.progress(task.id)
     if (progress && !progress.pending && progress.next < progress.checks.length)
       throw new RequestError(
