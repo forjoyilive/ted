@@ -631,6 +631,7 @@ export {
   listSorts,
   type StatusFilter,
 } from './list-view.ts'
+export type { MemoryGroup, MemoryPart, MemoryUse } from './memory.ts'
 export {
   emptyMessageDraft,
   type MessageBox,

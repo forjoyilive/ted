@@ -24,6 +24,14 @@ export function bridge(given: Record<string, Handler>) {
     tedStops: () => [],
     listTasks: () => [],
     guides: () => [],
+    memoryUse: () => ({
+      daemon: { bytes: 900 * 1024 ** 2, heapBytes: 0, externalBytes: 0 },
+      hosts: { count: 2, bytes: 150 * 1024 ** 2 },
+      agents: { count: 2, bytes: 700 * 1024 ** 2 },
+      other: { count: 0, bytes: 0 },
+      store: { eventLogBytes: 0, stateBytes: 0 },
+      app: { count: 4, bytes: 590 * 1024 ** 2 },
+    }),
     ...given,
   }
   const listeners = new Set<(event: TedEvent) => void>()

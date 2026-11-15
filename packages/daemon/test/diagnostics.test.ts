@@ -4,6 +4,7 @@ import path from 'node:path'
 import {
   type Diagnostics,
   type LogText,
+  type MemoryUse,
   type ProcessUsage,
   type Run,
   type TokenUse,
@@ -88,6 +89,20 @@ describe('Diagnostics', () => {
     expect(Object.keys(usage).sort()).toEqual(['cpuPercent', 'memoryBytes'])
     expect(usage.cpuPercent).toBeGreaterThanOrEqual(0)
     expect(usage.memoryBytes).toBeGreaterThan(owned.reduce((sum, p) => sum + p.memoryBytes, 0) / 2)
+
+    const memory = (await client.call('GET', '/diagnostics/memory')).body as MemoryUse
+    expect(memory.hosts.count).toBe(1)
+    expect(memory.agents.count).toBe(1)
+    for (const bytes of [
+      memory.daemon.bytes,
+      memory.daemon.heapBytes,
+      memory.hosts.bytes,
+      memory.agents.bytes,
+      memory.store.eventLogBytes,
+      memory.store.stateBytes,
+    ]) {
+      expect(bytes).toBeGreaterThan(0)
+    }
 
     const ended = await client.startRun(
       [{ endTurn: true, usage: { input_tokens: 7, output_tokens: 3 } }, { exit: 0 }],
@@ -183,6 +198,7 @@ describe('Diagnostics', () => {
     for (const route of [
       '/diagnostics',
       '/diagnostics/usage',
+      '/diagnostics/memory',
       '/diagnostics/report',
       '/logs/daemon',
       '/runs/run-1/raw',

@@ -156,6 +156,7 @@ import type {
   LinearStatus,
   SaveLinearKeyRequest,
 } from './linear.ts'
+import type { MemoryUse } from './memory.ts'
 import type { MessageBox, MessageDraftState, SaveMessageDraftRequest } from './message-draft.ts'
 import type { PeerDetail, PeerInbox, PeerMessage, PeerPage, SendPeerMessage } from './peers.ts'
 import type {
@@ -1367,6 +1368,10 @@ export class DaemonClient {
 
   getProcessUsage(): Promise<ProcessUsage> {
     return this.#request('GET', '/diagnostics/usage')
+  }
+
+  getMemoryUse(): Promise<MemoryUse> {
+    return this.#request('GET', '/diagnostics/memory')
   }
 
   getReport(): Promise<{ text: string }> {

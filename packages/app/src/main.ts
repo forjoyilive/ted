@@ -246,6 +246,16 @@ const requests = {
   copyReport: async (client) => {
     clipboard.writeText((await client.getReport()).text)
   },
+  memoryUse: async (client) => {
+    const metrics = app.getAppMetrics()
+    return {
+      ...(await client.getMemoryUse()),
+      app: {
+        count: metrics.length,
+        bytes: metrics.reduce((sum, metric) => sum + metric.memory.workingSetSize * 1024, 0),
+      },
+    }
+  },
   tedFolder: async () => {
     const folder = tedHome()
     const home = homedir()
@@ -302,6 +312,7 @@ const requests = {
   | 'thirdPartyLicenses'
   | 'quit'
   | 'copyReport'
+  | 'memoryUse'
   | 'tedFolder'
   | 'showBackupInFolder'
   | 'showTedFolder'

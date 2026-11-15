@@ -24,6 +24,7 @@
     "./storage": "./src/storage.ts",
     "./slots": "./src/slots.ts",
     "./slow": "./src/slow.ts",
+    "./memory": "./src/memory.ts",
     "./checks": "./src/checks.ts",
     "./failures": "./src/failures.ts",
     "./changes": "./src/changes.ts",

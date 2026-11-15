@@ -6,6 +6,8 @@ import { promisify } from 'node:util'
 import {
   type Diagnostics,
   type LogText,
+  type MemoryGroup,
+  type MemoryUse,
   type ProcessInfo,
   type ProcessUsage,
   type Run,
@@ -20,6 +22,7 @@ import { runFiles } from './runs/host-files.ts'
 import { parsedOutput } from './runs/parsed-output.ts'
 import { type RunManager, startRecord } from './runs/run-manager.ts'
 import type { RunOutputReader } from './runs/run-output.ts'
+import { storeFileSizes } from './store/files.ts'
 import type { TedStore } from './store/index.ts'
 
 const execFileAsync = promisify(execFile)
@@ -151,6 +154,34 @@ export async function processUsage(
   return {
     cpuPercent: owned.reduce((sum, p) => sum + p.cpuPercent, 0),
     memoryBytes: owned.reduce((sum, p) => sum + p.memoryBytes, 0),
+  }
+}
+
+export async function memoryUse(
+  sources: Pick<DiagnosticsSources, 'home' | 'store'>,
+): Promise<MemoryUse> {
+  const live = sources.store.liveRuns()
+  const [owned, starts, store] = await Promise.all([
+    ownedProcesses(sources.home, live),
+    Promise.all(live.map((run) => startRecord(path.join(sources.home, 'runs', run.id)))),
+    storeFileSizes(tedPaths(sources.home).store),
+  ])
+  const hostPids = new Set(starts.flatMap((start) => (start ? [start.hostPid] : [])))
+  const group = (rows: ProcessInfo[], count = rows.length): MemoryGroup => ({
+    count,
+    bytes: rows.reduce((sum, row) => sum + row.memoryBytes, 0),
+  })
+  const agents = owned.filter((row) => row.owner !== 'daemon' && !hostPids.has(row.pid))
+  const usage = process.memoryUsage()
+  return {
+    daemon: { bytes: usage.rss, heapBytes: usage.heapUsed, externalBytes: usage.external },
+    hosts: group(owned.filter((row) => hostPids.has(row.pid))),
+    agents: group(
+      agents,
+      new Set(agents.map((row) => (row.owner === 'daemon' ? '' : row.owner.runId))).size,
+    ),
+    other: group(owned.filter((row) => row.owner === 'daemon' && row.pid !== process.pid)),
+    store,
   }
 }
 

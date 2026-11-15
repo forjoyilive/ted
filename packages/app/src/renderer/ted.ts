@@ -137,6 +137,7 @@ export const ted = {
   quit: () => request('quit'),
   chooseProfilePicture: () => request('chooseProfilePicture'),
   copyReport: () => request('copyReport'),
+  memoryUse: () => request('memoryUse'),
   tedFolder: () => request('tedFolder'),
   showTedFolder: () => request('showTedFolder'),
   showBackupInFolder: (name: string) => request('showBackupInFolder', name),

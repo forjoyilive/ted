@@ -266,6 +266,11 @@ const entries = {
     name: 'Developer mode',
     help: 'Shows a compact CPU and memory readout at the bottom left of the main screen, with detailed Run and daemon process readings and logs here. Readings refresh every two seconds while visible.',
   },
+  'app.developer.memory': {
+    name: 'TED’s memory use',
+    help: 'Memory used by TED’s background process (the daemon), the app, the Run hosts and the agents they run. Refreshes every two seconds while this page is open.',
+    keywords: 'RAM usage daemon app agents Run hosts',
+  },
   'app.developer.folder': { name: 'TED’s folder' },
   'app.developer.report': {
     name: 'Copy report',

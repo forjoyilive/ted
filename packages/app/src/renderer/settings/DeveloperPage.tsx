@@ -1,4 +1,5 @@
 import type { Diagnostics, LogText, ProcessInfo } from '@ted/protocol'
+import { memorySummary } from '@ted/protocol/memory'
 import { shortReference } from '@ted/protocol/reference'
 import { profileSeconds } from '@ted/protocol/slow'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -93,6 +94,7 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
   const [folderProblem, setFolderProblem] = useState<string>()
   const report = useCopyReport()
   const profile = useProfile()
+  const memory = usePolled(ted.memoryUse)
 
   useEffect(() => {
     void ted.tedFolder().then(setFolder, (error: unknown) => setFolderProblem(readableError(error)))
@@ -110,6 +112,10 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
             onChange={(developerMode) => ted.updateSettings({ developerMode })}
           />
         </SettingRow>
+        <SettingRow
+          setting="app.developer.memory"
+          detail={memory.value ? memorySummary(memory.value) : (memory.error ?? 'Reading…')}
+        />
         <SettingRow
           setting="app.developer.folder"
           detail={
