@@ -5,6 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { afterEach, expect, test } from 'vitest'
+import { sandboxReasons, skipInsideTedSandbox } from '../../daemon/test/support/ted-sandbox.ts'
 
 const exec = promisify(execFile)
 let folder: string | undefined
@@ -13,7 +14,8 @@ afterEach(async () => {
   if (folder) await rm(folder, { recursive: true, force: true })
 })
 
-test('forwards app and Electron arguments after building the renderer', async () => {
+test('forwards app and Electron arguments after building the renderer', async (context) => {
+  skipInsideTedSandbox(context, sandboxReasons.appStart)
   folder = await mkdtemp(path.join(tmpdir(), 'ted-launcher-'))
   const bin = path.join(folder, 'bin')
   const log = path.join(folder, 'commands.jsonl')

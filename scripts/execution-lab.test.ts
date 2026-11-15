@@ -16,6 +16,10 @@ import { promisify } from 'node:util'
 import { afterEach, describe, expect, it } from 'vitest'
 import { observe } from '../packages/daemon/test/support/execution-observations.ts'
 import { publishReport } from '../packages/daemon/test/support/execution-report.ts'
+import {
+  sandboxReasons,
+  skipInsideTedSandbox,
+} from '../packages/daemon/test/support/ted-sandbox.ts'
 import { parseConfig, plainPath, quote, readConfig, sshArgs } from './execution-lab/config.ts'
 import {
   contentName,
@@ -146,7 +150,8 @@ describe('lab configuration and SSH control', () => {
       controllerFixture: 'removed through owned fixture cleanup',
     })
   }, 60_000)
-  it('can recover both hosts when report allocation or publication is unavailable', async () => {
+  it('can recover both hosts when report allocation or publication is unavailable', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.tedHome)
     for (const phase of ['allocation', 'publication']) {
       const directory = await scratch()
       const value = config()
@@ -182,7 +187,8 @@ describe('lab configuration and SSH control', () => {
       expect(contacted).toEqual(['/usr/bin/env', '/usr/bin/ssh'])
     }
   })
-  it('never lets report-publication failure prevent cleanup of either deployed host', async () => {
+  it('never lets report-publication failure prevent cleanup of either deployed host', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.tedHome)
     const directory = await scratch()
     const value = config()
     value.knownHosts = `${directory}/known_hosts`
@@ -370,7 +376,8 @@ describe('lab configuration and SSH control', () => {
     expect(calls).toBe(0)
   })
 
-  it('dry-run reads only the explicit external config and never executes commands', async () => {
+  it('dry-run reads only the explicit external config and never executes commands', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.tedHome)
     const directory = await scratch()
     const checkout = path.join(directory, 'checkout')
     await mkdir(checkout)
@@ -422,7 +429,8 @@ describe('lab configuration and SSH control', () => {
       await expect(callHost(value, value.hosts[1], request, async () => output)).rejects.toThrow()
   })
 
-  it('attempts recovery on the second host even if the first host cannot complete cleanup', async () => {
+  it('attempts recovery on the second host even if the first host cannot complete cleanup', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.tedHome)
     const directory = await scratch()
     const value = config()
     value.knownHosts = `${directory}/known_hosts`
@@ -572,7 +580,8 @@ describe('candidate content and standalone overrides', () => {
     expect(await readFile(`${fixture.directory}/sibling/keep`, 'utf8')).toBe('keep')
   })
 
-  it('cleans only its owned run and preserves the root, runtime and sibling run', async () => {
+  it('cleans only its owned run and preserves the root, runtime and sibling run', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.processes)
     const fixture = await installation()
     await dispatch(fixture.request, fixture.identity)
     await mkdir(`${fixture.request.host.root}/runtime`)
@@ -594,7 +603,8 @@ describe('candidate content and standalone overrides', () => {
     expect(await readFile(`${fixture.request.host.root}/runs/sibling/keep`, 'utf8')).toBe('sibling')
   })
 
-  it('observes progress through relay disconnect, rejects an unowned PID and restarts its stub', async () => {
+  it('observes progress through relay disconnect, rejects an unowned PID and restarts its stub', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.processes)
     const fixture = await installation()
     await dispatch(fixture.request, fixture.identity)
     const act = (action: HostRequest['action']) =>

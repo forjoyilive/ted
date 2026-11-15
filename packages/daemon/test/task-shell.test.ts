@@ -34,6 +34,7 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { sandboxReasons, skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -142,7 +143,8 @@ const type = (ted: Client, task: Task, data: string) =>
   ted.ok('POST', shellRoute(task, '/input'), { data })
 
 describe('Task shell', () => {
-  test('opens the login shell in the worktree with worktree.env and TED_TASK but no TED_RUN, keeps one shell per repo across opens, and Restart starts a new one', async () => {
+  test('opens the login shell in the worktree with worktree.env and TED_TASK but no TED_RUN, keeps one shell per repo across opens, and Restart starts a new one', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.processes)
     const ted = await startTed()
     const task = await startedTask(ted)
     const repo = task.repos[0]
@@ -183,7 +185,8 @@ describe('Task shell', () => {
     expect(after).not.toContain('[kept]')
   })
 
-  test('the shell outlives the app’s connection and Stop, and ends when the worktree is removed', async () => {
+  test('the shell outlives the app’s connection and Stop, and ends when the worktree is removed', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.processes)
     const ted = await startTed()
     const task = await startedTask(ted)
     const shell = await ted.ok<TaskShell>('POST', shellRoute(task), size)
@@ -219,7 +222,8 @@ function firstShell(workspace: ShellWorkspace): TaskShell {
 }
 
 describe('Task shell panes', () => {
-  test('a split refused for a missing worktree leaves the layout intact; a PTY launch failure preserves the workspace and activity, then splitting can retry', async () => {
+  test('a split refused for a missing worktree leaves the layout intact; a PTY launch failure preserves the workspace and activity, then splitting can retry', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.processes)
     const ted = await startTed()
     const task = await startedTask(ted)
     const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
@@ -290,7 +294,8 @@ describe('Task shell panes', () => {
     }, 'removed worktree to have no live shells')
   })
 
-  test('failed Close preserves the pane and revision and can be retried', async () => {
+  test('failed Close preserves the pane and revision and can be retried', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.processes)
     const ted = await startTed()
     const task = await startedTask(ted)
     const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
@@ -329,7 +334,8 @@ describe('Task shell panes', () => {
     await waitUntil(async () => !alive(root) || undefined, 'the retried Close to end its shell')
   })
 
-  test('shutdown retries a refused pane while cleaning the remaining panes', async () => {
+  test('shutdown retries a refused pane while cleaning the remaining panes', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.processes)
     const ted = await startTed()
     const task = await startedTask(ted)
     const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
@@ -395,7 +401,8 @@ describe('Task shell panes', () => {
     }
   })
 
-  test('close, restart and reopen end a pane’s child jobs and keep its sibling; archive and shutdown end every pane’s child jobs (shell running or exited)', async () => {
+  test('close, restart and reopen end a pane’s child jobs and keep its sibling; archive and shutdown end every pane’s child jobs (shell running or exited)', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.processes)
     const ted = await startTed()
     const pids: number[] = []
     type Job = { child: number; root: number }
@@ -538,7 +545,8 @@ describe('Task shell panes', () => {
     }
   }, 90_000)
 
-  test('close and restart leave a detached, reparented service outside terminal cleanup', async () => {
+  test('close and restart leave a detached, reparented service outside terminal cleanup', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.processes)
     const ted = await startTed()
     const task = await startedTask(ted)
     const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
@@ -621,7 +629,8 @@ describe('Task shell panes', () => {
     }
   })
 
-  test('splits independent PTYs, preserves them on reopen, and restarts only the chosen pane', async () => {
+  test('splits independent PTYs, preserves them on reopen, and restarts only the chosen pane', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.processes)
     const ted = await startTed()
     const task = await startedTask(ted)
     const opened = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
@@ -653,7 +662,8 @@ describe('Task shell panes', () => {
     expect(await ted.ok('GET', '/activity')).toMatchObject({ shellsRunning: 2 })
   })
 
-  test('nested layouts retain ratios, reject stale edits, and closing the last pane stays empty', async () => {
+  test('nested layouts retain ratios, reject stale edits, and closing the last pane stays empty', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.processes)
     const ted = await startTed()
     const task = await startedTask(ted)
     expect(await ted.ok('GET', workspaceRoute(task))).toEqual({
@@ -719,7 +729,8 @@ describe('Task shell panes', () => {
     expect(firstShell(newWorkspace).id).not.toBe(first.id)
   })
 
-  test('pane limits and validation cannot create extra shells or target a different Task', async () => {
+  test('pane limits and validation cannot create extra shells or target a different Task', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.processes)
     const ted = await startTed()
     const task = await startedTask(ted)
     let ws = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
@@ -764,7 +775,8 @@ describe('Task shell panes', () => {
     expect((await ted.ok<ShellWorkspace>('GET', workspaceRoute(task))).shells).toHaveLength(8)
   })
 
-  test('closing wakes readers and worktree removal ends every pane; exited panes stay ended on reopen', async () => {
+  test('closing wakes readers and worktree removal ends every pane; exited panes stay ended on reopen', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.processes)
     const ted = await startTed()
     const task = await startedTask(ted)
     let ws = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)
@@ -835,7 +847,8 @@ describe('Task shell panes', () => {
       ).toBe(404)
   })
 
-  test('all workspace, per-pane and single-shell routes refuse file and Run tokens', async () => {
+  test('all workspace, per-pane and single-shell routes refuse file and Run tokens', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.processes)
     const ted = await startTed()
     const task = await startedTask(ted)
     const ws = await ted.ok<ShellWorkspace>('POST', workspaceRoute(task), size)

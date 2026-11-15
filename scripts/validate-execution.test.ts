@@ -26,6 +26,10 @@ import {
 } from '../packages/daemon/test/support/execution-report.ts'
 import { findMarked, killMarked } from '../packages/daemon/test/support/processes.ts'
 import {
+  sandboxReasons,
+  skipInsideTedSandbox,
+} from '../packages/daemon/test/support/ted-sandbox.ts'
+import {
   executeScenario,
   runValidation,
   type ScenarioCommand,
@@ -74,7 +78,8 @@ async function successful(command: ScenarioCommand) {
   return { code: 0, stdout: 'ok', stderr: '' }
 }
 
-test('runner selects exact files, reports metadata and observations, and cleans successful scratch', async () => {
+test('runner selects exact files, reports metadata and observations, and cleans successful scratch', async (context) => {
+  skipInsideTedSandbox(context, sandboxReasons.tedHome)
   let scratch = ''
   const result = await runValidation(options(), {
     candidate,
@@ -130,7 +135,8 @@ test('an owned lab adapter supplies its report allocator without weakening the n
   ).toMatchObject({ result: 'pass' })
 })
 
-test('nonzero command preserves bounded redacted evidence and replay argv', async () => {
+test('nonzero command preserves bounded redacted evidence and replay argv', async (context) => {
+  skipInsideTedSandbox(context, sandboxReasons.tedHome)
   const token = `ghp_${'a'.repeat(30)}`
   let scratch = ''
   const result = await runValidation(options(), {
@@ -161,7 +167,8 @@ test('nonzero command preserves bounded redacted evidence and replay argv', asyn
   await expect(access(scratch)).rejects.toThrow()
 })
 
-test('assertion details survive scratch cleanup as bounded redacted evidence', async () => {
+test('assertion details survive scratch cleanup as bounded redacted evidence', async (context) => {
+  skipInsideTedSandbox(context, sandboxReasons.tedHome)
   let failure = ''
   try {
     expect('Bearer secret-token-value').toBe('row-1-invariant')
@@ -216,9 +223,10 @@ test('assertion details survive scratch cleanup as bounded redacted evidence', a
   await expect(access(scratch)).rejects.toThrow()
 })
 
-test.each(['missing-observations', 'missing-report', 'malformed-report', 'unfinished', 'throw'])(
+test.for(['missing-observations', 'missing-report', 'malformed-report', 'unfinished', 'throw'])(
   'fails closed for %s',
-  async (mode) => {
+  async (mode, context) => {
+    skipInsideTedSandbox(context, sandboxReasons.tedHome)
     const result = await runValidation(options(), {
       candidate,
       versions,
@@ -238,7 +246,8 @@ test.each(['missing-observations', 'missing-report', 'malformed-report', 'unfini
   },
 )
 
-test('cleanup failure fails the report even when scenario passed', async () => {
+test('cleanup failure fails the report even when scenario passed', async (context) => {
+  skipInsideTedSandbox(context, sandboxReasons.tedHome)
   const result = await runValidation(options(), {
     candidate,
     versions,
@@ -252,7 +261,8 @@ test('cleanup failure fails the report even when scenario passed', async () => {
   expect(result.report.errors.join(' ')).toContain('cleanup failed')
 })
 
-test('runner cleans real fixture roots and processes after a worker crashes before teardown', async () => {
+test('runner cleans real fixture roots and processes after a worker crashes before teardown', async (context) => {
+  skipInsideTedSandbox(context, sandboxReasons.tedHome)
   let owned: { root: string; home: string } | undefined
   try {
     const result = await runValidation(options(), {
@@ -281,7 +291,8 @@ test('runner cleans real fixture roots and processes after a worker crashes befo
   }
 }, 60_000)
 
-test('skip-only run supplies no passing evidence and never invokes executor or machine discovery', async () => {
+test('skip-only run supplies no passing evidence and never invokes executor or machine discovery', async (context) => {
+  skipInsideTedSandbox(context, sandboxReasons.tedHome)
   const result = await runValidation(
     { ...options(), scenarios: ['two-mac', 'product-pairing'] },
     {
@@ -422,7 +433,8 @@ test('diagnostic redaction spans stream chunks and omits oversized lines', () =>
   expect(Buffer.byteLength(diagnostic.text)).toBeLessThan(evidenceBytes)
 })
 
-test('report publication failure rejects rather than returning pass', async () => {
+test('report publication failure rejects rather than returning pass', async (context) => {
+  skipInsideTedSandbox(context, sandboxReasons.tedHome)
   let reportRoot = ''
   await expect(
     runValidation(options(), {
