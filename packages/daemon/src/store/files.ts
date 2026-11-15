@@ -102,13 +102,18 @@ export async function checkStore(directory: string): Promise<StoreCheck> {
   }))
   const unknownEvents = names.map((row) => row.name).filter((name) => !knownEvents.has(name))
   if (unknownEvents.length > 0) return { kind: 'newer', unknownEvents }
-  const state = (await filesIn(directory)).find(
-    (file) => file.startsWith(statePrefix) && file.endsWith('.db'),
-  )
-  if (count > 0 && (!state || !stateIsComplete(path.join(directory, storeFolder, state)))) {
+  const state = await stateFile(directory)
+  if (count > 0 && (!state || !stateIsComplete(state))) {
     return { kind: 'rebuild', events: count }
   }
   return { kind: 'current' }
+}
+
+export async function stateFile(directory: string): Promise<string | undefined> {
+  const state = (await filesIn(directory)).find(
+    (file) => file.startsWith(statePrefix) && file.endsWith('.db'),
+  )
+  return state && path.join(directory, storeFolder, state)
 }
 
 export async function eventCount(directory: string): Promise<number> {
