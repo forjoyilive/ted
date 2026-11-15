@@ -28,6 +28,7 @@ import { BlockerPicker } from '../components/BlockerPicker.tsx'
 import { Button } from '../components/Button.tsx'
 import { CommentFiles } from '../components/CommentFiles.tsx'
 import { DropOverlay } from '../components/DropOverlay.tsx'
+import { FactoryPicker } from '../components/FactoryPicker.tsx'
 import { Help } from '../components/Help.tsx'
 import { ChevronIcon, CloseIcon, PaperclipIcon } from '../components/icons.tsx'
 import { ModelSelect } from '../components/ModelSelect.tsx'
@@ -626,19 +627,12 @@ function NewTaskForm({
           New Task
         </h2>
         <span className={styles.in}>in</span>
-        <Select
-          aria-label="Factory"
-          value={factory ?? ''}
-          disabled={factories.length === 0 || !ready || busy || moving || uploading > 0}
-          onChange={(event) => changeFactory(event.target.value)}
-        >
-          {factories.length === 0 && <option value="">No Factories yet</option>}
-          {factories.map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.name}
-            </option>
-          ))}
-        </Select>
+        <FactoryPicker
+          factories={factories}
+          value={factory}
+          disabled={!ready || busy || moving || uploading > 0}
+          onChange={(id) => changeFactory(id)}
+        />
         <ActionButton
           type="button"
           className={styles.close}

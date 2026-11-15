@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import type { Task } from '@ted/protocol'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
+import { FactoryPicker, nextFactoryIndex } from '../src/renderer/components/FactoryPicker.tsx'
 import { NewTaskDialog } from '../src/renderer/views/NewTaskDialog.tsx'
 import { TaskLeadField } from '../src/renderer/views/TaskLeadField.tsx'
 import { bridge, deferred, draftHandlers, user } from './support/component.ts'
@@ -37,7 +38,7 @@ async function newTask(options: { tasks?: Task[]; parentId?: string } = {}) {
 test('New Task focuses the description and closes without creating', async () => {
   const { created, close } = await newTask()
   await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Description')))
-  expect((screen.getByLabelText('Factory') as HTMLSelectElement).value).toBe('f1')
+  expect(screen.getByRole('combobox', { name: 'Factory' }).dataset.value).toBe('f1')
   await user().click(screen.getByRole('button', { name: 'Close' }))
   expect(close).toHaveBeenCalledOnce()
   expect(created).not.toHaveBeenCalled()
@@ -513,3 +514,70 @@ test.each(['stage', 'high', ''] as const)(
     )
   },
 )
+
+test('the Factory picker shows each Factory with its icon and chooses by mouse and keyboard', async () => {
+  const factories = [
+    factory({ id: 'f1', name: 'widgets' }),
+    factory({ id: 'f2', name: 'gadgets', icon: { kind: 'letter', color: 'green' } }),
+    factory({ id: 'f3', name: 'gizmos' }),
+  ]
+  const chosen = vi.fn()
+  const { rerender } = render(<FactoryPicker factories={factories} value="f1" onChange={chosen} />)
+  const picker = screen.getByRole('combobox', { name: 'Factory' })
+  expect(picker.textContent).toBe('wwidgets')
+  expect(picker.getAttribute('aria-expanded')).toBe('false')
+
+  await user().click(picker)
+  const list = screen.getByRole('listbox', { name: 'Factory' })
+  const options = within(list).getAllByRole('option')
+  expect(options.map((o) => o.textContent)).toEqual(['wwidgets', 'ggadgets', 'ggizmos'])
+  expect(options.map((o) => o.getAttribute('aria-selected'))).toEqual(['true', 'false', 'false'])
+  await user().click(within(list).getByRole('option', { name: 'gadgets' }))
+  expect(chosen).toHaveBeenLastCalledWith('f2')
+  expect(screen.queryByRole('listbox')).toBeNull()
+
+  picker.focus()
+  fireEvent.keyDown(picker, { key: 'ArrowDown' })
+  expect(picker.getAttribute('aria-activedescendant')).toBe(options[0]?.id)
+  fireEvent.keyDown(picker, { key: 'g' })
+  fireEvent.keyDown(picker, { key: 'g' })
+  fireEvent.keyDown(picker, { key: 'End' })
+  fireEvent.keyDown(picker, { key: 'ArrowUp' })
+  fireEvent.keyDown(picker, { key: 'Enter' })
+  expect(chosen).toHaveBeenLastCalledWith('f2')
+
+  chosen.mockClear()
+  fireEvent.keyDown(picker, { key: 'g' })
+  expect(chosen).toHaveBeenLastCalledWith('f2')
+  expect(screen.queryByRole('listbox')).toBeNull()
+  fireEvent.keyDown(picker, { key: 'x' })
+  expect(chosen).toHaveBeenCalledOnce()
+
+  chosen.mockClear()
+  fireEvent.keyDown(picker, { key: ' ' })
+  expect(screen.getByRole('listbox', { name: 'Factory' })).toBeTruthy()
+  expect(fireEvent.keyDown(picker, { key: 'Escape' })).toBe(false)
+  expect(screen.queryByRole('listbox')).toBeNull()
+  expect(chosen).not.toHaveBeenCalled()
+
+  rerender(<FactoryPicker factories={factories} value="f1" onChange={chosen} disabled />)
+  expect((picker as HTMLButtonElement).disabled).toBe(true)
+  rerender(<FactoryPicker factories={[]} value={undefined} onChange={chosen} />)
+  expect(picker.textContent).toBe('No Factories yet')
+  expect((picker as HTMLButtonElement).disabled).toBe(true)
+})
+
+test('nextFactoryIndex moves within the list and jumps to the next name starting with a letter', () => {
+  const names = ['widgets', 'gadgets', 'gizmos']
+  expect(nextFactoryIndex(names, 0, 'ArrowDown')).toBe(1)
+  expect(nextFactoryIndex(names, 2, 'ArrowDown')).toBe(2)
+  expect(nextFactoryIndex(names, 0, 'ArrowUp')).toBe(0)
+  expect(nextFactoryIndex(names, 1, 'Home')).toBe(0)
+  expect(nextFactoryIndex(names, 0, 'End')).toBe(2)
+  expect(nextFactoryIndex(names, 0, 'G')).toBe(1)
+  expect(nextFactoryIndex(names, 1, 'g')).toBe(2)
+  expect(nextFactoryIndex(names, 2, 'g')).toBe(1)
+  expect(nextFactoryIndex(names, 0, 'x')).toBeUndefined()
+  expect(nextFactoryIndex(names, 0, 'Shift')).toBeUndefined()
+  expect(nextFactoryIndex([], 0, 'ArrowDown')).toBeUndefined()
+})

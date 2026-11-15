@@ -100,7 +100,9 @@ describe('New Task dialog', () => {
     const open = dialog(window)
     await open.waitFor()
     const [factory] = await (await daemonClient()).listFactories()
-    expect(await open.getByLabel('Factory').inputValue()).toBe(factory?.id)
+    expect(await open.getByRole('combobox', { name: 'Factory' }).getAttribute('data-value')).toBe(
+      factory?.id,
+    )
     await expect.poll(() => isFocused(window)).toBe(true)
     await window.keyboard.press('Escape')
     await open.waitFor({ state: 'detached' })
