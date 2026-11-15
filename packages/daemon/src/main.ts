@@ -42,12 +42,14 @@ const demoLinear =
 const asanaApi = tedEnv('TED_ASANA_API')
 const linearApi = demoLinear?.url || tedEnv('TED_LINEAR_API')
 
-let daemon: RunningDaemon | undefined
+let starting: Promise<RunningDaemon> | undefined
 let stopping = false
 
 async function shutdown(): Promise<void> {
   if (stopping) return
   stopping = true
+  const daemon = await starting?.catch(() => null)
+  if (daemon === null) return
   await daemon?.stop((step) => console.log(`stopping TED’s daemon: ${step}`))
   console.log('TED’s daemon stopped')
   await demoLinear?.close()
@@ -75,7 +77,7 @@ const ghBin = tedEnv('TED_GH_BIN')
 const fixLog = tedEnv('TED_FIX_LOG')
 
 try {
-  daemon = await startDaemon({
+  starting = startDaemon({
     home: tedHome(),
     version: tedVersion,
     ...(edition === 'dev' &&
@@ -128,6 +130,7 @@ try {
       },
     }),
   })
+  const daemon = await starting
   console.log(`TED daemon ${tedVersion} listening on 127.0.0.1:${daemon.port}`)
 } catch (error) {
   await demoLinear?.close()

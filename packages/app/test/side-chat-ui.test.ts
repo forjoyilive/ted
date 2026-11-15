@@ -29,11 +29,13 @@ beforeAll(async () => {
   await buildRenderer()
 })
 afterEach(async () => {
-  await closeApp(app)
-  await stopDaemonIn(home)
-  await killRunHosts(home)
-  await removeHome(home)
-})
+  const [ended, endedHome] = [app, home]
+  app = undefined
+  await closeApp(ended)
+  await stopDaemonIn(endedHome)
+  await killRunHosts(endedHome)
+  await removeHome(endedHome)
+}, 60_000)
 test('side chat shows beside the original Run, reopens its replies and fits a narrow pane', async () => {
   home = await mkdtemp(path.join(tmpdir(), 'ted-side-chat-ui-'))
   const env = {
