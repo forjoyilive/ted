@@ -1686,6 +1686,12 @@ export function createTasks(options: {
       ),
     ]).filter((q) => q.kind !== 'sub-agent' || subAgentRunnable(q.id))
 
+  function continuationAgent(task: StoredTask, run: Run): AgentKind {
+    return task.leadRestartPending || leadLifecycle.restartWaiting(task.id)
+      ? (task.lead?.agent ?? run.agent)
+      : run.agent
+  }
+
   function continuationsReady(includeFailures = false): QueueEntry[] {
     return queueOrder<QueueEntry>(
       store.tasksWithQueuedContinuations().flatMap((id) => {
@@ -1709,10 +1715,7 @@ export function createTasks(options: {
           return []
         const run = liveLeadOf(store, task)
         if (!run || !atIdlePoint(run) || store.agentPauses()[run.agent] !== undefined) return []
-        const nextAgent =
-          task.leadRestartPending || leadLifecycle.restartWaiting(task.id)
-            ? (task.lead?.agent ?? run.agent)
-            : run.agent
+        const nextAgent = continuationAgent(task, run)
         if (
           !includeFailures &&
           agentStartHold(store, nextAgent, nextAgent === run.agent ? run.id : undefined)
@@ -1756,7 +1759,7 @@ export function createTasks(options: {
             false,
             (id) => {
               const now = find(taskId)
-              const nextAgent = now.lead?.agent ?? run.agent
+              const nextAgent = continuationAgent(now, run)
               return (
                 !now.stopped &&
                 !now.archived &&

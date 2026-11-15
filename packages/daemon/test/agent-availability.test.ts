@@ -362,7 +362,7 @@ test('a concurrent start either joins the refreshed confirmation or is refused b
   }
 })
 
-test('an answered idle Task waits for an off replacement agent instead of stopping its current Run', async () => {
+test('an answer reaches the idle Task Lead while the saved agent is off and no restart is due', async () => {
   const { client, info } = await start()
   const origin = await makeOriginRepo(scratch)
   await client.addFactory({ repo: origin, key: 'NB' })
@@ -384,31 +384,13 @@ test('an answered idle Task waits for an off replacement agent instead of stoppi
   })
   await client.answerRequest(question.id, { action: 'answer', choice: 'Go', text: 'Go' })
   await waitUntil(async () => {
-    const current = await taskOf(client, task.id)
-    return (
-      current.status?.kind === 'queued' &&
-      'hold' in current.status &&
-      current.status.hold.includes('off')
-    )
-  }, 'disabled replacement waiting')
-  const waitingAnswer = (await client.listComments(task.id)).find(
-    (comment) => comment.id === question.id,
-  )
-  expect(waitingAnswer?.answerDelivery).toBeDefined()
-  expect(waitingAnswer?.answerDelivery?.sent).toBeUndefined()
-  expect((await client.getRun(leadId)).run.state).not.toBe('finished')
-  await client.changeAgentAvailability({ agent: 'codex', enabled: true })
-  const replacement = await waitUntil(async () => {
-    const current = await taskOf(client, task.id)
-    return current.leadRunId && current.leadRunId !== leadId ? current.leadRunId : undefined
-  }, 'enabled replacement Task Lead')
-  expect((await client.getRun(replacement)).run.agent).toBe('codex')
-  await waitUntil(async () => {
     const answer = (await client.listComments(task.id)).find(
       (comment) => comment.id === question.id,
     )
-    return answer?.answerDelivery?.sent?.runId === replacement
-  }, 'answer delivered to the enabled replacement')
+    return answer?.answerDelivery?.sent?.runId === leadId
+  }, 'answer delivered to the running Task Lead')
+  expect((await taskOf(client, task.id)).leadRunId).toBe(leadId)
+  expect((await client.getRun(leadId)).run.state).not.toBe('finished')
 })
 
 test('a Coordinator refused after queue admission releases its slot and retries after re-enable', async () => {
