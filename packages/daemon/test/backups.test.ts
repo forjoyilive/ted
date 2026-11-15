@@ -111,11 +111,51 @@ describe('daily backups', () => {
     await rm(outside, { recursive: true, force: true })
   })
 
+  test('a linked backups/attachments folder is neither written to nor pruned', async () => {
+    const outside = await mkdtemp(path.join(tmpdir(), 'ted-outside-'))
+    await writeFile(path.join(outside, 'abc123'), 'not a backup')
+    await mkdir(path.join(home, 'backups'), { recursive: true })
+    await symlink(outside, path.join(home, 'backups', 'attachments'))
+    await addAttachment('aaa', 'first file')
+
+    await expect(backups.takeDaily(eventlog('one'))).rejects.toThrow('isn’t a folder')
+
+    expect(await readdir(outside)).toEqual(['abc123'])
+    await rm(outside, { recursive: true, force: true })
+  })
+
   test('a failure names the reason in plain words', async () => {
     await writeFile(path.join(home, 'backups'), 'not a folder')
 
     await expect(backups.takeDaily(eventlog('one'))).rejects.toThrow(
       `${path.join(home, 'backups')} isn’t a folder`,
     )
+  })
+})
+
+describe('pre-update backups', () => {
+  test('copy only the event log and ted-store.json, and never through a linked folder', async () => {
+    const store = path.join(home, 'store')
+    await mkdir(path.join(store, 'ted'), { recursive: true })
+    await writeFile(path.join(store, 'ted-store.json'), '{}')
+    await writeFile(path.join(store, 'ted', 'eventlog@6.db'), 'events')
+    await writeFile(path.join(store, 'ted', 'stateabc@6.db'), 'state')
+
+    const first = await backups.takePreUpdate('1.0.0')
+    const copied = path.join(home, 'backups', first.name, 'store')
+    expect((await readdir(copied)).sort()).toEqual(['ted', 'ted-store.json'])
+    expect(await readdir(path.join(copied, 'ted'))).toEqual(['eventlog@6.db'])
+
+    const outside = await mkdtemp(path.join(tmpdir(), 'ted-outside-'))
+    await writeFile(path.join(outside, 'eventlog@6.db'), 'not TED’s')
+    await rm(path.join(store, 'ted'), { recursive: true })
+    await symlink(outside, path.join(store, 'ted'))
+    now = new Date(now.getTime() + 1000)
+
+    const second = await backups.takePreUpdate('1.0.0')
+    expect(await readdir(path.join(home, 'backups', second.name, 'store'))).toEqual([
+      'ted-store.json',
+    ])
+    await rm(outside, { recursive: true, force: true })
   })
 })

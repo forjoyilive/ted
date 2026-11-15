@@ -136,27 +136,30 @@ export function createBackups(options: {
       await rm(folder, { recursive: true, force: true })
     }
     if (kind !== 'daily') return
+    const shared = await plainFolderIn(await realpath(dir), 'attachments')
+    if (!shared) return
     const listed = new Set((await readManifests()).flatMap((b) => b.attachments))
-    const files = await readdir(attachmentsDir).catch(() => [])
-    for (const file of files) {
-      if (!listed.has(file)) await rm(path.join(attachmentsDir, file), { force: true })
+    for (const file of await readdir(shared)) {
+      if (listed.has(file) || !(isHashName(file) || isPartialName(file))) continue
+      await rm(path.join(shared, file), { force: true })
     }
   }
 
   async function copyStore(target: string): Promise<undefined> {
-    const meta = path.join(paths.store, metaFile)
+    const store = await plainFolderIn(await realpath(options.home), 'store')
+    if (!store) return undefined
+    const meta = path.join(store, metaFile)
     if (await isPlainFile(meta)) {
       await mkdir(path.join(target, 'store'), { recursive: true, mode: 0o700 })
       await copyFile(meta, path.join(target, 'store', metaFile), constants.COPYFILE_FICLONE)
     }
-    const from = path.join(paths.store, storeFolder)
-    const names = await readdir(from).catch((error: NodeJS.ErrnoException) => {
-      if (error.code === 'ENOENT') return []
-      throw error
-    })
+    const from = await plainFolderIn(store, storeFolder)
+    const names = from ? await readdir(from) : []
     const to = path.join(target, 'store', storeFolder)
     for (const name of names) {
-      if (!eventlogFiles.test(name) || !(await isPlainFile(path.join(from, name)))) continue
+      if (!from || !eventlogFiles.test(name) || !(await isPlainFile(path.join(from, name)))) {
+        continue
+      }
       await mkdir(to, { recursive: true, mode: 0o700 })
       await copyFile(path.join(from, name), path.join(to, name), constants.COPYFILE_FICLONE)
     }
@@ -164,19 +167,22 @@ export function createBackups(options: {
   }
 
   async function copyAttachments(): Promise<string[]> {
-    const names = (await readdir(paths.attachments).catch(() => [])).filter(isHashName)
+    const source = await plainFolderIn(await realpath(options.home), 'attachments')
+    const names = source ? (await readdir(source)).filter(isHashName) : []
     await mkdir(attachmentsDir, { recursive: true, mode: 0o700 })
-    const have = new Set(await readdir(attachmentsDir))
+    const shared = await plainFolderIn(await realpath(dir), 'attachments')
+    if (!shared) throw new Error(`${displayPath(attachmentsDir)} isn’t a folder`)
+    const have = new Set(await readdir(shared))
     const files = []
     for (const file of names) {
-      const from = path.join(paths.attachments, file)
+      const from = path.join(source ?? '', file)
       if (!(await isPlainFile(from))) continue
       files.push(file)
       if (have.has(file)) continue
-      const tmp = path.join(attachmentsDir, `.${file}.partial`)
+      const tmp = path.join(shared, `.${file}.partial`)
       await rm(tmp, { force: true })
       await shareFile(from, tmp)
-      await rename(tmp, path.join(attachmentsDir, file))
+      await rename(tmp, path.join(shared, file))
     }
     return files
   }
@@ -234,11 +240,13 @@ export function createBackups(options: {
       })
       await rename(incoming, paths.store)
       await rm(outgoing, { recursive: true, force: true })
-      if (backup.attachments.length > 0) {
+      const shared = await plainFolderIn(await realpath(dir), 'attachments')
+      if (shared && backup.attachments.length > 0) {
         await mkdir(paths.attachments, { recursive: true, mode: 0o700 })
-        for (const file of backup.attachments) {
+        for (const file of backup.attachments.filter(isHashName)) {
+          if (!(await isPlainFile(path.join(shared, file)))) continue
           await copyFile(
-            path.join(attachmentsDir, file),
+            path.join(shared, file),
             path.join(paths.attachments, file),
             constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE,
           ).catch((error: NodeJS.ErrnoException) => {
@@ -255,6 +263,13 @@ export function createBackups(options: {
       )
     },
   }
+}
+
+async function plainFolderIn(parent: string, name: string): Promise<string | undefined> {
+  const folder = path.join(parent, name)
+  const entry = await lstat(folder).catch(() => undefined)
+  if (!entry?.isDirectory()) return undefined
+  return (await realpath(folder).catch(() => undefined)) === folder ? folder : undefined
 }
 
 async function isPlainFile(file: string): Promise<boolean> {
@@ -281,6 +296,10 @@ async function shareFile(from: string, to: string): Promise<void> {
 
 function isHashName(file: string): boolean {
   return /^[A-Za-z0-9]+(\.[A-Za-z0-9]{1,10})?$/.test(file)
+}
+
+function isPartialName(file: string): boolean {
+  return file.startsWith('.') && file.endsWith('.partial') && isHashName(file.slice(1, -8))
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
