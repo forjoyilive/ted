@@ -22,7 +22,7 @@ Every stage, check and sign-off can be changed per project. Turn sign-offs off a
 | Work | Agent | The agent builds the change in its own copy of your repository. |
 | Validate | Agent | Your checks run and a second agent reviews the change. Problems go back to Work. |
 | Review | You | You look at the result and sign off. |
-| Merge | Agent | TED waits for CI to pass. You hit merge, or let TED merge it for you. |
+| Merge | Agent | TED waits for CI to pass and merges it, or leaves the merge to you. |
 
 ## Features
 
