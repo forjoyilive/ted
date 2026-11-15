@@ -7663,8 +7663,7 @@ export function createTasks(options: {
       (task.archived || task.stage === 'done') &&
       !task.repos.some((r) => !r.removed) &&
       !clearingAway.has(task.id) &&
-      !deleting.has(task.id) &&
-      !hierarchyBusy.has(task.id)
+      !inFlight.busy(task.id, ['deleting', 'hierarchy'])
     )
   }
 
