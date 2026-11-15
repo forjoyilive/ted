@@ -1,4 +1,11 @@
-import type { DashboardFlow, FlowInterval, FlowPeriod, FlowStage } from '@ted/protocol'
+import type {
+  DashboardFlow,
+  FlowInterval,
+  FlowPeriod,
+  FlowReasonId,
+  FlowStage,
+} from '@ted/protocol'
+import { addStageParts, noStageParts, splitStage } from '@ted/protocol/stage-parts'
 import { useState } from 'react'
 
 const storageKey = 'ted.dashboard.stage-waits'
@@ -43,6 +50,13 @@ export function withoutUserWaits(
       s,
     ]),
   )
+  const reasons = new Map<string, Map<FlowReasonId, FlowInterval[]>>()
+  for (const r of period.reasons)
+    for (const sample of r.samples) {
+      const own = reasons.get(sample.taskId) ?? new Map<FlowReasonId, FlowInterval[]>()
+      own.set(r.reason, sample.intervals)
+      reasons.set(sample.taskId, own)
+    }
   const leftOut = new Map<string, LeftOutTask>()
   const stages = period.stages.map((stage) => {
     const samples = stage.samples.flatMap((sample) => {
@@ -60,6 +74,7 @@ export function withoutUserWaits(
         {
           ...sample,
           elapsedMs: Math.max(0, sample.elapsedMs - overlap(sample.intervals, request.intervals)),
+          parts: splitStage(sample.intervals, reasons.get(sample.taskId) ?? new Map(), ['you']),
         },
       ]
     })
@@ -71,6 +86,7 @@ export function withoutUserWaits(
         : stage.factoryIds,
       samples,
       totalMs: values.reduce((n, v) => n + v, 0),
+      parts: samples.reduce((n, s) => addStageParts(n, s.parts), noStageParts()),
       medianMs: quantile(values, 0.5),
       p25Ms: quantile(values, 0.25),
       p75Ms: quantile(values, 0.75),

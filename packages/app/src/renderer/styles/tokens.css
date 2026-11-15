@@ -123,6 +123,19 @@
   --factory-icon-purple-fg: light-dark(#7952b3, #c4a3ee);
   --factory-icon-purple-bg: light-dark(#f3edfc, #30243f);
 
+  --chart-sapphire: light-dark(#3346c4, #8c9bf5);
+  --chart-emerald: light-dark(#12865f, #5fd0a6);
+  --chart-amethyst: light-dark(#7d44c2, #c09cf0);
+  --chart-ruby: light-dark(#c0284f, #f28aa5);
+  --chart-teal: light-dark(#0e7f8c, #5fc9d6);
+  --chart-tourmaline: light-dark(#c2368f, #ee8fcb);
+  --chart-aquamarine: light-dark(#5aa8d6, #8ccbf0);
+  --chart-slate: light-dark(#b4b8c8, #6f7386);
+  --chart-other: light-dark(#dddbd4, #45443f);
+  --chart-amethyst-bg: light-dark(#f3edfc, #30243f);
+  --chart-amethyst-border: light-dark(#dccbf3, #4f3a6b);
+  --chart-amethyst-text: light-dark(#7d44c2, #c09cf0);
+
   --shadow-popover: light-dark(#0000001f, #00000080);
   --shadow-dialog: light-dark(#0000002e, #00000099);
 

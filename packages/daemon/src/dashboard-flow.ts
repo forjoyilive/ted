@@ -1,11 +1,18 @@
 import type {
   DashboardFlow,
+  FailureCase,
+  FlowFailure,
+  FlowInterval,
   FlowPeriod,
+  FlowReasonId,
   FlowSendBack,
   FlowStage,
+  FlowStageSample,
   FlowValidateSample,
+  StageParts,
   ValidationSnapshot,
 } from '@ted/protocol'
+import { addStageParts, noStageParts, splitStage } from '@ted/protocol/stage-parts'
 import type { DashboardTaskFacts } from './dashboard.ts'
 import { type FlowTimingFacts, summarizeReasons, timingSamples } from './dashboard-timing.ts'
 
@@ -35,13 +42,14 @@ export interface FlowFacts {
   sendBacks?: readonly FlowSendBack[]
   judgments?: readonly FlowJudgment[]
   checks?: readonly FlowCheck[]
+  failures?: readonly FailureCase[]
 }
 
 const iso = (at: number) => new Date(at).toISOString()
 const time = (at: string | null | undefined) => Date.parse(at ?? '')
 const finite = Number.isFinite
 const failed = (state: string) => state === 'failed' || state === 'timed-out'
-const quantile = (values: number[], p: number): number | null => {
+export const quantile = (values: number[], p: number): number | null => {
   if (!values.length) return null
   const index = (values.length - 1) * p
   const lower = values[Math.floor(index)] ?? 0
@@ -49,7 +57,41 @@ const quantile = (values: number[], p: number): number | null => {
   return lower + (upper - lower) * (index - Math.floor(index))
 }
 
-function timing(task: DashboardTaskFacts, asOf: number) {
+const oneLine = (text: string) => {
+  const line = text.replace(/\s+/g, ' ').trim()
+  return line.length > 200 ? `${line.slice(0, 199)}…` : line
+}
+
+export function flowFailure(value: FailureCase): FlowFailure | null {
+  const verified = value.verifications?.at(-1)
+  if (verified?.replacedBy) return null
+  const resolution = value.resolutions.at(-1)
+  const kind =
+    value.source.kind === 'finding' ? 'finding' : value.source.kind === 'github-ci' ? 'ci' : 'check'
+  const accepted =
+    !verified &&
+    resolution?.resolution === 'accepted' &&
+    !value.invalidations.some((i) => i.requestId === resolution.requestId)
+  const outcome =
+    verified ||
+    resolution?.resolution === 'fixed' ||
+    resolution?.resolution === 'no-longer-applicable'
+      ? 'fixed'
+      : accepted
+        ? 'accepted'
+        : 'open'
+  const reason = accepted && resolution?.reason ? oneLine(resolution.reason) : ''
+  return {
+    id: value.id,
+    taskId: value.taskId,
+    kind,
+    outcome,
+    at: value.createdAt,
+    ...(reason && { reason }),
+  }
+}
+
+export function stageTiming(task: DashboardTaskFacts, asOf: number) {
   const entries = (task.transitions ?? task.entries).map((entry, index) => ({
     ...entry,
     index,
@@ -124,7 +166,17 @@ function timing(task: DashboardTaskFacts, asOf: number) {
   }
 }
 
-type Timing = ReturnType<typeof timing>
+type Timing = ReturnType<typeof stageTiming>
+
+export function stageSampleParts(
+  sample: Pick<FlowStageSample, 'intervals'>,
+  reasons: ReadonlyMap<FlowReasonId, { intervals: readonly FlowInterval[] }>,
+): StageParts {
+  return splitStage(
+    sample.intervals,
+    new Map([...reasons].map(([reason, s]) => [reason, s.intervals])),
+  )
+}
 
 function firstVisit(task: DashboardTaskFacts, asOf: number): FlowValidateSample {
   const result: FlowValidateSample = {
@@ -262,6 +314,7 @@ function period(
     stages: [],
     reasons: [],
     sendBacks: [],
+    failures: [],
     firstPass: { passed: 0, denominator: 0, percent: null, samples: [] },
   }
   const order = ['intake', 'clarify', 'design', 'work', 'validate', 'review', 'merge']
@@ -275,6 +328,7 @@ function period(
         medianMs: null,
         p25Ms: null,
         p75Ms: null,
+        parts: noStageParts(),
         samples: [],
       },
     ]),
@@ -299,21 +353,23 @@ function period(
         taskId: task.id,
         elapsedMs: 0,
         intervals: [],
+        parts: noStageParts(),
       }
       sample.elapsedMs += b - a
       sample.intervals.push({ from: iso(a), to: iso(b) })
       perStage.set(interval.stage, sample)
     }
-    if (overlaps && measured.start !== undefined)
-      reasonSamples.push(
-        timingSamples(
-          task.id,
-          task.activity,
-          [...perStage.values()].flatMap((s) => s.intervals),
-          task.activity?.history.asOf ?? iso(to),
-          measured.reasons,
-        ),
+    if (overlaps && measured.start !== undefined) {
+      const own = timingSamples(
+        task.id,
+        task.activity,
+        [...perStage.values()].flatMap((s) => s.intervals),
+        task.activity?.history.asOf ?? iso(to),
+        measured.reasons,
       )
+      reasonSamples.push(own)
+      for (const sample of perStage.values()) sample.parts = stageSampleParts(sample, own)
+    }
     for (const [name, sample] of perStage) {
       const stage = stages.get(name) ?? {
         stage: name,
@@ -322,9 +378,11 @@ function period(
         medianMs: null,
         p25Ms: null,
         p75Ms: null,
+        parts: noStageParts(),
         samples: [],
       }
       stage.totalMs += sample.elapsedMs
+      addStageParts(stage.parts, sample.parts)
       stage.samples.push(sample)
       if (!stage.factoryIds.includes(task.factoryId)) stage.factoryIds.push(task.factoryId)
       stages.set(name, stage)
@@ -343,6 +401,11 @@ function period(
       group.transitions.push(sendBack)
       if (sendBack.counted) group.counted++
       groups.set(key, group)
+    }
+    for (const value of task.failures ?? []) {
+      const at = time(value.createdAt)
+      const failure = at >= lower && at < to ? flowFailure(value) : null
+      if (failure) result.failures.push(failure)
     }
     if (completed.has(task.id)) {
       const visit = visits.get(task.id)
@@ -387,7 +450,7 @@ export function dashboardFlow(
   previousCompleted: readonly string[],
 ): DashboardFlow {
   const facts = input.filter((task) => !task.setup)
-  const timings = new Map(facts.map((task) => [task.id, timing(task, asOf)]))
+  const timings = new Map(facts.map((task) => [task.id, stageTiming(task, asOf)]))
   const completed = new Set([...currentCompleted, ...previousCompleted])
   const visits = new Map(
     facts.filter((task) => completed.has(task.id)).map((task) => [task.id, firstVisit(task, asOf)]),
@@ -400,10 +463,12 @@ export function dashboardFlow(
     ...current.taskIds,
     ...current.incomplete.map((s) => s.taskId),
     ...current.sendBacks.flatMap((g) => g.taskIds),
+    ...current.failures.map((f) => f.taskId),
     ...currentCompleted,
     ...(previous?.taskIds ?? []),
     ...(previous?.incomplete.map((s) => s.taskId) ?? []),
     ...(previous?.sendBacks.flatMap((g) => g.taskIds) ?? []),
+    ...(previous?.failures.map((f) => f.taskId) ?? []),
     ...previousCompleted,
   ])
   return {

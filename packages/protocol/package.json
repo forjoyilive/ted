@@ -8,6 +8,7 @@
     "./time": "./src/time.ts",
     "./task": "./src/task.ts",
     "./task-intervals": "./src/task-intervals.ts",
+    "./stage-parts": "./src/stage-parts.ts",
     "./app": "./src/app.ts",
     "./run": "./src/run.ts",
     "./banner": "./src/banner.ts",

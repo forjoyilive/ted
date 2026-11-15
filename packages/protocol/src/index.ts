@@ -307,16 +307,37 @@ export {
 } from './coordinator-parsers.ts'
 export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export type {
+  CostBucket,
+  CostFactory,
+  CostKind,
+  CostPeriod,
+  CostPerPullRequest,
+  CostPullRequestSample,
+  CostShare,
+  CostTask,
+  CostTaskSpend,
   DashboardBucket,
   DashboardChange,
+  DashboardCost,
+  DashboardDuration,
   DashboardFactoryPeriod,
   DashboardFlow,
+  DashboardMerged,
   DashboardMetric,
+  DashboardOpenState,
+  DashboardOpenTask,
   DashboardPeriod,
   DashboardRange,
   DashboardReport,
   DashboardSample,
   DashboardTask,
+  DashboardWait,
+  DashboardWaiting,
+  DashboardWaitSample,
+  DashboardWaitStage,
+  FlowFailure,
+  FlowFailureKind,
+  FlowFailureOutcome,
   FlowInterval,
   FlowMeasuredInterval,
   FlowPeriod,
@@ -807,6 +828,7 @@ export {
   slowThresholds,
 } from './slow.ts'
 export { parseProfileRequest } from './slow-parsers.ts'
+export type { StagePart, StageParts } from './stage-parts.ts'
 export {
   diskFullHold,
   diskLimits,

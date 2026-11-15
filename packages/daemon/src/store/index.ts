@@ -144,7 +144,7 @@ import {
   createCoordinatorStore,
   type StoredCoordinator,
 } from './coordinators.ts'
-import { readDashboard } from './dashboard.ts'
+import { readDashboard, sendBackSeverities } from './dashboard.ts'
 import { createExecutionStore, type ExecutionStore } from './execution.ts'
 import { createOperationStore, type OperationStore } from './execution-operations.ts'
 import { createPairingStore, type PairingStore } from './execution-pairing.ts'
@@ -5408,7 +5408,21 @@ export async function openStore({
       return task
     },
     dashboard(factoryIds, range, asOf = Date.now()) {
-      return readDashboard(store, factoryIds, range, asOf, observationSessionId)
+      const shown = new Set(factoryIds)
+      const reads = taskReads(true)
+      const statuses = new Map(
+        store
+          .query(allTasks)
+          .filter(
+            (row) =>
+              shown.has(row.factoryId) &&
+              row.archivedAt === null &&
+              !row.setup &&
+              row.stage !== 'done',
+          )
+          .map((row) => [row.id, toTask(row, false, reads).status?.kind]),
+      )
+      return readDashboard(store, factoryIds, range, asOf, observationSessionId, statuses)
     },
     listStageEntries: (taskId) =>
       store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc'))).map(toStageEntry),
@@ -6052,19 +6066,14 @@ export async function openStore({
       const declared = store.query(
         queryDb(severityDeclarations.where({ taskId }).orderBy('at', 'asc')),
       )
-      let after = ''
-      return store
+      const backs = store
         .query(queryDb(sendBacks.where({ taskId }).orderBy('at', 'asc')))
         .map(toSendBack)
-        .map((sendBack) => {
-          const since = after
-          after = sendBack.at
-          if (sendBack.from !== 'validate' || !sendBack.counted || sendBack.checkRunId) {
-            return sendBack
-          }
-          const found = declared.findLast((d) => d.at > since && d.at <= sendBack.at)
-          return found ? { ...sendBack, severity: found.severity as FindingSeverity } : sendBack
-        })
+      const severities = sendBackSeverities(backs, declared)
+      return backs.map((sendBack, index) => {
+        const severity = severities[index]
+        return severity && severity !== 'none' ? { ...sendBack, severity } : sendBack
+      })
     },
     declareSeverity(input) {
       commit(

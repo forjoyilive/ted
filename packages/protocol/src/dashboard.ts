@@ -1,5 +1,6 @@
 export type DashboardRange = 'today' | '7d' | '30d' | 'all'
-export type DashboardMetric = 'completed' | 'created' | 'intake'
+export type DashboardMetric = 'completed' | 'merged' | 'created' | 'backlog' | 'intake'
+export type DashboardDuration = 'created' | 'backlog' | 'intake'
 
 export interface DashboardTask {
   id: string
@@ -9,7 +10,9 @@ export interface DashboardTask {
   archived: boolean
   doneAt: string | null
   createdMs: number | null
+  backlogMs: number | null
   intakeMs: number | null
+  merges: number
 }
 
 export interface DashboardSample {
@@ -18,18 +21,27 @@ export interface DashboardSample {
   missingIds: string[]
 }
 
+export interface DashboardMerged {
+  count: number
+  taskIds: string[]
+}
+
 export interface DashboardBucket {
   from: string
   to: string
   taskIds: string[]
+  merged: DashboardMerged
   created: DashboardSample
+  backlog: DashboardSample
   intake: DashboardSample
 }
 
 export interface DashboardFactoryPeriod {
   factoryId: string
   taskIds: string[]
+  merged: DashboardMerged
   created: DashboardSample
+  backlog: DashboardSample
   intake: DashboardSample
 }
 
@@ -37,7 +49,9 @@ export interface DashboardPeriod {
   from: string | null
   to: string
   taskIds: string[]
+  merged: DashboardMerged
   created: DashboardSample
+  backlog: DashboardSample
   intake: DashboardSample
   buckets: DashboardBucket[]
   byFactory: DashboardFactoryPeriod[]
@@ -48,16 +62,63 @@ export interface DashboardChange {
   percent: number | null
 }
 
+export type DashboardOpenState = 'working' | 'waiting-on-you' | 'blocked' | 'backlog' | 'other'
+
+export interface DashboardOpenTask {
+  id: string
+  factoryId: string
+  displayId: string
+  title: string
+  stage: string
+  state: DashboardOpenState
+}
+
 export interface DashboardReport {
   asOf: string
   range: DashboardRange
   factoryIds: string[]
   tasks: DashboardTask[]
   unavailableIds: string[]
+  open: DashboardOpenTask[]
   current: DashboardPeriod
   previous: DashboardPeriod | null
   comparison: Record<DashboardMetric, DashboardChange> | null
   flow: DashboardFlow
+  waiting: {
+    current: DashboardWaiting
+    previous: DashboardWaiting | null
+    change: DashboardChange | null
+  }
+  cost: DashboardCost
+}
+
+export interface DashboardWait {
+  taskId: string
+  requestId: string
+  kind: string
+  stage: string | null
+  waitedMs: number
+}
+
+export interface DashboardWaitSample {
+  taskId: string
+  waitedMs: number
+}
+
+export interface DashboardWaitStage {
+  stage: string
+  totalMs: number
+  kinds: string[]
+  samples: DashboardWaitSample[]
+}
+
+export interface DashboardWaiting {
+  totalMs: number
+  medianMs: number | null
+  samples: DashboardWaitSample[]
+  stages: DashboardWaitStage[]
+  waits: DashboardWait[]
+  byFactory: { factoryId: string; totalMs: number; taskIds: string[] }[]
 }
 
 export interface FlowTask {
@@ -79,6 +140,7 @@ export interface FlowStageSample {
   taskId: string
   elapsedMs: number
   intervals: FlowInterval[]
+  parts: import('./stage-parts.ts').StageParts
 }
 
 export interface FlowStage {
@@ -88,6 +150,7 @@ export interface FlowStage {
   medianMs: number | null
   p25Ms: number | null
   p75Ms: number | null
+  parts: import('./stage-parts.ts').StageParts
   samples: FlowStageSample[]
 }
 
@@ -99,6 +162,7 @@ export interface FlowSendBack {
   at: string
   counted: boolean
   cause: string | null
+  severity?: import('./checks.ts').FindingSeverity | 'none'
   sequence?: number
 }
 
@@ -108,6 +172,18 @@ export interface FlowSendBackGroup {
   counted: number
   taskIds: string[]
   transitions: FlowSendBack[]
+}
+
+export type FlowFailureKind = 'check' | 'finding' | 'ci'
+export type FlowFailureOutcome = 'fixed' | 'accepted' | 'open'
+
+export interface FlowFailure {
+  id: string
+  taskId: string
+  kind: FlowFailureKind
+  outcome: FlowFailureOutcome
+  at: string
+  reason?: string
 }
 
 export type FlowValidateOutcome = 'passed' | 'failed' | 'skipped' | 'unknown' | 'no-visit'
@@ -130,6 +206,7 @@ export interface FlowPeriod {
   stages: FlowStage[]
   reasons: FlowReason[]
   sendBacks: FlowSendBackGroup[]
+  failures: FlowFailure[]
   firstPass: {
     passed: number
     denominator: number
@@ -185,4 +262,92 @@ export interface FlowReason {
   p25Ms: number | null
   p75Ms: number | null
   samples: FlowReasonSample[]
+}
+
+export type CostKind =
+  | 'lead'
+  | 'reviewer'
+  | 'sub-agent'
+  | 'coordinator'
+  | 'automation'
+  | 'planning'
+  | 'other'
+
+export interface CostTask {
+  id: string
+  factoryId: string
+  displayId: string
+  title: string
+  runs: number
+  sendBacks: number
+}
+
+export interface CostTaskSpend {
+  taskId: string
+  cost: number
+}
+
+export interface CostShare {
+  key: string
+  agent?: string
+  model?: string | null
+  cost: number
+  runs: number
+  tasks: CostTaskSpend[]
+}
+
+export interface CostBucket {
+  from: string
+  to: string
+  cost: number
+  kinds: CostShare[]
+  models: CostShare[]
+  tasks: CostTaskSpend[]
+}
+
+export interface CostPullRequestSample {
+  taskId: string
+  cost: number
+  pullRequests: number
+  perPullRequest: number
+}
+
+export interface CostPerPullRequest {
+  median: number | null
+  p25: number | null
+  p75: number | null
+  pullRequests: number
+  samples: CostPullRequestSample[]
+}
+
+export interface CostFactory {
+  factoryId: string | null
+  cost: number
+  runs: number
+  kinds: CostShare[]
+  tasks: CostTaskSpend[]
+  perPullRequest: CostPerPullRequest
+}
+
+export interface CostPeriod {
+  from: string | null
+  to: string
+  cost: number
+  input: number
+  output: number
+  runs: number
+  unpricedRuns: number
+  kinds: CostShare[]
+  models: CostShare[]
+  tasks: CostTaskSpend[]
+  buckets: CostBucket[]
+  perPullRequest: CostPerPullRequest
+  byFactory: CostFactory[]
+}
+
+export interface DashboardCost {
+  tasks: CostTask[]
+  current: CostPeriod
+  previous: CostPeriod | null
+  change: { spend: DashboardChange; perPullRequest: DashboardChange } | null
 }

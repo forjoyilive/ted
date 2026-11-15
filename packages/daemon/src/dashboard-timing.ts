@@ -16,6 +16,14 @@ export interface FlowTimingFacts {
   history: TaskIntervalHistory
   checks: CheckRun[]
   invocations: TestInvocation[]
+  requests?: readonly WaitRequest[]
+}
+
+export interface WaitRequest {
+  id: string
+  kind: string
+  stage: string | null
+  purpose: string | null
 }
 
 export const flowReasons: FlowReasonId[] = [

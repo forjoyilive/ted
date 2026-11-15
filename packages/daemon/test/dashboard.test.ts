@@ -1,6 +1,10 @@
-import type { DashboardRange } from '@ted/protocol'
+import type { DashboardRange, FailureCase, FlowInterval, FlowReasonId } from '@ted/protocol'
+import { splitStage } from '@ted/protocol/stage-parts'
 import { expect, test } from 'vitest'
 import { type DashboardTaskFacts, dashboardReport } from '../src/dashboard.ts'
+import { type CostOwners, costUsage, dashboardCost } from '../src/dashboard-cost.ts'
+import { stageSampleParts } from '../src/dashboard-flow.ts'
+import { sendBackSeverities } from '../src/store/dashboard.ts'
 
 type Facts = Omit<DashboardTaskFacts, 'factoryId'> & { factoryId?: string }
 const factoryDashboard = (facts: readonly Facts[], range: DashboardRange, asOf: number) =>
@@ -32,13 +36,20 @@ function completed(id: string, ago: number, created: number, intake: number | nu
 }
 
 test('compares completion cohorts using raw elapsed times and exposes the exact median samples', () => {
-  const a = completed('1', 10, 20, 6)
-  const b = { ...completed('2', 20, 40, 10), archived: true }
-  const c = completed('3', 30, 60, null)
-  const previous = completed('4', 180, 80, 16)
+  const a = { ...completed('1', 10, 20, 6), merges: [iso(now - 12 * hour), iso(now - 11 * hour)] }
+  const b = { ...completed('2', 20, 40, 10), archived: true, merges: [iso(now - 200 * hour)] }
+  const c = { ...completed('3', 30, 60, null), merges: [iso(now + hour)] }
+  const previous = { ...completed('4', 180, 80, 16), merges: [iso(now - 181 * hour)] }
   const setup = { ...completed('5', 40, 1, 1), setup: true }
-  const open = { ...completed('6', 20, 2, 1), stage: 'work', entries: [] }
-  const result = factoryDashboard([a, b, c, previous, setup, open], '7d', now)
+  const open = {
+    ...completed('6', 20, 2, 1),
+    stage: 'work',
+    entries: [],
+    status: 'working' as const,
+  }
+  const backlog = { ...completed('7', 20, 2, 1), stage: 'backlog', entries: [] }
+  const shelved = { ...completed('8', 20, 2, 1), stage: 'work', entries: [], archived: true }
+  const result = factoryDashboard([a, b, c, previous, setup, open, backlog, shelved], '7d', now)
   expect(result.current.taskIds).toEqual(['1', '2', '3'])
   expect(result.current.created).toMatchObject({
     value: 40 * hour,
@@ -60,6 +71,45 @@ test('compares completion cohorts using raw elapsed times and exposes the exact 
   expect(result.current.buckets).toHaveLength(7)
   expect(result.current.buckets.flatMap((b) => b.taskIds).sort()).toEqual(['1', '2', '3'])
   expect(result.current.buckets[0]?.intake.value).toBeNull()
+  expect(result.current.merged).toEqual({ count: 2, taskIds: ['1'] })
+  expect(result.previous?.merged).toEqual({ count: 2, taskIds: ['2', '4'] })
+  expect(result.current.buckets.reduce((sum, b) => sum + b.merged.count, 0)).toBe(2)
+  expect(result.current.backlog).toEqual({
+    value: 22 * hour,
+    taskIds: ['1', '2'],
+    missingIds: ['3'],
+  })
+  expect(result.current.byFactory[0]).toMatchObject({
+    merged: { count: 2 },
+    backlog: { value: 22 * hour },
+  })
+  expect(result.comparison).toMatchObject({
+    merged: { absolute: 0, percent: 0 },
+    backlog: { absolute: -42 * hour },
+  })
+  expect(result.tasks.find((t) => t.id === '1')).toMatchObject({
+    backlogMs: 14 * hour,
+    intakeMs: 6 * hour,
+    merges: 2,
+  })
+  expect(result.open).toEqual([
+    {
+      id: '6',
+      factoryId: 'nb',
+      displayId: 'NB-6',
+      title: 'Task 6',
+      stage: 'work',
+      state: 'working',
+    },
+    {
+      id: '7',
+      factoryId: 'nb',
+      displayId: 'NB-7',
+      title: 'Task 7',
+      stage: 'backlog',
+      state: 'backlog',
+    },
+  ])
 })
 
 test('uses latest Done and first Intake, keeps timestamp boundaries half-open and discloses unrecorded history', () => {
@@ -516,6 +566,95 @@ test('actual transitions include uncounted send-backs and period boundaries, and
   })
 })
 
+test('a counted Validate send-back takes the last severity declared since the send-back before it', () => {
+  const at = (minute: number) => `2026-06-09T10:${String(minute).padStart(2, '0')}:00.000Z`
+  expect(
+    sendBackSeverities(
+      [
+        { from: 'validate', counted: true, at: at(10) },
+        { from: 'validate', counted: true, at: at(20) },
+        { from: 'validate', counted: true, checkRunId: 'check', at: at(30) },
+        { from: 'review', counted: true, at: at(40) },
+        { from: 'validate', counted: false, at: at(50) },
+        { from: 'validate', counted: true, at: at(59) },
+      ],
+      [
+        { at: at(5), severity: 'unfixed' },
+        { at: at(9), severity: 'p1' },
+        { at: at(45), severity: 'p1' },
+        { at: at(55), severity: 'unfixed' },
+      ],
+    ),
+  ).toEqual(['p1', 'none', undefined, undefined, undefined, 'unfixed'])
+})
+
+test('failure cases of the period group by kind and end as fixed, accepted by the user or still open', () => {
+  const task = completed('f', 2, 20, 15)
+  const resolution = (
+    resolution: 'accepted' | 'no-longer-applicable' | 'retry',
+    reason?: string,
+  ) => ({
+    requestId: `r-${resolution}`,
+    resolution,
+    ...(reason && { reason }),
+    at: iso(now - 5 * hour),
+    assessmentId: 'a',
+  })
+  const failure = (
+    id: string,
+    source: FailureCase['source'],
+    extra: Partial<FailureCase> = {},
+  ): FailureCase => ({
+    id,
+    taskId: 'f',
+    source,
+    recordedBy: 'run',
+    provenance: 'task-lead-reported',
+    evidence: 'agent evidence text',
+    createdAt: iso(now - 10 * hour),
+    assessments: [],
+    additions: [],
+    decisions: [],
+    resolutions: [],
+    invalidations: [],
+    ...extra,
+  })
+  const check = { kind: 'factory-check', checkRunId: 'c', position: 0 } as const
+  const finding = { kind: 'finding', runId: 'r', finding: 'f' } as const
+  const ci = { kind: 'github-ci', repo: 'o/r', number: 1, head: 'h', attempt: '1' } as const
+  task.failures = [
+    failure('verified', check, { verifications: [{ at: iso(now - 6 * hour), evidence: 'ok' }] }),
+    failure('gone', finding, { resolutions: [resolution('no-longer-applicable')] }),
+    failure('accepted', ci, {
+      resolutions: [resolution('accepted', 'Flaky\n  on this   machine')],
+    }),
+    failure('invalidated', finding, {
+      resolutions: [resolution('accepted', 'Fine')],
+      invalidations: [{ requestId: 'r-accepted', reason: 'Tested context changed', at: iso(now) }],
+    }),
+    failure('retrying', check, { resolutions: [resolution('retry')] }),
+    failure('replaced', check, {
+      verifications: [{ at: iso(now - 6 * hour), evidence: 'rerun', replacedBy: 'retrying' }],
+    }),
+    failure('old', check, { createdAt: iso(now - 300 * hour) }),
+  ]
+  const result = factoryDashboard([task], '7d', now).flow
+  expect(result.current.failures.map((f) => [f.id, f.kind, f.outcome])).toEqual([
+    ['verified', 'check', 'fixed'],
+    ['gone', 'finding', 'fixed'],
+    ['accepted', 'ci', 'accepted'],
+    ['invalidated', 'finding', 'open'],
+    ['retrying', 'check', 'open'],
+  ])
+  expect(result.current.failures.find((f) => f.id === 'accepted')?.reason).toBe(
+    'Flaky on this machine',
+  )
+  expect(result.current.failures.find((f) => f.id === 'invalidated')).not.toHaveProperty('reason')
+  expect(JSON.stringify(result)).not.toContain('agent evidence text')
+  expect(result.previous?.failures.map((f) => [f.id, f.outcome])).toEqual([['old', 'open']])
+  expect(result.tasks.map((t) => t.id)).toContain('f')
+})
+
 test('measured zero-length visits are samples, and missing visits never become zero samples', () => {
   const task = flowTask('zero', [
     ['intake', 10],
@@ -740,6 +879,45 @@ test('unions every observed reason independently and preserves direct/Check test
   expect(flow.previous?.reasons.every((r) => r.samples.length === 0 && r.medianMs === null)).toBe(
     true,
   )
+})
+
+test('each Stage hour counts once, under the first reason that covers it, and the rest is Other', () => {
+  const work = required(
+    factoryDashboard([observedTask()], '7d', now).flow.current.stages.find(
+      (s) => s.stage === 'work',
+    ),
+  )
+  const split = { working: 5, checks: 4, you: 0, slot: 0, github: 0, blocked: 1, other: 0 }
+  const inHours = (parts: Record<string, number>) =>
+    Object.fromEntries(Object.entries(parts).map(([k, v]) => [k, v / hour]))
+  expect(inHours(work.parts)).toEqual(split)
+  expect(inHours(required(work.samples[0]).parts)).toEqual(split)
+
+  const at = (h: number) => iso(now + h * hour)
+  const spans = (...list: [number, number][]) => list.map(([a, b]) => ({ from: at(a), to: at(b) }))
+  const reasons = new Map<FlowReasonId, { intervals: FlowInterval[] }>([
+    ['user-request', { intervals: spans([0, 2]) }],
+    ['run-slot', { intervals: spans([1, 3]) }],
+    ['check-slot', { intervals: spans([2, 4]) }],
+    ['github', { intervals: spans([3, 6]) }],
+    ['blocker', { intervals: spans([5, 7]) }],
+    ['stopped', { intervals: spans([6, 8]) }],
+  ])
+  expect(inHours(stageSampleParts({ intervals: spans([0, 10]) }, reasons))).toEqual({
+    working: 0,
+    checks: 0,
+    you: 2,
+    slot: 2,
+    github: 2,
+    blocked: 2,
+    other: 2,
+  })
+  const withoutYou = splitStage(
+    spans([0, 10]),
+    new Map([...reasons].map(([r, s]) => [r, s.intervals])),
+    ['you'],
+  )
+  expect(inHours(withoutYou)).toMatchObject({ you: 0, slot: 2, other: 2 })
 })
 
 test('clips all reasons to active Stage windows, excludes Backlog, and uses one as-of for both periods', () => {
@@ -980,4 +1158,297 @@ test('Today compares with the same clock time yesterday on a day the clocks chan
     if (zone === undefined) delete process.env.TZ
     else process.env.TZ = zone
   }
+})
+
+function waitedTask(
+  id: string,
+  ago: number,
+  stages: [string, number][],
+  requests: {
+    id: string
+    kind: string
+    stage: string | null
+    purpose: string | null
+    from: number
+    to: number
+  }[],
+): Facts {
+  const done = now - ago * hour
+  const at = (h: number) => iso(done - h * hour)
+  return {
+    id,
+    displayId: `NB-${id}`,
+    title: `Task ${id}`,
+    stage: 'done',
+    setup: false,
+    archived: false,
+    createdAt: at(30),
+    entries: [...stages.map(([stage, h]) => ({ stage, at: at(h) })), { stage: 'done', at: at(0) }],
+    activity: {
+      checks: [],
+      invocations: [],
+      requests: requests.map(({ id, kind, stage, purpose }) => ({ id, kind, stage, purpose })),
+      history: {
+        taskId: id,
+        asOf: iso(now),
+        lifecycle: [],
+        coverage: [],
+        intervals: requests.map((r) => ({
+          reason: 'user-request',
+          start: at(r.from),
+          end: at(r.to),
+          contributors: [
+            {
+              id: r.id,
+              start: at(r.from),
+              end: at(r.to),
+              startSource: 'CommentPosted',
+              endSource: 'CommentAnswered',
+            },
+          ],
+        })),
+      },
+    },
+  }
+}
+
+test('Waiting on you sums each completed Task’s requests by Stage, names each request and compares periods', () => {
+  const current = waitedTask(
+    'w1',
+    2,
+    [
+      ['intake', 20],
+      ['clarify', 20],
+      ['design', 14],
+      ['review', 8],
+    ],
+    [
+      { id: 'c1', kind: 'round', stage: 'clarify', purpose: 'round', from: 19, to: 16 },
+      { id: 'c2', kind: 'question', stage: null, purpose: 'failure', from: 18, to: 15 },
+      { id: 'c3', kind: 'review', stage: 'design', purpose: 'gate', from: 10, to: 6 },
+      { id: 'c4', kind: 'signoff', stage: 'review', purpose: 'gate', from: 5, to: 1 },
+    ],
+  )
+  const before = waitedTask(
+    'w2',
+    8 * 24 + 2,
+    [
+      ['intake', 20],
+      ['work', 20],
+    ],
+    [{ id: 'c5', kind: 'permission', stage: 'work', purpose: null, from: 15, to: 5 }],
+  )
+  const open = observedTask()
+  const report = factoryDashboard([current, before, open], '7d', now)
+  const waiting = report.waiting.current
+  expect(waiting).toMatchObject({
+    totalMs: 12 * hour,
+    medianMs: 3.5 * hour,
+    samples: [{ taskId: 'w1', waitedMs: 12 * hour }],
+    byFactory: [{ factoryId: 'nb', totalMs: 12 * hour, taskIds: ['w1'] }],
+  })
+  expect(waiting.stages.map((s) => [s.stage, s.totalMs / hour, s.kinds])).toEqual([
+    ['review', 6, ['Design sign-off', 'Review sign-off']],
+    ['clarify', 4, ['Clarify round', 'Failure decision']],
+    ['design', 2, ['Design sign-off']],
+  ])
+  expect(waiting.waits.map((w) => [w.requestId, w.kind, w.stage, w.waitedMs / hour])).toEqual([
+    ['c3', 'Design sign-off', 'design', 4],
+    ['c4', 'Review sign-off', 'review', 4],
+    ['c1', 'Clarify round', 'clarify', 3],
+    ['c2', 'Failure decision', 'clarify', 3],
+  ])
+  expect(report.waiting.previous).toMatchObject({
+    totalMs: 10 * hour,
+    waits: [{ requestId: 'c5', kind: 'Permission', waitedMs: 10 * hour }],
+  })
+  expect(report.waiting.change).toMatchObject({ absolute: 2 * hour, percent: 20 })
+  expect(factoryDashboard([open], 'all', now).waiting).toMatchObject({
+    current: { totalMs: 0, medianMs: null, stages: [], waits: [] },
+    previous: null,
+    change: null,
+  })
+})
+
+test('Cost splits spend by kind of work, gives one cost per merged pull request and counts unpriced Runs only in tokens', () => {
+  const day = 24 * hour
+  const start = now - 2 * day
+  const at = (n: number) => iso(n)
+  const row = (
+    id: string,
+    time: number,
+    cost: number | null,
+    agent = 'claude',
+    model = 'opus',
+  ) => ({
+    id,
+    agent,
+    model,
+    input: 10,
+    output: 1,
+    cost,
+    at: at(time),
+  })
+  const owners: CostOwners = {
+    automations: new Map([['auto', 'nb']]),
+    plans: new Map([['plan', 'nb']]),
+    coordinators: new Map([['coord', 'nb']]),
+    sideChats: new Map([['side', { taskId: 't1', factoryId: 'nb' }]]),
+    runs: new Map([
+      ['lead1', { taskId: 't1', parentRunId: null }],
+      ['review1', { taskId: 't1', parentRunId: 'lead1' }],
+      ['sub2', { taskId: 't2', parentRunId: 'lead2' }],
+      ['lead2', { taskId: 't2', parentRunId: null }],
+      ['gar', { taskId: 't3', parentRunId: null }],
+      ['gone', { taskId: 'deleted', parentRunId: null }],
+    ]),
+    reviewers: new Set(['review1']),
+    taskFactories: new Map([
+      ['t1', 'nb'],
+      ['t2', 'nb'],
+      ['t3', 'gar'],
+    ]),
+  }
+  const usage = costUsage(
+    [
+      row('lead1', start + hour, 6),
+      row('review1', start + day + hour, 2),
+      row('sub2', start + day + 2 * hour, null),
+      row('lead2', start - day, 3, 'codex', 'gpt-5.5'),
+      row('coord', start + 2 * hour, 1),
+      row('auto', start + 3 * hour, 0.5),
+      row('plan', start + 4 * hour, 0.25),
+      row('side', start + 5 * hour, 0.25),
+      row('loose', start + 6 * hour, 4),
+      row('gone', start + 7 * hour, 1),
+      row('gar', start + 8 * hour, 5),
+    ],
+    owners,
+  )
+  expect(Object.fromEntries(usage.map((u) => [u.runId, [u.kind, u.factoryId, u.taskId]]))).toEqual({
+    lead1: ['lead', 'nb', 't1'],
+    review1: ['reviewer', 'nb', 't1'],
+    sub2: ['sub-agent', 'nb', 't2'],
+    lead2: ['lead', 'nb', 't2'],
+    coord: ['coordinator', 'nb', null],
+    auto: ['automation', 'nb', null],
+    plan: ['planning', 'nb', null],
+    side: ['sub-agent', 'nb', 't1'],
+    loose: ['other', null, null],
+    gone: ['lead', null, null],
+    gar: ['lead', 'gar', 't3'],
+  })
+  const tasks = ['t1', 't2', 't3'].map((id) => ({
+    id,
+    factoryId: id === 't3' ? 'gar' : 'nb',
+    displayId: id,
+    title: id,
+    runs: 1,
+    sendBacks: 0,
+  }))
+  const current = {
+    from: at(start),
+    to: at(now),
+    buckets: [
+      { from: at(start), to: at(start + day) },
+      { from: at(start + day), to: at(now) },
+    ],
+    completed: [
+      { taskId: 't1', pullRequests: 2 },
+      { taskId: 't2', pullRequests: 1 },
+      { taskId: 'no-usage', pullRequests: 1 },
+    ],
+  }
+  const previous = { from: at(start - 2 * day), to: at(start), buckets: [], completed: [] }
+  const one = dashboardCost({
+    usage,
+    tasks,
+    factoryIds: ['nb'],
+    allFactories: false,
+    current,
+    previous,
+  })
+  expect(one.current).toMatchObject({
+    cost: 10,
+    runs: 7,
+    unpricedRuns: 1,
+    input: 70,
+    output: 7,
+    perPullRequest: {
+      median: 4.125,
+      p25: 3.5625,
+      p75: 4.125,
+      pullRequests: 3,
+      samples: [
+        { taskId: 't1', cost: 8.25, pullRequests: 2, perPullRequest: 4.125 },
+        { taskId: 't2', cost: 3, pullRequests: 1, perPullRequest: 3 },
+      ],
+    },
+  })
+  expect(one.current.kinds.map((k) => [k.key, k.cost, k.runs])).toEqual([
+    ['lead', 6, 1],
+    ['reviewer', 2, 1],
+    ['sub-agent', 0.25, 2],
+    ['coordinator', 1, 1],
+    ['automation', 0.5, 1],
+    ['planning', 0.25, 1],
+  ])
+  expect(one.current.buckets.map((b) => b.cost)).toEqual([8, 2])
+  expect(one.current.buckets[1]?.kinds.map((k) => k.key)).toEqual(['reviewer', 'sub-agent'])
+  expect(one.current.models.map((m) => m.key)).toEqual(['claude·opus'])
+  expect(one.current.tasks).toEqual([
+    { taskId: 't1', cost: 8.25 },
+    { taskId: 't2', cost: 0 },
+  ])
+  expect(one.current.byFactory.map((f) => f.factoryId)).toEqual(['nb'])
+  expect(one.previous).toMatchObject({
+    cost: 3,
+    models: [{ key: 'codex·gpt-5.5', agent: 'codex' }],
+  })
+  expect(one.change?.spend.percent).toBeCloseTo((10 / 3 - 1) * 100)
+  expect(one.tasks.map((t) => t.id)).toEqual(['t1', 't2'])
+
+  const all = dashboardCost({
+    usage,
+    tasks,
+    factoryIds: ['nb', 'gar'],
+    allFactories: true,
+    current,
+    previous,
+  })
+  expect(all.current.cost).toBe(20)
+  expect(all.current.byFactory.map((f) => [f.factoryId, f.cost])).toEqual([
+    ['nb', 10],
+    ['gar', 5],
+    [null, 5],
+  ])
+  expect(all.current.byFactory[0]?.perPullRequest.median).toBe(4.125)
+  expect(all.current.kinds.find((k) => k.key === 'other')).toMatchObject({ cost: 4, tasks: [] })
+
+  const unpriced = dashboardCost({
+    usage: costUsage([row('lead1', start + hour, 10), row('gar', start + hour, null)], {
+      ...owners,
+      taskFactories: new Map([
+        ['t1', 'nb'],
+        ['t3', 'nb'],
+      ]),
+    }),
+    tasks,
+    factoryIds: ['nb'],
+    allFactories: false,
+    current: {
+      ...current,
+      completed: [
+        { taskId: 't1', pullRequests: 1 },
+        { taskId: 't3', pullRequests: 1 },
+      ],
+    },
+    previous: null,
+  })
+  expect(unpriced.current).toMatchObject({
+    unpricedRuns: 1,
+    perPullRequest: { median: 10, pullRequests: 1, samples: [{ taskId: 't1', cost: 10 }] },
+  })
+  expect(unpriced.current.perPullRequest.samples).toHaveLength(1)
+  expect(unpriced.current.byFactory[0]?.perPullRequest.median).toBe(10)
 })

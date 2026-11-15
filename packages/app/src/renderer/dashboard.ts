@@ -1,30 +1,51 @@
 import type {
+  CostKind,
   DashboardMetric,
   DashboardRange,
+  FlowFailureKind,
+  FlowFailureOutcome,
   FlowReasonId,
   FlowValidateOutcome,
+  StagePart,
 } from '@ted/protocol'
 
 export type FlowSelection = { period: 'current' | 'previous' } & (
-  | { kind: 'stage'; stage: string }
+  | { kind: 'stage'; stage: string; part?: StagePart }
   | { kind: 'reason'; reason: FlowReasonId }
   | { kind: 'guide' }
   | { kind: 'send-back'; from: string; to: string }
   | { kind: 'affected' }
   | { kind: 'incomplete' }
   | { kind: 'left-out' }
-  | { kind: 'validate'; outcome: FlowValidateOutcome }
+  | { kind: 'validate'; outcome?: FlowValidateOutcome; factoryId?: string }
+  | {
+      kind: 'sent-back'
+      cause?: string
+      severity?: string
+      from?: string
+      to?: string
+      factoryId?: string
+    }
+  | { kind: 'failure'; failure?: FlowFailureKind; outcome?: FlowFailureOutcome; id?: string }
 )
 
+export type CostSelection =
+  | { of: 'spend'; kind?: CostKind; model?: string; factoryId?: string | null }
+  | { of: 'per-pull-request'; factoryId?: string; taskId?: string }
+
 export interface DashboardSelection {
-  metric: DashboardMetric | 'unavailable'
+  metric: DashboardMetric | 'unavailable' | 'open' | 'waiting' | 'cost'
   period: 'current' | 'previous'
   bucket?: number
   missing?: boolean
+  stage?: string
+  requestId?: string
+  cost?: CostSelection
+  factoryId?: string
 }
 
 export interface DashboardViewState {
-  panel?: 'overview' | 'flow' | 'stages'
+  panel?: 'overview' | 'flow' | 'stages' | 'cost'
   range: DashboardRange
   factoryIds?: readonly string[]
   sample?: DashboardSelection
@@ -35,7 +56,7 @@ type Remembered = Pick<DashboardViewState, 'panel' | 'range' | 'factoryIds'>
 
 const storageKey = 'ted.dashboard'
 const ranges: readonly DashboardRange[] = ['today', '7d', '30d', 'all']
-const panels = ['overview', 'flow', 'stages'] as const
+const panels = ['overview', 'flow', 'stages', 'cost'] as const
 
 export function rememberedDashboard(storage: Pick<Storage, 'getItem'> = localStorage): Remembered {
   let stored: unknown

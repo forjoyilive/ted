@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { noStageParts } from '@ted/protocol/stage-parts'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { useState } from 'react'
 import { expect, test, vi } from 'vitest'
@@ -11,9 +12,15 @@ import { bridge, user } from './support/component.ts'
 import { dashboardFixture } from './support/dashboard.ts'
 import { factory, task } from './support/fixtures.ts'
 
-function DashboardView({ open }: { open: (id: string) => void }) {
+function DashboardView({
+  open,
+  factories = [],
+}: {
+  open: (id: string) => void
+  factories?: ReturnType<typeof factory>[]
+}) {
   const [state, setState] = useState<DashboardViewState>({ range: '7d' })
-  return <Dashboard factories={[]} state={state} onChange={setState} onOpenTask={open} />
+  return <Dashboard factories={factories} state={state} onChange={setState} onOpenTask={open} />
 }
 
 test('the shared App shortcuts navigate only the top sample dialog and preserve Task return', async () => {
@@ -74,7 +81,7 @@ test('the shared App shortcuts navigate only the top sample dialog and preserve 
 
   await u.click(screen.getByRole('tab', { name: 'Stages' }))
   const stageTime = screen.getByRole('region', { name: 'Elapsed time by Stage' })
-  await u.click(within(stageTime).getByRole('button', { name: '2 Tasks' }))
+  await u.click(within(stageTime).getByRole('button', { name: 'All 2 Tasks' }))
   sample = screen.getByRole('dialog')
   first = within(sample).getByRole('button', { name: /NB-1.*Fix login/ })
   const openFlowTask = within(sample).getByRole('button', { name: /NB-3.*Open Task/ })
@@ -140,28 +147,28 @@ test('graph points and their samples name the calendar days they cover', async (
         'Wed 11 Nov',
         'Tasks completed · Wed 11 Nov',
         'Midnight to midnight',
-        'One point per calendar day, midnight to midnight. Today is not included.',
+        'One bar per calendar day, midnight to midnight. Today is not included.',
       ],
       [
         all,
         '9–12 Nov (today so far)',
         'Tasks completed · 9–12 Nov (today so far)',
         '22:26:00 UTC (end excluded)',
-        'Each point covers 4 calendar days',
+        'Each bar covers 4 calendar days',
       ],
       [
         early,
         'Thu 12 Nov (today so far)',
         'Tasks completed · Thu 12 Nov (today so far)',
         '14:00:00 UTC (end excluded)',
-        'One point per calendar day, midnight to midnight. The last point runs to now.',
+        'One bar per calendar day, midnight to midnight. The last bar runs to now.',
       ],
       [
         today,
         '14:00:30.125 UTC',
         'Tasks completed · Selected period',
         '14:26:45.500 UTC (end excluded)',
-        'One point per hour since midnight.',
+        'One bar per hour since midnight.',
       ],
     ] as const) {
       bridge({ dashboard: () => data })
@@ -190,7 +197,7 @@ test('graph points and their samples name the calendar days they cover', async (
   }
 })
 
-test('Dashboard preserves completion metrics and opens contributing and missing-start Tasks', async () => {
+test('Overview figures open the Tasks behind them, durations slowest first', async () => {
   bridge({ dashboard: () => dashboardFixture() })
   const open = vi.fn()
   render(<DashboardView open={open} />)
@@ -204,8 +211,10 @@ test('Dashboard preserves completion metrics and opens contributing and missing-
   const graphSample = screen.getByRole('dialog')
   expect(within(graphSample).getByRole('button', { name: /NB-2.*Improve search/ })).toBeTruthy()
   await user().click(within(graphSample).getByRole('button', { name: 'Close sample' }))
-  const intake = screen.getByRole('region', { name: 'First Intake → Done' })
-  await user().click(within(intake).getByRole('button', { name: 'View 1 Tasks' }))
+  const close = () =>
+    user().click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close sample' }))
+  const time = screen.getByRole('region', { name: 'How long a Task takes' })
+  await user().click(within(time).getByRole('button', { name: 'First Intake → Done 5h' }))
   let sample = screen.getByRole('dialog')
   expect(within(sample).getByRole('button', { name: /NB-1.*Fix login/ }).textContent).toContain(
     'Archived',
@@ -213,11 +222,99 @@ test('Dashboard preserves completion metrics and opens contributing and missing-
   expect(within(sample).queryByText(/Improve search/)).toBeNull()
   await user().click(within(sample).getByRole('button', { name: /NB-1.*Fix login/ }))
   expect(open).toHaveBeenCalledWith('t1')
-  await user().click(within(sample).getByRole('button', { name: 'Close sample' }))
-  await user().click(within(intake).getByRole('button', { name: '1 missing starts' }))
+  await close()
+  await user().click(within(time).getByRole('button', { name: '1 missing starts' }))
   sample = screen.getByRole('dialog')
   expect(within(sample).getByText(/Improve search/)).toBeTruthy()
   expect(within(sample).getByText(/Start unavailable/)).toBeTruthy()
+  await close()
+  await user().click(within(time).getByRole('button', { name: 'Created → Done 20h' }))
+  sample = screen.getByRole('dialog')
+  expect(
+    within(sample)
+      .getAllByRole('button', { name: /NB-/ })
+      .map((row) => row.textContent?.slice(0, 4)),
+  ).toEqual(['NB-2', 'NB-1'])
+  await close()
+  await user().click(within(time).getByRole('button', { name: /5h\s*Waiting in Backlog/ }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe(
+    'Waiting in Backlog · Selected period',
+  )
+  expect(within(sample).getByRole('button', { name: /NB-1.*Fix login/ }).textContent).toContain(
+    '5h',
+  )
+  await close()
+
+  const merged = screen.getByRole('region', { name: 'Pull requests merged' })
+  await user().click(within(merged).getByRole('button', { name: '3 pull requests merged' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('button', { name: /NB-1.*Fix login/ }).textContent).toContain(
+    '2 pull requests merged',
+  )
+  await close()
+  const openTasks = screen.getByRole('region', { name: 'Open Tasks right now' })
+  expect(openTasks.textContent).toContain('1 Working · 1 waiting on you')
+  await user().click(within(openTasks).getByRole('button', { name: '2 open Tasks' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe('Open Tasks right now')
+  const waiting = within(sample).getByRole('button', { name: /NB-4.*Answer me/ })
+  expect(waiting.textContent).toContain('Review · Waiting on you')
+  await user().click(waiting)
+  expect(open).toHaveBeenCalledWith('t4')
+  await close()
+
+  const waits = screen.getByRole('region', { name: 'Waiting on you' })
+  expect(waits.textContent).toContain('-25%')
+  expect(waits.textContent).toContain('Previous: 40h')
+  expect(waits.textContent).toContain('median answer time · 3 requests')
+  const stageRows = within(waits).getAllByRole('button', { name: /^Waiting on you in/ })
+  expect(stageRows.map((row) => row.getAttribute('aria-label'))).toEqual([
+    'Waiting on you in Review 24h',
+    'Waiting on you in Clarify 6h',
+  ])
+  expect(stageRows[1]?.textContent).toContain('Clarify round, Question')
+  await user().click(within(waits).getByRole('button', { name: 'Waiting on you 30h' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe('Waiting on you · Selected period')
+  expect(
+    within(sample)
+      .getAllByRole('button', { name: /NB-/ })
+      .map((row) => row.textContent?.slice(0, 4)),
+  ).toEqual(['NB-1', 'NB-2'])
+  expect(within(sample).getByRole('button', { name: /NB-1.*Fix login/ }).textContent).toContain(
+    'Waited 1d 2h · Review sign-off, Question',
+  )
+  await close()
+  await user().click(within(waits).getByRole('button', { name: 'Median answer time 6h' }))
+  expect(within(screen.getByRole('dialog')).getAllByRole('button', { name: /NB-/ })).toHaveLength(2)
+  await close()
+  await user().click(stageRows[1] as HTMLElement)
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe('Waiting on you · In Clarify')
+  expect(
+    within(sample).getByRole('button', { name: /NB-2.*Improve search/ }).textContent,
+  ).toContain('Waited 4h · Clarify round')
+  expect(within(sample).getByRole('button', { name: /NB-1.*Fix login/ }).textContent).toContain(
+    'Waited 2h · Question',
+  )
+  await close()
+  const longest = screen.getByRole('region', { name: 'Longest waits on you' })
+  const longestRows = within(longest).getAllByRole('button')
+  expect(longestRows.map((row) => row.textContent)).toEqual([
+    'NB-1 Review sign-off1d',
+    'NB-2 Clarify round4h',
+    'NB-1 Question2h',
+  ])
+  expect(longest.textContent).toContain('Snoozed time counts as waiting.')
+  await user().click(longestRows[0] as HTMLElement)
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe(
+    'Waiting on you · Review sign-off in Review',
+  )
+  expect(within(sample).getAllByRole('button', { name: /NB-/ })).toHaveLength(1)
+  await user().click(within(sample).getByRole('button', { name: /NB-1.*Fix login/ }))
+  expect(open).toHaveBeenCalledWith('t1')
 })
 
 test('Factory and range changes discard late responses instead of mixing samples', async () => {
@@ -239,6 +336,15 @@ test('Factory and range changes discard late responses instead of mixing samples
   await act(async () => pending.resolve(dashboardFixture()))
   expect(within(region).queryByRole('button', { name: '2 tasks' })).toBeNull()
   expect(api.request).toHaveBeenCalledWith('dashboard', '30d', ['f2'])
+  view.rerender(<Dashboard {...props} state={{ range: '30d' }} />)
+  const byFactory = await screen.findByRole('region', { name: 'By Factory' })
+  for (const column of [
+    'Pull requests merged',
+    'Waiting in Backlog',
+    'Waiting on you',
+    'Cost per pull request',
+  ])
+    expect(within(byFactory).getByRole('columnheader', { name: column })).toBeTruthy()
 })
 
 test('load failures retry, events refresh completed metrics and clock/focus advance rolling boundaries', async () => {
@@ -286,7 +392,9 @@ test('unavailable completion history never assigns an unrecorded completion to t
     archived: true,
     doneAt: null,
     createdMs: null,
+    backlogMs: null,
     intakeMs: null,
+    merges: 0,
   })
   bridge({ dashboard: () => data })
   render(
@@ -314,11 +422,13 @@ test('Flow keeps its open-Task sample separate, shows distributions and opens ex
     medianMs: 3_600_000,
     p25Ms: 3_600_000,
     p75Ms: 3_600_000,
+    parts: { ...noStageParts(), blocked: 3_600_000 },
     samples: [
       {
         taskId: 't2',
         elapsedMs: 3_600_000,
         intervals: [{ from: '2026-11-05T00:00:00.000Z', to: '2026-11-05T01:00:00.000Z' }],
+        parts: { ...noStageParts(), blocked: 3_600_000 },
       },
     ],
   })
@@ -336,10 +446,10 @@ test('Flow keeps its open-Task sample separate, shows distributions and opens ex
   expect(within(region).queryByText('14h')).toBeNull()
   expect(within(region).getByText('100%')).toBeTruthy()
   expect(within(region).getByText('Share')).toBeTruthy()
-  expect(within(region).getByRole('button', { name: '0 Tasks' })).toBeTruthy()
+  expect(within(region).getByRole('button', { name: '0 of 2 Tasks' })).toBeTruthy()
   expect(screen.getByText(/without the time Tasks spent waiting for you/)).toBeTruthy()
   expect(region.textContent).toContain('Tasks without a complete record of those requests')
-  await user().click(within(region).getByRole('button', { name: '2 Tasks' }))
+  await user().click(within(region).getByRole('button', { name: 'All 2 Tasks' }))
   let sample = screen.getByRole('dialog')
   expect(sample.textContent).toContain('Without time waiting for you.')
   expect(sample.textContent).toContain('6h · 1 measured visit · 3h waiting for you left out')
@@ -353,7 +463,7 @@ test('Flow keeps its open-Task sample separate, shows distributions and opens ex
   await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
   await user().click(waits())
   expect(within(region).queryByRole('button', { name: /left out/ })).toBeNull()
-  expect(within(region).getByRole('button', { name: '1 Task' })).toBeTruthy()
+  expect(within(region).getByRole('button', { name: '1 of 2 Tasks' })).toBeTruthy()
   expect(screen.getByText(/including time waiting for you and repeat visits/)).toBeTruthy()
   view.unmount()
   render(<DashboardView open={open} />)
@@ -361,7 +471,7 @@ test('Flow keeps its open-Task sample separate, shows distributions and opens ex
   expect(waits().checked).toBe(true)
   const region2 = screen.getByRole('region', { name: 'Elapsed time by Stage' })
   expect(within(region2).getByText('14h')).toBeTruthy()
-  const opener = within(region2).getByRole('button', { name: '2 Tasks' })
+  const opener = within(region2).getByRole('button', { name: 'All 2 Tasks' })
   await user().click(opener)
   sample = screen.getByRole('dialog')
   expect(sample.textContent).toContain('Includes time waiting for you.')
@@ -376,6 +486,32 @@ test('Flow keeps its open-Task sample separate, shows distributions and opens ex
   expect(open).toHaveBeenCalledWith('t3')
   await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
   expect(document.activeElement).toBe(opener)
+  const row = (name: string) =>
+    within(region2).getByRole('button', { name }).closest('li') as HTMLElement
+  expect(within(row('Work')).getByText('Most time')).toBeTruthy()
+  expect(within(row('Review')).queryByText('Most time')).toBeNull()
+  expect(within(region2).getByText('Blocked or paused')).toBeTruthy()
+  expect(within(region2).getByTestId('stage-bar-work').style.width).toBe('100%')
+  expect(
+    Number.parseFloat(within(region2).getByTestId('stage-bar-review').style.width),
+  ).toBeCloseTo(100 / 14)
+  const shares = within(region2).getByRole('button', { name: 'Share of each Stage' })
+  await user().click(shares)
+  expect(shares.getAttribute('aria-pressed')).toBe('true')
+  expect(within(region2).getByTestId('stage-bar-review').style.width).toBe('100%')
+  const working = within(region2).getByRole('button', { name: 'Work · Agent working: 5h' })
+  expect(working.getAttribute('title')).toBe('Work · Agent working: 5h')
+  await user().click(working)
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading', { name: 'Work · Agent working' })).toBeTruthy()
+  expect(sample.textContent).toContain('Agent working: 5h of this Stage’s 14h.')
+  expect(
+    within(sample)
+      .getAllByRole('button', { name: /Open history/ })
+      .map((b) => b.textContent?.slice(0, 4)),
+  ).toEqual(['NB-3', 'NB-1'])
+  expect(sample.textContent).toContain('Agent working: 3h of 9h')
+  await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
   await user().click(screen.getByRole('button', { name: /1 Task has incomplete/ }))
   sample = screen.getByRole('dialog')
   expect(sample.textContent).toContain('First Intake timestamp is missing.')
@@ -400,6 +536,47 @@ test('Flow distinguishes counted transitions and unknown verification from compl
   sample = screen.getByRole('dialog')
   expect(sample.textContent).toContain('Visual verification or its applicability was not recorded.')
   expect(within(sample).getByRole('button', { name: /NB-2.*Improve search/ })).toBeTruthy()
+  await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
+
+  const causes = screen.getByRole('region', { name: 'Why Tasks were sent back' })
+  expect(causes.textContent).toContain(
+    '2 send-backs across 1 Task · Validate → Work is the most common',
+  )
+  expect(within(causes).getAllByRole('button', { name: 'Base conflict 1' }).length).toBeGreaterThan(
+    0,
+  )
+  const [reviewSegment] = within(causes).getAllByRole('button', { name: 'Review Findings 1' })
+  if (!reviewSegment) throw new Error('Missing review segment')
+  await user().click(reviewSegment)
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading', { name: 'Sent back: Review Findings' })).toBeTruthy()
+  expect(sample.textContent).toContain('Cause: Review Findings · Severity: P1')
+  expect(within(sample).getAllByRole('button', { name: /NB-3.*Open Task/ })).toHaveLength(1)
+  await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
+  expect(within(causes).getByRole('row', { name: /Unfixed.*0/ })).toBeTruthy()
+  await user().click(within(causes).getByRole('button', { name: /P1 Must fix/ }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading', { name: 'Send-backs · Severity: P1' })).toBeTruthy()
+  await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
+
+  const failures = screen.getByRole('region', { name: 'Failures and how they ended' })
+  expect(failures.textContent).toContain(
+    '3 failure cases on 2 Tasks · 1 fixed · 1 accepted by you · 1 still open',
+  )
+  await user().click(within(failures).getByRole('button', { name: 'CI at Merge · Still open 1' }))
+  sample = screen.getByRole('dialog')
+  expect(
+    within(sample).getByRole('heading', { name: 'Failure cases · CI at Merge · Still open' }),
+  ).toBeTruthy()
+  expect(within(sample).getAllByRole('button', { name: /NB-3.*Open Task/ })).toHaveLength(1)
+  await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
+  const accepted = screen.getByRole('region', { name: 'Failures you accepted' })
+  expect(accepted.textContent).toContain('Out of scope for this Task')
+  await user().click(
+    within(accepted).getByRole('button', { name: /NB-3.*Reviewer or Task Lead Finding/ }),
+  )
+  sample = screen.getByRole('dialog')
+  expect(sample.textContent).toContain('Your reason: Out of scope for this Task')
 })
 
 test('Flow shares the range selector, suppresses all-history comparisons and shows empty denominators as unavailable', async () => {
@@ -437,11 +614,13 @@ test('previous-period Flow samples retain their own period and restore focus aft
       medianMs: 3_600_000,
       p25Ms: 3_600_000,
       p75Ms: 3_600_000,
+      parts: { ...noStageParts(), other: 3_600_000 },
       samples: [
         {
           taskId: 't1',
           elapsedMs: 3_600_000,
           intervals: [{ from: '2026-10-26T00:00:00.000Z', to: '2026-10-26T01:00:00.000Z' }],
+          parts: { ...noStageParts(), other: 3_600_000 },
         },
       ],
     },
@@ -463,7 +642,7 @@ test('previous-period Flow samples retain their own period and restore focus aft
   expect(document.activeElement).toBe(within(region).getByRole('button', { name: 'Work' }))
 })
 
-test('three Dashboard tabs preserve Overview, share the period and close samples when switching', async () => {
+test('four Dashboard tabs preserve Overview, share the period and close samples when switching', async () => {
   bridge({ dashboard: () => dashboardFixture() })
   render(<DashboardView open={vi.fn()} />)
   await screen.findByRole('region', { name: 'Tasks completed' })
@@ -482,6 +661,9 @@ test('three Dashboard tabs preserve Overview, share the period and close samples
   await user().selectOptions(select, '30d')
   expect(screen.getByRole('tab', { name: 'Stages' }).getAttribute('aria-selected')).toBe('true')
   screen.getByRole('tab', { name: 'Stages' }).focus()
+  await user().keyboard('{ArrowRight}')
+  expect(screen.getByRole('tab', { name: 'Cost' }).getAttribute('aria-selected')).toBe('true')
+  expect(document.activeElement).toBe(screen.getByRole('tab', { name: 'Cost' }))
   await user().keyboard('{ArrowRight}')
   expect(screen.getByRole('tab', { name: 'Overview' }).getAttribute('aria-selected')).toBe('true')
   expect((select as HTMLSelectElement).value).toBe('30d')
@@ -649,7 +831,9 @@ test('Today draws hours against all of yesterday and compares with yesterday to 
       from: at(day, index),
       to: index === count - 1 ? end : at(day, index + 1),
       taskIds: index === 1 ? ['t1'] : [],
+      merged: { count: 0, taskIds: [] },
       created: { value: null, taskIds: [], missingIds: [] },
+      backlog: { value: null, taskIds: [], missingIds: [] },
       intake: { value: null, taskIds: [], missingIds: [] },
     }))
   data.range = 'today'
@@ -693,7 +877,9 @@ test('a graph point’s tooltip compares it with the aligned previous point', as
     from,
     to: from,
     taskIds: ids,
+    merged: { count: 0, taskIds: [] },
     created: { value: median, taskIds: median === null ? [] : ids, missingIds: [] },
+    backlog: { value: null, taskIds: [], missingIds: [] },
     intake: { value: null, taskIds: [], missingIds: [] },
   })
   const now = bucket('now', ['a', 'b', 'c', 'd'], 3_600_000)
@@ -763,4 +949,191 @@ test('a graph point’s tooltip compares it with the aligned previous point', as
       today: false,
     }),
   ).toMatchObject({ heading: 'Previous · then', aligned: 'Aligned to now', change: null })
+})
+
+test('the completed chart’s scale and Factory split', async () => {
+  const { byFactoryCount, countScale } = await import('../src/renderer/views/Dashboard.tsx')
+  const { moneyScale } = await import('../src/renderer/views/DashboardCost.tsx')
+  expect(moneyScale(0)).toEqual([0, 1])
+  expect(moneyScale(0.3)).toEqual([0, 0.1, 0.2, 0.3])
+  expect(moneyScale(12)).toEqual([0, 5, 10, 15])
+  expect(countScale(1)).toEqual([0, 1])
+  expect(countScale(7)).toEqual([0, 2, 4, 6, 8])
+  expect(countScale(13)).toEqual([0, 4, 8, 12, 16])
+  const tasks = [
+    { id: 'a', factoryId: 'one' },
+    { id: 'b', factoryId: 'two' },
+    { id: 'c', factoryId: 'two' },
+  ]
+  expect(byFactoryCount(['a', 'b', 'c'], tasks, ['two', 'one', 'three'])).toEqual([
+    { factoryId: 'two', count: 2 },
+    { factoryId: 'one', count: 1 },
+  ])
+})
+
+test('the Cost tab shows cost per merged pull request, spend by kind of work and by model, and opens what is behind each figure', async () => {
+  bridge({ dashboard: () => dashboardFixture() })
+  const open = vi.fn()
+  render(<DashboardView open={open} />)
+  await screen.findByRole('region', { name: 'Tasks completed' })
+  await user().click(screen.getByRole('tab', { name: 'Cost' }))
+  expect(
+    screen.getByText(/whatever your billing\. Runs still going aren’t counted yet\./),
+  ).toBeTruthy()
+  expect(screen.getByText(/1 Run in this period has no known price/)).toBeTruthy()
+  const close = () =>
+    user().click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Close sample' }))
+
+  const perPr = screen.getByRole('region', { name: 'Cost per merged pull request' })
+  expect(within(perPr).getByText('−20%')).toBeTruthy()
+  expect(within(perPr).getByText(/Middle half \$3\.50 – \$4\.00 · 3 pull requests/)).toBeTruthy()
+  const spend = screen.getByRole('region', { name: 'Spend in this period' })
+  expect(within(spend).getByText('+20%')).toBeTruthy()
+  expect(within(spend).getByText(/^92% went to Task work/)).toBeTruthy()
+  const tokens = screen.getByRole('region', { name: 'Tokens' })
+  expect(within(tokens).getByRole('button').textContent).toBe('1.5M in · 40K out')
+  expect(within(tokens).getByText('across 5 Runs')).toBeTruthy()
+
+  const chart = screen.getByRole('region', { name: 'Spend over time' })
+  expect(within(chart).getByText('Task Leads $9.00')).toBeTruthy()
+  expect(within(chart).getByText('Coordinator $1.00')).toBeTruthy()
+  await user().click(within(chart).getByRole('button', { name: 'By agent and model' }))
+  expect(within(chart).getByText('Claude · opus $9.00')).toBeTruthy()
+  expect(within(chart).getByText('Codex · gpt-5.5 $3.00')).toBeTruthy()
+  await user().click(
+    within(chart).getAllByRole('button', { name: /· \$12\.00$/ })[0] as HTMLElement,
+  )
+  expect(
+    within(screen.getByRole('dialog')).getByRole('button', { name: /NB-1.*Fix login/ }),
+  ).toBeTruthy()
+  await close()
+
+  await user().click(within(spend).getByRole('button', { name: 'Spend in this period $12.00' }))
+  let sample = screen.getByRole('dialog')
+  const items = within(sample)
+    .getAllByRole('listitem')
+    .map((item) => item.textContent)
+  expect(items).toHaveLength(3)
+  expect(items[0]).toMatch(/NB-1.*Fix login.*\$8\.00 · 3 Runs · 1 send-back/)
+  expect(items[1]).toMatch(/NB-2.*Improve search.*\$3\.00/)
+  expect(items[2]).toBe('Coordinator$1.00 not tied to a Task')
+  await close()
+  await user().click(within(spend).getByRole('button', { name: 'Coordinator $1.00' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe('Coordinator · Selected period')
+  expect(within(sample).queryAllByRole('button', { name: /NB-/ })).toHaveLength(0)
+  await close()
+
+  const expensive = screen.getByRole('region', { name: 'Most expensive pull requests' })
+  const [, first] = within(expensive).getAllByRole('row')
+  expect(
+    within(first as HTMLElement)
+      .getAllByRole('cell')
+      .map((cell) => cell.textContent),
+  ).toEqual(['3', '1', '$4.00'])
+  expect(first?.textContent).toContain('$8.00 over 2 pull requests')
+  await user().click(within(expensive).getByRole('button', { name: 'NB-1 Fix login' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe(
+    'Cost per merged pull request · NB-1',
+  )
+  await user().click(within(sample).getByRole('button', { name: /NB-1.*\$4\.00 per pull request/ }))
+  expect(open).toHaveBeenCalledWith('t1')
+
+  const byFactory = screen.getByRole('region', { name: 'Spend by Factory' })
+  const [, nb] = within(byFactory).getAllByRole('row')
+  expect(nb?.textContent).toContain('$12.00')
+  expect(nb?.textContent).toContain('$4.00')
+  expect(byFactory.textContent).toContain('Codex cost comes from TED’s own price table')
+})
+
+test('every By Factory and Flow table figure opens the Tasks behind it for that Factory', async () => {
+  const data = dashboardFixture()
+  data.current.byFactory.push({
+    factoryId: 'gar',
+    taskIds: ['t2'],
+    merged: { count: 2, taskIds: ['t2'] },
+    created: { value: null, taskIds: [], missingIds: [] },
+    backlog: { value: null, taskIds: [], missingIds: [] },
+    intake: { value: null, taskIds: [], missingIds: [] },
+  })
+  data.cost.current.byFactory.push({
+    factoryId: 'gar',
+    cost: 0,
+    runs: 1,
+    kinds: [],
+    tasks: [{ taskId: 't2', cost: 0 }],
+    perPullRequest: { median: null, p25: null, p75: null, pullRequests: 0, samples: [] },
+  })
+  bridge({ dashboard: () => data })
+  const factories = [factory({ id: 'nb', name: 'Nabla' }), factory({ id: 'gar', name: 'Garden' })]
+  render(<DashboardView open={vi.fn()} factories={factories} />)
+  const close = (name = 'Close sample') =>
+    user().click(within(screen.getByRole('dialog')).getByRole('button', { name }))
+  const row = (region: HTMLElement, name: string) =>
+    within(region).getByRole('row', { name: new RegExp(`^${name}`) })
+
+  const overview = await screen.findByRole('region', { name: 'By Factory' })
+  await user().click(within(row(overview, 'Garden')).getByRole('button', { name: '2' }))
+  let sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe(
+    'Pull requests merged · Selected period · Garden',
+  )
+  expect(
+    within(sample)
+      .getAllByRole('button', { name: /NB-/ })
+      .map((b) => b.textContent),
+  ).toEqual([expect.stringMatching(/NB-2.*Improve search/)])
+  await close()
+  await user().click(within(row(overview, 'Nabla')).getByRole('button', { name: '$4.00' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe(
+    'Cost per merged pull request · Nabla',
+  )
+  await close()
+
+  await user().click(screen.getByRole('tab', { name: 'Cost' }))
+  const cost = screen.getByRole('region', { name: 'Spend by Factory' })
+  await user().click(within(row(cost, 'Nabla')).getByRole('button', { name: '$4.00' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe(
+    'Cost per merged pull request · Nabla',
+  )
+  expect(
+    within(sample).getByRole('button', { name: /NB-1.*\$4\.00 per pull request/ }),
+  ).toBeTruthy()
+  await close()
+  await user().click(within(row(cost, 'Garden')).getByRole('button', { name: '$0.00' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toContain('Garden')
+  expect(within(sample).getByRole('button', { name: /NB-2/ })).toBeTruthy()
+  await close()
+
+  await user().click(screen.getByRole('tab', { name: 'Flow' }))
+  const causes = await screen.findByRole('region', { name: 'Why Tasks were sent back' })
+  const route = row(causes, 'Validate → Work')
+  expect(
+    within(route)
+      .getAllByRole('cell')
+      .map((cell) => cell.textContent),
+  ).toEqual(['2', '0'])
+  await user().click(within(route).getByRole('button', { name: '2' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe(
+    'Send-backs · Validate → Work · Nabla',
+  )
+  expect(within(sample).getAllByRole('button', { name: /NB-3.*Open Task/ })).toHaveLength(2)
+  await close('Close Flow sample')
+  const flowByFactory = screen.getByRole('region', { name: 'Flow by Factory' })
+  expect(within(row(flowByFactory, 'Garden')).queryAllByRole('button')).toHaveLength(0)
+  await user().click(within(row(flowByFactory, 'Nabla')).getByRole('button', { name: /1 of 1/ }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe(
+    'Passed or failed · First-pass Validate · Nabla',
+  )
+  expect(
+    within(sample)
+      .getAllByRole('button', { name: /NB-/ })
+      .map((b) => b.textContent),
+  ).toEqual([expect.stringMatching(/NB-1/)])
 })

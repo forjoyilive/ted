@@ -1,6 +1,17 @@
-import type { DashboardFlow, FlowPeriod, FlowValidateOutcome } from '@ted/protocol'
+import type {
+  DashboardFlow,
+  FlowFailure,
+  FlowFailureKind,
+  FlowFailureOutcome,
+  FlowPeriod,
+  FlowSendBack,
+  FlowStageSample,
+  FlowValidateOutcome,
+  StagePart,
+} from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
-import { useEffect, useId, useRef } from 'react'
+import { stageParts } from '@ted/protocol/stage-parts'
+import { useEffect, useId, useRef, useState } from 'react'
 import { CloseIcon } from '../components/icons.tsx'
 import type { FlowSelection } from '../dashboard.ts'
 import { stageName as label } from '../list-view.ts'
@@ -39,84 +50,171 @@ const outcomes: Record<FlowValidateOutcome, string> = {
   'no-visit': 'No recorded Validate visit',
 }
 
+export const partNames: Record<StagePart, string> = {
+  working: 'Agent working',
+  checks: 'Running Checks',
+  you: 'Waiting on you',
+  slot: 'Waiting for a slot',
+  github: 'Waiting on GitHub',
+  blocked: 'Blocked or paused',
+  other: 'Other',
+}
+
+const partClass: Record<StagePart, string | undefined> = {
+  working: styles.partWorking,
+  checks: styles.partChecks,
+  you: styles.partYou,
+  slot: styles.partSlot,
+  github: styles.partGithub,
+  blocked: styles.partBlocked,
+  other: styles.partOther,
+}
+
 function coverage(
   stage: FlowPeriod['stages'][number],
-  period: FlowPeriod,
+  eligible: number,
   factories: readonly { id: string; name: string }[],
-): { text: string; names: string } | null {
-  if (factories.length < 2 || stage.samples.length === 0) return null
+): { text: string; names?: string; full: boolean } {
+  const n = stage.samples.length
+  const full = n > 0 && n === eligible
+  const tasks = `${n} of ${eligible} ${eligible === 1 ? 'Task' : 'Tasks'}`
   const having = factories.filter((f) => stage.factoryIds.includes(f.id))
-  if (having.length === factories.length) return null
+  if (factories.length < 2 || n === 0 || having.length === factories.length)
+    return { text: full ? (n === 1 ? '1 Task' : `All ${n} Tasks`) : tasks, full }
   return {
-    text: `${having.length} of ${factories.length} Factories · ${stage.samples.length} of ${period.taskIds.length} Tasks`,
+    text: `${having.length} of ${factories.length} Factories · ${tasks}`,
     names: having.map((f) => f.name).join(', '),
+    full: false,
   }
 }
 
 function StageTable({
   period,
   previous,
+  eligible,
   factories,
   select,
 }: {
   period: FlowPeriod
   previous: FlowPeriod | null
+  eligible: number
   factories: readonly { id: string; name: string }[]
   select: (s: FlowSelection) => void
 }) {
+  const [mode, setMode] = useState<'total' | 'share'>('total')
   const total = period.stages.reduce((sum, s) => sum + (totalValue(s) ?? 0), 0)
+  const most = Math.max(0, ...period.stages.map((s) => totalValue(s) ?? 0))
+  const top = most > 0 ? period.stages.find((s) => totalValue(s) === most) : undefined
+  const used = stageParts.filter((part) => period.stages.some((s) => s.parts[part] > 0))
   return (
     <>
       <p className={styles.caption}>{bounds(period)}</p>
+      {used.length > 0 && (
+        <div className={styles.stageControls}>
+          <div className={styles.stageLegend}>
+            {used.map((part) => (
+              <span key={part}>
+                <i className={partClass[part]} />
+                {partNames[part]}
+              </span>
+            ))}
+          </div>
+          <fieldset className={styles.segToggle} aria-label="Bar length">
+            <button type="button" aria-pressed={mode === 'total'} onClick={() => setMode('total')}>
+              Total time
+            </button>
+            <button type="button" aria-pressed={mode === 'share'} onClick={() => setMode('share')}>
+              Share of each Stage
+            </button>
+          </fieldset>
+        </div>
+      )}
       <ul className={`${styles.timingRows} ${styles.stageRows}`}>
         {period.stages.length > 0 && (
           <li className={`${styles.timingRow} ${styles.stageColumns}`}>
             <span>Stage</span>
+            <span />
             <span className={styles.stageNumber}>Share</span>
             <span className={styles.stageNumber}>Time</span>
+            <span className={styles.stageNumber}>Median</span>
+            <span>Covers</span>
             <span>{previous && 'vs previous'}</span>
-            <span />
           </li>
         )}
         {period.stages.map((s) => {
           const prior = previous?.stages.find((p) => p.stage === s.stage)
           const choose = () => select({ kind: 'stage', stage: s.stage, period: 'current' })
-          const partial = coverage(s, period, factories)
+          const covers = coverage(s, eligible, factories)
+          const value = totalValue(s)
+          const parts = stageParts.filter((part) => s.parts[part] > 0)
+          const split = parts.reduce((n, part) => n + s.parts[part], 0)
+          const width = mode === 'share' ? 100 : most > 0 ? ((value ?? 0) / most) * 100 : 0
           return (
             <li key={s.stage} className={styles.timingRow}>
               <div>
                 <button type="button" data-nav-item className={styles.link} onClick={choose}>
                   {label(s.stage)}
                 </button>
-                <p>
-                  <button type="button" data-nav-item className={styles.link} onClick={choose}>
-                    {s.samples.length} {s.samples.length === 1 ? 'Task' : 'Tasks'}
-                  </button>
-                  {partial && (
-                    <span className={styles.coverage} title={`Only in ${partial.names}`}>
-                      {partial.text}
-                    </span>
-                  )}
-                </p>
+                {s === top && <span className={styles.mostTime}>Most time</span>}
               </div>
-              <strong className={styles.stageNumber}>{share(totalValue(s), total)}</strong>
-              <span className={styles.stageNumber}>{hours(totalValue(s))}</span>
-              <span>
-                {previous && <TimingChange current={totalValue(s)} previous={totalValue(prior)} />}
+              <div className={styles.stageTrack}>
+                {split > 0 && (
+                  <div
+                    className={styles.stageBar}
+                    data-testid={`stage-bar-${s.stage}`}
+                    style={{ width: `${width}%` }}
+                  >
+                    {parts.map((part) => {
+                      const text = `${label(s.stage)} · ${partNames[part]}: ${hours(s.parts[part])}`
+                      return (
+                        <button
+                          key={part}
+                          type="button"
+                          className={partClass[part]}
+                          style={{ flexGrow: s.parts[part] / split }}
+                          aria-label={text}
+                          title={text}
+                          onClick={() =>
+                            select({ kind: 'stage', stage: s.stage, part, period: 'current' })
+                          }
+                        />
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+              <strong className={styles.stageNumber}>{share(value, total)}</strong>
+              <span className={styles.stageNumber}>{hours(value)}</span>
+              <span className={styles.stageNumber}>
+                {s.samples.length ? hours(s.medianMs) : '—'}
               </span>
-              <button
-                type="button"
-                data-nav-item
-                className={styles.link}
-                aria-label={`Inspect ${label(s.stage)} Stage`}
-                onClick={choose}
-              >
-                →
-              </button>
+              <span>
+                <button
+                  type="button"
+                  data-nav-item
+                  className={covers.full ? styles.coversAll : styles.coverage}
+                  title={covers.names && `Only in ${covers.names}`}
+                  onClick={choose}
+                >
+                  {covers.text}
+                </button>
+              </span>
+              <span>
+                {previous && <TimingChange current={value} previous={totalValue(prior)} />}
+              </span>
             </li>
           )
         })}
       </ul>
+      {used.length > 0 && (
+        <p className={styles.caption}>
+          Reasons can overlap, for example a Run waiting for a slot while Checks run. Each hour
+          counts once, under the first reason that applies, in the legend’s order: Agent working,
+          Running Checks, Waiting on you, Waiting for a slot, Waiting on GitHub, then Blocked or
+          paused. Other is time no recorded reason covers, including history TED didn’t record.
+          Hover a segment for its hours; click it for the Tasks.
+        </p>
+      )}
       {period.stages.every((s) => s.samples.length === 0) && (
         <p className={styles.empty}>
           No measurable Stage intervals in this period. Total and distribution unavailable.
@@ -224,14 +322,371 @@ function FirstPass({ period, select }: { period: FlowPeriod; select: (s: FlowSel
   )
 }
 
+const causes: { key: string; name: string; className: string | undefined }[] = [
+  { key: 'review', name: 'Review Findings', className: styles.causeReview },
+  { key: 'check', name: 'Failed Check', className: styles.causeCheck },
+  { key: 'human', name: 'You asked', className: styles.causeHuman },
+  { key: 'base-conflict', name: 'Base conflict', className: styles.causeBase },
+]
+const notRecorded = 'none'
+const causeName = (key: string) =>
+  key === notRecorded ? 'Not recorded' : (causes.find((c) => c.key === key)?.name ?? key)
+const severities: { key: string; name: string; text: string }[] = [
+  { key: 'p1', name: 'P1', text: 'Must fix' },
+  { key: 'unfixed', name: 'Unfixed', text: 'An earlier Finding still not fixed' },
+  { key: 'none', name: 'None', text: 'No severity declared' },
+]
+const failureKinds: Record<FlowFailureKind, string> = {
+  check: 'Failed Check',
+  finding: 'Reviewer or Task Lead Finding',
+  ci: 'CI at Merge',
+}
+const failureOutcomes: { key: FlowFailureOutcome; name: string; className: string | undefined }[] =
+  [
+    { key: 'fixed', name: 'Fixed', className: styles.outcomeFixed },
+    { key: 'accepted', name: 'Accepted by you', className: styles.outcomeAccepted },
+    { key: 'open', name: 'Still open', className: styles.outcomeOpen },
+  ]
+
+function sentBackTitle(s: { cause?: string; severity?: string; from?: string; to?: string }) {
+  const severity = severities.find((v) => v.key === s.severity)?.name ?? s.severity
+  return [
+    s.cause === undefined ? 'Send-backs' : `Sent back: ${causeName(s.cause)}`,
+    ...(severity === undefined ? [] : [`Severity: ${severity}`]),
+    ...(s.from === undefined || s.to === undefined ? [] : [`${label(s.from)} → ${label(s.to)}`]),
+  ].join(' · ')
+}
+
+function failureTitle(s: { failure?: FlowFailureKind; outcome?: FlowFailureOutcome }) {
+  return [
+    'Failure cases',
+    ...(s.failure ? [failureKinds[s.failure]] : []),
+    ...(s.outcome ? [failureOutcomes.find((o) => o.key === s.outcome)?.name ?? s.outcome] : []),
+  ].join(' · ')
+}
+
+const allBacks = (period: FlowPeriod) => period.sendBacks.flatMap((g) => g.transitions)
+const causeOf = (s: FlowSendBack) => s.cause ?? notRecorded
+
+function sentBackMatches(
+  s: FlowSendBack,
+  selection: { cause?: string; severity?: string; from?: string; to?: string },
+) {
+  return (
+    (selection.cause === undefined || causeOf(s) === selection.cause) &&
+    (selection.severity === undefined || s.severity === selection.severity) &&
+    (selection.from === undefined || s.from === selection.from) &&
+    (selection.to === undefined || s.to === selection.to)
+  )
+}
+
+function failureMatches(
+  f: FlowFailure,
+  selection: { failure?: FlowFailureKind; outcome?: FlowFailureOutcome; id?: string },
+) {
+  return (
+    (selection.failure === undefined || f.kind === selection.failure) &&
+    (selection.outcome === undefined || f.outcome === selection.outcome) &&
+    (selection.id === undefined || f.id === selection.id)
+  )
+}
+
+function SendBackCauses({
+  data,
+  factories,
+  select,
+}: {
+  data: DashboardFlow
+  factories: readonly { id: string; name: string }[]
+  select: (s: FlowSelection) => void
+}) {
+  const backs = allBacks(data.current)
+  const tasks = new Set(backs.map((s) => s.taskId))
+  const known = new Set(causes.map((c) => c.key))
+  const shown = [
+    ...causes,
+    ...[...new Set(backs.map(causeOf))]
+      .filter((key) => !known.has(key))
+      .map((key) => ({
+        key,
+        name: causeName(key),
+        className: key === notRecorded ? styles.causeNone : styles.causeOther,
+      })),
+  ]
+    .map((c) => ({ ...c, count: backs.filter((s) => causeOf(s) === c.key).length }))
+    .filter((c) => c.count > 0)
+  const routes = [...new Set(backs.map((s) => JSON.stringify([s.from, s.to])))].map((key) => {
+    const [from = '', to = ''] = JSON.parse(key) as string[]
+    return { from, to, backs: backs.filter((s) => s.from === from && s.to === to) }
+  })
+  routes.sort((a, b) => b.backs.length - a.backs.length)
+  const factoryOf = new Map(data.tasks.map((task) => [task.id, task.factoryId]))
+  const columns = factories.length > 1 ? factories : []
+  const common = routes[0]
+  return (
+    <section className={styles.flowCard} aria-label="Why Tasks were sent back">
+      <h3>Why Tasks were sent back</h3>
+      <p>
+        <button
+          type="button"
+          data-nav-item
+          className={styles.link}
+          onClick={() => select({ kind: 'sent-back', period: 'current' })}
+        >
+          <strong className={styles.flowValue}>{backs.length}</strong>
+        </button>{' '}
+        {backs.length === 1 ? 'send-back' : 'send-backs'} across {tasks.size}{' '}
+        {tasks.size === 1 ? 'Task' : 'Tasks'}
+        {common && ` · ${label(common.from)} → ${label(common.to)} is the most common`}
+      </p>
+      {backs.length > 0 && (
+        <div className={styles.split}>
+          {shown.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              className={c.className}
+              style={{ flexGrow: c.count / backs.length }}
+              aria-label={`${c.name} ${c.count}`}
+              title={`${c.name}: ${c.count}`}
+              onClick={() => select({ kind: 'sent-back', cause: c.key, period: 'current' })}
+            />
+          ))}
+        </div>
+      )}
+      <div className={styles.splitLabels}>
+        {shown.map((c) => (
+          <button
+            key={c.key}
+            type="button"
+            data-nav-item
+            className={styles.link}
+            onClick={() => select({ kind: 'sent-back', cause: c.key, period: 'current' })}
+          >
+            <i className={c.className} />
+            {c.name} {c.count}
+          </button>
+        ))}
+      </div>
+      <div className={styles.flowTable}>
+        <table>
+          <thead>
+            <tr>
+              <th>Severity of review Findings</th>
+              <th>Send-backs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {severities.map((v) => {
+              const count = backs.filter((s) => s.severity === v.key).length
+              return (
+                <tr key={v.key}>
+                  <th scope="row">
+                    <button
+                      type="button"
+                      data-nav-item
+                      className={styles.link}
+                      onClick={() =>
+                        select({ kind: 'sent-back', severity: v.key, period: 'current' })
+                      }
+                    >
+                      <span className={v.key === 'p1' ? styles.severityP1 : styles.severity}>
+                        {v.name}
+                      </span>{' '}
+                      {v.text}
+                    </button>
+                  </th>
+                  <td>{count}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className={styles.caption}>
+        Severity is recorded only for review send-backs from Validate rounds with the P1-only rule.
+      </p>
+      <div className={styles.flowTable}>
+        <table>
+          <thead>
+            <tr>
+              <th>From → to</th>
+              {columns.length ? (
+                columns.map((f) => <th key={f.id}>{f.name}</th>)
+              ) : (
+                <th>Send-backs</th>
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {routes.map((r) => (
+              <tr key={`${r.from}-${r.to}`}>
+                <th scope="row">
+                  <button
+                    type="button"
+                    data-nav-item
+                    className={styles.link}
+                    onClick={() =>
+                      select({ kind: 'sent-back', from: r.from, to: r.to, period: 'current' })
+                    }
+                  >
+                    {label(r.from)} → {label(r.to)}
+                  </button>
+                </th>
+                {columns.length ? (
+                  columns.map((f) => {
+                    const count = r.backs.filter((s) => factoryOf.get(s.taskId) === f.id).length
+                    return (
+                      <td key={f.id}>
+                        {count === 0 ? (
+                          0
+                        ) : (
+                          <button
+                            type="button"
+                            data-nav-item
+                            className={styles.link}
+                            onClick={() =>
+                              select({
+                                kind: 'sent-back',
+                                from: r.from,
+                                to: r.to,
+                                factoryId: f.id,
+                                period: 'current',
+                              })
+                            }
+                          >
+                            {count}
+                          </button>
+                        )}
+                      </td>
+                    )
+                  })
+                ) : (
+                  <td>{r.backs.length}</td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {!backs.length && <p className={styles.empty}>No send-backs in this period.</p>}
+    </section>
+  )
+}
+
+function Failures({ data, select }: { data: DashboardFlow; select: (s: FlowSelection) => void }) {
+  const failures = data.current.failures
+  const tasks = new Set(failures.map((f) => f.taskId))
+  const count = (outcome: FlowFailureOutcome) =>
+    failures.filter((f) => f.outcome === outcome).length
+  const kinds = (Object.keys(failureKinds) as FlowFailureKind[])
+    .map((kind) => ({ kind, cases: failures.filter((f) => f.kind === kind) }))
+    .filter((k) => k.cases.length > 0)
+  const accepted = failures.filter((f) => f.outcome === 'accepted')
+  const records = new Map(data.tasks.map((task) => [task.id, task]))
+  return (
+    <>
+      <section className={styles.flowCard} aria-label="Failures and how they ended">
+        <h3>Failures and how they ended</h3>
+        <p>
+          <button
+            type="button"
+            data-nav-item
+            className={styles.link}
+            onClick={() => select({ kind: 'failure', period: 'current' })}
+          >
+            <strong className={styles.flowValue}>{failures.length}</strong>
+          </button>{' '}
+          {failures.length === 1 ? 'failure case' : 'failure cases'} on {tasks.size}{' '}
+          {tasks.size === 1 ? 'Task' : 'Tasks'} · {count('fixed')} fixed · {count('accepted')}{' '}
+          accepted by you · {count('open')} still open
+        </p>
+        {kinds.map(({ kind, cases }) => (
+          <div key={kind} className={styles.failureRow}>
+            <span>{failureKinds[kind]}</span>
+            <div className={styles.split}>
+              {failureOutcomes.map((o) => {
+                const n = cases.filter((f) => f.outcome === o.key).length
+                return (
+                  n > 0 && (
+                    <button
+                      key={o.key}
+                      type="button"
+                      className={o.className}
+                      style={{ flexGrow: n / cases.length }}
+                      aria-label={`${failureKinds[kind]} · ${o.name} ${n}`}
+                      title={`${failureKinds[kind]} · ${o.name}: ${n}`}
+                      onClick={() =>
+                        select({
+                          kind: 'failure',
+                          failure: kind,
+                          outcome: o.key,
+                          period: 'current',
+                        })
+                      }
+                    />
+                  )
+                )
+              })}
+            </div>
+            <span>{cases.length}</span>
+          </div>
+        ))}
+        <div className={styles.splitLabels}>
+          {failureOutcomes.map((o) => (
+            <button
+              key={o.key}
+              type="button"
+              data-nav-item
+              className={styles.link}
+              onClick={() => select({ kind: 'failure', outcome: o.key, period: 'current' })}
+            >
+              <i className={o.className} />
+              {o.name}
+            </button>
+          ))}
+        </div>
+        {!failures.length && (
+          <p className={styles.empty}>No failure cases recorded in this period.</p>
+        )}
+      </section>
+      <section className={styles.flowCard} aria-label="Failures you accepted">
+        <h3>Failures you accepted</h3>
+        <ul className={styles.taskList}>
+          {accepted.map((f) => {
+            const task = records.get(f.taskId)
+            return (
+              <li key={f.id}>
+                <button
+                  type="button"
+                  data-nav-item
+                  className={styles.task}
+                  onClick={() => select({ kind: 'failure', id: f.id, period: 'current' })}
+                >
+                  {task?.displayId ?? f.taskId} &nbsp; {failureKinds[f.kind]}
+                </button>
+                {f.reason && <p className={styles.caption}>{f.reason}</p>}
+              </li>
+            )
+          })}
+        </ul>
+        {!accepted.length && <p className={styles.empty}>No accepted failures in this period.</p>}
+        <p className={styles.flowFoot}>Kept here so a risk you took isn’t forgotten.</p>
+      </section>
+    </>
+  )
+}
+
 function FlowByFactory({
   data,
   period,
   factories,
+  select,
 }: {
   data: DashboardFlow
   period: FlowPeriod
   factories: readonly { id: string; name: string }[]
+  select: (s: FlowSelection) => void
 }) {
   const factoryOf = new Map(data.tasks.map((task) => [task.id, task.factoryId]))
   const rows = factories.map((factory) => {
@@ -259,11 +714,37 @@ function FlowByFactory({
               <tr key={factory.id}>
                 <th scope="row">{factory.name}</th>
                 <td>
-                  {judged === 0
-                    ? 'Unavailable'
-                    : `${Math.round((passed / judged) * 100)}% · ${passed} of ${judged}`}
+                  {judged === 0 ? (
+                    'Unavailable'
+                  ) : (
+                    <button
+                      type="button"
+                      data-nav-item
+                      className={styles.link}
+                      onClick={() =>
+                        select({ kind: 'validate', factoryId: factory.id, period: 'current' })
+                      }
+                    >
+                      {`${Math.round((passed / judged) * 100)}% · ${passed} of ${judged}`}
+                    </button>
+                  )}
                 </td>
-                <td>{backs}</td>
+                <td>
+                  {backs === 0 ? (
+                    0
+                  ) : (
+                    <button
+                      type="button"
+                      data-nav-item
+                      className={styles.link}
+                      onClick={() =>
+                        select({ kind: 'sent-back', factoryId: factory.id, period: 'current' })
+                      }
+                    >
+                      {backs}
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -280,6 +761,7 @@ function FlowSample({
   onClose,
   onOpenTask,
   selectPrevious,
+  factories = [],
   withoutWaits,
 }: {
   data: DashboardFlow
@@ -288,6 +770,7 @@ function FlowSample({
   onClose: () => void
   onOpenTask: (id: string) => void
   selectPrevious: () => void
+  factories?: readonly { id: string; name: string }[]
   withoutWaits?:
     | { original: DashboardFlow; leftOut: { current: LeftOutTask[]; previous: LeftOutTask[] } }
     | undefined
@@ -306,22 +789,38 @@ function FlowSample({
   const period = selection.period === 'previous' ? data.previous : data.current
   if (!period) return null
   const records = new Map(data.tasks.map((t) => [t.id, t]))
+  const factoryId =
+    selection.kind === 'sent-back' || selection.kind === 'validate'
+      ? selection.factoryId
+      : undefined
+  const inFactory = (taskId: string) =>
+    factoryId === undefined || records.get(taskId)?.factoryId === factoryId
+  const where =
+    factoryId === undefined
+      ? ''
+      : ` · ${factories.find((f) => f.id === factoryId)?.name ?? 'Removed Factory'}`
   const title =
     selection.kind === 'reason'
       ? `${reasonNames[selection.reason]} · Measured time`
       : selection.kind === 'guide'
         ? 'Follow the time to the Task'
         : selection.kind === 'stage'
-          ? `${label(selection.stage)} · Per-Task elapsed time`
+          ? `${label(selection.stage)} · ${selection.part ? partNames[selection.part] : 'Per-Task elapsed time'}`
           : selection.kind === 'send-back'
             ? `${label(selection.from)} → ${label(selection.to)} · Actual transitions`
             : selection.kind === 'affected'
               ? 'Tasks affected by send-backs'
               : selection.kind === 'incomplete'
                 ? 'Incomplete timing history'
-                : selection.kind === 'left-out'
-                  ? 'Tasks left out of Stage time'
-                  : `${outcomes[selection.outcome]} · First-pass Validate`
+                : selection.kind === 'sent-back'
+                  ? sentBackTitle(selection)
+                  : selection.kind === 'failure'
+                    ? failureTitle(selection)
+                    : selection.kind === 'left-out'
+                      ? 'Tasks left out of Stage time'
+                      : selection.outcome
+                        ? `${outcomes[selection.outcome]} · First-pass Validate`
+                        : 'Passed or failed · First-pass Validate'
   const items: { key: string; taskId: string; lines: string[] }[] = []
   const reason =
     selection.kind === 'reason'
@@ -363,9 +862,11 @@ function FlowSample({
         ],
       })
   } else if (selection.kind === 'stage') {
-    for (const s of (
-      period.stages.find((s) => s.stage === selection.stage)?.samples ?? []
-    ).toSorted((a, b) => b.elapsedMs - a.elapsedMs || a.taskId.localeCompare(b.taskId))) {
+    const part = selection.part
+    const spent = (s: FlowStageSample) => (part ? s.parts[part] : s.elapsedMs)
+    for (const s of (period.stages.find((s) => s.stage === selection.stage)?.samples ?? [])
+      .filter((s) => spent(s) > 0 || !part)
+      .toSorted((a, b) => spent(b) - spent(a) || a.taskId.localeCompare(b.taskId))) {
       const incomplete = period.incomplete.find((i) => i.taskId === s.taskId)
       const withWaits = (
         selection.period === 'previous'
@@ -378,6 +879,7 @@ function FlowSample({
         key: s.taskId,
         taskId: s.taskId,
         lines: [
+          ...(part ? [`${partNames[part]}: ${hours(s.parts[part])} of ${hours(s.elapsedMs)}`] : []),
           `${hours(s.elapsedMs)} · ${s.intervals.length} measured ${s.intervals.length === 1 ? 'visit' : 'visits'}${withWaits ? ` · ${hours(withWaits.elapsedMs - s.elapsedMs)} waiting for you left out` : ''}`,
           ...s.intervals.map((i) => `${at(i.from)} – ${at(i.to)} (end excluded)`),
           ...(incomplete?.reasons ?? []),
@@ -411,6 +913,28 @@ function FlowSample({
         })
       }
     }
+  } else if (selection.kind === 'sent-back') {
+    for (const s of allBacks(period).filter(
+      (s) => sentBackMatches(s, selection) && inFactory(s.taskId),
+    ))
+      items.push({
+        key: s.id,
+        taskId: s.taskId,
+        lines: [
+          `${at(s.at)} · ${label(s.from)} → ${label(s.to)}`,
+          `Cause: ${causeName(causeOf(s))}${s.severity ? ` · Severity: ${severities.find((v) => v.key === s.severity)?.name ?? s.severity}` : ''}`,
+        ],
+      })
+  } else if (selection.kind === 'failure') {
+    for (const f of period.failures.filter((f) => failureMatches(f, selection)))
+      items.push({
+        key: f.id,
+        taskId: f.taskId,
+        lines: [
+          `${failureKinds[f.kind]} · ${failureOutcomes.find((o) => o.key === f.outcome)?.name} · Recorded ${at(f.at)}`,
+          ...(f.reason ? [`Your reason: ${f.reason}`] : []),
+        ],
+      })
   } else if (selection.kind === 'incomplete') {
     for (const s of period.incomplete)
       items.push({ key: s.taskId, taskId: s.taskId, lines: s.reasons })
@@ -418,7 +942,12 @@ function FlowSample({
     for (const s of withoutWaits?.leftOut[selection.period] ?? [])
       items.push({ key: s.taskId, taskId: s.taskId, lines: s.reasons })
   } else if (selection.kind === 'validate') {
-    for (const s of period.firstPass.samples.filter((s) => s.outcome === selection.outcome))
+    for (const s of period.firstPass.samples.filter(
+      (s) =>
+        (selection.outcome === undefined
+          ? s.outcome === 'passed' || s.outcome === 'failed'
+          : s.outcome === selection.outcome) && inFactory(s.taskId),
+    ))
       items.push({
         key: s.taskId,
         taskId: s.taskId,
@@ -444,7 +973,10 @@ function FlowSample({
       }}
     >
       <header className={styles.sampleHead}>
-        <h2 id={heading}>{title}</h2>
+        <h2 id={heading}>
+          {title}
+          {where}
+        </h2>
         <button
           type="button"
           className={styles.close}
@@ -458,7 +990,12 @@ function FlowSample({
         {selection.period === 'previous' ? 'Previous period' : 'Selected period'} · {bounds(period)}
       </p>
       <p className={styles.caption}>
-        As of {at(asOf)} · {items.length} {selection.kind === 'send-back' ? 'transitions' : 'Tasks'}
+        As of {at(asOf)} · {items.length}{' '}
+        {selection.kind === 'send-back' || selection.kind === 'sent-back'
+          ? 'transitions'
+          : selection.kind === 'failure'
+            ? 'failure cases'
+            : 'Tasks'}
         . Open a Task for its existing history and verification evidence.
       </p>
       {selection.kind === 'stage' && (
@@ -520,6 +1057,12 @@ function FlowSample({
             </div>
           </div>
           {reason && <p>{coverageLabel(reason)}. Partial measured samples may understate delay.</p>}
+          {stage && selection.kind === 'stage' && selection.part && (
+            <p>
+              {partNames[selection.part]}: {hours(stage.parts[selection.part])} of this Stage’s{' '}
+              {hours(totalValue(stage))}. Longest first.
+            </p>
+          )}
           {selection.period === 'current' &&
             data.previous &&
             (selection.kind === 'reason' || selection.kind === 'stage') && (
@@ -703,6 +1246,11 @@ export function Flow({
           <StageTable
             period={data.current}
             previous={data.previous}
+            eligible={
+              data.current.taskIds.filter(
+                (id) => !reduced?.leftOut.current.some((t) => t.taskId === id),
+              ).length
+            }
             factories={factories}
             select={select}
           />
@@ -736,9 +1284,18 @@ export function Flow({
         <>
           <TimingOverview data={data} select={select} />
           <div className={styles.flowGrid}>
-            {factories.length > 1 && (
-              <FlowByFactory data={data} period={data.current} factories={factories} />
-            )}
+            <section className={styles.flowCard} aria-label="First-pass Validate">
+              <h3>First-pass Validate</h3>
+              <FirstPass period={data.current} select={select} />
+              {data.previous && (
+                <details className={styles.dataTable}>
+                  <summary>Previous first-pass evidence</summary>
+                  <FirstPass period={data.previous} select={previousSelect} />
+                </details>
+              )}
+            </section>
+            <SendBackCauses data={data} factories={factories} select={select} />
+            <Failures data={data} select={select} />
             <section className={styles.flowCard} aria-label="Actual send-backs">
               <h3>Actual send-backs</h3>
               <SendBacks period={data.current} select={select} />
@@ -753,16 +1310,14 @@ export function Flow({
                 are excluded. No recorded send-backs does not establish complete history.
               </p>
             </section>
-            <section className={styles.flowCard} aria-label="First-pass Validate">
-              <h3>First-pass Validate</h3>
-              <FirstPass period={data.current} select={select} />
-              {data.previous && (
-                <details className={styles.dataTable}>
-                  <summary>Previous first-pass evidence</summary>
-                  <FirstPass period={data.previous} select={previousSelect} />
-                </details>
-              )}
-            </section>
+            {factories.length > 1 && (
+              <FlowByFactory
+                data={data}
+                period={data.current}
+                factories={factories}
+                select={select}
+              />
+            )}
           </div>
         </>
       )}
@@ -778,6 +1333,7 @@ export function Flow({
           onClose={onClose}
           onOpenTask={onOpenTask}
           selectPrevious={() => select({ ...selection, period: 'previous' })}
+          factories={factories}
           withoutWaits={reduced && { original: all, leftOut: reduced.leftOut }}
         />
       )}
