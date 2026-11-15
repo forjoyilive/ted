@@ -1,6 +1,7 @@
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { Page } from 'playwright'
 import { expect, test } from 'vitest'
 import { makeOriginRepo } from '../../daemon/test/helpers.ts'
 import {
@@ -23,6 +24,23 @@ setUpAppTests()
 const captures = fileURLToPath(
   new URL('../../../node_modules/.cache/ted-100/app/', import.meta.url),
 )
+
+async function resizeWindow(window: Page, width: number, height: number): Promise<void> {
+  await ctx.app?.evaluate(
+    ({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0]?.setSize(size.width, size.height),
+    { width, height },
+  )
+  await expect
+    .poll(async () => {
+      const outer = await ctx.app?.evaluate(({ BrowserWindow }) => {
+        const main = BrowserWindow.getAllWindows()[0]
+        return { size: main?.getSize(), content: main?.getContentSize() }
+      })
+      const inner = await window.evaluate(() => [innerWidth, innerHeight])
+      return { size: outer?.size, laidOut: String(inner) === String(outer?.content) }
+    })
+    .toEqual({ size: [width, height], laidOut: true })
+}
 
 test('text size changes by 5%, survives relaunch, and keeps terminal size and pane width independent', async () => {
   let window = await launchApp()
@@ -116,15 +134,13 @@ test('large app text fits settings controls, Task lists, details and a new Task 
   await window.screenshot({ path: path.join(captures, 'new-task-200.png') })
   await window.keyboard.press('Escape')
   await openSettings(window)
-  await ctx.app?.evaluate(({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows()[0]?.setSize(1000, 800),
-  )
+  await resizeWindow(window, 1000, 800)
   const increase = window.getByRole('button', { name: 'Increase text size' })
   await increase.scrollIntoViewIfNeeded()
   const box = await increase.boundingBox()
   expect(box).not.toBeNull()
   expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(
-    window.viewportSize()?.width ?? 1000,
+    await window.evaluate(() => innerWidth),
   )
   await window.screenshot({ path: path.join(captures, 'settings-200-narrow-dark.png') })
 })
@@ -174,15 +190,18 @@ test('Run chat and a thread Comment use the text scale', async () => {
     body: 'A readable Comment in the Task thread.',
     attachments: [{ hash: image.hash, name: image.name, mediaType: image.mediaType }],
   })
-  await ctx.app?.evaluate(({ BrowserWindow }) =>
-    BrowserWindow.getAllWindows()[0]?.setSize(1800, 1000),
-  )
+  await resizeWindow(window, 1800, 1000)
   await openAllTasks(window)
   await taskRow(window, 'NB-1').click()
   const thread = window.getByRole('region', { name: 'Task thread' })
   const comment = thread.getByText('A readable Comment in the Task thread.', { exact: true })
   await comment.waitFor()
-  expect(await comment.evaluate((el) => getComputedStyle(el).fontSize)).toBe('30.8px')
+  await expect.poll(() => comment.evaluate((el) => getComputedStyle(el).fontSize)).toBe('30.8px')
+  const thumbnail = thread.getByRole('img', { name: image.name, exact: true })
+  await thumbnail.waitFor()
+  expect(
+    await thumbnail.evaluate((img: HTMLImageElement) => img.decode().then(() => img.naturalWidth)),
+  ).toBe(1600)
   const large = await comment.evaluate(chatLayout)
   expect(large.list.width).toBeLessThan(1300)
   expect(large.row.width).toBeCloseTo(large.list.width, 0)
@@ -196,6 +215,7 @@ test('Run chat and a thread Comment use the text scale', async () => {
   expect(normal.composer.left).toBeCloseTo(normal.row.left, 0)
   expect(normal.wide.width).toBeCloseTo(Math.min(1200, normal.list.width), 0)
   expect(center(normal.wide)).toBeCloseTo(center(normal.list), 0)
+  expect(normal.thumbnail.width).toBeGreaterThan(0)
   expect(normal.thumbnail.width).toBeLessThan(650)
   expect(center(normal.thumbnail)).toBeCloseTo(center(normal.list), 0)
   await mkdir(captures, { recursive: true })
