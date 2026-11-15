@@ -87,12 +87,12 @@
 }
 
 .tab[data-first] .tip {
-  left: 0;
+  left: calc(50% - 22px);
   transform: none;
 }
 
 .tab:last-child .tip {
-  right: 0;
+  right: calc(50% - 22px);
   left: auto;
   transform: none;
 }
