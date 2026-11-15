@@ -2,6 +2,7 @@ import { describe, expect, test } from 'vitest'
 import {
   type DashboardViewState,
   dashboardState,
+  pickFactories,
   rememberDashboard,
   shownFactoryIds,
 } from '../src/renderer/dashboard.ts'
@@ -386,6 +387,19 @@ test('the Dashboard reopens on the remembered Factories, period and tab', () => 
   expect(shownFactoryIds(['nb', 'gone'], factories)).toEqual(['nb'])
   expect(shownFactoryIds(['ms', 'nb'], factories)).toBeUndefined()
   expect(shownFactoryIds(['gone'], factories)).toBeUndefined()
+})
+
+test('picking Dashboard Factories narrows from all, toggles after and falls back to all', () => {
+  const factories = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }]
+  expect(pickFactories(undefined, ['b'], factories)).toEqual(['b'])
+  expect(pickFactories(undefined, ['a', 'b'], factories)).toEqual(['a', 'b'])
+  expect(pickFactories(['b'], ['d'], factories)).toEqual(['b', 'd'])
+  expect(pickFactories(['b', 'd'], ['b'], factories)).toEqual(['d'])
+  expect(pickFactories(['c'], ['a', 'b'], factories)).toEqual(['a', 'b', 'c'])
+  expect(pickFactories(['a', 'b', 'c'], ['a', 'b'], factories)).toEqual(['c'])
+  expect(pickFactories(['a', 'c'], ['a', 'b'], factories)).toEqual(['a', 'b', 'c'])
+  expect(pickFactories(['b'], ['b'], factories)).toBeUndefined()
+  expect(pickFactories(['a', 'b', 'c'], ['d'], factories)).toBeUndefined()
 })
 
 test('Inbox Planning requests preserve Inbox navigation, then yield to Tasks and Automations', () => {

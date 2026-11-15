@@ -74,6 +74,19 @@ export function shownFactoryIds(
   return shown.length === 0 || shown.length === factories.length ? undefined : shown
 }
 
+export function pickFactories(
+  shown: readonly string[] | undefined,
+  ids: readonly string[],
+  factories: readonly { id: string }[],
+): string[] | undefined {
+  if (shown === undefined) return shownFactoryIds(ids, factories)
+  const all = ids.every((id) => shown.includes(id))
+  const next = factories
+    .map((f) => f.id)
+    .filter((id) => (ids.includes(id) ? !all : shown.includes(id)))
+  return shownFactoryIds(next, factories)
+}
+
 export function dashboardState(
   screen: Partial<DashboardViewState> | undefined,
   storage: Pick<Storage, 'getItem'> = localStorage,

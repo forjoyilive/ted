@@ -935,6 +935,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
         return (
           <Dashboard
             factories={factories}
+            layout={factoryLayout}
             state={state}
             onChange={(dashboard) => {
               rememberDashboard(dashboard)

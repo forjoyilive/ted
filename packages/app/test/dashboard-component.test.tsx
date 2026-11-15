@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import type { FactoryLayout } from '@ted/protocol'
 import { defaultMachineSettings } from '@ted/protocol/settings'
 import { noStageParts } from '@ted/protocol/stage-parts'
 import { fireEvent, render, screen, within } from '@testing-library/react'
@@ -16,12 +17,22 @@ import { factory, task } from './support/fixtures.ts'
 function DashboardView({
   open,
   factories = [],
+  layout,
 }: {
   open: (id: string) => void
   factories?: ReturnType<typeof factory>[]
+  layout?: FactoryLayout
 }) {
   const [state, setState] = useState<DashboardViewState>({ range: '7d' })
-  return <Dashboard factories={factories} state={state} onChange={setState} onOpenTask={open} />
+  return (
+    <Dashboard
+      factories={factories}
+      {...(layout && { layout })}
+      state={state}
+      onChange={setState}
+      onOpenTask={open}
+    />
+  )
 }
 
 test('the shared App shortcuts navigate only the top sample dialog and preserve Task return', async () => {
@@ -579,6 +590,46 @@ test('previous-period Stage samples retain their own period and restore focus af
   expect(sample.textContent).toContain('1h · 1 measured visit')
   await user().click(within(sample).getByRole('button', { name: 'Close Stage sample' }))
   expect(document.activeElement).toBe(within(region).getByRole('button', { name: 'Work' }))
+})
+
+test('the Dashboard Filter picks one Factory or a group from all, toggles after and clears', async () => {
+  bridge({ dashboard: () => dashboardFixture() })
+  const factories = [
+    factory({ id: 'f1', name: 'Widgets' }),
+    factory({ id: 'f2', name: 'Site' }),
+    factory({ id: 'f3', name: 'Docs' }),
+  ]
+  const layout: FactoryLayout = {
+    items: [
+      { group: { id: 'g1', name: 'Clients', factoryIds: ['f1', 'f2'] } },
+      { factoryId: 'f3' },
+    ],
+  }
+  render(<DashboardView open={vi.fn()} factories={factories} layout={layout} />)
+  const u = user()
+  const title = () => screen.getByRole('heading', { level: 1 }).textContent
+  const item = (name: string) =>
+    screen.getByRole('menuitemcheckbox', { name: new RegExp(`${name}$`) })
+  const checked = (name: string) => item(name).getAttribute('aria-checked')
+  await u.click(screen.getByRole('button', { name: 'Filter' }))
+  expect(screen.queryByRole('menuitem', { name: 'Clear filter' })).toBeNull()
+  await u.click(item('Site'))
+  expect(title()).toBe('Site › Dashboard')
+  expect(checked('Clients')).toBe('false')
+  await u.click(item('Clients'))
+  expect(title()).toBe('Widgets, Site › Dashboard')
+  expect(checked('Clients')).toBe('true')
+  await u.click(item('Docs'))
+  expect(title()).toBe('All Factories › Dashboard')
+  await u.click(item('Clients'))
+  expect(title()).toBe('Widgets, Site › Dashboard')
+  await u.click(item('Clients'))
+  expect(title()).toBe('All Factories › Dashboard')
+  await u.click(item('Docs'))
+  expect(title()).toBe('Docs › Dashboard')
+  await u.click(screen.getByRole('menuitem', { name: 'Clear filter' }))
+  expect(title()).toBe('All Factories › Dashboard')
+  expect(checked('All Factories')).toBe('true')
 })
 
 test('three Dashboard tabs preserve Overview, share the period and close samples when switching', async () => {
