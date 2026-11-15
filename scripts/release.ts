@@ -485,7 +485,21 @@ function forward(args: string[], fresh: boolean): never {
   }
   const script = path.join(checkout, 'scripts/release.ts')
   const result = spawnSync(process.execPath, [script, ...args], { cwd: checkout, stdio: 'inherit' })
+  if (result.status === 0 && args.includes('publish')) pullMain()
   process.exit(result.status ?? 1)
+}
+
+function pullMain(): void {
+  if (git('branch', '--show-current') !== 'main') {
+    console.log('\nThis checkout isn’t on main; pull main yourself to get the version change.')
+    return
+  }
+  console.log('\n== Pull main')
+  const pull = spawnSync('git', ['pull', '--ff-only', 'origin', 'main'], {
+    cwd: root,
+    stdio: 'inherit',
+  })
+  if (pull.status !== 0) console.log('Couldn’t fast-forward main here; run git pull yourself.')
 }
 
 async function main(): Promise<void> {
