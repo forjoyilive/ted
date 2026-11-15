@@ -333,7 +333,7 @@ describe('Inbox and Gates', () => {
 
     const answered = thread.getByRole('region', { name: 'Proposal, answered' })
     await answered.getByText('You approved · created 4 Tasks').waitFor()
-    await answered.getByText('NB-2').waitFor()
+    await answered.getByText('NB-2', { exact: true }).waitFor()
     const tasks = await (await daemonClient()).listTasks()
     const original = tasks.find((t) => t.displayId === 'NB-1')
     expect(
