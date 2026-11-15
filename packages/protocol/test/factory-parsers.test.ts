@@ -71,6 +71,47 @@ roundTrip(P.parseCheckRepoRequest, {
 })
 roundTrip(P.parseCheckRepoRequest, { source: { folder: '/tmp/local' }, primary: false })
 roundTrip(P.parseSetLocalFolderRequest, { path: '/tmp/local' })
+roundTrip(P.parseGitHubSetupPlanRequest, { folder: '/tmp/local' })
+roundTrip(P.parseGitHubNameRequest, { owner: 'acme', name: 'ted_and.bill-2' })
+roundTrip(
+  P.parseGitHubSetupStepRequest,
+  {
+    folder: '/tmp/local',
+    step: 'commit',
+    owner: 'acme',
+    name: 'notes',
+    description: ' Notes\tand more ',
+    branch: 'release/v1',
+    leaveOut: ['node_modules/', '/.env'],
+  },
+  {
+    folder: '/tmp/local',
+    step: 'commit',
+    owner: 'acme',
+    name: 'notes',
+    description: 'Notes and more',
+    branch: 'release/v1',
+    leaveOut: ['node_modules/', '/.env'],
+  },
+)
+rejects(P.parseGitHubSetupPlanRequest, { folder: 'relative' }, 'folder must be an absolute path')
+rejects(P.parseGitHubNameRequest, { owner: '-bad', name: 'x' }, 'owner must be')
+rejects(P.parseGitHubNameRequest, { owner: 'acme', name: '..' }, 'name:')
+rejects(
+  P.parseGitHubSetupStepRequest,
+  { folder: '/tmp', step: 'delete', owner: 'acme', name: 'x', branch: 'main' },
+  'step must be one of',
+)
+rejects(
+  P.parseGitHubSetupStepRequest,
+  { folder: '/tmp', step: 'push', owner: 'acme', name: 'x', branch: '-f' },
+  'branch:',
+)
+rejects(
+  P.parseGitHubSetupStepRequest,
+  { folder: '/tmp', step: 'ignore', owner: 'acme', name: 'x', branch: 'main', leaveOut: ['a\nb'] },
+  'leaveOut must be',
+)
 roundTrip(P.parseSetRepoFolderRequest, { path: '/tmp/local' })
 roundTrip(P.parseStopCheckTryRequest, { name: 'Check' })
 roundTrip(P.parseAddFactoryRequest, { repo: 'owner/ted', key: 'TED', localFolder: '/tmp/local' })

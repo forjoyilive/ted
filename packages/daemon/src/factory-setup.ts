@@ -7,6 +7,11 @@ import {
   type DaemonEvent,
   type Factory,
   type FactoryIcon,
+  type GitHubNameCheck,
+  type GitHubNameRequest,
+  type GitHubSetupPlan,
+  type GitHubSetupStepRequest,
+  type GitHubSetupStepResult,
   keyProblem,
   type RepoCheck,
   type RepoProblem,
@@ -20,6 +25,7 @@ import { cloneRemoved } from './factories.ts'
 import { exists } from './files.ts'
 import * as git from './git.ts'
 import { type Gh, GhError } from './github/gh.ts'
+import { createRepoSetup } from './github/repo-setup.ts'
 import type { IdleTimer } from './idle.ts'
 import { redactSecrets } from './redact.ts'
 import {
@@ -36,6 +42,9 @@ export interface Factories {
   list(): Promise<Factory[]>
   get(id: string): Promise<Factory>
   checkRepo(request: CheckRepoRequest): Promise<RepoCheck>
+  planGitHubRepo(folder: string): Promise<GitHubSetupPlan>
+  checkGitHubName(request: GitHubNameRequest): Promise<GitHubNameCheck>
+  runGitHubSetupStep(request: GitHubSetupStepRequest): Promise<GitHubSetupStepResult>
   create(request: CreateFactoryRequest): Promise<Factory>
   retry(factoryId: string): Promise<Factory>
   setLocalFolder(key: string, folder: string): Promise<Factory>
@@ -78,6 +87,7 @@ const segment = /^[A-Za-z0-9_.-]+$/
 export function createFactories(options: FactoriesOptions): Factories {
   const { store, banners, gh, workflows, reposDir, emit } = options
   const progress = new Map<string, Map<string, RepoSetup>>()
+  const repoSetup = createRepoSetup({ gh, githubRepo })
   const running = new Map<string, Promise<void>>()
   const stopping = new AbortController()
   let timer: NodeJS.Timeout | undefined
@@ -603,6 +613,9 @@ export function createFactories(options: FactoriesOptions): Factories {
     },
     get: async (id) => view(find(id)),
     checkRepo,
+    planGitHubRepo: repoSetup.plan,
+    checkGitHubName: repoSetup.nameAvailable,
+    runGitHubSetupStep: repoSetup.step,
     create,
     retry,
     setLocalFolder,
@@ -679,25 +692,26 @@ async function locate(source: RepoSource): Promise<Located> {
         problem: { kind: 'no-folder', text: `There’s no folder at ${folder}.`, ...chooseAgain },
       }
     }
-    const noRemote = {
-      folder,
+    const noRemote = (root: string, offerSetup: boolean): Located => ({
+      folder: root,
       problem: {
-        kind: 'no-remote' as const,
+        kind: 'no-remote',
         text: 'This folder has no GitHub remote.',
-        detail:
-          'TED works from GitHub. Push the folder to a GitHub repo, or choose another folder.',
-        ...chooseAgain,
+        detail: offerSetup
+          ? 'TED works from GitHub. TED can make a private GitHub repo for this folder and push it, or you can choose another folder.'
+          : 'TED works from GitHub. Push the folder to a GitHub repo, or choose another folder.',
+        fixes: offerSetup ? [{ kind: 'set-up-github' }, ...chooseAgain.fixes] : chooseAgain.fixes,
       },
-    }
+    })
     const found = await git.folderRemotes(folder).catch(() => undefined)
-    if (!found) return noRemote
+    if (!found) return noRemote(folder, true)
     const github = found.remotes.flatMap(({ name, url }) => {
       const repo = githubRepo(url)
       return repo === undefined ? [] : [{ name, repo }]
     })
     const chosen =
       github.find((r) => r.name === 'origin') ?? (github.length === 1 ? github[0] : undefined)
-    if (!chosen) return { ...noRemote, folder: found.root }
+    if (!chosen) return noRemote(found.root, github.length === 0)
     return { repo: chosen.repo, folder: found.root }
   }
   const text = 'remote' in source && typeof source.remote === 'string' ? source.remote.trim() : ''

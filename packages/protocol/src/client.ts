@@ -146,6 +146,14 @@ import type {
   ValidationObligations,
 } from './failures.ts'
 import type { GitHubIntakeScope } from './github-intake.ts'
+import type {
+  GitHubNameCheck,
+  GitHubNameRequest,
+  GitHubSetupPlan,
+  GitHubSetupPlanRequest,
+  GitHubSetupStepRequest,
+  GitHubSetupStepResult,
+} from './github-setup.ts'
 import type { FactoryGuide } from './guide.ts'
 import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
@@ -1583,6 +1591,18 @@ export class DaemonClient {
 
   checkRepo(input: CheckRepoRequest): Promise<RepoCheck> {
     return this.#request('POST', '/factories/check-repo', input)
+  }
+
+  planGitHubRepo(input: GitHubSetupPlanRequest): Promise<GitHubSetupPlan> {
+    return this.#request('POST', '/factories/github-setup/plan', input)
+  }
+
+  checkGitHubName(input: GitHubNameRequest): Promise<GitHubNameCheck> {
+    return this.#request('POST', '/factories/github-setup/name', input)
+  }
+
+  runGitHubSetupStep(input: GitHubSetupStepRequest): Promise<GitHubSetupStepResult> {
+    return this.#request('POST', '/factories/github-setup/step', input)
   }
 
   createFactory(input: CreateFactoryRequest): Promise<Factory> {
