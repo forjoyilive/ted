@@ -46,6 +46,7 @@ export const lockfiles = [
 export interface CacheSeeds {
   startCache(factoryId: string, cache: string): Promise<void>
   remove(factoryId: string): Promise<void>
+  close(): Promise<void>
 }
 
 interface SeedRecord {
@@ -76,6 +77,7 @@ export function createCacheSeeds(options: {
   const failed = new Map<string, string>()
   const removing = new Set<string>()
   let clones: Promise<boolean> | undefined
+  let closed = false
 
   const folderOf = (factoryId: string) => path.join(root, factoryId)
   const seedOf = (factoryId: string) => path.join(folderOf(factoryId), 'seed')
@@ -97,6 +99,7 @@ export function createCacheSeeds(options: {
 
   function usable(factoryId: string): boolean {
     return (
+      !closed &&
       safeId.test(factoryId) &&
       !removing.has(factoryId) &&
       store.getFactory(factoryId) !== undefined &&
@@ -105,7 +108,7 @@ export function createCacheSeeds(options: {
   }
 
   function canClone(): Promise<boolean> {
-    clones ??= filesClone([root, sandboxRoot], platform).catch(() => false)
+    clones ??= filesClone(options.home, [root, sandboxRoot], platform).catch(() => false)
     return clones
   }
 
@@ -183,7 +186,7 @@ export function createCacheSeeds(options: {
     const plan = await wanted(factory)
     if (!plan || failed.get(factoryId) === plan.key) return
     if ((await readRecord(factoryId))?.key === plan.key && (await seedReady(factoryId))) return
-    if (fills.has(factoryId)) return
+    if (fills.has(factoryId) || !usable(factoryId)) return
     const stop = new AbortController()
     const done = fill(factory, plan.key, plan.entries, stop.signal)
       .catch((error: unknown) => {
@@ -316,22 +319,39 @@ export function createCacheSeeds(options: {
         const running = fills.get(factoryId)
         running?.stop.abort()
         await running?.done
-        await locked(factoryId, () => removeInside(root, factoryId))
+        const plainRoot = await plainFolder(options.home, root).then(
+          () => true,
+          () => false,
+        )
+        if (plainRoot) await locked(factoryId, () => removeInside(root, factoryId))
         failed.delete(factoryId)
       } finally {
         removing.delete(factoryId)
       }
     },
+    async close() {
+      closed = true
+      const running = [...fills.values()]
+      for (const fill of running) fill.stop.abort()
+      await Promise.all(running.map((fill) => fill.done))
+    },
   }
 }
 
 export async function filesClone(
+  home: string,
   dirs: readonly string[],
   platform: NodeJS.Platform = process.platform,
 ): Promise<boolean> {
   const [first, ...rest] = dirs
   if (first === undefined) return false
-  for (const dir of dirs) await mkdir(dir, { recursive: true, mode: 0o700 })
+  for (const dir of dirs) {
+    const isPlain = await plainFolder(home, dir, true).then(
+      () => true,
+      () => false,
+    )
+    if (!isPlain) return false
+  }
   const device = (await lstat(first)).dev
   for (const dir of rest) if ((await lstat(dir)).dev !== device) return false
   if (platform === 'darwin') return onApfs(first)

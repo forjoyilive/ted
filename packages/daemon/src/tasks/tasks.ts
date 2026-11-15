@@ -11591,7 +11591,7 @@ export function createTasks(options: {
       asanaSync?.close()
       await pumping
       stopping.abort()
-      await Promise.all(background)
+      await Promise.all([...background, seeds.close()])
       await apps.close()
     },
     async browserApp(ref, caller, app) {

@@ -172,7 +172,7 @@ test.runIf(process.platform === 'darwin')(
 
 test('a new Task’s cache starts as a clone of the Factory’s seed, which the Task can’t change', async (context) => {
   context.skip(
-    !(await filesClone([path.join(home, 'seeds'), path.join(home, 'sandbox')])),
+    !(await filesClone(home, [path.join(home, 'seeds'), path.join(home, 'sandbox')])),
     'this file system can’t clone files, so TED keeps no seed',
   )
   const realSandbox = process.platform === 'darwin' && !insideTedSandbox
