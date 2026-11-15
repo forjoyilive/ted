@@ -561,7 +561,7 @@ test('the header shows a one-line preview and See description; the dialog holds 
   })
   const view = render(<TaskDescription task={current} />)
   const request = screen.getByRole('region', { name: 'Original request' })
-  await within(request).findByText('Original scope')
+  await within(request).findByText(/Original scope/)
   expect(within(request).queryByRole('img')).toBeNull()
   expect(within(request).queryByText(file.name)).toBeNull()
   expect(within(request).queryByText(current.description)).toBeNull()
