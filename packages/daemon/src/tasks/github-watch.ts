@@ -64,6 +64,7 @@ export function createPullRequestWatch(options: PullRequestWatchOptions): PullRe
         await options
           .onRead(read)
           .catch((error: unknown) => console.error('couldn’t act on what GitHub reported:', error))
+        if (closed) return
         if (waiters.some((w) => w.now)) continue
         await nap()
       }

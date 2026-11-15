@@ -9509,12 +9509,16 @@ export function createTasks(options: {
     }
   }
 
-  // No idle hold: close() waits for this sweep anyway, and lsof can take seconds,
-  // which kept a daemon started on a test clock from ever scheduling its idle exit.
+  // No idle hold: lsof can take seconds, which kept a daemon started on a test clock from
+  // ever scheduling its idle exit. close() ends the listing; the next start sweeps again.
   inBackground(
     'remove what closed Tasks left behind',
     async () => {
-      const swept = await sweepLeftovers({ home: path.dirname(worktreesDir), hold: holdLeftBehind })
+      const swept = await sweepLeftovers({
+        home: path.dirname(worktreesDir),
+        hold: holdLeftBehind,
+        signal: stopping.signal,
+      })
       if (swept.tasks.length > 0)
         console.log(
           `ended ${swept.processes} processes and removed ${swept.folders} folders left by ${swept.tasks.join(', ')}`,

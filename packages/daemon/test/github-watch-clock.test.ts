@@ -9,6 +9,7 @@ function harness(urgentBurst?: number) {
   let reads = 0
   let acted = 0
   let hold: Promise<void> | undefined
+  let acting: Promise<void> | undefined
   let refs: PullRequestRef[] = [
     { key: 'a', repo: 'acme/one', number: 1 },
     { key: 'b', repo: 'acme/two', number: 2 },
@@ -28,6 +29,7 @@ function harness(urgentBurst?: number) {
     refs: () => refs,
     async onRead() {
       acted++
+      await acting
     },
     inBackground(_what, work) {
       jobs.push(work())
@@ -48,6 +50,9 @@ function harness(urgentBurst?: number) {
     acted: () => acted,
     hold: (promise: Promise<void>) => {
       hold = promise
+    },
+    holdActing: (promise: Promise<void>) => {
+      acting = promise
     },
     noRefs: () => {
       refs = []
@@ -101,6 +106,19 @@ test('a slow GitHub request does not overlap, and close resolves queued readers 
   expect(h.acted()).toBe(0)
   expect(h.clock.pending).toEqual([])
   expect((await h.watch.next()).pulls.size).toBe(0)
+})
+
+test('close while a read is being acted on ends the poll without waiting out the interval', async () => {
+  const h = harness()
+  const gate = Promise.withResolvers<void>()
+  h.holdActing(gate.promise)
+  h.watch.poke()
+  await expect.poll(() => h.acted()).toBe(1)
+  h.watch.close()
+  gate.resolve()
+  await Promise.all(h.jobs)
+  expect(h.reads()).toBe(1)
+  expect(h.clock.pending).toEqual([])
 })
 
 test('GitHub polling stops when no refs remain', async () => {
