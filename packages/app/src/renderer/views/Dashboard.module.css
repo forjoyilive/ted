@@ -442,6 +442,11 @@
   text-decoration: underline;
 }
 
+.cellLink {
+  font-size: inherit;
+  text-align: inherit;
+}
+
 .value:focus-visible,
 .link:focus-visible,
 .task:focus-visible,

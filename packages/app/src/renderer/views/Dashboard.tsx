@@ -131,7 +131,7 @@ const metricValue = (period: DashboardPeriod | DashboardBucket, metric: Dashboar
       ? period.merged.count
       : period[metric].value
 const idsOf = (
-  period: DashboardPeriod | DashboardBucket,
+  period: DashboardPeriod | DashboardBucket | DashboardFactoryPeriod,
   metric: DashboardMetric,
   missing = false,
 ) =>
@@ -1044,13 +1044,19 @@ function Sample({
     selection.requestId === undefined
       ? undefined
       : waited?.waits.find((w) => w.requestId === selection.requestId)
-  const waitSamples = !waited
-    ? []
-    : request
-      ? [{ taskId: request.taskId, waitedMs: request.waitedMs }]
-      : selection.stage !== undefined
-        ? (waited.stages.find((s) => s.stage === selection.stage)?.samples ?? [])
-        : waited.samples
+  const waitedHere =
+    selection.factoryId === undefined
+      ? null
+      : new Set(waited?.byFactory.find((row) => row.factoryId === selection.factoryId)?.taskIds)
+  const waitSamples = (
+    !waited
+      ? []
+      : request
+        ? [{ taskId: request.taskId, waitedMs: request.waitedMs }]
+        : selection.stage !== undefined
+          ? (waited.stages.find((s) => s.stage === selection.stage)?.samples ?? [])
+          : waited.samples
+  ).filter((s) => !waitedHere || waitedHere.has(s.taskId))
   const waitNote = (id: string) => {
     const ms = waitSamples.find((s) => s.taskId === id)?.waitedMs ?? 0
     const kinds = request
@@ -1068,6 +1074,14 @@ function Sample({
     return [`Waited ${duration(ms)}`, kinds.join(', ')].filter(Boolean).join(' · ')
   }
   const sample = metric === null ? null : selection.bucket === undefined ? period : bucket
+  const source =
+    selection.factoryId === undefined
+      ? sample
+      : period?.byFactory.find((row) => row.factoryId === selection.factoryId)
+  const factoryName =
+    selection.factoryId === undefined
+      ? null
+      : (factories.find((f) => f.id === selection.factoryId)?.name ?? 'Removed Factory')
   const records = new Map(data.tasks.map((task) => [task.id, task]))
   const opened = new Map(data.open.map((task) => [task.id, task]))
   const durationOf = (id: string) => {
@@ -1083,8 +1097,8 @@ function Sample({
         ? data.open.map((task) => task.id)
         : waited
           ? waitSamples.map((s) => s.taskId)
-          : sample && metric
-            ? idsOf(sample, metric, selection.missing).toSorted(
+          : source && metric
+            ? idsOf(source, metric, selection.missing).toSorted(
                 (x, y) => (durationOf(y) ?? -1) - (durationOf(x) ?? -1),
               )
             : []
@@ -1104,7 +1118,7 @@ function Sample({
                   : selection.period === 'current'
                     ? 'Selected period'
                     : 'Previous period'
-            }`
+            }${factoryName ? ` · ${factoryName}` : ''}`
           : `${labels[selection.metric]} · ${
               selection.missing
                 ? 'Missing starts'
@@ -1113,7 +1127,7 @@ function Sample({
                   : selection.period === 'current'
                     ? 'Selected period'
                     : 'Previous period'
-            }`
+            }${factoryName ? ` · ${factoryName}` : ''}`
   const describe = (task: DashboardTask) =>
     selection.metric === 'unavailable'
       ? 'Done timestamp unavailable'
@@ -1336,10 +1350,12 @@ function ByFactory({
   data,
   factories,
   onOnly,
+  select,
 }: {
   data: DashboardReport
   factories: readonly Factory[]
   onOnly: (id: string) => void
+  select: (sample: DashboardSelection) => void
 }) {
   const heading = useId()
   const total = data.current.taskIds.length
@@ -1351,6 +1367,19 @@ function ByFactory({
   const perPr = new Map(
     data.cost.current.byFactory.map((row) => [row.factoryId, row.perPullRequest.median]),
   )
+  const cell = (text: string, sample: DashboardSelection | null) =>
+    sample ? (
+      <button
+        type="button"
+        data-nav-item
+        className={`${styles.link} ${styles.cellLink}`}
+        onClick={() => select(sample)}
+      >
+        {text}
+      </button>
+    ) : (
+      text
+    )
   return (
     <section className={`${styles.panel} ${styles.byFactory}`} aria-labelledby={heading}>
       <header className={styles.panelHead}>
@@ -1393,6 +1422,16 @@ function ByFactory({
           {rows.map((row) => {
             const factory = factories.find((f) => f.id === row.factoryId)
             const share = total === 0 ? 0 : row.taskIds.length / total
+            const before = previous.get(row.factoryId)
+            const wait = waits.get(row.factoryId) ?? 0
+            const cost = perPr.get(row.factoryId) ?? null
+            const of = (
+              metric: DashboardMetric,
+              value: number | null,
+            ): DashboardSelection | null =>
+              value === null || value === 0
+                ? null
+                : { metric, period: 'current', factoryId: row.factoryId }
             return (
               <tr key={row.factoryId}>
                 <th scope="row">
@@ -1412,20 +1451,55 @@ function ByFactory({
                     className={styles.share}
                     style={{ width: `${share * 120}px`, background: factoryColor(factory) }}
                   />
-                  <span className={styles.caption}>{Math.round(share * 100)}%</span>
+                  <span className={styles.caption}>
+                    {cell(`${Math.round(share * 100)}%`, of('completed', row.taskIds.length))}
+                  </span>
                 </td>
-                <td className={styles.number}>{row.taskIds.length}</td>
+                <td className={styles.number}>
+                  {cell(String(row.taskIds.length), of('completed', row.taskIds.length))}
+                </td>
                 {data.previous && (
                   <td className={styles.number}>
-                    {change(row.taskIds.length, previous.get(row.factoryId)?.taskIds.length)}
+                    {cell(
+                      change(row.taskIds.length, before?.taskIds.length),
+                      before && before.taskIds.length > 0
+                        ? { metric: 'completed', period: 'previous', factoryId: row.factoryId }
+                        : null,
+                    )}
                   </td>
                 )}
-                <td className={styles.number}>{row.merged.count}</td>
-                <td className={styles.number}>{duration(row.created.value)}</td>
-                <td className={styles.number}>{duration(row.backlog.value)}</td>
-                <td className={styles.number}>{duration(row.intake.value)}</td>
-                <td className={styles.number}>{hours(waits.get(row.factoryId) ?? 0)}</td>
-                <td className={styles.number}>{money(perPr.get(row.factoryId) ?? null)}</td>
+                <td className={styles.number}>
+                  {cell(String(row.merged.count), of('merged', row.merged.count))}
+                </td>
+                <td className={styles.number}>
+                  {cell(duration(row.created.value), of('created', row.created.value))}
+                </td>
+                <td className={styles.number}>
+                  {cell(duration(row.backlog.value), of('backlog', row.backlog.value))}
+                </td>
+                <td className={styles.number}>
+                  {cell(duration(row.intake.value), of('intake', row.intake.value))}
+                </td>
+                <td className={styles.number}>
+                  {cell(
+                    hours(wait),
+                    wait > 0
+                      ? { metric: 'waiting', period: 'current', factoryId: row.factoryId }
+                      : null,
+                  )}
+                </td>
+                <td className={styles.number}>
+                  {cell(
+                    money(cost),
+                    cost === null
+                      ? null
+                      : {
+                          metric: 'cost',
+                          period: 'current',
+                          cost: { of: 'per-pull-request', factoryId: row.factoryId },
+                        },
+                  )}
+                </td>
               </tr>
             )
           })}
@@ -1601,7 +1675,12 @@ export function Dashboard({
                 </div>
                 <Waiting data={data} select={select} />
                 {shown.length > 1 && (
-                  <ByFactory data={data} factories={factories} onOnly={(id) => choose([id])} />
+                  <ByFactory
+                    data={data}
+                    factories={factories}
+                    onOnly={(id) => choose([id])}
+                    select={select}
+                  />
                 )}
                 <p className={styles.definition}>
                   Each retained Task counts once at its latest recorded Done entry, including

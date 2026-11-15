@@ -1424,4 +1424,31 @@ test('Cost splits spend by kind of work, gives one cost per merged pull request 
   ])
   expect(all.current.byFactory[0]?.perPullRequest.median).toBe(4.125)
   expect(all.current.kinds.find((k) => k.key === 'other')).toMatchObject({ cost: 4, tasks: [] })
+
+  const unpriced = dashboardCost({
+    usage: costUsage([row('lead1', start + hour, 10), row('gar', start + hour, null)], {
+      ...owners,
+      taskFactories: new Map([
+        ['t1', 'nb'],
+        ['t3', 'nb'],
+      ]),
+    }),
+    tasks,
+    factoryIds: ['nb'],
+    allFactories: false,
+    current: {
+      ...current,
+      completed: [
+        { taskId: 't1', pullRequests: 1 },
+        { taskId: 't3', pullRequests: 1 },
+      ],
+    },
+    previous: null,
+  })
+  expect(unpriced.current).toMatchObject({
+    unpricedRuns: 1,
+    perPullRequest: { median: 10, pullRequests: 1, samples: [{ taskId: 't1', cost: 10 }] },
+  })
+  expect(unpriced.current.perPullRequest.samples).toHaveLength(1)
+  expect(unpriced.current.byFactory[0]?.perPullRequest.median).toBe(10)
 })

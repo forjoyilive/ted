@@ -12,9 +12,15 @@ import { bridge, user } from './support/component.ts'
 import { dashboardFixture } from './support/dashboard.ts'
 import { factory, task } from './support/fixtures.ts'
 
-function DashboardView({ open }: { open: (id: string) => void }) {
+function DashboardView({
+  open,
+  factories = [],
+}: {
+  open: (id: string) => void
+  factories?: ReturnType<typeof factory>[]
+}) {
   const [state, setState] = useState<DashboardViewState>({ range: '7d' })
-  return <Dashboard factories={[]} state={state} onChange={setState} onOpenTask={open} />
+  return <Dashboard factories={factories} state={state} onChange={setState} onOpenTask={open} />
 }
 
 test('the shared App shortcuts navigate only the top sample dialog and preserve Task return', async () => {
@@ -1039,4 +1045,82 @@ test('the Cost tab shows cost per merged pull request, spend by kind of work and
   expect(nb?.textContent).toContain('$12.00')
   expect(nb?.textContent).toContain('$4.00')
   expect(byFactory.textContent).toContain('Codex cost comes from TED’s own price table')
+})
+
+test('every By Factory and Flow table figure opens the Tasks behind it for that Factory', async () => {
+  const data = dashboardFixture()
+  data.current.byFactory.push({
+    factoryId: 'gar',
+    taskIds: ['t2'],
+    merged: { count: 2, taskIds: ['t2'] },
+    created: { value: null, taskIds: [], missingIds: [] },
+    backlog: { value: null, taskIds: [], missingIds: [] },
+    intake: { value: null, taskIds: [], missingIds: [] },
+  })
+  bridge({ dashboard: () => data })
+  const factories = [factory({ id: 'nb', name: 'Nabla' }), factory({ id: 'gar', name: 'Garden' })]
+  render(<DashboardView open={vi.fn()} factories={factories} />)
+  const close = (name = 'Close sample') =>
+    user().click(within(screen.getByRole('dialog')).getByRole('button', { name }))
+  const row = (region: HTMLElement, name: string) =>
+    within(region).getByRole('row', { name: new RegExp(`^${name}`) })
+
+  const overview = await screen.findByRole('region', { name: 'By Factory' })
+  await user().click(within(row(overview, 'Garden')).getByRole('button', { name: '2' }))
+  let sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe(
+    'Pull requests merged · Selected period · Garden',
+  )
+  expect(
+    within(sample)
+      .getAllByRole('button', { name: /NB-/ })
+      .map((b) => b.textContent),
+  ).toEqual([expect.stringMatching(/NB-2.*Improve search/)])
+  await close()
+  await user().click(within(row(overview, 'Nabla')).getByRole('button', { name: '$4.00' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe(
+    'Cost per merged pull request · Nabla',
+  )
+  await close()
+
+  await user().click(screen.getByRole('tab', { name: 'Cost' }))
+  const cost = screen.getByRole('region', { name: 'Spend by Factory' })
+  await user().click(within(row(cost, 'Nabla')).getByRole('button', { name: '$4.00' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe(
+    'Cost per merged pull request · Nabla',
+  )
+  expect(
+    within(sample).getByRole('button', { name: /NB-1.*\$4\.00 per pull request/ }),
+  ).toBeTruthy()
+  await close()
+
+  await user().click(screen.getByRole('tab', { name: 'Flow' }))
+  const causes = await screen.findByRole('region', { name: 'Why Tasks were sent back' })
+  const route = row(causes, 'Validate → Work')
+  expect(
+    within(route)
+      .getAllByRole('cell')
+      .map((cell) => cell.textContent),
+  ).toEqual(['2', '0'])
+  await user().click(within(route).getByRole('button', { name: '2' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe(
+    'Send-backs · Validate → Work · Nabla',
+  )
+  expect(within(sample).getAllByRole('button', { name: /NB-3.*Open Task/ })).toHaveLength(2)
+  await close('Close Flow sample')
+  const flowByFactory = screen.getByRole('region', { name: 'Flow by Factory' })
+  expect(within(row(flowByFactory, 'Garden')).queryAllByRole('button')).toHaveLength(0)
+  await user().click(within(row(flowByFactory, 'Nabla')).getByRole('button', { name: /1 of 1/ }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toBe(
+    'Passed or failed · First-pass Validate · Nabla',
+  )
+  expect(
+    within(sample)
+      .getAllByRole('button', { name: /NB-/ })
+      .map((b) => b.textContent),
+  ).toEqual([expect.stringMatching(/NB-1/)])
 })

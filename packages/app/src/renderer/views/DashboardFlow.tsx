@@ -534,11 +534,33 @@ function SendBackCauses({
                   </button>
                 </th>
                 {columns.length ? (
-                  columns.map((f) => (
-                    <td key={f.id}>
-                      {r.backs.filter((s) => factoryOf.get(s.taskId) === f.id).length}
-                    </td>
-                  ))
+                  columns.map((f) => {
+                    const count = r.backs.filter((s) => factoryOf.get(s.taskId) === f.id).length
+                    return (
+                      <td key={f.id}>
+                        {count === 0 ? (
+                          0
+                        ) : (
+                          <button
+                            type="button"
+                            data-nav-item
+                            className={styles.link}
+                            onClick={() =>
+                              select({
+                                kind: 'sent-back',
+                                from: r.from,
+                                to: r.to,
+                                factoryId: f.id,
+                                period: 'current',
+                              })
+                            }
+                          >
+                            {count}
+                          </button>
+                        )}
+                      </td>
+                    )
+                  })
                 ) : (
                   <td>{r.backs.length}</td>
                 )}
@@ -659,10 +681,12 @@ function FlowByFactory({
   data,
   period,
   factories,
+  select,
 }: {
   data: DashboardFlow
   period: FlowPeriod
   factories: readonly { id: string; name: string }[]
+  select: (s: FlowSelection) => void
 }) {
   const factoryOf = new Map(data.tasks.map((task) => [task.id, task.factoryId]))
   const rows = factories.map((factory) => {
@@ -690,11 +714,37 @@ function FlowByFactory({
               <tr key={factory.id}>
                 <th scope="row">{factory.name}</th>
                 <td>
-                  {judged === 0
-                    ? 'Unavailable'
-                    : `${Math.round((passed / judged) * 100)}% · ${passed} of ${judged}`}
+                  {judged === 0 ? (
+                    'Unavailable'
+                  ) : (
+                    <button
+                      type="button"
+                      data-nav-item
+                      className={styles.link}
+                      onClick={() =>
+                        select({ kind: 'validate', factoryId: factory.id, period: 'current' })
+                      }
+                    >
+                      {`${Math.round((passed / judged) * 100)}% · ${passed} of ${judged}`}
+                    </button>
+                  )}
                 </td>
-                <td>{backs}</td>
+                <td>
+                  {backs === 0 ? (
+                    0
+                  ) : (
+                    <button
+                      type="button"
+                      data-nav-item
+                      className={styles.link}
+                      onClick={() =>
+                        select({ kind: 'sent-back', factoryId: factory.id, period: 'current' })
+                      }
+                    >
+                      {backs}
+                    </button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -711,6 +761,7 @@ function FlowSample({
   onClose,
   onOpenTask,
   selectPrevious,
+  factories = [],
   withoutWaits,
 }: {
   data: DashboardFlow
@@ -719,6 +770,7 @@ function FlowSample({
   onClose: () => void
   onOpenTask: (id: string) => void
   selectPrevious: () => void
+  factories?: readonly { id: string; name: string }[]
   withoutWaits?:
     | { original: DashboardFlow; leftOut: { current: LeftOutTask[]; previous: LeftOutTask[] } }
     | undefined
@@ -737,6 +789,16 @@ function FlowSample({
   const period = selection.period === 'previous' ? data.previous : data.current
   if (!period) return null
   const records = new Map(data.tasks.map((t) => [t.id, t]))
+  const factoryId =
+    selection.kind === 'sent-back' || selection.kind === 'validate'
+      ? selection.factoryId
+      : undefined
+  const inFactory = (taskId: string) =>
+    factoryId === undefined || records.get(taskId)?.factoryId === factoryId
+  const where =
+    factoryId === undefined
+      ? ''
+      : ` · ${factories.find((f) => f.id === factoryId)?.name ?? 'Removed Factory'}`
   const title =
     selection.kind === 'reason'
       ? `${reasonNames[selection.reason]} · Measured time`
@@ -756,7 +818,9 @@ function FlowSample({
                     ? failureTitle(selection)
                     : selection.kind === 'left-out'
                       ? 'Tasks left out of Stage time'
-                      : `${outcomes[selection.outcome]} · First-pass Validate`
+                      : selection.outcome
+                        ? `${outcomes[selection.outcome]} · First-pass Validate`
+                        : 'Passed or failed · First-pass Validate'
   const items: { key: string; taskId: string; lines: string[] }[] = []
   const reason =
     selection.kind === 'reason'
@@ -850,7 +914,9 @@ function FlowSample({
       }
     }
   } else if (selection.kind === 'sent-back') {
-    for (const s of allBacks(period).filter((s) => sentBackMatches(s, selection)))
+    for (const s of allBacks(period).filter(
+      (s) => sentBackMatches(s, selection) && inFactory(s.taskId),
+    ))
       items.push({
         key: s.id,
         taskId: s.taskId,
@@ -876,7 +942,12 @@ function FlowSample({
     for (const s of withoutWaits?.leftOut[selection.period] ?? [])
       items.push({ key: s.taskId, taskId: s.taskId, lines: s.reasons })
   } else if (selection.kind === 'validate') {
-    for (const s of period.firstPass.samples.filter((s) => s.outcome === selection.outcome))
+    for (const s of period.firstPass.samples.filter(
+      (s) =>
+        (selection.outcome === undefined
+          ? s.outcome === 'passed' || s.outcome === 'failed'
+          : s.outcome === selection.outcome) && inFactory(s.taskId),
+    ))
       items.push({
         key: s.taskId,
         taskId: s.taskId,
@@ -902,7 +973,10 @@ function FlowSample({
       }}
     >
       <header className={styles.sampleHead}>
-        <h2 id={heading}>{title}</h2>
+        <h2 id={heading}>
+          {title}
+          {where}
+        </h2>
         <button
           type="button"
           className={styles.close}
@@ -1237,7 +1311,12 @@ export function Flow({
               </p>
             </section>
             {factories.length > 1 && (
-              <FlowByFactory data={data} period={data.current} factories={factories} />
+              <FlowByFactory
+                data={data}
+                period={data.current}
+                factories={factories}
+                select={select}
+              />
             )}
           </div>
         </>
@@ -1254,6 +1333,7 @@ export function Flow({
           onClose={onClose}
           onOpenTask={onOpenTask}
           selectPrevious={() => select({ ...selection, period: 'previous' })}
+          factories={factories}
           withoutWaits={reduced && { original: all, leftOut: reduced.leftOut }}
         />
       )}

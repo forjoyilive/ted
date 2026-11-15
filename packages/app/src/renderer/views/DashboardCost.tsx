@@ -662,6 +662,7 @@ export function Cost({
             <tbody>
               {factoryRows.map((row) => {
                 const factory = factories.find((f) => f.id === row.factoryId)
+                const factoryId = row.factoryId
                 const before = previousFactories.get(row.factoryId)
                 const shift =
                   before && before.cost > 0
@@ -692,11 +693,56 @@ export function Cost({
                         </span>
                       )}
                     </th>
-                    <td className={styles.number}>{money(row.cost)}</td>
                     <td className={styles.number}>
-                      {row.factoryId === null ? '–' : money(row.perPullRequest.median)}
+                      {row.cost > 0 ? (
+                        <button
+                          type="button"
+                          data-nav-item
+                          className={`${styles.link} ${styles.cellLink}`}
+                          onClick={() => spend({ of: 'spend', factoryId: row.factoryId })}
+                        >
+                          {money(row.cost)}
+                        </button>
+                      ) : (
+                        money(row.cost)
+                      )}
                     </td>
-                    {!all && <td className={styles.number}>{shift ?? '–'}</td>}
+                    <td className={styles.number}>
+                      {factoryId === null || row.perPullRequest.median === null ? (
+                        '–'
+                      ) : (
+                        <button
+                          type="button"
+                          data-nav-item
+                          className={`${styles.link} ${styles.cellLink}`}
+                          onClick={() => spend({ of: 'per-pull-request', factoryId })}
+                        >
+                          {money(row.perPullRequest.median)}
+                        </button>
+                      )}
+                    </td>
+                    {!all && (
+                      <td className={styles.number}>
+                        {shift ? (
+                          <button
+                            type="button"
+                            data-nav-item
+                            className={`${styles.link} ${styles.cellLink}`}
+                            onClick={() =>
+                              select({
+                                metric: 'cost',
+                                period: 'previous',
+                                cost: { of: 'spend', factoryId: row.factoryId },
+                              })
+                            }
+                          >
+                            {shift}
+                          </button>
+                        ) : (
+                          '–'
+                        )}
+                      </td>
+                    )}
                   </tr>
                 )
               })}

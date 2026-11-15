@@ -17,8 +17,15 @@ export type FlowSelection = { period: 'current' | 'previous' } & (
   | { kind: 'affected' }
   | { kind: 'incomplete' }
   | { kind: 'left-out' }
-  | { kind: 'validate'; outcome: FlowValidateOutcome }
-  | { kind: 'sent-back'; cause?: string; severity?: string; from?: string; to?: string }
+  | { kind: 'validate'; outcome?: FlowValidateOutcome; factoryId?: string }
+  | {
+      kind: 'sent-back'
+      cause?: string
+      severity?: string
+      from?: string
+      to?: string
+      factoryId?: string
+    }
   | { kind: 'failure'; failure?: FlowFailureKind; outcome?: FlowFailureOutcome; id?: string }
 )
 
@@ -34,6 +41,7 @@ export interface DashboardSelection {
   stage?: string
   requestId?: string
   cost?: CostSelection
+  factoryId?: string
 }
 
 export interface DashboardViewState {

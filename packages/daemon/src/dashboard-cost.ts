@@ -225,8 +225,8 @@ export function dashboardCost(input: CostInput): DashboardCost {
   )
   const taskCosts = new Map<string, number>()
   for (const row of usage)
-    if (row.taskId !== null)
-      taskCosts.set(row.taskId, (taskCosts.get(row.taskId) ?? 0) + (row.cost ?? 0))
+    if (row.taskId !== null && row.cost !== null)
+      taskCosts.set(row.taskId, (taskCosts.get(row.taskId) ?? 0) + row.cost)
   const factoryOf = new Map(input.tasks.map((task) => [task.id, task.factoryId]))
   const factories = [...input.factoryIds, ...(input.allFactories ? [null] : [])]
   const current = period(input.current, usage, taskCosts, factoryOf, factories)
