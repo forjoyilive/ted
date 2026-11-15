@@ -19,7 +19,14 @@ export interface ResolvedStageFile {
   text: string
 }
 
-export type OvernightGuard = 'settings' | 'unreadable'
+export type OvernightGuard = 'settings' | 'unreadable' | 'automation' | 'outsider'
+
+export const overnightGuardTexts: Readonly<Record<OvernightGuard, string>> = {
+  settings: 'this Task changes .ted/',
+  unreadable: 'TED couldn’t read this Task’s changes',
+  automation: 'an Automation created this Task',
+  outsider: 'its GitHub issue has text from outsiders',
+}
 
 export interface ResolvedWorkflow {
   stages: StageId[]

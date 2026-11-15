@@ -80,6 +80,11 @@ const entries = {
     detail:
       'Stays on until you turn it off, on this computer only. Turning it off leaves started work running.',
   },
+  'app.general.autopilot.unvetted': {
+    name: 'Review Tasks from Automations and public issues',
+    keywords: 'overnight mode review gate sign-off automation github issue outsider',
+    help: 'While Autopilot is on, Tasks an Automation created and Tasks from a GitHub issue with text from outsiders still wait for your Review sign-off, and merge only the code you approved.',
+  },
   'app.general.startup': { name: 'Startup and quitting', heading: true },
   'app.general.startup.login': {
     name: 'Start TED in the background when you log in',

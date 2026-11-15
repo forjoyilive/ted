@@ -196,6 +196,13 @@ export function GeneralPage({ settings }: SettingsPageProps) {
             onChange={(enabled) => overnight.change(enabled)}
           />
         </SettingRow>
+        <SettingRow setting="app.general.autopilot.unvetted">
+          <Switch
+            label="Review Tasks from Automations and public issues"
+            checked={settings.reviewUnvettedTasks}
+            onChange={(reviewUnvettedTasks) => ted.updateSettings({ reviewUnvettedTasks })}
+          />
+        </SettingRow>
       </SettingsGroup>
 
       <SettingsGroup setting="app.general.startup">

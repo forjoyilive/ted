@@ -224,6 +224,7 @@ import {
   boardStages,
   type OvernightGuard,
   onDefaultBranch,
+  overnightGuardTexts,
   type ResolvedWorkflow,
   setupWorkflow,
   withForcedGates,
@@ -256,7 +257,7 @@ import {
   planAsanaImport,
 } from './asana-import.ts'
 import { asanaTracker, createAsanaSync } from './asana-sync.ts'
-import { ordinaryAutopilotRequest, taskAutopilot } from './autopilot.ts'
+import { ordinaryAutopilotRequest, taskAutopilot, unvettedReason } from './autopilot.ts'
 import {
   type BaseConflict,
   baseCheckTimeoutMs,
@@ -1350,13 +1351,24 @@ export function createTasks(options: {
     }
   }
 
+  function unvettedGuard(task: StoredTask): OvernightGuard | undefined {
+    return unvettedReason(task, store.settings())
+  }
+
+  async function overnightGuard(
+    task: StoredTask,
+    workflow: ResolvedWorkflow,
+  ): Promise<OvernightGuard | undefined> {
+    return unvettedGuard(task) ?? (await settingsGuard(task, workflow))
+  }
+
   async function gateWorkflow(
     task: StoredTask,
     options?: { fetch?: boolean },
   ): Promise<WorkflowResolution> {
     const plain = await taskWorkflow(task, options)
     if (!taskAutopilot(task)) return plain
-    const guard = await settingsGuard(task, plain.workflow)
+    const guard = await overnightGuard(task, plain.workflow)
     if (guard === undefined) return plain
     const kept = await taskWorkflow(task, { fetch: false, keepGates: guard })
     const { workflow } = kept
@@ -1452,7 +1464,8 @@ export function createTasks(options: {
     const task = find(taskId)
     const finished = task.archived || task.stage === 'done'
     const overnightMode = taskAutopilot(task)
-    const guard = overnightMode && !finished ? await settingsGuard(task, plain.workflow) : undefined
+    const guard =
+      overnightMode && !finished ? await overnightGuard(task, plain.workflow) : undefined
     const { workflow } =
       guard === undefined
         ? plain
@@ -1466,11 +1479,9 @@ export function createTasks(options: {
           ? 'Required by TED for this Task'
           : task.setup && ['design', 'review'].includes(stage)
             ? 'Required for Factory setup'
-            : stage === 'review' && guard === 'settings'
-              ? 'Required while Autopilot is on: this Task changes .ted/'
-              : stage === 'review' && guard === 'unreadable'
-                ? 'Required while Autopilot is on: TED couldn’t read this Task’s changes'
-                : undefined
+            : stage === 'review' && guard !== undefined
+              ? `Required while Autopilot is on: ${overnightGuardTexts[guard]}`
+              : undefined
         const posted = stage === task.stage && gateRequested(task)
         const locked = finished
           ? 'This Task has finished'
@@ -5795,6 +5806,7 @@ export function createTasks(options: {
       )
         throw new RequestError(403, 'this sign-off needs the user')
       const plain = await taskWorkflow(task, { fetch: false, inheritedGates: true })
+      if (unvettedGuard(task)) throw new RequestError(403, 'this sign-off needs the user')
       if (await settingsGuard(task, plain.workflow))
         throw new RequestError(403, 'Workflow changes need the user’s sign-off')
     }

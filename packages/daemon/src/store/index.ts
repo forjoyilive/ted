@@ -132,6 +132,7 @@ import {
   taskStatuses,
   taskWaitReasons,
 } from '../tasks/status.ts'
+import type { OvernightGuard } from '../workflow/resolve.ts'
 import { type AutomationDraftStore, createAutomationDraftStore } from './automation-drafts.ts'
 import { type AutomationStore, createAutomationStore } from './automations.ts'
 import { checkRunTiming } from './check-timing.ts'
@@ -791,7 +792,7 @@ export interface TedStore extends TaskHistory {
   gateSkippedOvernight(taskId: string, stage: AgentStageId): void
   gateApprovalBound(taskId: string, commentId: string, name: string, commit: string): void
   gateRequestedFor(taskId: string, commentId: string, name: string, commit: string): void
-  gateKeptOvernight(taskId: string, stage: AgentStageId, reason: 'settings' | 'unreadable'): void
+  gateKeptOvernight(taskId: string, stage: AgentStageId, reason: OvernightGuard): void
   mergeCanceled(taskId: string, commentId: string): void
   taskMarkedDone(taskId: string, by: 'human' | 'lead' | 'coordinator'): void
   mergePending(taskId: string): boolean

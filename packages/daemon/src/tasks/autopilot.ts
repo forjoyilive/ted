@@ -1,4 +1,4 @@
-import { type Comment, isTrackerGroupAsk, type Task } from '@ted/protocol'
+import { type Comment, isTrackerGroupAsk, type MachineSettings, type Task } from '@ted/protocol'
 
 export function ordinaryAutopilotRequest(comment: Comment): boolean {
   if (
@@ -25,4 +25,14 @@ export function ordinaryAutopilotRequest(comment: Comment): boolean {
 
 export function taskAutopilot(task: Task): boolean {
   return task.autopilot?.enabled === true
+}
+
+export function unvettedReason(
+  task: Pick<Task, 'createdBy' | 'source'>,
+  settings: Pick<MachineSettings, 'reviewUnvettedTasks'>,
+): 'automation' | 'outsider' | undefined {
+  if (!settings.reviewUnvettedTasks) return undefined
+  if (task.createdBy === 'automation') return 'automation'
+  if (task.source?.github?.outsiderText === true) return 'outsider'
+  return undefined
 }

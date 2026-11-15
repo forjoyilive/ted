@@ -79,6 +79,7 @@ export interface MachineSettings {
   developerMode: boolean
   preparationNoticeSeen: boolean
   overnightMode: boolean
+  reviewUnvettedTasks: boolean
   maxWorkingRuns: number
   adjustRunsToLoad: boolean
   maxBootedSimulators: number
@@ -128,6 +129,7 @@ export const defaultMachineSettings: MachineSettings = {
   developerMode: false,
   preparationNoticeSeen: false,
   overnightMode: false,
+  reviewUnvettedTasks: true,
   maxWorkingRuns: 6,
   adjustRunsToLoad: false,
   maxBootedSimulators: 3,
