@@ -7,6 +7,7 @@ import type {
   Activity,
   Banner,
   CheckRun,
+  Comment,
   Factory,
   FailureCase,
   SendBack,
@@ -49,12 +50,13 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function startTed() {
+async function startTed(load?: Parameters<typeof startDaemon>[0]['load']) {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
     codexBin: stubCodexPath,
+    ...(load && { load }),
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
@@ -311,6 +313,94 @@ describe('Checks before a Task leaves Work', () => {
     expect(chosen).toContain('The human added:\n\nTests are broken on main')
     expect(chosen).toContain(shortReference(failure.id))
   }, 180_000)
+})
+
+describe('Checks killed for lack of memory', () => {
+  test('a Check killed while memory is low isn’t a failure and runs again once memory frees up; a second kill asks the user, and Count it as failed is a plain hand-off failure', async () => {
+    await workflow(
+      `      - { name: Tests, run: "n=$(cat stub-n 2>/dev/null || echo 0); n=$((n+1)); echo $n > stub-n; if [ $n -le 2 ]; then while [ ! -e stub-go-$n ]; do sleep 0.05; done; kill -9 $$; fi; echo ok" }`,
+    )
+    let memory = 0.05
+    let reads = 0
+    const client = await startTed({
+      memoryAvailable: () => {
+        reads++
+        return memory
+      },
+      checkEveryMs: 50,
+    })
+    await client.ok('PATCH', '/settings', { waitWhenBusy: false })
+    const task = await startTask(
+      client,
+      steps(
+        { everyMessage: [{ endTurn: true }] },
+        { run: ['sh', '-c', 'echo x > a.txt'] },
+        advance,
+      ),
+    )
+    const counter = await worktreeFile(client, task, 'stub-n')
+    const started = (n: number) =>
+      waitUntil(
+        async () => (await readFile(counter, 'utf8').catch(() => '')).trim() === String(n),
+        `Check attempt ${n} to start`,
+        40_000,
+      )
+    const killed = (n: number) =>
+      waitUntil(async () => {
+        const lines = (await threadEvents(client, task)).filter((e) =>
+          e.text.includes('ran out of memory, so the Check “Tests” was stopped'),
+        )
+        return lines.length >= n ? lines : undefined
+      }, `memory kill ${n} in the thread`)
+
+    await started(1)
+    await writeFile(path.join(path.dirname(counter), 'stub-go-1'), '')
+    const [line] = await killed(1)
+    const [run] = await checkRuns(client, task)
+    expect(line?.checkRunId).toBe(run?.id)
+    expect(run?.finishedAt).toBeUndefined()
+    expect(states(run)).toEqual([['Tests', 'out-of-memory']])
+    expect(await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)).toEqual([])
+    expect(await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)).toEqual([])
+
+    memory = 0.5
+    await started(2)
+    memory = 0.05
+    const before = reads
+    await waitUntil(async () => reads >= before + 2 || undefined, 'a low memory reading')
+    await writeFile(path.join(path.dirname(counter), 'stub-go-2'), '')
+    await killed(2)
+    const question = await waitUntil(
+      async () =>
+        (await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)).find(
+          (c) => c.kind === 'question' && c.answer === undefined,
+        ),
+      'the question about the second memory kill',
+    )
+    expect(question).toMatchObject({
+      author: { kind: 'ted' },
+      title: 'This computer ran out of memory again: Tests',
+      choices: ['Try again', 'Count it as failed'],
+      purpose: { kind: 'memory-kill' },
+    })
+    expect((await checkRuns(client, task)).map((r) => r.finishedAt)).toEqual([undefined])
+
+    await client.ok('POST', `/comments/${question.id}/answer`, {
+      action: 'answer',
+      choice: 'Count it as failed',
+    })
+    const [finished] = await finishedRuns(client, task, 1)
+    expect(finished).toMatchObject({ trigger: 'hand-off', outcome: 'failed' })
+    expect(states(finished)).toEqual([['Tests', 'failed']])
+    await waitUntil(
+      async () =>
+        (await leadMessages(client, task)).some((m) => m.startsWith('# A Check failed')) ||
+        undefined,
+      'the Task Lead to hear the Check failed',
+    )
+    expect((await getTask(client, task.id))?.stage).toBe('work')
+    expect(await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)).toEqual([])
+  }, 120_000)
 })
 
 describe('Checks at Validate', () => {

@@ -44,6 +44,7 @@ let scratch: string
 let daemon: RunningDaemon | undefined
 let clock: number
 let load = 0
+let memory = 1
 
 beforeEach(async () => {
   ;({ home, cleanup } = await makeTempHome())
@@ -52,6 +53,7 @@ beforeEach(async () => {
   clock = Date.parse('2026-11-09T08:55:00Z')
   free = 500e9
   load = 0
+  memory = 1
 })
 
 afterEach(async () => {
@@ -85,7 +87,7 @@ async function startTed(
       ...(options.systemTimeZone && { systemTimeZone: options.systemTimeZone }),
     },
     disk: { freeBytes: async () => free, checkEveryMs: 50 },
-    load: { ratio: () => load, checkEveryMs: 30 },
+    load: { ratio: () => load, memoryAvailable: () => memory, checkEveryMs: 30 },
     ...(options.linear && { linear: options.linear }),
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
@@ -996,7 +998,9 @@ describe('Automations', () => {
   test('a scheduled Check waits while the computer is busy until its cutoff, runs sandboxed on the default branch, makes Tasks for failing tests and updates them when they fail again; its agent step files, notes and starts Tasks, and TED falls back when the agent doesn’t report', async () => {
     const client = await startTed()
     const fail = path.join(scratch, 'fail-check')
+    const kill = path.join(scratch, 'kill-check')
     const command = [
+      `if [ -f '${kill}' ]; then kill -9 $$; fi`,
       'echo "sandboxed=$TED_SANDBOX task=$TED_TASK."',
       'cat README.md',
       'echo "TED_SANDBOX_SKIPPED: the Electron app tests"',
@@ -1042,6 +1046,21 @@ describe('Automations', () => {
     expect(firstOutput.text).toContain('sandboxed=1 task=.')
     expect(firstOutput.text).toContain('# widgets')
     expect(firstOutput.log).toBe(path.join(checkLogs(), automation.id, `${passed?.id}.log`))
+
+    memory = 0.05
+    await writeFile(kill, '')
+    clock = Date.parse('2026-11-10T07:05:00Z')
+    await client.ok('POST', `/automations/${automation.id}/run`)
+    const [outOfMemory] = await waitForHistory(
+      client,
+      automation.id,
+      (rows) => rows[0]?.result.kind === 'stopped',
+      'the Check to be stopped for memory',
+    )
+    expect(outOfMemory?.message).toContain('ran out of memory')
+    expect(outOfMemory?.created).toBeUndefined()
+    await rm(kill)
+    memory = 1
 
     await writeFile(fail, '')
     clock = Date.parse('2026-11-10T07:10:00Z')
