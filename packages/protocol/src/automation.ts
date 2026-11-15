@@ -59,14 +59,14 @@ export interface AutomationCheckInput {
   startTasks?: boolean
 }
 
-export const scheduledCheckPrompt = `Find out why the Check failed and file the work to fix it.
+export const scheduledCheckPrompt = `Find out why the check failed and file the work to fix it.
 
 - Read the failing test files and the output. Group failures that share one cause into one Task.
 - Rerun a failing test file once or twice to tell a flaky test from a real break. Say which it is in the Task.
 - Each Task says what broke, where, and how you know: the test, the error and the commit.
 - If an open Task listed below already covers a failure, add a note to it instead of creating another.
 - If every failure was flaky and passed when rerun, create no Task and say so in your report.
-- If the Check passed, create no Task unless the output shows a real problem.`
+- If the check passed, create no Task unless the output shows a real problem.`
 
 export type CheckAgentState = 'queued' | 'running' | 'reported' | 'fallback' | 'ended'
 
