@@ -173,6 +173,7 @@ export interface TaskSource {
   }
   sentry?: { shortId: string }
   asana?: TaskAsanaSource
+  github?: import('./github-issue.ts').TaskGitHubSource
 }
 
 export interface TaskAsanaSource {

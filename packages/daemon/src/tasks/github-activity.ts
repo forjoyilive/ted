@@ -416,7 +416,9 @@ function hidden(code: number): boolean {
     (code >= 0x7f && code <= 0x9f) ||
     (code >= 0x200b && code <= 0x200f) ||
     (code >= 0x202a && code <= 0x202e) ||
-    (code >= 0x2066 && code <= 0x2069)
+    (code >= 0x2060 && code <= 0x2069) ||
+    code === 0xfeff ||
+    (code >= 0xe0000 && code <= 0xe007f)
   )
 }
 

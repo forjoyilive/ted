@@ -289,6 +289,7 @@ export const taskSources = State.SQLite.table({
     linearDescription: State.SQLite.text({ nullable: true }),
     sentryShortId: State.SQLite.text({ nullable: true }),
     asana: State.SQLite.text({ nullable: true }),
+    github: State.SQLite.text({ nullable: true }),
     at: State.SQLite.text(),
   },
 })
@@ -1730,6 +1731,10 @@ export const events = {
   taskSourceAsanaSet: Events.synced({
     name: 'v1.TaskSourceAsanaSet',
     schema: Schema.Struct({ taskId: Schema.String, asana: Schema.String, at: Schema.String }),
+  }),
+  taskSourceGitHubSet: Events.synced({
+    name: 'v1.TaskSourceGitHubSet',
+    schema: Schema.Struct({ taskId: Schema.String, github: Schema.String, at: Schema.String }),
   }),
   taskStarted: Events.synced({
     name: 'v1.TaskStarted',
@@ -4328,6 +4333,8 @@ const materializers = counted(
         taskSources.update({ sentryShortId: shortId }).where({ taskId }),
       'v1.TaskSourceAsanaSet': ({ taskId, asana }) =>
         taskSources.update({ asana }).where({ taskId }),
+      'v1.TaskSourceGitHubSet': ({ taskId, github }) =>
+        taskSources.update({ github }).where({ taskId }),
       'v1.TaskStarted': ({ taskId, stage, branch, worktree }) =>
         tasks.update({ stage, branch, worktree }).where({ id: taskId }),
       'v1.TaskStageChanged': ({ taskId, stage }) => tasks.update({ stage }).where({ id: taskId }),

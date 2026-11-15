@@ -524,6 +524,13 @@ export {
   validationExecution,
 } from './failures.ts'
 export {
+  type GitHubIssueState,
+  type GitHubIssueUrl,
+  gitHubIssueKey,
+  parseGitHubIssueUrl,
+  type TaskGitHubSource,
+} from './github-issue.ts'
+export {
   type AgentHealth,
   type AgentHealthState,
   agentDisplayNames,

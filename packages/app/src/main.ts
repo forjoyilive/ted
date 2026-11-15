@@ -30,6 +30,7 @@ import {
   newIssueUrl,
   noActivity,
   parseAsanaTaskUrl,
+  parseGitHubIssueUrl,
   parseLinearUrl,
   remoteExecutionOn,
   tedEnv,
@@ -130,8 +131,11 @@ const requests = {
   openTaskSource: async (client, taskId) => {
     const task = (await client.listTasks()).find((t) => t.id === String(taskId))
     const link =
-      task?.source && (parseLinearUrl(task.source.url) ?? parseAsanaTaskUrl(task.source.url))
-    if (!link) throw new Error('This Task has no Linear issue or Asana task to open')
+      task?.source &&
+      (parseLinearUrl(task.source.url) ??
+        parseAsanaTaskUrl(task.source.url) ??
+        parseGitHubIssueUrl(task.source.url))
+    if (!link) throw new Error('This Task has no Linear issue, Asana task or GitHub issue to open')
     await shell.openExternal(link.url)
   },
   openPullRequest: async (client, taskId, repoName) => {

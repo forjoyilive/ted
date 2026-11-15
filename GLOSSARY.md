@@ -147,7 +147,7 @@ The human’s choice to throw away what a started Task has done (its worktree, b
 _Avoid_: Restart, retry, redo
 
 **Source**:
-The URL of the item a Task was created from, such as a Linear, Sentry or GitHub issue. A Linear source also fills in the Task’s title, Priority and branch when TED has a Linear API key.
+The URL of the item a Task was created from, such as a Linear, Sentry or GitHub issue. A Linear source also fills in the Task’s title, Priority and branch when TED has a Linear API key. A GitHub issue in one of the Factory’s repos fills in the title, a copy of the issue and its comments with each author marked maintainer or outsider, and its files, read through the user’s `gh` login.
 _Avoid_: Origin, link, ticket
 
 **Tracker sync**:

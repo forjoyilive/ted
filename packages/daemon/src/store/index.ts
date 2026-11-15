@@ -105,6 +105,7 @@ import {
   type TaskAsanaSource,
   type TaskBrief,
   type TaskEnding,
+  type TaskGitHubSource,
   type TaskLead,
   type TaskPullRequest,
   type TaskRepo,
@@ -1688,6 +1689,7 @@ export async function openStore({
         }),
       ...(row.sentryShortId !== null && { sentry: { shortId: row.sentryShortId } }),
       ...(row.asana !== null && { asana: JSON.parse(row.asana) as TaskAsanaSource }),
+      ...(row.github !== null && { github: JSON.parse(row.github) as TaskGitHubSource }),
     }
   }
 
@@ -3835,6 +3837,15 @@ export async function openStore({
               }),
               ...(source.sentry
                 ? [events.taskSourceSentrySet({ taskId: id, shortId: source.sentry.shortId, at })]
+                : []),
+              ...(source.github
+                ? [
+                    events.taskSourceGitHubSet({
+                      taskId: id,
+                      github: JSON.stringify(source.github),
+                      at,
+                    }),
+                  ]
                 : []),
               ...(linearConsent && parseLinearUrl(source.url)
                 ? [
