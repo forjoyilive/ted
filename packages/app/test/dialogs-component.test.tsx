@@ -57,7 +57,6 @@ test('New Task sends a blank title for daemon inference, description, Priority a
   expect(screen.queryByText('Unchecked puts it in Backlog')).toBeNull()
   await u.click(screen.getByLabelText('Start now'))
   expect(screen.getByText('Waits in Backlog until you start it')).toBeTruthy()
-  await waitFor(() => expect(settings).toHaveBeenCalledWith({ startNewTasks: false }))
   await u.click(screen.getByRole('button', { name: 'Create' }))
   expect(created).toHaveBeenCalledWith(
     expect.objectContaining({
@@ -69,6 +68,7 @@ test('New Task sends a blank title for daemon inference, description, Priority a
     }),
   )
   expect(close).toHaveBeenCalledOnce()
+  await waitFor(() => expect(settings).toHaveBeenCalledWith({ startNewTasks: false }))
 })
 
 test('New Task sends an explicit title and starts by default', async () => {
