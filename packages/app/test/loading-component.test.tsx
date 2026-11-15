@@ -30,6 +30,7 @@ function detailHandlers() {
   return {
     listApps: () => [],
     simulators: () => ({ supported: false }),
+    emulators: () => ({ supported: false }),
     listTaskRuns: () => [],
     taskGates: () => ({ rows: [], overrides: {}, revision: 'v1' }),
     listComments: () => [],

@@ -104,6 +104,7 @@ test('Limits changes how many Checks run at once and turns low priority off', as
   bridge({
     getSlots: () => ({ limit: 6, working: 0, queued: 0, holders: [], queue: [], factories: [] }),
     simulators: () => ({ supported: false }),
+    emulators: () => ({ supported: false }),
     updateSettings: update,
   })
   render(<LimitsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
@@ -626,6 +627,7 @@ test('an asynchronous settings switch acknowledges activation and blocks repeat 
     updateSettings: update,
     getSlots: () => ({ limit: 6, working: 0, queued: 0, holders: [], queue: [], factories: [] }),
     simulators: () => ({ supported: false }),
+    emulators: () => ({ supported: false }),
   })
   render(<LimitsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
   const toggle = screen.getByRole('switch', { name: 'Start fewer Runs when this computer is busy' })

@@ -98,6 +98,7 @@ function details(subject: Task, tasks: readonly Task[], onOpenTask = vi.fn()) {
 const detailsHandlers = {
   listApps: () => [],
   simulators: () => ({ supported: false }),
+  emulators: () => ({ supported: false }),
   listTaskRuns: () => [],
   taskDescriptions: () => [],
   listComments: () => [],

@@ -45,6 +45,7 @@ function requestApi() {
     }),
     listApps: () => [],
     simulators: () => ({ supported: false }),
+    emulators: () => ({ supported: false }),
     answerRequest: answer,
   })
   return { ...api, answer }
@@ -742,7 +743,11 @@ test.each(['approve', 'deny'] as const)(
 
 test('pending answers disable actions and rejected answers preserve text with an error', async () => {
   const pending = deferred<never>()
-  bridge({ simulators: () => ({ supported: false }), answerRequest: () => pending.promise })
+  bridge({
+    simulators: () => ({ supported: false }),
+    emulators: () => ({ supported: false }),
+    answerRequest: () => pending.promise,
+  })
   render(<RequestCard task={task()} request={comment()} />)
   const u = user()
   await u.type(screen.getByLabelText('Your answer'), 'Keep this answer')
@@ -765,6 +770,7 @@ test('a failure decision asks for a reason before Fixed or No longer applicable 
   })
   bridge({
     simulators: () => ({ supported: false }),
+    emulators: () => ({ supported: false }),
     answerRequest: answer,
     listFailures: () => [],
   })
@@ -1244,6 +1250,7 @@ test('Validate failure decisions display evidence and send the selected action',
 test('historical failure request keeps its own assessment and decision', async () => {
   bridge({
     simulators: () => ({ supported: false }),
+    emulators: () => ({ supported: false }),
     listFailures: () => [
       {
         id: 'failure-1',
@@ -1315,6 +1322,7 @@ test('a Review confirmation shows completed Checks once when progress is availab
   const check = { name: 'Typecheck', command: 'echo typed', timeout: '1m', state: 'passed' }
   bridge({
     simulators: () => ({ supported: false }),
+    emulators: () => ({ supported: false }),
     listApps: () => [],
     listFailures: () => [],
     listThreadEvents: () => [
@@ -1434,6 +1442,7 @@ test.each(['Review', 'Visual'])(
     }
     bridge({
       simulators: () => ({ supported: false }),
+      emulators: () => ({ supported: false }),
       listApps: () => [],
       listFailures: () => [failure],
       listCheckRuns: () => [],
@@ -1687,6 +1696,7 @@ test('previous Review keeps its own Check execution after a second Validate visi
     }),
     listApps: () => [],
     simulators: () => ({ supported: false }),
+    emulators: () => ({ supported: false }),
   })
   render(
     <RequestCard
@@ -1855,6 +1865,7 @@ test('previous Review retains its recorded Check plan and acceptance after later
     checkOutput: () => ({ text: 'Original output', log: 'original-log' }),
     listApps: () => [],
     simulators: () => ({ supported: false }),
+    emulators: () => ({ supported: false }),
   })
   render(
     <RequestCard
@@ -2281,6 +2292,7 @@ test('Sending failure acceptance shows activity, blocks conflicting answers and 
   const answer = vi.fn(() => completion.promise)
   bridge({
     simulators: () => ({ supported: false }),
+    emulators: () => ({ supported: false }),
     answerRequest: answer,
     listFailures: () => [],
   })
@@ -2313,7 +2325,11 @@ test('Sending failure acceptance shows activity, blocks conflicting answers and 
 test('keyboard sign-off changes show pending feedback on the matching answer only', async () => {
   const completion = deferred<never>()
   const answer = vi.fn(() => completion.promise)
-  bridge({ simulators: () => ({ supported: false }), answerRequest: answer })
+  bridge({
+    simulators: () => ({ supported: false }),
+    emulators: () => ({ supported: false }),
+    answerRequest: answer,
+  })
   render(
     <RequestCard
       task={task()}

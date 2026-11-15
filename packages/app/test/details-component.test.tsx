@@ -15,6 +15,7 @@ function handlers() {
   return {
     listApps: () => [],
     simulators: () => ({ supported: false }),
+    emulators: () => ({ supported: false }),
     listTaskRuns: () => [],
     taskDescriptions: () => [],
     taskGates: () => ({ rows: [], overrides: {}, revision: 'v1' }),
