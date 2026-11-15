@@ -355,6 +355,7 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   },
   preparationNoticeSeen: onOff('preparationNoticeSeen'),
   overnightMode: onOff('overnightMode'),
+  reviewUnvettedTasks: onOff('reviewUnvettedTasks'),
   adjustRunsToLoad: onOff('adjustRunsToLoad'),
   showTrayIcon: onOff('showTrayIcon'),
   startAtLogin: onOff('startAtLogin'),
