@@ -85,6 +85,7 @@ import {
   UsageError,
 } from './commands.ts'
 import { exportCommand } from './export.ts'
+import { formatMemoryUse } from './memory.ts'
 import { formatSlowMoments } from './slow.ts'
 
 export interface CliRuntime {
@@ -1774,6 +1775,9 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         Object.assign(process.env, original)
       }
       console.log(`Demo ready in ${demo} (${Date.now() - started} ms)`)
+    },
+    showMemory: async () => {
+      console.log(formatMemoryUse(await withDaemon(home, (client) => client.getMemoryUse())))
     },
     showSlow: async () => {
       console.log(formatSlowMoments(await withDaemon(home, (client) => client.getSlowMoments())))

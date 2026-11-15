@@ -342,6 +342,9 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
     readRunOutput: () => ({ text: 'from the stub', truncated: false }),
   })
   const view = render(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
+  await screen.findByText(
+    '2.3 GB · Daemon 900 MB · App 590 MB · 2 Run hosts 150 MB · 2 agents 700 MB',
+  )
   expect(screen.queryByRole('region', { name: 'Diagnostics' })).toBeNull()
   expect(screen.queryByRole('region', { name: 'Logs' })).toBeNull()
   expect(screen.queryByText('Show onboarding again')).toBeNull()
@@ -431,7 +434,7 @@ test('Record a CPU profile asks for one profile at a time and shows where it was
   })
   await user().click(screen.getByRole('button', { name: 'Record 30 seconds' }))
   await screen.findByText('Couldn’t record a profile: TED is already recording a CPU profile')
-  expect(api.request).toHaveBeenCalledTimes(3)
+  expect(api.request.mock.calls.filter(([name]) => name === 'recordProfile')).toHaveLength(2)
 })
 
 test('resource readings refresh while Developer mode is visible and stop when hidden', async () => {

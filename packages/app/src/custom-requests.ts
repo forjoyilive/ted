@@ -5,6 +5,7 @@ import type {
   AutomationDetail,
   ExportFormat,
   MachineSettings,
+  MemoryUse,
   RunFixRequest,
   RunFixResult,
   SaveExportResult,
@@ -55,6 +56,7 @@ export interface CustomRequests {
   quit: () => Promise<void>
   chooseProfilePicture: () => Promise<MachineSettings>
   copyReport: () => Promise<void>
+  memoryUse: () => Promise<MemoryUse>
   tedFolder: () => Promise<{ path: string; platform: string }>
   showTedFolder: () => Promise<void>
   showBackupInFolder: (name: string) => Promise<void>

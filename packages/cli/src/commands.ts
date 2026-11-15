@@ -1155,6 +1155,15 @@ export const commands = [
     options: options(),
   },
   {
+    name: 'dev memory',
+    handler: 'showMemory',
+    min: 0,
+    max: 0,
+    help: '  ted dev memory                             Show how much memory the daemon, Run hosts and agents use',
+    callers: 'Terminal',
+    options: options(),
+  },
+  {
     name: 'dev slow',
     handler: 'showSlow',
     min: 0,
