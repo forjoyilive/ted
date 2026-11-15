@@ -1204,6 +1204,7 @@ export function createTasks(options: {
   }
   const pullRequestQueue = new Map<string, Promise<void>>()
   const clearingAway = new Map<string, Promise<void>>()
+  const removingWorktrees = new Map<string, number>()
   const removingFactories = new Set<string>()
   const mergePollMs = options.mergePollMs ?? 30_000
   const ciStuckMs = options.ciStuckMs ?? { noChecks: 10 * 60_000, pending: 60 * 60_000 }
@@ -5154,6 +5155,17 @@ export function createTasks(options: {
   }
 
   async function finish(task: StoredTask, resolution: WorkflowResolution): Promise<void> {
+    removingWorktrees.set(task.id, (removingWorktrees.get(task.id) ?? 0) + 1)
+    try {
+      await removeWorktrees(task, resolution)
+    } finally {
+      const left = (removingWorktrees.get(task.id) ?? 1) - 1
+      if (left > 0) removingWorktrees.set(task.id, left)
+      else removingWorktrees.delete(task.id)
+    }
+  }
+
+  async function removeWorktrees(task: StoredTask, resolution: WorkflowResolution): Promise<void> {
     await pullRequestQueue.get(task.id)
     subAgents.dropFor(task.id)
     browser.cancel(task.id)
@@ -11618,6 +11630,8 @@ export function createTasks(options: {
       const task = find(ref)
       const repo = task.repos.find((r) => r.name === name && !r.removed)
       if (!repo) throw new RequestError(404, `${task.displayId} has no worktree for ${name}`)
+      if (clearingAway.has(task.id) || removingWorktrees.has(task.id))
+        throw new RequestError(404, `${task.displayId}’s worktree for ${name} is being removed`)
       let fileScope: WorktreeFileScope
       try {
         fileScope = await worktreeFileScope(worktreesDir, repo.worktree)
