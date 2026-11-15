@@ -31,6 +31,7 @@ interface StubState {
   prRepos?: Record<string, string>
   merge?: StubMerge
   logs?: Record<string, string>
+  issues?: Record<string, unknown>
 }
 
 interface StubCheck {
@@ -407,6 +408,23 @@ if (args[0] === '--version') {
   process.stdout.write(
     `${JSON.stringify({ data: { updatePullRequestBranch: { pullRequest: { headRefOid: head } } } })}\n`,
   )
+} else if (graphql && stdin.includes('TedGitHubIssue')) {
+  const { variables } = JSON.parse(stdin) as {
+    variables: { owner: string; name: string; number: number }
+  }
+  const answer =
+    state.issues?.[`${variables.owner}/${variables.name}#${variables.number}`.toLowerCase()]
+  if (state.api?.result === 'auth' || answer === 'auth') {
+    process.stderr.write('gh: Bad credentials (HTTP 401)\n')
+    process.exit(1)
+  }
+  if (answer === undefined || answer === 'not-found') {
+    process.stderr.write(
+      `GraphQL: Could not resolve to an Issue with the number of ${variables.number}. (repository.issue)\n`,
+    )
+    process.exit(1)
+  }
+  process.stdout.write(`${JSON.stringify({ data: { repository: { issue: answer } } })}\n`)
 } else if (args[0] === 'api' && /\/actions\/jobs\/\d+\/logs$/.test(args[1] ?? '')) {
   const job = /\/jobs\/(\d+)\/logs$/.exec(args[1] ?? '')?.[1] ?? ''
   const log = state.logs?.[job]

@@ -1,0 +1,53 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.link {
+  overflow: hidden;
+  color: var(--accent-link);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.facts {
+  color: var(--text-caption);
+  font-size: var(--text-12);
+}
+
+.outsider {
+  color: var(--status-warning-text);
+  font-size: var(--text-12);
+}
+
+.toggle {
+  align-self: flex-start;
+  color: var(--accent-link);
+  font-size: var(--text-12);
+}
+
+.toggle:hover {
+  text-decoration: underline;
+}
+
+.text {
+  max-height: 320px;
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border-radius: 6px;
+  background: var(--surface-inset);
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: var(--text-12-5);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

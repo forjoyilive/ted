@@ -48,6 +48,7 @@ import { acceptedPositions } from '../components/FailureDetails.tsx'
 import { FilesSection } from '../components/FilesSection.tsx'
 import { FileView } from '../components/FileView.tsx'
 import { FullBrief } from '../components/FullBrief.tsx'
+import { GitHubSourceField } from '../components/GitHubSourceField.tsx'
 import { ChildrenField, ParentField } from '../components/HierarchySection.tsx'
 import { ChevronIcon } from '../components/icons.tsx'
 import {
@@ -1316,6 +1317,14 @@ export function TaskDetails({
                   <dt>Source</dt>
                   <dd>
                     <AsanaSourceField task={task} />
+                  </dd>
+                </>
+              )}
+              {task.source?.github && (
+                <>
+                  <dt>Source</dt>
+                  <dd>
+                    <GitHubSourceField task={task} />
                   </dd>
                 </>
               )}

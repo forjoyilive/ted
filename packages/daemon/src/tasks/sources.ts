@@ -1,4 +1,10 @@
-import { parseAsanaTaskUrl, parseLinearUrl, type Task } from '@ted/protocol'
+import {
+  gitHubIssueKey,
+  parseAsanaTaskUrl,
+  parseGitHubIssueUrl,
+  parseLinearUrl,
+  type Task,
+} from '@ted/protocol'
 import { stageTitle } from '../workflow/workflow.ts'
 
 export function sourceKey(url: string): string {
@@ -6,6 +12,8 @@ export function sourceKey(url: string): string {
   if (linear) return `linear:${linear.workspace.toLowerCase()}/${linear.identifier.toUpperCase()}`
   const asana = parseAsanaTaskUrl(url)
   if (asana) return `asana:${asana.gid}`
+  const github = parseGitHubIssueUrl(url)
+  if (github) return gitHubIssueKey(github)
   if (!URL.canParse(url)) return url.trim()
   const parsed = new URL(url)
   const host = parsed.host.toLowerCase().replace(/^www\./, '')

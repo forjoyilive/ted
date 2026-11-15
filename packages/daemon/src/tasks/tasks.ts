@@ -105,6 +105,7 @@ import type {
   TaskFiles,
   TaskGateOverrides,
   TaskGates,
+  TaskGitHubSource,
   TaskHierarchy,
   TaskHierarchyPreview,
   TaskLead,
@@ -140,6 +141,7 @@ import {
   keepArchiveChoice,
   maxAsanaIntakeTasks,
   parseAsanaTaskUrl,
+  parseGitHubIssueUrl,
   parseLinearUrl,
   type ResetRefusal,
   resetRefusal,
@@ -172,7 +174,14 @@ import type { FileStore } from '../downloads.ts'
 import { RequestError } from '../errors.ts'
 import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
+import { fetchGitHubFiles, type GitHubUploads, uploadRefs } from '../github/files.ts'
 import { type Gh, GhError } from '../github/gh.ts'
+import {
+  choosePosts,
+  type GitHubUnreadable,
+  githubIssueContext,
+  readGitHubIssue,
+} from '../github/issues.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import { linkedFilesRewritten } from '../linear/files.ts'
@@ -784,6 +793,7 @@ export function createTasks(options: {
   isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
   gh?: Gh
+  github?: { files?: FileStore; uploads?: GitHubUploads }
   env?: () => NodeJS.ProcessEnv
   clock?: Clock
   nudgeAfterMs?: number
@@ -4290,6 +4300,92 @@ export function createTasks(options: {
       return undefined
     })
     return lookup?.state === 'found' ? lookup.issue : undefined
+  }
+
+  interface GitHubImport {
+    title?: string
+    source?: TaskGitHubSource
+    files: LinearFile[]
+    notes: string[]
+  }
+
+  async function githubIssue(
+    url: string,
+    factory: StoredFactory,
+  ): Promise<GitHubImport | undefined> {
+    const link = parseGitHubIssueUrl(url)
+    if (!link || !options.gh) return undefined
+    const label = `${link.owner}/${link.repo}#${link.number}`
+    const repos = [factory.repo, ...factory.repos.map((r) => r.repo)]
+    const read = await readGitHubIssue(options.gh, link, repos)
+    if (read.state === 'outside-factory') return undefined
+    if (read.state === 'unreadable') {
+      return { files: [], notes: [githubUnreadableNote(label, read.reason, link.url)] }
+    }
+    const { issue } = read
+    const chosen = choosePosts(issue)
+    const uploads = options.github?.uploads ?? {}
+    const refs = uploadRefs([chosen.body, ...chosen.comments], uploads)
+    const fileStore = options.github?.files
+    const fetched = fileStore
+      ? await fetchGitHubFiles({ refs, store: fileStore, uploads })
+      : {
+          files: [],
+          unfetched: refs.map((ref) => ({
+            name: ref.name,
+            url: ref.url,
+            reason: 'TED can’t save files here',
+          })),
+        }
+    const files = await storedFiles(fetched.files)
+    const importedAt = new Date(clock.now()).toISOString()
+    const { context, outsiderText } = githubIssueContext(issue, chosen, importedAt, (text) =>
+      linkedFilesRewritten(text, files, (file) => attachmentFile(file)),
+    )
+    const kept = new Set(files.map((file) => file.url))
+    const missing = [
+      ...fetched.unfetched,
+      ...fetched.files
+        .filter((file) => !kept.has(file.url))
+        .map((file) => ({ name: file.name, url: file.url, reason: 'TED’s copy is gone' })),
+    ]
+    const notes = [
+      ...(chosen.warnings.length > 0
+        ? [
+            [
+              `TED didn’t copy all of GitHub issue ${label}:`,
+              ...chosen.warnings.map((warning) => `- ${warning}`),
+              '',
+              `Read the full issue on GitHub: ${link.url}`,
+            ].join('\n'),
+          ]
+        : []),
+      ...(missing.length > 0
+        ? [
+            [
+              `TED couldn’t fetch ${missing.length} ${missing.length === 1 ? 'file' : 'files'} from GitHub issue ${label}. Their links:`,
+              ...missing.map((file) => `- ${file.name}: ${file.reason}. ${file.url}`),
+            ].join('\n'),
+          ]
+        : []),
+    ]
+    return {
+      title: issue.title,
+      files,
+      notes,
+      source: {
+        repo: issue.repo,
+        number: issue.number,
+        title: issue.title,
+        state: issue.state,
+        locked: issue.locked,
+        comments: issue.totalComments,
+        hiddenComments: issue.hiddenComments,
+        importedAt,
+        context,
+        outsiderText,
+      },
+    }
   }
 
   const asanaImports = new Map<string, Promise<unknown>>()
@@ -10035,7 +10131,12 @@ export function createTasks(options: {
     refuseTracked()
     const issue = sourceUrl === undefined ? undefined : await linearIssue(sourceUrl)
     const linearFiles = await storedFiles(issue?.files ?? [])
-    const given = title?.trim() || issue?.title
+    const github =
+      issue === undefined && sourceUrl !== undefined && factory
+        ? await githubIssue(sourceUrl, factory)
+        : undefined
+    const importedFiles = [...linearFiles, ...(github?.files ?? [])]
+    const given = title?.trim() || issue?.title || github?.title
     const fromText = given ? undefined : titleFromText(fields.description ?? '')
     const name = given || fromText?.title || sourceUrl || ''
     if (name === '') throw new RequestError(400, 'a Task needs a title or a description')
@@ -10079,8 +10180,8 @@ export function createTasks(options: {
       ...(fields.description !== undefined && {
         description: fromText?.title ? fromText.description : fields.description.trim(),
       }),
-      ...(linearFiles.length > 0 && {
-        attachments: withoutRepeats([...(fields.attachments ?? []), ...linearFiles]),
+      ...(importedFiles.length > 0 && {
+        attachments: withoutRepeats([...(fields.attachments ?? []), ...importedFiles]),
       }),
       title: name,
       ...(fields.priority === undefined && issue && { priority: issue.priority }),
@@ -10088,6 +10189,7 @@ export function createTasks(options: {
         source: {
           ...taskSource(sourceUrl, issue && withStoredFiles(issue, linearFiles)),
           ...(sentryId !== undefined && { sentry: { shortId: sentryId } }),
+          ...(github?.source && { github: github.source }),
         },
       }),
       lead: lead ?? { ...leadFrom(resolution?.workflow.settings), effortMode: 'stage' },
@@ -10103,6 +10205,9 @@ export function createTasks(options: {
       tellHierarchyChanged([parent.id])
     }
     if (issue) noteUnfetched(task.id, issue, linearFiles)
+    for (const body of github?.notes ?? []) {
+      store.postComment({ taskId: task.id, kind: 'note', author: { kind: 'ted' }, body })
+    }
     if (automation && issue) linearConsent.askGroup(task.id, automation.name, issue.team)
     if (!factory) return task
     if (automation && runsInBypass(resolution)) return holdInBacklog(task.id, automation.name)
@@ -12045,6 +12150,17 @@ function setupFailure(command: string, result: CommandResult, output: string): s
       : `# Setup failed\n\nTED couldn’t run this worktree’s setup command, \`${command}\`, before starting you:`,
     `\`\`\`\n${(result.problem ?? output).trimEnd()}\n\`\`\``,
   ].join('\n\n')
+}
+
+function githubUnreadableNote(label: string, reason: GitHubUnreadable, url: string): string {
+  const why = {
+    'gh-missing': 'TED can’t find the GitHub CLI. Check it under Settings → Integrations → GitHub',
+    'signed-out': 'the GitHub CLI isn’t signed in. Sign in under Settings → Integrations → GitHub',
+    'not-found': 'GitHub couldn’t find it, or your GitHub login can’t open it. Check the link',
+    'rate-limit': 'GitHub’s rate limit was reached. Wait a few minutes',
+    failed: 'GitHub didn’t answer as expected. Try again later',
+  }[reason]
+  return `TED couldn’t read GitHub issue ${label}: ${why}, then create the Task again to import the issue. This Task keeps only the link: ${url}`
 }
 
 function taskSource(url: string, issue: LinearIssue | undefined): TaskSource {

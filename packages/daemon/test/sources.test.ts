@@ -27,3 +27,22 @@ test('a Linear issue is keyed by workspace and identifier, whatever its title sl
 test('text that isn’t a URL is its own key, trimmed', () => {
   expect(sourceKey('  ticket 42 ')).toBe('ticket 42')
 })
+
+test('a GitHub issue is keyed by owner, repo and number, whatever the case or trailing parts', () => {
+  const key = sourceKey('https://github.com/acme/widgets/issues/12')
+  expect(key).toBe('github:acme/widgets#12')
+  for (const same of [
+    'https://github.com/Acme/Widgets/issues/12',
+    'https://www.github.com/acme/widgets/issues/12/',
+    'https://GitHub.com/acme/widgets/issues/12?q=is%3Aopen',
+    'https://github.com/acme/widgets/issues/12#issuecomment-99',
+    '  https://github.com/acme/widgets/issues/12  ',
+  ]) {
+    expect(sourceKey(same), same).toBe(key)
+  }
+  expect(sourceKey('https://github.com/acme/widgets/issues/13')).not.toBe(key)
+  expect(sourceKey('https://github.com/acme/widgets/pull/12')).not.toMatch(/^github:/)
+  expect(sourceKey('https://github.com/acme/widgets/discussions/12')).not.toMatch(/^github:/)
+  expect(sourceKey('http://github.com/acme/widgets/issues/12')).not.toMatch(/^github:/)
+  expect(sourceKey('https://github.example.com/acme/widgets/issues/12')).not.toMatch(/^github:/)
+})

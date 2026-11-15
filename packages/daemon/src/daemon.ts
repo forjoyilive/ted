@@ -87,6 +87,7 @@ export interface DaemonOptions {
   fixPollMs?: number
   integrations?: DaemonIntegrationsOptions
   asana?: Omit<AsanaOptions, 'home' | 'keyring'> & { keyring?: Keyring; intakeLimit?: number }
+  github?: { uploadOrigins?: string[] }
   linear?: { apiUrl?: string; keyring?: Keyring }
   snoozes?: { now?: () => Date; checkEveryMs?: number }
   heldRequests?: { maxMs?: number }
@@ -513,6 +514,15 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         libraryDir: paths.library,
         isCloned: (factoryId) => factories.isCloned(factoryId),
         gh: integrations.gh,
+        github: {
+          files: {
+            dir: paths.attachments,
+            save: (file, name, mediaType) => attachments.saveFile(file, name, mediaType),
+          },
+          ...(options.github?.uploadOrigins !== undefined && {
+            uploads: { origins: new Set(options.github.uploadOrigins) },
+          }),
+        },
         env: environment.current,
         ...(idle && { idle }),
         ...(options.nudgeAfterMs !== undefined && { nudgeAfterMs: options.nudgeAfterMs }),

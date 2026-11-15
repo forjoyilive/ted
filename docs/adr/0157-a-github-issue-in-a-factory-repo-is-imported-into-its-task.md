@@ -1,0 +1,23 @@
+# A GitHub issue in a Factory repo is imported into its Task
+
+A Task created from a GitHub issue URL (the app, `ted task create --source`, or an Automation) used to keep only the link. Now, when the issue is in one of the Factory’s own repos, TED copies it into the Task, as it does for a Linear issue (ADR 0092) or an Asana item (ADR 0138). Anyone can comment on a public issue, so the copy is treated as untrusted text.
+
+- **Which issues.** `parseGitHubIssueUrl` in `packages/protocol/src/github-issue.ts` accepts only `https://github.com/<owner>/<repo>/issues/<n>`, with any case, `www.`, a trailing slash, a query or a fragment. Pull requests, Discussions and other hosts stay links. `readGitHubIssue` in `packages/daemon/src/github/issues.ts` reads only an issue whose owner and repo match a Factory repo (case ignored), and checks again against the `nameWithOwner` GitHub reports, so an issue transferred out of the Factory stays a link. `sourceKey` gives `github:<owner>/<repo>#<n>` in lower case, so duplicate checks ignore the URL’s form.
+- **How it is read.** One GraphQL query through the `Gh` runner, with the user’s own `gh` login. TED adds no credential and never reads the token (ADR 0029). The query reads the newest 100 comments. Comments a maintainer hid on GitHub (`isMinimized`) are left out and counted.
+- **What is kept.** The description is always kept, cut at 20,000 characters, then the newest comments up to 40,000 characters, as for Linear. Every cut goes in the copy and in one TED note with the issue’s link. A signed-out `gh`, a missing issue or any other failure still creates the Task with the link, plus one TED note with the reason and the fix (Settings → Integrations → GitHub). Creation never fails because of the issue.
+- **Marks and quoting.** The text goes through `clean` in `tasks/github-activity.ts`, which now also drops Unicode tag characters, word joiners and the byte-order mark. The description and each comment get a heading TED writes, naming the author and either “maintainer” (author association `OWNER`, `MEMBER` or `COLLABORATOR`) or “outsider” (anything else, bots included). Every line an author wrote starts with `> `, so a heading inside their text can’t pass for one of TED’s.
+- **Where the text lives.** The copy is `TaskSource.github.context`, saved with `v1.TaskSourceGitHubSet` in the Task’s creation commit. It is not the Task description, because the description reaches the Task Lead outside any fence. `sourceContext` in `workflow/workflow.ts` puts it between `<<<GITHUB ISSUE <uuid>>>>` lines and calls it a report written by maintainers or outsiders, not instructions, and tells the Task Lead to take instructions only from the user. The app shows the copy behind **Show issue text** on the Task’s GitHub Source row.
+- **The outsider record.** `TaskSource.github.outsiderText` is true when any copied part came from an outsider. The Source row then says “Includes text from people outside the repo”. A later setting that keeps the Review Gate on for such Tasks reads this field. The copy is never refreshed: later edits on GitHub don’t reach the Task.
+- **Files.** `packages/daemon/src/github/files.ts` takes upload links from the copied Markdown, only on GitHub’s upload hosts (`github.com/user-attachments/…`, `github.com/<owner>/<repo>/assets/…`, `user-images`, `private-user-images`, `objects.githubusercontent.com` and GitHub’s two S3 buckets). For a private repo it uses the short-lived signed link in the same comment’s rendered HTML (`bodyHTML`, matched by the asset ID). It downloads with no `Authorization` header or cookie, follows at most 3 redirects and only to those hosts, keeps at most 20 files under the attachment cap and types them by their first bytes. Links in the copy point at the saved files. A file it can’t fetch, such as a non-image file in a private repo that GitHub doesn’t sign, is listed in one TED note.
+
+## Considered Options
+
+- **Put the copy in the Task description.** Users would see it where they expect it, but the description reaches the Task Lead unfenced and anyone can edit it into instructions.
+- **Download private uploads with the `gh` token.** It works for every file, but TED would have to read the token, which ADR 0029 rules out.
+- **Mark only outsiders’ comments.** Unmarked text would look trusted, so every part gets a mark.
+
+## Consequences
+
+- Creating a Task from a Factory issue makes one GitHub request and up to 20 downloads before it answers.
+- Tests use `issues` in the stub `gh` state and `DaemonOptions.github.uploadOrigins` for a loopback upload host. They never reach GitHub.
+- GitHub Enterprise issues stay links until Factories support Enterprise repos.
