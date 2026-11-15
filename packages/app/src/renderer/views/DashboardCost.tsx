@@ -512,16 +512,16 @@ export function Cost({
             </p>
           </div>
         </section>
-        <section className={styles.panel} aria-label="Spend in this period">
+        <section className={styles.panel} aria-label="API-equivalent spend in this period">
           <header className={styles.panelHead}>
-            <h2>Spend in this period</h2>
+            <h2>API-equivalent spend in this period</h2>
           </header>
           <div className={styles.headline}>
             <button
               type="button"
               data-nav-item
               className={styles.value}
-              aria-label={`Spend in this period ${money(data.cost)}`}
+              aria-label={`API-equivalent spend in this period ${money(data.cost)}`}
               onClick={() => spend({ of: 'spend' })}
             >
               {money(data.cost)}
