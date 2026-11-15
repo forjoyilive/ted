@@ -860,7 +860,7 @@ test('empty Inbox offers New Task, Show answered, and a Factory-filter reset', a
   view.rerender(<Inbox {...props} factoryId="f1" />)
   expect(screen.getAllByText(/widgets/)).toHaveLength(2)
   await user().click(screen.getByRole('button', { name: 'Show all Factories' }))
-  expect(props.onFilter).toHaveBeenCalledWith(undefined)
+  expect(props.onFilter).toHaveBeenCalledWith({})
 })
 
 test('resolving a selected request opens the next request and clears when none remain', () => {
@@ -941,7 +941,7 @@ test('Filter holds Group by, the order choices, the Factory chips and Answered; 
       within(menu).getByRole('menuitemradio', { name: /^None/ }).getAttribute('aria-checked'),
     ).toBe('true')
     await user().click(within(menu).getByRole('button', { name: 'Other 0' }))
-    expect(props.onFilter).toHaveBeenCalledWith('f2')
+    expect(props.onFilter).toHaveBeenCalledWith({ factoryId: 'f2' })
     await user().click(within(menu).getByRole('switch', { name: 'Answered' }))
     expect(props.onShowAnswered).toHaveBeenCalledWith(true)
 
