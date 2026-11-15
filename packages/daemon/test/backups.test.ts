@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { type Backups, createBackups } from '../src/backups.ts'
+import { type Backups, createBackups, displayPath } from '../src/backups.ts'
 import { makeTempHome } from './helpers.ts'
 
 let home: string
@@ -128,7 +128,7 @@ describe('daily backups', () => {
     await writeFile(path.join(home, 'backups'), 'not a folder')
 
     await expect(backups.takeDaily(eventlog('one'))).rejects.toThrow(
-      `${path.join(home, 'backups')} isn’t a folder`,
+      `${displayPath(path.join(home, 'backups'))} isn’t a folder`,
     )
   })
 })

@@ -5,6 +5,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { afterEach, beforeEach, expect, test } from 'vitest'
+import { sandboxReasons, skipInsideTedSandbox } from '../../daemon/test/support/ted-sandbox.ts'
 
 const exec = promisify(execFile)
 const cli = fileURLToPath(new URL('../src/main.ts', import.meta.url))
@@ -40,7 +41,8 @@ test('refuses Run callers before starting a daemon or preparing files', async ()
   expect(await readdir(home)).toEqual([])
 })
 
-test('refuses to reset an unrecognized nonempty home', async () => {
+test('refuses to reset an unrecognized nonempty home', async (context) => {
+  skipInsideTedSandbox(context, sandboxReasons.tedHome)
   await writeFile(path.join(home, 'keep.txt'), 'Keep this file')
   await expect(
     exec(process.execPath, [cli, 'dev', 'seed', '--reset'], { env: env() }),

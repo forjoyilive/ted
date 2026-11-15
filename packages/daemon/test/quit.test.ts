@@ -16,6 +16,7 @@ import {
   withDaemon,
 } from '../src/launch.ts'
 import { makeTempHome } from './helpers.ts'
+import { sandboxReasons, skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
 const mainPath = fileURLToPath(new URL('../src/main.ts', import.meta.url))
 const lockUrl = pathToFileURL(fileURLToPath(new URL('../src/lock.ts', import.meta.url))).href
@@ -76,7 +77,8 @@ const exitOf = (child: ChildProcess) =>
     ? Promise.resolve(child.signalCode)
     : once(child, 'exit').then(([, signal]) => signal as NodeJS.Signals | null)
 
-test('Quit’s forced stop ends the daemon, Run hosts and their agents, and follows no links', async () => {
+test('Quit’s forced stop ends the daemon, Run hosts and their agents, and follows no links', async (context) => {
+  skipInsideTedSandbox(context, sandboxReasons.processes)
   const paths = tedPaths(home)
   const polite = await holdLock(path.join(paths.runs, 'run-a', 'host.lock'), {
     stubbornChild: true,

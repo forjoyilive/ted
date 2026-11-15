@@ -25,6 +25,7 @@ import {
   stubClaudePath,
   waitUntil,
 } from './helpers.ts'
+import { sandboxReasons, skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -50,7 +51,8 @@ async function start() {
 }
 
 describe('Diagnostics', () => {
-  test('lists each Run with its processes, CPU, memory and token use', async () => {
+  test('lists each Run with its processes, CPU, memory and token use', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.processes)
     const client = await start()
     const run = await client.startRun(
       [
@@ -163,7 +165,8 @@ describe('Diagnostics', () => {
     expect((await client.call('GET', '/runs/..%2F..%2Fdaemon.json/raw')).status).toBe(404)
   })
 
-  test('Copy report gathers the version, Runs and daemon log, with the home folder hidden', async () => {
+  test('Copy report gathers the version, Runs and daemon log, with the home folder hidden', async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.processes)
     const client = await start()
     const run = await client.startRun([{ endTurn: true }], cwd)
     await mkdir(tedPaths(home).logs, { recursive: true })
