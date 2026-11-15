@@ -132,7 +132,9 @@ describe('Planning chats', () => {
         { endTurn: true },
       )}`,
     )
-    expect(plan.title).toBe('Plan notebook sharing for web and iPhone, with comments on n')
+    expect(plan.title).toBe(
+      'Plan notebook sharing for web and iPhone, with comments on notes and everything',
+    )
     expect(plan.agent).toBe('claude')
 
     const asked = await waitForPlan(

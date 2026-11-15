@@ -207,12 +207,20 @@ describe('Settings → Storage', () => {
     expect(await during).toMatchObject({ measuredAt: fourth, categories: expect.any(Array) })
   })
 
-  test('worktrees, clones, simulators and scratch worktrees are kept out of Time Machine', async () => {
+  test('worktrees, clones, devices, scratch worktrees and Automation checkouts are kept out of Time Machine', async () => {
     await start()
     const paths = tedPaths(home)
     await waitUntil(() => excluded.length > 0 || undefined, 'the Time Machine exclusion')
     expect(excluded).toEqual([
-      [paths.worktrees, paths.repos, paths.simulators, paths.scratch, paths.plans],
+      [
+        paths.worktrees,
+        paths.repos,
+        paths.simulators,
+        paths.emulators,
+        paths.scratch,
+        paths.plans,
+        paths.automationRuns,
+      ],
     ])
   })
 

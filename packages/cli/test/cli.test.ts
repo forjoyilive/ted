@@ -543,9 +543,11 @@ describe('ted automation', () => {
     const templates = await (await client()).automationTemplates()
     expect(templates.map((t) => t.name)).toEqual([
       'Pull new Linear issues assigned to me',
+      'Import my Asana work',
       'Turn new Sentry issues into Tasks',
       'Daily GitHub issue triage',
       'Review codebase architecture',
+      'Audit the Apps',
     ])
     const sentry = templates.find((t) => t.id === 'sentry')?.prompt ?? ''
     expect(sentry).toContain('events from a release that contains that commit')

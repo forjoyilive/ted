@@ -145,6 +145,7 @@ describe('slow requests', () => {
       '/peers/watch',
       '/tasks/:id/repos/:id/shell/panes/:id/output',
       '/tasks/:id/browser',
+      '/runs/:id/browser',
       '/browser/poll',
       '/sub-agents/:id/wait',
     ])

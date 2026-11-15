@@ -697,7 +697,7 @@ export function createApps(options: AppsOptions): Apps {
       const scope = by === 'human' ? undefined : task.sandbox
       const electron = app.electron === true && port !== undefined
       const electronVars = electron ? electronEnv(port, by, scope !== undefined) : {}
-      const driven = electronVars.TED_ELECTRON_ARGS !== undefined
+      const driven = electron && by !== 'human'
       const values = { ...vars, ...portVars, ...extra }
       const ownEnv = Object.fromEntries(
         Object.entries(app.env)

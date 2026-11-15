@@ -119,7 +119,7 @@ test('unions observed working Runs without recording output batches as transitio
           id: 'lead',
           start: at(1),
           end: at(3),
-          startSource: 'v4.RunStarted',
+          startSource: 'v5.RunStarted',
           endSource: 'v1.RunStateChanged',
         },
         { id: 'child', start: at(2), end: at(4) },
