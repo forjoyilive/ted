@@ -67,8 +67,8 @@ export async function stage(): Promise<string> {
         productName: 'TED',
         version: root.version,
         description: 'Runs software factories: agents carry development tasks through a workflow.',
-        author: 'Kriya Design',
-        license: 'UNLICENSED',
+        author: 'Kriya Design LLC',
+        license: 'Apache-2.0',
         type: 'module',
         main: 'packages/app/src/entry.js',
         dependencies,
@@ -77,6 +77,9 @@ export async function stage(): Promise<string> {
       2,
     )}\n`,
   )
+  for (const file of ['LICENSE', 'NOTICE']) {
+    await cp(path.join(repoRoot, file), path.join(stageDir, file))
+  }
   await writeFile(
     path.join(stageDir, 'THIRD_PARTY_LICENSES.txt'),
     await thirdPartyLicenses(repoRoot),
