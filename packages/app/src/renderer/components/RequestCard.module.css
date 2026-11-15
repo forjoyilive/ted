@@ -191,6 +191,8 @@
 .answerText {
   flex: 1;
   min-width: 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 .answerAge {

@@ -337,6 +337,42 @@ rejects(
   { ...round, questions: Array(13).fill(question) },
   'at most 12 questions',
 )
+test('long choices keep their line breaks and match a multi-line recommended answer', () => {
+  const long = `Keep both\n${'x'.repeat(990)}`
+  const parsed = P.parseRoundInput({
+    ...round,
+    questions: [
+      {
+        question: `Why?\n\n${'q'.repeat(3990)}`,
+        choices: [' Keep both \r\n  first  line\n\n\n\nlast ', long],
+        recommended: 'Keep both\nfirst line\n\nlast',
+      },
+    ],
+  })
+  expect(parsed.questions[0]?.choices).toEqual(['Keep both\nfirst line\n\nlast', long])
+  expect(parsed.questions[0]?.recommended).toBe('Keep both\nfirst line\n\nlast')
+  expect(P.parseReportOutcomeRequest({ outcome: 'ask', question: 'Q', choices: [long] })).toEqual({
+    outcome: 'ask',
+    question: 'Q',
+    choices: [long],
+  })
+})
+rejects(
+  P.parseRoundInput,
+  { ...round, questions: [{ ...question, choices: ['x'.repeat(1001), 'This'] }] },
+  'a choice is limited to 1000 characters',
+)
+rejects(
+  P.parsePostCommentRequest,
+  { body: 'Which?', choices: ['x'.repeat(1001)] },
+  'a choice is limited to 1000 characters',
+)
+rejects(
+  P.parseRoundInput,
+  { ...round, questions: [{ ...question, question: 'q'.repeat(4001) }] },
+  'question 1 is limited to 4000 characters',
+)
+rejects(P.parseRoundInput, { ...round, title: 'x'.repeat(201) }, 'title is limited to 200')
 rejects(
   P.parseProposalInput,
   { ...proposal, tasks: [{ ...proposal.tasks[0], blockedBy: [1] }] },

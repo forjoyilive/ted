@@ -1,0 +1,13 @@
+.choice {
+  display: flex;
+  flex-direction: column;
+}
+
+.label {
+  font-weight: var(--weight-medium);
+}
+
+.detail {
+  color: var(--text-secondary);
+  white-space: pre-line;
+}

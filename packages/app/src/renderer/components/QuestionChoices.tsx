@@ -1,4 +1,5 @@
 import { useId } from 'react'
+import { ChoiceText } from './ChoiceText.tsx'
 import styles from './QuestionChoices.module.css'
 
 export type QuestionSelection = { choice: string } | { other: true }
@@ -40,7 +41,7 @@ export function QuestionChoices({
             checked={selectedChoice === choice}
             onChange={() => onSelect({ choice })}
           />
-          <span>{choice}</span>
+          <ChoiceText choice={choice} className={styles.text} />
         </label>
       ))}
       {allowOther && (
@@ -52,7 +53,7 @@ export function QuestionChoices({
             checked={other ?? false}
             onChange={() => onSelect({ other: true })}
           />
-          <span>{otherLabel}</span>
+          <span className={styles.text}>{otherLabel}</span>
         </label>
       )}
     </fieldset>
