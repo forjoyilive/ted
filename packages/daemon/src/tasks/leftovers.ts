@@ -39,18 +39,17 @@ export interface SweepResult {
 
 export async function sweepLeftovers(options: {
   home: string
-  closed: (displayId: string) => boolean
+  hold: (displayId: string, work: () => Promise<void>) => Promise<void>
   list?: () => Promise<ProcessPath[]>
   graceMs?: number
 }): Promise<SweepResult> {
   const list = options.list ?? processPaths
-  const roots = ['worktrees', 'sandbox'].map((name) => path.join(options.home, name))
+  const roots: { real: string }[] = []
   const names = new Set<string>()
-  const realRoots: string[] = []
-  for (const root of roots) {
+  for (const root of ['worktrees', 'sandbox'].map((name) => path.join(options.home, name))) {
     const entry = await lstat(root).catch(() => undefined)
     if (!entry?.isDirectory()) continue
-    realRoots.push(await realpath(root))
+    roots.push({ real: await realpath(root) })
     for (const name of await readdir(root).catch((): string[] => [])) {
       if (taskName.test(name)) names.add(name)
     }
@@ -59,43 +58,35 @@ export async function sweepLeftovers(options: {
     console.error('couldn’t list processes left in Task folders:', error)
     return []
   })
+  const withProcesses = new Set<string>()
   for (const { path: file } of running) {
-    for (const root of realRoots) {
-      if (!isInside(file, root) || file === root) continue
-      const name = path.relative(root, file).split(path.sep)[0]
-      if (name && taskName.test(name)) names.add(name)
+    for (const { real } of roots) {
+      if (!isInside(file, real) || file === real) continue
+      const name = path.relative(real, file).split(path.sep)[0]
+      if (name && taskName.test(name)) {
+        names.add(name)
+        withProcesses.add(name)
+      }
     }
   }
   const result: SweepResult = { tasks: [], processes: 0, folders: 0 }
-  const snapshot = async () => running
   for (const name of [...names].sort()) {
-    if (!options.closed(name)) continue
-    result.tasks.push(name)
-    result.processes += await endTaskProcesses(options.home, name, {
-      list: once(snapshot, list),
-      ...(options.graceMs !== undefined && { graceMs: options.graceMs }),
+    await options.hold(name, async () => {
+      result.tasks.push(name)
+      if (withProcesses.has(name))
+        result.processes += await endTaskProcesses(options.home, name, {
+          list,
+          ...(options.graceMs !== undefined && { graceMs: options.graceMs }),
+        })
+      for (const { real } of roots) {
+        const target = path.join(real, name)
+        if (!(await lstat(target).catch(() => undefined))) continue
+        await removeInside(real, name).catch((error: unknown) => {
+          console.error(`couldn’t remove ${name} from ${path.basename(real)}:`, error)
+        })
+        if (!(await lstat(target).catch(() => undefined))) result.folders++
+      }
     })
-    for (const root of roots) {
-      if (!options.closed(name)) break
-      const there = await lstat(path.join(root, name)).catch(() => undefined)
-      if (!there) continue
-      await removeInside(root, name).catch((error: unknown) => {
-        console.error(`couldn’t remove ${name} from ${path.basename(root)}:`, error)
-      })
-      if (!(await lstat(path.join(root, name)).catch(() => undefined))) result.folders++
-    }
   }
   return result
-}
-
-function once(
-  first: () => Promise<ProcessPath[]>,
-  then: () => Promise<ProcessPath[]>,
-): () => Promise<ProcessPath[]> {
-  let used = false
-  return () => {
-    if (used) return then()
-    used = true
-    return first()
-  }
 }

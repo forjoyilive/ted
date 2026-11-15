@@ -7636,6 +7636,17 @@ export function createTasks(options: {
     )
   }
 
+  function holdLeftBehind(displayId: string, work: () => Promise<void>): Promise<void> {
+    if (!leftBehind(displayId)) return Promise.resolve()
+    const task = store.getTask(displayId)
+    if (!task) return work()
+    const held: Promise<void> = work().finally(() => {
+      if (clearingAway.get(task.id) === held) clearingAway.delete(task.id)
+    })
+    clearingAway.set(task.id, held)
+    return held
+  }
+
   function clearing(taskId: string): Promise<void> {
     const running = clearingAway.get(taskId)
     if (running) return running
@@ -9294,7 +9305,7 @@ export function createTasks(options: {
   }
 
   inBackground('remove what closed Tasks left behind', async () => {
-    const swept = await sweepLeftovers({ home: path.dirname(worktreesDir), closed: leftBehind })
+    const swept = await sweepLeftovers({ home: path.dirname(worktreesDir), hold: holdLeftBehind })
     if (swept.tasks.length > 0)
       console.log(
         `ended ${swept.processes} processes and removed ${swept.folders} folders left by ${swept.tasks.join(', ')}`,

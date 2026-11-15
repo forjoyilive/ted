@@ -1,8 +1,9 @@
-import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, stat, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { parseLsof, processesInside, taskFolder } from '../src/leftover-processes.ts'
+import { sweepLeftovers } from '../src/tasks/leftovers.ts'
 
 let dir: string
 
@@ -61,4 +62,34 @@ test('a Task folder is matched by its real path, and never through a link', asyn
   expect(await taskFolder(worktrees, 'NB-2')).toBeUndefined()
   expect(await taskFolder(worktrees, '../NB-1')).toBeUndefined()
   expect(await taskFolder(path.join(dir, 'missing'), 'NB-1')).toBeUndefined()
+})
+
+test('the start-up sweep removes only under plain roots, skips held Tasks and lists again before signalling', async () => {
+  const home = path.join(dir, 'home')
+  const outside = path.join(dir, 'outside')
+  await mkdir(path.join(home, 'worktrees', 'NB-99', 'widgets'), { recursive: true })
+  await mkdir(path.join(home, 'worktrees', 'NB-2', 'widgets'), { recursive: true })
+  await mkdir(path.join(outside, 'NB-99'), { recursive: true })
+  await symlink(outside, path.join(home, 'sandbox'))
+  const real = await realpath(path.join(home, 'worktrees'))
+  const lists: number[] = []
+  const list = async () => {
+    lists.push(lists.length)
+    return lists.length === 1 ? [{ pid: 2 ** 30, path: path.join(real, 'NB-99', 'widgets') }] : []
+  }
+
+  const swept = await sweepLeftovers({
+    home,
+    list,
+    graceMs: 0,
+    hold: async (name, work) => {
+      if (name !== 'NB-2') await work()
+    },
+  })
+
+  expect(swept).toEqual({ tasks: ['NB-99'], processes: 0, folders: 1 })
+  expect(lists.length).toBe(2)
+  await expect(stat(path.join(home, 'worktrees', 'NB-99'))).rejects.toThrow()
+  expect((await stat(path.join(home, 'worktrees', 'NB-2'))).isDirectory()).toBe(true)
+  expect((await stat(path.join(outside, 'NB-99'))).isDirectory()).toBe(true)
 })

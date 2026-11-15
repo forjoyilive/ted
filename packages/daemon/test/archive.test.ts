@@ -271,7 +271,10 @@ describe('at start', () => {
 
     daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
     for (const pid of leftover) await waitUntil(() => !alive(pid), `process ${pid} to end`)
-    for (const folder of [doneFolder, goneTask].map((f) => path.dirname(path.dirname(f)))) {
+    for (const folder of [
+      path.join(home, 'worktrees', done.displayId),
+      path.join(home, 'sandbox', 'NB-99'),
+    ]) {
       await waitUntil(
         () =>
           stat(folder).then(
