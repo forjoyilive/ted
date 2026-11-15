@@ -13,6 +13,7 @@ test('read-only Dashboard request combines or narrows Factories and validates it
   let taskId = ''
   let otherId = ''
   let otherTaskId = ''
+  let otherDisplayId = ''
   try {
     vi.useFakeTimers({ toFake: ['Date'] })
     const factory = store.createFactory({
@@ -57,6 +58,7 @@ test('read-only Dashboard request combines or narrows Factories and validates it
     otherId = other.id
     const excluded = await store.createTask({ factoryId: other.id, title: 'Other Factory' })
     otherTaskId = excluded.id
+    otherDisplayId = `ZZ-${excluded.number}`
     store.changeStage(excluded.id, 'done', { layers: [], order: [] })
     await store.persisted()
   } finally {
@@ -86,7 +88,7 @@ test('read-only Dashboard request combines or narrows Factories and validates it
     expect(all.current.taskIds).toEqual(expect.arrayContaining([taskId, otherTaskId]))
     expect(all.tasks.find((task) => task.id === otherTaskId)).toMatchObject({
       factoryId: otherId,
-      displayId: 'ZZ-1',
+      displayId: otherDisplayId,
     })
     expect(all.current.byFactory.map((row) => row.factoryId)).toEqual(sidebarOrder)
     expect(all.current.byFactory).toEqual(
