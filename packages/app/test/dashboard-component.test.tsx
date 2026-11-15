@@ -673,6 +673,12 @@ test('percentage changes preserve sign/color and zero/missing baselines without 
   expect(screen.getByText('No baseline')).toBeTruthy()
   view.rerender(<TimingChange current={1} previous={null} />)
   expect(screen.getByText('Unavailable')).toBeTruthy()
+  view.rerender(
+    <TimingChange current={3_600_000} previous={7_200_000} versus="vs last month to this day" />,
+  )
+  expect(screen.getByText('−50%').parentElement?.title).toContain(
+    'Selected: 1h; vs last month to this day: 2h.',
+  )
 })
 
 test('Today draws hours against all of yesterday and compares with yesterday to this time', async () => {
@@ -699,7 +705,7 @@ test('Today draws hours against all of yesterday and compares with yesterday to 
   data.comparison.completed = { absolute: 1, percent: 100 }
   const api = bridge({ dashboard: () => data })
   const change = vi.fn()
-  render(
+  const view = render(
     <Dashboard factories={[]} state={{ range: 'today' }} onChange={change} onOpenTask={vi.fn()} />,
   )
   const completed = await screen.findByRole('region', { name: 'Tasks completed' })
@@ -727,6 +733,16 @@ test('Today draws hours against all of yesterday and compares with yesterday to 
   ])
   await user().selectOptions(select, '7d')
   expect(change).toHaveBeenCalledWith({ range: '7d' })
+  view.rerender(
+    <Dashboard
+      factories={[]}
+      state={{ range: 'today', panel: 'stages' }}
+      onChange={change}
+      onOpenTask={vi.fn()}
+    />,
+  )
+  const stages = await screen.findByRole('region', { name: 'Elapsed time by Stage' })
+  expect(within(stages).getByText('vs yesterday')).toBeTruthy()
 })
 
 test('a Stage share is a whole-number percentage of all Stage time', async () => {

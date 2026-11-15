@@ -217,7 +217,13 @@ export function rangeWindows(range: Exclude<DashboardRange, 'all'>, asOf: number
   if (range === 'today')
     return { from, to, previous, edges: hours(from, to), previousEdges: hours(previousFrom, from) }
   const { edges, perPoint } = dailyEdges(from, to)
-  return { from, to, previous, edges, previousEdges: days(previous.from, previous.to, perPoint) }
+  const before = days(previous.from, previous.to, perPoint)
+  const last = before[edges.length - 1]
+  const previousEdges =
+    before.length > edges.length && last
+      ? [...before.slice(0, edges.length - 1), [last[0], previous.to] as const]
+      : before
+  return { from, to, previous, edges, previousEdges }
 }
 
 function byFactory(

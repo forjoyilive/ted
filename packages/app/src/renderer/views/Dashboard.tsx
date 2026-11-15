@@ -1739,6 +1739,7 @@ export function Dashboard({
             ) : (
               <Stages
                 data={data.flow}
+                range={data.range}
                 asOf={data.asOf}
                 selection={state.stageSample}
                 select={(stageSample) => onChange({ ...kept, panel, stageSample })}

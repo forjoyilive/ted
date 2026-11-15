@@ -1,8 +1,14 @@
-import type { DashboardFlow, FlowPeriod, FlowStageSample, StagePart } from '@ted/protocol'
+import type {
+  DashboardFlow,
+  DashboardRange,
+  FlowPeriod,
+  FlowStageSample,
+  StagePart,
+} from '@ted/protocol'
 import { stageParts } from '@ted/protocol/stage-parts'
 import { useEffect, useId, useRef, useState } from 'react'
 import { CloseIcon } from '../components/icons.tsx'
-import type { StageSelection } from '../dashboard.ts'
+import { rangeComparison, type StageSelection } from '../dashboard.ts'
 import { stageName as label } from '../list-view.ts'
 import { formatDate } from '../time.ts'
 import styles from './Dashboard.module.css'
@@ -66,12 +72,14 @@ function coverage(
 function StageTable({
   period,
   previous,
+  range,
   eligible,
   factories,
   select,
 }: {
   period: FlowPeriod
   previous: FlowPeriod | null
+  range: DashboardRange
   eligible: number
   factories: readonly { id: string; name: string }[]
   select: (s: StageSelection) => void
@@ -113,7 +121,7 @@ function StageTable({
             <span className={styles.stageNumber}>Time</span>
             <span className={styles.stageNumber}>Median</span>
             <span>Covers</span>
-            <span>{previous && 'vs previous'}</span>
+            <span>{previous && `vs ${rangeComparison(range).against}`}</span>
           </li>
         )}
         {period.stages.map((s) => {
@@ -175,7 +183,13 @@ function StageTable({
                 </button>
               </span>
               <span>
-                {previous && <TimingChange current={value} previous={totalValue(prior)} />}
+                {previous && (
+                  <TimingChange
+                    current={value}
+                    previous={totalValue(prior)}
+                    versus={rangeComparison(range).versus}
+                  />
+                )}
               </span>
             </li>
           )
@@ -201,6 +215,7 @@ function StageTable({
 
 function StageSample({
   data,
+  range,
   selection,
   asOf,
   onClose,
@@ -209,6 +224,7 @@ function StageSample({
   withoutWaits,
 }: {
   data: DashboardFlow
+  range: DashboardRange
   selection: StageSelection
   asOf: string
   onClose: () => void
@@ -323,7 +339,11 @@ function StageSample({
               <small>Total Task-hours</small>
               <strong>{hours(totalValue(stage))}</strong>
               {selection.period === 'current' && data.previous && (
-                <TimingChange current={totalValue(stage)} previous={totalValue(prior)} />
+                <TimingChange
+                  current={totalValue(stage)}
+                  previous={totalValue(prior)}
+                  versus={rangeComparison(range).versus}
+                />
               )}
             </div>
             <div>
@@ -406,6 +426,7 @@ function StageSample({
 
 export function Stages({
   data: all,
+  range,
   asOf,
   selection,
   select,
@@ -414,6 +435,7 @@ export function Stages({
   factories = [],
 }: {
   data: DashboardFlow
+  range: DashboardRange
   asOf: string
   selection?: StageSelection | undefined
   select: (s: StageSelection) => void
@@ -493,6 +515,7 @@ export function Stages({
         <StageTable
           period={data.current}
           previous={data.previous}
+          range={range}
           eligible={
             data.current.taskIds.filter(
               (id) => !reduced?.leftOut.current.some((t) => t.taskId === id),
@@ -533,6 +556,7 @@ export function Stages({
       {selection && (
         <StageSample
           data={data}
+          range={range}
           asOf={asOf}
           selection={selection}
           onClose={onClose}

@@ -306,6 +306,13 @@ test('90 days and 12 months group into at most 30 bars; calendar periods compare
     expect(window('year', new Date(2028, 1, 29, 10).getTime())).toMatchObject({
       previous: [at(2027, 0, 1), at(2027, 1, 28, 10)],
     })
+    const leap = factoryDashboard([], 'year', new Date(2025, 2, 1, 12).getTime())
+    expect(leap.current.buckets).toHaveLength(30)
+    expect(leap.previous?.buckets).toHaveLength(30)
+    expect(leap.previous?.buckets.at(-1)).toMatchObject({
+      from: at(2024, 1, 28),
+      to: at(2024, 2, 1, 12),
+    })
     const done = (id: string, time: string): Facts => ({
       ...completed(id, 0, 1, null),
       createdAt: iso(Date.parse(time) - hour),
