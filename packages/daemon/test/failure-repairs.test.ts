@@ -19,6 +19,7 @@ import {
   ctx,
   getTask,
   leadSteps,
+  reviewSignoff,
   run,
   start,
   toSignoff,
@@ -608,13 +609,7 @@ test('Merge uses the same repair remedy without allowing the Task Lead to advanc
     }),
   })
   await client.ok('POST', `/tasks/${repairId}/start`)
-  const repairSignoff = await waitUntil(
-    async () =>
-      (await client.ok<Comment[]>('GET', `/tasks/${repairId}/comments`)).find(
-        (c) => c.kind === 'signoff' && !c.answer,
-      ),
-    'repair signoff',
-  )
+  const repairSignoff = await reviewSignoff(client, repairId)
   const repairRepo = required((await getTask(client, repairId)).repos[0])
   const state = JSON.parse(await readFile(ctx.ghState, 'utf8'))
   state.merge.prs = {
@@ -623,6 +618,10 @@ test('Merge uses the same repair remedy without allowing the Task Lead to advanc
   }
   await writeFile(ctx.ghState, JSON.stringify(state))
   await approve(client, repairSignoff)
+  await waitUntil(
+    async () => (await getTask(client, repairId)).stage === 'done',
+    'the repair Task to merge',
+  )
   const checked = await waitUntil(async () => {
     const history = await client.ok<FailureCase[]>('GET', `${root}/failures`)
     const incorporation = history.find((f) => f.id === failure.id)?.repairProgress?.at(-1)

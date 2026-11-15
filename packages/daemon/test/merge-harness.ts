@@ -267,10 +267,14 @@ export async function toSignoff(
     ...extra,
   })
   await client.ok('POST', `/tasks/${task.id}/start`)
+  return { task, signoff: await reviewSignoff(client, task.id, clock) }
+}
+
+export async function reviewSignoff(client: Client, taskId: string, clock?: ManualClock) {
   const item = await waitUntil(
     async () => {
       const items = await client.ok<InboxItem[]>('GET', '/inbox')
-      const item = items.find((i) => i.request.kind === 'signoff' && i.task.id === task.id)
+      const item = items.find((i) => i.request.kind === 'signoff' && i.task.id === taskId)
       if (!item && clock?.pending.includes(100)) clock.advance(100)
       return item
     },
@@ -278,10 +282,10 @@ export async function toSignoff(
     signoffWaitMs,
   )
   await waitUntil(
-    async () => (await getTask(client, task.id)).repos[0]?.pullRequest?.state === 'ready',
+    async () => (await getTask(client, taskId)).repos[0]?.pullRequest?.state === 'ready',
     'the pull request to be ready',
   )
-  return { task, signoff: item.request }
+  return item.request
 }
 
 export const getTask = async (client: Client, id: string) => {
