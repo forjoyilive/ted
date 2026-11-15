@@ -143,6 +143,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
   let closed = false
   let refreshing: Promise<void> | undefined
   const line: string[] = []
+  const saving = new Set<Promise<void>>()
 
   const keyOf = (taskId: string, repo: string, name: string) => `${taskId}/${repo}/${slug(name)}`
   const recordOf = (taskId: string, repo: string, name: string) =>
@@ -274,7 +275,9 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
 
   function touch(record: R): void {
     record.lastUsedAt = new Date().toISOString()
-    void save().catch(() => undefined)
+    const saved = save().catch(() => undefined)
+    saving.add(saved)
+    void saved.finally(() => saving.delete(saved))
   }
 
   async function idleCheck(): Promise<void> {
@@ -504,6 +507,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
       closed = true
       if (timer) clearInterval(timer)
       await driver.close?.()
+      await Promise.all(saving)
       releaseIdle?.()
       releaseIdle = undefined
     },

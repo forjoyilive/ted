@@ -43,6 +43,7 @@ function setup(options: { limit?: number; idleMs?: number; appLive?: Set<string>
   const stopped: string[] = []
   const shutDowns: DeviceShutDown[] = []
   const comments = new Map<string, Comment>()
+  const boots: string[] = []
   let made = 0
   const driver: DeviceDriver<FakeRecord> = {
     words: { noun: 'simulator', article: 'a', live: 'booted' },
@@ -66,6 +67,7 @@ function setup(options: { limit?: number; idleMs?: number; appLive?: Set<string>
     },
     refreshLive: async () => false,
     async boot(record) {
+      boots.push(record.id)
       live.add(record.id)
     },
     async stop(record) {
@@ -101,14 +103,15 @@ function setup(options: { limit?: number; idleMs?: number; appLive?: Set<string>
     ...(options.idleMs !== undefined && { idleMs: options.idleMs }),
   })
   opened.push(slots)
-  return { slots, live, recording, stopped, shutDowns, comments }
+  return { slots, live, boots, recording, stopped, shutDowns, comments }
 }
 
 test('a free slot boots the device and a live one is reused', async () => {
-  const { slots, live } = setup()
+  const { slots, live, boots } = setup()
   expect(await slots.acquire(app('t1'), 'human', {})).toEqual({ udid: 'dev-1' })
   expect([...live]).toEqual(['dev-1'])
   expect(await slots.acquire(app('t1'), 'task-lead', { runId: 'r1' })).toEqual({ udid: 'dev-1' })
+  expect(boots).toEqual(['dev-1'])
   expect(slots.slots().booted.map((b) => b.udid)).toEqual(['dev-1'])
 })
 
