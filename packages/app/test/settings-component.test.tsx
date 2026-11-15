@@ -224,7 +224,7 @@ test('Storage sets when chats and archived tasks are deleted and measures again 
     ['Event log', 'State database', 'Backups'].map(
       (name) => within(store).getByText(name).closest('[data-setting]')?.textContent,
     ),
-  ).toEqual(['Event log0.1 GB', 'State database0.3 GB', 'Backups2.4 GB'])
+  ).toEqual(['Event log150 MB', 'State database270 MB', 'Backups2.4 GB'])
 
   expect(screen.getByText(/· Measured 3m ago$/)).toBeTruthy()
   expect(api.request).toHaveBeenCalledWith('getStorage', { refresh: false })
