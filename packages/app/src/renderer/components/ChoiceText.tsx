@@ -3,8 +3,8 @@ import styles from './ChoiceText.module.css'
 export function choiceParts(choice: string): { label: string; detail?: string } {
   const at = choice.indexOf('\n')
   if (at === -1) return { label: choice }
-  const detail = choice.slice(at + 1).trim()
-  return { label: choice.slice(0, at), ...(detail !== '' && { detail }) }
+  const detail = choice.slice(at + 1)
+  return { label: choice.slice(0, at), ...(detail.trim() !== '' && { detail }) }
 }
 
 export function ChoiceText({

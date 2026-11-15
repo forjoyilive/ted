@@ -178,7 +178,7 @@ test('rounds require explicit choices and keep written recommendations prefilled
     ...round.questions,
     {
       question: 'When to sync?',
-      choices: ['Now', 'Later\nAfter the next app start.'],
+      choices: ['Now', 'Later\n\nAfter the next app start.'],
       recommended: 'Now',
     },
   ]
@@ -202,9 +202,9 @@ test('rounds require explicit choices and keep written recommendations prefilled
   expect(submit.disabled).toBe(true)
   await u.click(screen.getByRole('radio', { name: /Keep both/ }))
   expect(submit.disabled).toBe(true)
-  expect(screen.getByText('Later').className).not.toBe(
-    screen.getByText('After the next app start.').className,
-  )
+  const detail = screen.getByText('After the next app start.')
+  expect(detail.textContent).toBe('\nAfter the next app start.')
+  expect(screen.getByText('Later').className).not.toBe(detail.className)
   await u.click(screen.getByRole('radio', { name: /^Later/ }))
   expect(submit.disabled).toBe(false)
   await u.click(submit)
@@ -213,7 +213,7 @@ test('rounds require explicit choices and keep written recommendations prefilled
     answers: [
       { answer: 'Keep both', note: 'Clashes are rare.' },
       { answer: 'The edit wins.' },
-      { answer: 'Later\nAfter the next app start.' },
+      { answer: 'Later\n\nAfter the next app start.' },
     ],
   })
 })

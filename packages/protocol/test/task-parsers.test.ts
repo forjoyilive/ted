@@ -343,7 +343,7 @@ test('long choices keep their line breaks and match a multi-line recommended ans
     ...round,
     questions: [
       {
-        question: `Why?\n\n${'q'.repeat(3990)}`,
+        question: `Why?\n\n${'q'.repeat(3994)}`,
         choices: [' Keep both \r\n  first  line\n\n\n\nlast ', long],
         recommended: 'Keep both\nfirst line\n\nlast',
       },
