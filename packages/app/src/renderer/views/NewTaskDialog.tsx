@@ -593,7 +593,7 @@ function NewTaskForm({
     start && blockers.length > 0
       ? `Waits as Blocked until ${joinIds(blockers.map((t) => t.displayId))} ${blockers.length === 1 ? 'merges' : 'merge'}`
       : start
-        ? 'Unchecked puts it in Backlog'
+        ? undefined
         : 'Waits in Backlog until you start it'
   const summary = `Clarify depth ${clarifyDepthLabels[clarifyDepth]}${lead ? ` · Task Lead ${leadSummary(lead)}` : ''}`
 
@@ -885,7 +885,7 @@ function NewTaskForm({
                     in Backlog until you start it.
                   </Help>
                 </span>
-                <span className={styles.note}>{note}</span>
+                {note !== undefined && <span className={styles.note}>{note}</span>}
               </span>
             </div>
             <span className={styles.spacer} />

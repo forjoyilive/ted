@@ -543,7 +543,7 @@ Figma: KRI-63 Task details (New Task dialog frames).
 - **Attachments:** drag and drop. (KRI-55)
 - **Priority** (default None) and **Blocked by** (a search over every Factory on this machine) share a row. (KRI-55, KRI-63)
 - **More**, closed by default with a one-line summary: **Clarify depth** (Auto, None, Few, Grill) and **Task Lead** (agent, model, effort, filled from the Factory’s `lead`). (KRI-55, KRI-63)
-- **Start now:** checked by default. The footer line says what happens: “Unchecked puts it in Backlog”, or with a blocker, “Waits as Blocked until NB-35 merges”. (KRI-55, KRI-63)
+- **Start now:** checked by default. Unchecked, the footer line says “Waits in Backlog until you start it”; with a blocker, “Waits as Blocked until NB-35 merges”. Checked with no blocker, there is no line. (KRI-55, KRI-63)
 - No repo picker. **Create** (⌘↵) closes the dialog; **Create more** keeps it open. (KRI-55, KRI-58)
 
 ### 6.3 Creating from Linear

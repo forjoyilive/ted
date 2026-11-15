@@ -51,6 +51,7 @@ test('New Task sends a blank title for daemon inference, description, Priority a
     'Search ignores accents\nTyping cafe finds Café.',
   )
   await u.selectOptions(screen.getByLabelText('Priority'), 'high')
+  expect(screen.queryByText('Unchecked puts it in Backlog')).toBeNull()
   await u.click(screen.getByLabelText('Start now'))
   expect(screen.getByText('Waits in Backlog until you start it')).toBeTruthy()
   await u.click(screen.getByRole('button', { name: 'Create' }))
