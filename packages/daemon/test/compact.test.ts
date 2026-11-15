@@ -194,6 +194,7 @@ async function turnOutputIntoOldEvents(runId: string, version: 'v1' | 'v2'): Pro
 const forgetCompaction = async () => {
   const meta = JSON.parse(await readFile(metaFile(), 'utf8')) as Record<string, unknown>
   delete meta.outputCompaction
+  delete meta.replacedText
   await writeFile(metaFile(), JSON.stringify(meta))
 }
 
@@ -308,6 +309,9 @@ test('the first open by a new version backs the store up, then drops the lines f
     bytesBefore,
     bytesAfter: compactedBytes,
   })
+  expect(
+    (JSON.parse(await readFile(metaFile(), 'utf8')) as { replacedText?: unknown }).replacedText,
+  ).toMatchObject({ state: 'done', by: '1.1.0', blanked: 0 })
   expect((await readdir(storeDir())).filter((f) => f.includes('compacting'))).toEqual([])
 
   const compacted = await loggedEvents()

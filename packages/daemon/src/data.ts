@@ -30,6 +30,7 @@ import type { RunManager } from './runs/run-manager.ts'
 import type { Shells } from './shells.ts'
 import type { SideChats } from './side-chats/side-chats.ts'
 import type { Storage } from './storage.ts'
+import { blankReplacedText, replacedTextCount } from './store/blank-replaced.ts'
 import { type CompactOptions, compactOutputEvents, hasOutputToCompact } from './store/compact.ts'
 import {
   type DropOptions,
@@ -41,8 +42,10 @@ import {
   eventCount,
   markOutputCompaction,
   markOutputDrop,
+  markReplacedText,
   readOutputCompaction,
   readOutputDrop,
+  readReplacedText,
   readStoreMeta,
   removeStaleStateFiles,
   writeStoreMeta,
@@ -207,8 +210,13 @@ export function createData(options: DataOptions): Data {
       }
     }
     if (backUp && check.kind !== 'empty') {
-      await compactOutput(meta?.lastOpenedBy, backedUp).catch((error: unknown) => {
+      backedUp = await compactOutput(meta?.lastOpenedBy, backedUp).catch((error: unknown) => {
         console.error(redactSecrets(`checking the event log for old Run output failed: ${error}`))
+        return backedUp
+      })
+      backedUp = await blankReplaced(meta?.lastOpenedBy, backedUp).catch((error: unknown) => {
+        console.error(redactSecrets(`checking the event log for replaced text failed: ${error}`))
+        return backedUp
       })
     }
     const startedAt = Date.now()
@@ -278,6 +286,7 @@ export function createData(options: DataOptions): Data {
       ...(check.kind === 'empty' && {
         outputCompaction: { state: 'done', by: version, at: now().toISOString(), rewritten: 0 },
         outputDrop: { state: 'done', by: version, at: now().toISOString(), dropped: 0 },
+        replacedText: { state: 'done', by: version, at: now().toISOString(), blanked: 0 },
       }),
     })
     if (rebuilds) await removeStaleStateFiles(paths.store)
@@ -327,9 +336,9 @@ export function createData(options: DataOptions): Data {
     }
   }
 
-  async function compactOutput(dataFrom: string | undefined, backedUp: boolean): Promise<void> {
+  async function compactOutput(dataFrom: string | undefined, backedUp: boolean): Promise<boolean> {
     const marker = await readOutputCompaction(paths.store)
-    if (marker && (marker.state === 'done' || marker.by === version)) return
+    if (marker && (marker.state === 'done' || marker.by === version)) return backedUp
     const at = () => now().toISOString()
     if (!(await hasOutputToCompact(paths.store))) {
       await markOutputCompaction(paths.store, {
@@ -338,21 +347,11 @@ export function createData(options: DataOptions): Data {
         at: at(),
         rewritten: 0,
       })
-      return
+      return backedUp
     }
     const startedAt = Date.now()
     setStatus(updating({ done: 0, total: await eventCount(paths.store) }, startedAt))
-    if (!backedUp) {
-      try {
-        await backups.takePreUpdate(dataFrom)
-      } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error)
-        console.error(
-          redactSecrets(`couldn’t copy the data, so the event log stays as it is: ${reason}`),
-        )
-        return
-      }
-    }
+    if (!(await backUpOnce(dataFrom, backedUp))) return false
     const result = await compactOutputEvents(paths.store, {
       ...options.compaction,
       onProgress: (next) => {
@@ -367,7 +366,7 @@ export function createData(options: DataOptions): Data {
       const reason = redactSecrets(result.reason)
       console.error(`compacting the event log failed, so it stays as it is: ${reason}`)
       await markOutputCompaction(paths.store, { state: 'failed', by: version, at: at(), reason })
-      return
+      return true
     }
     const { rewritten, bytesBefore, bytesAfter } = result
     console.log(
@@ -381,6 +380,57 @@ export function createData(options: DataOptions): Data {
       bytesBefore,
       bytesAfter,
     })
+    return true
+  }
+
+  async function backUpOnce(dataFrom: string | undefined, backedUp: boolean): Promise<boolean> {
+    if (backedUp) return true
+    try {
+      await backups.takePreUpdate(dataFrom)
+      return true
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error)
+      console.error(
+        redactSecrets(`couldn’t copy the data, so the event log stays as it is: ${reason}`),
+      )
+      return false
+    }
+  }
+
+  // ADR 0158: once per home, blank the text of old events a later event replaces.
+  async function blankReplaced(dataFrom: string | undefined, backedUp: boolean): Promise<boolean> {
+    const mark = await readReplacedText(paths.store)
+    if (mark && (mark.state === 'done' || mark.by === version)) return backedUp
+    const at = () => now().toISOString()
+    if ((await replacedTextCount(paths.store)) === 0) {
+      await markReplacedText(paths.store, { state: 'done', by: version, at: at(), blanked: 0 })
+      return backedUp
+    }
+    const startedAt = Date.now()
+    setStatus(updating({ done: 0, total: await eventCount(paths.store) }, startedAt))
+    if (!(await backUpOnce(dataFrom, backedUp))) return false
+    const result = await blankReplacedText(paths.store)
+    if (result.kind === 'failed') {
+      const reason = redactSecrets(result.reason)
+      console.error(
+        `blanking replaced text in the event log failed, so it stays as it is: ${reason}`,
+      )
+      await markReplacedText(paths.store, { state: 'failed', by: version, at: at(), reason })
+      return true
+    }
+    const { blanked, bytesBefore, bytesAfter } = result
+    console.log(
+      `blanked replaced text in ${plural(blanked, 'old event')}: ${bytesBefore} bytes before, ${bytesAfter} after, in ${Date.now() - startedAt} ms`,
+    )
+    await markReplacedText(paths.store, {
+      state: 'done',
+      by: version,
+      at: at(),
+      blanked,
+      bytesBefore,
+      bytesAfter,
+    })
+    return true
   }
 
   async function alreadyBackedUp(dataFrom: string | undefined): Promise<boolean> {

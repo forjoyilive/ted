@@ -27,11 +27,22 @@ export interface OutputDropMark {
   reason?: string
 }
 
+export interface ReplacedTextMark {
+  state: 'done' | 'failed'
+  by: string
+  at: string
+  blanked?: number
+  bytesBefore?: number
+  bytesAfter?: number
+  reason?: string
+}
+
 export interface StoreMeta {
   lastOpenedBy: string
   lastOpenedAt: string
   outputCompaction?: OutputCompaction
   outputDrop?: OutputDropMark
+  replacedText?: ReplacedTextMark
 }
 
 export type StoreCheck =
@@ -205,6 +216,20 @@ export async function readOutputDrop(directory: string): Promise<OutputDropMark 
 
 export async function markOutputDrop(directory: string, outputDrop: OutputDropMark): Promise<void> {
   await writeMetaFile(directory, { ...(await readMetaFile(directory)), outputDrop })
+}
+
+export async function readReplacedText(directory: string): Promise<ReplacedTextMark | undefined> {
+  const mark = (await readMetaFile(directory)).replacedText as Partial<ReplacedTextMark> | undefined
+  return (mark?.state === 'done' || mark?.state === 'failed') && typeof mark.by === 'string'
+    ? (mark as ReplacedTextMark)
+    : undefined
+}
+
+export async function markReplacedText(
+  directory: string,
+  replacedText: ReplacedTextMark,
+): Promise<void> {
+  await writeMetaFile(directory, { ...(await readMetaFile(directory)), replacedText })
 }
 
 export async function markOutputCompaction(
