@@ -276,7 +276,6 @@ describe('waiting Inbox requests', () => {
       name: 'Notebook',
       repos: [],
       defaultBranch: 'main',
-      showTutorial: false,
     })
     const task = await store.createTask({ title: 'Fix login', factoryId: factory.id })
     const question = store.postComment({
@@ -340,7 +339,6 @@ describe('waiting Inbox requests', () => {
       name: 'Notebook',
       repos: [],
       defaultBranch: 'main',
-      showTutorial: false,
     })
     const plan = store.plans.start({
       factoryId: factory.id,

@@ -306,7 +306,6 @@ export function createFactories(options: FactoriesOptions): Factories {
       name,
       repos,
       defaultBranch: primary?.defaultBranch ?? 'main',
-      showTutorial: request.showTutorial === true,
     })
     checks.forEach((check, i) => {
       const repo = repos[i]?.repo

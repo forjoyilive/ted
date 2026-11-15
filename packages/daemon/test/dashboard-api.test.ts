@@ -21,7 +21,6 @@ test('read-only Dashboard request combines or narrows Factories and validates it
       name: 'Widgets',
       repos: [],
       defaultBranch: 'main',
-      showTutorial: false,
     })
     factoryId = factory.id
     vi.setSystemTime(now - 36_000_000)
@@ -53,7 +52,6 @@ test('read-only Dashboard request combines or narrows Factories and validates it
       name: 'Other',
       repos: [],
       defaultBranch: 'main',
-      showTutorial: false,
     })
     otherId = other.id
     const excluded = await store.createTask({ factoryId: other.id, title: 'Other Factory' })
@@ -136,7 +134,6 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
       name: 'Flow',
       repos: [],
       defaultBranch: 'main',
-      showTutorial: false,
     })
     factoryId = factory.id
     setAgo(170)
@@ -354,7 +351,6 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
       name: 'Other',
       repos: [],
       defaultBranch: 'main',
-      showTutorial: false,
     })
     const excluded = await store.createTask({ factoryId: other.id, title: 'Other Factory' })
     store.recordSendBack({
@@ -490,7 +486,6 @@ test('batched Factory timing reconciles public interval/Check/report evidence an
       name: 'Timing',
       repos: [],
       defaultBranch: 'main',
-      showTutorial: false,
     })
     const task = await store.createTask({ factoryId: factory.id, title: 'Timing evidence' })
     store.changeStage(task.id, 'intake', { layers: [], order: [] })

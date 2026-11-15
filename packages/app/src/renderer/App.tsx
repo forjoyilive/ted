@@ -44,6 +44,7 @@ import { BannerStack } from './components/BannerStack.tsx'
 import { buttonPosition } from './components/ContextMenu.tsx'
 import { EditorPickerHost } from './components/EditorPicker.tsx'
 import { FindBar } from './components/FindBar.tsx'
+import { GuideCard } from './components/GuideCard.tsx'
 import { PlanUsage } from './components/PlanUsage.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
@@ -71,6 +72,7 @@ import {
   useDrift,
   useEmulators,
   useFactoryList,
+  useGuides,
   useInbox,
   useMenuCommands,
   usePlanInbox,
@@ -82,6 +84,7 @@ import {
   useUpdateStatus,
   useWaitingCount,
 } from './data.ts'
+import { guideCard, setupTaskOf, shownGuide } from './guide.ts'
 import { newChildTaskEvent } from './hierarchy.ts'
 import { waitingByFactory } from './inbox.ts'
 import {
@@ -391,6 +394,38 @@ export function App({ start }: { start?: AppStart | undefined }) {
       `${settings.terminalFontSize}px`,
     )
   }, [settings])
+
+  const guides = useGuides()
+  const guided = shownGuide(guides, factories)
+  const guideView =
+    guided &&
+    guideCard(
+      guided,
+      setupTaskOf(guided.id, tasks),
+      inbox.map((item) => item.request),
+    )
+  const guide = guideView && (
+    <GuideCard
+      view={guideView}
+      onOpen={(button) => {
+        if (navigation.settings) dispatch({ type: 'close-settings' })
+        if (button.open === 'new-task') {
+          openNewTask(guideView.factoryId)
+          return
+        }
+        if (guideView.taskId === undefined) return
+        dispatch({
+          type: 'open-task',
+          taskId: guideView.taskId,
+          factoryId: guideView.factoryId,
+          ...(button.open === 'request' && { requestId: button.requestId }),
+        })
+      }}
+      onHide={() => {
+        void ted.hideGuide(guideView.factoryId).catch((error: unknown) => console.error(error))
+      }}
+    />
+  )
 
   const banners = useBanners()
   const updateStatus = useUpdateStatus()
@@ -1255,6 +1290,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
                 ...(notificationsOff && { notifications: true }),
               }}
               counts={{ library: drift?.library ?? 0 }}
+              guide={guide}
               dispatch={dispatch}
             />
           </div>
@@ -1302,6 +1338,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
             setUsageOpen(false)
             setRunsOpen((open) => !open)
           }}
+          guide={guide}
           usage={
             <PlanUsage
               health={agentHealth}

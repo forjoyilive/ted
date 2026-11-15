@@ -186,7 +186,6 @@ function NoteRow({
         <div className={styles.commentHead}>
           <span className={styles.author}>{author}</span>
           <span className={styles.taskMeta}>{ago(comment.createdAt, now)}</span>
-          {comment.tutorial && <span className={styles.tutorialTag}>Tutorial</span>}
           {state !== undefined && <span className={styles.deliveryNote}>{state}</span>}
         </div>
         {comment.body !== '' && <Markdown className={styles.commentBody} text={comment.body} />}

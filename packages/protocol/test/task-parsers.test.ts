@@ -180,12 +180,15 @@ roundTrip(P.parseRoundInput, round)
 roundTrip(P.parseProposalInput, proposal)
 roundTrip(P.parseSizeCheckInput, { why: 'Too large', settle: ['Boundary'] })
 variants(P.parsePostCommentRequest, [
-  { body: 'A note', choices: ['Yes'], supersedes: 'request-1', tutorial: true },
+  { body: 'A note', choices: ['Yes'], supersedes: 'request-1' },
   { body: '', round },
   { body: '', proposal },
   { body: '', sizeCheck: { why: 'Big', settle: ['Boundary'] } },
   { body: 'Files', attachments: [file] },
 ])
+test('a Comment request no longer carries the tutorial mark', () => {
+  expect(P.parsePostCommentRequest({ body: 'A note', tutorial: true })).toEqual({ body: 'A note' })
+})
 roundTrip(P.parseCancelMergeRequest, { comment: 'Change this', attachments: [file] })
 roundTrip(P.parseMarkDoneRequest, {})
 test('parseMarkDoneRequest accepts an empty body', () => {

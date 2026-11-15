@@ -370,7 +370,6 @@ export function parseCreateFactoryRequest(value: unknown): CreateFactoryRequest 
     name: typeof body?.name === 'string' ? body.name : '',
     key: typeof body?.key === 'string' ? body.key.trim() : '',
     repos,
-    showTutorial: body?.showTutorial === true,
   }
 }
 

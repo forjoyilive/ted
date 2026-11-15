@@ -193,6 +193,20 @@ export const factoryRoutes: Route[] = [
     },
   }),
   {
+    method: 'GET',
+    path: /^\/guides$/,
+    handle: async (_, { store }) => [200, store.guides()],
+  },
+  {
+    method: 'POST',
+    path: /^\/factories\/([^/]+)\/guide\/hide$/,
+    async handle({ params: [id = ''] }, { store }) {
+      if (!store.getFactory(id)) throw new HttpError(404, 'no such Factory')
+      store.hideGuide(id)
+      return [200, store.guides()]
+    },
+  },
+  {
     method: 'POST',
     path: /^\/factories\/([^/]+)\/setup-task$/,
     handle: async ({ params: [id = ''] }, { tasks }) => [201, await tasks.newSetupTask(id)],

@@ -61,7 +61,6 @@ describe('New Task drafts', () => {
       name: 'Widgets',
       key: 'WD',
       repos: [{ source: { remote: 'acme/widgets' }, name: 'widgets' }],
-      showTutorial: false,
     })
     const setup = await waitUntil(
       async () => (await client.listTasks()).find((task) => task.setup),

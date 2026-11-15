@@ -370,6 +370,7 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   },
   firstLaunchDone: onOff('firstLaunchDone'),
   onboardingOnNextOpen: onOff('onboardingOnNextOpen'),
+  guideNextFactory: onOff('guideNextFactory'),
   linearIntakeScopes(value) {
     if (
       typeof value !== 'object' ||

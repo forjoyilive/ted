@@ -16,6 +16,7 @@ import type {
   DescriptionVersion,
   DriftCounts,
   Factory,
+  FactoryGuide,
   FailureCase,
   InboxItem,
   MachineSettings,
@@ -440,6 +441,14 @@ export function useThreadEventList(taskId: string) {
         ? 'reload'
         : undefined,
   )
+}
+
+export function useGuides(): FactoryGuide[] {
+  return useEventValue<FactoryGuide[]>({
+    initial: [],
+    load: ted.guides,
+    event: (event) => (event.type === 'guides-changed' ? () => event.guides : undefined),
+  }).value
 }
 
 export function useInbox(): InboxItem[] {

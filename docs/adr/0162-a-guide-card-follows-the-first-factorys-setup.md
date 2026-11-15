@@ -1,6 +1,6 @@
 # A guide card follows the first Factory’s setup, and the tutorial Comments go
 
-Status: proposed (TED-370)
+Status: accepted (TED-370)
 
 ## Context
 
@@ -8,14 +8,14 @@ A new user’s first Factory is set up by its setup Task, which runs for a long 
 
 ## Decision
 
-- The app draws a guide card at the bottom of the sidebar, above Settings, on every page, for a Factory whose guide is live. The card names the Factory, shows fixed text chosen from the setup Task’s state, and has at most one button and a **Hide guide** link. The agent writes none of it.
-- The card’s text is chosen only by `guideCard` in `packages/app/src/renderer/guide.ts`, a plain function of the Factory (cloned or not, clone-failed banner), its setup Task (Stage, status) and that Task’s open requests from `waiting()`. A round in Clarify is “questions”, a sign-off in Design is “the proposal”, a sign-off in Review is “the sign-off”; any other open request is “The Task Lead needs you”.
+- The app draws a guide card at the bottom of the sidebar, above Settings, on every page (the Settings screen’s sidebar too), for a Factory whose guide is live. The card names the Factory, shows fixed text chosen from the setup Task’s state, and has at most one button and a **Hide guide** link. The agent writes none of it.
+- The card’s text is chosen only by `guideCard` in `packages/app/src/renderer/guide.ts`, a plain function of the Factory (cloned or not, a failed clone), its oldest setup Task that isn’t archived (Stage, status) and that Task’s open requests in the Inbox. A round in Clarify is “questions”, a sign-off in Design is “the proposal”, a sign-off in Review is “the sign-off”; any other open request is “The Task Lead needs you”.
 - A Factory gets a guide when it is added while no other Factory exists, or when the `guideNextFactory` machine setting is on. `createFactory` commits `v1.FactoryGuideStarted` in the same commit as `v2.FactoryAdded`, and turns `guideNextFactory` off in that commit. **Show on next open** on Settings → Developer turns `guideNextFactory` on together with `onboardingOnNextOpen`, and **Undo** turns both off. It is a separate setting because `onboardingOnNextOpen` ends with onboarding, often before a Factory is added.
 - A guide ends with one `v1.FactoryGuideEnded` event, with its reason:
-  - `task-created`: the user creates a Task in the Factory (`createdBy: human`) after its setup Task is Done, committed with the Task. Tasks from Automations, the Coordinator, plans and splits don’t end it.
-  - `hidden`: **Hide guide**, through the app-only `POST /factories/:id/guide/hide`. There is no confirmation.
-  - `setup-archived` or `setup-deleted`: the setup Task is archived or deleted.
-- The guide is a column on the Factory’s row, so removing the Factory removes it. The app gets `guide: true` on a Factory whose guide is live. With several live guides the sidebar shows one card, for the most recently added Factory.
+  - `task-created`: the user creates a Task in the Factory after its setup Task is Done (or waits in Backlog because the repo had `.ted/`), committed with the Task in `TedStore.createTask`. Tasks from Automations, the Coordinator, plans, splits and follow-ups don’t end it.
+  - `hidden`: **Hide guide**, through `POST /factories/:id/guide/hide`, which sets neither `runToken` nor `fileToken`. There is no confirmation.
+  - `setup-archived` or `setup-deleted`: a setup Task of the Factory is archived or deleted, committed with the archive or delete.
+- The guide is a column on the Factory’s row (`live`, or the reason it ended), so removing the Factory removes it. `TedStore.guides()` lists the live ones; the app reads them with `GET /guides` and the `guides-changed` event, which the store emits after each commit that starts or ends a guide. A Factory carries no guide field, because the store’s `factory-updated` would send a Factory without the clone state and local folders the Factory module adds. With several live guides the sidebar shows one card, for the most recently added Factory.
 - The tutorial is removed: the Add Factory checkbox, the **Tutorial** chip, `ted comment --tutorial` and the tutorial instruction in `setupInstructions`. `v2.FactoryAdded` keeps its `showTutorial` field, always written `false` and never read. `v1.CommentMarkedTutorial` is no longer written; a Comment it marked is left out of every Comment read in `TedStore` (the thread, search, peer reads and the Comments a new Task Lead Run is given), so no shipped event is edited (ADR 0010).
 - Factories that exist when this ships get no guide, whatever their `showTutorial` was.
 

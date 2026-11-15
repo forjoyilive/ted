@@ -60,7 +60,6 @@ export function AddFactoryDialog({
   const [nameEdited, setNameEdited] = useState(false)
   const [key, setKey] = useState('')
   const [keyEdited, setKeyEdited] = useState(false)
-  const [showTutorial, setShowTutorial] = useState(first)
   const { value: health } = useEventValue<IntegrationsHealth | undefined>({
     initial: undefined,
     load: ted.getIntegrations,
@@ -182,7 +181,6 @@ export function AddFactoryDialog({
       const added = await ted.createFactory({
         name: name.trim(),
         key,
-        showTutorial,
         repos: rows.flatMap((row) =>
           row.source && row.check?.ok ? [{ source: row.source, name: row.name }] : [],
         ),
@@ -322,20 +320,6 @@ export function AddFactoryDialog({
             </span>
           </div>
         </div>
-
-        <label className={styles.tutorial}>
-          <input
-            type="checkbox"
-            className={styles.checkbox}
-            checked={showTutorial}
-            onChange={(event) => setShowTutorial(event.target.checked)}
-          />
-          Show the tutorial
-          <Help>
-            The setup Task’s Task Lead explains each Stage as it starts: what it does and how to
-            change it later.
-          </Help>
-        </label>
       </div>
 
       {problem !== undefined && (

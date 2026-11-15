@@ -92,9 +92,7 @@ function factoryNotesText(notes: string): string {
   return `# Factory notes\n\n${notes.trim()}`
 }
 
-export async function setupInstructions(
-  tutorial: boolean,
-): Promise<(stage: AgentStageId) => string> {
+export async function setupInstructions(): Promise<(stage: AgentStageId) => string> {
   const text = (await readFile(new URL('setup.md', defaults), 'utf8')).trim()
   const [intro = '', ...parts] = text.split(/^## /m)
   const sections = new Map(
@@ -108,11 +106,6 @@ export async function setupInstructions(
     return [
       intro.trim(),
       ...(sections.has(stage) ? [`## ${title} in a setup Task\n\n${sections.get(stage)}`] : []),
-      ...(tutorial
-        ? [
-            `The human turned on the tutorial for this Factory. As ${title} starts, before anything else, post one Comment with \`ted comment --tutorial "<text>"\`: what ${title} does, what it will do in this setup, and, as its last line, “Change it later: Factory settings → Workflow → ${title}.”`,
-          ]
-        : []),
     ].join('\n\n')
   }
 }

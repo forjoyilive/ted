@@ -271,19 +271,6 @@
   font-size: var(--text-12);
 }
 
-.tutorial {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.checkbox {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: var(--accent-default);
-}
-
 .error {
   margin: 0 24px 12px;
   color: var(--status-failed-fg);

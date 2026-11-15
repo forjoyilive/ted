@@ -53,7 +53,6 @@ test('reset stops detached Apps before deleting their worktrees', async () => {
     await supervisor.client.createFactory({
       name: 'Garden',
       key: 'GD',
-      showTutorial: false,
       repos: [
         { name: 'web', source: { remote: 'https://github.com/demo/garden' } },
         { name: 'api', source: { remote: 'https://github.com/demo/garden-api' } },

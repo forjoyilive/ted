@@ -146,6 +146,7 @@ import type {
   ValidationObligations,
 } from './failures.ts'
 import type { GitHubIntakeScope } from './github-intake.ts'
+import type { FactoryGuide } from './guide.ts'
 import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type {
@@ -1715,6 +1716,14 @@ export class DaemonClient {
     return this.#request('PUT', '/factories/order', {
       factoryIds,
     } satisfies ReorderFactoriesRequest)
+  }
+
+  guides(): Promise<FactoryGuide[]> {
+    return this.#request('GET', '/guides')
+  }
+
+  hideGuide(factoryId: string): Promise<FactoryGuide[]> {
+    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/guide/hide`)
   }
 
   newSetupTask(factoryId: string): Promise<Task> {

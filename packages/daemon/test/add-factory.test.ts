@@ -4,7 +4,15 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
-import type { Activity, Banner, Factory, RepoCheck, RunSlots, Task } from '@ted/protocol'
+import type {
+  Activity,
+  Banner,
+  Factory,
+  FactoryGuide,
+  RepoCheck,
+  RunSlots,
+  Task,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { githubRepo } from '../src/factory-setup.ts'
 import { parseProgress } from '../src/git.ts'
@@ -198,7 +206,6 @@ describe('access check', () => {
       name: 'Widgets',
       key: 'WI',
       repos: [{ source: { remote: 'acme/widgets' }, name: 'widgets' }],
-      showTutorial: true,
     })
     await untilCloned(client, first.id)
 
@@ -226,13 +233,11 @@ describe('adding a Factory', () => {
       name: 'Widgets',
       key: 'WI',
       repos: [{ source: { folder }, name: 'widgets' }],
-      showTutorial: true,
     })
     expect(factory).toMatchObject({
       key: 'WI',
       name: 'Widgets',
       repo: 'acme/widgets',
-      showTutorial: true,
       cloned: false,
       repos: [
         { repo: 'acme/widgets', name: 'widgets', localFolder: { path: folder, found: true } },
@@ -260,7 +265,6 @@ describe('adding a Factory', () => {
       name: 'Widgets',
       key: 'WI',
       repos: [{ source: { remote: 'acme/widgets' }, name: 'widgets' }],
-      showTutorial: false,
     })
     await untilCloned(client, first.id)
 
@@ -271,9 +275,13 @@ describe('adding a Factory', () => {
         { source: { remote: 'https://github.com/acme/gadgets' }, name: 'gadgets' },
         { source: { remote: 'acme/widgets' }, name: 'widgets' },
       ],
-      showTutorial: false,
     })
     expect(second.repos.map((r) => r.repo)).toEqual(['acme/gadgets', 'acme/widgets'])
+    expect(await client.ok<FactoryGuide[]>('GET', '/guides')).toEqual([
+      { factoryId: first.id, addedAt: first.createdAt },
+    ])
+    expect(await client.ok('POST', `/factories/${second.id}/guide/hide`)).toHaveLength(1)
+    expect(await client.ok('POST', `/factories/${first.id}/guide/hide`)).toEqual([])
     let setup: Factory['setup']
     await waitUntil(async () => {
       const found = (await client.ok<Factory[]>('GET', '/factories')).find(
@@ -304,7 +312,6 @@ describe('adding a Factory', () => {
         name: 'Widgets',
         key,
         repos: [{ source: { remote: 'acme/widgets' }, name: 'widgets' }],
-        showTutorial: false,
       })
     expect((await add('w1')).status).toBe(400)
     expect((await add('TOOLONG')).status).toBe(400)
@@ -321,7 +328,6 @@ describe('adding a Factory', () => {
       name: 'Widgets',
       key: 'WI',
       repos: [{ source: { remote: 'acme/nope' }, name: 'nope' }],
-      showTutorial: false,
     })
     expect(res.status).toBe(409)
     expect(await client.ok<Factory[]>('GET', '/factories')).toEqual([])
@@ -339,7 +345,6 @@ describe('adding a Factory', () => {
         name: 'Widgets',
         key: 'WI',
         repos: [{ source: { remote: 'acme/widgets' }, name: 'widgets' }],
-        showTutorial: false,
       })
       let banner: Banner | undefined
       await waitUntil(async () => {
@@ -400,7 +405,6 @@ describe('local folder banner', () => {
       name: 'Widgets',
       key: 'WI',
       repos: [{ source: { folder }, name: 'widgets' }],
-      showTutorial: false,
     })
     await untilCloned(client, factory.id)
     const moved = path.join(scratch, 'moved')

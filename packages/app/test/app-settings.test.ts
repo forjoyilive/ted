@@ -85,7 +85,7 @@ describe('Add Factory', () => {
     await openForm(window)
     const form = dialog(window)
     await form.getByRole('heading', { name: 'Add your first Factory' }).waitFor()
-    expect(await form.getByLabel('Show the tutorial').isChecked()).toBe(true)
+    expect(await form.getByText('Show the tutorial').count()).toBe(0)
 
     await form.getByLabel('GitHub URL or owner/repo').fill('acme/widgets')
     await form.getByLabel('GitHub URL or owner/repo').press('Enter')
@@ -98,8 +98,15 @@ describe('Add Factory', () => {
     await dialog(window).waitFor({ state: 'detached' })
     await sidebar(window).getByRole('button', { name: 'Widgets' }).waitFor()
     await window.getByRole('region', { name: 'Setting up Widgets' }).waitFor({ state: 'detached' })
-    const [factory] = await (await daemonClient()).listFactories()
-    expect(factory).toMatchObject({ key: 'WD', cloned: true, showTutorial: true })
+    const client = await daemonClient()
+    const [factory] = await client.listFactories()
+    expect(factory).toMatchObject({ key: 'WD', cloned: true })
+    expect(factory).not.toHaveProperty('showTutorial')
+    expect((await client.guides()).map((g) => g.factoryId)).toEqual([factory?.id])
+    await window
+      .getByRole('region', { name: 'Setup guide' })
+      .getByText(/^Setting up widgets$/i)
+      .waitFor()
   })
 
   test('Choose folder reads the folder’s GitHub remote', async () => {

@@ -118,7 +118,6 @@ async function populateScenarios(
   const garden = await client.createFactory({
     name: 'Garden',
     key: 'GD',
-    showTutorial: false,
     repos: [
       { name: 'web', source: { remote: 'https://github.com/demo/garden' } },
       { name: 'api', source: { remote: 'https://github.com/demo/garden-api' } },
@@ -127,7 +126,6 @@ async function populateScenarios(
   const journal = await client.createFactory({
     name: 'Field Notes',
     key: 'FN',
-    showTutorial: false,
     repos: [{ name: 'journal', source: { remote: 'https://github.com/demo/journal' } }],
   })
   await until(async () => {

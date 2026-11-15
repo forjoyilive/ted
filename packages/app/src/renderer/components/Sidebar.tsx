@@ -46,6 +46,7 @@ interface SidebarProps {
   onOpenRuns?: () => void
   onOpenFailed?: () => void
   usage?: ReactNode
+  guide?: ReactNode
   onUpdate?: () => void
   dispatch: (action: NavigationAction) => void
   onNewTask: (factoryId?: string) => void
@@ -191,6 +192,7 @@ export function Sidebar({
   onOpenRuns,
   onOpenFailed,
   usage,
+  guide,
   onUpdate,
   dispatch,
   onNewTask,
@@ -521,6 +523,7 @@ export function Sidebar({
           />
         )}
         <div className={styles.spacer} />
+        {guide}
 
         <ActionButton
           type="button"

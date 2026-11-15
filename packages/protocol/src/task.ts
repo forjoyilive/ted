@@ -762,7 +762,6 @@ export interface Comment {
   attachments?: Attachment[]
   lineComments?: LineComment[]
   design?: DesignReview
-  tutorial?: true
   linearTeam?: LinearTeam
   asanaMissing?: import('./asana-import.ts').AsanaMissing
   asanaUnfinished?: import('./asana-import.ts').AsanaUnfinished
@@ -969,7 +968,6 @@ export interface PostCommentRequest {
   sizeCheck?: SizeCheckInput
   supersedes?: string
   attachments?: AttachmentRef[]
-  tutorial?: boolean
 }
 
 export interface AttachmentBytes {

@@ -889,7 +889,6 @@ export function parsePostCommentRequest(value: unknown): PostCommentRequest {
     ...(sizeCheck && { sizeCheck }),
     ...(supersedes !== undefined && { supersedes }),
     ...(files.length > 0 && { attachments: files }),
-    ...(body?.tutorial === true && { tutorial: true }),
   }
 }
 

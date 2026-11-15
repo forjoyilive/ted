@@ -9,7 +9,9 @@ import type {
   ApiCostReport,
   DashboardRange,
   DashboardReport,
+  FactoryGuide,
   FactoryIcon,
+  GuideEnding,
   MessageBox,
   MessageDraft,
   NewTaskDraft,
@@ -358,7 +360,6 @@ export interface NewFactory {
   name: string
   repos: StoredFactoryRepo[]
   defaultBranch: string
-  showTutorial: boolean
 }
 
 export interface StoredTask extends Task {
@@ -584,7 +585,6 @@ export interface NewComment {
   attachments?: readonly Attachment[]
   lineComments?: readonly string[]
   design?: DesignReview
-  tutorial?: boolean
   linearTeam?: LinearTeam
   asanaMissing?: AsanaMissing
   asanaUnfinished?: AsanaUnfinished
@@ -649,6 +649,8 @@ export interface TedStore extends TaskHistory {
     input: Pick<StoredFactory, 'key' | 'name' | 'repo' | 'cloneUrl' | 'defaultBranch'>,
   ): StoredFactory
   createFactory(input: NewFactory): StoredFactory
+  guides(): FactoryGuide[]
+  hideGuide(factoryId: string): boolean
   factoryCloned(factoryId: string): StoredFactory
   listFactories(): StoredFactory[]
   getFactory(id: string): StoredFactory | undefined
@@ -1381,15 +1383,41 @@ export async function openStore({
     return rows
       .map((row, index) => ({ row, rank: rank(row.id, index) }))
       .sort((a, b) => a.rank - b.rank)
-      .map(({ row: { clonedAt, icon, ...row } }, position) => ({
-        ...row,
-        position,
-        ...(icon !== null && { icon: JSON.parse(icon) as FactoryIcon }),
-        repos: repos
-          .filter((r) => r.factoryId === row.id)
-          .map(({ repo, name, cloneUrl }) => ({ repo, name, cloneUrl })),
-        ...(clonedAt !== null && { clonedAt }),
-      }))
+      .map(
+        (
+          { row: { clonedAt, icon, guide: _guide, showTutorial: _tutorial, ...row } },
+          position,
+        ) => ({
+          ...row,
+          position,
+          ...(icon !== null && { icon: JSON.parse(icon) as FactoryIcon }),
+          repos: repos
+            .filter((r) => r.factoryId === row.id)
+            .map(({ repo, name, cloneUrl }) => ({ repo, name, cloneUrl })),
+          ...(clonedAt !== null && { clonedAt }),
+        }),
+      )
+  }
+  const guides = (): FactoryGuide[] =>
+    store
+      .query(queryDb(factories.where({ guide: 'live' }).orderBy('createdAt', 'asc')))
+      .map((row) => ({ factoryId: row.id, addedAt: row.createdAt }))
+  const emitGuides = () => emit({ type: 'guides-changed', guides: guides() })
+  const guideEnding = (factoryId: string, reason: GuideEnding) =>
+    store.query(queryDb(factories.where({ id: factoryId, guide: 'live' }))).length > 0
+      ? [events.factoryGuideEnded({ factoryId, reason, at: new Date().toISOString() })]
+      : []
+  const setUpDone = (factoryId: string) => {
+    const hasSettings =
+      store.query(queryDb(workflowLayers.where({ layer: `factory:${factoryId}` }))).length > 0
+    return store
+      .query(queryDb(tasks.where({ factoryId, setup: true, archivedAt: null })))
+      .some(
+        (row) =>
+          row.stage === 'done' ||
+          row.stage === 'cleanup' ||
+          (row.stage === 'backlog' && hasSettings && taskRuns(row.id).length === 0),
+      )
   }
   const requireFactory = (id: string) => {
     const found = listFactories().find((f) => f.id === id)
@@ -2403,7 +2431,7 @@ export async function openStore({
     talkStartedAt,
     talkDoneAt,
     design,
-    tutorial,
+    tutorial: _tutorial,
     linearTeam,
     asanaMissing,
     asanaUnfinished,
@@ -2455,7 +2483,6 @@ export async function openStore({
         }),
         ...(readAt !== null && { readAt }),
         ...(failedRunId !== null && { failed: { runId: failedRunId } }),
-        ...(tutorial && { tutorial: true as const }),
         ...(linearTeam !== null && { linearTeam: JSON.parse(linearTeam) as LinearTeam }),
         ...(asanaMissing !== null && { asanaMissing: JSON.parse(asanaMissing) as AsanaMissing }),
         ...(asanaUnfinished !== null && {
@@ -2550,7 +2577,9 @@ export async function openStore({
   const commentRows = (taskId?: string) =>
     store.query(
       queryDb(
-        (taskId === undefined ? comments : comments.where({ taskId })).orderBy('createdAt', 'asc'),
+        comments
+          .where(taskId === undefined ? { tutorial: false } : { taskId, tutorial: false })
+          .orderBy('createdAt', 'asc'),
       ),
     )
 
@@ -2915,7 +2944,6 @@ export async function openStore({
       gate,
       attachments = [],
       design,
-      tutorial = false,
       linearTeam,
       asanaMissing,
       asanaUnfinished,
@@ -2995,7 +3023,6 @@ export async function openStore({
       ...(design === undefined
         ? []
         : [events.commentDesignAttached({ commentId: id, design: JSON.stringify(design) })]),
-      ...(tutorial ? [events.commentMarkedTutorial({ commentId: id })] : []),
       ...(linearTeam ? [events.commentLinearTeamAsked({ commentId: id, ...linearTeam })] : []),
       ...(asanaMissing
         ? [
@@ -3814,11 +3841,35 @@ export async function openStore({
     },
     createFactory({ repos, ...input }) {
       const id = randomUUID()
-      commit(events.factoryAddedV2({ ...input, id, repos, createdAt: new Date().toISOString() }))
+      const at = new Date().toISOString()
+      const next = settings().guideNextFactory
+      const guided = next || store.query(allFactories).length === 0
+      commit(
+        events.factoryAddedV2({ ...input, id, repos, showTutorial: false, createdAt: at }),
+        ...(guided ? [events.factoryGuideStarted({ factoryId: id, at })] : []),
+        ...(next
+          ? [
+              events.machineSettingsChanged({
+                changes: JSON.stringify({ guideNextFactory: false }),
+                at,
+              }),
+            ]
+          : []),
+      )
       const added = requireFactory(id)
       emit({ type: 'factory-added', factory: basicFactory(added) })
+      if (next) emit({ type: 'settings-changed', settings: settings() })
+      if (guided) emitGuides()
       noteActivity()
       return added
+    },
+    guides,
+    hideGuide(factoryId) {
+      const ending = guideEnding(factoryId, 'hidden')
+      if (ending.length === 0) return false
+      commit(...ending)
+      emitGuides()
+      return true
     },
     factoryCloned(factoryId) {
       commit(events.factoryCloned({ factoryId, at: new Date().toISOString() }))
@@ -3896,7 +3947,17 @@ export async function openStore({
             title,
           })
         : undefined
+      const byUser =
+        !setup &&
+        coordinatorOperation === undefined &&
+        followUpOf === undefined &&
+        splitFrom === undefined &&
+        automation === undefined &&
+        plan === undefined
+      const ending = byUser ? guideEnding(factoryId, 'task-created') : []
+      const guideEnd = ending.length > 0 && setUpDone(factoryId) ? ending : []
       commit(
+        ...guideEnd,
         ...(draftRevision && factoryId !== placeholderFactory.id
           ? [
               events.taskDraftConsumed({
@@ -4038,6 +4099,7 @@ export async function openStore({
       if (automation) emit({ type: 'automation-updated', automationId: automation.automationId })
       if (followUpOf !== undefined && taskRow(followUpOf)) updatedTask(followUpOf)
       if (parentId !== undefined && taskRow(parentId)) updatedTask(parentId)
+      if (guideEnd.length > 0) emitGuides()
       return task
     },
     createTaskTree({
@@ -4278,7 +4340,10 @@ export async function openStore({
       const at = new Date().toISOString()
       const withdrawn = openRequestRows(taskId)
       const answer: CommentAnswer = { kind: 'withdrawn', at, archived: true }
+      const archived = taskRow(taskId)
+      const guideEnd = archived?.setup ? guideEnding(archived.factoryId, 'setup-archived') : []
       commit(
+        ...guideEnd,
         ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
         why === undefined
           ? events.taskArchivedV2({ taskId, closing, branches, at })
@@ -4291,6 +4356,7 @@ export async function openStore({
       const task = updatedTask(taskId)
       updatedQueue(taskId)
       updatedDependents(taskId)
+      if (guideEnd.length > 0) emitGuides()
       return task
     },
     unarchiveTask(taskId, { queue: queued, waitForBlockers }) {
@@ -4316,7 +4382,9 @@ export async function openStore({
       checkingTasks.delete(taskId)
       movingAfterChecks.delete(taskId)
       const at = new Date().toISOString()
+      const guideEnd = row.setup ? guideEnding(row.factoryId, 'setup-deleted') : []
       commit(
+        ...guideEnd,
         ...[
           ...childRows(taskId).map((row) => row.taskId),
           ...(parentRow(taskId) ? [taskId] : []),
@@ -4337,6 +4405,7 @@ export async function openStore({
       emit({ type: 'task-deleted', taskId })
       updatedQueue()
       updatedDependents(taskId)
+      if (guideEnd.length > 0) emitGuides()
     },
     resetTask(taskId) {
       const row = requireTaskRow(taskId)
@@ -5590,8 +5659,7 @@ export async function openStore({
         updatedTask(row.taskId)
       }
     },
-    listComments: (taskId) =>
-      store.query(queryDb(comments.where({ taskId }).orderBy('createdAt', 'asc'))).map(toComment),
+    listComments: (taskId) => commentRows(taskId).map(toComment),
     commentTexts: () =>
       commentRows().map(({ id, taskId, title, body, authorKind, authorRunId, createdAt }) => ({
         id,

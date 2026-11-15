@@ -10,7 +10,6 @@ export function factory(fields: Partial<Factory> = {}): Factory {
     repo: 'acme/widgets',
     defaultBranch: 'main',
     repos: [{ repo: 'acme/widgets', name: 'widgets' }],
-    showTutorial: false,
     autoStartBacklog: false,
     cloned: true,
     position: 0,

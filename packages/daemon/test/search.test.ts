@@ -43,14 +43,12 @@ describe('search over the store', () => {
       name: 'Notebook',
       repos: repo('notebook'),
       defaultBranch: 'main',
-      showTutorial: false,
     })
     const site = store.createFactory({
       key: 'MS',
       name: 'Marketing site',
       repos: repo('site'),
       defaultBranch: 'main',
-      showTutorial: false,
     })
     store.factoryCloned(notebook.id)
     store.factoryCloned(site.id)

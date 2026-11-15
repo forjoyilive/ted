@@ -545,6 +545,7 @@ export {
   parseGitHubIssueUrl,
   type TaskGitHubSource,
 } from './github-issue.ts'
+export type * from './guide.ts'
 export {
   type AgentHealth,
   type AgentHealthState,
