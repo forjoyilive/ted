@@ -273,10 +273,6 @@ export async function removeWorktree(repo: string, worktree: string): Promise<vo
 
 const noHooks = ['-c', 'core.fsmonitor=false', '-c', 'diff.external=']
 
-export async function changedFiles(worktree: string, base: string): Promise<string[]> {
-  return (await workingChanges(worktree, base)).files.map((f) => f.path)
-}
-
 export async function commitAt(worktree: string, at: string): Promise<string | undefined> {
   const out = await git(worktree, ...noHooks, 'rev-list', '-1', `--before=${at}`, 'HEAD', '--')
   return out === '' ? undefined : out
@@ -669,14 +665,27 @@ const readOnly = [
 
 const diffFlags = ['--no-ext-diff', '--no-textconv', '--no-renames', '--no-color']
 
+// Waits for every read before throwing: a git process still running would write into
+// the scratch folder after it is removed.
+async function together<T extends readonly unknown[]>(
+  reads: { [K in keyof T]: Promise<T[K]> },
+): Promise<T> {
+  const settled = await Promise.allSettled(reads)
+  const failed = settled.find((result) => result.status === 'rejected')
+  if (failed) throw failed.reason
+  return settled.map((result) => (result as PromiseFulfilledResult<unknown>).value) as unknown as T
+}
+
 export async function workingChanges(
   worktree: string,
   base: string,
   options: { diffs?: readonly string[] | 'all' } = {},
 ): Promise<WorkingChanges> {
-  const head = await headCommit(worktree)
-  const baseTip = await revParse(worktree, base)
-  const common = await git(worktree, ...noHooks, 'rev-parse', '--git-common-dir')
+  const [head, baseTip, common] = await together([
+    headCommit(worktree),
+    revParse(worktree, base),
+    git(worktree, ...noHooks, 'rev-parse', '--git-common-dir'),
+  ])
   const objects = path.join(path.resolve(worktree, common), 'objects')
   const scratch = await mkdtemp(path.join(tmpdir(), 'ted-working-'))
   const gitDir = path.join(scratch, 'repo.git')
@@ -705,23 +714,27 @@ export async function workingChanges(
   try {
     await run(['init', '--bare', '--quiet', gitDir])
     await writeFile(path.join(gitDir, 'objects', 'info', 'alternates'), `${objects}\n`)
-    await run(['read-tree', head])
-    await run(['-c', 'core.bare=false', 'add', '--all', '--', '.'], worktree)
-    const tree = (await run(['write-tree'])).trim()
-    const mergeBase = (await run(['merge-base', head, baseTip])).trim()
-    const uncommitted = new Set(
-      (await run(['diff', ...diffFlags, '--name-only', '-z', head, tree, '--']))
-        .split('\0')
-        .filter((p) => p !== ''),
-    )
+    const writeTree = async () => {
+      await run(['read-tree', head])
+      await run(['-c', 'core.bare=false', 'add', '--all', '--', '.'], worktree)
+      return (await run(['write-tree'])).trim()
+    }
+    const [tree, mergeBase] = await together([
+      writeTree(),
+      run(['merge-base', head, baseTip]).then((out) => out.trim()),
+    ])
     const numstat = async (to: string) =>
       new Map(
         parseNumstat(await run(['diff', ...diffFlags, '--numstat', '-z', mergeBase, to, '--'])).map(
           (f) => [f.path, f],
         ),
       )
-    const working = await numstat(tree)
-    const committed = await numstat(head)
+    const [names, working, committed] = await together([
+      run(['diff', ...diffFlags, '--name-only', '-z', head, tree, '--']),
+      numstat(tree),
+      numstat(head),
+    ])
+    const uncommitted = new Set(names.split('\0').filter((p) => p !== ''))
     const files: WorkingFile[] = [...new Set([...working.keys(), ...committed.keys()])]
       .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
       .map((name) => {

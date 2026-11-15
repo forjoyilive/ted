@@ -485,6 +485,7 @@ import {
 import { createValidation, type HandOffChecks, StaleCoverageError } from './validation.ts'
 import { failureCaseFindings, failureCaseReference } from './validation-report.ts'
 import { type CommandResult, outputTail } from './worktree.ts'
+import { readChanges, type WorktreeReads, worktreeReads } from './worktree-reads.ts'
 
 export type Caller = { kind: 'app' } | { kind: 'file' } | { kind: 'run'; runId: string }
 
@@ -1389,6 +1390,7 @@ export function createTasks(options: {
   async function settingsGuard(
     task: StoredTask,
     workflow: ResolvedWorkflow,
+    reads?: WorktreeReads,
   ): Promise<OvernightGuard | undefined> {
     if (!task.repos.some((r) => !r.removed)) {
       return task.stage === 'backlog' ? undefined : 'unreadable'
@@ -1404,7 +1406,9 @@ export function createTasks(options: {
       const cached = atMerge ? mergeGuards.get(task.id) : undefined
       if (cached?.key === key) return cached.guard
       const base = `origin/${baseBranch ?? (await git.defaultBranch(repo.worktree))}`
-      let touched = touchesSettings(await git.changedFiles(repo.worktree, base))
+      let touched = touchesSettings(
+        (await readChanges(reads, repo.worktree, base)).files.map((f) => f.path),
+      )
       if (!touched && signed !== undefined && signed !== head) {
         const from = await git.mergeBase(repo.worktree, base, signed)
         const merging = await git.changesBetween(repo.worktree, { from, to: signed })
@@ -1428,17 +1432,18 @@ export function createTasks(options: {
   async function overnightGuard(
     task: StoredTask,
     workflow: ResolvedWorkflow,
+    reads?: WorktreeReads,
   ): Promise<OvernightGuard | undefined> {
-    return unvettedGuard(task) ?? (await settingsGuard(task, workflow))
+    return unvettedGuard(task) ?? (await settingsGuard(task, workflow, reads))
   }
 
   async function gateWorkflow(
     task: StoredTask,
-    options?: { fetch?: boolean },
+    options?: { fetch?: boolean; reads?: WorktreeReads },
   ): Promise<WorkflowResolution> {
     const plain = await taskWorkflow(task, options)
     if (!taskAutopilot(task)) return plain
-    const guard = await overnightGuard(task, plain.workflow)
+    const guard = await overnightGuard(task, plain.workflow, options?.reads)
     if (guard === undefined) return plain
     const kept = await taskWorkflow(task, { fetch: false, keepGates: guard })
     const { workflow } = kept
@@ -2300,13 +2305,16 @@ export function createTasks(options: {
     setChecking(taskId, true)
     try {
       const task = find(taskId)
-      const resolution = await gateWorkflow(task, { fetch: false })
+      const reads = worktreeReads()
+      const resolution = await gateWorkflow(task, { fetch: false, reads })
       const problem = runsInBypass(resolution) ? undefined : await sandboxProblem(task.factoryId)
       if (problem !== undefined) throw new RequestError(409, problem)
       const started = await validation.begin(
         find(taskId),
         resolution,
         task.stage === 'merge' ? 'merge' : 'agent',
+        undefined,
+        reads,
       )
       if (!started) {
         setChecking(taskId, false)
@@ -2490,6 +2498,7 @@ export function createTasks(options: {
     task: StoredTask,
     resolution: WorkflowResolution,
     only?: string,
+    reads?: WorktreeReads,
   ): Promise<RunnableCheck[]> {
     const factory = factoryOf(task)
     const entries = factoryRepos(resolution.workflow, factory)
@@ -2513,6 +2522,7 @@ export function createTasks(options: {
       repos,
       primary: entries[0]?.name ?? '',
       ...(only !== undefined && task.stage !== 'validate' && { only }),
+      ...(reads !== undefined && { reads }),
     })
   }
 
@@ -2670,7 +2680,8 @@ export function createTasks(options: {
       )
     }
     await execution.local(task.id)
-    const resolution = await gateWorkflow(task)
+    const reads = worktreeReads()
+    const resolution = await gateWorkflow(task, { reads })
     const { workflow } = resolution
     if (workflow.next('work') !== 'validate' || gateOn(task, workflow, 'work')) {
       throw new RequestError(
@@ -2678,7 +2689,7 @@ export function createTasks(options: {
         `${task.displayId}’s Workflow no longer goes from Work straight to Validate; choose ${tryAgainChoice}`,
       )
     }
-    await requireObligations(task, undefined, 'validate')
+    await requireObligations(task, undefined, 'validate', false, reads)
     const conflict = await baseConflict(task)
     if (conflict) {
       store.recordBaseConflict(task.id, foundConflict(task, conflict))
@@ -2717,13 +2728,16 @@ export function createTasks(options: {
       if (!begun) await execution.local(taskId)
       const lead = begun ? begun.lead : find(taskId).leadRunId
       const heads = begun ? begun.heads : await liveHeads(find(taskId))
-      const coverage = begun ? begun.coverage : await validation.coverage(find(taskId))
+      const reads = worktreeReads()
+      const coverage = begun ? begun.coverage : await validation.coverage(find(taskId), reads)
       const started =
         begun?.started ??
         (await validation.begin(
           find(taskId),
-          await gateWorkflow(find(taskId), { fetch: false }),
+          await gateWorkflow(find(taskId), { fetch: false, reads }),
           'hand-off',
+          undefined,
+          reads,
         ))
       const result = started === undefined ? undefined : await started.done
       const checkRun =
@@ -2747,7 +2761,8 @@ export function createTasks(options: {
           if (after.length !== heads.length || after.some((commit, i) => commit !== heads[i])) {
             return 'the branch changed while the Checks ran'
           }
-          const resolution = await gateWorkflow(now, { fetch: false })
+          const moving = worktreeReads()
+          const resolution = await gateWorkflow(now, { fetch: false, reads: moving })
           const { workflow } = resolution
           if (workflow.next('work') !== 'validate' || gateOn(now, workflow, 'work')) {
             return 'the Workflow changed while the Checks ran'
@@ -2763,6 +2778,7 @@ export function createTasks(options: {
           }
           await move(now, resolution, 'validate', nextStageMessage(workflow, 'validate'), {
             ...(checkRun !== undefined && { checked: { run: checkRun, coverage } }),
+            reads: moving,
           })
           handedOver = true
           return undefined
@@ -5847,7 +5863,8 @@ export function createTasks(options: {
         drafts,
         deliverAnswer,
         gateWorkflow,
-        requireObligations: (task, target) => requireObligations(task, undefined, target),
+        requireObligations: (task, target, reads) =>
+          requireObligations(task, undefined, target, false, reads),
         checksThen: (taskId, action) => checksThen(taskId, action),
         bindApproval,
         liveLead,
@@ -6440,14 +6457,20 @@ export function createTasks(options: {
       signedOff = false,
       checked,
       waitForSlot = false,
-    }: { signedOff?: boolean; checked?: HandOffChecks; waitForSlot?: boolean } = {},
+      reads,
+    }: {
+      signedOff?: boolean
+      checked?: HandOffChecks
+      waitForSlot?: boolean
+      reads?: WorktreeReads
+    } = {},
   ): Promise<Task> {
     if (
       to === 'done' ||
       resolution.workflow.order.indexOf(to) >
         resolution.workflow.order.indexOf(task.stage as AgentStageId)
     )
-      await requireObligations(task, undefined, to)
+      await requireObligations(task, undefined, to, false, reads)
     const target = cleanupMoveTarget(task.stage, to, resolution.workflow.stages)
     const mergeOff = target.why === 'merge-off'
     const cleanup = target.why === 'cleanup'
@@ -9051,8 +9074,9 @@ export function createTasks(options: {
         const task = find(id)
         if (task.archived || task.stopped || task.stage === 'done' || liveLead(task)) return
         if (unmergedBlockers(id).length > 0) return
-        const resolution = await gateWorkflow(task)
-        await requireObligations(task, undefined, 'done')
+        const reads = worktreeReads()
+        const resolution = await gateWorkflow(task, { reads })
+        await requireObligations(task, undefined, 'done', false, reads)
         store.parentFinishedWithChildren(id)
         if (task.startRequested) store.setStartRequested(id, false)
         store.changeStage(id, 'done', entryFor(resolution, 'done'))
@@ -9524,7 +9548,8 @@ export function createTasks(options: {
     failures,
     find,
     // Coverage leaves out the login shell's environment: mise sets a new value on every read.
-    context: (task) => checkContext(task, { inherited: false }),
+    context: (task, reads) =>
+      checkContext(task, { inherited: false, ...(reads !== undefined && { reads }) }),
     workflow: (task) => taskWorkflow(task, { fetch: false }),
     plan: checkPlan,
     checkSandbox: async (task) => {
@@ -9919,7 +9944,7 @@ export function createTasks(options: {
   }
   async function checkContext(
     task: Task,
-    { inherited = true }: { inherited?: boolean } = {},
+    { inherited = true, reads }: { inherited?: boolean; reads?: WorktreeReads } = {},
   ): Promise<Pick<FailureContext, 'repos' | 'checks'>> {
     const resolution = await taskWorkflow(find(task.id), { fetch: false })
     const entries = factoryRepos(resolution.workflow, factoryOf(task))
@@ -9942,7 +9967,7 @@ export function createTasks(options: {
         .map(async (r) => {
           const entry = repoEntry(entries, r)
           const baseBranch = entry?.baseBranch ?? (await git.defaultBranch(r.worktree))
-          const changes = await git.workingChanges(r.worktree, `origin/${baseBranch}`)
+          const changes = await readChanges(reads, r.worktree, `origin/${baseBranch}`)
           return {
             repo: r.repo,
             head: changes.head,
@@ -9987,6 +10012,7 @@ export function createTasks(options: {
     observed?: PullRequestRead,
     target?: string,
     mergedOnGitHub = false,
+    reads: WorktreeReads = worktreeReads(),
   ): Promise<void> {
     if (unfinishedChildren(task.id))
       throw new RequestError(
@@ -10003,11 +10029,13 @@ export function createTasks(options: {
         task.stage !== 'validate'
     }
     if (repair) {
+      if (store.failures.list(task.id).length > 0) reads.forget()
       const result = await failures.obligations(task)
       if (result.blockers.every((id) => store.failures.get(id)?.validation)) return
     }
-    await validation.requireCoverage(find(task.id), mergedOnGitHub)
+    await validation.requireCoverage(find(task.id), mergedOnGitHub, reads)
     if (store.failures.list(task.id).length === 0) return
+    reads.forget()
     const context = observed
       ? await failures
           .snapshot(task, (bindCi) => failureSnapshot(task, observed, bindCi))
@@ -11456,13 +11484,14 @@ export function createTasks(options: {
           }
           if (stage === 'cleanup' && outcome.outcome === 'back')
             throw new RequestError(409, cleanupNoBack)
+          const reads = worktreeReads()
           const resolution =
             outcome.outcome === 'advance'
-              ? await gateWorkflow(current)
+              ? await gateWorkflow(current, { reads })
               : await taskWorkflow(current)
           const { workflow } = resolution
           if (outcome.outcome === 'advance')
-            await requireObligations(current, undefined, workflow.next(stage))
+            await requireObligations(current, undefined, workflow.next(stage), false, reads)
           const changesAsked =
             (stage === 'review' || stage === 'merge') && lastChangesRequested(current) !== ''
           if (outcome.outcome === 'back') {
@@ -11549,6 +11578,7 @@ export function createTasks(options: {
               workflow.order.indexOf('work') < workflow.order.indexOf(stage))
           ) {
             const conflict = await baseConflict(current)
+            reads.forget()
             if (conflict) {
               store.recordBaseConflict(task.id, foundConflict(current, conflict))
               throw new RequestError(409, conflictRefusal(current, conflict, manyRepos(current)))
@@ -11592,8 +11622,15 @@ export function createTasks(options: {
           if (!gate && stage === 'work' && workflow.next(stage) === 'validate') {
             await execution.local(task.id)
             const heads = await liveHeads(current)
-            const coverage = await validation.coverage(current)
-            const started = await validation.begin(current, resolution, 'hand-off')
+            const handOff = worktreeReads()
+            const coverage = await validation.coverage(current, handOff)
+            const started = await validation.begin(
+              current,
+              resolution,
+              'hand-off',
+              undefined,
+              handOff,
+            )
             if (started) {
               setChecking(task.id, true)
               inBackground(`run ${task.displayId}’s Checks`, () =>
@@ -11631,6 +11668,7 @@ export function createTasks(options: {
               resolution,
               next,
               next === 'done' ? undefined : nextStageMessage(workflow, next),
+              { reads },
             )
             return { task: moved, message: `${task.displayId} moved to ${stageTitle(next)}` }
           }
@@ -11925,7 +11963,8 @@ export function createTasks(options: {
       }
       setChecking(task.id, true)
       try {
-        const resolution = await gateWorkflow(find(task.id), { fetch: false })
+        const reads = worktreeReads()
+        const resolution = await gateWorkflow(find(task.id), { fetch: false, reads })
         const problem = runsInBypass(resolution) ? undefined : await sandboxProblem(task.factoryId)
         if (problem !== undefined) throw new RequestError(409, problem)
         const listed = task.setup
@@ -11944,7 +11983,7 @@ export function createTasks(options: {
               : `no Check named “${only}”; this Factory’s Checks are ${names}`,
           )
         }
-        const started = await validation.begin(find(task.id), resolution, 'agent', only)
+        const started = await validation.begin(find(task.id), resolution, 'agent', only, reads)
         if (!started) {
           throw new RequestError(
             409,

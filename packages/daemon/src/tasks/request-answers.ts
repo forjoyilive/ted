@@ -41,6 +41,7 @@ import {
 import type { TrackerConsent } from './tracker-sync/consent.ts'
 import { archiveChoice as trackerArchiveChoice } from './tracker-sync/sync.ts'
 import { StaleCoverageError } from './validation.ts'
+import { type WorktreeReads, worktreeReads } from './worktree-reads.ts'
 
 export interface RequestAnswerPort {
   store: TedStore
@@ -75,8 +76,12 @@ export interface RequestAnswerPort {
   resumeByHand(id: string, options: { comment: string; sendDrafts: boolean }): Promise<Task>
   drafts(id: string): string[]
   deliverAnswer(task: Task, comment: Comment, text: string): Promise<void>
-  gateWorkflow(task: StoredTask): Promise<WorkflowResolution>
-  requireObligations(task: StoredTask, target?: AgentStageId | 'done'): Promise<void>
+  gateWorkflow(task: StoredTask, options?: { reads?: WorktreeReads }): Promise<WorkflowResolution>
+  requireObligations(
+    task: StoredTask,
+    target?: AgentStageId | 'done',
+    reads?: WorktreeReads,
+  ): Promise<void>
   checksThen(taskId: string, action: () => Promise<unknown>): Promise<void>
   bindApproval(task: StoredTask, comment: Comment, workflow: ResolvedWorkflow): Promise<void>
   liveLead(task: Task): Run | undefined
@@ -89,7 +94,7 @@ export interface RequestAnswerPort {
     resolution: WorkflowResolution,
     next: AgentStageId | 'done',
     message: string | undefined,
-    options?: { signedOff: boolean },
+    options?: { signedOff?: boolean; reads?: WorktreeReads },
   ): Promise<Task>
   backMessage(
     workflow: ResolvedWorkflow,
@@ -394,7 +399,8 @@ export function createRequestAnswers(
     if (!ask.loop || choice === undefined) return undefined
     const current = find(task.id)
     if (current.stage !== 'validate') return undefined
-    const resolution = await gateWorkflow(current)
+    const reads = worktreeReads()
+    const resolution = await gateWorkflow(current, { reads })
     const { workflow } = resolution
     const next = workflow.next('validate') as AgentStageId | 'done'
     const choices = loopChoices(workflow)
@@ -402,7 +408,7 @@ export function createRequestAnswers(
     if (choice === tryAgainChoice) checkBack(workflow, 'validate', ask.to)
     if (choice === backToDesignChoice) checkBack(workflow, 'validate', 'design')
     if (choice !== tryAgainChoice && choice !== backToDesignChoice)
-      await requireObligations(current)
+      await requireObligations(current, undefined, reads)
     const added = text === '' ? '' : `\n\nThe human added:\n\n${text}`
     const answered = answerRequest(task, comment, {
       kind: 'answered',
@@ -454,6 +460,7 @@ export function createRequestAnswers(
         next === 'done'
           ? undefined
           : `The human moved this Task on from Validate.${added}\n\n${nextStageMessage(workflow, next)}\n\n${open}`,
+        { reads },
       )
     }
     return answered
@@ -744,10 +751,11 @@ export function createRequestAnswers(
       }
       if (request.action === 'approve') {
         const now = find(task.id)
-        const resolution = await gateWorkflow(now)
+        const reads = worktreeReads()
+        const resolution = await gateWorkflow(now, { reads })
         const next = resolution.workflow.next(now.stage) as AgentStageId | 'done'
         if (now.preparation === 'preparing') checkPreparationWorkflow(resolution.workflow)
-        const stale = await requireObligations(now, next).then(
+        const stale = await requireObligations(now, next, reads).then(
           () => false,
           (error: unknown) => {
             if (error instanceof StaleCoverageError) return true
@@ -759,7 +767,11 @@ export function createRequestAnswers(
           text === ''
             ? `${automatic ? 'Autopilot' : 'The human'} approved the ${gateName(comment)}.`
             : `${automatic ? 'Autopilot' : 'The human'} approved the ${gateName(comment)} and added:\n\n${text}\n\n`
-        const carryOut = async (from: StoredTask, using: WorkflowResolution) => {
+        const carryOut = async (
+          from: StoredTask,
+          using: WorkflowResolution,
+          reads?: WorktreeReads,
+        ) => {
           const to = using.workflow.next(from.stage) as AgentStageId | 'done'
           if (from.stage === 'merge') {
             startMerging(find(task.id), using.workflow)
@@ -779,7 +791,7 @@ export function createRequestAnswers(
             to === 'done'
               ? undefined
               : `${approved}${text === '' ? ' ' : ''}${nextStageMessage(using.workflow, to)}`,
-            { signedOff },
+            { signedOff, ...(reads !== undefined && { reads }) },
           )
         }
         if (stale) {
@@ -801,7 +813,7 @@ export function createRequestAnswers(
         })
         await bindApproval(now, comment, resolution.workflow)
         if (!liveLead(now)) store.holdAnswer(comment.id)
-        if (!stale) await carryOut(now, resolution)
+        if (!stale) await carryOut(now, resolution, reads)
         return answered
       }
       if (automatic) await automatic.guard(comment)
