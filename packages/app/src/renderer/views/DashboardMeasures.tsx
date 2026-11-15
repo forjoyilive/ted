@@ -16,18 +16,15 @@ export const share = (ms: number | null, totalMs: number) => {
 export function TimingChange({
   current,
   previous,
-  neutral = false,
 }: {
   current: number | null
   previous: number | null
-  neutral?: boolean
 }) {
   const percent =
     current === null || previous === null || previous === 0
       ? null
       : ((current - previous) / previous) * 100
-  const tone =
-    neutral || percent === null || percent === 0 ? '' : percent < 0 ? styles.good : styles.bad
+  const tone = percent === null || percent === 0 ? '' : percent < 0 ? styles.good : styles.bad
   const display =
     percent === null
       ? previous === 0

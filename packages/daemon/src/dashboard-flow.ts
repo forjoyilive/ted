@@ -1,94 +1,33 @@
 import type {
   DashboardFlow,
-  FailureCase,
-  FlowFailure,
   FlowInterval,
   FlowPeriod,
   FlowReasonId,
-  FlowSendBack,
   FlowStage,
   FlowStageSample,
-  FlowValidateSample,
   StageParts,
-  ValidationSnapshot,
 } from '@ted/protocol'
 import { addStageParts, noStageParts, splitStage } from '@ted/protocol/stage-parts'
 import type { DashboardTaskFacts } from './dashboard.ts'
 import { type FlowTimingFacts, summarizeReasons, timingSamples } from './dashboard-timing.ts'
-
-export interface FlowJudgment {
-  at: string
-  sequence?: number
-  outcome: string
-  checkRunId: string | null
-  review: boolean | null
-  visual: boolean | null
-  validation?: ValidationSnapshot
-}
-
-export interface FlowCheck {
-  id: string
-  startedAt: string
-  finishedAt: string | null
-  outcome: string | null
-  states: string[]
-}
 
 export interface FlowFacts {
   activity?: FlowTimingFacts
   transitions?: readonly { stage: string; at: string; sequence?: number }[]
   archivedAt?: string | null
   archives?: readonly string[]
-  sendBacks?: readonly FlowSendBack[]
-  judgments?: readonly FlowJudgment[]
-  checks?: readonly FlowCheck[]
-  failures?: readonly FailureCase[]
+  sendBacks?: readonly { at: string }[]
 }
 
 const iso = (at: number) => new Date(at).toISOString()
 const time = (at: string | null | undefined) => Date.parse(at ?? '')
 const finite = Number.isFinite
-const failed = (state: string) => state === 'failed' || state === 'timed-out'
 export const quantile = (values: number[], p: number): number | null => {
   if (!values.length) return null
   const index = (values.length - 1) * p
   const lower = values[Math.floor(index)] ?? 0
   const upper = values[Math.ceil(index)] ?? lower
   return lower + (upper - lower) * (index - Math.floor(index))
-}
-
-const oneLine = (text: string) => {
-  const line = text.replace(/\s+/g, ' ').trim()
-  return line.length > 200 ? `${line.slice(0, 199)}…` : line
-}
-
-export function flowFailure(value: FailureCase): FlowFailure | null {
-  const verified = value.verifications?.at(-1)
-  if (verified?.replacedBy) return null
-  const resolution = value.resolutions.at(-1)
-  const kind =
-    value.source.kind === 'finding' ? 'finding' : value.source.kind === 'github-ci' ? 'ci' : 'check'
-  const accepted =
-    !verified &&
-    resolution?.resolution === 'accepted' &&
-    !value.invalidations.some((i) => i.requestId === resolution.requestId)
-  const outcome =
-    verified ||
-    resolution?.resolution === 'fixed' ||
-    resolution?.resolution === 'no-longer-applicable'
-      ? 'fixed'
-      : accepted
-        ? 'accepted'
-        : 'open'
-  const reason = accepted && resolution?.reason ? oneLine(resolution.reason) : ''
-  return {
-    id: value.id,
-    taskId: value.taskId,
-    kind,
-    outcome,
-    at: value.createdAt,
-    ...(reason && { reason }),
-  }
 }
 
 export function stageTiming(task: DashboardTaskFacts, asOf: number) {
@@ -178,133 +117,11 @@ export function stageSampleParts(
   )
 }
 
-function firstVisit(task: DashboardTaskFacts, asOf: number): FlowValidateSample {
-  const result: FlowValidateSample = {
-    taskId: task.id,
-    outcome: 'unknown',
-    enteredAt: null,
-    exitedAt: null,
-    checkRunIds: [],
-    failureIds: [],
-    reasons: [],
-  }
-  const entries = task.transitions ?? task.entries
-  const index = entries.findIndex((entry) => entry.stage === 'validate')
-  const entered = entries[index]
-  if (!entered) return { ...result, outcome: 'no-visit', reasons: ['No recorded Validate visit.'] }
-  result.enteredAt = entered.at
-  const exit = entries[index + 1]
-  const start = time(entered.at)
-  const end = time(exit?.at)
-  if (!finite(start) || !finite(end) || end < start || end > asOf) {
-    result.reasons.push('First Validate visit has no reliable recorded exit.')
-    return result
-  }
-  result.exitedAt = exit?.at ?? null
-  const judgments = (task.judgments ?? []).filter((j) => {
-    const at = time(j.at)
-    return (
-      at >= start &&
-      at <= end &&
-      (j.sequence === undefined ||
-        ((entered.sequence === undefined || j.sequence > entered.sequence) &&
-          (exit?.sequence === undefined || j.sequence < exit.sequence)))
-    )
-  })
-  const judgment = judgments.at(-1)
-  if (!judgment) {
-    result.reasons.push('No recorded first-visit verification judgment.')
-    return result
-  }
-  const snapshot = judgment.validation
-  const progress = snapshot?.progress
-  const check = task.checks?.find((c) => c.id === judgment.checkRunId)
-  if (check) result.checkRunIds.push(check.id)
-  if (progress?.visit === entered.at) {
-    for (const execution of progress.executions) {
-      if (!result.checkRunIds.includes(execution.runId)) result.checkRunIds.push(execution.runId)
-    }
-  }
-  const snapshotChecks = progress?.visit === entered.at ? progress.checks : undefined
-  const states = snapshotChecks?.map((c) => c.state) ?? check?.states
-  if (states) {
-    const counts = new Map<string, number>()
-    for (const state of states) counts.set(state, (counts.get(state) ?? 0) + 1)
-    result.reasons.push(
-      `Recorded Checks: ${[...counts].map(([state, count]) => `${count} ${state}`).join(', ') || 'empty run'}.`,
-    )
-  }
-  if (judgment.review !== null)
-    result.reasons.push(`Recorded review: ${judgment.review ? 'passed' : 'failed'}.`)
-  if (judgment.visual !== null)
-    result.reasons.push(`Recorded visual: ${judgment.visual ? 'passed' : 'failed'}.`)
-  const checkBound =
-    check !== undefined &&
-    time(check.startedAt) >=
-      time(entries[index - 1]?.stage === 'work' ? entries[index - 1]?.at : entered.at) &&
-    finite(time(check.finishedAt)) &&
-    time(check.startedAt) <= time(check.finishedAt) &&
-    time(check.finishedAt) <= time(judgment.at)
-  const accepted = (snapshot?.failures ?? []).filter((f) => {
-    const resolution = f.resolutions.at(-1)
-    return (
-      resolution?.resolution === 'accepted' &&
-      !f.verifications?.length &&
-      !f.invalidations.some((i) => i.requestId === resolution.requestId)
-    )
-  })
-  result.failureIds = accepted.map((f) => f.id)
-  const sentBack = (task.sendBacks ?? []).some(
-    (s) =>
-      s.from === 'validate' &&
-      time(s.at) >= start &&
-      time(s.at) <= end &&
-      (s.sequence === undefined ||
-        ((entered.sequence === undefined || s.sequence > entered.sequence) &&
-          (exit?.sequence === undefined || s.sequence < exit.sequence))),
-  )
-  const knownFailure =
-    states?.some(failed) ||
-    (snapshotChecks === undefined && check?.outcome === 'failed') ||
-    judgment.review === false ||
-    judgment.visual === false ||
-    accepted.length > 0 ||
-    sentBack ||
-    judgment.outcome === 'sent-back'
-  if (knownFailure)
-    result.reasons.push('The first visit has a recorded failure or actual send-back.')
-  if (accepted.length) result.reasons.push('Accepted failures remain failures, not passes.')
-  const skipped = states?.some((s) => s === 'skipped') || states?.length === 0
-  if (skipped) {
-    result.outcome = 'skipped'
-    result.reasons.push('Checks were explicitly skipped or no Checks were recorded in the run.')
-    return result
-  }
-  const completeChecks =
-    states !== undefined &&
-    states.length > 0 &&
-    (snapshotChecks !== undefined
-      ? progress?.pending === false
-      : checkBound && (check?.outcome === 'passed' || check?.outcome === 'failed')) &&
-    states.every((s) => s === 'passed' || failed(s))
-  if (!completeChecks) result.reasons.push('Complete recorded Check results are unavailable.')
-  if (judgment.review === null) result.reasons.push('Recorded review verification is missing.')
-  if (judgment.visual === null)
-    result.reasons.push('Visual verification or its applicability was not recorded.')
-  if (!completeChecks || judgment.review === null || judgment.visual === null) return result
-  result.outcome = knownFailure ? 'failed' : judgment.outcome === 'passed' ? 'passed' : 'unknown'
-  if (result.outcome === 'passed')
-    result.reasons.push('Checks, review and visual passed; no actual first-visit send-back.')
-  return result
-}
-
 function period(
   facts: readonly DashboardTaskFacts[],
   timings: Map<string, Timing>,
-  visits: Map<string, FlowValidateSample>,
   from: number | null,
   to: number,
-  completedIds: readonly string[],
 ): FlowPeriod {
   const result: FlowPeriod = {
     from: from === null ? null : iso(from),
@@ -313,9 +130,6 @@ function period(
     incomplete: [],
     stages: [],
     reasons: [],
-    sendBacks: [],
-    failures: [],
-    firstPass: { passed: 0, denominator: 0, percent: null, samples: [] },
   }
   const order = ['intake', 'clarify', 'design', 'work', 'validate', 'review', 'merge']
   const stages = new Map<string, FlowStage>(
@@ -333,8 +147,6 @@ function period(
       },
     ]),
   )
-  const completed = new Set(completedIds)
-  const groups = new Map<string, FlowPeriod['sendBacks'][number]>()
   const reasonSamples: ReturnType<typeof timingSamples>[] = []
   for (const task of facts) {
     const measured = timings.get(task.id)
@@ -387,30 +199,6 @@ function period(
       if (!stage.factoryIds.includes(task.factoryId)) stage.factoryIds.push(task.factoryId)
       stages.set(name, stage)
     }
-    for (const sendBack of task.sendBacks ?? []) {
-      const at = time(sendBack.at)
-      if (!(at >= lower && at < to)) continue
-      const key = JSON.stringify([sendBack.from, sendBack.to])
-      const group = groups.get(key) ?? {
-        from: sendBack.from,
-        to: sendBack.to,
-        counted: 0,
-        taskIds: [],
-        transitions: [],
-      }
-      group.transitions.push(sendBack)
-      if (sendBack.counted) group.counted++
-      groups.set(key, group)
-    }
-    for (const value of task.failures ?? []) {
-      const at = time(value.createdAt)
-      const failure = at >= lower && at < to ? flowFailure(value) : null
-      if (failure) result.failures.push(failure)
-    }
-    if (completed.has(task.id)) {
-      const visit = visits.get(task.id)
-      if (visit) result.firstPass.samples.push(visit)
-    }
   }
   result.reasons = summarizeReasons(reasonSamples)
   result.stages = [...stages.values()].sort((a, b) => {
@@ -426,17 +214,6 @@ function period(
     stage.p25Ms = quantile(values, 0.25)
     stage.p75Ms = quantile(values, 0.75)
   }
-  result.sendBacks = [...groups.values()].sort(
-    (a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to),
-  )
-  for (const group of result.sendBacks)
-    group.taskIds = [...new Set(group.transitions.map((s) => s.taskId))]
-  result.firstPass.passed = result.firstPass.samples.filter((s) => s.outcome === 'passed').length
-  result.firstPass.denominator = result.firstPass.samples.filter(
-    (s) => s.outcome === 'passed' || s.outcome === 'failed',
-  ).length
-  if (result.firstPass.denominator)
-    result.firstPass.percent = (result.firstPass.passed / result.firstPass.denominator) * 100
   return result
 }
 
@@ -446,30 +223,16 @@ export function dashboardFlow(
   to: number,
   before: { from: number; to: number } | null,
   asOf: number,
-  currentCompleted: readonly string[],
-  previousCompleted: readonly string[],
 ): DashboardFlow {
   const facts = input.filter((task) => !task.setup)
   const timings = new Map(facts.map((task) => [task.id, stageTiming(task, asOf)]))
-  const completed = new Set([...currentCompleted, ...previousCompleted])
-  const visits = new Map(
-    facts.filter((task) => completed.has(task.id)).map((task) => [task.id, firstVisit(task, asOf)]),
-  )
-  const current = period(facts, timings, visits, from, to, currentCompleted)
-  const previous = before
-    ? period(facts, timings, visits, before.from, before.to, previousCompleted)
-    : null
+  const current = period(facts, timings, from, to)
+  const previous = before ? period(facts, timings, before.from, before.to) : null
   const selected = new Set([
     ...current.taskIds,
     ...current.incomplete.map((s) => s.taskId),
-    ...current.sendBacks.flatMap((g) => g.taskIds),
-    ...current.failures.map((f) => f.taskId),
-    ...currentCompleted,
     ...(previous?.taskIds ?? []),
     ...(previous?.incomplete.map((s) => s.taskId) ?? []),
-    ...(previous?.sendBacks.flatMap((g) => g.taskIds) ?? []),
-    ...(previous?.failures.map((f) => f.taskId) ?? []),
-    ...previousCompleted,
   ])
   return {
     tasks: facts

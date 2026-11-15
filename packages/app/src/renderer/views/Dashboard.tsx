@@ -25,6 +25,7 @@ import { Select } from '../components/Select.tsx'
 import {
   type DashboardSelection,
   type DashboardViewState,
+  dashboardPanels,
   rememberDashboard,
   shownFactoryIds,
 } from '../dashboard.ts'
@@ -33,7 +34,7 @@ import { stageName } from '../list-view.ts'
 import { formatDate } from '../time.ts'
 import styles from './Dashboard.module.css'
 import { Cost, costSample, money } from './DashboardCost.tsx'
-import { Flow } from './DashboardFlow.tsx'
+import { Stages } from './DashboardStages.tsx'
 import { CheckItem, MenuButton } from './TaskList.tsx'
 import views from './views.module.css'
 
@@ -62,7 +63,6 @@ const openStateName: Record<DashboardOpenState, string> = {
 }
 const panelNames = {
   overview: 'Overview',
-  flow: 'Flow',
   stages: 'Stages',
   cost: 'Cost',
 } as const
@@ -1551,7 +1551,7 @@ export function Dashboard({
     const { factoryIds: _, ...rest } = kept
     onChange({ ...rest, ...(ids && { factoryIds: ids }) })
   }
-  const panels = ['overview', 'flow', 'stages', 'cost'] as const
+  const panels = dashboardPanels
   const choosePanel = (panel: NonNullable<DashboardViewState['panel']>) =>
     onChange({ ...kept, panel })
   const select = (sample: DashboardSelection) => onChange({ ...state, sample })
@@ -1728,12 +1728,11 @@ export function Dashboard({
                 )}
               </>
             ) : (
-              <Flow
-                panel={panel}
+              <Stages
                 data={data.flow}
                 asOf={data.asOf}
-                selection={state.flowSample}
-                select={(flowSample) => onChange({ ...kept, panel, flowSample })}
+                selection={state.stageSample}
+                select={(stageSample) => onChange({ ...kept, panel, stageSample })}
                 onClose={() => onChange(kept)}
                 factories={shown}
                 onOpenTask={onOpenTask}

@@ -370,8 +370,6 @@ export function dashboardReport(
       to,
       windows ? windows.previous : null,
       asOf,
-      current.taskIds,
-      previous?.taskIds ?? [],
     ),
     waiting: {
       current: waiting,

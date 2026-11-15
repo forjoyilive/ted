@@ -154,50 +154,6 @@ export interface FlowStage {
   samples: FlowStageSample[]
 }
 
-export interface FlowSendBack {
-  id: string
-  taskId: string
-  from: string
-  to: string
-  at: string
-  counted: boolean
-  cause: string | null
-  severity?: import('./checks.ts').FindingSeverity | 'none'
-  sequence?: number
-}
-
-export interface FlowSendBackGroup {
-  from: string
-  to: string
-  counted: number
-  taskIds: string[]
-  transitions: FlowSendBack[]
-}
-
-export type FlowFailureKind = 'check' | 'finding' | 'ci'
-export type FlowFailureOutcome = 'fixed' | 'accepted' | 'open'
-
-export interface FlowFailure {
-  id: string
-  taskId: string
-  kind: FlowFailureKind
-  outcome: FlowFailureOutcome
-  at: string
-  reason?: string
-}
-
-export type FlowValidateOutcome = 'passed' | 'failed' | 'skipped' | 'unknown' | 'no-visit'
-
-export interface FlowValidateSample {
-  taskId: string
-  outcome: FlowValidateOutcome
-  enteredAt: string | null
-  exitedAt: string | null
-  checkRunIds: string[]
-  failureIds: string[]
-  reasons: string[]
-}
-
 export interface FlowPeriod {
   from: string | null
   to: string
@@ -205,14 +161,6 @@ export interface FlowPeriod {
   incomplete: { taskId: string; reasons: string[] }[]
   stages: FlowStage[]
   reasons: FlowReason[]
-  sendBacks: FlowSendBackGroup[]
-  failures: FlowFailure[]
-  firstPass: {
-    passed: number
-    denominator: number
-    percent: number | null
-    samples: FlowValidateSample[]
-  }
 }
 
 export interface DashboardFlow {
