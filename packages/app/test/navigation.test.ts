@@ -1,10 +1,16 @@
 import { describe, expect, test } from 'vitest'
-import { dashboardState, rememberDashboard, shownFactoryIds } from '../src/renderer/dashboard.ts'
+import {
+  type DashboardViewState,
+  dashboardState,
+  rememberDashboard,
+  shownFactoryIds,
+} from '../src/renderer/dashboard.ts'
 import {
   backLink,
   currentFactoryId,
   type History,
   type HistoryAction,
+  historyReducer,
   initialNavigation,
   type Navigation,
   navigate,
@@ -45,11 +51,10 @@ describe('navigation', () => {
     expect(currentFactoryId(initialNavigation, tasks)).toBeUndefined()
   })
 
-  test('opening a Factory shows its Dashboard the first time and its last-used View after', () => {
-    expect(after({ type: 'open-factory', factoryId: 'nb' }).screen).toEqual({
-      kind: 'factory',
-      factoryId: 'nb',
-      view: 'dashboard',
+  test('opening a Factory shows the Dashboard narrowed to it the first time and its last-used View after', () => {
+    expect(after({ type: 'open-factory', factoryId: 'nb' })).toMatchObject({
+      screen: { kind: 'dashboard', dashboard: { factoryIds: ['nb'] } },
+      lastFactoryId: 'nb',
     })
 
     const back = after(
@@ -246,7 +251,7 @@ describe('back and forward (⌘[ and ⌘])', () => {
       { type: 'open-factory', factoryId: 'nb' },
       { type: 'forward' },
     )
-    expect(state.now.screen).toEqual({ kind: 'factory', factoryId: 'nb', view: 'dashboard' })
+    expect(state.now.screen).toEqual({ kind: 'dashboard', dashboard: { factoryIds: ['nb'] } })
   })
 
   test('history retains a continuation source without leaking it into another place or new plan', () => {
@@ -332,20 +337,23 @@ test('Task return and history preserve a Dashboard range, Factories and metric s
   expect(withHistory(opened, { type: 'back' }).now.screen).toEqual(screen)
 })
 
-test('a Factory’s name opens the Dashboard narrowed to it until the Factory has a last view', () => {
-  const first = navigate(initialNavigation, { type: 'open-factory', factoryId: 'nb' })
-  expect(first).toMatchObject({
-    screen: { kind: 'dashboard', dashboard: { factoryIds: ['nb'] } },
-    lastFactoryId: 'nb',
-  })
-  const board = navigate(first, {
+test('Back returns to the Dashboard choice history recorded, not the one saved since', () => {
+  let saved: DashboardViewState = { range: '30d' }
+  const resolve = (partial: Partial<DashboardViewState> | undefined) => ({ ...saved, ...partial })
+  const step = historyReducer(resolve)
+  let history = step(startHistory(initialNavigation), {
     type: 'open',
-    screen: { kind: 'factory', factoryId: 'nb', view: 'board' },
+    screen: { kind: 'dashboard' },
   })
-  expect(navigate(board, { type: 'open-factory', factoryId: 'nb' }).screen).toEqual({
-    kind: 'factory',
-    factoryId: 'nb',
-    view: 'board',
+  expect(history.now.screen).toEqual({ kind: 'dashboard', dashboard: { range: '30d' } })
+  saved = { range: '7d', panel: 'stages', factoryIds: ['nb'] }
+  history = step(history, { type: 'open', screen: { kind: 'dashboard', dashboard: saved } })
+  history = step(history, { type: 'back' })
+  expect(history.now.screen).toEqual({ kind: 'dashboard', dashboard: { range: '30d' } })
+  history = step(history, { type: 'open-factory', factoryId: 'ms' })
+  expect(history.now.screen).toEqual({
+    kind: 'dashboard',
+    dashboard: { range: '7d', panel: 'stages', factoryIds: ['ms'] },
   })
 })
 

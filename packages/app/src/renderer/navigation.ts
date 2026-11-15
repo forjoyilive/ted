@@ -289,7 +289,29 @@ function goTo(state: Navigation, place: Place): Navigation {
   }
 }
 
+export type DashboardResolver = (
+  partial: Partial<DashboardViewState> | undefined,
+) => DashboardViewState
+
+function settled(state: Navigation, resolve: DashboardResolver | undefined): Navigation {
+  const { screen } = state
+  if (!resolve || screen.kind !== 'dashboard' || screen.dashboard?.range !== undefined) return state
+  return { ...state, screen: { kind: 'dashboard', dashboard: resolve(screen.dashboard) } }
+}
+
 export function withHistory(history: History, action: HistoryAction): History {
+  return recorded(history, action, undefined)
+}
+
+export function historyReducer(resolve: DashboardResolver) {
+  return (history: History, action: HistoryAction): History => recorded(history, action, resolve)
+}
+
+function recorded(
+  history: History,
+  action: HistoryAction,
+  resolve: DashboardResolver | undefined,
+): History {
   const here = placeOf(history.now)
   if (action.type === 'back' || action.type === 'forward') {
     const from = action.type === 'back' ? history.back : history.forward
@@ -301,7 +323,7 @@ export function withHistory(history: History, action: HistoryAction): History {
       ? { now, back: rest, forward: [...history.forward, here] }
       : { now, back: [...history.back, here], forward: rest }
   }
-  const now = navigate(history.now, action)
+  const now = settled(navigate(history.now, action), resolve)
   if (samePlace(placeOf(now), here)) return { ...history, now }
   return { now, back: [...history.back, here].slice(-historyLimit), forward: [] }
 }

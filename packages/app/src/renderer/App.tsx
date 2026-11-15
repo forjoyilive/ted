@@ -101,12 +101,12 @@ import { doneView, failedView, queueView, rankMove } from './list-view.ts'
 import {
   backLink,
   currentFactoryId,
+  historyReducer,
   initialNavigation,
   newPlan,
   type SettingsSectionId,
   shownSettingsSectionIds,
   startHistory,
-  withHistory,
 } from './navigation.ts'
 import { OvernightContext } from './overnight.tsx'
 import { plansFailedByFactory } from './plans.ts'
@@ -238,7 +238,11 @@ function Offline({ when, children }: { when: boolean; children: ReactNode }) {
 }
 
 export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) {
-  const [history, dispatch] = useReducer(withHistory, initialNavigation, startHistory)
+  const [history, dispatch] = useReducer(
+    historyReducer(dashboardState),
+    initialNavigation,
+    startHistory,
+  )
   const navigation = history.now
   const revealRequest = useMemo(
     () => (navigation.requestId === undefined ? undefined : { id: navigation.requestId }),

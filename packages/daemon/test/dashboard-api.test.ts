@@ -79,19 +79,24 @@ test('read-only Dashboard request combines or narrows Factories and validates it
       previous: null,
       comparison: null,
     })
+    const sidebarOrder = (await client.listFactories()).map((factory) => factory.id)
+    expect(sidebarOrder).toHaveLength(2)
     const all = await client.dashboard('7d')
-    expect(all.factoryIds).toEqual([factoryId, otherId])
+    expect(all.factoryIds).toEqual(sidebarOrder)
     expect(all.current.taskIds).toEqual(expect.arrayContaining([taskId, otherTaskId]))
     expect(all.tasks.find((task) => task.id === otherTaskId)).toMatchObject({
       factoryId: otherId,
       displayId: 'ZZ-1',
     })
-    expect(all.current.byFactory).toMatchObject([
-      { factoryId, taskIds: [taskId] },
-      { factoryId: otherId, taskIds: [otherTaskId] },
-    ])
-    expect(await client.dashboard('7d', [otherId, factoryId])).toMatchObject({
-      factoryIds: [factoryId, otherId],
+    expect(all.current.byFactory.map((row) => row.factoryId)).toEqual(sidebarOrder)
+    expect(all.current.byFactory).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ factoryId, taskIds: [taskId] }),
+        expect.objectContaining({ factoryId: otherId, taskIds: [otherTaskId] }),
+      ]),
+    )
+    expect(await client.dashboard('7d', [...sidebarOrder].reverse())).toMatchObject({
+      factoryIds: sidebarOrder,
     })
     const request = (path: string, token = info.token) =>
       rawRequest(daemon?.port ?? 0, { path, headers: { authorization: `Bearer ${token}` } })
