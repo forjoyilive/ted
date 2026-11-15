@@ -104,6 +104,7 @@ test('Limits changes how many Checks run at once and turns low priority off', as
   bridge({
     getSlots: () => ({ limit: 6, working: 0, queued: 0, holders: [], queue: [], factories: [] }),
     simulators: () => ({ supported: false }),
+    emulators: () => ({ supported: false }),
     updateSettings: update,
   })
   render(<LimitsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
@@ -223,7 +224,7 @@ test('Storage sets when chats and archived tasks are deleted and measures again 
     ['Event log', 'State database', 'Backups'].map(
       (name) => within(store).getByText(name).closest('[data-setting]')?.textContent,
     ),
-  ).toEqual(['Event log150 MB', 'State database270 MB', 'Backups2.4 GB'])
+  ).toEqual(['Event log0.1 GB', 'State database0.3 GB', 'Backups2.4 GB'])
 
   expect(screen.getByText(/· Measured 3m ago$/)).toBeTruthy()
   expect(api.request).toHaveBeenCalledWith('getStorage', { refresh: false })
@@ -612,6 +613,7 @@ test('⌘K lists a matching setting with its page and opens it', async () => {
   expect(options.map((option) => option.getAttribute('aria-label'))).toEqual([
     'Autopilot across all Factories, Settings › General',
     'Autopilot, Settings › General',
+    'Review Tasks from Automations and public issues, Settings › General',
   ])
   await user().click(options[0] as HTMLElement)
   expect(screen.queryByRole('dialog', { name: 'Search and commands' })).toBeNull()
@@ -626,6 +628,7 @@ test('an asynchronous settings switch acknowledges activation and blocks repeat 
     updateSettings: update,
     getSlots: () => ({ limit: 6, working: 0, queued: 0, holders: [], queue: [], factories: [] }),
     simulators: () => ({ supported: false }),
+    emulators: () => ({ supported: false }),
   })
   render(<LimitsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
   const toggle = screen.getByRole('switch', { name: 'Start fewer Runs when this computer is busy' })

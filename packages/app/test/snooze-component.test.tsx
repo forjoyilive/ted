@@ -180,6 +180,7 @@ test('a snoozed request’s card says when it returns, and its Task reads Snooze
     validationObligations: () => ({ satisfied: true, cases: [], checkRuns: [], blockers: [] }),
     listApps: () => [],
     simulators: () => ({ supported: false }),
+    emulators: () => ({ supported: false }),
   })
   const until = '2099-11-11T09:00:00.000Z'
   const value = task({ status: { kind: 'waiting-on-you', snoozedUntil: until } })

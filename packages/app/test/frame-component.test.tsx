@@ -154,7 +154,7 @@ test('Factories open Dashboard with Board, List and Map folded under Tasks; All 
 
   await u.click(taskViews())
   expect(['Board', 'List', 'Map'].filter(shown)).toEqual(['Board', 'List', 'Map'])
-  await screen.findByRole('heading', { name: /widgets.*Dashboard/, level: 1 })
+  await screen.findByRole('heading', { name: 'All Factories › Dashboard', level: 1 })
   await u.click(taskViews())
   expect(['Board', 'List', 'Map'].filter(shown)).toEqual([])
 
@@ -188,7 +188,7 @@ test('Factories open Dashboard with Board, List and Map folded under Tasks; All 
   await u.click(screen.getByRole('button', { name: 'widgets' }))
   expect(factoryViews().getAttribute('aria-expanded')).toBe('true')
   expect(taskViews().getAttribute('aria-expanded')).toBe('true')
-  await screen.findByRole('heading', { name: /widgets.*Dashboard/, level: 1 })
+  await screen.findByRole('heading', { name: 'All Factories › Dashboard', level: 1 })
 })
 
 test('a live Factory event updates the sidebar', async () => {
@@ -328,7 +328,7 @@ test('G navigation and history shortcuts use the App keymap', async () => {
   await screen.findByRole('heading', { name: 'Inbox', level: 1 })
   fireEvent.keyDown(window, { key: 'g' })
   fireEvent.keyDown(window, { key: 'd' })
-  await screen.findByRole('heading', { name: /widgets.*Dashboard/, level: 1 })
+  await screen.findByRole('heading', { name: 'All Factories › Dashboard', level: 1 })
 })
 
 test('question mark opens the shortcut sheet and dialog cancel closes it', async () => {

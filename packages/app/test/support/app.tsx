@@ -44,6 +44,7 @@ export function appState() {
     getSlots: () => state.slots,
     drift: () => ({ library: 0, factories: {} }),
     simulators: () => ({ supported: false, limit: 2, booted: [] }),
+    emulators: () => ({ supported: false, limit: 2, booted: [] }),
     getSettings: () => state.settings,
     getLinear: () => ({ state: 'no-key' }),
     notificationsOff: () => false,

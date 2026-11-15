@@ -16,10 +16,12 @@ async function formReady() {
 
 async function newTask(options: { tasks?: Task[]; parentId?: string } = {}) {
   const created = vi.fn(() => task())
+  const settings = vi.fn((changes: unknown) => changes)
   const api = bridge({
     ...draftHandlers(),
     taskDefaults: () => ({ lead: { agent: 'claude' }, clarifyDepth: 'auto' }),
     createTask: created,
+    updateSettings: settings,
   })
   const close = vi.fn()
   render(
@@ -32,7 +34,7 @@ async function newTask(options: { tasks?: Task[]; parentId?: string } = {}) {
     />,
   )
   await formReady()
-  return { api, created, close }
+  return { api, created, close, settings }
 }
 
 test('New Task focuses the description and closes without creating', async () => {
@@ -45,7 +47,7 @@ test('New Task focuses the description and closes without creating', async () =>
 })
 
 test('New Task sends a blank title for daemon inference, description, Priority and Start now false', async () => {
-  const { created, close } = await newTask()
+  const { created, close, settings } = await newTask()
   const u = user()
   await u.type(
     screen.getByLabelText('Description'),
@@ -66,6 +68,7 @@ test('New Task sends a blank title for daemon inference, description, Priority a
     }),
   )
   expect(close).toHaveBeenCalledOnce()
+  await waitFor(() => expect(settings).toHaveBeenCalledWith({ startNewTasks: false }))
 })
 
 test('New Task sends an explicit title and starts by default', async () => {
