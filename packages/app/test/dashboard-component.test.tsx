@@ -1057,6 +1057,14 @@ test('every By Factory and Flow table figure opens the Tasks behind it for that 
     backlog: { value: null, taskIds: [], missingIds: [] },
     intake: { value: null, taskIds: [], missingIds: [] },
   })
+  data.cost.current.byFactory.push({
+    factoryId: 'gar',
+    cost: 0,
+    runs: 1,
+    kinds: [],
+    tasks: [{ taskId: 't2', cost: 0 }],
+    perPullRequest: { median: null, p25: null, p75: null, pullRequests: 0, samples: [] },
+  })
   bridge({ dashboard: () => data })
   const factories = [factory({ id: 'nb', name: 'Nabla' }), factory({ id: 'gar', name: 'Garden' })]
   render(<DashboardView open={vi.fn()} factories={factories} />)
@@ -1094,6 +1102,11 @@ test('every By Factory and Flow table figure opens the Tasks behind it for that 
   expect(
     within(sample).getByRole('button', { name: /NB-1.*\$4\.00 per pull request/ }),
   ).toBeTruthy()
+  await close()
+  await user().click(within(row(cost, 'Garden')).getByRole('button', { name: '$0.00' }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading').textContent).toContain('Garden')
+  expect(within(sample).getByRole('button', { name: /NB-2/ })).toBeTruthy()
   await close()
 
   await user().click(screen.getByRole('tab', { name: 'Flow' }))

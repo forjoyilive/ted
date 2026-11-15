@@ -694,7 +694,7 @@ export function Cost({
                       )}
                     </th>
                     <td className={styles.number}>
-                      {row.cost > 0 ? (
+                      {row.runs > 0 ? (
                         <button
                           type="button"
                           data-nav-item

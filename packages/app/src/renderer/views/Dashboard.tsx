@@ -1363,7 +1363,7 @@ function ByFactory({
     (data.previous?.byFactory ?? []).map((row) => [row.factoryId, row]),
   )
   const rows = data.current.byFactory.toSorted((a, b) => b.taskIds.length - a.taskIds.length)
-  const waits = new Map(data.waiting.current.byFactory.map((row) => [row.factoryId, row.totalMs]))
+  const waits = new Map(data.waiting.current.byFactory.map((row) => [row.factoryId, row]))
   const perPr = new Map(
     data.cost.current.byFactory.map((row) => [row.factoryId, row.perPullRequest.median]),
   )
@@ -1423,15 +1423,14 @@ function ByFactory({
             const factory = factories.find((f) => f.id === row.factoryId)
             const share = total === 0 ? 0 : row.taskIds.length / total
             const before = previous.get(row.factoryId)
-            const wait = waits.get(row.factoryId) ?? 0
+            const waited = waits.get(row.factoryId)
+            const wait = waited?.totalMs ?? 0
             const cost = perPr.get(row.factoryId) ?? null
             const of = (
               metric: DashboardMetric,
-              value: number | null,
+              taskIds: readonly string[],
             ): DashboardSelection | null =>
-              value === null || value === 0
-                ? null
-                : { metric, period: 'current', factoryId: row.factoryId }
+              taskIds.length === 0 ? null : { metric, period: 'current', factoryId: row.factoryId }
             return (
               <tr key={row.factoryId}>
                 <th scope="row">
@@ -1452,11 +1451,11 @@ function ByFactory({
                     style={{ width: `${share * 120}px`, background: factoryColor(factory) }}
                   />
                   <span className={styles.caption}>
-                    {cell(`${Math.round(share * 100)}%`, of('completed', row.taskIds.length))}
+                    {cell(`${Math.round(share * 100)}%`, of('completed', row.taskIds))}
                   </span>
                 </td>
                 <td className={styles.number}>
-                  {cell(String(row.taskIds.length), of('completed', row.taskIds.length))}
+                  {cell(String(row.taskIds.length), of('completed', row.taskIds))}
                 </td>
                 {data.previous && (
                   <td className={styles.number}>
@@ -1469,21 +1468,21 @@ function ByFactory({
                   </td>
                 )}
                 <td className={styles.number}>
-                  {cell(String(row.merged.count), of('merged', row.merged.count))}
+                  {cell(String(row.merged.count), of('merged', row.merged.taskIds))}
                 </td>
                 <td className={styles.number}>
-                  {cell(duration(row.created.value), of('created', row.created.value))}
+                  {cell(duration(row.created.value), of('created', row.created.taskIds))}
                 </td>
                 <td className={styles.number}>
-                  {cell(duration(row.backlog.value), of('backlog', row.backlog.value))}
+                  {cell(duration(row.backlog.value), of('backlog', row.backlog.taskIds))}
                 </td>
                 <td className={styles.number}>
-                  {cell(duration(row.intake.value), of('intake', row.intake.value))}
+                  {cell(duration(row.intake.value), of('intake', row.intake.taskIds))}
                 </td>
                 <td className={styles.number}>
                   {cell(
                     hours(wait),
-                    wait > 0
+                    waited?.taskIds.length
                       ? { metric: 'waiting', period: 'current', factoryId: row.factoryId }
                       : null,
                   )}
