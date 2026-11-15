@@ -640,9 +640,14 @@ export function createRequestAnswers(
       throw new RequestError(400, `TED can’t answer a ${comment.kind} request yet`)
     } else if (request.action !== 'answer') {
       throw new RequestError(400, 'answer a question with a choice or your own words')
+    } else if (request.choices !== undefined && !comment.multiple) {
+      throw new RequestError(400, 'this question takes one choice')
     } else if (request.choice !== undefined && !comment.choices?.includes(request.choice)) {
       throw new RequestError(400, `“${request.choice}” isn’t one of the question’s choices`)
-    } else if (request.choice === undefined && text === '') {
+    } else if (request.choices?.some((c) => !comment.choices?.includes(c))) {
+      const outside = request.choices.find((c) => !comment.choices?.includes(c))
+      throw new RequestError(400, `“${outside}” isn’t one of the question’s choices`)
+    } else if (request.choice === undefined && !request.choices?.length && text === '') {
       throw new RequestError(400, 'pick a choice or write an answer')
     }
     if (
@@ -787,6 +792,11 @@ export function createRequestAnswers(
       }
       if (automatic) await automatic.guard(comment)
       const choice = request.choice
+      const picks = comment.multiple
+        ? (comment.choices ?? []).filter(
+            (c) => c === choice || (request.action === 'answer' && request.choices?.includes(c)),
+          )
+        : undefined
       if (comment.purpose?.kind === 'send-back') {
         const answered = await answerLoopAsk(find(task.id), comment, choice, text, at)
         if (answered) return answered
@@ -856,7 +866,7 @@ export function createRequestAnswers(
         {
           kind: 'answered',
           at,
-          ...(choice !== undefined && { choice }),
+          ...(picks ? picks.length > 0 && { choices: picks } : choice !== undefined && { choice }),
           ...(text !== '' && { text }),
         },
         text !== '' && !aboutModel && sendDrafts ? drafts(task.id) : undefined,

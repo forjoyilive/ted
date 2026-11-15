@@ -324,6 +324,73 @@ test('round recommendations, reset, Other validation and notes are sent as answe
   })
 })
 
+test('a round question that allows several answers sends every ticked choice', async () => {
+  const { answer } = requestApi()
+  const several: Round = {
+    number: 1,
+    questions: [
+      {
+        question: 'Which views?',
+        choices: ['Board', 'List', 'Map'],
+        recommended: 'Board; Map',
+        multiple: true,
+        recommendedChoices: ['Board', 'Map'],
+      },
+    ],
+  }
+  render(
+    <RequestCard
+      request={comment({ kind: 'round', round: several })}
+      task={task()}
+      onOpenRun={vi.fn()}
+    />,
+  )
+  const u = user()
+  const f = within(screen.getByRole('group', { name: /Which views/ }))
+  expect(f.getByText('Pick any that apply.')).toBeTruthy()
+  expect(f.queryAllByRole('radio')).toHaveLength(0)
+  expect(f.getAllByText('Recommended')).toHaveLength(2)
+  const submit = screen.getByRole('button', { name: 'Submit answers' }) as HTMLButtonElement
+  expect(submit.disabled).toBe(true)
+  await u.click(f.getByRole('checkbox', { name: 'Map' }))
+  await u.click(f.getByRole('checkbox', { name: 'Board' }))
+  expect(f.queryByText('Changed ·')).toBeNull()
+  await u.click(f.getByRole('checkbox', { name: 'List' }))
+  expect(f.getByText('Changed ·')).toBeTruthy()
+  await u.click(f.getByRole('checkbox', { name: 'Map' }))
+  await u.type(f.getByLabelText('Add to answer 1'), 'Map later.')
+  await u.click(submit)
+  expect(answer).toHaveBeenCalledWith('c1', {
+    action: 'answer-round',
+    answers: [{ answer: '', choices: ['Board', 'List'], note: 'Map later.' }],
+  })
+})
+
+test('a one-off question that allows several answers sends the ticked choices', async () => {
+  const { answer } = requestApi()
+  render(
+    <RequestCard
+      task={task()}
+      request={comment({ choices: ['Board', 'List', 'Map'], multiple: true })}
+    />,
+  )
+  const u = user()
+  const send = screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement
+  expect(screen.getByText('Pick any that apply')).toBeTruthy()
+  expect(screen.queryAllByRole('radio')).toHaveLength(0)
+  expect(send.disabled).toBe(true)
+  await u.click(screen.getByRole('checkbox', { name: 'Map' }))
+  await u.click(screen.getByRole('checkbox', { name: 'Board' }))
+  await u.click(screen.getByRole('checkbox', { name: 'Map' }))
+  expect(send.disabled).toBe(false)
+  await u.click(screen.getByRole('checkbox', { name: 'List' }))
+  await u.click(send)
+  expect(answer).toHaveBeenCalledExactlyOnceWith('c1', {
+    action: 'answer',
+    choices: ['Board', 'List'],
+  })
+})
+
 test('Talk it through confirms a stopped Task, preserves edits on cancel, and opens only when ready', async () => {
   const api = requestApi()
   const request = comment({ kind: 'round', round })

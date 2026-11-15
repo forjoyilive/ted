@@ -46,6 +46,12 @@
   overflow-wrap: anywhere;
 }
 
+.hint {
+  margin: -4px 0 2px;
+  color: var(--text-caption);
+  font-size: var(--text-12);
+}
+
 .options {
   display: flex;
   flex-direction: column;

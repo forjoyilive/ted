@@ -29,18 +29,30 @@ function roundAnswers(value: unknown): RoundAnswerInput[] {
     throw new HttpError(400, 'answers must be a list with one answer per question')
   let length = 0
   const answers = value.map((entry): RoundAnswerInput => {
-    const { answer, note } = bodyObject(entry, 'answer')
+    const { answer, choices, note } = bodyObject(entry, 'answer')
     if (typeof answer !== 'string' || (note !== undefined && typeof note !== 'string'))
       throw new HttpError(400, 'each answer needs answer text and may have a note')
-    length += answer.length + (note?.length ?? 0)
+    const picks = choiceStrings(choices)
+    length += answer.length + (note?.length ?? 0) + (picks ?? []).join('').length
     return {
       answer: answer.trim(),
+      ...(picks && { choices: picks }),
       ...(note !== undefined && note.trim() !== '' && { note: note.trim() }),
     }
   })
   if (length > maxMessageLength)
     throw new HttpError(400, `answers are limited to ${maxMessageLength} characters in all`)
   return answers
+}
+function choiceStrings(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined
+  if (
+    !Array.isArray(value) ||
+    value.length > 20 ||
+    value.some((c) => typeof c !== 'string' || c === '')
+  )
+    throw new HttpError(400, 'choices must be a list of the request’s choices')
+  return [...new Set(value as string[])]
 }
 function rows(value: unknown): number[] {
   if (
@@ -170,6 +182,7 @@ export function parseCoordinatorAction(
     throw new HttpError(400, 'request must be the request’s Comment ID')
   if (body.choice !== undefined && (typeof body.choice !== 'string' || body.choice === ''))
     throw new HttpError(400, 'choice must be one of the request’s choices')
+  const picks = choiceStrings(body.choices)
   if (
     body.decision !== undefined &&
     body.decision !== 'approve' &&
@@ -182,8 +195,10 @@ export function parseCoordinatorAction(
   const ways = [
     body.decision !== undefined,
     body.answers !== undefined || body.recommended === true,
-    body.choice !== undefined,
+    body.choice !== undefined || picks !== undefined,
   ].filter(Boolean).length
+  if (body.choice !== undefined && picks !== undefined)
+    throw new HttpError(400, 'give choice or choices, not both')
   if (ways > 1 || (body.answers !== undefined && body.recommended === true))
     throw new HttpError(400, 'give one of: a decision, round answers or recommended, or a choice')
   if (ways === 0 && message === '')
@@ -194,6 +209,7 @@ export function parseCoordinatorAction(
     ...base,
     request: body.request,
     ...(typeof body.choice === 'string' && { choice: body.choice }),
+    ...(picks && { choices: picks }),
     ...(body.decision !== undefined && { decision: body.decision }),
     ...(body.answers !== undefined && { answers: roundAnswers(body.answers) }),
     ...(body.recommended === true && { recommended: true }),

@@ -1,10 +1,13 @@
-import type {
-  AnswerRequest,
-  ClarifyDepth,
-  Comment,
-  Round,
-  RoundAnswer,
-  RoundQuestion,
+import {
+  type AnswerRequest,
+  type ClarifyDepth,
+  type Comment,
+  joinChoices,
+  type Round,
+  type RoundAnswer,
+  type RoundAnswerInput,
+  type RoundQuestion,
+  sameChoices,
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 
@@ -24,7 +27,11 @@ export const clarifySignoffCaption =
 
 export function roundAnswers(round: Round, request: AnswerRequest): RoundAnswer[] {
   if (request.action === 'accept-recommended') {
-    return round.questions.map((q) => ({ answer: q.recommended, changed: false }))
+    return round.questions.map((q) => ({
+      answer: q.recommended,
+      ...(q.multiple && { choices: q.recommendedChoices ?? [] }),
+      changed: false,
+    }))
   }
   if (request.action !== 'answer-round') {
     throw new RequestError(400, 'answer a round with Submit answers or Accept all recommended')
@@ -39,8 +46,9 @@ export function roundAnswers(round: Round, request: AnswerRequest): RoundAnswer[
 function answerTo(
   question: RoundQuestion,
   number: number,
-  given: { answer: string; note?: string } | undefined,
+  given: RoundAnswerInput | undefined,
 ): RoundAnswer {
+  if (question.multiple) return severalAnswerTo(question, number, given)
   const answer = given?.answer.trim() ?? ''
   const note = given?.note?.trim() ?? ''
   if (answer === '') throw new RequestError(400, `question ${number} needs an answer`)
@@ -48,6 +56,29 @@ function answerTo(
     answer,
     ...(note !== '' && { note }),
     changed: answer !== question.recommended.trim(),
+  }
+}
+
+function severalAnswerTo(
+  question: RoundQuestion,
+  number: number,
+  given: RoundAnswerInput | undefined,
+): RoundAnswer {
+  const offered = question.choices ?? []
+  const picks = offered.filter((c) => given?.choices?.includes(c))
+  if ((given?.choices ?? []).some((c) => !offered.includes(c))) {
+    throw new RequestError(400, `question ${number}’s answers must be among its choices`)
+  }
+  const other = given?.answer.trim() ?? ''
+  const note = given?.note?.trim() ?? ''
+  if (picks.length === 0 && other === '') {
+    throw new RequestError(400, `question ${number} needs at least one answer`)
+  }
+  return {
+    answer: joinChoices([...picks, ...(other !== '' ? [other] : [])]),
+    choices: picks,
+    ...(note !== '' && { note }),
+    changed: other !== '' || !sameChoices(picks, question.recommendedChoices ?? []),
   }
 }
 

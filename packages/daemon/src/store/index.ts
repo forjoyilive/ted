@@ -578,6 +578,7 @@ export interface NewComment {
   kind?: CommentKind
   title?: string
   choices?: string[]
+  multiple?: true
   round?: Round
   proposal?: Proposal
   sizeCheck?: SizeCheck
@@ -2449,6 +2450,7 @@ export async function openStore({
     asanaUnfinished,
     archive,
     cleanupFailure,
+    multiple,
     purpose,
     heldFor,
     ...row
@@ -2465,6 +2467,7 @@ export async function openStore({
         ...(stage !== null && { stage: stage as StageId }),
         ...(title !== null && { title }),
         ...(choices !== null && { choices: JSON.parse(choices) as string[] }),
+        ...(multiple && { multiple: true as const }),
         ...(round !== null && { round: JSON.parse(round) as Round }),
         ...(talkRequested && { talkRequested: true as const }),
         ...(talkRunId !== null &&
@@ -2951,6 +2954,7 @@ export async function openStore({
       kind = 'note',
       title,
       choices,
+      multiple,
       round,
       proposal,
       sizeCheck,
@@ -3055,6 +3059,9 @@ export async function openStore({
         : []),
       ...(archive
         ? [events.commentArchiveAsked({ commentId: id, archive: JSON.stringify(archive) })]
+        : []),
+      ...(multiple && choices?.length
+        ? [events.commentMultipleChoiceAsked({ commentId: id })]
         : []),
       ...(cleanupFailure
         ? [

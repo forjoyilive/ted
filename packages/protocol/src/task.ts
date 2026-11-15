@@ -561,7 +561,14 @@ export interface RoundQuestion {
   question: string
   choices?: string[]
   recommended: string
+  multiple?: true
+  recommendedChoices?: string[]
 }
+
+export const joinChoices = (choices: readonly string[]): string => choices.join('; ')
+
+export const sameChoices = (a: readonly string[], b: readonly string[]): boolean =>
+  a.length === b.length && a.every((c) => b.includes(c))
 
 export interface Round {
   number: number
@@ -631,6 +638,7 @@ export interface SizeCheckInput {
 
 export interface RoundAnswer {
   answer: string
+  choices?: string[]
   note?: string
   changed: boolean
 }
@@ -660,6 +668,7 @@ export interface CloseRoundRequest {
 
 export interface RoundAnswerInput {
   answer: string
+  choices?: string[]
   note?: string
 }
 
@@ -670,6 +679,7 @@ export type CommentAnswer =
       kind: 'answered'
       at: string
       choice?: string
+      choices?: string[]
       text?: string
       answers?: RoundAnswer[]
       talkedThrough?: TalkedThrough
@@ -751,6 +761,7 @@ export interface Comment {
   stage?: StageId
   title?: string
   choices?: string[]
+  multiple?: true
   round?: Round
   talkRequested?: true
   talk?: RoundTalk
@@ -959,7 +970,13 @@ export type AnswerRequest =
   | { action: 'approve'; text?: string; proposal?: ProposalChoice; simulator?: string }
   | { action: 'request-changes'; text: string }
   | { action: 'deny'; text?: string }
-  | { action: 'answer'; choice?: string; text?: string; archive?: ArchiveTaskRequest }
+  | {
+      action: 'answer'
+      choice?: string
+      choices?: string[]
+      text?: string
+      archive?: ArchiveTaskRequest
+    }
   | { action: 'answer-round'; answers: RoundAnswerInput[] }
   | { action: 'accept-recommended' }
 
@@ -968,6 +985,7 @@ export type AttachmentRef = Pick<Attachment, 'hash' | 'name' | 'mediaType'>
 export interface PostCommentRequest {
   body?: string
   choices?: string[]
+  multiple?: true
   round?: RoundInput
   proposal?: ProposalInput
   sizeCheck?: SizeCheckInput
@@ -999,7 +1017,7 @@ export type ReportOutcomeRequest =
       cause?: DeclaredSendBackCause
       severity?: FindingSeverity
     }
-  | { outcome: 'ask'; question: string; choices?: string[] }
+  | { outcome: 'ask'; question: string; choices?: string[]; multiple?: true }
 
 export type Outcome = ReportOutcomeRequest['outcome']
 

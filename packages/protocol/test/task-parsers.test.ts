@@ -181,6 +181,7 @@ roundTrip(P.parseProposalInput, proposal)
 roundTrip(P.parseSizeCheckInput, { why: 'Too large', settle: ['Boundary'] })
 variants(P.parsePostCommentRequest, [
   { body: 'A note', choices: ['Yes'], supersedes: 'request-1' },
+  { body: 'Which?', choices: ['Board', 'List'], multiple: true },
   { body: '', round },
   { body: '', proposal },
   { body: '', sizeCheck: { why: 'Big', settle: ['Boundary'] } },
@@ -240,6 +241,7 @@ roundTrip(P.parseReportOutcomeRequest, {
   outcome: 'ask',
   question: 'Proceed?',
   choices: ['Yes', 'No'],
+  multiple: true,
 })
 for (const answer of [
   {
@@ -254,6 +256,7 @@ for (const answer of [
     action: 'answer',
     text: 'Yes',
     choice: 'Archive',
+    choices: ['Board', 'List'],
     archive: {
       closePullRequests: true,
       blocked: 'keep',
@@ -262,7 +265,13 @@ for (const answer of [
     },
   },
   { action: 'accept-recommended' },
-  { action: 'answer-round', answers: [{ answer: 'This', note: 'Reason' }] },
+  {
+    action: 'answer-round',
+    answers: [
+      { answer: 'This', note: 'Reason' },
+      { answer: 'Other', choices: ['Board'], note: 'Reason' },
+    ],
+  },
 ] satisfies P.AnswerRequest[])
   roundTrip(P.parseAnswerRequest, answer)
 roundTrip(P.parseAttachmentRefs, [file])
@@ -340,6 +349,52 @@ rejects(
   { ...round, questions: Array(13).fill(question) },
   'at most 12 questions',
 )
+const several = {
+  question: 'Which views?',
+  multiple: true,
+  choices: ['Board', 'List', 'Map'],
+  recommended: ['Board', 'Map'],
+}
+test('a question that allows several answers keeps its recommended choices', () => {
+  expect(P.parseRoundInput({ ...round, questions: [several] }).questions).toEqual([
+    {
+      question: 'Which views?',
+      choices: ['Board', 'List', 'Map'],
+      recommended: 'Board; Map',
+      multiple: true,
+      recommendedChoices: ['Board', 'Map'],
+    },
+  ])
+  expect(
+    P.parseRoundInput({ ...round, questions: [{ ...several, recommended: 'List' }] }).questions[0]
+      ?.recommendedChoices,
+  ).toEqual(['List'])
+  expect(
+    P.parseRoundInput({ ...round, questions: [{ ...question, multiple: false }] }).questions,
+  ).toEqual([question])
+})
+rejects(
+  P.parseRoundInput,
+  { ...round, questions: [{ ...several, recommended: ['Board', 'Grid'] }] },
+  'question 1’s recommended answers must each be one of its choices',
+)
+rejects(
+  P.parseRoundInput,
+  { ...round, questions: [{ ...several, recommended: [] }] },
+  'question 1 needs at least one recommended answer',
+)
+rejects(
+  P.parseRoundInput,
+  { ...round, questions: [{ question: 'Which?', multiple: true, recommended: ['A'] }] },
+  'question 1 needs choices to allow several',
+)
+rejects(
+  P.parseRoundInput,
+  { ...round, questions: [{ ...several, multiple: 'yes' }] },
+  'question 1’s multiple must be true or false',
+)
+rejects(P.parsePostCommentRequest, { body: 'Which?', multiple: true }, 'needs choices')
+rejects(P.parseAnswerRequest, { action: 'answer', choices: ['Board', 3] }, 'choices must be a list')
 test('long choices keep their line breaks and match a multi-line recommended answer', () => {
   const long = `Keep both\n${'x'.repeat(990)}`
   const parsed = P.parseRoundInput({

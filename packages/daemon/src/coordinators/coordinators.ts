@@ -64,9 +64,9 @@ Use only these TED commands, which return JSON:
 - ted coordinator tell <id> --operation <unique-id> --version <version> --message "<text>": send a message to that Task’s Task Lead. It is posted on the Task as a Comment marked as sent through you.
 - ted coordinator answer <id> --request <comment-id> --operation <unique-id> --version <version> plus one way of answering, chosen by the request’s coordinatorMayAnswer:
   - “yes” (a question): --choice "<answer>", --message "<text>", or both.
-  - “with a choice” (a question TED asked, a size check, a failure decision, a Task Lead’s archive request): --choice "<answer>", one of its choices; --message is optional. To answer an archive request with Archive when the Task has an open pull request, add --close-pull-requests or --keep-pull-requests, as the human asked or as the Task Lead recommended. TED refuses Archive when Tasks under it would be archived too; that one waits for the human.
+  - “with a choice” (a question TED asked, a size check, a failure decision, a Task Lead’s archive request): --choice "<answer>", one of its choices; --message is optional. A question marked multiple takes several: repeat --choice. To answer an archive request with Archive when the Task has an open pull request, add --close-pull-requests or --keep-pull-requests, as the human asked or as the Task Lead recommended. TED refuses Archive when Tasks under it would be archived too; that one waits for the human.
   - “approve or request changes” (a sign-off request or proposal): --approve, or --request-changes with --message. Approving a proposal creates its Tasks; --skip-rows '[2,3]' leaves rows out and --start-unblocked starts the ones nothing blocks.
-  - “round answers” (a Clarify round): --recommended to accept every recommended answer, or --answers '[{"answer":"…","note":"…"}, …]' with one entry per question, in order.
+  - “round answers” (a Clarify round): --recommended to accept every recommended answer, or --answers '[{"answer":"…","note":"…"}, …]' with one entry per question, in order. For a question marked multiple, give the picked choices as "choices": ["…", "…"] and any other answer as "answer" (or "").
   - “no” (a permission prompt, a simulator ask, the Linear team ask): only the human answers these, in the Inbox.
 - ted coordinator parent <child-id> <parent-id|none> --operation <unique-id> --version <child-version> --hierarchy-revision <revision>: link, reparent or unlink a Task. Read the child first; use its hierarchy.revision. The same-Factory and safe-parent rules apply.
 - ted coordinator resume <id> --operation <unique-id> --version <version> [--message "<text>"]: resume a stopped or failed Task. It goes through the queue, so it starts when a slot is free.
@@ -777,10 +777,15 @@ export function createCoordinators(options: {
     }
     if (input.answers || input.recommended)
       throw new RequestError(400, 'Only a Clarify round takes round answers')
-    if (allowed === 'with a choice' && input.choice === undefined)
+    if (allowed === 'with a choice' && input.choice === undefined && input.choices === undefined)
       throw new RequestError(400, 'This request is answered with one of its choices')
     if (input.choice !== undefined && !asked.choices?.includes(input.choice))
       throw new RequestError(409, `“${input.choice}” isn’t one of the request’s choices`)
+    if (input.choices !== undefined && !asked.multiple)
+      throw new RequestError(400, 'This question takes one --choice')
+    const outside = input.choices?.find((c) => !asked.choices?.includes(c))
+    if (outside !== undefined)
+      throw new RequestError(409, `“${outside}” isn’t one of the request’s choices`)
     const archive = asked.archive && input.choice === archiveChoice
     if (!archive && input.closePullRequests !== undefined)
       throw new RequestError(
@@ -805,6 +810,7 @@ export function createCoordinators(options: {
       answer: {
         action: 'answer',
         ...(input.choice !== undefined && { choice: input.choice }),
+        ...(input.choices !== undefined && { choices: input.choices }),
         text,
         ...(archive && {
           archive: { closePullRequests: input.closePullRequests === true, blocked: 'unblock' },
@@ -824,6 +830,7 @@ export function createCoordinators(options: {
           ...(c.title && { title: c.title.slice(0, 300) }),
           text: c.body.slice(0, 1000),
           ...(c.choices && { choices: c.choices }),
+          ...(c.multiple && { multiple: true as const }),
           ...(c.round && { questions: c.round.questions }),
           createdAt: c.createdAt,
           coordinatorMayAnswer: mayAnswer(c),
@@ -1482,7 +1489,7 @@ export function createCoordinators(options: {
                   ? `Approved ${task.displayId}’s ${what}${heading}`
                   : answer.action === 'request-changes'
                     ? `Requested changes on ${task.displayId}’s ${what}${heading}`
-                    : `Answered ${task.displayId}’s ${what}${heading}${answer.action === 'accept-recommended' ? ' with every recommended answer' : ''}${input.choice !== undefined ? ` with “${input.choice}”` : ''}`
+                    : `Answered ${task.displayId}’s ${what}${heading}${answer.action === 'accept-recommended' ? ' with every recommended answer' : ''}${input.choice !== undefined ? ` with “${input.choice}”` : ''}${input.choices !== undefined ? ` with ${input.choices.map((c) => `“${c}”`).join(', ')}` : ''}`
               receipt.text = `${did} · was ${state(receipt.before)} · now ${state(snapshot(store.getTask(task.id) ?? task))}`
             } else if (kind === 'done') {
               const result = await tasks.markDone(task.id, 'coordinator')
