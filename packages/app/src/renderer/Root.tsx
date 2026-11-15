@@ -4,10 +4,25 @@ import { ConnectionNotice } from './ConnectionNotice.tsx'
 import { LoadingError, LoadingScreen } from './components/Loading.tsx'
 import { useDataStatusState, useSettingsState } from './data.ts'
 import { useTimeSettings } from './TimeSettings.ts'
+import { ted } from './ted.ts'
 import { DataScreen } from './views/DataScreen.tsx'
 import { Onboarding } from './views/Onboarding.tsx'
 
 function Opened() {
+  const [settled, setSettled] = useState(false)
+  useEffect(() => {
+    let live = true
+    void ted.startSettled().then(() => {
+      if (live) setSettled(true)
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+  return settled ? <Settled /> : <LoadingScreen />
+}
+
+function Settled() {
   const resource = useSettingsState()
   const settings = resource.settings
   useTimeSettings(settings)

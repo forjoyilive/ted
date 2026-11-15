@@ -167,16 +167,24 @@ describe('first launch', () => {
     const reset = await relaunch()
     await toSetUp(reset)
     expect(await settings()).toMatchObject({
-      onboardingOnNextOpen: false,
+      onboardingOnNextOpen: true,
       firstLaunchDone: false,
       startAtLogin: true,
       developerMode: true,
     })
     expect(await startAtLogin(reset).isChecked()).toBe(true)
+
+    const resumed = await relaunch()
+    await toSetUp(resumed)
+    expect(await startAtLogin(resumed).isChecked()).toBe(true)
     expect(await loginLines()).toEqual(applied)
-    await reset.getByRole('button', { name: 'Skip' }).click()
-    await sidebar(reset).waitFor()
-    await expect.poll(settings).toMatchObject({ firstLaunchDone: true, startAtLogin: true })
+    await resumed.getByRole('button', { name: 'Skip' }).click()
+    await sidebar(resumed).waitFor()
+    await expect.poll(settings).toMatchObject({
+      firstLaunchDone: true,
+      startAtLogin: true,
+      onboardingOnNextOpen: false,
+    })
     await expect.poll(loginLines).toEqual([...applied, 'on'])
 
     const after = await relaunch()

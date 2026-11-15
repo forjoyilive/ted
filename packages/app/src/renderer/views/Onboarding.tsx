@@ -4,6 +4,7 @@ import type { AppStart } from '../App.tsx'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
 import { LoadingScreen } from '../components/Loading.tsx'
+import requestStyles from '../components/RequestCard.module.css'
 import sidebarStyles from '../components/Sidebar.module.css'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { useFactoryList } from '../data.ts'
@@ -24,17 +25,14 @@ export function Onboarding({
   onFinish: (start?: AppStart) => void
 }) {
   const { factories, loaded } = useFactoryList()
-  const [again, setAgain] = useState<boolean>()
   const [addFactory, setAddFactory] = useState<boolean>()
+  const [again] = useState(settings.onboardingOnNextOpen)
 
-  useEffect(() => {
-    void ted.onboardingAgain().then(setAgain, () => setAgain(false))
-  }, [])
   useEffect(() => {
     if (loaded) setAddFactory((current) => current ?? factories.length === 0)
   }, [loaded, factories])
 
-  if (again === undefined || addFactory === undefined) return <LoadingScreen />
+  if (addFactory === undefined) return <LoadingScreen />
   return (
     <OnboardingSteps
       settings={settings}
@@ -72,7 +70,7 @@ function OnboardingSteps({
     setProblem(undefined)
     onFinish(start)
     try {
-      await ted.updateSettings({ firstLaunchDone: true, startAtLogin })
+      await ted.updateSettings({ firstLaunchDone: true, startAtLogin, onboardingOnNextOpen: false })
     } catch (error) {
       setProblem(readableError(error))
       setSaving(false)
@@ -152,24 +150,18 @@ function OnboardingSteps({
             heading="Approve the work at each sign-off"
             text="Each Task moves through Stages: Intake, Clarify, Design, Work, Validate, Review and Merge. At a sign-off the Task stops until you approve it or ask for changes, so nothing merges that you haven’t seen."
           >
-            <div className={styles.sampleRequest}>
-              <span className={styles.stages}>
-                {[0, 1, 2, 3, 4, 5, 6].map((stage) => (
-                  <span
-                    key={stage}
-                    className={styles.stage}
-                    data-state={stage < 5 ? 'done' : stage === 5 ? 'current' : undefined}
-                  />
-                ))}
-              </span>
-              <span className={styles.sampleKind}>Review sign-off · WEB-12</span>
-              <p className={styles.sampleText}>Ready to merge: dark mode switch in Settings.</p>
-              <span className={styles.sampleButtons}>
+            <div className={`${requestStyles.card} ${styles.sampleRequest}`}>
+              <div className={requestStyles.head}>
+                <span className={requestStyles.kind}>Review sign-off</span>
+                <span> · WEB-12 · from Task Lead · 2m ago</span>
+              </div>
+              <p className={requestStyles.title}>Ready to merge: dark mode switch in Settings.</p>
+              <div className={requestStyles.buttons}>
+                <Button size="small">Request changes</Button>
                 <Button size="small" variant="primary">
                   Approve
                 </Button>
-                <Button size="small">Request changes</Button>
-              </span>
+              </div>
             </div>
           </HowRow>
           <HowRow
@@ -225,6 +217,8 @@ function OnboardingSteps({
         factories={factories}
         steps={{
           indicator: <StepIndicator step={index} count={steps.length} />,
+          busy: saving,
+          problem,
           onBack: () => setStep('setup'),
         }}
         onClose={() => finish()}

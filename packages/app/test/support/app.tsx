@@ -51,7 +51,7 @@ export function appState() {
     getProfile: () => ({ name: 'Nabha Cosley' }),
     getCommandLine: () => ({ state: 'unavailable' }),
     loginItem: () => 'unavailable',
-    onboardingAgain: () => false,
+    startSettled: () => undefined,
     foundEditors: () => [],
     listEditors: () => [],
     taskDefaults: () => ({ lead: { agent: 'claude' }, clarifyDepth: 'auto' }),

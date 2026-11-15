@@ -45,16 +45,14 @@ function start(
   agents = [health(), health({ agent: 'codex' })],
   {
     factories = [],
-    again = false,
     settings = defaultMachineSettings,
-  }: { factories?: Factory[]; again?: boolean; settings?: MachineSettings } = {},
+  }: { factories?: Factory[]; settings?: MachineSettings } = {},
 ) {
   const finish = vi.fn()
   const api = bridge({
     agentHealth: () => agents,
     getIntegrations: () => integrations,
     listFactories: () => factories,
-    onboardingAgain: () => again,
     homeFolder: () => '/test',
     updateSettings: vi.fn(),
     fixAgent: () => health({ fix: { label: 'Sign in', command: 'claude auth login' } }),
@@ -101,6 +99,7 @@ test('the steps run in order, Back returns, and Skip saves Start at login off', 
   expect(a.request).toHaveBeenCalledWith('updateSettings', {
     firstLaunchDone: true,
     startAtLogin: false,
+    onboardingOnNextOpen: false,
   })
   expect(a.finish).toHaveBeenCalledWith(undefined)
 })
@@ -112,14 +111,14 @@ test('Skip on the first step ends onboarding', async () => {
   expect(a.request).toHaveBeenCalledWith('updateSettings', {
     firstLaunchDone: true,
     startAtLogin: false,
+    onboardingOnNextOpen: false,
   })
 })
 
 test('after a reset with a Factory, Set up TED is the last step and keeps Start at login', async () => {
   const a = start(undefined, {
     factories: [factory()],
-    again: true,
-    settings: { ...defaultMachineSettings, startAtLogin: true },
+    settings: { ...defaultMachineSettings, startAtLogin: true, onboardingOnNextOpen: true },
   })
   await toSetUp()
   expect(screen.getByText('Step 3 of 3')).toBeTruthy()
@@ -134,6 +133,7 @@ test('after a reset with a Factory, Set up TED is the last step and keeps Start 
   expect(a.request).toHaveBeenCalledWith('updateSettings', {
     firstLaunchDone: true,
     startAtLogin: true,
+    onboardingOnNextOpen: false,
   })
   expect(a.finish).toHaveBeenCalledWith(undefined)
   expect(screen.queryByRole('dialog')).toBeNull()
@@ -185,13 +185,20 @@ test('Next waits for Git and an agent, then Add Factory is step 4 with Back and 
   expect(dialog.getByText('Step 4 of 4')).toBeTruthy()
   await user().click(dialog.getByRole('button', { name: 'Back' }))
   await screen.findByRole('heading', { name: /^Set up TED/ })
+  await vi.waitFor(() => expect(button('Next').disabled).toBe(false))
   await user().click(button('Next'))
   dialog = within(await screen.findByRole('dialog', { name: 'Add your first Factory' }))
+  a.handle('updateSettings', () => Promise.reject(new Error('TED isn’t answering')))
+  await user().click(dialog.getByRole('button', { name: 'Skip' }))
+  expect((await dialog.findByRole('alert')).textContent).toBe('TED isn’t answering')
+  expect((dialog.getByRole('button', { name: 'Skip' }) as HTMLButtonElement).disabled).toBe(false)
+  a.handle('updateSettings', () => undefined)
   await user().click(dialog.getByRole('button', { name: 'Skip' }))
   expect(a.finish).toHaveBeenCalledWith(undefined)
-  expect(a.request).toHaveBeenCalledWith('updateSettings', {
+  expect(a.request).toHaveBeenLastCalledWith('updateSettings', {
     firstLaunchDone: true,
     startAtLogin: true,
+    onboardingOnNextOpen: false,
   })
 })
 

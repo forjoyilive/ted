@@ -163,53 +163,7 @@
 }
 
 .sampleRequest {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 250px;
-  padding: 10px 12px;
-  border: 1px solid var(--border-default);
-  border-left: 3px solid var(--status-waiting-fg);
-  border-radius: 8px;
-  background: var(--surface-card);
-}
-
-.sampleKind {
-  color: var(--status-waiting-fg);
-  font-size: var(--text-12);
-  font-weight: var(--weight-semibold);
-}
-
-.sampleText {
-  margin: 0 0 6px;
-  font-size: var(--text-13);
-  line-height: var(--leading-snug);
-}
-
-.sampleButtons {
-  display: flex;
-  gap: 6px;
-}
-
-.stages {
-  display: flex;
-  gap: 3px;
-  margin-bottom: 6px;
-}
-
-.stage {
-  flex: 1;
-  height: 5px;
-  border-radius: 3px;
-  background: var(--border-default);
-}
-
-.stage[data-state='done'] {
-  background: var(--accent-border);
-}
-
-.stage[data-state='current'] {
-  background: var(--status-waiting-fg);
+  width: 270px;
 }
 
 .sampleSidebar {

@@ -900,28 +900,27 @@ async function createWindow(): Promise<void> {
   traceStartup('renderer-load-finished')
 }
 
-let onboardingChecked = false
-let onboardingAgain = false
+let startChecked = false
+const startSettled = Promise.withResolvers<void>()
 
-async function showOnboardingAgain(
-  daemon: DaemonClient,
-  loaded: MachineSettings,
-): Promise<MachineSettings> {
-  if (onboardingChecked) return loaded
-  onboardingChecked = true
-  if (!loaded.onboardingOnNextOpen) return loaded
-  onboardingAgain = true
-  return daemon.updateSettings({ onboardingOnNextOpen: false, firstLaunchDone: false })
+async function startSettings(daemon: DaemonClient, first: boolean): Promise<MachineSettings> {
+  let loaded = await daemon.getSettings()
+  if (first && loaded.onboardingOnNextOpen && loaded.firstLaunchDone)
+    loaded = await daemon.updateSettings({ firstLaunchDone: false })
+  if (skipFirstLaunch && !loaded.firstLaunchDone)
+    loaded = await daemon.updateSettings({ firstLaunchDone: true })
+  return loaded
 }
 
 async function loadState(): Promise<void> {
   if (!client) return
-  const loaded = await showOnboardingAgain(client, await client.getSettings())
-  applySettings(
-    skipFirstLaunch && !loaded.firstLaunchDone
-      ? await client.updateSettings({ firstLaunchDone: true })
-      : loaded,
-  )
+  const first = !startChecked
+  startChecked = true
+  try {
+    applySettings(await startSettings(client, first))
+  } finally {
+    if (first) startSettled.resolve()
+  }
   const [activity, banners, waiting, factories]: [Activity, Banner[], WaitingRequest[], Factory[]] =
     await Promise.all([
       client.getActivity(),
@@ -1056,7 +1055,7 @@ async function start(): Promise<void> {
 
   const appRequests = {
     connection: async () => supervised.connection,
-    onboardingAgain: async () => onboardingAgain,
+    startSettled: () => startSettled.promise,
     loginItem: async () => {
       await loginItemWork
       return loginItem?.state() ?? 'unavailable'
@@ -1087,7 +1086,7 @@ async function start(): Promise<void> {
   } satisfies Pick<
     CustomRequests,
     | 'connection'
-    | 'onboardingAgain'
+    | 'startSettled'
     | 'loginItem'
     | 'openLoginItemsSettings'
     | 'notificationsOff'

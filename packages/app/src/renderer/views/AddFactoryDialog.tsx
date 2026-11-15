@@ -24,7 +24,14 @@ interface AddFactoryDialogProps {
   onAdded: (factory: Factory) => void
   onOpenFactory: (factoryId: string) => void
   onOpenGitHubSettings: () => void
-  steps?: { indicator: ReactNode; onBack: () => void } | undefined
+  steps?:
+    | {
+        indicator: ReactNode
+        busy: boolean
+        problem: string | undefined
+        onBack: () => void
+      }
+    | undefined
 }
 
 let nextRow = 0
@@ -163,10 +170,12 @@ export function AddFactoryDialog({
   const github = githubProblem(health)
   const keyError = keyProblem(key, factories)
   const shown = footer({ rows, name, key, keyProblem: keyError, github })
+  const held = busy || (steps?.busy ?? false)
+  const problem = error ?? steps?.problem
   const keyFormatOnly = keyError !== undefined && !factories.some((f) => f.key === key)
 
   async function add() {
-    if (shown.blocked || busy) return
+    if (shown.blocked || held) return
     setBusy(true)
     setError(undefined)
     try {
@@ -193,7 +202,7 @@ export function AddFactoryDialog({
       aria-labelledby={headingId}
       onCancel={(event) => {
         event.preventDefault()
-        if (!busy) onClose()
+        if (!held) onClose()
       }}
     >
       <header className={styles.head}>
@@ -329,9 +338,9 @@ export function AddFactoryDialog({
         </label>
       </div>
 
-      {error !== undefined && (
+      {problem !== undefined && (
         <p className={styles.error} role="alert">
-          {error}
+          {problem}
         </p>
       )}
       <footer className={styles.footer}>
@@ -340,15 +349,15 @@ export function AddFactoryDialog({
           {shown.text}
         </span>
         <span className={styles.spacer} />
-        <Button variant={steps ? 'quiet' : 'secondary'} disabled={busy} onClick={onClose}>
+        <Button variant={steps ? 'quiet' : 'secondary'} disabled={held} onClick={onClose}>
           {steps ? 'Skip' : 'Cancel'}
         </Button>
         {steps && (
-          <Button disabled={busy} onClick={steps.onBack}>
+          <Button disabled={held} onClick={steps.onBack}>
             Back
           </Button>
         )}
-        <Button variant="primary" disabled={shown.blocked || busy} onClick={() => add()}>
+        <Button variant="primary" disabled={shown.blocked || held} onClick={() => add()}>
           Add Factory
         </Button>
       </footer>
