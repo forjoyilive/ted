@@ -1408,15 +1408,14 @@ export async function openStore({
       ? [events.factoryGuideEnded({ factoryId, reason, at: new Date().toISOString() })]
       : []
   const setUpDone = (factoryId: string) => {
-    const hasSettings =
-      store.query(queryDb(workflowLayers.where({ layer: `factory:${factoryId}` }))).length > 0
+    const queued = new Set(store.query(queryDb(taskQueue.select())).map((row) => row.taskId))
     return store
       .query(queryDb(tasks.where({ factoryId, setup: true, archivedAt: null })))
       .some(
         (row) =>
           row.stage === 'done' ||
           row.stage === 'cleanup' ||
-          (row.stage === 'backlog' && hasSettings && taskRuns(row.id).length === 0),
+          (row.stage === 'backlog' && !queued.has(row.id) && taskRuns(row.id).length === 0),
       )
   }
   const requireFactory = (id: string) => {
@@ -4140,7 +4139,11 @@ export async function openStore({
       const comments = posted.map(({ task, ...comment }) =>
         commentPosted({ ...comment, taskId: idOf(task) }, at),
       )
+      const byUser = planned.length > 0 && planned.every((task) => task.automation === undefined)
+      const ending = byUser ? guideEnding(factoryId, 'task-created') : []
+      const guideEnd = ending.length > 0 && setUpDone(factoryId) ? ending : []
       commit(
+        ...guideEnd,
         ...(draftRevision
           ? [
               events.taskDraftConsumed({
@@ -4184,6 +4187,7 @@ export async function openStore({
       for (const id of touched) if (!links.some((l) => l.taskId === id)) updatedTask(id)
       for (const { id } of comments) emit({ type: 'comment-posted', comment: requireComment(id) })
       for (const closing of closings) updatedTask(emitComment(closing.commentId).taskId)
+      if (guideEnd.length > 0) emitGuides()
       return { created: made, linked: linkedTasks }
     },
     listTasks: () => listTasks().map(toPublicTask),

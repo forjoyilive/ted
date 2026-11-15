@@ -78,11 +78,18 @@ describe('the guide card follows the setup Task', () => {
       text: 'Your Factory is set up. Create your first Task.',
       button: newTask,
     })
-    expect(card(factory({ hasSettings: true }), setup('backlog'), []).button).toEqual(newTask)
-    expect(card(factory(), setup('backlog'), []).button).toEqual({
+    expect(card(factory(), setup('backlog'), []).button).toEqual(newTask)
+    expect(card(factory(), setup('backlog', { kind: 'queued', place: 1 }), []).button).toEqual({
       label: 'Open the Task',
       open: 'task',
     })
+    const ran = task({
+      id: 't1',
+      setup: true,
+      stage: 'backlog',
+      runs: [{ id: 'r1', agent: 'claude', role: 'lead', name: 'Task Lead', state: 'idle' }],
+    })
+    expect(card(factory(), ran, []).button).toEqual({ label: 'Open the Task', open: 'task' })
     expect(card(factory(), setup('work', { kind: 'stopped' }), [])).toEqual({
       text: 'Setup is stopped. Open the Task to start it again.',
       button: { label: 'Open the Task', open: 'task' },

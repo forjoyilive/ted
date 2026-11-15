@@ -304,7 +304,10 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
   )
   await screen.findByText('TED daemon 123 listening')
   await user().click(screen.getByRole('button', { name: 'Show on next open' }))
-  expect(api.request).toHaveBeenCalledWith('updateSettings', { onboardingOnNextOpen: true })
+  expect(api.request).toHaveBeenCalledWith('updateSettings', {
+    onboardingOnNextOpen: true,
+    guideNextFactory: true,
+  })
   view.rerender(
     <DeveloperPage
       settings={{ ...defaultMachineSettings, developerMode: true, onboardingOnNextOpen: true }}
@@ -313,7 +316,23 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
   )
   expect(screen.getByText('Onboarding will show the next time TED opens.')).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'Undo' }))
-  expect(api.request).toHaveBeenCalledWith('updateSettings', { onboardingOnNextOpen: false })
+  expect(api.request).toHaveBeenCalledWith('updateSettings', {
+    onboardingOnNextOpen: false,
+    guideNextFactory: false,
+  })
+  view.rerender(
+    <DeveloperPage
+      settings={{ ...defaultMachineSettings, developerMode: true, guideNextFactory: true }}
+      dispatch={vi.fn()}
+    />,
+  )
+  expect(screen.getByText('The next Factory you add gets the setup guide.')).toBeTruthy()
+  api.request.mockClear()
+  await user().click(screen.getByRole('button', { name: 'Undo' }))
+  expect(api.request).toHaveBeenCalledWith('updateSettings', {
+    onboardingOnNextOpen: false,
+    guideNextFactory: false,
+  })
   view.rerender(
     <DeveloperPage
       settings={{ ...defaultMachineSettings, developerMode: true }}

@@ -157,11 +157,13 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
             >
               <Button
                 onClick={() => {
-                  const on = !settings.onboardingOnNextOpen
+                  const on = !(settings.onboardingOnNextOpen || settings.guideNextFactory)
                   return ted.updateSettings({ onboardingOnNextOpen: on, guideNextFactory: on })
                 }}
               >
-                {settings.onboardingOnNextOpen ? 'Undo' : 'Show on next open'}
+                {settings.onboardingOnNextOpen || settings.guideNextFactory
+                  ? 'Undo'
+                  : 'Show on next open'}
               </Button>
             </SettingRow>
           </SettingsGroup>

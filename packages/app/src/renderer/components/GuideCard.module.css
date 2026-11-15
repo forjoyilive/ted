@@ -10,29 +10,28 @@
   background: var(--surface-card);
 }
 
-.head {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
+.title {
+  color: var(--text-secondary);
   font-size: var(--text-11-5);
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
 }
 
-.title {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-secondary);
-  font-weight: var(--weight-medium);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .hide {
+  margin-left: auto;
   padding: 0;
   border: none;
   background: none;
   color: var(--text-tertiary);
   font: inherit;
+  font-size: var(--text-11-5);
   cursor: pointer;
 }
 
@@ -45,8 +44,4 @@
   color: var(--text-primary);
   font-size: var(--text-13);
   line-height: 1.4;
-}
-
-.button {
-  align-self: flex-start;
 }

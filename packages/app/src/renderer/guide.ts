@@ -53,7 +53,7 @@ export function guideCard(
   const setUp =
     task.stage === 'done' ||
     task.stage === 'cleanup' ||
-    (task.stage === 'backlog' && factory.hasSettings === true && task.runs.length === 0)
+    (task.stage === 'backlog' && task.status === undefined && task.runs.length === 0)
   if (setUp) {
     return card('Your Factory is set up. Create your first Task.', {
       label: 'New Task',

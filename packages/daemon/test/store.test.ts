@@ -5,7 +5,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { agentStageIds, type DaemonEvent, type Task } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { eventlogFile } from '../src/store/files.ts'
-import { openStore } from '../src/store/index.ts'
+import { type NewTreeTask, openStore } from '../src/store/index.ts'
 import { events } from '../src/store/schema.ts'
 
 let dir: string
@@ -902,6 +902,37 @@ describe('TedStore', () => {
     expect(store.hideGuide(sixth.id)).toBe(true)
     expect(live()).toEqual([])
     expect(store.hideGuide(sixth.id)).toBe(false)
+
+    const treeTask = (key: string, extra: Partial<NewTreeTask> = {}): NewTreeTask => ({
+      key,
+      title: key,
+      description: '',
+      priority: 'none',
+      startRequested: false,
+      attachments: [],
+      sourceUrl: `https://app.asana.com/0/1/${key}`,
+      ...extra,
+    })
+    store.updateSettings({ guideNextFactory: true })
+    const seventh = factory('SEVEN')
+    const waiting = await store.createTask({
+      factoryId: seventh.id,
+      title: 'Set up SEVEN',
+      setup: true,
+    })
+    store.queueTask(waiting.id, 'intake')
+    await store.createTask({ factoryId: seventh.id, title: 'While setup is queued' })
+    expect(live()).toEqual([seventh.id])
+    store.moveToBacklog(waiting.id)
+    store.createTaskTree({
+      factoryId: seventh.id,
+      tasks: [treeTask('1', { automation: { automationId: 'a', firingId: 'f' } })],
+      links: [],
+      comments: [],
+    })
+    expect(live()).toEqual([seventh.id])
+    store.createTaskTree({ factoryId: seventh.id, tasks: [treeTask('2')], links: [], comments: [] })
+    expect(live()).toEqual([])
 
     await store.persisted()
     await store.close()

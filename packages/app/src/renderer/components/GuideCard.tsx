@@ -14,23 +14,22 @@ export function GuideCard({
   const { button } = view
   return (
     <section className={styles.card} aria-label="Setup guide" data-guide>
-      <div className={styles.head}>
-        <span className={styles.title}>Setting up {view.factoryName}</span>
+      <span className={styles.title}>Setting up {view.factoryName}</span>
+      <p className={styles.text}>{view.text}</p>
+      <div className={styles.actions}>
+        {button && (
+          <Button
+            size="small"
+            variant={button.open === 'task' ? 'secondary' : 'primary'}
+            onClick={() => onOpen(button)}
+          >
+            {button.label}
+          </Button>
+        )}
         <button type="button" className={styles.hide} onClick={onHide}>
           Hide guide
         </button>
       </div>
-      <p className={styles.text}>{view.text}</p>
-      {button && (
-        <Button
-          size="small"
-          variant={button.open === 'task' ? 'secondary' : 'primary'}
-          className={styles.button}
-          onClick={() => onOpen(button)}
-        >
-          {button.label}
-        </Button>
-      )}
     </section>
   )
 }
