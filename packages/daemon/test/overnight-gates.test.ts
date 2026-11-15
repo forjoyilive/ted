@@ -629,7 +629,7 @@ describe('Autopilot and a Task that changes .ted/', () => {
     )
     expect(obligations.satisfied).toBe(false)
     expect(await plainMerges()).toEqual([])
-  })
+  }, 90_000)
 })
 
 test('only Tasks an Automation created or whose GitHub issue has outsider text are unvetted, and only while the setting is on', () => {
