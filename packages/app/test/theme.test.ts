@@ -138,6 +138,8 @@ describe('theme tokens', () => {
       ['--text-on-accent', '--status-destructive', 4.5],
       ['--text-on-inverse', '--surface-inverse', 4.5],
       ['--text-on-inverse-muted', '--surface-inverse', 4.5],
+      ['--tooltip-fg', '--tooltip-bg', 4.5],
+      ['--tooltip-fg-muted', '--tooltip-bg', 4.5],
       ['--control-selected-fg', '--control-selected-bg', 4.5],
       ['--text-primary', '--control-segment-selected', 4.5],
       ['--text-primary', '--find-match', 4.5],

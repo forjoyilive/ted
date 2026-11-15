@@ -243,8 +243,10 @@
   max-width: 260px;
   padding: 8px 10px;
   border-radius: var(--radius-tooltip);
-  background: var(--surface-inverse);
-  color: var(--text-on-inverse);
+  border: 1px solid var(--tooltip-border);
+  background: var(--tooltip-bg);
+  color: var(--tooltip-fg);
+  text-align: left;
   font-size: var(--text-12);
   line-height: var(--leading-17);
   box-shadow: 0 4px 6px var(--shadow-popover);
@@ -253,11 +255,11 @@
 
 .tooltipHeading {
   margin-bottom: 4px;
-  color: var(--text-on-inverse-muted);
+  color: var(--tooltip-fg-muted);
 }
 
 .tooltipNote {
-  color: var(--text-on-inverse-muted);
+  color: var(--tooltip-fg-muted);
 }
 
 .tooltipRow {
@@ -275,7 +277,7 @@
 }
 
 .tooltipRow i.tooltipPrevious {
-  border-top: 2px dashed var(--text-on-inverse-muted);
+  border-top: 2px dashed var(--tooltip-fg-muted);
 }
 
 .tooltipRow strong {
@@ -285,8 +287,8 @@
 .tooltipChange {
   margin-top: 4px;
   padding-top: 4px;
-  border-top: 1px solid var(--text-on-inverse-muted);
-  color: var(--text-on-inverse-muted);
+  border-top: 1px solid var(--tooltip-fg-muted);
+  color: var(--tooltip-fg-muted);
   font-variant-numeric: tabular-nums;
 }
 

@@ -261,9 +261,12 @@
   gap: 6px;
   padding: 4px 9px;
   border-radius: var(--radius-tooltip);
-  background: var(--surface-inverse);
-  color: var(--text-on-inverse);
+  border: 1px solid var(--tooltip-border);
+  background: var(--tooltip-bg);
+  color: var(--tooltip-fg);
+  text-align: left;
   font-size: var(--text-12);
+  box-shadow: 0 4px 6px var(--shadow-popover);
   white-space: nowrap;
   pointer-events: none;
 }
