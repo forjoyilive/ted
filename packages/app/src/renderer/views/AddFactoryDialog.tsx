@@ -7,6 +7,7 @@ import {
   isFilled,
   moveRow,
   nameProblem,
+  protectedFolderNote,
   type RepoRow,
   shortPath,
 } from '../add-factory.ts'
@@ -18,6 +19,8 @@ import { useEventValue } from '../data.ts'
 import { ted } from '../ted.ts'
 import styles from './AddFactoryDialog.module.css'
 import { GitHubSetupForm } from './GitHubSetupForm.tsx'
+
+const onMac = navigator.userAgent.includes('Mac')
 
 interface AddFactoryDialogProps {
   factories: readonly Factory[]
@@ -397,6 +400,7 @@ export function RepoRowView({
   const showName = filled && row.check?.name !== undefined && problem?.kind !== 'primary-elsewhere'
   const badName = nameProblem(row, rows)
   const label = row.check?.repo ?? (fromFolder ? undefined : row.text.trim())
+  const folderNote = folder === undefined ? undefined : protectedFolderNote(folder, home, onMac)
   const canDrop = !isPrimary && dragging !== undefined && dragging !== index
 
   return (
@@ -489,6 +493,7 @@ export function RepoRowView({
         </div>
       )}
 
+      {filled && folderNote !== undefined && <p className={styles.note}>{folderNote}</p>}
       {filled && row.checking && <p className={styles.checking}>○ Checking access…</p>}
       {filled && !row.checking && row.check?.ok && (
         <p className={styles.ok}>

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, realpath, rm, stat, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
-import { parseLsof, processesInside, taskFolder } from '../src/leftover-processes.ts'
+import { lsofArgs, parseLsof, processesInside, taskFolder } from '../src/leftover-processes.ts'
 import { sweepLeftovers } from '../src/tasks/leftovers.ts'
 
 let dir: string
@@ -34,6 +34,16 @@ test('lsof field output gives each process’s working folder and executable', (
     { pid: 101, path: '/bin/sleep' },
     { pid: 202, path: '/' },
   ])
+})
+
+test('lsof never checks files on disk and never names a file, so it can’t reach an attached drive', () => {
+  for (const args of [lsofArgs(501, 'cwd,txt'), lsofArgs(501), lsofArgs(undefined)]) {
+    expect(args).toContain('-b')
+    expect(args.every((arg) => arg.startsWith('-') || /^[\d,a-z]+$/.test(arg))).toBe(true)
+  }
+  expect(lsofArgs(501, 'cwd,txt')).toEqual(
+    expect.arrayContaining(['-a', '-u', '501', '-d', 'cwd,txt', '-Fpn']),
+  )
 })
 
 test('a process matches only inside the Task’s own folder, and TED’s own process never does', async () => {

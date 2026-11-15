@@ -1,7 +1,6 @@
-import { execFile } from 'node:child_process'
 import { readdir, readlink, realpath } from 'node:fs/promises'
 import { DatabaseSync } from 'node:sqlite'
-import { promisify } from 'node:util'
+import { openPaths } from './leftover-processes.ts'
 
 export class DaemonAlreadyRunningError extends Error {
   constructor() {
@@ -61,27 +60,15 @@ export async function lockHolders(...lockPaths: string[]): Promise<number[]> {
   ).filter((file) => file !== undefined)
   if (files.length === 0) return []
   if (process.platform === 'linux') return openedByOnLinux(new Set(files))
-  const holders = new Set<number>()
-  for (let i = 0; i < files.length; i += lsofBatch) {
-    for (const pid of await lsofHolders(files.slice(i, i + lsofBatch))) holders.add(pid)
-  }
-  return [...holders]
+  return lsofHolders(new Set(files))
 }
 
-const lsofBatch = 200
-
-// lsof exits 1 when some of the files aren't open; any other failure is an error.
-async function lsofHolders(files: string[]): Promise<number[]> {
-  const { stdout } = await promisify(execFile)('/usr/sbin/lsof', ['-t', '--', ...files], {
-    maxBuffer: 1024 * 1024,
-  }).catch((error: { code?: unknown; stdout?: string }) => {
-    if (error.code !== 1) throw error
-    return { stdout: error.stdout ?? '' }
-  })
-  return stdout
-    .split('\n')
-    .filter((line) => /^\d+$/.test(line))
-    .map(Number)
+// Naming the files would make lsof stat them and every mount point, which -b forbids,
+// so this lists the user's open files and matches the lock files' real paths.
+async function lsofHolders(files: Set<string>): Promise<number[]> {
+  const holders = new Set<number>()
+  for (const { pid, path } of await openPaths()) if (files.has(path)) holders.add(pid)
+  return [...holders]
 }
 
 export async function holdsLock(lockPath: string, pid: number): Promise<boolean> {

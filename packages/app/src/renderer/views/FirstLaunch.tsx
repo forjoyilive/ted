@@ -576,6 +576,12 @@ export function FirstLaunch({
         />
         Start TED in the background when you log in
       </label>
+      {/Mac/.test(navigator.userAgent) && (
+        <p className={styles.permissions}>
+          macOS may ask whether TED can use a folder or an attached drive. That means an agent, or a
+          command it ran, tried to read it: macOS counts them as TED. You can say no.
+        </p>
+      )}
     </OnboardingFrame>
   )
 }

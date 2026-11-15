@@ -45,6 +45,7 @@ import { buttonPosition } from './components/ContextMenu.tsx'
 import { EditorPickerHost } from './components/EditorPicker.tsx'
 import { FindBar } from './components/FindBar.tsx'
 import { GuideCard } from './components/GuideCard.tsx'
+import { NotificationOfferBanner } from './components/NotificationOffer.tsx'
 import { PlanUsage } from './components/PlanUsage.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
@@ -1127,6 +1128,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
     ) : (
       <Offline when={offline}>
         {bannerStack('Problems', [...appWideBanners(banners), ...shownUpdateBanner])}
+        <NotificationOfferBanner />
       </Offline>
     )
 

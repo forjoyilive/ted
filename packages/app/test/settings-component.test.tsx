@@ -276,8 +276,11 @@ test('login approval opens the fixed system-settings bridge action', async () =>
 test('notification switches and an OS-disabled event show the settings action', async () => {
   const update = vi.fn()
   const open = vi.fn()
+  const turnOn = vi.fn()
   const api = bridge({
     notificationsOff: () => false,
+    notificationOffer: () => 'not-asked',
+    turnOnNotifications: turnOn,
     listFactories: () => [{ id: 'nb', name: 'notebook' }],
     updateSettings: update,
     setFactoryNotifications: (...args) => update(...args),
@@ -305,10 +308,38 @@ test('notification switches and an OS-disabled event show the settings action', 
     ['nb', { inboxItems: false }],
     ['nb', { taskMerged: true }],
   ])
+  await screen.findByText('TED doesn’t send notifications yet')
+  await u.click(screen.getByRole('button', { name: 'Turn on' }))
+  expect(turnOn).toHaveBeenCalledOnce()
+  await act(async () => api.emit({ type: 'notification-offer', offer: 'done' }))
+  expect(screen.queryByText('TED doesn’t send notifications yet')).toBeNull()
   await act(async () => api.emit({ type: 'notifications-off', off: true }))
   expect(screen.getByRole('alert').textContent).toContain('Notifications are off for TED')
   await u.click(screen.getByRole('button', { name: 'Open System Settings' }))
   expect(open).toHaveBeenCalledOnce()
+})
+
+test('the notifications offer asks before macOS does, and leaves once answered', async () => {
+  const { NotificationOfferBanner } = await import(
+    '../src/renderer/components/NotificationOffer.tsx'
+  )
+  const turnOn = vi.fn()
+  const decline = vi.fn()
+  const api = bridge({
+    notificationOffer: () => 'offered',
+    turnOnNotifications: turnOn,
+    declineNotifications: decline,
+  })
+  render(<NotificationOfferBanner />)
+  const offer = await screen.findByRole('region', { name: 'Notifications' })
+  expect(offer.textContent).toContain('macOS will ask whether TED may send notifications.')
+  const u = user()
+  await u.click(within(offer).getByRole('button', { name: 'Not now' }))
+  await u.click(within(offer).getByRole('button', { name: 'Turn on' }))
+  expect(decline).toHaveBeenCalledOnce()
+  expect(turnOn).toHaveBeenCalledOnce()
+  await act(async () => api.emit({ type: 'notification-offer', offer: 'done' }))
+  expect(screen.queryByRole('region', { name: 'Notifications' })).toBeNull()
 })
 
 test('Developer mode controls Diagnostics, logs and Show onboarding again', async () => {

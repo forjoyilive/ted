@@ -72,9 +72,11 @@ The daemon derives the Factory from the current Lead’s verified Run. Sub-agent
 
 ### 2.4 OS permissions and secrets
 
-- Asked for only when needed. (KRI-20)
-  - Notifications: when the first Inbox item arrives. (KRI-20, KRI-57)
-  - Protected macOS folders (Documents, Desktop, Downloads, iCloud Drive): the first time TED reads a folder chosen in the Add Factory form or as a repo’s local folder. (KRI-20, KRI-58)
+- Asked for only when needed, and TED says why before macOS asks. (KRI-20, TED-399)
+  - Notifications: when the first Inbox item arrives, TED shows a banner (“Get a notification when something needs you?”, Turn on and Not now) and sends nothing until the user clicks Turn on; only then does macOS ask. After Not now, Settings → Notifications offers Turn on. (KRI-20, KRI-57, TED-399)
+  - Protected macOS folders (Documents, Desktop, Downloads, iCloud Drive): the first time TED reads a folder chosen in the Add Factory form or as a repo’s local folder. Both forms note that macOS may ask when the chosen folder is in one of them. (KRI-20, KRI-58, TED-399)
+  - The administrator password, to install the `ted` command: the macOS dialog names the folder it installs into. (TED-399)
+  - Removable and network volumes: never for TED’s own work. TED’s `lsof` calls pass `-b`, so they don’t check files or mount points on disk. An agent, or a command it runs, can still read a drive, and macOS then asks on TED’s behalf; the Set up TED screen says so. (TED-399)
   - Never requested: Accessibility, Screen Recording, Full Disk Access, microphone, camera, Automation. (KRI-20, KRI-57)
 - **Secrets.** The Linear API key is the only secret TED stores. TED holds no agent credentials and no GitHub token. (KRI-57, ADR 0004, ADR 0007)
 - The daemon writes the Linear key to the OS keyring through a native module (for example `@napi-rs/keyring`): the macOS Keychain, or the Secret Service over D-Bus on Linux. Service `TED`, account `linear-api-key`. Not Electron’s `safeStorage`, which works only in the main process and falls back to a hardcoded password on Linux. (KRI-57)

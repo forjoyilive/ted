@@ -25,7 +25,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { moveRow, type RepoRow, shortPath } from '../add-factory.ts'
+import { moveRow, protectedFolderNote, type RepoRow, shortPath } from '../add-factory.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { Button } from '../components/Button.tsx'
 import { FactoryIconPicker } from '../components/FactoryIconPicker.tsx'
@@ -72,6 +72,8 @@ import { LinearIntakeSection } from './LinearIntakeSection.tsx'
 import { SaveSettingsDialog } from './SaveSettingsDialog.tsx'
 import { usePopover } from './TaskList.tsx'
 import views from './views.module.css'
+
+const onMac = navigator.userAgent.includes('Mac')
 
 const machine = navigator.userAgent.includes('Mac') ? 'this Mac' : 'this computer'
 const appKindLabels = {
@@ -1316,6 +1318,7 @@ function LocalFolder({
 }) {
   const [error, setError] = useState<string>()
   const missing = folder !== undefined && !folder.found
+  const folderNote = folder && protectedFolderNote(folder.path, home, onMac)
   const act = async (next: string | undefined) => {
     try {
       await onFolder(next)
@@ -1349,6 +1352,7 @@ function LocalFolder({
           <span aria-hidden>▲</span> Folder not found. {missingCopies(copy)}
         </p>
       )}
+      {folderNote !== undefined && <p className={styles.caption}>{folderNote}</p>}
       {folder?.found &&
         folder.copies.map((file) => (
           <p key={file.path} className={file.found ? styles.found : styles.notFound}>
