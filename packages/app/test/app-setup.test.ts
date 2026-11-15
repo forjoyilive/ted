@@ -147,6 +147,11 @@ describe('setup Tasks', () => {
     await thread.getByText('TED created this Task to set up this Factory').waitFor()
     expect(await thread.getByText('Tutorial', { exact: true }).count()).toBe(0)
 
+    const hide = await guide.getByRole('button', { name: 'Hide guide' }).boundingBox()
+    const title = await guide.getByText('Setting up Widgets').boundingBox()
+    const button = await guide.getByRole('button', { name: 'Open the proposal' }).boundingBox()
+    expect(hide && title && Math.abs(hide.y - title.y)).toBeLessThan(4)
+    expect(hide && button && hide.y < button.y).toBe(true)
     await guide.getByRole('button', { name: 'Hide guide' }).click()
     await guide.waitFor({ state: 'detached' })
     expect(await client.guides()).toEqual([])

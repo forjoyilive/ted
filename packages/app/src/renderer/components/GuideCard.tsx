@@ -14,10 +14,15 @@ export function GuideCard({
   const { button } = view
   return (
     <section className={styles.card} aria-label="Setup guide" data-guide>
-      <span className={styles.title}>Setting up {view.factoryName}</span>
+      <div className={styles.header}>
+        <span className={styles.title}>Setting up {view.factoryName}</span>
+        <button type="button" className={styles.hide} onClick={onHide}>
+          Hide guide
+        </button>
+      </div>
       <p className={styles.text}>{view.text}</p>
-      <div className={styles.actions}>
-        {button && (
+      {button && (
+        <div className={styles.actions}>
           <Button
             size="small"
             variant={button.open === 'task' ? 'secondary' : 'primary'}
@@ -25,11 +30,8 @@ export function GuideCard({
           >
             {button.label}
           </Button>
-        )}
-        <button type="button" className={styles.hide} onClick={onHide}>
-          Hide guide
-        </button>
-      </div>
+        </div>
+      )}
     </section>
   )
 }
