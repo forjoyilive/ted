@@ -383,6 +383,9 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   asanaIntakeScopes() {
     throw new HttpError(400, 'Change a Factory’s Asana intake through its own route')
   },
+  githubIntakeScopes() {
+    throw new HttpError(400, 'Change a Factory’s GitHub intake through its own route')
+  },
   linearSync: onOff('linearSync'),
   asanaSync: onOff('asanaSync'),
   githubIssueSync: onOff('githubIssueSync'),

@@ -94,6 +94,8 @@ function issue(overrides: Partial<GitHubIssue> = {}): GitHubIssue {
     comments: [],
     totalComments: 0,
     hiddenComments: 0,
+    labels: [],
+    allLabels: true,
     subIssues: [],
     subIssuesComplete: true,
     ...overrides,
@@ -118,6 +120,8 @@ describe('reading an issue', () => {
           authorAssociation: 'NONE',
           author: { login: 'drive-by' },
           repository: { nameWithOwner: repo },
+          labels: { totalCount: 2, nodes: [{ name: 'bug' }, { name: 'TED' }] },
+          parent: { url: 'https://github.com/acme/widgets/issues/3' },
           comments: { totalCount: comments.length + 120, nodes: comments },
           subIssues: {
             totalCount: 3,
@@ -200,6 +204,9 @@ describe('reading an issue', () => {
         comments: [{ author: '@ghost', maintainer: true, body: 'Confirmed.' }],
         totalComments: 122,
         hiddenComments: 1,
+        labels: ['bug', 'TED'],
+        allLabels: true,
+        parent: { owner: 'acme', repo: 'widgets', number: 3 },
         subIssues: [
           { repo: 'acme/widgets', number: 8, state: 'open' },
           { repo: 'other/repo', number: 9, state: 'closed' },

@@ -1,5 +1,6 @@
 import type { AsanaIntakeScope } from './asana-intake.ts'
 import type { BoardView } from './board-view.ts'
+import type { GitHubIntakeScope } from './github-intake.ts'
 import type { Billing } from './health.ts'
 import type { LinearIntakeScope } from './linear.ts'
 import type { ListView } from './list-view.ts'
@@ -104,6 +105,7 @@ export interface MachineSettings {
   editorCommand: string
   linearIntakeScopes: Readonly<Record<string, LinearIntakeScope>>
   asanaIntakeScopes: Readonly<Record<string, AsanaIntakeScope>>
+  githubIntakeScopes: Readonly<Record<string, GitHubIntakeScope>>
   linearSync: boolean
   asanaSync: boolean
   githubIssueSync: boolean
@@ -155,6 +157,7 @@ export const defaultMachineSettings: MachineSettings = {
   editorCommand: '',
   linearIntakeScopes: {},
   asanaIntakeScopes: {},
+  githubIntakeScopes: {},
   linearSync: true,
   asanaSync: true,
   githubIssueSync: false,

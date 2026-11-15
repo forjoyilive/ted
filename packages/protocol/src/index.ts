@@ -524,6 +524,15 @@ export {
   validationExecution,
 } from './failures.ts'
 export {
+  type GitHubIntakeScope,
+  isGitHubIntakeScope,
+  isGitHubLabel,
+  maxGitHubLabelLength,
+  parseSetFactoryGitHubIntakeRequest,
+  type SetFactoryGitHubIntakeRequest,
+  sameGitHubLabel,
+} from './github-intake.ts'
+export {
   type GitHubIssueState,
   type GitHubIssueUrl,
   gitHubIssueKey,

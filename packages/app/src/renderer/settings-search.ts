@@ -17,6 +17,7 @@ export const factorySections = [
   ['general', 'General'],
   ['linear-intake', 'Linear intake'],
   ['asana-intake', 'Asana intake'],
+  ['github-intake', 'GitHub intake'],
   ['repos', 'Repos'],
   ['workflow', 'Workflow'],
   ['checks', 'Checks'],
@@ -311,6 +312,16 @@ const entries = {
   'factory.asana-intake.scope': {
     name: 'Asana workspace, project and section',
     keywords: 'asana workspace project section intake',
+  },
+  'factory.github-intake': {
+    name: 'GitHub intake',
+    detail:
+      'Choose which GitHub issues Automations can bring into this Factory: any open issue in its repos, or only issues with a label you name. TED reads each issue itself and refuses the rest. Tasks you create yourself aren’t affected.',
+    heading: true,
+  },
+  'factory.github-intake.scope': {
+    name: 'Issues Automations can bring in',
+    keywords: 'github issue label intake triage',
   },
   'factory.repos': { name: 'Repos', heading: true },
   'factory.repos.base-branch': { name: 'Base branch' },

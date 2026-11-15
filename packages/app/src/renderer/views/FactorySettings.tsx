@@ -67,6 +67,7 @@ import {
   Toggle,
   WorkflowSection,
 } from './FactorySettingsSections.tsx'
+import { GitHubIntakeSection } from './GitHubIntakeSection.tsx'
 import { LinearIntakeSection } from './LinearIntakeSection.tsx'
 import { SaveSettingsDialog } from './SaveSettingsDialog.tsx'
 import { usePopover } from './TaskList.tsx'
@@ -420,6 +421,9 @@ export function FactorySettings({
               )}
               {section === 'asana-intake' && (
                 <AsanaIntakeSection key={factory.id} factoryId={factory.id} />
+              )}
+              {section === 'github-intake' && (
+                <GitHubIntakeSection key={factory.id} factoryId={factory.id} />
               )}
               {inRepo && !view && !loadError && (
                 <div className={styles.wideSection}>

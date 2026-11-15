@@ -1,4 +1,4 @@
-import type { GitHubIssueState, GitHubIssueUrl } from '@ted/protocol'
+import { type GitHubIssueState, type GitHubIssueUrl, parseGitHubIssueUrl } from '@ted/protocol'
 import { clean } from '../tasks/github-activity.ts'
 import { type Gh, GhError } from './gh.ts'
 
@@ -21,6 +21,9 @@ export interface GitHubIssue {
   comments: GitHubPost[]
   totalComments: number
   hiddenComments: number
+  labels: string[]
+  allLabels: boolean
+  parent?: GitHubIssueUrl
   subIssues: GitHubSubIssueRef[]
   subIssuesComplete: boolean
 }
@@ -43,6 +46,7 @@ export const maxSubIssuesPerIssue = 100
 export const maxIssueBody = 20_000
 export const maxIssueDiscussion = 40_000
 const maxTitle = 500
+const maxLabels = 100
 
 const maintainers = new Set(['OWNER', 'MEMBER', 'COLLABORATOR'])
 
@@ -52,6 +56,8 @@ const issueQuery = `query TedGitHubIssue($owner: String!, $name: String!, $numbe
       number title state locked url body bodyHTML createdAt authorAssociation
       author { login }
       repository { nameWithOwner }
+      labels(first: ${maxLabels}) { totalCount nodes { name } }
+      parent { url }
       comments(last: ${maxIssueComments}) {
         totalCount
         nodes { author { login } authorAssociation body bodyHTML createdAt isMinimized }
@@ -79,6 +85,8 @@ interface RawIssue extends RawPost {
   locked?: unknown
   url?: unknown
   repository?: { nameWithOwner?: unknown } | null
+  labels?: { totalCount?: unknown; nodes?: ({ name?: unknown } | null)[] | null } | null
+  parent?: { url?: unknown } | null
   comments?: {
     totalCount?: unknown
     nodes?: (RawPost & { isMinimized?: unknown })[] | null
@@ -155,6 +163,11 @@ function parseIssue(raw: RawIssue): GitHubIssue | undefined {
     return post ? [post] : []
   })
   const total = raw.comments?.totalCount
+  const labelNodes = Array.isArray(raw.labels?.nodes) ? raw.labels.nodes : []
+  const labels = labelNodes.flatMap((node) => (typeof node?.name === 'string' ? [node.name] : []))
+  const labelTotal = raw.labels?.totalCount
+  const parent =
+    typeof raw.parent?.url === 'string' ? parseGitHubIssueUrl(raw.parent.url) : undefined
   const subNodes = Array.isArray(raw.subIssues?.nodes) ? raw.subIssues.nodes : []
   const subIssues = subNodes.flatMap((node) => {
     const ref = parseSubIssue(node)
@@ -172,6 +185,10 @@ function parseIssue(raw: RawIssue): GitHubIssue | undefined {
     comments,
     totalComments: typeof total === 'number' && total >= nodes.length ? total : nodes.length,
     hiddenComments: nodes.length - visible.length,
+    labels,
+    allLabels:
+      typeof labelTotal === 'number' ? labelTotal <= labels.length : labels.length < maxLabels,
+    ...(parent && { parent }),
     subIssues,
     subIssuesComplete:
       raw.subIssues === undefined ||
