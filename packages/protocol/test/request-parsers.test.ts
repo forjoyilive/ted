@@ -213,6 +213,13 @@ roundTrip(P.parseSetFactoryAsanaIntakeRequest, {
   },
 })
 variant(P.parseSetFactoryAsanaIntakeRequest, { scope: null })
+roundTrip(P.parseSetFactoryGitHubIntakeRequest, { scope: { label: 'ready for TED' } })
+roundTrip(
+  P.parseSetFactoryGitHubIntakeRequest,
+  { scope: { label: '  ready  ' } },
+  { scope: { label: 'ready' } },
+)
+variant(P.parseSetFactoryGitHubIntakeRequest, { scope: null })
 roundTrip(P.parseAsanaIntakeRequest, { factory: 'NB' })
 roundTrip(P.parseAllowAsanaProjectRequest, { factoryId: 'factory', project: '9' })
 roundTrip(P.parseForgetAsanaProjectRequest, { factoryId: 'factory', project: '9', list: 'allowed' })
@@ -247,6 +254,18 @@ roundTrip(P.parseResolveFailureRequest, {
 })
 
 rejects(P.parseAppRef, {}, 'name the App')
+rejects(P.parseSetFactoryGitHubIntakeRequest, { scope: { label: ' ' } }, 'Type a GitHub label')
+rejects(
+  P.parseSetFactoryGitHubIntakeRequest,
+  { scope: { label: 'x'.repeat(51) } },
+  'Type a GitHub label',
+)
+rejects(P.parseSetFactoryGitHubIntakeRequest, { scope: { label: 'a\nb' } }, 'Type a GitHub label')
+rejects(
+  P.parseSetFactoryGitHubIntakeRequest,
+  { scope: { label: 'ok', extra: 1 } },
+  'Type a GitHub label',
+)
 rejects(P.parseProfileRequest, { seconds: 121 }, 'whole number from 5 to 120')
 rejects(P.parseProfileRequest, { seconds: '30' }, 'whole number from 5 to 120')
 rejects(P.parseStartAppRequest, { name: 'Dev', shutDown: 2 }, 'shutDown must name')

@@ -32,10 +32,10 @@ End with one line naming the Tasks and Follow-ups you created, or “No new Task
 
 const github = `Triage this Factory’s new GitHub issues.
 
-1. For each of this Factory’s repos, list the open issues created since this Automation last ran (or in the last day): \`gh issue list --repo <owner/repo> --state open --search "created:>=<date>"\`.
+1. For each of this Factory’s repos, list the open issues created since this Automation last ran (or in the last day): \`gh issue list --repo <owner/repo> --state open --search "created:>=<date>"\`. When the GitHub intake line above names a label, add \`--label "<label>"\` and take only those issues.
 2. Create a Task for each issue that reports a bug or asks for a small, clear change: \`ted task create --source <the issue’s URL> "<the issue’s title>"\`. When TED says an issue is already tracked, leave it.
 3. Skip questions, duplicates and large feature requests. Name them in your final message instead, one line each with why.
-4. Don’t pass \`--start\`, and don’t comment on, label or close anything on GitHub.
+4. Don’t pass \`--start\` or \`--follow-up\`, and don’t comment on, label or close anything on GitHub. When TED refuses an issue, leave it and name it with TED’s reason in your final message.
 
 End with one line naming the Tasks you created, or “No new Tasks”, then the issues you skipped.`
 

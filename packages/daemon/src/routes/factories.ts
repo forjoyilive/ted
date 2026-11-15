@@ -14,6 +14,7 @@ import {
   parseReorderFactoriesRequest,
   parseSaveSettingsRequest,
   parseSetFactoryAsanaIntakeRequest,
+  parseSetFactoryGitHubIntakeRequest,
   parseSetFactoryIconRequest,
   parseSetFactoryLinearIntakeRequest,
   parseSetFactoryNotificationsRequest,
@@ -143,6 +144,21 @@ export const factoryRoutes: Route[] = [
       return [
         200,
         store.updateSettings({ asanaIntakeScopes: { ...scopes, ...(scope && { [id]: scope }) } }),
+      ]
+    },
+  }),
+  jsonRoute(parseSetFactoryGitHubIntakeRequest, {
+    method: 'PUT',
+    path: /^\/factories\/([^/]+)\/github-intake$/,
+    async handle({ body, params: [id = ''] }, { store }) {
+      if (!store.getFactory(id)) throw new HttpError(404, 'Factory not found')
+      const { [id]: previous, ...scopes } = store.settings().githubIntakeScopes
+      if (previous?.label === body.scope?.label) return [200, store.settings()]
+      return [
+        200,
+        store.updateSettings({
+          githubIntakeScopes: { ...scopes, ...(body.scope && { [id]: body.scope }) },
+        }),
       ]
     },
   }),

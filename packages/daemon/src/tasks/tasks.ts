@@ -51,6 +51,7 @@ import type {
   FailureContext,
   FileDiff,
   FindingSeverity,
+  GitHubIntakeScope,
   InboxItem,
   LinearFile,
   LinearIssue,
@@ -328,6 +329,7 @@ import {
   trustedCheck,
   unseen,
 } from './github-activity.ts'
+import { githubIntakeRefusal, githubIntakeScope, githubUnreadableWhy } from './github-intake.ts'
 import { createPullRequestWatch } from './github-watch.ts'
 import { createHeldRequests } from './held-requests.ts'
 import {
@@ -4286,15 +4288,33 @@ export function createTasks(options: {
   async function githubIssue(
     url: string,
     factory: StoredFactory,
+    intake?: { scope: GitHubIntakeScope | undefined },
   ): Promise<GitHubImport | undefined> {
     const link = parseGitHubIssueUrl(url)
-    if (!link || !options.gh) return undefined
+    if (!link) return undefined
     const label = `${link.owner}/${link.repo}#${link.number}`
+    if (!options.gh) {
+      if (!intake) return undefined
+      throw new RequestError(
+        409,
+        `TED can’t read GitHub here, so it can’t check ${label} against this Factory’s GitHub intake. Leave it.`,
+      )
+    }
     const resolution = await resolveWorkflow(factory).catch(() => undefined)
     const repos = resolution
       ? factoryRepos(resolution.workflow, factory).map((entry) => entry.repo)
       : [factory.repo]
     const read = await readGitHubIssue(options.gh, link, repos)
+    if (intake) {
+      const refusal = githubIntakeRefusal({
+        label,
+        read,
+        repos,
+        scope: intake.scope,
+        tracked: (parentUrl) => sourceClash(sameSource(parentUrl), factory.id, parentUrl),
+      })
+      if (refusal) throw new RequestError(409, refusal)
+    }
     if (read.state === 'outside-factory') return undefined
     if (read.state === 'unreadable') {
       return { files: [], notes: [githubUnreadableNote(label, read.reason, link.url)] }
@@ -10053,6 +10073,22 @@ export function createTasks(options: {
         'An Automation can’t make a Follow-up of Asana work. TED imports each Asana task once; leave it for the existing Task.',
       )
     }
+    const githubIntake =
+      automation !== undefined && parseGitHubIssueUrl(sourceUrl ?? '') !== undefined
+    if (automation && followUp !== undefined) {
+      if (parseGitHubIssueUrl(find(followUp).source?.url ?? sourceUrl ?? '') !== undefined) {
+        throw new RequestError(
+          403,
+          'An Automation can’t make a Follow-up of a GitHub issue, because a Follow-up starts on its own. Leave it for the existing Task.',
+        )
+      }
+    }
+    if (githubIntake && (startNow === true || startInBackground === true)) {
+      throw new RequestError(
+        403,
+        'Tasks an Automation creates from GitHub issues wait in Backlog for the human. Leave out --start.',
+      )
+    }
     if (automation?.check) {
       if (startNow === true) {
         throw new RequestError(
@@ -10105,11 +10141,12 @@ export function createTasks(options: {
       if (clash) throw new RequestError(409, clashMessage(clash))
     }
     refuseTracked()
+    const githubScope = githubIntake && factory ? githubIntakeScope(store, factory.id) : undefined
     const issue = sourceUrl === undefined ? undefined : await linearIssue(sourceUrl)
     const linearFiles = await storedFiles(issue?.files ?? [])
     const github =
       issue === undefined && sourceUrl !== undefined && factory
-        ? await githubIssue(sourceUrl, factory)
+        ? await githubIssue(sourceUrl, factory, githubScope)
         : undefined
     const importedFiles = [...linearFiles, ...(github?.files ?? [])]
     const given = title?.trim() || issue?.title || github?.title
@@ -10150,6 +10187,7 @@ export function createTasks(options: {
       throw new RequestError(409, `${factory.name} is being removed`)
     }
     intakeUnchanged()
+    githubScope?.unchanged()
     const parent = parentFor()
     const task = await store.createTask({
       ...fields,
@@ -10193,7 +10231,8 @@ export function createTasks(options: {
         failure,
       )
     }
-    if (!resolution || unmergedBlockers(task.id).length > 0 || automation?.check) return task
+    if (!resolution || unmergedBlockers(task.id).length > 0 || automation?.check || githubIntake)
+      return task
     const hasBacklog = resolution.workflow.stages.includes('backlog')
     if (hasBacklog && startNow !== true) return task
     return startInBackground === true ? queueAndAnswer(task.id) : start(task.id)
@@ -12135,13 +12174,7 @@ function setupFailure(command: string, result: CommandResult, output: string): s
 }
 
 function githubUnreadableNote(label: string, reason: GitHubUnreadable, url: string): string {
-  const why = {
-    'gh-missing': 'TED can’t find the GitHub CLI. Check it under Settings → Integrations → GitHub',
-    'signed-out': 'the GitHub CLI isn’t signed in. Sign in under Settings → Integrations → GitHub',
-    'not-found': 'GitHub couldn’t find it, or your GitHub login can’t open it. Check the link',
-    'rate-limit': 'GitHub’s rate limit was reached. Wait a few minutes',
-    failed: 'GitHub didn’t answer as expected. Try again later',
-  }[reason]
+  const why = githubUnreadableWhy[reason]
   return `TED couldn’t read GitHub issue ${label}: ${why}, then create the Task again to import the issue. This Task keeps only the link: ${url}`
 }
 

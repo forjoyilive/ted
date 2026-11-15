@@ -145,6 +145,7 @@ import type {
   ResolveFailureRequest,
   ValidationObligations,
 } from './failures.ts'
+import type { GitHubIntakeScope } from './github-intake.ts'
 import type { AgentHealth } from './health.ts'
 import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrations.ts'
 import type {
@@ -1441,6 +1442,15 @@ export class DaemonClient {
     scope: AsanaIntakeScope | null,
   ): Promise<MachineSettings> {
     return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/asana-intake`, {
+      scope,
+    })
+  }
+
+  setFactoryGitHubIntake(
+    factoryId: string,
+    scope: GitHubIntakeScope | null,
+  ): Promise<MachineSettings> {
+    return this.#request('PUT', `/factories/${encodeURIComponent(factoryId)}/github-intake`, {
       scope,
     })
   }

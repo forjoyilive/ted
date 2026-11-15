@@ -240,6 +240,10 @@ _Avoid_: Nightly build, scheduled test run
 TED bringing the user’s unfinished Asana work into one Factory: the user picks one Asana project, and optionally one section of it, and each run imports every task there that is assigned to them, with the unfinished tasks under it, as Tasks in Backlog. TED checks every item with Asana itself and never imports one twice. The **Import my Asana work** Automation template runs it every 30 minutes by default.
 _Avoid_: Asana sync (that is keeping imported items up to date)
 
+**GitHub intake**:
+A Factory’s choice of which GitHub issues its Automations may turn into Tasks: any open issue in its repos, or only open issues with a label the user names. TED reads each issue itself before an Automation imports it, refuses the rest, and keeps those Tasks in Backlog. Tasks the user creates aren’t limited.
+_Avoid_: GitHub sync (that is keeping imported issues up to date)
+
 **Daemon**:
 TED’s background process on each machine, which keeps Runs, Automations and the store going while no window is open. The UI calls it “TED in the background”, not the daemon.
 _Avoid_: Server, backend, service

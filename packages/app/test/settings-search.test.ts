@@ -84,6 +84,11 @@ test('Factory settings carry the Factory’s name and are left out without a Fac
     where: 'widgets › Settings › Asana intake',
     target: { section: 'asana-intake' },
   })
+  expect(find('github label')[0]).toMatchObject({
+    id: 'factory.github-intake.scope',
+    where: 'widgets › Settings › GitHub intake',
+    target: { section: 'github-intake' },
+  })
   expect(find('bypass').map((hit) => hit.id)).toEqual(['factory.permissions'])
   expect(find('deletes its tasks').map((hit) => hit.id)).toEqual(['factory.danger-zone.remove'])
   expect(find('fewer rounds').map((hit) => hit.id)).toEqual(['factory.workflow.p1-only'])

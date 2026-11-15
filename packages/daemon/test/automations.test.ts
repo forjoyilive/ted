@@ -1659,3 +1659,126 @@ describe('Factory Linear intake enforcement', () => {
     expect(await client.ok<Task[]>('GET', '/tasks')).toHaveLength(1)
   })
 })
+
+describe('Factory GitHub intake enforcement', () => {
+  const previousState = process.env.TED_STUB_GH
+  afterEach(() => {
+    if (previousState === undefined) delete process.env.TED_STUB_GH
+    else process.env.TED_STUB_GH = previousState
+  })
+
+  // One daemon and two Runs cover every rule; each start of a daemon and a Run costs seconds.
+  test('with a label set, an Automation imports only open, labelled issues in the Factory’s repos and never starts them; with Any open issue the label isn’t needed; the human isn’t limited', async () => {
+    process.env.TED_STUB_GH = path.join(home, 'gh.json')
+    const client = await startTed()
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    if (!factory) throw new Error('no Factory')
+    const repo = factory.repo
+    const url = (n: number, where = repo) => `https://github.com/${where}/issues/${n}`
+    const answer = (
+      n: number,
+      extra: { state?: string; labels?: string[]; parent?: number; where?: string } = {},
+    ) => ({
+      number: n,
+      title: `Issue ${n}`,
+      state: extra.state ?? 'OPEN',
+      locked: false,
+      url: url(n, extra.where),
+      body: 'Details',
+      bodyHTML: '',
+      createdAt: '2026-11-01T10:00:00Z',
+      authorAssociation: 'OWNER',
+      author: { login: 'owner' },
+      repository: { nameWithOwner: extra.where ?? repo },
+      labels: {
+        totalCount: extra.labels?.length ?? 0,
+        nodes: (extra.labels ?? []).map((name) => ({ name })),
+      },
+      ...(extra.parent !== undefined && { parent: { url: url(extra.parent) } }),
+      comments: { totalCount: 0, nodes: [] },
+    })
+    const key = (n: number, where = repo) => `${where.toLowerCase()}#${n}`
+    await writeFile(
+      path.join(home, 'gh.json'),
+      JSON.stringify({
+        issues: {
+          [key(1)]: answer(1, { labels: ['bug', 'Ready'] }),
+          [key(2)]: answer(2),
+          [key(3)]: answer(3, { state: 'CLOSED', labels: ['ready'] }),
+          [key(4, 'someone/else')]: answer(4, { labels: ['ready'], where: 'someone/else' }),
+          [key(5)]: answer(5, { labels: ['ready'], parent: 1 }),
+          [key(6)]: answer(6, { labels: ['ready'] }),
+        },
+      }),
+    )
+    await client.ok('PUT', `/factories/${factory.id}/github-intake`, { scope: { label: 'ready' } })
+    const create_ = (n: number, ...extra: string[]) => ({
+      run: [
+        'ted',
+        'task',
+        'create',
+        ...extra,
+        '--source',
+        url(n, n === 4 ? 'someone/else' : repo),
+        `Issue ${n}`,
+      ],
+    })
+    const labelled = await create(client, {
+      on: false,
+      name: 'Daily GitHub issue triage',
+      prompt: steps(
+        create_(1),
+        create_(2),
+        create_(3),
+        create_(4),
+        create_(5),
+        create_(6, '--start'),
+        { endTurn: true },
+      ),
+    })
+    await client.ok('POST', `/automations/${labelled.id}/run`)
+    const [row] = await waitForHistory(
+      client,
+      labelled.id,
+      (rows) => rows[0]?.result.kind === 'created',
+      'the labelled import to finish',
+    )
+    const results = await commandResults(client, row?.runId ?? '')
+    expect(results.map((r) => r.code)).toEqual([0, 1, 1, 1, 1, 1])
+    expect(results[1]?.stderr).toContain('doesn’t have the label "ready"')
+    expect(results[2]?.stderr).toContain('is closed on GitHub')
+    expect(results[3]?.stderr).toContain('isn’t in one of this Factory’s repos')
+    expect(results[4]?.stderr).toContain(
+      `is a sub-issue of ${repo}#1, which this Factory already tracks as NB-1`,
+    )
+    expect(results[5]?.stderr).toContain('Leave out --start')
+    const run = await client.ok<RunWithConversation>('GET', `/runs/${row?.runId}`)
+    expect(run.run.prompt).toContain('GitHub intake: only issues with the label "ready"')
+    let tasks = await client.ok<Task[]>('GET', '/tasks')
+    expect(tasks.map((t) => [t.source?.github?.number, t.stage, t.createdBy])).toEqual([
+      [1, 'backlog', 'automation'],
+    ])
+
+    await client.ok('PUT', `/factories/${factory.id}/github-intake`, { scope: null })
+    const anyIssue = await create(client, {
+      on: false,
+      name: 'Any open issue',
+      prompt: steps(create_(2), create_(3), { endTurn: true }),
+    })
+    await client.ok('POST', `/automations/${anyIssue.id}/run`)
+    const [second] = await waitForHistory(
+      client,
+      anyIssue.id,
+      (rows) => rows[0]?.result.kind === 'created',
+      'the unlabelled import to finish',
+    )
+    expect((await commandResults(client, second?.runId ?? '')).map((r) => r.code)).toEqual([0, 1])
+    const secondRun = await client.ok<RunWithConversation>('GET', `/runs/${second?.runId}`)
+    expect(secondRun.run.prompt).toContain('GitHub intake: any open issue')
+
+    await client.ok('PUT', `/factories/${factory.id}/github-intake`, { scope: { label: 'ready' } })
+    await client.ok('POST', '/tasks', { factory: 'NB', source: url(3), title: 'Closed, by hand' })
+    tasks = await client.ok<Task[]>('GET', '/tasks')
+    expect(tasks.map((t) => t.source?.github?.number).sort()).toEqual([1, 2, 3])
+  })
+})
