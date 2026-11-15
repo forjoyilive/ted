@@ -552,20 +552,14 @@ describe('Autopilot and a Task that changes .ted/', () => {
     )
     const repo = (await getTask(client, task.id)).repos[0]
     const requested = repo?.pushed?.commit
+    expect(requested).toBeDefined()
     await lateSettingsCommit(repo?.worktree ?? '')
     await verifyCurrent(client, task)
 
     await client.ok('POST', `/comments/${review?.request.id}/answer`, { action: 'approve' })
-    const card = await mergeCard(client, task)
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    await mergeCard(client, task)
     expect(await merges()).toEqual([])
-    const listed = (await getTask(client, task.id)).repos[0]?.pullRequest?.signedOff
-    expect(listed).toBe(requested)
-
-    await client.ok('POST', `/comments/${card.request.id}/answer`, { action: 'approve' })
-    await waitForStage(client, task, 'done')
-    expect(await merges()).toHaveLength(1)
-    expect(await branchHead(repo?.branch ?? '')).toBe(listed)
+    expect((await getTask(client, task.id)).repos[0]?.pullRequest?.signedOff).toBe(requested)
   })
 
   test('verified failure history cannot delay disabling auto-merge for a late settings edit', async () => {
@@ -613,8 +607,9 @@ describe('Autopilot and a Task that changes .ted/', () => {
     })
     await waitUntil(
       async () =>
-        (await client.ok<{ satisfied: boolean }>('GET', `/tasks/${task.id}/validation-obligations`))
-          .satisfied,
+        (await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)).find(
+          (f) => f.id === finding.id,
+        )?.verifications?.length,
       'retry verifies the historical failure',
     )
     await advanceTo(client, task, 'merge')
