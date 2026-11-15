@@ -46,7 +46,12 @@
   white-space: normal;
 }
 
-.end {
-  left: auto;
-  right: 0;
+.floating {
+  position: fixed;
+  inset: auto;
+  top: 0;
+  left: 0;
+  margin: 0;
+  border: 0;
+  overflow: visible;
 }

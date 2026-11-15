@@ -131,6 +131,26 @@ describe('New Task dialog', () => {
     await open.getByLabel('Priority').selectOption('high')
     await open.getByLabel('Start now').uncheck()
     await open.getByText('Waits in Backlog until you start it').waitFor()
+    await open
+      .locator('label', { hasText: 'Start now' })
+      .locator('xpath=..')
+      .getByRole('button', { name: 'Help' })
+      .hover()
+    const tooltip = open.getByRole('tooltip')
+    await tooltip.waitFor()
+    expect(
+      await tooltip.evaluate((element) => {
+        const box = element.getBoundingClientRect()
+        return [
+          [box.left + 2, box.top + 2],
+          [box.right - 2, box.bottom - 2],
+        ].every(([x, y]) => {
+          const hit = document.elementFromPoint(x ?? 0, y ?? 0)
+          return hit !== null && element.contains(hit)
+        })
+      }),
+    ).toBe(true)
+    await window.mouse.move(0, 0)
     await expect
       .poll(() => open.getByRole('button', { name: 'Create', exact: true }).isEnabled())
       .toBe(true)
