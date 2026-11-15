@@ -3,6 +3,7 @@ import path from 'node:path'
 import type { Banner, CheckRun, Factory, Task } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { filesClone } from '../src/tasks/cache-seeds.ts'
 import {
   api,
   commitToOrigin,
@@ -14,7 +15,7 @@ import {
 } from './helpers.ts'
 
 import { observe } from './support/execution-observations.ts'
-import { skipInsideTedSandbox } from './support/ted-sandbox.ts'
+import { insideTedSandbox, skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
 let home: string
 let cleanup: () => Promise<void>
@@ -168,6 +169,60 @@ test.runIf(process.platform === 'darwin')(
     })
   },
 )
+
+test('a new Task’s cache starts as a clone of the Factory’s seed, which the Task can’t change', async (context) => {
+  context.skip(
+    !(await filesClone(home, [path.join(home, 'seeds'), path.join(home, 'sandbox')])),
+    'this file system can’t clone files, so TED keeps no seed',
+  )
+  const realSandbox = process.platform === 'darwin' && !insideTedSandbox
+  const seeds = path.join(home, 'seeds')
+  const tamper = realSandbox
+    ? `if [ -n "$TED_TASK" ]; then for f in '${seeds}'/*/seed/stub-package; do if echo tampered >> "$f"; then exit 93; fi; done; fi; `
+    : ''
+  const setup = [
+    tamper,
+    'if [ -f "$XDG_CACHE_HOME/stub-package" ]; then echo "reused package"; ',
+    'else echo "downloaded package"; echo from-setup > "$XDG_CACHE_HOME/stub-package"; fi; ',
+    'if [ -n "$TED_TASK" ]; then echo "$TED_TASK" >> "$XDG_CACHE_HOME/stub-package"; fi',
+  ].join('')
+  const { client, task } = await start(setup, 'true')
+  expect(task.repos[0]?.setup?.state).toBe('passed')
+  expect(await log('setup')).toContain('downloaded package')
+  const seed = path.join(seeds, task.factoryId, 'seed', 'stub-package')
+  await waitUntil(
+    () => readFile(path.join(seeds, task.factoryId, 'seed.json'), 'utf8').catch(() => undefined),
+    'the seed cache',
+  )
+  expect(await readFile(seed, 'utf8')).toBe('from-setup\n')
+
+  const second = await client.ok<Task>('POST', '/tasks', {
+    factory: 'NB',
+    title: JSON.stringify({ steps: [{ endTurn: true }] }),
+  })
+  await client.ok('POST', `/tasks/${second.id}/start`)
+  const started = await waitUntil(async () => {
+    const tasks = await client.ok<Task[]>('GET', '/tasks')
+    const current = tasks.find((t) => t.id === second.id)
+    return current?.leadRunId ? current : undefined
+  }, 'the second Task Lead after setup')
+  expect(started.repos[0]?.setup?.state).toBe('passed')
+  const secondLog = await readFile(
+    path.join(home, 'logs', 'worktrees', 'NB-2-widgets-setup.log'),
+    'utf8',
+  )
+  expect(secondLog).toContain('reused package')
+  expect(await readFile(path.join(home, 'sandbox', 'NB-2', 'cache', 'stub-package'), 'utf8')).toBe(
+    'from-setup\nNB-2\n',
+  )
+  expect(await readFile(seed, 'utf8')).toBe('from-setup\n')
+
+  await client.ok('POST', `/factories/${task.factoryId}/remove`, {
+    key: 'NB',
+    closePullRequests: false,
+  })
+  await expect(readdir(path.join(seeds, task.factoryId))).rejects.toThrow()
+})
 
 test('missing sandbox fails setup with a report, still starts the Task Lead and skips teardown safely', async () => {
   process.env.TED_SANDBOX_BIN = path.join(home, 'no-such-sandbox')

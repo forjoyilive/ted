@@ -277,6 +277,7 @@ import {
   noConflictFound,
 } from './base-conflict.ts'
 import { createBrowserBroker } from './browser.ts'
+import { createCacheSeeds } from './cache-seeds.ts'
 import { conversationText } from './carry-over.ts'
 import { commitChanges, fileDiffs, taskChanges, taskCommits } from './changes.ts'
 import type { CheckSlots } from './check-slots.ts'
@@ -657,6 +658,7 @@ export interface Tasks {
   reset(ref: string): Promise<Task>
   delete(ref: string, options: DeleteTaskRequest): Promise<void>
   removeFactoryTasks(factoryId: string, options: { closePullRequests: boolean }): Promise<void>
+  removeFactorySeed(factoryId: string): Promise<void>
   block(ref: string, caller: Caller, by: string): Promise<Task>
   unblock(ref: string, caller: Caller, by?: string): Task
   slots(): Promise<RunSlots>
@@ -852,6 +854,16 @@ export function createTasks(options: {
     attachmentFile,
   } = options
   const execution = createTaskExecution(store)
+  const seeds = createCacheSeeds({
+    home: path.dirname(worktreesDir),
+    reposDir,
+    logsDir,
+    store,
+    workflows,
+    sandbox: options.sandbox,
+    checkSlots: options.checkSlots,
+    env: () => options.env?.() ?? process.env,
+  })
   const lifecycle = createLocalLifecycle({
     store,
     banners,
@@ -860,6 +872,7 @@ export function createTasks(options: {
     logsDir,
     sandbox: options.sandbox,
     sandboxSockets: async (taskId) => sandboxSockets(find(taskId)),
+    startCache: (factoryId, cache) => seeds.startCache(factoryId, cache),
     env: () => options.env?.() ?? process.env,
   })
 
@@ -1036,10 +1049,12 @@ export function createTasks(options: {
     repos: readonly TaskRepo[] = task.repos,
   ): Promise<Omit<SandboxScope, 'tmp'>> {
     const live = repos.filter((r) => !r.removed)
+    const cache = path.join(sandboxDir, task.displayId, 'cache')
+    await seeds.startCache(task.factoryId, cache)
     return {
       writable: [...new Set(live.map((r) => r.worktree))],
       readable: [...new Set(live.map((r) => clonePath(reposDir, r)))],
-      cache: path.join(sandboxDir, task.displayId, 'cache'),
+      cache,
       sockets: await sandboxSockets(task),
     }
   }
@@ -10774,6 +10789,7 @@ export function createTasks(options: {
     delete: remove,
     reset,
     removeFactoryTasks,
+    removeFactorySeed: (factoryId) => seeds.remove(factoryId),
 
     archiveDone(key) {
       const factory = store.listFactories().find((f) => f.key === key || f.id === key)
@@ -11892,7 +11908,7 @@ export function createTasks(options: {
       githubSync?.close()
       await pumping
       stopping.abort()
-      await Promise.all(background)
+      await Promise.all([...background, seeds.close()])
       await apps.close()
     },
     async browserApp(ref, caller, app) {

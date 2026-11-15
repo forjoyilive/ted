@@ -46,7 +46,7 @@ export function createStorage(options: {
 
   const categoryDirs: Record<StorageCategoryId, string[]> = {
     worktrees: [paths.worktrees, paths.plans, paths.automationRuns],
-    'sandbox-caches': [paths.sandbox],
+    'sandbox-caches': [paths.sandbox, paths.seeds],
     simulators: [paths.simulators],
     clones: [paths.repos],
     'conversations-and-logs': [paths.logs, paths.runs, paths.apps],
