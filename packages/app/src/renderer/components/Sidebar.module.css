@@ -81,6 +81,21 @@
   outline-offset: -2px;
 }
 
+.navIcon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--text-muted);
+}
+
+.row:hover .navIcon,
+.row[aria-current='page'] .navIcon {
+  color: var(--text-secondary);
+}
+
 .strong {
   font-weight: var(--weight-medium);
 }

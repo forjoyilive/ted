@@ -1,4 +1,6 @@
 import type { Coordinator, Factory } from '@ted/protocol'
+import type { LucideIcon } from 'lucide-react'
+import { Inbox, LayoutDashboard, ListTodo, Settings } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import type { FactoryView, Navigation, NavigationAction, Screen } from '../navigation.ts'
@@ -245,6 +247,7 @@ export function Sidebar({
           onClick={() => open({ kind: 'inbox' })}
           {...current({ kind: 'inbox' })}
         >
+          <NavIcon shape={Inbox} />
           <span className={styles.label}>Inbox</span>
           {inboxCount > 0 && <span className={styles.count}>{inboxCount}</span>}
         </ActionButton>
@@ -254,6 +257,7 @@ export function Sidebar({
           onClick={() => open({ kind: 'all-tasks' })}
           {...current({ kind: 'all-tasks' })}
         >
+          <NavIcon shape={ListTodo} />
           <span className={styles.label}>All Tasks</span>
         </ActionButton>
         <ActionButton
@@ -262,6 +266,7 @@ export function Sidebar({
           onClick={() => open({ kind: 'dashboard' })}
           {...current({ kind: 'dashboard' })}
         >
+          <NavIcon shape={LayoutDashboard} />
           <span className={styles.label}>Dashboard</span>
         </ActionButton>
 
@@ -530,6 +535,7 @@ export function Sidebar({
           className={`${styles.row} ${styles.appSettings}`}
           onClick={() => dispatch({ type: 'open-settings' })}
         >
+          <NavIcon shape={Settings} />
           <span className={styles.label}>Settings</span>
           {settingsProblem && (
             <span role="img" aria-label="A problem stops work" className={styles.failedDot}>
@@ -587,5 +593,13 @@ export function Sidebar({
         {developerMode && <ResourceUsage />}
       </nav>
     </ResizableSidebar>
+  )
+}
+
+function NavIcon({ shape: Shape }: { shape: LucideIcon }) {
+  return (
+    <span className={styles.navIcon} aria-hidden="true">
+      <Shape size={16} strokeWidth={1.75} />
+    </span>
   )
 }
