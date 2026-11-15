@@ -133,9 +133,10 @@ Ticket: [KRI-65](https://linear.app/kriyadesign/issue/KRI-65).
 |---|---|
 | Add Factory · from a folder and a URL | [27:6546](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-6546) |
 | Add Factory · access and validation errors | [27:6744](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-6744) |
-| Add your first Factory · from folders, tutorial on | [27:6971](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-6971) |
+| Add your first Factory · from folders (before TED-370, still shows the tutorial checkbox) | [27:6971](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-6971) |
 | After Add Factory · cloning / clone failed | [27:9281](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-9281) / [27:9406](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-9406) |
-| Setup Task · design review with first-Factory tutorial | [27:9532](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-9532) |
+| Setup Task · design review (before TED-370, still shows tutorial Comments) | [27:9532](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-9532) |
+| First Factory guide card · every setup state (TED-370) | [122:2538](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=122-2538) |
 | Factory settings · General and Repos | [27:10938](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-10938) |
 | Factory settings · Workflow, with drift on Review | [27:12011](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-12011) |
 | Factory settings · Checks, Agents, Permissions, with an invalid workflow.yaml | [28:904](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-904) |

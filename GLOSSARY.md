@@ -280,6 +280,10 @@ _Avoid_: Alert, error bar, toast
 The full-window steps a new user sees the first time TED opens on a machine: what TED is, how it works, Set up TED’s checks, and the Add Factory dialog for the first Factory. Developer mode can show them again on the next start.
 _Avoid_: Tutorial, welcome wizard, Factory setup
 
+**Guide card**:
+The card at the bottom of the sidebar that follows a new user’s first Factory through its setup Task, saying in fixed text what TED is doing and what the user should do next, with at most one button. It ends when the user creates their first Task, hides it, or the setup Task is archived or deleted.
+_Avoid_: Tutorial, checklist, coach marks
+
 **TED Dev**:
 TED run from source (`pnpm app`, `pnpm ted`), as opposed to the installed release. It has its own home folder (`~/.ted-dev`), app name, keyring entry and Factories, and never installs a command, a login item or an update, so it can run beside the release on one machine.
 _Avoid_: Debug build, local TED

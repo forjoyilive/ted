@@ -22,4 +22,4 @@ The Add Factory form (spec 5.1) replaces `ted dev factory add` for the human. It
 
 - Tasks still use only the primary repo; multi-repo Tasks (KRI-126) read `StoredFactory.repos`.
 - There is no connectivity monitor yet, so “retried when the connection returns” is a retry every minute.
-- First launch doesn’t open the form by itself yet; the dialog is titled “Add your first Factory” and ticks Show the tutorial whenever there are no Factories.
+- First launch doesn’t open the form by itself yet; the dialog is titled “Add your first Factory” and ticks Show the tutorial whenever there are no Factories. (ADR 0162 removed the tutorial for a guide card.)
