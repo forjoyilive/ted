@@ -1,4 +1,4 @@
-# TED: Totally Excellent Development
+# TED. Totally Excellent Development.
 
 A software factory builder for solo developers, on your Mac.
 
