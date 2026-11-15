@@ -192,6 +192,15 @@ describe('lab configuration and SSH control', () => {
     await writeFile(value.identityFile, '', { mode: 0o600 })
     const file = `${directory}/config.json`
     await writeFile(file, JSON.stringify(value))
+    const candidate = await scratch()
+    await writeFile(path.join(candidate, 'candidate.ts'), 'export const value = 1\n')
+    const git = (...args: string[]) =>
+      promisify(execFile)('git', ['-C', candidate, ...args], {
+        env: { PATH: process.env.PATH, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+      })
+    await git('init', '--quiet')
+    await git('add', 'candidate.ts')
+    await git('-c', 'user.name=Lab', '-c', 'user.email=lab@example.invalid', 'commit', '-qm', 'c')
     const seen: string[] = []
     const starts = new Map<string, number>()
     const observations = new Map<string, number>()
@@ -201,7 +210,7 @@ describe('lab configuration and SSH control', () => {
         {
           optIn: true,
           configFile: file,
-          root: process.cwd(),
+          root: candidate,
           action: 'acceptance',
           scenarios: ['lab-access'],
         },
