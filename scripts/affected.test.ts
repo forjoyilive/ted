@@ -6,6 +6,7 @@ import {
   chooseTier,
   electronSandbox,
   importGraph,
+  knownFiles,
   leftOutText,
   maxAffectedFiles,
   type Pick,
@@ -171,6 +172,62 @@ describe('which tests a change affects', () => {
         },
       ],
     )
+  })
+
+  test('an Electron test named after changed app source keeps that reason when changed code also reaches it through imports', () => {
+    const both = select('packages/app/test/first-window.ts', 'packages/app/src/renderer/inbox.ts')
+    const inbox = both.picks.find((pick) => pick.file === 'packages/app/test/app-inbox.test.ts')
+    expect(inbox).toEqual({
+      file: 'packages/app/test/app-inbox.test.ts',
+      kind: 'app',
+      why: 'app area “inbox” (packages/app/src/renderer/inbox.ts)',
+    })
+    expect(chooseTier(both, tests.length, 3).run.map((pick) => pick.file)).toContain(
+      'packages/app/test/app-inbox.test.ts',
+    )
+    expect(leftOutText(both.picks, electron, 'TED’s sandbox')).toContain(
+      '  packages/app/test/app-inbox.test.ts  app area “inbox”',
+    )
+    expect(
+      select('packages/app/test/first-window.ts', 'packages/app/test/app-inbox.test.ts').picks.find(
+        (pick) => pick.file === 'packages/app/test/app-inbox.test.ts',
+      )?.kind,
+    ).toBe('changed')
+  })
+
+  test('a deleted module or fixture runs the tests that still name it, and a deleted test file never runs', () => {
+    const gone = [
+      'packages/daemon/test/fixtures/stub-app.ts',
+      'packages/daemon/src/redact.ts',
+      'packages/daemon/test/apps.test.ts',
+    ]
+    const kept = new Map([...sources].filter(([file]) => !gone.includes(file)))
+    const left = [...kept.keys()]
+    expect(knownFiles(left, gone).has('packages/daemon/test/fixtures/stub-app.ts')).toBe(true)
+    const pickedWith = (known: ReadonlySet<string>) =>
+      affectedTests({
+        changed: gone,
+        graph: importGraph(kept, known, packages),
+        tests: tests.filter((file) => !gone.includes(file)),
+        electron,
+      }).picks.map((pick) => [pick.file, pick.why])
+    expect(pickedWith(new Set(left))).toEqual([])
+    expect(pickedWith(knownFiles(left, gone))).toEqual([
+      [
+        'packages/daemon/test/queue.test.ts',
+        'imports packages/daemon/src/redact.ts through packages/daemon/test/helpers.ts',
+      ],
+      ['packages/daemon/test/redact.test.ts', 'imports packages/daemon/src/redact.ts'],
+    ])
+    const fixture = importGraph(sources, knownFiles(left, gone), packages)
+    expect(
+      affectedTests({
+        changed: ['packages/daemon/test/fixtures/stub-app.ts'],
+        graph: fixture,
+        tests,
+        electron,
+      }).picks.map((pick) => pick.file),
+    ).toEqual(['packages/daemon/test/apps.test.ts'])
   })
 
   test('a changed helper or fixture runs the tests that import or name it', () => {

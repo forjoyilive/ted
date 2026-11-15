@@ -582,11 +582,9 @@ export async function checkAffected({
   const base = affected.defaultBranch(root)
   let files: TestFiles | undefined
   try {
-    const repo = affected.readRepo(root)
-    const selection = affected.affectedTests({
-      changed: affected.changedSince(root, base),
-      ...repo,
-    })
+    const changed = affected.changedSince(root, base)
+    const repo = affected.readRepo(root, changed)
+    const selection = affected.affectedTests({ changed, ...repo })
     const chosen = affected.chooseTier(selection, repo.tests.length)
     console.log(`\n${affected.selectionText(selection, chosen, base, repo.electron)}`)
     const sandbox = affected.electronSandbox()

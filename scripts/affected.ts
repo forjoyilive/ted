@@ -142,6 +142,8 @@ export interface Pick {
   why: string
 }
 
+const kindOrder: Pick['kind'][] = ['changed', 'app', 'imports', 'through']
+
 export interface Selection {
   all?: string
   picks: Pick[]
@@ -159,7 +161,7 @@ export function affectedTests(input: {
   const pick = (file: string, kind: Pick['kind'], why: string) => {
     if (!tests.has(file)) return
     const had = picks.get(file)?.kind
-    if (had === undefined || (had === 'through' && kind === 'imports'))
+    if (had === undefined || kindOrder.indexOf(kind) < kindOrder.indexOf(had))
       picks.set(file, { file, kind, why })
   }
 
@@ -241,22 +243,25 @@ export function changedSince(root: string, base: string): string[] {
 
 const scanned = /\.(ts|tsx|cjs|mjs|js)$/
 
-export function readRepo(root: string): {
+export function knownFiles(listed: readonly string[], changed: readonly string[]): Set<string> {
+  return new Set([...listed, ...changed])
+}
+
+export function readRepo(
+  root: string,
+  changed: readonly string[] = [],
+): {
   graph: Graph
   tests: string[]
   electron: Set<string>
 } {
   const listed = lines(git(root, 'ls-files', '--cached', '--others', '--exclude-standard'))
   const sources = new Map<string, string>()
-  const files = new Set<string>()
+  const files = knownFiles(listed, changed)
   for (const file of listed) {
-    if (!scanned.test(file)) {
-      files.add(file)
-      continue
-    }
+    if (!scanned.test(file)) continue
     try {
       sources.set(file, readFileSync(path.join(root, file), 'utf8'))
-      files.add(file)
     } catch {}
   }
   const packages: Record<string, { dir: string; exports: Record<string, string> }> = {}
