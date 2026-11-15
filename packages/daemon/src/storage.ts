@@ -52,6 +52,7 @@ export function createStorage(options: {
     attachments: [paths.attachments],
     backups: [paths.backups],
     'scratch-worktrees': [paths.scratch],
+    'package-caches': [paths.sandbox, paths.seeds],
   }
 
   async function clones(): Promise<{ repo: string; dir: string }[]> {

@@ -31,7 +31,7 @@ export function createFactoryRemovals(options: {
   store: TedStore
   execution?: Pick<ExecutionController, 'forgetFactory'>
   banners: Banners
-  tasks: Pick<Tasks, 'removeFactoryTasks'>
+  tasks: Pick<Tasks, 'removeFactoryTasks' | 'removeFactorySeed'>
   automations: Pick<Automations, 'removeFactory'>
   sideChats?: Pick<SideChats, 'removeFactory'>
   coordinators?: Pick<Coordinators, 'removeFactory' | 'holdFactoryRemoval'>
@@ -98,6 +98,7 @@ export function createFactoryRemovals(options: {
         await options.coordinators?.removeFactory(factory.id)
         await options.plans.removeFactory(factory.id)
         await options.tasks.removeFactoryTasks(factory.id, { closePullRequests })
+        await options.tasks.removeFactorySeed(factory.id)
         await options.checkTries.forget(factory.id)
         options.workflows?.forget(factory.id)
         banners.clearFactory(factory.id)

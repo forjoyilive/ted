@@ -19,6 +19,7 @@ export const storageCategories = [
   { id: 'attachments', label: 'Attachments' },
   { id: 'backups', label: 'Backups' },
   { id: 'scratch-worktrees', label: 'Scratch worktrees' },
+  { id: 'package-caches', label: 'Package caches' },
 ] as const
 
 export type StorageCategoryId = (typeof storageCategories)[number]['id']

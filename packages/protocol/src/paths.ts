@@ -29,6 +29,8 @@ export function tedPaths(home: string) {
     simulators: path.join(home, 'simulators'),
     emulators: path.join(home, 'emulators'),
     scratch: path.join(home, 'scratch'),
+    sandbox: path.join(home, 'sandbox'),
+    seeds: path.join(home, 'seeds'),
     plans: path.join(home, 'plans'),
     automationRuns: path.join(home, 'automation-runs'),
     secrets: path.join(home, 'secrets'),

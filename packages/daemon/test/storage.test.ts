@@ -79,6 +79,8 @@ describe('Settings → Storage', () => {
       'NB-1’s worktree',
     )
 
+    await mkdir(path.join(paths.seeds, 'factory', 'seed'), { recursive: true })
+    await writeFile(path.join(paths.seeds, 'factory', 'seed', 'package'), 'x'.repeat(8192))
     const storage = await client.ok<StorageSummary>('GET', '/storage')
     expect((await client.ok<StorageSummary>('GET', '/storage')).measuredAt).toBe(storage.measuredAt)
     await client.ok<StorageSummary>('GET', '/storage?refresh=1')
@@ -92,6 +94,7 @@ describe('Settings → Storage', () => {
         'Backups',
         'Clones',
         'Conversations and logs',
+        'Package caches',
         'Scratch worktrees',
         'Simulators',
         'Store',
@@ -102,6 +105,7 @@ describe('Settings → Storage', () => {
     expect(bytesOf('clones')).toBeGreaterThan(0)
     expect(bytesOf('worktrees')).toBeGreaterThan(0)
     expect(bytesOf('store')).toBeGreaterThan(0)
+    expect(bytesOf('package-caches')).toBeGreaterThanOrEqual(8192)
     expect(storage.usedBytes).toBeGreaterThanOrEqual(bytesOf('clones') + bytesOf('store'))
     expect(storage.largestWorktrees).toMatchObject([
       { displayId: 'NB-1', taskId: created.id, factoryName: expect.any(String) },

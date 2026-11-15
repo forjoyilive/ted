@@ -232,6 +232,20 @@ export async function listFiles(repo: string, commit: string, dir: string): Prom
   return out.split('\0').filter((p) => p !== '')
 }
 
+export async function blobIds(
+  repo: string,
+  commit: string,
+  files: readonly string[],
+): Promise<Record<string, string>> {
+  const out = await git(repo, 'ls-tree', '-z', commit, '--', ...files)
+  const found: Record<string, string> = {}
+  for (const line of out.split('\0')) {
+    const match = /^\d+ blob ([0-9a-f]+)\t(.+)$/.exec(line)
+    if (match?.[1] && match[2]) found[match[2]] = match[1]
+  }
+  return found
+}
+
 export async function showFile(repo: string, commit: string, file: string): Promise<string> {
   const { stdout } = await execFileAsync('git', ['cat-file', 'blob', `${commit}:${file}`], {
     cwd: repo,
