@@ -93,4 +93,22 @@ test('the wait ends when the load is at the mark or below, or when the longest w
   expect(busyStill.lines.at(-1)).toBe(
     'Warning: the machine is still busy after 25 seconds (load per core 9.00). Starting the tests anyway.',
   )
+
+  let slowClock = 0
+  const slowLines: string[] = []
+  const slow = await waitForQuiet({
+    maxWaitMs: 1,
+    read: () => 2,
+    now: () => {
+      slowClock += 50
+      return slowClock
+    },
+    pause: async () => {},
+    log: (line) => slowLines.push(line),
+  })
+  expect(slow).toEqual({ waitedMs: 50, quiet: false })
+  expect(slowLines).toEqual([
+    'Waiting for the machine to be quiet: load per core is 2.00, and the tests start at 0.75 or below, or after 0 seconds…',
+    'Warning: the machine is still busy after 0 seconds (load per core 2.00). Starting the tests anyway.',
+  ])
 })
