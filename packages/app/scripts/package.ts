@@ -42,7 +42,7 @@ const buildDir = path.join(appDir, 'build')
 const config: Configuration = {
   appId: 'design.kriya.ted',
   productName: 'TED',
-  copyright: `Copyright © ${new Date().getFullYear()} Kriya Design`,
+  copyright: `Copyright © ${new Date().getFullYear()} Kriya Design LLC`,
   electronVersion: electron.version,
   directories: {
     app: path.join(appDir, 'dist', 'stage'),

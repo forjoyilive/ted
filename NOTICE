@@ -1,0 +1,7 @@
+TED
+Copyright 2026 Kriya Design LLC
+
+This product includes software adapted from agent-orchestrator
+(https://github.com/OrchestratorInc/agent-orchestrator), Copyright 2026 Untrivial,
+licensed under the Apache License, Version 2.0. Its license and notice are in
+packages/app/third-party/agent-orchestrator/.

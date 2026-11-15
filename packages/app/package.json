@@ -2,6 +2,7 @@
   "name": "@ted/app",
   "version": "0.1.18",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "main": "src/entry.ts",
   "scripts": {
