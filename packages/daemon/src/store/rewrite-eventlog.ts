@@ -1,8 +1,8 @@
 import { constants } from 'node:fs'
-import { copyFile, open, rename, rm, stat } from 'node:fs/promises'
+import { copyFile, lstat, open, realpath, rename, rm, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { eventlogFile } from './files.ts'
+import { eventlogFile, storeFolder } from './files.ts'
 
 export const eventKey = ['seqNumGlobal', 'seqNumClient', 'seqNumRebaseGeneration']
 
@@ -118,6 +118,23 @@ function verify(copy: string, original: string, check: RewriteCheck): void {
   })
 }
 
+async function plainPaths(directory: string, eventlog: string): Promise<string | undefined> {
+  const folder = path.join(directory, storeFolder)
+  for (const [at, kind] of [
+    [directory, 'folder'],
+    [folder, 'folder'],
+    [eventlog, 'file'],
+  ] as const) {
+    const entry = await lstat(at)
+    if (kind === 'folder' ? !entry.isDirectory() : !entry.isFile()) {
+      return `${at} isn’t a plain ${kind}`
+    }
+  }
+  const expected = path.join(await realpath(directory), storeFolder, path.basename(eventlog))
+  if ((await realpath(eventlog)) !== expected) return `${eventlog} isn’t inside the store folder`
+  return undefined
+}
+
 async function flush(file: string): Promise<void> {
   const handle = await open(file, 'r')
   try {
@@ -143,6 +160,10 @@ export async function rewriteEventlog(
 ): Promise<Rewrite> {
   const eventlog = await eventlogFile(directory)
   if (!eventlog) return { kind: 'failed', reason: 'there is no event log' }
+  const unsafe = await plainPaths(directory, eventlog).catch((error: unknown) =>
+    error instanceof Error ? error.message : String(error),
+  )
+  if (unsafe) return { kind: 'failed', reason: unsafe }
   const copy = `${eventlog}.${suffix}`
   const discard = async () => {
     await rm(copy, { force: true })

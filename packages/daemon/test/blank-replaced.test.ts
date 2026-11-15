@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { cp, mkdtemp, readdir, readFile, rename, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -292,4 +292,13 @@ test('a copy that fails a check is thrown away and the event log stays exactly a
       [],
     )
   }
+
+  const elsewhere = path.join(root, 'elsewhere')
+  await rename(path.dirname(eventlog), elsewhere)
+  await symlink(elsewhere, path.dirname(eventlog))
+  const linked = await blankReplacedText(dir)
+  expect(linked).toMatchObject({ kind: 'failed' })
+  expect(linked.kind === 'failed' && linked.reason).toContain('isn’t a plain folder')
+  expect((await readFile(path.join(elsewhere, path.basename(eventlog)))).equals(bytes)).toBe(true)
+  expect((await readdir(elsewhere)).filter((f) => f.includes('blanking'))).toEqual([])
 })

@@ -37,7 +37,7 @@ No row is added or deleted and no other column changes, so sequence numbers stay
 1. Nothing happens when `store/ted-store.json` has `replacedText` with `state: "done"`, or `state: "failed"` from this same version; when the event log holds events this TED doesn’t know; or on the open that follows a restore. A new home gets the marker on its first open.
 2. If no event would be blanked, the marker is written and nothing else happens.
 3. A pre-update backup must exist from this same open: one the rebuild or the compaction took, or a new one. If it can’t be taken, the log stays as it is, nothing is marked, and the next start tries again.
-4. The event log is cloned to `eventlog@<n>.db.blanking`, the fields are blanked in the clone, and the clone is vacuumed.
+4. The store folder, its `ted` folder and the event log must be a plain folder, folder and file, not links, with the log’s real path inside the store folder; otherwise the pass fails and nothing is touched. Compaction shares this check. The event log is then cloned to `eventlog@<n>.db.blanking`, the fields are blanked in the clone, and the clone is vacuumed.
 5. The clone is verified against the original: SQLite’s integrity check; the same settings, tables, indexes and other tables’ rows; the same count of events per name; every event of another kind the same in every column; every event of the four kinds the same in every column and in every field but the blanked one, which is either unchanged or exactly the blank value; every one still decodes with its event’s schema; and every changed event is one that a later event replaces.
 6. Only then is the clone flushed and renamed over the event log, and the marker written with the number blanked and the sizes before and after.
 
