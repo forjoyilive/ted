@@ -1,6 +1,6 @@
 # TED
 
-**Totally Excellent Development.** A software factory for solo developers, on your Mac.
+**Totally Excellent Development.** A software factory builder for solo developers, on your Mac.
 
 You write a task. Agents design, write, test and review the change in your repository. A pull request arrives that has already passed your checks, and you decide whether it merges.
 
@@ -10,7 +10,7 @@ You write a task. Agents design, write, test and review the change in your repos
 
 ## What TED does
 
-TED runs a factory for each of your projects. A factory takes every task through the same stages.
+TED builds a factory for each of your projects. A factory takes every task through the same stages.
 
 Every stage, check and sign-off can be changed per project. Turn sign-offs off and a task runs straight through.
 
@@ -22,7 +22,7 @@ Every stage, check and sign-off can be changed per project. Turn sign-offs off a
 | Work | Agent | The agent builds the change in its own copy of your repository. |
 | Validate | Agent | Your checks run and a second agent reviews the change. Problems go back to Work. |
 | Review | You | You look at the result and sign off. |
-| Merge | You | TED waits for CI to pass. You hit merge, or let TED merge it for you. |
+| Merge | Agent | TED waits for CI to pass. You hit merge, or let TED merge it for you. |
 
 ## Features
 
