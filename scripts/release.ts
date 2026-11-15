@@ -439,9 +439,18 @@ function claudeNotes(changes: Change[], version: string, previous: string | unde
   if (changes.length === 0) return undefined
   const scratch = mkdtempSync(path.join(os.tmpdir(), 'ted-notes-'))
   try {
+    // Change titles can come from outside issues, so Claude gets no tools to act on them.
     const result = spawnSync(
       'claude',
-      ['-p', '--output-format', 'text', '--no-session-persistence', '--permission-mode', 'default'],
+      [
+        '-p',
+        '--tools',
+        '',
+        '--output-format',
+        'text',
+        '--no-session-persistence',
+        '--strict-mcp-config',
+      ],
       {
         cwd: scratch,
         input: notesPrompt(changes, version),
