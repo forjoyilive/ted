@@ -297,21 +297,23 @@ export function Sidebar({
     if (onTaskViewsOf !== undefined) setTaskViewsOpen(onTaskViewsOf, true)
   }, [onTaskViewsOf])
   const layout = layoutOf(arrange(factories, factoryLayout))
-  const currentGroup =
-    currentFactoryId === undefined ? undefined : groupOf(layout, currentFactoryId)?.id
   const screen = navigation.screen
-  const arrival =
-    screen.kind === 'factory' ||
-    navigation.taskId !== undefined ||
-    (screen.kind === 'dashboard' && screen.dashboard?.factoryIds?.length === 1)
-      ? JSON.stringify([screen, navigation.taskId])
-      : undefined
+  const arrivedAt =
+    screen.kind === 'factory'
+      ? screen.factoryId
+      : screen.kind === 'dashboard' && screen.dashboard?.factoryIds?.length === 1
+        ? screen.dashboard.factoryIds[0]
+        : navigation.taskId !== undefined
+          ? currentFactoryId
+          : undefined
+  const arrivedGroup = arrivedAt === undefined ? undefined : groupOf(layout, arrivedAt)?.id
+  const arrival = arrivedAt === undefined ? undefined : JSON.stringify([screen, navigation.taskId])
   // biome-ignore lint/correctness/useExhaustiveDependencies: opens only when arriving at a Factory or Task
   useEffect(() => {
-    if (arrival !== undefined && currentGroup !== undefined && openGroups[currentGroup] === false) {
-      setGroupOpen(currentGroup, true)
+    if (arrivedGroup !== undefined && openGroups[arrivedGroup] === false) {
+      setGroupOpen(arrivedGroup, true)
     }
-  }, [arrival, currentGroup])
+  }, [arrival, arrivedGroup])
   const shown =
     naming?.isNew === true && !groups(layout).some((g) => g.id === naming.groupId)
       ? addGroup(layout, { id: naming.groupId, name: '' }, naming.factoryId)

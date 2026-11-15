@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 
 import type { FactoryLayout } from '@ted/protocol'
-import { act, fireEvent, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
+import { Sidebar } from '../src/renderer/components/Sidebar.tsx'
+import { initialNavigation } from '../src/renderer/navigation.ts'
 import { appState } from './support/app.tsx'
-import { deferred, required, user } from './support/component.ts'
+import { bridge, deferred, required, user } from './support/component.ts'
 import { factory } from './support/fixtures.ts'
 
 const nav = () => screen.getByRole('navigation', { name: 'Sidebar' })
@@ -442,6 +444,42 @@ test('opening a Factory expands its collapsed group, even when it was already th
   expect(within(acme).queryByRole('article', { name: 'widgets' })).toBeNull()
   fireEvent.keyDown(window, { key: '1', metaKey: true })
   await within(acme).findByRole('article', { name: 'widgets' })
+})
+
+test('a Dashboard filtered to one Factory expands that Factory’s group, not the current one’s', () => {
+  bridge({})
+  localStorage.setItem('ted.sidebar.groupsOpen', JSON.stringify({ acme: false, home: false }))
+  const props = {
+    factories: [factory(), factory({ id: 'f2', name: 'site', key: 'MS', position: 1 })],
+    factoryLayout: {
+      items: [
+        { group: { id: 'acme', name: 'Acme', factoryIds: ['f1'] } },
+        { group: { id: 'home', name: 'Home', factoryIds: ['f2'] } },
+      ],
+    },
+    currentFactoryId: 'f1',
+    inboxCount: 0,
+    dispatch: vi.fn(),
+    onNewTask: vi.fn(),
+    onSearch: vi.fn(),
+    onAddFactory: vi.fn(),
+  }
+  const view = render(
+    <Sidebar {...props} navigation={{ ...initialNavigation, screen: { kind: 'inbox' } }} />,
+  )
+  const group = (name: string) => screen.getByRole('region', { name })
+  expect(within(group('Home')).queryByRole('article', { name: 'site' })).toBeNull()
+  view.rerender(
+    <Sidebar
+      {...props}
+      navigation={{
+        ...initialNavigation,
+        screen: { kind: 'dashboard', dashboard: { factoryIds: ['f2'] } },
+      }}
+    />,
+  )
+  expect(within(group('Home')).getByRole('article', { name: 'site' })).toBeTruthy()
+  expect(within(group('Acme')).queryByRole('article', { name: 'widgets' })).toBeNull()
 })
 
 test('Factory groups: New group from the + menu, Move to group, collapse and Ungroup', async () => {
