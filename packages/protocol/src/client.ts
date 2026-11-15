@@ -197,6 +197,7 @@ import type {
   AnswerRequest,
   AnswerTedStopsRequest,
   ArchiveDoneResult,
+  ArchiveExpiry,
   ArchiveTaskRequest,
   Attachment,
   AttachmentBytes,
@@ -1341,6 +1342,10 @@ export class DaemonClient {
     input: ChangeAgentAvailabilityRequest,
   ): Promise<ChangeAgentAvailabilityResult> {
     return this.#request('POST', '/agents/availability', input)
+  }
+
+  archiveExpiry(days: number): Promise<ArchiveExpiry> {
+    return this.#request('GET', `/archive-expiry?days=${encodeURIComponent(String(days))}`)
   }
 
   getSettings(): Promise<MachineSettings> {

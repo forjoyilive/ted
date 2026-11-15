@@ -244,10 +244,14 @@ const entries = {
   'app.storage.clean-up': { name: 'Clean up', heading: true },
   'app.storage.clean-up.clones': { name: 'Remove clones of removed Factories' },
   'app.storage.clean-up.simulators': { name: 'Erase simulators not used by a running Task' },
-  'app.storage.run-output': { name: 'Run output', heading: true },
+  'app.storage.run-output': { name: 'Delete automatically', heading: true },
   'app.storage.run-output.days': {
-    name: 'Keep Run output after a Task is done',
-    help: 'A Run’s chat is kept for as long as its Task is open. TED deletes it this long after the Task is done or archived. A Run without a Task, such as a planning chat or an Automation Run, is deleted this long after it finishes.',
+    name: 'Delete agent chats',
+    help: 'Only the chats go. The task, its comments and its brief stay. Counted from when the task is done or archived, or for a chat with no task, from when it ends.',
+  },
+  'app.storage.archived-tasks': {
+    name: 'Delete archived tasks',
+    help: 'The whole task goes, with its comments, brief and chats. Counted from when it was archived. Done tasks that aren’t archived stay. This can’t be undone.',
   },
   'app.storage.export': { name: 'Export a Factory', heading: true },
   'app.storage.export.factory': { name: 'Factory' },

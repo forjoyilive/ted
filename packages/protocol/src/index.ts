@@ -739,6 +739,7 @@ export {
 export {
   type Appearance,
   appearances,
+  archivedTaskDayLimits,
   checkLimits,
   defaultFactoryNotifications,
   defaultMachineSettings,
@@ -825,6 +826,7 @@ export {
   type AnswerTedStopsRequest,
   type ArchiveAsk,
   type ArchiveDoneResult,
+  type ArchiveExpiry,
   type ArchiveTaskRequest,
   type Attachment,
   type AttachmentBytes,

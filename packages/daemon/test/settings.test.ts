@@ -272,6 +272,7 @@ describe('settings and Factories over the daemon API', () => {
     ['Run output kept for more than a year', { runOutputDays: 366 }],
     ['Run output kept for part of a day', { runOutputDays: 1.5 }],
     ['Run output days that aren’t a number', { runOutputDays: '7' }],
+    ['archived Tasks deleted after part of a day', { deleteArchivedAfterDays: 0.5 }],
     ['one bad setting among good ones', { developerMode: true, terminalFontSize: 30 }],
     ['no settings', {}],
     ['a body that is not an object', ['dark']],
@@ -307,7 +308,7 @@ describe('settings and Factories over the daemon API', () => {
     expect(await ted.getSettings()).toMatchObject({ terminalFontSize: 10, profilePicture: null })
   })
 
-  test('a client changes how many days Run output is kept, from 1 to 365', async () => {
+  test('a client changes how many days Run output and archived Tasks are kept, from 1 to 365', async () => {
     daemon = await startDaemon({ home, version: '9.9.9' })
     const ted = await client()
 
@@ -316,6 +317,13 @@ describe('settings and Factories over the daemon API', () => {
     expect((await ted.getSettings()).runOutputDays).toBe(1)
     await ted.updateSettings({ runOutputDays: 365 })
     expect((await ted.getSettings()).runOutputDays).toBe(365)
+
+    expect((await ted.getSettings()).deleteArchivedAfterDays).toBeNull()
+    await ted.updateSettings({ deleteArchivedAfterDays: 1 })
+    await ted.updateSettings({ deleteArchivedAfterDays: 365 })
+    expect((await ted.getSettings()).deleteArchivedAfterDays).toBe(365)
+    await ted.updateSettings({ deleteArchivedAfterDays: null })
+    expect((await ted.getSettings()).deleteArchivedAfterDays).toBeNull()
   })
 
   test('a client turns Start at login and Stay Awake off and on', async () => {

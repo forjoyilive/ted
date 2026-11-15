@@ -57,6 +57,7 @@ import { createSlowMonitor } from './slow-moments.ts'
 import { type HoldAwake, stayAwakeWhileWorking } from './stay-awake.ts'
 import { createStorage, type Storage } from './storage.ts'
 import type { StoredFactory, TedStore } from './store/index.ts'
+import { createArchiveCleanup } from './tasks/archive-expiry.ts'
 import { createCheckSlots } from './tasks/check-slots.ts'
 import { factoryRepos } from './tasks/repos.ts'
 import { createTasks, type Tasks } from './tasks/tasks.ts'
@@ -652,17 +653,33 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           endOf: (runId) => runOutputEnd(store, runId),
           ...(options.retention?.now && { now: options.retention.now() }),
         }).catch((error: unknown) => console.error('pruning Run output failed:', error))
+      const archiveCleanup = createArchiveCleanup({
+        store,
+        tasks,
+        ...(options.retention?.now && { now: options.retention.now }),
+      })
+      const sweepArchived = () =>
+        archiveCleanup
+          .sweep()
+          .catch((error: unknown) => console.error('deleting archived Tasks failed:', error))
       void prune()
+      void sweepArchived()
       let keptDays = store.settings().runOutputDays
+      let archivedDays = store.settings().deleteArchivedAfterDays
       const stopPruningOnChange = store.subscribe((event) => {
-        if (event.type !== 'settings-changed' || event.settings.runOutputDays === keptDays) return
+        if (event.type !== 'settings-changed') return
+        if (event.settings.deleteArchivedAfterDays !== archivedDays) {
+          archivedDays = event.settings.deleteArchivedAfterDays
+          void sweepArchived()
+        }
+        if (event.settings.runOutputDays === keptDays) return
         keptDays = event.settings.runOutputDays
         void prune()
       })
-      const pruneTimer = setInterval(
-        () => void prune(),
-        options.retention?.checkEveryMs ?? pruneEveryMs,
-      )
+      const pruneTimer = setInterval(() => {
+        void prune()
+        void sweepArchived()
+      }, options.retention?.checkEveryMs ?? pruneEveryMs)
       pruneTimer.unref()
       storage = createStorage({
         home: paths.home,
@@ -771,6 +788,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         library,
         shells,
         editors,
+        archiveCleanup,
         async close() {
           await execution.close()
           const shellsClosed = shells.close()
@@ -787,6 +805,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           disk.close()
           clearInterval(pruneTimer)
           stopPruningOnChange()
+          await archiveCleanup.close()
           stopWatchingWrites()
           online.close()
           health.close()
