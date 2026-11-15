@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import { defaultMachineSettings } from '@ted/protocol/settings'
 import { noStageParts } from '@ted/protocol/stage-parts'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { useState } from 'react'
@@ -829,6 +830,7 @@ test('the Cost tab shows cost per merged pull request, spend by kind of work and
   render(<DashboardView open={open} />)
   await screen.findByRole('region', { name: 'Tasks completed' })
   await user().click(screen.getByRole('tab', { name: 'Cost' }))
+  expect(screen.getByRole('heading', { name: 'API-Equivalent Cost' })).toBeTruthy()
   expect(
     screen.getByText(/whatever your billing\. Runs still going aren’t counted yet\./),
   ).toBeTruthy()
@@ -839,7 +841,7 @@ test('the Cost tab shows cost per merged pull request, spend by kind of work and
   const perPr = screen.getByRole('region', { name: 'Cost per merged pull request' })
   expect(within(perPr).getByText('−20%')).toBeTruthy()
   expect(within(perPr).getByText(/Middle half \$3\.50 – \$4\.00 · 3 pull requests/)).toBeTruthy()
-  const spend = screen.getByRole('region', { name: 'API-equivalent spend in this period' })
+  const spend = screen.getByRole('region', { name: 'Spend in this period' })
   expect(within(spend).getByText('+20%')).toBeTruthy()
   expect(within(spend).getByText(/^92% went to Task work/)).toBeTruthy()
   const tokens = screen.getByRole('region', { name: 'Tokens' })
@@ -860,9 +862,7 @@ test('the Cost tab shows cost per merged pull request, spend by kind of work and
   ).toBeTruthy()
   await close()
 
-  await user().click(
-    within(spend).getByRole('button', { name: 'API-equivalent spend in this period $12.00' }),
-  )
+  await user().click(within(spend).getByRole('button', { name: 'Spend in this period $12.00' }))
   let sample = screen.getByRole('dialog')
   const items = within(sample)
     .getAllByRole('listitem')
@@ -871,6 +871,7 @@ test('the Cost tab shows cost per merged pull request, spend by kind of work and
   expect(items[0]).toMatch(/NB-1.*Fix login.*\$8\.00 · 3 Runs · 1 send-back/)
   expect(items[1]).toMatch(/NB-2.*Improve search.*\$3\.00/)
   expect(items[2]).toBe('Coordinator$1.00 not tied to a Task')
+  expect(within(sample).getByText(/^\$12\.00 API-equivalent cost\./)).toBeTruthy()
   await close()
   await user().click(within(spend).getByRole('button', { name: 'Coordinator $1.00' }))
   sample = screen.getByRole('dialog')
@@ -919,7 +920,13 @@ test('every By Factory table figure opens the Tasks behind it for that Factory',
     tasks: [{ taskId: 't2', cost: 0 }],
     perPullRequest: { median: null, p25: null, p75: null, pullRequests: 0, samples: [] },
   })
-  bridge({ dashboard: () => data })
+  bridge({
+    dashboard: () => data,
+    getSettings: () => ({
+      ...defaultMachineSettings,
+      billing: { claude: 'api-key', codex: 'api-key', antigravity: 'api-key' },
+    }),
+  })
   const factories = [factory({ id: 'nb', name: 'Nabla' }), factory({ id: 'gar', name: 'Garden' })]
   render(<DashboardView open={vi.fn()} factories={factories} />)
   const close = (name = 'Close sample') =>
@@ -947,6 +954,17 @@ test('every By Factory table figure opens the Tasks behind it for that Factory',
   await close()
 
   await user().click(screen.getByRole('tab', { name: 'Cost' }))
+  expect(await screen.findByRole('heading', { name: 'Cost' })).toBeTruthy()
+  expect(
+    screen.getByText('What these Runs cost on your API keys. Runs still going aren’t counted yet.'),
+  ).toBeTruthy()
+  await user().click(
+    within(screen.getByRole('region', { name: 'Spend in this period' })).getByRole('button', {
+      name: 'Spend in this period $12.00',
+    }),
+  )
+  expect(await within(screen.getByRole('dialog')).findByText(/^\$12\.00 cost\./)).toBeTruthy()
+  await close()
   const cost = screen.getByRole('region', { name: 'Spend by Factory' })
   await user().click(within(row(cost, 'Nabla')).getByRole('button', { name: '$4.00' }))
   sample = screen.getByRole('dialog')

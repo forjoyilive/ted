@@ -6,10 +6,12 @@ import type {
   DashboardChange,
   DashboardCost,
   Factory,
+  MachineSettings,
 } from '@ted/protocol'
 import { useId, useLayoutEffect, useRef, useState } from 'react'
 import { FactoryIcon } from '../components/FactoryIcon.tsx'
 import type { CostSelection, DashboardSelection } from '../dashboard.ts'
+import { useSettings } from '../data.ts'
 import { agentLabels } from '../task-fields.ts'
 import { formatDate } from '../time.ts'
 import styles from './Dashboard.module.css'
@@ -154,14 +156,20 @@ function seriesOf(period: CostPeriod, by: 'kind' | 'model'): Series[] {
     }))
 }
 
+export function apiEquivalent(settings: MachineSettings | undefined): boolean {
+  return !settings || Object.values(settings.billing).includes('subscription')
+}
+
 function SpendChart({
   period,
   today,
+  equivalent,
   label,
   select,
 }: {
   period: CostPeriod
   today: boolean
+  equivalent: boolean
   label: (index: number) => string
   select: (sample: DashboardSelection) => void
 }) {
@@ -246,7 +254,7 @@ function SpendChart({
         <p className={styles.chartEmpty}>No recorded spend to plot.</p>
       ) : (
         <svg viewBox="0 0 1000 222" aria-label={`Spend by ${today ? 'hour' : 'day'}`}>
-          <title>API-equivalent cost per bar. Empty bars are zero.</title>
+          <title>{equivalent ? 'API-equivalent cost' : 'Cost'} per bar. Empty bars are zero.</title>
           {scale.map((value) => (
             <g key={value}>
               <line
@@ -335,7 +343,9 @@ function SpendChart({
       <details className={styles.dataTable}>
         <summary>Graph data</summary>
         <table>
-          <caption>API-equivalent cost per {today ? 'hour' : 'bar'}</caption>
+          <caption>
+            {equivalent ? 'API-equivalent cost' : 'Cost'} per {today ? 'hour' : 'bar'}
+          </caption>
           <thead>
             <tr>
               <th>{today ? 'Hour' : 'Day'}</th>
@@ -440,6 +450,7 @@ export function Cost({
   select: (sample: DashboardSelection) => void
 }) {
   const heading = useId()
+  const equivalent = apiEquivalent(useSettings())
   const perPr = data.perPullRequest
   const records = new Map(tasks.map((task) => [task.id, task]))
   const spend = (cost: CostSelection) => select({ metric: 'cost', period: 'current', cost })
@@ -465,10 +476,11 @@ export function Cost({
     <section className={styles.flow} aria-labelledby={heading}>
       <header className={styles.flowHead}>
         <div>
-          <h2 id={heading}>Cost</h2>
+          <h2 id={heading}>{equivalent ? 'API-Equivalent Cost' : 'Cost'}</h2>
           <p className={styles.lead}>
-            API-equivalent cost: what these Runs would have cost on an API key, whatever your
-            billing. Runs still going aren’t counted yet.
+            {equivalent
+              ? 'API-equivalent cost: what these Runs would have cost on an API key, whatever your billing. Runs still going aren’t counted yet.'
+              : 'What these Runs cost on your API keys. Runs still going aren’t counted yet.'}
           </p>
         </div>
       </header>
@@ -512,16 +524,16 @@ export function Cost({
             </p>
           </div>
         </section>
-        <section className={styles.panel} aria-label="API-equivalent spend in this period">
+        <section className={styles.panel} aria-label="Spend in this period">
           <header className={styles.panelHead}>
-            <h2>API-equivalent spend in this period</h2>
+            <h2>Spend in this period</h2>
           </header>
           <div className={styles.headline}>
             <button
               type="button"
               data-nav-item
               className={styles.value}
-              aria-label={`API-equivalent spend in this period ${money(data.cost)}`}
+              aria-label={`Spend in this period ${money(data.cost)}`}
               onClick={() => spend({ of: 'spend' })}
             >
               {money(data.cost)}
@@ -576,7 +588,13 @@ export function Cost({
         <header className={styles.panelHead}>
           <h2>Spend over time</h2>
         </header>
-        <SpendChart period={data} today={today} label={label} select={select} />
+        <SpendChart
+          period={data}
+          today={today}
+          equivalent={equivalent}
+          label={label}
+          select={select}
+        />
       </section>
       <div className={styles.grid}>
         <section className={styles.panel} aria-label="Most expensive pull requests">
@@ -774,6 +792,7 @@ export function costSample(
   selection: DashboardSelection,
   bucketLabel: (index: number) => string,
   factoryName: (id: string | null) => string,
+  equivalent: boolean,
 ): { title: string; caption: string; items: CostSampleItem[] } {
   const chosen = selection.cost ?? { of: 'spend' }
   const period = selection.period === 'previous' ? data.previous : data.current
@@ -873,7 +892,7 @@ export function costSample(
     .join(' · ')
   return {
     title: `${what} · ${where}`,
-    caption: `${money(share ? share.cost : scope.cost)} API-equivalent cost. Tasks by cost, most first, then spend that isn’t part of a Task.`,
+    caption: `${money(share ? share.cost : scope.cost)} ${equivalent ? 'API-equivalent cost' : 'cost'}. Tasks by cost, most first, then spend that isn’t part of a Task.`,
     items,
   }
 }
