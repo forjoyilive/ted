@@ -765,6 +765,7 @@ export {
   checkLimits,
   defaultFactoryNotifications,
   defaultMachineSettings,
+  defaultWorkingRuns,
   type FactoryNotifications,
   factoryNotifications,
   firstFactoryNotifications,
@@ -814,8 +815,15 @@ export {
   type SideChat,
   type SideChatMessageRequest,
 } from './side-chat.ts'
-export type { ChatKind, FactorySlots, QueuedForSlot, RunSlots, SlotHolder } from './slots.ts'
-export { busyHold, chatKinds, isChat } from './slots.ts'
+export type {
+  BusyHold,
+  ChatKind,
+  FactorySlots,
+  QueuedForSlot,
+  RunSlots,
+  SlotHolder,
+} from './slots.ts'
+export { busyHold, busyMarks, chatKinds, isChat } from './slots.ts'
 export {
   type ProfileRequest,
   type ProfileResult,

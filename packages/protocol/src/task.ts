@@ -6,6 +6,7 @@ import type { DeclaredSendBackCause, FindingSeverity } from './checks.ts'
 import type { ValidationSnapshot } from './failures.ts'
 import type { LinearTeam } from './linear.ts'
 import type { AgentKind, RunState } from './run.ts'
+import type { BusyHold } from './slots.ts'
 import { RequestValidationError } from './validation.ts'
 
 export const agentStageIds = [
@@ -123,7 +124,7 @@ export type TaskStatus =
   | { kind: 'stopped'; at?: string; prepared?: true }
   | { kind: 'blocked'; by: string; ended?: BlockerEnded }
   | { kind: 'queued'; place: number }
-  | { kind: 'queued'; hold: string }
+  | { kind: 'queued'; hold: string; busy?: BusyHold }
   | { kind: 'waiting-for-github'; on: GitHubWait }
 
 export type BlockerEnded = 'archived' | 'deleted'

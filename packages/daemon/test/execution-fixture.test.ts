@@ -87,7 +87,6 @@ test('disk, load, agent readiness and capacity controls affect synthetic Tasks',
     })
     await machine.client.updateSettings({
       maxWorkingRuns: 1,
-      adjustRunsToLoad: true,
       maxChecksAtOnce: 1,
     })
     const create = async () =>
@@ -135,7 +134,7 @@ test('disk, load, agent readiness and capacity controls affect synthetic Tasks',
     expect(await machine.client.getSlots()).toMatchObject({ limit: 1, working: 1, queued: 1 })
     await machine.control({ load: 99 })
     await machine.client.updateSettings({ maxWorkingRuns: 2 })
-    await waitUntil(async () => (await machine.client.getSlots()).heldForLoad, 'load measured')
+    await waitUntil(async () => (await machine.client.getSlots()).busy, 'load measured')
     await waitUntil(
       async () =>
         (await machine.client.listTasks()).find((t) => t.id === second.id)?.status?.kind ===

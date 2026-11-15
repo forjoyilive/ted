@@ -15,6 +15,7 @@ import { type AsanaOptions, createAsana } from './asana/asana.ts'
 import { createAttachments } from './attachments.ts'
 import { createAutomations } from './automations/automations.ts'
 import { createBanners } from './banners.ts'
+import { createBusyHold } from './busy.ts'
 import { createCheckTries } from './check-tries.ts'
 import type { Clock } from './clock.ts'
 import { createEnvironment, loginShell } from './command-env.ts'
@@ -39,7 +40,6 @@ import { createLibrarySettings } from './library-settings.ts'
 import { watchLibrary } from './library-watch.ts'
 import { type Keyring, loadKeyring } from './linear/keyring.ts'
 import { createLinear } from './linear/linear.ts'
-import { machineLoadRatio } from './load.ts'
 import { acquireLock } from './lock.ts'
 import { createPlans, type Plans } from './plans/plans.ts'
 import { QuitMarkedError, quitMarkedSync } from './quit-mark.ts'
@@ -154,6 +154,7 @@ export interface DaemonOnlineOptions {
 
 export interface DaemonLoadOptions {
   ratio?: () => number
+  memoryAvailable?: () => number
   checkEveryMs?: number
 }
 
@@ -465,6 +466,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         env: environment.current,
         ...(sandboxProgram && { program: sandboxProgram }),
       })
+      const busy = createBusyHold({
+        on: () => store.settings().waitWhenBusy,
+        ...(options.load?.ratio !== undefined && { loadRatio: options.load.ratio }),
+        ...(options.load?.memoryAvailable !== undefined && {
+          memoryAvailable: options.load.memoryAvailable,
+        }),
+      })
       const tasks = createTasks({
         testReportingEnv: async (task, checkRunId, position, supported) => {
           const registration = await new DaemonClient(info, token, {
@@ -538,7 +546,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.beforeMerge !== undefined && { beforeMerge: options.beforeMerge }),
         ...(options.ciStuckMs !== undefined && { ciStuckMs: options.ciStuckMs }),
         ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
-        ...(options.load !== undefined && { load: options.load }),
+        busy,
+        ...(options.load?.checkEveryMs !== undefined && {
+          busyCheckEveryMs: options.load.checkEveryMs,
+        }),
         appsDir: paths.apps,
         ...(options.apps !== undefined && { apps: options.apps }),
         simulators: {
@@ -595,9 +606,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         checkSlots,
         libraryDir: paths.library,
         checkFailed: (input) => tasks.checkFailed(input),
-        loadRatio: options.load?.ratio ?? machineLoadRatio,
+        busy: async () => (await busy.check()) !== undefined,
         ...(options.load?.checkEveryMs !== undefined && {
-          loadCheckEveryMs: options.load.checkEveryMs,
+          busyCheckEveryMs: options.load.checkEveryMs,
         }),
         ...(idle && { idle }),
         ...(options.clock && { clock: options.clock }),

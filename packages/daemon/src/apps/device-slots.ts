@@ -131,6 +131,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
   stopApp(taskId: string, repo: string, name: string): Promise<void>
   pollMs?: number
   idleMs?: number
+  busy?: () => Promise<boolean>
 }): DeviceSlots<R> {
   const { dir, store, supported, driver } = options
   const { noun, article, live } = driver.words
@@ -168,6 +169,8 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
   }
 
   const limit = () => driver.limit()
+  const heldBusy = async (record: R) =>
+    !isLive(record) && liveCount() > 0 && ((await options.busy?.()) ?? false)
 
   function slots(): SimulatorSlots {
     const list: BootedSimulator[] = liveRecords()
@@ -314,6 +317,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
       await fresh()
       if (line[0] !== ticket) return { state: 'pending' } as const
       if (liveCount() >= limit() && !isLive(record)) return { state: 'pending' } as const
+      if (await heldBusy(record)) return { state: 'pending' } as const
       if (!isLive(record)) await boot(record)
       line.shift()
       return { state: 'granted', udid: driver.slotId(record) as string } as const
@@ -336,6 +340,11 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
         return granted(record)
       }
       if (liveCount() < limit()) {
+        if (by !== 'human' && (await heldBusy(record))) {
+          const ticket = `${lineTicket}${randomUUID()}`
+          line.push(ticket)
+          return { waiting: ticket }
+        }
         await boot(record)
         return granted(record)
       }
@@ -405,6 +414,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
       if (store.getComment(commentId)?.answer) return { state: 'pending' } as const
       await fresh()
       if (liveCount() >= limit() && !isLive(record)) return { state: 'pending' } as const
+      if (await heldBusy(record)) return { state: 'pending' } as const
       if (!isLive(record)) await boot(record)
       store.answerPermission(commentId, {
         kind: 'withdrawn',

@@ -155,14 +155,17 @@ describe('taskStatus', () => {
       kind: 'queued',
       hold: 'disk full',
     })
-    expect(taskStatus(at({ stage: 'intake', queue: { place: 2 }, heldForLoad: true }))).toEqual({
+    const busy = { memoryAvailable: 0.07 }
+    expect(taskStatus(at({ stage: 'intake', queue: { place: 2 }, busy }))).toEqual({
       kind: 'queued',
       hold: 'this computer is busy',
+      busy,
     })
-    expect(
-      taskStatus(at({ stage: 'intake', queue: { hold: 'disk full' }, heldForLoad: true })),
-    ).toEqual({ kind: 'queued', hold: 'disk full' })
-    expect(taskStatus(at({ runs: ['working'], heldForLoad: true }))).toEqual({ kind: 'working' })
+    expect(taskStatus(at({ stage: 'intake', queue: { hold: 'disk full' }, busy }))).toEqual({
+      kind: 'queued',
+      hold: 'disk full',
+    })
+    expect(taskStatus(at({ runs: ['working'], busy }))).toEqual({ kind: 'working' })
     expect(taskStatus(at({ stage: 'merge', github: 'review' }))).toEqual({
       kind: 'waiting-for-github',
       on: 'review',

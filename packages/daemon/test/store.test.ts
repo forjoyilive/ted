@@ -196,7 +196,7 @@ describe('TedStore', () => {
       store.subscribe((event) => {
         if (event.type === 'task-updated') seen.push(event.task)
       })
-      store.holdForLoad(true)
+      store.holdWhenBusy({ loadRatio: 2 })
       expect(seen.map((task) => task.id).sort()).toEqual([queued.id, reviewing.id].sort())
       expect(seen.find((task) => task.id === queued.id)?.status).toMatchObject({
         kind: 'queued',

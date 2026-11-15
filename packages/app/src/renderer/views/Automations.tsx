@@ -875,9 +875,9 @@ export function AutomationView({
               {automation.check.timeout}
             </p>
             <p className={styles.detailNote}>
-              {settings?.adjustRunsToLoad
+              {settings?.waitWhenBusy
                 ? `Waits while the computer is busy, then runs anyway ${automation.check.runBy === undefined ? 'after 4 hours' : `at ${automation.check.runBy}`}`
-                : 'Runs at once: “Start fewer Runs when this computer is busy” is off'}
+                : 'Runs at once: “Wait to start new work when this computer is busy” is off'}
             </p>
           </Details>
         ) : null}

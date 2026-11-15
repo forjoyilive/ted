@@ -1,10 +1,34 @@
-import type { RunSlots, SimulatorSlots, Task } from '@ted/protocol'
-import { busyHold, isChat } from '@ted/protocol/slots'
+import type { BusyHold, RunSlots, SimulatorSlots, Task, TaskStatus } from '@ted/protocol'
+import { busyHold, busyMarks, isChat } from '@ted/protocol/slots'
 import { plural } from './words.ts'
+
+const percent = (share: number) => `${Math.round(share * 100)}%`
+
+export function busyDetail(busy: BusyHold): string {
+  const { load, memory } = busyMarks
+  return [
+    busy.memoryAvailable !== undefined &&
+      `Memory available: ${percent(busy.memoryAvailable)} · waits below ${percent(memory.holdBelow)}, starts again above ${percent(memory.resumeAbove)}`,
+    busy.loadRatio !== undefined &&
+      `CPU load: ${busy.loadRatio.toFixed(2)} per core · waits at ${load.holdAt}, starts again below ${load.resumeBelow}`,
+  ]
+    .filter((line) => line !== false)
+    .join('\n')
+}
+
+export function statusDetail(status: TaskStatus | undefined): string | undefined {
+  return status?.kind === 'queued' && 'busy' in status && status.busy !== undefined
+    ? busyDetail(status.busy)
+    : undefined
+}
+
+export function slotsDetail(slots: RunSlots | undefined): string | undefined {
+  return slots?.busy === undefined ? undefined : busyDetail(slots.busy)
+}
 
 function counts(slots: RunSlots): string {
   const queued = slots.queued > 0 ? ` · ${slots.queued} queued` : ''
-  const busy = slots.heldForLoad ? ` · ${busyHold}` : ''
+  const busy = slots.busy !== undefined ? ` · ${busyHold}` : ''
   return `${plural(slots.working, 'slot')} in use · limit ${slots.limit}${queued}${busy}`
 }
 
@@ -52,7 +76,7 @@ export function startSplit(
   }
   const starts = (factoryId: string) => {
     if (working >= slots.limit) return false
-    if (slots.heldForLoad && working > 0) return false
+    if (slots.busy !== undefined && working > 0) return false
     const cap = caps.get(factoryId)
     if (cap !== undefined && (byFactory.get(factoryId) ?? 0) >= cap) return false
     take(factoryId)

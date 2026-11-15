@@ -17,6 +17,13 @@ export type Appearance = (typeof appearances)[number]
 
 export const workingRunLimits = { min: 1, max: 99 } as const
 
+const gibibyte = 1024 ** 3
+
+export function defaultWorkingRuns(totalMemoryBytes: number): number {
+  if (!Number.isFinite(totalMemoryBytes) || totalMemoryBytes <= 0) return 6
+  return Math.min(8, Math.max(2, Math.floor(totalMemoryBytes / (4 * gibibyte))))
+}
+
 export const checkLimits = { min: 1, max: 16 } as const
 
 export const textSizeLimits = { min: 80, max: 200, step: 5 } as const
@@ -84,7 +91,7 @@ export interface MachineSettings {
   overnightMode: boolean
   reviewUnvettedTasks: boolean
   maxWorkingRuns: number
-  adjustRunsToLoad: boolean
+  waitWhenBusy: boolean
   maxBootedSimulators: number
   maxRunningEmulators: number
   runOutputDays: number
@@ -139,7 +146,7 @@ export const defaultMachineSettings: MachineSettings = {
   overnightMode: false,
   reviewUnvettedTasks: true,
   maxWorkingRuns: 6,
-  adjustRunsToLoad: false,
+  waitWhenBusy: true,
   maxBootedSimulators: 3,
   maxRunningEmulators: 2,
   runOutputDays: 7,

@@ -37,7 +37,9 @@ const app = (task: string, name = 'ios'): SimulatorApp => ({
   device: 'iPhone 16',
 })
 
-function setup(options: { limit?: number; idleMs?: number; appLive?: Set<string> } = {}) {
+function setup(
+  options: { limit?: number; idleMs?: number; appLive?: Set<string>; busy?: () => boolean } = {},
+) {
   const live = new Set<string>()
   const recording = new Set<string>()
   const stopped: string[] = []
@@ -101,6 +103,7 @@ function setup(options: { limit?: number; idleMs?: number; appLive?: Set<string>
     stopApp: async () => undefined,
     pollMs: 60 * 60_000,
     ...(options.idleMs !== undefined && { idleMs: options.idleMs }),
+    ...(options.busy !== undefined && { busy: async () => options.busy?.() ?? false }),
   })
   opened.push(slots)
   return { slots, live, boots, recording, stopped, shutDowns, comments }
@@ -131,6 +134,20 @@ test('Automation Runs wait in line and get the slot in the order they asked', as
 
   live.delete('dev-2')
   expect(await slots.wait(second.waiting, app('t3'))).toEqual({ state: 'granted', udid: 'dev-3' })
+})
+
+test('while this computer is busy an agent’s boot waits in line with a slot free, the first device and a human start still boot', async () => {
+  let busy = true
+  const { slots, comments } = setup({ limit: 3, busy: () => busy })
+  expect(await slots.acquire(app('t1'), 'task-lead', { runId: 'r1' })).toEqual({ udid: 'dev-1' })
+  const waiting = await slots.acquire(app('t2'), 'task-lead', { runId: 'r2' })
+  if (!('waiting' in waiting)) throw new Error('expected to wait')
+  expect(comments.size).toBe(0)
+  expect(await slots.wait(waiting.waiting, app('t2'))).toEqual({ state: 'pending' })
+  expect(await slots.acquire(app('t3'), 'human', {})).toEqual({ udid: 'dev-3' })
+
+  busy = false
+  expect(await slots.wait(waiting.waiting, app('t2'))).toEqual({ state: 'granted', udid: 'dev-2' })
 })
 
 test('a human start needs a choice, a chosen device is shut down for it, and a recording one is kept', async () => {

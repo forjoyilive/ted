@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { open, readFile } from 'node:fs/promises'
+import { open } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
@@ -17,6 +17,7 @@ import {
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
 import type { Agents } from './agents/index.ts'
+import { availableMemory, totalMemory } from './busy.ts'
 import { redactSecrets } from './redact.ts'
 import { runFiles } from './runs/host-files.ts'
 import { parsedOutput } from './runs/parsed-output.ts'
@@ -65,25 +66,6 @@ async function processes(): Promise<PsRow[]> {
       },
     ]
   })
-}
-
-async function availableMemory(): Promise<number> {
-  const total = os.totalmem()
-  if (process.platform === 'linux') {
-    const meminfo = await readFile('/proc/meminfo', 'utf8').catch(() => '')
-    const kb = /^MemAvailable:\s+(\d+) kB$/m.exec(meminfo)?.[1]
-    if (kb !== undefined) return Math.min(total, Number(kb) * 1024)
-  }
-  if (process.platform === 'darwin') {
-    const level = await execFileAsync('sysctl', ['-n', 'kern.memorystatus_level'], {
-      timeout: 5_000,
-    }).then(
-      ({ stdout }) => Number(stdout.trim()),
-      () => Number.NaN,
-    )
-    if (level > 0 && level <= 100) return Math.round((total * level) / 100)
-  }
-  return os.freemem()
 }
 
 const finishedTokens = new WeakMap<
@@ -215,7 +197,7 @@ export async function collectDiagnostics(sources: DiagnosticsSources): Promise<D
   return {
     runs: runDiagnostics,
     processes: owned,
-    memory: { totalBytes: os.totalmem(), availableBytes },
+    memory: { totalBytes: totalMemory(), availableBytes },
   }
 }
 

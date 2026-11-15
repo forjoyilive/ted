@@ -30,6 +30,7 @@ import type {
   BrowserReply,
   BrowserRequest,
   BrowserResult,
+  BusyHold,
   CheckRun,
   CheckRunReport,
   ClarifyDepth,
@@ -171,6 +172,7 @@ import { confirmAsanaProject, listAsanaProjects } from '../asana/projects.ts'
 import { type AsanaRead, type AsanaTree, readAsanaTree, retryingRead } from '../asana/tree.ts'
 import { maxTasksPerFiring } from '../automations/check-failures.ts'
 import type { Banners } from '../banners.ts'
+import { type Busy, createBusyHold } from '../busy.ts'
 import { type Clock, clockWait, systemClock, type Timer } from '../clock.ts'
 import { loginShell, worktreeCommandEnv } from '../command-env.ts'
 import type { FileStore } from '../downloads.ts'
@@ -198,7 +200,6 @@ import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import { linkedFilesRewritten } from '../linear/files.ts'
 import type { Linear } from '../linear/linear.ts'
-import { machineLoadRatio } from '../load.ts'
 import { acquireFactoryPermissions, factoryPermissions } from '../permissions.ts'
 import { redactSecrets } from '../redact.ts'
 import { resolveReference } from '../references.ts'
@@ -415,14 +416,7 @@ import {
   type PullRequestTarget,
   type PullRequestTask,
 } from './pull-requests.ts'
-import {
-  heldForLoad,
-  type QueueEntry,
-  type QueueSource,
-  queueOrder,
-  type SlotUse,
-  startsNow,
-} from './queue.ts'
+import { type QueueEntry, type QueueSource, queueOrder, type SlotUse, startsNow } from './queue.ts'
 import { removeInside } from './remove-files.ts'
 import {
   chosenEntries,
@@ -832,7 +826,8 @@ export function createTasks(options: {
   stallAfterMs?: number
   snoozes?: { now?: () => Date; checkEveryMs?: number }
   heldRequests?: { maxMs?: number }
-  load?: { ratio?: () => number; checkEveryMs?: number }
+  busy?: Busy
+  busyCheckEveryMs?: number
   appsDir?: string
   apps?: Pick<AppsOptions, 'pollMs' | 'readyTimeoutMs' | 'stopGraceMs' | 'logBytes'>
   simulators?: Omit<SimulatorOptions, 'dir' | 'banners'> & { dir?: string }
@@ -1007,9 +1002,11 @@ export function createTasks(options: {
     env: () => options.env?.() ?? process.env,
     lowPriority: () => store.settings().lowPriorityWork,
   })
+  const busy = options.busy ?? createBusyHold({ on: () => store.settings().waitWhenBusy })
   const apps = createApps({
     appsDir: options.appsDir ?? path.join(path.dirname(worktreesDir), 'apps'),
     store,
+    busy: async () => (await busy.check()) !== undefined,
     ...(options.env !== undefined && { env: options.env }),
     ...(options.idle !== undefined && { idle: options.idle }),
     ...options.apps,
@@ -1296,9 +1293,8 @@ export function createTasks(options: {
   let again = false
   let shownSlots = ''
   let publishedSlots: RunSlots | undefined
-  const loadRatio = options.load?.ratio ?? machineLoadRatio
-  let heldAtLoad: number | undefined
-  let loadTimer: NodeJS.Timeout | undefined
+  let heldBusy: BusyHold | undefined
+  let busyTimer: NodeJS.Timeout | undefined
   const autoStartFailures = new Set<string>()
   let backlogVersion = 0
 
@@ -1664,7 +1660,7 @@ export function createTasks(options: {
         candidates,
         holders.map((h) => h.task.id),
       ),
-      heldForLoad: heldAtLoad !== undefined,
+      busy: heldBusy !== undefined,
     }
     return { use, holders, others, candidates }
   }
@@ -1952,21 +1948,19 @@ export function createTasks(options: {
     )
   }
 
-  function checkLoad(waiting: boolean): void {
-    const ratio = waiting && store.settings().adjustRunsToLoad ? loadRatio() : undefined
-    const was = heldAtLoad !== undefined
-    const held = ratio !== undefined && heldForLoad(was, ratio)
-    heldAtLoad = held ? ratio : undefined
-    if (held && !loadTimer) {
-      loadTimer = setInterval(() => void pump(), options.load?.checkEveryMs ?? 15_000)
-      loadTimer.unref()
-    } else if (!held) stopLoadTimer()
-    if (held !== was) store.holdForLoad(held)
+  async function checkBusy(waiting: boolean): Promise<void> {
+    const held = waiting ? await busy.check() : undefined
+    heldBusy = held
+    if (held && !busyTimer) {
+      busyTimer = setInterval(() => void pump(), options.busyCheckEveryMs ?? 15_000)
+      busyTimer.unref()
+    } else if (!held) stopBusyTimer()
+    store.holdWhenBusy(held)
   }
 
-  function stopLoadTimer(): void {
-    clearInterval(loadTimer)
-    loadTimer = undefined
+  function stopBusyTimer(): void {
+    clearInterval(busyTimer)
+    busyTimer = undefined
   }
 
   let restoreTalkAdmissions = true
@@ -2021,8 +2015,8 @@ export function createTasks(options: {
     const held = heldReady()
     const queued = ready()
     const waiting = queued.length + held.length + revives.length + automatic.length > 0
-    checkLoad(waiting)
-    if (!waiting) return
+    await checkBusy(waiting)
+    if (closed || !waiting) return
     const { use } = await slotUse(
       [...revives, ...held, ...queued, ...automatic].flatMap((q) => q.factoryId ?? []),
     )
@@ -2217,10 +2211,7 @@ export function createTasks(options: {
         const cap = use.caps[factoryId]
         return cap === undefined ? [] : [{ factoryId, cap, working: use.byFactory[factoryId] ?? 0 }]
       }),
-      ...(heldAtLoad !== undefined && {
-        heldForLoad: true as const,
-        loadRatio: Math.round(heldAtLoad * 100) / 100,
-      }),
+      ...(heldBusy !== undefined && { busy: heldBusy }),
     }
   }
 
@@ -11932,7 +11923,7 @@ export function createTasks(options: {
       leadLifecycle.close()
       snoozeTimer?.cancel()
       releaseSnoozeIdle?.()
-      stopLoadTimer()
+      stopBusyTimer()
       for (const timer of nudgeTimers.values()) timer.cancel()
       nudgeTimers.clear()
       unsubscribe()

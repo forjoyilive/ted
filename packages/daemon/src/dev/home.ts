@@ -160,6 +160,7 @@ export function demoEnvironment(
     TED_FREE_BYTES_FILE: fixture('free-bytes.txt'),
     TED_ONLINE_FILE: fixture('online.txt'),
     TED_LOAD_FILE: fixture('load.txt'),
+    TED_MEMORY_FILE: fixture('memory.json'),
     TED_LOW_PRIORITY: 'off',
     TED_STAY_AWAKE: 'off',
     TED_TIME_MACHINE: 'off',

@@ -40,6 +40,7 @@ import {
   type BannerSeverity,
   type BaseConflictFound,
   type BlockerEnded,
+  type BusyHold,
   bannerOrder,
   busyHold,
   type CheckResult,
@@ -66,6 +67,7 @@ import {
   type DesignReview,
   type DiffRow,
   defaultMachineSettings,
+  defaultWorkingRuns,
   type Effort,
   emptyMessageDraft,
   type Factory,
@@ -119,6 +121,7 @@ import {
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
 import { Effect } from 'effect'
+import { totalMemory } from '../busy.ts'
 import { isDiskFullError } from '../disk.ts'
 import { redactSecrets } from '../redact.ts'
 import { type QueueEntry, queueOrder } from '../tasks/queue.ts'
@@ -1203,7 +1206,7 @@ export interface TedStore extends TaskHistory {
   persisted(): Promise<void>
   holdNewWork(reason: string | undefined): void
   newWorkHold(): string | undefined
-  holdForLoad(held: boolean): void
+  holdWhenBusy(held: BusyHold | undefined): void
   setTaskChecking(taskId: string, on: boolean): void
   setTaskMovingAfterChecks(taskId: string, on: boolean): void
   setChecksWaiting(places: ReadonlyMap<string, number>): void
@@ -1325,7 +1328,7 @@ export async function openStore({
   const writeListeners = new Set<(error?: unknown) => void>()
   let writeFailing = false
   let newWorkHeld: string | undefined
-  let heldForLoad = false
+  let heldBusy: BusyHold | undefined
   const waitingOnSubAgents = new Set<string>()
   const checkingTasks = new Set<string>()
   const movingAfterChecks = new Set<string>()
@@ -2124,7 +2127,7 @@ export async function openStore({
                 : { hold: newWorkHeld }
               : { hold: 'Waiting for the agent' },
       }),
-      ...(place > 0 && heldForLoad && { heldForLoad }),
+      ...(place > 0 && heldBusy && { busy: heldBusy }),
       queuedSubAgents: reads.subAgentRequests(row.id).map((r) => ({
         id: r.id,
         ...(paused[r.agent as AgentKind] !== undefined && {
@@ -2134,7 +2137,7 @@ export async function openStore({
           ? { hold: `${r.agent} is off. Enable it in Settings → Agents.` }
           : newWorkHeld !== undefined
             ? { hold: newWorkHeld }
-            : heldForLoad
+            : heldBusy
               ? { hold: busyHold }
               : {}),
       })),
@@ -3350,6 +3353,10 @@ export async function openStore({
       : 'ask'
   }
 
+  const machineDefaults: MachineSettings = {
+    ...defaultMachineSettings,
+    maxWorkingRuns: defaultWorkingRuns(totalMemory()),
+  }
   const settings = (): MachineSettings => {
     const legacy = store.query(queryDb(machineSettings.where({ id: 'machine' }))).at(0)
     const values = Object.fromEntries(
@@ -3358,7 +3365,7 @@ export async function openStore({
         .map(({ name, value }) => [name, JSON.parse(value) as unknown]),
     )
     return {
-      ...defaultMachineSettings,
+      ...machineDefaults,
       ...(legacy && { appearance: legacy.appearance as Appearance }),
       ...pick(values, Object.keys(defaultMachineSettings)),
       billing: {
@@ -7076,9 +7083,9 @@ export async function openStore({
       updatedTasks(tasksWaitingForSlots())
     },
     newWorkHold: () => newWorkHeld,
-    holdForLoad(held) {
-      if (held === heldForLoad) return
-      heldForLoad = held
+    holdWhenBusy(held) {
+      if (JSON.stringify(held) === JSON.stringify(heldBusy)) return
+      heldBusy = held
       stateCommits += 1
       updatedTasks(tasksWaitingForSlots())
     },

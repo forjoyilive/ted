@@ -115,27 +115,29 @@ test('Limits updates the machine cap and follows live slot changes', async () =>
   expect(screen.getByText('Now: 2 slots in use · limit 2')).toBeTruthy()
 })
 
-test('Limits turns on starting fewer Runs when busy and says when starts are held', async () => {
+test('Limits turns off waiting when busy and says when starts are held', async () => {
   const a = appState()
   working(a)
   a.mount()
   await a.settings()
   await user().click(screen.getByRole('button', { name: 'Limits' }))
   const control = screen.getByRole('switch', {
-    name: 'Start fewer Runs when this computer is busy',
+    name: 'Wait to start new work when this computer is busy',
   })
-  expect(control.getAttribute('aria-checked')).toBe('false')
+  expect(control.getAttribute('aria-checked')).toBe('true')
   const help = screen.getAllByRole('button', { name: 'Help' })[2] as HTMLElement
   await user().hover(help)
   expect(screen.getByRole('tooltip').textContent).toMatch(
-    /Runs already working carry on\. The limit above is still the most TED runs at once\.$/,
+    /Work already running carries on\. The limit above is still the most TED runs at once\.$/,
   )
   await user().unhover(help)
   await user().click(control)
-  expect(a.request).toHaveBeenCalledWith('updateSettings', { adjustRunsToLoad: true })
-  a.state.slots = { ...a.state.slots, heldForLoad: true, loadRatio: 1.4 }
+  expect(a.request).toHaveBeenCalledWith('updateSettings', { waitWhenBusy: false })
+  a.state.slots = { ...a.state.slots, busy: { memoryAvailable: 0.07 } }
   await act(async () => a.emit({ type: 'slots-changed', slots: a.state.slots }))
   expect(
-    screen.getByText(/^Now: 1 slot in use · limit \d+ · 1 queued · this computer is busy$/),
-  ).toBeTruthy()
+    screen
+      .getByText(/^Now: 1 slot in use · limit \d+ · 1 queued · this computer is busy$/)
+      .getAttribute('title'),
+  ).toBe('Memory available: 7% · waits below 10%, starts again above 20%')
 })

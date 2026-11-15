@@ -1,6 +1,7 @@
-import type { Priority } from '@ted/protocol'
+import { busyMarks, defaultWorkingRuns, type Priority } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
-import { heldForLoad, loadMarks, queueOrder, startsNow } from '../src/tasks/queue.ts'
+import { nextBusy } from '../src/busy.ts'
+import { queueOrder, startsNow } from '../src/tasks/queue.ts'
 
 const task = (id: string, priority: Priority, rank: number, factoryId = 'nb') =>
   ({ id, kind: 'task', priority, rank, factoryId }) as const
@@ -123,7 +124,7 @@ describe('Automation admission', () => {
     },
     {
       name: 'busy computer',
-      use: { limit: 6, working: 1, byFactory: {}, caps: {}, heldForLoad: true },
+      use: { limit: 6, working: 1, byFactory: {}, caps: {}, busy: true },
       expected: ['draft', 'firing'],
     },
   ])('bypasses $name while ordinary work respects it', ({ use, expected }) => {
@@ -220,7 +221,7 @@ describe('chats', () => {
     },
     {
       name: 'a busy computer',
-      use: { limit: 6, working: 1, byFactory: {}, caps: {}, heldForLoad: true },
+      use: { limit: 6, working: 1, byFactory: {}, caps: {}, busy: true },
     },
   ])('start with $name', ({ use }) => {
     expect(startsNow(ordered, use).map((e) => e.id)).toEqual(
@@ -235,43 +236,78 @@ describe('chats', () => {
   })
 })
 
-describe('heldForLoad', () => {
+const quiet = { loadRatio: 0, memoryAvailable: 1 }
+
+describe('nextBusy', () => {
   test('holds at one runnable process per core, and not below it', () => {
-    expect(heldForLoad(false, loadMarks.holdAt)).toBe(true)
-    expect(heldForLoad(false, 4.4)).toBe(true)
-    expect(heldForLoad(false, 0.99)).toBe(false)
+    expect(nextBusy(undefined, { ...quiet, loadRatio: busyMarks.load.holdAt })).toEqual({
+      loadRatio: 1,
+    })
+    expect(nextBusy(undefined, { ...quiet, loadRatio: 4.404 })).toEqual({ loadRatio: 4.4 })
+    expect(nextBusy(undefined, { ...quiet, loadRatio: 0.99 })).toBeUndefined()
   })
 
-  test('once holding, keeps holding until the load is below the resume mark', () => {
-    expect(heldForLoad(true, 0.99)).toBe(true)
-    expect(heldForLoad(true, loadMarks.resumeBelow)).toBe(true)
-    expect(heldForLoad(true, 0.74)).toBe(false)
-    expect(heldForLoad(false, 0.8)).toBe(false)
+  test('once holding for load, keeps holding until it is below the resume mark', () => {
+    const held = { loadRatio: 1.2 }
+    expect(nextBusy(held, { ...quiet, loadRatio: 0.99 })).toEqual({ loadRatio: 0.99 })
+    expect(nextBusy(held, { ...quiet, loadRatio: busyMarks.load.resumeBelow })).toEqual({
+      loadRatio: 0.75,
+    })
+    expect(nextBusy(held, { ...quiet, loadRatio: 0.74 })).toBeUndefined()
+    expect(nextBusy(undefined, { ...quiet, loadRatio: 0.8 })).toBeUndefined()
   })
 
-  test('a load that can’t be read, or the zeros Windows reports, never holds', () => {
-    expect(heldForLoad(true, Number.NaN)).toBe(false)
-    expect(heldForLoad(true, 0)).toBe(false)
+  test('holds below 10% of memory available and keeps holding until it is above 20%', () => {
+    expect(nextBusy(undefined, { ...quiet, memoryAvailable: 0.1 })).toBeUndefined()
+    const held = nextBusy(undefined, { ...quiet, memoryAvailable: 0.071 })
+    expect(held).toEqual({ memoryAvailable: 0.07 })
+    expect(nextBusy(held, { ...quiet, memoryAvailable: 0.2 })).toEqual({ memoryAvailable: 0.2 })
+    expect(nextBusy(held, { ...quiet, memoryAvailable: 0.21 })).toBeUndefined()
+  })
+
+  test('carries each resource that holds, and a load hold doesn’t keep memory held', () => {
+    const both = nextBusy(undefined, { loadRatio: 2, memoryAvailable: 0.05 })
+    expect(both).toEqual({ loadRatio: 2, memoryAvailable: 0.05 })
+    expect(nextBusy({ loadRatio: 2 }, { loadRatio: 0.9, memoryAvailable: 0.15 })).toEqual({
+      loadRatio: 0.9,
+    })
+  })
+
+  test('a figure that can’t be read, or the zeros Windows reports, never holds', () => {
+    expect(nextBusy({ loadRatio: 2 }, { ...quiet, loadRatio: Number.NaN })).toBeUndefined()
+    expect(nextBusy({ loadRatio: 2 }, { ...quiet, loadRatio: 0 })).toBeUndefined()
+    const memory = { memoryAvailable: 0.05 }
+    expect(nextBusy(memory, { ...quiet, memoryAvailable: Number.NaN })).toBeUndefined()
   })
 })
 
-describe('startsNow while starts are held for load', () => {
+describe('defaultWorkingRuns', () => {
+  test('one working Run per 4 GB of memory, from 2 to 8', () => {
+    const gb = 1024 ** 3
+    expect([4, 8, 16, 18, 24, 32, 64].map((n) => defaultWorkingRuns(n * gb))).toEqual([
+      2, 2, 4, 4, 6, 8, 8,
+    ])
+    expect(defaultWorkingRuns(Number.NaN)).toBe(6)
+  })
+})
+
+describe('startsNow while this computer is busy', () => {
   const queue = queueOrder([task('a', 'high', 1), task('b', 'medium', 2, 'ms')])
   const subAgent = (id: string, rank: number) =>
     ({ id, kind: 'sub-agent', rank, factoryId: 'nb' }) as const
 
   test('starts nothing while anything is working, even with slots free', () => {
-    const use = { limit: 6, working: 1, byFactory: {}, caps: {}, heldForLoad: true }
+    const use = { limit: 6, working: 1, byFactory: {}, caps: {}, busy: true }
     expect(startsNow(queue, use)).toEqual([])
   })
 
   test('with nothing working, starts the first entry and only that one', () => {
-    const use = { limit: 6, working: 0, byFactory: {}, caps: {}, heldForLoad: true }
+    const use = { limit: 6, working: 0, byFactory: {}, caps: {}, busy: true }
     expect(startsNow(queue, use).map((e) => e.id)).toEqual(['a'])
   })
 
   test('with nothing working, a Factory at its cap is still skipped for the next entry', () => {
-    const use = { limit: 6, working: 0, byFactory: {}, caps: { nb: 0 }, heldForLoad: true }
+    const use = { limit: 6, working: 0, byFactory: {}, caps: { nb: 0 }, busy: true }
     expect(startsNow(queue, use).map((e) => e.id)).toEqual(['b'])
   })
 
@@ -282,13 +318,13 @@ describe('startsNow while starts are held for load', () => {
       byFactory: {},
       caps: {},
       handoffs: new Set(['handed']),
-      heldForLoad: true,
+      busy: true,
     })
     expect(started.map((e) => e.id)).toEqual(['handed'])
   })
 
   test('without the hold the same queue starts', () => {
-    const use = { limit: 6, working: 1, byFactory: {}, caps: {}, heldForLoad: false }
+    const use = { limit: 6, working: 1, byFactory: {}, caps: {}, busy: false }
     expect(startsNow(queue, use).map((e) => e.id)).toEqual(['a', 'b'])
   })
 })

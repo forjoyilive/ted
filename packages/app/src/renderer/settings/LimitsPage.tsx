@@ -1,7 +1,7 @@
 import { emulatorSlotLimits, simulatorSlotLimits } from '@ted/protocol/app'
 import { checkLimits, workingRunLimits } from '@ted/protocol/settings'
 import { useEmulators, useSimulators, useSlots } from '../data.ts'
-import { nowLine } from '../slots.ts'
+import { nowLine, slotsDetail } from '../slots.ts'
 import { ted } from '../ted.ts'
 import { SettingRow, SettingsGroup, SettingsPage, Stepper, Switch } from './controls.tsx'
 import type { SettingsPageProps } from './sections.tsx'
@@ -29,9 +29,9 @@ export function LimitsPage({ settings }: SettingsPageProps) {
         </SettingRow>
         <SettingRow setting="app.limits.busy">
           <Switch
-            label="Start fewer Runs when this computer is busy"
-            checked={settings.adjustRunsToLoad}
-            onChange={(adjustRunsToLoad) => ted.updateSettings({ adjustRunsToLoad })}
+            label="Wait to start new work when this computer is busy"
+            checked={settings.waitWhenBusy}
+            onChange={(waitWhenBusy) => ted.updateSettings({ waitWhenBusy })}
           />
         </SettingRow>
         {simulators?.supported === true && (
@@ -76,7 +76,11 @@ export function LimitsPage({ settings }: SettingsPageProps) {
           />
         </SettingRow>
       </SettingsGroup>
-      {slots && <p className={styles.nowLine}>{nowLine(slots, simulators, emulators)}</p>}
+      {slots && (
+        <p className={styles.nowLine} title={slotsDetail(slots)}>
+          {nowLine(slots, simulators, emulators)}
+        </p>
+      )}
     </SettingsPage>
   )
 }
