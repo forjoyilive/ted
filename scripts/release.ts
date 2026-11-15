@@ -396,6 +396,73 @@ export function majorWritten(notes: string): boolean {
   return (match[1] ?? '').replace(/<!--[\s\S]*?-->/g, '').trim() !== ''
 }
 
+export function notesPrompt(changes: Change[], version: string): string {
+  const kinds: Record<ChangeKind, string> = { feature: 'feature?', fix: 'fix?', other: 'other?' }
+  const lines = changes.map((change) => {
+    const pr = change.pullRequest === undefined ? '' : ` (#${change.pullRequest})`
+    const areas = [...new Set(change.files.map((file) => file.split('/').slice(0, 2).join('/')))]
+    return `- [${kinds[changeKind(change)]}] ${change.title}${pr} — touches ${areas.slice(0, 4).join(', ')}`
+  })
+  return [
+    `Write the release notes for TED ${version}, a macOS desktop app that runs software factories: agents carry development tasks through a workflow, and the human steers through an inbox and comments.`,
+    '',
+    'Below is every change merged since the last release, one per line, with a guessed kind and the folders it touched. Use only these changes; never invent one.',
+    '',
+    'Answer with Markdown only, starting with the line “## Major”, in exactly these sections:',
+    '- ## Major: two to four bullets on the changes a user will notice most, a sentence each.',
+    '- ## Features: new or changed behaviour a user can see.',
+    '- ## Fixes: things that were broken and now work.',
+    '- ## Other: tests, docs, release tooling and internal changes, briefly; group related ones into one line.',
+    'Leave out a section with nothing in it, except Major. Keep pull request numbers like (#431) on the lines they belong to. Merge lines that describe the same change.',
+    '',
+    'Style: plain, direct language; name the concrete thing; no marketing words; curly quotes and apostrophes (’ “ ”). Write for someone who uses TED, not someone who builds it.',
+    '',
+    'Changes:',
+    ...lines,
+  ].join('\n')
+}
+
+export function cleanClaudeNotes(answer: string): string | undefined {
+  const start = answer.indexOf('## Major')
+  if (start === -1) return undefined
+  const notes = answer
+    .slice(start)
+    .split('\n')
+    .filter((line) => !/^\*\*Full changelog/i.test(line))
+    .join('\n')
+    .replace(/\n*```\s*$/, '')
+    .trim()
+  return majorWritten(notes) ? notes : undefined
+}
+
+function claudeNotes(changes: Change[], version: string, previous: string | undefined) {
+  if (changes.length === 0) return undefined
+  const scratch = mkdtempSync(path.join(os.tmpdir(), 'ted-notes-'))
+  try {
+    const result = spawnSync(
+      'claude',
+      ['-p', '--output-format', 'text', '--no-session-persistence', '--permission-mode', 'default'],
+      {
+        cwd: scratch,
+        input: notesPrompt(changes, version),
+        encoding: 'utf8',
+        timeout: 5 * 60_000,
+        maxBuffer: 4 * 1024 * 1024,
+      },
+    )
+    if (result.status !== 0) return undefined
+    const notes = cleanClaudeNotes(result.stdout)
+    if (notes === undefined) return undefined
+    const link =
+      previous === undefined
+        ? ''
+        : `\n\n**Full changelog**: https://github.com/${repo}/compare/${previous}...v${version}`
+    return `${notes}${link}\n`
+  } finally {
+    rmSync(scratch, { recursive: true, force: true })
+  }
+}
+
 function changesSince(previous: string | undefined, head: string): Change[] {
   const range = previous === undefined ? [head, '-n', '200'] : [`${previous}..${head}`]
   const log = git('log', '--first-parent', '--format=%H%x1f%P%x1f%s%x1f%b%x1e', ...range)
@@ -555,9 +622,14 @@ async function build(version: string, skipChecks: boolean): Promise<void> {
     fail(`the build made no latest-mac.yml or .zip in ${releaseDir}`)
   }
   writeRecord({ ...record, files: hashes(files) })
-  writeFileSync(notesFile, draftNotes(changes, version, previous))
-  console.log(`\n== Release notes drafted in ${notesFile}`)
-  console.log('Write the Major section and check the rest before you publish.')
+  console.log('\n== Draft the release notes with Claude')
+  const drafted = claudeNotes(changes, version, previous)
+  writeFileSync(notesFile, drafted ?? draftNotes(changes, version, previous))
+  console.log(
+    drafted === undefined
+      ? `Claude couldn’t draft them, so ${notesFile} lists the changes; write the Major section before you publish.`
+      : `Claude drafted them in ${notesFile}; read and correct them before you publish.`,
+  )
   install()
   console.log(
     `\nTED ${version} is built from ${base.slice(0, 8)}, tagged on this Mac only and installed in ${installed}.`,

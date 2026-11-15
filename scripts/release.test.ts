@@ -6,11 +6,13 @@ import {
   type Change,
   changedFiles,
   changeKind,
+  cleanClaudeNotes,
   discardPlan,
   draftNotes,
   isNewer,
   majorWritten,
   notaryCredentials,
+  notesPrompt,
   type PublishFacts,
   parseVersion,
   pickSigningIdentity,
@@ -290,5 +292,34 @@ describe('release notes', () => {
     expect(majorWritten(draft.replace('## Major\n', '## Major\n\nFactory groups.\n'))).toBe(true)
     expect(majorWritten('## Features\n\n- a\n')).toBe(false)
     expect(majorWritten('## Major\n\nOnly this.')).toBe(true)
+  })
+})
+
+describe('Claude’s release notes', () => {
+  test('the prompt lists each change with its guessed kind, pull request and folders', () => {
+    const prompt = notesPrompt(
+      [
+        {
+          title: 'Show Factory groups',
+          pullRequest: 431,
+          files: ['packages/app/src/a.ts', 'packages/daemon/src/b.ts'],
+        },
+      ],
+      '1.2.0',
+    )
+    expect(prompt).toContain('TED 1.2.0')
+    expect(prompt).toContain(
+      '- [feature?] Show Factory groups (#431) — touches packages/app, packages/daemon',
+    )
+  })
+
+  test('keeps the notes from “## Major” on, drops its own changelog line, and needs a Major section', () => {
+    expect(
+      cleanClaudeNotes(
+        'Here you go:\n\n## Major\n\n- Groups.\n\n## Fixes\n\n- A fix.\n**Full changelog**: x\n```',
+      ),
+    ).toBe('## Major\n\n- Groups.\n\n## Fixes\n\n- A fix.')
+    expect(cleanClaudeNotes('## Features\n\n- a')).toBeUndefined()
+    expect(cleanClaudeNotes('## Major\n\n<!-- nothing -->\n\n## Fixes\n\n- a')).toBeUndefined()
   })
 })
