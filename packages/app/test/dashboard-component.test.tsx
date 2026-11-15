@@ -710,7 +710,21 @@ test('Today draws hours against all of yesterday and compares with yesterday to 
   expect(completed.querySelectorAll('tbody tr')).toHaveLength(24)
   expect(within(completed).getAllByText('Not reached yet today')).toHaveLength(21)
   const select = screen.getByRole('combobox', { name: 'Historical period' })
-  expect(within(select).getByRole('option', { name: 'Today' })).toBeTruthy()
+  expect(
+    within(select)
+      .getAllByRole('option')
+      .map((option) => option.textContent),
+  ).toEqual([
+    'Today',
+    'Last 7 days',
+    'Last 30 days',
+    'Last 90 days',
+    'Last 12 months',
+    'This week',
+    'This month',
+    'Year to date',
+    'All time',
+  ])
   await user().selectOptions(select, '7d')
   expect(change).toHaveBeenCalledWith({ range: '7d' })
 })
@@ -745,7 +759,7 @@ test('a graph point’s tooltip compares it with the aligned previous point', as
       bucket: now,
       other: then,
       label,
-      today: false,
+      range: '7d',
     }),
   ).toEqual({
     heading: 'now',
@@ -763,7 +777,7 @@ test('a graph point’s tooltip compares it with the aligned previous point', as
       bucket: now,
       other: then,
       label,
-      today: true,
+      range: 'today',
     }),
   ).toMatchObject({
     rows: [
@@ -779,7 +793,7 @@ test('a graph point’s tooltip compares it with the aligned previous point', as
       bucket: now,
       other: bucket('then', [], null),
       label,
-      today: false,
+      range: '7d',
     }),
   ).toMatchObject({ change: 'No previous sample' })
   expect(
@@ -789,7 +803,7 @@ test('a graph point’s tooltip compares it with the aligned previous point', as
       bucket: then,
       other: undefined,
       label,
-      today: false,
+      range: '7d',
     }),
   ).toMatchObject({ rows: [{ value: '1 Task' }], change: null })
   expect(
@@ -799,9 +813,22 @@ test('a graph point’s tooltip compares it with the aligned previous point', as
       bucket: then,
       other: now,
       label,
-      today: false,
+      range: '7d',
     }),
   ).toMatchObject({ heading: 'Previous · then', aligned: 'Aligned to now', change: null })
+  expect(
+    pointTip({
+      metric: 'completed',
+      period: 'current',
+      bucket: now,
+      other: then,
+      label,
+      range: 'month',
+    }),
+  ).toMatchObject({
+    rows: [{ value: '4 Tasks' }, { label: 'Last month · then', value: '1' }],
+    change: '+3 vs last month (+300%)',
+  })
 })
 
 test('the completed chart’s scale and Factory split', async () => {

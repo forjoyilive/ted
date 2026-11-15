@@ -5,10 +5,12 @@ import type {
   DashboardMetric,
   DashboardOpenState,
   DashboardPeriod,
+  DashboardRange,
   DashboardReport,
   DashboardTask,
   Factory,
 } from '@ted/protocol'
+import { dashboardRange, dashboardRanges } from '@ted/protocol/dashboard'
 import {
   Fragment,
   type ReactNode,
@@ -26,6 +28,8 @@ import {
   type DashboardSelection,
   type DashboardViewState,
   dashboardPanels,
+  rangeComparison,
+  rangeLabels,
   rememberDashboard,
   shownFactoryIds,
 } from '../dashboard.ts'
@@ -112,6 +116,23 @@ const calendarDate = (at: Date) =>
 const dayCount = (bucket: Span) =>
   Math.round((Date.parse(bucket.to) - Date.parse(bucket.from)) / dayMs)
 
+const rollingRanges: readonly DashboardRange[] = ['7d', '30d', '90d', '12m']
+
+function barsCaption(data: DashboardReport, perPoint: number): string {
+  const bars =
+    perPoint === 1 ? 'One bar per calendar day' : `Each bar covers ${perPoint} calendar days`
+  const last = data.current.buckets.at(-1)
+  const lastDays = last ? dayCount(last) : perPoint
+  const short =
+    perPoint > 1 && last && last.to !== data.asOf && lastDays < perPoint
+      ? ` The last bar covers ${lastDays === 1 ? '1 day' : `${lastDays} days`}.`
+      : ''
+  const end = rollingRanges.includes(data.range)
+    ? ' Today is not included.'
+    : ' The last bar runs to now.'
+  return `${bars}, midnight to midnight.${short}${end}`
+}
+
 function dayLabel(bucket: Span, asOf: string): string {
   const first = new Date(bucket.from)
   const last = lastDay(bucket)
@@ -153,12 +174,12 @@ function Change({
   change,
   metric,
   all,
-  today,
+  range,
 }: {
   change: DashboardChange | undefined
   metric: DashboardMetric | 'waiting'
   all: boolean
-  today: boolean
+  range: DashboardRange
 }) {
   const percent = change?.percent
   const good =
@@ -166,7 +187,7 @@ function Change({
   return (
     <p className={`${styles.change} ${percent ? (good ? styles.good : styles.bad) : ''}`}>
       {all ? (
-        'All retained history'
+        rangeLabels.all
       ) : percent === null || percent === undefined ? (
         change?.absolute === null ? (
           'No duration sample to compare'
@@ -180,7 +201,7 @@ function Change({
             {Number(percent.toFixed(1))}%
           </strong>
           <span>
-            {`${counts(metric) || metric === 'waiting' ? '' : 'elapsed time '}${today ? 'vs yesterday to this time' : 'vs previous period'}`}
+            {`${counts(metric) || metric === 'waiting' ? '' : 'elapsed time '}${rangeComparison(range).versus}`}
           </span>
         </>
       )}
@@ -203,16 +224,16 @@ export function pointTip({
   bucket,
   other,
   label,
-  today,
+  range,
 }: {
   metric: DashboardMetric
   period: 'current' | 'previous'
   bucket: DashboardBucket
   other: DashboardBucket | undefined
   label: (bucket: DashboardBucket) => string
-  today: boolean
+  range: DashboardRange
 }): PointTip {
-  const earlier = today ? 'Yesterday' : 'Previous'
+  const { earlier, against } = rangeComparison(range)
   const name = metric === 'completed' ? 'Completed' : 'Median'
   const value = metricValue(bucket, metric)
   const shown = (v: number | null, full: boolean) =>
@@ -241,7 +262,6 @@ export function pointTip({
   if (before === null) change = 'No previous sample'
   else if (before !== undefined && value !== null) {
     const difference = value - before
-    const against = today ? 'yesterday' : 'previous'
     if (difference === 0) change = `Same as ${against}`
     else {
       const sign = difference > 0 ? '+' : '−'
@@ -366,7 +386,7 @@ function Chart({
           bucket: shownBucket,
           other: (hovered.period === 'current' ? b : a)[hovered.index],
           label: pointLabel,
-          today,
+          range: data.range,
         })
       : null
   const factoryRows =
@@ -394,7 +414,7 @@ function Chart({
         text: clock(start + i * hourMs),
       }))
     : a.flatMap((bucket, i) => {
-        const every = data.range === '7d' ? 1 : Math.ceil(a.length / 6)
+        const every = a.length <= 7 ? 1 : Math.ceil(a.length / 6)
         if (i % every !== 0) return []
         return [
           {
@@ -402,7 +422,7 @@ function Chart({
             x: centre(i),
             anchor: 'middle' as const,
             text:
-              data.range === '7d'
+              a.length <= 7
                 ? machineDate(bucket.from, { weekday: 'short', day: 'numeric' })
                 : shortDate(bucket.from),
           },
@@ -420,7 +440,7 @@ function Chart({
         {data.previous && (
           <span>
             <i className={styles.previousKey} />
-            {today ? 'Yesterday · aligned by hour' : 'Previous · aligned by day'}
+            {`${rangeComparison(data.range).earlier} · aligned by ${today ? 'hour' : perPoint === 1 ? 'day' : 'bar'}`}
           </span>
         )}
       </div>
@@ -542,11 +562,9 @@ function Chart({
         </div>
       )}
       <p className={styles.caption}>
-        {data.range === 'all'
-          ? `${perPoint === 1 ? 'One bar per calendar day' : `Each bar covers ${perPoint} calendar days`}, midnight to midnight. The last bar runs to now.`
-          : today
-            ? 'One bar per hour since midnight. Today’s last hour is still running. Yesterday’s line shows the whole day; the figures above count it only to this time.'
-            : 'One bar per calendar day, midnight to midnight. Today is not included.'}{' '}
+        {today
+          ? 'One bar per hour since midnight. Today’s last hour is still running. Yesterday’s line shows the whole day; the figures above count it only to this time.'
+          : barsCaption(data, perPoint)}{' '}
         Tasks per bar, split by Factory.
       </p>
       <details className={styles.dataTable}>
@@ -560,7 +578,7 @@ function Chart({
             <tr>
               <th>{today ? 'Interval' : perPoint === 1 ? 'Day' : 'Days'}</th>
               <th>{today ? 'Today' : 'Selected'}</th>
-              {data.previous && <th>{today ? 'Yesterday' : 'Previous'}</th>}
+              {data.previous && <th>{rangeComparison(data.range).earlier}</th>}
             </tr>
           </thead>
           <tbody>
@@ -639,12 +657,7 @@ function Completed({
         >
           {showValue(metric, value)}
         </button>
-        <Change
-          change={change}
-          metric={metric}
-          all={previous === null}
-          today={data.range === 'today'}
-        />
+        <Change change={change} metric={metric} all={previous === null} range={data.range} />
         {previous && (
           <details className={styles.comparison}>
             <summary>Comparison details</summary>
@@ -700,7 +713,6 @@ function Throughput({
 }) {
   const merged = useId()
   const open = useId()
-  const today = data.range === 'today'
   const states = openOrder.flatMap((state) => {
     const count = data.open.filter((task) => task.state === state).length
     return count === 0 ? [] : [`${count} ${openLabels[state]}`]
@@ -722,7 +734,7 @@ function Throughput({
           change={data.comparison?.merged}
           metric="merged"
           all={data.previous === null}
-          today={today}
+          range={data.range}
         />
         <p className={styles.caption}>
           {[
@@ -786,7 +798,7 @@ function TaskTime({
           change={data.comparison?.created}
           metric="created"
           all={data.previous === null}
-          today={data.range === 'today'}
+          range={data.range}
         />
         <p className={styles.caption}>
           {labels.created}, median of {created.taskIds.length} Tasks
@@ -826,7 +838,7 @@ function TaskTime({
                 change={data.comparison?.[part.metric]}
                 metric={part.metric}
                 all={data.previous === null}
-                today={data.range === 'today'}
+                range={data.range}
               />
             </div>
           ))}
@@ -888,7 +900,7 @@ function Waiting({
                 change={change ?? undefined}
                 metric="waiting"
                 all={previous === null}
-                today={data.range === 'today'}
+                range={data.range}
               />
               <p className={styles.caption}>
                 Tasks waited on your answers
@@ -1569,15 +1581,15 @@ export function Dashboard({
           aria-label="Historical period"
           value={state.range}
           onChange={(event) => {
-            const range = event.target.value
-            if (range === 'today' || range === '7d' || range === '30d' || range === 'all')
-              onChange({ ...kept, range })
+            const range = dashboardRange(event.target.value)
+            if (range) onChange({ ...kept, range })
           }}
         >
-          <option value="today">Today</option>
-          <option value="30d">Last 30 days</option>
-          <option value="7d">Last 7 days</option>
-          <option value="all">All retained history</option>
+          {dashboardRanges.map((range) => (
+            <option key={range} value={range}>
+              {rangeLabels[range]}
+            </option>
+          ))}
         </Select>
       </header>
       {banners}
@@ -1704,12 +1716,12 @@ export function Dashboard({
                   change={data.cost.change}
                   tasks={data.cost.tasks}
                   factories={factories}
-                  today={data.range === 'today'}
+                  range={data.range}
                   all={data.previous === null}
                   bounds={`${
                     data.cost.current.from
                       ? `${timestamp(data.cost.current.from)} – ${timestamp(data.cost.current.to)} (end excluded) · `
-                      : 'All retained history · '
+                      : `${rangeLabels.all} · `
                   }As of ${timestamp(data.asOf)}`}
                   label={(index) => spanLabel(data, data.cost.current.buckets[index])}
                   select={select}

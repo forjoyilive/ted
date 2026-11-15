@@ -145,25 +145,79 @@ function allHistory(first: number, asOf: number): { from: number; perPoint: numb
   return { from: addDays(today, 1 - Math.ceil(total / perPoint) * perPoint), perPoint }
 }
 
-export function rangeWindows(range: Exclude<DashboardRange, 'all'>, asOf: number) {
+function sameDayIn(time: number, year: number, month: number): number {
+  const date = new Date(time)
+  const last = new Date(year, month + 1, 0).getDate()
+  date.setFullYear(year, month, Math.min(date.getDate(), last))
+  return date.getTime()
+}
+
+function monthsBack(time: number, months: number): number {
+  const date = new Date(time)
+  const target = new Date(date.getFullYear(), date.getMonth() - months, 1)
+  return sameDayIn(time, target.getFullYear(), target.getMonth())
+}
+
+function startOfWeek(time: number): number {
+  const today = startOfDay(time)
+  return addDays(today, -((new Date(today).getDay() + 6) % 7))
+}
+
+function dailyEdges(from: number, to: number): { edges: Edges; perPoint: number } {
+  const total = days(from, to, 1).length
+  const perPoint = total <= 31 ? 1 : Math.ceil(total / 30)
+  return { edges: days(from, to, perPoint), perPoint }
+}
+
+function periodBounds(range: Exclude<DashboardRange, 'all'>, asOf: number) {
   const today = startOfDay(asOf)
-  if (range === 'today') {
-    const yesterday = addDays(today, -1)
-    return {
-      from: today,
-      to: asOf,
-      previous: { from: yesterday, to: Math.min(today, addDays(asOf, -1)) },
-      previousDay: yesterday,
+  const year = new Date(asOf).getFullYear()
+  switch (range) {
+    case 'today':
+      return {
+        from: today,
+        to: asOf,
+        previousFrom: addDays(today, -1),
+        previousTo: addDays(asOf, -1),
+      }
+    case '7d':
+    case '30d':
+    case '90d': {
+      const length = range === '7d' ? 7 : range === '30d' ? 30 : 90
+      const from = addDays(today, -length)
+      return { from, to: today, previousFrom: addDays(from, -length), previousTo: from }
+    }
+    case '12m': {
+      const from = monthsBack(today, 12)
+      return { from, to: today, previousFrom: monthsBack(from, 12), previousTo: from }
+    }
+    case 'week': {
+      const from = startOfWeek(asOf)
+      return { from, to: asOf, previousFrom: addDays(from, -7), previousTo: addDays(asOf, -7) }
+    }
+    case 'month': {
+      const from = new Date(year, new Date(asOf).getMonth(), 1).getTime()
+      return { from, to: asOf, previousFrom: monthsBack(from, 1), previousTo: monthsBack(asOf, 1) }
+    }
+    case 'year': {
+      const from = new Date(year, 0, 1).getTime()
+      return {
+        from,
+        to: asOf,
+        previousFrom: new Date(year - 1, 0, 1).getTime(),
+        previousTo: monthsBack(asOf, 12),
+      }
     }
   }
-  const length = range === '7d' ? 7 : 30
-  const from = addDays(today, -length)
-  return {
-    from,
-    to: today,
-    previous: { from: addDays(from, -length), to: from },
-    previousDay: null,
-  }
+}
+
+export function rangeWindows(range: Exclude<DashboardRange, 'all'>, asOf: number) {
+  const { from, to, previousFrom, previousTo } = periodBounds(range, asOf)
+  const previous = { from: previousFrom, to: Math.min(from, previousTo) }
+  if (range === 'today')
+    return { from, to, previous, edges: hours(from, to), previousEdges: hours(previousFrom, from) }
+  const { edges, perPoint } = dailyEdges(from, to)
+  return { from, to, previous, edges, previousEdges: days(previous.from, previous.to, perPoint) }
 }
 
 function byFactory(
@@ -309,11 +363,7 @@ export function dashboardReport(
     merges,
     from,
     to,
-    from === null
-      ? []
-      : range === 'today'
-        ? hours(from, to)
-        : days(from, to, history ? history.perPoint : 1),
+    windows ? windows.edges : history ? days(history.from, to, history.perPoint) : [],
     factoryIds,
   )
   const previous = windows
@@ -322,9 +372,7 @@ export function dashboardReport(
         merges,
         windows.previous.from,
         windows.previous.to,
-        windows.previousDay === null
-          ? days(windows.previous.from, windows.previous.to, 1)
-          : hours(windows.previousDay, windows.from),
+        windows.previousEdges,
         factoryIds,
       )
     : null

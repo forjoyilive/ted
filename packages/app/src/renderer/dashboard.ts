@@ -1,4 +1,5 @@
 import type { CostKind, DashboardMetric, DashboardRange, StagePart } from '@ted/protocol'
+import { dashboardRange } from '@ted/protocol/dashboard'
 
 export type StageSelection = { period: 'current' | 'previous' } & (
   | { kind: 'stage'; stage: string; part?: StagePart }
@@ -32,7 +33,6 @@ export interface DashboardViewState {
 type Remembered = Pick<DashboardViewState, 'panel' | 'range' | 'factoryIds'>
 
 const storageKey = 'ted.dashboard'
-const ranges: readonly DashboardRange[] = ['today', '7d', '30d', 'all']
 export const dashboardPanels = ['overview', 'stages', 'cost'] as const
 export type DashboardPanel = (typeof dashboardPanels)[number]
 const knownPanel = (value: unknown) => dashboardPanels.find((p) => p === value)
@@ -45,7 +45,7 @@ export function rememberedDashboard(storage: Pick<Storage, 'getItem'> = localSto
     stored = {}
   }
   const value = (stored ?? {}) as Record<string, unknown>
-  const range = ranges.find((r) => r === value.range) ?? '30d'
+  const range = dashboardRange(value.range) ?? '30d'
   const panel = knownPanel(value.panel)
   const ids = Array.isArray(value.factoryIds)
     ? value.factoryIds.filter((id): id is string => typeof id === 'string')
@@ -84,4 +84,35 @@ export function dashboardState(
   if (screen?.range !== undefined) return { ...shown, range: screen.range }
   const { panel: remembered, ...stored } = rememberedDashboard(storage)
   return { ...stored, ...(panel === undefined && remembered && { panel: remembered }), ...shown }
+}
+
+export const rangeLabels: Record<DashboardRange, string> = {
+  today: 'Today',
+  '7d': 'Last 7 days',
+  '30d': 'Last 30 days',
+  '90d': 'Last 90 days',
+  '12m': 'Last 12 months',
+  week: 'This week',
+  month: 'This month',
+  year: 'Year to date',
+  all: 'All time',
+}
+
+export function rangeComparison(range: DashboardRange): {
+  earlier: string
+  against: string
+  versus: string
+} {
+  switch (range) {
+    case 'today':
+      return { earlier: 'Yesterday', against: 'yesterday', versus: 'vs yesterday to this time' }
+    case 'week':
+      return { earlier: 'Last week', against: 'last week', versus: 'vs last week to this time' }
+    case 'month':
+      return { earlier: 'Last month', against: 'last month', versus: 'vs last month to this day' }
+    case 'year':
+      return { earlier: 'Last year', against: 'last year', versus: 'vs last year to this date' }
+    default:
+      return { earlier: 'Previous', against: 'previous', versus: 'vs previous period' }
+  }
 }

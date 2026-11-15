@@ -1,4 +1,19 @@
-export type DashboardRange = 'today' | '7d' | '30d' | 'all'
+export const dashboardRanges = [
+  'today',
+  '7d',
+  '30d',
+  '90d',
+  '12m',
+  'week',
+  'month',
+  'year',
+  'all',
+] as const
+export type DashboardRange = (typeof dashboardRanges)[number]
+
+export function dashboardRange(value: unknown): DashboardRange | undefined {
+  return dashboardRanges.find((range) => range === value)
+}
 export type DashboardMetric = 'completed' | 'merged' | 'created' | 'backlog' | 'intake'
 export type DashboardDuration = 'created' | 'backlog' | 'intake'
 

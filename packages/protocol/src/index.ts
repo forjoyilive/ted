@@ -346,6 +346,7 @@ export type {
   FlowTask,
   FlowTestEvidence,
 } from './dashboard.ts'
+export { dashboardRange, dashboardRanges } from './dashboard.ts'
 export {
   type Backup,
   type BackupKind,

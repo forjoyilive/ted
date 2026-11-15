@@ -239,6 +239,96 @@ test('7 and 30 days are whole local days before today, and All groups whole days
   }
 })
 
+test('90 days and 12 months group into at most 30 bars; calendar periods compare to the same point', () => {
+  const zone = process.env.TZ
+  process.env.TZ = 'America/Los_Angeles'
+  try {
+    const at = (year: number, month: number, day: number, hours = 0, minutes = 0) =>
+      iso(new Date(year, month, day, hours, minutes).getTime())
+    const asOf = new Date(2026, 10, 12, 14, 26).getTime()
+    const window = (range: DashboardRange, time = asOf) => {
+      const report = factoryDashboard([], range, time)
+      return {
+        from: report.current.from,
+        to: report.current.to,
+        previous: [report.previous?.from, report.previous?.to],
+        bars: report.current.buckets.length,
+        previousBars: report.previous?.buckets.length,
+        first: [report.current.buckets[0]?.from, report.current.buckets[0]?.to],
+        last: [report.current.buckets.at(-1)?.from, report.current.buckets.at(-1)?.to],
+      }
+    }
+    expect(window('90d')).toMatchObject({
+      from: at(2026, 7, 14),
+      to: at(2026, 10, 12),
+      previous: [at(2026, 4, 16), at(2026, 7, 14)],
+      bars: 30,
+      previousBars: 30,
+      first: [at(2026, 7, 14), at(2026, 7, 17)],
+    })
+    expect(window('12m')).toMatchObject({
+      from: at(2025, 10, 12),
+      to: at(2026, 10, 12),
+      previous: [at(2024, 10, 12), at(2025, 10, 12)],
+      bars: 29,
+      first: [at(2025, 10, 12), at(2025, 10, 25)],
+      last: [at(2026, 10, 11), at(2026, 10, 12)],
+    })
+    expect(window('week')).toMatchObject({
+      from: at(2026, 10, 9),
+      to: iso(asOf),
+      previous: [at(2026, 10, 2), at(2026, 10, 5, 14, 26)],
+      bars: 4,
+      last: [at(2026, 10, 12), iso(asOf)],
+    })
+    expect(window('month')).toMatchObject({
+      from: at(2026, 10, 1),
+      to: iso(asOf),
+      previous: [at(2026, 9, 1), at(2026, 9, 12, 14, 26)],
+      bars: 12,
+    })
+    expect(window('year')).toMatchObject({
+      from: at(2026, 0, 1),
+      to: iso(asOf),
+      previous: [at(2025, 0, 1), at(2025, 10, 12, 14, 26)],
+      bars: 29,
+      first: [at(2026, 0, 1), at(2026, 0, 12)],
+      last: [at(2026, 10, 5), iso(asOf)],
+    })
+    expect(window('week', new Date(2026, 10, 9, 8).getTime())).toMatchObject({
+      from: at(2026, 10, 9),
+      previous: [at(2026, 10, 2), at(2026, 10, 2, 8)],
+      bars: 1,
+    })
+    expect(window('month', new Date(2026, 2, 31, 10).getTime())).toMatchObject({
+      previous: [at(2026, 1, 1), at(2026, 1, 28, 10)],
+    })
+    expect(window('year', new Date(2028, 1, 29, 10).getTime())).toMatchObject({
+      previous: [at(2027, 0, 1), at(2027, 1, 28, 10)],
+    })
+    const done = (id: string, time: string): Facts => ({
+      ...completed(id, 0, 1, null),
+      createdAt: iso(Date.parse(time) - hour),
+      entries: [{ stage: 'done', at: time }],
+    })
+    const month = factoryDashboard(
+      [
+        done('this', at(2026, 10, 12, 9)),
+        done('before-point', at(2026, 9, 12, 9)),
+        done('after-point', at(2026, 9, 12, 15)),
+      ],
+      'month',
+      asOf,
+    )
+    expect(month.current.taskIds).toEqual(['this'])
+    expect(month.previous?.taskIds).toEqual(['before-point'])
+    expect(month.comparison?.completed).toEqual({ absolute: 0, percent: 0 })
+  } finally {
+    if (zone === undefined) delete process.env.TZ
+    else process.env.TZ = zone
+  }
+})
+
 function flowTask(
   id: string,
   entries: [string, number][],

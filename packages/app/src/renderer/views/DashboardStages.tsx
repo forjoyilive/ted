@@ -21,7 +21,7 @@ const at = (date: string) =>
     timeZoneName: 'short',
   })
 const bounds = (period: FlowPeriod) =>
-  `${period.from ? at(period.from) : 'All retained history'} – ${at(period.to)} (end excluded)`
+  `${period.from ? at(period.from) : 'All time'} – ${at(period.to)} (end excluded)`
 const totalValue = (measure: FlowPeriod['stages'][number] | undefined) =>
   measure?.samples.length ? measure.totalMs : null
 
