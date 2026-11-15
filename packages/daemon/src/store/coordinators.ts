@@ -5,6 +5,7 @@ import type {
   RunMessage,
   TaskLead,
 } from '@ted/protocol'
+import { coordinatorChange, receiptsKept } from './coordinator-change.ts'
 import { coordinatorConversations, coordinators, events, type schema } from './schema.ts'
 
 export interface PromptPart {
@@ -88,12 +89,19 @@ export function createCoordinatorStore(options: {
     get: (id) => list().find((c) => c.factoryId === id),
     forRun: (id) => list().find((c) => c.runIds.includes(id)),
     save(value, canceled = []) {
-      options.commit(
-        events.coordinatorChanged({ factoryId: value.factoryId, data: JSON.stringify(value) }),
+      const trimmed: StoredCoordinator = { ...value, receipts: value.receipts.slice(-receiptsKept) }
+      const before = list().find((c) => c.factoryId === value.factoryId)
+      const change = coordinatorChange(
+        before as Record<string, unknown> | undefined,
+        trimmed as unknown as Record<string, unknown>,
+      )
+      const writes = [
+        ...(change ? [events.coordinatorPatched({ factoryId: value.factoryId, ...change })] : []),
         ...canceled.map(({ id, runId }) =>
           events.runMessageDeleted({ id, runId, at: new Date().toISOString() }),
         ),
-      )
+      ]
+      if (writes.length > 0) options.commit(...writes)
       options.changed(value.factoryId)
     },
     remove(factoryId) {

@@ -186,6 +186,8 @@ function NewTaskForm({
   const submitting = useRef(false)
   const deferredLookup = useRef<{ url: string; identifier: string } | undefined>(undefined)
 
+  useEffect(() => () => void session.flush().catch(() => {}), [session])
+
   const lookUp = useCallback(
     (url: string, identifier: string) => {
       if (!mounted.current) return

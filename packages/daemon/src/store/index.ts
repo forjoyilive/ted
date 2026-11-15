@@ -3504,7 +3504,7 @@ export async function openStore({
     const reasons = JSON.stringify(
       taskWaitReasons(taskId, facts).filter((r) => r.reason === 'run-slot'),
     )
-    if (lastTaskWaits.get(taskId) === reasons) return
+    if ((lastTaskWaits.get(taskId) ?? '[]') === reasons) return
     observingWait = true
     commit(events.taskWaitObserved({ taskId, reasons, at: new Date().toISOString() }))
     lastTaskWaits.set(taskId, reasons)

@@ -370,6 +370,25 @@ export async function editEventlog(home: string, sql: string): Promise<void> {
   db.close()
 }
 
+export async function eventArgs(home: string, name: string): Promise<string[]> {
+  const dir = path.join(home, 'store', 'ted')
+  const file = (await storeDbFiles(dir)).find((f) => f.startsWith('eventlog'))
+  if (!file) throw new Error('no event log')
+  const db = new DatabaseSync(path.join(dir, file), { readOnly: true })
+  try {
+    const rows = db
+      .prepare('SELECT argsJson FROM eventlog WHERE name = ? ORDER BY seqNumGlobal')
+      .all(name) as { argsJson: string }[]
+    return rows.map((row) => row.argsJson)
+  } finally {
+    db.close()
+  }
+}
+
+export async function eventCount(home: string, name: string): Promise<number> {
+  return (await eventArgs(home, name)).length
+}
+
 export function fixtureEnvironment(home: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
   for (const name of [

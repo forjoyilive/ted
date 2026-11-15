@@ -33,12 +33,14 @@ export function taskDraftSession(
     failed(error: unknown): void
     startDefault?(): Promise<boolean>
     rememberStart?(start: boolean): Promise<void>
+    saveAfterMs?: number
   },
 ) {
   const key = `ted.newTaskDraft.v1.${factoryId}`
   let current = emptyTaskDraft()
   let pending: NewTaskDraft | undefined
   let saving: Promise<void> | undefined
+  let timer: ReturnType<typeof setTimeout> | undefined
   let loaded = false
   let startDefault = true
   let startSaved = true
@@ -103,6 +105,19 @@ export function taskDraftSession(
       void saving.catch(options.failed)
     }
     return saving
+  }
+
+  function stopTimer() {
+    if (timer !== undefined) clearTimeout(timer)
+    timer = undefined
+  }
+
+  function persistSoon() {
+    stopTimer()
+    timer = setTimeout(() => {
+      timer = undefined
+      void persist()
+    }, options.saveAfterMs ?? 1000)
   }
 
   return {
@@ -181,15 +196,17 @@ export function taskDraftSession(
         options.failed(error)
       }
       pending = current
-      void persist()
+      persistSoon()
     },
     async flush() {
+      stopTimer()
       if (saving) await saving
       if (pending) await persist()
     },
     async moveOut() {
       const carried = current
       const empty = emptyTaskDraft(startDefault)
+      stopTimer()
       loaded = false
       pending = empty
       try {
@@ -205,6 +222,10 @@ export function taskDraftSession(
     },
     consumed(revision: string) {
       forget(revision)
+      if (pending?.revision === revision) {
+        stopTimer()
+        pending = undefined
+      }
       if (current.revision === revision) {
         startDefault = current.start
         saveStart()

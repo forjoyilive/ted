@@ -56,14 +56,43 @@ describe('New Task recovery and ordered saves', () => {
     const session = taskDraftSession('one', { ...setup, save })
     await session.load()
     session.update({ description: 'A' })
+    const first = session.flush()
     session.update({ description: 'AB' })
     session.update({ description: 'ABC' })
     expect(save).toHaveBeenCalledTimes(1)
     delayed.resolve({ draft: null })
+    await first
     await session.flush()
     expect(save).toHaveBeenCalledTimes(2)
     expect(save.mock.calls[1]?.[0].description).toBe('ABC')
     expect(setup.storage.getItem('ted.newTaskDraft.v1.one')).toBeNull()
+  })
+
+  test('typing saves once a second after the last key, and closing saves at once', async () => {
+    vi.useFakeTimers()
+    try {
+      const setup = options()
+      const save = vi.fn(setup.save)
+      const session = taskDraftSession('one', { ...setup, save })
+      await session.load()
+      for (const [i, key] of [...'Fix the login page'].entries()) {
+        session.update((draft) => ({ title: draft.title + key }))
+        if (i % 3 === 0) await vi.advanceTimersByTimeAsync(300)
+      }
+      expect(save).not.toHaveBeenCalled()
+      expect(setup.storage.getItem('ted.newTaskDraft.v1.one')).toContain('Fix the login page')
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(save).toHaveBeenCalledTimes(1)
+      expect(save.mock.calls[0]?.[0].title).toBe('Fix the login page')
+      session.update({ description: 'Typed just before closing' })
+      await session.flush()
+      expect(save).toHaveBeenCalledTimes(2)
+      expect(save.mock.calls[1]?.[0].description).toBe('Typed just before closing')
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(save).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test('retains a failed save for retry and keeps Factories separate', async () => {
