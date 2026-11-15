@@ -172,32 +172,26 @@ describe('publishing a release', () => {
   }
   const ready: PublishFacts = {
     record,
-    branch: 'main',
     head: 'release',
     localTag: 'release',
     remoteTag: undefined,
-    originMain: 'base',
     changed: [],
     visibility: 'PUBLIC',
   }
 
   test('publishes the build that was tried, from where it was built', () => {
     expect(publishRefusal(ready)).toBeUndefined()
-    expect(
-      publishRefusal({ ...ready, remoteTag: 'release', originMain: 'release' }),
-    ).toBeUndefined()
+    expect(publishRefusal({ ...ready, remoteTag: 'release' })).toBeUndefined()
   })
 
   test('refuses anything that would publish something other than the tried build', () => {
     const refused = (change: Partial<PublishFacts>) => publishRefusal({ ...ready, ...change })
     expect(refused({ record: undefined })).toMatch(/no build to publish/)
     expect(refused({ record: { ...record, files: {} } })).toMatch(/didn’t finish/)
-    expect(refused({ branch: 'feature' })).toMatch(/switch to main/)
-    expect(refused({ head: 'other' })).toMatch(/main isn’t at the commit/)
+    expect(refused({ head: 'other' })).toMatch(/release checkout isn’t at the commit/)
     expect(refused({ localTag: undefined })).toMatch(/tag v1\.2\.0 isn’t at the commit/)
     expect(refused({ changed: ['latest-mac.yml'] })).toMatch(/latest-mac\.yml; build again/)
     expect(refused({ remoteTag: 'other' })).toMatch(/already on GitHub at another commit/)
-    expect(refused({ originMain: 'moved' })).toMatch(/main moved on GitHub/)
     expect(refused({ visibility: 'PRIVATE' })).toMatch(/is private/)
   })
 })

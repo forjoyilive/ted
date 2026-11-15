@@ -1,6 +1,14 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import path from 'node:path'
 import { releaseRepo } from '../packages/protocol/src/release.ts'
 import { checkAndRecord, hasPassed } from './check.ts'
@@ -202,11 +210,9 @@ function remoteTagCommit(tag: string): string | undefined {
 
 export interface PublishFacts {
   record: ReleaseRecord | undefined
-  branch: string
   head: string
   localTag: string | undefined
   remoteTag: string | undefined
-  originMain: string
   changed: string[]
   visibility: string
 }
@@ -218,9 +224,8 @@ export function publishRefusal(facts: PublishFacts): string | undefined {
   if (Object.keys(record.files).length === 0) {
     return `the build of ${tag} didn’t finish; run pnpm release discard, then build again`
   }
-  if (facts.branch !== 'main') return 'switch to main first'
   if (facts.head !== record.commit) {
-    return `main isn’t at the commit ${tag} was built from; run pnpm release discard, then build again`
+    return `the release checkout isn’t at the commit ${tag} was built from; run pnpm release discard, then build again`
   }
   if (facts.localTag !== record.commit) {
     return `the tag ${tag} isn’t at the commit it was built from; run pnpm release discard, then build again`
@@ -230,9 +235,6 @@ export function publishRefusal(facts: PublishFacts): string | undefined {
   }
   if (facts.remoteTag !== undefined && facts.remoteTag !== record.commit) {
     return `${tag} is already on GitHub at another commit; release a new version`
-  }
-  if (facts.remoteTag === undefined && facts.originMain !== record.base) {
-    return 'main moved on GitHub since the build; run pnpm release discard, pull, and build again'
   }
   if (facts.visibility !== 'PUBLIC') {
     return `${repo} is private, so the updater and other people can’t read its releases; make it public first`
@@ -273,19 +275,16 @@ function publish(): void {
   ).trim()
   const facts: PublishFacts = {
     record,
-    branch: git('branch', '--show-current'),
     head: git('rev-parse', 'HEAD'),
     localTag: record === undefined ? undefined : gitMaybe('rev-parse', `${tag}^{commit}`),
     remoteTag: record === undefined ? undefined : remoteTagCommit(tag),
-    originMain: git('rev-parse', 'origin/main'),
     changed: record === undefined ? [] : changedFiles(record, hashes(present)),
     visibility,
   }
   const refusal = publishRefusal(facts)
   if (refusal !== undefined) fail(refusal)
   if (record === undefined) return
-  if (facts.remoteTag === undefined)
-    step('Push', 'git', ['push', '--atomic', 'origin', 'main', tag])
+  if (facts.remoteTag === undefined) step('Push the tag', 'git', ['push', 'origin', tag])
   const files = Object.keys(record.files).map((name) => path.join(releaseDir, name))
   const exists = spawnSync('gh', ['release', 'view', tag, '--repo', repo], { stdio: 'ignore' })
   if (exists.status === 0) {
@@ -306,8 +305,50 @@ function publish(): void {
       '--latest',
     ])
   }
+  mergeBack(record)
   console.log(
     `\nTED ${record.version} is published. Installed copies pick it up at their next check.`,
+  )
+}
+
+function isAncestor(older: string, newer: string): boolean {
+  return gitMaybe('merge-base', '--is-ancestor', older, newer) !== undefined
+}
+
+function mergeBack(record: ReleaseRecord): void {
+  if (record.commit === record.base) return
+  const tag = `v${record.version}`
+  for (let attempt = 0; attempt < 3; attempt++) {
+    step('Fetch', 'git', ['fetch', 'origin', 'main'])
+    const main = git('rev-parse', 'origin/main')
+    if (isAncestor(record.commit, main)) return
+    let commit = record.commit
+    if (!isAncestor(main, record.commit)) {
+      const tree = gitMaybe('merge-tree', '--write-tree', main, record.commit)
+      if (tree === undefined) {
+        fail(`the version change in ${tag} conflicts with main; merge ${tag} into main by hand`)
+      }
+      const message = `Merge ${tag} into main`
+      commit = git(
+        'commit-tree',
+        tree.split('\n')[0] ?? '',
+        '-p',
+        main,
+        '-p',
+        record.commit,
+        '-m',
+        message,
+      )
+    }
+    console.log(`\n== Put the version change on main`)
+    const push = spawnSync('git', ['push', 'origin', `${commit}:refs/heads/main`], {
+      cwd: root,
+      stdio: 'inherit',
+    })
+    if (push.status === 0) return
+  }
+  fail(
+    'main kept moving on GitHub; run pnpm release publish again to put the version change on main',
   )
 }
 
@@ -343,8 +384,8 @@ function verifyBuild(): void {
 async function build(version: string): Promise<void> {
   const current = currentVersion()
   if (parseVersion(version) === undefined) fail(`“${version}” isn’t a version like 1.2.3`)
-  if (git('branch', '--show-current') !== 'main') fail('switch to main first')
-  if (git('status', '--porcelain') !== '') fail('commit or stash your changes first')
+  if (git('status', '--porcelain') !== '')
+    fail('the release checkout has changes; remove them first')
   const pending = readRecord()
   if (pending !== undefined && remoteTagCommit(`v${pending.version}`) === undefined) {
     fail(
@@ -353,7 +394,6 @@ async function build(version: string): Promise<void> {
   }
   step('Fetch', 'git', ['fetch', '--tags', 'origin'])
   const base = git('rev-parse', 'HEAD')
-  if (base !== git('rev-parse', 'origin/main')) fail('main isn’t the same as origin/main')
   if (git('tag', '--list', `v${version}`) !== '') fail(`tag v${version} already exists`)
   if (remoteTagCommit(`v${version}`) !== undefined) fail(`tag v${version} is already on GitHub`)
   const firstRelease = git('tag', '--list', 'v*') === ''
@@ -386,13 +426,77 @@ async function build(version: string): Promise<void> {
   }
   writeRecord({ ...record, files: hashes(files) })
   install()
-  console.log(`\nTED ${version} is built, tagged on this Mac only and installed in ${installed}.`)
+  console.log(
+    `\nTED ${version} is built from ${base.slice(0, 8)}, tagged on this Mac only and installed in ${installed}.`,
+  )
   console.log('Try it. Then run pnpm release publish to send it to everyone,')
   console.log('or pnpm release discard to throw it away and build the same version again.')
 }
 
+function releaseCheckout(): string {
+  return path.resolve(root, git('rev-parse', '--git-common-dir'), 'ted-release')
+}
+
+function inReleaseCheckout(): boolean {
+  const checkout = releaseCheckout()
+  return existsSync(checkout) && realpathSync(checkout) === realpathSync(root)
+}
+
+function inCheckout(checkout: string, title: string, command: string, args: string[]): void {
+  console.log(`\n== ${title}`)
+  const result = spawnSync(command, args, { cwd: checkout, stdio: 'inherit' })
+  if (result.status !== 0) fail(`${title} failed`)
+}
+
+// Builds happen in their own detached worktree of origin/main, so main can keep moving here and
+// on GitHub while a release is tested, built and published.
+function forward(args: string[], fresh: boolean): never {
+  const checkout = releaseCheckout()
+  if (fresh) {
+    step('Fetch', 'git', ['fetch', 'origin', 'main'])
+    if (existsSync(checkout)) {
+      const pendingFile = path.join(checkout, path.relative(root, recordFile))
+      const pending = existsSync(pendingFile)
+        ? (JSON.parse(readFileSync(pendingFile, 'utf8')) as ReleaseRecord)
+        : undefined
+      if (pending !== undefined && remoteTagCommit(`v${pending.version}`) === undefined) {
+        fail(
+          `${pending.version} is built but not published; run pnpm release publish or pnpm release discard`,
+        )
+      }
+      if (
+        execFileSync('git', ['status', '--porcelain'], { cwd: checkout, encoding: 'utf8' }) !== ''
+      ) {
+        fail(`the release checkout at ${checkout} has changes; remove them first`)
+      }
+      inCheckout(checkout, 'Check out origin/main', 'git', [
+        'checkout',
+        '--quiet',
+        '--detach',
+        'origin/main',
+      ])
+    } else {
+      step('Prune old worktrees', 'git', ['worktree', 'prune'])
+      step('Check out origin/main', 'git', ['worktree', 'add', '--detach', checkout, 'origin/main'])
+    }
+    inCheckout(checkout, 'Install', 'pnpm', ['install', '--frozen-lockfile'])
+  } else if (!existsSync(checkout)) {
+    fail('there’s no release checkout yet; run pnpm release <version> first')
+  }
+  const script = path.join(checkout, 'scripts/release.ts')
+  const result = spawnSync(process.execPath, [script, ...args], { cwd: checkout, stdio: 'inherit' })
+  process.exit(result.status ?? 1)
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2)
+  const named = args.find((arg) => !arg.startsWith('--'))
+  if (!inReleaseCheckout() && (named !== undefined || args.includes('--install'))) {
+    const fresh =
+      named !== undefined && !['publish', 'discard'].includes(named) && !args.includes('--install')
+    if (fresh && parseVersion(named) === undefined) fail(`“${named}” isn’t a version like 1.2.3`)
+    forward(args, fresh)
+  }
   if (args.includes('--install')) return install()
   const command = args.find((arg) => !arg.startsWith('--'))
   if (command === 'publish') return publish()
