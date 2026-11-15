@@ -271,7 +271,10 @@ test('shutdown drains a suspended initial launch without starting a host after c
     gate = pause('folder')
   const c = await s.message([{ say: 'Should not start before retry' }, { endTurn: true }])
   await gate.entered
+  const closed = Promise.withResolvers<void>()
+  pauses.closing = () => closed.resolve()
   const closing = daemon?.stop()
+  await closed.promise
   gate.release()
   await closing
   daemon = undefined
