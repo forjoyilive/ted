@@ -1,15 +1,20 @@
+import type { DashboardRange } from '@ted/protocol'
 import { expect, test } from 'vitest'
-import { type DashboardTaskFacts, factoryDashboard } from '../src/dashboard.ts'
+import { type DashboardTaskFacts, dashboardReport } from '../src/dashboard.ts'
+
+type Facts = Omit<DashboardTaskFacts, 'factoryId'> & { factoryId?: string }
+const factoryDashboard = (facts: readonly Facts[], range: DashboardRange, asOf: number) =>
+  dashboardReport(
+    facts.map((task) => ({ factoryId: 'nb', ...task })),
+    ['nb'],
+    range,
+    asOf,
+  )
 
 const hour = 3_600_000
 const now = new Date(2026, 5, 10).getTime()
 const iso = (n: number) => new Date(n).toISOString()
-function completed(
-  id: string,
-  ago: number,
-  created: number,
-  intake: number | null,
-): DashboardTaskFacts {
+function completed(id: string, ago: number, created: number, intake: number | null): Facts {
   const done = now - ago * hour
   return {
     id,
@@ -114,7 +119,7 @@ test('7 and 30 days are whole local days before today, and All groups whole days
     const at = (month: number, day: number, hours = 0, minutes = 0) =>
       new Date(2026, month, day, hours, minutes).getTime()
     const asOf = at(10, 12, 14, 26)
-    const done = (id: string, time: number): DashboardTaskFacts => ({
+    const done = (id: string, time: number): Facts => ({
       ...completed(id, 0, 1, null),
       createdAt: iso(time - hour),
       entries: [{ stage: 'done', at: iso(time) }],
@@ -188,7 +193,7 @@ function flowTask(
   id: string,
   entries: [string, number][],
   stage = entries.at(-1)?.[0] ?? 'backlog',
-): DashboardTaskFacts {
+): Facts {
   return {
     id,
     displayId: `NB-${id}`,
@@ -204,6 +209,57 @@ function flowTask(
     })),
   }
 }
+
+test('a combined Dashboard pools Tasks from several Factories and keeps each Factory’s figures', () => {
+  const a = {
+    ...flowTask('a', [
+      ['intake', 40],
+      ['design', 30],
+      ['work', 20],
+      ['done', 10],
+    ]),
+    factoryId: 'one',
+  }
+  const b = {
+    ...flowTask('b', [
+      ['intake', 30],
+      ['work', 25],
+      ['done', 5],
+    ]),
+    factoryId: 'two',
+    displayId: 'GD-1',
+  }
+  const c = {
+    ...flowTask('c', [
+      ['intake', 90],
+      ['work', 80],
+      ['done', 60],
+    ]),
+    factoryId: 'two',
+    displayId: 'GD-2',
+  }
+  const result = dashboardReport([a, b, c], ['one', 'two'], '7d', now)
+  expect(result.factoryIds).toEqual(['one', 'two'])
+  expect(result.current.taskIds).toEqual(['a', 'b', 'c'])
+  expect(result.current.intake.value).toBe(30 * hour)
+  expect(result.current.byFactory).toMatchObject([
+    { factoryId: 'one', taskIds: ['a'], intake: { value: 30 * hour } },
+    { factoryId: 'two', taskIds: ['b', 'c'], intake: { value: 27.5 * hour } },
+  ])
+  expect(result.tasks.map((task) => [task.id, task.factoryId])).toEqual([
+    ['a', 'one'],
+    ['b', 'two'],
+    ['c', 'two'],
+  ])
+  const stages = result.flow.current.stages
+  expect(stages.find((s) => s.stage === 'work')).toMatchObject({ factoryIds: ['one', 'two'] })
+  expect(stages.find((s) => s.stage === 'design')).toMatchObject({
+    factoryIds: ['one'],
+    samples: [{ taskId: 'a' }],
+  })
+  expect(stages.find((s) => s.stage === 'review')).toMatchObject({ factoryIds: [], samples: [] })
+  expect(result.flow.tasks.find((task) => task.id === 'b')).toMatchObject({ factoryId: 'two' })
+})
 
 test('Flow clips overlapping started Tasks, sums repeated visits, and stops at the first Done or archive', () => {
   const open = flowTask('open', [
@@ -329,7 +385,7 @@ function first<T>(values: readonly T[] | undefined): T {
   return value
 }
 
-function verified(id: string): DashboardTaskFacts {
+function verified(id: string): Facts {
   const task = flowTask(id, [
     ['intake', 60],
     ['work', 50],
@@ -538,7 +594,7 @@ test('unfinished Check results are unknown even if a review failure is recorded'
   )
 })
 
-function observedTask(id = 'observed'): DashboardTaskFacts {
+function observedTask(id = 'observed'): Facts {
   const start = now - 10 * hour
   const at = (h: number) => iso(start + h * hour)
   const spans = [
@@ -847,7 +903,7 @@ test('Today runs from local midnight by the hour and compares with yesterday up 
   const at = (day: number, hours: number, minutes = 0) =>
     new Date(2026, 10, day, hours, minutes).getTime()
   const asOf = at(12, 14, 40)
-  const done = (id: string, time: number): DashboardTaskFacts => ({
+  const done = (id: string, time: number): Facts => ({
     ...completed(id, 0, 1, null),
     createdAt: iso(time - hour),
     entries: [{ stage: 'done', at: iso(time) }],
@@ -901,7 +957,7 @@ test('Today compares with the same clock time yesterday on a day the clocks chan
     const at = (month: number, day: number, hours: number, minutes = 0) =>
       new Date(2026, month, day, hours, minutes).getTime()
     const asOf = at(10, 1, 12)
-    const done = (id: string, time: number): DashboardTaskFacts => ({
+    const done = (id: string, time: number): Facts => ({
       ...completed(id, 0, 1, null),
       createdAt: iso(time - hour),
       entries: [{ stage: 'done', at: iso(time) }],

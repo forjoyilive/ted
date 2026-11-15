@@ -24,7 +24,6 @@ export const shownSettingsSectionIds: readonly SettingsSectionId[] = settingsSec
 )
 
 export type FactoryView =
-  | 'dashboard'
   | 'coordinator'
   | 'board'
   | 'list'
@@ -42,11 +41,11 @@ export function isTaskView(view: FactoryView): view is (typeof taskViews)[number
 export type Screen =
   | { kind: 'inbox'; factoryId?: string; answered?: boolean }
   | { kind: 'all-tasks' }
+  | { kind: 'dashboard'; dashboard?: Partial<DashboardViewState> }
   | {
       kind: 'factory'
       factoryId: string
       view: FactoryView
-      dashboard?: DashboardViewState
       section?: FactorySectionId
     }
 
@@ -115,7 +114,15 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
       }
     }
     case 'open-factory': {
-      const view = state.lastViews[action.factoryId] ?? 'dashboard'
+      const view = state.lastViews[action.factoryId]
+      if (view === undefined)
+        return {
+          ...navigate(state, {
+            type: 'open',
+            screen: { kind: 'dashboard', dashboard: { factoryIds: [action.factoryId] } },
+          }),
+          lastFactoryId: action.factoryId,
+        }
       return navigate(state, {
         type: 'open',
         screen: { kind: 'factory', factoryId: action.factoryId, view },
@@ -282,7 +289,29 @@ function goTo(state: Navigation, place: Place): Navigation {
   }
 }
 
+export type DashboardResolver = (
+  partial: Partial<DashboardViewState> | undefined,
+) => DashboardViewState
+
+function settled(state: Navigation, resolve: DashboardResolver | undefined): Navigation {
+  const { screen } = state
+  if (!resolve || screen.kind !== 'dashboard' || screen.dashboard?.range !== undefined) return state
+  return { ...state, screen: { kind: 'dashboard', dashboard: resolve(screen.dashboard) } }
+}
+
 export function withHistory(history: History, action: HistoryAction): History {
+  return recorded(history, action, undefined)
+}
+
+export function historyReducer(resolve: DashboardResolver) {
+  return (history: History, action: HistoryAction): History => recorded(history, action, resolve)
+}
+
+function recorded(
+  history: History,
+  action: HistoryAction,
+  resolve: DashboardResolver | undefined,
+): History {
   const here = placeOf(history.now)
   if (action.type === 'back' || action.type === 'forward') {
     const from = action.type === 'back' ? history.back : history.forward
@@ -294,7 +323,7 @@ export function withHistory(history: History, action: HistoryAction): History {
       ? { now, back: rest, forward: [...history.forward, here] }
       : { now, back: [...history.back, here], forward: rest }
   }
-  const now = navigate(history.now, action)
+  const now = settled(navigate(history.now, action), resolve)
   if (samePlace(placeOf(now), here)) return { ...history, now }
   return { now, back: [...history.back, here].slice(-historyLimit), forward: [] }
 }
@@ -303,7 +332,7 @@ export function backLink(state: Navigation): string | undefined {
   if (state.taskId === undefined) return undefined
   const { screen } = state
   if (screen.kind === 'all-tasks') return '← All Tasks'
-  if (screen.kind === 'factory' && screen.view === 'dashboard') return '← Dashboard'
+  if (screen.kind === 'dashboard') return '← Dashboard'
   if (screen.kind === 'factory' && screen.view === 'board') return '← Board'
   if (screen.kind === 'factory' && screen.view === 'list') return '← List'
   if (screen.kind === 'factory' && screen.view === 'map') return '← Map'

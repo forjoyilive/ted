@@ -1,10 +1,12 @@
 import type {
   DashboardBucket,
   DashboardChange,
+  DashboardFactoryPeriod,
   DashboardMetric,
   DashboardPeriod,
+  DashboardReport,
   DashboardTask,
-  FactoryDashboard,
+  Factory,
 } from '@ted/protocol'
 import {
   Fragment,
@@ -15,14 +17,21 @@ import {
   useRef,
   useState,
 } from 'react'
+import { FactoryIcon } from '../components/FactoryIcon.tsx'
 import { CloseIcon } from '../components/icons.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { Select } from '../components/Select.tsx'
-import type { DashboardSelection, DashboardViewState } from '../dashboard.ts'
-import { useFactoryDashboard } from '../data.ts'
+import {
+  type DashboardSelection,
+  type DashboardViewState,
+  rememberDashboard,
+  shownFactoryIds,
+} from '../dashboard.ts'
+import { useDashboard } from '../data.ts'
 import { formatDate } from '../time.ts'
 import styles from './Dashboard.module.css'
 import { Flow } from './DashboardFlow.tsx'
+import { CheckItem, MenuButton } from './TaskList.tsx'
 import views from './views.module.css'
 
 const labels: Record<DashboardMetric, string> = {
@@ -229,7 +238,7 @@ function Chart({
   metric,
   select,
 }: {
-  data: FactoryDashboard
+  data: DashboardReport
   metric: DashboardMetric
   select: (sample: DashboardSelection) => void
 }) {
@@ -239,7 +248,7 @@ function Chart({
     period: 'current' | 'previous'
     index: number
     point: HTMLElement
-    data: FactoryDashboard
+    data: DashboardReport
   } | null>(null)
   const frame = useRef<HTMLDivElement>(null)
   const tip = useRef<HTMLDivElement>(null)
@@ -543,7 +552,7 @@ function MetricPanel({
   metric,
   select,
 }: {
-  data: FactoryDashboard
+  data: DashboardReport
   metric: DashboardMetric
   select: (sample: DashboardSelection) => void
 }) {
@@ -662,7 +671,7 @@ function Sample({
   onClose,
   onOpenTask,
 }: {
-  data: FactoryDashboard
+  data: DashboardReport
   selection: DashboardSelection
   onClose: () => void
   onOpenTask: (id: string) => void
@@ -779,40 +788,240 @@ function Sample({
   )
 }
 
+const factoryColor = (factory: Factory | undefined) => {
+  const icon = factory?.icon
+  return `var(--factory-icon-${icon && 'color' in icon && icon.color ? icon.color : 'blue'}-fg)`
+}
+
+function FactoriesMenu({
+  factories,
+  shown,
+  onChoose,
+}: {
+  factories: readonly Factory[]
+  shown: readonly string[] | undefined
+  onChoose: (ids: readonly string[] | undefined) => void
+}) {
+  const showing = (id: string) => shown === undefined || shown.includes(id)
+  const toggle = (id: string) => {
+    const now = factories.filter((f) => showing(f.id)).map((f) => f.id)
+    const next = showing(id) ? now.filter((other) => other !== id) : [...now, id]
+    if (next.length > 0) onChoose(next)
+  }
+  return (
+    <MenuButton label="Factories" icon={null} {...(shown && { badge: shown.length })}>
+      {() => (
+        <>
+          <CheckItem
+            label="All Factories"
+            checked={shown === undefined}
+            onChange={() => onChoose(undefined)}
+          />
+          {factories.map((factory) => (
+            <CheckItem
+              key={factory.id}
+              label={factory.name}
+              icon={<FactoryIcon factory={factory} size={16} />}
+              checked={showing(factory.id)}
+              disabled={shown?.length === 1 && showing(factory.id)}
+              onChange={() => toggle(factory.id)}
+            />
+          ))}
+        </>
+      )}
+    </MenuButton>
+  )
+}
+
+function FactoryChips({
+  factories,
+  shown,
+  onChoose,
+}: {
+  factories: readonly Factory[]
+  shown: readonly string[]
+  onChoose: (ids: readonly string[] | undefined) => void
+}) {
+  const chosen = factories.filter((f) => shown.includes(f.id))
+  return (
+    <ul className={styles.factoryChips} aria-label="Factories shown">
+      {chosen.map((factory) => (
+        <li key={factory.id} className={styles.factoryChip}>
+          <FactoryIcon factory={factory} size={14} />
+          {factory.name}
+          {chosen.length > 1 && (
+            <button
+              type="button"
+              aria-label={`Stop showing ${factory.name}`}
+              className={styles.chipRemove}
+              onClick={() => onChoose(shown.filter((id) => id !== factory.id))}
+            >
+              <CloseIcon />
+            </button>
+          )}
+        </li>
+      ))}
+      <li>
+        <button type="button" className={styles.link} onClick={() => onChoose(undefined)}>
+          Show all Factories
+        </button>
+      </li>
+    </ul>
+  )
+}
+
+function change(value: number, previous: number | undefined): string {
+  if (previous === undefined) return '–'
+  if (previous === 0) return value === 0 ? '0%' : '–'
+  const percent = Math.round(((value - previous) / previous) * 100)
+  return `${percent > 0 ? '+' : percent < 0 ? '−' : ''}${Math.abs(percent)}%`
+}
+
+function ByFactory({
+  data,
+  factories,
+  onOnly,
+}: {
+  data: DashboardReport
+  factories: readonly Factory[]
+  onOnly: (id: string) => void
+}) {
+  const heading = useId()
+  const total = data.current.taskIds.length
+  const previous = new Map<string, DashboardFactoryPeriod>(
+    (data.previous?.byFactory ?? []).map((row) => [row.factoryId, row]),
+  )
+  const rows = data.current.byFactory.toSorted((a, b) => b.taskIds.length - a.taskIds.length)
+  return (
+    <section className={`${styles.panel} ${styles.byFactory}`} aria-labelledby={heading}>
+      <header className={styles.panelHead}>
+        <h2 id={heading}>By Factory</h2>
+      </header>
+      <table className={styles.factoryTable}>
+        <thead>
+          <tr>
+            <th scope="col">Factory</th>
+            <th scope="col">Share of completions</th>
+            <th scope="col" className={styles.number}>
+              Tasks completed
+            </th>
+            {data.previous && (
+              <th scope="col" className={styles.number}>
+                Change
+              </th>
+            )}
+            <th scope="col" className={styles.number}>
+              {labels.created}
+            </th>
+            <th scope="col" className={styles.number}>
+              {labels.intake}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const factory = factories.find((f) => f.id === row.factoryId)
+            const share = total === 0 ? 0 : row.taskIds.length / total
+            return (
+              <tr key={row.factoryId}>
+                <th scope="row">
+                  <button
+                    type="button"
+                    data-nav-item
+                    className={styles.factoryName}
+                    title={`Show only ${factory?.name ?? 'this Factory'}`}
+                    onClick={() => onOnly(row.factoryId)}
+                  >
+                    {factory && <FactoryIcon factory={factory} size={16} />}
+                    {factory?.name ?? 'Removed Factory'}
+                  </button>
+                </th>
+                <td>
+                  <span
+                    className={styles.share}
+                    style={{ width: `${share * 120}px`, background: factoryColor(factory) }}
+                  />
+                  <span className={styles.caption}>{Math.round(share * 100)}%</span>
+                </td>
+                <td className={styles.number}>{row.taskIds.length}</td>
+                {data.previous && (
+                  <td className={styles.number}>
+                    {change(row.taskIds.length, previous.get(row.factoryId)?.taskIds.length)}
+                  </td>
+                )}
+                <td className={styles.number}>{duration(row.created.value)}</td>
+                <td className={styles.number}>{duration(row.intake.value)}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+      <p className={`${styles.caption} ${styles.byFactoryFoot}`}>
+        Click a Factory to show only its figures. Medians above are over every Task shown, not an
+        average of each Factory’s median.
+      </p>
+    </section>
+  )
+}
+
 export function Dashboard({
-  factoryId,
-  title,
+  factories,
   state,
   onChange,
   onOpenTask,
   banners,
 }: {
-  factoryId: string
-  title: string
+  factories: readonly Factory[]
   state: DashboardViewState
   onChange: (state: DashboardViewState) => void
   onOpenTask: (id: string) => void
   banners?: ReactNode
 }) {
-  const resource = useFactoryDashboard(factoryId, state.range)
+  const factoryIds = shownFactoryIds(state.factoryIds, factories)
+  const resource = useDashboard(factoryIds, state.range)
   const data = resource.value
   const panel = state.panel ?? 'overview'
+  const shownKey = JSON.stringify(factoryIds ?? null)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: shownKey stands for factoryIds
+  useEffect(() => {
+    rememberDashboard({ range: state.range, panel, ...(factoryIds && { factoryIds }) })
+  }, [state.range, panel, shownKey])
+  const shown =
+    factoryIds === undefined ? factories : factories.filter((f) => factoryIds.includes(f.id))
+  const scope =
+    factoryIds === undefined
+      ? 'All Factories'
+      : shown.length <= 2
+        ? shown.map((f) => f.name).join(', ')
+        : `${shown.length} Factories`
+  const kept: DashboardViewState = {
+    range: state.range,
+    ...(state.panel && { panel: state.panel }),
+    ...(factoryIds && { factoryIds }),
+  }
+  const choose = (ids: readonly string[] | undefined) => {
+    const { factoryIds: _, ...rest } = kept
+    onChange({ ...rest, ...(ids && { factoryIds: ids }) })
+  }
   const panels = ['overview', 'flow', 'stages'] as const
   const choosePanel = (panel: NonNullable<DashboardViewState['panel']>) =>
-    onChange({ range: state.range, panel })
+    onChange({ ...kept, panel })
   const select = (sample: DashboardSelection) => onChange({ ...state, sample })
   return (
-    <section className={`${views.pane} ${styles.dashboard}`} aria-label="Factory Dashboard">
+    <section className={`${views.pane} ${styles.dashboard}`} aria-label="Dashboard">
       <header className={views.header}>
-        <h1 className={views.title}>{title} › Dashboard</h1>
+        <h1 className={views.title}>{scope} › Dashboard</h1>
         <span className={views.headerSpacer} />
+        {factories.length > 1 && (
+          <FactoriesMenu factories={factories} shown={factoryIds} onChoose={choose} />
+        )}
         <Select
           aria-label="Historical period"
           value={state.range}
           onChange={(event) => {
             const range = event.target.value
             if (range === 'today' || range === '7d' || range === '30d' || range === 'all')
-              onChange({ range, ...(state.panel && { panel: state.panel }) })
+              onChange({ ...kept, range })
           }}
         >
           <option value="today">Today</option>
@@ -855,6 +1064,9 @@ export function Dashboard({
             </button>
           ))}
         </div>
+        {factoryIds && factories.length > 1 && (
+          <FactoryChips factories={factories} shown={factoryIds} onChoose={choose} />
+        )}
         {panel === 'overview' && (
           <p className={styles.intro}>Task completions and completion time</p>
         )}
@@ -907,6 +1119,9 @@ export function Dashboard({
                     <MetricPanel key={metric} data={data} metric={metric} select={select} />
                   ))}
                 </div>
+                {shown.length > 1 && (
+                  <ByFactory data={data} factories={factories} onOnly={(id) => choose([id])} />
+                )}
                 <p className={styles.definition}>
                   Each retained Task counts once at its latest recorded Done entry, including
                   archived Done Tasks. Factory setup is excluded.
@@ -919,9 +1134,7 @@ export function Dashboard({
                   <Sample
                     data={data}
                     selection={state.sample}
-                    onClose={() =>
-                      onChange({ range: state.range, ...(state.panel && { panel: state.panel }) })
-                    }
+                    onClose={() => onChange(kept)}
                     onOpenTask={onOpenTask}
                   />
                 )}
@@ -932,10 +1145,9 @@ export function Dashboard({
                 data={data.flow}
                 asOf={data.asOf}
                 selection={state.flowSample}
-                select={(flowSample) => onChange({ range: state.range, panel, flowSample })}
-                onClose={() =>
-                  onChange({ range: state.range, ...(state.panel && { panel: state.panel }) })
-                }
+                select={(flowSample) => onChange({ ...kept, panel, flowSample })}
+                onClose={() => onChange(kept)}
+                factories={shown}
                 onOpenTask={onOpenTask}
               />
             )}

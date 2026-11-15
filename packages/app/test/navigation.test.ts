@@ -1,9 +1,16 @@
 import { describe, expect, test } from 'vitest'
 import {
+  type DashboardViewState,
+  dashboardState,
+  rememberDashboard,
+  shownFactoryIds,
+} from '../src/renderer/dashboard.ts'
+import {
   backLink,
   currentFactoryId,
   type History,
   type HistoryAction,
+  historyReducer,
   initialNavigation,
   type Navigation,
   navigate,
@@ -44,11 +51,10 @@ describe('navigation', () => {
     expect(currentFactoryId(initialNavigation, tasks)).toBeUndefined()
   })
 
-  test('opening a Factory shows its Dashboard the first time and its last-used View after', () => {
-    expect(after({ type: 'open-factory', factoryId: 'nb' }).screen).toEqual({
-      kind: 'factory',
-      factoryId: 'nb',
-      view: 'dashboard',
+  test('opening a Factory shows the Dashboard narrowed to it the first time and its last-used View after', () => {
+    expect(after({ type: 'open-factory', factoryId: 'nb' })).toMatchObject({
+      screen: { kind: 'dashboard', dashboard: { factoryIds: ['nb'] } },
+      lastFactoryId: 'nb',
     })
 
     const back = after(
@@ -245,7 +251,7 @@ describe('back and forward (⌘[ and ⌘])', () => {
       { type: 'open-factory', factoryId: 'nb' },
       { type: 'forward' },
     )
-    expect(state.now.screen).toEqual({ kind: 'factory', factoryId: 'nb', view: 'dashboard' })
+    expect(state.now.screen).toEqual({ kind: 'dashboard', dashboard: { factoryIds: ['nb'] } })
   })
 
   test('history retains a continuation source without leaking it into another place or new plan', () => {
@@ -315,18 +321,67 @@ test('Tasks opens the last-used of Board, List and Map, and a Task opened from M
   expect(backLink(opened)).toBe('← Map')
 })
 
-test('Task return and history preserve a Dashboard range and metric sample', () => {
+test('Task return and history preserve a Dashboard range, Factories and metric sample', () => {
   const screen = {
-    kind: 'factory',
-    factoryId: 'nb',
-    view: 'dashboard',
-    dashboard: { range: '7d', sample: { metric: 'intake', period: 'previous', bucket: 2 } },
+    kind: 'dashboard',
+    dashboard: {
+      range: '7d',
+      factoryIds: ['nb'],
+      sample: { metric: 'intake', period: 'previous', bucket: 2 },
+    },
   } as const
   const start = startHistory(navigate(initialNavigation, { type: 'open', screen }))
   const opened = withHistory(start, { type: 'open-task', taskId: 't1', factoryId: 'nb' })
   expect(backLink(opened.now)).toBe('← Dashboard')
   expect(navigate(opened.now, { type: 'close-task' }).screen).toEqual(screen)
   expect(withHistory(opened, { type: 'back' }).now.screen).toEqual(screen)
+})
+
+test('Back returns to the Dashboard choice history recorded, not the one saved since', () => {
+  let saved: DashboardViewState = { range: '30d' }
+  const resolve = (partial: Partial<DashboardViewState> | undefined) => ({ ...saved, ...partial })
+  const step = historyReducer(resolve)
+  let history = step(startHistory(initialNavigation), {
+    type: 'open',
+    screen: { kind: 'dashboard' },
+  })
+  expect(history.now.screen).toEqual({ kind: 'dashboard', dashboard: { range: '30d' } })
+  saved = { range: '7d', panel: 'stages', factoryIds: ['nb'] }
+  history = step(history, { type: 'open', screen: { kind: 'dashboard', dashboard: saved } })
+  history = step(history, { type: 'back' })
+  expect(history.now.screen).toEqual({ kind: 'dashboard', dashboard: { range: '30d' } })
+  history = step(history, { type: 'open-factory', factoryId: 'ms' })
+  expect(history.now.screen).toEqual({
+    kind: 'dashboard',
+    dashboard: { range: '7d', panel: 'stages', factoryIds: ['ms'] },
+  })
+})
+
+test('the Dashboard reopens on the remembered Factories, period and tab', () => {
+  const stored = new Map<string, string>()
+  const storage = {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => void stored.set(key, value),
+  }
+  expect(dashboardState(undefined, storage)).toEqual({ range: '30d' })
+  rememberDashboard({ range: '7d', panel: 'stages', factoryIds: ['nb', 'ms'] }, storage)
+  expect(dashboardState(undefined, storage)).toEqual({
+    range: '7d',
+    panel: 'stages',
+    factoryIds: ['nb', 'ms'],
+  })
+  expect(dashboardState({ factoryIds: ['nb'] }, storage)).toEqual({
+    range: '7d',
+    panel: 'stages',
+    factoryIds: ['nb'],
+  })
+  expect(dashboardState({ range: 'all' }, storage)).toEqual({ range: 'all' })
+  stored.set('ted.dashboard', '{"range":"bad","factoryIds":[1]}')
+  expect(dashboardState(undefined, storage)).toEqual({ range: '30d' })
+  const factories = [{ id: 'nb' }, { id: 'ms' }]
+  expect(shownFactoryIds(['nb', 'gone'], factories)).toEqual(['nb'])
+  expect(shownFactoryIds(['ms', 'nb'], factories)).toBeUndefined()
+  expect(shownFactoryIds(['gone'], factories)).toBeUndefined()
 })
 
 test('Inbox Planning requests preserve Inbox navigation, then yield to Tasks and Automations', () => {

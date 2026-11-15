@@ -33,7 +33,10 @@ function overlap(visits: FlowInterval[], waits: FlowInterval[]) {
   return total
 }
 
-export function withoutUserWaits(period: FlowPeriod): StagesWithoutWaits {
+export function withoutUserWaits(
+  period: FlowPeriod,
+  factoryOf?: ReadonlyMap<string, string>,
+): StagesWithoutWaits {
   const requests = new Map(
     (period.reasons.find((r) => r.reason === 'user-request')?.samples ?? []).map((s) => [
       s.taskId,
@@ -63,6 +66,9 @@ export function withoutUserWaits(period: FlowPeriod): StagesWithoutWaits {
     const values = samples.map((s) => s.elapsedMs).sort((a, b) => a - b)
     return {
       ...stage,
+      factoryIds: factoryOf
+        ? stage.factoryIds.filter((id) => samples.some((s) => factoryOf.get(s.taskId) === id))
+        : stage.factoryIds,
       samples,
       totalMs: values.reduce((n, v) => n + v, 0),
       medianMs: quantile(values, 0.5),
@@ -80,8 +86,9 @@ export function flowWithoutUserWaits(data: DashboardFlow): {
   data: DashboardFlow
   leftOut: { current: LeftOutTask[]; previous: LeftOutTask[] }
 } {
-  const current = withoutUserWaits(data.current)
-  const previous = data.previous ? withoutUserWaits(data.previous) : null
+  const factoryOf = new Map(data.tasks.map((task) => [task.id, task.factoryId]))
+  const current = withoutUserWaits(data.current, factoryOf)
+  const previous = data.previous ? withoutUserWaits(data.previous, factoryOf) : null
   return {
     data: {
       ...data,

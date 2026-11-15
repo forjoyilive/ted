@@ -21,7 +21,7 @@ export function appState() {
     slots: { limit: 3, working: 0, queued: 0, holders: [], queue: [], factories: [] },
   }
   const api = bridge({
-    factoryDashboard: () => dashboardFixture(true),
+    dashboard: () => dashboardFixture(true),
     listFactories: () => state.factories,
     listTasks: () => state.tasks,
     listInbox: () => state.inbox,

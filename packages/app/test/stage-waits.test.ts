@@ -37,6 +37,7 @@ function period(stages: Record<string, FlowStageSample[]>, samples: FlowReasonSa
   return {
     stages: Object.entries(stages).map(([stage, samples]) => ({
       stage,
+      factoryIds: ['one', 'two'],
       totalMs: samples.reduce((n, s) => n + s.elapsedMs, 0),
       medianMs: null,
       p25Ms: null,
@@ -83,7 +84,7 @@ test('time with an open request is taken out of each Stage visit it overlaps', (
   expect(design).toMatchObject({ totalMs: 5 * hour, medianMs: 5 * hour })
 })
 
-test('a Task without a complete record of requests is left out of every Stage', () => {
+test('a Task without a complete record of requests is left out of every Stage and its Factory’s count', () => {
   const result = withoutUserWaits(
     period(
       {
@@ -96,8 +97,15 @@ test('a Task without a complete record of requests is left out of every Stage', 
         requests('unavailable', 'unavailable', []),
       ],
     ),
+    new Map([
+      ['full', 'one'],
+      ['partial', 'two'],
+      ['none', 'two'],
+      ['unavailable', 'two'],
+    ]),
   )
   expect(result.stages.map((s) => s.samples.map((t) => t.taskId))).toEqual([['full'], []])
+  expect(result.stages.map((s) => s.factoryIds)).toEqual([['one'], []])
   expect(result.stages[0]).toMatchObject({ totalMs: 2 * hour, medianMs: 2 * hour })
   expect(result.stages[1]).toMatchObject({ totalMs: 0, medianMs: null, p25Ms: null, p75Ms: null })
   expect(result.leftOut).toEqual([

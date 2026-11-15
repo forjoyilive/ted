@@ -9,18 +9,16 @@ import { Dashboard } from '../src/renderer/views/Dashboard.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, user } from './support/component.ts'
 import { dashboardFixture } from './support/dashboard.ts'
-import { task } from './support/fixtures.ts'
+import { factory, task } from './support/fixtures.ts'
 
 function DashboardView({ open }: { open: (id: string) => void }) {
   const [state, setState] = useState<DashboardViewState>({ range: '7d' })
-  return (
-    <Dashboard factoryId="f1" title="Widgets" state={state} onChange={setState} onOpenTask={open} />
-  )
+  return <Dashboard factories={[]} state={state} onChange={setState} onOpenTask={open} />
 }
 
 test('the shared App shortcuts navigate only the top sample dialog and preserve Task return', async () => {
   const a = appState()
-  a.handle('factoryDashboard', () => dashboardFixture())
+  a.handle('dashboard', () => dashboardFixture())
   a.state.tasks = [task({ id: 't1', title: 'Fix login', stage: 'done' })]
   vi.spyOn(HTMLElement.prototype, 'offsetParent', 'get').mockImplementation(function (
     this: HTMLElement,
@@ -166,7 +164,7 @@ test('graph points and their samples name the calendar days they cover', async (
         'One point per hour since midnight.',
       ],
     ] as const) {
-      bridge({ factoryDashboard: () => data })
+      bridge({ dashboard: () => data })
       const view = render(<DashboardView open={vi.fn()} />)
       const completed = await screen.findByRole('region', { name: 'Tasks completed' })
       expect(completed.textContent).toContain(caption)
@@ -193,7 +191,7 @@ test('graph points and their samples name the calendar days they cover', async (
 })
 
 test('Dashboard preserves completion metrics and opens contributing and missing-start Tasks', async () => {
-  bridge({ factoryDashboard: () => dashboardFixture() })
+  bridge({ dashboard: () => dashboardFixture() })
   const open = vi.fn()
   render(<DashboardView open={open} />)
   const completed = await screen.findByRole('region', { name: 'Tasks completed' })
@@ -226,20 +224,21 @@ test('Factory and range changes discard late responses instead of mixing samples
   const { deferred } = await import('./support/component.ts')
   const pending = deferred<ReturnType<typeof dashboardFixture>>()
   const api = bridge({
-    factoryDashboard: (factory, range) =>
-      factory === 'f1' && range === '7d' ? pending.promise : dashboardFixture(true),
+    dashboard: (range, ids) =>
+      (ids as string[])[0] === 'f1' && range === '7d' ? pending.promise : dashboardFixture(true),
   })
   const change = vi.fn()
-  const props = { title: 'Widgets', onChange: change, onOpenTask: vi.fn() }
-  const view = render(<Dashboard {...props} factoryId="f1" state={{ range: '7d' }} />)
+  const factories = [factory({ id: 'f1', name: 'Widgets' }), factory({ id: 'f2', name: 'Site' })]
+  const props = { factories, onChange: change, onOpenTask: vi.fn() }
+  const view = render(<Dashboard {...props} state={{ range: '7d', factoryIds: ['f1'] }} />)
   expect(screen.getByRole('status', { name: 'Loading Dashboard…' })).toBeTruthy()
-  view.rerender(<Dashboard {...props} factoryId="f2" state={{ range: '30d' }} />)
+  view.rerender(<Dashboard {...props} state={{ range: '30d', factoryIds: ['f2'] }} />)
   const region = await screen.findByRole('region', { name: 'Tasks completed' })
   expect(within(region).getByRole('button', { name: '0 tasks' })).toBeTruthy()
   const { act } = await import('@testing-library/react')
   await act(async () => pending.resolve(dashboardFixture()))
   expect(within(region).queryByRole('button', { name: '2 tasks' })).toBeNull()
-  expect(api.request).toHaveBeenCalledWith('factoryDashboard', 'f2', '30d')
+  expect(api.request).toHaveBeenCalledWith('dashboard', '30d', ['f2'])
 })
 
 test('load failures retry, events refresh completed metrics and clock/focus advance rolling boundaries', async () => {
@@ -247,7 +246,7 @@ test('load failures retry, events refresh completed metrics and clock/focus adva
   let fail = true
   let empty = true
   const api = bridge({
-    factoryDashboard: () => {
+    dashboard: () => {
       if (fail) throw new Error('History unavailable')
       return dashboardFixture(empty)
     },
@@ -255,13 +254,7 @@ test('load failures retry, events refresh completed metrics and clock/focus adva
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
   try {
     render(
-      <Dashboard
-        factoryId="f1"
-        title="Widgets"
-        state={{ range: '7d' }}
-        onChange={vi.fn()}
-        onOpenTask={vi.fn()}
-      />,
+      <Dashboard factories={[]} state={{ range: '7d' }} onChange={vi.fn()} onOpenTask={vi.fn()} />,
     )
     expect((await screen.findByRole('alert')).textContent).toContain('History unavailable')
     fail = false
@@ -287,6 +280,7 @@ test('unavailable completion history never assigns an unrecorded completion to t
   data.unavailableIds = ['unknown']
   data.tasks.push({
     id: 'unknown',
+    factoryId: 'nb',
     displayId: 'NB-3',
     title: 'Old Task',
     archived: true,
@@ -294,11 +288,10 @@ test('unavailable completion history never assigns an unrecorded completion to t
     createdMs: null,
     intakeMs: null,
   })
-  bridge({ factoryDashboard: () => data })
+  bridge({ dashboard: () => data })
   render(
     <Dashboard
-      factoryId="f1"
-      title="Widgets"
+      factories={[]}
       state={{ range: '7d', sample: { metric: 'unavailable', period: 'current' } }}
       onChange={vi.fn()}
       onOpenTask={vi.fn()}
@@ -316,6 +309,7 @@ test('Flow keeps its open-Task sample separate, shows distributions and opens ex
   const data = dashboardFixture()
   data.flow.current.stages.push({
     stage: 'review',
+    factoryIds: ['nb'],
     totalMs: 3_600_000,
     medianMs: 3_600_000,
     p25Ms: 3_600_000,
@@ -328,7 +322,7 @@ test('Flow keeps its open-Task sample separate, shows distributions and opens ex
       },
     ],
   })
-  bridge({ factoryDashboard: () => data })
+  bridge({ dashboard: () => data })
   const open = vi.fn()
   const view = render(<DashboardView open={open} />)
   await user().click(await screen.findByRole('tab', { name: 'Stages' }))
@@ -388,7 +382,7 @@ test('Flow keeps its open-Task sample separate, shows distributions and opens ex
 })
 
 test('Flow distinguishes counted transitions and unknown verification from completed first-pass results', async () => {
-  bridge({ factoryDashboard: () => dashboardFixture() })
+  bridge({ dashboard: () => dashboardFixture() })
   render(<DashboardView open={vi.fn()} />)
   await user().click(await screen.findByRole('tab', { name: 'Flow' }))
   const sendBack = await screen.findByRole('region', { name: 'Actual send-backs' })
@@ -411,12 +405,11 @@ test('Flow distinguishes counted transitions and unknown verification from compl
 test('Flow shares the range selector, suppresses all-history comparisons and shows empty denominators as unavailable', async () => {
   const data = dashboardFixture(true)
   data.flow.previous = null
-  const api = bridge({ factoryDashboard: () => data })
+  const api = bridge({ dashboard: () => data })
   const change = vi.fn()
   render(
     <Dashboard
-      factoryId="f1"
-      title="Widgets"
+      factories={[]}
       state={{ range: 'all', panel: 'flow' }}
       onChange={change}
       onOpenTask={vi.fn()}
@@ -427,7 +420,7 @@ test('Flow shares the range selector, suppresses all-history comparisons and sho
   expect(validate.textContent).toContain('0 of 0 recorded first visits passed')
   expect(screen.queryByText('Previous period · all Stage measures')).toBeNull()
   expect(screen.getByText(/No started Tasks in this period/)).toBeTruthy()
-  expect(api.request).toHaveBeenCalledWith('factoryDashboard', 'f1', 'all')
+  expect(api.request).toHaveBeenCalledWith('dashboard', 'all', [])
   const select = screen.getByRole('combobox', { name: 'Historical period' })
   await user().selectOptions(select, '30d')
   expect(change).toHaveBeenCalledWith({ range: '30d', panel: 'flow' })
@@ -439,6 +432,7 @@ test('previous-period Flow samples retain their own period and restore focus aft
   data.flow.previous.stages = [
     {
       stage: 'work',
+      factoryIds: ['nb'],
       totalMs: 3_600_000,
       medianMs: 3_600_000,
       p25Ms: 3_600_000,
@@ -453,7 +447,7 @@ test('previous-period Flow samples retain their own period and restore focus aft
     },
   ]
   localStorage.setItem('ted.dashboard.stage-waits', 'true')
-  bridge({ factoryDashboard: () => data })
+  bridge({ dashboard: () => data })
   render(<DashboardView open={vi.fn()} />)
   await user().click(await screen.findByRole('tab', { name: 'Stages' }))
   const region = await screen.findByRole('region', { name: 'Elapsed time by Stage' })
@@ -470,7 +464,7 @@ test('previous-period Flow samples retain their own period and restore focus aft
 })
 
 test('three Dashboard tabs preserve Overview, share the period and close samples when switching', async () => {
-  bridge({ factoryDashboard: () => dashboardFixture() })
+  bridge({ dashboard: () => dashboardFixture() })
   render(<DashboardView open={vi.fn()} />)
   await screen.findByRole('region', { name: 'Tasks completed' })
   expect(screen.getByRole('tab', { name: 'Overview' }).getAttribute('aria-selected')).toBe('true')
@@ -505,7 +499,7 @@ test('reason drawers expose measured distributions, partial coverage, Check cont
     if (r.p75Ms !== null) r.p75Ms *= 2
     for (const s of r.samples) if (s.elapsedMs !== null) s.elapsedMs *= 2
   }
-  bridge({ factoryDashboard: () => data })
+  bridge({ dashboard: () => data })
   const open = vi.fn()
   render(<DashboardView open={open} />)
   await user().click(await screen.findByRole('tab', { name: 'Flow' }))
@@ -563,7 +557,7 @@ test('detail totals distinguish unavailable prior and Stage history from measure
     p75Ms: null,
     samples: [],
   }))
-  bridge({ factoryDashboard: () => data })
+  bridge({ dashboard: () => data })
   render(<DashboardView open={vi.fn()} />)
   await user().click(await screen.findByRole('tab', { name: 'Flow' }))
   const panel = screen.getByRole('region', { name: 'Observed working time and wait reasons' })
@@ -596,7 +590,7 @@ test('Flow discloses unknown-boundary Tasks in mixed and unknown-only periods', 
   const missing = data.flow.current.incomplete
   const records = data.flow.tasks.filter((t) => t.id === 't2')
   if (data.flow.previous) data.flow.previous.incomplete = missing
-  bridge({ factoryDashboard: () => data })
+  bridge({ dashboard: () => data })
   const open = vi.fn()
   render(<DashboardView open={open} />)
   await user().click(await screen.findByRole('tab', { name: 'Flow' }))
@@ -666,19 +660,13 @@ test('Today draws hours against all of yesterday and compares with yesterday to 
   data.previous = { ...data.previous, from: at(11, 0), to: at(11, 2, 30), taskIds: ['t1'] }
   data.previous.buckets = hours(11, 24, at(12, 0))
   data.comparison.completed = { absolute: 1, percent: 100 }
-  const api = bridge({ factoryDashboard: () => data })
+  const api = bridge({ dashboard: () => data })
   const change = vi.fn()
   render(
-    <Dashboard
-      factoryId="f1"
-      title="Widgets"
-      state={{ range: 'today' }}
-      onChange={change}
-      onOpenTask={vi.fn()}
-    />,
+    <Dashboard factories={[]} state={{ range: 'today' }} onChange={change} onOpenTask={vi.fn()} />,
   )
   const completed = await screen.findByRole('region', { name: 'Tasks completed' })
-  expect(api.request).toHaveBeenCalledWith('factoryDashboard', 'f1', 'today')
+  expect(api.request).toHaveBeenCalledWith('dashboard', 'today', [])
   expect(completed.textContent).toContain('vs yesterday to this time')
   expect(completed.textContent).toContain('Yesterday · aligned by hour')
   expect(completed.textContent).toContain('Now')

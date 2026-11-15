@@ -4,13 +4,16 @@ import { startDaemon } from '../src/index.ts'
 import { openStore } from '../src/store/index.ts'
 import { makeTempHome, rawRequest } from './helpers.ts'
 
-test('read-only Dashboard request uses durable Factory history and validates its range', async () => {
+test('read-only Dashboard request combines or narrows Factories and validates its query', async () => {
   const { home, cleanup } = await makeTempHome()
   let daemon: Awaited<ReturnType<typeof startDaemon>> | undefined
   const store = await openStore({ directory: tedPaths(home).store })
   const now = new Date().setHours(0, 0, 0, 0)
   let factoryId = ''
   let taskId = ''
+  let otherId = ''
+  let otherTaskId = ''
+  let otherDisplayId = ''
   try {
     vi.useFakeTimers({ toFake: ['Date'] })
     const factory = store.createFactory({
@@ -52,7 +55,10 @@ test('read-only Dashboard request uses durable Factory history and validates its
       defaultBranch: 'main',
       showTutorial: false,
     })
+    otherId = other.id
     const excluded = await store.createTask({ factoryId: other.id, title: 'Other Factory' })
+    otherTaskId = excluded.id
+    otherDisplayId = `ZZ-${excluded.number}`
     store.changeStage(excluded.id, 'done', { layers: [], order: [] })
     await store.persisted()
   } finally {
@@ -64,20 +70,43 @@ test('read-only Dashboard request uses durable Factory history and validates its
     const info = await readDaemonInfo(home)
     if (!info) throw new Error('missing daemon info')
     const client = new DaemonClient(info)
-    const result = await client.factoryDashboard(factoryId, '7d')
+    const result = await client.dashboard('7d', [factoryId])
+    expect(result.factoryIds).toEqual([factoryId])
     expect(result.current.taskIds).toEqual([taskId])
     expect(result.current.created.value).toBe(32_400_000)
     expect(result.current.intake.value).toBe(14_400_000)
-    expect(result.tasks).toMatchObject([{ id: taskId, archived: true }])
-    expect(await client.factoryDashboard(factoryId, 'all')).toMatchObject({
+    expect(result.tasks).toMatchObject([{ id: taskId, factoryId, archived: true }])
+    expect(result.current.byFactory).toMatchObject([{ factoryId, taskIds: [taskId] }])
+    expect(await client.dashboard('all', [factoryId])).toMatchObject({
       previous: null,
       comparison: null,
     })
+    const sidebarOrder = (await client.listFactories()).map((factory) => factory.id)
+    expect(sidebarOrder).toHaveLength(2)
+    const all = await client.dashboard('7d')
+    expect(all.factoryIds).toEqual(sidebarOrder)
+    expect(all.current.taskIds).toEqual(expect.arrayContaining([taskId, otherTaskId]))
+    expect(all.tasks.find((task) => task.id === otherTaskId)).toMatchObject({
+      factoryId: otherId,
+      displayId: otherDisplayId,
+    })
+    expect(all.current.byFactory.map((row) => row.factoryId)).toEqual(sidebarOrder)
+    expect(all.current.byFactory).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ factoryId, taskIds: [taskId] }),
+        expect.objectContaining({ factoryId: otherId, taskIds: [otherTaskId] }),
+      ]),
+    )
+    expect(await client.dashboard('7d', [...sidebarOrder].reverse())).toMatchObject({
+      factoryIds: sidebarOrder,
+    })
     const request = (path: string, token = info.token) =>
       rawRequest(daemon?.port ?? 0, { path, headers: { authorization: `Bearer ${token}` } })
-    expect((await request(`/factories/${factoryId}/dashboard?range=bad`)).status).toBe(400)
-    expect((await request('/factories/missing/dashboard?range=7d')).status).toBe(404)
-    expect((await request(`/factories/${factoryId}/dashboard?range=7d`, 'wrong')).status).toBe(401)
+    expect((await request(`/dashboard?range=bad`)).status).toBe(400)
+    expect((await request(`/dashboard?range=7d&factory=${factoryId}&factory=missing`)).status).toBe(
+      404,
+    )
+    expect((await request('/dashboard?range=7d', 'wrong')).status).toBe(401)
   } finally {
     await daemon?.stop()
     await cleanup()
@@ -339,7 +368,7 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
     await store.persisted()
     await store.close()
     store = await openStore({ directory: tedPaths(home).store })
-    const data = store.factoryDashboard(factoryId, '7d', asOf)
+    const data = store.dashboard([factoryId], '7d', asOf)
     expect(data.flow.current.taskIds).toEqual(expect.arrayContaining([queued.id, admitted.id]))
     const currentQueue = required(data.flow.current.reasons.find((r) => r.reason === 'run-slot'))
     const previousQueue = required(data.flow.previous?.reasons.find((r) => r.reason === 'run-slot'))
@@ -540,7 +569,7 @@ test('batched Factory timing reconciles public interval/Check/report evidence an
       author: { kind: 'ted' },
     })
     vi.setSystemTime(base + 10 * 3_600_000)
-    const data = store.factoryDashboard(factory.id, 'today', Date.now())
+    const data = store.dashboard([factory.id], 'today', Date.now())
     const get = (reason: string) =>
       required(data.flow.current.reasons.find((r) => r.reason === reason))
     expect(get('run-working').totalMs).toBe(6 * 3_600_000)
@@ -578,7 +607,7 @@ test('batched Factory timing reconciles public interval/Check/report evidence an
     await store.close()
     vi.setSystemTime(base + 12 * 3_600_000)
     store = await openStore({ directory: tedPaths(home).store })
-    const reopened = store.factoryDashboard(factory.id, 'today', base + 10 * 3_600_000)
+    const reopened = store.dashboard([factory.id], 'today', base + 10 * 3_600_000)
     expect(reopened.flow.current.reasons.map((r) => [r.reason, r.totalMs])).toEqual(
       data.flow.current.reasons.map((r) => [r.reason, r.totalMs]),
     )
@@ -587,7 +616,7 @@ test('batched Factory timing reconciles public interval/Check/report evidence an
     ).toEqual(get('test-lock').samples[0]?.invocations)
     const gap = required(
       store
-        .factoryDashboard(factory.id, 'today', Date.now())
+        .dashboard([factory.id], 'today', Date.now())
         .flow.current.reasons.find((r) => r.reason === 'run-working'),
     )
     expect(gap.samples[0]?.coverage).toBe('partial')
@@ -621,7 +650,7 @@ test('batched Factory timing reconciles public interval/Check/report evidence an
     }
     vi.setSystemTime(base + 13 * 3_600_000)
     const started = performance.now()
-    const retained = store.factoryDashboard(factory.id, 'today', Date.now())
+    const retained = store.dashboard([factory.id], 'today', Date.now())
     const elapsed = performance.now() - started
     expect(retained.flow.current.taskIds).toHaveLength(1000)
     expect(retained.flow.current.reasons.every((r) => r.samples.length === 1000)).toBe(true)

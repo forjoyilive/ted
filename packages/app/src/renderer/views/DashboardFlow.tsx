@@ -39,13 +39,29 @@ const outcomes: Record<FlowValidateOutcome, string> = {
   'no-visit': 'No recorded Validate visit',
 }
 
+function coverage(
+  stage: FlowPeriod['stages'][number],
+  period: FlowPeriod,
+  factories: readonly { id: string; name: string }[],
+): { text: string; names: string } | null {
+  if (factories.length < 2 || stage.samples.length === 0) return null
+  const having = factories.filter((f) => stage.factoryIds.includes(f.id))
+  if (having.length === factories.length) return null
+  return {
+    text: `${having.length} of ${factories.length} Factories · ${stage.samples.length} of ${period.taskIds.length} Tasks`,
+    names: having.map((f) => f.name).join(', '),
+  }
+}
+
 function StageTable({
   period,
   previous,
+  factories,
   select,
 }: {
   period: FlowPeriod
   previous: FlowPeriod | null
+  factories: readonly { id: string; name: string }[]
   select: (s: FlowSelection) => void
 }) {
   const total = period.stages.reduce((sum, s) => sum + (totalValue(s) ?? 0), 0)
@@ -65,6 +81,7 @@ function StageTable({
         {period.stages.map((s) => {
           const prior = previous?.stages.find((p) => p.stage === s.stage)
           const choose = () => select({ kind: 'stage', stage: s.stage, period: 'current' })
+          const partial = coverage(s, period, factories)
           return (
             <li key={s.stage} className={styles.timingRow}>
               <div>
@@ -75,6 +92,11 @@ function StageTable({
                   <button type="button" data-nav-item className={styles.link} onClick={choose}>
                     {s.samples.length} {s.samples.length === 1 ? 'Task' : 'Tasks'}
                   </button>
+                  {partial && (
+                    <span className={styles.coverage} title={`Only in ${partial.names}`}>
+                      {partial.text}
+                    </span>
+                  )}
                 </p>
               </div>
               <strong className={styles.stageNumber}>{share(totalValue(s), total)}</strong>
@@ -199,6 +221,55 @@ function FirstPass({ period, select }: { period: FlowPeriod; select: (s: FlowSel
         failures.
       </p>
     </>
+  )
+}
+
+function FlowByFactory({
+  data,
+  period,
+  factories,
+}: {
+  data: DashboardFlow
+  period: FlowPeriod
+  factories: readonly { id: string; name: string }[]
+}) {
+  const factoryOf = new Map(data.tasks.map((task) => [task.id, task.factoryId]))
+  const rows = factories.map((factory) => {
+    const mine = (taskId: string) => factoryOf.get(taskId) === factory.id
+    const visits = period.firstPass.samples.filter((s) => mine(s.taskId))
+    const passed = visits.filter((s) => s.outcome === 'passed').length
+    const judged = visits.filter((s) => s.outcome === 'passed' || s.outcome === 'failed').length
+    const backs = period.sendBacks.flatMap((g) => g.transitions).filter((t) => mine(t.taskId))
+    return { factory, passed, judged, backs: backs.length }
+  })
+  return (
+    <section className={styles.flowCard} aria-label="Flow by Factory">
+      <h3>By Factory</h3>
+      <div className={styles.flowTable}>
+        <table>
+          <thead>
+            <tr>
+              <th>Factory</th>
+              <th>First-pass Validate</th>
+              <th>Send-backs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ factory, passed, judged, backs }) => (
+              <tr key={factory.id}>
+                <th scope="row">{factory.name}</th>
+                <td>
+                  {judged === 0
+                    ? 'Unavailable'
+                    : `${Math.round((passed / judged) * 100)}% · ${passed} of ${judged}`}
+                </td>
+                <td>{backs}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }
 
@@ -535,6 +606,7 @@ export function Flow({
   select,
   onClose,
   onOpenTask,
+  factories = [],
 }: {
   data: DashboardFlow
   asOf: string
@@ -543,6 +615,7 @@ export function Flow({
   select: (s: FlowSelection) => void
   onClose: () => void
   onOpenTask: (id: string) => void
+  factories?: readonly { id: string; name: string }[]
 }) {
   const heading = useId()
   const previousSelect = (s: FlowSelection) => select({ ...s, period: 'previous' })
@@ -621,7 +694,18 @@ export function Flow({
               for you. Tick “Include time waiting for me” to count {leftOut === 1 ? 'it' : 'them'}.
             </p>
           )}
-          <StageTable period={data.current} previous={data.previous} select={select} />
+          {factories.length > 1 && (
+            <p className={styles.caption}>
+              Stages with the same name are combined across Factories. A Stage only some of the
+              shown Factories use says how many Factories and Tasks it covers.
+            </p>
+          )}
+          <StageTable
+            period={data.current}
+            previous={data.previous}
+            factories={factories}
+            select={select}
+          />
           <details className={styles.dataTable}>
             <summary>How Stage time is measured</summary>
             {includeWaits ? (
@@ -652,6 +736,9 @@ export function Flow({
         <>
           <TimingOverview data={data} select={select} />
           <div className={styles.flowGrid}>
+            {factories.length > 1 && (
+              <FlowByFactory data={data} period={data.current} factories={factories} />
+            )}
             <section className={styles.flowCard} aria-label="Actual send-backs">
               <h3>Actual send-backs</h3>
               <SendBacks period={data.current} select={select} />

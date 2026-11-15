@@ -57,6 +57,7 @@ import { type FactoryBadges, Sidebar } from './components/Sidebar.tsx'
 import { pickBlockerEvent, TaskDialog, type TaskDialogKind } from './components/TaskActions.tsx'
 import { TaskContextMenu } from './components/TaskContextMenu.tsx'
 import { WorkingRunsPopover } from './components/WorkingRuns.tsx'
+import { dashboardState, rememberDashboard } from './dashboard.ts'
 import {
   useAgentHealth,
   useAllPlans,
@@ -100,12 +101,12 @@ import { doneView, failedView, queueView, rankMove } from './list-view.ts'
 import {
   backLink,
   currentFactoryId,
+  historyReducer,
   initialNavigation,
   newPlan,
   type SettingsSectionId,
   shownSettingsSectionIds,
   startHistory,
-  withHistory,
 } from './navigation.ts'
 import { OvernightContext } from './overnight.tsx'
 import { plansFailedByFactory } from './plans.ts'
@@ -237,7 +238,11 @@ function Offline({ when, children }: { when: boolean; children: ReactNode }) {
 }
 
 export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) {
-  const [history, dispatch] = useReducer(withHistory, initialNavigation, startHistory)
+  const [history, dispatch] = useReducer(
+    historyReducer(dashboardState),
+    initialNavigation,
+    startHistory,
+  )
   const navigation = history.now
   const revealRequest = useMemo(
     () => (navigation.requestId === undefined ? undefined : { id: navigation.requestId }),
@@ -871,6 +876,29 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
     }
     if (opened) return opened
     switch (screen.kind) {
+      case 'dashboard': {
+        const state = dashboardState(screen.dashboard)
+        const only = state.factoryIds?.length === 1 ? state.factoryIds[0] : undefined
+        return (
+          <Dashboard
+            factories={factories}
+            state={state}
+            onChange={(dashboard) => {
+              rememberDashboard(dashboard)
+              dispatch({ type: 'open', screen: { kind: 'dashboard', dashboard } })
+            }}
+            onOpenTask={openTaskByRef}
+            banners={
+              only === undefined
+                ? undefined
+                : bannerStack(
+                    `${factoryName(factories, only)} problems`,
+                    factoryBanners(banners, only),
+                  )
+            }
+          />
+        )
+      }
       case 'all-tasks':
         return (
           <TaskList
@@ -899,19 +927,6 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
           banners: bannerStack(`${name} problems`, factoryBanners(banners, screen.factoryId)),
         }
         const openPlans = () => dispatch({ type: 'open-plan', factoryId: screen.factoryId })
-        if (screen.view === 'dashboard') {
-          return (
-            <Dashboard
-              key={screen.factoryId}
-              factoryId={screen.factoryId}
-              title={name}
-              state={screen.dashboard ?? { range: '30d' }}
-              onChange={(dashboard) => dispatch({ type: 'open', screen: { ...screen, dashboard } })}
-              onOpenTask={openTaskByRef}
-              banners={view.banners}
-            />
-          )
-        }
         if (screen.view === 'board') {
           return (
             <Board

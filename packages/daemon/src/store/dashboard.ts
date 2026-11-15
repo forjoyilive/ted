@@ -1,11 +1,11 @@
 import { queryDb, type Store } from '@livestore/livestore'
 import type {
   DashboardRange,
-  FactoryDashboard,
+  DashboardReport,
   FlowSendBack,
   ValidationSnapshot,
 } from '@ted/protocol'
-import { type DashboardTaskFacts, factoryDashboard, rangeWindows } from '../dashboard.ts'
+import { type DashboardTaskFacts, dashboardReport, rangeWindows } from '../dashboard.ts'
 import type { FlowCheck, FlowJudgment } from '../dashboard-flow.ts'
 import { readDashboardTiming } from './dashboard-timing.ts'
 import { intervalBoundaries } from './interval-schema.ts'
@@ -46,17 +46,28 @@ function chunks<T>(values: T[]): T[][] {
   return result
 }
 
-export function readFactoryDashboard(
+export function readDashboard(
   store: Store<typeof schema>,
-  factoryId: string,
+  factoryIds: readonly string[],
   range: DashboardRange,
   asOf: number,
   sessionId: string,
-): FactoryDashboard {
-  const factory = store.query(queryDb(factories.where({ id: factoryId })))[0]
-  const rows = store.query(
-    queryDb(tasks.where({ factoryId, setup: false }).orderBy('number', 'asc')),
+): DashboardReport {
+  const keys = new Map(
+    store
+      .query(queryDb(factories.where({ id: { op: 'IN', value: [...factoryIds] } })))
+      .map((factory) => [factory.id, factory.key]),
   )
+  const order = new Map(factoryIds.map((id, index) => [id, index]))
+  const rows = store
+    .query(
+      queryDb(
+        tasks
+          .where({ factoryId: { op: 'IN', value: [...factoryIds] }, setup: false })
+          .orderBy('number', 'asc'),
+      ),
+    )
+    .toSorted((a, b) => (order.get(a.factoryId) ?? 0) - (order.get(b.factoryId) ?? 0))
   const facts = new Map<
     string,
     DashboardTaskFacts & {
@@ -71,7 +82,8 @@ export function readFactoryDashboard(
   for (const row of rows) {
     facts.set(row.id, {
       id: row.id,
-      displayId: `${factory?.key ?? ''}-${row.number}`,
+      factoryId: row.factoryId,
+      displayId: `${keys.get(row.factoryId) ?? ''}-${row.number}`,
       title: row.title,
       createdAt: row.createdAt,
       archived: row.archivedAt !== null,
@@ -219,5 +231,5 @@ export function readFactoryDashboard(
     const measured = activity.get(id)
     if (measured) task.activity = measured
   }
-  return factoryDashboard([...facts.values()], range, asOf)
+  return dashboardReport([...facts.values()], factoryIds, range, asOf)
 }

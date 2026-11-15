@@ -3,6 +3,7 @@ export type DashboardMetric = 'completed' | 'created' | 'intake'
 
 export interface DashboardTask {
   id: string
+  factoryId: string
   displayId: string
   title: string
   archived: boolean
@@ -25,6 +26,13 @@ export interface DashboardBucket {
   intake: DashboardSample
 }
 
+export interface DashboardFactoryPeriod {
+  factoryId: string
+  taskIds: string[]
+  created: DashboardSample
+  intake: DashboardSample
+}
+
 export interface DashboardPeriod {
   from: string | null
   to: string
@@ -32,6 +40,7 @@ export interface DashboardPeriod {
   created: DashboardSample
   intake: DashboardSample
   buckets: DashboardBucket[]
+  byFactory: DashboardFactoryPeriod[]
 }
 
 export interface DashboardChange {
@@ -39,9 +48,10 @@ export interface DashboardChange {
   percent: number | null
 }
 
-export interface FactoryDashboard {
+export interface DashboardReport {
   asOf: string
   range: DashboardRange
+  factoryIds: string[]
   tasks: DashboardTask[]
   unavailableIds: string[]
   current: DashboardPeriod
@@ -52,6 +62,7 @@ export interface FactoryDashboard {
 
 export interface FlowTask {
   id: string
+  factoryId: string
   displayId: string
   title: string
   archived: boolean
@@ -72,6 +83,7 @@ export interface FlowStageSample {
 
 export interface FlowStage {
   stage: string
+  factoryIds: string[]
   totalMs: number
   medianMs: number | null
   p25Ms: number | null

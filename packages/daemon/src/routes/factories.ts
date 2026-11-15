@@ -34,13 +34,17 @@ import { jsonRoute, type Route } from './route.ts'
 export const factoryRoutes: Route[] = [
   {
     method: 'GET',
-    path: /^\/factories\/([^/]+)\/dashboard(?:\?.*)?$/,
-    async handle({ params: [id = ''], req }, { store }) {
-      if (!store.getFactory(id)) throw new HttpError(404, 'Factory not found')
-      const range = new URL(req.url ?? '', 'http://localhost').searchParams.get('range') ?? '30d'
+    path: /^\/dashboard(?:\?.*)?$/,
+    async handle({ req }, { store }) {
+      const query = new URL(req.url ?? '', 'http://localhost').searchParams
+      const range = query.get('range') ?? '30d'
       if (range !== 'today' && range !== '7d' && range !== '30d' && range !== 'all')
         throw new HttpError(400, 'Choose today, 7d, 30d or all')
-      return [200, store.factoryDashboard(id, range)]
+      const asked = new Set(query.getAll('factory'))
+      const known = store.listFactories().map((factory) => factory.id)
+      for (const id of asked) if (!known.includes(id)) throw new HttpError(404, 'Factory not found')
+      const ids = asked.size ? known.filter((id) => asked.has(id)) : known
+      return [200, store.dashboard(ids, range)]
     },
   },
   {

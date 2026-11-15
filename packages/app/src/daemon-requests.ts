@@ -91,7 +91,7 @@ export const forwardedRequests = [
   'saveMessageDraft',
   'taskDefaults',
   'factoryBoard',
-  'factoryDashboard',
+  'dashboard',
   'setTaskSnooze',
   'startTask',
   'moveToBacklog',
