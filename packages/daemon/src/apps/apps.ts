@@ -38,6 +38,7 @@ import type { TedStore } from '../store/index.ts'
 import { removeInside } from '../tasks/remove-files.ts'
 import { isReservedEnvName } from '../workflow/check.ts'
 import type { AppDeclaration } from './declared.ts'
+import type { SimulatorApp } from './device-slots.ts'
 import {
   type AndroidTools,
   createAndroidTools,
@@ -54,7 +55,6 @@ import {
 import {
   createSimulators,
   createSimulatorTools,
-  type SimulatorApp,
   type Simulators,
   type SimulatorTools,
 } from './simulators.ts'
