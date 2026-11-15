@@ -542,7 +542,6 @@ export function Sidebar({
               <DotIcon />
             </span>
           )}
-          <span className={styles.shortcut}>⌘,</span>
         </ActionButton>
 
         {footerLines.length > 0 && (
