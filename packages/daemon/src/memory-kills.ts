@@ -20,6 +20,15 @@ export function memoryKill(ending: MemoryEnding, lowest: number | undefined): bo
   return killed && lowest !== undefined && lowest < busyMarks.memory.holdBelow
 }
 
+export function runKilledForMemory(
+  ending: { how: string; signal?: string | undefined; code?: number | undefined },
+  lowest: number | undefined,
+): boolean {
+  return (
+    ending.how === 'exited' && memoryKill({ signal: ending.signal, exitCode: ending.code }, lowest)
+  )
+}
+
 export function createMemoryWatch(options: {
   read: () => Promise<number>
   everyMs?: number

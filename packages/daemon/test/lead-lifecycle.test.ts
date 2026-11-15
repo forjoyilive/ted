@@ -830,6 +830,21 @@ test('a Task Lead killed for lack of memory names memory, resumes once memory fr
     reason: 'was stopped because this computer ran out of memory',
   })
   expect(lifecycle.reviveCandidates()).toEqual([])
+
+  let freeAfterRestart = (_freed: boolean) => {}
+  const restarted = harness({
+    memoryFreed: () =>
+      new Promise<boolean>((resolve) => {
+        freeAfterRestart = resolve
+      }),
+  })
+  restarted.lifecycle.recoverStartup()
+  expect(restarted.lifecycle.reviveCandidates()).toEqual([])
+  freeAfterRestart(true)
+  await Promise.all(restarted.work)
+  expect(restarted.lifecycle.reviveCandidates()).toMatchObject([{ taskId }])
+  restarted.lifecycle.close()
+
   free(true)
   await Promise.all(work)
   expect(lifecycle.reviveCandidates()).toMatchObject([{ taskId }])

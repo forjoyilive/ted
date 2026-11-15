@@ -44,7 +44,7 @@ import type { AgentLaunch, Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
 import { holdsLock, isLockHeld } from '../lock.ts'
-import { type MemoryWatch, type MemoryWatching, memoryKill } from '../memory-kills.ts'
+import { type MemoryWatch, type MemoryWatching, runKilledForMemory } from '../memory-kills.ts'
 import { nodeEntry, shellScript } from '../node-entry.ts'
 import { acquireRunPermissions, runPermissions, withRunPermissions } from '../permissions.ts'
 import { workCommand } from '../priority.ts'
@@ -559,9 +559,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       ...(problem !== undefined && { problem }),
       ...(ended && { ending: ended }),
       ...(ended &&
-        ended.how === 'exited' &&
         lowestMemory !== undefined &&
-        memoryKill({ signal: ended.signal }, lowestMemory) && { memoryKilled: { lowestMemory } }),
+        runKilledForMemory(ended, lowestMemory) && { memoryKilled: { lowestMemory } }),
       ...(retrying !== undefined && { retrying }),
     })
     if (!saved) holdRead(runId, batch.toOffset)

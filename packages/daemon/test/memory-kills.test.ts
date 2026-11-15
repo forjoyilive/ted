@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { createMemoryWatch, memoryKill } from '../src/memory-kills.ts'
+import { createMemoryWatch, memoryKill, runKilledForMemory } from '../src/memory-kills.ts'
 
 test('only a SIGKILL or exit 137 while memory was under the busy mark is a memory kill', () => {
   expect(memoryKill({ signal: 'SIGKILL' }, 0.05)).toBe(true)
@@ -8,6 +8,14 @@ test('only a SIGKILL or exit 137 while memory was under the busy mark is a memor
   expect(memoryKill({ signal: 'SIGTERM' }, 0.05)).toBe(false)
   expect(memoryKill({ exitCode: 1 }, 0.05)).toBe(false)
   expect(memoryKill({ signal: 'SIGKILL' }, undefined)).toBe(false)
+})
+
+test('a Run’s ending counts by its signal or its exit code 137, and never when TED stopped it', () => {
+  expect(runKilledForMemory({ how: 'exited', signal: 'SIGKILL' }, 0.05)).toBe(true)
+  expect(runKilledForMemory({ how: 'exited', code: 137 }, 0.05)).toBe(true)
+  expect(runKilledForMemory({ how: 'stopped', signal: 'SIGKILL' }, 0.05)).toBe(false)
+  expect(runKilledForMemory({ how: 'lost' }, 0.05)).toBe(false)
+  expect(runKilledForMemory({ how: 'exited', code: 1 }, 0.05)).toBe(false)
 })
 
 test('a watch keeps the lowest reading taken while it is open, and freed waits for memory above the resume mark', async () => {

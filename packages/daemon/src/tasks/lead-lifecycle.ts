@@ -578,15 +578,19 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       }),
     })
     if (recovery === 'resume' && killedForMemory) {
-      background('resume a Task Lead after memory frees up', async () => {
-        if (!(await options.memoryFreed()) || closed) return
-        awaitingRevive.add(task.id)
-        wake()
-      })
+      reviveWhenMemoryFrees(task.id)
       return
     }
     if (recovery === 'resume') awaitingRevive.add(task.id)
     wake()
+  }
+
+  function reviveWhenMemoryFrees(taskId: string): void {
+    background('resume a Task Lead after memory frees up', async () => {
+      if (!(await options.memoryFreed()) || closed) return
+      awaitingRevive.add(taskId)
+      wake()
+    })
   }
 
   function pendingRevive(
@@ -759,8 +763,12 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
   }
   function recoverStartup(): void {
     for (const task of store.listTasks()) {
-      if (pendingRevive(task.id)) {
-        awaitingRevive.add(task.id)
+      const pending = pendingRevive(task.id)
+      if (pending) {
+        const { run } = pending
+        if (store.killedForMemory(task.id, run.id, run.revivedAt ?? run.startedAt))
+          reviveWhenMemoryFrees(task.id)
+        else awaitingRevive.add(task.id)
         continue
       }
       const run = task.leadRunId === undefined ? undefined : store.getRun(task.leadRunId)
