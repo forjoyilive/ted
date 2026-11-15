@@ -140,6 +140,7 @@ import {
   isLoopbackUrl,
   isTrackerClosedQuestion,
   isTrackerGroupAsk,
+  joinChoices,
   keepArchiveChoice,
   maxAsanaIntakeTasks,
   parseAsanaTaskUrl,
@@ -670,6 +671,7 @@ export interface Tasks {
     input: {
       body: string
       choices?: string[]
+      multiple?: true
       round?: RoundInput
       proposal?: ProposalInput
       sizeCheck?: SizeCheckInput
@@ -10931,8 +10933,9 @@ export function createTasks(options: {
     async comment(
       ref,
       caller,
-      { body, choices = [], round, proposal, sizeCheck, supersedes, attachments = [] },
+      { body, choices = [], multiple, round, proposal, sizeCheck, supersedes, attachments = [] },
     ) {
+      const several = multiple && choices.length > 0 ? { multiple } : {}
       if (caller.kind !== 'run') {
         if (choices.length > 0) throw new RequestError(400, 'only a Run can ask a question')
         if (round !== undefined) throw new RequestError(403, 'only the Task Lead posts a round')
@@ -10973,7 +10976,7 @@ export function createTasks(options: {
           taskId: task.id,
           body,
           author: { kind: 'run', runId },
-          ...(choices.length > 0 && { kind: 'question', choices }),
+          ...(choices.length > 0 && { kind: 'question', choices, ...several }),
           attachments,
         })
       }
@@ -11003,7 +11006,7 @@ export function createTasks(options: {
           kind: old.kind,
           body,
           author: { kind: 'run', runId },
-          ...(choices.length > 0 && { choices }),
+          ...(choices.length > 0 && { choices, ...several }),
         })
       })
     },
@@ -11302,7 +11305,11 @@ export function createTasks(options: {
               kind: 'question',
               body: outcome.question,
               author: { kind: 'run', runId },
-              ...(outcome.choices && outcome.choices.length > 0 && { choices: outcome.choices }),
+              ...(outcome.choices &&
+                outcome.choices.length > 0 && {
+                  choices: outcome.choices,
+                  ...(outcome.multiple && { multiple: true as const }),
+                }),
             })
             return {
               task: publicTask(task.id),
@@ -12293,7 +12300,8 @@ function answerText(comment: Comment): string | undefined {
     return roundAnswerSummary(comment, answer.answers)
   }
   if (answer.kind === 'answered') {
-    return [answer.choice, answer.text].filter((part) => part !== undefined).join(' · ')
+    const picked = answer.choices?.length ? joinChoices(answer.choices) : answer.choice
+    return [picked, answer.text].filter((part) => part !== undefined).join(' · ')
   }
   return undefined
 }

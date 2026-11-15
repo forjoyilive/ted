@@ -1506,7 +1506,15 @@ test('answer answers a Clarify round and a size check', async () => {
     roundFile,
     JSON.stringify({
       title: 'Sync · 1 question',
-      questions: [{ question: 'How long offline before a warning?', recommended: '7 days' }],
+      questions: [
+        { question: 'How long offline before a warning?', recommended: '7 days' },
+        {
+          question: 'Where should the warning show?',
+          multiple: true,
+          choices: ['Board', 'List', 'Map'],
+          recommended: ['Board', 'Map'],
+        },
+      ],
     }),
   )
   const advance = { run: ['ted', 'outcome', 'advance'] }
@@ -1545,7 +1553,15 @@ test('answer answers a Clarify round and a size check', async () => {
   )
   expect(read.openRequests.find((r) => r.id === round.id)).toMatchObject({
     coordinatorMayAnswer: 'round answers',
-    questions: [{ question: 'How long offline before a warning?', recommended: '7 days' }],
+    questions: [
+      { question: 'How long offline before a warning?', recommended: '7 days' },
+      {
+        question: 'Where should the warning show?',
+        recommended: 'Board; Map',
+        multiple: true,
+        recommendedChoices: ['Board', 'Map'],
+      },
+    ],
   })
 
   expect(
@@ -1557,14 +1573,17 @@ test('answer answers a Clarify round and a size check', async () => {
       await answer(asking.task, {
         operation: 'short',
         request: round.id,
-        answers: [{ answer: '14 days' }, { answer: 'Extra' }],
+        answers: [{ answer: '14 days' }, { answer: '', choices: ['Board'] }, { answer: 'Extra' }],
       })
     ).status,
   ).toBe(400)
   const answered = await answer(asking.task, {
     operation: 'round',
     request: round.id,
-    answers: [{ answer: '14 days', note: 'People travel.' }],
+    answers: [
+      { answer: '14 days', note: 'People travel.' },
+      { answer: '', choices: ['Map', 'List'] },
+    ],
   })
   expect(answered.status).toBe(200)
   expect((answered.body as CoordinatorReceipt).text).toContain(
@@ -1572,7 +1591,10 @@ test('answer answers a Clarify round and a size check', async () => {
   )
   expect((await s.comments(asking.task.id)).find((c) => c.id === round.id)?.answer).toMatchObject({
     kind: 'answered',
-    answers: [{ answer: '14 days', note: 'People travel.', changed: true }],
+    answers: [
+      { answer: '14 days', note: 'People travel.', changed: true },
+      { answer: 'List; Map', choices: ['List', 'Map'], changed: true },
+    ],
     text: coordinatorLine,
   })
 

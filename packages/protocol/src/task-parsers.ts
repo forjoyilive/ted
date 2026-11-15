@@ -41,6 +41,7 @@ import {
   cleanupStepResults,
   type EditTaskRequest,
   type FollowUpRequest,
+  joinChoices,
   type MarkDoneRequest,
   maxTedStopAnswers,
   type NewTaskDraft,
@@ -263,7 +264,10 @@ export function parseRoundInput(value: unknown): RoundInput {
 }
 
 function roundQuestion(item: unknown, number: number): RoundQuestion {
-  const { question, choices, recommended } = (item ?? {}) as Record<string, unknown>
+  const { question, choices, recommended, recommendedChoices, multiple } = (item ?? {}) as Record<
+    string,
+    unknown
+  >
   const text = typeof question === 'string' ? question.trim() : ''
   if (text === '') throw new HttpError(400, `question ${number} needs its question`)
   if ([...text].length > maxRoundQuestionLength) {
@@ -273,6 +277,24 @@ function roundQuestion(item: unknown, number: number): RoundQuestion {
     )
   }
   const options = choiceList(choices)
+  const several = multipleFlag(multiple, `question ${number}’s multiple`)
+  if (several) {
+    if (!options) throw new HttpError(400, `question ${number} needs choices to allow several`)
+    const picks = recommendedList(recommendedChoices ?? recommended, number)
+    if (picks.some((p) => !options.includes(p))) {
+      throw new HttpError(
+        400,
+        `question ${number}’s recommended answers must each be one of its choices`,
+      )
+    }
+    return {
+      question: text,
+      choices: options,
+      recommended: joinChoices(picks),
+      multiple: true,
+      recommendedChoices: picks,
+    }
+  }
   const given = typeof recommended === 'string' ? recommended : ''
   const pick = options ? choiceText(given) : given.trim()
   if (pick === '') throw new HttpError(400, `question ${number} needs a recommended answer`)
@@ -286,6 +308,35 @@ function roundQuestion(item: unknown, number: number): RoundQuestion {
     throw new HttpError(400, `question ${number}’s recommended answer must be one of its choices`)
   }
   return { question: text, ...(options && { choices: options }), recommended: pick }
+}
+
+function recommendedList(value: unknown, number: number): string[] {
+  const given = typeof value === 'string' ? [value] : value
+  if (!Array.isArray(given) || given.some((c) => typeof c !== 'string')) {
+    throw new HttpError(400, `question ${number}’s recommended answers must be a list of choices`)
+  }
+  const picks = [...new Set((given as string[]).map(choiceText).filter((c) => c !== ''))]
+  if (picks.length === 0) {
+    throw new HttpError(400, `question ${number} needs at least one recommended answer`)
+  }
+  return picks
+}
+
+function multipleFlag(value: unknown, name: string): boolean {
+  if (value === undefined || value === false) return false
+  if (value === true) return true
+  throw new HttpError(400, `${name} must be true or false`)
+}
+
+function choicePicks(value: unknown): string[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value) || value.some((c) => typeof c !== 'string')) {
+    throw new HttpError(400, 'choices must be a list of strings')
+  }
+  if (value.length > maxChoices) {
+    throw new HttpError(400, `a question has at most ${maxChoices} choices`)
+  }
+  return [...new Set(value as string[])]
 }
 
 const maxProposalRows = 20
@@ -465,7 +516,14 @@ export function parseReportOutcomeRequest(body: unknown): ReportOutcomeRequest {
     const question = typeof request.question === 'string' ? request.question.trim() : ''
     if (question === '') throw new HttpError(400, 'question is required')
     const choices = choiceList(request.choices)
-    return { outcome: 'ask', question, ...(choices && { choices }) }
+    const multiple = multipleFlag(request.multiple, 'multiple')
+    if (multiple && !choices) throw new HttpError(400, 'a question needs choices to allow several')
+    return {
+      outcome: 'ask',
+      question,
+      ...(choices && { choices }),
+      ...(multiple && { multiple: true as const }),
+    }
   }
   throw new HttpError(400, 'outcome must be advance, back or ask')
 }
@@ -708,9 +766,11 @@ export function parseAnswerRequest(body: unknown): AnswerRequest {
     if (request.choice !== undefined && typeof request.choice !== 'string') {
       throw new HttpError(400, 'choice must be a string')
     }
+    const picks = choicePicks(request.choices)
     return {
       action: 'answer',
       ...(typeof request.choice === 'string' && { choice: request.choice }),
+      ...(picks && { choices: picks }),
       ...(text !== undefined && { text }),
       ...(request.archive !== undefined && {
         archive: parseArchiveTaskRequest(objectOrNull(request.archive, 'archive')),
@@ -723,12 +783,17 @@ export function parseAnswerRequest(body: unknown): AnswerRequest {
     return {
       action: 'answer-round',
       answers: request.answers.map((item: unknown) => {
-        const { answer, note } = (item ?? {}) as Record<string, unknown>
+        const { answer, choices, note } = (item ?? {}) as Record<string, unknown>
         if (typeof answer !== 'string') throw new HttpError(400, 'each answer must be text')
         if (note !== undefined && typeof note !== 'string') {
           throw new HttpError(400, 'a note must be text')
         }
-        return { answer, ...(typeof note === 'string' && { note }) }
+        const picks = choicePicks(choices)
+        return {
+          answer,
+          ...(picks && { choices: picks }),
+          ...(typeof note === 'string' && { note }),
+        }
       }),
     }
   }
@@ -877,6 +942,8 @@ export function parsePostCommentRequest(value: unknown): PostCommentRequest {
     )
   }
   const choices = choiceList(body?.choices)
+  const multiple = multipleFlag(body?.multiple, 'multiple')
+  if (multiple && !choices) throw new HttpError(400, 'a question needs choices to allow several')
   const supersedes = body?.supersedes
   if (supersedes !== undefined && (typeof supersedes !== 'string' || supersedes === '')) {
     throw new HttpError(400, 'supersedes must be a request’s ID')
@@ -884,6 +951,7 @@ export function parsePostCommentRequest(value: unknown): PostCommentRequest {
   return {
     body: text,
     ...(choices && { choices }),
+    ...(multiple && { multiple: true as const }),
     ...(round && { round }),
     ...(proposal && { proposal }),
     ...(sizeCheck && { sizeCheck }),

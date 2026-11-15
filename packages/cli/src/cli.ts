@@ -123,6 +123,11 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     if (!ref) throw new UsageError('outside a Run, name the Task with --task <id>')
     return ref
   }
+  function severalAllowed(choices: readonly string[]): { multiple?: true } {
+    if (!options.multiple) return {}
+    if (choices.length < 2) throw new UsageError('--multiple needs at least two --choice answers')
+    return { multiple: true }
+  }
 
   async function readStdin(): Promise<string> {
     if (runtime.stdin) return runtime.stdin()
@@ -820,7 +825,6 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       throw new UsageError('tell takes only --message')
     if (command === 'answer' && !options.request)
       throw new UsageError('name the request with --request <comment-id>')
-    if (command === 'answer' && choices.length > 1) throw new UsageError('give one --choice')
     if (options.approve && options['request-changes'])
       throw new UsageError('give --approve or --request-changes, not both')
     if (options['close-pull-requests'] && options['keep-pull-requests'])
@@ -843,10 +847,12 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       version,
       ...(message !== undefined && { message }),
       ...(command === 'answer' && { request: options.request }),
-      ...(choices[0] !== undefined && { choice: choices[0] }),
+      ...(choices.length > 1 ? { choices } : choices[0] !== undefined && { choice: choices[0] }),
       ...(options.approve && { decision: 'approve' as const }),
       ...(options['request-changes'] && { decision: 'request-changes' as const }),
-      ...(answers !== undefined && { answers: answers as { answer: string; note?: string }[] }),
+      ...(answers !== undefined && {
+        answers: answers as { answer: string; choices?: string[]; note?: string }[],
+      }),
       ...(options.recommended && { recommended: true }),
       ...(skipRows !== undefined && { skipRows: skipRows as number[] }),
       ...(options['start-unblocked'] && { startUnblocked: true }),
@@ -1242,12 +1248,14 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       const [id = '', ...words] = args
       const text = words.join(' ') || (await readStdin())
       if (!text.trim()) throw new UsageError('give a decision and explanation')
-      if ((options.choice?.length ?? 0) > 1) throw new UsageError('choose at most one answer')
+      const picked = options.choice ?? []
       await withDaemon(home, (client) =>
         client.answerAutopilot(taskRef(), id, {
           action: 'answer',
           text,
-          ...(options.choice?.[0] !== undefined && { choice: options.choice[0] }),
+          ...(picked.length > 1
+            ? { choices: picked }
+            : picked[0] !== undefined && { choice: picked[0] }),
         }),
       )
       console.log('Autopilot answered the question')
@@ -1264,6 +1272,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (files.length > 0 && choices.length > 0) {
         throw new UsageError('a question can’t carry files; post them in a note first')
       }
+      const multiple = severalAllowed(choices)
       const contents = await Promise.all(files.map(fileContents))
       const comment = await withDaemon(home, async (client) => {
         const attachments = []
@@ -1273,6 +1282,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         return client.postComment(ref, {
           body,
           ...(choices.length > 0 && { choices }),
+          ...multiple,
           ...(attachments.length > 0 && { attachments }),
         })
       })
@@ -1353,8 +1363,14 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       const body = args.filter((s) => s !== undefined).join(' ') || (await readStdin())
       if (body.trim() === '') throw new UsageError('give the new request as text or on stdin')
       const choices = options.choice ?? []
+      const multiple = severalAllowed(choices)
       const request = await withDaemon(home, (client) =>
-        client.postComment(ref, { body, supersedes, ...(choices.length > 0 && { choices }) }),
+        client.postComment(ref, {
+          body,
+          supersedes,
+          ...(choices.length > 0 && { choices }),
+          ...multiple,
+        }),
       )
       console.log(
         `Replaced request ${supersedes} with request ${request.id}. TED sends you their answer.`,
@@ -1419,11 +1435,13 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       const question = args.join(' ') || (await readStdin())
       if (question.trim() === '') throw new UsageError('give the question as text or on stdin')
       const choices = options.choice ?? []
+      const multiple = severalAllowed(choices)
       const result = await withDaemon(home, (client) =>
         client.reportOutcome(ref, {
           outcome: 'ask',
           question,
           ...(choices.length > 0 && { choices }),
+          ...multiple,
         }),
       )
       console.log(result.message)

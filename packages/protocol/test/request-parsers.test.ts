@@ -63,8 +63,12 @@ const completeAction: Required<P.CoordinatorAction> = {
   message: 'Continue',
   request: 'comment-1',
   choice: 'Yes',
+  choices: ['Board', 'List'],
   decision: 'approve',
-  answers: [{ answer: 'Yes', note: 'Reason' }],
+  answers: [
+    { answer: 'Yes', note: 'Reason' },
+    { answer: '', choices: ['Board', 'List'], note: 'Both' },
+  ],
   recommended: true,
   skipRows: [2],
   startUnblocked: true,
@@ -367,6 +371,7 @@ test('Coordinator answer variants keep every request field', () => {
   }
   const inputs = [
     { ...base, choice: completeAction.choice },
+    { ...base, choices: completeAction.choices },
     { ...base, choice: 'Archive', closePullRequests: completeAction.closePullRequests },
     { ...base, decision: completeAction.decision },
     { ...base, answers: completeAction.answers },
@@ -378,6 +383,16 @@ rejects(
   (value) => P.parseCoordinatorAction(value, 'answer'),
   { operation: 'id', version, request: 'comment', choice: 'Yes', decision: 'approve' },
   'give one of:',
+)
+rejects(
+  (value) => P.parseCoordinatorAction(value, 'answer'),
+  { operation: 'id', version, request: 'comment', choice: 'Yes', choices: ['Yes', 'No'] },
+  'give choice or choices, not both',
+)
+rejects(
+  (value) => P.parseCoordinatorAction(value, 'answer'),
+  { operation: 'id', version, request: 'comment', choices: ['Yes', 7] },
+  'choices must be a list',
 )
 rejects(
   (value) => P.parseCoordinatorAction(value, 'answer'),

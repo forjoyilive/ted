@@ -561,6 +561,7 @@ export const comments = State.SQLite.table({
     asanaUnfinished: State.SQLite.text({ nullable: true }),
     archive: State.SQLite.text({ nullable: true }),
     cleanupFailure: State.SQLite.text({ nullable: true }),
+    multiple: State.SQLite.boolean({ default: false }),
     purpose: State.SQLite.text({ nullable: true }),
     heldFor: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
@@ -3479,6 +3480,10 @@ export const events = {
     name: 'v1.CommentArchiveAsked',
     schema: Schema.Struct({ commentId: Schema.String, archive: Schema.String }),
   }),
+  commentMultipleChoiceAsked: Events.synced({
+    name: 'v1.CommentMultipleChoiceAsked',
+    schema: Schema.Struct({ commentId: Schema.String }),
+  }),
   automationCheckSet: Events.synced({
     name: 'v1.AutomationCheckSet',
     schema: Schema.Struct({
@@ -4300,6 +4305,8 @@ const materializers = counted(
         comments.update({ asanaUnfinished: unfinished }).where({ id: commentId }),
       'v1.CommentArchiveAsked': ({ commentId, archive }) =>
         comments.update({ archive }).where({ id: commentId }),
+      'v1.CommentMultipleChoiceAsked': ({ commentId }) =>
+        comments.update({ multiple: true }).where({ id: commentId }),
       'v1.CommentCleanupFailureAsked': ({ commentId, failure }) =>
         comments.update({ cleanupFailure: failure }).where({ id: commentId }),
       'v1.RequestHeld': ({ commentId, runId }) =>

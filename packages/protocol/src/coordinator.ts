@@ -147,6 +147,7 @@ export interface CoordinatorRequest {
   title?: string
   text: string
   choices?: string[]
+  multiple?: true
   questions?: RoundQuestion[]
   createdAt: string
   coordinatorMayAnswer:
@@ -212,6 +213,7 @@ export interface CoordinatorAction extends MoveTaskRequest {
   message?: string
   request?: string
   choice?: string
+  choices?: string[]
   decision?: 'approve' | 'request-changes'
   answers?: RoundAnswerInput[]
   recommended?: boolean

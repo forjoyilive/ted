@@ -61,7 +61,7 @@ import { Help } from './Help.tsx'
 import { Markdown } from './Markdown.tsx'
 import { PreviewRow } from './PreviewRow.tsx'
 import { ProposalAnswer, ProposalRows } from './ProposalCard.tsx'
-import { QuestionChoices, type QuestionSelection } from './QuestionChoices.tsx'
+import { isSeveral, QuestionChoices, type QuestionSelection } from './QuestionChoices.tsx'
 import styles from './RequestCard.module.css'
 import { RequestSnoozeLine } from './RequestSnooze.tsx'
 import { RoundAnswers, RoundQuestions, roundTally } from './RoundCard.tsx'
@@ -666,7 +666,11 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
       value === undefined ||
       (value !== null &&
         typeof value === 'object' &&
-        (('other' in value && value.other === true) ||
+        (('other' in value && value.other === true && !('picks' in value)) ||
+          ('picks' in value &&
+            Array.isArray(value.picks) &&
+            value.picks.every((p) => (request.choices ?? []).includes(p)) &&
+            (!('other' in value) || typeof value.other === 'boolean')) ||
           ('choice' in value &&
             typeof value.choice === 'string' &&
             (request.choices ?? []).includes(value.choice)))),
@@ -703,8 +707,12 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
   const withText = typed ? { text } : {}
   const reasonChoices = reasonChoicesOf(request)
   const questionChoices = hasChoices(request)
+  const several = request.multiple === true && questionChoices
+  const picks = several && isSeveral(selection) ? selection.picks : []
   const selectedChoice = selection && 'choice' in selection ? selection.choice : undefined
-  const other = selection && 'other' in selection
+  const other = several
+    ? isSeveral(selection) && selection.other === true
+    : selection !== undefined && 'other' in selection
   const needsReason = selectedChoice !== undefined && reasonChoices.includes(selectedChoice)
   const repairing = questionChoices && selectedChoice === 'Wait for a repair Task'
   const failure = isFailure(request)
@@ -721,7 +729,11 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
   const answerText = questionChoices && other ? otherText : text
   const ready = questionChoices
     ? !repairing &&
-      (selectedChoice !== undefined ? !needsReason || typed : other && otherText.trim() !== '')
+      (several
+        ? picks.length > 0 || (other && otherText.trim() !== '')
+        : selectedChoice !== undefined
+          ? !needsReason || typed
+          : other && otherText.trim() !== '')
     : typed
 
   const enter = request.simulator
@@ -748,6 +760,7 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
         : {
             action: 'answer',
             ...(questionChoices && selectedChoice !== undefined && { choice: selectedChoice }),
+            ...(several && picks.length > 0 && { choices: picks }),
             ...(answerText.trim() !== '' && { text: answerText }),
           },
     )
@@ -773,6 +786,7 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
       {questionChoices && (
         <QuestionChoices
           choices={request.choices ?? []}
+          multiple={several}
           selection={selection}
           onSelect={setSelection}
           allowOther={!isTrackerGroupAsk(request)}
@@ -1302,6 +1316,9 @@ function answerLine(
       }
       if (answer.answers) {
         return { mark: '✓', tone: 'good', text: `You answered · ${roundTally(answer.answers)}` }
+      }
+      if (answer.choices?.length) {
+        return { mark: '✓', tone: 'good', text: `You answered: ${answer.choices.join(', ')}` }
       }
       return answer.choice !== undefined
         ? { mark: '✓', tone: 'good', text: `You answered: ${answer.choice}` }

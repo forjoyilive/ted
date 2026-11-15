@@ -10,8 +10,10 @@ import {
 } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { type NewComment, openStore, type TedStore } from '../src/store/index.ts'
+import { answerMessage } from '../src/tasks/answer-message.ts'
 import { linearConnector, linearRecords } from '../src/tasks/linear-sync.ts'
 import { createRequestAnswers, type RequestAnswerPort } from '../src/tasks/request-answers.ts'
+import { roundAnswerMessage } from '../src/tasks/rounds.ts'
 import { createTrackerConsent } from '../src/tasks/tracker-sync/consent.ts'
 import { StaleCoverageError } from '../src/tasks/validation.ts'
 import { resolveWorkflow } from '../src/workflow/resolve.ts'
@@ -477,6 +479,90 @@ test('a round validates every answer, records it once and delivers the accepted 
   await expect(answer(comment, { action: 'accept-recommended' })).rejects.toThrow(
     'already been answered',
   )
+})
+
+test('a question that allows several answers records the ticked choices in their order', async () => {
+  const comment = post(
+    { kind: 'question' },
+    { choices: ['Board', 'List', 'Map'], multiple: true, body: 'Which views?' },
+  )
+  expect(store.getComment(comment.id)?.multiple).toBe(true)
+  await expect(answer(comment, { action: 'answer', choices: ['Board', 'Grid'] })).rejects.toThrow(
+    '“Grid” isn’t one of the question’s choices',
+  )
+  await expect(answer(comment, { action: 'answer', choices: [] })).rejects.toThrow(
+    'pick a choice or write an answer',
+  )
+  const answered = await answer(comment, {
+    action: 'answer',
+    choices: ['Map', 'Board'],
+    text: 'Map first',
+  })
+  expect(answered.answer).toMatchObject({ kind: 'answered', choices: ['Board', 'Map'] })
+  expect(answerMessage(answered)).toContain('Board; Map\n\nMap first')
+  const single = post({ kind: 'question' }, { choices: ['Yes', 'No'] })
+  expect(single.multiple).toBeUndefined()
+  await expect(answer(single, { action: 'answer', choices: ['Yes', 'No'] })).rejects.toThrow(
+    'this question takes one choice',
+  )
+})
+
+test('a round question that allows several answers is changed only when the ticked set differs', async () => {
+  const several = {
+    question: 'Which views?',
+    choices: ['Board', 'List', 'Map'],
+    recommended: 'Board; Map',
+    multiple: true as const,
+    recommendedChoices: ['Board', 'Map'],
+  }
+  const round = (number: number) =>
+    post(
+      { kind: 'round' },
+      {
+        kind: 'round',
+        round: { number, questions: [several, { question: 'Name?', recommended: 'A' }] },
+      },
+    )
+  const first = round(1)
+  await expect(
+    answer(first, {
+      action: 'answer-round',
+      answers: [{ answer: '', choices: [] }, { answer: 'A' }],
+    }),
+  ).rejects.toThrow('question 1 needs at least one answer')
+  await expect(
+    answer(first, {
+      action: 'answer-round',
+      answers: [{ answer: '', choices: ['Grid'] }, { answer: 'A' }],
+    }),
+  ).rejects.toThrow('question 1’s answers must be among its choices')
+  const answered = await answer(first, {
+    action: 'answer-round',
+    answers: [{ answer: '', choices: ['Map', 'Board'], note: 'Both' }, { answer: 'A' }],
+  })
+  expect(answered.answer).toMatchObject({
+    answers: [
+      { answer: 'Board; Map', choices: ['Board', 'Map'], note: 'Both', changed: false },
+      { answer: 'A', changed: false },
+    ],
+  })
+  const other = await answer(round(2), {
+    action: 'answer-round',
+    answers: [{ answer: 'Calendar', choices: ['Board'] }, { answer: 'A' }],
+  })
+  expect(other.answer).toMatchObject({
+    answers: [{ answer: 'Board; Calendar', choices: ['Board'], changed: true }, {}],
+  })
+  const message = roundAnswerMessage(
+    other,
+    other.answer?.kind === 'answered' ? (other.answer.answers ?? []) : [],
+    'few',
+  )
+  expect(message).toContain('Board; Calendar (changed from your recommendation “Board; Map”)')
+  const accepted = await answer(round(3), { action: 'accept-recommended' })
+  expect(accepted.answer).toMatchObject({
+    answers: [{ answer: 'Board; Map', choices: ['Board', 'Map'], changed: false }, {}],
+  })
 })
 
 test.each(['approve', 'deny'] as const)(
