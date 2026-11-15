@@ -2,6 +2,7 @@ import path from 'node:path'
 import { describe, expect, test } from 'vitest'
 import { checkedCommits, failedTests, fileTimes, summary } from './check.ts'
 import {
+  builderIdentity,
   changedFiles,
   discardPlan,
   isNewer,
@@ -84,6 +85,11 @@ describe('signing identity', () => {
     expect(pickSigningIdentity(listing('Apple Development: A (1)'))).toBeUndefined()
     expect(pickSigningIdentity(listing('iPhone Distribution: C (3)'))).toBeUndefined()
     expect(pickSigningIdentity('     0 valid identities found')).toBeUndefined()
+  })
+
+  test('hands electron-builder the name without the certificate type', () => {
+    expect(builderIdentity('Developer ID Application: B (2)')).toBe('B (2)')
+    expect(builderIdentity('B (2)')).toBe('B (2)')
   })
 })
 

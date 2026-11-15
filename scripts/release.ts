@@ -83,6 +83,12 @@ export function pickSigningIdentity(listing: string): string | undefined {
   return [...listing.matchAll(/"(Developer ID Application: [^"]+)"/g)].map((match) => match[1])[0]
 }
 
+// electron-builder refuses a CSC_NAME that starts with the certificate type and picks the
+// Developer ID Application certificate for the name itself.
+export function builderIdentity(name: string): string {
+  return name.startsWith(developerId) ? name.slice(developerId.length) : name
+}
+
 export function signingRefusal(env: NodeJS.ProcessEnv): string | undefined {
   if (env.CSC_LINK) {
     return 'pnpm release signs from the keychain and can’t check a CSC_LINK certificate; unset CSC_LINK'
@@ -112,7 +118,7 @@ function useSigningIdentity(): void {
     )
   }
   console.log(`\n== Signing with ${name}`)
-  process.env.CSC_NAME = name
+  process.env.CSC_NAME = builderIdentity(name)
 }
 
 export type Notary = { kind: 'environment' } | { kind: 'profile'; name: string }
