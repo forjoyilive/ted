@@ -125,7 +125,7 @@ function Question({
             {draft.other ? (
               <div className={styles.written}>
                 <textarea
-                  className={`${styles.text} ${grow.text}`}
+                  className={`${styles.text} ${styles.otherText} ${grow.text}`}
                   aria-label={`Your answer ${number}`}
                   placeholder="Your answer…"
                   value={text}

@@ -172,6 +172,12 @@
   resize: vertical;
 }
 
+.written .otherText {
+  min-height: calc(1lh + 12px);
+  padding: 6px 10px 6px 34px;
+  line-height: inherit;
+}
+
 .writtenTag {
   display: flex;
   justify-content: flex-end;
