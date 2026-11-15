@@ -67,7 +67,7 @@ A setting on a Stage that makes the Task wait for the human’s sign-off at the 
 _Avoid_: Approval step, checkpoint
 
 **Autopilot**:
-A mode in which the Task Lead makes routine decisions and carries a Task through Merge without routine questions or sign-offs, while protected decisions still wait for the user. Each Task follows the global setting or explicitly turns Autopilot on or off; the user can change a selected set together.
+A mode in which the Task Lead makes routine decisions and carries a Task through Merge without routine questions or sign-offs, while protected decisions still wait for the user. Each Task follows the global setting or explicitly turns Autopilot on or off; the user can change a selected set together. A Task that changes TED’s settings in `.ted/`, and, while the setting for it is on, a Task an Automation made or whose GitHub issue has text from outsiders, keeps its sign-offs, with the Review sign-off forced on.
 _Avoid_: Overnight mode, auto mode
 
 **Stage file**:
@@ -151,7 +151,7 @@ The URL of the item a Task was created from, such as a Linear, Sentry or GitHub 
 _Avoid_: Origin, link, ticket
 
 **Tracker sync**:
-TED keeping a Task’s Source item (a Linear issue or an Asana item) up to date: it moves the item forward as the Task goes on, links its pull requests and notices when the item is closed outside TED. It runs only for a Task the human allowed, one by one or for a whole group (a Linear team) in one Factory. Each tracker plugs in through a connector.
+TED keeping a Task’s Source item (a Linear issue, an Asana item or a GitHub issue) up to date: it moves the item forward as the Task goes on, links its pull requests and notices when the item is closed outside TED. For Linear and Asana it runs only for a Task the human allowed, one by one or for a whole group (a Linear team or an Asana project) in one Factory; for GitHub issues one machine setting, off by default, turns it on for every Task with a GitHub issue Source. Each tracker plugs in through a connector.
 _Avoid_: Integration sync, two-way sync
 
 **Task Sync**:
