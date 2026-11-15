@@ -34,6 +34,11 @@
   --text-on-inverse: light-dark(#ffffff, #ecebe6);
   --text-on-inverse-muted: light-dark(#c8c7c2, #b5b3ac);
 
+  --tooltip-bg: light-dark(#efeee9, #3a3a37);
+  --tooltip-fg: light-dark(#1c1c1a, #ecebe6);
+  --tooltip-fg-muted: light-dark(#61605b, #b5b3ac);
+  --tooltip-border: light-dark(#efeee9, #52524d);
+
   --accent-default: light-dark(#4d59cf, #5a66dc);
   --accent-text: light-dark(#3a45b0, #9aa4f5);
   --accent-link: light-dark(#4d59cf, #9aa4f5);

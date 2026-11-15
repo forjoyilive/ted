@@ -74,8 +74,10 @@
   gap: 8px;
   padding: 4px 8px;
   border-radius: var(--radius-tooltip);
-  background: var(--surface-inverse);
-  color: var(--text-on-inverse);
+  border: 1px solid var(--tooltip-border);
+  background: var(--tooltip-bg);
+  color: var(--tooltip-fg);
+  text-align: left;
   font-size: var(--text-12);
   white-space: nowrap;
   pointer-events: none;
@@ -95,7 +97,7 @@
 }
 
 .shortcut {
-  color: var(--text-on-inverse-muted);
+  color: var(--tooltip-fg-muted);
   font-family: var(--font-mono);
   font-size: var(--text-11);
 }
