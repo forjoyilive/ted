@@ -283,6 +283,8 @@ describe('List views', () => {
     expect(saved.listViews).toEqual({ all: view })
     const withEmpty = {
       ...view,
+      group: 'factory-group',
+      filters: { ...view.filters, factories: ['f1'], factoryGroups: ['g1'] },
       showEmptyGroups: true,
       nested: true,
       columnsVersion: 2,
@@ -306,6 +308,7 @@ describe('List views', () => {
       { all: { ...view, sort: 'sideways' } },
       { all: { ...view, columns: ['nonsense'] } },
       { all: { ...view, filters: { archived: 'maybe' } } },
+      { all: { ...view, filters: { factoryGroups: [1] } } },
       [],
     ]) {
       expect((await client.call('PATCH', '/settings', { listViews: bad })).status).toBe(400)

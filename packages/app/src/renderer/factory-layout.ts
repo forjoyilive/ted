@@ -238,3 +238,18 @@ export function factoryScope(
   if (scope.factoryId !== undefined) return (factoryId) => factoryId === scope.factoryId
   return undefined
 }
+
+export const noGroupKey = 'none'
+
+export function groupSections(layout: FactoryLayout): {
+  keys: string[]
+  keyOf: (factoryId: string) => string
+  labelOf: (key: string) => string
+} {
+  const all = groups(layout)
+  return {
+    keys: [...all.map((group) => group.id), noGroupKey],
+    keyOf: (factoryId) => groupOf(layout, factoryId)?.id ?? noGroupKey,
+    labelOf: (key) => all.find((group) => group.id === key)?.name ?? 'No group',
+  }
+}

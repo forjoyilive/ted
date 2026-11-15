@@ -1,6 +1,7 @@
 import type {
   AutomationRequest,
   Factory,
+  FactoryLayout,
   InboxItem,
   MachineSettings,
   Plan,
@@ -27,6 +28,7 @@ import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { TaskDialog, type TaskDialogKind } from '../components/TaskActions.tsx'
 import type { ConfirmationRequest } from '../data.ts'
 import { type InboxEmpty, inboxEmpty } from '../empty-states.ts'
+import { emptyLayout, groups as factoryGroups, factoryScope } from '../factory-layout.ts'
 import {
   type Grouped,
   groupInbox,
@@ -49,12 +51,19 @@ import { FilterIcon, MenuButton } from './TaskList.tsx'
 import { factoryName, stageName } from './TaskViews.tsx'
 import views from './views.module.css'
 
+export interface InboxScope {
+  factoryId?: string
+  groupId?: string
+}
+
 export function Inbox({
   items,
   plans = [],
   answered,
   factories,
+  layout = emptyLayout,
   factoryId,
+  groupId,
   showAnswered,
   anyTasks,
   selected,
@@ -77,7 +86,9 @@ export function Inbox({
   plans?: readonly PlanInboxItem[]
   answered: readonly InboxItem[]
   factories: readonly Factory[]
+  layout?: FactoryLayout
   factoryId: string | undefined
+  groupId?: string | undefined
   showAnswered: boolean
   anyTasks: boolean
   selected: string | undefined
@@ -88,7 +99,7 @@ export function Inbox({
   confirmations?: readonly ConfirmationRequest[]
   onOpenConfirmation?: (request: ConfirmationRequest) => void
   onOpenPlan?: (item: PlanInboxItem) => void
-  onFilter: (factoryId: string | undefined) => void
+  onFilter: (scope: InboxScope) => void
   onShowAnswered: (show: boolean) => void
   onClearFilters?: () => void
   onNewTask: () => void
@@ -193,19 +204,19 @@ export function Inbox({
   )
   const awake = <T,>(list: readonly T[], id: (item: T) => string) =>
     list.filter((item) => !snoozed.has(id(item)))
-  const waiting = inFactory(pending, factoryId)
-  const shown = showAnswered ? inFactory(answered, factoryId) : waiting
-  const asked = showAnswered
-    ? []
-    : pendingQuestions.filter((q) => factoryId === undefined || q.factoryId === factoryId)
-  const planRows = showAnswered
-    ? []
-    : pendingPlans.filter((p) => factoryId === undefined || p.plan.factoryId === factoryId)
+  const groupName = factoryGroups(layout).find((g) => g.id === groupId)?.name
+  const scope = factoryScope(layout, {
+    ...(factoryId !== undefined && { factoryId }),
+    ...(groupName !== undefined && groupId !== undefined && { groupId }),
+  })
+  const inScope = (id: string) => scope === undefined || scope(id)
+  const waiting = inFactory(pending, scope)
+  const shown = showAnswered ? inFactory(answered, scope) : waiting
+  const asked = showAnswered ? [] : pendingQuestions.filter((q) => inScope(q.factoryId))
+  const planRows = showAnswered ? [] : pendingPlans.filter((p) => inScope(p.plan.factoryId))
   const confirmationRows = showAnswered
     ? []
-    : confirmations.filter(
-        (c) => !resolved.has(c.id) && (factoryId === undefined || c.factoryId === factoryId),
-      )
+    : confirmations.filter((c) => !resolved.has(c.id) && inScope(c.factoryId))
 
   const actions = useActionMenu(
     JSON.stringify([
@@ -225,6 +236,7 @@ export function Inbox({
       at: (showAnswered ? item.request.answer?.at : undefined) ?? item.request.createdAt,
       stage: item.request.stage ?? item.task.stage,
       priority: item.task.priority,
+      factoryId: item.task.factoryId,
     } satisfies Grouped,
     open: () => onOpen(item),
   }))
@@ -235,7 +247,11 @@ export function Inbox({
           kind: 'plan' as const,
           item,
           request: item.request,
-          grouped: { kind: 'question', at: item.request.createdAt } satisfies Grouped,
+          grouped: {
+            kind: 'question',
+            at: item.request.createdAt,
+            factoryId: item.plan.factoryId,
+          } satisfies Grouped,
           open: () => onOpenPlan?.(item),
         })),
         ...taskRows,
@@ -243,14 +259,22 @@ export function Inbox({
           kind: 'automation' as const,
           item,
           request: item,
-          grouped: { kind: 'question', at: item.createdAt } satisfies Grouped,
+          grouped: {
+            kind: 'question',
+            at: item.createdAt,
+            factoryId: item.factoryId,
+          } satisfies Grouped,
           open: () => onOpenQuestion?.(item),
         })),
         ...confirmationRows.map((item) => ({
           kind: 'coordinator' as const,
           item,
           request: item,
-          grouped: { kind: 'question', at: item.createdAt } satisfies Grouped,
+          grouped: {
+            kind: 'question',
+            at: item.createdAt,
+            factoryId: item.factoryId,
+          } satisfies Grouped,
           open: () => onOpenConfirmation?.(item),
         })),
       ].sort(
@@ -279,7 +303,7 @@ export function Inbox({
               : row.item.factoryId,
         )
         .filter(quiet)
-  const groups = groupInbox(rows, view.grouping, now, view.order)
+  const groups = groupInbox(rows, view.grouping, now, view.order, layout)
   const ordered = groups.flatMap((group) => group.rows)
   const visible = groups.flatMap((group) => (view.collapsed(group.key) ? [] : group.rows))
   const shownSnoozed = showSnoozed ? snoozedRows : []
@@ -452,13 +476,14 @@ export function Inbox({
     ...(view.grouping === 'none' ? [] : [`Grouped by ${inboxGroupingLabels[view.grouping]}`]),
     ...(view.grouping !== 'none' && view.order.groupsReversed ? ['Groups descending'] : []),
     ...(view.order.oldestFirst ? ['Oldest first'] : []),
+    ...(groupName === undefined ? [] : [groupName]),
     ...(factoryId === undefined ? [] : [factoryName(factories, factoryId)]),
     ...(showAnswered ? ['Answered'] : []),
   ]
   const clear = () => {
     view.reset()
     if (onClearFilters) return onClearFilters()
-    if (factoryId !== undefined) onFilter(undefined)
+    if (factoryId !== undefined || groupId !== undefined) onFilter({})
     if (showAnswered) onShowAnswered(false)
   }
 
@@ -523,13 +548,33 @@ export function Inbox({
                             factories,
                             awake(pendingQuestions, (question) => question.id),
                             awake(pendingPlans, (item) => item.request.id),
+                            layout,
                           ).map((chip) => (
                             <button
-                              key={chip.factoryId ?? 'all'}
+                              key={
+                                chip.groupId === undefined
+                                  ? (chip.factoryId ?? 'all')
+                                  : `group:${chip.groupId}`
+                              }
                               type="button"
-                              className={styles.chip}
-                              aria-pressed={chip.factoryId === factoryId}
-                              onClick={() => onFilter(chip.factoryId)}
+                              className={
+                                chip.groupId === undefined
+                                  ? styles.chip
+                                  : `${styles.chip} ${styles.groupChip}`
+                              }
+                              data-factory-group={chip.groupId}
+                              aria-pressed={
+                                chip.factoryId === factoryId &&
+                                chip.groupId === (groupName === undefined ? undefined : groupId)
+                              }
+                              onClick={() =>
+                                onFilter({
+                                  ...(chip.factoryId !== undefined && {
+                                    factoryId: chip.factoryId,
+                                  }),
+                                  ...(chip.groupId !== undefined && { groupId: chip.groupId }),
+                                })
+                              }
                             >
                               {chip.factoryId !== undefined && quiet(chip.factoryId) && (
                                 <BellOffIcon />
@@ -590,11 +635,16 @@ export function Inbox({
             empty={inboxEmpty({
               showAnswered,
               anyTasks,
-              factoryName: factoryId === undefined ? undefined : factoryName(factories, factoryId),
+              factoryName:
+                groupName !== undefined
+                  ? groupName
+                  : factoryId === undefined
+                    ? undefined
+                    : factoryName(factories, factoryId),
             })}
             onNewTask={onNewTask}
             onShowAnswered={() => onShowAnswered(true)}
-            onShowAllFactories={() => onFilter(undefined)}
+            onShowAllFactories={() => onFilter({})}
           />
         ) : (
           <ul className={styles.rows}>

@@ -4,7 +4,14 @@ export const listSorts = ['manual', 'priority', 'updated', 'created', 'stage', '
 
 export type ListSort = (typeof listSorts)[number]
 
-export const listGroups = ['stage', 'factory', 'status', 'priority', 'none'] as const
+export const listGroups = [
+  'stage',
+  'factory',
+  'factory-group',
+  'status',
+  'priority',
+  'none',
+] as const
 
 export type ListGroup = (typeof listGroups)[number]
 
@@ -33,6 +40,7 @@ export type StatusFilter = TaskStatusKind | 'none'
 
 export interface ListFilters {
   factories?: string[]
+  factoryGroups?: string[]
   stages?: StageId[]
   statuses?: StatusFilter[]
   priorities?: Priority[]

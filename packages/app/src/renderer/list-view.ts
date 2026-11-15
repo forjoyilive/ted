@@ -1,6 +1,7 @@
 import type {
   CreatedBy,
   Factory,
+  FactoryLayout,
   ListColumn,
   ListFilters,
   ListGroup,
@@ -13,6 +14,7 @@ import type {
 } from '@ted/protocol'
 import { allTasksScope } from '@ted/protocol/list-view'
 import { priorities, taskStatusKinds } from '@ted/protocol/task'
+import { emptyLayout, groupSections, groups } from './factory-layout.ts'
 import { priorityLabels } from './task-fields.ts'
 
 export const stageOrder: readonly StageId[] = [
@@ -67,6 +69,7 @@ export const sortLabels: Record<ListSort, string> = {
 export const groupLabels: Record<ListGroup, string> = {
   stage: 'Stage',
   factory: 'Factory',
+  'factory-group': 'Factory group',
   status: 'Status',
   priority: 'Priority',
   none: 'None',
@@ -194,13 +197,31 @@ function inList<T>(wanted: readonly T[] | undefined, value: T): boolean {
   return wanted === undefined || wanted.length === 0 || wanted.includes(value)
 }
 
-export function filterTasks(tasks: readonly Task[], filters: ListFilters, text = ''): Task[] {
+export function pickedGroups(filters: ListFilters, layout: FactoryLayout) {
+  const picked = filters.factoryGroups ?? []
+  return groups(layout).filter((group) => picked.includes(group.id))
+}
+
+function factoryFilter(filters: ListFilters, layout: FactoryLayout): Set<string> | undefined {
+  const live = pickedGroups(filters, layout)
+  const factories = filters.factories ?? []
+  if (live.length === 0 && factories.length === 0) return undefined
+  return new Set([...factories, ...live.flatMap((group) => group.factoryIds)])
+}
+
+export function filterTasks(
+  tasks: readonly Task[],
+  filters: ListFilters,
+  text = '',
+  layout: FactoryLayout = emptyLayout,
+): Task[] {
   const archived = filters.archived ?? 'hidden'
   const needle = text.trim().toLowerCase()
+  const inFactories = factoryFilter(filters, layout)
   return tasks.filter((task) => {
     if (archived === 'hidden' && task.archived) return false
     if (archived === 'only' && !task.archived) return false
-    if (!inList(filters.factories, task.factoryId)) return false
+    if (inFactories && !inFactories.has(task.factoryId)) return false
     if (!inList(filters.stages, task.stage)) return false
     if (!inList(filters.priorities, task.priority)) return false
     if (!inList(filters.createdBy, task.createdBy)) return false
@@ -255,6 +276,7 @@ export function groupTasks(
   view: ListView,
   factories: readonly Factory[],
   keep: readonly string[] = [],
+  layout: FactoryLayout = emptyLayout,
 ): TaskGroup[] {
   const sorted = sortTasks(tasks, view.sort)
   const make = <K extends string>(
@@ -289,6 +311,10 @@ export function groupTasks(
         (t) => t.factoryId,
         (id) => factories.find((f) => f.id === id)?.name ?? 'No Factory',
       )
+    case 'factory-group': {
+      const sections = groupSections(layout)
+      return make(sections.keys, (t) => sections.keyOf(t.factoryId), sections.labelOf)
+    }
     case 'priority':
       return make(
         priorities,
@@ -364,9 +390,13 @@ export function dropAction(
   return undefined
 }
 
-export function activeFilterCount(filters: ListFilters): number {
+export function activeFilterCount(
+  filters: ListFilters,
+  layout: FactoryLayout = emptyLayout,
+): number {
   return (
     (filters.factories?.length ?? 0) +
+    pickedGroups(filters, layout).length +
     (filters.stages?.length ?? 0) +
     (filters.statuses?.length ?? 0) +
     (filters.priorities?.length ?? 0) +
@@ -386,7 +416,11 @@ function joined(names: readonly string[]): string {
   return names.length <= 2 ? names.join(' or ') : `${names.length} values`
 }
 
-export function filterChips(filters: ListFilters, factories: readonly Factory[]): FilterChip[] {
+export function filterChips(
+  filters: ListFilters,
+  factories: readonly Factory[],
+  layout: FactoryLayout = emptyLayout,
+): FilterChip[] {
   const without =
     (name: keyof ListFilters) =>
     (current: ListFilters): ListFilters => {
@@ -396,6 +430,8 @@ export function filterChips(filters: ListFilters, factories: readonly Factory[])
   const chips: FilterChip[] = []
   const add = (name: keyof ListFilters, label: string) =>
     chips.push({ key: name, label, clear: without(name) })
+  const live = pickedGroups(filters, layout)
+  if (live.length) add('factoryGroups', `Factory group is ${joined(live.map((g) => g.name))}`)
   if (filters.factories?.length) {
     add(
       'factories',

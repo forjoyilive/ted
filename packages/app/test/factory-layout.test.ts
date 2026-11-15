@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest'
 import {
   addGroup,
   arrange,
+  groupSections,
   inSidebarOrder,
   moveStep,
   moveTo,
@@ -132,5 +133,17 @@ describe('groups', () => {
       waiting: 1,
       uncounted: true,
     })
+  })
+})
+
+describe('groupSections', () => {
+  test('one section per group in layout order, then No group', () => {
+    const two: FactoryLayout = {
+      items: [{ group: { id: 'g2', name: 'Clients', factoryIds: ['d'] } }, ...layout.items],
+    }
+    const sections = groupSections(two)
+    expect(sections.keys).toEqual(['g2', 'g1', 'none'])
+    expect(sections.keys.map(sections.labelOf)).toEqual(['Clients', 'Acme', 'No group'])
+    expect(['a', 'b', 'd', 'e'].map(sections.keyOf)).toEqual(['none', 'g1', 'g2', 'none'])
   })
 })

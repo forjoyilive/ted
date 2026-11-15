@@ -1,5 +1,6 @@
-import type { AutomationRequest, Comment, Factory, InboxItem } from '@ted/protocol'
+import type { AutomationRequest, Comment, Factory, FactoryLayout, InboxItem } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
+import { factoryScope } from '../src/renderer/factory-layout.ts'
 import {
   type Grouped,
   groupInbox,
@@ -26,8 +27,29 @@ describe('Inbox chips', () => {
       { factoryId: 'nb', label: 'Notebook', count: 2 },
       { factoryId: 'ms', label: 'Marketing site', count: 1 },
     ])
-    expect(inFactory(items, 'ms').map((i) => i.request.id)).toEqual(['b'])
+    expect(inFactory(items, (id) => id === 'ms').map((i) => i.request.id)).toEqual(['b'])
     expect(inFactory(items, undefined)).toBe(items)
+  })
+
+  test('each Factory group gets a chip before the Factories, counting its Factories’ requests', () => {
+    const three = [...factories, { id: 'docs', name: 'Docs' }] as Factory[]
+    const layout: FactoryLayout = {
+      items: [
+        { factoryId: 'nb' },
+        { group: { id: 'g1', name: 'Clients', factoryIds: ['ms', 'docs'] } },
+      ],
+    }
+    const items = [item('a'), item('b', 'ms'), item('c', 'docs')]
+    const questions = [{ id: 'q', factoryId: 'docs' }] as unknown as AutomationRequest[]
+    expect(inboxChips(items, three, questions, [], layout)).toEqual([
+      { label: 'All', count: 4 },
+      { groupId: 'g1', label: 'Clients', count: 3 },
+      { factoryId: 'nb', label: 'Notebook', count: 1 },
+      { factoryId: 'ms', label: 'Marketing site', count: 1 },
+      { factoryId: 'docs', label: 'Docs', count: 1 },
+    ])
+    const inClients = factoryScope(layout, { groupId: 'g1' })
+    expect(inFactory(items, inClients).map((i) => i.request.id)).toEqual(['b', 'c'])
   })
 })
 
@@ -184,6 +206,42 @@ describe('Group by', () => {
       ['Work', ['work']],
       ['Review', ['review']],
       ['No Stage', ['plan']],
+    ])
+  })
+
+  test('Factory group follows the layout order, then No group', () => {
+    const layout: FactoryLayout = {
+      items: [
+        { group: { id: 'g2', name: 'Internal', factoryIds: ['nb'] } },
+        { factoryId: 'other' },
+        { group: { id: 'g1', name: 'Clients', factoryIds: ['ms'] } },
+        { group: { id: 'g3', name: 'Empty', factoryIds: [] } },
+      ],
+    }
+    const rows = [
+      row('loose', { factoryId: 'other' }),
+      row('client', { factoryId: 'ms' }),
+      row('own', { factoryId: 'nb' }),
+    ]
+    expect(shape(groupInbox(rows, 'factory-group', now, undefined, layout))).toEqual([
+      ['Internal', ['own']],
+      ['Clients', ['client']],
+      ['No group', ['loose']],
+    ])
+    expect(
+      shape(
+        groupInbox(
+          rows,
+          'factory-group',
+          now,
+          { groupsReversed: true, oldestFirst: false },
+          layout,
+        ),
+      ),
+    ).toEqual([
+      ['Clients', ['client']],
+      ['Internal', ['own']],
+      ['No group', ['loose']],
     ])
   })
 

@@ -1,6 +1,7 @@
 import type {
   ArchivedFilter,
   Factory,
+  FactoryLayout,
   ListColumn,
   ListFilters,
   ListGroup,
@@ -38,6 +39,7 @@ import { SelectionBar } from '../components/SelectionBar.tsx'
 import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
 import { ordinal } from '../components/TaskStatus.tsx'
+import { emptyLayout, groups as factoryGroups } from '../factory-layout.ts'
 import { useListCollapsed } from '../list-collapse.ts'
 import {
   activeFilterCount,
@@ -290,6 +292,7 @@ export function FilterMenu({
   filters,
   tasks,
   factories,
+  layout = emptyLayout,
   allTasks,
   board = false,
   onChange,
@@ -297,12 +300,13 @@ export function FilterMenu({
   filters: ListFilters
   tasks: readonly Task[]
   factories: readonly Factory[]
+  layout?: FactoryLayout
   allTasks: boolean
   board?: boolean
   onChange: (filters: ListFilters) => void
 }) {
   const count = (keep: (filters: ListFilters) => ListFilters) =>
-    filterTasks(tasks, keep(filters)).length
+    filterTasks(tasks, keep(filters), '', layout).length
   const set = <K extends keyof ListFilters>(name: K, value: ListFilters[K]) => {
     const next = { ...filters, [name]: value }
     if (Array.isArray(value) && value.length === 0) delete next[name]
@@ -312,12 +316,22 @@ export function FilterMenu({
     <>
       {allTasks && (
         <Submenu label="Factory">
+          {factoryGroups(layout).map((g) => (
+            <CheckItem
+              key={`group:${g.id}`}
+              label={g.name}
+              checked={filters.factoryGroups?.includes(g.id) ?? false}
+              count={count((c) => ({ ...c, factories: [], factoryGroups: [g.id] }))}
+              onChange={() => set('factoryGroups', toggled(filters.factoryGroups, g.id))}
+            />
+          ))}
+          {factoryGroups(layout).length > 0 && <div className={styles.menuDivider} />}
           {factories.map((f) => (
             <CheckItem
               key={f.id}
               label={f.name}
               checked={filters.factories?.includes(f.id) ?? false}
-              count={count((c) => ({ ...c, factories: [f.id] }))}
+              count={count((c) => ({ ...c, factories: [f.id], factoryGroups: [] }))}
               onChange={() => set('factories', toggled(filters.factories, f.id))}
             />
           ))}
@@ -503,6 +517,7 @@ export function TaskList({
   breadcrumb,
   tasks,
   factories,
+  layout = emptyLayout,
   settings,
   onOpen,
   onOpenTask,
@@ -517,6 +532,7 @@ export function TaskList({
   breadcrumb?: string
   tasks: readonly Task[]
   factories: readonly Factory[]
+  layout?: FactoryLayout
   settings: MachineSettings | undefined
   onOpen: (task: Task) => void
   onOpenTask: (ref: string) => void
@@ -554,12 +570,13 @@ export function TaskList({
   const changeFilters = (filters: ListFilters) => change({ ...view, filters })
 
   const inScope = allTasks ? tasks : tasks.filter((t) => t.factoryId === scope)
-  const shown = filterTasks(inScope, view.filters, text)
+  const shown = filterTasks(inScope, view.filters, text, layout)
   const groups = groupTasks(
     shown,
     view,
     allTasks ? factories : factories.filter((f) => f.id === scope),
     dragging ? dropTargets(view.group) : [],
+    layout,
   )
   const queueMode = isQueueMode(view)
   const columns = shownColumns(view)
@@ -576,7 +593,7 @@ export function TaskList({
     isCollapsed(g) ? [] : rowsOf(g).flatMap((r) => (r.context ? [] : [r.task])),
   )
   const grid = listGrid([...(queueMode ? (['queue'] as const) : []), ...columns], tasks)
-  const chips = filterChips(view.filters, factories)
+  const chips = filterChips(view.filters, factories, layout)
   const displayIds = new Map(tasks.map((t) => [t.id, t.displayId]))
   const { selected, setSelected, anchor, setAnchor, toggle } = useSelection(ordered, scope)
   const chosen = tasks.filter((t) => selected.includes(t.id))
@@ -903,7 +920,7 @@ export function TaskList({
         </EmptyState>
       )
     }
-    if (archivedOnly && activeFilterCount(view.filters) === 1 && text === '') {
+    if (archivedOnly && activeFilterCount(view.filters, layout) === 1 && text === '') {
       return <EmptyState title="No archived Tasks" />
     }
     return (
@@ -937,12 +954,17 @@ export function TaskList({
         </h1>
         <span className={views.headerSpacer} />
         {capLine !== undefined && <span className={styles.capLine}>{capLine}</span>}
-        <MenuButton label="Filter" icon={<FilterIcon />} badge={activeFilterCount(view.filters)}>
+        <MenuButton
+          label="Filter"
+          icon={<FilterIcon />}
+          badge={activeFilterCount(view.filters, layout)}
+        >
           {() => (
             <FilterMenu
               filters={view.filters}
               tasks={inScope}
               factories={factories}
+              layout={layout}
               allTasks={allTasks}
               onChange={changeFilters}
             />

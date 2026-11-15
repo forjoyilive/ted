@@ -39,7 +39,7 @@ export function isTaskView(view: FactoryView): view is (typeof taskViews)[number
 }
 
 export type Screen =
-  | { kind: 'inbox'; factoryId?: string; answered?: boolean }
+  | { kind: 'inbox'; factoryId?: string; groupId?: string; answered?: boolean }
   | { kind: 'all-tasks' }
   | { kind: 'dashboard'; dashboard?: Partial<DashboardViewState> }
   | {

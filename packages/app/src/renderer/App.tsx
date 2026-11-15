@@ -71,6 +71,7 @@ import {
   useCoordinatorStatuses,
   useDrift,
   useEmulators,
+  useFactoryLayout,
   useFactoryList,
   useGuides,
   useInbox,
@@ -255,6 +256,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
   )
   const tasks = useTasks()
   const { factories, loaded: factoriesLoaded } = useFactoryList()
+  const factoryLayout = useFactoryLayout()
   const settingsResource = useSettingsState()
   const settings = settingsResource.settings
   const settingsOpen = navigation.settings !== undefined
@@ -825,14 +827,19 @@ export function App({ start }: { start?: AppStart | undefined }) {
       return <NoFactories onAddFactory={() => setAddFactoryOpen(true)} />
     }
     if (screen.kind === 'inbox') {
-      const openInbox = (change: { factoryId?: string | undefined; answered?: boolean }) => {
-        const factoryId = 'factoryId' in change ? change.factoryId : screen.factoryId
+      const openInbox = (change: {
+        scope?: { factoryId?: string; groupId?: string }
+        answered?: boolean
+      }) => {
+        const scope = change.scope ?? screen
         const showAnswered = change.answered ?? screen.answered === true
         dispatch({
           type: 'open',
           screen: {
             kind: 'inbox',
-            ...(factoryId !== undefined && { factoryId }),
+            ...(scope.factoryId !== undefined && { factoryId: scope.factoryId }),
+            ...(scope.factoryId === undefined &&
+              scope.groupId !== undefined && { groupId: scope.groupId }),
             ...(showAnswered && { answered: true }),
           },
         })
@@ -872,7 +879,9 @@ export function App({ start }: { start?: AppStart | undefined }) {
           }
           answered={answered}
           factories={factories}
+          layout={factoryLayout}
           factoryId={screen.factoryId}
+          groupId={screen.groupId}
           showAnswered={screen.answered === true}
           anyTasks={tasks.length > 0}
           settings={settings}
@@ -904,9 +913,9 @@ export function App({ start }: { start?: AppStart | undefined }) {
               screen: { kind: 'factory', factoryId: confirmation.factoryId, view: 'coordinator' },
             })
           }
-          onFilter={(factoryId) => openInbox({ factoryId })}
+          onFilter={(scope) => openInbox({ scope })}
           onShowAnswered={(show) => openInbox({ answered: show })}
-          onClearFilters={() => openInbox({ factoryId: undefined, answered: false })}
+          onClearFilters={() => openInbox({ scope: {}, answered: false })}
           onNewTask={() => openNewTask()}
         >
           {opened ??
@@ -949,6 +958,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
             title="All Tasks"
             tasks={tasks}
             factories={factories}
+            layout={factoryLayout}
             settings={settings}
             slots={slots}
             onOpen={openTask}
@@ -1005,6 +1015,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
               {...view}
               scope={screen.factoryId}
               breadcrumb="List"
+              layout={factoryLayout}
               settings={settings}
               slots={slots}
               onOpenTask={openTaskByRef}
@@ -1309,6 +1320,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
         <Sidebar
           navigation={navigation}
           factories={factories}
+          factoryLayout={factoryLayout}
           currentFactoryId={currentFactoryId(navigation, tasks)}
           developerMode={settings?.developerMode ?? false}
           inboxCount={inboxCount}
