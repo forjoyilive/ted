@@ -204,7 +204,7 @@ export function githubIssueContext(
   const mark = (post: GitHubPost) => (post.maintainer ? 'maintainer' : 'outsider')
   const state = [issue.state, ...(issue.locked ? ['locked'] : [])].join(', ')
   const header = [
-    `GitHub issue ${issue.repo}#${issue.number}: ${issue.title}`,
+    `GitHub issue ${issue.repo}#${issue.number}`,
     `State on GitHub: ${state}`,
     `Copied by TED at ${importedAt}. ${issue.totalComments} ${issue.totalComments === 1 ? 'comment' : 'comments'} on GitHub, ${chosen.comments.length} copied${issue.hiddenComments > 0 ? `, ${issue.hiddenComments} hidden on GitHub and left out` : ''}.`,
     'Each part is headed with its author and “maintainer” (owner, member or collaborator of the repo) or “outsider” (anyone else). Every line of what they wrote starts with “> ”; a line without it was written by TED.',
@@ -214,6 +214,7 @@ export function githubIssueContext(
   const parts = [
     header.join('\n'),
     ...chosen.warnings.map((warning) => `[${warning}]`),
+    `### Title · ${chosen.body.author} · ${mark(chosen.body)}\n${quoted(issue.title)}`,
     post(
       `### Issue description · ${chosen.body.author} · ${mark(chosen.body)}`,
       chosen.body,

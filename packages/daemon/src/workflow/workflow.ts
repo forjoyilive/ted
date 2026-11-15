@@ -136,7 +136,7 @@ export async function taskLeadPrompt(
     ...(repos && repos.factory.length > 1 ? [reposText(repos)] : []),
     stageFileText(workflow, stage),
     ...(workflow.notes?.trim() ? [`# Factory notes\n\n${workflow.notes.trim()}`] : []),
-    `# Your Task: ${task.displayId}\n\n${task.title}`,
+    `# Your Task: ${task.displayId}\n\n${promptTitle(task)}`,
     ...(task.description !== '' ? [task.description] : []),
     ...(task.original !== undefined
       ? [
@@ -188,6 +188,14 @@ export function nextStageMessage(workflow: ResolvedWorkflow, stage: AgentStageId
     `TED moved this Task to ${stageTitle(stage)}. These are your instructions for this Stage.`,
     stageFileText(workflow, stage),
   ].join('\n\n')
+}
+
+function promptTitle(task: Task): string {
+  const github = task.source?.github
+  if (github && task.title === github.title) {
+    return `GitHub issue ${github.repo}#${github.number}. Its title is in the report below.`
+  }
+  return task.title
 }
 
 function sourceContext(source: NonNullable<Task['source']>): string {

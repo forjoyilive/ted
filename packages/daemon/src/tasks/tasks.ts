@@ -4316,7 +4316,10 @@ export function createTasks(options: {
     const link = parseGitHubIssueUrl(url)
     if (!link || !options.gh) return undefined
     const label = `${link.owner}/${link.repo}#${link.number}`
-    const repos = [factory.repo, ...factory.repos.map((r) => r.repo)]
+    const resolution = await resolveWorkflow(factory).catch(() => undefined)
+    const repos = resolution
+      ? factoryRepos(resolution.workflow, factory).map((entry) => entry.repo)
+      : [factory.repo]
     const read = await readGitHubIssue(options.gh, link, repos)
     if (read.state === 'outside-factory') return undefined
     if (read.state === 'unreadable') {
