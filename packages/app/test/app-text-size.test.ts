@@ -144,6 +144,7 @@ function chatLayout(el: Element) {
     list: { left: listRect.left + padding, width: (list?.clientWidth ?? 0) - 2 * padding },
     row: rect(row),
     wide: rect(row?.querySelector('[data-chat-wide]')),
+    thumbnail: rect(row?.querySelector('[data-chat-wide] img')),
     composer: rect(
       [...(list?.parentElement?.querySelectorAll('fieldset') ?? [])].find(
         (box) => !list?.contains(box),
@@ -193,6 +194,8 @@ test('Run chat and a thread Comment use the text scale', async () => {
   expect(normal.composer.left).toBeCloseTo(normal.row.left, 0)
   expect(normal.wide.width).toBeCloseTo(Math.min(1200, normal.list.width), 0)
   expect(center(normal.wide)).toBeCloseTo(center(normal.list), 0)
+  expect(normal.thumbnail.width).toBeLessThan(650)
+  expect(center(normal.thumbnail)).toBeCloseTo(center(normal.list), 0)
   await mkdir(captures, { recursive: true })
   await window.screenshot({ path: path.join(captures, 'thread-100-wide.png') })
   await client.updateSettings({ textSize: 200 })

@@ -28,4 +28,5 @@
   box-sizing: border-box;
   width: var(--chat-wide-width);
   margin-inline-start: calc((100% - var(--chat-wide-width) - var(--chat-wide-lead, 0px)) / 2);
+  justify-content: safe center;
 }
