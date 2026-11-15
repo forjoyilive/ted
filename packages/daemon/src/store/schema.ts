@@ -1,4 +1,5 @@
 import { Events, makeSchema, Schema, State } from '@livestore/livestore'
+import { applyCoordinatorChange } from './coordinator-change.ts'
 import { intervalBoundaries, withIntervalBoundaries } from './interval-schema.ts'
 import { counted } from './progress.ts'
 
@@ -1226,6 +1227,15 @@ export const events = {
   coordinatorChanged: Events.synced({
     name: 'v1.CoordinatorChanged',
     schema: Schema.Struct({ factoryId: Schema.String, data: Schema.String }),
+  }),
+  coordinatorPatched: Events.synced({
+    name: 'v2.CoordinatorChanged',
+    schema: Schema.Struct({
+      factoryId: Schema.String,
+      set: Schema.String,
+      unset: Schema.Array(Schema.String),
+      lists: Schema.NullOr(Schema.String),
+    }),
   }),
   coordinatorRemoved: Events.synced({
     name: 'v1.CoordinatorRemoved',
@@ -5211,6 +5221,13 @@ const materializers = counted(
         runInterrupts.delete().where({ runId }),
       ],
       'v1.CoordinatorChanged': (row) => coordinators.insert(row).onConflict('factoryId', 'replace'),
+      'v2.CoordinatorChanged': ({ factoryId, ...change }, { query }) => {
+        const row = query(coordinators.where({ factoryId }).first())
+        const before = row ? (JSON.parse(row.data) as Record<string, unknown>) : undefined
+        return coordinators
+          .insert({ factoryId, data: JSON.stringify(applyCoordinatorChange(before, change)) })
+          .onConflict('factoryId', 'replace')
+      },
       'v1.CoordinatorRemoved': ({ factoryId, runIds }) => [
         coordinators.delete().where({ factoryId }),
         ...runIds.flatMap((id) => [

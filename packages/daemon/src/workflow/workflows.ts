@@ -162,7 +162,8 @@ export function createWorkflows(options: {
     const current = checked(key, kind, found.files, primaryRepo)
     if (current.valid) {
       if (accepted.get(key) !== found.version) {
-        if (store.lastValidWorkflowLayer(key)?.version !== found.version) {
+        const last = store.lastValidWorkflowLayer(key)
+        if (last?.version !== found.version && !(last && sameFiles(last.files, found.files))) {
           store.acceptWorkflowLayer(key, found)
         }
         accepted.set(key, found.version)
