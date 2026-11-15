@@ -1414,7 +1414,8 @@ test(
         (await client.read<FailureCase[]>(`${s.root}/failures`)).find((c) => c.id === finding.id)
           ?.resolutions,
       ).toEqual([])
-      expect((await client.call('POST', endpoint, body)).status).toBe(200)
+      const fixed = await client.call('POST', endpoint, body)
+      expect(fixed.status, JSON.stringify(fixed.body)).toBe(200)
       expect((await client.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)?.stage).toBe(
         'work',
       )
