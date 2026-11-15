@@ -495,7 +495,7 @@ describe('TedStore', () => {
       expect(task.markers).toEqual([])
       expect(task.activity).toBe('Not started')
       expect(task.runs).toEqual([])
-      expect(task.track.map((s) => s.stage)).toEqual(agentStages)
+      expect(task.track.map((s) => s.stage)).toEqual(agentStages.filter((s) => s !== 'cleanup'))
       expect(task.track.every((s) => s.state === 'future')).toBe(true)
     } finally {
       await store.close()
