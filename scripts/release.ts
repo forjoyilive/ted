@@ -434,7 +434,8 @@ async function build(version: string): Promise<void> {
 }
 
 function releaseCheckout(): string {
-  return path.resolve(root, git('rev-parse', '--git-common-dir'), 'ted-release')
+  const main = path.dirname(path.resolve(root, git('rev-parse', '--git-common-dir')))
+  return `${main}-release`
 }
 
 function inReleaseCheckout(): boolean {
@@ -449,7 +450,8 @@ function inCheckout(checkout: string, title: string, command: string, args: stri
 }
 
 // Builds happen in their own detached worktree of origin/main, so main can keep moving here and
-// on GitHub while a release is tested, built and published.
+// on GitHub while a release is tested, built and published. It sits beside the repo, not in .git,
+// because Vite refuses to serve files from inside a .git folder.
 function forward(args: string[], fresh: boolean): never {
   const checkout = releaseCheckout()
   if (fresh) {
