@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { act, fireEvent, screen, within } from '@testing-library/react'
+
 import type { FactoryLayout } from '@ted/protocol'
+import { act, fireEvent, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { appState } from './support/app.tsx'
 import { deferred, required, user } from './support/component.ts'
@@ -438,7 +439,7 @@ test('Factory groups: New group from the + menu, Move to group, collapse and Ung
   await u.click(screen.getByRole('menuitem', { name: 'New group' }))
   await u.type(screen.getByLabelText('Group name'), 'Acme{Enter}')
   const saved = a.request.mock.calls.filter(([name]) => name === 'saveFactoryLayout')
-  const created = (saved.at(-1)?.[1] as FactoryLayout).items[0]
+  const created = (required(saved.at(-1))[1] as FactoryLayout).items[0]
   expect(created).toMatchObject({ group: { name: 'Acme', factoryIds: [] } })
   const groupId = created && 'group' in created ? created.group.id : ''
   const acme = await within(nav()).findByRole('region', { name: 'Acme' })
