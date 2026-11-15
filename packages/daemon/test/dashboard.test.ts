@@ -1,4 +1,4 @@
-import type { DashboardRange, FailureCase, FlowInterval, FlowReasonId } from '@ted/protocol'
+import type { DashboardRange, FlowInterval, FlowReasonId } from '@ted/protocol'
 import { splitStage } from '@ted/protocol/stage-parts'
 import { expect, test } from 'vitest'
 import { type DashboardTaskFacts, dashboardReport } from '../src/dashboard.ts'
@@ -425,145 +425,7 @@ test('Flow handles boundaries, zero samples, historical archive after unarchive 
       (s) => s.totalMs === 0 && s.medianMs === null && s.samples.length === 0,
     ),
   ).toBe(true)
-  expect(empty.current.firstPass).toMatchObject({ denominator: 0, percent: null })
   expect(empty.previous).toBeNull()
-})
-
-function first<T>(values: readonly T[] | undefined): T {
-  const value = values?.[0]
-  if (value === undefined) throw new Error('Expected a fixture record')
-  return value
-}
-
-function verified(id: string): Facts {
-  const task = flowTask(id, [
-    ['intake', 60],
-    ['work', 50],
-    ['validate', 20],
-    ['review', 10],
-    ['done', 1],
-  ])
-  task.checks = [
-    {
-      id: `${id}-check`,
-      startedAt: iso(now - 21 * hour),
-      finishedAt: iso(now - 20 * hour),
-      outcome: 'passed',
-      states: ['passed'],
-    },
-  ]
-  task.judgments = [
-    {
-      at: iso(now - 10 * hour),
-      sequence: 29,
-      outcome: 'passed',
-      checkRunId: `${id}-check`,
-      review: true,
-      visual: true,
-    },
-  ]
-  return task
-}
-
-test('first-pass Validate exposes complete first-visit outcomes and excludes skipped, unknown and absent verification', () => {
-  const pass = verified('pass')
-  const accepted = verified('accepted')
-  accepted.checks = [
-    { ...first(pass.checks), id: 'accepted-check', states: ['failed'], outcome: 'failed' },
-  ]
-  const reviewFail = verified('review-fail')
-  reviewFail.judgments = [{ ...first(reviewFail.judgments), review: false }]
-  const unknown = verified('unknown')
-  unknown.judgments = [{ ...first(unknown.judgments), visual: null }]
-  const skipped = verified('skipped')
-  skipped.checks = [{ ...first(skipped.checks), states: ['skipped'] }]
-  const noVisit = flowTask('no-visit', [
-    ['intake', 20],
-    ['done', 1],
-  ])
-  const noJudgment = { ...verified('no-judgment'), judgments: [] }
-  const result = factoryDashboard(
-    [pass, accepted, reviewFail, unknown, skipped, noVisit, noJudgment],
-    '7d',
-    now,
-  ).flow.current.firstPass
-  expect(result).toMatchObject({ passed: 1, denominator: 3 })
-  expect(result.percent).toBeCloseTo(100 / 3)
-  expect(result.samples.map((s) => [s.taskId, s.outcome])).toEqual([
-    ['pass', 'passed'],
-    ['accepted', 'failed'],
-    ['review-fail', 'failed'],
-    ['unknown', 'unknown'],
-    ['skipped', 'skipped'],
-    ['no-visit', 'no-visit'],
-    ['no-judgment', 'unknown'],
-  ])
-  expect(result.samples[1]?.checkRunIds).toEqual(['accepted-check'])
-})
-
-test('actual transitions include uncounted send-backs and period boundaries, and later visits cannot repair first-pass results', () => {
-  const task = verified('rework')
-  task.entries = flowTask('rework', [
-    ['intake', 60],
-    ['work', 50],
-    ['validate', 20],
-    ['work', 15],
-    ['validate', 12],
-    ['review', 10],
-    ['done', 1],
-  ]).entries
-  task.judgments = [
-    {
-      ...first(task.judgments),
-      at: iso(now - 15 * hour),
-      sequence: 29,
-      review: false,
-      outcome: 'sent-back',
-    },
-    { ...first(task.judgments), sequence: 49 },
-  ]
-  task.sendBacks = [
-    {
-      id: 'a',
-      taskId: task.id,
-      from: 'validate',
-      to: 'work',
-      at: iso(now - 15 * hour),
-      sequence: 28,
-      counted: false,
-      cause: 'base-conflict',
-    },
-    {
-      id: 'b',
-      taskId: task.id,
-      from: 'review',
-      to: 'work',
-      at: iso(now - 168 * hour),
-      counted: true,
-      cause: null,
-    },
-    {
-      id: 'c',
-      taskId: task.id,
-      from: 'review',
-      to: 'work',
-      at: iso(now),
-      counted: true,
-      cause: null,
-    },
-  ]
-  const result = factoryDashboard([task], '7d', now).flow.current
-  expect(result.sendBacks.map((g) => [g.from, g.counted, g.transitions.length, g.taskIds])).toEqual(
-    [
-      ['review', 1, 1, ['rework']],
-      ['validate', 0, 1, ['rework']],
-    ],
-  )
-  expect(result.firstPass.samples[0]).toMatchObject({
-    outcome: 'failed',
-    enteredAt: iso(now - 20 * hour),
-    exitedAt: iso(now - 15 * hour),
-  })
 })
 
 test('a counted Validate send-back takes the last severity declared since the send-back before it', () => {
@@ -588,73 +450,6 @@ test('a counted Validate send-back takes the last severity declared since the se
   ).toEqual(['p1', 'none', undefined, undefined, undefined, 'unfixed'])
 })
 
-test('failure cases of the period group by kind and end as fixed, accepted by the user or still open', () => {
-  const task = completed('f', 2, 20, 15)
-  const resolution = (
-    resolution: 'accepted' | 'no-longer-applicable' | 'retry',
-    reason?: string,
-  ) => ({
-    requestId: `r-${resolution}`,
-    resolution,
-    ...(reason && { reason }),
-    at: iso(now - 5 * hour),
-    assessmentId: 'a',
-  })
-  const failure = (
-    id: string,
-    source: FailureCase['source'],
-    extra: Partial<FailureCase> = {},
-  ): FailureCase => ({
-    id,
-    taskId: 'f',
-    source,
-    recordedBy: 'run',
-    provenance: 'task-lead-reported',
-    evidence: 'agent evidence text',
-    createdAt: iso(now - 10 * hour),
-    assessments: [],
-    additions: [],
-    decisions: [],
-    resolutions: [],
-    invalidations: [],
-    ...extra,
-  })
-  const check = { kind: 'factory-check', checkRunId: 'c', position: 0 } as const
-  const finding = { kind: 'finding', runId: 'r', finding: 'f' } as const
-  const ci = { kind: 'github-ci', repo: 'o/r', number: 1, head: 'h', attempt: '1' } as const
-  task.failures = [
-    failure('verified', check, { verifications: [{ at: iso(now - 6 * hour), evidence: 'ok' }] }),
-    failure('gone', finding, { resolutions: [resolution('no-longer-applicable')] }),
-    failure('accepted', ci, {
-      resolutions: [resolution('accepted', 'Flaky\n  on this   machine')],
-    }),
-    failure('invalidated', finding, {
-      resolutions: [resolution('accepted', 'Fine')],
-      invalidations: [{ requestId: 'r-accepted', reason: 'Tested context changed', at: iso(now) }],
-    }),
-    failure('retrying', check, { resolutions: [resolution('retry')] }),
-    failure('replaced', check, {
-      verifications: [{ at: iso(now - 6 * hour), evidence: 'rerun', replacedBy: 'retrying' }],
-    }),
-    failure('old', check, { createdAt: iso(now - 300 * hour) }),
-  ]
-  const result = factoryDashboard([task], '7d', now).flow
-  expect(result.current.failures.map((f) => [f.id, f.kind, f.outcome])).toEqual([
-    ['verified', 'check', 'fixed'],
-    ['gone', 'finding', 'fixed'],
-    ['accepted', 'ci', 'accepted'],
-    ['invalidated', 'finding', 'open'],
-    ['retrying', 'check', 'open'],
-  ])
-  expect(result.current.failures.find((f) => f.id === 'accepted')?.reason).toBe(
-    'Flaky on this machine',
-  )
-  expect(result.current.failures.find((f) => f.id === 'invalidated')).not.toHaveProperty('reason')
-  expect(JSON.stringify(result)).not.toContain('agent evidence text')
-  expect(result.previous?.failures.map((f) => [f.id, f.outcome])).toEqual([['old', 'open']])
-  expect(result.tasks.map((t) => t.id)).toContain('f')
-})
-
 test('measured zero-length visits are samples, and missing visits never become zero samples', () => {
   const task = flowTask('zero', [
     ['intake', 10],
@@ -676,40 +471,6 @@ test('measured zero-length visits are samples, and missing visits never become z
   })
 })
 
-test('event order binds same-timestamp judgments and send-backs to their own Validate visit', () => {
-  const task = verified('ties')
-  task.entries = flowTask('ties', [
-    ['intake', 60],
-    ['work', 50],
-    ['validate', 20],
-    ['review', 10],
-    ['validate', 10],
-    ['work', 10],
-    ['done', 1],
-  ]).entries
-  task.sendBacks = [
-    {
-      id: 'later',
-      taskId: task.id,
-      from: 'validate',
-      to: 'work',
-      at: iso(now - 10 * hour),
-      sequence: 49,
-      counted: true,
-      cause: 'review',
-    },
-  ]
-  task.judgments = [
-    first(task.judgments),
-    { ...first(task.judgments), sequence: 48, review: false, outcome: 'sent-back' },
-  ]
-  expect(factoryDashboard([task], '7d', now).flow.current.firstPass).toMatchObject({
-    passed: 1,
-    denominator: 1,
-    samples: [{ taskId: 'ties', outcome: 'passed' }],
-  })
-})
-
 test('Flow does not include a zero visit at the end of a lifetime outside the selected cohort', () => {
   const task = flowTask('boundary-zero', [
     ['intake', 170],
@@ -720,17 +481,6 @@ test('Flow does not include a zero visit at the end of a lifetime outside the se
   expect(result.current.taskIds).toEqual([])
   expect(result.current.stages.every((s) => s.samples.length === 0)).toBe(true)
   expect(result.previous?.stages.find((s) => s.stage === 'work')?.samples).toEqual([])
-})
-
-test('unfinished Check results are unknown even if a review failure is recorded', () => {
-  const task = verified('incomplete-checks')
-  task.checks = [{ ...first(task.checks), states: ['failed', 'not-run'], outcome: 'failed' }]
-  task.judgments = [{ ...first(task.judgments), review: false }]
-  const result = factoryDashboard([task], '7d', now).flow.current.firstPass
-  expect(result).toMatchObject({ denominator: 0, percent: null, samples: [{ outcome: 'unknown' }] })
-  expect(result.samples[0]?.reasons).toContain(
-    'The first visit has a recorded failure or actual send-back.',
-  )
 })
 
 function observedTask(id = 'observed'): Facts {

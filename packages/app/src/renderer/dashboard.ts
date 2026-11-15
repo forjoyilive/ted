@@ -1,32 +1,9 @@
-import type {
-  CostKind,
-  DashboardMetric,
-  DashboardRange,
-  FlowFailureKind,
-  FlowFailureOutcome,
-  FlowReasonId,
-  FlowValidateOutcome,
-  StagePart,
-} from '@ted/protocol'
+import type { CostKind, DashboardMetric, DashboardRange, StagePart } from '@ted/protocol'
 
-export type FlowSelection = { period: 'current' | 'previous' } & (
+export type StageSelection = { period: 'current' | 'previous' } & (
   | { kind: 'stage'; stage: string; part?: StagePart }
-  | { kind: 'reason'; reason: FlowReasonId }
-  | { kind: 'guide' }
-  | { kind: 'send-back'; from: string; to: string }
-  | { kind: 'affected' }
   | { kind: 'incomplete' }
   | { kind: 'left-out' }
-  | { kind: 'validate'; outcome?: FlowValidateOutcome; factoryId?: string }
-  | {
-      kind: 'sent-back'
-      cause?: string
-      severity?: string
-      from?: string
-      to?: string
-      factoryId?: string
-    }
-  | { kind: 'failure'; failure?: FlowFailureKind; outcome?: FlowFailureOutcome; id?: string }
 )
 
 export type CostSelection =
@@ -45,18 +22,20 @@ export interface DashboardSelection {
 }
 
 export interface DashboardViewState {
-  panel?: 'overview' | 'flow' | 'stages' | 'cost'
+  panel?: DashboardPanel
   range: DashboardRange
   factoryIds?: readonly string[]
   sample?: DashboardSelection
-  flowSample?: FlowSelection
+  stageSample?: StageSelection
 }
 
 type Remembered = Pick<DashboardViewState, 'panel' | 'range' | 'factoryIds'>
 
 const storageKey = 'ted.dashboard'
 const ranges: readonly DashboardRange[] = ['today', '7d', '30d', 'all']
-const panels = ['overview', 'flow', 'stages', 'cost'] as const
+export const dashboardPanels = ['overview', 'stages', 'cost'] as const
+export type DashboardPanel = (typeof dashboardPanels)[number]
+const knownPanel = (value: unknown) => dashboardPanels.find((p) => p === value)
 
 export function rememberedDashboard(storage: Pick<Storage, 'getItem'> = localStorage): Remembered {
   let stored: unknown
@@ -67,7 +46,7 @@ export function rememberedDashboard(storage: Pick<Storage, 'getItem'> = localSto
   }
   const value = (stored ?? {}) as Record<string, unknown>
   const range = ranges.find((r) => r === value.range) ?? '30d'
-  const panel = panels.find((p) => p === value.panel)
+  const panel = knownPanel(value.panel)
   const ids = Array.isArray(value.factoryIds)
     ? value.factoryIds.filter((id): id is string => typeof id === 'string')
     : undefined
@@ -99,6 +78,10 @@ export function dashboardState(
   screen: Partial<DashboardViewState> | undefined,
   storage: Pick<Storage, 'getItem'> = localStorage,
 ): DashboardViewState {
-  if (screen?.range !== undefined) return { ...screen, range: screen.range }
-  return { ...rememberedDashboard(storage), ...screen }
+  const { panel, ...rest } = screen ?? {}
+  const known = knownPanel(panel)
+  const shown = known ? { ...rest, panel: known } : rest
+  if (screen?.range !== undefined) return { ...shown, range: screen.range }
+  const { panel: remembered, ...stored } = rememberedDashboard(storage)
+  return { ...stored, ...(panel === undefined && remembered && { panel: remembered }), ...shown }
 }

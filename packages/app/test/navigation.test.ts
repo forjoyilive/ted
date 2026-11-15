@@ -378,6 +378,10 @@ test('the Dashboard reopens on the remembered Factories, period and tab', () => 
   expect(dashboardState({ range: 'all' }, storage)).toEqual({ range: 'all' })
   stored.set('ted.dashboard', '{"range":"bad","factoryIds":[1]}')
   expect(dashboardState(undefined, storage)).toEqual({ range: '30d' })
+  stored.set('ted.dashboard', '{"range":"7d","panel":"flow"}')
+  expect(dashboardState(undefined, storage)).toEqual({ range: '7d' })
+  stored.set('ted.dashboard', '{"range":"7d","panel":"stages"}')
+  expect(dashboardState({ panel: 'flow' } as never, storage)).toEqual({ range: '7d' })
   const factories = [{ id: 'nb' }, { id: 'ms' }]
   expect(shownFactoryIds(['nb', 'gone'], factories)).toEqual(['nb'])
   expect(shownFactoryIds(['ms', 'nb'], factories)).toBeUndefined()

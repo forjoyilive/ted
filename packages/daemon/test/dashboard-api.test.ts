@@ -125,7 +125,7 @@ test('read-only Dashboard request combines or narrows Factories and validates it
   }
 })
 
-test('Flow survives reopening without Run logs and preserves actual transitions, archive cutoffs and accepted failures', async () => {
+test('Stage time survives reopening without Run logs and keeps archive cutoffs', async () => {
   const { home, cleanup } = await makeTempHome()
   let store = await openStore({ directory: tedPaths(home).store })
   const asOf = new Date(2026, 5, 12).getTime()
@@ -133,10 +133,8 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
   const setAgo = (hours: number) => vi.setSystemTime(asOf - hours * hour)
   const entry = { layers: [], order: [] }
   let factoryId = ''
-  let acceptedId = ''
   let heldId = ''
   let archivedId = ''
-  let passId = ''
   let backlogId = ''
   let planningId = ''
   let restartedId = ''
@@ -169,87 +167,12 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
     store.changeStage(admitted.id, 'done', entry)
     setAgo(100)
     const accepted = await store.createTask({ factoryId, title: 'Accepted Check failure' })
-    acceptedId = accepted.id
     store.changeStage(accepted.id, 'intake', entry)
     setAgo(90)
     store.changeStage(accepted.id, 'work', entry)
     setAgo(80)
     store.changeStage(accepted.id, 'validate', entry)
-    const check = store.startChecks({
-      taskId: accepted.id,
-      stage: 'validate',
-      trigger: 'validate',
-      checks: [{ name: 'Build', command: 'build', timeout: '10m', state: 'waiting' }],
-    })
-    setAgo(79)
-    store.checkFinished(check.id, 0, { state: 'failed', exitCode: 1, durationMs: 10 })
-    store.finishChecks(check.id, 'failed')
-    const failure = {
-      id: 'flow-accepted',
-      taskId: accepted.id,
-      source: { kind: 'factory-check' as const, checkRunId: check.id, position: 0 },
-      recordedBy: 'lead',
-      provenance: 'stored-check' as const,
-      evidence: 'Build failed before acceptance',
-      createdAt: new Date().toISOString(),
-      validation: true,
-      assessments: [],
-      additions: [],
-      decisions: [],
-      resolutions: [],
-      invalidations: [],
-    }
-    store.failures.save(failure, 'recorded')
-    setAgo(78)
-    store.failures.save(
-      {
-        ...failure,
-        assessments: [
-          {
-            id: 'assessment',
-            runId: 'lead',
-            assessment: 'unrelated',
-            recommendation: 'Accept the known fixture failure',
-            at: new Date().toISOString(),
-          },
-        ],
-      },
-      'assessed',
-    )
-    const assessed = store.failures.get(failure.id)
-    if (!assessed) throw new Error('Missing assessed failure')
-    store.failures.save(
-      {
-        ...assessed,
-        resolutions: [
-          {
-            requestId: 'request',
-            assessmentId: 'assessment',
-            resolution: 'accepted',
-            at: new Date().toISOString(),
-          },
-        ],
-      },
-      'resolved',
-    )
-    const failedRun = store.getCheckRun(check.id)
-    if (!failedRun) throw new Error('Missing failed Check run')
-    store.failures.saveProgress({
-      taskId: accepted.id,
-      visit: new Date(asOf - 80 * hour).toISOString(),
-      checks: failedRun.checks,
-      executions: [{ runId: check.id, start: 0 }],
-      next: 1,
-      pending: false,
-    })
     setAgo(70)
-    store.judgeValidate({
-      taskId: accepted.id,
-      outcome: 'passed',
-      checkRunId: check.id,
-      review: { passed: true },
-      visual: { passed: true },
-    })
     store.changeStage(accepted.id, 'review', entry)
     setAgo(60)
     store.changeStage(accepted.id, 'done', entry)
@@ -279,24 +202,8 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
     setAgo(40)
     store.changeStage(reworked.id, 'validate', entry)
     setAgo(35)
-    store.recordSendBack({
-      taskId: reworked.id,
-      from: 'validate',
-      to: 'work',
-      findings: 'Conflict',
-      counted: false,
-      cause: 'base-conflict',
-    })
     store.changeStage(reworked.id, 'work', entry)
     setAgo(34)
-    store.recordSendBack({
-      taskId: reworked.id,
-      from: 'work',
-      to: 'design',
-      findings: 'Revise',
-      counted: true,
-      cause: 'review',
-    })
     store.changeStage(reworked.id, 'design', entry)
 
     const archived = await store.createTask({ factoryId, title: 'Archived then restored' })
@@ -310,29 +217,12 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
     store.unarchiveTask(archived.id, { queue: false, waitForBlockers: false })
 
     const pass = await store.createTask({ factoryId, title: 'First-pass success' })
-    passId = pass.id
     store.changeStage(pass.id, 'intake', entry)
     setAgo(8)
     store.changeStage(pass.id, 'work', entry)
-    const passing = store.startChecks({
-      taskId: pass.id,
-      stage: 'work',
-      trigger: 'hand-off',
-      checks: [{ name: 'Build', command: 'build', timeout: '10m', state: 'waiting' }],
-    })
     setAgo(7)
-    store.checkFinished(passing.id, 0, { state: 'passed', exitCode: 0, durationMs: 10 })
-    store.finishChecks(passing.id, 'passed')
     store.changeStage(pass.id, 'validate', entry)
     setAgo(6)
-    store.judgeValidate({
-      taskId: pass.id,
-      outcome: 'passed',
-      checkRunId: passing.id,
-      reviewer: { agent: 'codex', unavailable: 'claude' },
-      review: { passed: true },
-      visual: { passed: true },
-    })
     store.changeStage(pass.id, 'review', entry)
     setAgo(5)
     store.changeStage(pass.id, 'done', entry)
@@ -360,20 +250,6 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
     setAgo(1)
     store.startAfterPlanning(restarted.id, 'clarify', entry)
 
-    const other = store.createFactory({
-      key: 'OT',
-      name: 'Other',
-      repos: [],
-      defaultBranch: 'main',
-    })
-    const excluded = await store.createTask({ factoryId: other.id, title: 'Other Factory' })
-    store.recordSendBack({
-      taskId: excluded.id,
-      from: 'validate',
-      to: 'work',
-      findings: 'Other Factory',
-      counted: true,
-    })
     vi.setSystemTime(asOf)
     await store.persisted()
     await store.close()
@@ -452,18 +328,6 @@ test('Flow survives reopening without Run logs and preserves actual transitions,
         .find((s) => s.stage === 'work')
         ?.samples.find((s) => s.taskId === backlogId)?.elapsedMs,
     ).toBe(2 * hour)
-    expect(data.flow.current.firstPass).toMatchObject({ passed: 1, denominator: 2, percent: 50 })
-    expect(data.flow.current.firstPass.samples.find((s) => s.taskId === acceptedId)).toMatchObject({
-      outcome: 'failed',
-      failureIds: ['flow-accepted'],
-    })
-    expect(data.flow.current.firstPass.samples.find((s) => s.taskId === passId)?.outcome).toBe(
-      'passed',
-    )
-    const backs = data.flow.current.sendBacks.flatMap((g) => g.transitions)
-    expect(backs).toHaveLength(2)
-    expect(backs.filter((s) => s.counted)).toHaveLength(1)
-    expect(backs.some((s) => s.taskId === heldId)).toBe(false)
     expect(
       data.flow.current.stages
         .find((s) => s.stage === 'work')
