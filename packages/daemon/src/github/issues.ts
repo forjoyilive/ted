@@ -21,6 +21,14 @@ export interface GitHubIssue {
   comments: GitHubPost[]
   totalComments: number
   hiddenComments: number
+  subIssues: GitHubSubIssueRef[]
+  subIssuesComplete: boolean
+}
+
+export interface GitHubSubIssueRef {
+  repo: string
+  number: number
+  state: GitHubIssueState
 }
 
 export type GitHubUnreadable = 'gh-missing' | 'signed-out' | 'not-found' | 'rate-limit' | 'failed'
@@ -31,6 +39,7 @@ export type GitHubIssueRead =
   | { state: 'unreadable'; reason: GitHubUnreadable }
 
 export const maxIssueComments = 100
+export const maxSubIssuesPerIssue = 100
 export const maxIssueBody = 20_000
 export const maxIssueDiscussion = 40_000
 const maxTitle = 500
@@ -46,6 +55,10 @@ const issueQuery = `query TedGitHubIssue($owner: String!, $name: String!, $numbe
       comments(last: ${maxIssueComments}) {
         totalCount
         nodes { author { login } authorAssociation body bodyHTML createdAt isMinimized }
+      }
+      subIssues(first: ${maxSubIssuesPerIssue}) {
+        totalCount
+        nodes { number state repository { nameWithOwner } }
       }
     }
   }
@@ -70,7 +83,19 @@ interface RawIssue extends RawPost {
     totalCount?: unknown
     nodes?: (RawPost & { isMinimized?: unknown })[] | null
   } | null
+  subIssues?: {
+    totalCount?: unknown
+    nodes?: (RawSubIssue | null)[] | null
+  } | null
 }
+
+interface RawSubIssue {
+  number?: unknown
+  state?: unknown
+  repository?: { nameWithOwner?: unknown } | null
+}
+
+const repoName = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/
 
 export function inFactory(repo: string, factoryRepos: readonly string[]): boolean {
   return factoryRepos.some((own) => own.toLowerCase() === repo.toLowerCase())
@@ -115,7 +140,7 @@ function parseIssue(raw: RawIssue): GitHubIssue | undefined {
   const body = parsePost(raw)
   if (
     typeof repo !== 'string' ||
-    !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo) ||
+    !repoName.test(repo) ||
     typeof raw.number !== 'number' ||
     typeof raw.title !== 'string' ||
     typeof raw.url !== 'string' ||
@@ -130,6 +155,12 @@ function parseIssue(raw: RawIssue): GitHubIssue | undefined {
     return post ? [post] : []
   })
   const total = raw.comments?.totalCount
+  const subNodes = Array.isArray(raw.subIssues?.nodes) ? raw.subIssues.nodes : []
+  const subIssues = subNodes.flatMap((node) => {
+    const ref = parseSubIssue(node)
+    return ref ? [ref] : []
+  })
+  const subTotal = raw.subIssues?.totalCount
   return {
     url: raw.url,
     repo,
@@ -141,6 +172,31 @@ function parseIssue(raw: RawIssue): GitHubIssue | undefined {
     comments,
     totalComments: typeof total === 'number' && total >= nodes.length ? total : nodes.length,
     hiddenComments: nodes.length - visible.length,
+    subIssues,
+    subIssuesComplete:
+      raw.subIssues === undefined ||
+      raw.subIssues === null ||
+      (subIssues.length === subNodes.length &&
+        (typeof subTotal !== 'number' || subTotal <= subNodes.length)),
+  }
+}
+
+function parseSubIssue(raw: RawSubIssue | null): GitHubSubIssueRef | undefined {
+  const repo = raw?.repository?.nameWithOwner
+  if (
+    !raw ||
+    typeof repo !== 'string' ||
+    !repoName.test(repo) ||
+    typeof raw.number !== 'number' ||
+    !Number.isInteger(raw.number) ||
+    raw.number <= 0
+  ) {
+    return undefined
+  }
+  return {
+    repo,
+    number: raw.number,
+    state: raw.state === 'CLOSED' ? 'closed' : 'open',
   }
 }
 

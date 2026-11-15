@@ -414,7 +414,8 @@ export interface NewTreeTask {
   startRequested: boolean
   attachments: Attachment[]
   sourceUrl: string
-  asana: TaskAsanaSource
+  asana?: TaskAsanaSource
+  github?: TaskGitHubSource
   automation?: { automationId: string; firingId: string }
   syncAccount?: string
   syncDeclined?: boolean
@@ -454,6 +455,8 @@ export interface NewTask {
   setup?: boolean
   coordinatorOperation?: string
   linearConsent?: boolean
+  children?: readonly NewTreeTask[]
+  notes?: readonly { task?: TreeRef; body: string }[]
 }
 
 export interface PlannedStage {
@@ -2804,6 +2807,98 @@ export async function openStore({
     if (!comment) throw new Error(`no Comment ${id}`)
     return comment
   }
+  const treeTaskEvents = (
+    task: NewTreeTask,
+    {
+      id,
+      factoryId,
+      number,
+      rank,
+      parentId,
+      at,
+    }: {
+      id: string
+      factoryId: string
+      number: number
+      rank: number
+      parentId?: string
+      at: string
+    },
+  ) => [
+    events.taskCreatedV2({
+      id,
+      factoryId,
+      number,
+      title: task.title,
+      description: task.description,
+      priority: task.priority,
+      clarifyDepth: 'auto',
+      leadAgent: task.lead?.agent ?? null,
+      leadModel: task.lead?.model ?? null,
+      leadEffort: task.lead?.effort ?? null,
+      startRequested: task.startRequested,
+      createdAt: at,
+    }),
+    ...(task.lead?.effortMode === 'stage'
+      ? [events.taskLeadEffortModeSet({ taskId: id, mode: 'stage', at })]
+      : []),
+    events.taskRanked({ taskId: id, rank, at }),
+    ...(parentId !== undefined ? [events.taskParentChanged({ taskId: id, parentId, at })] : []),
+    ...task.attachments.map((attachment) =>
+      events.taskAttachmentAdded({ taskId: id, ...attachment, at }),
+    ),
+    events.taskSourceSet({
+      taskId: id,
+      url: task.sourceUrl,
+      linearIdentifier: null,
+      linearTitle: null,
+      linearBranchName: null,
+      linearDescription: null,
+      at,
+    }),
+    ...(task.asana
+      ? [events.taskSourceAsanaSet({ taskId: id, asana: JSON.stringify(task.asana), at })]
+      : []),
+    ...(task.github
+      ? [events.taskSourceGitHubSet({ taskId: id, github: JSON.stringify(task.github), at })]
+      : []),
+    ...(task.asana && task.projects !== undefined
+      ? [
+          events.trackerItemGroupsSeen({
+            taskId: id,
+            tracker: 'asana',
+            item: task.asana.gid,
+            groups: [...task.projects],
+            at,
+          }),
+        ]
+      : []),
+    ...(task.asana && task.syncAccount !== undefined
+      ? [
+          events.trackerSyncAllowed({
+            taskId: id,
+            tracker: 'asana',
+            item: task.asana.gid,
+            by: 'import',
+            account: task.syncAccount,
+            at,
+          }),
+        ]
+      : []),
+    ...(task.asana && task.syncDeclined
+      ? [
+          events.trackerSyncDeclined({
+            taskId: id,
+            tracker: 'asana',
+            item: task.asana.gid,
+            at,
+          }),
+        ]
+      : []),
+    ...(task.automation
+      ? [events.automationTaskCreated({ ...task.automation, taskId: id, at })]
+      : []),
+  ]
   const commentPosted = (
     {
       taskId,
@@ -3754,6 +3849,8 @@ export async function openStore({
       plan,
       setup = false,
       coordinatorOperation,
+      children = [],
+      notes = [],
     }) {
       const used = [
         ...store.query(queryDb(tasks.select('number').where({ factoryId }))),
@@ -3767,6 +3864,29 @@ export async function openStore({
       const number = setup && !used.includes(1) ? 1 : Math.max(awaitingSetup ? 1 : 0, ...used) + 1
       const id = randomUUID()
       const at = new Date().toISOString()
+      const rootRank = nextRank()
+      const childIds = new Map(children.map((child) => [child.key, randomUUID()]))
+      const childId = (ref: TreeRef | undefined) => {
+        if (ref === undefined) return id
+        const found = 'key' in ref ? childIds.get(ref.key) : ref.taskId
+        if (found === undefined) throw new Error('a child Task points at a missing parent')
+        return found
+      }
+      let childNumber = Math.max(number, ...used) + 1
+      let childRank = rootRank + 1
+      const childEvents = children.flatMap((child) =>
+        treeTaskEvents(child, {
+          id: childId({ key: child.key }),
+          factoryId,
+          number: childNumber++,
+          rank: childRank++,
+          parentId: childId(child.parent),
+          at,
+        }),
+      )
+      const notePosts = notes.map(({ task, body }) =>
+        commentPosted({ taskId: childId(task), kind: 'note', author: { kind: 'ted' }, body }, at),
+      )
       const repair = repairApproval
         ? repairApproved(repairApproval, {
             id,
@@ -3816,7 +3936,7 @@ export async function openStore({
               }),
             ]
           : []),
-        events.taskRanked({ taskId: id, rank: nextRank(), at }),
+        events.taskRanked({ taskId: id, rank: rootRank, at }),
         ...blockedBy.map((blockerId) =>
           events.taskBlockerAddedV2({ taskId: id, blockerId, runId: null, at }),
         ),
@@ -3895,11 +4015,19 @@ export async function openStore({
               }),
             ]
           : []),
+        ...childEvents,
+        ...notePosts.flatMap(({ event, attached }) => [event, ...attached]),
       )
       const row = taskRow(id)
       if (!row) throw new Error(`no Task ${id}`)
       const task = toPublicTask(toTask(row, true))
       emit({ type: 'task-created', task })
+      for (const child of children) {
+        const childRow = taskRow(childId({ key: child.key }))
+        if (childRow) emit({ type: 'task-created', task: toPublicTask(toTask(childRow, true)) })
+      }
+      for (const { id: commentId } of notePosts)
+        emit({ type: 'comment-posted', comment: requireComment(commentId) })
       if (repairApproval) {
         emitComment(repairApproval.request.requestId)
         updatedTask(repairApproval.failure.taskId)
@@ -3932,81 +4060,16 @@ export async function openStore({
         if (id === undefined) throw new Error('a Task in the tree points at a missing parent')
         return id
       }
-      const created = planned.flatMap((task) => {
-        const id = idOf({ key: task.key })
-        return [
-          events.taskCreatedV2({
-            id,
-            factoryId,
-            number: number++,
-            title: task.title,
-            description: task.description,
-            priority: task.priority,
-            clarifyDepth: 'auto',
-            leadAgent: task.lead?.agent ?? null,
-            leadModel: task.lead?.model ?? null,
-            leadEffort: task.lead?.effort ?? null,
-            startRequested: task.startRequested,
-            createdAt: at,
-          }),
-          ...(task.lead?.effortMode === 'stage'
-            ? [events.taskLeadEffortModeSet({ taskId: id, mode: 'stage', at })]
-            : []),
-          events.taskRanked({ taskId: id, rank: rank++, at }),
-          ...(task.parent
-            ? [events.taskParentChanged({ taskId: id, parentId: idOf(task.parent), at })]
-            : []),
-          ...task.attachments.map((attachment) =>
-            events.taskAttachmentAdded({ taskId: id, ...attachment, at }),
-          ),
-          events.taskSourceSet({
-            taskId: id,
-            url: task.sourceUrl,
-            linearIdentifier: null,
-            linearTitle: null,
-            linearBranchName: null,
-            linearDescription: null,
-            at,
-          }),
-          events.taskSourceAsanaSet({ taskId: id, asana: JSON.stringify(task.asana), at }),
-          ...(task.projects !== undefined
-            ? [
-                events.trackerItemGroupsSeen({
-                  taskId: id,
-                  tracker: 'asana',
-                  item: task.asana.gid,
-                  groups: [...task.projects],
-                  at,
-                }),
-              ]
-            : []),
-          ...(task.syncAccount !== undefined
-            ? [
-                events.trackerSyncAllowed({
-                  taskId: id,
-                  tracker: 'asana',
-                  item: task.asana.gid,
-                  by: 'import',
-                  account: task.syncAccount,
-                  at,
-                }),
-              ]
-            : []),
-          ...(task.syncDeclined
-            ? [
-                events.trackerSyncDeclined({
-                  taskId: id,
-                  tracker: 'asana',
-                  item: task.asana.gid,
-                  at,
-                }),
-              ]
-            : []),
-          ...(task.automation
-            ? [events.automationTaskCreated({ ...task.automation, taskId: id, at })]
-            : []),
-        ]
-      })
+      const created = planned.flatMap((task) =>
+        treeTaskEvents(task, {
+          id: idOf({ key: task.key }),
+          factoryId,
+          number: number++,
+          rank: rank++,
+          ...(task.parent && { parentId: idOf(task.parent) }),
+          at,
+        }),
+      )
       const linked = links.map((link) =>
         events.taskParentChanged({ taskId: link.taskId, parentId: idOf(link.parent), at }),
       )
