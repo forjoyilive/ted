@@ -22,6 +22,7 @@ import {
   twoFactories,
   waitFor,
 } from './app-harness.ts'
+import { chooseFactory } from './choose-factory.ts'
 import { closeApp } from './close-app.ts'
 
 setUpAppTests()
@@ -181,7 +182,7 @@ describe('New Task drafts', () => {
       async () => (await client.taskDraft(first.id)).draft?.blockedBy.length === 1,
       'blocker saved',
     )
-    await form(window).getByLabel('Factory', { exact: true }).selectOption(second.id)
+    await chooseFactory(form(window), second.name)
     await waitFor(() => description().isEnabled())
     expect(await description().inputValue()).toBe('Notebook draft')
     expect(await form(window).getByLabel('Start now', { exact: true }).isChecked()).toBe(false)
@@ -202,7 +203,7 @@ describe('New Task drafts', () => {
     )
 
     await description().fill('Moved back')
-    await form(window).getByLabel('Factory', { exact: true }).selectOption(first.id)
+    await chooseFactory(form(window), first.name)
     await waitFor(() => description().isEnabled())
     expect(await description().inputValue()).toBe('Moved back')
     await form(window).getByRole('button', { name: 'Create', exact: true }).click()

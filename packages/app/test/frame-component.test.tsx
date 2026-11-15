@@ -292,7 +292,7 @@ test('view headers open New Task without a duplicate sidebar button', async () =
     const header = required(screen.getByRole('main').querySelector('header'))
     await u.click(within(header).getByRole('button', { name: 'New Task' }))
     const dialog = await screen.findByRole('dialog', { name: 'New Task' })
-    expect((within(dialog).getByLabelText('Factory') as HTMLSelectElement).value).toBe('f1')
+    expect(within(dialog).getByRole('combobox', { name: 'Factory' }).dataset.value).toBe('f1')
     await u.click(within(dialog).getByRole('button', { name: 'Close' }))
   }
 })
@@ -358,7 +358,7 @@ test('New Task shortcuts select the current Factory and keep letters in inputs a
   await vi.waitFor(() =>
     expect(document.activeElement).toBe(within(dialog).getByLabelText('Description')),
   )
-  expect((within(dialog).getByLabelText('Factory') as HTMLSelectElement).value).toBe('f1')
+  expect(within(dialog).getByRole('combobox', { name: 'Factory' }).dataset.value).toBe('f1')
   await user().click(within(dialog).getByRole('button', { name: 'Close' }))
   fireEvent.keyDown(window, { key: 'c' })
   dialog = screen.getByRole('dialog', { name: 'New Task' })

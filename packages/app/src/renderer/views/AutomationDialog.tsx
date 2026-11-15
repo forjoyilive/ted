@@ -23,6 +23,7 @@ import {
 } from '../automations.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { Button } from '../components/Button.tsx'
+import { FactoryPicker } from '../components/FactoryPicker.tsx'
 import { Help } from '../components/Help.tsx'
 import { CloseIcon } from '../components/icons.tsx'
 import { ScheduleTime } from '../components/ScheduleTime.tsx'
@@ -316,18 +317,12 @@ export function AutomationDialog({
           {editing ? 'Edit Automation' : 'New Automation in'}
         </h2>
         {!editing && (
-          <Select
-            disabled={draftBusy}
-            aria-label="Factory"
+          <FactoryPicker
+            factories={factories}
             value={factory}
-            onChange={(event) => setFactory(event.target.value)}
-          >
-            {factories.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </Select>
+            disabled={draftBusy}
+            onChange={setFactory}
+          />
         )}
         <span className={styles.spacer} />
         <ActionButton

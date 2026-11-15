@@ -16,6 +16,7 @@ import {
   waitUntil,
 } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
+import { chooseFactory } from './choose-factory.ts'
 import { closeApp } from './close-app.ts'
 import { loadedWindow } from './first-window.ts'
 import { resolveElectron } from './support/electron-installation.ts'
@@ -189,12 +190,12 @@ describe('New Task dialog with a Linear URL', () => {
         )
         const newer = `${issueUrl}\nKeep this newer description`
         if (change === 'switching Factories') {
-          await open.getByLabel('Factory', { exact: true }).selectOption(other.id)
+          await chooseFactory(open, other.name)
           await waitUntil(() => open.getByLabel('Description').isEnabled(), 'the other draft')
-          await open.getByLabel('Factory', { exact: true }).selectOption(first.id)
+          await chooseFactory(open, first.name)
           await waitUntil(() => open.getByLabel('Description').isEnabled(), 'the restored draft')
           await open.getByLabel('Description').fill(newer)
-          await open.getByLabel('Factory', { exact: true }).selectOption(other.id)
+          await chooseFactory(open, other.name)
           await waitUntil(() => open.getByLabel('Description').isEnabled(), 'the other draft again')
         } else {
           await open.getByRole('button', { name: 'Remove source' }).click()
@@ -212,7 +213,7 @@ describe('New Task dialog with a Linear URL', () => {
           )
         })
         if (change === 'switching Factories') {
-          await open.getByLabel('Factory', { exact: true }).selectOption(first.id)
+          await chooseFactory(open, first.name)
           await waitUntil(
             () => open.getByLabel('Description').isEnabled(),
             'the final restored draft',

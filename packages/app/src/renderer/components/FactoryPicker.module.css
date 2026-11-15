@@ -1,0 +1,108 @@
+.picker {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 1;
+  min-width: 0;
+}
+
+.button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: calc(280px * var(--text-scale));
+  height: var(--button-height);
+  padding: 0 28px 0 8px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-control);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-13);
+  line-height: var(--leading-tight);
+  text-align: left;
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.button:disabled {
+  color: var(--text-tertiary);
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron {
+  position: absolute;
+  top: 50%;
+  right: 10px;
+  transform: translateY(-50%);
+  color: var(--text-caption);
+  pointer-events: none;
+}
+
+.button:disabled .chevron {
+  color: var(--text-tertiary);
+}
+
+.list {
+  position: fixed;
+  inset: auto;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  width: max-content;
+  max-width: min(calc(360px * var(--text-scale)), calc(100vw - 16px));
+  max-height: min(calc(320px * var(--text-scale)), calc(100vh - 16px));
+  margin: 0;
+  overflow: auto;
+  padding: 6px 0;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  box-shadow: 0 8px 24px var(--shadow-popover);
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 14px;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-13-5);
+  text-align: left;
+}
+
+.active {
+  background: var(--surface-selected);
+}
+
+.optionName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.check {
+  flex-shrink: 0;
+  visibility: hidden;
+  color: var(--text-primary);
+}
+
+.option[aria-selected="true"] .check {
+  visibility: visible;
+}
