@@ -52,7 +52,8 @@ export function AsanaGroup() {
   const [replacing, setReplacing] = useState(false)
   const [copied, setCopied] = useState(false)
   const pasting = status !== undefined && (!status.configured || replacing)
-  const noKeyring = status?.storageProblem === 'no-keyring'
+  const noKeyring =
+    status?.storageProblem === 'no-keyring' || (replacing && status?.storedIn === 'file')
   useEffect(() => {
     if (!copied) return
     const timer = setTimeout(() => setCopied(false), 1500)
@@ -244,7 +245,14 @@ export function AsanaGroup() {
                 {noKeyring ? 'Save in a file only you can read' : 'Save'}
               </Button>
               {replacing && (
-                <Button disabled={busy} onClick={() => setReplacing(false)}>
+                <Button
+                  disabled={busy}
+                  onClick={() => {
+                    setClientId('')
+                    setClientSecret('')
+                    setReplacing(false)
+                  }}
+                >
                   Cancel
                 </Button>
               )}

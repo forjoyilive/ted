@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { startStubAsana, unusedPort } from '../../daemon/test/fixtures/stub-asana.ts'
@@ -234,7 +234,7 @@ test('pasted app credentials reach the daemon; browser authorization, identity, 
     .toContain('Set up an Asana app, then paste its client ID and secret.')
 })
 
-test('setup steps link the console and copy the redirect URL; a bad client ID is refused; Replace app cancels; cancel closes the callback', async () => {
+test('setup steps link the console and copy the redirect URL; a bad client ID is refused; file storage without a keyring, also when replacing; Replace app cancels; cancel closes the callback', async () => {
   const { window, group } = await settings()
   expect(await group.locator('details').getAttribute('open')).not.toBeNull()
   expect(await group.locator('ol code').allTextContents()).toEqual([
@@ -258,14 +258,29 @@ test('setup steps link the console and copy the redirect URL; a bad client ID is
     .toEqual([`http://127.0.0.1:${ctx.extraEnv?.TED_ASANA_CALLBACK_PORT}/asana/callback`])
   await saveApp(group, 'not-a-number')
   await expect.poll(() => group.textContent()).toContain('Asana client ID must contain digits')
-  await saveApp(group)
+  await writeFile(
+    path.join(ctx.home, 'stub-keyring.json.asana-oauth'),
+    JSON.stringify({ state: 'no-keyring' }),
+  )
+  const inFile = group.getByRole('button', { name: 'Save in a file only you can read' })
+  await inFile.waitFor()
+  await group.getByLabel('Client ID').fill('123')
+  await group.getByLabel('Client secret').fill('app-client-secret-opaque')
+  await inFile.click()
   await expect.poll(() => group.textContent()).toContain('App configured')
   expect(await group.locator('details').getAttribute('open')).toBeNull()
   await group.getByRole('button', { name: 'Replace app', exact: true }).click()
   await window.getByRole('dialog').getByRole('button', { name: 'Continue', exact: true }).click()
-  await group.getByLabel('Client ID').waitFor()
+  await inFile.waitFor()
+  await group.getByLabel('Client ID').fill('456')
+  await group.getByLabel('Client secret').fill('canceled-secret')
   await group.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect.poll(() => group.textContent()).toContain('App configured')
+  await group.getByRole('button', { name: 'Replace app', exact: true }).click()
+  await window.getByRole('dialog').getByRole('button', { name: 'Continue', exact: true }).click()
+  expect(await group.getByLabel('Client ID').inputValue()).toBe('')
+  expect(await group.getByLabel('Client secret').inputValue()).toBe('')
+  await group.getByRole('button', { name: 'Cancel', exact: true }).click()
   await group.getByRole('button', { name: 'Connect', exact: true }).click()
   await expect.poll(opened).toContain('https://app.asana.com/-/oauth_authorize')
   const url = await opened()
