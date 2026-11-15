@@ -1086,16 +1086,6 @@ button.coverage {
   background: var(--chart-tourmaline);
 }
 
-.newBadge {
-  margin-left: 6px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--accent-subtle);
-  color: var(--accent-text);
-  font-size: var(--text-10);
-  font-weight: var(--weight-regular);
-}
-
 .costCards {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   margin-top: 12px;

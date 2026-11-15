@@ -1609,11 +1609,6 @@ export function Dashboard({
               }}
             >
               {panelNames[name]}
-              {name === 'cost' && (
-                <span className={styles.newBadge} aria-hidden="true">
-                  New
-                </span>
-              )}
             </button>
           ))}
         </div>
