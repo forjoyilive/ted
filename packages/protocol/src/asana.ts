@@ -1,5 +1,16 @@
 import { bodyObject, RequestValidationError } from './validation.ts'
 
+export const asanaScopes = [
+  'attachments:read',
+  'projects:read',
+  'stories:read',
+  'stories:write',
+  'tasks:read',
+  'tasks:write',
+  'users:read',
+  'workspaces:read',
+]
+
 export interface AsanaConfiguration {
   clientId: string
   clientSecret: string

@@ -49,7 +49,12 @@ export {
   signRequest,
 } from './app-auth.ts'
 export { parseAppRef, parseRecordAppRequest, parseStartAppRequest } from './app-parsers.ts'
-export { type AsanaConfiguration, type AsanaStatus, parseAsanaConfiguration } from './asana.ts'
+export {
+  type AsanaConfiguration,
+  type AsanaStatus,
+  asanaScopes,
+  parseAsanaConfiguration,
+} from './asana.ts'
 export {
   type AsanaImportAction,
   type AsanaImportPreview,

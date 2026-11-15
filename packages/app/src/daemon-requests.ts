@@ -220,6 +220,7 @@ export const forwardedRequests = [
   'listAsanaSections',
   'setFactoryAsanaIntake',
   'setFactoryGitHubIntake',
+  'configureAsana',
   'cancelAsana',
   'testAsana',
   'disconnectAsana',

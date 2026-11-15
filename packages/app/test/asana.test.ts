@@ -1,4 +1,4 @@
-import { chmod, readFile, writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { startStubAsana, unusedPort } from '../../daemon/test/fixtures/stub-asana.ts'
@@ -17,16 +17,9 @@ import {
 
 setUpAppTests()
 let stub: Awaited<ReturnType<typeof startStubAsana>>
-let configurationFile: string
 beforeEach(async () => {
   stub = await startStubAsana()
   ctx.extraEnv = { TED_ASANA_API: stub.url, TED_ASANA_CALLBACK_PORT: String(await unusedPort()) }
-  configurationFile = path.join(ctx.home, 'private-app.json')
-  await writeFile(
-    configurationFile,
-    JSON.stringify({ client_id: '123', client_secret: 'app-client-secret-opaque' }),
-    { mode: 0o600 },
-  )
 })
 afterEach(async () => {
   await stub.close()
@@ -34,14 +27,16 @@ afterEach(async () => {
 
 async function settings() {
   const window = await launchApp()
-  await ctx.app?.evaluate(({ dialog, shell }, file) => {
-    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] })
-    Object.assign(globalThis, { asanaOpened: [] })
+  await ctx.app?.evaluate(({ clipboard, shell }) => {
+    Object.assign(globalThis, { asanaOpened: [], asanaCopied: [] })
+    const state = globalThis as unknown as { asanaOpened: string[]; asanaCopied: string[] }
     shell.openExternal = async (url: string) => {
-      const state = globalThis as unknown as { asanaOpened: string[] }
       state.asanaOpened.push(url)
     }
-  }, configurationFile)
+    clipboard.writeText = async (text: string) => {
+      state.asanaCopied.push(text)
+    }
+  })
   await openSettings(window)
   await window
     .getByRole('navigation', { name: 'Settings' })
@@ -49,17 +44,22 @@ async function settings() {
     .click()
   return { window, group: window.getByRole('group', { name: 'Asana', exact: true }) }
 }
+async function saveApp(group: Awaited<ReturnType<typeof settings>>['group'], clientId = '123') {
+  await group.getByLabel('Client ID').fill(clientId)
+  await group.getByLabel('Client secret').fill('app-client-secret-opaque')
+  await group.getByRole('button', { name: 'Save', exact: true }).click()
+}
 async function opened() {
   return await ctx.app?.evaluate(() =>
     (globalThis as unknown as { asanaOpened: string[] }).asanaOpened.at(-1),
   )
 }
 
-test('private configuration stays in main; browser authorization, identity, test, disconnect and removal cross IPC', async () => {
+test('pasted app credentials reach the daemon; browser authorization, identity, test, disconnect and removal cross IPC', async () => {
   const { window, group } = await settings()
   const rejected = await window.evaluate(async () => {
     const denied: string[] = []
-    for (const name of ['configureAsana', 'connectAsana']) {
+    for (const name of ['connectAsana']) {
       try {
         await globalThis.window.ted.request(name)
       } catch {
@@ -68,9 +68,10 @@ test('private configuration stays in main; browser authorization, identity, test
     }
     return denied
   })
-  expect(rejected).toEqual(['configureAsana', 'connectAsana'])
-  await group.getByRole('button', { name: 'Import app configuration', exact: true }).click()
+  expect(rejected).toEqual(['connectAsana'])
+  await saveApp(group)
   await expect.poll(() => group.textContent()).toContain('App configured')
+  expect(await group.getByLabel('Client secret').count()).toBe(0)
   await group.getByRole('button', { name: 'Connect', exact: true }).click()
   await expect.poll(opened).toContain('https://app.asana.com/-/oauth_authorize')
   const url = await opened()
@@ -228,17 +229,58 @@ test('private configuration stays in main; browser authorization, identity, test
   ).not.toContain('refresh-secret-opaque')
   await group.getByRole('button', { name: 'Remove configuration' }).click()
   await window.getByRole('dialog').getByRole('button', { name: 'Continue', exact: true }).click()
-  await expect.poll(() => group.textContent()).toContain('Import your app configuration')
+  await expect
+    .poll(() => group.textContent())
+    .toContain('Set up an Asana app, then paste its client ID and secret.')
 })
 
-test('reject public configuration files; cancel closes the callback and leaves no connected account', async () => {
-  const { group } = await settings()
-  await chmod(configurationFile, 0o644)
-  await group.getByRole('button', { name: 'Import app configuration', exact: true }).click()
-  await expect.poll(() => group.textContent()).toContain('permissions 0600')
-  await chmod(configurationFile, 0o600)
-  await group.getByRole('button', { name: 'Import app configuration', exact: true }).click()
+test('setup steps link the console and copy the redirect URL; a bad client ID is refused; file storage without a keyring, also when replacing; Replace app cancels; cancel closes the callback', async () => {
+  const { window, group } = await settings()
+  expect(await group.locator('details').getAttribute('open')).not.toBeNull()
+  expect(await group.locator('ol code').allTextContents()).toEqual([
+    `http://127.0.0.1:${ctx.extraEnv?.TED_ASANA_CALLBACK_PORT}/asana/callback`,
+    'attachments:read',
+    'projects:read',
+    'stories:read',
+    'stories:write',
+    'tasks:read',
+    'tasks:write',
+    'users:read',
+    'workspaces:read',
+  ])
+  await group.getByRole('button', { name: 'Open Asana developer console ↗' }).click()
+  await expect.poll(opened).toBe('https://app.asana.com/0/my-apps')
+  await group.getByRole('button', { name: 'Copy', exact: true }).click()
+  await expect
+    .poll(() =>
+      ctx.app?.evaluate(() => (globalThis as unknown as { asanaCopied: string[] }).asanaCopied),
+    )
+    .toEqual([`http://127.0.0.1:${ctx.extraEnv?.TED_ASANA_CALLBACK_PORT}/asana/callback`])
+  await saveApp(group, 'not-a-number')
+  await expect.poll(() => group.textContent()).toContain('Asana client ID must contain digits')
+  await writeFile(
+    path.join(ctx.home, 'stub-keyring.json.asana-oauth'),
+    JSON.stringify({ state: 'no-keyring' }),
+  )
+  const inFile = group.getByRole('button', { name: 'Save in a file only you can read' })
+  await inFile.waitFor()
+  await group.getByLabel('Client ID').fill('123')
+  await group.getByLabel('Client secret').fill('app-client-secret-opaque')
+  await inFile.click()
   await expect.poll(() => group.textContent()).toContain('App configured')
+  expect(await group.locator('details').getAttribute('open')).toBeNull()
+  await group.getByRole('button', { name: 'Replace app', exact: true }).click()
+  await window.getByRole('dialog').getByRole('button', { name: 'Continue', exact: true }).click()
+  await inFile.waitFor()
+  await group.getByLabel('Client ID').fill('456')
+  await group.getByLabel('Client secret').fill('canceled-secret')
+  await group.getByRole('button', { name: 'Cancel', exact: true }).click()
+  await expect.poll(() => group.textContent()).toContain('App configured')
+  await group.getByRole('button', { name: 'Replace app', exact: true }).click()
+  await window.getByRole('dialog').getByRole('button', { name: 'Continue', exact: true }).click()
+  expect(await group.getByLabel('Client ID').inputValue()).toBe('')
+  expect(await group.getByLabel('Client secret').inputValue()).toBe('')
+  await group.getByRole('button', { name: 'Cancel', exact: true }).click()
   await group.getByRole('button', { name: 'Connect', exact: true }).click()
   await expect.poll(opened).toContain('https://app.asana.com/-/oauth_authorize')
   const url = await opened()
