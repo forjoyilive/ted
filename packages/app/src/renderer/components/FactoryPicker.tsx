@@ -52,6 +52,7 @@ export function FactoryPicker({
     const popup = list.current
     if (!open || !anchor || !popup) return
     if (typeof popup.showPopover === 'function' && !popup.matches(':popover-open')) {
+      popup.popover = 'manual'
       popup.showPopover()
     }
     const place = () => {
@@ -93,6 +94,15 @@ export function FactoryPicker({
       if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(key)) {
         event.preventDefault()
         show()
+      } else if (Array.from(key).length === 1 && key !== ' ') {
+        const next = nextFactoryIndex(
+          factories.map((f) => f.name),
+          Math.max(0, chosenIndex),
+          key,
+        )
+        event.preventDefault()
+        event.stopPropagation()
+        if (next !== undefined) choose(next)
       }
       return
     }
@@ -148,7 +158,6 @@ export function FactoryPicker({
           id={listId}
           role="listbox"
           aria-label={label}
-          popover="manual"
           className={styles.list}
           onPointerDown={(event) => event.preventDefault()}
         >

@@ -547,7 +547,15 @@ test('the Factory picker shows each Factory with its icon and chooses by mouse a
   expect(chosen).toHaveBeenLastCalledWith('f2')
 
   chosen.mockClear()
+  fireEvent.keyDown(picker, { key: 'g' })
+  expect(chosen).toHaveBeenLastCalledWith('f2')
+  expect(screen.queryByRole('listbox')).toBeNull()
+  fireEvent.keyDown(picker, { key: 'x' })
+  expect(chosen).toHaveBeenCalledOnce()
+
+  chosen.mockClear()
   fireEvent.keyDown(picker, { key: ' ' })
+  expect(screen.getByRole('listbox', { name: 'Factory' })).toBeTruthy()
   expect(fireEvent.keyDown(picker, { key: 'Escape' })).toBe(false)
   expect(screen.queryByRole('listbox')).toBeNull()
   expect(chosen).not.toHaveBeenCalled()
