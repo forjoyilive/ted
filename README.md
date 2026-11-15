@@ -31,7 +31,7 @@ Every stage, check and sign-off can be changed per project. Turn sign-offs off a
 - **A workspace per task.** Each task gets its own branch and working copy. Tasks never touch each other, or the folder you’re working in.
 - **Claude Code or Codex.** One agent carries each task from start to finish and can hand parts of the job to sub-agents. TED uses your own subscription or API key.
 - **Tasks from anywhere.** Write tasks in the app, or import them from GitHub, Linear and Asana.
-- **A calm CPU.** You set how many agents work at once. The rest wait in a queue, in the order you rank them, and new starts hold while your computer is busy.
+- **As busy as you allow.** You set how many agents work at once. The rest wait in a queue, in the order you rank them, and new starts hold while your computer is busy.
 - **A running app to look at.** TED can start the task’s app (a web server, an iOS simulator or an Android emulator) so you see the real thing before you sign off.
 - **Autopilot.** TED answers routine questions with the agent’s recommended answer and approves routine sign-offs. Permission requests and failures still come to you. Check your services’ terms of service before leaving it on overnight.
 - **Automations.** Run on a schedule to bring in new issues, audit your apps or run checks, and file tasks for what they find.
