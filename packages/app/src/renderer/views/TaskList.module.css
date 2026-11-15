@@ -403,6 +403,10 @@
   white-space: normal;
 }
 
+.priority {
+  text-overflow: clip;
+}
+
 .status span {
   flex-shrink: 1;
   min-width: 0;

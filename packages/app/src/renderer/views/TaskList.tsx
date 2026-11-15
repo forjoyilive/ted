@@ -762,6 +762,7 @@ export function TaskList({
               styles.cell,
               column === 'title' ? styles.title : styles.meta,
               column === 'status' ? styles.status : '',
+              column === 'priority' ? styles.priority : '',
               rightAligned.has(column) ? styles.right : '',
             ].join(' ')}
           >
@@ -857,6 +858,7 @@ export function TaskList({
               styles.cell,
               column === 'title' ? styles.title : styles.meta,
               column === 'status' ? styles.status : '',
+              column === 'priority' ? styles.priority : '',
               rightAligned.has(column) ? styles.right : '',
             ].join(' ')}
           >
