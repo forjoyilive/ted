@@ -482,6 +482,39 @@ test('a Dashboard filtered to one Factory expands that Factory’s group, not th
   expect(within(group('Acme')).queryByRole('article', { name: 'widgets' })).toBeNull()
 })
 
+test('an open Task expands its own Factory’s group, not the group of the screen under it', () => {
+  bridge({})
+  localStorage.setItem('ted.sidebar.groupsOpen', JSON.stringify({ acme: false, home: false }))
+  const props = {
+    factories: [factory(), factory({ id: 'f2', name: 'site', key: 'MS', position: 1 })],
+    factoryLayout: {
+      items: [
+        { group: { id: 'acme', name: 'Acme', factoryIds: ['f1'] } },
+        { group: { id: 'home', name: 'Home', factoryIds: ['f2'] } },
+      ],
+    },
+    currentFactoryId: 'f2',
+    inboxCount: 0,
+    dispatch: vi.fn(),
+    onNewTask: vi.fn(),
+    onSearch: vi.fn(),
+    onAddFactory: vi.fn(),
+  }
+  const group = (name: string) => screen.getByRole('region', { name })
+  for (const under of [
+    { kind: 'dashboard', dashboard: { factoryIds: ['f1'] } },
+    { kind: 'factory', factoryId: 'f1', view: 'board' },
+  ] as const) {
+    localStorage.setItem('ted.sidebar.groupsOpen', JSON.stringify({ acme: false, home: false }))
+    const view = render(
+      <Sidebar {...props} navigation={{ ...initialNavigation, screen: under, taskId: 't1' }} />,
+    )
+    expect(within(group('Home')).getByRole('article', { name: 'site' })).toBeTruthy()
+    expect(within(group('Acme')).queryByRole('article', { name: 'widgets' })).toBeNull()
+    view.unmount()
+  }
+})
+
 test('Factory groups: New group from the + menu, Move to group, collapse and Ungroup', async () => {
   const a = appState()
   a.state.factories = [factory(), factory({ id: 'f2', name: 'site', key: 'MS', position: 1 })]

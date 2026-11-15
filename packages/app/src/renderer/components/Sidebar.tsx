@@ -299,12 +299,12 @@ export function Sidebar({
   const layout = layoutOf(arrange(factories, factoryLayout))
   const screen = navigation.screen
   const arrivedAt =
-    screen.kind === 'factory'
-      ? screen.factoryId
-      : screen.kind === 'dashboard' && screen.dashboard?.factoryIds?.length === 1
-        ? screen.dashboard.factoryIds[0]
-        : navigation.taskId !== undefined
-          ? currentFactoryId
+    navigation.taskId !== undefined
+      ? currentFactoryId
+      : screen.kind === 'factory'
+        ? screen.factoryId
+        : screen.kind === 'dashboard' && screen.dashboard?.factoryIds?.length === 1
+          ? screen.dashboard.factoryIds[0]
           : undefined
   const arrivedGroup = arrivedAt === undefined ? undefined : groupOf(layout, arrivedAt)?.id
   const arrival = arrivedAt === undefined ? undefined : JSON.stringify([screen, navigation.taskId])
