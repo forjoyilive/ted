@@ -59,6 +59,7 @@ export interface CustomRequests {
   showTedFolder: () => Promise<void>
   showBackupInFolder: (name: string) => Promise<void>
   loginItem: () => Promise<LoginItemState>
+  startSettled: () => Promise<void>
   openLoginItemsSettings: () => Promise<void>
   notificationsOff: () => Promise<boolean>
   openNotificationSettings: () => Promise<void>

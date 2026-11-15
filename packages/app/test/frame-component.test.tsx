@@ -417,18 +417,3 @@ test('Move down sends Factory order and the numbered shortcut follows the new or
   fireEvent.keyDown(window, { key: '1', metaKey: true })
   await screen.findByRole('heading', { name: /site.*Dashboard/ })
 })
-
-test('finishing setup with an existing Factory opens the plain Add Factory form', async () => {
-  const a = appState()
-  a.handle('homeFolder', () => '/test')
-  a.handle('getIntegrations', () => ({
-    github: { cli: { state: 'ready' }, hosts: [] },
-    git: { state: 'ready' },
-  }))
-  a.mount({ addFactoryFirst: true })
-  const dialog = await screen.findByRole('dialog', { name: 'Add Factory' })
-  expect(
-    (within(dialog).getByRole('checkbox', { name: /^Show the tutorial/ }) as HTMLInputElement)
-      .checked,
-  ).toBe(false)
-})

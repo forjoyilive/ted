@@ -237,7 +237,9 @@ function Offline({ when, children }: { when: boolean; children: ReactNode }) {
   )
 }
 
-export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) {
+export type AppStart = { factoryId: string } | { settings: 'integrations' }
+
+export function App({ start }: { start?: AppStart | undefined }) {
   const [history, dispatch] = useReducer(
     historyReducer(dashboardState),
     initialNavigation,
@@ -315,12 +317,17 @@ export function App({ addFactoryFirst = false }: { addFactoryFirst?: boolean }) 
   const panes = useRef<HTMLDivElement>(null)
   const place = JSON.stringify([navigation.screen, navigation.taskId, navigation.settings])
   const [addFactoryOpen, setAddFactoryOpen] = useState(false)
-  const addFactoryPending = useRef(addFactoryFirst)
+  const startPending = useRef(start)
   useEffect(() => {
-    if (!factoriesLoaded || !addFactoryPending.current) return
-    addFactoryPending.current = false
-    setAddFactoryOpen(true)
-  }, [factoriesLoaded])
+    const first = startPending.current
+    if (first === undefined) return
+    startPending.current = undefined
+    dispatch(
+      'factoryId' in first
+        ? { type: 'open-factory', factoryId: first.factoryId }
+        : { type: 'open-settings', section: first.settings },
+    )
+  }, [])
   const [boardFilters, setBoardFilters] = useState<Readonly<Record<string, ListFilters>>>({})
   const dialogOpen =
     newTaskOpen !== undefined ||

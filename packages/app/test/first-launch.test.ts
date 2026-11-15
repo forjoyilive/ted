@@ -106,62 +106,97 @@ async function settings(): Promise<MachineSettings> {
 }
 
 const setUp = (window: Page) => window.getByRole('main', { name: 'Set up TED' })
+const welcome = (window: Page) => window.getByRole('main', { name: 'Get ready to build faster' })
 const row = (window: Page, name: string) => setUp(window).getByRole('group', { name })
 const sidebar = (window: Page) => window.getByRole('navigation', { name: 'Sidebar' })
 const startAtLogin = (window: Page) =>
   window.getByRole('checkbox', { name: 'Start TED in the background when you log in' })
-const continueButton = (window: Page) => window.getByRole('button', { name: 'Continue' })
-const continueHelp = 'Continue needs Git and at least one agent ready.'
+const nextButton = (window: Page) => window.getByRole('button', { name: 'Next' })
+const nextHelp = 'Next needs Git and at least one agent ready.'
+
+async function toSetUp(window: Page) {
+  await welcome(window).waitFor()
+  await nextButton(window).click()
+  await window.getByRole('main', { name: 'How it works' }).waitFor()
+  await nextButton(window).click()
+  await setUp(window).waitFor()
+}
+
+async function relaunch() {
+  await closeApp(app)
+  app = undefined
+  return launchApp()
+}
 
 describe('first launch', () => {
-  test.each([true, false])(
-    'closing unfinished setup with the checkbox %s leaves Start at login untouched',
-    async (checked) => {
-      const window = await launchApp()
-      await setUp(window).waitFor()
-      await startAtLogin(window).setChecked(checked)
-      expect(await settings()).toMatchObject({ firstLaunchDone: false, startAtLogin: true })
-      expect(await loginLines()).toEqual([])
+  test('onboarding returns until it ends, saves Start at login, and a Developer reset shows it once more', async () => {
+    const window = await launchApp()
+    await toSetUp(window)
+    expect(await startAtLogin(window).isChecked()).toBe(false)
+    await startAtLogin(window).setChecked(true)
+    expect(await settings()).toMatchObject({ firstLaunchDone: false, startAtLogin: true })
 
-      await closeApp(app)
-      app = undefined
-      expect(await loginLines()).toEqual([])
+    const again = await relaunch()
+    await toSetUp(again)
+    expect(await startAtLogin(again).isChecked()).toBe(false)
+    expect(await loginLines()).toEqual([])
+    await startAtLogin(again).setChecked(true)
+    await again.getByRole('button', { name: 'Skip' }).click()
+    await sidebar(again).waitFor()
+    await expect.poll(settings).toMatchObject({ firstLaunchDone: true, startAtLogin: true })
+    await expect.poll(loginLines).toEqual(['on'])
 
-      const again = await launchApp()
-      await setUp(again).waitFor()
-      expect(await startAtLogin(again).isChecked()).toBe(true)
-      expect(await settings()).toMatchObject({ firstLaunchDone: false, startAtLogin: true })
-      expect(await loginLines()).toEqual([])
+    const completed = await relaunch()
+    await sidebar(completed).waitFor()
+    expect(await welcome(completed).count()).toBe(0)
+    await sidebar(completed)
+      .getByRole('button', { name: /^Settings/ })
+      .click()
+    await completed.getByRole('button', { name: 'Developer', exact: true }).click()
+    expect(await completed.getByText('Show onboarding again').count()).toBe(0)
+    await completed.getByRole('switch', { name: 'Developer mode' }).click()
+    await completed.getByRole('button', { name: 'Show on next open' }).click()
+    await completed.getByText('Onboarding will show the next time TED opens.').waitFor()
+    await completed.getByRole('button', { name: 'Undo' }).click()
+    await expect.poll(settings).toMatchObject({ onboardingOnNextOpen: false })
+    await completed.getByRole('button', { name: 'Show on next open' }).click()
+    await expect.poll(settings).toMatchObject({ onboardingOnNextOpen: true, firstLaunchDone: true })
+    expect(await welcome(completed).count()).toBe(0)
 
-      await again.getByRole('button', { name: 'Skip for now' }).click()
-      await sidebar(again).waitFor()
-      await expect.poll(settings).toMatchObject({ firstLaunchDone: true, startAtLogin: true })
-      await expect.poll(loginLines).toEqual(['on'])
+    const applied = await loginLines()
+    const reset = await relaunch()
+    await toSetUp(reset)
+    expect(await settings()).toMatchObject({
+      onboardingOnNextOpen: true,
+      firstLaunchDone: false,
+      startAtLogin: true,
+      developerMode: true,
+    })
+    expect(await startAtLogin(reset).isChecked()).toBe(true)
 
-      await closeApp(app)
-      app = undefined
-      const completed = await launchApp()
-      await sidebar(completed).waitFor()
-      expect(await setUp(completed).count()).toBe(0)
-      expect(await settings()).toMatchObject({ firstLaunchDone: true, startAtLogin: true })
-      await sidebar(completed)
-        .getByRole('button', { name: /^Settings/ })
-        .click()
-      const login = completed.getByRole('switch', {
-        name: 'Start TED in the background when you log in',
-      })
-      expect(await login.getAttribute('aria-checked')).toBe('true')
-      const before = await loginLines()
-      await login.click()
-      await expect.poll(settings).toMatchObject({ startAtLogin: false })
-      await expect.poll(loginLines).toEqual([...before, 'off'])
-    },
-  )
+    const resumed = await relaunch()
+    await toSetUp(resumed)
+    expect(await startAtLogin(resumed).isChecked()).toBe(true)
+    expect(await loginLines()).toEqual(applied)
+    await resumed.getByRole('button', { name: 'Skip' }).click()
+    await sidebar(resumed).waitFor()
+    await expect.poll(settings).toMatchObject({
+      firstLaunchDone: true,
+      startAtLogin: true,
+      onboardingOnNextOpen: false,
+    })
+    await expect.poll(loginLines).toEqual([...applied, 'on'])
 
-  test('Continue waits for Git and an agent; Fix rechecks; it opens Add Factory, then No Factories', async () => {
+    const after = await relaunch()
+    await sidebar(after).waitFor()
+    expect(await welcome(after).count()).toBe(0)
+  })
+
+  test('Next waits for Git and an agent; Fix rechecks; Add Factory is the last step, then No Factories', async () => {
     await setStub('claude', { signedIn: false })
     await setGitIdentity(false)
     const window = await launchApp()
+    await toSetUp(window)
 
     const claude = row(window, 'Claude Code')
     await claude.getByText('Signed out').waitFor()
@@ -172,8 +207,8 @@ describe('first launch', () => {
     await git.getByText('No name or email set').waitFor()
     await git.getByText('git config --global user.name "Your Name"').waitFor()
     await git.getByText('git config --global user.email "you@example.com"').waitFor()
-    await window.getByText(continueHelp).waitFor()
-    expect(await continueButton(window).isDisabled()).toBe(true)
+    await window.getByText(nextHelp).waitFor()
+    expect(await nextButton(window).isDisabled()).toBe(true)
     expect(await loginLines()).toEqual([])
 
     await codex.getByRole('button', { name: 'Open Terminal' }).click()
@@ -184,22 +219,24 @@ describe('first launch', () => {
 
     await setStub('claude', {})
     await claude.getByText('Ready').waitFor({ timeout: 15_000 })
-    expect(await continueButton(window).isDisabled()).toBe(true)
+    expect(await nextButton(window).isDisabled()).toBe(true)
 
     await setGitIdentity(true)
     await window.evaluate(() => globalThis.dispatchEvent(new Event('focus')))
     await git.getByText('Ready').waitFor({ timeout: 15_000 })
-    await expect.poll(() => continueButton(window).isEnabled()).toBe(true)
+    await expect.poll(() => nextButton(window).isEnabled()).toBe(true)
 
-    await continueButton(window).click()
+    await nextButton(window).click()
     const dialog = window.getByRole('dialog', { name: 'Add your first Factory' })
     await dialog.waitFor()
+    await dialog.getByText('Step 4 of 4').waitFor()
     expect(await dialog.getByRole('checkbox', { name: 'Show the tutorial' }).isChecked()).toBe(true)
-    await expect.poll(settings).toMatchObject({ firstLaunchDone: true, startAtLogin: true })
-    await expect.poll(loginLines).toEqual(['on'])
+    expect(await settings()).toMatchObject({ firstLaunchDone: false })
 
-    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await dialog.getByRole('button', { name: 'Skip' }).click()
     await window.getByRole('heading', { name: 'No Factories yet' }).waitFor()
+    await expect.poll(settings).toMatchObject({ firstLaunchDone: true, startAtLogin: false })
+    await expect.poll(loginLines).toEqual(['off'])
     await window
       .getByText('A Factory carries Tasks from request to merge for one product.')
       .waitFor()

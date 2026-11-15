@@ -18,6 +18,7 @@ import { useAgentHealth } from '../data.ts'
 import { useIntegrations } from '../settings/IntegrationsPage.tsx'
 import { ted } from '../ted.ts'
 import styles from './FirstLaunch.module.css'
+import { OnboardingFrame } from './OnboardingFrame.tsx'
 
 export const recheckEveryMs = 5_000
 const recheckForMs = 10 * 60 * 1000
@@ -439,19 +440,20 @@ function GitRow({
 
 export function FirstLaunch({
   settings,
-  onFinish,
+  startAtLogin,
+  onStartAtLogin,
+  footer,
 }: {
   settings: MachineSettings
-  onFinish: (addFactory: boolean) => void
+  startAtLogin: boolean
+  onStartAtLogin: (on: boolean) => void
+  footer: (ready: boolean) => ReactNode
 }) {
   const agents = useAgentHealth()
   const { health: integrations } = useIntegrations()
-  const [startAtLogin, setStartAtLogin] = useState(settings.startAtLogin)
   const [watchingSince, setWatchingSince] = useState<number>()
   const [notes, setNotes] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [saving, setSaving] = useState(false)
-  const [problem, setProblem] = useState<string>()
   const ready = canContinue(agents, integrations?.git)
 
   useEffect(() => {
@@ -518,18 +520,6 @@ export function FirstLaunch({
     )
   }
 
-  async function finish(addFactory: boolean) {
-    setSaving(true)
-    setProblem(undefined)
-    onFinish(addFactory)
-    try {
-      await ted.updateSettings({ firstLaunchDone: true, startAtLogin })
-    } catch (error) {
-      setProblem(message(error))
-      setSaving(false)
-    }
-  }
-
   const agentFor = (agent: AgentKind) => agents.find((h) => h.agent === agent)
   const noteFor = (key: string) =>
     key === 'github' &&
@@ -539,74 +529,53 @@ export function FirstLaunch({
       : notes[key]
 
   return (
-    <main className={styles.screen} aria-label="Set up TED">
-      <div className={styles.column}>
-        <h1 className={styles.title}>
-          Set up TED
-          <Help>
-            TED runs Claude Code, Codex and Antigravity with your own logins. It never sees your
-            passwords or tokens.
-          </Help>
-        </h1>
-        <div className={styles.rows}>
-          {(['claude', 'codex', 'antigravity'] as const).map((agent) => {
-            const health = agentFor(agent)
-            const good = health?.state === 'ready'
-            return (
-              <AgentRow
-                key={agent}
-                agent={agent}
-                health={health}
-                note={good ? undefined : notes[agent]}
-                error={errors[agent]}
-                onFix={() => fixAgent(agent)}
-                onBilling={(billing) => health && chooseBilling(health, billing)}
-                actions={rowActions}
-              />
-            )
-          })}
-          <GitHubRow
-            health={integrations}
-            note={noteFor('github')}
-            onFix={(fix, host) => runFix('github', fix, host)}
-            actions={rowActions}
-          />
-          <GitRow
-            git={integrations?.git}
-            note={integrations?.git.state === 'ready' ? undefined : notes.git}
-            onFix={(fix) => runFix('git', fix)}
-            actions={rowActions}
-          />
-        </div>
-        <label className={styles.login}>
-          <input
-            type="checkbox"
-            className={styles.checkbox}
-            checked={startAtLogin}
-            onChange={(event) => setStartAtLogin(event.target.checked)}
-          />
-          Start TED in the background when you log in
-        </label>
-        <div className={styles.footer}>
-          {!ready && (
-            <p className={styles.why}>
-              Continue needs Git and at least one agent ready.
-              <Help>
-                Skip for now lets you in; Runs stay Paused until an agent is ready. GitHub isn’t
-                needed yet, only to add a Factory.
-              </Help>
-            </p>
-          )}
-          <span className={styles.spacer} />
-          <Button onClick={() => finish(false)} disabled={saving}>
-            Skip for now
-          </Button>
-          <Button variant="primary" onClick={() => finish(true)} disabled={!ready || saving}>
-            Continue
-          </Button>
-        </div>
-        {problem !== undefined && <p className={styles.problem}>{problem}</p>}
+    <OnboardingFrame label="Set up TED" footer={footer(ready)}>
+      <h1 className={styles.title}>
+        Set up TED
+        <Help>
+          TED runs Claude Code, Codex and Antigravity with your own logins. It never sees your
+          passwords or tokens.
+        </Help>
+      </h1>
+      <div className={styles.rows}>
+        {(['claude', 'codex', 'antigravity'] as const).map((agent) => {
+          const health = agentFor(agent)
+          const good = health?.state === 'ready'
+          return (
+            <AgentRow
+              key={agent}
+              agent={agent}
+              health={health}
+              note={good ? undefined : notes[agent]}
+              error={errors[agent]}
+              onFix={() => fixAgent(agent)}
+              onBilling={(billing) => health && chooseBilling(health, billing)}
+              actions={rowActions}
+            />
+          )
+        })}
+        <GitHubRow
+          health={integrations}
+          note={noteFor('github')}
+          onFix={(fix, host) => runFix('github', fix, host)}
+          actions={rowActions}
+        />
+        <GitRow
+          git={integrations?.git}
+          note={integrations?.git.state === 'ready' ? undefined : notes.git}
+          onFix={(fix) => runFix('git', fix)}
+          actions={rowActions}
+        />
       </div>
-    </main>
+      <label className={styles.login}>
+        <input
+          type="checkbox"
+          className={styles.checkbox}
+          checked={startAtLogin}
+          onChange={(event) => onStartAtLogin(event.target.checked)}
+        />
+        Start TED in the background when you log in
+      </label>
+    </OnboardingFrame>
   )
 }

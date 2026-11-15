@@ -1,22 +1,3 @@
-.screen {
-  box-sizing: border-box;
-  display: flex;
-  justify-content: center;
-  width: 100%;
-  height: 100vh;
-  overflow-y: auto;
-  padding: max(48px, 16vh) 24px 48px;
-  background: var(--surface-app);
-  color: var(--text-primary);
-}
-
-.column {
-  display: flex;
-  flex-direction: column;
-  width: 700px;
-  max-width: 100%;
-}
-
 .title {
   display: flex;
   align-items: center;
@@ -114,9 +95,7 @@
 
 .detail,
 .meta,
-.note,
-.why,
-.problem {
+.note {
   margin: 0;
   overflow-wrap: anywhere;
 }
@@ -168,25 +147,4 @@
   height: 16px;
   margin: 0;
   accent-color: var(--accent-default);
-}
-
-.footer {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 20px;
-}
-
-.why {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-tertiary);
-  font-size: var(--text-13);
-}
-
-.problem {
-  margin-top: 12px;
-  color: var(--status-failed-fg);
-  font-size: var(--text-12-5);
 }

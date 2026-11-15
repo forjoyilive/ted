@@ -258,7 +258,7 @@ test('notification switches and an OS-disabled event show the settings action', 
   expect(open).toHaveBeenCalledOnce()
 })
 
-test('Developer mode controls Diagnostics and logs, including Run raw output', async () => {
+test('Developer mode controls Diagnostics, logs and Show onboarding again', async () => {
   const { DeveloperPage } = await import('../src/renderer/settings/DeveloperPage.tsx')
   const api = bridge({
     tedFolder: () => ({ path: '/test/', platform: 'darwin' }),
@@ -292,6 +292,7 @@ test('Developer mode controls Diagnostics and logs, including Run raw output', a
   const view = render(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
   expect(screen.queryByRole('region', { name: 'Diagnostics' })).toBeNull()
   expect(screen.queryByRole('region', { name: 'Logs' })).toBeNull()
+  expect(screen.queryByText('Show onboarding again')).toBeNull()
   expect(api.request).not.toHaveBeenCalledWith('getDiagnostics')
   await user().click(screen.getByRole('switch', { name: 'Developer mode' }))
   expect(api.request).toHaveBeenCalledWith('updateSettings', { developerMode: true })
@@ -302,6 +303,23 @@ test('Developer mode controls Diagnostics and logs, including Run raw output', a
     />,
   )
   await screen.findByText('TED daemon 123 listening')
+  await user().click(screen.getByRole('button', { name: 'Show on next open' }))
+  expect(api.request).toHaveBeenCalledWith('updateSettings', { onboardingOnNextOpen: true })
+  view.rerender(
+    <DeveloperPage
+      settings={{ ...defaultMachineSettings, developerMode: true, onboardingOnNextOpen: true }}
+      dispatch={vi.fn()}
+    />,
+  )
+  expect(screen.getByText('Onboarding will show the next time TED opens.')).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'Undo' }))
+  expect(api.request).toHaveBeenCalledWith('updateSettings', { onboardingOnNextOpen: false })
+  view.rerender(
+    <DeveloperPage
+      settings={{ ...defaultMachineSettings, developerMode: true }}
+      dispatch={vi.fn()}
+    />,
+  )
   for (const reading of ['12.5%', '128 MB', '2.4%', '64 MB', 'System memory usage'])
     expect(screen.getByText(reading)).toBeTruthy()
   expect(

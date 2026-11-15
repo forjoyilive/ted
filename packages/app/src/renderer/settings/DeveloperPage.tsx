@@ -144,7 +144,27 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
         </SettingRow>
       </SettingsGroup>
 
-      {settings.developerMode && <DeveloperTools onCopyReport={report.copy} />}
+      {settings.developerMode && (
+        <>
+          <SettingsGroup>
+            <SettingRow
+              setting="app.developer.onboarding"
+              {...(settings.onboardingOnNextOpen && {
+                detail: 'Onboarding will show the next time TED opens.',
+              })}
+            >
+              <Button
+                onClick={() =>
+                  ted.updateSettings({ onboardingOnNextOpen: !settings.onboardingOnNextOpen })
+                }
+              >
+                {settings.onboardingOnNextOpen ? 'Undo' : 'Show on next open'}
+              </Button>
+            </SettingRow>
+          </SettingsGroup>
+          <DeveloperTools onCopyReport={report.copy} />
+        </>
+      )}
     </SettingsPage>
   )
 }

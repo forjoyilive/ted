@@ -1,6 +1,6 @@
 import type { Factory, IntegrationsHealth, RepoCheck, RepoFix, RepoSource } from '@ted/protocol'
 import { keyProblem, suggestFactoryName, suggestKey } from '@ted/protocol/factory'
-import { type DragEvent, type Ref, useEffect, useId, useRef, useState } from 'react'
+import { type DragEvent, type ReactNode, type Ref, useEffect, useId, useRef, useState } from 'react'
 import {
   footer,
   githubProblem,
@@ -24,6 +24,14 @@ interface AddFactoryDialogProps {
   onAdded: (factory: Factory) => void
   onOpenFactory: (factoryId: string) => void
   onOpenGitHubSettings: () => void
+  steps?:
+    | {
+        indicator: ReactNode
+        busy: boolean
+        problem: string | undefined
+        onBack: () => void
+      }
+    | undefined
 }
 
 let nextRow = 0
@@ -41,6 +49,7 @@ export function AddFactoryDialog({
   onAdded,
   onOpenFactory,
   onOpenGitHubSettings,
+  steps,
 }: AddFactoryDialogProps) {
   const dialog = useRef<HTMLDialogElement>(null)
   const firstInput = useRef<HTMLInputElement>(null)
@@ -161,10 +170,12 @@ export function AddFactoryDialog({
   const github = githubProblem(health)
   const keyError = keyProblem(key, factories)
   const shown = footer({ rows, name, key, keyProblem: keyError, github })
+  const held = busy || (steps?.busy ?? false)
+  const problem = error ?? steps?.problem
   const keyFormatOnly = keyError !== undefined && !factories.some((f) => f.key === key)
 
   async function add() {
-    if (shown.blocked || busy) return
+    if (shown.blocked || held) return
     setBusy(true)
     setError(undefined)
     try {
@@ -191,7 +202,7 @@ export function AddFactoryDialog({
       aria-labelledby={headingId}
       onCancel={(event) => {
         event.preventDefault()
-        if (!busy) onClose()
+        if (!held) onClose()
       }}
     >
       <header className={styles.head}>
@@ -327,20 +338,26 @@ export function AddFactoryDialog({
         </label>
       </div>
 
-      {error !== undefined && (
+      {problem !== undefined && (
         <p className={styles.error} role="alert">
-          {error}
+          {problem}
         </p>
       )}
       <footer className={styles.footer}>
+        {steps?.indicator}
         <span className={shown.problem ? styles.footerProblem : styles.footerNote}>
           {shown.text}
         </span>
         <span className={styles.spacer} />
-        <Button disabled={busy} onClick={onClose}>
-          Cancel
+        <Button variant={steps ? 'quiet' : 'secondary'} disabled={held} onClick={onClose}>
+          {steps ? 'Skip' : 'Cancel'}
         </Button>
-        <Button variant="primary" disabled={shown.blocked || busy} onClick={() => add()}>
+        {steps && (
+          <Button disabled={held} onClick={steps.onBack}>
+            Back
+          </Button>
+        )}
+        <Button variant="primary" disabled={shown.blocked || held} onClick={() => add()}>
           Add Factory
         </Button>
       </footer>

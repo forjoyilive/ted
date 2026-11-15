@@ -900,14 +900,27 @@ async function createWindow(): Promise<void> {
   traceStartup('renderer-load-finished')
 }
 
+let startChecked = false
+const startSettled = Promise.withResolvers<void>()
+
+async function startSettings(daemon: DaemonClient, first: boolean): Promise<MachineSettings> {
+  let loaded = await daemon.getSettings()
+  if (first && loaded.onboardingOnNextOpen && loaded.firstLaunchDone)
+    loaded = await daemon.updateSettings({ firstLaunchDone: false })
+  if (skipFirstLaunch && !loaded.firstLaunchDone)
+    loaded = await daemon.updateSettings({ firstLaunchDone: true })
+  return loaded
+}
+
 async function loadState(): Promise<void> {
   if (!client) return
-  const loaded = await client.getSettings()
-  applySettings(
-    skipFirstLaunch && !loaded.firstLaunchDone
-      ? await client.updateSettings({ firstLaunchDone: true })
-      : loaded,
-  )
+  const first = !startChecked
+  startChecked = true
+  try {
+    applySettings(await startSettings(client, first))
+  } finally {
+    if (first) startSettled.resolve()
+  }
   const [activity, banners, waiting, factories]: [Activity, Banner[], WaitingRequest[], Factory[]] =
     await Promise.all([
       client.getActivity(),
@@ -1042,6 +1055,7 @@ async function start(): Promise<void> {
 
   const appRequests = {
     connection: async () => supervised.connection,
+    startSettled: () => startSettled.promise,
     loginItem: async () => {
       await loginItemWork
       return loginItem?.state() ?? 'unavailable'
@@ -1072,6 +1086,7 @@ async function start(): Promise<void> {
   } satisfies Pick<
     CustomRequests,
     | 'connection'
+    | 'startSettled'
     | 'loginItem'
     | 'openLoginItemsSettings'
     | 'notificationsOff'

@@ -105,7 +105,7 @@ Figma: KRI-64 First launch and Settings (Reconnecting, data screens, banners, me
 
 ### 3.2 Start at login
 
-- Offered on the first-launch screen, checked by default; a toggle in Settings → General. (KRI-57)
+- Offered on the first-launch screen, unticked on a new machine; a toggle in Settings → General. (KRI-57)
 - At login TED starts the app in the background with its menu-bar icon and the daemon, with no window, so notifications, the unread count and Automations all work. (KRI-57)
 - macOS: a LaunchAgent in the app bundle registered through `SMAppService` (Electron `setLoginItemSettings` with `type: 'agentService'`), starting the app with `--background`. If macOS reports `requires-approval`, the toggle shows “Allow TED in System Settings → Login Items” with a button that opens that pane. (KRI-57)
 - Linux: an XDG autostart entry, `~/.config/autostart/ted.desktop`, running `ted-app --background`. For AppImage it is rewritten after each update. (KRI-57)
@@ -1229,16 +1229,22 @@ Figma: KRI-64 First launch and Settings.
 
 ### 11.1 First launch
 
-- A full-window **Set up TED** screen with no sidebar, shown once per machine, even when every row is already green. Subtitle: “TED runs Claude Code and Codex with your own logins. It never sees your passwords or tokens.” (KRI-57)
+- Onboarding: four full-window steps with no sidebar, shown once per machine (ADR 0161-first-launch-shows-onboarding-steps). Every step has a footer with the step dots and “Step N of 4” on the left and **Skip**, **Back** and **Next** on the right; Back is disabled on the first step. **Skip** ends onboarding on any step and opens the app. Escape doesn’t skip.
+  1. **Get ready to build faster:** what TED is, in a few left-aligned paragraphs centred in the window.
+  2. **How it works:** three rows, each with an action heading, a short text and a picture drawn with the app’s own card and sidebar styles and sample data: “Give each product a Factory, and each change a Task”, “Approve the work at each sign-off” and “Answer what’s waiting in the Inbox”. The screen says “sign-off”, never “Gate”.
+  3. **Set up TED**, described below.
+  4. **Add your first Factory:** the Add Factory dialog over the onboarding background, with the step indicator, **Skip** and **Back** in its own footer. Adding a Factory ends onboarding and opens it; Skip or Escape ends it with no Factory.
+- The **Set up TED** step is shown even when every row is already green. Subtitle: “TED runs Claude Code and Codex with your own logins. It never sees your passwords or tokens.” (KRI-57)
 - Four rows, each with a status chip, the version and account line, the binary path, and one action: (KRI-57, KRI-64)
   1. **Claude Code:** Ready (“2.1.319 · Claude Max · subscription”); Not installed (install command, **Copy**, **Open Terminal**); Signed out (**Sign in**, then “Opened claude auth login in Terminal. Checking again every 5 seconds…” with **Copy command**); Too old (**Update**); Signed in with an API key (amber: **Use API-key billing** or **Sign in with a subscription instead**).
   2. **Codex:** the same states.
   3. **GitHub:** Ready (“Signed in as forjoyilive · github.com”); GitHub CLI not installed (`brew install gh`, or the apt or dnf command); Signed out (**Sign in**); Missing `workflow` scope (amber, **Add permission**). While not ready, the row says “Needed to add a Factory”. First launch checks only `github.com`.
   4. **Git:** Ready (“2.47 · Nabha Cosley <email>”); Not installed (`xcode-select --install` on macOS, the package command on Linux); No name or email set (amber, with the two `git config --global` commands to copy).
-- **Continue** is enabled when Git (including name and email) and at least one agent are ready. A grey line explains: “Continue needs Git and at least one agent ready. Skip for now lets you in; Runs stay Paused until an agent is ready.” GitHub isn’t required here. **Skip for now** is always there. (KRI-57, KRI-64)
-- An agent signed in with an API key doesn’t block Continue. If the user continues without choosing, billing stays on Subscription and that kind’s first Run pauses with “Using an API key, not your subscription”. (KRI-64)
-- Below the rows: **Start TED in the background when you log in**, checked. (KRI-57)
-- **Continue** opens the Add Factory form with **Show the tutorial** on. Closing it leads to the No Factories state (10.12). (KRI-57)
+- **Next** is enabled when Git (including name and email) and at least one agent are ready. A grey line explains: “Next needs Git and at least one agent ready. Skip lets you in; Runs stay Paused until an agent is ready.” GitHub isn’t required here. **Skip** is always there. (KRI-57, KRI-64)
+- An agent signed in with an API key doesn’t block Next. If the user goes on without choosing, billing stays on Subscription and that kind’s first Run pauses with “Using an API key, not your subscription”. (KRI-64)
+- Below the rows: **Start TED in the background when you log in**, unticked on a new machine. Its value is saved when onboarding ends, Skip included, and applied only then. (KRI-57)
+- **Next** opens the Add Factory form with **Show the tutorial** on. Closing it leads to the No Factories state (10.12). (KRI-57)
+- With Developer mode on, Settings → Developer has **Show onboarding again** with **Show on next open**. It changes nothing in the running app; the row then says “Onboarding will show the next time TED opens.” with **Undo**. The next time the app starts, every step runs from the first, with Factories, Tasks and settings kept. When a Factory exists there are three steps and Set up TED’s button reads **Finish**, and the checkbox starts at the current setting.
 - First launch doesn’t ask for the Linear key, notification permission, the editor, the `ted` command, or `lead`, `reviewer` and `planner` (TED’s defaults choose from the installed agents). (KRI-57)
 - After first launch, the same rows live in Settings → Agents and Settings → Integrations. (KRI-57)
 

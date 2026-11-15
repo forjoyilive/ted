@@ -1,11 +1,17 @@
 // @vitest-environment jsdom
-import { type AgentHealth, type IntegrationsHealth, integrationInstallPages } from '@ted/protocol'
+import {
+  type AgentHealth,
+  type Factory,
+  type IntegrationsHealth,
+  integrationInstallPages,
+  type MachineSettings,
+} from '@ted/protocol'
 import { defaultMachineSettings } from '@ted/protocol/settings'
 import { act, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
-import { FirstLaunch } from '../src/renderer/views/FirstLaunch.tsx'
+import { Onboarding } from '../src/renderer/views/Onboarding.tsx'
 import { bridge, user } from './support/component.ts'
-import { createdAt } from './support/fixtures.ts'
+import { createdAt, factory } from './support/fixtures.ts'
 
 const health = (fields: Partial<AgentHealth> = {}): AgentHealth => ({
   agent: 'claude',
@@ -35,20 +41,106 @@ const integrations: IntegrationsHealth = {
   checkedAt: createdAt,
 }
 
-function open(agents = [health(), health({ agent: 'codex' })]) {
+function start(
+  agents = [health(), health({ agent: 'codex' })],
+  {
+    factories = [],
+    settings = defaultMachineSettings,
+  }: { factories?: Factory[]; settings?: MachineSettings } = {},
+) {
   const finish = vi.fn()
   const api = bridge({
     agentHealth: () => agents,
     getIntegrations: () => integrations,
+    listFactories: () => factories,
+    homeFolder: () => '/test',
     updateSettings: vi.fn(),
     fixAgent: () => health({ fix: { label: 'Sign in', command: 'claude auth login' } }),
   })
-  render(<FirstLaunch settings={defaultMachineSettings} onFinish={finish} />)
+  render(<Onboarding settings={settings} onFinish={finish} />)
   return { finish, ...api }
 }
 
-test('ready checks show account and tool details; Skip saves the chosen login option', async () => {
-  const a = open()
+const button = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement
+
+async function toSetUp() {
+  await screen.findByRole('heading', { name: 'Get ready to build faster' })
+  await user().click(button('Next'))
+  await screen.findByRole('heading', { name: 'How it works' })
+  await user().click(button('Next'))
+  await screen.findByRole('heading', { name: /^Set up TED/ })
+}
+
+async function open(agents?: AgentHealth[]) {
+  const a = start(agents)
+  await toSetUp()
+  return a
+}
+
+test('the steps run in order, Back returns, and Skip saves Start at login off', async () => {
+  const a = start()
+  await screen.findByRole('heading', { name: 'Get ready to build faster' })
+  expect(screen.getByText('Step 1 of 4')).toBeTruthy()
+  expect(button('Back').disabled).toBe(true)
+  await user().click(button('Next'))
+  await screen.findByRole('heading', { name: 'How it works' })
+  expect(screen.getByText('Step 2 of 4')).toBeTruthy()
+  expect(screen.getByRole('region', { name: 'Approve the work at each sign-off' })).toBeTruthy()
+  await user().click(button('Back'))
+  await screen.findByRole('heading', { name: 'Get ready to build faster' })
+  await user().click(button('Next'))
+  await user().click(button('Next'))
+  await screen.findByText('Step 3 of 4')
+  const login = screen.getByRole('checkbox', {
+    name: 'Start TED in the background when you log in',
+  }) as HTMLInputElement
+  expect(login.checked).toBe(false)
+  await user().click(button('Skip'))
+  expect(a.request).toHaveBeenCalledWith('updateSettings', {
+    firstLaunchDone: true,
+    startAtLogin: false,
+    onboardingOnNextOpen: false,
+  })
+  expect(a.finish).toHaveBeenCalledWith(undefined)
+})
+
+test('Skip on the first step ends onboarding', async () => {
+  const a = start()
+  await screen.findByRole('heading', { name: 'Get ready to build faster' })
+  await user().click(button('Skip'))
+  expect(a.request).toHaveBeenCalledWith('updateSettings', {
+    firstLaunchDone: true,
+    startAtLogin: false,
+    onboardingOnNextOpen: false,
+  })
+})
+
+test('after a reset with a Factory, Set up TED is the last step and keeps Start at login', async () => {
+  const a = start(undefined, {
+    factories: [factory()],
+    settings: { ...defaultMachineSettings, startAtLogin: true, onboardingOnNextOpen: true },
+  })
+  await toSetUp()
+  expect(screen.getByText('Step 3 of 3')).toBeTruthy()
+  expect(
+    (
+      screen.getByRole('checkbox', {
+        name: 'Start TED in the background when you log in',
+      }) as HTMLInputElement
+    ).checked,
+  ).toBe(true)
+  await user().click(button('Finish'))
+  expect(a.request).toHaveBeenCalledWith('updateSettings', {
+    firstLaunchDone: true,
+    startAtLogin: true,
+    onboardingOnNextOpen: false,
+  })
+  expect(a.finish).toHaveBeenCalledWith(undefined)
+  expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+test('ready checks show account and tool details', async () => {
+  await open()
   const claude = within(await screen.findByRole('group', { name: 'Claude Code' }))
   await claude.findByText('Ready')
   expect(claude.getByText('/test/claude')).toBeTruthy()
@@ -63,28 +155,16 @@ test('ready checks show account and tool details; Skip saves the chosen login op
       '2.50 · Nabha Cosley <nabha@example.com>',
     ),
   ).toBeTruthy()
-  expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(
-    false,
-  )
-  await user().click(
-    screen.getByRole('checkbox', { name: 'Start TED in the background when you log in' }),
-  )
-  expect(a.request.mock.calls.filter(([name]) => name === 'updateSettings')).toEqual([])
-  await user().click(screen.getByRole('button', { name: 'Skip for now' }))
-  expect(a.request).toHaveBeenCalledWith('updateSettings', {
-    firstLaunchDone: true,
-    startAtLogin: false,
-  })
-  expect(a.finish).toHaveBeenCalledWith(false)
+  expect(button('Next').disabled).toBe(false)
 })
 
-test('Continue waits for Git and an agent and then opens Add Factory', async () => {
-  const a = open([
+test('Next waits for Git and an agent, then Add Factory is step 4 with Back and Skip', async () => {
+  const a = await open([
     health({ state: 'signed-out' }),
     health({ agent: 'codex', state: 'not-installed' }),
   ])
-  await screen.findByText('Continue needs Git and at least one agent ready.')
-  const next = screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement
+  await screen.findByText('Next needs Git and at least one agent ready.')
+  const next = button('Next')
   expect(next.disabled).toBe(true)
   await act(async () =>
     a.emit({
@@ -93,24 +173,41 @@ test('Continue waits for Git and an agent and then opens Add Factory', async () 
     }),
   )
   await act(async () => a.emit({ type: 'agent-health-changed', health: health() }))
+  a.handle('agentHealth', () => [health(), health({ agent: 'codex', state: 'not-installed' })])
   expect(next.disabled).toBe(true)
   await act(async () => a.emit({ type: 'integrations-checked', health: integrations }))
   expect(next.disabled).toBe(false)
+  await user().click(
+    screen.getByRole('checkbox', { name: 'Start TED in the background when you log in' }),
+  )
+  expect(a.request.mock.calls.filter(([name]) => name === 'updateSettings')).toEqual([])
   await user().click(next)
-  expect(a.finish).toHaveBeenCalledWith(true)
-  expect(a.request).toHaveBeenCalledWith('updateSettings', {
+  let dialog = within(await screen.findByRole('dialog', { name: 'Add your first Factory' }))
+  expect(dialog.getByText('Step 4 of 4')).toBeTruthy()
+  await user().click(dialog.getByRole('button', { name: 'Back' }))
+  await screen.findByRole('heading', { name: /^Set up TED/ })
+  await vi.waitFor(() => expect(button('Next').disabled).toBe(false))
+  await user().click(button('Next'))
+  dialog = within(await screen.findByRole('dialog', { name: 'Add your first Factory' }))
+  a.handle('updateSettings', () => Promise.reject(new Error('TED isn’t answering')))
+  await user().click(dialog.getByRole('button', { name: 'Skip' }))
+  expect((await dialog.findByRole('alert')).textContent).toBe('TED isn’t answering')
+  expect((dialog.getByRole('button', { name: 'Skip' }) as HTMLButtonElement).disabled).toBe(false)
+  a.handle('updateSettings', () => undefined)
+  await user().click(dialog.getByRole('button', { name: 'Skip' }))
+  expect(a.finish).toHaveBeenCalledWith(undefined)
+  expect(a.request).toHaveBeenLastCalledWith('updateSettings', {
     firstLaunchDone: true,
     startAtLogin: true,
+    onboardingOnNextOpen: false,
   })
 })
 
-test('wrong credential permits Continue and offers explicit billing choices', async () => {
-  const a = open([health({ state: 'wrong-credential', reason: 'API key' })])
+test('wrong credential permits Next and offers explicit billing choices', async () => {
+  const a = await open([health({ state: 'wrong-credential', reason: 'API key' })])
   const claude = within(screen.getByRole('group', { name: 'Claude Code' }))
   await claude.findByText('Signed in with an API key')
-  expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(
-    false,
-  )
+  expect(button('Next').disabled).toBe(false)
   await user().click(claude.getByRole('button', { name: 'Sign in with a subscription instead' }))
   expect(a.request).toHaveBeenCalledWith('fixAgent', 'claude')
   expect(claude.getByText(/Opened claude auth login/)).toBeTruthy()
@@ -124,13 +221,13 @@ test('wrong credential permits Continue and offers explicit billing choices', as
 })
 
 test('a Ready agent offers no API-key billing prompt', async () => {
-  open()
+  await open()
   await screen.findAllByText('Ready')
   expect(screen.queryByRole('button', { name: 'Use API-key billing' })).toBeNull()
 })
 
-test('signed-out GitHub does not block Continue and Sign in opens its fix command', async () => {
-  const a = open()
+test('signed-out GitHub does not block Next and Sign in opens its fix command', async () => {
+  const a = await open()
   a.handle('runFix', () => ({ command: 'gh auth login --hostname github.com' }))
   await screen.findAllByText('Ready')
   await act(async () =>
@@ -154,9 +251,7 @@ test('signed-out GitHub does not block Continue and Sign in opens its fix comman
     }),
   )
   const github = within(screen.getByRole('group', { name: 'GitHub' }))
-  expect((screen.getByRole('button', { name: 'Continue' }) as HTMLButtonElement).disabled).toBe(
-    false,
-  )
+  expect(button('Next').disabled).toBe(false)
   await user().click(github.getByRole('button', { name: 'Sign in' }))
   expect(a.request).toHaveBeenCalledWith('runFix', { fix: 'gh-login', host: 'github.com' })
   expect(github.getByText(/Opened gh auth login/)).toBeTruthy()
@@ -165,7 +260,7 @@ test('signed-out GitHub does not block Continue and Sign in opens its fix comman
 test.each(['not-installed', 'too-old'] as const)(
   'Linux %s tools offer browser instructions without command controls',
   async (state) => {
-    const a = open()
+    const a = await open()
     a.handle('runFix', () => ({ url: integrationInstallPages.gh }))
     a.handle('checkIntegrations', () => integrations)
     await screen.findAllByText('Ready')
