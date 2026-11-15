@@ -142,7 +142,7 @@ export function createData(options: DataOptions): Data {
     const open = services
     if (!open) return
     try {
-      await backups.takeDaily(open.store.exportEventlog())
+      await backups.takeDaily(() => open.store.exportEventlog())
       open.banners.clear({ problem: dailyBackupProblem })
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error)
