@@ -29,11 +29,11 @@ import {
   rememberDashboard,
   shownFactoryIds,
 } from '../dashboard.ts'
-import { useDashboard } from '../data.ts'
+import { useDashboard, useSettings } from '../data.ts'
 import { stageName } from '../list-view.ts'
 import { formatDate } from '../time.ts'
 import styles from './Dashboard.module.css'
-import { Cost, costSample, money } from './DashboardCost.tsx'
+import { apiEquivalent, Cost, costSample, money } from './DashboardCost.tsx'
 import { Stages } from './DashboardStages.tsx'
 import { CheckItem, MenuButton } from './TaskList.tsx'
 import views from './views.module.css'
@@ -998,6 +998,7 @@ function Sample({
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const heading = useId()
+  const equivalent = apiEquivalent(useSettings())
   useEffect(() => {
     const opener = document.activeElement
     dialog.current?.showModal()
@@ -1032,6 +1033,7 @@ function Sample({
             id === null
               ? 'Not in a Factory'
               : (factories.find((f) => f.id === id)?.name ?? 'Removed Factory'),
+          equivalent,
         )
       : null
   const waited =
