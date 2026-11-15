@@ -21,7 +21,13 @@ import {
   maxIssueDiscussion,
   readGitHubIssue,
 } from '../src/github/issues.ts'
-import { maxSubIssueTasks, readSubIssueTree, subIssueNote } from '../src/github/sub-issues.ts'
+import {
+  maxSubIssueTasks,
+  readSubIssueTree,
+  type SubIssueTree,
+  subIssueNote,
+  withoutTracked,
+} from '../src/github/sub-issues.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
   appClient,
@@ -255,6 +261,26 @@ describe('reading the sub-issue tree', () => {
     expect(subIssueNote('acme/widgets#1', 'https://x', tree)[0]).toContain(
       `- acme/widgets#198: past TED’s limit of ${maxSubIssueTasks} child Tasks or 8 levels.`,
     )
+  })
+
+  test('a sub-issue tracked after the read is dropped with its subtree and named in the note', () => {
+    const child = (number: number, parent: number) => ({
+      issue: issue({ number }),
+      url: `https://github.com/acme/widgets/issues/${number}`,
+      parent: `acme/widgets#${parent}`,
+    })
+    const read: SubIssueTree = {
+      state: 'read',
+      children: [child(2, 1), child(3, 2), child(4, 1)],
+      skipped: [],
+    }
+    const tree = withoutTracked(read, (url) => (url.endsWith('/2') ? 'NB-8' : undefined))
+
+    if (tree.state !== 'read') throw new Error('the tree should stay read')
+    expect(tree.children.map((c) => c.issue.number)).toEqual([4])
+    expect(subIssueNote('acme/widgets#1', 'https://x', tree)).toEqual([
+      'TED didn’t make child Tasks for 1 open sub-issue of GitHub issue acme/widgets#1, or for anything under it:\n- acme/widgets#2: already tracked as NB-8. https://github.com/acme/widgets/issues/2',
+    ])
   })
 
   test('a list GitHub cut short or an unreadable sub-issue reads as no tree at all', async () => {
@@ -567,9 +593,10 @@ describe('a Task made from an issue URL', () => {
           [`${repo.toLowerCase()}#24`]: issueAnswer(repo, 24, [], 'CLOSED'),
           [`${repo.toLowerCase()}#30`]: issueAnswer(repo, 30, [
             { repo, number: 31 },
-            { repo, number: 9 },
+            { repo, number: 32 },
           ]),
           [`${repo.toLowerCase()}#31`]: issueAnswer(repo, 31),
+          [`${repo.toLowerCase()}#32`]: 'auth',
         },
       }),
     )
@@ -673,7 +700,7 @@ describe('a Task made from an issue URL', () => {
     const halfNotes = await client.listComments(halfRead.id)
     expect(halfNotes.map((n) => n.body)).toEqual([
       expect.stringContaining(
-        `TED couldn’t read the sub-issues of GitHub issue ${repo}#30 (at ${repo}#9: the GitHub CLI isn’t signed in), so it created no child Tasks.`,
+        `TED couldn’t read the sub-issues of GitHub issue ${repo}#30 (at ${repo}#32: the GitHub CLI isn’t signed in), so it created no child Tasks.`,
       ),
     ])
   })

@@ -183,7 +183,13 @@ import {
   githubIssueContext,
   readGitHubIssue,
 } from '../github/issues.ts'
-import { issueKey, readSubIssueTree, subIssueNote } from '../github/sub-issues.ts'
+import {
+  issueKey,
+  readSubIssueTree,
+  type SubIssueTree,
+  subIssueNote,
+  withoutTracked,
+} from '../github/sub-issues.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { IdleTimer } from '../idle.ts'
 import { linkedFilesRewritten } from '../linear/files.ts'
@@ -4284,6 +4290,7 @@ export function createTasks(options: {
     files: LinearFile[]
     notes: string[]
     children: GitHubChildImport[]
+    tree?: { label: string; url: string; read: SubIssueTree }
   }
 
   interface GitHubChildImport {
@@ -4342,8 +4349,8 @@ export function createTasks(options: {
     }
     return {
       ...root,
-      notes: [...root.notes, ...(tree ? subIssueNote(label, link.url, tree) : [])],
       children,
+      ...(tree && { tree: { label, url: link.url, read: tree } }),
     }
   }
 
@@ -10200,14 +10207,17 @@ export function createTasks(options: {
       effortMode: 'stage' as const,
     }
     const rootKey = github?.source && issueKey(github.source.repo, github.source.number)
-    const dropped = new Set<string>()
-    const fresh = (github?.children ?? []).filter((child) => {
-      const gone =
-        dropped.has(child.parent) ||
-        (factory !== undefined && sourceClash(sameSource(child.url), factory.id, child.url))
-      if (gone) dropped.add(child.key)
-      return !gone
-    })
+    const tree =
+      github?.tree &&
+      withoutTracked(github.tree.read, (url) =>
+        factory ? sourceClash(sameSource(url), factory.id, url)?.task.displayId : undefined,
+      )
+    const kept = new Set(
+      tree?.state === 'read'
+        ? tree.children.map((child) => issueKey(child.issue.repo, child.issue.number))
+        : [],
+    )
+    const fresh = (github?.children ?? []).filter((child) => kept.has(child.key))
     const children = fresh.map((child) => ({
       key: child.key,
       ...(child.parent !== rootKey && { parent: { key: child.parent } }),
@@ -10251,6 +10261,9 @@ export function createTasks(options: {
       ...(github && {
         notes: [
           ...github.notes.map((body) => ({ body })),
+          ...(github.tree && tree
+            ? subIssueNote(github.tree.label, github.tree.url, tree).map((body) => ({ body }))
+            : []),
           ...fresh.flatMap((child) =>
             child.notes.map((body) => ({ task: { key: child.key }, body })),
           ),

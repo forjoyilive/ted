@@ -122,3 +122,30 @@ export function subIssueNote(rootLabel: string, rootUrl: string, tree: SubIssueT
     ].join('\n'),
   ]
 }
+
+export function withoutTracked(
+  tree: SubIssueTree,
+  tracked: (url: string) => string | undefined,
+): SubIssueTree {
+  if (tree.state !== 'read') return tree
+  const dropped = new Set<string>()
+  const skipped = [...tree.skipped]
+  const children = tree.children.filter((child) => {
+    const key = issueKey(child.issue.repo, child.issue.number)
+    if (dropped.has(child.parent)) {
+      dropped.add(key)
+      return false
+    }
+    const displayId = tracked(child.url)
+    if (displayId === undefined) return true
+    dropped.add(key)
+    skipped.push({
+      kind: 'tracked',
+      label: `${child.issue.repo}#${child.issue.number}`,
+      url: child.url,
+      displayId,
+    })
+    return false
+  })
+  return { state: 'read', children, skipped }
+}
