@@ -46,7 +46,7 @@ describe('Inbox chips', () => {
       { groupId: 'g1', label: 'Clients', count: 3 },
       { factoryId: 'nb', label: 'Notebook', count: 1 },
       { factoryId: 'ms', label: 'Marketing site', count: 1 },
-      { factoryId: 'docs', label: 'Docs', count: 1 },
+      { factoryId: 'docs', label: 'Docs', count: 2 },
     ])
     const inClients = factoryScope(layout, { groupId: 'g1' })
     expect(inFactory(items, inClients).map((i) => i.request.id)).toEqual(['b', 'c'])
