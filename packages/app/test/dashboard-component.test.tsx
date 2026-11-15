@@ -443,6 +443,45 @@ test('Flow distinguishes counted transitions and unknown verification from compl
   sample = screen.getByRole('dialog')
   expect(sample.textContent).toContain('Visual verification or its applicability was not recorded.')
   expect(within(sample).getByRole('button', { name: /NB-2.*Improve search/ })).toBeTruthy()
+  await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
+
+  const causes = screen.getByRole('region', { name: 'Why Tasks were sent back' })
+  expect(causes.textContent).toContain(
+    '1 send-back across 1 Task · Validate → Work is the most common',
+  )
+  expect(within(causes).queryByRole('button', { name: /Base conflict/ })).toBeNull()
+  const [reviewSegment] = within(causes).getAllByRole('button', { name: 'Review Findings 1' })
+  if (!reviewSegment) throw new Error('Missing review segment')
+  await user().click(reviewSegment)
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading', { name: 'Sent back: Review Findings' })).toBeTruthy()
+  expect(sample.textContent).toContain('Cause: Review Findings · Severity: P1')
+  expect(within(sample).getAllByRole('button', { name: /NB-3.*Open Task/ })).toHaveLength(1)
+  await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
+  expect(within(causes).getByRole('row', { name: /Unfixed.*0/ })).toBeTruthy()
+  await user().click(within(causes).getByRole('button', { name: /P1 Must fix/ }))
+  sample = screen.getByRole('dialog')
+  expect(within(sample).getByRole('heading', { name: 'Send-backs · Severity: P1' })).toBeTruthy()
+  await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
+
+  const failures = screen.getByRole('region', { name: 'Failures and how they ended' })
+  expect(failures.textContent).toContain(
+    '3 failure cases on 2 Tasks · 1 fixed · 1 accepted by you · 1 still open',
+  )
+  await user().click(within(failures).getByRole('button', { name: 'CI at Merge · Still open 1' }))
+  sample = screen.getByRole('dialog')
+  expect(
+    within(sample).getByRole('heading', { name: 'Failure cases · CI at Merge · Still open' }),
+  ).toBeTruthy()
+  expect(within(sample).getAllByRole('button', { name: /NB-3.*Open Task/ })).toHaveLength(1)
+  await user().click(within(sample).getByRole('button', { name: 'Close Flow sample' }))
+  const accepted = screen.getByRole('region', { name: 'Failures you accepted' })
+  expect(accepted.textContent).toContain('Out of scope for this Task')
+  await user().click(
+    within(accepted).getByRole('button', { name: /NB-3.*Reviewer or Task Lead Finding/ }),
+  )
+  sample = screen.getByRole('dialog')
+  expect(sample.textContent).toContain('Your reason: Out of scope for this Task')
 })
 
 test('Flow shares the range selector, suppresses all-history comparisons and shows empty denominators as unavailable', async () => {

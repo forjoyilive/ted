@@ -1,6 +1,8 @@
 import type {
   DashboardMetric,
   DashboardRange,
+  FlowFailureKind,
+  FlowFailureOutcome,
   FlowReasonId,
   FlowValidateOutcome,
 } from '@ted/protocol'
@@ -14,6 +16,8 @@ export type FlowSelection = { period: 'current' | 'previous' } & (
   | { kind: 'incomplete' }
   | { kind: 'left-out' }
   | { kind: 'validate'; outcome: FlowValidateOutcome }
+  | { kind: 'sent-back'; cause?: string; severity?: string; from?: string; to?: string }
+  | { kind: 'failure'; failure?: FlowFailureKind; outcome?: FlowFailureOutcome; id?: string }
 )
 
 export interface DashboardSelection {

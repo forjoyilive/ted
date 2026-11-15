@@ -1,6 +1,7 @@
-import type { DashboardRange } from '@ted/protocol'
+import type { DashboardRange, FailureCase } from '@ted/protocol'
 import { expect, test } from 'vitest'
 import { type DashboardTaskFacts, dashboardReport } from '../src/dashboard.ts'
+import { sendBackSeverities } from '../src/store/dashboard.ts'
 
 type Facts = Omit<DashboardTaskFacts, 'factoryId'> & { factoryId?: string }
 const factoryDashboard = (facts: readonly Facts[], range: DashboardRange, asOf: number) =>
@@ -560,6 +561,95 @@ test('actual transitions include uncounted send-backs and period boundaries, and
     enteredAt: iso(now - 20 * hour),
     exitedAt: iso(now - 15 * hour),
   })
+})
+
+test('a counted Validate send-back takes the last severity declared since the send-back before it', () => {
+  const at = (minute: number) => `2026-06-09T10:${String(minute).padStart(2, '0')}:00.000Z`
+  expect(
+    sendBackSeverities(
+      [
+        { from: 'validate', counted: true, at: at(10) },
+        { from: 'validate', counted: true, at: at(20) },
+        { from: 'validate', counted: true, checkRunId: 'check', at: at(30) },
+        { from: 'review', counted: true, at: at(40) },
+        { from: 'validate', counted: false, at: at(50) },
+        { from: 'validate', counted: true, at: at(59) },
+      ],
+      [
+        { at: at(5), severity: 'unfixed' },
+        { at: at(9), severity: 'p1' },
+        { at: at(45), severity: 'p1' },
+        { at: at(55), severity: 'unfixed' },
+      ],
+    ),
+  ).toEqual(['p1', 'none', undefined, undefined, undefined, 'unfixed'])
+})
+
+test('failure cases of the period group by kind and end as fixed, accepted by the user or still open', () => {
+  const task = completed('f', 2, 20, 15)
+  const resolution = (
+    resolution: 'accepted' | 'no-longer-applicable' | 'retry',
+    reason?: string,
+  ) => ({
+    requestId: `r-${resolution}`,
+    resolution,
+    ...(reason && { reason }),
+    at: iso(now - 5 * hour),
+    assessmentId: 'a',
+  })
+  const failure = (
+    id: string,
+    source: FailureCase['source'],
+    extra: Partial<FailureCase> = {},
+  ): FailureCase => ({
+    id,
+    taskId: 'f',
+    source,
+    recordedBy: 'run',
+    provenance: 'task-lead-reported',
+    evidence: 'agent evidence text',
+    createdAt: iso(now - 10 * hour),
+    assessments: [],
+    additions: [],
+    decisions: [],
+    resolutions: [],
+    invalidations: [],
+    ...extra,
+  })
+  const check = { kind: 'factory-check', checkRunId: 'c', position: 0 } as const
+  const finding = { kind: 'finding', runId: 'r', finding: 'f' } as const
+  const ci = { kind: 'github-ci', repo: 'o/r', number: 1, head: 'h', attempt: '1' } as const
+  task.failures = [
+    failure('verified', check, { verifications: [{ at: iso(now - 6 * hour), evidence: 'ok' }] }),
+    failure('gone', finding, { resolutions: [resolution('no-longer-applicable')] }),
+    failure('accepted', ci, {
+      resolutions: [resolution('accepted', 'Flaky\n  on this   machine')],
+    }),
+    failure('invalidated', finding, {
+      resolutions: [resolution('accepted', 'Fine')],
+      invalidations: [{ requestId: 'r-accepted', reason: 'Tested context changed', at: iso(now) }],
+    }),
+    failure('retrying', check, { resolutions: [resolution('retry')] }),
+    failure('replaced', check, {
+      verifications: [{ at: iso(now - 6 * hour), evidence: 'rerun', replacedBy: 'retrying' }],
+    }),
+    failure('old', check, { createdAt: iso(now - 300 * hour) }),
+  ]
+  const result = factoryDashboard([task], '7d', now).flow
+  expect(result.current.failures.map((f) => [f.id, f.kind, f.outcome])).toEqual([
+    ['verified', 'check', 'fixed'],
+    ['gone', 'finding', 'fixed'],
+    ['accepted', 'ci', 'accepted'],
+    ['invalidated', 'finding', 'open'],
+    ['retrying', 'check', 'open'],
+  ])
+  expect(result.current.failures.find((f) => f.id === 'accepted')?.reason).toBe(
+    'Flaky on this machine',
+  )
+  expect(result.current.failures.find((f) => f.id === 'invalidated')).not.toHaveProperty('reason')
+  expect(JSON.stringify(result)).not.toContain('agent evidence text')
+  expect(result.previous?.failures.map((f) => [f.id, f.outcome])).toEqual([['old', 'open']])
+  expect(result.tasks.map((t) => t.id)).toContain('f')
 })
 
 test('measured zero-length visits are samples, and missing visits never become zero samples', () => {

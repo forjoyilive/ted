@@ -1,4 +1,12 @@
-import type { DashboardFlow, FlowPeriod, FlowValidateOutcome } from '@ted/protocol'
+import type {
+  DashboardFlow,
+  FlowFailure,
+  FlowFailureKind,
+  FlowFailureOutcome,
+  FlowPeriod,
+  FlowSendBack,
+  FlowValidateOutcome,
+} from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
 import { useEffect, useId, useRef } from 'react'
 import { CloseIcon } from '../components/icons.tsx'
@@ -224,6 +232,346 @@ function FirstPass({ period, select }: { period: FlowPeriod; select: (s: FlowSel
   )
 }
 
+const causes: { key: string; name: string; className: string | undefined }[] = [
+  { key: 'review', name: 'Review Findings', className: styles.causeReview },
+  { key: 'check', name: 'Failed Check', className: styles.causeCheck },
+  { key: 'human', name: 'You asked', className: styles.causeHuman },
+  { key: 'base-conflict', name: 'Base conflict', className: styles.causeBase },
+]
+const notRecorded = 'none'
+const causeName = (key: string) =>
+  key === notRecorded ? 'Not recorded' : (causes.find((c) => c.key === key)?.name ?? key)
+const severities: { key: string; name: string; text: string }[] = [
+  { key: 'p1', name: 'P1', text: 'Must fix' },
+  { key: 'unfixed', name: 'Unfixed', text: 'An earlier Finding still not fixed' },
+  { key: 'none', name: 'None', text: 'No severity declared' },
+]
+const failureKinds: Record<FlowFailureKind, string> = {
+  check: 'Failed Check',
+  finding: 'Reviewer or Task Lead Finding',
+  ci: 'CI at Merge',
+}
+const failureOutcomes: { key: FlowFailureOutcome; name: string; className: string | undefined }[] =
+  [
+    { key: 'fixed', name: 'Fixed', className: styles.outcomeFixed },
+    { key: 'accepted', name: 'Accepted by you', className: styles.outcomeAccepted },
+    { key: 'open', name: 'Still open', className: styles.outcomeOpen },
+  ]
+
+function sentBackTitle(s: { cause?: string; severity?: string; from?: string; to?: string }) {
+  const severity = severities.find((v) => v.key === s.severity)?.name ?? s.severity
+  return [
+    s.cause === undefined ? 'Send-backs' : `Sent back: ${causeName(s.cause)}`,
+    ...(severity === undefined ? [] : [`Severity: ${severity}`]),
+    ...(s.from === undefined || s.to === undefined ? [] : [`${label(s.from)} → ${label(s.to)}`]),
+  ].join(' · ')
+}
+
+function failureTitle(s: { failure?: FlowFailureKind; outcome?: FlowFailureOutcome }) {
+  return [
+    'Failure cases',
+    ...(s.failure ? [failureKinds[s.failure]] : []),
+    ...(s.outcome ? [failureOutcomes.find((o) => o.key === s.outcome)?.name ?? s.outcome] : []),
+  ].join(' · ')
+}
+
+const countedBacks = (period: FlowPeriod) =>
+  period.sendBacks.flatMap((g) => g.transitions).filter((t) => t.counted)
+const causeOf = (s: FlowSendBack) => s.cause ?? notRecorded
+
+function sentBackMatches(
+  s: FlowSendBack,
+  selection: { cause?: string; severity?: string; from?: string; to?: string },
+) {
+  return (
+    s.counted &&
+    (selection.cause === undefined || causeOf(s) === selection.cause) &&
+    (selection.severity === undefined || s.severity === selection.severity) &&
+    (selection.from === undefined || s.from === selection.from) &&
+    (selection.to === undefined || s.to === selection.to)
+  )
+}
+
+function failureMatches(
+  f: FlowFailure,
+  selection: { failure?: FlowFailureKind; outcome?: FlowFailureOutcome; id?: string },
+) {
+  return (
+    (selection.failure === undefined || f.kind === selection.failure) &&
+    (selection.outcome === undefined || f.outcome === selection.outcome) &&
+    (selection.id === undefined || f.id === selection.id)
+  )
+}
+
+function SendBackCauses({
+  data,
+  factories,
+  select,
+}: {
+  data: DashboardFlow
+  factories: readonly { id: string; name: string }[]
+  select: (s: FlowSelection) => void
+}) {
+  const backs = countedBacks(data.current)
+  const tasks = new Set(backs.map((s) => s.taskId))
+  const known = new Set(causes.map((c) => c.key))
+  const shown = [
+    ...causes,
+    ...[...new Set(backs.map(causeOf))]
+      .filter((key) => !known.has(key))
+      .map((key) => ({
+        key,
+        name: causeName(key),
+        className: key === notRecorded ? styles.causeNone : styles.causeOther,
+      })),
+  ]
+    .map((c) => ({ ...c, count: backs.filter((s) => causeOf(s) === c.key).length }))
+    .filter((c) => c.count > 0)
+  const routes = [...new Set(backs.map((s) => JSON.stringify([s.from, s.to])))].map((key) => {
+    const [from = '', to = ''] = JSON.parse(key) as string[]
+    return { from, to, backs: backs.filter((s) => s.from === from && s.to === to) }
+  })
+  routes.sort((a, b) => b.backs.length - a.backs.length)
+  const factoryOf = new Map(data.tasks.map((task) => [task.id, task.factoryId]))
+  const columns = factories.length > 1 ? factories : []
+  const common = routes[0]
+  return (
+    <section className={styles.flowCard} aria-label="Why Tasks were sent back">
+      <h3>Why Tasks were sent back</h3>
+      <p>
+        <button
+          type="button"
+          data-nav-item
+          className={styles.link}
+          onClick={() => select({ kind: 'sent-back', period: 'current' })}
+        >
+          <strong className={styles.flowValue}>{backs.length}</strong>
+        </button>{' '}
+        {backs.length === 1 ? 'send-back' : 'send-backs'} across {tasks.size}{' '}
+        {tasks.size === 1 ? 'Task' : 'Tasks'}
+        {common && ` · ${label(common.from)} → ${label(common.to)} is the most common`}
+      </p>
+      {backs.length > 0 && (
+        <div className={styles.split}>
+          {shown.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              className={c.className}
+              style={{ flexGrow: c.count / backs.length }}
+              aria-label={`${c.name} ${c.count}`}
+              title={`${c.name}: ${c.count}`}
+              onClick={() => select({ kind: 'sent-back', cause: c.key, period: 'current' })}
+            />
+          ))}
+        </div>
+      )}
+      <div className={styles.splitLabels}>
+        {shown.map((c) => (
+          <button
+            key={c.key}
+            type="button"
+            data-nav-item
+            className={styles.link}
+            onClick={() => select({ kind: 'sent-back', cause: c.key, period: 'current' })}
+          >
+            <i className={c.className} />
+            {c.name} {c.count}
+          </button>
+        ))}
+      </div>
+      <div className={styles.flowTable}>
+        <table>
+          <thead>
+            <tr>
+              <th>Severity of review Findings</th>
+              <th>Send-backs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {severities.map((v) => {
+              const count = backs.filter((s) => s.severity === v.key).length
+              return (
+                <tr key={v.key}>
+                  <th scope="row">
+                    <button
+                      type="button"
+                      data-nav-item
+                      className={styles.link}
+                      onClick={() =>
+                        select({ kind: 'sent-back', severity: v.key, period: 'current' })
+                      }
+                    >
+                      <span className={v.key === 'p1' ? styles.severityP1 : styles.severity}>
+                        {v.name}
+                      </span>{' '}
+                      {v.text}
+                    </button>
+                  </th>
+                  <td>{count}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className={styles.caption}>
+        Severity is recorded only for review send-backs from Validate rounds with the P1-only rule.
+      </p>
+      <div className={styles.flowTable}>
+        <table>
+          <thead>
+            <tr>
+              <th>From → to</th>
+              {columns.length ? (
+                columns.map((f) => <th key={f.id}>{f.name}</th>)
+              ) : (
+                <th>Send-backs</th>
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {routes.map((r) => (
+              <tr key={`${r.from}-${r.to}`}>
+                <th scope="row">
+                  <button
+                    type="button"
+                    data-nav-item
+                    className={styles.link}
+                    onClick={() =>
+                      select({ kind: 'sent-back', from: r.from, to: r.to, period: 'current' })
+                    }
+                  >
+                    {label(r.from)} → {label(r.to)}
+                  </button>
+                </th>
+                {columns.length ? (
+                  columns.map((f) => (
+                    <td key={f.id}>
+                      {r.backs.filter((s) => factoryOf.get(s.taskId) === f.id).length}
+                    </td>
+                  ))
+                ) : (
+                  <td>{r.backs.length}</td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {!backs.length && (
+        <p className={styles.empty}>No send-backs counted toward limits in this period.</p>
+      )}
+      <p className={styles.flowFoot}>
+        Only send-backs that count toward limits. Actual send-backs below include the rest.
+      </p>
+    </section>
+  )
+}
+
+function Failures({ data, select }: { data: DashboardFlow; select: (s: FlowSelection) => void }) {
+  const failures = data.current.failures
+  const tasks = new Set(failures.map((f) => f.taskId))
+  const count = (outcome: FlowFailureOutcome) =>
+    failures.filter((f) => f.outcome === outcome).length
+  const kinds = (Object.keys(failureKinds) as FlowFailureKind[])
+    .map((kind) => ({ kind, cases: failures.filter((f) => f.kind === kind) }))
+    .filter((k) => k.cases.length > 0)
+  const accepted = failures.filter((f) => f.outcome === 'accepted')
+  const records = new Map(data.tasks.map((task) => [task.id, task]))
+  return (
+    <>
+      <section className={styles.flowCard} aria-label="Failures and how they ended">
+        <h3>Failures and how they ended</h3>
+        <p>
+          <button
+            type="button"
+            data-nav-item
+            className={styles.link}
+            onClick={() => select({ kind: 'failure', period: 'current' })}
+          >
+            <strong className={styles.flowValue}>{failures.length}</strong>
+          </button>{' '}
+          {failures.length === 1 ? 'failure case' : 'failure cases'} on {tasks.size}{' '}
+          {tasks.size === 1 ? 'Task' : 'Tasks'} · {count('fixed')} fixed · {count('accepted')}{' '}
+          accepted by you · {count('open')} still open
+        </p>
+        {kinds.map(({ kind, cases }) => (
+          <div key={kind} className={styles.failureRow}>
+            <span>{failureKinds[kind]}</span>
+            <div className={styles.split}>
+              {failureOutcomes.map((o) => {
+                const n = cases.filter((f) => f.outcome === o.key).length
+                return (
+                  n > 0 && (
+                    <button
+                      key={o.key}
+                      type="button"
+                      className={o.className}
+                      style={{ flexGrow: n / cases.length }}
+                      aria-label={`${failureKinds[kind]} · ${o.name} ${n}`}
+                      title={`${failureKinds[kind]} · ${o.name}: ${n}`}
+                      onClick={() =>
+                        select({
+                          kind: 'failure',
+                          failure: kind,
+                          outcome: o.key,
+                          period: 'current',
+                        })
+                      }
+                    />
+                  )
+                )
+              })}
+            </div>
+            <span>{cases.length}</span>
+          </div>
+        ))}
+        <div className={styles.splitLabels}>
+          {failureOutcomes.map((o) => (
+            <button
+              key={o.key}
+              type="button"
+              data-nav-item
+              className={styles.link}
+              onClick={() => select({ kind: 'failure', outcome: o.key, period: 'current' })}
+            >
+              <i className={o.className} />
+              {o.name}
+            </button>
+          ))}
+        </div>
+        {!failures.length && (
+          <p className={styles.empty}>No failure cases recorded in this period.</p>
+        )}
+      </section>
+      <section className={styles.flowCard} aria-label="Failures you accepted">
+        <h3>Failures you accepted</h3>
+        <ul className={styles.taskList}>
+          {accepted.map((f) => {
+            const task = records.get(f.taskId)
+            return (
+              <li key={f.id}>
+                <button
+                  type="button"
+                  data-nav-item
+                  className={styles.task}
+                  onClick={() => select({ kind: 'failure', id: f.id, period: 'current' })}
+                >
+                  {task?.displayId ?? f.taskId} &nbsp; {failureKinds[f.kind]}
+                </button>
+                {f.reason && <p className={styles.caption}>{f.reason}</p>}
+              </li>
+            )
+          })}
+        </ul>
+        {!accepted.length && <p className={styles.empty}>No accepted failures in this period.</p>}
+        <p className={styles.flowFoot}>Kept here so a risk you took isn’t forgotten.</p>
+      </section>
+    </>
+  )
+}
+
 function FlowByFactory({
   data,
   period,
@@ -319,9 +667,13 @@ function FlowSample({
               ? 'Tasks affected by send-backs'
               : selection.kind === 'incomplete'
                 ? 'Incomplete timing history'
-                : selection.kind === 'left-out'
-                  ? 'Tasks left out of Stage time'
-                  : `${outcomes[selection.outcome]} · First-pass Validate`
+                : selection.kind === 'sent-back'
+                  ? sentBackTitle(selection)
+                  : selection.kind === 'failure'
+                    ? failureTitle(selection)
+                    : selection.kind === 'left-out'
+                      ? 'Tasks left out of Stage time'
+                      : `${outcomes[selection.outcome]} · First-pass Validate`
   const items: { key: string; taskId: string; lines: string[] }[] = []
   const reason =
     selection.kind === 'reason'
@@ -411,6 +763,26 @@ function FlowSample({
         })
       }
     }
+  } else if (selection.kind === 'sent-back') {
+    for (const s of countedBacks(period).filter((s) => sentBackMatches(s, selection)))
+      items.push({
+        key: s.id,
+        taskId: s.taskId,
+        lines: [
+          `${at(s.at)} · ${label(s.from)} → ${label(s.to)}`,
+          `Cause: ${causeName(causeOf(s))}${s.severity ? ` · Severity: ${severities.find((v) => v.key === s.severity)?.name ?? s.severity}` : ''}`,
+        ],
+      })
+  } else if (selection.kind === 'failure') {
+    for (const f of period.failures.filter((f) => failureMatches(f, selection)))
+      items.push({
+        key: f.id,
+        taskId: f.taskId,
+        lines: [
+          `${failureKinds[f.kind]} · ${failureOutcomes.find((o) => o.key === f.outcome)?.name} · Recorded ${at(f.at)}`,
+          ...(f.reason ? [`Your reason: ${f.reason}`] : []),
+        ],
+      })
   } else if (selection.kind === 'incomplete') {
     for (const s of period.incomplete)
       items.push({ key: s.taskId, taskId: s.taskId, lines: s.reasons })
@@ -458,7 +830,12 @@ function FlowSample({
         {selection.period === 'previous' ? 'Previous period' : 'Selected period'} · {bounds(period)}
       </p>
       <p className={styles.caption}>
-        As of {at(asOf)} · {items.length} {selection.kind === 'send-back' ? 'transitions' : 'Tasks'}
+        As of {at(asOf)} · {items.length}{' '}
+        {selection.kind === 'send-back' || selection.kind === 'sent-back'
+          ? 'transitions'
+          : selection.kind === 'failure'
+            ? 'failure cases'
+            : 'Tasks'}
         . Open a Task for its existing history and verification evidence.
       </p>
       {selection.kind === 'stage' && (
@@ -736,9 +1113,18 @@ export function Flow({
         <>
           <TimingOverview data={data} select={select} />
           <div className={styles.flowGrid}>
-            {factories.length > 1 && (
-              <FlowByFactory data={data} period={data.current} factories={factories} />
-            )}
+            <section className={styles.flowCard} aria-label="First-pass Validate">
+              <h3>First-pass Validate</h3>
+              <FirstPass period={data.current} select={select} />
+              {data.previous && (
+                <details className={styles.dataTable}>
+                  <summary>Previous first-pass evidence</summary>
+                  <FirstPass period={data.previous} select={previousSelect} />
+                </details>
+              )}
+            </section>
+            <SendBackCauses data={data} factories={factories} select={select} />
+            <Failures data={data} select={select} />
             <section className={styles.flowCard} aria-label="Actual send-backs">
               <h3>Actual send-backs</h3>
               <SendBacks period={data.current} select={select} />
@@ -753,16 +1139,9 @@ export function Flow({
                 are excluded. No recorded send-backs does not establish complete history.
               </p>
             </section>
-            <section className={styles.flowCard} aria-label="First-pass Validate">
-              <h3>First-pass Validate</h3>
-              <FirstPass period={data.current} select={select} />
-              {data.previous && (
-                <details className={styles.dataTable}>
-                  <summary>Previous first-pass evidence</summary>
-                  <FirstPass period={data.previous} select={previousSelect} />
-                </details>
-              )}
-            </section>
+            {factories.length > 1 && (
+              <FlowByFactory data={data} period={data.current} factories={factories} />
+            )}
           </div>
         </>
       )}

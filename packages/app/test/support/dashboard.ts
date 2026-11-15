@@ -271,6 +271,7 @@ function flowPeriod(empty: boolean, period: DashboardPeriod): FlowPeriod {
                 at: '2026-11-06T09:00:00.000Z',
                 counted: true,
                 cause: 'review',
+                severity: 'p1',
               },
               {
                 id: 's2',
@@ -282,6 +283,32 @@ function flowPeriod(empty: boolean, period: DashboardPeriod): FlowPeriod {
                 cause: 'base-conflict',
               },
             ],
+          },
+        ],
+    failures: empty
+      ? []
+      : [
+          {
+            id: 'f1',
+            taskId: 't1',
+            kind: 'check',
+            outcome: 'fixed',
+            at: '2026-11-05T09:00:00.000Z',
+          },
+          {
+            id: 'f2',
+            taskId: 't3',
+            kind: 'finding',
+            outcome: 'accepted',
+            at: '2026-11-06T08:00:00.000Z',
+            reason: 'Out of scope for this Task',
+          },
+          {
+            id: 'f3',
+            taskId: 't3',
+            kind: 'ci',
+            outcome: 'open',
+            at: '2026-11-07T10:00:00.000Z',
           },
         ],
     firstPass: {

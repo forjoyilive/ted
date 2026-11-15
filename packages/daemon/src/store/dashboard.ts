@@ -2,6 +2,8 @@ import { queryDb, type Store } from '@livestore/livestore'
 import type {
   DashboardRange,
   DashboardReport,
+  FailureCase,
+  FindingSeverity,
   FlowSendBack,
   TaskStatusKind,
   ValidationSnapshot,
@@ -14,9 +16,11 @@ import {
   checkResults,
   checkRuns,
   factories,
+  failureCases,
   pullRequests,
   type schema,
   sendBacks,
+  severityDeclarations,
   taskLog,
   tasks,
 } from './schema.ts'
@@ -40,6 +44,20 @@ const historyNames = [
 const sequence = (id: string) => {
   const [global = 0, client = 0] = id.split('.').map(Number)
   return global * 1_000_000 + client
+}
+
+export function sendBackSeverities(
+  backs: readonly { from: string; counted: boolean; checkRunId?: string | null; at: string }[],
+  declared: readonly { at: string; severity: string }[],
+): (FindingSeverity | 'none' | undefined)[] {
+  let after = ''
+  return backs.map((sendBack) => {
+    const since = after
+    after = sendBack.at
+    if (sendBack.from !== 'validate' || !sendBack.counted || sendBack.checkRunId) return undefined
+    const found = declared.findLast((d) => d.at > since && d.at <= sendBack.at)
+    return found ? (found.severity as FindingSeverity) : 'none'
+  })
 }
 
 function chunks<T>(values: T[]): T[][] {
@@ -81,6 +99,7 @@ export function readDashboard(
       judgments: FlowJudgment[]
       sendBacks: FlowSendBack[]
       checks: FlowCheck[]
+      failures: FailureCase[]
     }
   >()
   for (const row of rows) {
@@ -103,6 +122,7 @@ export function readDashboard(
       judgments: [],
       sendBacks: [],
       checks: [],
+      failures: [],
     })
   }
   for (const ids of chunks(rows.map((row) => row.id))) {
@@ -182,12 +202,25 @@ export function readDashboard(
     const backs = store.query(
       queryDb(sendBacks.where({ taskId: { op: 'IN', value: ids } }).orderBy('at', 'asc')),
     )
-    for (const row of backs) {
-      const task = facts.get(row.taskId)
-      const orders = backOrders.get(backKey(row.taskId, row.fromStage, row.toStage, row.at))
-      const order = orders?.values[orders.next++]
-      if (task)
-        task.sendBacks.push({
+    const declared = Map.groupBy(
+      store.query(
+        queryDb(
+          severityDeclarations.where({ taskId: { op: 'IN', value: ids } }).orderBy('at', 'asc'),
+        ),
+      ),
+      (row) => row.taskId,
+    )
+    for (const [taskId, rows] of Map.groupBy(backs, (row) => row.taskId)) {
+      const task = facts.get(taskId)
+      const severities = sendBackSeverities(
+        rows.map((row) => ({ ...row, from: row.fromStage })),
+        declared.get(taskId) ?? [],
+      )
+      rows.forEach((row, index) => {
+        const orders = backOrders.get(backKey(row.taskId, row.fromStage, row.toStage, row.at))
+        const order = orders?.values[orders.next++]
+        const severity = severities[index]
+        task?.sendBacks.push({
           id: row.id,
           taskId: row.taskId,
           from: row.fromStage,
@@ -195,8 +228,15 @@ export function readDashboard(
           counted: row.counted,
           at: row.at,
           cause: row.cause,
+          ...(severity !== undefined && { severity }),
           ...(order !== undefined && { sequence: order }),
         })
+      })
+    }
+    for (const row of store.query(
+      queryDb(failureCases.where({ taskId: { op: 'IN', value: ids } }).orderBy('at', 'asc')),
+    )) {
+      facts.get(row.taskId)?.failures.push(JSON.parse(row.data) as FailureCase)
     }
     for (const row of store.query(
       queryDb(pullRequests.where({ taskId: { op: 'IN', value: ids }, state: 'merged' })),

@@ -957,3 +957,68 @@
   font-size: var(--text-10);
   white-space: nowrap;
 }
+
+.causeReview {
+  background: var(--chart-amethyst);
+}
+
+.causeCheck,
+.outcomeOpen {
+  background: var(--chart-ruby);
+}
+
+.causeHuman {
+  background: var(--chart-tourmaline);
+}
+
+.causeBase {
+  background: var(--chart-slate);
+}
+
+.causeOther {
+  background: var(--chart-teal);
+}
+
+.causeNone {
+  background: var(--surface-neutral);
+}
+
+.outcomeFixed {
+  background: var(--chart-emerald);
+}
+
+.outcomeAccepted {
+  background: var(--chart-aquamarine);
+}
+
+.failureRow {
+  display: grid;
+  grid-template-columns: minmax(120px, 30%) minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 12px;
+  font-size: var(--text-12);
+}
+
+.failureRow .split {
+  height: 12px;
+  margin: 6px 0;
+}
+
+.failureRow > span:last-child {
+  text-align: right;
+}
+
+.severity,
+.severityP1 {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  background: var(--surface-neutral);
+  color: var(--text-secondary);
+  font-size: var(--text-11);
+}
+
+.severityP1 {
+  background: var(--status-failed-bg);
+  color: var(--status-failed-fg);
+}

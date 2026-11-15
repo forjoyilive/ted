@@ -1,5 +1,7 @@
 import type {
   DashboardFlow,
+  FailureCase,
+  FlowFailure,
   FlowPeriod,
   FlowSendBack,
   FlowStage,
@@ -35,6 +37,7 @@ export interface FlowFacts {
   sendBacks?: readonly FlowSendBack[]
   judgments?: readonly FlowJudgment[]
   checks?: readonly FlowCheck[]
+  failures?: readonly FailureCase[]
 }
 
 const iso = (at: number) => new Date(at).toISOString()
@@ -47,6 +50,40 @@ const quantile = (values: number[], p: number): number | null => {
   const lower = values[Math.floor(index)] ?? 0
   const upper = values[Math.ceil(index)] ?? lower
   return lower + (upper - lower) * (index - Math.floor(index))
+}
+
+const oneLine = (text: string) => {
+  const line = text.replace(/\s+/g, ' ').trim()
+  return line.length > 200 ? `${line.slice(0, 199)}…` : line
+}
+
+export function flowFailure(value: FailureCase): FlowFailure | null {
+  const verified = value.verifications?.at(-1)
+  if (verified?.replacedBy) return null
+  const resolution = value.resolutions.at(-1)
+  const kind =
+    value.source.kind === 'finding' ? 'finding' : value.source.kind === 'github-ci' ? 'ci' : 'check'
+  const accepted =
+    !verified &&
+    resolution?.resolution === 'accepted' &&
+    !value.invalidations.some((i) => i.requestId === resolution.requestId)
+  const outcome =
+    verified ||
+    resolution?.resolution === 'fixed' ||
+    resolution?.resolution === 'no-longer-applicable'
+      ? 'fixed'
+      : accepted
+        ? 'accepted'
+        : 'open'
+  const reason = accepted && resolution?.reason ? oneLine(resolution.reason) : ''
+  return {
+    id: value.id,
+    taskId: value.taskId,
+    kind,
+    outcome,
+    at: value.createdAt,
+    ...(reason && { reason }),
+  }
 }
 
 function timing(task: DashboardTaskFacts, asOf: number) {
@@ -262,6 +299,7 @@ function period(
     stages: [],
     reasons: [],
     sendBacks: [],
+    failures: [],
     firstPass: { passed: 0, denominator: 0, percent: null, samples: [] },
   }
   const order = ['intake', 'clarify', 'design', 'work', 'validate', 'review', 'merge']
@@ -344,6 +382,11 @@ function period(
       if (sendBack.counted) group.counted++
       groups.set(key, group)
     }
+    for (const value of task.failures ?? []) {
+      const at = time(value.createdAt)
+      const failure = at >= lower && at < to ? flowFailure(value) : null
+      if (failure) result.failures.push(failure)
+    }
     if (completed.has(task.id)) {
       const visit = visits.get(task.id)
       if (visit) result.firstPass.samples.push(visit)
@@ -400,10 +443,12 @@ export function dashboardFlow(
     ...current.taskIds,
     ...current.incomplete.map((s) => s.taskId),
     ...current.sendBacks.flatMap((g) => g.taskIds),
+    ...current.failures.map((f) => f.taskId),
     ...currentCompleted,
     ...(previous?.taskIds ?? []),
     ...(previous?.incomplete.map((s) => s.taskId) ?? []),
     ...(previous?.sendBacks.flatMap((g) => g.taskIds) ?? []),
+    ...(previous?.failures.map((f) => f.taskId) ?? []),
     ...previousCompleted,
   ])
   return {

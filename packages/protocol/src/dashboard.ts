@@ -125,6 +125,7 @@ export interface FlowSendBack {
   at: string
   counted: boolean
   cause: string | null
+  severity?: import('./checks.ts').FindingSeverity | 'none'
   sequence?: number
 }
 
@@ -134,6 +135,18 @@ export interface FlowSendBackGroup {
   counted: number
   taskIds: string[]
   transitions: FlowSendBack[]
+}
+
+export type FlowFailureKind = 'check' | 'finding' | 'ci'
+export type FlowFailureOutcome = 'fixed' | 'accepted' | 'open'
+
+export interface FlowFailure {
+  id: string
+  taskId: string
+  kind: FlowFailureKind
+  outcome: FlowFailureOutcome
+  at: string
+  reason?: string
 }
 
 export type FlowValidateOutcome = 'passed' | 'failed' | 'skipped' | 'unknown' | 'no-visit'
@@ -156,6 +169,7 @@ export interface FlowPeriod {
   stages: FlowStage[]
   reasons: FlowReason[]
   sendBacks: FlowSendBackGroup[]
+  failures: FlowFailure[]
   firstPass: {
     passed: number
     denominator: number
