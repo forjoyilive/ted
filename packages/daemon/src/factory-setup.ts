@@ -6,8 +6,8 @@ import {
   type CreateFactoryRequest,
   type DaemonEvent,
   type Factory,
-  type FactoryLayout,
   type FactoryIcon,
+  type FactoryLayout,
   type GitHubNameCheck,
   type GitHubNameRequest,
   type GitHubSetupPlan,
@@ -655,9 +655,7 @@ export function createFactories(options: FactoriesOptions): Factories {
       }
       const before = new Map(current.map((f) => [f.id, f.position]))
       const saved = store.saveFactoryLayout(layout)
-      await Promise.all(
-        (saved ?? []).filter((f) => before.get(f.id) !== f.position).map(publish),
-      )
+      await Promise.all((saved ?? []).filter((f) => before.get(f.id) !== f.position).map(publish))
       return store.factoryLayout()
     },
     async forget(factoryId) {

@@ -47,3 +47,19 @@
   border: none;
   background: var(--border-subtle);
 }
+
+.entry {
+  display: contents;
+}
+
+.itemLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.check {
+  margin-left: 8px;
+  color: var(--text-muted);
+}

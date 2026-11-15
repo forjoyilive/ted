@@ -26,6 +26,10 @@ _Avoid_: Lease, placement hint
 A largely automated process that carries software development tasks from creation to merge for one product, which may span several repos.
 _Avoid_: Project (when meaning the whole pipeline), pipeline
 
+**Factory group**:
+A named heading in the sidebar that holds some of the user’s Factories, such as one per client or Personal and Work; a Factory is in at most one group, and groups are kept on this Mac only. The Inbox and All Tasks can filter and group by it.
+_Avoid_: Folder, workspace, tag
+
 **Primary repo**:
 The first repo of a Factory, which holds the Factory’s own Workflow files and Factory notes; a repo can be the primary repo of only one Factory.
 _Avoid_: Main repo, root repo, home repo

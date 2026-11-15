@@ -509,3 +509,97 @@
   margin-top: 4px;
 }
 
+
+.group {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  margin: 6px 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  background: var(--surface-card);
+}
+
+.groupClosed {
+  background: var(--surface-sidebar);
+}
+
+.groupRow {
+  position: relative;
+  border-radius: 8px;
+}
+
+.groupName {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 76px 6px 10px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-15);
+  font-weight: var(--weight-semibold);
+  line-height: 1.4;
+  text-align: left;
+}
+
+.groupName:hover {
+  background: var(--surface-hover);
+}
+
+.groupName:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.groupIcon {
+  display: inline-flex;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+.groupEnd {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.groupEnd > * {
+  pointer-events: auto;
+}
+
+.groupRow:hover .more {
+  opacity: 1;
+}
+
+.groupMembers {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.groupEmpty {
+  margin: 0;
+  padding: 6px 10px;
+  border-radius: var(--radius-control);
+  color: var(--text-caption);
+  font-size: var(--text-12);
+}
+
+.dropInto {
+  outline: 2px solid var(--accent-default);
+  outline-offset: -2px;
+  background: var(--accent-subtle);
+}

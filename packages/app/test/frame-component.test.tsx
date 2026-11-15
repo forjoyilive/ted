@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, fireEvent, screen, within } from '@testing-library/react'
+import type { FactoryLayout } from '@ted/protocol'
 import { expect, test, vi } from 'vitest'
 import { appState } from './support/app.tsx'
 import { deferred, required, user } from './support/component.ts'
@@ -393,22 +394,26 @@ test('Factory Rename saves on Enter and cancels on Escape', async () => {
   expect(a.request.mock.calls.filter(([name]) => name === 'renameFactory')).toHaveLength(1)
 })
 
-test('Move down sends Factory order and the numbered shortcut follows the new order', async () => {
+test('Move down saves the Factory layout and the numbered shortcut follows the new order', async () => {
   const a = appState()
   a.state.factories = [factory(), factory({ id: 'f2', name: 'site', key: 'MS', position: 1 })]
-  a.handle('reorderFactories', () => {
+  a.handle('saveFactoryLayout', (layout) => {
     const updated = [
       factory({ id: 'f2', name: 'site', key: 'MS', position: 0 }),
       factory({ position: 1 }),
     ]
     a.state.factories = updated
+    a.state.layout = layout as FactoryLayout
     for (const f of updated) a.emit({ type: 'factory-updated', factory: f })
-    return updated
+    a.emit({ type: 'factory-layout-changed', layout: a.state.layout })
+    return a.state.layout
   })
   a.mount()
   fireEvent.contextMenu(await screen.findByRole('article', { name: 'widgets' }))
   await user().click(screen.getByRole('menuitem', { name: 'Move down' }))
-  expect(a.request).toHaveBeenCalledWith('reorderFactories', ['f2', 'f1'])
+  expect(a.request).toHaveBeenCalledWith('saveFactoryLayout', {
+    items: [{ factoryId: 'f2' }, { factoryId: 'f1' }],
+  })
   expect(
     within(nav())
       .getAllByRole('article')
@@ -416,4 +421,42 @@ test('Move down sends Factory order and the numbered shortcut follows the new or
   ).toEqual(['site', 'widgets'])
   fireEvent.keyDown(window, { key: '1', metaKey: true })
   await screen.findByRole('heading', { name: /site.*Dashboard/ })
+})
+
+test('Factory groups: New group from the + menu, Move to group, collapse and Ungroup', async () => {
+  const a = appState()
+  a.state.factories = [factory(), factory({ id: 'f2', name: 'site', key: 'MS', position: 1 })]
+  a.handle('saveFactoryLayout', (layout) => {
+    a.state.layout = layout as FactoryLayout
+    a.emit({ type: 'factory-layout-changed', layout: a.state.layout })
+    return a.state.layout
+  })
+  a.mount()
+  const u = user()
+  await screen.findByRole('article', { name: 'widgets' })
+  await u.click(within(nav()).getByRole('button', { name: 'New Factory or group' }))
+  await u.click(screen.getByRole('menuitem', { name: 'New group' }))
+  await u.type(screen.getByLabelText('Group name'), 'Acme{Enter}')
+  const saved = a.request.mock.calls.filter(([name]) => name === 'saveFactoryLayout')
+  const created = (saved.at(-1)?.[1] as FactoryLayout).items[0]
+  expect(created).toMatchObject({ group: { name: 'Acme', factoryIds: [] } })
+  const groupId = created && 'group' in created ? created.group.id : ''
+  const acme = await within(nav()).findByRole('region', { name: 'Acme' })
+  expect(within(acme).getByText('Drag a Factory here')).toBeTruthy()
+
+  fireEvent.contextMenu(screen.getByRole('article', { name: 'site' }))
+  await u.click(screen.getByRole('menuitem', { name: 'Move to group…' }))
+  await u.click(screen.getByRole('menuitemradio', { name: 'Acme' }))
+  expect(a.state.layout).toEqual({
+    items: [{ group: { id: groupId, name: 'Acme', factoryIds: ['f2'] } }, { factoryId: 'f1' }],
+  })
+  expect(within(acme).getByRole('article', { name: 'site' })).toBeTruthy()
+
+  await u.click(within(acme).getByRole('button', { name: 'Acme' }))
+  expect(within(acme).queryByRole('article', { name: 'site' })).toBeNull()
+
+  fireEvent.contextMenu(within(acme).getByRole('article', { name: 'Acme' }))
+  await u.click(screen.getByRole('menuitem', { name: 'Ungroup' }))
+  expect(a.state.layout).toEqual({ items: [{ factoryId: 'f2' }, { factoryId: 'f1' }] })
+  expect(within(nav()).queryByRole('region', { name: 'Acme' })).toBeNull()
 })

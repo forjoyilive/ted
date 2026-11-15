@@ -5143,20 +5143,37 @@ const materializers = counted(
         ...factoryIds.map((factoryId, position) => factoryOrder.insert({ factoryId, position })),
       ],
       'v1.FactoryLayoutSaved': ({ items }) => {
-        type Row = { id: string; factoryId: string | null; groupId: string | null; name: string | null }
+        type Row = {
+          id: string
+          factoryId: string | null
+          groupId: string | null
+          name: string | null
+        }
         const rows = items.flatMap<Row>((item) =>
-            'group' in item
-              ? [
-                  { id: `group:${item.group.id}`, factoryId: null, groupId: item.group.id, name: item.group.name },
-                  ...item.group.factoryIds.map((factoryId) => ({
-                    id: `factory:${factoryId}`,
-                    factoryId,
-                    groupId: item.group.id,
-                    name: null,
-                  })),
-                ]
-              : [{ id: `factory:${item.factoryId}`, factoryId: item.factoryId, groupId: null, name: null }],
-          )
+          'group' in item
+            ? [
+                {
+                  id: `group:${item.group.id}`,
+                  factoryId: null,
+                  groupId: item.group.id,
+                  name: item.group.name,
+                },
+                ...item.group.factoryIds.map((factoryId) => ({
+                  id: `factory:${factoryId}`,
+                  factoryId,
+                  groupId: item.group.id,
+                  name: null,
+                })),
+              ]
+            : [
+                {
+                  id: `factory:${item.factoryId}`,
+                  factoryId: item.factoryId,
+                  groupId: null,
+                  name: null,
+                },
+              ],
+        )
         const order = rows.flatMap((row) => (row.factoryId === null ? [] : [row.factoryId]))
         return [
           factoryLayout.delete(),
