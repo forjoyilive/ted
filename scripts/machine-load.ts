@@ -88,11 +88,13 @@ export async function waitForQuiet(
   const now = options.now ?? Date.now
   const pause = options.pause ?? ((ms: number) => sleep(ms))
   const log = options.log ?? ((line: string) => console.log(line))
-  const started = now()
+  let started: number | undefined
   let reported: number | undefined
   for (;;) {
     const load = read()
-    const waitedMs = now() - started
+    const at = now()
+    started ??= at
+    const waitedMs = at - started
     const step = quietStep(load, waitedMs, maxWaitMs)
     if (step === 'start') {
       if (reported !== undefined)
