@@ -1,6 +1,6 @@
-# TED
+# TED: Totally Excellent Development
 
-**Totally Excellent Development.** A software factory builder for solo developers, on your Mac.
+A software factory builder for solo developers, on your Mac.
 
 You write a task. Agents design, write, test and review the change in your repository. A pull request arrives that has already passed your checks, and you decide whether it merges.
 
