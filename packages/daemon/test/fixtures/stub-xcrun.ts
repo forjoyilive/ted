@@ -1,6 +1,13 @@
 #!/usr/bin/env node
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, mkdirSync, readFileSync, rmdirSync, writeFileSync } from 'node:fs'
+import {
+  appendFileSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmdirSync,
+  writeFileSync,
+} from 'node:fs'
 
 interface StubDevice {
   udid: string
@@ -64,7 +71,10 @@ function read(): StubState {
 }
 
 function write(state: StubState): void {
-  if (file) writeFileSync(file, JSON.stringify(state, null, 2))
+  if (!file) return
+  const tmp = `${file}.${process.pid}.tmp`
+  writeFileSync(tmp, JSON.stringify(state, null, 2))
+  renameSync(tmp, file)
 }
 
 function fail(message: string, code = 1): never {

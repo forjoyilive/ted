@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdirSync, readFileSync, rmdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, renameSync, rmdirSync, writeFileSync } from 'node:fs'
 
 export interface StubIdbScreen {
   screen: 'home' | 'details'
@@ -161,6 +161,8 @@ function act(): string {
     default:
       refuse(`stub-idb: unknown ui command ${verb}`)
   }
-  writeFileSync(file as string, JSON.stringify(state, null, 2))
+  const tmp = `${file}.${process.pid}.tmp`
+  writeFileSync(tmp, JSON.stringify(state, null, 2))
+  renameSync(tmp, file as string)
   return out
 }
