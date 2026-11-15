@@ -42,7 +42,7 @@ const defaultCheckTimeout = '2h'
 const timeoutPattern = /^[1-9]\d{0,4}[smh]$/
 
 const agentStepLabels: Record<CheckAgentStep, string> = {
-  'on-failure': 'When the Check fails',
+  'on-failure': 'When the check fails',
   always: 'After every run',
   never: 'Never',
 }
