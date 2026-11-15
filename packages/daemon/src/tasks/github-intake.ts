@@ -1,4 +1,10 @@
-import { type GitHubIntakeScope, sameGitHubLabel } from '@ted/protocol'
+import {
+  type GitHubIntakeScope,
+  type GitHubIssueUrl,
+  parseGitHubIssueUrl,
+  sameGitHubLabel,
+  type Task,
+} from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import type { GitHubIssueRead, GitHubUnreadable } from '../github/issues.ts'
 import type { TedStore } from '../store/index.ts'
@@ -37,11 +43,21 @@ export function githubIntakeRefusal(input: {
   }
   const parent = issue.parent
   const clash = parent && input.tracked(parent.url)
-  if (parent && clash) {
-    const parentLabel = `${parent.owner}/${parent.repo}#${parent.number}`
-    return `${label} is a sub-issue of ${parentLabel}, which this Factory already tracks as ${clash.task.displayId}. Leave it; that Task covers it.`
-  }
+  if (parent && clash) return parentText(label, parent, clash)
   return undefined
+}
+
+export function trackedParentRefusal(
+  issue: GitHubIssueUrl,
+  parent: GitHubIssueUrl,
+  clash: SourceClash,
+): string {
+  return parentText(`${issue.owner}/${issue.repo}#${issue.number}`, parent, clash)
+}
+
+function parentText(label: string, parent: GitHubIssueUrl, clash: SourceClash): string {
+  const parentLabel = `${parent.owner}/${parent.repo}#${parent.number}`
+  return `${label} is a sub-issue of ${parentLabel}, which this Factory already tracks as ${clash.task.displayId}. Leave it; that Task covers it.`
 }
 
 export function githubIntakeScope(
@@ -60,4 +76,12 @@ export function githubIntakeScope(
       }
     },
   }
+}
+
+export function automationGitHubTask(task: Pick<Task, 'createdBy' | 'source'>): boolean {
+  return (
+    task.createdBy === 'automation' &&
+    task.source !== undefined &&
+    parseGitHubIssueUrl(task.source.url) !== undefined
+  )
 }

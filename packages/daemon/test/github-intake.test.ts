@@ -1,7 +1,12 @@
 import { defaultMachineSettings, type GitHubIntakeScope, type Task } from '@ted/protocol'
 import { expect, test } from 'vitest'
 import type { GitHubIssue, GitHubIssueRead } from '../src/github/issues.ts'
-import { githubIntakeRefusal, githubIntakeScope } from '../src/tasks/github-intake.ts'
+import {
+  automationGitHubTask,
+  githubIntakeRefusal,
+  githubIntakeScope,
+  trackedParentRefusal,
+} from '../src/tasks/github-intake.ts'
 import type { SourceClash } from '../src/tasks/sources.ts'
 
 const repos = ['acme/widgets', 'acme/gadgets']
@@ -23,6 +28,8 @@ function found(overrides: Partial<GitHubIssue> = {}): GitHubIssueRead {
       hiddenComments: 0,
       labels: ['bug', 'Ready for TED'],
       allLabels: true,
+      subIssues: [],
+      subIssuesComplete: true,
       ...overrides,
     },
   }
@@ -88,4 +95,30 @@ test('a change to the setting between the read and the commit is refused', () =>
   expect(() => read.unchanged()).not.toThrow()
   current = undefined
   expect(() => read.unchanged()).toThrow('GitHub intake setting changed')
+})
+
+test('the parent check made again before the commit gives the same reason', () => {
+  const issue = {
+    owner: 'acme',
+    repo: 'widgets',
+    number: 7,
+    url: 'https://github.com/acme/widgets/issues/7',
+  }
+  const parent = { owner: 'acme', repo: 'widgets', number: 3, url: parentUrl }
+  expect(trackedParentRefusal(issue, parent, tracked)).toBe(
+    refusal(found({ parent }), undefined, tracked),
+  )
+})
+
+test('only a Task an Automation made from a GitHub issue is kept from starting on its own', () => {
+  const github = { url: 'https://github.com/acme/widgets/issues/7' }
+  expect(automationGitHubTask({ createdBy: 'automation', source: github })).toBe(true)
+  expect(automationGitHubTask({ createdBy: 'human', source: github })).toBe(false)
+  expect(
+    automationGitHubTask({
+      createdBy: 'automation',
+      source: { url: 'https://linear.app/acme/issue/NB-1' },
+    }),
+  ).toBe(false)
+  expect(automationGitHubTask({ createdBy: 'automation' })).toBe(false)
 })

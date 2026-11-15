@@ -1668,7 +1668,7 @@ describe('Factory GitHub intake enforcement', () => {
   })
 
   // One daemon and two Runs cover every rule; each start of a daemon and a Run costs seconds.
-  test('with a label set, an Automation imports only open, labelled issues in the Factory’s repos and never starts them; with Any open issue the label isn’t needed; the human isn’t limited', async () => {
+  test('with a label set, an Automation imports only open, labelled issues in the Factory’s repos and never starts them, even with Start Backlog Tasks automatically on; with Any open issue the label isn’t needed; the human isn’t limited', async () => {
     process.env.TED_STUB_GH = path.join(home, 'gh.json')
     const client = await startTed()
     const [factory] = await client.ok<Factory[]>('GET', '/factories')
@@ -1712,6 +1712,7 @@ describe('Factory GitHub intake enforcement', () => {
       }),
     )
     await client.ok('PUT', `/factories/${factory.id}/github-intake`, { scope: { label: 'ready' } })
+    await client.ok('PUT', `/factories/${factory.id}/auto-start-backlog`, { enabled: true })
     const create_ = (n: number, ...extra: string[]) => ({
       run: [
         'ted',
@@ -1777,8 +1778,26 @@ describe('Factory GitHub intake enforcement', () => {
     expect(secondRun.run.prompt).toContain('GitHub intake: any open issue')
 
     await client.ok('PUT', `/factories/${factory.id}/github-intake`, { scope: { label: 'ready' } })
-    await client.ok('POST', '/tasks', { factory: 'NB', source: url(3), title: 'Closed, by hand' })
+    const byHand = await client.ok<Task>('POST', '/tasks', {
+      factory: 'NB',
+      source: url(3),
+      title: 'Closed, by hand',
+    })
+    await waitUntil(
+      async () =>
+        (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === byHand.id)?.stage !==
+        'backlog',
+      'Start Backlog Tasks automatically to start the Task made by hand',
+    )
     tasks = await client.ok<Task[]>('GET', '/tasks')
     expect(tasks.map((t) => t.source?.github?.number).sort()).toEqual([1, 2, 3])
+    expect(
+      tasks
+        .filter((t) => t.createdBy === 'automation')
+        .map((t) => [t.source?.github?.number, t.stage]),
+    ).toEqual([
+      [1, 'backlog'],
+      [2, 'backlog'],
+    ])
   })
 })
