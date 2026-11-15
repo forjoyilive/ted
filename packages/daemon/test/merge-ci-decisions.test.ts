@@ -179,7 +179,8 @@ test(
     expect(after.filter((c) => c.title === 'CI failed at Merge')).toHaveLength(1)
     expect((await getTask(client, task.id)).stage).toBe('merge')
     expect(await merges()).toEqual([])
-    expect((await resolve(client, task, failure, request, 'accepted')).status).toBe(200)
+    const answer = await resolve(client, task, failure, request, 'accepted')
+    expect(answer.status, JSON.stringify(answer.body)).toBe(200)
     await waitForStage(client, task, 'done')
     expect(await merges()).toHaveLength(1)
     const [accepted] = await cases(client, task)
@@ -198,7 +199,8 @@ test(
     if (!failure) throw new Error('no failure')
     expect(failure.source).toMatchObject({ required: true })
     const request = await ask(client, task, failure)
-    expect((await resolve(client, task, failure, request, 'accepted')).status).toBe(200)
+    const answer = await resolve(client, task, failure, request, 'accepted')
+    expect(answer.status, JSON.stringify(answer.body)).toBe(200)
     const blocked = (all: Comment[]) =>
       all.filter((c) => c.title === 'GitHub still blocks this merge')
     await waitUntil(
