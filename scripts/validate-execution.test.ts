@@ -41,6 +41,7 @@ beforeEach(async () => {
   root = await realpath(await mkdtemp(path.join(tmpdir(), 'ted-report-test-')))
 })
 afterEach(async () => {
+  vi.useRealTimers()
   vi.unstubAllEnvs()
   await rm(root, { recursive: true, force: true })
 })
@@ -359,7 +360,10 @@ test('report storage excludes a configured home even through its canonical path'
   await expect(access(path.join(home, 'reports'))).rejects.toThrow()
 })
 
+const holdTimeouts = () => vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+
 test('real failing subprocess propagates exit code and bounded timeout', async () => {
+  holdTimeouts()
   const command: ScenarioCommand = {
     argv: [process.execPath, '-e', 'process.exit(7)'],
     cwd: root,
@@ -369,15 +373,13 @@ test('real failing subprocess propagates exit code and bounded timeout', async (
     observationsFile: '',
   }
   expect((await executeScenario(command)).code).toBe(7)
-  expect(
-    (
-      await executeScenario({
-        ...command,
-        argv: [process.execPath, '-e', 'setInterval(()=>{},1000)'],
-        timeoutMs: 20,
-      })
-    ).code,
-  ).toBe(1)
+  const hung = executeScenario({
+    ...command,
+    argv: [process.execPath, '-e', 'setInterval(()=>{},1000)'],
+    timeoutMs: 20,
+  })
+  vi.advanceTimersByTime(20)
+  expect((await hung).code).toBe(1)
   const exec = promisify(execFile)
   await expect(
     exec(
@@ -397,6 +399,7 @@ test('redacts before enforcing artifact bounds', () => {
 
 test('scenario timeout stops its owned subprocess group', async () => {
   if (process.platform === 'win32') return
+  holdTimeouts()
   const ready = path.join(root, 'child-ready')
   const stopped = path.join(root, 'child-stopped')
   const childSource = `const fs = require('node:fs'); process.on('SIGTERM', () => { fs.writeFileSync(${JSON.stringify(stopped)}, 'stopped'); process.exit(0) }); fs.writeFileSync(${JSON.stringify(ready)}, 'ready'); setInterval(() => {}, 1000)`
@@ -417,6 +420,7 @@ test('scenario timeout stops its owned subprocess group', async () => {
       ),
     'owned subprocess readiness',
   )
+  vi.advanceTimersByTime(3000)
   expect((await result).code).toBe(1)
   expect(await readFile(stopped, 'utf8')).toBe('stopped')
 })
