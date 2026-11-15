@@ -3,12 +3,14 @@ import { createHash } from 'node:crypto'
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { releaseRepo } from '../packages/protocol/src/release.ts'
 import { checkAndRecord, hasPassed } from './check.ts'
@@ -487,8 +489,94 @@ function forward(args: string[], fresh: boolean): never {
   }
   const script = path.join(checkout, 'scripts/release.ts')
   const result = spawnSync(process.execPath, [script, ...args], { cwd: checkout, stdio: 'inherit' })
-  if (result.status === 0 && args.includes('publish')) pullMain()
+  if (result.status === 0 && args.includes('publish')) {
+    pullMain()
+    const record = path.join(checkout, path.relative(root, recordFile))
+    updateWebsite(JSON.parse(readFileSync(record, 'utf8')) as ReleaseRecord)
+  }
   process.exit(result.status ?? 1)
+}
+
+export interface WebsiteRelease {
+  version: string
+  updated: string
+  download: string
+}
+
+export function websiteRelease(record: ReleaseRecord, published: Date): WebsiteRelease {
+  const dmg = Object.keys(record.files).find((name) => name.endsWith('.dmg'))
+  if (dmg === undefined) throw new Error(`the build of ${record.version} has no .dmg`)
+  return {
+    version: `v${record.version}`,
+    updated: published.toLocaleDateString('en-US', { month: 'long', day: 'numeric' }),
+    download: `https://github.com/${repo}/releases/download/v${record.version}/${encodeURIComponent(dmg)}`,
+  }
+}
+
+const websiteFile = 'src/data/release.json'
+
+// The website deploys every push to its main, so the release is committed there from a scratch
+// worktree of origin/main and the website checkout, which may hold other work, is left alone.
+function updateWebsite(record: ReleaseRecord): void {
+  const website = process.env.TED_WEBSITE_DIR || path.join(os.homedir(), 'Websites/ted-and-bill')
+  if (!existsSync(path.join(website, websiteFile))) {
+    console.log(`\nNo ${websiteFile} in ${website}; update the website yourself.`)
+    return
+  }
+  const facts = websiteRelease(record, new Date())
+  const scratch = path.join(mkdtempSync(path.join(os.tmpdir(), 'ted-website-')), 'site')
+  const inWebsite = (dir: string, title: string, args: string[]) =>
+    inCheckout(dir, title, 'git', args)
+  inWebsite(website, 'Fetch the website', ['fetch', 'origin', 'main'])
+  inWebsite(website, 'Check out the website', [
+    'worktree',
+    'add',
+    '--detach',
+    scratch,
+    'origin/main',
+  ])
+  try {
+    const file = path.join(scratch, websiteFile)
+    const current = JSON.parse(readFileSync(file, 'utf8')) as WebsiteRelease
+    if (current.version === facts.version && current.download === facts.download) {
+      console.log(`\nThe website already offers ${facts.version}.`)
+      return
+    }
+    writeFileSync(file, `${JSON.stringify(facts, null, 2)}\n`)
+    inWebsite(scratch, 'Commit the website', [
+      'commit',
+      '-qm',
+      `Offer TED ${facts.version}`,
+      '--',
+      websiteFile,
+    ])
+    for (let attempt = 0; ; attempt++) {
+      console.log('\n== Push the website')
+      const push = spawnSync('git', ['push', 'origin', 'HEAD:refs/heads/main'], {
+        cwd: scratch,
+        stdio: 'inherit',
+      })
+      if (push.status === 0) break
+      if (attempt === 2) fail(`couldn’t push the website; run pnpm release publish again to retry`)
+      inWebsite(scratch, 'Fetch the website', ['fetch', 'origin', 'main'])
+      inWebsite(scratch, 'Rebase the website change', ['rebase', 'origin/main'])
+    }
+  } finally {
+    spawnSync('git', ['worktree', 'remove', '--force', scratch], { cwd: website, stdio: 'inherit' })
+  }
+  console.log(
+    `\nThe website now offers ${facts.version}; Cloudflare deploys it in a minute or two.`,
+  )
+  const branch = execFileSync('git', ['branch', '--show-current'], {
+    cwd: website,
+    encoding: 'utf8',
+  }).trim()
+  if (branch === 'main') {
+    spawnSync('git', ['pull', '--ff-only', '--quiet', 'origin', 'main'], {
+      cwd: website,
+      stdio: 'inherit',
+    })
+  }
 }
 
 function pullMain(): void {

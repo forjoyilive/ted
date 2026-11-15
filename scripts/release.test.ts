@@ -14,6 +14,7 @@ import {
   type ReleaseRecord,
   releaseFiles,
   signingRefusal,
+  websiteRelease,
 } from './release.ts'
 
 describe('release versions', () => {
@@ -220,5 +221,22 @@ describe('discarding a build', () => {
     expect(discardPlan({ record: undefined, head: 'x', remoteTag: undefined })).toEqual({
       refusal: 'there’s no build to discard',
     })
+  })
+})
+
+describe('the website', () => {
+  test('offers the published version, its date and a direct link to the .dmg', () => {
+    const record: ReleaseRecord = {
+      version: '1.2.0',
+      base: 'b',
+      commit: 'c',
+      files: { 'TED-1.2.0-arm64-mac.zip': 'x', 'TED-1.2.0-arm64.dmg': 'y', 'latest-mac.yml': 'z' },
+    }
+    expect(websiteRelease(record, new Date(2026, 10, 15, 12))).toEqual({
+      version: 'v1.2.0',
+      updated: 'November 15',
+      download: 'https://github.com/forjoyilive/ted/releases/download/v1.2.0/TED-1.2.0-arm64.dmg',
+    })
+    expect(() => websiteRelease({ ...record, files: {} }, new Date())).toThrow(/no \.dmg/)
   })
 })
