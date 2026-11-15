@@ -6,7 +6,6 @@ import { clean } from '../github-activity.ts'
 import {
   type TrackerConnector,
   type TrackerItem,
-  type TrackerRecord,
   type TrackerRecords,
   TrackerWait,
 } from './connector.ts'
@@ -42,7 +41,6 @@ interface Watched<Source> {
   task: Task
   source: Source
   merged: boolean
-  record: TrackerRecord
 }
 
 export function createTrackerSync<Source, Handle>(
@@ -94,7 +92,7 @@ export function createTrackerSync<Source, Handle>(
     return store.tasksIn(new Set(ids)).flatMap((task): Watched<Source>[] => {
       const source = task.source && connector.source(task.source.url)
       if (!source) return []
-      return [{ task, source, merged: doneAndMerged(task.id), record: records.record(task.id) }]
+      return [{ task, source, merged: doneAndMerged(task.id) }]
     })
   }
 
@@ -124,13 +122,10 @@ export function createTrackerSync<Source, Handle>(
     return undefined
   }
 
-  async function syncOne(
-    { task, source, merged, record }: Watched<Source>,
-    read: TrackerItem<Handle>,
-  ) {
+  async function syncOne({ task, source, merged }: Watched<Source>, read: TrackerItem<Handle>) {
     const label = connector.label(source)
     const item = { ...read, state: clean(read.state, maxStateName) }
-    const before = record.seen
+    const before = records.record(task.id).seen
     records.see(task.id, label, item)
     const current = store.getTask(task.id)
     if (!current || records.syncState(current) !== 'on') return
@@ -142,8 +137,9 @@ export function createTrackerSync<Source, Handle>(
     if (!open) settled(task.id, 'done')
     else if (!itemClosed && before !== undefined && before.closed) settled(task.id, 'reopened')
     if (!merged && store.getTask(task.id)?.archived) return
-    const decision = await connector.advance({ task, merged, step: record.step, item })
-    if (decision && rank(decision.step) > rank(record.step)) {
+    const latest = records.record(task.id)
+    const decision = await connector.advance({ task, merged, step: latest.step, item })
+    if (decision && rank(decision.step) > rank(latest.step)) {
       records.moved(
         task.id,
         label,
@@ -151,7 +147,7 @@ export function createTrackerSync<Source, Handle>(
         decision.moved === undefined ? undefined : clean(decision.moved, maxStateName),
       )
     }
-    const fresh = pullRequestLinks(task).filter((l) => !record.linked.has(l.url))
+    const fresh = pullRequestLinks(task).filter((l) => !latest.linked.has(l.url))
     const linked: string[] = []
     try {
       for (const pullRequest of fresh) {

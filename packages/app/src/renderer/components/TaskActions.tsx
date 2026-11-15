@@ -3,7 +3,7 @@ import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, clarifyIsOver, priorities, resetRefusal } from '@ted/protocol/task'
 import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useTasks } from '../data.ts'
+import { useSettings, useTasks } from '../data.ts'
 import { newChildTask, pickChildEvent, pickParentEvent } from '../hierarchy.ts'
 import { keysFor } from '../keymap.ts'
 import { besideMenu } from '../menu-tooltip.ts'
@@ -380,6 +380,7 @@ export function TaskActionsMenu({
   const refusal = resetRefusal(task)
   const linear = task.source?.linear
   const sync = trackerSyncOf(task)
+  const settings = useSettings()
 
   const activity = usePendingAction(`task-actions:${task.id}`)
   const act = (work: () => Promise<unknown>) => {
@@ -730,6 +731,22 @@ export function TaskActionsMenu({
                 onClick={() => act(() => ted.openTaskSource(task.id))}
               >
                 <span className={styles.label}>Open source in Asana</span>
+              </ActionButton>
+            </>
+          )}
+          {task.source?.github && (
+            <>
+              <hr className={styles.separator} />
+              <ActionButton
+                type="button"
+                role="menuitem"
+                className={styles.item}
+                onClick={() => act(() => ted.openTaskSource(task.id))}
+              >
+                <span className={styles.label}>Open source in GitHub</span>
+                <span className={styles.hint}>
+                  {settings?.githubIssueSync ? 'Syncing' : 'Sync is off in Settings'}
+                </span>
               </ActionButton>
             </>
           )}

@@ -385,6 +385,7 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   },
   linearSync: onOff('linearSync'),
   asanaSync: onOff('asanaSync'),
+  githubIssueSync: onOff('githubIssueSync'),
   lowPriorityWork: onOff('lowPriorityWork'),
   antigravityPlanAccepted: onOff('antigravityPlanAccepted'),
   startNewTasks: onOff('startNewTasks'),

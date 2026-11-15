@@ -93,6 +93,7 @@ export interface DaemonOptions {
   heldRequests?: { maxMs?: number }
   linearSyncMs?: number
   asanaSyncMs?: number
+  githubSyncMs?: number
   onShutdown?: () => void
   holdAwake?: HoldAwake
   commandLine?: CommandLineOptions
@@ -511,6 +512,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.heldRequests !== undefined && { heldRequests: options.heldRequests }),
         ...(options.linearSyncMs !== undefined && { linearSyncMs: options.linearSyncMs }),
         ...(options.asanaSyncMs !== undefined && { asanaSyncMs: options.asanaSyncMs }),
+        ...(options.githubSyncMs !== undefined && { githubSyncMs: options.githubSyncMs }),
         logsDir: paths.logs,
         runsDir: paths.runs,
         libraryDir: paths.library,
