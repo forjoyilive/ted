@@ -15,9 +15,7 @@ export const settingsPageNames: Record<SettingsSectionId, string> = {
 
 export const factorySections = [
   ['general', 'General'],
-  ['linear-intake', 'Linear intake'],
-  ['asana-intake', 'Asana intake'],
-  ['github-intake', 'GitHub intake'],
+  ['intake', 'Intake'],
   ['repos', 'Repos'],
   ['workflow', 'Workflow'],
   ['checks', 'Checks'],
@@ -296,32 +294,37 @@ const entries = {
     detail:
       'Start the next eligible Task when a working-Run slot is free. Uses Priority and manual order, skips blocked Tasks, and gives Queued work precedence. Takes effect immediately. Turning this off leaves started Tasks running.',
   },
-  'factory.linear-intake': {
-    name: 'Linear intake',
-    detail:
-      'Choose which Linear issues Automations can bring into this Factory. The built-in Linear Automation brings in issues assigned to you that haven’t started yet. Changes apply immediately to automatic intake. You can still paste any Linear issue into a new Task. Existing Tasks and status-sync consent stay as they are.',
+  'factory.intake': {
+    name: 'Intake',
+    detail: 'Choose which issues and tasks Automations can bring into this Factory.',
     heading: true,
   },
-  'factory.linear-intake.scope': { name: 'Scope', keywords: 'team project' },
-  'factory.asana-intake': {
-    name: 'Asana intake',
-    detail:
-      'Choose which Asana tasks Automations can bring into this Factory: one workspace, one project and, optionally, one section. Asana intake imports unfinished tasks assigned to you there, with the tasks under them, when its Automation runs.',
-    heading: true,
-  },
-  'factory.asana-intake.scope': {
-    name: 'Asana workspace, project and section',
-    keywords: 'asana workspace project section intake',
-  },
-  'factory.github-intake': {
+  'factory.intake.github': {
     name: 'GitHub intake',
     detail:
       'Choose which GitHub issues Automations can bring into this Factory: any open issue in its repos, or only issues with a label you name. TED reads each issue itself and refuses the rest. Tasks you create yourself aren’t affected.',
     heading: true,
   },
-  'factory.github-intake.scope': {
+  'factory.intake.github.scope': {
     name: 'Issues Automations can bring in',
     keywords: 'github issue label intake triage',
+  },
+  'factory.intake.linear': {
+    name: 'Linear intake',
+    detail:
+      'Choose which Linear issues Automations can bring into this Factory. The built-in Linear Automation brings in issues assigned to you that haven’t started yet. Changes apply immediately to automatic intake. You can still paste any Linear issue into a new Task. Existing Tasks and status-sync consent stay as they are.',
+    heading: true,
+  },
+  'factory.intake.linear.scope': { name: 'Scope', keywords: 'team project' },
+  'factory.intake.asana': {
+    name: 'Asana intake',
+    detail:
+      'Choose which Asana tasks Automations can bring into this Factory: one workspace, one project and, optionally, one section. Asana intake imports unfinished tasks assigned to you there, with the tasks under them, when its Automation runs.',
+    heading: true,
+  },
+  'factory.intake.asana.scope': {
+    name: 'Asana workspace, project and section',
+    keywords: 'asana workspace project section intake',
   },
   'factory.repos': { name: 'Repos', heading: true },
   'factory.repos.base-branch': { name: 'Base branch' },

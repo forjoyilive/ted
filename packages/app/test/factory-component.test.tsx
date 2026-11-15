@@ -75,7 +75,7 @@ test('General shows at once and alone, and a repo page waits for the repo settin
   const api = open({ factorySettings: () => pending.promise })
   expect(screen.getByRole('region', { name: 'General' })).toBeTruthy()
   expect(pageRow('General').getAttribute('aria-current')).toBe('page')
-  expect(screen.queryByRole('region', { name: 'Linear intake' })).toBeNull()
+  expect(screen.queryByRole('region', { name: 'Intake' })).toBeNull()
   expect(screen.queryByRole('status', { name: 'Loading Factory settings…' })).toBeNull()
   expect(screen.queryByText('How repo settings are saved')).toBeNull()
   await page('Repos')
@@ -93,6 +93,66 @@ test('General shows at once and alone, and a repo page waits for the repo settin
   expect(screen.getByRole('region', { name: 'Repos' })).toBeTruthy()
   expect(screen.queryByRole('status', { name: 'Loading Factory settings…' })).toBeNull()
   await act(async () => refresh.resolve(settingsView()))
+})
+
+test('Intake shows GitHub, Linear and Asana on one page with only the fields that apply', async () => {
+  open({ getAsana: () => ({ state: 'not-connected' }) })
+  await page('Intake')
+  const intake = screen.getByRole('region', { name: 'Intake' })
+  expect(
+    within(intake)
+      .getAllByRole('heading', { level: 3 })
+      .map((heading) => heading.textContent),
+  ).toEqual(['GitHub', 'Linear', 'Asana'])
+  expect(within(intake).getAllByText(/^Saved on /)).toHaveLength(1)
+  const linear = within(screen.getByRole('region', { name: 'Linear' }))
+  await linear.findByText(/^Connect Linear in App Settings/)
+  expect(linear.queryByLabelText('Scope')).toBeNull()
+  expect(linear.queryByRole('button', { name: 'Try again' })).toBeNull()
+  const asana = within(screen.getByRole('region', { name: 'Asana' }))
+  await asana.findByText(/^Connect Asana in App Settings/)
+  expect(asana.queryByRole('switch')).toBeNull()
+  const github = within(screen.getByRole('region', { name: 'GitHub' }))
+  expect(github.queryByLabelText('Label')).toBeNull()
+  fireEvent.change(github.getByLabelText('Issues Automations can bring in'), {
+    target: { value: 'label' },
+  })
+  expect(github.getByLabelText('Label')).toBeTruthy()
+})
+
+test('connected Linear and Asana show their pickers only when a choice needs them', async () => {
+  open({
+    getLinear: () => ({ state: 'connected' }),
+    getLinearIntakeChoices: () => ({
+      workspaceId: 'w1',
+      workspace: 'Kriya',
+      teams: [{ id: 't1', name: 'Design', key: 'KRI' }],
+      projects: [],
+    }),
+    getAsana: () => ({ state: 'connected' }),
+    checkFactoryAsanaIntake: () => ({ state: 'none' }),
+    listAsanaWorkspaces: () => ({ items: [{ gid: 'a1', name: 'Kriya' }] }),
+  })
+  await page('Intake')
+  const linear = within(screen.getByRole('region', { name: 'Linear' }))
+  await waitFor(() => expect(linear.queryByText(/Loading Linear/)).toBeNull())
+  expect(linear.getByLabelText('Scope')).toBeTruthy()
+  expect(linear.queryByLabelText('Team')).toBeNull()
+  expect(linear.queryByText(/^Saved scope/)).toBeNull()
+  const asana = within(screen.getByRole('region', { name: 'Asana' }))
+  const toggle = await asana.findByRole('switch', { name: 'Import Asana work into this Factory' })
+  expect(asana.queryByLabelText('Workspace')).toBeNull()
+  expect(asana.queryByRole('button', { name: 'Save' })).toBeNull()
+  expect(asana.queryByText(/^Saved: /)).toBeNull()
+  expect(asana.queryByText(/^When its Automation runs/)).toBeNull()
+  await user().click(toggle)
+  expect(await asana.findByLabelText('Workspace')).toBeTruthy()
+  expect(asana.getByRole('button', { name: 'Save' })).toBeTruthy()
+  expect(asana.getByText('Saved: Off')).toBeTruthy()
+  expect(asana.getByText(/^When its Automation runs/)).toBeTruthy()
+  await user().click(asana.getByRole('button', { name: 'Cancel' }))
+  expect(asana.queryByLabelText('Workspace')).toBeNull()
+  expect(asana.queryByRole('button', { name: 'Save' })).toBeNull()
 })
 
 test('automatic Backlog starting saves immediately without the repository Save dialog', async () => {

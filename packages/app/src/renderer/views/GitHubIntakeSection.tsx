@@ -43,27 +43,15 @@ export const GitHubIntakeSection = memo(function GitHubIntakeSection({
   }
 
   return (
-    <section
-      className={`${styles.section} ${styles.compactSection}`}
-      aria-labelledby={`${id}-heading`}
-    >
-      <div
-        className={styles.sectionHeading}
-        id="github-intake"
-        data-setting="factory.github-intake"
-      >
-        <h2 id={`${id}-heading`} className={styles.sectionTitle}>
-          GitHub intake
-        </h2>
-        <span className={styles.machineChip}>
-          Saved on {navigator.userAgent.includes('Mac') ? 'this Mac' : 'this computer'}
-        </span>
-      </div>
+    <section className={styles.section} aria-labelledby={`${id}-heading`}>
+      <h3 id={`${id}-heading`} className={styles.groupLabel} data-setting="factory.intake.github">
+        GitHub
+      </h3>
       <span className={styles.caption}>
         Choose which GitHub issues Automations can bring into this Factory. TED checks each issue
         itself. Tasks you create yourself aren’t affected.
       </span>
-      <div className={styles.field} data-setting="factory.github-intake.scope">
+      <div className={styles.field} data-setting="factory.intake.github.scope">
         <label className={styles.label} htmlFor={`${id}-kind`}>
           Issues Automations can bring in
         </label>

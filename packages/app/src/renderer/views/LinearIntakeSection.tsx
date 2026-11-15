@@ -19,6 +19,7 @@ export const LinearIntakeSection = memo(function LinearIntakeSection({
   const [loadError, setLoadError] = useState<string>()
   const [saveError, setSaveError] = useState<string>()
   const [loading, setLoading] = useState(true)
+  const [notConnected, setNotConnected] = useState(false)
   const [saving, setSaving] = useState(false)
   const [retry, setRetry] = useState(0)
   const { epoch } = useConnection()
@@ -29,19 +30,19 @@ export const LinearIntakeSection = memo(function LinearIntakeSection({
     let live = true
     setLoading(true)
     setLoadError(undefined)
+    setNotConnected(false)
     setChoices(undefined)
     void ted
       .getLinear()
       .then(async (status) => {
-        if (status.state !== 'connected')
-          throw new Error(
-            'Connect Linear in App Settings → Integrations to choose a Team or Project.',
-          )
+        if (status.state !== 'connected') return undefined
         return ted.getLinearIntakeChoices()
       })
       .then(
         (loaded) => {
-          if (live) setChoices(loaded)
+          if (!live) return
+          if (loaded) setChoices(loaded)
+          else setNotConnected(true)
         },
         (failure: unknown) => {
           if (live) setLoadError(readableError(failure))
@@ -78,27 +79,34 @@ export const LinearIntakeSection = memo(function LinearIntakeSection({
   const savedLabel = scope
     ? `${scope.kind === 'team' ? 'Team' : 'Project'}: ${scope.name} · ${scope.workspace}`
     : 'Unscoped'
-  return (
-    <section
-      className={`${styles.section} ${styles.compactSection}`}
-      aria-labelledby={`${id}-heading`}
-    >
-      <div
-        className={styles.sectionHeading}
-        id="linear-intake"
-        data-setting="factory.linear-intake"
-      >
-        <h2 id={`${id}-heading`} className={styles.sectionTitle}>
-          Linear intake
-        </h2>
-        <span className={styles.machineChip}>
-          Saved on {navigator.userAgent.includes('Mac') ? 'this Mac' : 'this computer'}
+  const heading = (
+    <h3 id={`${id}-heading`} className={styles.groupLabel} data-setting="factory.intake.linear">
+      Linear
+    </h3>
+  )
+  if (loading || notConnected)
+    return (
+      <section className={styles.section} aria-labelledby={`${id}-heading`}>
+        {heading}
+        <span className={styles.caption}>
+          Choose which Linear issues Automations can bring into this Factory.
         </span>
-      </div>
+        <span className={styles.caption}>
+          {loading
+            ? 'Loading Linear Teams and Projects…'
+            : 'Connect Linear in App Settings → Integrations to choose a Team or Project.'}
+          {!loading && scope ? ` The saved scope (${savedLabel}) stays in effect.` : ''}
+        </span>
+      </section>
+    )
+
+  return (
+    <section className={styles.section} aria-labelledby={`${id}-heading`}>
+      {heading}
       <span className={styles.caption}>
         Choose which Linear issues Automations can bring into this Factory.
       </span>
-      <div className={styles.field} data-setting="factory.linear-intake.scope">
+      <div className={styles.field} data-setting="factory.intake.linear.scope">
         <label className={styles.label} htmlFor={`${id}-kind`}>
           Scope
         </label>
@@ -168,10 +176,11 @@ export const LinearIntakeSection = memo(function LinearIntakeSection({
           )}
         </div>
       )}
-      <span className={styles.caption} role="status">
-        {saving ? 'Saving…' : settings ? `Saved scope: ${savedLabel}` : 'Loading saved scope…'}
-      </span>
-      {loading && <span className={styles.caption}>Loading Linear Teams and Projects…</span>}
+      {(saving || !settings) && (
+        <span className={styles.caption} role="status">
+          {saving ? 'Saving…' : 'Loading saved scope…'}
+        </span>
+      )}
       {loadError && (
         <div>
           <p className={styles.fieldError}>{loadError} A saved scope stays in effect.</p>

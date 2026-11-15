@@ -61,9 +61,9 @@ test('a name match comes first, a setting before a heading with the same words',
   expect(find('linear').map((hit) => hit.id)).toEqual([
     'app.integrations.linear.sync',
     'app.integrations.linear',
-    'factory.linear-intake',
+    'factory.intake.linear',
     'app.integrations.linear.key',
-    'factory.linear-intake.scope',
+    'factory.intake.linear.scope',
   ])
   expect(find('run', { limit: 3 })).toHaveLength(3)
 })
@@ -82,14 +82,14 @@ test('Factory settings carry the Factory’s name and are left out without a Fac
     target: { section: 'permissions' },
   })
   expect(find('asana project')[0]).toMatchObject({
-    id: 'factory.asana-intake.scope',
-    where: 'widgets › Settings › Asana intake',
-    target: { section: 'asana-intake' },
+    id: 'factory.intake.asana.scope',
+    where: 'widgets › Settings › Intake',
+    target: { section: 'intake' },
   })
   expect(find('github label')[0]).toMatchObject({
-    id: 'factory.github-intake.scope',
-    where: 'widgets › Settings › GitHub intake',
-    target: { section: 'github-intake' },
+    id: 'factory.intake.github.scope',
+    where: 'widgets › Settings › Intake',
+    target: { section: 'intake' },
   })
   expect(find('bypass').map((hit) => hit.id)).toEqual(['factory.permissions'])
   expect(find('deletes its tasks').map((hit) => hit.id)).toEqual(['factory.danger-zone.remove'])
