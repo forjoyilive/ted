@@ -299,9 +299,12 @@ export function Sidebar({
   const layout = layoutOf(arrange(factories, factoryLayout))
   const currentGroup =
     currentFactoryId === undefined ? undefined : groupOf(layout, currentFactoryId)?.id
+  const screen = navigation.screen
   const arrival =
-    navigation.screen.kind === 'factory' || navigation.taskId !== undefined
-      ? JSON.stringify([navigation.screen, navigation.taskId])
+    screen.kind === 'factory' ||
+    navigation.taskId !== undefined ||
+    (screen.kind === 'dashboard' && screen.dashboard?.factoryIds?.length === 1)
+      ? JSON.stringify([screen, navigation.taskId])
       : undefined
   // biome-ignore lint/correctness/useExhaustiveDependencies: opens only when arriving at a Factory or Task
   useEffect(() => {
