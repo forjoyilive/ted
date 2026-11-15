@@ -120,6 +120,7 @@ import {
 } from '@ted/protocol'
 import { Effect } from 'effect'
 import { isDiskFullError } from '../disk.ts'
+import { redactSecrets } from '../redact.ts'
 import { type QueueEntry, queueOrder } from '../tasks/queue.ts'
 import {
   commentBox,
@@ -224,6 +225,7 @@ import {
   workflowLayers,
 } from './schema.ts'
 import { createSideChatStore, type SideChatStore } from './side-chats.ts'
+import { markEventsSynced } from './sync-head.ts'
 import { createTaskHistory, type TaskHistory } from './task-history.ts'
 import { blockerTransitions, taskIntervalHistory } from './task-intervals.ts'
 import { createTestInvocationStore, type TestInvocationStore } from './test-invocations.ts'
@@ -1299,6 +1301,14 @@ export async function openStore({
 }): Promise<TedStore> {
   const total = onProgress ? await eventCount(directory) : 0
   let done = 0
+  const marked = await markEventsSynced(directory)
+  if (marked.kind === 'failed') {
+    console.error(
+      redactSecrets(
+        `marking the event log as synced failed, so LiveStore keeps every event in memory: ${marked.reason}`,
+      ),
+    )
+  }
   countMaterialized(onProgress && (() => onProgress({ done: Math.min(++done, total), total })))
   const store = await createStorePromise({
     schema,
