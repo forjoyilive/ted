@@ -115,6 +115,7 @@ import type {
   FactoryLayout,
   FactoryRemoval,
   RemoveFactoryRequest,
+  ReorderFactoriesRequest,
   RepoCheck,
   RepoRemoval,
   SetFactoryNotificationsRequest,
@@ -1740,6 +1741,12 @@ export class DaemonClient {
       'DELETE',
       `/factories/${encodeURIComponent(factoryId)}/repos/${encodeURIComponent(repoName)}/local-folder`,
     )
+  }
+
+  reorderFactories(factoryIds: string[]): Promise<Factory[]> {
+    return this.#request('PUT', '/factories/order', {
+      factoryIds,
+    } satisfies ReorderFactoriesRequest)
   }
 
   factoryLayout(): Promise<FactoryLayout> {

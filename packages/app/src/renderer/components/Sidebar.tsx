@@ -299,12 +299,16 @@ export function Sidebar({
   const layout = layoutOf(arrange(factories, factoryLayout))
   const currentGroup =
     currentFactoryId === undefined ? undefined : groupOf(layout, currentFactoryId)?.id
-  // biome-ignore lint/correctness/useExhaustiveDependencies: opens only when the current Factory changes
+  const arrival =
+    navigation.screen.kind === 'factory' || navigation.taskId !== undefined
+      ? JSON.stringify([navigation.screen, navigation.taskId])
+      : undefined
+  // biome-ignore lint/correctness/useExhaustiveDependencies: opens only when arriving at a Factory or Task
   useEffect(() => {
-    if (currentGroup !== undefined && openGroups[currentGroup] === false) {
+    if (arrival !== undefined && currentGroup !== undefined && openGroups[currentGroup] === false) {
       setGroupOpen(currentGroup, true)
     }
-  }, [currentFactoryId, currentGroup])
+  }, [arrival, currentGroup])
   const shown =
     naming?.isNew === true && !groups(layout).some((g) => g.id === naming.groupId)
       ? addGroup(layout, { id: naming.groupId, name: '' }, naming.factoryId)

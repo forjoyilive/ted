@@ -40,6 +40,10 @@ export interface Factory {
   createdAt: string
 }
 
+export interface ReorderFactoriesRequest {
+  factoryIds: string[]
+}
+
 export interface FactoryGroup {
   id: string
   name: string

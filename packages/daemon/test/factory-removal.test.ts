@@ -189,6 +189,25 @@ describe('Factory order', () => {
       ['NB', 1],
     ])
 
+    const reordered = await client.ok<Factory[]>('PUT', '/factories/order', {
+      factoryIds: [notebook.id, apiFactory.id],
+    })
+    expect(reordered.map((f) => [f.key, f.position])).toEqual([
+      ['NB', 0],
+      ['AP', 1],
+    ])
+    expect(await client.ok<FactoryLayout>('GET', '/factories/layout')).toEqual({
+      items: [
+        { group: { id: 'empty', name: 'Personal', factoryIds: [] } },
+        { factoryId: notebook.id },
+        { group: { id: 'acme', name: 'Acme', factoryIds: [apiFactory.id] } },
+      ],
+    })
+    expect(await client.call('PUT', '/factories/order', { factoryIds: [notebook.id] })).toEqual({
+      status: 400,
+      body: { error: 'list every Factory once' },
+    })
+
     const missing = await client.call('PUT', '/factories/layout', {
       items: [{ factoryId: notebook.id }],
     })
@@ -215,8 +234,8 @@ describe('Factory order', () => {
     expect(await client.ok<FactoryLayout>('GET', '/factories/layout')).toEqual({
       items: [
         { group: { id: 'empty', name: 'Personal', factoryIds: [] } },
-        { group: { id: 'acme', name: 'Acme', factoryIds: [] } },
         { factoryId: notebook.id },
+        { group: { id: 'acme', name: 'Acme', factoryIds: [] } },
       ],
     })
   })
@@ -253,6 +272,9 @@ describe('Remove Factory', () => {
     expect(
       await fileToken.call('PUT', '/factories/layout', { items: [{ factoryId: factory.id }] }),
     ).toEqual(refused)
+    expect(await fileToken.call('PUT', '/factories/order', { factoryIds: [factory.id] })).toEqual(
+      refused,
+    )
     expect((await client.ok<Factory[]>('GET', '/factories')).map((f) => f.key)).toEqual(['NB'])
   })
 

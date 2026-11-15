@@ -1,6 +1,6 @@
 # Factory order lives in the store; removing a Factory or a repo deletes local data in the daemon
 
-The Order part is superseded by ADR 0166-factory-groups-are-one-layout-saved-on-this-mac: the order is now part of the Factory layout, saved through `PUT /factories/layout`.
+The Order part is superseded by ADR 0166-factory-groups-are-one-layout-saved-on-this-mac: the order is now part of the Factory layout, saved through `PUT /factories/layout`. `PUT /factories/order` still works and saves a layout with the given order and the groups kept.
 
 Spec 5.6 lets the human rename, reorder and remove Factories from the sidebar row menu, and remove a secondary repo from Factory settings.
 

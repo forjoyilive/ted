@@ -8,6 +8,7 @@ import {
   type Factory,
   type FactoryIcon,
   type FactoryLayout,
+  type FactoryLayoutItem,
   type GitHubNameCheck,
   type GitHubNameRequest,
   type GitHubSetupPlan,
@@ -57,6 +58,7 @@ export interface Factories {
   approveRepos(factoryId: string, repos: string[]): void
   checkLocalFolders(): Promise<void>
   isCloned(factoryId: string): boolean
+  reorder(factoryIds: readonly string[]): Promise<Factory[]>
   layout(): FactoryLayout
   saveLayout(layout: FactoryLayout): Promise<FactoryLayout>
   forget(factoryId: string): Promise<void>
@@ -608,6 +610,28 @@ export function createFactories(options: FactoriesOptions): Factories {
     await publish(factory)
   })
 
+  async function saveLayout(layout: FactoryLayout): Promise<void> {
+    const current = store.listFactories()
+    const factoryIds = layout.items.flatMap((item) =>
+      'group' in item ? item.group.factoryIds : [item.factoryId],
+    )
+    const ids = new Set(factoryIds)
+    if (
+      ids.size !== factoryIds.length ||
+      ids.size !== current.length ||
+      current.some((f) => !ids.has(f.id))
+    ) {
+      throw new RequestError(400, 'list every Factory once')
+    }
+    const groupIds = layout.items.flatMap((item) => ('group' in item ? [item.group.id] : []))
+    if (new Set(groupIds).size !== groupIds.length) {
+      throw new RequestError(400, 'each group needs its own id')
+    }
+    const before = new Map(current.map((f) => [f.id, f.position]))
+    const saved = store.saveFactoryLayout(layout)
+    await Promise.all((saved ?? []).filter((f) => before.get(f.id) !== f.position).map(publish))
+  }
+
   return {
     async list() {
       await checkLocalFolders()
@@ -637,10 +661,11 @@ export function createFactories(options: FactoriesOptions): Factories {
     isCloned: (id) => store.getFactory(id)?.clonedAt !== undefined,
     layout: () => store.factoryLayout(),
     async saveLayout(layout) {
+      await saveLayout(layout)
+      return store.factoryLayout()
+    },
+    async reorder(factoryIds) {
       const current = store.listFactories()
-      const factoryIds = layout.items.flatMap((item) =>
-        'group' in item ? item.group.factoryIds : [item.factoryId],
-      )
       const ids = new Set(factoryIds)
       if (
         ids.size !== factoryIds.length ||
@@ -649,14 +674,8 @@ export function createFactories(options: FactoriesOptions): Factories {
       ) {
         throw new RequestError(400, 'list every Factory once')
       }
-      const groupIds = layout.items.flatMap((item) => ('group' in item ? [item.group.id] : []))
-      if (new Set(groupIds).size !== groupIds.length) {
-        throw new RequestError(400, 'each group needs its own id')
-      }
-      const before = new Map(current.map((f) => [f.id, f.position]))
-      const saved = store.saveFactoryLayout(layout)
-      await Promise.all((saved ?? []).filter((f) => before.get(f.id) !== f.position).map(publish))
-      return store.factoryLayout()
+      await saveLayout(orderedLayout(store.factoryLayout(), factoryIds))
+      return Promise.all(store.listFactories().map(view))
     },
     async forget(factoryId) {
       await running.get(factoryId)
@@ -686,6 +705,29 @@ export function createFactories(options: FactoriesOptions): Factories {
       await Promise.all([...running.values()])
     },
   }
+}
+
+export function orderedLayout(layout: FactoryLayout, factoryIds: readonly string[]): FactoryLayout {
+  const rank = new Map(factoryIds.map((id, index) => [id, index]))
+  const of = (id: string) => rank.get(id) ?? factoryIds.length
+  let previous = -1
+  const ranked = layout.items.map((item, index) => {
+    const ranks = 'group' in item ? item.group.factoryIds.map(of) : [of(item.factoryId)]
+    const key = ranks.length > 0 ? Math.min(...ranks) : previous
+    previous = key
+    const sorted: FactoryLayoutItem =
+      'group' in item
+        ? {
+            group: {
+              ...item.group,
+              factoryIds: [...item.group.factoryIds].sort((a, b) => of(a) - of(b)),
+            },
+          }
+        : item
+    return { item: sorted, key, index }
+  })
+  ranked.sort((a, b) => a.key - b.key || a.index - b.index)
+  return { items: ranked.map((r) => r.item) }
 }
 
 export function bannerSubject(id: string): string | undefined {

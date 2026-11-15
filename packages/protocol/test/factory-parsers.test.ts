@@ -63,6 +63,7 @@ roundTrip(P.parseCreateFactoryRequest, {
     { name: 'local', source: { folder: '/tmp/local' } },
   ],
 })
+roundTrip(P.parseReorderFactoriesRequest, { factoryIds: ['one', 'two'] })
 roundTrip(P.parseFactoryLayout, {
   items: [
     { factoryId: 'one' },
@@ -158,6 +159,7 @@ roundTrip(P.parseLibraryChanges, library)
 roundTrip(P.parseSaveLibraryRequest, { changes: library, version: 'rev' })
 
 rejects(P.parseAutoStartBacklogRequest, { enabled: 1 }, 'enabled must be')
+rejects(P.parseReorderFactoriesRequest, { factoryIds: 'one' }, 'factoryIds must be a list')
 rejects(P.parseFactoryLayout, { items: 'one' }, 'items must be a list')
 rejects(P.parseFactoryLayout, { items: [{ factoryId: 1 }] }, 'a Factory id must be text')
 rejects(

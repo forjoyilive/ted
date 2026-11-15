@@ -424,6 +424,26 @@ test('Move down saves the Factory layout and the numbered shortcut follows the n
   await screen.findByRole('heading', { name: /site.*Dashboard/ })
 })
 
+test('opening a Factory expands its collapsed group, even when it was already the current one', async () => {
+  const a = appState()
+  a.state.factories = [factory(), factory({ id: 'f2', name: 'site', key: 'MS', position: 1 })]
+  a.state.layout = {
+    items: [{ group: { id: 'acme', name: 'Acme', factoryIds: ['f1'] } }, { factoryId: 'f2' }],
+  }
+  a.mount()
+  const u = user()
+  const acme = await within(nav()).findByRole('region', { name: 'Acme' })
+  await within(acme).findByRole('article', { name: 'widgets' })
+  fireEvent.keyDown(window, { key: '1', metaKey: true })
+  await screen.findByRole('heading', { name: /widgets.*Dashboard/ })
+  await u.click(within(acme).getByRole('button', { name: 'Acme' }))
+  expect(within(acme).queryByRole('article', { name: 'widgets' })).toBeNull()
+  await u.click(within(nav()).getByRole('button', { name: /^Inbox/ }))
+  expect(within(acme).queryByRole('article', { name: 'widgets' })).toBeNull()
+  fireEvent.keyDown(window, { key: '1', metaKey: true })
+  await within(acme).findByRole('article', { name: 'widgets' })
+})
+
 test('Factory groups: New group from the + menu, Move to group, collapse and Ungroup', async () => {
   const a = appState()
   a.state.factories = [factory(), factory({ id: 'f2', name: 'site', key: 'MS', position: 1 })]

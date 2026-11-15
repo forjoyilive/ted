@@ -7,6 +7,7 @@ import type {
   FactoryLayoutItem,
   NewFactoryRepo,
   RemoveFactoryRequest,
+  ReorderFactoriesRequest,
   RepoSource,
   SetFactoryNotificationsRequest,
   SetFactoryPermissionsRequest,
@@ -373,6 +374,12 @@ export function parseCreateFactoryRequest(value: unknown): CreateFactoryRequest 
     key: typeof body?.key === 'string' ? body.key.trim() : '',
     repos,
   }
+}
+
+export function parseReorderFactoriesRequest(value: unknown): ReorderFactoriesRequest {
+  const body = record(value)
+  const ids = list(body.factoryIds, 'factoryIds').map((id) => text(id, 'a Factory id'))
+  return { factoryIds: ids }
 }
 
 const groupIdPattern = /^[A-Za-z0-9-]{1,64}$/

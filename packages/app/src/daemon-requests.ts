@@ -177,6 +177,7 @@ export const forwardedRequests = [
   'setFactoryAutoStartBacklog',
   'renameFactory',
   'setFactoryIcon',
+  'reorderFactories',
   'factoryLayout',
   'saveFactoryLayout',
   'newSetupTask',
