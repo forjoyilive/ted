@@ -40,6 +40,7 @@ async function start(
   statuses: DataStatus[] = [],
   compaction?: DaemonOptions['compaction'],
   outputDrop?: DaemonOptions['outputDrop'],
+  changesetTrim?: DaemonOptions['changesetTrim'],
 ): Promise<Client> {
   daemon = await startDaemon({
     home,
@@ -48,6 +49,7 @@ async function start(
     onDataStatus: (status) => statuses.push(status),
     ...(compaction && { compaction }),
     ...(outputDrop && { outputDrop }),
+    ...(changesetTrim && { changesetTrim }),
   })
   return api(daemon.port, { appKey: daemon.appToken })
 }
@@ -114,6 +116,18 @@ async function runRows(): Promise<unknown[]> {
   const db = new DatabaseSync(path.join(storeDir(), states[0] as string), { readOnly: true })
   try {
     return db.prepare('SELECT id, readOffset, lastOutputAt, state FROM runs ORDER BY id').all()
+  } finally {
+    db.close()
+  }
+}
+
+async function changesetRows(): Promise<number> {
+  const states = (await storeDbFiles(storeDir())).filter((f) => f.startsWith('state'))
+  const db = new DatabaseSync(path.join(storeDir(), states[0] as string), { readOnly: true })
+  try {
+    return (
+      db.prepare('SELECT COUNT(*) AS n FROM __livestore_session_changeset').get() as { n: number }
+    ).n
   } finally {
     db.close()
   }
@@ -490,9 +504,12 @@ test('a store that needs no rebuild drops its replaced Run output events once, a
   expect(await dropMark()).toMatchObject({ state: 'done', by: '1.1.0', dropped: gone })
   expect(await runRows()).toEqual(runsBefore)
 
+  const rowsBefore = await changesetRows()
   const again: DataStatus[] = []
-  client = await start('1.1.0', again, undefined, { atLeast: 1 })
+  client = await start('1.1.0', again, undefined, { atLeast: 1 }, { atLeastBytes: 1 })
   expect(again.some((s) => s.state === 'updating')).toBe(false)
   expect(await preUpdateBackups(client)).toHaveLength(backups.length)
+  expect(await snapshot(client, runIds)).toEqual(before)
   await stop()
+  expect(await changesetRows()).toBeLessThan(rowsBefore)
 })

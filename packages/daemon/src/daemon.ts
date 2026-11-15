@@ -120,6 +120,7 @@ export interface DaemonOptions {
   compaction?: DataOptions['compaction']
   stallProfiles?: StallProfiles
   outputDrop?: DataOptions['outputDrop']
+  changesetTrim?: DataOptions['changesetTrim']
   slow?: { requestMs?: number; stallMs?: number }
 }
 
@@ -266,6 +267,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     ...(options.onDataStatus && { onStatus: options.onDataStatus }),
     ...(options.compaction && { compaction: options.compaction }),
     ...(options.outputDrop && { outputDrop: options.outputDrop }),
+    ...(options.changesetTrim && { changesetTrim: options.changesetTrim }),
     async startServices(store, emit) {
       await environmentRead
       const runs = await startRunManager({
