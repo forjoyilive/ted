@@ -132,7 +132,7 @@ _Avoid_: Epic, group, umbrella
 
 **Child Task**:
 A normal Task, with its own Workflow, Task Lead and pull requests, that is part of a parent Task’s work until the user detaches it.
-_Avoid_: Subtask, sub-issue (except when naming the Linear or Asana item it came from)
+_Avoid_: Subtask, sub-issue (except when naming the Linear, Asana or GitHub item it came from)
 
 **Detach**:
 Remove a Task from its parent so it carries on as a separate Task; its own children stay under it.
@@ -151,11 +151,11 @@ The URL of the item a Task was created from, such as a Linear, Sentry or GitHub 
 _Avoid_: Origin, link, ticket
 
 **Tracker sync**:
-TED keeping a Task’s Source item (a Linear issue, an Asana item or a GitHub issue) up to date: it moves the item forward as the Task goes on, links its pull requests and notices when the item is closed outside TED. For Linear and Asana it runs only for a Task the human allowed, one by one or for a whole group (a Linear team or an Asana project) in one Factory; for GitHub issues one machine setting, off by default, turns it on for every Task with a GitHub issue Source. Each tracker plugs in through a connector.
+TED keeping a Task’s Source item (a Linear issue, an Asana item or a GitHub issue) up to date: it moves the item forward as the Task goes on, links its pull requests and notices when the item is closed outside TED. For Linear and Asana it runs only for a Task the human allowed, one by one or for a whole group (a Linear team or an Asana project) in one Factory; for GitHub issues one machine setting, off by default, turns it on for every Task whose GitHub issue TED imported (a Source that kept only the link doesn’t sync). Each tracker plugs in through a connector.
 _Avoid_: Integration sync, two-way sync
 
 **Task Sync**:
-What the app calls Tracker sync for an Asana item: TED comments on the item with each pull request it opens and completes it once every pull request of the Task merged. A Task imported in the app has it from the start; any other Task gets it from **Sync with Asana** in the Task menu. It belongs to the Asana account connected when it was allowed, and the Task shows its Task Sync state.
+What the app calls Tracker sync for an Asana item: TED comments on the item with each pull request it opens and completes it once every pull request of the Task merged. A Task imported in the app has it from the start unless the user unticks it in the import dialog; any other Task gets it from **Sync with Asana** in the Task menu, or from an Asana project the Factory allows. It belongs to the Asana account connected when it was allowed, and the Task shows its Task Sync state.
 _Avoid_: Asana sync, auto-complete
 
 **Original request**:
