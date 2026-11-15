@@ -30,6 +30,7 @@ export interface CopyResult {
 export interface CommandResult {
   outcome: WorktreeCommandOutcome | 'interrupted'
   exitCode?: number
+  signal?: NodeJS.Signals
   problem?: string
 }
 
@@ -175,9 +176,12 @@ export async function runWorktreeCommand(input: {
     const onAbort = () => kill('interrupted')
     input.signal?.addEventListener('abort', onAbort)
     if (input.signal?.aborted) onAbort()
-    const code = await new Promise<number | null>((resolve) => {
-      child.once('error', () => resolve(null))
-      child.once('exit', (exitCode) => resolve(exitCode))
+    const { code, signal } = await new Promise<{
+      code: number | null
+      signal: NodeJS.Signals | null
+    }>((resolve) => {
+      child.once('error', () => resolve({ code: null, signal: null }))
+      child.once('exit', (exitCode, exitSignal) => resolve({ code: exitCode, signal: exitSignal }))
     })
     clearTimeout(timer)
     input.signal?.removeEventListener('abort', onAbort)
@@ -186,7 +190,11 @@ export async function runWorktreeCommand(input: {
       return { outcome: reason }
     }
     if (code === 0) return { outcome: 'passed', exitCode: 0 }
-    return { outcome: 'failed', ...(code !== null && { exitCode: code }) }
+    return {
+      outcome: 'failed',
+      ...(code !== null && { exitCode: code }),
+      ...(signal !== null && { signal }),
+    }
   } finally {
     await log.close()
   }

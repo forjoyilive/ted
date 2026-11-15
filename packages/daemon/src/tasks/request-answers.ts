@@ -127,6 +127,12 @@ export interface RequestAnswerPort {
     choice: string | undefined,
     text: string,
   ): Promise<Comment>
+  answerMemoryKill(
+    task: StoredTask,
+    comment: Comment,
+    choice: string | undefined,
+    text: string,
+  ): Promise<Comment>
 }
 
 export function createRequestAnswers(
@@ -178,6 +184,7 @@ export function createRequestAnswers(
     answerAsanaUnfinished,
     trackerConsents,
     answerCleanupFailure,
+    answerMemoryKill,
   } = port
   const answerRequest = (
     task: Task,
@@ -662,6 +669,9 @@ export function createRequestAnswers(
     }
     if (comment.purpose?.kind === 'cleanup-failure' && request.action === 'answer') {
       return answerCleanupFailure(find(task.id), comment, request.choice, text)
+    }
+    if (comment.purpose?.kind === 'memory-kill' && request.action === 'answer') {
+      return answerMemoryKill(find(task.id), comment, request.choice, text)
     }
     if (comment.purpose?.kind === 'asana-missing' && request.action === 'answer') {
       return answerAsanaMissing(task, comment, request.choice, text)

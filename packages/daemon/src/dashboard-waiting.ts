@@ -10,6 +10,7 @@ const questionKinds: Readonly<Record<string, string>> = {
   archive: 'Archive request',
   'failed-run': 'Failed Run',
   'cleanup-failure': 'Cleanup failure',
+  'memory-kill': 'Out of memory',
   'idle-run': 'Idle Run',
   'ci-stuck': 'Stuck CI',
   model: 'Model unavailable',

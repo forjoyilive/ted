@@ -223,6 +223,7 @@ export function threadEvents(
       ...(extra?.planId !== undefined && { planId: extra.planId }),
     })
 
+  const leadFailures = log.filter((entry) => entry.name === 'v1.TaskLeadFailed')
   const setup = log.some((entry) => entry.name === 'v1.SetupTaskCreated')
   const reset = log.findLastIndex((entry) => entry.name === 'v1.TaskReset')
   for (const entry of reset < 0 ? log : log.slice(reset)) {
@@ -538,6 +539,23 @@ export function threadEvents(
         break
       case 'v1.TaskLeadFailed':
         add(entry, 'failure', leadFailedLine(data))
+        break
+      case 'v1.CheckKilledForMemory':
+        add(
+          entry,
+          'failure',
+          `This computer ran out of memory, so the Check “${text(data.name)}” was stopped. TED didn’t count it as a failure: it runs the Check again when memory frees up, or asks you after a second stop in the same Stage.`,
+          undefined,
+          text(data.checkRunId),
+        )
+        break
+      case 'v1.RunKilledForMemory':
+        if (!leadFailures.some((e) => e.data.runId === data.runId && e.at >= entry.at))
+          add(
+            entry,
+            'failure',
+            'This computer ran out of memory, so an agent working on this Task was stopped',
+          )
         break
       case 'v1.TaskLeadNudged':
         add(entry, 'run', `TED nudged the Task Lead: “${nudgeMessage}”`)

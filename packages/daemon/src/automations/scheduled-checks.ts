@@ -9,6 +9,7 @@ import {
 } from '@ted/protocol'
 import type { Banners } from '../banners.ts'
 import { RequestError } from '../errors.ts'
+import type { MemoryWatch } from '../memory-kills.ts'
 import { acquireFactoryPermissions, factoryPermissions } from '../permissions.ts'
 import { redactSecrets } from '../redact.ts'
 import type { Sandbox } from '../sandbox.ts'
@@ -19,8 +20,12 @@ import type { CommandLaunch } from '../tasks/command.ts'
 import { removeInside } from '../tasks/remove-files.ts'
 import { type Checkouts, SetupFailed } from './checkout.ts'
 
+export const memoryStopMessage =
+  'This computer ran out of memory, so the Scheduled Check was stopped. TED didn’t count it as a failure.'
+
 export interface ScheduledCheckResult {
   state: AutomationCheckState | 'stopped'
+  outOfMemory?: true
   exitCode?: number
   durationMs: number
   commit?: string
@@ -60,6 +65,7 @@ export function createScheduledChecks(options: {
   banners: Banners
   libraryDir: string
   env: () => NodeJS.ProcessEnv
+  memory?: MemoryWatch
 }): ScheduledChecks {
   const { store, banners, checkouts } = options
   const logsRoot = path.join(tedPaths(options.home).logs, 'automation-checks')
@@ -200,12 +206,19 @@ export function createScheduledChecks(options: {
           prepareLaunch: launcher(factory, firingId),
           signal,
           lowPriority: store.settings().lowPriorityWork,
+          ...(options.memory && { memory: options.memory }),
           onStart: () => undefined,
           onFinish: (_, done) => {
             finished = done
           },
         })
         if (result.outcome === 'interrupted') return stopped()
+        if (result.outcome === 'memory') {
+          await writeFile(log, `${memoryStopMessage}\n`, { flag: 'a', mode: 0o600 }).catch(
+            () => undefined,
+          )
+          return { ...stopped(), outOfMemory: true, log }
+        }
         const state: AutomationCheckState =
           finished?.state === 'timed-out'
             ? 'timed-out'

@@ -65,6 +65,7 @@ import {
   type ConversationTab,
   type CopySkip,
   type CreatedBy,
+  checkLabel,
   type DaemonEvent,
   type DescriptionVersion,
   type DesignReview,
@@ -86,6 +87,7 @@ import {
   type LineComment,
   type LineSide,
   type MachineSettings,
+  type MemoryKillAsk,
   type MergeMethod,
   type PermissionMode,
   type Priority,
@@ -293,6 +295,7 @@ export interface RunOutput {
   autoModeUnavailable?: boolean
   agentRestarted?: boolean
   ending?: RunEnding
+  memoryKilled?: { lowestMemory: number }
   retrying?: boolean
 }
 
@@ -600,6 +603,7 @@ export interface NewComment {
   asanaUnfinished?: AsanaUnfinished
   archive?: ArchiveAsk
   cleanupFailure?: CleanupFailureAsk
+  memoryKill?: MemoryKillAsk
 }
 
 export interface NewLineComment {
@@ -1069,6 +1073,11 @@ export interface TedStore extends TaskHistory {
   checkTiming(checkRunId: string): CheckRunTiming | undefined
   listCheckTimings(taskId: string): CheckRunTiming[]
   checkInterrupted(checkRunId: string, position: number): void
+  checkKilledForMemory(
+    checkRunId: string,
+    position: number,
+    killed: { lowestMemory: number; durationMs: number },
+  ): CheckRun
   checkStarted(checkRunId: string, position: number): CheckRun
   checkFinished(
     checkRunId: string,
@@ -2524,6 +2533,7 @@ export async function openStore({
     asanaUnfinished,
     archive,
     cleanupFailure,
+    memoryKill,
     multiple,
     purpose,
     heldFor,
@@ -2581,6 +2591,7 @@ export async function openStore({
         ...(cleanupFailure !== null && {
           cleanupFailure: JSON.parse(cleanupFailure) as CleanupFailureAsk,
         }),
+        ...(memoryKill !== null && { memoryKill: JSON.parse(memoryKill) as MemoryKillAsk }),
         ...(design !== null && { design: JSON.parse(design) as DesignReview }),
         ...withFiles(row.id),
         ...withLineComments(row.id),
@@ -3040,6 +3051,7 @@ export async function openStore({
       asanaUnfinished,
       archive,
       cleanupFailure,
+      memoryKill,
       purpose,
     }: NewComment,
     createdAt: string,
@@ -3092,6 +3104,7 @@ export async function openStore({
         ...(asanaUnfinished && { asanaUnfinished }),
         ...(archive && { archive }),
         ...(cleanupFailure && { cleanupFailure }),
+        ...(memoryKill && { memoryKill }),
       })
     const heldFor =
       askedBy !== undefined &&
@@ -3142,6 +3155,14 @@ export async function openStore({
             events.commentCleanupFailureAsked({
               commentId: id,
               failure: JSON.stringify(cleanupFailure),
+            }),
+          ]
+        : []),
+      ...(memoryKill
+        ? [
+            events.commentMemoryKillAsked({
+              commentId: id,
+              memoryKill: JSON.stringify(memoryKill),
             }),
           ]
         : []),
@@ -6219,6 +6240,24 @@ export async function openStore({
       )
       updatedCheckRun(checkRunId)
     },
+    checkKilledForMemory(checkRunId, position, { lowestMemory, durationMs }) {
+      const run = requireCheckRun(checkRunId)
+      const check = run.checks[position]
+      if (!check) throw new Error(`Check run ${checkRunId} has no Check ${position}`)
+      commit(
+        events.checkKilledForMemory({
+          taskId: run.taskId,
+          checkRunId,
+          position,
+          name: checkLabel(check),
+          stage: run.stage,
+          lowestMemory,
+          durationMs,
+          at: new Date().toISOString(),
+        }),
+      )
+      return updatedCheckRun(checkRunId)
+    },
     checkStarted(checkRunId, position) {
       commit(events.checkStarted({ checkRunId, position, at: new Date().toISOString() }))
       return updatedCheckRun(checkRunId)
@@ -6516,6 +6555,7 @@ export async function openStore({
         autoModeUnavailable,
         agentRestarted,
         ending,
+        memoryKilled,
         retrying,
       },
     ) {
@@ -6569,6 +6609,16 @@ export async function openStore({
         ...(newProblem ? [events.runProblemFound({ runId, problem, at })] : []),
         ...(retryChanged ? [events.runRetryingChanged({ runId, retrying: nowRetrying, at })] : []),
         ...(ending ? [events.runEnded({ runId, ending: JSON.stringify(ending), at })] : []),
+        ...(ending && memoryKilled
+          ? [
+              events.runKilledForMemory({
+                runId,
+                taskId,
+                lowestMemory: memoryKilled.lowestMemory,
+                at,
+              }),
+            ]
+          : []),
         ...(stateChanged && target !== undefined
           ? [events.runStateChanged({ runId, state: target, at })]
           : []),

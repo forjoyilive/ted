@@ -10,6 +10,7 @@ const glyphs: Record<CheckResult['state'], string> = {
   'not-run': '–',
   running: '…',
   waiting: '–',
+  'out-of-memory': '!',
 }
 
 export function checkDetail(check: CheckResult): string | undefined {
@@ -26,6 +27,8 @@ export function checkDetail(check: CheckResult): string | undefined {
       return 'running'
     case 'waiting':
       return 'waiting'
+    case 'out-of-memory':
+      return 'Stopped: out of memory'
     default:
       return undefined
   }

@@ -41,6 +41,7 @@ import { watchLibrary } from './library-watch.ts'
 import { type Keyring, loadKeyring } from './linear/keyring.ts'
 import { createLinear } from './linear/linear.ts'
 import { acquireLock } from './lock.ts'
+import { createMemoryWatch } from './memory-kills.ts'
 import { createPlans, type Plans } from './plans/plans.ts'
 import { QuitMarkedError, quitMarkedSync } from './quit-mark.ts'
 import { pruneRunOutput, runOutputEnd } from './retention.ts'
@@ -274,12 +275,24 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     ...(options.changesetTrim && { changesetTrim: options.changesetTrim }),
     async startServices(store, emit) {
       await environmentRead
+      const busy = createBusyHold({
+        on: () => store.settings().waitWhenBusy,
+        ...(options.load?.ratio !== undefined && { loadRatio: options.load.ratio }),
+        ...(options.load?.memoryAvailable !== undefined && {
+          memoryAvailable: options.load.memoryAvailable,
+        }),
+      })
+      const memory = createMemoryWatch({
+        read: () => busy.memory(),
+        ...(options.load?.checkEveryMs !== undefined && { everyMs: options.load.checkEveryMs }),
+      })
       const runs = await startRunManager({
         home: paths.home,
         store,
         agents,
         tokens: runTokens,
         env: environment.current,
+        memory,
         ...(idle && { idle }),
         ...(options.oldestHost !== undefined && { oldestHost: options.oldestHost }),
         ...options.runs,
@@ -466,13 +479,6 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         env: environment.current,
         ...(sandboxProgram && { program: sandboxProgram }),
       })
-      const busy = createBusyHold({
-        on: () => store.settings().waitWhenBusy,
-        ...(options.load?.ratio !== undefined && { loadRatio: options.load.ratio }),
-        ...(options.load?.memoryAvailable !== undefined && {
-          memoryAvailable: options.load.memoryAvailable,
-        }),
-      })
       const tasks = createTasks({
         testReportingEnv: async (task, checkRunId, position, supported) => {
           const registration = await new DaemonClient(info, token, {
@@ -547,6 +553,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.ciStuckMs !== undefined && { ciStuckMs: options.ciStuckMs }),
         ...(options.stallAfterMs !== undefined && { stallAfterMs: options.stallAfterMs }),
         busy,
+        memory,
         ...(options.load?.checkEveryMs !== undefined && {
           busyCheckEveryMs: options.load.checkEveryMs,
         }),
@@ -607,6 +614,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         libraryDir: paths.library,
         checkFailed: (input) => tasks.checkFailed(input),
         busy: async () => (await busy.check()) !== undefined,
+        memory,
         ...(options.load?.checkEveryMs !== undefined && {
           busyCheckEveryMs: options.load.checkEveryMs,
         }),

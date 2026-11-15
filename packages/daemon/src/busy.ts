@@ -86,6 +86,7 @@ export interface BusyHoldOptions {
 export interface Busy {
   check(): Promise<BusyHold | undefined>
   current(): BusyHold | undefined
+  memory(): Promise<number>
 }
 
 export function createBusyHold(options: BusyHoldOptions): Busy {
@@ -120,5 +121,6 @@ export function createBusyHold(options: BusyHoldOptions): Busy {
       return held
     },
     current: () => held,
+    memory: memoryShare,
   }
 }
