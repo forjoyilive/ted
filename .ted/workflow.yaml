@@ -18,6 +18,7 @@ stages:
     checks:
       - { name: Typecheck, run: pnpm typecheck }
       - { name: Lint, run: pnpm lint }
+      - { name: Affected tests, run: pnpm check --affected, timeout: 60m }
   review: { enabled: false, gate: false }
   merge: { gate: false }
   clarify:

@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import {
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -11,7 +12,15 @@ import {
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
-import { failedTests, onlyAppChanged, parseReport, parseRetries, runRefusal } from './check.ts'
+import {
+  affectedRefusal,
+  failedTests,
+  groupsFor,
+  onlyAppChanged,
+  parseReport,
+  parseRetries,
+  runRefusal,
+} from './check.ts'
 import {
   appendRun,
   type FailureRun,
@@ -96,6 +105,30 @@ describe('pnpm check started by a Run', () => {
   test('is refused', () => {
     expect(runRefusal({})).toBeUndefined()
     expect(runRefusal({ TED_RUN: 'run-1' })).toContain('pnpm vitest run <files>')
+  })
+})
+
+describe('pnpm check --affected', () => {
+  test('is refused for a Run unless it only lists', () => {
+    expect(affectedRefusal({})).toBeUndefined()
+    expect(affectedRefusal({ TED_TASK: 'TED-1', CI: '1' })).toBeUndefined()
+    expect(affectedRefusal({ TED_RUN: 'run-1' })).toContain('--list')
+  })
+
+  test('runs only the projects that have files, with a small run’s workers below 10 files', () => {
+    expect(groupsFor(undefined)).toEqual([
+      { project: 'electron', maxWorkers: 3 },
+      { project: 'node', maxWorkers: 6 },
+    ])
+    expect(groupsFor(undefined, { node: ['a.test.ts'], electron: [] })).toEqual([
+      { project: 'node', maxWorkers: 3 },
+    ])
+    const many = Array.from({ length: 10 }, (_, index) => `${index}.test.ts`)
+    expect(groupsFor(undefined, { node: many, electron: ['e.test.ts'] })).toEqual([
+      { project: 'electron', maxWorkers: 3 },
+      { project: 'node', maxWorkers: 6 },
+    ])
+    expect(groupsFor(1.5, { node: many })).toEqual([{ project: 'node', maxWorkers: 3 }])
   })
 })
 
@@ -385,6 +418,7 @@ describe('check runner integration with stub processes', () => {
     'malformed-counter',
     'pending-suite',
     'suite-error',
+    'affected',
   ])('records and reports a %s run without executing the suite', (mode) => {
     const root = path.dirname(historyFile())
     const scripts = path.join(root, 'scripts')
@@ -406,6 +440,7 @@ describe('check runner integration with stub processes', () => {
       `
         import { writeFileSync } from 'node:fs'
         export const heldLockEnv = 'TED_STUB_CHECK_LOCK'
+        export const smallRunFiles = 10
         export const waitingMessage = () => ''
         export async function acquireFullRun() {
           writeFileSync(${JSON.stringify(path.join(root, 'locked'))}, 'yes')
@@ -432,7 +467,13 @@ describe('check runner integration with stub processes', () => {
       path.join(root, 'run.ts'),
       `
         import { runChecks } from ${JSON.stringify(path.join(scripts, 'check.ts'))}
-        console.log('RESULT=' + await runChecks(${busyMachine ? '{ quietWait: 1 }' : ''}))
+        console.log('RESULT=' + await runChecks(${
+          mode === 'affected'
+            ? "{ testsOnly: true, files: { node: ['scripts/a.test.ts'], electron: [] } }"
+            : busyMachine
+              ? '{ quietWait: 1 }'
+              : ''
+        }))
       `,
     )
     const value = report(failed ? 'failed' : 'passed')
@@ -521,7 +562,9 @@ describe('check runner integration with stub processes', () => {
     expect(result.error).toBeUndefined()
     expect(result.status).toBe(0)
     const output = result.stdout
-    expect(output).toContain(`RESULT=${mode === 'passed' || mode === 'retried'}`)
+    expect(output).toContain(
+      `RESULT=${mode === 'passed' || mode === 'retried' || mode === 'affected'}`,
+    )
     if (mode.startsWith('timing-error')) {
       expect(result.stderr).toContain('Could not save test timings')
       expect(result.stderr).toContain('Timing reporting')
@@ -536,6 +579,17 @@ describe('check runner integration with stub processes', () => {
       return
     }
     expect(readFileSync(path.join(root, 'unlocked'), 'utf8')).toBe('yes')
+    if (mode === 'affected') {
+      const commands = readFileSync(path.join(root, 'commands'), 'utf8')
+      expect(commands).toContain('"--project","node","--maxWorkers","3"')
+      expect(commands).toContain('"scripts/a.test.ts"]')
+      expect(commands).not.toContain('"electron"')
+      expect(commands).not.toContain('typecheck')
+      expect(commands).not.toContain('lint')
+      expect(output).toContain('== Test (node ×3)')
+      expect(existsSync(path.join(cache, 'ted-test-times.json'))).toBe(false)
+      return
+    }
     const measured = JSON.parse(readFileSync(path.join(root, 'check-measurement.json'), 'utf8'))
     expect(measured.phases.lock.endMs).toBeGreaterThanOrEqual(measured.phases.lock.startMs)
     expect(measured.testProcessEnvelopeMs).toBeGreaterThan(0)
