@@ -7,7 +7,6 @@ import {
   smallRunFiles,
   waitingMessage,
 } from '../packages/daemon/test/support/suite-lock.ts'
-import type { Selection } from './affected.ts'
 import { recordFailureRun } from './check-history.ts'
 import { type CheckMeasurement, measureCheck } from './check-measurement.ts'
 import {
@@ -581,33 +580,36 @@ export async function checkAffected({
   }
   const affected = await import('./affected.ts')
   const base = affected.defaultBranch(root)
-  let electron: ReadonlySet<string> = new Set()
-  let selection: Selection
+  let files: TestFiles | undefined
   try {
     const repo = affected.readRepo(root)
-    electron = repo.electron
-    selection = affected.affectedTests({ changed: affected.changedSince(root, base), ...repo })
+    const selection = affected.affectedTests({
+      changed: affected.changedSince(root, base),
+      ...repo,
+    })
+    const chosen = affected.chooseTier(selection, repo.tests.length)
+    console.log(`\n${affected.selectionText(selection, chosen, base, repo.electron)}`)
+    const sandbox = affected.electronSandbox()
+    const leftOut = sandbox && affected.leftOutText(chosen.run, repo.electron, sandbox)
+    if (leftOut) console.log(`\n${leftOut}`)
+    if (!list) {
+      mkdirSync(cacheDir, { recursive: true })
+      if (leftOut) writeFileSync(leftOutFile, `${leftOut}\n`)
+      else rmSync(leftOutFile, { force: true })
+    }
+    const run = chosen.run.map((pick) => pick.file)
+    files = {
+      electron: sandbox ? [] : run.filter((file) => repo.electron.has(file)),
+      node: run.filter((file) => !repo.electron.has(file)),
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message.split('\n')[0] : String(error)
-    selection = { all: `the changes since ${base} can’t be read (${message})`, picks: [] }
+    console.log(
+      `\nAffected tests since ${base}: every test, because the changes can’t be read (${message}).`,
+    )
   }
-  console.log(`\n${affected.selectionText(selection, base, electron)}`)
-  const sandbox = affected.electronSandbox()
-  const leftOut = sandbox && affected.leftOutText(selection, electron, sandbox)
-  if (leftOut) console.log(`\n${leftOut}`)
   if (list) return true
-  mkdirSync(cacheDir, { recursive: true })
-  if (leftOut) writeFileSync(leftOutFile, `${leftOut}\n`)
-  else rmSync(leftOutFile, { force: true })
-  const picked = selection.picks.map((pick) => pick.file)
-  const files =
-    selection.all !== undefined
-      ? undefined
-      : {
-          electron: sandbox ? [] : picked.filter((file) => electron.has(file)),
-          node: picked.filter((file) => !electron.has(file)),
-        }
-  if (files && files.electron.length + files.node.length === 0) {
+  if (files && fileCount(files) === 0) {
     console.log('\nNo affected tests to run.')
     return true
   }

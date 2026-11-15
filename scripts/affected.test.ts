@@ -3,9 +3,12 @@ import { describe, expect, test } from 'vitest'
 import {
   affectedTests,
   appSmokeTests,
+  chooseTier,
   electronSandbox,
   importGraph,
   leftOutText,
+  maxAffectedFiles,
+  type Pick,
   readRepo,
   references,
   resolveReference,
@@ -158,6 +161,18 @@ describe('which tests a change affects', () => {
     })
   })
 
+  test('a test that imports one changed file directly counts as direct, whatever else reaches it', () => {
+    expect(select('packages/daemon/src/queue.ts', 'packages/daemon/test/helpers.ts').picks).toEqual(
+      [
+        {
+          file: 'packages/daemon/test/queue.test.ts',
+          kind: 'imports',
+          why: 'imports packages/daemon/test/helpers.ts',
+        },
+      ],
+    )
+  })
+
   test('a changed helper or fixture runs the tests that import or name it', () => {
     expect(picked('packages/daemon/test/helpers.ts')).toEqual({
       'packages/daemon/test/queue.test.ts': 'imports packages/daemon/test/helpers.ts',
@@ -232,7 +247,7 @@ describe('which tests a change affects', () => {
     ).toEqual([
       ['packages/app/test/app-inbox.test.ts', 'app'],
       ['packages/app/test/inbox.test.ts', 'changed'],
-      ['packages/app/test/requests-component.test.tsx', 'imports'],
+      ['packages/app/test/requests-component.test.tsx', 'through'],
     ])
   })
 })
@@ -299,48 +314,140 @@ describe('app areas', () => {
   })
 })
 
+describe('how much of the affected set a run takes', () => {
+  const pick = (kind: Pick['kind'], index: number): Pick => ({
+    file: `${kind}-${index}.test.ts`,
+    kind,
+    why: kind,
+  })
+  const many = (kind: Pick['kind'], count: number) =>
+    Array.from({ length: count }, (_, index) => pick(kind, index))
+  const kinds = (picks: readonly Pick[]) =>
+    Object.fromEntries(
+      ['changed', 'imports', 'through', 'app'].map((kind) => [
+        kind,
+        picks.filter((found) => found.kind === kind).length,
+      ]),
+    )
+
+  test('the limit is 60 files', () => {
+    expect(maxAffectedFiles).toBe(60)
+  })
+
+  test('a set within the limit runs whole', () => {
+    const picks = [
+      ...many('changed', 5),
+      ...many('imports', 20),
+      ...many('through', 30),
+      ...many('app', 5),
+    ]
+    expect(chooseTier({ picks }, 400)).toEqual({ tier: 'affected', run: picks, full: 60, left: 0 })
+    expect(chooseTier({ picks: [] }, 400)).toEqual({ tier: 'affected', run: [], full: 0, left: 0 })
+  })
+
+  test('a set over the limit drops the test files that reach a changed file only through others', () => {
+    const picks = [
+      ...many('changed', 5),
+      ...many('imports', 20),
+      ...many('through', 31),
+      ...many('app', 5),
+    ]
+    const chosen = chooseTier({ picks }, 400)
+    expect(chosen).toMatchObject({ tier: 'direct', full: 61, left: 31 })
+    expect(kinds(chosen.run)).toEqual({ changed: 5, imports: 20, through: 0, app: 5 })
+  })
+
+  test('every test counts as over the limit, however few files the change picks', () => {
+    const picks = [pick('changed', 0), pick('through', 0)]
+    expect(chooseTier({ all: 'package.json changed', picks }, 400)).toEqual({
+      tier: 'direct',
+      run: [pick('changed', 0)],
+      full: 400,
+      left: 399,
+    })
+  })
+
+  test('direct importers over the limit too leave the changed test files and the app tests', () => {
+    const picks = [
+      ...many('changed', 4),
+      ...many('imports', 55),
+      ...many('through', 200),
+      ...many('app', 6),
+    ]
+    const chosen = chooseTier({ picks }, 400)
+    expect(chosen).toMatchObject({ tier: 'named', full: 265, left: 255 })
+    expect(kinds(chosen.run)).toEqual({ changed: 4, imports: 0, through: 0, app: 6 })
+    expect(chooseTier({ picks }, 400, 300).tier).toBe('affected')
+    expect(chooseTier({ picks }, 400, 65).tier).toBe('direct')
+  })
+
+  test('the last tier is not cut further', () => {
+    const picks = [...many('changed', 70), ...many('imports', 5)]
+    expect(chooseTier({ picks }, 400)).toMatchObject({ tier: 'named', left: 5 })
+    expect(chooseTier({ picks }, 400).run).toHaveLength(70)
+  })
+})
+
 describe('what the command prints', () => {
+  const text = (max: number, ...changed: string[]) => {
+    const selection = select(...changed)
+    return selectionText(
+      selection,
+      chooseTier(selection, tests.length, max),
+      'origin/main',
+      electron,
+      max,
+    )
+  }
+
   test('each file with its project and reason', () => {
     expect(
-      selectionText(select('packages/app/src/renderer/inbox.ts'), 'origin/main', electron),
+      text(60, 'packages/app/src/renderer/inbox.ts'),
     ).toBe(`Affected tests since origin/main: 3 files
   electron  packages/app/test/app-inbox.test.ts            app area “inbox” (packages/app/src/renderer/inbox.ts)
   node      packages/app/test/inbox.test.ts                imports packages/app/src/renderer/inbox.ts
   node      packages/app/test/requests-component.test.tsx  imports packages/app/src/renderer/inbox.ts through packages/app/src/renderer/views/Inbox.tsx`)
   })
 
-  test('nothing affected, and everything affected', () => {
-    expect(selectionText(select('README.md'), 'origin/main', electron)).toBe(
-      'Affected tests since origin/main: none.',
-    )
-    expect(selectionText(select('vitest.config.ts'), 'origin/main', electron)).toBe(
-      'Affected tests since origin/main: every test, because vitest.config.ts changed, which is part of the test runner.',
-    )
+  test('nothing affected', () => {
+    expect(text(60, 'README.md')).toBe('Affected tests since origin/main: none.')
+  })
+
+  test('a set over the limit says which part runs and how many files wait for the scheduled full check', () => {
     expect(
-      selectionText(
-        select('package.json', 'packages/app/test/app.test.ts'),
-        'origin/main',
-        electron,
-      ),
-    ).toBe(`Affected tests since origin/main: every test, because package.json changed, which decides what is installed.
-The change itself picks:
+      text(2, 'packages/app/src/renderer/inbox.ts'),
+    ).toBe(`Affected tests since origin/main: 3 files. That is more than 2, so this run takes 2 files: the changed test files, the test files that import a changed file directly and the Electron app tests for the changed app source. The scheduled full check covers the other 1.
+  electron  packages/app/test/app-inbox.test.ts  app area “inbox” (packages/app/src/renderer/inbox.ts)
+  node      packages/app/test/inbox.test.ts      imports packages/app/src/renderer/inbox.ts`)
+    expect(
+      text(1, 'packages/app/src/renderer/inbox.ts'),
+    ).toBe(`Affected tests since origin/main: 3 files. That is more than 1, so this run takes 1 file: the changed test files and the Electron app tests for the changed app source, because the test files that import a changed file directly come to more than 1 as well. The scheduled full check covers the other 2.
+  electron  packages/app/test/app-inbox.test.ts  app area “inbox” (packages/app/src/renderer/inbox.ts)`)
+  })
+
+  test('a change to the test runner names every test and runs what the change itself picks', () => {
+    expect(
+      text(60, 'package.json', 'packages/app/test/app.test.ts'),
+    ).toBe(`Affected tests since origin/main: every test (${tests.length} files), because package.json changed, which decides what is installed. That is more than 60, so this run takes 1 file: the changed test files, the test files that import a changed file directly and the Electron app tests for the changed app source. The scheduled full check covers the other ${tests.length - 1}.
   electron  packages/app/test/app.test.ts  changed`)
   })
 })
 
 describe('what a sandboxed run leaves out', () => {
-  const text = (...changed: string[]) => leftOutText(select(...changed), electron, 'TED’s sandbox')
+  const text = (...changed: string[]) =>
+    leftOutText(select(...changed).picks, electron, 'TED’s sandbox')
 
-  test('nothing when no Electron test was selected', () => {
+  test('nothing when no Electron test runs', () => {
     expect(text('packages/daemon/src/redact.ts')).toBeUndefined()
   })
 
-  test('the Electron tests picked by name are listed to run by hand', () => {
+  test('the Electron tests that changed or were picked by name are listed to run by hand', () => {
     expect(
-      text('packages/app/src/renderer/inbox.ts'),
+      text('packages/app/src/renderer/inbox.ts', 'packages/app/test/app.test.ts'),
     ).toBe(`TED’s sandbox can’t start Electron, so the Affected tests Check left the Electron app tests out.
 Run these outside the sandbox, at most 3 files per command: pnpm vitest run <files>
-  packages/app/test/app-inbox.test.ts  app area “inbox” (packages/app/src/renderer/inbox.ts)`)
+  packages/app/test/app-inbox.test.ts  app area “inbox” (packages/app/src/renderer/inbox.ts)
+  packages/app/test/app.test.ts  changed`)
   })
 
   test('Electron tests that only import changed code are counted, not listed', () => {
@@ -348,15 +455,7 @@ Run these outside the sandbox, at most 3 files per command: pnpm vitest run <fil
       text('packages/app/test/first-window.ts'),
     ).toBe(`TED’s sandbox can’t start Electron, so the Affected tests Check left the Electron app tests out.
 None of them was changed or is named after a changed file, so none needs a run by hand.
-Also left out: ${electron.size} Electron test files that only import changed code.`)
-  })
-
-  test('a run of every test says the rest were left out too', () => {
-    expect(text('package.json', 'packages/app/test/app.test.ts')?.split('\n').slice(1)).toEqual([
-      'Run these outside the sandbox, at most 3 files per command: pnpm vitest run <files>',
-      '  packages/app/test/app.test.ts  changed',
-      'Also left out: every other Electron test file.',
-    ])
+Also left out: ${electron.size} files that only import changed code.`)
   })
 })
 

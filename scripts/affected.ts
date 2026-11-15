@@ -138,7 +138,7 @@ function sameArea(test: readonly string[], source: readonly string[]): boolean {
 
 export interface Pick {
   file: string
-  kind: 'changed' | 'imports' | 'app'
+  kind: 'changed' | 'imports' | 'through' | 'app'
   why: string
 }
 
@@ -157,7 +157,10 @@ export function affectedTests(input: {
   const changed = [...new Set(input.changed)].sort()
   const picks = new Map<string, Pick>()
   const pick = (file: string, kind: Pick['kind'], why: string) => {
-    if (tests.has(file) && !picks.has(file)) picks.set(file, { file, kind, why })
+    if (!tests.has(file)) return
+    const had = picks.get(file)?.kind
+    if (had === undefined || (had === 'through' && kind === 'imports'))
+      picks.set(file, { file, kind, why })
   }
 
   for (const file of changed) pick(file, 'changed', 'changed')
@@ -178,11 +181,8 @@ export function affectedTests(input: {
         if (seen.has(importer)) continue
         seen.add(importer)
         queue.push(importer)
-        pick(
-          importer,
-          'imports',
-          file === source ? `imports ${source}` : `imports ${source} through ${file}`,
-        )
+        if (file === source) pick(importer, 'imports', `imports ${source}`)
+        else pick(importer, 'through', `imports ${source} through ${file}`)
       }
     }
   }
@@ -284,36 +284,69 @@ export function readRepo(root: string): {
   return { graph: importGraph(sources, files, packages), tests, electron }
 }
 
+export const maxAffectedFiles = 60
+
+export interface Chosen {
+  tier: 'affected' | 'direct' | 'named'
+  run: Pick[]
+  full: number
+  left: number
+}
+
+export function chooseTier(
+  selection: Selection,
+  testCount: number,
+  max = maxAffectedFiles,
+): Chosen {
+  const everything = selection.all !== undefined
+  const full = everything ? testCount : selection.picks.length
+  if (!everything && full <= max) return { tier: 'affected', run: selection.picks, full, left: 0 }
+  const direct = selection.picks.filter((pick) => pick.kind !== 'through')
+  if (direct.length <= max) return { tier: 'direct', run: direct, full, left: full - direct.length }
+  const named = direct.filter((pick) => pick.kind !== 'imports')
+  return { tier: 'named', run: named, full, left: full - named.length }
+}
+
+const files = (count: number) => `${count} file${count === 1 ? '' : 's'}`
+
 export function selectionText(
   selection: Selection,
+  chosen: Chosen,
   base: string,
   electron: ReadonlySet<string>,
+  max = maxAffectedFiles,
 ): string {
-  const picked = selection.picks.length
-  const width = Math.max(0, ...selection.picks.map((pick) => pick.file.length))
-  const rows = selection.picks.map(
+  const width = Math.max(0, ...chosen.run.map((pick) => pick.file.length))
+  const rows = chosen.run.map(
     (pick) =>
       `  ${electron.has(pick.file) ? 'electron' : 'node    '}  ${pick.file.padEnd(width)}  ${pick.why}`,
   )
-  if (selection.all !== undefined)
-    return [
-      `Affected tests since ${base}: every test, because ${selection.all}.`,
-      ...(picked > 0 ? ['The change itself picks:', ...rows] : []),
-    ].join('\n')
-  if (picked === 0) return `Affected tests since ${base}: none.`
-  return [`Affected tests since ${base}: ${picked} file${picked === 1 ? '' : 's'}`, ...rows].join(
-    '\n',
-  )
+  if (chosen.tier === 'affected')
+    return chosen.full === 0
+      ? `Affected tests since ${base}: none.`
+      : [`Affected tests since ${base}: ${files(chosen.full)}`, ...rows].join('\n')
+  const what =
+    selection.all !== undefined
+      ? `every test (${files(chosen.full)}), because ${selection.all}`
+      : files(chosen.full)
+  const tier =
+    chosen.tier === 'direct'
+      ? 'the changed test files, the test files that import a changed file directly and the Electron app tests for the changed app source'
+      : `the changed test files and the Electron app tests for the changed app source, because the test files that import a changed file directly come to more than ${max} as well`
+  return [
+    `Affected tests since ${base}: ${what}. That is more than ${max}, so this run takes ${files(chosen.run.length)}: ${tier}. The scheduled full check covers the other ${chosen.left}.`,
+    ...rows,
+  ].join('\n')
 }
 
 export function leftOutText(
-  selection: Selection,
+  run: readonly Pick[],
   electron: ReadonlySet<string>,
   sandbox: string,
 ): string | undefined {
-  const skipped = selection.picks.filter((pick) => electron.has(pick.file))
-  if (skipped.length === 0 && selection.all === undefined) return undefined
-  const named = skipped.filter((pick) => pick.kind !== 'imports')
+  const skipped = run.filter((pick) => electron.has(pick.file))
+  if (skipped.length === 0) return undefined
+  const named = skipped.filter((pick) => pick.kind === 'changed' || pick.kind === 'app')
   const others = skipped.length - named.length
   return [
     `${sandbox} can’t start Electron, so the Affected tests Check left the Electron app tests out.`,
@@ -321,12 +354,8 @@ export function leftOutText(
       ? 'Run these outside the sandbox, at most 3 files per command: pnpm vitest run <files>'
       : 'None of them was changed or is named after a changed file, so none needs a run by hand.',
     ...named.map((pick) => `  ${pick.file}  ${pick.why}`),
-    ...(selection.all !== undefined
-      ? ['Also left out: every other Electron test file.']
-      : others > 0
-        ? [
-            `Also left out: ${others} Electron test file${others === 1 ? '' : 's'} that only import${others === 1 ? 's' : ''} changed code.`,
-          ]
-        : []),
+    ...(others > 0
+      ? [`Also left out: ${files(others)} that only import${others === 1 ? 's' : ''} changed code.`]
+      : []),
   ].join('\n')
 }
