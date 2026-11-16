@@ -13,6 +13,7 @@ import {
   createdByKinds,
   editorIds,
   emulatorSlotLimits,
+  idleRunSleepLimits,
   isLinearIntakeScope,
   isLinearTeamKey,
   isTimeZone,
@@ -381,6 +382,17 @@ export const settingParsers: {
   startAtLogin: onOff('startAtLogin'),
   stayAwake: onOff('stayAwake'),
   restartIdleRuns: onOff('restartIdleRuns'),
+  sleepIdleRunsAfterMinutes(value) {
+    if (value === null) return null
+    const { min, max } = idleRunSleepLimits
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+      throw new HttpError(
+        400,
+        `sleepIdleRunsAfterMinutes must be null or a whole number from ${min} to ${max}`,
+      )
+    }
+    return value
+  },
   notifyInboxItems: onOff('notifyInboxItems'),
   notifyProblems: onOff('notifyProblems'),
   notifyTaskMerged: onOff('notifyTaskMerged'),

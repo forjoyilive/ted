@@ -208,6 +208,10 @@ A sub-agent TED starts itself at Validate’s third send-back to read the rounds
 One agent conversation, on a Task (the Task Lead’s or a sub-agent’s), for an Automation, for planning, or for a Coordinator, from when TED starts it until it is stopped. TED may restart the agent underneath it, for example onto a new agent version, and it is still the same Run. A stopped Run is kept as history and never resumed; work continues in a fresh Run.
 _Avoid_: Session, job
 
+**Asleep**:
+Said of an idle Task Lead Run whose agent process TED has ended to free memory. The Run, its Conversation and its place on the Task stay as they are, and TED starts the agent again in the same session when there is a message for it.
+_Avoid_: Suspended, hibernated, paused (a paused agent kind is something else)
+
 **Planning Run**:
 A Run in a Factory, not on any Task, where the human and an agent work out a piece of work too big for one Task; it ends by proposing Tasks, with which ones block which, for the human to approve. The UI calls it a planning chat.
 _Avoid_: Planning session, epic, map

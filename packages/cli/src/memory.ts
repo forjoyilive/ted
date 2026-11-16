@@ -10,6 +10,11 @@ export function formatMemoryUse(use: MemoryUse): string {
         ? `  Daemon: ${memorySize(part.bytes)} (JavaScript heap ${memorySize(heapBytes)}, store and buffers ${memorySize(externalBytes)})`
         : `  ${part.label}: ${memorySize(part.bytes)}`,
     ),
+    ...(use.asleepRuns
+      ? [
+          `  ${use.asleepRuns === 1 ? '1 idle Run is' : `${use.asleepRuns} idle Runs are`} asleep and ${use.asleepRuns === 1 ? 'uses' : 'use'} no memory.`,
+        ]
+      : []),
     `Store on disk: event log ${memorySize(use.store.eventLogBytes)}, state database ${memorySize(use.store.stateBytes)}.`,
     'The app’s own processes aren’t counted here. Settings → Developer shows them.',
   ].join('\n')

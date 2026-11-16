@@ -41,6 +41,8 @@ export const runOutputDayLimits = { min: 1, max: 365 } as const
 
 export const archivedTaskDayLimits = { min: 1, max: 365 } as const
 
+export const idleRunSleepLimits = { min: 1, max: 1440 } as const
+
 export const quitChoices = ['ask', 'keep-running', 'stop'] as const
 
 export type QuitChoice = (typeof quitChoices)[number]
@@ -103,6 +105,7 @@ export interface MachineSettings {
   startAtLogin: boolean
   stayAwake: boolean
   restartIdleRuns: boolean
+  sleepIdleRunsAfterMinutes: number | null
   notifyInboxItems: boolean
   notifyProblems: boolean
   notifyTaskMerged: boolean
@@ -160,6 +163,7 @@ export const defaultMachineSettings: MachineSettings = {
   startAtLogin: true,
   stayAwake: true,
   restartIdleRuns: true,
+  sleepIdleRunsAfterMinutes: 30,
   notifyInboxItems: true,
   notifyProblems: true,
   notifyTaskMerged: false,

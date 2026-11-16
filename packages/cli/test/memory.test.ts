@@ -37,3 +37,13 @@ test('the one-line summary adds the app and other commands when they are there',
     '1.9 GB · Daemon 900 MB · App 590 MB · 1 Run host 75 MB · 1 agent 350 MB · Checks and other commands 40 MB',
   )
 })
+
+test('asleep Runs are counted apart, in the printout and in the summary', () => {
+  expect(formatMemoryUse({ ...use, asleepRuns: 9 }).split('\n')[4]).toBe(
+    '  9 idle Runs are asleep and use no memory.',
+  )
+  expect(formatMemoryUse({ ...use, asleepRuns: 1 }).split('\n')[4]).toBe(
+    '  1 idle Run is asleep and uses no memory.',
+  )
+  expect(memorySummary({ ...use, asleepRuns: 9 })).toMatch(/ · 9 Runs asleep$/)
+})

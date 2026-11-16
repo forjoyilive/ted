@@ -22,7 +22,7 @@ import { processMemory } from './process-memory.ts'
 import { redactSecrets } from './redact.ts'
 import { runFiles } from './runs/host-files.ts'
 import { parsedOutput } from './runs/parsed-output.ts'
-import { type RunManager, startRecord } from './runs/run-manager.ts'
+import { currentHostPid, type RunManager } from './runs/run-manager.ts'
 import type { RunOutputReader } from './runs/run-output.ts'
 import { storeFileSizes } from './store/files.ts'
 import type { TedStore } from './store/index.ts'
@@ -101,15 +101,17 @@ function tokenUse(sources: DiagnosticsSources, runs: Run[]): Map<string, TokenUs
   return tokens
 }
 
+const hostPids = (home: string, live: Run[]) =>
+  Promise.all(
+    live.map((run) => (run.asleep ? undefined : currentHostPid(path.join(home, 'runs', run.id)))),
+  )
+
 async function ownedProcesses(home: string, live: Run[]): Promise<ProcessInfo[]> {
-  const [starts, rows] = await Promise.all([
-    Promise.all(live.map((run) => startRecord(path.join(home, 'runs', run.id)))),
-    processes(),
-  ])
+  const [pids, rows] = await Promise.all([hostPids(home, live), processes()])
   const hosts = new Map<number, string>()
-  starts.forEach((start, index) => {
+  pids.forEach((pid, index) => {
     const run = live[index]
-    if (start && run) hosts.set(start.hostPid, run.id)
+    if (pid !== undefined && run) hosts.set(pid, run.id)
   })
   const byPid = new Map(rows.map((row) => [row.pid, row]))
   const ownerOf = (pid: number): ProcessInfo['owner'] | undefined => {
@@ -149,28 +151,30 @@ export async function memoryUse(
   sources: Pick<DiagnosticsSources, 'home' | 'store'>,
 ): Promise<MemoryUse> {
   const live = sources.store.liveRuns()
-  const [owned, starts, store] = await Promise.all([
+  const [owned, pids, store] = await Promise.all([
     ownedProcesses(sources.home, live),
-    Promise.all(live.map((run) => startRecord(path.join(sources.home, 'runs', run.id)))),
+    hostPids(sources.home, live),
     storeFileSizes(tedPaths(sources.home).store),
   ])
-  const hostPids = new Set(starts.flatMap((start) => (start ? [start.hostPid] : [])))
+  const hosts = new Set(pids.flatMap((pid) => (pid === undefined ? [] : [pid])))
+  const asleep = live.filter((run) => run.asleep).length
   const group = (rows: ProcessInfo[], count = rows.length): MemoryGroup => ({
     count,
     bytes: rows.reduce((sum, row) => sum + row.memoryBytes, 0),
   })
-  const agents = owned.filter((row) => row.owner !== 'daemon' && !hostPids.has(row.pid))
+  const agents = owned.filter((row) => row.owner !== 'daemon' && !hosts.has(row.pid))
   const usage = process.memoryUsage()
   const daemonBytes = owned.find((row) => row.pid === process.pid)?.memoryBytes ?? usage.rss
   return {
     daemon: { bytes: daemonBytes, heapBytes: usage.heapUsed, externalBytes: usage.external },
-    hosts: group(owned.filter((row) => hostPids.has(row.pid))),
+    hosts: group(owned.filter((row) => hosts.has(row.pid))),
     agents: group(
       agents,
       new Set(agents.map((row) => (row.owner === 'daemon' ? '' : row.owner.runId))).size,
     ),
     other: group(owned.filter((row) => row.owner === 'daemon' && row.pid !== process.pid)),
     store,
+    ...(asleep > 0 && { asleepRuns: asleep }),
   }
 }
 

@@ -783,6 +783,7 @@ export {
   type FactoryNotifications,
   factoryNotifications,
   firstFactoryNotifications,
+  idleRunSleepLimits,
   type MachineSettings,
   type Profile,
   type QuitChoice,

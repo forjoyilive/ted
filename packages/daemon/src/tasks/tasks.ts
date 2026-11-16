@@ -640,6 +640,7 @@ export interface Tasks {
   stop(ref: string): Promise<Task>
   resume(ref: string, input?: { comment?: string; attachments?: Attachment[] }): Promise<Task>
   stoppingForQuit(): void
+  midWork(taskId: string): boolean
   tedStops(): TedStoppedTask[]
   answerTedStops(request: AnswerTedStopsRequest): Promise<TedStoppedTask[]>
   move(ref: string, request: MoveTaskRequest): Task
@@ -10993,6 +10994,24 @@ export function createTasks(options: {
     stop: stopByHand,
     resume: resumeByHand,
     stoppingForQuit,
+    midWork(taskId) {
+      const task = store.getTask(taskId)
+      const lead = task && liveLeadOf(store, task)
+      return (
+        inFlight.busy(taskId, [
+          'transition',
+          'held',
+          'starting',
+          'checking',
+          'deleting',
+          'hierarchy',
+          'stoppingForBlockers',
+          'removingWorktrees',
+        ]) ||
+        leadLifecycle.applying(taskId) ||
+        (task !== undefined && lead !== undefined && tedWorkingFor(task, lead))
+      )
+    },
     tedStops: () => store.tedStops(),
     answerTedStops,
 

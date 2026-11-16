@@ -1145,6 +1145,7 @@ export interface TedStore extends TaskHistory {
   permissionTarget(commentId: string): PermissionTarget | undefined
   answerPermission(commentId: string, answer: CommentAnswer): Comment
   setRunPermissions(runId: string, permissions: PermissionMode): void
+  setRunAsleep(runId: string, asleep: boolean): void
   restartRun(runId: string, flags: RunFlags): Run
   reviveRun(runId: string, flags?: RunFlags): Run
   lastOutputAt(runId: string): string | undefined
@@ -1349,6 +1350,7 @@ export async function openStore({
   let newWorkHeld: string | undefined
   let heldBusy: BusyHold | undefined
   const waitingOnSubAgents = new Set<string>()
+  const asleepRuns = new Set<string>()
   const checkingTasks = new Set<string>()
   const movingAfterChecks = new Set<string>()
   let checksWaiting: ReadonlyMap<string, number> = new Map()
@@ -2475,6 +2477,7 @@ export async function openStore({
     ...(taskId !== null && { taskId }),
     ...(revivedAt !== null && { revivedAt }),
     ...(ended !== null && { ended: JSON.parse(ended) as RunEnding }),
+    ...(asleepRuns.has(row.id) && { asleep: true as const }),
   })
 
   const withPurpose = (comment: Comment, stored: string | null): Comment => {
@@ -6736,6 +6739,13 @@ export async function openStore({
       emit({ type: 'run-updated', run: toRun(runRow(runId) ?? row) })
       const taskId = taskIdOfRun(runId)
       if (taskId !== undefined) updatedTask(taskId)
+    },
+    setRunAsleep(runId, asleep) {
+      if (asleepRuns.has(runId) === asleep) return
+      if (asleep) asleepRuns.add(runId)
+      else asleepRuns.delete(runId)
+      const row = runRow(runId)
+      if (row) emit({ type: 'run-updated', run: toRun(row) })
     },
     restartRun(runId, { model, effort, usesDefaultModel = false }) {
       const at = new Date().toISOString()

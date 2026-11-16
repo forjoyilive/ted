@@ -10,6 +10,7 @@ export interface MemoryUse {
   other: MemoryGroup
   store: { eventLogBytes: number; stateBytes: number }
   app?: MemoryGroup
+  asleepRuns?: number
 }
 
 export interface MemoryPart {
@@ -52,5 +53,6 @@ export function memorySummary(use: MemoryUse): string {
   return [
     memorySize(memoryTotal(use)),
     ...memoryParts(use).map((part) => `${part.label} ${memorySize(part.bytes)}`),
+    ...(use.asleepRuns ? [`${counted(use.asleepRuns, 'Run', 'Runs')} asleep`] : []),
   ].join(' · ')
 }

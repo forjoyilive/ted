@@ -47,6 +47,7 @@ import { QuitMarkedError, quitMarkedSync } from './quit-mark.ts'
 import { pruneRunOutput, runOutputEnd } from './retention.ts'
 import { loadRunTokens } from './run-token.ts'
 import { createConversations } from './runs/conversations.ts'
+import { sleepIdleRuns } from './runs/idle-sleep.ts'
 import { startRunManager } from './runs/run-manager.ts'
 import { createSteering } from './runs/steering.ts'
 import { restartOnNewVersions } from './runs/version-restarts.ts'
@@ -119,6 +120,7 @@ export interface DaemonOptions {
   scratchMaxAgeMs?: number
   automations?: DaemonAutomationsOptions
   retention?: DaemonRetentionOptions
+  idleSleep?: { now?: () => number; checkEveryMs?: number }
   oldestHost?: number
   editors?: DaemonEditorsOptions
   compaction?: DataOptions['compaction']
@@ -785,6 +787,12 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         conversations,
         versionsFile: path.join(paths.home, 'agent-versions.json'),
       })
+      const idleSleep = sleepIdleRuns({
+        store,
+        runs,
+        midWork: (taskId) => tasks.midWork(taskId),
+        ...options.idleSleep,
+      })
       if (options.checkAgentsOnStart) {
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
@@ -820,6 +828,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           plans.close()
           libraryWatch.close()
           versionRestarts.close()
+          idleSleep.close()
           await checkTries.close()
           workflows.close()
           await factorySettings.close()
