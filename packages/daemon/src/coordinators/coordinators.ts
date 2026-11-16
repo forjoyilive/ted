@@ -39,6 +39,7 @@ import type { Steering } from '../runs/steering.ts'
 import type { PromptPart, StoredCoordinator } from '../store/coordinators.ts'
 import type { TedStore } from '../store/index.ts'
 import type { QueueSource } from '../tasks/queue.ts'
+import { startGuard } from '../tasks/queued-runs.ts'
 import type { Caller, Tasks } from '../tasks/tasks.ts'
 import { writingGuidance } from '../writing.ts'
 
@@ -186,8 +187,7 @@ export function createCoordinators(options: {
   const { home, store, runs, tasks, steering } = options
   const makeDirectory = options.mkdir ?? mkdir
   const saved = store.coordinators
-  const launches = new Map<string, Promise<void>>()
-  const launching = new Set<string>()
+  const launching = startGuard('Coordinator')
   const stopping = new Set<string>()
   const removing = new Set<string>()
   const deleting = new Set<string>()
@@ -341,7 +341,7 @@ export function createCoordinators(options: {
     return messages.length
   }
   const source: QueueSource = {
-    starting: () => [...launching].flatMap((id) => saved.get(id)?.runId ?? []),
+    starting: () => launching.keys().flatMap((id) => saved.get(id)?.runId ?? []),
     queued: () =>
       saved
         .list()
@@ -359,26 +359,23 @@ export function createCoordinators(options: {
       )
     },
     begin(id) {
-      if (closed || launching.has(id)) return
-      launching.add(id)
-      const work = launch(id)
-        .catch((error) => {
+      if (closed) return
+      launching.begin(id, () => launch(id), {
+        failed(error) {
           if (error instanceof AgentDisabledError) {
             const current = saved.get(id)
             if (current?.phase === 'working' && !store.getRun(current.runId))
               save({ ...current, phase: 'queued' })
           } else fail(id, error)
-        })
-        .finally(() => {
-          launching.delete(id)
-          launches.delete(id)
+        },
+        done() {
           if (!closed) {
             const current = saved.get(id)
             if (current && store.getRun(current.runId)) steering.syncQueuedFlag(current.runId)
             pump()
           }
-        })
-      launches.set(id, work)
+        },
+      })
     },
     holders: () =>
       saved
@@ -590,7 +587,7 @@ export function createCoordinators(options: {
       stopping.add(c.id)
       save({ ...c, phase: 'queued' })
       const work = (async () => {
-        await launches.get(c.id)
+        await launching.wait(c.id)
         await steering.drain(c.runId)
         if (closed || held(c.id)) return
         const latest = saved.get(c.id)
@@ -1002,7 +999,7 @@ export function createCoordinators(options: {
   }
 
   async function settle(c: StoredCoordinator): Promise<void> {
-    await launches.get(c.id)?.catch(() => {})
+    await launching.wait(c.id)?.catch(() => {})
     await chains.get(c.factoryId)?.catch(() => {})
     await steering.drain(c.runId)
     for (const runId of (saved.get(c.id) ?? c).runIds) {
@@ -1176,7 +1173,7 @@ export function createCoordinators(options: {
       requireChat(id)
       stopping.add(id)
       try {
-        await launches.get(id)
+        await launching.wait(id)
         const current = requireChat(id)
         await steering.drain(current.runId)
         const latest = requireChat(id)
@@ -1974,7 +1971,7 @@ export function createCoordinators(options: {
       closed = true
       unsubscribe()
       await Promise.allSettled([
-        ...launches.values(),
+        ...launching.all(),
         ...chains.values(),
         ...background,
         ...saved.list().map((c) => steering.drain(c.runId)),
