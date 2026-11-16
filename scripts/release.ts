@@ -213,7 +213,7 @@ function remoteTagCommit(tag: string): string | undefined {
 
 export interface PublishFacts {
   record: ReleaseRecord | undefined
-  notes: 'missing' | 'no-major' | 'ready'
+  notes: 'missing' | 'empty-major' | 'ready'
   head: string
   localTag: string | undefined
   remoteTag: string | undefined
@@ -243,8 +243,8 @@ export function publishRefusal(facts: PublishFacts): string | undefined {
   if (facts.notes === 'missing') {
     return `there are no release notes at ${notesFile}; run pnpm release discard, then build again`
   }
-  if (facts.notes === 'no-major') {
-    return `write the Major section of the release notes in ${notesFile} first`
+  if (facts.notes === 'empty-major') {
+    return `write the Major section of the release notes in ${notesFile}, or delete it, first`
   }
   if (facts.visibility !== 'PUBLIC') {
     return `${repo} is private, so the updater and other people can’t read its releases; make it public first`
@@ -287,9 +287,9 @@ function publish(): void {
     record,
     notes: !existsSync(notesFile)
       ? 'missing'
-      : majorWritten(readFileSync(notesFile, 'utf8'))
-        ? 'ready'
-        : 'no-major',
+      : majorSection(readFileSync(notesFile, 'utf8')) === 'empty'
+        ? 'empty-major'
+        : 'ready',
     head: git('rev-parse', 'HEAD'),
     localTag: record === undefined ? undefined : gitMaybe('rev-parse', `${tag}^{commit}`),
     remoteTag: record === undefined ? undefined : remoteTagCommit(tag),
@@ -363,7 +363,7 @@ export function changeKind(change: Change): ChangeKind {
 }
 
 const majorHint =
-  '<!-- The changes people will notice most, in a sentence or two each. pnpm release publish refuses while this section is empty. -->'
+  '<!-- The changes people will notice most, in a sentence or two each, or delete this section when none stand out. Don’t repeat a change listed here in the sections below. pnpm release publish refuses while this section is here and empty. -->'
 
 export function draftNotes(
   changes: Change[],
@@ -390,10 +390,34 @@ export function draftNotes(
   ].join('\n')
 }
 
-export function majorWritten(notes: string): boolean {
+export function majorSection(notes: string): 'none' | 'empty' | 'written' {
   const match = /^## Major[ \t]*\n([\s\S]*?)(?=^## |^\*\*Full changelog|(?![\s\S]))/m.exec(notes)
-  if (match === null) return false
-  return (match[1] ?? '').replace(/<!--[\s\S]*?-->/g, '').trim() !== ''
+  if (match === null) return 'none'
+  return (match[1] ?? '').replace(/<!--[\s\S]*?-->/g, '').trim() === '' ? 'empty' : 'written'
+}
+
+const pullRequests = (text: string) => [...text.matchAll(/#(\d+)/g)].map((match) => match[1])
+
+export function withoutMajorRepeats(notes: string): string {
+  const parts = notes.split(/^(?=## )/m)
+  const major = parts.find((part) => /^## Major\b/.test(part))
+  const inMajor = new Set(major === undefined ? [] : pullRequests(major))
+  if (inMajor.size === 0) return notes
+  return parts
+    .map((part) => {
+      if (part === major || !part.startsWith('## ')) return part
+      const lines = part.split('\n').filter((line) => {
+        const numbers = pullRequests(line)
+        return !(
+          line.startsWith('- ') &&
+          numbers.length > 0 &&
+          numbers.every((number) => inMajor.has(number))
+        )
+      })
+      return lines.some((line) => line.startsWith('- ')) ? lines.join('\n') : ''
+    })
+    .join('')
+    .trim()
 }
 
 export function notesPrompt(changes: Change[], version: string): string {
@@ -408,12 +432,12 @@ export function notesPrompt(changes: Change[], version: string): string {
     '',
     'Below is every change merged since the last release, one per line, with a guessed kind and the folders it touched. Use only these changes; never invent one.',
     '',
-    'Answer with Markdown only, starting with the line “## Major”, in exactly these sections:',
-    '- ## Major: two to four bullets on the changes a user will notice most, a sentence each.',
+    'Answer with Markdown only, starting with the first section heading you use, in these sections and this order:',
+    '- ## Major: only when some changes stand out as the ones a user will notice most; leave the section out when none do. At most four bullets, a sentence or two each. One bullet may sum up a series of changes that together make one larger change, with all their pull request numbers, like (#431, #435, #440).',
     '- ## Features: new or changed behaviour a user can see.',
     '- ## Fixes: things that were broken and now work.',
     '- ## Other: tests, docs, release tooling and internal changes, briefly; group related ones into one line.',
-    'Leave out a section with nothing in it, except Major. Keep pull request numbers like (#431) on the lines they belong to. Merge lines that describe the same change.',
+    'Every change goes in exactly one section: a change covered under Major never appears again in Features, Fixes or Other. Leave out a section with nothing in it. Keep pull request numbers like (#431) on the lines they belong to. Merge lines that describe the same change.',
     '',
     'Style: plain, direct language; name the concrete thing; no marketing words; curly quotes and apostrophes (’ “ ”). Write for someone who uses TED, not someone who builds it.',
     '',
@@ -423,7 +447,7 @@ export function notesPrompt(changes: Change[], version: string): string {
 }
 
 export function cleanClaudeNotes(answer: string): string | undefined {
-  const start = answer.indexOf('## Major')
+  const start = answer.search(/^## (Major|Features|Fixes|Other)[ \t]*$/m)
   if (start === -1) return undefined
   const notes = answer
     .slice(start)
@@ -432,7 +456,7 @@ export function cleanClaudeNotes(answer: string): string | undefined {
     .join('\n')
     .replace(/\n*```\s*$/, '')
     .trim()
-  return majorWritten(notes) ? notes : undefined
+  return majorSection(notes) === 'empty' ? undefined : withoutMajorRepeats(notes)
 }
 
 function claudeNotes(changes: Change[], version: string, previous: string | undefined) {
@@ -636,7 +660,7 @@ async function build(version: string, skipChecks: boolean): Promise<void> {
   writeFileSync(notesFile, drafted ?? draftNotes(changes, version, previous))
   console.log(
     drafted === undefined
-      ? `Claude couldn’t draft them, so ${notesFile} lists the changes; write the Major section before you publish.`
+      ? `Claude couldn’t draft them, so ${notesFile} lists the changes; write the Major section, or delete it, before you publish.`
       : `Claude drafted them in ${notesFile}; read and correct them before you publish.`,
   )
   install()

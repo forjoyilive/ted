@@ -10,7 +10,7 @@ import {
   discardPlan,
   draftNotes,
   isNewer,
-  majorWritten,
+  majorSection,
   notaryCredentials,
   notesPrompt,
   type PublishFacts,
@@ -202,7 +202,7 @@ describe('publishing a release', () => {
     expect(refused({ remoteTag: 'other' })).toMatch(/already on GitHub at another commit/)
     expect(refused({ visibility: 'PRIVATE' })).toMatch(/is private/)
     expect(refused({ notes: 'missing' })).toMatch(/no release notes/)
-    expect(refused({ notes: 'no-major' })).toMatch(/Major section/)
+    expect(refused({ notes: 'empty-major' })).toMatch(/Major section .*, or delete it/)
   })
 })
 
@@ -283,15 +283,17 @@ describe('release notes', () => {
     expect(notes).toContain('## Fixes\n\n- Fix the Inbox count\n')
     expect(notes).not.toContain('## Other')
     expect(notes).toContain('compare/v1.1.0...v1.2.0')
-    expect(majorWritten(notes)).toBe(false)
+    expect(majorSection(notes)).toBe('empty')
   })
 
-  test('the Major section counts as written once it has text outside comments', () => {
+  test('the Major section is empty until it has text outside comments, and may be left out', () => {
     const draft = draftNotes([], '1.2.0', undefined)
-    expect(majorWritten(draft)).toBe(false)
-    expect(majorWritten(draft.replace('## Major\n', '## Major\n\nFactory groups.\n'))).toBe(true)
-    expect(majorWritten('## Features\n\n- a\n')).toBe(false)
-    expect(majorWritten('## Major\n\nOnly this.')).toBe(true)
+    expect(majorSection(draft)).toBe('empty')
+    expect(majorSection(draft.replace('## Major\n', '## Major\n\nFactory groups.\n'))).toBe(
+      'written',
+    )
+    expect(majorSection('## Features\n\n- a\n')).toBe('none')
+    expect(majorSection('## Major\n\nOnly this.')).toBe('written')
   })
 })
 
@@ -313,13 +315,53 @@ describe('Claude’s release notes', () => {
     )
   })
 
-  test('keeps the notes from “## Major” on, drops its own changelog line, and needs a Major section', () => {
+  test('keeps the notes from the first section on, drops its own changelog line, and refuses an empty Major section', () => {
     expect(
       cleanClaudeNotes(
         'Here you go:\n\n## Major\n\n- Groups.\n\n## Fixes\n\n- A fix.\n**Full changelog**: x\n```',
       ),
     ).toBe('## Major\n\n- Groups.\n\n## Fixes\n\n- A fix.')
-    expect(cleanClaudeNotes('## Features\n\n- a')).toBeUndefined()
+    expect(cleanClaudeNotes('Sure.\n\n## Features\n\n- a')).toBe('## Features\n\n- a')
+    expect(cleanClaudeNotes('No headings here.')).toBeUndefined()
     expect(cleanClaudeNotes('## Major\n\n<!-- nothing -->\n\n## Fixes\n\n- a')).toBeUndefined()
+  })
+
+  test('drops lines whose pull requests are all under Major, and sections left empty', () => {
+    expect(
+      cleanClaudeNotes(
+        [
+          '## Major',
+          '',
+          '- Factory groups in the sidebar (#431, #435).',
+          '',
+          '## Features',
+          '',
+          '- Show Factory groups (#431)',
+          '- Search the List (#440)',
+          '',
+          '## Fixes',
+          '',
+          '- Fix group drag (#435)',
+          '',
+          '## Other',
+          '',
+          '- Tests for groups and the List (#431, #440)',
+        ].join('\n'),
+      ),
+    ).toBe(
+      [
+        '## Major',
+        '',
+        '- Factory groups in the sidebar (#431, #435).',
+        '',
+        '## Features',
+        '',
+        '- Search the List (#440)',
+        '',
+        '## Other',
+        '',
+        '- Tests for groups and the List (#431, #440)',
+      ].join('\n'),
+    )
   })
 })
