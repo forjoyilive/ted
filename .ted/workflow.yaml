@@ -9,7 +9,7 @@ repos:
       - name: TED Dev
         kind: command
         electron: true
-        run: TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm app $TED_ELECTRON_ARGS
+        run: MAC_CHROMIUM_TMPDIR="$TMPDIR" TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm app $TED_ELECTRON_ARGS
 order: [intake, clarify, design, work, validate, review, merge]
 stages:
   design: { gate: true, based_on: f7500a6 }

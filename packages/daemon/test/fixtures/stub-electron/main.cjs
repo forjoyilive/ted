@@ -2,6 +2,7 @@ const path = require('node:path')
 const { app, BrowserWindow } = require('electron')
 
 app.setPath('userData', path.join(process.env.TMPDIR || '/tmp', `stub-electron-${process.pid}`))
+const locked = app.requestSingleInstanceLock()
 app.on('window-all-closed', () => app.quit())
 app.whenReady().then(async () => {
   const window = new BrowserWindow({
@@ -11,6 +12,6 @@ app.whenReady().then(async () => {
   })
   await window.loadFile(path.join(__dirname, 'index.html'))
   await window.webContents.executeJavaScript(
-    `document.getElementById('shown').textContent = 'visible ${window.isVisible()}'`,
+    `document.getElementById('shown').textContent = 'visible ${window.isVisible()}'; document.getElementById('lock').textContent = 'single instance ${locked}'`,
   )
 })

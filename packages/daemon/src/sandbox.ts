@@ -160,6 +160,8 @@ export function createSandbox(options: {
         GOCACHE: cache('go-build'),
         GOMODCACHE: cache('go-mod'),
         TED_SANDBOX: '1',
+        // Chromium on macOS ignores TMPDIR and makes its single-instance socket in the user temp folder.
+        ...(platform === 'darwin' && { MAC_CHROMIUM_TMPDIR: paths.tmp }),
         ...(scope.electron === true && { TED_SANDBOX_ELECTRON: '1' }),
         ...(await makeBuildCaches(paths.tedHome, path.resolve(options.tedHome), paths.cache)),
       }
