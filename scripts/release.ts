@@ -391,15 +391,23 @@ export function withoutMajorRepeats(notes: string): string {
   return parts
     .map((part) => {
       if (part === major || !part.startsWith('## ')) return part
-      const lines = part.split('\n').filter((line) => {
-        const numbers = pullRequests(line)
+      const blocks: string[][] = []
+      for (const line of part.split('\n')) {
+        const last = blocks.at(-1)
+        const continues =
+          last?.[0]?.startsWith('- ') && line.trim() !== '' && !line.startsWith('- ')
+        if (last !== undefined && continues) last.push(line)
+        else blocks.push([line])
+      }
+      const kept = blocks.filter((block) => {
+        const numbers = pullRequests(block.join('\n'))
         return !(
-          line.startsWith('- ') &&
+          block[0]?.startsWith('- ') &&
           numbers.length > 0 &&
           numbers.every((number) => inMajor.has(number))
         )
       })
-      return lines.some((line) => line.startsWith('- ')) ? lines.join('\n') : ''
+      return kept.some((block) => block[0]?.startsWith('- ')) ? kept.flat().join('\n') : ''
     })
     .join('')
     .trim()

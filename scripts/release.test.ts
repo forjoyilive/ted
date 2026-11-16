@@ -332,6 +332,8 @@ describe('Claude’s release notes', () => {
           '',
           '- Show Factory groups (#431)',
           '- Search the List (#440)',
+          '- Drag a Factory into a group',
+          '  (#431)',
           '',
           '## Fixes',
           '',
