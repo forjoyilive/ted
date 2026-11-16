@@ -581,6 +581,7 @@ test.each(['response-first', 'event-first'] as const)(
         agent: 'claude',
         status: 'waiting',
         createdAt,
+        lastAt: createdAt,
         createdTasks: 0,
         runId: 'planner',
       },

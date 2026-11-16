@@ -81,6 +81,7 @@ const plan = (fields: Partial<Plan>): Plan => ({
   agent: 'claude',
   status: 'idle',
   createdAt: '2026-11-10T10:05:00.000Z',
+  lastAt: '2026-11-10T10:05:00.000Z',
   createdTasks: 0,
   ...fields,
 })

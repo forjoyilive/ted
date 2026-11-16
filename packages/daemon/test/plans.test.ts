@@ -220,6 +220,9 @@ describe('Planning chats', () => {
       body: 'Created 2 Tasks under NB-1: NB-2, NB-3. NB-1 waits for them to merge.',
     })
     expect(done.plan.createdTasks).toBe(2)
+    const answeredAt = done.requests.flatMap((r) => (r.answer ? [r.answer.at] : [])).sort()
+    expect(done.plan.lastAt >= (answeredAt.at(-1) ?? '')).toBe(true)
+    expect(done.plan.lastAt > done.plan.createdAt).toBe(true)
     const tasks = await client.ok<Task[]>('GET', '/tasks')
     expect(
       tasks.map((t) => [t.displayId, t.title, t.createdBy, t.parentId, t.fromPlan?.title]),
@@ -306,7 +309,7 @@ describe('Planning chats', () => {
     const asked = await waitForPlan(client, plan.id, (d) => d.plan.status === 'waiting', 'round')
     const roundId = asked.requests.find((r) => r.kind === 'round')?.id as string
     const stopped = await client.ok<Plan>('POST', `/plans/${plan.id}/stop`)
-    expect(stopped).toMatchObject({ status: 'stopped', canResume: true })
+    expect(stopped).toMatchObject({ status: 'stopped', canResume: true, openRequest: true })
     expect((await detail(client, plan.id)).requests[0]?.answer).toBeUndefined()
     expect(
       (await client.ok<PlanInboxItem[]>('GET', '/plan-requests')).map((i) => i.request.id),

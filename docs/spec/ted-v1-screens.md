@@ -148,7 +148,7 @@ Ticket: [KRI-65](https://linear.app/kriyadesign/issue/KRI-65).
 
 Two frame details are out of date against later decisions: the Save dialog and the removed repo card still show “open Tasks keep the repo until they’re Done”, which coordinator decision 12 replaced with a refusal; and the setup design review shows “Approve design”, corrected to **Approve** (KRI-60, KRI-65 follow-up). Check both frames before building.
 
-## KRI-66 Automations and Plans
+## KRI-66 Automations and Plans (Plans now under Agents, TED-436)
 
 Ticket: [KRI-66](https://linear.app/kriyadesign/issue/KRI-66).
 
@@ -165,6 +165,16 @@ Ticket: [KRI-66](https://linear.app/kriyadesign/issue/KRI-66).
 | Automations · empty / Plans · empty / New planning chat | [28:1949](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-1949) / [28:2053](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-2053) / [28:2131](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-2131) |
 
 The Split it proposal uses the planning chat’s proposal card (KRI-60).
+
+## TED-436 Agents
+
+Each Factory’s sidebar has one **Agents** row in place of the old Coordinator and Plans rows; it opens the Agents screen. The Plans list frames above (27:10471, 28:2053) are replaced by it; the planning chat frames still show the middle pane. No Figma frame yet: the design was reviewed as an HTML prototype on TED-436.
+
+- **Left, Agent chats:** every Coordinator chat and planning chat in the Factory, newest activity first, ended ones included. Each row names the Agent (Coordinator or Planner), its time, title, status chip and one line (Tasks, proposal, or the Task a Plan in chat came from), with a dot when the chat waits for the user. **Display → Group by Agent** splits the list by Agent. A Coordinator row’s right-click menu has Continue (ended chats) and Delete…; a planning chat’s actions are in the chat.
+- **Middle:** the open chat. A Coordinator chat is TED-435’s chat pane; a planning chat keeps its header actions (Stop, Resume, Retry, Mark finished, Rename…, Plan more from here…, Delete…).
+- **Right:** the Agent, what it can do, its Provider and model, and the chat’s Tasks; for a planning chat also where it started (a Task’s size check or an earlier plan).
+- **New chat**, and Agents with no chats, show a start page with a Coordinator card and a Planner card; each opens that Agent’s start form. Opening Agents shows the chat last open in that Factory, else the newest.
+- ⌘K “Go to Agents” (G P), Coordinator confirmations in the Inbox, Plan in chat and “Plan more from here” open this screen.
 
 ---
 

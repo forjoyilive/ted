@@ -11,6 +11,7 @@ import type {
 import { efforts } from '@ted/protocol/task'
 import { type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
+import { AgentAbout } from '../components/AgentAbout.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
 import column from '../components/ChatColumn.module.css'
@@ -22,7 +23,7 @@ import { ProposalAnswer, ProposalRows } from '../components/ProposalCard.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { RoundAnswers, RoundQuestions } from '../components/RoundCard.tsx'
 import { type ChatExtra, RunChat, tokenCount } from '../components/RunChat.tsx'
-import { RunIcon } from '../components/RunIcon.tsx'
+import { agentNames, RunIcon } from '../components/RunIcon.tsx'
 import type { ScrollReveal } from '../components/ScrollMemory.tsx'
 import { Select } from '../components/Select.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
@@ -64,7 +65,7 @@ export function PlanChatView({
   planId: string | undefined
   revealRequest?: ScrollReveal | undefined
   from?: string
-  onBack: () => void
+  onBack?: (() => void) | undefined
   backLabel?: string
   onOpenPlan: (planId: string) => void
   onPlanMore: (planId: string) => void
@@ -77,6 +78,7 @@ export function PlanChatView({
         factory={factory}
         {...(from !== undefined && { from })}
         onBack={onBack}
+        backLabel={backLabel}
         onStarted={onOpenPlan}
         onOpenPlan={onOpenPlan}
       />
@@ -164,7 +166,12 @@ export function LeadSelects({
   )
 }
 
-function Back({ onBack, label = '← Plans' }: { onBack: () => void; label?: string }) {
+function leadLine(lead: TaskLead | undefined): string {
+  return lead ? [agentNames[lead.agent], lead.model, lead.effort].filter(Boolean).join(' · ') : ''
+}
+
+function Back({ onBack, label }: { onBack: (() => void) | undefined; label?: string | undefined }) {
+  if (!onBack || label === undefined) return null
   return (
     <ActionButton type="button" className={styles.back} onClick={onBack}>
       {label}
@@ -176,12 +183,14 @@ function NewPlanChat({
   factory,
   from,
   onBack,
+  backLabel,
   onStarted,
   onOpenPlan,
 }: {
   factory: Factory
   from?: string
-  onBack: () => void
+  onBack?: (() => void) | undefined
+  backLabel?: string | undefined
   onStarted: (planId: string) => void
   onOpenPlan: (planId: string) => void
 }) {
@@ -238,7 +247,7 @@ function NewPlanChat({
     <>
       <section className={views.pane} aria-label="New planning chat">
         <header className={styles.header}>
-          <Back onBack={onBack} />
+          <Back onBack={onBack} label={backLabel} />
           <div className={styles.titleRow}>
             <h1 className={`${styles.title} ${styles.placeholderTitle}`}>New planning chat</h1>
             <span className={styles.spacer} />
@@ -292,6 +301,9 @@ function NewPlanChat({
         </div>
       </section>
       <DetailsPane className={views.detailsPane} aria-label="Planning chat details">
+        <Section title="Agent">
+          <AgentAbout agent="Planner" provider={leadLine(lead)} />
+        </Section>
         <Section title="Started from">
           {earlier ? (
             <FromPlan
@@ -400,10 +412,12 @@ function TitleEditor({ plan, renameSignal }: { plan: Plan; renameSignal: number 
 function MoreMenu({
   plan,
   onRename,
+  onPlanMore,
   onDeleted,
 }: {
   plan: Plan
   onRename: () => void
+  onPlanMore: (planId: string) => void
   onDeleted: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -437,6 +451,19 @@ function MoreMenu({
           >
             Rename…
           </ActionButton>
+          {planEnded(plan) && (
+            <ActionButton
+              type="button"
+              role="menuitem"
+              className={styles.menuItem}
+              onClick={() => {
+                setOpen(false)
+                onPlanMore(plan.id)
+              }}
+            >
+              Plan more from here…
+            </ActionButton>
+          )}
           <ActionButton
             type="button"
             role="menuitem"
@@ -500,12 +527,14 @@ function PlanHeader({
   plan,
   onBack,
   backLabel,
+  onPlanMore,
   onDeleted,
   onOpenTask,
 }: {
   plan: Plan
-  onBack: () => void
+  onBack?: (() => void) | undefined
   backLabel?: string
+  onPlanMore: (planId: string) => void
   onDeleted: () => void
   onOpenTask: (ref: string) => void
 }) {
@@ -557,6 +586,7 @@ function PlanHeader({
         <MoreMenu
           plan={plan}
           onRename={() => setRenameSignal((n) => n + 1)}
+          onPlanMore={onPlanMore}
           onDeleted={onDeleted}
         />
       </div>
@@ -822,7 +852,7 @@ function PlanChat({
 }: {
   planId: string
   revealRequest?: ScrollReveal | undefined
-  onBack: () => void
+  onBack?: (() => void) | undefined
   backLabel?: string
   onOpenTask: (ref: string) => void
   onOpenPlan: (planId: string) => void
@@ -856,6 +886,7 @@ function PlanChat({
           plan={plan}
           {...(backLabel !== undefined && { backLabel })}
           onBack={onBack}
+          onPlanMore={onPlanMore}
           onDeleted={onDeleted}
           onOpenTask={onOpenTask}
         />
@@ -930,6 +961,9 @@ function PlanPane({
   const proposal = requests.findLast((r) => r.kind === 'proposal')
   return (
     <DetailsPane className={views.detailsPane} aria-label="Planning chat details">
+      <Section title="Agent">
+        <AgentAbout agent="Planner" provider={leadLine(plan)} />
+      </Section>
       <Section title="Started from">
         {plan.fromPlan ? (
           <FromPlan plan={plan} onOpenPlan={onOpenPlan} />

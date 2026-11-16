@@ -40,7 +40,7 @@ describe('navigation', () => {
     expect(targeted).toMatchObject({
       planId: 'p1',
       requestId: 'round2',
-      screen: { kind: 'factory', factoryId: 'nb', view: 'plans' },
+      screen: { kind: 'factory', factoryId: 'nb', view: 'agents' },
     })
     expect(
       navigate(targeted, { type: 'open-plan', factoryId: 'nb', planId: 'p1' }).requestId,
@@ -104,6 +104,14 @@ describe('navigation', () => {
         after({ type: 'open', screen: { kind: 'all-tasks' } }, { type: 'open-task', taskId: 't1' }),
       ),
     ).toBe('← All Tasks')
+    expect(
+      backLink(
+        after(
+          { type: 'open-plan', factoryId: 'nb', planId: 'p1' },
+          { type: 'open-task', taskId: 't1' },
+        ),
+      ),
+    ).toBe('← Agents')
     expect(backLink(after({ type: 'open', screen: { kind: 'all-tasks' } }))).toBeUndefined()
   })
 
@@ -262,7 +270,7 @@ describe('back and forward (⌘[ and ⌘])', () => {
 
     history = withHistory(history, { type: 'back' })
     expect(history.now).toMatchObject({
-      screen: { kind: 'factory', factoryId: 'nb', view: 'plans' },
+      screen: { kind: 'factory', factoryId: 'nb', view: 'agents' },
       planId: newPlan,
       planFrom: 'p1',
     })
@@ -279,6 +287,26 @@ describe('back and forward (⌘[ and ⌘])', () => {
     history = withHistory(history, { type: 'forward' })
     expect(history.now.planId).toBe(newPlan)
     expect(history.now.planFrom).toBeUndefined()
+  })
+
+  test('the chat Agents picks replaces the plain Agents place, so Back returns to that chat', () => {
+    const agents = { kind: 'factory', factoryId: 'nb', view: 'agents' } as const
+    let history = walk(
+      { type: 'open', screen: agents },
+      { type: 'open', screen: { ...agents, chatId: 'a' }, replace: true },
+    )
+    expect(history.back.map((p) => p.screen)).toEqual([{ kind: 'inbox' }])
+    history = withHistory(history, { type: 'open', screen: { ...agents, chatId: 'b' } })
+    history = withHistory(history, { type: 'back' })
+    expect(history.now.screen).toEqual({ ...agents, chatId: 'a' })
+    history = withHistory(history, {
+      type: 'open-plan',
+      factoryId: 'nb',
+      planId: 'p1',
+      replace: true,
+    })
+    expect(history.now).toMatchObject({ screen: agents, planId: 'p1' })
+    expect(history.forward).toHaveLength(1)
   })
 
   test('back with nowhere to go, and actions that stay in place, change nothing', () => {
@@ -298,12 +326,12 @@ test('Tasks opens the last-used of Board, List and Map, and a Task opened from M
     navigate(state, { type: 'open-tasks', factoryId: 'nb' }).screen
   expect(tasksView(initialNavigation)).toEqual({ kind: 'factory', factoryId: 'nb', view: 'board' })
   const map = { kind: 'factory', factoryId: 'nb', view: 'map' } as const
-  const onPlans = [
+  const onAgents = [
     { type: 'open', screen: map } as const,
-    { type: 'open', screen: { kind: 'factory', factoryId: 'nb', view: 'plans' } } as const,
+    { type: 'open', screen: { kind: 'factory', factoryId: 'nb', view: 'agents' } } as const,
   ].reduce(navigate, initialNavigation)
-  expect(tasksView(onPlans)).toEqual(map)
-  expect(navigate(onPlans, { type: 'open-tasks', factoryId: 'ms' }).screen).toMatchObject({
+  expect(tasksView(onAgents)).toEqual(map)
+  expect(navigate(onAgents, { type: 'open-tasks', factoryId: 'ms' }).screen).toMatchObject({
     factoryId: 'ms',
     view: 'board',
   })

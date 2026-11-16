@@ -1,0 +1,4 @@
+.about { display: flex; flex-direction: column; gap: 6px; font-size: var(--text-13); }
+.about p { margin: 0; color: var(--text-secondary); }
+.about .name { color: var(--text-primary); font-weight: var(--weight-semibold); }
+.about .provider { color: var(--text-caption); }

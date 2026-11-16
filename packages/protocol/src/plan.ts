@@ -66,10 +66,12 @@ export interface Plan {
   createdAt: string
   startedAt?: string
   finishedAt?: string
+  lastAt: string
   runId?: string
   proposedTasks?: number
   createdTasks: number
   waitingOn?: string
+  openRequest?: true
   canResume?: boolean
   fromPlan?: { id: string; title: string; deleted?: boolean }
   fromTask?: PlanFromTask

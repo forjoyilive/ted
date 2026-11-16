@@ -149,7 +149,7 @@ test('Factories open Dashboard with Board, List and Map folded under Tasks; All 
   const taskViews = () => within(nav()).getByRole('button', { name: 'Task views' })
   const factoryViews = () => within(nav()).getByRole('button', { name: 'Views' })
   await u.click(await screen.findByRole('button', { name: 'widgets' }))
-  for (const name of ['Dashboard', 'Tasks', 'Plans', 'Automations']) expect(shown(name)).toBe(true)
+  for (const name of ['Dashboard', 'Agents', 'Tasks', 'Automations']) expect(shown(name)).toBe(true)
   expect(['Board', 'List', 'Map'].filter(shown)).toEqual([])
   expect(taskViews().getAttribute('aria-expanded')).toBe('false')
   expect(
@@ -309,7 +309,7 @@ test('G navigation and history shortcuts use the App keymap', async () => {
     ['a', 'All Tasks'],
     ['b', /widgets.*Board/],
     ['l', /widgets.*List/],
-    ['p', /widgets.*Plans/],
+    ['p', 'Agents'],
   ] as const) {
     fireEvent.keyDown(window, { key: 'g' })
     fireEvent.keyDown(window, { key: letter })
@@ -326,7 +326,7 @@ test('G navigation and history shortcuts use the App keymap', async () => {
     await screen.findByRole('heading', { name: heading, level: 1 })
   }
   fireEvent.keyDown(window, { key: ']', code: 'BracketRight', metaKey: true })
-  await screen.findByRole('heading', { name: /widgets.*Plans/, level: 1 })
+  await screen.findByRole('heading', { name: 'Agents', level: 1 })
   fireEvent.keyDown(window, { key: 'g' })
   fireEvent.keyDown(window, { key: 'i' })
   await screen.findByRole('heading', { name: 'Inbox', level: 1 })
