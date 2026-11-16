@@ -8,7 +8,7 @@ import { LimitsPage } from '../src/renderer/settings/LimitsPage.tsx'
 import { NotificationsPage } from '../src/renderer/settings/NotificationsPage.tsx'
 import { StoragePage } from '../src/renderer/settings/StoragePage.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, deferred, required, user } from './support/component.ts'
+import { bridge, deferred, user } from './support/component.ts'
 
 const _nav = () => screen.getByRole('navigation', { name: 'Settings' })
 
@@ -401,15 +401,50 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
     />,
   )
   await screen.findByText('TED daemon 123 listening')
-  await waitFor(() => {
-    const processes = within(required(screen.getByText('Processes').closest('div'))).getAllByRole(
-      'row',
-    )
-    expect(processes.slice(1).map((row) => row.textContent)).toEqual([
-      '456TEDTED app1%200 MB',
+  const processRows = () =>
+    within(screen.getByRole('table', { name: 'Processes' }))
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => row.textContent)
+  await waitFor(() =>
+    expect(processRows()).toEqual([
       '123nodeTool or MCP server of TED-487’s Task Lead2.4%64 MB',
-    ])
+      '456TEDTED app1%200 MB',
+    ]),
+  )
+  const processTable = within(screen.getByRole('table', { name: 'Processes' }))
+  expect(processTable.getByRole('columnheader', { name: 'CPU' }).getAttribute('aria-sort')).toBe(
+    'descending',
+  )
+  await user().click(processTable.getByRole('button', { name: 'Memory' }))
+  expect(api.request).toHaveBeenCalledWith('updateSettings', {
+    diagnosticsSort: {
+      ...defaultMachineSettings.diagnosticsSort,
+      processes: { column: 'memory', direction: 'descending' },
+    },
   })
+  view.rerender(
+    <DeveloperPage
+      settings={{
+        ...defaultMachineSettings,
+        developerMode: true,
+        diagnosticsSort: {
+          ...defaultMachineSettings.diagnosticsSort,
+          processes: { column: 'memory', direction: 'descending' },
+        },
+      }}
+      dispatch={vi.fn()}
+    />,
+  )
+  expect(processRows()).toEqual([
+    '456TEDTED app1%200 MB',
+    '123nodeTool or MCP server of TED-487’s Task Lead2.4%64 MB',
+  ])
+  expect(
+    within(screen.getByRole('table', { name: 'Processes' }))
+      .getByRole('columnheader', { name: 'Memory' })
+      .getAttribute('aria-sort'),
+  ).toBe('descending')
   await user().click(screen.getByRole('button', { name: 'Show on next open' }))
   expect(api.request).toHaveBeenCalledWith('updateSettings', {
     onboardingOnNextOpen: true,

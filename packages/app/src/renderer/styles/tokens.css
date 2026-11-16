@@ -211,6 +211,7 @@
   --chat-wide: calc(1200px * var(--text-scale) / 1.1);
   --changes-index-width: 260px;
   --settings-column-width: 720px;
+  --settings-wide-width: 960px;
 
   --terminal-font-size: 13px;
 }
