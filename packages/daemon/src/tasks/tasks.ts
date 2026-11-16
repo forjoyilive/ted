@@ -11998,21 +11998,27 @@ export function createTasks(options: {
         )
       }
       const title = commitTitle(input.title, current.displayId)
+      const body = input.body === undefined ? undefined : redactSecrets(input.body)
+      const described = body !== undefined ? ' and your description' : ''
+      const before = store.pullRequestTitle(current.id)
+      if (before?.title === title && before.body === body) {
+        return {
+          title,
+          message: `${current.displayId}’s pull request is already titled “${title}”${described ? ' with this description' : ''}; nothing changed. Run \`ted outcome advance\` when the Merge work is done.`,
+        }
+      }
+      store.pullRequestTitleSet(current.id, { title, ...(body !== undefined && { body }) })
       try {
         await prs.retitle(current.id, title)
       } catch (error) {
         throw new RequestError(
           502,
-          `GitHub didn’t take the new title: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
+          `TED uses “${title}”${described} for the merge commit, but GitHub didn’t rename the pull request: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
         )
       }
-      store.pullRequestTitleSet(current.id, {
-        title,
-        ...(input.body !== undefined && { body: redactSecrets(input.body) }),
-      })
       return {
         title,
-        message: `TED titled ${current.displayId}’s pull request “${title}” and uses it${input.body !== undefined ? ' and your description' : ''} for the merge commit. Run \`ted outcome advance\` when the Merge work is done.`,
+        message: `TED titled ${current.displayId}’s pull request “${title}” and uses it${described} for the merge commit. Run \`ted outcome advance\` when the Merge work is done.`,
       }
     },
 

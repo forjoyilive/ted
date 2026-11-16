@@ -144,15 +144,14 @@ describe('Approve and merge', () => {
     const set = await titled({ title: 'fix(app): keep the sidebar open', body })
     expect(set.status).toBe(200)
     expect(set.body).toMatchObject({ title: subject })
-    expect((await ghCalls()).map((c) => c.args)).toContainEqual([
-      'pr',
-      'edit',
-      '7',
-      '--repo',
-      'acme/widgets',
-      '--title',
-      subject,
+    const renames = async () =>
+      (await ghCalls()).filter((c) => c.args[0] === 'pr' && c.args[1] === 'edit').map((c) => c.args)
+    expect(await renames()).toEqual([
+      ['pr', 'edit', '7', '--repo', 'acme/widgets', '--title', subject],
     ])
+    const same = await titled({ title: 'fix(app): keep the sidebar open', body })
+    expect(JSON.stringify(same.body)).toContain('nothing changed')
+    expect(await renames()).toHaveLength(1)
     const advanced = await outcome({ outcome: 'advance' })
     expect(advanced.status).toBe(200)
     expect(JSON.stringify(advanced.body)).toContain('merges')
