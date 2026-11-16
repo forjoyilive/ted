@@ -52,6 +52,18 @@ describe('navigation', () => {
     expect(currentFactoryId(initialNavigation, tasks)).toBeUndefined()
   })
 
+  test('a Factory’s Inbox makes it the current Factory; the unfiltered Inbox keeps the last one', () => {
+    const inbox = after(
+      { type: 'open', screen: { kind: 'factory', factoryId: 'ms', view: 'board' } },
+      { type: 'open', screen: { kind: 'inbox', factoryId: 'nb' } },
+    )
+    expect(inbox.screen).toEqual({ kind: 'inbox', factoryId: 'nb' })
+    expect(currentFactoryId(inbox, tasks)).toBe('nb')
+    expect(
+      currentFactoryId(navigate(inbox, { type: 'open', screen: { kind: 'inbox' } }), tasks),
+    ).toBe('nb')
+  })
+
   test('opening a Factory shows the Dashboard narrowed to it the first time and its last-used View after', () => {
     expect(after({ type: 'open-factory', factoryId: 'nb' })).toMatchObject({
       screen: { kind: 'dashboard', dashboard: { factoryIds: ['nb'] } },
