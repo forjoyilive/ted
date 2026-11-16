@@ -622,6 +622,15 @@ describe('checking a layer', () => {
     ).toEqual([
       'error .ted/workflow.yaml 4 11 `stages.security.name` must be one line of text, up to 60 characters',
     ])
+    expect(
+      problems({
+        'workflow.yaml':
+          'order: [intake, security, work]\nstages:\n  security:\n    name: "Sec\\u202Eurity"\n',
+        'stages/security.md': '# Security\n',
+      }),
+    ).toEqual([
+      'error .ted/workflow.yaml 4 11 `stages.security.name` must be one line of text, up to 60 characters',
+    ])
   })
 
   test('a custom Stage file that no order lists is ignored with a warning', () => {

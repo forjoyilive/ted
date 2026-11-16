@@ -287,7 +287,8 @@ Rules:
 | `max_working_runs` | Factory only | Optional per-Factory cap on working Runs. Unset by default. | KRI-15, KRI-57 |
 | `sandbox_sockets` | any layer | Unix socket paths that sandboxed Checks, Apps and worktree setup/teardown may connect to (ADR 0142). Each entry is an absolute path, a `~/` path or a whole `$NAME` from the login shell. Unset: only sockets in the Task’s own folders. | KRI-221 |
 | `repos` | Factory only | List of the Factory’s repos; the first is the primary repo (4.6). | KRI-58 |
-| `order` | any layer | Ordered list of agent Stage ids (4.7). | KRI-12, KRI-58 |
+| `order` | any layer | Ordered list of agent Stage ids, built-in or custom (4.7). | KRI-12, KRI-58, TED-441 |
+| `stages.<id>.name` | any layer, custom Stages only | One-line display name of a custom Stage, at most 60 characters. Unset: the id with a capital letter. | TED-441 |
 | `stages.<id>.enabled` | any layer | `false` turns a Stage off without editing `order`. | KRI-12 |
 | `stages.<id>.effort` | any layer | Task Lead effort for this working Stage: `low`, `medium`, `high`, `xhigh`, `max`, `ultra`. Optional; Backlog and Done take no effort. | KRI-67 |
 | `stages.<id>.gate` | any layer | `true` puts a sign-off at the end of the Stage. | KRI-12 |
@@ -303,7 +304,8 @@ Rules:
 | `stages.validate.sub_agents` | any layer | `true` lets the Task Lead start sub-agents other than the reviewer in Validate (7.2). Default `false`. UI label: **Other sub-agents in Validate**. | ADR 0117 |
 | `stages.work.lead_closes_failures` | any layer | `true` lets the Task Lead close a Failure case it recorded as a Finding outside Validate, with passing evidence through `ted failure verify`. Default `false`: only the human closes it. UI label: **Task Lead closes its own fixed failures**. | ADR 0118 |
 
-- **Defaults:** Sign-offs on Design and Review; Merge on with no Sign-off; every Stage has `max_back: 3` except Validate, which has 5. (KRI-12, KRI-16, KRI-52, KRI-58)
+- **Defaults:** Sign-offs on Design and Review; Merge on with no Sign-off; every Stage has `max_back: 3` except Validate, which has 5. A custom Stage has no Sign-off, `max_back: 3` and the inherited effort. (KRI-12, KRI-16, KRI-52, KRI-58, TED-441)
+- **Custom Stages** take only `name`, `gate`, `max_back`, `effort`, `enabled` and `based_on`; any other key is an error. Built-in Stages can’t take `name`. (TED-441)
 - **Not in `workflow.yaml`:** the machine’s limit on working Runs, billing per Provider, and every other machine setting (11.2). Sub-agents and Automations have no key: the Task Lead picks for each sub-agent, and each Automation stores its own. (KRI-15, KRI-53, KRI-54, KRI-57)
 - An unknown key is a warning, not an error, so a newer file still loads. (KRI-58)
 
@@ -391,16 +393,19 @@ Task branches in `api` start from `develop` and their pull requests target it; `
 
 ### 4.7 Stages and `order`
 
-- v1 has the built-in Stages only: Backlog, Intake, Clarify, Design, Work, Validate, Review, Merge, Done. Custom Stages, including plain agent Stages from a Stage file, are later (KRI-50). (KRI-58)
-- `order` lists agent Stages only, each at most once: `intake`, `clarify`, `design`, `work`, `validate`, `review`, `merge`. Rules: `intake` first, `work` present, `merge` last when listed. Anything else may be reordered. A Stage left out of `order` is off. (KRI-58)
+- The built-in Stages are Backlog, Intake, Clarify, Design, Work, Validate, Review, Merge, Cleanup and Done. A Factory or the Library can add custom Stages by hand in `workflow.yaml`; there is no app control for adding one yet (KRI-50, TED-441). (KRI-58)
+- `order` lists agent Stages only, each at most once: the built-in `intake`, `clarify`, `design`, `work`, `validate`, `review`, `merge`, and any custom Stage ids. Rules: `intake` first, `work` present, `merge` last when listed. Anything else may be reordered, and custom Stages may go anywhere between Intake and Merge. A Stage left out of `order` is off. The Workflow stays one straight line: no branches and no Stage twice. (KRI-58, TED-441)
+- **A custom Stage id** is lowercase letters, digits and hyphens (`release-notes`), at most 40 characters, and not a built-in id. Each custom Stage in `order` needs a Stage file `stages/<id>.md` in that layer or a layer below it; without one the layer has an error (4.11). Example: `order: [intake, clarify, security, work, validate, release-notes, review, merge]` with `stages/security.md` and `stages/release-notes.md`. (TED-441)
+- **In a custom Stage** the Task Lead follows its Stage file: it may change code, start sub-agents and ask questions, and ends the Stage with `ted outcome advance` or `ted outcome back` to an earlier working Stage. `--skip` is refused. TED runs no Checks, reviewer or pull request step for it. One after Validate may still change code: the Checks run again before Review passes or the merge when they are out of date, and the reviewer doesn’t run again. A custom Stage before Work counts as planning and one after Work as work in progress, for tracker sync and similar rules. Autopilot skips its Sign-off like any ordinary one, per-Task Sign-off choices apply, and setup Tasks and Tasks with forced Sign-offs go through it. (TED-441, ADR 0172)
+- **When the Workflow changes under a Task**, the Task finishes the Stage it is in and goes to the first later Stage that still exists. Every Stage entry records the Stage order and each custom Stage’s display name, and TED uses the last record to find that Stage. TED never moves a Task on its own because the Workflow changed. (TED-441, ADR 0172)
 - Backlog is always first and Done always last; neither appears in `order`, and neither can be turned off. TED ignores `stages.backlog.enabled: false` with a warning. (KRI-58, KRI-411)
-- A Stage file with an unknown id (`.ted/stages/security.md`) is ignored, with a warning in settings. To add a step, edit the built-in Stage file it belongs to. (KRI-58)
+- A Stage file whose name isn’t a Stage id, or a custom Stage file that no `order` lists, is ignored with a warning. (KRI-58, TED-441)
 
 ### 4.8 Stage files
 
 For an explanation of Factory validation controls and TED’s own repo-specific testing rules, see [Factory validation](../testing/factory-validation.md).
 
-- `stages/<id>.md`. The Stage id is the filename, title-cased for display. Plain Markdown, no frontmatter. Suggested headings, not checked: Goal, Skip when, Steps, Done when, Send back when, Ask the human when. (KRI-12)
+- `stages/<id>.md`. The Stage id is the filename. A built-in Stage shows its id title-cased; a custom Stage shows `stages.<id>.name` when set. TED’s own text (thread lines, requests, messages to the Task Lead) uses the display name. Plain Markdown, no frontmatter. Suggested headings, not checked: Goal, Skip when, Steps, Done when, Send back when, Ask the human when. (KRI-12)
 - Stage files hold plain instructions (“ask the human”, “report the outcome”). At Run start TED adds a preamble that maps them to `ted` commands and points to `ted help`. Nothing needs installing. (KRI-11, ADR 0001)
 - On every Stage change, TED hands the live Task Lead Run the next Stage file. (KRI-11)
 - The human never sees Stage file names or `workflow.yaml` outside settings. The thread shows plain events such as “You approved · Task moved to Design.” (KRI-11)
@@ -419,7 +424,8 @@ For an explanation of Factory validation controls and TED’s own repo-specific 
 
 ### 4.11 Invalid `workflow.yaml` or Stage file
 
-- TED validates each layer whenever it resolves the Workflow. Errors: YAML that doesn’t parse, a wrong type, an unknown Stage id, a broken `order` rule, the `repos` errors in 4.6, an empty or unreadable Stage file. (KRI-58)
+- TED validates each layer whenever it resolves the Workflow. Errors: YAML that doesn’t parse, a wrong type, a Stage id that is neither built in nor a valid custom id, a custom Stage in `order` with no Stage file in that layer or below, a key a custom Stage doesn’t take, a broken `order` rule, the `repos` errors in 4.6, an empty or unreadable Stage file. Each names its file and line. (KRI-58, TED-441)
+- If a lower layer later loses a Stage file that a stored Factory layer’s custom Stage needs, TED leaves that Stage out of the Workflow rather than start a Task Lead with no instructions. (TED-441)
 - On an error TED keeps using that layer’s last valid version and records which one each Stage entry used. With no last valid version (a repo added with a broken `.ted/`), the layer is skipped and the inherited layers apply. (KRI-58)
 - Where it shows: the warning Factory banner (3.7); an amber notice at the top of Factory settings or Settings → Library with file, line and column, the message, and “TED is using the last valid version, from 3f9c2e1, 2 days ago”, plus **Open on GitHub**; a thread event on each Task that entered a Stage meanwhile (“Used last valid TED settings: .ted/workflow.yaml has an error”). Never in the Inbox, no notification, nothing on the sidebar row. (KRI-58, KRI-65)
 - The settings panel loads the last valid version. Saving from it replaces the broken file. (KRI-58)

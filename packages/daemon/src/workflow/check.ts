@@ -475,7 +475,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             else if (
               typeof name !== 'string' ||
               name.trim() === '' ||
-              /[\r\n]/.test(name) ||
+              hasControlCharacters(name) ||
               name.length > maxStageName
             ) {
               error(node, `\`${path}\` must be one line of text, up to ${maxStageName} characters`)
@@ -967,6 +967,13 @@ export function isSocketEntry(entry: string): boolean {
     rest !== '' &&
     !rest.split('/').some((part) => part === '..' || part === '')
   )
+}
+
+function hasControlCharacters(text: string): boolean {
+  return [...text].some((c) => {
+    const code = c.codePointAt(0) ?? 0
+    return code < 0x20 || (code >= 0x7f && code < 0xa0) || (code >= 0x202a && code <= 0x202e)
+  })
 }
 
 function customIdProblem(id: unknown): string {

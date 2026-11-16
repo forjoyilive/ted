@@ -50,6 +50,10 @@ _Avoid_: Process, flow
 One step of a Workflow (for example Clarify or Validate), defined by a Stage file and settings such as whether it needs a human. A holding Stage, such as Backlog, has no Stage file: no agent works on a Task while it sits there.
 _Avoid_: Step, phase, column
 
+**Custom Stage**:
+A Stage a Factory or the Library adds by hand: an id in `order`, a Stage file with that id and optional settings, including a display name. The Task Lead follows its Stage file and ends it with an advance or a send-back like any working Stage; TED gives it no special work of its own.
+_Avoid_: Plugin Stage, extra step
+
 **Backlog**:
 The holding Stage at the start of a Workflow where Tasks wait to be started by the human, an Automation, or the Factory’s automatic Backlog starting option. Nothing runs on a Task in Backlog.
 _Avoid_: Icebox, queue
