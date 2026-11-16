@@ -178,6 +178,15 @@
   border-color: var(--status-waiting-fg);
 }
 
+.written:has(.text:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+
+.written .text:focus-visible {
+  outline: none;
+}
+
 .written .text {
   min-height: 128px;
   border: none;
