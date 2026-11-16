@@ -166,6 +166,9 @@ test('parseCoordinatorTaskQuery keeps every field and coordinatorTaskSearch writ
   expect(P.parseCoordinatorTaskQuery('?stage=work&stage=work&search=%20%20')).toEqual({
     stages: ['work'],
   })
+  expect(P.parseCoordinatorTaskQuery('?stage=security-review')).toEqual({
+    stages: ['security-review'],
+  })
   expect(P.coordinatorTaskSearch({})).toBe('')
 })
 test('parseAsanaChoicesQuery keeps the offset and refuses anything else', () => {
