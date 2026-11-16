@@ -622,3 +622,53 @@ test('bulk Autopilot keeps successful changes and selects only failed Tasks for 
   await screen.findByText(/Updated 1 Tasks/)
   expect(set.mock.calls.map(([id]) => id)).toEqual(['NB-2'])
 })
+
+test('with Nest child Tasks on, a child reorders among its siblings and a top-level row among top-level rows', async () => {
+  const a = appState()
+  const at = (id: string, rank: number, fields: Parameters<typeof task>[0] = {}) =>
+    task({ id, displayId: id, title: `Task ${id}`, rank, ...fields })
+  a.state.tasks = [
+    at('NB-1', 1, { childIds: ['NB-2', 'NB-3'] }),
+    at('NB-2', 2, { parentId: 'NB-1' }),
+    at('NB-3', 3, { parentId: 'NB-1' }),
+    at('NB-4', 4),
+  ]
+  a.handle('moveTask', vi.fn())
+  a.mount()
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'All Tasks' }))
+  const main = within(screen.getByRole('main'))
+  await u.click(main.getByRole('button', { name: 'Display' }))
+  await u.click(main.getByRole('menuitemcheckbox', { name: 'Nest child Tasks' }))
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(ids()).toEqual(['NB-1', 'NB-2', 'NB-3', 'NB-4'])
+
+  const row = (id: string) => required(document.querySelector<HTMLElement>(`[data-task="${id}"]`))
+  expect(row('NB-3').getAttribute('draggable')).toBe('true')
+  expect(row('NB-3').title).toBe('')
+  const dataTransfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' }
+  // jsdom has no DragEvent, and its rows measure zero high, so clientY 0 is the top half.
+  const drag = (element: HTMLElement, type: string) => {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientY: 0 })
+    Object.defineProperty(event, 'dataTransfer', { value: dataTransfer })
+    fireEvent(element, event)
+  }
+  const dragOnto = (moving: string, target: string) => {
+    drag(row(moving), 'dragstart')
+    drag(row(target), 'dragover')
+    drag(row(target), 'drop')
+  }
+
+  dragOnto('NB-3', 'NB-2')
+  await vi.waitFor(() =>
+    expect(a.request).toHaveBeenCalledWith('moveTask', 'NB-3', { before: 'NB-2' }),
+  )
+  dragOnto('NB-2', 'NB-4')
+  await vi.waitFor(() =>
+    expect(a.request).toHaveBeenCalledWith('moveTask', 'NB-2', { after: 'NB-3' }),
+  )
+  dragOnto('NB-4', 'NB-1')
+  await vi.waitFor(() =>
+    expect(a.request).toHaveBeenCalledWith('moveTask', 'NB-4', { before: 'NB-1' }),
+  )
+})

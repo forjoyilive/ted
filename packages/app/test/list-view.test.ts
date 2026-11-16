@@ -11,8 +11,11 @@ import {
   filterTasks,
   groupTasks,
   isQueueMode,
+  manualOrder,
+  nearestSlot,
   neighbours,
   nestedRows,
+  nestedSlots,
   queueView,
   rankMove,
   selectionRange,
@@ -540,5 +543,108 @@ describe('nestedRows', () => {
       ['NB-72', 2, false],
       ['NB-73', 0, false],
     ])
+  })
+})
+
+describe('nestedSlots', () => {
+  const parent = task({ displayId: 'NB-90', childIds: ['NB-91', 'NB-92', 'NB-93'] })
+  const first = task({ displayId: 'NB-91', parentId: 'NB-90', childIds: ['NB-94'] })
+  const second = task({ displayId: 'NB-92', parentId: 'NB-90' })
+  const third = task({ displayId: 'NB-93', parentId: 'NB-90' })
+  const grandchild = task({ displayId: 'NB-94', parentId: 'NB-91' })
+  const before = task({ displayId: 'NB-89' })
+  const after = task({ displayId: 'NB-95' })
+  const rows = nestedRows([before, parent, first, grandchild, second, third, after], new Set())
+
+  test('a child lands only between its siblings, after a sibling’s whole subtree', () => {
+    expect(rows.map((r) => r.task.displayId)).toEqual([
+      'NB-89',
+      'NB-90',
+      'NB-91',
+      'NB-94',
+      'NB-92',
+      'NB-93',
+      'NB-95',
+    ])
+    expect(nestedSlots(rows, 'NB-93')).toEqual([
+      { row: 2, before: 'NB-91' },
+      { row: 4, after: 'NB-91', before: 'NB-92' },
+      { row: 5, after: 'NB-92' },
+    ])
+    expect(nestedSlots(rows, 'NB-91')).toEqual([
+      { row: 4, before: 'NB-92' },
+      { row: 5, after: 'NB-92', before: 'NB-93' },
+      { row: 6, after: 'NB-93' },
+    ])
+  })
+
+  test('a top-level row lands between top-level rows, never inside a parent', () => {
+    expect(nestedSlots(rows, 'NB-95')).toEqual([
+      { row: 0, before: 'NB-89' },
+      { row: 1, after: 'NB-89', before: 'NB-90' },
+      { row: 6, after: 'NB-90' },
+    ])
+    expect(nestedSlots(rows, 'NB-50').map((s) => s.row)).toEqual([0, 1, 6, 7])
+  })
+
+  test('an only child has nowhere to go', () => {
+    expect(nestedSlots(rows, 'NB-94')).toEqual([{ row: 3 }])
+  })
+
+  test('a context row moves among its own siblings', () => {
+    const root = task({ displayId: 'NB-96', stage: 'clarify' })
+    const child = task({ displayId: 'NB-97', parentId: 'NB-96' })
+    const loose = task({ displayId: 'NB-98' })
+    const context = nestedRows([child, loose], new Set(), [root, child, loose])
+    expect(context.map((r) => [r.task.displayId, r.context === true])).toEqual([
+      ['NB-96', true],
+      ['NB-97', false],
+      ['NB-98', false],
+    ])
+    expect(nestedSlots(context, 'NB-96')).toEqual([
+      { row: 2, before: 'NB-98' },
+      { row: 3, after: 'NB-98' },
+    ])
+    expect(nestedSlots(context, 'NB-98')).toEqual([
+      { row: 0, before: 'NB-96' },
+      { row: 2, after: 'NB-96' },
+    ])
+  })
+
+  test('with a manual order, a context row shows at its own rank, so a drop on it holds', () => {
+    const root = task({ displayId: 'NB-99', rank: 30, stage: 'clarify' })
+    const child = task({ displayId: 'NB-100', parentId: 'NB-99', rank: 10 })
+    const loose = task({ displayId: 'NB-101', rank: 20 })
+    const every = [root, child, loose]
+    expect(nestedRows([child, loose], new Set(), every).map((r) => r.task.displayId)).toEqual([
+      'NB-99',
+      'NB-100',
+      'NB-101',
+    ])
+    const rows = nestedRows([child, loose], new Set(), every, manualOrder)
+    expect(rows.map((r) => [r.task.displayId, r.depth])).toEqual([
+      ['NB-101', 0],
+      ['NB-99', 0],
+      ['NB-100', 1],
+    ])
+    expect(nestedSlots(rows, 'NB-101')).toEqual([
+      { row: 1, before: 'NB-99' },
+      { row: 3, after: 'NB-99' },
+    ])
+  })
+
+  test('a collapsed sibling counts as one row', () => {
+    const folded = nestedRows([parent, first, grandchild, second], new Set(['NB-91']))
+    expect(nestedSlots(folded, 'NB-92')).toEqual([
+      { row: 1, before: 'NB-91' },
+      { row: 2, after: 'NB-91' },
+    ])
+  })
+
+  test('the drop goes to the slot nearest the pointer', () => {
+    const slots = nestedSlots(rows, 'NB-95')
+    expect(nearestSlot(slots, 0)).toBe(0)
+    expect(nearestSlot(slots, 2)).toBe(1)
+    expect(nearestSlot(slots, 5)).toBe(2)
   })
 })
