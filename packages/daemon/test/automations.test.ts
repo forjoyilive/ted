@@ -824,6 +824,8 @@ describe('Automations', () => {
 
   test('a Task Lead creates up to 3 Tasks in Backlog, and waits for a child it made', async () => {
     const client = await startTed()
+    const factory = (await client.ok<Factory[]>('GET', '/factories')).find((f) => f.key === 'NB')
+    await client.ok('PUT', `/factories/${factory?.id}/auto-start-backlog`, { enabled: true })
     const make = (...args: string[]) => ({ run: ['ted', 'task', 'create', ...args] })
     const task = await client.ok<Task>('POST', '/tasks', {
       factory: 'NB',
@@ -877,6 +879,14 @@ describe('Automations', () => {
       const found = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
       return found?.status?.kind === 'blocked' ? found : undefined
     }, 'the creating Task to wait for its child')
+    const later = await client.ok<Task[]>('GET', '/tasks')
+    expect(
+      later.filter((t) => t.createdBy === 'task-lead').map((t) => [t.stage, t.runs.length]),
+    ).toEqual([
+      ['backlog', 0],
+      ['backlog', 0],
+      ['backlog', 0],
+    ])
   })
 
   test('a failed Run is resumed once, then fails with Retry; three failures in a row raise a banner', async () => {

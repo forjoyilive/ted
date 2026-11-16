@@ -1947,7 +1947,8 @@ export function createTasks(options: {
       cloned(task.factoryId) &&
       (task.snoozedUntil !== undefined ||
         (store.getFactory(task.factoryId)?.autoStartBacklog === true &&
-          !automationGitHubTask(task))) &&
+          !automationGitHubTask(task) &&
+          task.createdBy !== 'task-lead')) &&
       unmergedBlockers(task.id).length === 0
     )
   }
@@ -8733,6 +8734,12 @@ export function createTasks(options: {
     refuseLeadLimit(creator.task)
   }
 
+  function requireSameCreator(caller: Caller, creatorId: string): void {
+    if (leadCreator(caller)?.task.id !== creatorId) {
+      throw new RequestError(409, 'this Task Lead’s Task changed while TED created the Task')
+    }
+  }
+
   function refuseLeadLimit(task: StoredTask): void {
     if (store.leadCreatedTasks(task.id).length < maxTasksPerLead) return
     throw new RequestError(
@@ -8903,7 +8910,7 @@ export function createTasks(options: {
       sourceUrl?: string
       factoryId?: string
       automation?: { name: string; link: { automationId: string; firingId: string } }
-      taskLead?: { creatorId: string; runId: string; child: boolean }
+      taskLead?: { creatorId: string; runId: string; child: boolean; caller: Caller }
       linearConsent: boolean
     },
   ): Promise<Task> {
@@ -8950,6 +8957,10 @@ export function createTasks(options: {
       ? await verifyLinearIntake(store, options.linear, original.factoryId, url)
       : () => undefined
     refuseOpen()
+    if (input.taskLead) {
+      requireSameCreator(input.taskLead.caller, input.taskLead.creatorId)
+      refuseLeadLimit(find(input.taskLead.creatorId))
+    }
     intakeUnchanged()
     const task = await store.createTask({
       ...followUpText(input.title, text, original.displayId),
@@ -8961,7 +8972,13 @@ export function createTasks(options: {
         : url !== undefined && { source: taskSource(url, undefined) }),
       followUpOf: original.id,
       ...(input.automation && { automation: input.automation.link }),
-      ...(input.taskLead && { taskLead: input.taskLead }),
+      ...(input.taskLead && {
+        taskLead: {
+          creatorId: input.taskLead.creatorId,
+          runId: input.taskLead.runId,
+          child: input.taskLead.child,
+        },
+      }),
       linearConsent: input.linearConsent,
     })
     if (input.taskLead) return publicTask(task.id)
@@ -10491,7 +10508,7 @@ export function createTasks(options: {
         ...(sourceUrl !== undefined && { sourceUrl }),
         ...(factory && { factoryId: factory.id }),
         ...(automation && { automation: { name: automation.name, link: automation.link } }),
-        ...(taskLeadLink && { taskLead: taskLeadLink }),
+        ...(taskLeadLink && { taskLead: { ...taskLeadLink, caller } }),
         linearConsent: caller.kind === 'app',
       })
     }
@@ -10576,6 +10593,7 @@ export function createTasks(options: {
       throw new RequestError(409, trackedParentRefusal(issueLink, parentIssue, parentClash))
     }
     if (creator) {
+      requireSameCreator(caller, creator.task.id)
       requireHierarchyIdle([creator.task.id])
       refuseLeadLimit(find(creator.task.id))
     }
