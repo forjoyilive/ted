@@ -75,6 +75,7 @@ import {
 } from '@ted/protocol'
 import { executionCapacity, parseWorkerPairRequest } from '@ted/protocol/execution-pairing'
 import { matchReference, shortReference } from '@ted/protocol/reference'
+import { isCleanup } from '@ted/protocol/stage'
 import { asanaImportedText, asanaIntakeText, asanaTreeText } from './asana.ts'
 import { AutomationUsageError, automationCommand } from './automation.ts'
 import {
@@ -1695,7 +1696,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (!ref) throw new UsageError('ted task done works only inside a Task Lead’s Run')
       const task = await withDaemon(home, (client) => client.leadDone(ref))
       console.log(
-        task.stage === 'cleanup'
+        isCleanup(task.stage)
           ? `${task.displayId}’s pull requests have merged; it moved to Cleanup`
           : `${task.displayId} is Done`,
       )
