@@ -12729,7 +12729,7 @@ function answerText(comment: Comment): string | undefined {
     return roundAnswerSummary(comment, answer.answers)
   }
   if (answer.kind === 'answered') {
-    const picked = answer.choices?.length ? joinChoices(answer.choices) : answer.choice
+    const picked = answer.choices !== undefined ? joinChoices(answer.choices) : answer.choice
     return [picked, answer.text].filter((part) => part !== undefined).join(' · ')
   }
   return undefined

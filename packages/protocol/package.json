@@ -7,6 +7,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./time": "./src/time.ts",
+    "./parse": "./src/parse.ts",
     "./task": "./src/task.ts",
     "./stage": "./src/stage.ts",
     "./stage-list": "./src/stage-list.ts",

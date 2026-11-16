@@ -153,7 +153,7 @@ test('pasted app credentials reach the daemon; browser authorization, identity, 
     (await factoryRow.getByRole('button', { name: 'Views' }).getAttribute('aria-expanded')) !==
     'true'
   )
-    await factoryRow.getByRole('button', { name: 'widgets', exact: true }).click()
+    await factoryRow.getByRole('button', { name: 'Views' }).click()
   await factoryRow.locator('..').getByRole('button', { name: 'Settings', exact: true }).click()
   await window
     .getByRole('navigation', { name: 'Factory settings' })

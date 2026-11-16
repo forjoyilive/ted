@@ -66,6 +66,8 @@ export const columnLabels: Record<ListColumn, string> = {
   priority: 'Priority',
   id: 'ID',
   title: 'Title',
+  children: 'Children',
+  parent: 'Parent',
   stage: 'Stage',
   status: 'Status',
   updated: 'Updated',
@@ -81,6 +83,8 @@ const columnOrder: readonly ListColumn[] = [
   'priority',
   'id',
   'title',
+  'children',
+  'parent',
   'factory',
   'stage',
   'status',
@@ -102,11 +106,13 @@ export function defaultView(scope: string): ListView {
     sort: 'manual',
     group: 'stage',
     ...(!all && { nested: true }),
-    columnsVersion: 2,
+    columnsVersion: 3,
     columns: [
       'priority',
       'id',
       'title',
+      'children',
+      'parent',
       ...(all ? (['factory'] as const) : []),
       'stage',
       'status',
@@ -123,9 +129,13 @@ export function viewFor(
 ): ListView {
   const view = views?.[scope]
   if (!view) return defaultView(scope)
-  return view.columnsVersion === 2
-    ? view
-    : { ...view, columnsVersion: 2, columns: [...view.columns, 'started'] }
+  if (view.columnsVersion === 3) return view
+  const added: ListColumn[] = view.columnsVersion === 2 ? [] : ['started']
+  return {
+    ...view,
+    columnsVersion: 3,
+    columns: [...view.columns, ...added, 'children', 'parent'],
+  }
 }
 
 export function viewKey(view: ListView): string {

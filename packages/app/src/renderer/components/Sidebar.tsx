@@ -1,20 +1,15 @@
 import type { Coordinator, Factory, FactoryGroup, FactoryLayout } from '@ted/protocol'
 import { factoryGroupNameMax } from '@ted/protocol/factory'
 import type { LucideIcon } from 'lucide-react'
-import {
-  Folder as FolderClosed,
-  FolderOpen,
-  Inbox,
-  LayoutDashboard,
-  ListTodo,
-  Settings,
-} from 'lucide-react'
+import { Inbox, LayoutDashboard, ListTodo, Settings } from 'lucide-react'
 import type { DragEvent, ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import {
   addGroup,
   arrange,
+  type DropSpot,
   type DropTarget,
+  dropTarget,
   groupOf,
   groups,
   type LayoutKey,
@@ -256,6 +251,7 @@ function sameScreen(a: Screen, b: Screen): boolean {
   if (a.kind === 'factory' && b.kind === 'factory') {
     return a.factoryId === b.factoryId && a.view === b.view
   }
+  if (a.kind === 'inbox' && b.kind === 'inbox') return a.factoryId === b.factoryId
   return a.kind === b.kind
 }
 
@@ -304,7 +300,9 @@ export function Sidebar({
         ? screen.factoryId
         : screen.kind === 'dashboard' && screen.dashboard?.factoryIds?.length === 1
           ? screen.dashboard.factoryIds[0]
-          : undefined
+          : screen.kind === 'inbox'
+            ? screen.factoryId
+            : undefined
   const arrivedGroup = arrivedAt === undefined ? undefined : groupOf(layout, arrivedAt)?.id
   const arrival = arrivedAt === undefined ? undefined : JSON.stringify([screen, navigation.taskId])
   // biome-ignore lint/correctness/useExhaustiveDependencies: opens only when arriving at a Factory or Task
@@ -342,40 +340,42 @@ export function Sidebar({
     },
     onDragEnd: endDrag,
   })
-  const placeFor = (event: DragEvent, key: LayoutKey): DropTarget => {
+  const half = (event: DragEvent): 'top' | 'bottom' => {
     const box = event.currentTarget.getBoundingClientRect()
-    const y = (event.clientY - box.top) / Math.max(1, box.height)
-    if ('groupId' in key && dragging && 'factoryId' in dragging && y > 0.25 && y < 0.75) {
-      return { into: key.groupId }
-    }
-    return y < 0.5 ? { before: key } : { after: key }
+    return event.clientY - box.top < box.height / 2 ? 'top' : 'bottom'
   }
-  const dropZone = (key: LayoutKey) => ({
-    onDragOver: (event: DragEvent) => {
-      if (dragging === undefined || sameKey(dragging, key)) return
-      event.preventDefault()
-      event.stopPropagation()
-      const target = placeFor(event, key)
-      if (JSON.stringify(target) !== JSON.stringify(dropAt)) setDropAt(target)
-    },
-    onDrop: (event: DragEvent) => {
-      if (dragging === undefined) return
-      event.preventDefault()
-      event.stopPropagation()
-      save(moveTo(layout, dragging, placeFor(event, key)))
-      endDrag()
-    },
-  })
-  const dropClass = (key: LayoutKey) =>
+  const dropZone = (spot: (event: DragEvent) => DropSpot) => {
+    const targetOf = (event: DragEvent) =>
+      dragging === undefined ? undefined : dropTarget(layout, dragging, spot(event))
+    return {
+      onDragOver: (event: DragEvent) => {
+        const target = targetOf(event)
+        if (target === undefined) return
+        event.preventDefault()
+        event.stopPropagation()
+        if (JSON.stringify(target) !== JSON.stringify(dropAt)) setDropAt(target)
+      },
+      onDrop: (event: DragEvent) => {
+        const target = targetOf(event)
+        if (dragging === undefined || target === undefined) return
+        event.preventDefault()
+        event.stopPropagation()
+        save(moveTo(layout, dragging, target))
+        endDrag()
+      },
+    }
+  }
+  const rowZone = (row: LayoutKey) => dropZone((event) => ({ row, half: half(event) }))
+  const lineClass = (key: LayoutKey) =>
     dropAt === undefined
       ? ''
       : 'before' in dropAt && sameKey(dropAt.before, key)
         ? styles.dropAbove
         : 'after' in dropAt && sameKey(dropAt.after, key)
           ? styles.dropBelow
-          : 'into' in dropAt && 'groupId' in key && dropAt.into === key.groupId
-            ? styles.dropInto
-            : ''
+          : ''
+  const intoClass = (groupId: string) =>
+    dropAt !== undefined && 'into' in dropAt && dropAt.into === groupId ? styles.dropInto : ''
   const isMenu = (factoryId: string) => menu?.kind === 'factory' && menu.factoryId === factoryId
   const menuFactory =
     menu?.kind === 'factory' ? factories.find((f) => f.id === menu.factoryId) : undefined
@@ -405,9 +405,9 @@ export function Sidebar({
         ) : (
           <article
             aria-label={factory.name}
-            className={`${styles.factoryRow} ${dropClass({ factoryId: factory.id })}`}
+            className={`${styles.factoryRow} ${lineClass({ factoryId: factory.id })}`}
             {...dragSource({ factoryId: factory.id }, factory.name)}
-            {...dropZone({ factoryId: factory.id })}
+            {...rowZone({ factoryId: factory.id })}
             onContextMenu={(event) => {
               event.preventDefault()
               openMenu(event.clientX, event.clientY)
@@ -429,10 +429,10 @@ export function Sidebar({
               type="button"
               className={`${styles.row} ${styles.factoryName} ${isCurrent ? styles.strong : ''} ${waiting > 0 ? styles.counted : styles.withMore}`}
               onClick={() => {
-                if (expanded) return setFactoryOpen(factory.id, false)
-                setFactoryOpen(factory.id, true)
-                return dispatch({ type: 'open-factory', factoryId: factory.id })
+                if (openFactories[factory.id] === undefined) setFactoryOpen(factory.id, expanded)
+                open({ kind: 'inbox', factoryId: factory.id })
               }}
+              {...current({ kind: 'inbox', factoryId: factory.id })}
             >
               <FactoryIcon factory={factory} />
               <span className={styles.label}>{factory.name}</span>
@@ -574,109 +574,106 @@ export function Sidebar({
     )
     const menuOpen = menu?.kind === 'group' && menu.groupId === group.id
     const openMenu = (x: number, y: number) => setMenu({ kind: 'group', groupId: group.id, x, y })
-    const Folder = isOpen ? FolderOpen : FolderClosed
     return (
-      <section
-        key={group.id}
-        aria-label={group.name || 'New Factory group'}
-        className={`${styles.group} ${isOpen ? '' : styles.groupClosed} ${isDragging(key) ? styles.dragging : ''}`}
-      >
-        {naming?.groupId === group.id ? (
-          <GroupNameRow
-            name={group.name}
-            onSave={(name) =>
-              save(
-                naming.isNew
-                  ? addGroup(layout, { id: group.id, name }, naming.factoryId)
-                  : renameGroup(layout, group.id, name),
-              )
-            }
-            onDone={() => setNaming(undefined)}
-          />
-        ) : (
-          <article
-            aria-label={group.name}
-            className={`${styles.groupRow} ${dropClass(key)}`}
-            {...dragSource(key, group.name)}
-            {...dropZone(key)}
-            onContextMenu={(event) => {
-              event.preventDefault()
-              openMenu(event.clientX, event.clientY)
-            }}
-          >
-            <ActionButton
-              type="button"
-              className={styles.groupName}
-              aria-expanded={isOpen}
-              onClick={() => setGroupOpen(group.id, !isOpen)}
+      <Fragment key={group.id}>
+        <section
+          aria-label={group.name || 'New Factory group'}
+          className={`${styles.group} ${isDragging(key) ? styles.dragging : ''} ${lineClass(key)}`}
+        >
+          {naming?.groupId === group.id ? (
+            <GroupNameRow
+              name={group.name}
+              onSave={(name) =>
+                save(
+                  naming.isNew
+                    ? addGroup(layout, { id: group.id, name }, naming.factoryId)
+                    : renameGroup(layout, group.id, name),
+                )
+              }
+              onDone={() => setNaming(undefined)}
+            />
+          ) : (
+            <article
+              aria-label={group.name}
+              className={`${styles.groupRow} ${intoClass(group.id)}`}
+              {...dragSource(key, group.name)}
+              {...rowZone(key)}
+              onContextMenu={(event) => {
+                event.preventDefault()
+                openMenu(event.clientX, event.clientY)
+              }}
             >
-              <span className={styles.groupIcon} aria-hidden="true">
-                <Folder size={17} strokeWidth={1.75} />
-              </span>
-              <span className={styles.label}>{group.name}</span>
-              {!isOpen && marks.failed && <DotIcon className={styles.failedDot} />}
-              {!isOpen && marks.stopsWork && (
-                <span role="img" aria-label="A problem stops work" className={styles.warning}>
-                  <WarningIcon />
-                </span>
-              )}
-            </ActionButton>
-            <span className={styles.groupEnd}>
-              {!isOpen && marks.waiting > 0 && (
-                <ActionButton
-                  type="button"
-                  className={`${styles.countButton} ${marks.uncounted ? styles.countQuiet : ''}`}
-                  aria-label={`${marks.waiting} waiting in ${group.name}`}
-                  title="Show in the Inbox"
-                  onClick={() => open({ kind: 'inbox', groupId: group.id })}
-                >
-                  {marks.waiting}
-                </ActionButton>
-              )}
               <ActionButton
                 type="button"
-                className={`${styles.more} ${menuOpen ? styles.moreOpen : ''}`}
-                aria-label="Factory group actions"
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
-                onClick={(event) => {
-                  const box = event.currentTarget.getBoundingClientRect()
-                  return openMenu(box.left, box.bottom + 4)
-                }}
+                className={styles.groupName}
+                aria-expanded={isOpen}
+                onClick={() => setGroupOpen(group.id, !isOpen)}
               >
-                ⋯
+                <span className={styles.label}>{group.name}</span>
+                {!isOpen && (
+                  <span
+                    role="img"
+                    className={styles.groupCount}
+                    aria-label={`${members.length} ${members.length === 1 ? 'Factory' : 'Factories'}`}
+                  >
+                    {members.length}
+                  </span>
+                )}
+                <ChevronIcon
+                  open
+                  className={`${styles.chevron} ${isOpen ? '' : styles.chevronClosed}`}
+                />
+                {!isOpen && marks.failed && <DotIcon className={styles.failedDot} />}
+                {!isOpen && marks.stopsWork && (
+                  <span role="img" aria-label="A problem stops work" className={styles.warning}>
+                    <WarningIcon />
+                  </span>
+                )}
               </ActionButton>
-              <ChevronIcon
-                open
-                className={`${styles.chevron} ${isOpen ? '' : styles.chevronClosed}`}
-              />
-            </span>
-          </article>
-        )}
-        {isOpen && (
-          <div className={styles.groupMembers}>
-            {members.map(renderFactory)}
-            {members.length === 0 && (
-              <p
-                className={`${styles.groupEmpty} ${dropAt !== undefined && 'into' in dropAt && dropAt.into === group.id ? styles.dropInto : ''}`}
-                onDragOver={(event) => {
-                  if (dragging === undefined || !('factoryId' in dragging)) return
-                  event.preventDefault()
-                  setDropAt({ into: group.id })
-                }}
-                onDrop={(event) => {
-                  if (dragging === undefined) return
-                  event.preventDefault()
-                  save(moveTo(layout, dragging, { into: group.id }))
-                  endDrag()
-                }}
-              >
-                Drag a Factory here
-              </p>
-            )}
-          </div>
-        )}
-      </section>
+              <span className={styles.groupEnd}>
+                {!isOpen && marks.waiting > 0 && (
+                  <ActionButton
+                    type="button"
+                    className={`${styles.countButton} ${marks.uncounted ? styles.countQuiet : ''}`}
+                    aria-label={`${marks.waiting} waiting in ${group.name}`}
+                    title="Show in the Inbox"
+                    onClick={() => open({ kind: 'inbox', groupId: group.id })}
+                  >
+                    {marks.waiting}
+                  </ActionButton>
+                )}
+                <ActionButton
+                  type="button"
+                  className={`${styles.more} ${menuOpen ? styles.moreOpen : ''}`}
+                  aria-label="Factory group actions"
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  onClick={(event) => {
+                    const box = event.currentTarget.getBoundingClientRect()
+                    return openMenu(box.left, box.bottom + 4)
+                  }}
+                >
+                  ⋯
+                </ActionButton>
+              </span>
+            </article>
+          )}
+          {isOpen && (
+            <div className={styles.groupMembers}>
+              {members.map(renderFactory)}
+              {members.length === 0 && (
+                <p
+                  className={`${styles.groupEmpty} ${intoClass(group.id)}`}
+                  {...dropZone(() => ({ into: group.id }))}
+                >
+                  Drag a Factory here
+                </p>
+              )}
+            </div>
+          )}
+        </section>
+        <div className={styles.afterGroup} {...dropZone(() => ({ afterGroup: group.id }))} />
+      </Fragment>
     )
   }
 
@@ -823,7 +820,7 @@ export function Sidebar({
             }}
           />
         )}
-        <div className={styles.spacer} />
+        <div className={styles.spacer} {...dropZone(() => ({ end: true }))} />
         {guide}
 
         <ActionButton

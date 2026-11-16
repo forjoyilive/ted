@@ -14,6 +14,7 @@ import {
   archiveChoice,
   isTrackerGroupAsk,
   keepArchiveChoice,
+  noChoicesPicked,
   trackerName,
 } from '@ted/protocol/task'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
@@ -729,7 +730,7 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
   const ready = questionChoices
     ? !repairing &&
       (several
-        ? picks.length > 0 || (other && typed)
+        ? !other || typed
         : selectedChoice !== undefined
           ? !needsReason || typed
           : other && typed)
@@ -759,7 +760,7 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
         : {
             action: 'answer',
             ...(questionChoices && selectedChoice !== undefined && { choice: selectedChoice }),
-            ...(several && picks.length > 0 && { choices: picks }),
+            ...(several && (picks.length > 0 || !other) && { choices: picks }),
             ...(typed && { text }),
           },
     )
@@ -1312,8 +1313,9 @@ function answerLine(
       if (answer.answers) {
         return { mark: '✓', tone: 'good', text: `You answered · ${roundTally(answer.answers)}` }
       }
-      if (answer.choices?.length) {
-        return { mark: '✓', tone: 'good', text: `You answered: ${answer.choices.join(', ')}` }
+      if (answer.choices !== undefined) {
+        const picked = answer.choices.length > 0 ? answer.choices.join(', ') : noChoicesPicked
+        return { mark: '✓', tone: 'good', text: `You answered: ${picked}` }
       }
       return answer.choice !== undefined
         ? { mark: '✓', tone: 'good', text: `You answered: ${answer.choice}` }

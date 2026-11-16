@@ -8,7 +8,7 @@ import { TaskActionsMenu } from '../src/renderer/components/TaskActions.tsx'
 import { DataScreen } from '../src/renderer/views/DataScreen.tsx'
 import { EditTaskDialog } from '../src/renderer/views/EditTaskDialog.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, user } from './support/component.ts'
+import { bridge, expandFactory, user } from './support/component.ts'
 import { createdAt, task } from './support/fixtures.ts'
 
 const blocked = task({
@@ -154,7 +154,7 @@ test('App opens unfinished setup without starting, then starts the ordinary Task
   })
   a.mount()
   const u = user()
-  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await expandFactory()
   await u.click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Task views',

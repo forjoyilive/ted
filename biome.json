@@ -7,7 +7,14 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**/*.ts", "**/*.tsx", "**/*.cjs", "**/*.json", "!**/*.md"]
+    "includes": [
+      "**/*.ts",
+      "**/*.tsx",
+      "**/*.cjs",
+      "**/*.json",
+      "!**/*.md",
+      "!oxlint-suppressions.json"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -34,5 +41,11 @@
         "organizeImports": "on"
       }
     }
-  }
+  },
+  "overrides": [
+    {
+      "includes": ["tools/oxlint/anti-slop/**"],
+      "linter": { "enabled": false }
+    }
+  ]
 }

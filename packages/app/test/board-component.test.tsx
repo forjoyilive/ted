@@ -14,7 +14,7 @@ import { affects, StagesProvider } from '../src/renderer/stages.tsx'
 import { Board } from '../src/renderer/views/Board.tsx'
 import { idColumnWidth, listGrid, TaskList } from '../src/renderer/views/TaskList.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, required, user } from './support/component.ts'
+import { bridge, expandFactory, required, user } from './support/component.ts'
 import { factory, task } from './support/fixtures.ts'
 
 const Stages = ({ children }: { children: ReactNode }) => (
@@ -297,7 +297,7 @@ test('Board Show all opens its Factory’s Done-filtered List and saves that vie
   }))
   a.mount()
   const u = user()
-  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await expandFactory()
   await u.click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Task views',
@@ -320,9 +320,9 @@ test('Board Show all opens its Factory’s Done-filtered List and saves that vie
       f1: {
         sort: 'updated',
         group: 'none',
-        columns: ['id', 'title', 'stage', 'started'],
+        columns: ['id', 'title', 'stage', 'started', 'children', 'parent'],
         filters: { stages: ['done'] },
-        columnsVersion: 2,
+        columnsVersion: 3,
       },
     },
   })
@@ -521,7 +521,7 @@ test('Board cards select with ⌘-click, ⇧-click and X, and share the List’s
   a.handle('startTask', vi.fn())
   a.mount()
   const u = user()
-  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await expandFactory()
   await u.click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Task views',
@@ -601,13 +601,16 @@ test('List ID column fits the longest ID, and Status gives way before Title is u
       'minmax(120px, min(300px, calc(100% - 4px - 24px - max(56px, calc(7 * 0.65 * var(--text-14))) - 40ch - 56px - 4px - 6 * 16px))) 56px 4px',
   )
   expect(listGrid(['id', 'status'], [])).toContain('minmax(120px, 300px)')
+  expect(listGrid(['children', 'parent'], [{ displayId: 'TED-1000' }])).toBe(
+    '4px 24px 108px max(80px, calc(max(56px, calc(10 * 0.65 * var(--text-14))) + 8px)) 4px',
+  )
 })
 
 test('folding a parent in one Stage group keeps its children in other groups and is remembered', async () => {
   api()
   const p = props()
   const tasks = [
-    task({ id: 'NB-1', displayId: 'NB-1', title: 'Parent' }),
+    task({ id: 'NB-1', displayId: 'NB-1', title: 'Parent', childIds: ['NB-2', 'NB-3'] }),
     task({ id: 'NB-2', displayId: 'NB-2', title: 'Waiting child', parentId: 'NB-1', rank: 2 }),
     task({
       id: 'NB-3',
@@ -636,6 +639,19 @@ test('folding a parent in one Stage group keeps its children in other groups and
     )
   const first = mount()
   expect(rows()).toEqual(['NB-1', 'NB-2', '(NB-1)', 'NB-3'])
+  const heads = [...document.querySelectorAll('thead th')].map((th) => th.textContent)
+  expect(heads.slice(heads.indexOf('Title'), heads.indexOf('Title') + 3)).toEqual([
+    'Title',
+    'Children',
+    'Parent',
+  ])
+  const cells = (id: string) =>
+    [...(document.querySelector(`tbody tr[data-task="${id}"]`)?.children ?? [])].map(
+      (cell) => cell.textContent,
+    )
+  const at = heads.indexOf('Title')
+  expect(cells('NB-1').slice(at, at + 3)).toEqual(['Parent', '0 of 2 merged', '—'])
+  expect(cells('NB-2').slice(at, at + 3)).toEqual(['Waiting child', '—', '↑ NB-1'])
   const [backlogCaret] = screen.getAllByRole('button', { name: 'Collapse children of NB-1' })
   await user().click(required(backlogCaret))
   expect(rows()).toEqual(['NB-1', '(NB-1)', 'NB-3'])
