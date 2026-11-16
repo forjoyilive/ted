@@ -66,7 +66,7 @@ _Avoid_: Hook, after-merge action
 The holding Stage at the end of a Workflow where a Task sits once all of its pull requests have merged and any Cleanup has ended. Nothing runs on a Task in Done.
 _Avoid_: Closed, complete, shipped
 
-**Sign-off**:
+**Sign-Off**:
 A setting on a Stage that makes the Task wait for the human’s sign-off at the end of that Stage before it moves on; a Stage that skips itself skips its sign-off. Set in TED’s defaults, the user’s Library, or a Factory, with optional choices for one Task. The configuration key remains `gate`. Autopilot turns these sign-offs off while it is on; Sign-offs TED forces stay.
 _Avoid_: Approval step, checkpoint
 
@@ -142,7 +142,7 @@ _Avoid_: Subtask, sub-issue (except when naming the Linear, Asana or GitHub item
 Remove a Task from its parent so it carries on as a separate Task; its own children stay under it.
 _Avoid_: Unparent, unlink
 
-**Follow-up**:
+**Follow-Up**:
 A Task created from a Done Task for a further change, linked to it and starting from its Task brief; the Done Task is never reopened.
 _Avoid_: Reopen, amendment, revision
 
@@ -194,7 +194,7 @@ _Avoid_: Orchestrator, manager agent
 The conversational agent for one Factory. It compares current Tasks, briefs and Comments and carries out the human’s requests in its chat to create Tasks, start Backlog Tasks, reorder waiting Tasks, resume stopped Tasks, send a Task Lead a message, or answer a Task’s open requests, sign-offs included. It never answers a permission prompt, a simulator ask or the Linear team ask. It works only when messaged; each Task keeps its own Task Lead. A Factory has one current Coordinator conversation; New conversation saves it, and an earlier one can be continued.
 _Avoid_: Foreman, manager, supervisor
 
-**Sub-agent**:
+**Sub-Agent**:
 A Run the Task Lead starts on its Task for one piece of work, such as exploring or reviewing; it reports back to the Task Lead with its final message and may post only plain Comments.
 _Avoid_: Worker, helper, child agent
 
