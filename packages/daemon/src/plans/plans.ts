@@ -544,6 +544,18 @@ export function createPlans(options: PlansOptions): Plans {
       createdAt: plan.createdAt,
       ...(plan.startedAt !== undefined && { startedAt: plan.startedAt }),
       ...(plan.finishedAt !== undefined && { finishedAt: plan.finishedAt }),
+      lastAt:
+        [
+          plan.createdAt,
+          plan.startedAt,
+          plan.finishedAt,
+          ...requests.flatMap((r) => [r.createdAt, r.answer?.at]),
+          store.lastOutputAt(plan.id),
+          ...store.runMessages(plan.id).map((m) => m.at),
+        ]
+          .filter((at): at is string => at !== undefined && at !== '')
+          .sort()
+          .at(-1) ?? plan.createdAt,
       ...(store.getRun(plan.id) && { runId: plan.id }),
       ...(latest?.proposal && { proposedTasks: latest.proposal.rows.length }),
       createdTasks: saved.createdTasks(plan.id).length,

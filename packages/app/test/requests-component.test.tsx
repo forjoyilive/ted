@@ -1049,6 +1049,7 @@ test('Inbox interleaves request types newest first, filters without reordering, 
       status: 'working',
       createdTasks: 0,
       createdAt,
+      lastAt: createdAt,
     },
     request: {
       id: 'plan',
@@ -2089,6 +2090,7 @@ test('Inbox right-click offers request actions, then Task or plan actions, and n
       agent: 'claude' as const,
       status: 'waiting' as const,
       createdAt,
+      lastAt: createdAt,
       createdTasks: 0,
     },
     request: {

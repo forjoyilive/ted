@@ -220,6 +220,9 @@ describe('Planning chats', () => {
       body: 'Created 2 Tasks under NB-1: NB-2, NB-3. NB-1 waits for them to merge.',
     })
     expect(done.plan.createdTasks).toBe(2)
+    const answeredAt = done.requests.flatMap((r) => (r.answer ? [r.answer.at] : [])).sort()
+    expect(done.plan.lastAt >= (answeredAt.at(-1) ?? '')).toBe(true)
+    expect(done.plan.lastAt > done.plan.createdAt).toBe(true)
     const tasks = await client.ok<Task[]>('GET', '/tasks')
     expect(
       tasks.map((t) => [t.displayId, t.title, t.createdBy, t.parentId, t.fromPlan?.title]),

@@ -23,14 +23,7 @@ export const shownSettingsSectionIds: readonly SettingsSectionId[] = settingsSec
   (id) => id !== 'machines' || remoteExecution,
 )
 
-export type FactoryView =
-  | 'coordinator'
-  | 'board'
-  | 'list'
-  | 'map'
-  | 'plans'
-  | 'automations'
-  | 'settings'
+export type FactoryView = 'agents' | 'board' | 'list' | 'map' | 'automations' | 'settings'
 
 export const taskViews = ['board', 'list', 'map'] as const satisfies readonly FactoryView[]
 
@@ -151,7 +144,7 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
       }
       const opened = navigate(state, {
         type: 'open',
-        screen: { kind: 'factory', factoryId: action.factoryId, view: 'plans' },
+        screen: { kind: 'factory', factoryId: action.factoryId, view: 'agents' },
       })
       return {
         ...opened,
@@ -337,6 +330,6 @@ export function backLink(state: Navigation): string | undefined {
   if (screen.kind === 'factory' && screen.view === 'board') return '← Board'
   if (screen.kind === 'factory' && screen.view === 'list') return '← List'
   if (screen.kind === 'factory' && screen.view === 'map') return '← Map'
-  if (screen.kind === 'factory' && screen.view === 'coordinator') return '← Coordinator'
+  if (screen.kind === 'factory' && screen.view === 'agents') return '← Agents'
   return undefined
 }

@@ -193,12 +193,11 @@ function GroupNameRow({
 }
 
 const factoryViews: { view: FactoryView | 'tasks'; label: string; nested?: true }[] = [
-  { view: 'coordinator', label: 'Coordinator' },
+  { view: 'agents', label: 'Agents' },
   { view: 'tasks', label: 'Tasks' },
   { view: 'board', label: 'Board', nested: true },
   { view: 'list', label: 'List', nested: true },
   { view: 'map', label: 'Map', nested: true },
-  { view: 'plans', label: 'Plans' },
   { view: 'automations', label: 'Automations' },
   { view: 'settings', label: 'Settings' },
 ]
@@ -518,7 +517,7 @@ export function Sidebar({
                 {...current(screen)}
               >
                 <span className={styles.label}>{label}</span>
-                {view === 'coordinator' &&
+                {view === 'agents' &&
                   (badge.coordinator === 'working' ||
                     badge.coordinator === 'queued' ||
                     badge.coordinator === 'paused') && (
@@ -536,8 +535,16 @@ export function Sidebar({
                       </StatusChip>
                     </span>
                   )}
-                {view === 'coordinator' && badge.coordinator === 'failed' && (
-                  <span role="img" aria-label="The Coordinator failed" className={styles.subDot}>
+                {view === 'agents' && (badge.coordinator === 'failed' || badge.plansFailed) && (
+                  <span
+                    role="img"
+                    aria-label={
+                      badge.coordinator === 'failed'
+                        ? 'A Coordinator chat failed'
+                        : 'A planning chat failed'
+                    }
+                    className={styles.subDot}
+                  >
                     <DotIcon className={styles.failedDot} />
                   </span>
                 )}
@@ -548,11 +555,6 @@ export function Sidebar({
                 )}
                 {view === 'automations' && badge.automationFailed && (
                   <span role="img" aria-label="An Automation failed" className={styles.subDot}>
-                    <DotIcon className={styles.failedDot} />
-                  </span>
-                )}
-                {view === 'plans' && badge.plansFailed && (
-                  <span role="img" aria-label="A planning chat failed" className={styles.subDot}>
                     <DotIcon className={styles.failedDot} />
                   </span>
                 )}

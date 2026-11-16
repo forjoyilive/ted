@@ -149,7 +149,7 @@ test('Factories open Dashboard with Board, List and Map folded under Tasks; All 
   const taskViews = () => within(nav()).getByRole('button', { name: 'Task views' })
   const factoryViews = () => within(nav()).getByRole('button', { name: 'Views' })
   await u.click(await screen.findByRole('button', { name: 'widgets' }))
-  for (const name of ['Dashboard', 'Tasks', 'Plans', 'Automations']) expect(shown(name)).toBe(true)
+  for (const name of ['Dashboard', 'Agents', 'Tasks', 'Automations']) expect(shown(name)).toBe(true)
   expect(['Board', 'List', 'Map'].filter(shown)).toEqual([])
   expect(taskViews().getAttribute('aria-expanded')).toBe('false')
   expect(

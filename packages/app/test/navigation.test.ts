@@ -40,7 +40,7 @@ describe('navigation', () => {
     expect(targeted).toMatchObject({
       planId: 'p1',
       requestId: 'round2',
-      screen: { kind: 'factory', factoryId: 'nb', view: 'plans' },
+      screen: { kind: 'factory', factoryId: 'nb', view: 'agents' },
     })
     expect(
       navigate(targeted, { type: 'open-plan', factoryId: 'nb', planId: 'p1' }).requestId,
@@ -104,6 +104,14 @@ describe('navigation', () => {
         after({ type: 'open', screen: { kind: 'all-tasks' } }, { type: 'open-task', taskId: 't1' }),
       ),
     ).toBe('← All Tasks')
+    expect(
+      backLink(
+        after(
+          { type: 'open-plan', factoryId: 'nb', planId: 'p1' },
+          { type: 'open-task', taskId: 't1' },
+        ),
+      ),
+    ).toBe('← Agents')
     expect(backLink(after({ type: 'open', screen: { kind: 'all-tasks' } }))).toBeUndefined()
   })
 
@@ -262,7 +270,7 @@ describe('back and forward (⌘[ and ⌘])', () => {
 
     history = withHistory(history, { type: 'back' })
     expect(history.now).toMatchObject({
-      screen: { kind: 'factory', factoryId: 'nb', view: 'plans' },
+      screen: { kind: 'factory', factoryId: 'nb', view: 'agents' },
       planId: newPlan,
       planFrom: 'p1',
     })
@@ -298,12 +306,12 @@ test('Tasks opens the last-used of Board, List and Map, and a Task opened from M
     navigate(state, { type: 'open-tasks', factoryId: 'nb' }).screen
   expect(tasksView(initialNavigation)).toEqual({ kind: 'factory', factoryId: 'nb', view: 'board' })
   const map = { kind: 'factory', factoryId: 'nb', view: 'map' } as const
-  const onPlans = [
+  const onAgents = [
     { type: 'open', screen: map } as const,
-    { type: 'open', screen: { kind: 'factory', factoryId: 'nb', view: 'plans' } } as const,
+    { type: 'open', screen: { kind: 'factory', factoryId: 'nb', view: 'agents' } } as const,
   ].reduce(navigate, initialNavigation)
-  expect(tasksView(onPlans)).toEqual(map)
-  expect(navigate(onPlans, { type: 'open-tasks', factoryId: 'ms' }).screen).toMatchObject({
+  expect(tasksView(onAgents)).toEqual(map)
+  expect(navigate(onAgents, { type: 'open-tasks', factoryId: 'ms' }).screen).toMatchObject({
     factoryId: 'ms',
     view: 'board',
   })

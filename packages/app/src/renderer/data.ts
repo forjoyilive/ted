@@ -808,13 +808,15 @@ export function usePlanState(planId: string | undefined) {
 }
 
 export function usePlans(factoryId: string): Plan[] {
-  return (
-    useReloadingState(
-      () => ted.listPlans(factoryId),
-      (event) => planEvent(event, factoryId),
-      factoryId,
-      busyEvents,
-    ).value ?? []
+  return usePlansState(factoryId).value ?? []
+}
+
+export function usePlansState(factoryId: string) {
+  return useReloadingState(
+    () => ted.listPlans(factoryId),
+    (event) => planEvent(event, factoryId),
+    factoryId,
+    busyEvents,
   )
 }
 

@@ -108,7 +108,6 @@ import {
   currentFactoryId,
   historyReducer,
   initialNavigation,
-  newPlan,
   type SettingsSectionId,
   shownSettingsSectionIds,
   startHistory,
@@ -131,10 +130,10 @@ import { keySequences } from './shortcuts.ts'
 import { factoryCapLine, runsLine } from './slots.ts'
 import { ted } from './ted.ts'
 import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
+import { AgentsView } from './views/Agents.tsx'
 import { AutomationDialog, type TemplateChoice } from './views/AutomationDialog.tsx'
 import { AutomationRunView, AutomationsPage, AutomationView } from './views/Automations.tsx'
 import { Board } from './views/Board.tsx'
-import { CoordinatorView } from './views/Coordinator.tsx'
 import { Dashboard } from './views/Dashboard.tsx'
 import { FactorySettings } from './views/FactorySettings.tsx'
 import { Inbox } from './views/Inbox.tsx'
@@ -142,15 +141,13 @@ import { NewTaskDialog } from './views/NewTaskDialog.tsx'
 import { NoFactories } from './views/NoFactories.tsx'
 import { Stub } from './views/OtherViews.tsx'
 import { PlanChatView } from './views/PlanChat.tsx'
-import { PlansList } from './views/PlansList.tsx'
 import { saveListView, TaskList } from './views/TaskList.tsx'
 import { TaskMap } from './views/TaskMap.tsx'
 import { TaskPanes } from './views/TaskThread.tsx'
 import { factoryName } from './views/TaskViews.tsx'
 
 const factoryViewTitles = {
-  coordinator: 'Coordinator',
-  plans: 'Plans',
+  agents: 'Agents',
   settings: 'Factory settings',
 } as const
 
@@ -220,7 +217,7 @@ const allowedInSettings = new Set([
   'go-to-board',
   'go-to-list',
   'go-to-map',
-  'go-to-plans',
+  'go-to-agents',
 ])
 
 const cardDialogs: Partial<Record<string, TaskDialogKind>> = {
@@ -914,7 +911,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
               screen: {
                 kind: 'factory',
                 factoryId: confirmation.factoryId,
-                view: 'coordinator',
+                view: 'agents',
                 chatId: confirmation.chatId,
               },
             })
@@ -1092,54 +1089,33 @@ export function App({ start }: { start?: AppStart | undefined }) {
             />
           )
         }
-        if (screen.view === 'coordinator' && factory)
+        if (screen.view === 'agents' && factory)
           return (
-            <CoordinatorView
+            <AgentsView
               key={factory.id}
               factory={factory}
               chatId={screen.chatId}
-              onOpenTask={openTaskByRef}
-            />
-          )
-        if (screen.view === 'plans' && factory) {
-          const backToPlans = () =>
-            dispatch({
-              type: 'open',
-              screen: { kind: 'factory', factoryId: factory.id, view: 'plans' },
-            })
-          const planMore = (from: string) =>
-            dispatch({ type: 'open-plan', factoryId: factory.id, from })
-          if (navigation.planId !== undefined) {
-            return (
-              <PlanChatView
-                key={navigation.planId}
-                factory={factory}
-                planId={navigation.planId === newPlan ? undefined : navigation.planId}
-                revealRequest={revealRequest}
-                onBack={backToPlans}
-                {...(navigation.planFrom !== undefined && { from: navigation.planFrom })}
-                onOpenPlan={(planId) =>
-                  dispatch({ type: 'open-plan', factoryId: factory.id, planId })
-                }
-                onPlanMore={planMore}
-                onOpenTask={openTaskByRef}
-                onDeleted={backToPlans}
-              />
-            )
-          }
-          return (
-            <PlansList
-              factory={factory}
-              banners={view.banners}
-              onPlan={openPlans}
-              onOpenPlan={(planId) =>
-                dispatch({ type: 'open-plan', factoryId: factory.id, planId })
+              planId={navigation.planId}
+              planFrom={navigation.planFrom}
+              revealRequest={revealRequest}
+              onOpenChat={(chat) =>
+                chat.agent === 'planner'
+                  ? dispatch({ type: 'open-plan', factoryId: factory.id, planId: chat.id })
+                  : dispatch({
+                      type: 'open',
+                      screen: {
+                        kind: 'factory',
+                        factoryId: factory.id,
+                        view: 'agents',
+                        chatId: chat.id,
+                      },
+                    })
               }
-              onPlanMore={planMore}
+              onNewPlan={openPlans}
+              onPlanMore={(from) => dispatch({ type: 'open-plan', factoryId: factory.id, from })}
               onOpenTask={openTaskByRef}
             />
           )
-        }
         return <Stub title={`${name} · ${factoryViewTitles[screen.view]}`} banners={view.banners} />
       }
     }
