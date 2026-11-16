@@ -199,7 +199,7 @@ The conversational agent for one Factory. It compares current Tasks, briefs and 
 _Avoid_: Foreman, manager, supervisor
 
 **Agent**:
-A kind of helper for a Factory that works outside any one Task, with powers of its own: for now the Coordinator and the Planner, which runs planning chats. Each Factory’s Agents screen lists every chat with them. Lowercase “agent” still means a Run or its role (see Provider).
+A kind of helper for a Factory that works outside any one Task, with powers of its own: the built-in Coordinator and Planner, which runs planning chats, and Agents a layer defines. An Agent is defined by its Agent files: its settings in `agents.yaml` and its instructions in `agents/<id>.md`, in TED’s defaults, the Library or `.ted/`. Its powers come from a fixed list: Ask the user, Manage Tasks, Propose Tasks and Read the code. Each Factory’s Agents screen lists every chat with them. Lowercase “agent” still means a Run or its role (see Provider).
 _Avoid_: Assistant, bot
 
 **Chat**:

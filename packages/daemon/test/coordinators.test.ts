@@ -171,9 +171,17 @@ test('one conversation per Factory; scoped reads include fresh briefs and Commen
   await rename(otherOrigin, renamed)
   await s.ok('POST', '/dev/factories', { repo: renamed, key: 'OTHER' })
   const other = await s.task('Other Task', 'OTHER')
+  await mkdir(path.join(home, 'library', 'agents'), { recursive: true })
+  await writeFile(
+    path.join(home, 'library', 'agents', 'coordinator.md'),
+    '# You are the Coordinator for one TED Factory\nKeep answers to three lines.\n',
+  )
   const { c, run } = await s.start()
   const conversation = await s.ok<RunWithConversation>('GET', `/runs/${c.runId}`)
   expect(conversation.run.prompt).toContain('## Write clearly for the user')
+  expect(conversation.run.prompt).toContain('Keep answers to three lines.')
+  expect(conversation.run.prompt).not.toContain('Help the human compare Tasks')
+  expect(conversation.run.prompt).toContain('ted coordinator tasks [--stage <Stage>]')
   const list = unpack<{ tasks: Task[] }>((await run.call('GET', '/coordinator/tasks')).body)
   expect(list.tasks.map((t) => t.id)).toEqual([task.id])
   const badge = await s.task('Offline badge')

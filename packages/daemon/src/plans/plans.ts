@@ -43,6 +43,7 @@ import type { Caller, PlanApproval, PlanEnd } from '../tasks/tasks.ts'
 import { copyFiles } from '../tasks/worktree.ts'
 import { messageOf } from '../text.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
+import { builtInAgentText } from '../workflow/layers.ts'
 import type { Workflows } from '../workflow/workflows.ts'
 import {
   earlierPlanContext,
@@ -229,6 +230,14 @@ export function createPlans(options: PlansOptions): Plans {
     },
   })
 
+  async function plannerSetup(
+    factory: StoredFactory,
+  ): Promise<{ entries: FactoryRepoEntry[]; role: string }> {
+    const { workflow } = await workflows.resolve(factory, { fetch: false })
+    const role = workflow.agent('planner')?.instructions ?? (await builtInAgentText('planner'))
+    return { entries: factoryRepos(workflow, factory), role }
+  }
+
   async function entriesOf(factory: StoredFactory): Promise<FactoryRepoEntry[]> {
     const { workflow } = await workflows.resolve(factory, { fetch: false })
     return factoryRepos(workflow, factory)
@@ -299,11 +308,11 @@ export function createPlans(options: PlansOptions): Plans {
         return current?.state === 'started' && current.resume === 'queued'
       }
       try {
-        const entries = await entriesOf(factory)
+        const { entries, role } = await plannerSetup(factory)
         if (!stillOpen()) return
         const fresh = store.getRun(id)?.sessionId === undefined
         await runs.revive(id, {
-          prompt: fresh ? firstPrompt(plan, factory, entries) : planResumePrompt,
+          prompt: fresh ? firstPrompt(plan, factory, entries, role) : planResumePrompt,
           env: envFor(plan, factory, entries),
           fresh,
         })
@@ -323,7 +332,7 @@ export function createPlans(options: PlansOptions): Plans {
     if (plan.state !== 'queued') return
     let prepared: StoredPlan['checkout'] = []
     try {
-      const entries = await entriesOf(factory)
+      const { entries, role } = await plannerSetup(factory)
       const checkout = await checkOut(plan, factory, entries)
       prepared = checkout
       if (saved.get(id)?.state !== 'queued') {
@@ -335,7 +344,7 @@ export function createPlans(options: PlansOptions): Plans {
         id,
         agent: plan.agent,
         onStarting: () => saved.began(id, checkout),
-        prompt: firstPrompt(plan, factory, entries),
+        prompt: firstPrompt(plan, factory, entries, role),
         cwd: single ?? folderOf(id),
         name: 'Planner',
         permissions: 'auto',
@@ -362,8 +371,10 @@ export function createPlans(options: PlansOptions): Plans {
     plan: StoredPlan,
     factory: StoredFactory,
     entries: FactoryRepoEntry[],
+    role: string,
   ): string {
     return `${plannerInstructions({
+      role,
       factory,
       entries,
       folder: folderOf(plan.id),
