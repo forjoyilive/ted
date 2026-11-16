@@ -119,6 +119,7 @@
 
 .command {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   margin-top: 6px;
@@ -132,6 +133,9 @@
   font-family: var(--font-mono);
   font-size: var(--text-12-5);
   white-space: pre;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .login {
