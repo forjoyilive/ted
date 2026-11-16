@@ -87,6 +87,7 @@ import {
 } from './commands.ts'
 import { exportCommand } from './export.ts'
 import { githubIntakeText } from './github-intake.ts'
+import { linearIntakeText } from './linear.ts'
 import { formatMemoryUse } from './memory.ts'
 import { formatSlowMoments } from './slow.ts'
 
@@ -1566,6 +1567,13 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     githubIntake: async () => {
       const result = await withDaemon(home, (client) => client.runGitHubIntake())
       write(`${githubIntakeText(result)}\n`)
+    },
+    linearIntake: async () => {
+      const { factory } = options
+      const result = await withDaemon(home, (client) =>
+        client.runLinearIntake(factory === undefined ? {} : { factory }),
+      )
+      write(`${linearIntakeText(result)}\n`)
     },
     createTask: async () => {
       const title = args.join(' ')

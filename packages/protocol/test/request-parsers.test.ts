@@ -230,6 +230,7 @@ variant(P.parseSetFactoryGitHubIntakeRequest, { scope: null })
 roundTrip(P.parseAsanaIntakeRequest, { factory: 'NB' })
 roundTrip(P.parseGitHubIntakeRequest, { factory: 'NB' })
 variant(P.parseGitHubIntakeRequest, {})
+roundTrip(P.parseLinearIntakeRequest, { factory: 'NB' })
 roundTrip(P.parseAllowAsanaProjectRequest, { factoryId: 'factory', project: '9' })
 roundTrip(P.parseForgetAsanaProjectRequest, { factoryId: 'factory', project: '9', list: 'allowed' })
 variant(P.parseForgetAsanaProjectRequest, { factoryId: 'factory', project: '9', list: 'declined' })
@@ -328,6 +329,8 @@ rejects(P.parseSetFactoryAsanaIntakeRequest, {}, 'Choose an Asana workspace and 
 rejects(P.parseAsanaIntakeRequest, { factory: '' }, 'Factory key')
 rejects(P.parseGitHubIntakeRequest, { factory: '' }, 'Factory key')
 rejects(P.parseGitHubIntakeRequest, { factory: 3 }, 'Factory key')
+rejects(P.parseLinearIntakeRequest, { factory: '' }, 'Factory key')
+rejects(P.parseLinearIntakeRequest, { factory: 7 }, 'Factory key')
 rejects(
   P.parseAllowAsanaProjectRequest,
   { factoryId: 'factory', project: 'https://app.asana.com/0/9' },

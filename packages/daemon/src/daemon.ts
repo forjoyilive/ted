@@ -92,7 +92,7 @@ export interface DaemonOptions {
   integrations?: DaemonIntegrationsOptions
   asana?: Omit<AsanaOptions, 'home' | 'keyring'> & { keyring?: Keyring; intakeLimit?: number }
   github?: { uploadOrigins?: string[]; intakeLimit?: number }
-  linear?: { apiUrl?: string; keyring?: Keyring }
+  linear?: { apiUrl?: string; keyring?: Keyring; intakeLimit?: number }
   snoozes?: { now?: () => Date; checkEveryMs?: number }
   heldRequests?: { maxMs?: number }
   linearSyncMs?: number
@@ -543,6 +543,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         },
         ...(options.snoozes !== undefined && { snoozes: options.snoozes }),
         ...(options.heldRequests !== undefined && { heldRequests: options.heldRequests }),
+        ...(options.linear?.intakeLimit !== undefined && {
+          linearIntakeLimit: options.linear.intakeLimit,
+        }),
         ...(options.linearSyncMs !== undefined && { linearSyncMs: options.linearSyncMs }),
         ...(options.asanaSyncMs !== undefined && { asanaSyncMs: options.asanaSyncMs }),
         ...(options.githubSyncMs !== undefined && { githubSyncMs: options.githubSyncMs }),

@@ -2819,9 +2819,6 @@
     }
   },
   "packages/daemon/src/tasks/intake.ts": {
-    "anti-slop/no-known-value-widening": {
-      "count": 1
-    },
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 1
     }

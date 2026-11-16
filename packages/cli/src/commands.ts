@@ -980,6 +980,15 @@ export const commands = [
     options: options(),
   },
   {
+    name: 'linear intake',
+    handler: 'linearIntake',
+    min: 0,
+    max: 0,
+    help: '  ted linear intake [--factory <key>]        Import the not-started Linear issues assigned to\n                                             you from the Factory’s Linear intake Team or\n                                             Project into Backlog',
+    callers: 'Terminal or Automation Run',
+    options: options('factory'),
+  },
+  {
     name: 'task create',
     handler: 'createTask',
     argumentOrOption: 'source',

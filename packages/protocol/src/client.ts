@@ -164,6 +164,7 @@ import type {
   LinearStatus,
   SaveLinearKeyRequest,
 } from './linear.ts'
+import type { LinearIntakeRequest, LinearIntakeResult } from './linear-intake.ts'
 import type { MemoryUse } from './memory.ts'
 import type { MessageBox, MessageDraftState, SaveMessageDraftRequest } from './message-draft.ts'
 import type { PeerDetail, PeerInbox, PeerMessage, PeerPage, SendPeerMessage } from './peers.ts'
@@ -626,6 +627,10 @@ export class DaemonClient {
 
   runGitHubIntake(input: GitHubIntakeRequest = {}): Promise<GitHubIntakeResult> {
     return this.#request('POST', '/github-intake', input)
+  }
+
+  runLinearIntake(input: LinearIntakeRequest = {}): Promise<LinearIntakeResult> {
+    return this.#request('POST', '/linear-intake', input)
   }
 
   setTaskSnooze(ref: string, snoozedUntil: string | null): Promise<Task> {
