@@ -4008,7 +4008,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v2.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v3.TaskStageEntered': (args) => task(args, { stage: args.stage }),
-  'v4.TaskStageEntered': (args) => task(args, { stage: args.stage }),
+  'v4.TaskStageEntered': (args) => task(args, { stage: args.stage, names: args.names }),
   'v1.TaskSentBack': (args) =>
     task(args, { from: args.from, to: args.to, findings: args.findings }),
   'v2.TaskSentBack': (args) =>

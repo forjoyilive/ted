@@ -1005,12 +1005,12 @@ export function loopChoices(workflow: ResolvedWorkflow): string[] {
 
 export function checkBack(workflow: ResolvedWorkflow, from: AgentStageId, to: AgentStageId): void {
   if (!workflow.stages.includes(to)) {
-    throw new RequestError(409, `${stageTitle(to)} isn’t on in this Factory’s Workflow`)
+    throw new RequestError(409, `${workflow.name(to)} isn’t on in this Factory’s Workflow`)
   }
   if (!isEarlierStage(workflow, to, from)) {
     throw new RequestError(
       409,
-      `\`back\` goes only to an earlier Stage; ${stageTitle(to)} isn’t before ${stageTitle(from)}`,
+      `\`back\` goes only to an earlier Stage; ${workflow.name(to)} isn’t before ${workflow.name(from)}`,
     )
   }
 }

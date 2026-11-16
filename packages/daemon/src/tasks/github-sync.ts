@@ -167,7 +167,8 @@ export function githubConnector(store: TedStore, github: GitHubIssueSyncApi): Gi
           partOfConfirmed.add(url)
         }
       }
-      if (step !== undefined || task.archived || stagePhase(task.stage) === 'before')
+      const order = store.recordedStages(task.id)?.map((planned) => planned.stage)
+      if (step !== undefined || task.archived || stagePhase(task.stage, order) === 'before')
         return undefined
       if (task.stage === 'done' || item.closed || !item.handle.open) return undefined
       const stillOpen = () => {

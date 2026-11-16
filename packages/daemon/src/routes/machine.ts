@@ -25,6 +25,7 @@ import {
   priorities,
   quitChoices,
   runOutputDayLimits,
+  type StageId,
   type StatusFilter,
   simulatorSlotLimits,
   taskStatusKinds,
@@ -33,7 +34,7 @@ import {
   timeFormats,
   workingRunLimits,
 } from '@ted/protocol'
-import { builtInStageOrder } from '@ted/protocol/stage'
+import { builtInStageOrder, isStageId } from '@ted/protocol/stage'
 import { parseEditorCommand } from '../editors.ts'
 import { RequestError as HttpError } from '../errors.ts'
 import { readProfile } from '../profile.ts'
@@ -164,6 +165,19 @@ function oneOfList<T extends string>(name: string, value: unknown, allowed: read
   })
 }
 
+function stageList(name: string, value: unknown): StageId[] {
+  if (!Array.isArray(value)) throw new HttpError(400, `${name} must be a list`)
+  return value.map((item) => {
+    if (!isStageId(item)) {
+      throw new HttpError(
+        400,
+        `${name} must list only Stage ids, such as ${builtInStageOrder.join(', ')}`,
+      )
+    }
+    return item
+  })
+}
+
 function listFilters(value: unknown): ListFilters {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new HttpError(400, 'filters must be an object')
@@ -181,7 +195,7 @@ function listFilters(value: unknown): ListFilters {
         throw new HttpError(400, 'factoryGroups must list Factory group IDs')
       }
       filters.factoryGroups = item as string[]
-    } else if (name === 'stages') filters.stages = oneOfList(name, item, builtInStageOrder)
+    } else if (name === 'stages') filters.stages = stageList(name, item)
     else if (name === 'statuses') filters.statuses = oneOfList(name, item, statusFilters)
     else if (name === 'priorities') filters.priorities = oneOfList(name, item, priorities)
     else if (name === 'createdBy') filters.createdBy = oneOfList(name, item, createdByKinds)
@@ -240,7 +254,7 @@ function boardView(value: unknown): BoardView {
   return {
     cardSize,
     fields: [...new Set(oneOfList('fields', view.fields, boardFields))],
-    hiddenStages: [...new Set(oneOfList('hiddenStages', view.hiddenStages, builtInStageOrder))],
+    hiddenStages: [...new Set(stageList('hiddenStages', view.hiddenStages))],
     hideEmpty: view.hideEmpty,
   }
 }

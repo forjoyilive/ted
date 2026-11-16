@@ -25,7 +25,7 @@ import {
   sameFiles,
   sharedDefaultLayer,
 } from './layers.ts'
-import { type ResolvedWorkflow, resolveWorkflow } from './resolve.ts'
+import { boardStages, type ResolvedWorkflow, resolveWorkflow } from './resolve.ts'
 
 export interface WorkflowResolution {
   workflow: ResolvedWorkflow
@@ -60,6 +60,7 @@ export function createWorkflows(options: {
   reposDir: string
   tedVersion?: string
   onDrift?: (drift: DriftCounts) => void
+  onStages?: (factoryId: string) => void
   onFactorySettings?: (
     factory: StoredFactory,
     settings: WorkflowSettings | undefined,
@@ -97,6 +98,15 @@ export function createWorkflows(options: {
   let counted: { defaults: CheckedLayer; library: CheckedLayer | undefined } | undefined
   let layersChanged = true
   let libraryCount = 0
+  const stageLists = new Map<string, string>()
+
+  function noteStages(factoryId: string, workflow: ResolvedWorkflow): void {
+    const list = JSON.stringify(boardStages(workflow))
+    const before = stageLists.get(factoryId)
+    if (before === list) return
+    stageLists.set(factoryId, list)
+    if (before !== undefined) options.onStages?.(factoryId)
+  }
 
   function remember(layers: readonly CheckedLayer[]): void {
     for (const layer of layers) {
@@ -321,6 +331,7 @@ export function createWorkflows(options: {
     workflow.settings.permissions = factoryPermissions(store, factory.id)
     reportChecks(factory, workflow)
     reportInvalid(factory, factoryLayer.use)
+    noteStages(factory.id, workflow)
     return {
       workflow,
       layers: [
@@ -350,6 +361,7 @@ export function createWorkflows(options: {
       accepted.delete(`factory:${factoryId}`)
       checkedLayers.delete(`factory:${factoryId}`)
       checkedLayers.delete(`factory:${factoryId}\0last`)
+      stageLists.delete(factoryId)
     },
     resolve,
     async source(factory, { fetch = false, resolve: full = true } = {}) {

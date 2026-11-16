@@ -10,11 +10,10 @@ import type {
   ValidationSnapshot,
 } from '@ted/protocol'
 import { trackerName } from '@ted/protocol'
-import { validates } from '@ted/protocol/stage'
+import { stageDisplayName, validates } from '@ted/protocol/stage'
 import { diffTexts } from '../agents/diff.ts'
 import type { LoggedEvent, TedStore } from '../store/index.ts'
 import { type OvernightGuard, overnightGuardTexts } from '../workflow/resolve.ts'
-import { stageTitle } from '../workflow/workflow.ts'
 import { summary } from './github-activity.ts'
 import { depthNames } from './rounds.ts'
 
@@ -178,6 +177,13 @@ export function threadEvents(
       : [],
   )
   const usedApprovals = new Set<number>()
+  const names: Record<string, string> = {}
+  for (const entry of log) {
+    if (entry.name === 'v4.TaskStageEntered' && typeof entry.data.names === 'string') {
+      Object.assign(names, JSON.parse(entry.data.names) as Record<string, string>)
+    }
+  }
+  const stageTitle = (id: string) => stageDisplayName(id, names)
   const lines: ThreadEvent[] = []
   let sentBackTo: string | undefined
   let held = false

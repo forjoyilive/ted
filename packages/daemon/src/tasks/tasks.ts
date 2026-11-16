@@ -7082,10 +7082,10 @@ export function createTasks(options: {
         taskId: task.id,
         kind: 'question',
         author: { kind: 'ted' },
-        title: `${stageTitle(from)} wants to send this Task back to ${stageTitle(to)} again`,
+        title: `${workflow.name(from)} wants to send this Task back to ${workflow.name(to)} again`,
         purpose: { kind: 'send-back' },
-        body: `${stageTitle(from)} has reached its send-back limit (${count}) and needs your decision. Send it back to ${stageTitle(to)} for another attempt, or keep it in ${stageTitle(from)} to revisit the approach. Full Findings are in the Task’s history.`,
-        choices: [`Send it back to ${stageTitle(to)}`, `Keep it in ${stageTitle(from)}`],
+        body: `${workflow.name(from)} has reached its send-back limit (${count}) and needs your decision. Send it back to ${workflow.name(to)} for another attempt, or keep it in ${stageTitle(from)} to revisit the approach. Full Findings are in the Task’s history.`,
+        choices: [`Send it back to ${workflow.name(to)}`, `Keep it in ${workflow.name(from)}`],
       })
       store.askAboutSendBack({
         commentId: request.id,
@@ -7098,7 +7098,7 @@ export function createTasks(options: {
       })
       return {
         task: publicTask(task.id),
-        message: `${stageTitle(from)} has sent this Task back ${times}, its limit, so TED asked the human instead. TED sends you their answer.`,
+        message: `${workflow.name(from)} has sent this Task back ${times}, its limit, so TED asked the human instead. TED sends you their answer.`,
         request,
       }
     }
@@ -7144,7 +7144,7 @@ export function createTasks(options: {
     })
     if (signsOffCode(from)) store.resetSendBacks(task.id, stageWith('validates'))
     const moved = await move(task, resolution, to, backMessage(workflow, to, from, sentBack))
-    return { task: moved, message: `${task.displayId} moved back to ${stageTitle(to)}` }
+    return { task: moved, message: `${task.displayId} moved back to ${workflow.name(to)}` }
   }
 
   async function reviewRound(task: StoredTask): Promise<{
@@ -11485,7 +11485,12 @@ export function createTasks(options: {
         if (task.archived || task.stage === 'done') {
           throw new RequestError(409, `${task.displayId} has finished; its Clarify depth is fixed`)
         }
-        if (clarifyIsOver(task.stage)) {
+        if (
+          clarifyIsOver(
+            task.stage,
+            store.recordedStages(task.id)?.map((planned) => planned.stage),
+          )
+        ) {
           throw new RequestError(
             409,
             `Clarify is over for ${task.displayId}, so changing its Clarify depth would do nothing`,
@@ -11737,7 +11742,7 @@ export function createTasks(options: {
             if (changesAsked && !handsOff(outcome.to) && !postsDesignReview(outcome.to)) {
               throw new RequestError(
                 409,
-                `the human asked for changes at the ${stageTitle(stage)} sign-off; send the Task back to Work or Design`,
+                `the human asked for changes at the ${workflow.name(stage)} sign-off; send the Task back to Work or Design`,
               )
             }
             const declared =
@@ -11825,7 +11830,7 @@ export function createTasks(options: {
             if (!maySkip(stage)) {
               throw new RequestError(
                 409,
-                `only Clarify and Design can skip themselves; ${stageTitle(stage)} can’t`,
+                `only Clarify and Design can skip themselves; ${workflow.name(stage)} can’t`,
               )
             }
             if (current.setup) {
@@ -11835,12 +11840,12 @@ export function createTasks(options: {
             if (store.listComments(task.id).some((c) => c.gate && c.createdAt >= since)) {
               throw new RequestError(
                 409,
-                `${stageTitle(stage)} has already posted its sign-off request, so it can’t skip itself`,
+                `${workflow.name(stage)} has already posted its sign-off request, so it can’t skip itself`,
               )
             }
             store.postComment({
               taskId: task.id,
-              body: `The Task Lead skipped ${stageTitle(stage)}: it had nothing to do.${
+              body: `The Task Lead skipped ${workflow.name(stage)}: it had nothing to do.${
                 gateOn(current, workflow, stage) ? ' Its sign-off was skipped too.' : ''
               }`,
               author: { kind: 'ted' },
@@ -11898,11 +11903,11 @@ export function createTasks(options: {
               next === 'done' ? undefined : nextStageMessage(workflow, next),
               { reads },
             )
-            return { task: moved, message: `${task.displayId} moved to ${stageTitle(next)}` }
+            return { task: moved, message: `${task.displayId} moved to ${workflow.name(next)}` }
           }
           const name = hasClarifyRounds(stage)
             ? 'Clarify sign-off'
-            : `${stageTitle(stage)} sign-off`
+            : `${workflow.name(stage)} sign-off`
           if (openGateRequest(current)) {
             throw new RequestError(409, `${task.displayId} is already waiting at the ${name}`)
           }
