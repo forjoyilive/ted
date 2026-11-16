@@ -18,6 +18,7 @@ import {
 import { shortReference } from '@ted/protocol/reference'
 import type { Agents } from './agents/index.ts'
 import { availableMemory, totalMemory } from './busy.ts'
+import { processMemory } from './process-memory.ts'
 import { redactSecrets } from './redact.ts'
 import { runFiles } from './runs/host-files.ts'
 import { parsedOutput } from './runs/parsed-output.ts'
@@ -122,11 +123,16 @@ async function ownedProcesses(home: string, live: Run[]): Promise<ProcessInfo[]>
     }
     return undefined
   }
-  return rows.flatMap((row) => {
-    if (row.ppid === process.pid && row.command === 'ps') return []
+  const owned = rows.flatMap((row) => {
+    if (row.ppid === process.pid && (row.command === 'ps' || row.command === 'footprint')) return []
     const owner = ownerOf(row.pid)
     return owner === undefined ? [] : [{ ...row, owner }]
   })
+  const memory = await processMemory(
+    owned.map((row) => row.pid),
+    { resident: new Map(owned.map((row) => [row.pid, row.memoryBytes])) },
+  )
+  return owned.map((row) => ({ ...row, memoryBytes: memory.get(row.pid) ?? row.memoryBytes }))
 }
 
 export async function processUsage(
@@ -155,8 +161,9 @@ export async function memoryUse(
   })
   const agents = owned.filter((row) => row.owner !== 'daemon' && !hostPids.has(row.pid))
   const usage = process.memoryUsage()
+  const daemonBytes = owned.find((row) => row.pid === process.pid)?.memoryBytes ?? usage.rss
   return {
-    daemon: { bytes: usage.rss, heapBytes: usage.heapUsed, externalBytes: usage.external },
+    daemon: { bytes: daemonBytes, heapBytes: usage.heapUsed, externalBytes: usage.external },
     hosts: group(owned.filter((row) => hostPids.has(row.pid))),
     agents: group(
       agents,

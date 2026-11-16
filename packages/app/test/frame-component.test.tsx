@@ -14,9 +14,9 @@ const nav = () => screen.getByRole('navigation', { name: 'Sidebar' })
 test('Developer mode shows live process totals in the sidebar and stops collecting when off', async () => {
   const app = appState()
   let cpuPercent = 15
-  const usage = vi.fn(() => ({ cpuPercent, memoryBytes: 192 * 1024 ** 2 }))
+  const usage = vi.fn(() => ({ cpuPercent, memoryBytes: 2493 * 1024 ** 2 }))
   const diagnostics = vi.fn()
-  app.handle('getProcessUsage', usage)
+  app.handle('resourceUsage', usage)
   app.handle('getDiagnostics', diagnostics)
   const view = app.mount()
   await screen.findByRole('navigation', { name: 'Sidebar' })
@@ -29,14 +29,14 @@ test('Developer mode shows live process totals in the sidebar and stops collecti
       app.emit({ type: 'settings-changed', settings: { ...app.state.settings } }),
     )
     expect(within(nav()).getByLabelText('Developer resource usage').textContent).toBe(
-      'CPU 15% · Memory 192 MB',
+      'CPU 15% · Memory 2.4 GB',
     )
     cpuPercent = 32.54
     await act(async () => vi.advanceTimersByTimeAsync(4_000))
     expect(usage).toHaveBeenCalledOnce()
     await act(async () => vi.advanceTimersByTimeAsync(1_000))
     expect(screen.getByLabelText('Developer resource usage').textContent).toBe(
-      'CPU 32.5% · Memory 192 MB',
+      'CPU 32.5% · Memory 2.4 GB',
     )
     app.state.settings.developerMode = false
     await act(async () =>
@@ -64,7 +64,7 @@ test('sidebar resource readings stop while the window is hidden and resume when 
   const app = appState()
   app.state.settings.developerMode = true
   const usage = vi.fn(() => ({ cpuPercent: 1, memoryBytes: 1024 ** 2 }))
-  app.handle('getProcessUsage', usage)
+  app.handle('resourceUsage', usage)
   let hidden = false
   const show = (visible: boolean) => {
     hidden = !visible
@@ -100,7 +100,7 @@ test('sidebar resource readings recover after a failure without showing stale to
     .mockResolvedValueOnce({ cpuPercent: 1, memoryBytes: 1024 ** 2 })
     .mockRejectedValueOnce(new Error('Offline'))
     .mockResolvedValue({ cpuPercent: 0, memoryBytes: 0 })
-  app.handle('getProcessUsage', usage)
+  app.handle('resourceUsage', usage)
   vi.useFakeTimers()
   const view = app.mount()
   try {
@@ -122,7 +122,7 @@ test('a slow resource reading does not overlap or restart polling after leaving 
   const app = appState()
   const pending = deferred<{ cpuPercent: number; memoryBytes: number }>()
   const usage = vi.fn(() => pending.promise)
-  app.handle('getProcessUsage', usage)
+  app.handle('resourceUsage', usage)
   app.state.settings.developerMode = true
   app.mount()
   await screen.findByText('CPU / Memory reading…')

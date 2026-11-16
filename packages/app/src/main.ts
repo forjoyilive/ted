@@ -14,6 +14,7 @@ import {
   superviseDaemon,
   watchExitWith,
 } from '@ted/daemon/launch'
+import { processMemory } from '@ted/daemon/process-memory'
 import {
   type Activity,
   type Banner,
@@ -252,13 +253,14 @@ const requests = {
     clipboard.writeText((await client.getReport()).text)
   },
   memoryUse: async (client) => {
-    const metrics = app.getAppMetrics()
+    const [use, own] = await Promise.all([client.getMemoryUse(), appUsage()])
+    return { ...use, app: { count: own.count, bytes: own.memoryBytes } }
+  },
+  resourceUsage: async (client) => {
+    const [usage, own] = await Promise.all([client.getProcessUsage(), appUsage()])
     return {
-      ...(await client.getMemoryUse()),
-      app: {
-        count: metrics.length,
-        bytes: metrics.reduce((sum, metric) => sum + metric.memory.workingSetSize * 1024, 0),
-      },
+      cpuPercent: usage.cpuPercent + own.cpuPercent,
+      memoryBytes: usage.memoryBytes + own.memoryBytes,
     }
   },
   tedFolder: async () => {
@@ -318,6 +320,7 @@ const requests = {
   | 'quit'
   | 'copyReport'
   | 'memoryUse'
+  | 'resourceUsage'
   | 'tedFolder'
   | 'showBackupInFolder'
   | 'showTedFolder'
@@ -328,6 +331,16 @@ const requests = {
   | 'openLinearKeyPage'
   | 'getAutomation'
 >
+
+async function appUsage(): Promise<{ count: number; cpuPercent: number; memoryBytes: number }> {
+  const metrics = app.getAppMetrics()
+  const memory = await processMemory(metrics.map((metric) => metric.pid))
+  return {
+    count: metrics.length,
+    cpuPercent: metrics.reduce((sum, metric) => sum + metric.cpu.percentCPUUsage, 0),
+    memoryBytes: metrics.reduce((sum, metric) => sum + (memory.get(metric.pid) ?? 0), 0),
+  }
+}
 
 const pictureSize = 256
 
