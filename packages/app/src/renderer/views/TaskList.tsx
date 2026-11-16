@@ -365,7 +365,7 @@ export function FilterMenu({
         {priorities.map((priority: Priority) => (
           <CheckItem
             key={priority}
-            label={priority === 'none' ? 'No priority' : priorityLabels[priority]}
+            label={priority === 'none' ? 'No Priority' : priorityLabels[priority]}
             icon={<PriorityIcon priority={priority} />}
             checked={filters.priorities?.includes(priority) ?? false}
             count={count((c) => ({ ...c, priorities: [priority] }))}
@@ -654,7 +654,7 @@ export function TaskList({
   function dropHint(target: DropSpot): string | undefined {
     if (!dragging) return undefined
     const action = dropAction(dragging.task, view.group, dragging.group, target.group)
-    if (action === 'start') return 'Drop to Start · Joins the queue as Queued'
+    if (action === 'start') return 'Drop to start · Joins the queue as Queued'
     if (action === 'unstart') return 'Drop to move back to Backlog'
     if (action === 'reorder' && queueMode) {
       const from = ordered.findIndex((t) => t.id === dragging.task.id)

@@ -99,7 +99,7 @@ const entries = {
     platform: 'linux',
   },
   'app.general.startup.stay-awake': {
-    name: 'Stay Awake while Runs are working',
+    name: 'Stay awake while Runs are working',
     help: 'Keeps this computer from going to sleep on its own while any Run is working. Automations don’t keep it awake.',
   },
   'app.general.editor': { name: 'Editor and command line', heading: true },
@@ -247,11 +247,11 @@ const entries = {
   'app.storage.run-output': { name: 'Delete automatically', heading: true },
   'app.storage.run-output.days': {
     name: 'Delete agent chats',
-    help: 'Only the chats go. The task, its comments and its brief stay. Counted from when the task is done or archived, or for a chat with no task, from when it ends.',
+    help: 'Only the chats go. The Task, its Comments and its Task brief stay. Counted from when the Task is Done or archived, or for a chat with no Task, from when it ends.',
   },
   'app.storage.archived-tasks': {
-    name: 'Delete archived tasks',
-    help: 'The whole task goes, with its comments, brief and chats. Counted from when it was archived. Done tasks that aren’t archived stay. This can’t be undone.',
+    name: 'Delete archived Tasks',
+    help: 'The whole Task goes, with its Comments, Task brief and chats. Counted from when it was archived. Done Tasks that aren’t archived stay. This can’t be undone.',
   },
   'app.storage.export': { name: 'Export a Factory', heading: true },
   'app.storage.export.factory': { name: 'Factory' },

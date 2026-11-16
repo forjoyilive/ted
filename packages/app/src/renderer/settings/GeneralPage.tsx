@@ -239,7 +239,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
         )}
         <SettingRow setting="app.general.startup.stay-awake">
           <Switch
-            label="Stay Awake while Runs are working"
+            label="Stay awake while Runs are working"
             checked={settings.stayAwake}
             onChange={(stayAwake) => ted.updateSettings({ stayAwake })}
           />

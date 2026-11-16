@@ -143,7 +143,7 @@ const priorityHeadings: readonly (readonly [string, string])[] = [
   ['high', priorityLabels.high],
   ['medium', priorityLabels.medium],
   ['low', priorityLabels.low],
-  ['none', 'No priority'],
+  ['none', 'No Priority'],
   ['no-task', 'Not from a Task'],
 ]
 

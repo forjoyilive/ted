@@ -280,7 +280,7 @@ test('Overview figures open the Tasks behind them, durations slowest first', asy
 
   const waits = screen.getByRole('region', { name: 'Waiting on you' })
   expect(waits.textContent).toContain('-25%')
-  expect(waits.textContent).toContain('Previous: 40h')
+  expect(waits.textContent).toContain('previous: 40h')
   expect(waits.textContent).toContain('median answer time · 3 requests')
   const stageRows = within(waits).getAllByRole('button', { name: /^Waiting on you in/ })
   expect(stageRows.map((row) => row.getAttribute('aria-label'))).toEqual([
@@ -924,7 +924,7 @@ test('the Cost tab shows cost per merged pull request, spend by kind of work and
   render(<DashboardView open={open} />)
   await screen.findByRole('region', { name: 'Tasks completed' })
   await user().click(screen.getByRole('tab', { name: 'Cost' }))
-  expect(screen.getByRole('heading', { name: 'API-Equivalent Cost' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'API-equivalent cost' })).toBeTruthy()
   expect(
     screen.getByText(/whatever your billing\. Runs still going aren’t counted yet\./),
   ).toBeTruthy()

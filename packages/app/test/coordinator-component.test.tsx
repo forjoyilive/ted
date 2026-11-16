@@ -124,7 +124,7 @@ test('the Coordinator draws its conversation like a Task thread: your messages t
     .closest('li')
   expect(receipt).toBeTruthy()
   expect(within(receipt as HTMLElement).getByRole('button', { name: 'Open Task' })).toBeTruthy()
-  expect(within(pane).queryByText('Earlier conversation')).toBeNull()
+  expect(within(pane).queryByText('Earlier Conversation')).toBeNull()
   expect(within(pane).queryByRole('button', { name: 'Stop response' })).toBeNull()
 })
 

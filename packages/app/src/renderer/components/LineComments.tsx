@@ -120,7 +120,7 @@ export function useDiffComments(taskId: string, comments: readonly LineComment[]
             {editor && (
               <LineCommentEditor
                 label={rangeLabel(picked.rows)}
-                saveLabel="Add comment"
+                saveLabel="Add Line comment"
                 onSave={async (body) => {
                   const first = picked.rows[0]
                   const last = picked.rows.at(-1)
@@ -282,7 +282,7 @@ export function DraftBar({
     }
   }
   return (
-    <section className={styles.bar} aria-label="Draft line comments">
+    <section className={styles.bar} aria-label="Draft Line comments">
       <span className={styles.count}>{draftCount(drafts)}</span>
       <Help>
         {mode === 'request'
@@ -337,7 +337,7 @@ export function UnsentChip({
         {drafts.length} unsent line {drafts.length === 1 ? 'comment' : 'comments'}
       </ActionButton>
       {open && (
-        <ul className={styles.chipList} aria-label="Unsent line comments">
+        <ul className={styles.chipList} aria-label="Unsent Line comments">
           {drafts.map((c) => (
             <li key={c.id}>
               <ActionButton type="button" className={styles.lineLink} onClick={() => onOpen(c)}>

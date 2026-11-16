@@ -265,7 +265,7 @@ export function taskCommands(task: Task): Command[] {
     choices: () =>
       priorities.map((priority) => ({
         id: priority,
-        label: priority === 'none' ? 'No priority' : priorityLabels[priority],
+        label: priority === 'none' ? 'No Priority' : priorityLabels[priority],
         checked: task.priority === priority,
         run: () => ted.setPriority(task.id, priority),
       })),

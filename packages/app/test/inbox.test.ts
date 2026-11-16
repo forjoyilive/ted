@@ -258,7 +258,7 @@ describe('Group by', () => {
       ['Urgent', ['urgent1', 'urgent2']],
       ['Medium', ['medium']],
       ['Low', ['low']],
-      ['No priority', ['none']],
+      ['No Priority', ['none']],
       ['Not from a Task', ['plan']],
     ])
   })

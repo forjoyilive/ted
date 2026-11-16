@@ -114,7 +114,7 @@ function CostChange({
       {previous === undefined ? (
         rangeLabels.all
       ) : shown === null ? (
-        `Nothing to compare · Previous: ${money(previous)}`
+        `Nothing to compare · previous: ${money(previous)}`
       ) : (
         <>
           <strong>{shown}</strong>
@@ -482,7 +482,7 @@ export function Cost({
     <section className={styles.flow} aria-labelledby={heading}>
       <header className={styles.flowHead}>
         <div>
-          <h2 id={heading}>{equivalent ? 'API-Equivalent Cost' : 'Cost'}</h2>
+          <h2 id={heading}>{equivalent ? 'API-equivalent cost' : 'Cost'}</h2>
           <p className={styles.lead}>
             {equivalent
               ? 'API-equivalent cost: what these Runs would have cost on an API key, whatever your billing. Runs still going aren’t counted yet.'

@@ -63,7 +63,7 @@ function Row({
 
 function holderRuns(holder: SlotHolder): string {
   if (holder.kind === 'automation') return 'Automation Run'
-  if (holder.kind === 'automation-draft') return 'Drafting an Automation Prompt'
+  if (holder.kind === 'automation-draft') return 'Drafting an Automation prompt'
   if (holder.kind === 'planning') return 'Planning Run'
   if (holder.kind === 'side-chat') return 'Side chat'
   if (holder.kind === 'coordinator') return 'Coordinator Run'
@@ -205,7 +205,7 @@ export function WorkingRunsPopover({
                     lead={ordinal(entry.place)}
                     place
                     title={entry.name}
-                    detail={`${name(entry.factoryId)} · ${entry.kind === 'planning' ? 'Planning Run' : entry.kind === 'side-chat' ? 'Side chat' : entry.kind === 'coordinator' ? 'Coordinator Run' : entry.kind === 'automation-draft' ? 'Drafting an Automation Prompt' : 'Automation Run'}`}
+                    detail={`${name(entry.factoryId)} · ${entry.kind === 'planning' ? 'Planning Run' : entry.kind === 'side-chat' ? 'Side chat' : entry.kind === 'coordinator' ? 'Coordinator Run' : entry.kind === 'automation-draft' ? 'Drafting an Automation prompt' : 'Automation Run'}`}
                   />
                 ) : (
                   <Row

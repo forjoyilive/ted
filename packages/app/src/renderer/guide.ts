@@ -47,7 +47,7 @@ export function guideCard(
   })
   if (!factory.cloned || task === undefined) {
     return factory.setup?.some((repo) => repo.state === 'failed')
-      ? card('TED couldn’t clone your repos. See the banner at the top.')
+      ? card('TED couldn’t clone your repos. See the Banner at the top.')
       : card('TED is cloning your repos.')
   }
   if (guide.setUp) {

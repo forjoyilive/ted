@@ -197,7 +197,7 @@ function Change({
         change?.absolute === null ? (
           'No duration sample to compare'
         ) : (
-          'Percentage unavailable · Previous is 0'
+          'Percentage unavailable · previous is 0'
         )
       ) : (
         <>
@@ -909,7 +909,7 @@ function Waiting({
               />
               <p className={styles.caption}>
                 Tasks waited on your answers
-                {previous && ` · Previous: ${hours(previous.totalMs)}`}
+                {previous && ` · previous: ${hours(previous.totalMs)}`}
               </p>
             </div>
             <div>

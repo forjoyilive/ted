@@ -86,7 +86,7 @@ test('quit choice, login and Stay Awake switches send machine settings', async (
   )
   for (const name of [
     'Start TED in the background when you log in',
-    'Stay Awake while Runs are working',
+    'Stay awake while Runs are working',
   ]) {
     const toggle = screen.getByRole('switch', { name })
     expect(toggle.getAttribute('aria-checked')).toBe('true')
@@ -175,7 +175,7 @@ test('Storage sets when chats and archived tasks are deleted and measures again 
   expect(within(days).getByRole('option', { name: '45 days' })).toBeTruthy()
 
   const archived = within(group).getByRole<HTMLSelectElement>('combobox', {
-    name: 'Delete archived tasks',
+    name: 'Delete archived Tasks',
   })
   expect(archived.value).toBe('0')
   expect(
@@ -193,9 +193,9 @@ test('Storage sets when chats and archived tasks are deleted and measures again 
     />,
   )
   await user().selectOptions(archived, '30')
-  const confirm = await screen.findByRole('dialog', { name: 'Delete 2 archived tasks now?' })
+  const confirm = await screen.findByRole('dialog', { name: 'Delete 2 archived Tasks now?' })
   expect(update.mock.calls).toHaveLength(1)
-  await user().click(within(confirm).getByRole('button', { name: 'Delete 2 tasks' }))
+  await user().click(within(confirm).getByRole('button', { name: 'Delete 2 Tasks' }))
   expect(update.mock.calls.at(-1)).toEqual([{ deleteArchivedAfterDays: 30 }])
   rerender(
     <StoragePage

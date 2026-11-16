@@ -109,7 +109,7 @@ function ArchivedTasksRow({ days }: { days: number | null }) {
       </SettingRow>
       {kept > 0 && (
         <p className={styles.archivedNote}>
-          {`Kept for now: ${plural(kept, 'archived task')}, because ${kept === 1 ? 'it has' : 'each has'} tasks under it, an open pull request or a task it still blocks.`}
+          {`Kept for now: ${plural(kept, 'archived Task')}, because ${kept === 1 ? 'it has' : 'each has'} Tasks under it, an open pull request or a Task it still blocks.`}
         </p>
       )}
       {error !== undefined && (
@@ -122,17 +122,17 @@ function ArchivedTasksRow({ days }: { days: number | null }) {
           {(headingId) => (
             <>
               <h2 id={headingId} className={dialogStyles.heading}>
-                {`Delete ${plural(confirm.due, 'archived task')} now?`}
+                {`Delete ${plural(confirm.due, 'archived Task')} now?`}
               </h2>
               <p className={dialogStyles.body}>
                 {confirm.due === 1
-                  ? `It was archived more than ${plural(confirm.days, 'day')} ago, so TED deletes it with its comments, brief and chats. This can’t be undone.`
-                  : `They were archived more than ${plural(confirm.days, 'day')} ago, so TED deletes them with their comments, briefs and chats. This can’t be undone.`}
+                  ? `It was archived more than ${plural(confirm.days, 'day')} ago, so TED deletes it with its Comments, Task brief and chats. This can’t be undone.`
+                  : `They were archived more than ${plural(confirm.days, 'day')} ago, so TED deletes them with their Comments, Task briefs and chats. This can’t be undone.`}
               </p>
               <div className={dialogStyles.buttons}>
                 <Button onClick={() => setConfirm(undefined)}>Cancel</Button>
                 <Button danger onClick={() => void save(confirm.days)}>
-                  {`Delete ${plural(confirm.due, 'task')}`}
+                  {`Delete ${plural(confirm.due, 'Task')}`}
                 </Button>
               </div>
             </>

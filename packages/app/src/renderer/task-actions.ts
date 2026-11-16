@@ -58,9 +58,9 @@ export function statusAction(task: Task): StatusAction | undefined {
 }
 
 function stopHelp(runs: number): string {
-  if (runs === 0) return 'Worktree and Apps stay.'
-  if (runs === 1) return 'Stops its Run. Worktree and Apps stay.'
-  return `Stops all ${runs} Runs. Worktree and Apps stay.`
+  if (runs === 0) return 'Its worktree and Apps stay.'
+  if (runs === 1) return 'Stops its Run. Its worktree and Apps stay.'
+  return `Stops all ${runs} Runs. Its worktree and Apps stay.`
 }
 
 export function shortcutAction(task: Task): StatusAction | undefined {

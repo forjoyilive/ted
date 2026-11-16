@@ -24,7 +24,7 @@ describe('the guide card follows the setup Task', () => {
     })
     const failed = factory({ cloned: false, setup: [{ repo: 'acme/widgets', state: 'failed' }] })
     expect(card(guided(false, failed), undefined, [])).toEqual({
-      text: 'TED couldn’t clone your repos. See the banner at the top.',
+      text: 'TED couldn’t clone your repos. See the Banner at the top.',
     })
   })
 

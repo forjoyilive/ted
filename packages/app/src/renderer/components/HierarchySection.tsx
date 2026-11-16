@@ -105,7 +105,7 @@ export function ParentField({
         (picking ? (
           <TaskPicker
             tasks={parentChoices(task, tasks)}
-            label="Find a parent Task"
+            label="Find a Parent Task"
             note="This Task and the Tasks under it are left out"
             error={error}
             menuAlign="end"

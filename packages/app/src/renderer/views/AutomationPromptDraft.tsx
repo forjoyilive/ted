@@ -144,7 +144,7 @@ export function AutomationPromptDraft({
         </Button>
         {applied && (
           <span className={styles.note} role="status">
-            Draft applied. Review the Prompt before saving.
+            Draft applied. Review the prompt before saving.
           </span>
         )}
       </div>
@@ -193,7 +193,7 @@ export function AutomationPromptDraft({
           {job?.state === 'ready' && (
             <div className={styles.draftResult}>
               <label className={styles.label} htmlFor={`${id}-suggestion`}>
-                Suggested Prompt
+                Suggested prompt
               </label>
               <textarea
                 id={`${id}-suggestion`}

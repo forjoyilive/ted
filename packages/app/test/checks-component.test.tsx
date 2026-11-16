@@ -80,7 +80,7 @@ test('Check output opens the failed output and tabs switch to another Check', as
 test('blocking findings keep their content in a labelled region', async () => {
   const { Findings } = await import('../src/renderer/components/EventLine.tsx')
   render(<Findings text="The Check “Tests” failed: SearchPanel hangs" />)
-  expect(screen.getByRole('region', { name: 'Blocking findings' }).textContent).toContain(
+  expect(screen.getByRole('region', { name: 'Blocking Findings' }).textContent).toContain(
     'The Check “Tests” failed: SearchPanel hangs',
   )
 })

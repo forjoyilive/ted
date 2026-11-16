@@ -17,7 +17,7 @@ const find = (query: string, options: Partial<Parameters<typeof findSettings>[1]
 test('a setting is found by its name, group, page and description, with its page', () => {
   expect(find('awake')[0]).toEqual({
     id: 'app.general.startup.stay-awake',
-    name: 'Stay Awake while Runs are working',
+    name: 'Stay awake while Runs are working',
     where: 'Settings › General',
     target: { kind: 'app', section: 'general' },
   })

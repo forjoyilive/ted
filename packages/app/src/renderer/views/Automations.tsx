@@ -889,7 +889,7 @@ export function AutomationView({
                 : [
                     automation.check.agentStep === 'always'
                       ? 'After every run'
-                      : 'When the check fails',
+                      : 'When the Check fails',
                     agentLabels[automation.agent],
                     automation.model,
                     automation.effort,

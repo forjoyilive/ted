@@ -70,7 +70,7 @@ test('saves only a complete selection and restores it through settings events', 
 test('while loading and without a key, shows only the connect line with the saved scope', async () => {
   const pending = deferred<{ state: string }>()
   setup(scope, { getLinear: () => pending.promise })
-  await screen.findByText('Loading Linear Teams and Projects…')
+  await screen.findByText('Loading Linear teams and projects…')
   expect(screen.queryByLabelText('Scope')).toBeNull()
   pending.resolve({ state: 'no-key' })
   await screen.findByText(

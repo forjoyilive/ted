@@ -418,7 +418,7 @@ export function Board({
       <div key="slot" className={styles.dropSlot}>
         {target.drop === 'start' ? (
           <>
-            <span className={styles.dropTitle}>Drop to Start</span>
+            <span className={styles.dropTitle}>Drop to start</span>
             <span>
               Joins the queue as Queued ·{' '}
               {ordinal(startPlace(target.placement, dragging.task, queue))}

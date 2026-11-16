@@ -179,8 +179,8 @@ test('History expands an earlier conversation inline and reports unavailable ret
   expect(view.queryByRole('button', { name: /^History/ })).toBeNull()
   const history = await openHistory()
   expect(screen.getByRole('menuitem', { name: 'History · 1' })).toBeTruthy()
-  expect(history.getByText('Earlier conversations')).toBeTruthy()
-  await user().click(history.getByRole('menuitem', { name: /Earlier conversation/ }))
+  expect(history.getByText('Earlier Conversations')).toBeTruthy()
+  await user().click(history.getByRole('menuitem', { name: /Earlier Conversation/ }))
   await view.findByText('Yesterday’s exchange.')
   expect(view.getByText('Current exchange.')).toBeTruthy()
   expect(view.getByText('Earlier output no longer kept')).toBeTruthy()
@@ -495,7 +495,7 @@ test('the combined Task Lead view preserves side-chat routing', async () => {
   expect(view.getByRole('tab', { name: 'Task Lead' }).getAttribute('aria-selected')).toBe('true')
   const panel = within(await screen.findByRole('region', { name: 'Side chat' }))
   await panel.findByText('A separate snapshot answer.')
-  fireEvent.change(panel.getByRole('textbox', { name: 'Question for this side chat' }), {
+  fireEvent.change(panel.getByRole('textbox', { name: 'Question for this Side chat' }), {
     target: { value: 'Why this approach?' },
   })
   await user().click(panel.getByRole('button', { name: 'Send' }))
@@ -506,7 +506,7 @@ test('the combined Task Lead view preserves side-chat routing', async () => {
     expect.anything(),
     expect.anything(),
   )
-  await user().click(panel.getByRole('button', { name: 'Close side chat' }))
+  await user().click(panel.getByRole('button', { name: 'Close Side chat' }))
   expect(view.getByRole('textbox', { name: 'Message the Task Lead' })).toBeTruthy()
 })
 
@@ -530,28 +530,28 @@ test('earlier conversations can be reopened repeatedly from History', async () =
   const view = within(await a.open())
   const openEarlier = async () => {
     await user().click(
-      (await openHistory()).getByRole('menuitem', { name: /Earlier conversation/ }),
+      (await openHistory()).getByRole('menuitem', { name: /Earlier Conversation/ }),
     )
     await view.findByText('Yesterday’s exchange.')
   }
   await openEarlier()
-  await user().click(view.getByText(/^Earlier conversation ·/))
+  await user().click(view.getByText(/^Earlier Conversation ·/))
   await openEarlier()
-  expect(required(view.getByText(/^Earlier conversation ·/).closest('details'))).toHaveProperty(
+  expect(required(view.getByText(/^Earlier Conversation ·/).closest('details'))).toHaveProperty(
     'open',
     true,
   )
-  const earlier = within(required(view.getByText(/^Earlier conversation ·/).closest('details')))
+  const earlier = within(required(view.getByText(/^Earlier Conversation ·/).closest('details')))
   expect(earlier.queryByRole('button', { name: /side chat/i })).toBeNull()
-  await user().click(view.getByText(/^Earlier conversation ·/))
-  expect(required(view.getByText(/^Earlier conversation ·/).closest('details'))).toHaveProperty(
+  await user().click(view.getByText(/^Earlier Conversation ·/))
+  expect(required(view.getByText(/^Earlier Conversation ·/).closest('details'))).toHaveProperty(
     'open',
     false,
   )
   await chooseSideChat()
   const panel = within(await earlier.findByRole('region', { name: 'Side chat' }))
   await panel.findByText('An earlier side-chat answer.')
-  fireEvent.change(panel.getByRole('textbox', { name: 'Question for this side chat' }), {
+  fireEvent.change(panel.getByRole('textbox', { name: 'Question for this Side chat' }), {
     target: { value: 'Explain the earlier decision.' },
   })
   await user().click(panel.getByRole('button', { name: 'Send' }))

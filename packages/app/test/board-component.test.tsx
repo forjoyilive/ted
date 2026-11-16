@@ -238,7 +238,7 @@ test('Board Priority filter narrows cards and the card’s Priority icon changes
   expect(document.querySelector('[data-task="NB-2"]')).toBeNull()
   expect(document.querySelector('[data-task="NB-1"]')).toBeTruthy()
   bridgeApi.handle('setPriority', () => undefined)
-  await u.click(screen.getByRole('button', { name: 'Priority: High. Change priority of NB-1' }))
+  await u.click(screen.getByRole('button', { name: 'Priority: High. Change Priority of NB-1' }))
   const menu = await screen.findByRole('menu', { name: 'Priority' })
   await u.click(within(menu).getByRole('menuitemradio', { name: /Low/ }))
   await vi.waitFor(() =>

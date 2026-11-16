@@ -224,7 +224,7 @@ test('Task Lead is the main chat and earlier conversations open inline', async (
   await u.click(screen.getByRole('menuitem', { name: 'History · 1' }))
   await u.click(
     within(screen.getByRole('menu', { name: /^History/ })).getByRole('menuitem', {
-      name: /Earlier conversation/,
+      name: /Earlier Conversation/,
     }),
   )
   await chat.findByText('Earlier work.')

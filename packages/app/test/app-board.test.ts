@@ -230,7 +230,7 @@ describe('Board', () => {
     await window.mouse.move(box.x + 100, box.y + 60, { steps: 5 })
     await window.mouse.move(box.x + 110, box.y + 70, { steps: 5 })
 
-    await intake.getByText('Drop to Start').waitFor()
+    await intake.getByText('Drop to start').waitFor()
     expect(await hint.count()).toBe(0)
     await intake.getByText('Joins the queue as Queued · 1st').waitFor()
     expect(await board.getByRole('region', { name: 'Work' }).getAttribute('data-drop')).toBe('no')
