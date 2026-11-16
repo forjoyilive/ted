@@ -335,6 +335,44 @@ test('Stage effort keeps null and rejects effort on a nonworking Stage', () => {
   )
 })
 
+test('a custom Stage takes the general settings and its Stage file, but no built-in-only setting', () => {
+  expect(
+    P.parseLibraryChanges({
+      stages: { 'security-audit': { gate: true, maxBack: 1, effort: 'high' } },
+      stageFiles: { 'security-audit': 'Audit it.' },
+      keepStageFiles: ['security-audit'],
+    }),
+  ).toEqual({
+    stages: { 'security-audit': { gate: true, maxBack: 1, effort: 'high' } },
+    stageFiles: { 'security-audit': 'Audit it.' },
+    keepStageFiles: ['security-audit'],
+  })
+  for (const field of [
+    'enabled',
+    'depth',
+    'p1OnlyFrom',
+    'subAgents',
+    'leadClosesFailures',
+    'commitTitles',
+  ]) {
+    expect(() =>
+      P.parseLibraryChanges({ stages: { 'security-audit': { [field]: false } } }),
+    ).toThrow(`security-audit.${field} can’t be set on a custom Stage`)
+  }
+  expect(() => P.parseLibraryChanges({ stages: { review: { depth: 'few' } } })).toThrow(
+    'review.depth must be one of',
+  )
+  expect(() => P.parseLibraryChanges({ stages: { 'Not A Stage': { gate: true } } })).toThrow(
+    'unknown Stage Not A Stage',
+  )
+  expect(() => P.parseLibraryChanges({ stageFiles: { '../x': 'text' } })).toThrow(
+    'unknown Stage ../x',
+  )
+  expect(() => P.parseLibraryChanges({ stageFiles: { done: 'text' } })).toThrow(
+    'unknown Stage done',
+  )
+})
+
 roundTrip(P.parseSetFactoryNotificationsRequest, { inboxItems: false, taskMerged: true })
 variant(P.parseSetFactoryNotificationsRequest, { taskMerged: false })
 rejects(P.parseSetFactoryNotificationsRequest, {}, 'give inboxItems or taskMerged')

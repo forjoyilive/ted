@@ -34,8 +34,8 @@
 }
 
 .workflowRow {
-  min-width: 896px;
-  grid-template-columns: 92px 72px 76px 60px 104px minmax(160px, 1fr) 68px minmax(0, 1fr);
+  min-width: 932px;
+  grid-template-columns: 128px 72px 76px 60px 104px minmax(160px, 1fr) 68px minmax(0, 1fr);
 }
 
 .checkRow {
@@ -138,8 +138,10 @@
 
 .stageName {
   display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 4px 6px;
+  min-width: 0;
   font-weight: var(--weight-medium);
 }
 
@@ -644,4 +646,17 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) 88px;
   gap: 8px;
+}
+
+.customTag {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--status-testing-bg);
+  color: var(--status-testing-fg);
+  font-size: var(--text-12);
+  font-weight: var(--weight-medium);
+}
+
+.rowWarning {
+  padding: 0 0 6px 12px;
 }

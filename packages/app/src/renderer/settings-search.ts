@@ -228,6 +228,11 @@ const entries = {
   },
 
   'app.library.workflow': { name: 'Workflow', heading: true },
+  'app.library.workflow.cleanup': {
+    name: 'Cleanup',
+    keywords: 'after merge stage',
+    help: 'Turns Cleanup on for every Factory that doesn’t say otherwise. A Factory runs it only once it has at least one step, set in that Factory’s settings under Cleanup.',
+  },
   'app.library.stage-files': { name: 'Stage files', heading: true },
 
   'app.storage.space': { name: 'Space used', heading: true },
@@ -369,6 +374,11 @@ const entries = {
     name: 'Workflow',
     help: 'The Stages a Task moves through, saved in .ted/workflow.yaml. Stage files hold each Stage’s instructions; Override copies one into .ted/stages/ for this Factory. Task Lead effort applies at Stage entry unless the Task has its own effort.',
     heading: true,
+  },
+  'factory.workflow.cleanup': {
+    name: 'Cleanup',
+    keywords: 'after merge stage steps',
+    help: 'The Stage between Merge and Done. Turn it on here; its steps are under Cleanup. It runs only once it has at least one step.',
   },
   'factory.workflow.p1-only': {
     name: 'Send back only for P1 Findings',

@@ -83,11 +83,12 @@ export function settingsView(): import('@ted/protocol').FactorySettingsView {
     problems: [],
     github: { ready: true },
     stages: [
-      { id: 'intake', inOrder: true, enabled: true, gate: false, from: 'ted' },
-      { id: 'design', inOrder: true, enabled: true, gate: true, from: 'ted' },
-      { id: 'work', inOrder: true, enabled: true, gate: false, from: 'ted' },
+      { id: 'intake', name: 'Intake', inOrder: true, enabled: true, gate: false, from: 'ted' },
+      { id: 'design', name: 'Design', inOrder: true, enabled: true, gate: true, from: 'ted' },
+      { id: 'work', name: 'Work', inOrder: true, enabled: true, gate: false, from: 'ted' },
       {
         id: 'review',
+        name: 'Review',
         inOrder: true,
         enabled: true,
         gate: true,

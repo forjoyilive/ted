@@ -503,6 +503,7 @@ test('Factory drift offers merge and inherited choices; Library drift offers def
   const view = render(
     <DriftNotice
       stage="review"
+      name="Review"
       drift={drift}
       label="Inherited"
       useLabel="Use inherited"
@@ -520,6 +521,7 @@ test('Factory drift offers merge and inherited choices; Library drift offers def
   view.rerender(
     <DriftNotice
       stage="review"
+      name="Review"
       drift={drift}
       label="Default"
       useLabel="Use default"
@@ -706,6 +708,7 @@ test('Library drift counts and the TED-default explanation lead to a saved Keep 
     stages: [
       {
         id: 'review',
+        name: 'Review',
         inOrder: true,
         enabled: true,
         gate: true,
@@ -1062,5 +1065,77 @@ test('Cleanup turns on, adds an instruction and a command step, reorders them an
   fireEvent.change(field, { target: { value: 'turn on cleanup' } })
   expect((pageList().getAllByRole('option')[0] as HTMLElement).textContent).toBe(
     'Turn on Cleanupwidgets › Settings › Cleanup',
+  )
+})
+
+test('the Workflow table shows a custom Stage by name and a Cleanup row that turns Cleanup on', async () => {
+  const view = settingsView()
+  view.stages.splice(3, 0, {
+    id: 'security-audit',
+    name: 'Security audit',
+    custom: true,
+    inOrder: true,
+    enabled: true,
+    gate: false,
+    maxBack: 3,
+    effort: null,
+    from: 'factory',
+    factoryFile: '# Audit\n',
+  })
+  view.stages.push({
+    id: 'cleanup',
+    name: 'Cleanup',
+    inOrder: true,
+    enabled: false,
+    gate: false,
+    from: 'ted',
+  })
+  const api = open({
+    factorySettings: () => view,
+    previewFactorySettings: () => ({
+      valid: true,
+      sideEffects: [],
+      turnsOnBypass: false,
+      problems: [],
+      files: [{ path: '.ted/workflow.yaml', before: '', after: 'stages: {}', lines: [] }],
+    }),
+    saveFactorySettings: () => ({
+      merged: true,
+      pullRequest: { number: 1, url: 'https://github.com/acme/widgets/pull/1' },
+    }),
+  })
+  const u = user()
+  await page('Workflow')
+  const region = within(await screen.findByRole('region', { name: 'Workflow' }))
+  expect(region.getByText('Security audit')).toBeTruthy()
+  expect(region.getByText('Custom')).toBeTruthy()
+  expect(region.getByText('In order')).toBeTruthy()
+  expect(region.queryByRole('switch', { name: 'Security audit on' })).toBeNull()
+  await u.click(region.getByRole('switch', { name: 'Security audit Sign-Off' }))
+
+  await u.click(region.getByRole('switch', { name: 'Cleanup on' }))
+  expect(
+    region.getByText('Cleanup is on but has no steps, so it won’t run. Add a step under Cleanup.'),
+  ).toBeTruthy()
+  expect(region.queryByRole('switch', { name: 'Cleanup Sign-Off' })).toBeNull()
+
+  await u.click(region.getByRole('button', { name: 'Add steps →' }))
+  const cleanup = within(await screen.findByRole('region', { name: 'Cleanup' }))
+  expect(
+    cleanup.getByRole('switch', { name: 'Turn on Cleanup' }).getAttribute('aria-checked'),
+  ).toBe('true')
+
+  await u.click(screen.getByRole('button', { name: 'Review and save…' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
+  await u.click(within(dialog).getByRole('button', { name: 'Save and merge' }))
+  expect(api.request).toHaveBeenCalledWith(
+    'saveFactorySettings',
+    'f1',
+    expect.objectContaining({
+      changes: expect.objectContaining({
+        stages: { 'security-audit': { gate: true } },
+        cleanup: { enabled: true, steps: [] },
+      }),
+    }),
   )
 })

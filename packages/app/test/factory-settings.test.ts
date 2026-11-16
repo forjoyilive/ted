@@ -89,10 +89,19 @@ const view: FactorySettingsView = {
   problems: [],
   github: { ready: true },
   stages: [
-    { id: 'backlog', inOrder: true, enabled: true, gate: false, from: 'ted' },
-    { id: 'design', inOrder: true, enabled: true, gate: true, maxBack: 3, from: 'ted' },
+    { id: 'backlog', name: 'Backlog', inOrder: true, enabled: true, gate: false, from: 'ted' },
+    {
+      id: 'design',
+      name: 'Design',
+      inOrder: true,
+      enabled: true,
+      gate: true,
+      maxBack: 3,
+      from: 'ted',
+    },
     {
       id: 'review',
+      name: 'Review',
       inOrder: true,
       enabled: true,
       gate: true,

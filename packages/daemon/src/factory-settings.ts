@@ -8,7 +8,6 @@ import {
   type AgentRowView,
   type AgentStageId,
   agentRoles,
-  agentStageIds,
   type CheckView,
   type ClarifyDepth,
   type CleanupSettingsInput,
@@ -29,18 +28,20 @@ import {
   type SettingsPreview,
   type SettingsSource,
   type StageDrift,
-  type StageId,
   type StageRowView,
   type Task,
   type WorkflowProblem,
 } from '@ted/protocol'
 import { fileChange } from '@ted/protocol/diff'
 import {
-  builtInStageOrder,
   handsOff,
   hasClarifyRounds,
+  isBuiltInStage,
   isCleanup,
   mergesHere,
+  settingsStageOrder,
+  stageEnabled,
+  stageFileId,
   validates,
 } from '@ted/protocol/stage'
 import type { CheckTries } from './check-tries.ts'
@@ -130,9 +131,16 @@ interface Base {
 }
 
 const knownFile = (file: string) =>
-  file === 'workflow.yaml' ||
-  file === 'notes.md' ||
-  agentStageIds.some((id) => file === `stages/${id}.md`)
+  file === 'workflow.yaml' || file === 'notes.md' || stageFileId(file) !== undefined
+
+function ignoredStageFiles(files: readonly string[], base: Base): string[] {
+  const { order } = resolveWorkflow([...base.inherited, base.own])
+  return files.filter((name) => {
+    if (!name.startsWith('stages/')) return false
+    const id = stageFileId(name)
+    return id === undefined || (!isBuiltInStage(id) && !order.includes(id))
+  })
+}
 
 export const settingsTitle = 'Update TED settings'
 const closeWaitMs = 2000
@@ -386,12 +394,12 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     const inherited = resolveWorkflow(base.inherited)
     const full = resolveWorkflow([...base.inherited, own])
     const drifts = findDrift(base.inherited, own)
-    const ids: StageId[] = builtInStageOrder.filter((id) => !isCleanup(id))
+    const ids = settingsStageOrder(full.order)
     const { overnightMode } = store.settings()
     return ids.map((id) => {
       const stage = full.settings.stages[id]
       const agent = id !== 'backlog' && id !== 'done' ? id : undefined
-      const inOrder = agent === undefined || full.order.includes(agent)
+      const inOrder = agent === undefined || isCleanup(id) || full.order.includes(agent)
       const drift = drifts.find((d) => d.stage === id)
       const file = agent ? full.stageFile(agent) : undefined
       const from = agent ? inherited.stageFile(agent) : undefined
@@ -399,8 +407,10 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
       const basedOn = own.settings.stages[id]?.based_on
       return {
         id,
+        name: full.name(id),
+        ...(!isBuiltInStage(id) && { custom: true as const }),
         inOrder,
-        enabled: inOrder && (id === 'backlog' || id === 'done' || stage?.enabled !== false),
+        enabled: stageEnabled(id, inOrder, stage?.enabled),
         gate: stage?.gate === true,
         ...(agent && {
           effort: (own.settings.stages[id]?.effort ?? null) as Effort | null,
@@ -633,9 +643,9 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         problems: base.problems,
         github: await github(),
         stages: stageRows(base),
-        ignoredStageFiles: Object.keys(base.current)
-          .filter((name) => name.startsWith('stages/') && !knownFile(name))
-          .map((name) => `.ted/${name}`),
+        ignoredStageFiles: ignoredStageFiles(Object.keys(base.current), base).map(
+          (name) => `.ted/${name}`,
+        ),
         checks,
         cleanup,
         tries: await options.checkTries.list(factory.id),
