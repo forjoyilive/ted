@@ -412,15 +412,23 @@ test.each([
         .filter((c) => c.author.kind === 'ted')
         .map((c) => c.body)
     if (conflict) {
-      const handedOff = await waitUntil(async () => {
-        const body = (await notes()).find((b) => b.includes('TED asked the Task Lead to merge'))
-        return body
-      }, 'conflict handed to the Task Lead')
+      const handedOff = await waitUntil(
+        async () => {
+          const body = (await notes()).find((b) => b.includes('TED asked the Task Lead to merge'))
+          return body
+        },
+        'conflict handed to the Task Lead',
+        validateWaitMs,
+      )
       expect(handedOff).toContain('`timezone.txt`')
-      const lead = await waitUntil(async () => {
-        const t = await getTask(s.client, s.current.id)
-        return t.leadRunId !== s.current.leadRunId ? t.leadRunId : undefined
-      }, 'a Task Lead that receives the conflict')
+      const lead = await waitUntil(
+        async () => {
+          const t = await getTask(s.client, s.current.id)
+          return t.leadRunId !== s.current.leadRunId ? t.leadRunId : undefined
+        },
+        'a Task Lead that receives the conflict',
+        validateWaitMs,
+      )
       const { run: started } = await s.client.ok<{ run: { prompt?: string } }>(
         'GET',
         `/runs/${lead}`,
@@ -430,10 +438,14 @@ test.each([
     }
     if (method === 'unresolved-conflict') {
       const stopped = async (after: number) =>
-        waitUntil(async () => {
-          const t = await getTask(s.client, s.current.id)
-          return t.status?.kind === 'stopped' && t.runs.length > after ? t : undefined
-        }, 'conflict left to the user')
+        waitUntil(
+          async () => {
+            const t = await getTask(s.client, s.current.id)
+            return t.status?.kind === 'stopped' && t.runs.length > after ? t : undefined
+          },
+          'conflict left to the user',
+          validateWaitMs,
+        )
       const first = await stopped(s.current.runs.length)
       expect(first.stage).toBe('validate')
       expect(await s.client.ok('GET', `${s.root}/check-runs`)).toHaveLength(previousChecks.length)
@@ -504,10 +516,14 @@ test.each([
       })
       expect(verified.status, JSON.stringify(verified.body)).toBe(200)
     }
-    await waitUntil(async () => {
-      const failures = await s.client.ok<FailureCase[]>('GET', `${s.root}/failures`)
-      return failures[0]?.verifications?.length ? failures : undefined
-    }, 'fresh Check verifying the repair')
+    await waitUntil(
+      async () => {
+        const failures = await s.client.ok<FailureCase[]>('GET', `${s.root}/failures`)
+        return failures[0]?.verifications?.length ? failures : undefined
+      },
+      'fresh Check verifying the repair',
+      validateWaitMs,
+    )
     expect(
       await readFile(path.join(required(s.current.repos[0]).worktree, 'timezone.txt'), 'utf8'),
     ).toBe('restored\n')

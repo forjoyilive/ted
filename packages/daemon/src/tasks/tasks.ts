@@ -9910,7 +9910,13 @@ export function createTasks(options: {
       if (since === undefined || task?.leadRunId !== run.id || (at !== undefined && at < since))
         return
       repairHandOffs.delete(task.id)
-      scheduleRepairChecks(task.id, 'after-hand-off')
+      inBackground(
+        `bring the repair into ${task.displayId} after its Task Lead’s turn`,
+        async () => {
+          while (inFlight.is(task.id, 'checking')) await untilChecksIdle(task.id)
+          scheduleRepairChecks(task.id, 'after-hand-off')
+        },
+      )
     },
   })
 
@@ -10779,6 +10785,14 @@ export function createTasks(options: {
     }
     await store.persisted()
     return incorporated
+  }
+
+  function refuseDuringRepairHandOff(task: StoredTask): void {
+    if (repairHandOffs.has(task.id))
+      throw new RequestError(
+        409,
+        `TED is waiting for you to merge the base branch into ${task.displayId}’s branch and commit. End your turn when the merge is committed; TED then brings the repair in and runs the Checks itself.`,
+      )
   }
 
   async function stopRepairLead(taskId: string) {
@@ -11942,6 +11956,7 @@ export function createTasks(options: {
             `${task.displayId} changed Stage while this outcome waited; read the Task again before reporting`,
           )
         }
+        refuseDuringRepairHandOff(task)
         if (task.stage === 'backlog' || task.stage === 'done') {
           throw new RequestError(409, `${task.displayId} isn’t in a Stage that has an outcome`)
         }
@@ -12549,6 +12564,7 @@ export function createTasks(options: {
 
     async runChecks(ref, caller, only) {
       const { task } = taskLead(ref, caller, 'runs Checks')
+      refuseDuringRepairHandOff(task)
       if (inFlight.is(task.id, 'transition'))
         throw new RequestError(
           409,
