@@ -27,7 +27,7 @@ export interface DashboardTaskFacts extends FlowFacts {
   archived: boolean
   setup: boolean
   stage: string
-  entries: readonly { stage: string; at: string; sequence?: number }[]
+  entries: readonly { stage: string; at: string; sequence?: number; name?: string }[]
   merges?: readonly string[]
   status?: TaskStatusKind
 }

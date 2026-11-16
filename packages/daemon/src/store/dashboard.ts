@@ -190,7 +190,7 @@ export function readDashboard(
   const facts = new Map<
     string,
     DashboardTaskFacts & {
-      entries: { stage: string; at: string; sequence: number }[]
+      entries: { stage: string; at: string; sequence: number; name?: string }[]
       merges: string[]
       transitions: { stage: string; at: string; sequence: number }[]
       archives: string[]
@@ -233,7 +233,13 @@ export function readDashboard(
       if (!task) continue
       const data = JSON.parse(row.data) as Record<string, unknown>
       if (row.name.endsWith('TaskStageEntered')) {
-        task.entries.push({ stage: String(data.stage), at: row.at, sequence: sequence(row.id) })
+        const name = recordedName(data)
+        task.entries.push({
+          stage: String(data.stage),
+          at: row.at,
+          sequence: sequence(row.id),
+          ...(name !== undefined && { name }),
+        })
       } else if (row.name === 'v1.TaskQueued') {
         if (isEntryStage(String(data.stage)))
           task.transitions.push({
@@ -311,4 +317,15 @@ export function readDashboard(
     asOf,
     readCostInput(store, factoryIds, asOf),
   )
+}
+
+function recordedName(data: Record<string, unknown>): string | undefined {
+  if (typeof data.names !== 'string') return undefined
+  try {
+    const names = JSON.parse(data.names) as Record<string, unknown>
+    const name = Object.hasOwn(names, String(data.stage)) ? names[String(data.stage)] : undefined
+    return typeof name === 'string' ? name : undefined
+  } catch {
+    return undefined
+  }
 }

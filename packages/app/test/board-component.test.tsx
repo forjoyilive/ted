@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import type { ListFilters, TaskMarker } from '@ted/protocol'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { render as draw, fireEvent, screen, within } from '@testing-library/react'
+import type { ReactElement, ReactNode } from 'react'
 import { expect, test, vi } from 'vitest'
 import {
   type TaskFacts,
@@ -9,11 +10,17 @@ import {
   taskStatus,
 } from '../../daemon/src/tasks/status.ts'
 import { Help } from '../src/renderer/components/Help.tsx'
+import { StagesProvider } from '../src/renderer/stages.tsx'
 import { Board } from '../src/renderer/views/Board.tsx'
 import { idColumnWidth, listGrid, TaskList } from '../src/renderer/views/TaskList.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, required, user } from './support/component.ts'
 import { factory, task } from './support/fixtures.ts'
+
+const Stages = ({ children }: { children: ReactNode }) => (
+  <StagesProvider factoryIds={['f1', 'f2']}>{children}</StagesProvider>
+)
+const render = (ui: ReactElement) => draw(ui, { wrapper: Stages })
 
 function props() {
   return {

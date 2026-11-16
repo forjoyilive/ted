@@ -1,5 +1,6 @@
 import type { AgentStageId, TrackStage } from '@ted/protocol'
 import { useState } from 'react'
+import { useStages } from '../stages.tsx'
 import { Tooltip } from './Help.tsx'
 import styles from './StageTrack.module.css'
 
@@ -10,24 +11,25 @@ const stateLabels: Record<TrackStage['state'], string> = {
   future: 'not yet',
 }
 
-const stageName = (stage: string) => stage.charAt(0).toUpperCase() + stage.slice(1)
-
 export function StageTrack({
   track,
+  factoryId,
   selected,
   onSelect,
 }: {
   track: readonly TrackStage[]
+  factoryId?: string
   selected: AgentStageId | undefined
   onSelect: (stage: AgentStageId | undefined) => void
 }) {
   const [hovered, setHovered] = useState<AgentStageId>()
+  const stages = useStages()
 
   return (
     <ol className={styles.track} aria-label="Stage track">
-      {track.map(({ stage, state }) => {
+      {track.map(({ stage, name: recorded, state }) => {
         const clickable = state === 'past' || state === 'current'
-        const name = stageName(stage)
+        const name = recorded ?? stages.name(stage, factoryId)
         return (
           <li key={stage} className={styles.item}>
             <button

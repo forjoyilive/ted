@@ -59,8 +59,6 @@ import {
   selectionRange,
   shownColumns,
   sortLabels,
-  stageName,
-  stageOrder,
   statusFilterLabels,
   statusFilterOrder,
   summaryLine,
@@ -72,6 +70,7 @@ import {
 import { age, useNow } from '../requests.ts'
 import { selectionTarget, useSelection } from '../selection.ts'
 import { startTask } from '../setup-notice.ts'
+import { useStages } from '../stages.tsx'
 import { activeSubAgentCount } from '../sub-agents.ts'
 import { priorityLabels } from '../task-fields.ts'
 import { ted } from '../ted.ts'
@@ -147,7 +146,7 @@ function shortDate(iso: string): string {
   return formatDate(iso, { day: 'numeric', month: 'short' })
 }
 
-function ending(task: Task): string {
+function ending(task: Task, stageName: (stage: string) => string): string {
   const ended = task.archived?.ended
   if (!ended) return ''
   if (ended.kind === 'never-started') return 'Never started'
@@ -305,6 +304,7 @@ export function FilterMenu({
   board?: boolean
   onChange: (filters: ListFilters) => void
 }) {
+  const stages = useStages().within(factories.map((f) => f.id))
   const count = (keep: (filters: ListFilters) => ListFilters) =>
     filterTasks(tasks, keep(filters), '', layout).length
   const set = <K extends keyof ListFilters>(name: K, value: ListFilters[K]) => {
@@ -339,15 +339,20 @@ export function FilterMenu({
       )}
       {!board && (
         <Submenu label="Stage">
-          {stageOrder.map((stage) => (
-            <CheckItem
-              key={stage}
-              label={stageName(stage)}
-              checked={filters.stages?.includes(stage) ?? false}
-              count={count((c) => ({ ...c, stages: [stage] }))}
-              onChange={() => set('stages', toggled(filters.stages, stage))}
-            />
-          ))}
+          {stages.merged
+            .filter(
+              (s) =>
+                !s.removed || tasks.some((t) => t.stage === s.id) || filters.stages?.includes(s.id),
+            )
+            .map(({ id: stage }) => (
+              <CheckItem
+                key={stage}
+                label={stages.name(stage)}
+                checked={filters.stages?.includes(stage) ?? false}
+                count={count((c) => ({ ...c, stages: [stage] }))}
+                onChange={() => set('stages', toggled(filters.stages, stage))}
+              />
+            ))}
         </Submenu>
       )}
       <Submenu label="Status">
@@ -570,12 +575,15 @@ export function TaskList({
 
   const inScope = allTasks ? tasks : tasks.filter((t) => t.factoryId === scope)
   const shown = filterTasks(inScope, view.filters, text, layout)
+  const scopedFactories = allTasks ? factories : factories.filter((f) => f.id === scope)
+  const stages = useStages().within(scopedFactories.map((f) => f.id))
   const groups = groupTasks(
     shown,
     view,
-    allTasks ? factories : factories.filter((f) => f.id === scope),
+    scopedFactories,
     dragging ? dropTargets(view.group) : [],
     layout,
+    stages,
   )
   const queueMode = isQueueMode(view)
   const columns = shownColumns(view)
@@ -592,7 +600,7 @@ export function TaskList({
     isCollapsed(g) ? [] : rowsOf(g).flatMap((r) => (r.context ? [] : [r.task])),
   )
   const grid = listGrid([...(queueMode ? (['queue'] as const) : []), ...columns], tasks)
-  const chips = filterChips(view.filters, factories, layout)
+  const chips = filterChips(view.filters, factories, layout, stages)
   const displayIds = new Map(tasks.map((t) => [t.id, t.displayId]))
   const { selected, setSelected, anchor, setAnchor, toggle } = useSelection(ordered, scope)
   const chosen = tasks.filter((t) => selected.includes(t.id))
@@ -724,9 +732,14 @@ export function TaskList({
       case 'factory':
         return factories.find((f) => f.id === task.factoryId)?.name ?? 'No Factory'
       case 'stage':
-        return stageName(task.stage)
+        return stages.name(task.stage, task.factoryId)
       case 'status':
-        if (task.archived) return <span className={styles.meta}>{ending(task)}</span>
+        if (task.archived)
+          return (
+            <span className={styles.meta}>
+              {ending(task, (stage) => stages.name(stage, task.factoryId))}
+            </span>
+          )
         if (!task.status && task.markers.length === 0 && activeSubAgentCount(task.runs) === 0) {
           return <span className={styles.none}>—</span>
         }
@@ -1114,6 +1127,9 @@ export function TaskList({
                           <ChevronIcon open={!closed} />
                           <span className={styles.groupLabel}>{group.label}</span>
                           <span className={styles.groupCount}>{group.tasks.length}</span>
+                          {group.removed && (
+                            <span className={styles.removedTag}>Not in Workflow</span>
+                          )}
                         </ActionButton>
                       </th>
                     </tr>

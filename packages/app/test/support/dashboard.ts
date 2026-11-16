@@ -68,6 +68,7 @@ export function dashboardFixture(empty = false): DashboardReport {
   }
   return {
     flow: {
+      stageNames: {},
       tasks: empty
         ? []
         : [

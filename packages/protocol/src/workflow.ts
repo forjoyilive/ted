@@ -29,6 +29,7 @@ export interface BoardStage {
   id: StageId
   name?: string
   custom?: true
+  removed?: true
   enabled: boolean
   gate: boolean
   overnight?: true

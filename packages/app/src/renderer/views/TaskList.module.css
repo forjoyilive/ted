@@ -515,6 +515,16 @@
   font-variant-numeric: tabular-nums;
 }
 
+.removedTag {
+  padding: 0 7px;
+  border: 1px solid var(--border-control);
+  border-radius: var(--radius-pill);
+  color: var(--text-caption);
+  font-size: var(--text-11);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-17);
+}
+
 .dropLine {
   position: relative;
   display: block;

@@ -129,6 +129,7 @@ import {
 } from './setup-notice.ts'
 import { keySequences } from './shortcuts.ts'
 import { factoryCapLine, runsLine } from './slots.ts'
+import { StagesProvider } from './stages.tsx'
 import { ted } from './ted.ts'
 import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
 import { AutomationDialog, type TemplateChoice } from './views/AutomationDialog.tsx'
@@ -1284,14 +1285,16 @@ export function App({ start }: { start?: AppStart | undefined }) {
     <div className={styles.window} data-loaded={factoriesLoaded}>
       {connection.state === 'reconnecting' && <ReconnectingBar />}
       <ProfileProvider settings={settings}>
-        <OvernightContext value={overnight}>
-          <ArmedContext value={armed}>
-            <SnoozedContext value={snoozed}>
-              <SidebarLayout className={styles.app}>{content}</SidebarLayout>
-              <RequestSnoozeHost />
-            </SnoozedContext>
-          </ArmedContext>
-        </OvernightContext>
+        <StagesProvider factoryIds={factories.map((f) => f.id)}>
+          <OvernightContext value={overnight}>
+            <ArmedContext value={armed}>
+              <SnoozedContext value={snoozed}>
+                <SidebarLayout className={styles.app}>{content}</SidebarLayout>
+                <RequestSnoozeHost />
+              </SnoozedContext>
+            </ArmedContext>
+          </OvernightContext>
+        </StagesProvider>
       </ProfileProvider>
     </div>
   )

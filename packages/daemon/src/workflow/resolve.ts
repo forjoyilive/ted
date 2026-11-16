@@ -6,6 +6,7 @@ import type {
   StageId,
 } from '@ted/protocol'
 import {
+  compareStages,
   isBuiltInStage,
   isCleanup,
   isEntryStage,
@@ -286,7 +287,9 @@ export function setupWorkflow(
 
 export function boardStages(workflow: ResolvedWorkflow, overnightMode = false): BoardStage[] {
   const { stages } = workflow.settings
-  return (['backlog', ...workflow.order, 'done'] as StageId[]).map((id) => {
+  const cleanup = stageWith('cleanup')
+  const listed = workflow.order.includes(cleanup) ? workflow.order : [...workflow.order, cleanup]
+  return (['backlog', ...listed, 'done'] as StageId[]).map((id) => {
     const gate = id !== 'backlog' && id !== 'done' && stages[id]?.gate === true
     return {
       id,
@@ -297,4 +300,34 @@ export function boardStages(workflow: ResolvedWorkflow, overnightMode = false): 
       ...(!isBuiltInStage(id) && { custom: true as const }),
     }
   })
+}
+
+export interface StageInUse {
+  stage: StageId
+  recorded: readonly { stage: string; name?: string }[] | undefined
+}
+
+export function withStagesInUse(
+  stages: readonly BoardStage[],
+  inUse: readonly StageInUse[],
+): BoardStage[] {
+  const list = [...stages]
+  for (const { stage, recorded } of inUse) {
+    if (list.some((s) => s.id === stage)) continue
+    const order = recorded?.map((r) => r.stage) ?? list.map((s) => s.id)
+    const at = list.findIndex((s) => compareStages(s.id, stage, order) > 0)
+    const name = recorded?.find((r) => r.stage === stage)?.name
+    const entry: BoardStage = isBuiltInStage(stage)
+      ? { id: stage, name: stageDisplayName(stage), enabled: false, gate: false }
+      : {
+          id: stage,
+          name: name ?? stageDisplayName(stage),
+          custom: true,
+          removed: true,
+          enabled: false,
+          gate: false,
+        }
+    list.splice(at === -1 ? list.length : at, 0, entry)
+  }
+  return list
 }

@@ -1,12 +1,14 @@
 import type { BoardStage, BoardView, QueuedForSlot, StageId, Task } from '@ted/protocol'
 import { defaultBoardView } from '@ted/protocol/board-view'
-import { compareStages } from '@ted/protocol/stage'
+import { compareStages, isCleanup, stageDisplayName } from '@ted/protocol/stage'
 import { priorities } from '@ted/protocol/task'
-import { createdByLabels, manualOrder, stageOrder } from './list-view.ts'
+import { createdByLabels, manualOrder } from './list-view.ts'
 import { ago } from './requests.ts'
 
 export interface BoardColumn {
   stage: StageId
+  name: string
+  removed?: boolean
   gate: boolean
   turnedOff: boolean
   tasks: Task[]
@@ -18,12 +20,6 @@ export const doneDays = 7
 const dayMs = 24 * 60 * 60 * 1000
 
 const doneAt = (task: Task) => task.merged?.at ?? task.updatedAt
-
-export const builtInStages: readonly BoardStage[] = stageOrder.map((id) => ({
-  id,
-  enabled: true,
-  gate: false,
-}))
 
 export type BoardDrop = 'reorder' | 'start' | 'unstart'
 
@@ -65,22 +61,30 @@ export function boardColumns(
     const at = listed.findIndex((s) => compareStages(s.id, id, order) > 0)
     listed.splice(at === -1 ? listed.length : at, 0, { id, enabled: false, gate: false })
   }
-  return listed.flatMap(({ id, enabled, gate }): BoardColumn[] => {
+  return listed.flatMap(({ id, name, removed, enabled, gate }): BoardColumn[] => {
+    const shared = {
+      stage: id,
+      name: name ?? stageDisplayName(id),
+      ...(removed && { removed: true }),
+      gate,
+      turnedOff: !enabled,
+    }
     if (id === 'done') {
       const done = live.filter((t) => t.stage === 'done')
       const recent = done
         .filter((t) => now - Date.parse(doneAt(t)) <= doneDays * dayMs)
         .sort((a, b) => doneAt(b).localeCompare(doneAt(a)))
-      return [{ stage: id, gate, turnedOff: !enabled, tasks: recent, allDone: done.length }]
+      return [{ ...shared, tasks: recent, allDone: done.length }]
     }
     const inStage = live.filter((t) => t.stage === id).sort(columnOrder(id, start))
-    if (!enabled && inStage.length === 0) return []
-    return [{ stage: id, gate, turnedOff: !enabled, tasks: inStage }]
+    if (!enabled && inStage.length === 0 && !isCleanup(id)) return []
+    return [{ ...shared, tasks: inStage }]
   })
 }
 
 export interface HiddenColumn {
   stage: StageId
+  name: string
   count: number
   needsYou: number
 }
@@ -95,6 +99,14 @@ export function boardViewFor(
   factoryId: string,
 ): BoardView {
   return views?.[factoryId] ?? defaultBoardView
+}
+
+export function withoutGoneStages(
+  view: BoardView,
+  stages: readonly BoardStage[],
+): BoardView | undefined {
+  const kept = view.hiddenStages.filter((id) => stages.some((s) => s.id === id))
+  return kept.length === view.hiddenStages.length ? undefined : { ...view, hiddenStages: kept }
 }
 
 const needsYou = (task: Task) =>
@@ -114,6 +126,7 @@ export function boardLayout(
     ),
     hidden: hidden.map((c) => ({
       stage: c.stage,
+      name: c.name,
       count: c.tasks.length,
       needsYou: c.tasks.filter(needsYou).length,
     })),

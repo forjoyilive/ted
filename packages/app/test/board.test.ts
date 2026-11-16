@@ -14,6 +14,7 @@ import {
   startPlace,
   startStage,
   withoutBlockers,
+  withoutGoneStages,
 } from '../src/renderer/board.ts'
 
 let made = 0
@@ -86,6 +87,76 @@ describe('Board columns', () => {
     const design = columns.find((c) => c.stage === 'design')
     expect(design).toMatchObject({ turnedOff: true, gate: true })
     expect(columns.map((c) => c.stage)).toEqual(['backlog', 'intake', 'design', 'work', 'done'])
+  })
+
+  test('Cleanup always has a column after Merge; off, it stays empty and Hide empty columns hides it', () => {
+    const stages: BoardStage[] = [
+      on('backlog'),
+      on('work'),
+      on('merge'),
+      off('cleanup'),
+      on('done'),
+    ]
+    const columns = boardColumns(stages, [])
+    expect(columns.map((c) => [c.stage, c.name, c.turnedOff])).toEqual([
+      ['backlog', 'Backlog', false],
+      ['work', 'Work', false],
+      ['merge', 'Merge', false],
+      ['cleanup', 'Cleanup', true],
+      ['done', 'Done', false],
+    ])
+    const hidden = boardLayout(columns, { ...defaultBoardView, hideEmpty: true })
+    expect(hidden.columns.map((c) => c.stage)).not.toContain('cleanup')
+    expect(
+      boardDrop(
+        task({ displayId: 'NB-2', stage: 'merge' }),
+        'merge',
+        'cleanup',
+        startStage(stages),
+      ),
+    ).toBe(undefined)
+
+    const withCleanup = boardColumns(
+      [on('backlog'), on('merge'), on('cleanup'), on('done')],
+      [task({ displayId: 'NB-1', stage: 'cleanup' })],
+    )
+    expect(withCleanup.find((c) => c.stage === 'cleanup')).toMatchObject({
+      turnedOff: false,
+      tasks: [{ displayId: 'NB-1' }],
+    })
+  })
+
+  test('a custom Stage has its own name; once removed it is marked and goes when empty', () => {
+    const custom: BoardStage = {
+      id: 'security',
+      name: 'Security review',
+      custom: true,
+      enabled: true,
+      gate: false,
+    }
+    const listed = [on('backlog'), on('validate'), custom, on('review'), on('done')]
+    expect(boardColumns(listed, []).map((c) => c.name)).toEqual([
+      'Backlog',
+      'Validate',
+      'Security review',
+      'Review',
+      'Done',
+    ])
+
+    const removed: BoardStage = { ...custom, removed: true, enabled: false }
+    const gone = [on('backlog'), on('validate'), removed, on('review'), on('done')]
+    expect(
+      boardColumns(gone, [task({ displayId: 'NB-1', stage: 'security' })]).find(
+        (c) => c.stage === 'security',
+      ),
+    ).toMatchObject({ name: 'Security review', removed: true, turnedOff: true })
+    expect(boardColumns(gone, []).map((c) => c.stage)).not.toContain('security')
+
+    const view = { ...defaultBoardView, hiddenStages: ['security', 'review'] }
+    expect(withoutGoneStages(view, listed)).toBeUndefined()
+    expect(
+      withoutGoneStages(view, [on('backlog'), on('review'), on('done')])?.hiddenStages,
+    ).toEqual(['review'])
   })
 
   test('a Stage the Workflow no longer lists keeps a turned-off column in its built-in place', () => {
@@ -378,9 +449,9 @@ describe('the Board’s Display choices', () => {
     const layout = boardLayout(columns, view({ hiddenStages: ['done', 'design', 'backlog'] }))
     expect(layout.columns.map((c) => c.stage)).toEqual(['intake', 'work'])
     expect(layout.hidden).toEqual([
-      { stage: 'backlog', count: 1, needsYou: 0 },
-      { stage: 'design', count: 3, needsYou: 2 },
-      { stage: 'done', count: 0, needsYou: 0 },
+      { stage: 'backlog', name: 'Backlog', count: 1, needsYou: 0 },
+      { stage: 'design', name: 'Design', count: 3, needsYou: 2 },
+      { stage: 'done', name: 'Done', count: 0, needsYou: 0 },
     ])
   })
 
