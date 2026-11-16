@@ -10,7 +10,7 @@ import {
   discardPlan,
   draftNotes,
   isNewer,
-  majorSection,
+  majorEmpty,
   notaryCredentials,
   notesPrompt,
   type PublishFacts,
@@ -202,7 +202,6 @@ describe('publishing a release', () => {
     expect(refused({ remoteTag: 'other' })).toMatch(/already on GitHub at another commit/)
     expect(refused({ visibility: 'PRIVATE' })).toMatch(/is private/)
     expect(refused({ notes: 'missing' })).toMatch(/no release notes/)
-    expect(refused({ notes: 'empty-major' })).toMatch(/Major section .*, or delete it/)
   })
 })
 
@@ -269,7 +268,7 @@ describe('release notes', () => {
     ).toBe('other')
   })
 
-  test('drafts an empty Major section, the groups and a changelog link', () => {
+  test('drafts the groups and a changelog link, with no Major section', () => {
     const notes = draftNotes(
       [
         change('Show Factory groups', ['packages/app/src/a.ts'], { pullRequest: 431 }),
@@ -278,22 +277,17 @@ describe('release notes', () => {
       '1.2.0',
       'v1.1.0',
     )
-    expect(notes).toContain('## Major')
+    expect(notes).not.toContain('## Major')
     expect(notes).toContain('## Features\n\n- Show Factory groups (#431)\n')
     expect(notes).toContain('## Fixes\n\n- Fix the Inbox count\n')
     expect(notes).not.toContain('## Other')
     expect(notes).toContain('compare/v1.1.0...v1.2.0')
-    expect(majorSection(notes)).toBe('empty')
   })
 
-  test('the Major section is empty until it has text outside comments, and may be left out', () => {
-    const draft = draftNotes([], '1.2.0', undefined)
-    expect(majorSection(draft)).toBe('empty')
-    expect(majorSection(draft.replace('## Major\n', '## Major\n\nFactory groups.\n'))).toBe(
-      'written',
-    )
-    expect(majorSection('## Features\n\n- a\n')).toBe('none')
-    expect(majorSection('## Major\n\nOnly this.')).toBe('written')
+  test('a Major section is empty until it has text outside comments', () => {
+    expect(majorEmpty('## Major\n\n<!-- x -->\n\n## Fixes\n\n- a\n')).toBe(true)
+    expect(majorEmpty('## Major\n\nOnly this.')).toBe(false)
+    expect(majorEmpty('## Features\n\n- a\n')).toBe(false)
   })
 })
 

@@ -213,7 +213,7 @@ function remoteTagCommit(tag: string): string | undefined {
 
 export interface PublishFacts {
   record: ReleaseRecord | undefined
-  notes: 'missing' | 'empty-major' | 'ready'
+  notes: 'missing' | 'ready'
   head: string
   localTag: string | undefined
   remoteTag: string | undefined
@@ -242,9 +242,6 @@ export function publishRefusal(facts: PublishFacts): string | undefined {
   }
   if (facts.notes === 'missing') {
     return `there are no release notes at ${notesFile}; run pnpm release discard, then build again`
-  }
-  if (facts.notes === 'empty-major') {
-    return `write the Major section of the release notes in ${notesFile}, or delete it, first`
   }
   if (facts.visibility !== 'PUBLIC') {
     return `${repo} is private, so the updater and other people can’t read its releases; make it public first`
@@ -285,11 +282,7 @@ function publish(): void {
   ).trim()
   const facts: PublishFacts = {
     record,
-    notes: !existsSync(notesFile)
-      ? 'missing'
-      : majorSection(readFileSync(notesFile, 'utf8')) === 'empty'
-        ? 'empty-major'
-        : 'ready',
+    notes: existsSync(notesFile) ? 'ready' : 'missing',
     head: git('rev-parse', 'HEAD'),
     localTag: record === undefined ? undefined : gitMaybe('rev-parse', `${tag}^{commit}`),
     remoteTag: record === undefined ? undefined : remoteTagCommit(tag),
@@ -362,9 +355,6 @@ export function changeKind(change: Change): ChangeKind {
   return 'feature'
 }
 
-const majorHint =
-  '<!-- The changes people will notice most, in a sentence or two each, or delete this section when none stand out. Don’t repeat a change listed here in the sections below. pnpm release publish refuses while this section is here and empty. -->'
-
 export function draftNotes(
   changes: Change[],
   version: string,
@@ -377,10 +367,6 @@ export function draftNotes(
     return lines.length === 0 ? [] : [`## ${heading}`, '', ...lines, '']
   }
   return [
-    '## Major',
-    '',
-    majorHint,
-    '',
     ...section('Features', 'feature'),
     ...section('Fixes', 'fix'),
     ...section('Other', 'other'),
@@ -390,10 +376,9 @@ export function draftNotes(
   ].join('\n')
 }
 
-export function majorSection(notes: string): 'none' | 'empty' | 'written' {
+export function majorEmpty(notes: string): boolean {
   const match = /^## Major[ \t]*\n([\s\S]*?)(?=^## |^\*\*Full changelog|(?![\s\S]))/m.exec(notes)
-  if (match === null) return 'none'
-  return (match[1] ?? '').replace(/<!--[\s\S]*?-->/g, '').trim() === '' ? 'empty' : 'written'
+  return match !== null && (match[1] ?? '').replace(/<!--[\s\S]*?-->/g, '').trim() === ''
 }
 
 const pullRequests = (text: string) => [...text.matchAll(/#(\d+)/g)].map((match) => match[1])
@@ -456,7 +441,7 @@ export function cleanClaudeNotes(answer: string): string | undefined {
     .join('\n')
     .replace(/\n*```\s*$/, '')
     .trim()
-  return majorSection(notes) === 'empty' ? undefined : withoutMajorRepeats(notes)
+  return majorEmpty(notes) ? undefined : withoutMajorRepeats(notes)
 }
 
 function claudeNotes(changes: Change[], version: string, previous: string | undefined) {
@@ -660,7 +645,7 @@ async function build(version: string, skipChecks: boolean): Promise<void> {
   writeFileSync(notesFile, drafted ?? draftNotes(changes, version, previous))
   console.log(
     drafted === undefined
-      ? `Claude couldn’t draft them, so ${notesFile} lists the changes; write the Major section, or delete it, before you publish.`
+      ? `Claude couldn’t draft them, so ${notesFile} lists the changes by kind; read them before you publish.`
       : `Claude drafted them in ${notesFile}; read and correct them before you publish.`,
   )
   install()
