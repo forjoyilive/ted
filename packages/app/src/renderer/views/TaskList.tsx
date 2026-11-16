@@ -556,7 +556,6 @@ export function TaskList({
   const [dragging, setDragging] = useState<{ task: Task; group: string }>()
   const [spot, setSpot] = useState<DropSpot>()
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>())
-  const [folded, setFolded] = useState<ReadonlySet<string>>(new Set())
 
   useEffect(() => {
     void scope
@@ -587,7 +586,7 @@ export function TaskList({
   const isCollapsed = (group: TaskGroup) => collapse.collapsed(group.key, group.collapsed)
   const rowsOf = (group: TaskGroup): NestedRow[] =>
     nested
-      ? nestedRows(group.tasks, folded, inScope)
+      ? nestedRows(group.tasks, collapse.folded(group.key), inScope)
       : group.tasks.map((task) => ({ task, depth: 0, hasChildren: false }))
   const ordered = groups.flatMap((g) =>
     isCollapsed(g) ? [] : rowsOf(g).flatMap((r) => (r.context ? [] : [r.task])),
@@ -680,16 +679,9 @@ export function TaskList({
     }
   }
 
-  function fold(task: Task) {
-    setFolded((current) => {
-      const next = new Set(current)
-      if (!next.delete(task.id)) next.add(task.id)
-      return next
-    })
-  }
-
-  function caret(nest: NestedRow) {
+  function caret(nest: NestedRow, group: TaskGroup) {
     if (!nested) return null
+    const folded = collapse.folded(group.key)
     if (!nest.hasChildren && !folded.has(nest.task.id)) {
       return <span className={markerStyles.caretSpace} aria-hidden />
     }
@@ -702,7 +694,7 @@ export function TaskList({
         aria-label={`${open ? 'Collapse' : 'Expand'} children of ${nest.task.displayId}`}
         onClick={(event) => {
           event.stopPropagation()
-          fold(nest.task)
+          collapse.fold(group.key, nest.task.id)
         }}
       >
         <ChevronIcon open={open} />
@@ -710,7 +702,7 @@ export function TaskList({
     )
   }
 
-  function cell(column: ListColumn, task: Task, nest: NestedRow): ReactNode {
+  function cell(column: ListColumn, task: Task, nest: NestedRow, group: TaskGroup): ReactNode {
     switch (column) {
       case 'priority':
         return <PriorityButton task={task} />
@@ -722,7 +714,7 @@ export function TaskList({
             className={styles.titleCell}
             style={nest.depth > 0 ? { paddingLeft: nest.depth * 20 } : undefined}
           >
-            {caret(nest)}
+            {caret(nest, group)}
             <span className={styles.titleText}>{task.title}</span>
             <HierarchyMarker task={task} tasks={tasks} showParent={nest.depth === 0} />
             <AutopilotLabel task={task} />
@@ -783,7 +775,7 @@ export function TaskList({
               rightAligned.has(column) ? styles.right : '',
             ].join(' ')}
           >
-            {cell(column, task, nest)}
+            {cell(column, task, nest, group)}
           </td>
         ))}
       </tr>
@@ -879,7 +871,7 @@ export function TaskList({
               rightAligned.has(column) ? styles.right : '',
             ].join(' ')}
           >
-            {cell(column, task, nest)}
+            {cell(column, task, nest, group)}
           </td>
         ))}
       </tr>
