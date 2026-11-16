@@ -1228,7 +1228,12 @@ if (workerOnly) {
 
 if (!app.requestSingleInstanceLock()) {
   traceStartup('single-instance-refused')
-  app.exit(0)
+  if (tedEnv('TED_SANDBOX_ELECTRON') === '1') {
+    console.error(
+      `${appName} couldn’t take its single-instance lock inside TED’s sandbox, so it can’t start.`,
+    )
+    app.exit(1)
+  } else app.exit(0)
 } else {
   // Electron emits 'ready' only after this module finishes evaluating, so a top-level await deadlocks.
   app

@@ -340,6 +340,7 @@ test('an Automation Run drives its Electron App in the sandbox with a hidden win
   )
   expect(results[1]?.stdout).toMatch(/^Desk · widgets · electron · running · port \d+$/m)
   expect(results[3]?.stdout).toContain('Desk window')
+  expect(results[3]?.stdout).toContain('single instance true')
   expect(results[7]?.stdout).toContain('Pressed')
   expect(results[14]?.stdout).toContain('Press me')
   expect(results[14]?.stdout).toContain('dark true')
