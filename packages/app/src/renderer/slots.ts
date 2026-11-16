@@ -37,7 +37,7 @@ function checksPart({ running, waiting }: RunSlots['checks']): string {
 function counts(slots: RunSlots): string {
   const queued = slots.queued > 0 ? ` · ${slots.queued} queued` : ''
   const busy = slots.busy !== undefined ? ` · ${busyHold}` : ''
-  return `${plural(slots.working, 'agent')} working${checksPart(slots.checks)} · limit ${slots.limit}${queued}${busy}`
+  return `${slots.working} of ${plural(slots.limit, 'slot')} in use${checksPart(slots.checks)}${queued}${busy}`
 }
 
 export function runsLine(slots: RunSlots): string {

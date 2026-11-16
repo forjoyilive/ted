@@ -152,10 +152,10 @@ describe('iOS simulator Apps', () => {
       checks: noChecks,
     } as unknown as RunSlots
     expect(nowLine(slots, booted(1))).toBe(
-      'Now: 4 agents working · limit 6 · 2 queued · 1 of 3 simulators booted',
+      'Now: 4 of 6 slots in use · 2 queued · 1 of 3 simulators booted',
     )
     expect(nowLine(slots, { ...booted(1), supported: false })).toBe(
-      'Now: 4 agents working · limit 6 · 2 queued',
+      'Now: 4 of 6 slots in use · 2 queued',
     )
   })
 })
@@ -206,7 +206,7 @@ describe('Android emulator Apps', () => {
       checks: noChecks,
     } as unknown as RunSlots
     expect(nowLine(slots, undefined, running(1))).toBe(
-      'Now: 4 agents working · limit 6 · 2 queued · 1 of 2 emulators running',
+      'Now: 4 of 6 slots in use · 2 queued · 1 of 2 emulators running',
     )
   })
 })
@@ -221,10 +221,10 @@ test('the sidebar names slot usage and its limit, including above-limit and queu
     factories: [],
     checks: noChecks,
   }
-  expect(runsLine(slots)).toBe('7 agents working · limit 6 · 1 queued')
-  expect(runsLine({ ...slots, working: 1, queued: 0 })).toBe('1 agent working · limit 6')
-  expect(runsLine({ ...slots, working: 0 })).toBe('0 agents working · limit 6 · 1 queued')
-  expect(runsLine({ ...slots, working: 0, queued: 0 })).toBe('0 agents working · limit 6')
+  expect(runsLine(slots)).toBe('7 of 6 slots in use · 1 queued')
+  expect(runsLine({ ...slots, working: 1, queued: 0 })).toBe('1 of 6 slots in use')
+  expect(runsLine({ ...slots, working: 0 })).toBe('0 of 6 slots in use · 1 queued')
+  expect(runsLine({ ...slots, working: 0, queued: 0 })).toBe('0 of 6 slots in use')
   expect(runsLine({ ...slots, busy: { loadRatio: 1.4 } })).toContain('this computer is busy')
 })
 
@@ -240,17 +240,17 @@ test('the sidebar counts running and waiting Checks beside the agents', () => {
     busy: { loadRatio: 1.4 },
   }
   expect(runsLine(slots)).toBe(
-    '1 agent working · 3 Checks running, 1 waiting · limit 6 · 7 queued · this computer is busy',
+    '1 of 6 slots in use · 3 Checks running, 1 waiting · 7 queued · this computer is busy',
   )
   expect(nowLine(slots)).toBe(
-    'Now: 1 agent working · 3 Checks running, 1 waiting · limit 6 · 7 queued · this computer is busy',
+    'Now: 1 of 6 slots in use · 3 Checks running, 1 waiting · 7 queued · this computer is busy',
   )
   const { busy: _, ...calm } = slots
   expect(runsLine({ ...calm, queued: 0, checks: { ...noChecks, running: 1 } })).toBe(
-    '1 agent working · 1 Check running · limit 6',
+    '1 of 6 slots in use · 1 Check running',
   )
   expect(runsLine({ ...calm, queued: 0, checks: { ...noChecks, waiting: 2 } })).toBe(
-    '1 agent working · 2 Checks waiting · limit 6',
+    '1 of 6 slots in use · 2 Checks waiting',
   )
 })
 
