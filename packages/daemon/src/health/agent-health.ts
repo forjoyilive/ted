@@ -525,7 +525,7 @@ export function createAgentHealth(options: AgentHealthOptions): AgentHealthMonit
 
   async function fix(kind: AgentKind): Promise<AgentHealth> {
     const health = latest.get(kind) ?? (await checkOne(kind))
-    if (!health.fix) throw new RequestError(409, `${health.reason ?? 'This agent'} needs no fix`)
+    if (!health.fix) throw new RequestError(409, `${health.reason ?? 'This Provider'} needs no fix`)
     await options
       .openTerminal(health.fix.command, environment.current())
       .catch((error: unknown) => {

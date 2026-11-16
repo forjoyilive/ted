@@ -21,6 +21,27 @@ describe('command definitions', () => {
     expect(help).toContain('--template linear|asana|sentry|github|architecture|audit')
   })
 
+  test('--provider is the listed spelling and --agent still works', () => {
+    const run = ['run', 'start', '--prompt-file', 'p.md']
+    expect(parseInvocation([...run, '--provider', 'codex'], terminal).options).toMatchObject({
+      agent: 'codex',
+    })
+    expect(parseInvocation([...run, '--agent', 'codex'], terminal).options).toMatchObject({
+      agent: 'codex',
+    })
+    expect(
+      parseInvocation(['automation', 'edit', 'a', '--provider', 'claude'], terminal).options,
+    ).toMatchObject({ agent: 'claude' })
+    expect(() =>
+      parseInvocation([...run, '--provider', 'codex', '--agent', 'claude'], terminal),
+    ).toThrow(UsageError)
+    expect(() => parseInvocation(['comment', '--provider', 'codex', 'hi'], terminal)).toThrow(
+      UsageError,
+    )
+    expect(helpText()).toContain('--provider claude|codex|antigravity')
+    expect(helpText()).not.toContain('--agent')
+  })
+
   test.each([
     ['task', 'list', '--design', 'missing.json'],
     ['help', '--start'],

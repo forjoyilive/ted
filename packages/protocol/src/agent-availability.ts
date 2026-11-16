@@ -24,11 +24,11 @@ export function parseChangeAgentAvailabilityRequest(
   value: unknown,
 ): ChangeAgentAvailabilityRequest {
   if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new RequestValidationError(400, 'Agent availability must be an object')
+    throw new RequestValidationError(400, 'Provider availability must be an object')
   const body = value as Record<string, unknown>
   const agent = agentKinds.find((kind) => kind === body.agent)
   if (!agent || typeof body.enabled !== 'boolean')
-    throw new RequestValidationError(400, 'Choose an agent and whether it is enabled')
+    throw new RequestValidationError(400, 'Choose a Provider and whether it is enabled')
   if (body.existing !== undefined && body.existing !== 'keep' && body.existing !== 'stop')
     throw new RequestValidationError(400, 'existing must be keep or stop')
   if (

@@ -5,7 +5,7 @@ export const settingsPageNames: Record<SettingsSectionId, string> = {
   general: 'General',
   notifications: 'Notifications',
   machines: 'Machines',
-  agents: 'Agents',
+  agents: 'Providers',
   limits: 'Limits',
   integrations: 'Integrations',
   library: 'Library',
@@ -20,12 +20,14 @@ export const factorySections = [
   ['workflow', 'Workflow'],
   ['checks', 'Checks'],
   ['cleanup', 'Cleanup'],
-  ['agents', 'Agents'],
+  ['agents', 'Providers'],
   ['permissions', 'Permissions'],
   ['notifications', 'Notifications'],
   ['notes', 'Factory notes'],
   ['danger-zone', 'Danger zone'],
 ] as const
+
+const settingsPageAliases: Partial<Record<SettingsSectionId, string>> = { agents: 'agent' }
 
 export type FactorySectionId = (typeof factorySections)[number][0]
 
@@ -110,7 +112,7 @@ const entries = {
   'app.general.editor.custom-command': { name: 'Custom command' },
   'app.general.editor.ted-command': {
     name: 'The ted command',
-    help: 'Lets you use ted in any terminal. Agents always have it in their Runs.',
+    help: 'Lets you use ted in any terminal. Runs always have it.',
   },
   'app.general.editor.path': {
     name: 'Add ~/.local/bin to your PATH',
@@ -153,13 +155,14 @@ const entries = {
   'app.machines.execution': { name: 'Execution Macs', heading: true },
 
   'app.agents.defaults': {
-    name: 'Defaults for all Factories',
+    name: 'Defaults for each role',
+    keywords: 'Task Lead Reviewer Planner Provider model effort',
     help: 'Saved in your Library’s workflow.yaml. A Factory can override each one in its own settings.',
     heading: true,
   },
   'app.agents.restart-idle-runs': {
-    name: 'Restart idle Runs onto new agent versions',
-    help: 'When an agent updates, TED restarts each idle Run on the new version and resumes its conversation. Working Runs restart once they go idle.',
+    name: 'Restart idle Runs onto new Provider versions',
+    help: 'When a Provider updates, TED restarts each idle Run on the new version and resumes its conversation. Working Runs restart once they go idle.',
   },
 
   'app.limits.working-runs': {
@@ -389,8 +392,8 @@ const entries = {
     heading: true,
   },
   'factory.agents': {
-    name: 'Agents',
-    help: 'Which agent, model and effort each role uses in this Factory. Rows marked Default or Library are inherited; Override sets them here.',
+    name: 'Providers',
+    help: 'Which Provider, model and effort each role uses in this Factory. Rows marked Default or Library are inherited; Override sets them here.',
     heading: true,
   },
   'factory.permissions': {
@@ -519,6 +522,7 @@ export function findSettings(
       entry.keywords,
       place.group,
       place.page,
+      place.kind === 'app' ? settingsPageAliases[place.section as SettingsSectionId] : undefined,
       entry.help,
       entry.detail,
     ].join(' ')

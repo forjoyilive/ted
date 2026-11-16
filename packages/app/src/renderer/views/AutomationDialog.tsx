@@ -626,8 +626,8 @@ export function AutomationDialog({
               lead={lead}
               factoryLead={factoryLead}
               onChange={setLead}
-              label="Agent · model · effort"
-              help="The agent used for drafting and each firing. Filled from the Factory’s lead."
+              label="Provider · model · effort"
+              help="The Provider used for drafting and each firing. Filled from the Factory’s lead."
             />
           </fieldset>
         )}

@@ -112,7 +112,7 @@ const sidebar = (window: Page) => window.getByRole('navigation', { name: 'Sideba
 const startAtLogin = (window: Page) =>
   window.getByRole('checkbox', { name: 'Start TED in the background when you log in' })
 const nextButton = (window: Page) => window.getByRole('button', { name: 'Next' })
-const nextHelp = 'Next needs Git and at least one agent ready.'
+const nextHelp = 'Next needs Git and at least one Provider ready.'
 
 async function toSetUp(window: Page) {
   await welcome(window).waitFor()

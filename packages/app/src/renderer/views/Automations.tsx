@@ -181,7 +181,7 @@ function AutomationColumns() {
         <th>Next firing</th>
         <th>Last result</th>
         <th>Now</th>
-        <th>Agent · model</th>
+        <th>Provider · model</th>
       </tr>
     </thead>
   )
@@ -922,7 +922,7 @@ export function AutomationView({
         )}
         {automation.check ? null : (
           <>
-            <Details title="Agent">
+            <Details title="Provider">
               <p className={styles.detailText}>
                 {[agentLabels[automation.agent], automation.model, automation.effort]
                   .filter(Boolean)

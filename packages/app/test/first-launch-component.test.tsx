@@ -163,7 +163,7 @@ test('Next waits for Git and an agent, then Add Factory is step 4 with Back and 
     health({ state: 'signed-out' }),
     health({ agent: 'codex', state: 'not-installed' }),
   ])
-  await screen.findByText('Next needs Git and at least one agent ready.')
+  await screen.findByText('Next needs Git and at least one Provider ready.')
   const next = button('Next')
   expect(next.disabled).toBe(true)
   await act(async () =>

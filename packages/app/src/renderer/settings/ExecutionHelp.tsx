@@ -32,7 +32,7 @@ export function ExecutionHelp({ worker = false }: { worker?: boolean }) {
         </ol>
         <p>
           Pairing creates encrypted access for this worker. It does not copy TED approval
-          credentials or agent sign-ins. Independent TED Factories on the worker stay separate.
+          credentials or Provider sign-ins. Independent TED Factories on the worker stay separate.
         </p>
       </details>
       <details>
@@ -85,8 +85,9 @@ export function ExecutionHelp({ worker = false }: { worker?: boolean }) {
         </p>
         <p>
           After logout or reboot, open TED in worker mode or use CLI Start. Automatic login startup
-          is not included yet. Sleep or network loss shows Disconnected; pairing stays saved. Agent
-          sign-ins stay on the worker, and unverified model access stays labelled unverified.
+          is not included yet. Sleep or network loss shows Disconnected; pairing stays saved.
+          Provider sign-ins stay on the worker, and unverified model access stays labelled
+          unverified.
         </p>
       </details>
     </div>

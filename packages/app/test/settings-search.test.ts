@@ -48,6 +48,18 @@ test('a setting is found by its name, group, page and description, with its page
   expect(find('connect another mac')).toEqual([])
 })
 
+test('the Providers page is found by its name and by “agent”', () => {
+  for (const query of ['Providers', 'agent']) {
+    expect(find(query)).toContainEqual(
+      expect.objectContaining({
+        id: 'app.agents.restart-idle-runs',
+        where: 'Settings › Providers',
+        target: { kind: 'app', section: 'agents' },
+      }),
+    )
+  }
+})
+
 test('a name match comes first, a setting before a heading with the same words', () => {
   expect(find('autopilot').map((hit) => hit.name)).toEqual([
     'Autopilot across all Factories',

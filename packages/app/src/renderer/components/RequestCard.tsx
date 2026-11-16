@@ -1032,8 +1032,8 @@ export function RequestCard({
     ? (waitingLead.paused ??
       (request.talk?.runId === waitingLead.id
         ? 'Waiting for the Task Lead to receive this request.'
-        : 'Waiting for the Task Lead’s agent or model to be available.'))
-    : task.activity || 'Waiting for a free slot or for the agent to be available.'
+        : 'Waiting for the Task Lead’s Provider or model to be available.'))
+    : task.activity || 'Waiting for a free slot or for the Provider to be available.'
   const now = useNow()
   const { send, sending, setSending, sendingRef, setSubmission, error, setError } = useSending(
     request,

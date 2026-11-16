@@ -200,7 +200,7 @@ export async function automationCommand(
     }
     if (options.agent !== undefined) {
       if (!agentKinds.includes(options.agent as AgentKind)) {
-        throw new AutomationUsageError('--agent must be claude, codex or antigravity')
+        throw new AutomationUsageError('--provider must be claude, codex or antigravity')
       }
       input.agent = options.agent as AgentKind
     }

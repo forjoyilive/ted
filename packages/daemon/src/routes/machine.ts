@@ -45,7 +45,7 @@ export const machineRoutes: Route[] = [
     path: /^\/agents\/availability$/,
     handle: async ({ caller }, { agentAvailability }) => {
       if (caller.kind !== 'app')
-        throw new HttpError(403, 'Only the app can inspect agent availability')
+        throw new HttpError(403, 'Only the app can inspect Provider availability')
       return [200, agentAvailability.list()]
     },
   },
@@ -251,7 +251,7 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   enabledAgents() {
     throw new HttpError(
       400,
-      'Change agents through Settings → Agents so existing Runs are accounted for.',
+      'Change Providers through Settings → Providers so existing Runs are accounted for.',
     )
   },
   timeFormat(value) {
@@ -447,11 +447,11 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   },
   billing(value) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      throw new HttpError(400, 'billing must be an object of billing by agent')
+      throw new HttpError(400, 'billing must be an object of billing by Provider')
     }
     const given = value as Record<string, unknown>
     for (const name of Object.keys(given)) {
-      if (!agentKinds.some((k) => k === name)) throw new HttpError(400, `unknown agent ${name}`)
+      if (!agentKinds.some((k) => k === name)) throw new HttpError(400, `unknown Provider ${name}`)
     }
     const choose = (agent: (typeof agentKinds)[number]) => {
       const billing = billings.find((b) => b === given[agent])

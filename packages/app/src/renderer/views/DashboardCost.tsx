@@ -252,7 +252,7 @@ function SpendChart({
             By kind of work
           </button>
           <button type="button" aria-pressed={by === 'model'} onClick={() => setBy('model')}>
-            By agent and model
+            By Provider and model
           </button>
         </fieldset>
       </div>

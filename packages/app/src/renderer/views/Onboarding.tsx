@@ -111,9 +111,9 @@ function OnboardingSteps({
           TED runs your software work like a factory, and you’re the one steering it.
         </p>
         <p className={styles.body}>
-          You write a Task. An agent (Claude Code, Codex or Antigravity) carries it through your
-          Workflow: it asks what it needs to know, plans the change, writes the code, checks it and
-          opens a pull request.
+          You write a Task. A Task Lead, run by a Provider (Claude Code, Codex or Antigravity),
+          carries it through your Workflow: it asks what it needs to know, plans the change, writes
+          the code, checks it and opens a pull request.
         </p>
         <p className={styles.body}>
           When an agent needs you, its question or sign-off waits in the Inbox. You can also comment
@@ -197,9 +197,9 @@ function OnboardingSteps({
             nextDisabled: !ready,
             note: !ready && (
               <p className={styles.why}>
-                {last ? 'Finish' : 'Next'} needs Git and at least one agent ready.
+                {last ? 'Finish' : 'Next'} needs Git and at least one Provider ready.
                 <Help>
-                  Skip lets you in; Runs stay Paused until an agent is ready. GitHub isn’t needed
+                  Skip lets you in; Runs stay Paused until a Provider is ready. GitHub isn’t needed
                   yet, only to add a Factory.
                 </Help>
               </p>

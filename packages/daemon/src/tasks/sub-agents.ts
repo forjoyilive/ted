@@ -457,7 +457,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
         if (input.agent !== undefined || input.model !== undefined || input.effort !== undefined) {
           throw new RequestError(
             400,
-            'the reviewer’s agent, model and effort come from the `reviewer` setting; leave them out',
+            'the reviewer’s Provider, model and effort come from the `reviewer` setting; leave them out',
           )
         }
         if (task.stage === 'validate') await deps.prepareExecution(task)

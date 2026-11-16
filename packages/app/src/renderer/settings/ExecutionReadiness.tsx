@@ -18,7 +18,7 @@ export function ExecutionReadiness({
         <dd>
           {value.platform} · {value.arch} · TED {value.version}
         </dd>
-        <dt>Agents</dt>
+        <dt>Providers</dt>
         <dd>
           {value.agents.map((a) => (
             <div key={a.name}>

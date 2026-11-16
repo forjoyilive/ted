@@ -69,7 +69,7 @@ export function createAgentAvailability(services: Omit<Services, 'agentAvailabil
         return { availability, confirmationRequired: false }
       const enabled = store.settings().enabledAgents
       if (!input.enabled && availability.enabled && enabled.length === 1)
-        throw new RequestError(409, 'Enable another agent before turning this one off.')
+        throw new RequestError(409, 'Enable another Provider before turning this one off.')
       const affected = [...availability.runs, ...availability.additionalRuns]
       if (
         !input.enabled &&

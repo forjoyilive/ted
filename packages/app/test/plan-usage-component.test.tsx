@@ -49,8 +49,8 @@ test('usage below the warning threshold remains visible and follows live reports
     within(panel())
       .getAllByRole('button')
       .map((b) => b.textContent),
-  ).toEqual(['×', 'Agent settings →'])
-  expect(within(panel()).queryByText('All agents')).toBeNull()
+  ).toEqual(['×', 'Provider settings →'])
+  expect(within(panel()).queryByText('All Providers')).toBeNull()
   await act(async () =>
     a.emit({
       type: 'agent-health-changed',
@@ -138,10 +138,10 @@ test('empty, API-key and offline states are explicit; settings navigation uses t
       settings: { ...a.state.settings, billing, enabledAgents: [] },
     }),
   )
-  expect(within(panel()).getByText('No agents are set up.')).toBeTruthy()
+  expect(within(panel()).getByText('No Providers are set up.')).toBeTruthy()
   expect(within(panel()).queryAllByRole('region')).toHaveLength(0)
-  await u.click(within(panel()).getByRole('button', { name: 'Agent settings' }))
-  expect(await screen.findByRole('main', { name: 'Agents' })).toBeTruthy()
+  await u.click(within(panel()).getByRole('button', { name: 'Provider settings' }))
+  expect(await screen.findByRole('main', { name: 'Providers' })).toBeTruthy()
   expect(screen.queryByRole('dialog', { name: 'Usage' })).toBeNull()
 })
 

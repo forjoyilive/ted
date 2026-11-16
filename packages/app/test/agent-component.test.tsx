@@ -54,7 +54,9 @@ test('restart idle Runs defaults on and sends the changed machine setting', asyn
     updateSettings: vi.fn(),
   })
   const view = render(<AgentsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
-  const toggle = screen.getByRole('switch', { name: 'Restart idle Runs onto new agent versions' })
+  const toggle = screen.getByRole('switch', {
+    name: 'Restart idle Runs onto new Provider versions',
+  })
   expect(toggle.getAttribute('aria-checked')).toBe('true')
   await user().click(toggle)
   expect(api.request).toHaveBeenCalledWith('updateSettings', { restartIdleRuns: false })
@@ -116,7 +118,7 @@ test('off cards stay discoverable and the last enabled switch explains its restr
   await claude.findByText(/1 existing Runs kept going/)
   const codex = within(screen.getByRole('region', { name: 'Codex' }))
   expect(codex.getByRole<HTMLButtonElement>('switch', { name: 'Use Codex' }).disabled).toBe(true)
-  expect(codex.getByText('Enable another agent before turning this one off.')).toBeTruthy()
+  expect(codex.getByText('Enable another Provider before turning this one off.')).toBeTruthy()
 })
 
 test('turning off confirms the count and collateral Runs, supports Cancel and sends the confirmed decision', async () => {
@@ -194,7 +196,7 @@ test('the stop choice includes all affected Runs and refreshes the confirmation 
 test('agent menus hide off kinds but preserve an explicit current choice with an explanation', async () => {
   bridge({ getSettings: () => ({ ...defaultMachineSettings, enabledAgents: ['antigravity'] }) })
   render(<LeadSelects lead={{ agent: 'claude' }} onChange={vi.fn()} />)
-  const menu = within(screen.getByRole('combobox', { name: 'Agent' }))
+  const menu = within(screen.getByRole('combobox', { name: 'Provider' }))
   expect(await menu.findByRole('option', { name: 'Claude · Off — new Runs wait' })).toBeTruthy()
   expect(menu.queryByRole('option', { name: 'Codex' })).toBeNull()
   expect(menu.getByRole('option', { name: 'Antigravity' })).toBeTruthy()

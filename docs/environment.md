@@ -45,7 +45,7 @@ The regression tests exercise both editions, including starting a release-editio
 
 New Codex sessions use `TED_HOME/codex` for `CODEX_HOME` and `CODEX_SQLITE_HOME`. TED also overrides Codex’s `sqlite_home` for those launches, so an inherited database location does not put their history back in the personal Codex index. TED Dev and release use their own homes. The daemon’s agent health and subscription-usage checks use the same Codex home as new sessions.
 
-Use **Sign in** under App Settings → Agents to sign in with the existing paid ChatGPT account. This is another local login, not a new account or subscription, and does not require API billing. TED does not copy personal credentials or global Codex configuration, skills or plugins into this folder. Repository instructions and configuration still follow Codex’s normal discovery rules.
+Use **Sign in** under App Settings → Providers to sign in with the existing paid ChatGPT account. This is another local login, not a new account or subscription, and does not require API billing. TED does not copy personal credentials or global Codex configuration, skills or plugins into this folder. Repository instructions and configuration still follow Codex’s normal discovery rules.
 
 Each new Run records its storage choice in `runs/<id>/codex-home`. Before its first turn, the Codex driver also records the thread ID under `codex/ted-sessions/`, so another Run resuming that session finds the same home. These files contain no credentials. Runs and sessions without these records keep using their original configured or default Codex home; their existing conversations are not moved or cleaned up. An already running host keeps its environment until its normal replacement.
 

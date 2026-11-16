@@ -45,7 +45,7 @@ Ask too whether anything should happen after a pull request merges, such as a co
          { "path": ".ted/workflow.yaml", "about": "repos with worktree setup and Apps, Checks, Stage settings" },
          { "path": ".ted/stages/validate.md", "about": "Start the App, sign in, check the main flow" }
        ],
-       "defaults": "Left as TED’s defaults: agents, permissions Auto, the Mac’s working Run limit."
+       "defaults": "Left as TED’s defaults: Providers, permissions Auto, the Mac’s working Run limit."
      }
    }
    ```

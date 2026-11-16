@@ -237,7 +237,7 @@ function DiagnosticsView({
               <thead>
                 <tr>
                   <th>Run</th>
-                  <th>Agent</th>
+                  <th>Provider</th>
                   <th>State</th>
                   <th className={styles.number}>CPU</th>
                   <th className={styles.number}>Memory</th>

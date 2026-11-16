@@ -2171,12 +2171,12 @@ export async function openStore({
           (leadAgent ?? held?.agent) &&
           !reads.settings().enabledAgents.includes((leadAgent ?? held?.agent) as AgentKind) &&
           (!leadLive || lead?.agent !== (leadAgent ?? held?.agent))
-            ? { hold: `${leadAgent ?? held?.agent} is off. Enable it in Settings → Agents.` }
+            ? { hold: `${leadAgent ?? held?.agent} is off. Enable it in Settings → Providers.` }
             : place > 0
               ? newWorkHeld === undefined
                 ? { place }
                 : { hold: newWorkHeld }
-              : { hold: 'Waiting for the agent' },
+              : { hold: 'Waiting for a Provider' },
       }),
       ...(place > 0 && heldBusy && { busy: heldBusy }),
       queuedSubAgents: reads.subAgentRequests(row.id).map((r) => ({
@@ -2185,7 +2185,7 @@ export async function openStore({
           paused: paused[r.agent as AgentKind],
         }),
         ...(!reads.settings().enabledAgents.includes(r.agent as AgentKind)
-          ? { hold: `${r.agent} is off. Enable it in Settings → Agents.` }
+          ? { hold: `${r.agent} is off. Enable it in Settings → Providers.` }
           : newWorkHeld !== undefined
             ? { hold: newWorkHeld }
             : heldBusy
