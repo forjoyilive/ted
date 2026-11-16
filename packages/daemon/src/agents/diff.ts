@@ -1,5 +1,5 @@
 // Ported from agent-orchestrator (Apache-2.0): backend/internal/adapters/chatdriver/acp/diff_stats.go
-// and codexappserver/normalize.go (countPatchLines). TED changed: TypeScript, returns the diff
+// and codexappserver/normalize.go (countPatchLines). Ted changed: TypeScript, returns the diff
 // lines as well as the counts, caps their number, and reads unified patches into lines.
 import type { ChatDiff, ChatDiffLine } from '@ted/protocol'
 

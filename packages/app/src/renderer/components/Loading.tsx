@@ -74,7 +74,7 @@ export function LoadingError({ error, retry }: { error: string; retry: () => voi
   )
 }
 
-export function LoadingScreen({ label = 'Loading TED…' }: { label?: string }) {
+export function LoadingScreen({ label = 'Loading Ted…' }: { label?: string }) {
   return (
     <main className={styles.screen}>
       <Loading label={label} />

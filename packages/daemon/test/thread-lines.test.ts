@@ -56,7 +56,7 @@ describe('event lines', () => {
     ).toEqual([done('You'), done('You'), done('The Task Lead'), done('The Coordinator')])
   })
 
-  test('a push record TED brought up to date names both commits', () => {
+  test('a push record Ted brought up to date names both commits', () => {
     expect(
       lines([
         entry('v1.TaskPushRecordReconciled', 1, {
@@ -68,7 +68,7 @@ describe('event lines', () => {
     ).toEqual([
       {
         tone: 'quiet',
-        text: 'The app branch on GitHub was at 2ac276ea, ahead of TED’s recorded push 9eaef80d · the commit being pushed includes it, so TED updated its record',
+        text: 'The app branch on GitHub was at 2ac276ea, ahead of Ted’s recorded push 9eaef80d · the commit being pushed includes it, so Ted updated its record',
       },
     ])
   })
@@ -115,7 +115,7 @@ describe('event lines', () => {
     ])
   })
 
-  test('entering a Stage while the Factory’s settings are broken says which version TED used', () => {
+  test('entering a Stage while the Factory’s settings are broken says which version Ted used', () => {
     const broken = {
       layer: 'factory',
       status: 'last-valid',
@@ -137,7 +137,7 @@ describe('event lines', () => {
       ]),
     ).toEqual([
       { tone: 'edit', text: 'Task moved to Work' },
-      { tone: 'quiet', text: 'Used last valid TED settings: .ted/workflow.yaml has an error' },
+      { tone: 'quiet', text: 'Used last valid Ted settings: .ted/workflow.yaml has an error' },
       { tone: 'edit', text: 'Task moved to Validate' },
     ])
   })

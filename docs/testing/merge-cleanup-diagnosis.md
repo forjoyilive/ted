@@ -135,7 +135,7 @@ ownership defect, and sent the Task back to Work. The report and test changes
 now address those Findings but require fresh Validate verification. Work ran no
 test files. Logs and Findings are preserved under
 `.suite-measurements/ted-205/` and attached to the Task. Temporary snapshot and
-fixture artifacts captured by TED’s checkpoint were removed from the branch.
+fixture artifacts captured by Ted’s checkpoint were removed from the branch.
 
 Next Validate should run the three files covering the riskiest behavior:
 

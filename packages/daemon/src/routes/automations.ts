@@ -28,7 +28,7 @@ export const automationRoutes: Route[] = [
     method: 'GET',
     path: path('/automation-prompt-drafts/([^/]+)'),
     async handle({ caller, params: [id = ''] }, { automations }) {
-      if (caller.kind !== 'app') throw new HttpError(403, 'Only the TED app can read Prompt drafts')
+      if (caller.kind !== 'app') throw new HttpError(403, 'Only the Ted app can read Prompt drafts')
       return [200, automations.drafts.get(id)]
     },
   },

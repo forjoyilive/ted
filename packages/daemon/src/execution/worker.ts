@@ -152,7 +152,7 @@ export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv
           ...status,
           state: 'disconnected',
           message:
-            'Controller unreachable. Check both Macs are awake, TED is running on the main Mac, and both are on the same reachable local network.',
+            'Controller unreachable. Check both Macs are awake, Ted is running on the main Mac, and both are on the same reachable local network.',
         }
         await delay(2000, undefined, { signal }).catch(() => undefined)
       }

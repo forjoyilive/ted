@@ -145,7 +145,7 @@ export async function thirdPartyLicenses(repoRoot: string): Promise<string> {
     const extra =
       item.name === 'electron'
         ? [
-            'Electron includes Chromium and Node.js. Their licenses are in LICENSES.chromium.html, which ships with TED.',
+            'Electron includes Chromium and Node.js. Their licenses are in LICENSES.chromium.html, which ships with Ted.',
           ]
         : []
     sections.push([heading, ...extra, ...texts].join('\n\n'))

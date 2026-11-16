@@ -99,10 +99,10 @@ function sections(...groups: MenuEntry[][]): MenuEntry[] {
     .flatMap((group, i) => [...(i === 0 ? [] : [separator]), ...group])
 }
 
-const openTed = () => item('Open TED', { kind: 'open-ted' })
+const openTed = () => item('Open Ted', { kind: 'open-ted' })
 const newTask = () => item('New Task…', { kind: 'new-task' }, 'CmdOrCtrl+N')
 const settings = () => item('Settings…', { kind: 'settings' }, 'CmdOrCtrl+,')
-const quit = () => item('Quit TED completely', { kind: 'quit' }, 'CmdOrCtrl+Q')
+const quit = () => item('Quit Ted completely', { kind: 'quit' }, 'CmdOrCtrl+Q')
 const go = (): MenuEntry => ({
   type: 'submenu',
   label: 'Go',
@@ -264,24 +264,24 @@ function quitQuestion({
       parts.push(
         `${shellsRunning} ${plural(shellsRunning, 'Task shell is', 'Task shells are')} open.`,
       )
-    return `${parts.join(' ')} Keep TED running in the background?`
+    return `${parts.join(' ')} Keep Ted running in the background?`
   }
   if (scheduledTasks > 0) {
-    return `${scheduledTasks} ${plural(scheduledTasks, 'Task is', 'Tasks are')} scheduled to start${automationsOn > 0 || factoriesSettingUp > 0 || shellsRunning > 0 ? ', with other work still going' : ''}. Keep TED running in the background so scheduled Tasks can start?`
+    return `${scheduledTasks} ${plural(scheduledTasks, 'Task is', 'Tasks are')} scheduled to start${automationsOn > 0 || factoriesSettingUp > 0 || shellsRunning > 0 ? ', with other work still going' : ''}. Keep Ted running in the background so scheduled Tasks can start?`
   }
   const automationPart = `${automationsOn} ${plural(automationsOn, 'Automation is', 'Automations are')} on`
   if (automationsOn === 0 && factoriesSettingUp === 0 && shellsRunning > 0) {
-    return `${shellsRunning} ${plural(shellsRunning, 'Task shell is', 'Task shells are')} open. Keep TED running in the background so ${plural(shellsRunning, 'it keeps', 'they keep')} going?`
+    return `${shellsRunning} ${plural(shellsRunning, 'Task shell is', 'Task shells are')} open. Keep Ted running in the background so ${plural(shellsRunning, 'it keeps', 'they keep')} going?`
   }
   if (automationsOn === 0) {
-    return `${factoriesSettingUp} ${plural(factoriesSettingUp, 'Factory is', 'Factories are')} still cloning. Keep TED running in the background so ${plural(factoriesSettingUp, 'it finishes', 'they finish')}?`
+    return `${factoriesSettingUp} ${plural(factoriesSettingUp, 'Factory is', 'Factories are')} still cloning. Keep Ted running in the background so ${plural(factoriesSettingUp, 'it finishes', 'they finish')}?`
   }
-  return `${automationPart}. Keep TED running in the background so ${plural(automationsOn, 'it fires', 'they fire')}?`
+  return `${automationPart}. Keep Ted running in the background so ${plural(automationsOn, 'it fires', 'they fire')}?`
 }
 
 export function quitDialog(activity: Activity): QuitDialog {
   return {
-    title: 'Quit TED?',
+    title: 'Quit Ted?',
     message: quitQuestion(activity),
     buttons: ['Keep running in the background', 'Stop them and quit', 'Cancel'],
     defaultId: 0,
@@ -393,7 +393,7 @@ export function inboxNotice(request: WaitingRequest): ProblemNotice {
 export function tedStopsNotice(count: number): ProblemNotice {
   return {
     title: appName,
-    body: `${count} ${plural(count, 'Task was', 'Tasks were')} working when TED quit. Open TED to restart ${plural(count, 'it', 'them')}.`,
+    body: `${count} ${plural(count, 'Task was', 'Tasks were')} working when Ted quit. Open Ted to restart ${plural(count, 'it', 'them')}.`,
     opens: { kind: 'open-ted' },
   }
 }

@@ -715,7 +715,7 @@ const sizeQuestion = () =>
 test.each([
   ['Split it', 'delivered'],
   ['Grill anyway', 'delivered'],
-  ['Plan it outside TED', 'plan-outside'],
+  ['Plan it outside Ted', 'plan-outside'],
 ] as const)('size-check %s carries out the real decision', async (choice, effect) => {
   stage('clarify')
   const comment = sizeQuestion()

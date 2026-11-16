@@ -15,7 +15,7 @@ const use: MemoryUse = {
 
 test('ted dev memory prints the total, each part and the store’s size on disk', () => {
   expect(formatMemoryUse(use).split('\n')).toEqual([
-    'TED is using 3.7 GB.',
+    'Ted is using 3.7 GB.',
     '  Daemon: 900 MB (JavaScript heap 330 MB, store and buffers 240 MB)',
     '  7 Run hosts: 530 MB',
     '  7 agents: 2.3 GB',

@@ -2,7 +2,7 @@ import type { CheckRun } from '@ted/protocol'
 import { expect, test } from 'vitest'
 import { demoCheckProblem } from '../src/dev/scenarios.ts'
 
-test('seeding names a Check run TED could not finish', () => {
+test('seeding names a Check run Ted could not finish', () => {
   const run = (id: string, outcome?: CheckRun['outcome']): CheckRun => ({
     id,
     taskId: 'task',

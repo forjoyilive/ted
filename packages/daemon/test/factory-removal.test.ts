@@ -253,7 +253,7 @@ describe('Factory order', () => {
 })
 
 describe('Remove Factory', () => {
-  test('needs the typed key, and only the TED app can do it', async () => {
+  test('needs the typed key, and only the Ted app can do it', async () => {
     const client = await start()
     const factory = await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
     const wrong = await client.call('POST', `/factories/${factory.id}/remove`, {
@@ -262,7 +262,7 @@ describe('Remove Factory', () => {
     })
     expect(wrong).toEqual({ status: 400, body: { error: 'Type NB to confirm' } })
     const fileToken = api(daemon?.port ?? 0, await tokenFor(home))
-    const refused = { status: 403, body: { error: 'only the TED app can do this' } }
+    const refused = { status: 403, body: { error: 'only the Ted app can do this' } }
     expect(
       await fileToken.call('POST', `/factories/${factory.id}/remove`, {
         key: 'NB',

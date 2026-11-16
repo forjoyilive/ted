@@ -522,7 +522,7 @@ describe('Validate rounds in a multi-repo Factory', () => {
     expect(reviewers).toHaveLength(2)
     const second = (await userMessages(reviewers[1]?.id ?? ''))[0] ?? ''
     expect(second).toContain('# Your instructions from the Task Lead of NB-1')
-    expect(second).not.toContain('TED set the scope of this review')
+    expect(second).not.toContain('Ted set the scope of this review')
     const lead = (await getTask(client, task.id))?.leadRunId ?? ''
     const round = (await userMessages(lead)).find((m) => m.includes('# Validate round 2'))
     expect(round).toContain('this round reviews the whole change again')

@@ -166,7 +166,7 @@ describe('Editing a Task', () => {
     const fileToken = api(daemon?.port ?? 0, await tokenFor(home))
     expect(
       await fileToken.call('PUT', `/tasks/${task.id}`, { description: 'Something else' }),
-    ).toEqual({ status: 403, body: { error: 'only the TED app can do this' } })
+    ).toEqual({ status: 403, body: { error: 'only the Ted app can do this' } })
 
     await client.archiveTask(task.id)
     expect(

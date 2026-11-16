@@ -71,11 +71,11 @@ describe('menu-bar menu', () => {
       '—',
       'Restart to update to 1.4',
       '—',
-      'Open TED',
+      'Open Ted',
       'New Task…',
       'Settings…',
       '—',
-      'Quit TED completely',
+      'Quit Ted completely',
     ])
   })
 
@@ -104,7 +104,7 @@ describe('menu-bar menu', () => {
       command: { kind: 'banner', bannerId: 'claude' },
       dot: 'stops-work',
     })
-    expect(item('Open TED')).toMatchObject({ command: { kind: 'open-ted' } })
+    expect(item('Open Ted')).toMatchObject({ command: { kind: 'open-ted' } })
     expect(item('New Task…')).toMatchObject({
       command: { kind: 'new-task' },
       accelerator: 'CmdOrCtrl+N',
@@ -113,7 +113,7 @@ describe('menu-bar menu', () => {
       command: { kind: 'settings' },
       accelerator: 'CmdOrCtrl+,',
     })
-    expect(item('Quit TED completely')).toMatchObject({
+    expect(item('Quit Ted completely')).toMatchObject({
       command: { kind: 'quit' },
       accelerator: 'CmdOrCtrl+Q',
     })
@@ -124,11 +124,11 @@ describe('menu-bar menu', () => {
       'Nothing waiting on you',
       'No unfinished Runs',
       '—',
-      'Open TED',
+      'Open Ted',
       'New Task…',
       'Settings…',
       '—',
-      'Quit TED completely',
+      'Quit Ted completely',
     ])
   })
 
@@ -161,15 +161,15 @@ describe('menu-bar icon and window title', () => {
     expect(trayWarning([banner({})], now)).toBe(true)
   })
 
-  test('the window title names TED Dev and carries the count only on Linux', () => {
-    expect(windowTitle('linux', 3)).toBe('TED Dev (3)')
-    expect(windowTitle('linux', 0)).toBe('TED Dev')
-    expect(windowTitle('darwin', 3)).toBe('TED Dev')
+  test('the window title names Ted Dev and carries the count only on Linux', () => {
+    expect(windowTitle('linux', 3)).toBe('Ted Dev (3)')
+    expect(windowTitle('linux', 0)).toBe('Ted Dev')
+    expect(windowTitle('darwin', 3)).toBe('Ted Dev')
   })
 
-  test('the menu-bar icon’s tooltip names TED Dev', () => {
-    expect(trayToolTip(0)).toBe('TED Dev')
-    expect(trayToolTip(2)).toBe('TED Dev · 2 waiting on you')
+  test('the menu-bar icon’s tooltip names Ted Dev', () => {
+    expect(trayToolTip(0)).toBe('Ted Dev')
+    expect(trayToolTip(2)).toBe('Ted Dev · 2 waiting on you')
   })
 
   test('the Dock badge shows the waiting count, and nothing at zero', () => {
@@ -244,11 +244,11 @@ describe('the app menu holds every menu-bar item', () => {
     },
   )
 
-  test('on Linux, a TED menu holds the menu-bar items in the same order', () => {
+  test('on Linux, a Ted menu holds the menu-bar items in the same order', () => {
     const [ted] = appMenu('linux', state, now)
 
-    expect(ted).toMatchObject({ type: 'submenu', label: 'TED Dev' })
-    if (ted?.type !== 'submenu') throw new Error('no TED menu')
+    expect(ted).toMatchObject({ type: 'submenu', label: 'Ted Dev' })
+    if (ted?.type !== 'submenu') throw new Error('no Ted menu')
     expect(labels(ted.submenu)).toEqual(labels(statusMenu(state, now)))
   })
 })
@@ -256,14 +256,14 @@ describe('the app menu holds every menu-bar item', () => {
 describe('quitting', () => {
   const working = activity({ working: 1, active: 2 })
 
-  test('scheduled Tasks count as background work and explain why TED should keep running', () => {
+  test('scheduled Tasks count as background work and explain why Ted should keep running', () => {
     const pending = activity({ scheduledTasks: 2 })
     expect(quitPlan(pending, 'ask')).toBe('ask')
     expect(quitDialog(pending).message).toContain('2 Tasks are scheduled to start')
     expect(quitPlan(pending, 'stop')).toBe('stop')
   })
 
-  test('with nothing running, Quit ends TED without asking', () => {
+  test('with nothing running, Quit ends Ted without asking', () => {
     expect(quitPlan(noActivity, 'ask')).toBe('stop')
     expect(quitPlan(noActivity, 'keep-running')).toBe('stop')
   })
@@ -277,9 +277,9 @@ describe('quitting', () => {
 
   test('the dialog defaults to keeping work running and offers Don’t ask again', () => {
     expect(quitDialog(working)).toEqual({
-      title: 'Quit TED?',
+      title: 'Quit Ted?',
       message:
-        '2 unfinished Runs, including Runs that are idle, waiting or paused. Keep TED running in the background?',
+        '2 unfinished Runs, including Runs that are idle, waiting or paused. Keep Ted running in the background?',
       buttons: ['Keep running in the background', 'Stop them and quit', 'Cancel'],
       defaultId: 0,
       cancelId: 2,
@@ -289,45 +289,45 @@ describe('quitting', () => {
 
   test('the dialog has the spec’s wording when only Automations are on', () => {
     expect(quitDialog(activity({ automationsOn: 2 })).message).toBe(
-      '2 Automations are on. Keep TED running in the background so they fire?',
+      '2 Automations are on. Keep Ted running in the background so they fire?',
     )
     expect(quitDialog(activity({ automationsOn: 1 })).message).toBe(
-      '1 Automation is on. Keep TED running in the background so it fires?',
+      '1 Automation is on. Keep Ted running in the background so it fires?',
     )
   })
 
   test('a Factory still cloning asks before quitting', () => {
     expect(quitPlan(activity({ factoriesSettingUp: 1 }), 'ask')).toBe('ask')
     expect(quitDialog(activity({ factoriesSettingUp: 1 })).message).toBe(
-      '1 Factory is still cloning. Keep TED running in the background so it finishes?',
+      '1 Factory is still cloning. Keep Ted running in the background so it finishes?',
     )
   })
 
   test('an open Task shell asks before quitting', () => {
     expect(quitPlan(activity({ shellsRunning: 1 }), 'ask')).toBe('ask')
     expect(quitDialog(activity({ shellsRunning: 1 })).message).toBe(
-      '1 Task shell is open. Keep TED running in the background so it keeps going?',
+      '1 Task shell is open. Keep Ted running in the background so it keeps going?',
     )
     expect(quitDialog(activity({ shellsRunning: 2 })).message).toBe(
-      '2 Task shells are open. Keep TED running in the background so they keep going?',
+      '2 Task shells are open. Keep Ted running in the background so they keep going?',
     )
   })
 
   test('the dialog names both when Runs and Automations are going', () => {
     expect(quitDialog(activity({ active: 1, automationsOn: 2 })).message).toBe(
-      '1 unfinished Run, including Runs that are idle, waiting or paused. 2 Automations are on. Keep TED running in the background?',
+      '1 unfinished Run, including Runs that are idle, waiting or paused. 2 Automations are on. Keep Ted running in the background?',
     )
   })
 
   test('unfinished Runs and queued work are separate totals, even without working Runs', () => {
     const pending = { ...noActivity, runs: { working: 0, active: 7, queued: 3 } }
     expect(quitDialog(pending).message).toBe(
-      '7 unfinished Runs, including Runs that are idle, waiting or paused. 3 queued items waiting to start. Keep TED running in the background?',
+      '7 unfinished Runs, including Runs that are idle, waiting or paused. 3 queued items waiting to start. Keep Ted running in the background?',
     )
     const queued = { ...noActivity, runs: { working: 0, active: 0, queued: 1 } }
     expect(quitPlan(queued, 'ask')).toBe('ask')
     expect(quitDialog(queued).message).toBe(
-      '1 queued item waiting to start. Keep TED running in the background?',
+      '1 queued item waiting to start. Keep Ted running in the background?',
     )
   })
 
@@ -335,7 +335,7 @@ describe('quitting', () => {
     const starting = { ...noActivity, startingWork: 1 }
     expect(quitPlan(starting, 'ask')).toBe('ask')
     expect(quitDialog(starting).message).toBe(
-      '1 work item starting or setting up. Keep TED running in the background?',
+      '1 work item starting or setting up. Keep Ted running in the background?',
     )
   })
 
@@ -350,10 +350,10 @@ describe('quitting', () => {
 })
 
 describe('closing the window on Linux', () => {
-  test('the first close says TED is still running, once', () => {
+  test('the first close says Ted is still running, once', () => {
     expect(closeNotice('linux', false)).toEqual({
-      title: 'TED Dev',
-      body: 'TED Dev is still running in the background. Open it again from your app launcher.',
+      title: 'Ted Dev',
+      body: 'Ted Dev is still running in the background. Open it again from your app launcher.',
     })
     expect(closeNotice('linux', true)).toBeUndefined()
     expect(closeNotice('darwin', false)).toBeUndefined()
@@ -371,7 +371,7 @@ describe('problem notifications', () => {
         }),
       ),
     ).toEqual({
-      title: 'TED Dev',
+      title: 'Ted Dev',
       body: 'Claude usage limit · resets 14:20 · 3 Runs paused',
       opens: { kind: 'settings', section: 'agents' },
     })

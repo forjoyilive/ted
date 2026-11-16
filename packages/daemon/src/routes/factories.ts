@@ -133,7 +133,7 @@ export const factoryRoutes: Route[] = [
     path: /^\/factories\/([^/]+)\/asana-intake\/check$/,
     async handle({ params: [id = ''], caller }, { store, asana }) {
       if (caller.kind !== 'app')
-        throw new HttpError(403, 'only the TED app can check the Asana intake choice')
+        throw new HttpError(403, 'only the Ted app can check the Asana intake choice')
       if (!store.getFactory(id)) throw new HttpError(404, 'Factory not found')
       const scope = store.settings().asanaIntakeScopes[id]
       const check: AsanaIntakeCheck = scope

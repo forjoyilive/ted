@@ -49,7 +49,7 @@ function permission(line: string): PermissionPrompt | undefined {
   return {
     requestId: event.requestId,
     title: 'Allow Antigravity to use a tool',
-    command: command || 'a tool TED can’t show',
+    command: command || 'a tool Ted can’t show',
     ...(details && { details }),
     refuse:
       !command ||

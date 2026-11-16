@@ -222,7 +222,7 @@ function SetupProposalView({ setup }: { setup: SetupProposal }) {
               <div key={line.stage} className={styles.setupStage}>
                 <dt>{stages.name(line.stage)}</dt>
                 <dd className={line.setting === undefined ? styles.asDefault : undefined}>
-                  {line.setting ?? 'As TED’s default'}
+                  {line.setting ?? 'As Ted’s default'}
                 </dd>
               </div>
             ))}

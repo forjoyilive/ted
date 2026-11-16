@@ -191,13 +191,13 @@ function checkoutPrompt(repos: readonly string[], commit: string | undefined): s
   return [
     '## Your checkout',
     '',
-    `TED made a fresh copy of the default branch${at} for this Run (${repos.join(', ')}), copied the Factory’s local files into it and ran its setup. You work inside it. Edit files there if it helps, but never commit or push: TED removes the copy and your changes when this Run ends.`,
+    `Ted made a fresh copy of the default branch${at} for this Run (${repos.join(', ')}), copied the Factory’s local files into it and ran its setup. You work inside it. Edit files there if it helps, but never commit or push: Ted removes the copy and your changes when this Run ends.`,
     '',
     '- `ted run-app [<App>] [--repo <name>]` starts one of the Factory’s Apps from this copy and prints its URL. An iOS simulator App waits until a simulator slot is free, however long that takes.',
     '- `ted app list` shows the Apps and their state; `ted app log <App>` prints an App’s output.',
     '- `ted browser open <App> [--repo <name>]` opens a running web App you started in your own headless browser, which stays on that App’s address. Then `ted browser snapshot` prints the page and element references; `ted browser click <ref>`, `fill <ref> <text>`, `press <key>`, `navigate <path>`, `back`, `forward` and `reload` act on it. Take a new snapshot after each action; old references expire.',
     '- `ted browser resize <width>x<height>` sets the window size (such as 390x844) and `ted browser color-scheme light|dark` switches the page’s colour mode. `ted browser screenshot` saves the page on this Run, shows it on the Run page and prints a local PNG path you can pass to `ted task create --attach`.',
-    '- TED stops every App and closes the browser when this Run ends.',
+    '- Ted stops every App and closes the browser when this Run ends.',
   ].join('\n')
 }
 
@@ -525,7 +525,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
         }
         await runs.revive(id, {
           prompt:
-            'Your process stopped before you finished, so TED resumed your session. Check where you were, then carry on with your instructions.',
+            'Your process stopped before you finished, so Ted resumed your session. Check where you were, then carry on with your instructions.',
           env,
         })
         saved.revived(id)
@@ -598,7 +598,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     const check = automation.check
     const result = saved.checkResults([id]).get(id)
     if (!check || !result || !scheduledChecks) {
-      await endCheckAgent(id, { why: 'TED lost the Check’s result before the agent Run started' })
+      await endCheckAgent(id, { why: 'Ted lost the Check’s result before the agent Run started' })
       return
     }
     const held = store.newWorkHold()
@@ -754,7 +754,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
         report !== undefined
           ? firstLine(report)
           : fallback !== undefined
-            ? `${firstLine(fallback, 200)}, so TED made its usual Tasks`
+            ? `${firstLine(fallback, 200)}, so Ted made its usual Tasks`
             : agentLine
       saved.ended(firingId, {
         outcome: end.stopped && fallback === undefined ? 'stopped' : 'finished',
@@ -776,7 +776,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     const repos = factory.repos.map((r) => r.repo)
     const why: Record<AutomationTrigger, string> = {
       scheduled: 'on its schedule',
-      'made-up': `to make up firings missed while TED wasn’t running (the last was ${firing.slotAt ?? firing.at})`,
+      'made-up': `to make up firings missed while Ted wasn’t running (the last was ${firing.slotAt ?? firing.at})`,
       'run-now': 'because the human chose Run now',
       retry: 'because the human chose Retry after a failed Run',
     }
@@ -799,17 +799,17 @@ export function createAutomations(options: AutomationsOptions): Automations {
     })
     const [intake, githubIntake] = intakeLines(store, factory.id)
     return [
-      `# You are an Automation Run in TED`,
+      `# You are an Automation Run in Ted`,
       writingGuidance,
-      `Use relevant general skills when they help with your work. Skip skills that require another host tool, such as Orca, Paseo or Superset; for example, don’t use \`orca-linear\` in TED. Use TED commands for Task workflow actions.`,
+      `Use relevant general skills when they help with your work. Skip skills that require another host tool, such as Orca, Paseo or Superset; for example, don’t use \`orca-linear\` in Ted. Use Ted commands for Task workflow actions.`,
       [
-        `You are “${automation.name}”, an Automation in the ${factory.name} Factory (repos: ${repos.join(', ')}). TED started this Run ${why[firing.trigger]}. You run outside any Task, usually to bring new work in as Tasks.`,
+        `You are “${automation.name}”, an Automation in the ${factory.name} Factory (repos: ${repos.join(', ')}). Ted started this Run ${why[firing.trigger]}. You run outside any Task, usually to bring new work in as Tasks.`,
         '',
         '- Create a Task with `ted task create --source <URL of the item it came from> "<title>"`. Every Task you create needs `--source`. Add `--description "<text>"` for context, and `--start` only if your instructions say new Tasks should start; otherwise they wait in Backlog.',
-        '- TED refuses a source it already tracks and says why. Leave those, except a Done Task whose problem came back: your instructions say when to create a Follow-up with `ted task create --follow-up <Task ID> --source <URL> "<title>"`.',
+        '- Ted refuses a source it already tracks and says why. Leave those, except a Done Task whose problem came back: your instructions say when to create a Follow-up with `ted task create --follow-up <Task ID> --source <URL> "<title>"`.',
         '- `ted task list` lists the Tasks. `ted automation list`, `show` and `history` read Automations; you can’t change them.',
-        '- To ask the human something, run `ted comment --choice "<answer>" … "<question>"` and end your turn; TED sends you their answer. `ted comment "<text>"` posts a note.',
-        '- When you are done, end your turn with a short final message whose first line says what you did. TED stops this Run when you go idle with no open question.',
+        '- To ask the human something, run `ted comment --choice "<answer>" … "<question>"` and end your turn; Ted sends you their answer. `ted comment "<text>"` posts a note.',
+        '- When you are done, end your turn with a short final message whose first line says what you did. Ted stops this Run when you go idle with no open question.',
       ].join('\n'),
       ...(checkout === undefined ? [] : [checkout]),
       `## Tasks this Automation has created\n\n${lines.length > 0 ? lines.join('\n') : 'None yet.'}`,
@@ -1104,7 +1104,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
           console.error(`a scheduled Check of ${automation.name} failed:`, error)
           const current = saved.firing(firing.id)
           if (!closed && current && current.state !== 'dropped' && current.state !== 'ended') {
-            fail(current, `TED couldn’t run the Check: ${messageOf(error)}`)
+            fail(current, `Ted couldn’t run the Check: ${messageOf(error)}`)
           }
         })
         .finally(() => {
@@ -1129,7 +1129,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     if (entry.abort.signal.aborted || closed || saved.firing(firing.id)?.state !== 'queued') return
     const held = store.newWorkHold()
     if (held !== undefined) {
-      fail(firing, `TED isn’t starting new work right now: ${held}`)
+      fail(firing, `Ted isn’t starting new work right now: ${held}`)
       return
     }
     entry.phase = 'slot'
@@ -1603,13 +1603,13 @@ export function createAutomations(options: AutomationsOptions): Automations {
   for (const firing of saved.firings()) {
     if (firing.state !== 'started' || firing.resume === 'queued') continue
     if (checkOf(firing.automationId) && firing.agentPhase === undefined) {
-      fail(firing, 'TED stopped while this Check ran.')
+      fail(firing, 'Ted stopped while this Check ran.')
       continue
     }
     if (firing.agentPhase === 'queued') continue
     const run = store.getRun(firing.id)
     if (!run) {
-      fail(firing, 'TED stopped before this Run started.')
+      fail(firing, 'Ted stopped before this Run started.')
     } else if (run.state === 'finished') {
       ended(run.id, run.ended?.how === 'stopped', run.ended?.errorLines ?? [])
     } else if (run.state === 'idle') {

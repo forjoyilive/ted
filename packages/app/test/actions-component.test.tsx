@@ -92,17 +92,17 @@ test('failed data rebuild shows its stopping event and error with Copy report an
       }}
     />,
   )
-  expect(screen.getByRole('heading', { name: 'TED couldn’t update its data' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'Ted couldn’t update its data' })).toBeTruthy()
   expect(screen.getByText('Rebuild stopped at event 42 of 100')).toBeTruthy()
   expect(screen.getByText('Error: Bad event')).toBeTruthy()
-  expect(screen.getByText(/Loses changes since.*when TED 0.0.1 last ran/)).toBeTruthy()
+  expect(screen.getByText(/Loses changes since.*when Ted 0.0.1 last ran/)).toBeTruthy()
   expect(screen.getByText(/Runs keep going in the background/)).toBeTruthy()
   expect(
     screen.getByRole('button', { name: 'Restore the backup from before the update' }),
   ).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'Copy report' }))
   expect(api.request).toHaveBeenCalledWith('copyText', expect.stringContaining('Bad event'))
-  await user().click(screen.getByRole('button', { name: 'Quit TED' }))
+  await user().click(screen.getByRole('button', { name: 'Quit Ted' }))
   expect(api.request).toHaveBeenCalledWith('quit')
 })
 
@@ -121,7 +121,7 @@ test('unfinished setup offers Open setup Task or Start anyway without starting o
       onOpenTask={open}
     />,
   )
-  expect(screen.getByText('Setup isn’t finished. This Task will use TED’s defaults.')).toBeTruthy()
+  expect(screen.getByText('Setup isn’t finished. This Task will use Ted’s defaults.')).toBeTruthy()
   expect(start).not.toHaveBeenCalled()
   await user().click(screen.getByRole('button', { name: 'Open setup Task' }))
   expect(open).toHaveBeenCalledWith(setup)
@@ -405,7 +405,7 @@ test('Reset lists what is lost and kept for a started Task, and sends the reset'
   expect(lost).toEqual([
     'The worktree and any uncommitted work in it',
     'The branch ted/nb-1-sync-notes and its commits, here and on GitHub',
-    'Pull request widgets #212, which TED closes on GitHub',
+    'Pull request widgets #212, which Ted closes on GitHub',
     'The thread: Comments, questions and answers, the Task brief and Findings',
     'Edits to the description, and files attached in Comments',
   ])

@@ -13,7 +13,7 @@ import { durationMs } from './worktree.ts'
 import { readChanges, type WorktreeReads } from './worktree-reads.ts'
 
 export const defaultCheckTimeout = '10m'
-export const tedSettingsCheck = 'TED settings'
+export const tedSettingsCheck = 'Ted settings'
 export const findingsLines = 200
 
 export interface CheckRepo {

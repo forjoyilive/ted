@@ -446,7 +446,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health: async () => integrations.current() ?? (await integrations.check()),
         factories,
         createTask: async (input) => {
-          if (!started) throw new RequestError(503, 'TED is still starting')
+          if (!started) throw new RequestError(503, 'Ted is still starting')
           return started.create(input)
         },
         emit,
@@ -504,7 +504,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           }).tryRegisterTestInvocation(task.id, {
             id: randomUUID(),
             supported,
-            label: 'TED Check',
+            label: 'Ted Check',
             checkRunId,
             position,
           })

@@ -13,7 +13,7 @@ The setting changes through `PATCH /settings`, which sets neither `runToken` nor
 
 ## Why
 
-Under Autopilot TED counts ordinary Gates as off and can merge a Task without the user. An Automation writes a Task from outside input the user hasn’t read, and an outsider’s issue text is written by someone with no say over the repo; both reach the Task Lead as context. A Review the user signs off is the one point where a person sees the result before it merges.
+Under Autopilot Ted counts ordinary Gates as off and can merge a Task without the user. An Automation writes a Task from outside input the user hasn’t read, and an outsider’s issue text is written by someone with no say over the repo; both reach the Task Lead as context. A Review the user signs off is the one point where a person sees the result before it merges.
 
 ## Consequences
 

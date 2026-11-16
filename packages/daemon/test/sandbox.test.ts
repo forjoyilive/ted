@@ -72,7 +72,7 @@ function skipLongSockets(
 ): void {
   context.skip(
     sockets.some((socket) => Buffer.byteLength(socket) > socketPathLimit),
-    `the temp folder ${tmpdir()} is too deep for a Unix socket path (at most ${socketPathLimit} bytes here), as it is inside TED’s sandbox`,
+    `the temp folder ${tmpdir()} is too deep for a Unix socket path (at most ${socketPathLimit} bytes here), as it is inside Ted’s sandbox`,
   )
 }
 
@@ -296,7 +296,7 @@ describe('the folders a sandbox opens', () => {
     })
     await expect(
       sandbox.wrap(['/bin/sh', '-c'], { ...scope(), writable: [outside] }),
-    ).rejects.toThrow(/isn’t inside TED’s folder/)
+    ).rejects.toThrow(/isn’t inside Ted’s folder/)
   })
 
   test('on Linux, TED_HOME is hidden and only the Task’s folders come back', async () => {

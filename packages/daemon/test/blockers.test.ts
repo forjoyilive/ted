@@ -559,7 +559,7 @@ describe('blockers while the agent can’t run', () => {
       async () =>
         (await client.ok<AgentHealth[]>('GET', '/agents/health')).find((h) => h.agent === 'claude')
           ?.state === 'signed-out',
-      'TED to see Claude Code signed out',
+      'Ted to see Claude Code signed out',
     )
     await signedIn(true)
     await client.ok('POST', '/agents/health/check')

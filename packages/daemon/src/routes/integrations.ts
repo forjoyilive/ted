@@ -22,7 +22,7 @@ function asanaChoices(
 ): Route['handle'] {
   return async ({ req, params, caller }: RequestContext, { asana }) => {
     if (caller.kind !== 'app')
-      throw new HttpError(403, 'only the TED app can list Asana workspaces and projects')
+      throw new HttpError(403, 'only the Ted app can list Asana workspaces and projects')
     const { offset } = parseAsanaChoicesQuery(new URL(req.url ?? '/', 'http://localhost').search)
     return [200, await listAsanaChoices(retryingRead(asana.read), path(params), query, offset)]
   }

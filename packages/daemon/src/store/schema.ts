@@ -5770,8 +5770,8 @@ export function cleanupCommandText(
   exitCode: number | null,
   timeout: string,
 ): string {
-  if (state === 'passed') return 'TED ran the command; it passed'
-  if (state === 'timed-out') return `TED ran the command; it timed out after ${timeout}`
-  if (exitCode === 127) return 'TED ran the command; command not found'
-  return `TED ran the command; it failed${exitCode === null ? '' : ` with exit code ${exitCode}`}`
+  if (state === 'passed') return 'Ted ran the command; it passed'
+  if (state === 'timed-out') return `Ted ran the command; it timed out after ${timeout}`
+  if (exitCode === 127) return 'Ted ran the command; command not found'
+  return `Ted ran the command; it failed${exitCode === null ? '' : ` with exit code ${exitCode}`}`
 }

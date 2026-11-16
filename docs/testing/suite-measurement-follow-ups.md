@@ -1,7 +1,7 @@
 # Filed tracker updates after the six observations
 
 The user restored Linear write access after the earlier rejected attempts. All
-five scopes below are now filed in Kriya Design / TED as Backlog children of
+five scopes below are now filed in Kriya Design / Ted as Backlog children of
 KRI-256, after fresh duplicate searches:
 
 - [KRI-357](https://linear.app/kriyadesign/issue/KRI-357): archive/setup working slot.
@@ -57,7 +57,7 @@ wider timeouts. Do not claim a successful focused run meets full-suite reliabili
 ## Diagnose the empty-app quit test passing only on retry under CPU load
 
 Loaded 2: `packages/app/test/app-task.test.ts`, “quitting with nothing running ends
-the app and TED’s background process”, passed on retry after a 90000 ms test
+the app and Ted’s background process”, passed on retry after a 90000 ms test
 timeout. The first-attempt capture reports no window and no reported `TED_HOME`;
 it does not identify the blocked step. Related KRI-338 covers distinct first-window
 and background-readiness symptoms. No exact open quit-test diagnostic found.

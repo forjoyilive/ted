@@ -128,7 +128,7 @@ describe('Diagnostics', () => {
     const client = await start()
     const run = await client.startRun([{ say: 'raw hello' }, { endTurn: true }], cwd)
     await mkdir(tedPaths(home).logs, { recursive: true })
-    await appendFile(tedPaths(home).daemonLog, 'TED daemon 9.9.9 listening\n')
+    await appendFile(tedPaths(home).daemonLog, 'Ted daemon 9.9.9 listening\n')
 
     const raw = await waitUntil(async () => {
       const { body } = await client.call('GET', `/runs/${run.id}/raw`)
@@ -137,7 +137,7 @@ describe('Diagnostics', () => {
     expect(raw.text.split('\n')[0]).toMatch(/^\{"t":"start"/)
 
     const log = await client.call('GET', '/logs/daemon')
-    expect(log.body).toEqual({ text: 'TED daemon 9.9.9 listening\n', truncated: false })
+    expect(log.body).toEqual({ text: 'Ted daemon 9.9.9 listening\n', truncated: false })
   })
 
   test('shows only the end of a long log', async () => {
@@ -158,7 +158,7 @@ describe('Diagnostics', () => {
     expect((await client.call('GET', '/logs/daemon')).body).toEqual({ text: '', truncated: false })
   })
 
-  test('raw output is only for Runs TED knows', async () => {
+  test('raw output is only for Runs Ted knows', async () => {
     const client = await start()
 
     expect((await client.call('GET', '/runs/nope/raw')).status).toBe(404)
@@ -179,9 +179,9 @@ describe('Diagnostics', () => {
 
     expect(status).toBe(200)
     const { text } = body as { text: string }
-    expect(text).toContain('TED 9.9.9')
+    expect(text).toContain('Ted 9.9.9')
     expect(text).toContain(run.id)
-    expect(text).toContain('opened <TED home>/store')
+    expect(text).toContain('opened <Ted home>/store')
     expect(text).not.toContain(home)
     expect(text).not.toContain('"steps"')
     expect(text).toContain('fatal: https://[redacted]@github.com/k/n.git')

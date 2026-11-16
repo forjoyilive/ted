@@ -221,7 +221,7 @@ function AgentRow({
         name={name}
         tone="stop"
         chip="Not installed"
-        help="Continue needs only one Provider. Install this one too if you want TED to use it."
+        help="Continue needs only one Provider. Install this one too if you want Ted to use it."
         below={
           fix && (
             <CommandLine command={fix.command} onCopy={() => actions.copy(fix.command)}>
@@ -252,7 +252,7 @@ function AgentRow({
         name={name}
         tone="stop"
         chip="Too old"
-        detail={`${health.version ?? 'This version'} is older than ${health.minimumVersion}, the oldest version TED supports. TED never updates it without asking.`}
+        detail={`${health.version ?? 'This version'} is older than ${health.minimumVersion}, the oldest version Ted supports. Ted never updates it without asking.`}
         meta={health.path}
         actions={fixButtons}
         note={shown}
@@ -306,7 +306,7 @@ function GitHubRow({
         name={name}
         tone="stop"
         chip="GitHub CLI not installed"
-        detail="Needed to add a Factory. TED reaches GitHub through the GitHub CLI, gh."
+        detail="Needed to add a Factory. Ted reaches GitHub through the GitHub CLI, gh."
         below={
           cli.fix &&
           ('url' in cli.fix ? (
@@ -330,7 +330,7 @@ function GitHubRow({
         name={name}
         tone="stop"
         chip="Too old"
-        detail={`Needed to add a Factory. gh ${cli.version} is older than ${minGhVersion}, the oldest version TED supports.`}
+        detail={`Needed to add a Factory. gh ${cli.version} is older than ${minGhVersion}, the oldest version Ted supports.`}
         meta={cli.path}
         actions={cli.fix && buttons(cli.fix, 'gh-update')}
         note={note}
@@ -368,7 +368,7 @@ function GitHubRow({
         name={name}
         tone="warn"
         chip="Missing workflow scope"
-        detail={`${signedIn}. TED can’t push changes to GitHub Actions workflows without it.`}
+        detail={`${signedIn}. Ted can’t push changes to GitHub Actions workflows without it.`}
         meta={meta}
         actions={host.fix && buttons(host.fix, 'gh-refresh', host.host)}
         note={note}
@@ -398,7 +398,7 @@ function GitRow({
         name={name}
         tone="stop"
         chip="Not installed"
-        detail="TED needs Git to clone repos and make worktrees."
+        detail="Ted needs Git to clone repos and make worktrees."
         below={
           git.fix &&
           ('url' in git.fix ? (
@@ -511,7 +511,7 @@ export function FirstLaunch({
         setFor(
           key,
           'url' in result
-            ? 'Opened instructions in your browser. Follow them, then return to TED. Checking again every 5 seconds…'
+            ? 'Opened instructions in your browser. Follow them, then return to Ted. Checking again every 5 seconds…'
             : opened(result.command),
         )
         watch()
@@ -529,11 +529,11 @@ export function FirstLaunch({
       : notes[key]
 
   return (
-    <OnboardingFrame label="Set up TED" footer={footer(ready)}>
+    <OnboardingFrame label="Set up Ted" footer={footer(ready)}>
       <h1 className={styles.title}>
-        Set up TED
+        Set up Ted
         <Help>
-          TED runs Claude Code, Codex and Antigravity with your own logins. It never sees your
+          Ted runs Claude Code, Codex and Antigravity with your own logins. It never sees your
           passwords or tokens.
         </Help>
       </h1>
@@ -574,12 +574,12 @@ export function FirstLaunch({
           checked={startAtLogin}
           onChange={(event) => onStartAtLogin(event.target.checked)}
         />
-        Start TED in the background when you log in
+        Start Ted in the background when you log in
       </label>
       {/Mac/.test(navigator.userAgent) && (
         <p className={styles.permissions}>
-          macOS may ask whether TED can use a folder or an attached drive. That means an agent, or a
-          command it ran, tried to read it: macOS counts them as TED. You can say no.
+          macOS may ask whether Ted can use a folder or an attached drive. That means an agent, or a
+          command it ran, tried to read it: macOS counts them as Ted. You can say no.
         </p>
       )}
     </OnboardingFrame>

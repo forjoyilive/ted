@@ -667,7 +667,7 @@ test('Merge uses the same repair remedy without allowing the Task Lead to advanc
   )
   await waitUntil(
     async () => !(await getTask(client, task.id)).statuses.includes('working') || undefined,
-    'TED to finish the Merge Checks before verifying',
+    'Ted to finish the Merge Checks before verifying',
   )
   expect(
     (

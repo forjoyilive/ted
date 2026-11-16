@@ -24,7 +24,7 @@ roundTrip(P.parseSendSubAgentRequest, { text: 'Follow up' })
 roundTrip(P.parseSendRunMessageRequest, { text: 'Continue', interrupt: true })
 roundTrip(P.parseStartDevRunRequest, { prompt: 'Work', cwd: '/tmp/work', agent: 'codex' })
 roundTrip(P.parseStartPlanRequest, {
-  factory: 'TED',
+  factory: 'Ted',
   message: 'Plan',
   from: 'old-plan',
   agent: 'codex',
@@ -220,7 +220,7 @@ roundTrip(P.parseSetFactoryAsanaIntakeRequest, {
   },
 })
 variant(P.parseSetFactoryAsanaIntakeRequest, { scope: null })
-roundTrip(P.parseSetFactoryGitHubIntakeRequest, { scope: { label: 'ready for TED' } })
+roundTrip(P.parseSetFactoryGitHubIntakeRequest, { scope: { label: 'ready for Ted' } })
 roundTrip(
   P.parseSetFactoryGitHubIntakeRequest,
   { scope: { label: '  ready  ' } },

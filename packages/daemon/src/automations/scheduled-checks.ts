@@ -21,7 +21,7 @@ import { removeInside } from '../tasks/remove-files.ts'
 import { type Checkouts, SetupFailed } from './checkout.ts'
 
 export const memoryStopMessage =
-  'This computer ran out of memory, so the Scheduled Check was stopped. TED didn’t count it as a failure.'
+  'This computer ran out of memory, so the Scheduled Check was stopped. Ted didn’t count it as a failure.'
 
 export interface ScheduledCheckResult {
   state: AutomationCheckState | 'stopped'
@@ -163,7 +163,7 @@ export function createScheduledChecks(options: {
         onStarted()
         const held = store.newWorkHold()
         if (held !== undefined)
-          return await failed(`TED isn’t starting new work right now: ${held}`)
+          return await failed(`Ted isn’t starting new work right now: ${held}`)
         if (factoryPermissions(store, factory.id) !== 'bypass') {
           const problem = await options.sandbox.problem()
           if (problem !== undefined) {
@@ -238,7 +238,7 @@ export function createScheduledChecks(options: {
         if (signal.aborted) return stopped()
         const message = error instanceof Error ? error.message : String(error)
         return await failed(
-          error instanceof SetupFailed ? message : `TED couldn’t prepare the checkout: ${message}`,
+          error instanceof SetupFailed ? message : `Ted couldn’t prepare the checkout: ${message}`,
         )
       } finally {
         release()

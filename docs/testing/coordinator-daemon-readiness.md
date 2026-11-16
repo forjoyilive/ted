@@ -146,7 +146,7 @@ was unconditional. Installed Vitest selected its minimal reporter in the agent
 environment; that reporter suppresses successful test console records by default.
 The first attempt to retain successful timings was therefore ineffective in
 this invocation. Round-3 evidence, output and installed source pointers are
-attached to the Task. The user chose Try again after TED’s loop check, resetting
+attached to the Task. The user chose Try again after Ted’s loop check, resetting
 the send-back count without accepting the native failure or declaring a repair.
 
 The output repair writes the same fixed test identity, operation names, states

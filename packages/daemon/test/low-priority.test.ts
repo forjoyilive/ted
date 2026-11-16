@@ -114,11 +114,11 @@ async function appLevel(client: Client, task: Task, by: 'human' | 'task-lead'): 
   return level(Number((await fetchJson(`http://127.0.0.1:${app.port}/`)).pid))
 }
 
-describe('Low priority for the work TED starts', () => {
+describe('Low priority for the work Ted starts', () => {
   beforeEach((context) => {
     context.skip(
       psRefused,
-      'macOS won’t start ps, a setuid program, inside TED’s sandbox (a Scheduled Check), and these tests read priorities with ps',
+      'macOS won’t start ps, a setuid program, inside Ted’s sandbox (a Scheduled Check), and these tests read priorities with ps',
     )
   })
 

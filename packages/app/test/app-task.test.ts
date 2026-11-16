@@ -19,7 +19,7 @@ import {
 
 setUpAppTests()
 
-describe('TED app', () => {
+describe('Ted app', () => {
   test('the thread header shows the status, the live activity line and the Stage track', async () => {
     const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
     const go = (n: number) => path.join(ctx.home, `go-${n}`)
@@ -162,7 +162,7 @@ describe('TED app', () => {
     expect(factory?.localFolder).toEqual({ path: moved, found: true })
   })
 
-  test('quitting with nothing running ends the app and TED’s background process', async () => {
+  test('quitting with nothing running ends the app and Ted’s background process', async () => {
     const started = performance.now()
     const file = path.join(ctx.home, 'logs', 'empty-app-quit.json')
     let electronPid: number | undefined

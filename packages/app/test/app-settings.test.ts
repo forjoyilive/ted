@@ -46,7 +46,7 @@ describe('App Settings', () => {
     expect((await (await daemonClient()).getSettings()).profilePicture).toBeNull()
   })
 
-  test('Copy report puts the report on the clipboard, and Show in Finder opens TED’s folder', async () => {
+  test('Copy report puts the report on the clipboard, and Show in Finder opens Ted’s folder', async () => {
     const window = await launchApp()
     await ctx.app?.evaluate(({ shell }) => {
       const opened: string[] = []
@@ -61,7 +61,7 @@ describe('App Settings', () => {
 
     await window.getByRole('button', { name: 'Copy report' }).click()
     await window.getByText('Report copied.').waitFor()
-    expect(await ctx.app?.evaluate(({ clipboard }) => clipboard.readText())).toMatch(/^TED \S+\n/)
+    expect(await ctx.app?.evaluate(({ clipboard }) => clipboard.readText())).toMatch(/^Ted \S+\n/)
 
     await window.getByRole('button', { name: /^Show in / }).click()
     await expect
@@ -93,7 +93,7 @@ describe('Add Factory', () => {
     await form.getByText('Can push and open pull requests').waitFor()
     expect(await form.getByLabel('Name', { exact: true }).first().inputValue()).toBe('widgets')
     expect(await form.getByLabel('Key').inputValue()).toBe('WD')
-    await form.getByText('TED clones the repo, then starts the setup Task WD-1.').waitFor()
+    await form.getByText('Ted clones the repo, then starts the setup Task WD-1.').waitFor()
 
     await form.getByRole('button', { name: 'Add Factory' }).click()
     await dialog(window).waitFor({ state: 'detached' })

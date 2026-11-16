@@ -288,7 +288,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
     },
 
     async save({ changes, version }) {
-      if (saving) throw new RequestError(409, 'TED is already saving the Library.')
+      if (saving) throw new RequestError(409, 'Ted is already saving the Library.')
       saving = true
       try {
         const base = await load()

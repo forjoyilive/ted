@@ -148,7 +148,7 @@ export const AsanaIntakeSection = memo(function AsanaIntakeSection({
             : status.state === 'error'
               ? {
                   state: 'error',
-                  error: status.error ?? 'TED couldn’t check the Asana connection.',
+                  error: status.error ?? 'Ted couldn’t check the Asana connection.',
                 }
               : { state: 'not-connected' },
         )

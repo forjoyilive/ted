@@ -1,4 +1,4 @@
-# TED v1: open product decisions
+# Ted v1: open product decisions
 
 Companion to `ted-v1-spec.md`. The first draft of the spec found 75 gaps (GAP-n), 2 proposals (P-n) and 6 contradictions between tickets (C-n). KRI-53 to KRI-66 settled almost all of them. This file lists what is still open first, then where each original item was settled.
 
@@ -8,7 +8,7 @@ Updated 2026-11-08.
 
 - **NEW-1** Which Tasks start when their last blocker merges: a Task starts on merge if it was created to start (`--start`, Start now checked) or had already been started. Otherwise it stays in Backlog. Blocked Split and planning pieces start on merge. Spec 6.5, 6.16.
 - **NEW-2** Duplicate-source check: covers open, Done and archived Tasks in the Factory (KRI-55’s rule). This replaces the narrower wording in KRI-60’s review change. Spec 12.4.
-- **NEW-3** Deleting a queued Run-chat message: keep **Delete**. Both CLIs take a message at once and can’t drop one, so TED holds queued messages itself and delivers each at the agent’s next tool-call boundary: on Codex’s `item/completed` with `turn/steer`, on Claude Code through a `PostToolUse` hook that waits while TED writes the message. Tested on Claude Code 2.1.319 and Codex 0.160.0 (KRI-80, `docs/research/kri-80/`). Spec 10.6.
+- **NEW-3** Deleting a queued Run-chat message: keep **Delete**. Both CLIs take a message at once and can’t drop one, so Ted holds queued messages itself and delivers each at the agent’s next tool-call boundary: on Codex’s `item/completed` with `turn/steer`, on Claude Code through a `PostToolUse` hook that waits while Ted writes the message. Tested on Claude Code 2.1.319 and Codex 0.160.0 (KRI-80, `docs/research/kri-80/`). Spec 10.6.
 - **NEW-4** Original request: a collapsed row at the end of the Task brief section, with a link to the description’s history. Spec 10.7.
 - **GAP-63** Comments: the human attaches files by drag and drop or paste; a sent Comment can’t be edited or deleted (Nabha’s review). Spec 10.5.
 - **Revisiting a Done Task’s source:** `--follow-up` creates a Follow-up Task; the Automation agent judges whether the fix held, by release for mobile apps (Nabha’s review). Spec 12.4.
@@ -37,7 +37,7 @@ Most of the KRI-54 to KRI-66 resolutions, their follow-ups and the KRI-8 Figma c
 
 ### 1. First run, settings and preferences
 - **GAP-1** Model and effort per kind of Run. Resolved by KRI-53: `{agent, model, effort}` on `lead`, `reviewer`, `planner`; the Task Lead picks for sub-agents; unset means the CLI default. KRI-60 narrowed `planner` to Planning Runs.
-- **GAP-2** First launch. Resolved by KRI-57 and KRI-64: a full-window Set up TED screen with Claude Code, Codex, GitHub and Git rows; Continue needs Git and one agent.
+- **GAP-2** First launch. Resolved by KRI-57 and KRI-64: a full-window Set up Ted screen with Claude Code, Codex, GitHub and Git rows; Continue needs Git and one agent.
 - **GAP-3** App Settings and the global/per-Factory split. Resolved by KRI-57 and KRI-64: eight sections; machine settings are global, Workflow settings follow the layers.
 - **GAP-4** API-key billing and showing the credential. Resolved by KRI-54: Subscription or API key per Provider in Settings → Providers; each Run row shows the credential it reported; a mismatch pauses.
 - **GAP-5** Editor. Resolved by KRI-57: Settings → General → Editor, picked on first use.
@@ -65,7 +65,7 @@ Most of the KRI-54 to KRI-66 resolutions, their follow-ups and the KRI-8 Figma c
 
 ### 4. Factory and Workflow
 - **GAP-23** Shape of `repos`. Resolved by KRI-58: a list holding every per-repo setting; optional for single-repo Factories.
-- **GAP-24** Add Factory form; clone or user’s folder. Resolved by KRI-58, KRI-65 and ADR 0006: TED always clones; a folder becomes the repo’s local folder for copy files.
+- **GAP-24** Add Factory form; clone or user’s folder. Resolved by KRI-58, KRI-65 and ADR 0006: Ted always clones; a folder becomes the repo’s local folder for copy files.
 - **GAP-25** Worktree key names. Resolved by KRI-58: `worktree.setup`, `teardown`, `env`, `copy`.
 - **GAP-26** Invalid `workflow.yaml`. Resolved by KRI-58 and KRI-65: last valid version, warning banner and amber notice.
 - **GAP-27** Rename or remove a Factory or repo. Resolved by KRI-58, KRI-65 and coordinator decision 12.
@@ -99,7 +99,7 @@ Most of the KRI-54 to KRI-66 resolutions, their follow-ups and the KRI-8 Figma c
 - **GAP-49** GitHub auth. Resolved by KRI-57 and ADR 0007: `gh`’s login for everything; no token stored.
 - **GAP-50** Line comments. Resolved by KRI-60, KRI-63 and coordinator decision 7: drafts sent with the next Comment, never with Approve.
 - **GAP-51** Sign-off labels. Resolved by KRI-60.
-- **GAP-52** No CI or CI that never reports. Resolved by KRI-60, changed by Nabha’s review: TED detects CI at push; no CI merges at once.
+- **GAP-52** No CI or CI that never reports. Resolved by KRI-60, changed by Nabha’s review: Ted detects CI at push; no CI merges at once.
 - **GAP-53** Merge sign-off card. Resolved by KRI-60.
 - **GAP-54** Task shell. Resolved by KRI-60 and KRI-63: Shell in the Code section, opens in the middle pane.
 
@@ -122,14 +122,14 @@ Most of the KRI-54 to KRI-66 resolutions, their follow-ups and the KRI-8 Figma c
 - **GAP-68** Automations page, form and commands. Resolved by KRI-60 and KRI-66.
 - **GAP-69** Automation Run lifetime and replies. Resolved by KRI-60.
 - **GAP-70** Overlapping firings and a full limit. Resolved by KRI-60, changed by Nabha’s review: skip only while the previous Run is Working, Queued or Paused.
-- **GAP-71** Where Automations are stored. Resolved by KRI-60: TED’s store, per machine.
+- **GAP-71** Where Automations are stored. Resolved by KRI-60: Ted’s store, per machine.
 - **GAP-72** Linear URL with no key. Resolved by KRI-60 and KRI-57.
 
 ### 10. Planning Runs
 - **GAP-73** Ending, renaming, deleting; checkout. Resolved by KRI-60, KRI-66 and coordinator decisions 9 and 10.
 
 ### 11. Release
-- **GAP-74** Linux packages. Resolved by KRI-59: AppImage, deb and rpm, all through TED’s updater.
+- **GAP-74** Linux packages. Resolved by KRI-59: AppImage, deb and rpm, all through Ted’s updater.
 - **GAP-75** Secrets on Linux without a Secret Service. Resolved by KRI-57: a 0600 file with consent.
 
 ---
@@ -145,7 +145,7 @@ Most of the KRI-54 to KRI-66 resolutions, their follow-ups and the KRI-8 Figma c
 
 - **C-1** Version restart: resume or fresh Run. Resolved by KRI-53.
 - **C-2** Shape of `repos`. Resolved by KRI-58: a list.
-- **C-3** Local folder or TED clone. Resolved by KRI-58 and ADR 0006: TED’s clone; the folder is only a source of copy files.
+- **C-3** Local folder or Ted clone. Resolved by KRI-58 and ADR 0006: Ted’s clone; the folder is only a source of copy files.
 - **C-4** Custom Stages. Resolved by KRI-58: not in v1.
 - **C-5** Setup Task and the limit. Resolved by KRI-55: waits at the front of the queue.
 - **C-6** GitHub credentials. Resolved by KRI-57 and ADR 0007: `gh`’s login.
@@ -154,8 +154,8 @@ Most of the KRI-54 to KRI-66 resolutions, their follow-ups and the KRI-8 Figma c
 - Validate `max_back` 3 (KRI-12) → 5 with `loop_check: 3` (KRI-16).
 - `ted run handoff` (KRI-11) → dropped (KRI-17).
 - Factory setup as a Run outside any Task (KRI-16) → a Task (KRI-22).
-- Simulator: TED silently shuts down the oldest (KRI-18) → asks first (KRI-23).
-- Task Lead merges (KRI-12) → TED merges (KRI-52).
+- Simulator: Ted silently shuts down the oldest (KRI-18) → asks first (KRI-23).
+- Task Lead merges (KRI-12) → Ted merges (KRI-52).
 - Request changes at Review keeps the Task in the Stage (KRI-12) → the Task Lead picks Work or Design (KRI-18).
 - Override and Reset write at once (KRI-12) → collect until Save (KRI-22).
 - Claude Code through the Agent SDK (KRI-20) → CLI for subscriptions (KRI-21, ADR 0004).
@@ -165,7 +165,7 @@ Most of the KRI-54 to KRI-66 resolutions, their follow-ups and the KRI-8 Figma c
 ### Settled by KRI-53 to KRI-66
 - Talk it through with `planner` (KRI-53) → in the Task Lead’s own Run (KRI-60).
 - Symlinked worktree files (KRI-20) → copied (KRI-58).
-- Agents open pull requests at Review (KRI-58) → TED pushes and opens draft pull requests at Validate (KRI-58 follow-up).
+- Agents open pull requests at Review (KRI-58) → Ted pushes and opens draft pull requests at Validate (KRI-58 follow-up).
 - Removing a secondary repo while Tasks use it (KRI-58) → refused (coordinator decision 12).
 - All Checks run after a failure (KRI-60) → stop at the first failure (Nabha’s review).
 - No CI after a 2-minute wait (KRI-60) → detected at push (Nabha’s review).

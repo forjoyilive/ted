@@ -141,7 +141,7 @@ export function createIntegrations(options: IntegrationsOptions): Integrations {
     }
     if (version === undefined) {
       return {
-        cli: { state: 'failed', path: bin, error: 'TED couldn’t read the GitHub CLI’s version' },
+        cli: { state: 'failed', path: bin, error: 'Ted couldn’t read the GitHub CLI’s version' },
         hosts: hosts('failed'),
       }
     }
@@ -427,7 +427,7 @@ function githubBanner(
   }
   if (cli.state === 'too-old') {
     return {
-      text: `GitHub CLI ${cli.version} is too old · TED needs ${minGhVersion}`,
+      text: `GitHub CLI ${cli.version} is too old · Ted needs ${minGhVersion}`,
       fix: { fix: 'gh-update' },
     }
   }

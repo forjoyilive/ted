@@ -51,12 +51,12 @@ export function asanaCreateLabel(preview: Preview): string {
 }
 
 function syncNote(sync: boolean, switchOn: boolean, tracked: boolean): string {
-  const kept = tracked ? ' Tasks TED already tracks keep their own setting.' : ''
+  const kept = tracked ? ' Tasks Ted already tracks keep their own setting.' : ''
   if (!sync)
     return `The new Tasks won’t update Asana. Choose Sync with Asana in a Task’s menu to turn it on later.${kept}`
   if (!switchOn)
-    return `Task Sync is off in Settings, so TED won’t update Asana until you turn it on.${kept}`
-  return `TED comments on each Asana task with each pull request and completes it once its Task merges.${kept}`
+    return `Task Sync is off in Settings, so Ted won’t update Asana until you turn it on.${kept}`
+  return `Ted comments on each Asana task with each pull request and completes it once its Task merges.${kept}`
 }
 
 export function AsanaImportPreview({
@@ -90,7 +90,7 @@ export function AsanaImportPreview({
               ? 'Reading the task and everything under it from Asana…'
               : preview?.tracked
                 ? `Already tracked as ${preview.tracked.displayId}. Existing Tasks keep their descriptions, Stage and Runs.`
-                : 'TED creates a Task for this item and each unfinished item under it, with their descriptions, comments and files. Later changes in Asana don’t come across.'}
+                : 'Ted creates a Task for this item and each unfinished item under it, with their descriptions, comments and files. Later changes in Asana don’t come across.'}
           </span>
         </span>
         <ActionButton
@@ -173,7 +173,7 @@ export function AsanaImportPreview({
                     {row.action.kind === 'unreadable'
                       ? `${row.name}: ${row.action.reason}.`
                       : row.action.kind === 'conflict'
-                        ? `${row.name} is already ${row.action.displayId} under ${row.action.parentDisplayId}. TED leaves it there.`
+                        ? `${row.name} is already ${row.action.displayId} under ${row.action.parentDisplayId}. Ted leaves it there.`
                         : row.name}
                   </li>
                 ))}
@@ -228,7 +228,7 @@ export function taskSyncText(sync: AsanaSync): { state: string; why: string } {
     case 'not-allowed':
       return {
         state: 'Not syncing',
-        why: 'Choose Sync with Asana in the Task menu to let TED update this Asana task.',
+        why: 'Choose Sync with Asana in the Task menu to let Ted update this Asana task.',
       }
     case 'off':
       return {
@@ -238,7 +238,7 @@ export function taskSyncText(sync: AsanaSync): { state: string; why: string } {
     case 'disconnected':
       return {
         state: 'Paused: Asana isn’t connected',
-        why: 'TED catches up once you connect the same account in Settings → Integrations.',
+        why: 'Ted catches up once you connect the same account in Settings → Integrations.',
       }
     case 'other-account':
       return {
@@ -248,7 +248,7 @@ export function taskSyncText(sync: AsanaSync): { state: string; why: string } {
     case 'waiting-merge':
       return {
         state: 'Syncing',
-        why: `TED comments with each pull request and completes the Asana task once they all merge.${
+        why: `Ted comments with each pull request and completes the Asana task once they all merge.${
           sync.linked > 0
             ? ` ${sync.linked} ${sync.linked === 1 ? 'pull request' : 'pull requests'} linked.`
             : ''
@@ -258,33 +258,33 @@ export function taskSyncText(sync: AsanaSync): { state: string; why: string } {
       const n = sync.openChildren ?? 1
       return {
         state: 'Not completed yet',
-        why: `Every pull request merged, but ${n} ${n === 1 ? 'task' : 'tasks'} under it in Asana ${n === 1 ? 'isn’t' : 'aren’t'} complete. ${n === 1 ? 'Its TED Task completes it' : 'Their TED Tasks complete them'} on merging, and TED completes this one after.`,
+        why: `Every pull request merged, but ${n} ${n === 1 ? 'task' : 'tasks'} under it in Asana ${n === 1 ? 'isn’t' : 'aren’t'} complete. ${n === 1 ? 'Its Ted Task completes it' : 'Their Ted Tasks complete them'} on merging, and Ted completes this one after.`,
       }
     }
     case 'needs-answer':
       return {
         state: 'Waiting for your answer',
-        why: 'Every pull request merged, but items under it in Asana have no TED Task. Answer the question in this Task’s thread.',
+        why: 'Every pull request merged, but items under it in Asana have no Ted Task. Answer the question in this Task’s thread.',
       }
     case 'left-open':
       return {
         state: 'Left open in Asana',
-        why: 'You chose to leave it open while items under it are unfinished. TED asks again if a new one appears.',
+        why: 'You chose to leave it open while items under it are unfinished. Ted asks again if a new one appears.',
       }
     case 'completed-by-ted':
       return {
-        state: 'Completed by TED',
+        state: 'Completed by Ted',
         why: `${sync.completedAt ? `${formatDate(sync.completedAt, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}, ` : ''}after every pull request merged.`,
       }
     case 'completed-in-asana':
       return {
         state: 'Completed in Asana by someone else',
-        why: 'TED links any pull requests and leaves completion alone.',
+        why: 'Ted links any pull requests and leaves completion alone.',
       }
     case 'archived':
       return {
         state: 'Not syncing',
-        why: 'This Task was archived without merging, so TED leaves the Asana task as it is.',
+        why: 'This Task was archived without merging, so Ted leaves the Asana task as it is.',
       }
   }
 }

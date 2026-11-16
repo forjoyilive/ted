@@ -5,10 +5,10 @@ Adding a Factory creates a setup Task, the Factory’s first Task. It goes throu
 ## Considered Options
 
 - **A setup Run outside any Task that posts one review Comment** (the earlier plan from KRI-16). Faster and simpler, but it shows the human none of the Workflow and needed its own approval UI.
-- **TED commits the approved files straight to the default branch.** Rejected: it skips branch protection and review.
+- **Ted commits the approved files straight to the default branch.** Rejected: it skips branch protection and review.
 
 ## Consequences
 
 - The Design and Review Gates are always on for a setup Task, even if the Library turns them off.
-- The Factory can be used while setup runs. Tasks started before it merges use the inherited layers, and TED warns about this.
+- The Factory can be used while setup runs. Tasks started before it merges use the inherited layers, and Ted warns about this.
 - Changing a Factory later uses the same path: a new setup Task, or the Factory settings panel, whose Save opens a pull request.

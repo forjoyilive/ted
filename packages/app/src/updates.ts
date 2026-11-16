@@ -111,20 +111,20 @@ export function updateBanner(status: UpdateStatus, raisedAt: string): Banner[] {
 export function aboutLine(status: UpdateStatus): string | undefined {
   switch (status.state) {
     case 'unavailable':
-      return 'Only an installed copy of TED updates itself.'
+      return 'Only an installed copy of Ted updates itself.'
     case 'checking':
       return 'Checking for updates…'
     case 'up-to-date':
-      return 'TED is up to date.'
+      return 'Ted is up to date.'
     case 'downloading':
-      return `Downloading TED ${status.version}…`
+      return `Downloading Ted ${status.version}…`
     case 'ready':
-      return `Update ready: TED ${status.version}.`
+      return `Update ready: Ted ${status.version}.`
     case 'finishing':
     case 'restarting':
-      return `Restarting to update to TED ${status.version}…`
+      return `Restarting to update to Ted ${status.version}…`
     case 'failed':
-      return `Update to TED ${status.version} failed.`
+      return `Update to Ted ${status.version} failed.`
     case 'idle':
       return undefined
   }
@@ -178,7 +178,7 @@ export function createUpdates(options: {
         }
         break
       case 'error':
-        console.error('TED’s update failed:', event.message)
+        console.error('Ted’s update failed:', event.message)
         if (status.state === 'restarting') {
           const { version } = status
           set({ state: 'failed', version })

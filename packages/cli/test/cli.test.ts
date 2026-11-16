@@ -396,7 +396,7 @@ describe('ted backup', () => {
     expect((await ted(['task', 'list'])).stdout).toBe('No Tasks yet.\n')
   })
 
-  test('list shows the daily backup taken when TED starts, restore --yes doesn’t ask, and an unknown backup fails', async () => {
+  test('list shows the daily backup taken when Ted starts, restore --yes doesn’t ask, and an unknown backup fails', async () => {
     await ted(['task', 'create', 'Fix login'])
 
     const listed = await ted(['backup', 'list'])
@@ -471,7 +471,7 @@ describe('ted dev factory and ted task start', () => {
     await ted(['task', 'create', 'Fix login'])
     await expect(ted(['comment', '--task', 'DEV-1', 'Approved, go ahead'])).rejects.toMatchObject({
       code: 1,
-      stderr: 'ted: only the TED app can do this\n',
+      stderr: 'ted: only the Ted app can do this\n',
     })
   })
 })
@@ -497,7 +497,7 @@ describe('ted automation', () => {
     expect(refused).toMatchObject({
       code: 1,
       stderr:
-        'ted: Create, change, run or delete Automations in the TED app. From a terminal, ted automation can list, show, history and disable.\n',
+        'ted: Create, change, run or delete Automations in the Ted app. From a terminal, ted automation can list, show, history and disable.\n',
     })
 
     await app.updateSettings({ timeFormat: '24-hour', timeZone: 'Europe/London' })
@@ -578,7 +578,7 @@ describe('ted automation', () => {
 describe('ted open', () => {
   async function fakeApp() {
     const launched = path.join(home, 'launched.json')
-    const app = path.join(home, 'TED app')
+    const app = path.join(home, 'Ted app')
     await writeFile(
       app,
       `#!/bin/sh\nprintf '{"args":"%s","runAsNode":"%s"}' "$*" "$ELECTRON_RUN_AS_NODE" > '${launched}'\n`,
@@ -594,18 +594,18 @@ describe('ted open', () => {
     return { env, read, forget }
   }
 
-  test('with the app closed it says so and fails, or starts the app from an installed TED; with the app open it asks the app to show its window instead of launching another copy', async () => {
+  test('with the app closed it says so and fails, or starts the app from an installed Ted; with the app open it asks the app to show its window instead of launching another copy', async () => {
     await ted(['task', 'list'])
     const app = await fakeApp()
 
     await expect(ted(['open'])).rejects.toMatchObject({
       code: 1,
-      stderr: 'ted: TED isn’t open. Open it from your app launcher.\n',
+      stderr: 'ted: Ted isn’t open. Open it from your app launcher.\n',
     })
 
     const starting = await ted(['open'], 30_000, app.env)
 
-    expect(starting.stdout.trim()).toBe('Opening TED')
+    expect(starting.stdout.trim()).toBe('Opening Ted')
     await expect.poll(app.read).toEqual({ args: '', runAsNode: '' })
     await app.forget()
 
@@ -619,12 +619,12 @@ describe('ted open', () => {
 
       const plain = await ted(['open'])
 
-      expect(plain.stdout.trim()).toBe('Opened TED')
+      expect(plain.stdout.trim()).toBe('Opened Ted')
       await expect.poll(requests).toEqual([{ type: 'open-requested' }])
 
       const installed = await ted(['open'], 30_000, app.env)
 
-      expect(installed.stdout.trim()).toBe('Opened TED')
+      expect(installed.stdout.trim()).toBe('Opened Ted')
       await expect.poll(requests).toEqual([{ type: 'open-requested' }, { type: 'open-requested' }])
       expect(await app.read()).toBeUndefined()
     } finally {
@@ -643,15 +643,15 @@ describe('ted open', () => {
     ).rejects.toMatchObject({ code: 1, stderr: 'ted: Not allowed from inside a Run\n' })
   })
 
-  test('doesn’t start TED’s background process just to open the app', async () => {
+  test('doesn’t start Ted’s background process just to open the app', async () => {
     await expect(ted(['open'])).rejects.toMatchObject({ code: 1 })
 
     expect(await readDaemonInfo(home)).toBeUndefined()
   })
 
-  describe('from an installed TED', () => {
+  describe('from an installed Ted', () => {
     test('the bundled Linux command finds and launches its app through an installed symlink', async () => {
-      const outer = path.join(home, 'Installed TED')
+      const outer = path.join(home, 'Installed Ted')
       const resources = path.join(outer, 'resources')
       const bundledCommand = path.join(resources, 'bin', 'ted')
       const stagedCli = path.join(resources, 'app', 'packages', 'cli', 'src', 'main.js')
@@ -679,19 +679,19 @@ describe('ted open', () => {
         env: { ...process.env, TED_HOME: home, TED_APP_EXECUTABLE: '' },
       })
 
-      expect(stdout.trim()).toBe('Opening TED')
+      expect(stdout.trim()).toBe('Opening Ted')
       await expect
         .poll(() => readFile(launched, 'utf8').then(JSON.parse, () => undefined))
         .toEqual({ args: '', runAsNode: '' })
       expect(await readDaemonInfo(home)).toBeUndefined()
     })
 
-    test('starts the app when TED isn’t running at all', async () => {
+    test('starts the app when Ted isn’t running at all', async () => {
       const app = await fakeApp()
 
       const { stdout } = await ted(['open'], 30_000, app.env)
 
-      expect(stdout.trim()).toBe('Opening TED')
+      expect(stdout.trim()).toBe('Opening Ted')
       await expect.poll(app.read).toEqual({ args: '', runAsNode: '' })
       expect(await readDaemonInfo(home)).toBeUndefined()
     })
@@ -703,7 +703,7 @@ describe('ted status and ted doctor', () => {
     const { stdout } = await ted(['status'])
     const pid = await daemonPid()
 
-    expect(stdout).toContain(`TED’s background process is running (pid ${pid})`)
+    expect(stdout).toContain(`Ted’s background process is running (pid ${pid})`)
     expect(stdout).toContain('No problems.')
   })
 

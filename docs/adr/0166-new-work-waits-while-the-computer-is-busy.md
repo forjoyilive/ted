@@ -2,7 +2,7 @@
 
 Status: accepted (KRI-404). Replaces ADR 0101-new-work-waits-while-the-machine-is-busy.
 
-TED measured memory for Settings → Developer but never acted on it. On a Mac that ran out, TED kept starting agents, simulators and Scheduled Checks, and macOS swapped and killed processes. A killed agent went through recovery; a killed Check looked like a real failure. ADR 0101 already held new starts for CPU load, but only behind a setting that was off by default, and it held them by a different rule from what Scheduled Checks used. This ADR makes one rule for both resources.
+Ted measured memory for Settings → Developer but never acted on it. On a Mac that ran out, Ted kept starting agents, simulators and Scheduled Checks, and macOS swapped and killed processes. A killed agent went through recovery; a killed Check looked like a real failure. ADR 0101 already held new starts for CPU load, but only behind a setting that was off by default, and it held them by a different rule from what Scheduled Checks used. This ADR makes one rule for both resources.
 
 ## The rule
 
@@ -49,4 +49,4 @@ Tests never read the real machine. `TED_LOAD_FILE` names a file holding the load
 ## Consequences
 
 - The CPU hold is now on for everyone, including those who had turned the old setting off.
-- Programs other than TED that use the CPU or memory hold TED’s new work too, down to one working Run.
+- Programs other than Ted that use the CPU or memory hold Ted’s new work too, down to one working Run.

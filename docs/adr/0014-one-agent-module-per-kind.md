@@ -10,8 +10,8 @@ claude -p --input-format stream-json --output-format stream-json --verbose
   --settings <TED_HOME>/runs/<run-id>/settings.json --permission-mode auto
 ```
 
-- **Stream-json, not a PTY.** It gives structured output for the Conversation, takes a session ID TED picks, and needs no native module. Agent-orchestrator’s PTY handling is not ported.
-- **The session ID is TED’s**, passed with `--session-id` and stored on `v1.RunStarted`, so it is known before the agent writes anything.
+- **Stream-json, not a PTY.** It gives structured output for the Conversation, takes a session ID Ted picks, and needs no native module. Agent-orchestrator’s PTY handling is not ported.
+- **The session ID is Ted’s**, passed with `--session-id` and stored on `v1.RunStarted`, so it is known before the agent writes anything.
 - **Hooks are only a signal.** `settings.json` configures each hook below with the command `true`, and `--include-hook-events` puts a `hook_started` record for each into the output stream. The state comes from `hook_event`:
 
   | Hook | State |
@@ -21,7 +21,7 @@ claude -p --input-format stream-json --output-format stream-json --verbose
   | `Stop`, `StopFailure` | idle |
 
   Finished comes from the host’s `exit` record (ADR 0013), not a hook: the docs say `Notification` and `SessionEnd` never produce `hook_started`.
-- **Per-Run flags only.** TED never writes to `~/.claude`. The CLI still keeps its own session files there, which `--resume` needs.
+- **Per-Run flags only.** Ted never writes to `~/.claude`. The CLI still keeps its own session files there, which `--resume` needs.
 - The agent’s environment drops `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` (ADR 0004).
 
 Checked on Claude Code 2.1.319 on 2026-11-08 with real `claude -p --model haiku` runs. `UserPromptSubmit` fires for every message written to stdin, `Stop` at the end of every turn, and `PermissionRequest:Bash` before a permission prompt. `hook_name` is the event name, followed by `:<tool>` for tool hooks. The user’s own hooks also produce `hook_started` records, which map the same way.
@@ -33,5 +33,5 @@ Checked on Claude Code 2.1.319 on 2026-11-08 with real `claude -p --model haiku`
 
 ## Consequences
 
-- With no permission handler, `claude -p` denies a prompt at once (`system/permission_denied`), so waiting lasts only a moment until spec 7.8 routes prompts to TED.
+- With no permission handler, `claude -p` denies a prompt at once (`system/permission_denied`), so waiting lasts only a moment until spec 7.8 routes prompts to Ted.
 - The hook names and stream fields are not fully documented. A Claude Code update that changes them breaks Run state, and the stub agent in the tests won’t catch it.

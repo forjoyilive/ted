@@ -127,7 +127,7 @@ describe('Library settings', () => {
     const editor = window.getByRole('textbox', { name: 'Review Stage file' })
     await editor.fill(`${await editor.inputValue()}\n## Also\n\nRead the changelog.\n`)
     await window.getByRole('tab', { name: 'Compare with default' }).click()
-    await window.getByRole('region', { name: 'review.md compared with TED’s default' }).waitFor()
+    await window.getByRole('region', { name: 'review.md compared with Ted’s default' }).waitFor()
     await window.getByText('2 unsaved changes to the Library').waitFor()
     await window.getByRole('button', { name: 'Save', exact: true }).click()
     await window.getByText('2 unsaved changes to the Library').waitFor({ state: 'detached' })

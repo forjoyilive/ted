@@ -6,10 +6,10 @@ export const cleanupNoBack =
   'Cleanup can’t send a Task back: its pull requests have merged. Say what more the code needs in a note; the user can make a Follow-up Task.'
 
 export const cleanupCommandReportRefusal = (step: string): string =>
-  `“${step}” is a command step: TED runs it and records its result. Say what you found about it in your note.`
+  `“${step}” is a command step: Ted runs it and records its result. Say what you found about it in your note.`
 
 export const cleanupRestartNote =
-  'TED restarted before it recorded the result of every Cleanup command, so it ran those commands again.'
+  'Ted restarted before it recorded the result of every Cleanup command, so it ran those commands again.'
 
 export const cleanupDoneRefusal = (displayId: string): string =>
   `${displayId}’s pull requests have already merged and its Cleanup is running; it moves to Done when Cleanup ends`

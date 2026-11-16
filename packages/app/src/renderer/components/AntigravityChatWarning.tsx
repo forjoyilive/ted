@@ -9,7 +9,7 @@ export function AntigravityChatWarning({ agent }: { agent: AgentKind }) {
     <div className={styles.notice}>
       <span>Antigravity can use tools in this chat.</span>
       <Help align="end">
-        Its built-in tools may run without asking. TED uses an isolated workspace and keeps file,
+        Its built-in tools may run without asking. Ted uses an isolated workspace and keeps file,
         command, web and MCP permissions denied. Choose Claude Code or Codex if you need a tool-free
         chat.
       </Help>

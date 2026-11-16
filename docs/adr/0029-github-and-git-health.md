@@ -4,7 +4,7 @@ Status: accepted (KRI-114)
 
 ## Context
 
-ADR 0007 has TED reach GitHub only through the user’s `gh` login. Spec 9.1, 11.3 and 2.5 add that TED checks `gh auth status --json hosts` at start, every 10 minutes and after any auth error, shows the result per host in Settings → Integrations, raises an app-wide banner when `gh` is missing, too old or signed out, and runs every Fix command in the user’s own terminal. Later tickets (pull requests, watching, merging) need a way to call `gh` that keeps those rules.
+ADR 0007 has Ted reach GitHub only through the user’s `gh` login. Spec 9.1, 11.3 and 2.5 add that Ted checks `gh auth status --json hosts` at start, every 10 minutes and after any auth error, shows the result per host in Settings → Integrations, raises an app-wide banner when `gh` is missing, too old or signed out, and runs every Fix command in the user’s own terminal. Later tickets (pull requests, watching, merging) need a way to call `gh` that keeps those rules.
 
 ## Decision
 

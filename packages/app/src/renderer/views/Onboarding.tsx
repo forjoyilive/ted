@@ -108,7 +108,7 @@ function OnboardingSteps({
       <OnboardingFrame label="Get ready to build faster" centered narrow footer={footer()}>
         <h1 className={styles.title}>Get ready to build faster</h1>
         <p className={styles.lead}>
-          TED runs your software work like a factory, and you’re the one steering it.
+          Ted runs your software work like a factory, and you’re the one steering it.
         </p>
         <p className={styles.body}>
           You write a Task. A Task Lead, run by a Provider (Claude Code, Codex or Antigravity),
@@ -121,8 +121,8 @@ function OnboardingSteps({
         </p>
         <p className={styles.body}>
           {addFactory
-            ? 'Next: a quick look at how it works, a check of the tools TED needs, and your first Factory.'
-            : 'Next: a quick look at how it works and a check of the tools TED needs.'}
+            ? 'Next: a quick look at how it works, a check of the tools Ted needs, and your first Factory.'
+            : 'Next: a quick look at how it works and a check of the tools Ted needs.'}
         </p>
       </OnboardingFrame>
     )
@@ -135,7 +135,7 @@ function OnboardingSteps({
         <div className={styles.how}>
           <HowRow
             heading="Give each product a Factory, and each change a Task"
-            text="A Factory is one product: its GitHub repos and the Workflow TED follows for them. A Task is one piece of work in a Factory, from a sentence to a full spec. Each Task gets its own branch and its own agent."
+            text="A Factory is one product: its GitHub repos and the Workflow Ted follows for them. A Task is one piece of work in a Factory, from a sentence to a full spec. Each Task gets its own branch and its own agent."
           >
             <article className={`${boardStyles.card} ${styles.sampleCard}`}>
               <span className={boardStyles.cardTop}>

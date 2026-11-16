@@ -49,7 +49,7 @@ describe('the sign-off Preview row', () => {
   })
 
   test('without a web App, a command App opens its own window', () => {
-    const desk = app({ name: 'TED Dev', kind: 'command' })
+    const desk = app({ name: 'Ted Dev', kind: 'command' })
     expect(previewChoice(task(), [desk])).toEqual({ kind: 'window', app: desk })
   })
 

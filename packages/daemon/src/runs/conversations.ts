@@ -134,13 +134,13 @@ function withOutputNote(kept: OutputKept, items: ChatItem[]): ChatItem[] {
           kind: 'ted',
           id: 'output-not-kept',
           title: 'Output no longer kept',
-          text: 'TED no longer keeps this Run’s output, so its messages and tool calls can’t be shown.',
+          text: 'Ted no longer keeps this Run’s output, so its messages and tool calls can’t be shown.',
         }
       : {
           kind: 'ted',
           id: 'output-not-kept',
           title: 'Earlier output no longer kept',
-          text: 'TED kept only the newest part of this Run’s output. Earlier messages and tool calls can’t be shown.',
+          text: 'Ted kept only the newest part of this Run’s output. Earlier messages and tool calls can’t be shown.',
         }
   return [...items.slice(0, at), note, ...items.slice(at)]
 }
@@ -465,7 +465,7 @@ export function createConversations(options: {
           kind: 'ted',
           id: `${id}:new-run`,
           title: 'New Run',
-          text: 'The earlier Run ended, so TED started a new one and gave it this conversation as context.',
+          text: 'The earlier Run ended, so Ted started a new one and gave it this conversation as context.',
           at: read.run.startedAt,
         })
       }
@@ -623,7 +623,7 @@ export function createConversations(options: {
         throw new RequestError(409, 'The Run is working. Restart it when it’s idle or waiting.')
       }
       if (run.state === 'finished') throw new RequestError(409, 'This Run has finished')
-      if (disk.held()) throw new RequestError(507, 'The disk is full, so TED isn’t restarting Runs')
+      if (disk.held()) throw new RequestError(507, 'The disk is full, so Ted isn’t restarting Runs')
       if (restarting.has(runId)) throw new RequestError(409, 'The Run is already restarting')
       restarting.add(runId)
       try {

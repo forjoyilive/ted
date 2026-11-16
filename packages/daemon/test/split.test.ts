@@ -178,7 +178,7 @@ describe('Size check', () => {
       stage: 'clarify',
       title: 'Too big for one pull request per repo',
       body: 'Offline editing touches storage, sync and the editor; that is several pull requests.',
-      choices: ['Plan in chat', 'Split it', 'Plan it outside TED', 'Grill anyway'],
+      choices: ['Plan in chat', 'Split it', 'Plan it outside Ted', 'Grill anyway'],
       sizeCheck: {
         settle: ['How conflicts between devices are resolved', 'Which piece ships first'],
       },
@@ -401,7 +401,7 @@ describe('Split it', () => {
       ['Second piece', 'intake', true],
     ])
     expect(await threadLines(client, task)).toContain(
-      'Every Task under this one has merged and it had no work of its own, so TED finished it.',
+      'Every Task under this one has merged and it had no work of its own, so Ted finished it.',
     )
   })
 
@@ -444,7 +444,7 @@ describe('Split it', () => {
   })
 })
 
-describe('Plan it outside TED', () => {
+describe('Plan it outside Ted', () => {
   test('the Task returns to Backlog with Needs planning and its Run stops; starting it clears the marker and runs Clarify', async () => {
     const client = await start()
     const task = await startTask(client, advance, tooBig, { endTurn: true })
@@ -452,7 +452,7 @@ describe('Plan it outside TED', () => {
     const run = await leadRun(client, task.id)
     await client.ok('POST', `/comments/${item.request.id}/answer`, {
       action: 'answer',
-      choice: 'Plan it outside TED',
+      choice: 'Plan it outside Ted',
     })
 
     const parked = await waitUntil(async () => {
@@ -471,7 +471,7 @@ describe('Plan it outside TED', () => {
       'Offline editing touches storage, sync and the editor; that is several pull requests.',
     )
     expect(note?.body).toContain('- How conflicts between devices are resolved')
-    expect(await threadLines(client, task)).toContain('Moved to Backlog to be planned outside TED')
+    expect(await threadLines(client, task)).toContain('Moved to Backlog to be planned outside Ted')
 
     await client.ok('POST', `/tasks/${task.id}/start`)
     const restarted = await waitUntil(async () => {
@@ -481,6 +481,6 @@ describe('Plan it outside TED', () => {
     expect(restarted.stage).toBe('clarify')
     expect(restarted.markers).toEqual([])
     const fresh = await client.getRun(restarted.leadRunId ?? '')
-    expect(fresh.run.prompt).toContain('Picking up after planning outside TED')
+    expect(fresh.run.prompt).toContain('Picking up after planning outside Ted')
   })
 })

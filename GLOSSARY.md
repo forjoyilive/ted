@@ -1,11 +1,11 @@
-# TED
+# Ted
 
-TED (“Totally Excellent Development”) runs software factories: agents carry development tasks through a configurable workflow, and the human steers through an inbox and comments.
+Ted (“Totally Excellent Development”) runs software factories: agents carry development tasks through a configurable workflow, and the human steers through an inbox and comments.
 
 ## Language
 
 **Controller**:
-The Mac that owns the authoritative Tasks, Inbox, queue and Workflow decisions when TED uses several machines.
+The Mac that owns the authoritative Tasks, Inbox, queue and Workflow decisions when Ted uses several machines.
 _Avoid_: Primary server, master
 
 **Execution machine**:
@@ -35,7 +35,7 @@ The first repo of a Factory, which holds the Factory’s own Workflow files and 
 _Avoid_: Main repo, root repo, home repo
 
 **Local folder**:
-The user’s own clone of a repo on one machine, which TED reads only as the source of files copied into new worktrees; saved per machine, never in the Workflow.
+The user’s own clone of a repo on one machine, which Ted reads only as the source of files copied into new worktrees; saved per machine, never in the Workflow.
 _Avoid_: Local path, working copy, checkout
 
 **Factory key**:
@@ -51,7 +51,7 @@ One step of a Workflow (for example Clarify or Validate), defined by a Stage fil
 _Avoid_: Step, phase, column
 
 **Custom Stage**:
-A Stage a Factory or the Library adds by hand: an id in `order`, a Stage file with that id and optional settings, including a display name. The Task Lead follows its Stage file and ends it with an advance or a send-back like any working Stage; TED gives it no special work of its own.
+A Stage a Factory or the Library adds by hand: an id in `order`, a Stage file with that id and optional settings, including a display name. The Task Lead follows its Stage file and ends it with an advance or a send-back like any working Stage; Ted gives it no special work of its own.
 _Avoid_: Plugin Stage, extra step
 
 **Backlog**:
@@ -63,7 +63,7 @@ An optional Stage between Merge and Done, where the Task Lead carries out the Fa
 _Avoid_: Post-merge, wrap-up
 
 **Cleanup step**:
-One named step in a Factory’s Cleanup, such as posting the merged pull request to an Asana task or shutting down a test environment. An instruction step is carried out by the Task Lead, who reports it as done, skipped or failed; a command step is a shell command TED runs itself before the Task Lead acts, and passes or fails.
+One named step in a Factory’s Cleanup, such as posting the merged pull request to an Asana task or shutting down a test environment. An instruction step is carried out by the Task Lead, who reports it as done, skipped or failed; a command step is a shell command Ted runs itself before the Task Lead acts, and passes or fails.
 _Avoid_: Hook, after-merge action
 
 **Done**:
@@ -71,11 +71,11 @@ The holding Stage at the end of a Workflow where a Task sits once all of its pul
 _Avoid_: Closed, complete, shipped
 
 **Sign-Off**:
-A setting on a Stage that makes the Task wait for the human’s sign-off at the end of that Stage before it moves on; a Stage that skips itself skips its sign-off. Set in TED’s defaults, the user’s Library, or a Factory, with optional choices for one Task. The configuration key remains `gate`. Autopilot turns these sign-offs off while it is on; Sign-offs TED forces stay.
+A setting on a Stage that makes the Task wait for the human’s sign-off at the end of that Stage before it moves on; a Stage that skips itself skips its sign-off. Set in Ted’s defaults, the user’s Library, or a Factory, with optional choices for one Task. The configuration key remains `gate`. Autopilot turns these sign-offs off while it is on; Sign-offs Ted forces stay.
 _Avoid_: Approval step, checkpoint
 
 **Autopilot**:
-A mode in which the Task Lead makes routine decisions and carries a Task through Merge without routine questions or sign-offs, while protected decisions still wait for the user. Each Task follows the global setting or explicitly turns Autopilot on or off; the user can change a selected set together. A Task that changes TED’s settings in `.ted/`, and, while the setting for it is on, a Task an Automation made or whose GitHub issue has text from outsiders, keeps its sign-offs, with the Review sign-off forced on.
+A mode in which the Task Lead makes routine decisions and carries a Task through Merge without routine questions or sign-offs, while protected decisions still wait for the user. Each Task follows the global setting or explicitly turns Autopilot on or off; the user can change a selected set together. A Task that changes Ted’s settings in `.ted/`, and, while the setting for it is on, a Task an Automation made or whose GitHub issue has text from outsiders, keeps its sign-offs, with the Review sign-off forced on.
 _Avoid_: Overnight mode, auto mode
 
 **Stage file**:
@@ -87,7 +87,7 @@ How much questioning Clarify does on a Task: none, a few simple questions in one
 _Avoid_: Tier, level
 
 **Check**:
-A command a Factory lists for Validate, which TED runs itself before the Task leaves Work, or at Validate entry when the Task comes from another Stage; it passes when the command exits cleanly. A failure before leaving Work keeps the Task in Work. A failure at Validate entry stays in Validate for diagnosis; an evidenced regression or the human’s Fix decision sends the Task back to Work. The machine runs the Checks of only so many Tasks at once; the others wait their turn.
+A command a Factory lists for Validate, which Ted runs itself before the Task leaves Work, or at Validate entry when the Task comes from another Stage; it passes when the command exits cleanly. A failure before leaving Work keeps the Task in Work. A failure at Validate entry stays in Validate for diagnosis; an evidenced regression or the human’s Fix decision sends the Task back to Work. The machine runs the Checks of only so many Tasks at once; the others wait their turn.
 _Avoid_: Test (when meaning the command), CI job
 
 **Finding**:
@@ -119,7 +119,7 @@ The one place to look at a Task’s work: the hosted preview its pull request re
 _Avoid_: Demo, staging
 
 **Library**:
-A user’s own Stage files and Workflow settings, which apply to all of that user’s Factories; they override TED’s defaults and are overridden by a Factory’s own files.
+A user’s own Stage files and Workflow settings, which apply to all of that user’s Factories; they override Ted’s defaults and are overridden by a Factory’s own files.
 _Avoid_: Templates, presets
 
 **Task**:
@@ -131,11 +131,11 @@ The folder `~/.ted/worktrees/<TASK-ID>/` holding one worktree per repo of a Task
 _Avoid_: Workspace, Task directory
 
 **Task shell**:
-The human’s own login shell in one repo’s worktree of a Task, shown in place of the thread; TED’s daemon keeps it running until the worktree is removed, and `ted` commands in it act as the human.
+The human’s own login shell in one repo’s worktree of a Task, shown in place of the thread; Ted’s daemon keeps it running until the worktree is removed, and `ted` commands in it act as the human.
 _Avoid_: Terminal, console, Run
 
 **Parent Task**:
-A Task with child Tasks under it. It waits while a child that isn’t archived is unmerged, then does only the work that brings its children’s work together and the final work no child owns. A parent TED made from Split it or a plan moves to Done by itself once its children have merged, if it has no work of its own. Archive, delete and unarchive act on it and every Task under it unless the user detaches the children.
+A Task with child Tasks under it. It waits while a child that isn’t archived is unmerged, then does only the work that brings its children’s work together and the final work no child owns. A parent Ted made from Split it or a plan moves to Done by itself once its children have merged, if it has no work of its own. Archive, delete and unarchive act on it and every Task under it unless the user detaches the children.
 _Avoid_: Epic, group, umbrella
 
 **Child Task**:
@@ -155,15 +155,15 @@ The human’s choice to throw away what a started Task has done (its worktree, b
 _Avoid_: Restart, retry, redo
 
 **Source**:
-The URL of the item a Task was created from, such as a Linear, Sentry or GitHub issue. A Linear source also fills in the Task’s title, Priority and branch when TED has a Linear API key. A GitHub issue in one of the Factory’s repos fills in the title, a copy of the issue and its comments with each author marked maintainer or outsider, and its files, read through the user’s `gh` login.
+The URL of the item a Task was created from, such as a Linear, Sentry or GitHub issue. A Linear source also fills in the Task’s title, Priority and branch when Ted has a Linear API key. A GitHub issue in one of the Factory’s repos fills in the title, a copy of the issue and its comments with each author marked maintainer or outsider, and its files, read through the user’s `gh` login.
 _Avoid_: Origin, link, ticket
 
 **Tracker sync**:
-TED keeping a Task’s Source item (a Linear issue, an Asana item or a GitHub issue) up to date: it moves the item forward as the Task goes on, links its pull requests and notices when the item is closed outside TED. For Linear and Asana it runs only for a Task the human allowed, one by one or for a whole group (a Linear team or an Asana project) in one Factory; for GitHub issues one machine setting, off by default, turns it on for every Task whose GitHub issue TED imported (a Source that kept only the link doesn’t sync). Each tracker plugs in through a connector.
+Ted keeping a Task’s Source item (a Linear issue, an Asana item or a GitHub issue) up to date: it moves the item forward as the Task goes on, links its pull requests and notices when the item is closed outside Ted. For Linear and Asana it runs only for a Task the human allowed, one by one or for a whole group (a Linear team or an Asana project) in one Factory; for GitHub issues one machine setting, off by default, turns it on for every Task whose GitHub issue Ted imported (a Source that kept only the link doesn’t sync). Each tracker plugs in through a connector.
 _Avoid_: Integration sync, two-way sync
 
 **Task Sync**:
-What the app calls Tracker sync for an Asana item: TED comments on the item with each pull request it opens and completes it once every pull request of the Task merged. A Task imported in the app has it from the start unless the user unticks it in the import dialog; any other Task gets it from **Sync with Asana** in the Task menu, or from an Asana project the Factory allows. It belongs to the Asana account connected when it was allowed, and the Task shows its Task Sync state.
+What the app calls Tracker sync for an Asana item: Ted comments on the item with each pull request it opens and completes it once every pull request of the Task merged. A Task imported in the app has it from the start unless the user unticks it in the import dialog; any other Task gets it from **Sync with Asana** in the Task menu, or from an Asana project the Factory allows. It belongs to the Asana account connected when it was allowed, and the Task shows its Task Sync state.
 _Avoid_: Asana sync, auto-complete
 
 **Original request**:
@@ -211,13 +211,13 @@ A Run the Task Lead starts on its Task for one piece of work, such as exploring 
 _Avoid_: Worker, helper, child agent
 
 **Reviewer**:
-The sub-agent that reviews a Task’s diff at Validate with no Work context. TED picks its Provider from the `reviewer` setting, by default the other Provider from the Task Lead’s. Each Validate visit gets one. From the second round TED limits it to the earlier Findings and the changes since the last reviewed commit, and after a send-back for a conflict with the base branch to the conflict resolution.
+The sub-agent that reviews a Task’s diff at Validate with no Work context. Ted picks its Provider from the `reviewer` setting, by default the other Provider from the Task Lead’s. Each Validate visit gets one. From the second round Ted limits it to the earlier Findings and the changes since the last reviewed commit, and after a send-back for a conflict with the base branch to the conflict resolution.
 
 **Loop check**:
-A sub-agent TED starts itself at Validate’s third send-back to read the rounds of Findings and say whether they are converging or looping.
+A sub-agent Ted starts itself at Validate’s third send-back to read the rounds of Findings and say whether they are converging or looping.
 
 **Run**:
-One agent conversation, on a Task (the Task Lead’s or a sub-agent’s), for an Automation, for planning, or for a Coordinator, from when TED starts it until it is stopped. TED may restart the Provider underneath it, for example onto a new Provider version, and it is still the same Run. A stopped Run is kept as history and never resumed; work continues in a fresh Run.
+One agent conversation, on a Task (the Task Lead’s or a sub-agent’s), for an Automation, for planning, or for a Coordinator, from when Ted starts it until it is stopped. Ted may restart the Provider underneath it, for example onto a new Provider version, and it is still the same Run. A stopped Run is kept as history and never resumed; work continues in a fresh Run.
 _Avoid_: Session, job
 
 **Provider**:
@@ -249,23 +249,23 @@ A note the human attaches to one line of a Task’s diff; it stays a draft until
 _Avoid_: Inline comment, review comment, diff comment
 
 **Automation**:
-A schedule in a Factory that starts a Run each time it fires, outside any Task, usually to bring new work in as Tasks; one of several ways Tasks are created, alongside the human creating them by hand. With **Run in a copy of the code** on, each of its Runs works in a fresh copy of the default branch and can start the Factory’s Apps there and drive its web Apps in a headless browser; TED removes them when the Run ends.
+A schedule in a Factory that starts a Run each time it fires, outside any Task, usually to bring new work in as Tasks; one of several ways Tasks are created, alongside the human creating them by hand. With **Run in a copy of the code** on, each of its Runs works in a fresh copy of the default branch and can start the Factory’s Apps there and drive its web Apps in a headless browser; Ted removes them when the Run ends.
 _Avoid_: Cron job, trigger
 
 **Scheduled Check**:
-An Automation that runs its own command as a Check in a fresh worktree on the tip of the Factory’s default branch. Its **agent step** (when the Check fails, after every run, or never) then starts an agent Run in a copy of the same commit, which investigates the result and creates Tasks, adds notes to open ones and, with **Start the Tasks it creates** ticked, starts the Tasks it created. Without the agent step, or when the agent Run can’t start, fails or ends without reporting, TED creates one Task per failing test file, and a later failure of the same test file adds a note to its open Task instead of making another.
+An Automation that runs its own command as a Check in a fresh worktree on the tip of the Factory’s default branch. Its **agent step** (when the Check fails, after every run, or never) then starts an agent Run in a copy of the same commit, which investigates the result and creates Tasks, adds notes to open ones and, with **Start the Tasks it creates** ticked, starts the Tasks it created. Without the agent step, or when the agent Run can’t start, fails or ends without reporting, Ted creates one Task per failing test file, and a later failure of the same test file adds a note to its open Task instead of making another.
 _Avoid_: Nightly build, scheduled test run
 
 **Asana intake**:
-TED bringing the user’s unfinished Asana work into one Factory: the user picks one Asana project, and optionally one section of it, and each run imports every task there that is assigned to them, with the unfinished tasks under it, as Tasks in Backlog. TED checks every item with Asana itself and never imports one twice. The **Import my Asana work** Automation template runs it every 30 minutes by default.
+Ted bringing the user’s unfinished Asana work into one Factory: the user picks one Asana project, and optionally one section of it, and each run imports every task there that is assigned to them, with the unfinished tasks under it, as Tasks in Backlog. Ted checks every item with Asana itself and never imports one twice. The **Import my Asana work** Automation template runs it every 30 minutes by default.
 _Avoid_: Asana sync (that is keeping imported items up to date)
 
 **GitHub intake**:
-A Factory’s choice of which GitHub issues its Automations may turn into Tasks: any open issue in its repos, or only open issues with a label the user names. TED reads each issue itself before an Automation imports it, refuses the rest, and keeps those Tasks in Backlog. Tasks the user creates aren’t limited.
+A Factory’s choice of which GitHub issues its Automations may turn into Tasks: any open issue in its repos, or only open issues with a label the user names. Ted reads each issue itself before an Automation imports it, refuses the rest, and keeps those Tasks in Backlog. Tasks the user creates aren’t limited.
 _Avoid_: GitHub sync (that is keeping imported issues up to date)
 
 **Daemon**:
-TED’s background process on each machine, which keeps Runs, Automations and the store going while no window is open. The UI calls it “TED in the background”, not the daemon.
+Ted’s background process on each machine, which keeps Runs, Automations and the store going while no window is open. The UI calls it “Ted in the background”, not the daemon.
 _Avoid_: Server, backend, service
 
 **View**:
@@ -297,13 +297,13 @@ A one-line notice of a machine or Factory problem, shown app-wide or on one Fact
 _Avoid_: Alert, error bar, toast
 
 **Onboarding**:
-The full-window steps a new user sees the first time TED opens on a machine: what TED is, how it works, Set up TED’s checks, and the Add Factory dialog for the first Factory. Developer mode can show them again on the next start.
+The full-window steps a new user sees the first time Ted opens on a machine: what Ted is, how it works, Set up Ted’s checks, and the Add Factory dialog for the first Factory. Developer mode can show them again on the next start.
 _Avoid_: Tutorial, welcome wizard, Factory setup
 
 **Guide card**:
-The card at the bottom of the sidebar that follows a new user’s first Factory through its setup Task, saying in fixed text what TED is doing and what the user should do next, with at most one button. It ends when the user creates their first Task, hides it, or the setup Task is archived or deleted.
+The card at the bottom of the sidebar that follows a new user’s first Factory through its setup Task, saying in fixed text what Ted is doing and what the user should do next, with at most one button. It ends when the user creates their first Task, hides it, or the setup Task is archived or deleted.
 _Avoid_: Tutorial, checklist, coach marks
 
-**TED Dev**:
-TED run from source (`pnpm app`, `pnpm ted`), as opposed to the installed release. It has its own home folder (`~/.ted-dev`), app name, keyring entry and Factories, and never installs a command, a login item or an update, so it can run beside the release on one machine.
-_Avoid_: Debug build, local TED
+**Ted Dev**:
+Ted run from source (`pnpm app`, `pnpm ted`), as opposed to the installed release. It has its own home folder (`~/.ted-dev`), app name, keyring entry and Factories, and never installs a command, a login item or an update, so it can run beside the release on one machine.
+_Avoid_: Debug build, local Ted

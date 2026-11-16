@@ -25,7 +25,7 @@ import {
 
 setUpAppTests()
 
-describe('TED app', () => {
+describe('Ted app', () => {
   test('launching the app starts the daemon through Electron when none is running', async () => {
     await launchApp()
 
@@ -457,7 +457,7 @@ describe('TED app', () => {
 
     const chat = window.getByRole('region', { name: 'Run chat' })
     await chat.getByText('Pinned notes now sort first.').waitFor()
-    await chat.getByRole('button', { name: /TED’s instructions for this Run/ }).waitFor()
+    await chat.getByRole('button', { name: /Ted’s instructions for this Run/ }).waitFor()
     await chat.getByRole('button', { name: /^Edit/ }).click()
     await chat.getByText('by pinned').waitFor()
     expect(await chat.getByRole('button', { name: 'Restart' }).count()).toBe(0)

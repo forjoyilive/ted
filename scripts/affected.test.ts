@@ -185,7 +185,7 @@ describe('which tests a change affects', () => {
     expect(chooseTier(both, tests.length, 3).run.map((pick) => pick.file)).toContain(
       'packages/app/test/app-inbox.test.ts',
     )
-    expect(leftOutText(both.picks, electron, 'TED’s sandbox')).toContain(
+    expect(leftOutText(both.picks, electron, 'Ted’s sandbox')).toContain(
       '  packages/app/test/app-inbox.test.ts  app area “inbox”',
     )
     expect(
@@ -492,7 +492,7 @@ describe('what the command prints', () => {
 
 describe('what a sandboxed run leaves out', () => {
   const text = (...changed: string[]) =>
-    leftOutText(select(...changed).picks, electron, 'TED’s sandbox')
+    leftOutText(select(...changed).picks, electron, 'Ted’s sandbox')
 
   test('nothing when no Electron test runs', () => {
     expect(text('packages/daemon/src/redact.ts')).toBeUndefined()
@@ -501,7 +501,7 @@ describe('what a sandboxed run leaves out', () => {
   test('the Electron tests that changed or were picked by name are listed to run by hand', () => {
     expect(
       text('packages/app/src/renderer/inbox.ts', 'packages/app/test/app.test.ts'),
-    ).toBe(`TED’s sandbox can’t start Electron, so the Affected tests Check left the Electron app tests out.
+    ).toBe(`Ted’s sandbox can’t start Electron, so the Affected tests Check left the Electron app tests out.
 Run these outside the sandbox, at most 3 files per command: pnpm vitest run <files>
   packages/app/test/app-inbox.test.ts  app area “inbox” (packages/app/src/renderer/inbox.ts)
   packages/app/test/app.test.ts  changed`)
@@ -510,15 +510,15 @@ Run these outside the sandbox, at most 3 files per command: pnpm vitest run <fil
   test('Electron tests that only import changed code are counted, not listed', () => {
     expect(
       text('packages/app/test/first-window.ts'),
-    ).toBe(`TED’s sandbox can’t start Electron, so the Affected tests Check left the Electron app tests out.
+    ).toBe(`Ted’s sandbox can’t start Electron, so the Affected tests Check left the Electron app tests out.
 None of them was changed or is named after a changed file, so none needs a run by hand.
 Also left out: ${electron.size} files that only import changed code.`)
   })
 })
 
-test('Electron can’t start in Codex’s sandbox, or in TED’s on macOS', () => {
+test('Electron can’t start in Codex’s sandbox, or in Ted’s on macOS', () => {
   expect(electronSandbox({}, 'darwin')).toBeUndefined()
-  expect(electronSandbox({ TED_SANDBOX: '1' }, 'darwin')).toBe('TED’s sandbox')
+  expect(electronSandbox({ TED_SANDBOX: '1' }, 'darwin')).toBe('Ted’s sandbox')
   expect(electronSandbox({ TED_SANDBOX: '1' }, 'linux')).toBeUndefined()
   expect(electronSandbox({ CODEX_SANDBOX: 'seatbelt' }, 'linux')).toBe('Codex’s sandbox')
 })

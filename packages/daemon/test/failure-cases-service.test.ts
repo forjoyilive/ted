@@ -364,7 +364,7 @@ test('accepting a failure with no tested context says so and tells the Task Lead
   const asked = await s.request(await s.record())
   expect(s.comment(asked.decisions.at(-1)?.commentId)).toMatchObject({
     choices: ['Fixed', 'No longer applicable'],
-    body: expect.stringContaining('TED has no record it can verify of what was tested'),
+    body: expect.stringContaining('Ted has no record it can verify of what was tested'),
   })
   expect(await refusalText(() => s.resolve(asked))).toBe(acceptRefusals.unknown)
   expect(s.notes('Failure acceptance refused')[0]?.body).toContain('is a new case')

@@ -241,7 +241,7 @@ describe('settings and Factories over the daemon API', () => {
     ['a terminal font size below 10', { terminalFontSize: 9 }],
     ['a terminal font size above 20', { terminalFontSize: 21 }],
     ['a fractional terminal font size', { terminalFontSize: 12.5 }],
-    ['an editor TED doesn’t know', { editor: 'notepad' }],
+    ['an editor Ted doesn’t know', { editor: 'notepad' }],
     ['a custom editor command with an open quote', { editorCommand: '"my editor {path}' }],
     ['a custom editor command over two lines', { editorCommand: 'code\n{path}' }],
     ['Overnight mode that is not true or false', { overnightMode: 'on' }],

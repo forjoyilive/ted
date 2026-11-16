@@ -188,7 +188,7 @@ export function parseExecutionEndpoint(value: unknown): ExecutionEndpoint {
 }
 export function parseExecutionHello(value: unknown): ExecutionHello {
   const v = object(value)
-  if (v.edition !== 'dev' && v.edition !== 'release') invalid('Invalid TED edition')
+  if (v.edition !== 'dev' && v.edition !== 'release') invalid('Invalid Ted edition')
   if (!Array.isArray(v.capabilities) || v.capabilities.length > 16)
     invalid('Invalid execution capabilities')
   return {
@@ -204,7 +204,7 @@ export function requireExecutionCompatibility(value: ExecutionHello): void {
     !executionCapabilities.every((c) => value.capabilities.includes(c))
   )
     invalid(
-      'Incompatible execution protocol, capabilities or TED edition. Update both Macs to the same TED release.',
+      'Incompatible execution protocol, capabilities or Ted edition. Update both Macs to the same Ted release.',
     )
 }
 export function executionHello(): ExecutionHello {

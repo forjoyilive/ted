@@ -103,7 +103,7 @@ test('pasted app credentials reach the daemon; browser authorization, identity, 
     .toContain('3 Tasks: 1 assigned to you, 1 to others, 1 unassigned')
   expect(await preview.getByRole('listitem').count()).toBe(4)
   expect(await preview.getByLabel('Sync these Tasks with Asana').isChecked()).toBe(true)
-  expect(await preview.textContent()).toContain('TED comments on each Asana task')
+  expect(await preview.textContent()).toContain('Ted comments on each Asana task')
   await newTask.getByLabel('Start now').uncheck()
   await newTask.getByRole('button', { name: 'Create 3 Tasks' }).click()
   await newTask.waitFor({ state: 'detached' })

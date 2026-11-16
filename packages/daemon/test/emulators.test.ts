@@ -265,7 +265,7 @@ describe('Android emulator Apps', () => {
     await waitUntil(
       async () =>
         (await client.ok<{ text: string }[]>('GET', `/tasks/${first.id}/events`)).some(
-          (e) => e.text === 'TED shut down android’s emulator to free a slot for NB-2',
+          (e) => e.text === 'Ted shut down android’s emulator to free a slot for NB-2',
         ),
       'the shut-down thread line',
     )
@@ -413,7 +413,7 @@ describe('Android emulator Apps', () => {
 
     const res = await client.call('POST', `/tasks/${task.id}/apps/start`, { name: 'android' })
     expect(res.status).toBe(409)
-    expect((res.body as { error: string }).error).toContain('TED couldn’t run the Android SDK’s')
+    expect((res.body as { error: string }).error).toContain('Ted couldn’t run the Android SDK’s')
     const banners = await client.ok<Banner[]>('GET', '/banners')
     expect(banners.find((b) => b.problem === 'emulator-tools')).toMatchObject({
       severity: 'stops-work',

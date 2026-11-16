@@ -145,7 +145,7 @@ describe('ted ask --supersedes', () => {
       answer: { kind: 'superseded', by: second?.id },
     })
     expect(result?.stdout).toBe(
-      `Replaced request ${first?.id} with request ${second?.id}. TED sends you their answer.\n`,
+      `Replaced request ${first?.id} with request ${second?.id}. Ted sends you their answer.\n`,
     )
     expect((await inbox(client)).map((item) => item.request.id)).toEqual([second?.id])
 

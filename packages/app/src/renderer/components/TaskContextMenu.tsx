@@ -108,7 +108,7 @@ export function BulkConfirmDialog({
           <p className={dialogStyles.body}>
             {kind === 'delete'
               ? 'This removes the selected Tasks, their Runs and Conversations, Comments and briefs. This can’t be undone. Pull requests and branches stay on GitHub.'
-              : 'This stops their Runs and Apps and removes their worktrees. Their history stays in TED.'}
+              : 'This stops their Runs and Apps and removes their worktrees. Their history stays in Ted.'}
           </p>
           {kind === 'archive' && pullRequests.length > 0 && (
             <label className={dialogStyles.body}>

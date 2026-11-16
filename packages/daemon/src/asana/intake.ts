@@ -172,14 +172,14 @@ export async function listAsanaIntake(
     return {
       items: items.slice(0, maxListed),
       ...(listed.more && {
-        incomplete: `Asana listed more than ${maxListed} unfinished tasks in ${scopeName(scope)}; TED checked the first ${maxListed}.`,
+        incomplete: `Asana listed more than ${maxListed} unfinished tasks in ${scopeName(scope)}; Ted checked the first ${maxListed}.`,
       }),
     }
   } catch (error) {
     return {
       items: [],
       incomplete: redactSecrets(
-        `TED couldn’t list the tasks in ${scopeName(scope)}: ${reasonOf(error)}. The next run tries again.`,
+        `Ted couldn’t list the tasks in ${scopeName(scope)}: ${reasonOf(error)}. The next run tries again.`,
       ),
     }
   }

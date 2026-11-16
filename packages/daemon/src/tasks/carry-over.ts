@@ -11,7 +11,7 @@ function block(item: ChatItem): string | undefined {
     case 'tool':
       return `Ran: ${item.title.replace(/\s*\n\s*/g, ' ')}`
     case 'ted':
-      return `TED: ${item.title.replace(/\s*\n\s*/g, ' ')}`
+      return `Ted: ${item.title.replace(/\s*\n\s*/g, ' ')}`
     case 'interrupted':
       return '(The turn was interrupted.)'
     default:

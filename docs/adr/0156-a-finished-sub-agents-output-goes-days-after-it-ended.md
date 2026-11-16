@@ -7,7 +7,7 @@ ADR 0098 kept every Run of an open Task, sub-agents included. Sub-agents and rev
 `runOutputEnd` in `packages/daemon/src/retention.ts` now starts the clock for a finished Run with a `parentRunId` at that Run’s own end time, even while its Task is open. Deletion still goes only through `pruneRunOutput`. Two cases keep the old rule (kept while the Task is open):
 
 - **A sub-agent with a side chat** (`store.sideChats.get(runId)`), because the side chat was started from its conversation.
-- **A reviewer in its own visit**: a Run in `store.reviewers` whose Task is still in the Stage visit the reviewer was chosen in (same Stage, chosen at or after that Stage’s newest entry, Task not archived). `holdsReview` and `reviewed` in `tasks/sub-agents.ts` read the reviewer’s last message from `host.log` to decide whether the visit already has a reviewer. Without it, TED would allow a second reviewer and skip `movedSinceReview`.
+- **A reviewer in its own visit**: a Run in `store.reviewers` whose Task is still in the Stage visit the reviewer was chosen in (same Stage, chosen at or after that Stage’s newest entry, Task not archived). `holdsReview` and `reviewed` in `tasks/sub-agents.ts` read the reviewer’s last message from `host.log` to decide whether the visit already has a reviewer. Without it, Ted would allow a second reviewer and skip `movedSinceReview`.
 
 The Task Lead’s Run and every other rule in ADR 0098 stay as they are.
 

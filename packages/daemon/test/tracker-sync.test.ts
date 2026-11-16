@@ -221,7 +221,7 @@ test('the group question asks once, Allow turns on the group’s waiting Tasks, 
   expect(records().syncState(store.getTask(third.id) as Task)).toBe('ask')
 })
 
-test('an item closed outside TED archives an idle Task with nothing under it, asks for a working one or a parent, and withdraws the question on reopen or finish', async () => {
+test('an item closed outside Ted archives an idle Task with nothing under it, asks for a working one or a parent, and withdraws the question on reopen or finish', async () => {
   const baseline = await trackedTask('1', { closed: true, state: 'Done', group: 'B1' })
   const idle = await trackedTask('2', { closed: false, state: 'Open', group: 'B1' })
   const working = await trackedTask('3', { closed: false, state: 'Open', group: 'B1' })

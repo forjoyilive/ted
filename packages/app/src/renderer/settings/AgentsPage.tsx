@@ -94,7 +94,7 @@ function HealthIcon({ ready }: { ready: boolean }) {
 
 function limitLine(health: AgentHealth): string {
   if (health.limitResetsAt === undefined) {
-    return 'Paused until the limit resets. TED tries one Run every 15 minutes.'
+    return 'Paused until the limit resets. Ted tries one Run every 15 minutes.'
   }
   const full = health.planUsage?.windows.find((w) => w.percent >= 100)
   const which = full ? `the ${windowNames[full.window].toLowerCase()}` : 'the limit'
@@ -169,8 +169,8 @@ function BillingChoice({
             {billingNames[choice]}
             {choice === 'subscription' && (
               <Help>
-                TED removes {keyVariables[agent]} from {agentDisplayNames[agent]}’s Runs, and pauses
-                it if a Run reports an API key. TED never asks for or stores a key.
+                Ted removes {keyVariables[agent]} from {agentDisplayNames[agent]}’s Runs, and pauses
+                it if a Run reports an API key. Ted never asks for or stores a key.
               </Help>
             )}
           </label>
@@ -180,7 +180,7 @@ function BillingChoice({
       {agent === 'antigravity' && billing === 'subscription' && (
         <div className={styles.planNotice} role="note" aria-label="Google’s terms">
           <p className={styles.line}>
-            Google’s terms say that using Antigravity through other software, such as TED, on a
+            Google’s terms say that using Antigravity through other software, such as Ted, on a
             Google plan can get your account suspended. Google recommends an API key for this. Read
             them at {antigravityTermsUrl.replace('https://', '')}.
           </p>
@@ -195,7 +195,7 @@ function BillingChoice({
         <p className={styles.line}>
           {billing === 'subscription'
             ? 'Sign in with the Google account that has your Ultra plan.'
-            : 'Set GEMINI_API_KEY in your login-shell profile, then choose Check again. Requests are billed separately. TED never asks for or stores the key.'}
+            : 'Set GEMINI_API_KEY in your login-shell profile, then choose Check again. Requests are billed separately. Ted never asks for or stores the key.'}
         </p>
       )}
     </div>
@@ -251,7 +251,7 @@ export function apiCostLines(
   const since =
     report.countedFrom !== undefined && report.countedFrom > report.since
       ? [
-          `Counted since ${new Date(report.countedFrom).toLocaleDateString()}, when TED began saving this.`,
+          `Counted since ${new Date(report.countedFrom).toLocaleDateString()}, when Ted began saving this.`,
         ]
       : []
   const used: AgentApiCost | undefined = report.agents.find((a) => a.agent === agent)
@@ -416,7 +416,7 @@ function AgentCard({
             {health.state === 'signed-out' && <p className={styles.line}>Not signed in.</p>}
             {health.state === 'too-old' && (
               <p className={styles.line}>
-                This version is older than TED supports. TED never updates it without asking.
+                This version is older than Ted supports. Ted never updates it without asking.
               </p>
             )}
             {health.state === 'not-installed' && health.fix && (
@@ -429,7 +429,7 @@ function AgentCard({
               <p className={styles.line}>
                 {limitLine(health)}{' '}
                 <Help>
-                  Runs stay open and carry on by themselves. TED never switches them to another
+                  Runs stay open and carry on by themselves. Ted never switches them to another
                   Provider; change the Task Lead field if you want to.
                 </Help>
               </p>

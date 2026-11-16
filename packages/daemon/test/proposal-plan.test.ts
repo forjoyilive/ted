@@ -76,7 +76,7 @@ describe('splitApprovedSummary', () => {
       'Keep it small.',
     )
     expect(summary).toBe(
-      'approved the split; TED created NB-42 (row 2), NB-43 (row 5) as child Tasks of this Task, which waits for them to merge; adding: Keep it small.',
+      'approved the split; Ted created NB-42 (row 2), NB-43 (row 5) as child Tasks of this Task, which waits for them to merge; adding: Keep it small.',
     )
   })
 })

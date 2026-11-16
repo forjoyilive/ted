@@ -75,7 +75,7 @@ export function notificationsAllowed(asksPermission: boolean, asked: boolean): b
 
 export const notificationsOnNotice = {
   title: 'Notifications are on',
-  body: 'TED will tell you when something needs you.',
+  body: 'Ted will tell you when something needs you.',
 }
 
 export function createNotifications(options: NotificationsOptions): Notifications {

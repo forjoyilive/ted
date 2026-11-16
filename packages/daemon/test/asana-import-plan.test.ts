@@ -142,8 +142,8 @@ test('the planner creates unfinished items, keeps completed ones as context and 
     node('8', 1, '1'),
     node('9', 1, '1'),
     node('10', 1, '1', {
-      unreadable: 'Asana didn’t let TED read it (no access)',
-      childrenUnreadable: 'Asana didn’t let TED read it (no access)',
+      unreadable: 'Asana didn’t let Ted read it (no access)',
+      childrenUnreadable: 'Asana didn’t let Ted read it (no access)',
     }),
     node('11', 2, '10'),
   ])
@@ -184,8 +184,8 @@ test('the planner creates unfinished items, keeps completed ones as context and 
   expect(result.holds).toHaveLength(1)
   expect(result.holds[0]?.parent).toEqual({ gid: '1' })
   expect(result.holds[0]?.items.map((i) => i.reason)).toEqual([
-    'it’s already NB-d, under NB-z; TED left it there',
-    'Asana didn’t let TED read it (no access)',
+    'it’s already NB-d, under NB-z; Ted left it there',
+    'Asana didn’t let Ted read it (no access)',
   ])
   expect(ownershipLine(result.preview)).toBe(
     '5 Tasks: 1 assigned to you, 1 to others, 3 unassigned',
@@ -240,7 +240,7 @@ test('a completed root is still imported, and limits refuse the whole import', (
     ...Array.from({ length: 101 }, (_, i) => node(String(i + 1), 1, '0')),
   ])
   expect(plan(big).preview.refusal).toBe(
-    'This import would create 102 Tasks. TED imports at most 100 at a time.',
+    'This import would create 102 Tasks. Ted imports at most 100 at a time.',
   )
   const tooBig = { ...treeOf([node('1', 0)]), tooBig: 'Too deep.' }
   expect(plan(tooBig).preview.refusal).toBe('Too deep.')
@@ -304,13 +304,13 @@ test('the tree reader follows every page, skips system activity and marks unread
   const tree = await readAsanaTree({ read, rootGid: '1', tracked: new Set(['13']) })
   expect(tree.tooBig).toBeUndefined()
   expect(tree.nodes.get('1')?.children).toEqual(['10', '11', '12', '13', '14'])
-  expect(tree.nodes.get('12')?.unreadable).toBe('Asana didn’t let TED read it (no access)')
+  expect(tree.nodes.get('12')?.unreadable).toBe('Asana didn’t let Ted read it (no access)')
   expect(tree.nodes.get('10')?.comments).toEqual([{ author: 'Sam', at: '', text: 'Hi' }])
   expect(tree.nodes.get('10')?.unfetched).toEqual([
     expect.objectContaining({ name: 'doc', reason: 'it’s stored outside Asana' }),
   ])
   expect(tree.nodes.get('11')).toMatchObject({
-    partial: ['TED couldn’t copy its files: Asana didn’t let TED read it (no access)'],
+    partial: ['Ted couldn’t copy its files: Asana didn’t let Ted read it (no access)'],
     childrenUnreadable: 'Asana didn’t finish listing its subtasks',
   })
   expect(tree.nodes.get('11')?.unreadable).toBeUndefined()

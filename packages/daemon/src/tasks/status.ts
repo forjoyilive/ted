@@ -245,7 +245,7 @@ export function taskActivity(facts: TaskFacts): string | undefined {
   if (facts.stopped) return stoppedActivity(facts.stopped)
   if (taskCanResume(facts)) return 'The Task Lead has stopped. Resume to carry on.'
   if (facts.autoMergeLeft) {
-    return 'Merge cancelled · GitHub auto-merge is still on; TED keeps trying to turn it off'
+    return 'Merge cancelled · GitHub auto-merge is still on; Ted keeps trying to turn it off'
   }
   if (facts.movingAfterChecks) {
     if (!facts.checking) return 'Running Checks before moving on'
@@ -283,7 +283,7 @@ export function taskActivity(facts: TaskFacts): string | undefined {
     return `Blocked by ${facts.blockerEnded} ${blocker}`
   }
   if (blocker !== undefined && facts.runs.length === 0) return `Starts when ${blocker} merges`
-  if (facts.stage === 'backlog' && facts.needsPlanning) return 'Waiting for a plan made outside TED'
+  if (facts.stage === 'backlog' && facts.needsPlanning) return 'Waiting for a plan made outside Ted'
   if (facts.stage === 'backlog' && facts.snoozedUntil) return 'Scheduled to start'
   if (facts.stage === 'backlog') return 'Not started'
   return undefined

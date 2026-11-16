@@ -36,7 +36,7 @@ The Coordinator must act on the user’s request. The daemon checks its Factory 
 
 ## Task Lead context
 
-A Task Lead's prompt names its parent, its parent's other children and its own children, with IDs, states and titles as fenced data. A parent's Lead does only the integration and final work left after its children merge; a child's Lead stays within its own Task. A working Lead whose parent or children change gets a TED note with the new list.
+A Task Lead's prompt names its parent, its parent's other children and its own children, with IDs, states and titles as fenced data. A parent's Lead does only the integration and final work left after its children merge; a child's Lead stays within its own Task. A working Lead whose parent or children change gets a Ted note with the new list.
 
 ## Archive, restore and delete
 

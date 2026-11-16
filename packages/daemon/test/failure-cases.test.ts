@@ -674,7 +674,7 @@ test('invalidation notices survive health suspension and restart and reach the r
   ).toHaveLength(1)
 })
 
-test('a failure notice uses steering at the next tool boundary and retains its TED author', async () => {
+test('a failure notice uses steering at the next tool boundary and retains its Ted author', async () => {
   const client = await start({ order: 'intake, work, merge' })
   const boundary = path.join(ctx.scratch, 'notice-boundary')
   const finish = path.join(ctx.scratch, 'notice-finish')

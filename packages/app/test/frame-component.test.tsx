@@ -237,7 +237,7 @@ test('a first Factories load that fails is tried again until it succeeds', async
     const a = appState()
     let calls = 0
     a.handle('listFactories', () =>
-      ++calls < 3 ? Promise.reject(new Error('can’t reach TED’s daemon')) : [factory()],
+      ++calls < 3 ? Promise.reject(new Error('can’t reach Ted’s daemon')) : [factory()],
     )
     const view = a.mount()
     await act(async () => vi.advanceTimersByTimeAsync(0))

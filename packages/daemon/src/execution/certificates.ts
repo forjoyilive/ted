@@ -81,7 +81,7 @@ export async function controllerIdentity(root: string): Promise<ExecutionIdentit
         '-days',
         '3650',
         '-subj',
-        '/CN=TED execution controller',
+        '/CN=Ted execution controller',
         '-keyout',
         path.join(stage, 'key.pem'),
         '-out',

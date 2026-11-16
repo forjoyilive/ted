@@ -257,7 +257,7 @@ export function createEmulators(options: {
     })
     throw new RequestError(
       409,
-      `TED couldn’t run the Android SDK’s ${missing.join(', ')}, so it can’t start Android emulator Apps. Install Android Studio with its command-line tools, or set ANDROID_HOME in your shell profile, then press Check again on the banner.`,
+      `Ted couldn’t run the Android SDK’s ${missing.join(', ')}, so it can’t start Android emulator Apps. Install Android Studio with its command-line tools, or set ANDROID_HOME in your shell profile, then press Check again on the banner.`,
     )
   }
 
@@ -284,7 +284,7 @@ export function createEmulators(options: {
     if (image === undefined) {
       throw new RequestError(
         409,
-        `TED couldn’t read the system image of ${app.device}. Open it once in Android Studio’s Device Manager, then run ${app.name} again.`,
+        `Ted couldn’t read the system image of ${app.device}. Open it once in Android Studio’s Device Manager, then run ${app.name} again.`,
       )
     }
     const avd = emulatorAvdName(identity().name, app.displayId, app.repo, app.name)
@@ -304,7 +304,7 @@ export function createEmulators(options: {
     if (created.code !== 0) {
       throw new RequestError(
         409,
-        `TED couldn’t make an emulator from ${app.device}: ${firstLine(created.stderr || created.stdout)}`,
+        `Ted couldn’t make an emulator from ${app.device}: ${firstLine(created.stderr || created.stdout)}`,
       )
     }
     return {
@@ -339,7 +339,7 @@ export function createEmulators(options: {
     } else if (record && !(await deleteAvd(record))) {
       throw new RequestError(
         409,
-        `TED couldn’t remove ${app.name}’s old emulator for ${record.device}, so it left it in place. Stop it and run ${app.name} again.`,
+        `Ted couldn’t remove ${app.name}’s old emulator for ${record.device}, so it left it in place. Stop it and run ${app.name} again.`,
       )
     }
     return createDevice(app)
@@ -429,7 +429,7 @@ export function createEmulators(options: {
     if (avd === undefined) {
       throw new RequestError(
         409,
-        `TED couldn’t tell which emulator runs as ${serialId}, so it left it running`,
+        `Ted couldn’t tell which emulator runs as ${serialId}, so it left it running`,
       )
     }
     if (avd !== record.avd) return forget()
@@ -441,7 +441,7 @@ export function createEmulators(options: {
     }
     throw new RequestError(
       409,
-      `TED couldn’t shut down the emulator for ${record.device}; it’s still running as ${serialId}`,
+      `Ted couldn’t shut down the emulator for ${record.device}; it’s still running as ${serialId}`,
     )
   }
 
@@ -540,7 +540,7 @@ export function createEmulators(options: {
         if (saved.code !== 0 || /^KO/m.test(saved.stdout)) {
           throw new RequestError(
             409,
-            `TED couldn’t save ${record.device}’s state, so it left the emulator as it was: ${firstLine(saved.stderr || saved.stdout)}`,
+            `Ted couldn’t save ${record.device}’s state, so it left the emulator as it was: ${firstLine(saved.stderr || saved.stdout)}`,
           )
         }
         await kill(record)
@@ -556,7 +556,7 @@ export function createEmulators(options: {
       const out = path.join(captures, `${randomUUID()}.png`)
       const result = await tools.adb(['-s', record.serial as string, 'exec-out', 'screencap', '-p'])
       if (result.code !== 0 || result.bytes.length === 0) {
-        throw new RequestError(409, `TED couldn’t take the screenshot: ${firstLine(result.stderr)}`)
+        throw new RequestError(409, `Ted couldn’t take the screenshot: ${firstLine(result.stderr)}`)
       }
       await writeFile(out, result.bytes, { mode: 0o600 })
       touch(record)
@@ -570,7 +570,7 @@ export function createEmulators(options: {
         if (result.code !== 0)
           throw new RequestError(
             409,
-            `TED couldn’t ${what}: ${firstLine(result.stderr || result.stdout)}`,
+            `Ted couldn’t ${what}: ${firstLine(result.stderr || result.stdout)}`,
           )
         return result
       }
@@ -578,7 +578,7 @@ export function createEmulators(options: {
         const natural = parseWmSize(
           (await adb(['shell', 'wm', 'size'], 'read the screen size')).stdout,
         )
-        if (!natural) throw new RequestError(409, 'TED couldn’t read the screen size')
+        if (!natural) throw new RequestError(409, 'Ted couldn’t read the screen size')
         const size = screenBounds(natural, screens.get(key)?.rotation ?? 0)
         for (const { x, y } of points) {
           if (x >= size.width || y >= size.height)
@@ -594,7 +594,7 @@ export function createEmulators(options: {
           const out = await adb(['exec-out', 'uiautomator', 'dump', '/dev/tty'], 'read the screen')
           const screen = parseUiDump(out.stdout)
           if (!screen)
-            throw new RequestError(409, 'TED couldn’t read the screen; try again in a moment')
+            throw new RequestError(409, 'Ted couldn’t read the screen; try again in a moment')
           screens.set(key, {
             refs: new Map(screen.elements.map((e) => [e.ref, centre(e)])),
             rotation: screen.rotation,
@@ -631,7 +631,7 @@ export function createEmulators(options: {
           if (typed === undefined)
             throw new RequestError(
               400,
-              'TED can type only printable ASCII characters into an Android emulator, without line breaks or %s (Android types %s as a space); press enter with ted app key',
+              'Ted can type only printable ASCII characters into an Android emulator, without line breaks or %s (Android types %s as a space); press enter with ted app key',
             )
           await adb(['shell', 'input', 'text', typed], 'type')
           return `Typed ${(request.text ?? '').length} characters.`

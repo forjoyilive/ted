@@ -602,7 +602,7 @@ export function TaskActionsMenu({
                 type="button"
                 role="menuitem"
                 className={styles.item}
-                title="For pull requests you merged on GitHub yourself. TED checks that each one merged before it moves the Task to Done."
+                title="For pull requests you merged on GitHub yourself. Ted checks that each one merged before it moves the Task to Done."
                 onClick={() => act(() => ted.markDone(task.id))}
               >
                 <span className={styles.label}>Mark as Done</span>

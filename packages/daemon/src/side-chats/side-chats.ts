@@ -346,7 +346,7 @@ export function createSideChats(options: {
         saved.save({
           ...current,
           state: 'failed',
-          error: 'TED restarted before the reply completed. Retry to continue.',
+          error: 'Ted restarted before the reply completed. Retry to continue.',
         })
     }
   }

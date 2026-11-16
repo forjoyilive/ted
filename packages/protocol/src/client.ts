@@ -1957,7 +1957,7 @@ export class DaemonClient {
       if (typeof given !== 'string' || !equalHex(given, expected)) {
         throw new DaemonRequestError(
           res.statusCode ?? 0,
-          `the server on port ${this.#info.port} didn’t prove it is TED’s daemon`,
+          `the server on port ${this.#info.port} didn’t prove it is Ted’s daemon`,
         )
       }
     }
@@ -2024,15 +2024,15 @@ const again = 'Try again in a moment.'
 
 function unreachableMessage(cause: unknown): string {
   if (cause instanceof IdleTimeout) {
-    return `TED in the background hasn’t answered for ${duration(cause.ms)}. It may be busy or stuck; if this keeps happening, quit TED and open it again.`
+    return `Ted in the background hasn’t answered for ${duration(cause.ms)}. It may be busy or stuck; if this keeps happening, quit Ted and open it again.`
   }
   const code = (cause as { code?: unknown } | null | undefined)?.code
-  if (code === 'ECONNREFUSED') return `TED in the background isn’t running. ${again}`
+  if (code === 'ECONNREFUSED') return `Ted in the background isn’t running. ${again}`
   if (code === 'ECONNRESET' || code === 'EPIPE' || code === 'ECONNABORTED') {
-    return `TED in the background closed the connection before it answered. ${again}`
+    return `Ted in the background closed the connection before it answered. ${again}`
   }
   const detail = typeof code === 'string' ? code : cause instanceof Error ? cause.message : ''
-  return `Couldn’t reach TED in the background${detail ? ` (${detail})` : ''}. ${again}`
+  return `Couldn’t reach Ted in the background${detail ? ` (${detail})` : ''}. ${again}`
 }
 
 function duration(ms: number): string {

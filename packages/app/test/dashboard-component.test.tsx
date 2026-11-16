@@ -997,7 +997,7 @@ test('the Cost tab shows cost per merged pull request, spend by kind of work and
   const [, nb] = within(byFactory).getAllByRole('row')
   expect(nb?.textContent).toContain('$12.00')
   expect(nb?.textContent).toContain('$4.00')
-  expect(byFactory.textContent).toContain('Codex cost comes from TED’s own price table')
+  expect(byFactory.textContent).toContain('Codex cost comes from Ted’s own price table')
 })
 
 test('every By Factory table figure opens the Tasks behind it for that Factory', async () => {

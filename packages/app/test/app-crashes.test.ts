@@ -22,7 +22,7 @@ setUpAppTests()
 
 describe('daemon crashes', () => {
   const reconnecting = (window: Page) =>
-    window.getByRole('status', { name: 'Reconnecting to TED…' })
+    window.getByRole('status', { name: 'Reconnecting to Ted…' })
 
   async function killDaemon(): Promise<number> {
     const pid = await daemonPid()
@@ -71,7 +71,7 @@ describe('daemon crashes', () => {
 
     await reconnecting(window).waitFor()
     await reconnecting(window)
-      .getByText('Runs keep going. Actions are off until TED is back.')
+      .getByText('Runs keep going. Actions are off until Ted is back.')
       .waitFor()
     expect(await sidebar(window).getByRole('button', { name: 'All Tasks' }).isDisabled()).toBe(true)
     expect(hosts.every(isAlive)).toBe(true)
@@ -85,7 +85,7 @@ describe('daemon crashes', () => {
     await details.getByText('Done', { exact: true }).waitFor({ timeout: 20_000 })
   })
 
-  test('three crashes in ten minutes stop restarts and raise the banner; its menu copies a report and restarts TED', async () => {
+  test('three crashes in ten minutes stop restarts and raise the banner; its menu copies a report and restarts Ted', async () => {
     const window = await launchApp({ TED_RESTART_DELAYS_MS: '0,0,0' })
     await ctx.app?.evaluate(({ clipboard }) => {
       const record = globalThis as unknown as { copied: string[] }
@@ -104,11 +104,11 @@ describe('daemon crashes', () => {
       .poll(() => readFile(path.join(ctx.home, 'logs', 'daemon.log'), 'utf8').catch(() => ''), {
         timeout: 20_000,
       })
-      .toMatch(/TED daemon .* listening on/)
+      .toMatch(/Ted daemon .* listening on/)
     const last = await killDaemon()
 
     const banner = window.getByRole('region', { name: 'Problems' }).getByRole('alert')
-    await banner.getByText('TED’s background process keeps stopping').waitFor()
+    await banner.getByText('Ted’s background process keeps stopping').waitFor()
     expect(await reconnecting(window).count()).toBe(0)
     expect(await sidebar(window).getByRole('button', { name: 'All Tasks' }).isDisabled()).toBe(true)
     await sleep(500)
@@ -119,11 +119,11 @@ describe('daemon crashes', () => {
     await expect.poll(async () => (await recorded())?.copied.length).toBe(1)
     const [report] = (await recorded())?.copied ?? []
     expect(report).toContain('crash report')
-    expect(report).toMatch(/TED daemon .* listening on/)
-    expect(report).toContain('starting TED’s daemon')
+    expect(report).toMatch(/Ted daemon .* listening on/)
+    expect(report).toContain('starting Ted’s daemon')
 
     await banner.getByRole('button', { name: 'Restart' }).click()
-    await window.getByRole('menuitem', { name: 'Restart TED in the background' }).click()
+    await window.getByRole('menuitem', { name: 'Restart Ted in the background' }).click()
 
     await banner.waitFor({ state: 'detached', timeout: 20_000 })
     await waitForNewDaemon(last)

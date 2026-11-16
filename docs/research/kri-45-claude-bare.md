@@ -2,7 +2,7 @@
 
 Checked **2026-11-10**. Installed CLI: **2.1.322 (Claude Code)**, confirmed with `claude --version`.
 
-**Finding:** current Anthropic documentation still describes bare mode as a future default for `-p`. No announcement of that switch was found in the official changelog through 2.1.322. This supports retaining TED’s current non-bare launch; it does **not** constitute a live subscription smoke test.
+**Finding:** current Anthropic documentation still describes bare mode as a future default for `-p`. No announcement of that switch was found in the official changelog through 2.1.322. This supports retaining Ted’s current non-bare launch; it does **not** constitute a live subscription smoke test.
 
 ## Documented facts
 
@@ -22,7 +22,7 @@ Checked **2026-11-10**. Installed CLI: **2.1.322 (Claude Code)**, confirmed with
 
 The [version-tagged changelog](https://raw.githubusercontent.com/anthropics/claude-code/v2.1.322/CHANGELOG.md) and [rolling main changelog](https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md) were checked for bare/default changes. Changelog silence alone cannot prove runtime behavior. Rolling docs can change independently of the installed binary.
 
-## Local verification and TED implications
+## Local verification and Ted implications
 
 Only `claude --version` and `claude --help` were executed. Installed help lists `--bare` separately, identifies `CLAUDE_CODE_SIMPLE=1`, and describes Anthropic auth as `ANTHROPIC_API_KEY` or `apiKeyHelper` via `--settings`, excluding OAuth/keychain. No prompt was sent, credentials inspected, login changed, or billed inference run. Help text establishes the advertised interface, not successful subscription authentication.
 
@@ -30,14 +30,14 @@ Static inspection of [the Claude launcher](../../packages/daemon/src/agents/clau
 
 **Inference:** no evidence currently requires a launcher flag change because of a new default. Neither the inspected docs nor installed help exposes a documented `--no-bare`; do not invent an opt-out or assume `CLAUDE_CODE_SIMPLE=0` will override a future default.
 
-**Configuration caveat:** `claudeEnvironment` uses [the credential filter](../../packages/daemon/src/agents/agent.ts), which preserves an ordinary inherited `CLAUDE_CODE_SIMPLE=1`. That can activate bare mode today independently of a default change. Settings can also supply environment values, so omitting the flag alone is not proof of compatibility. This research did not inspect the machine’s environment/settings; changing how TED handles user configuration is outside this update-time documentation change.
+**Configuration caveat:** `claudeEnvironment` uses [the credential filter](../../packages/daemon/src/agents/agent.ts), which preserves an ordinary inherited `CLAUDE_CODE_SIMPLE=1`. That can activate bare mode today independently of a default change. Settings can also supply environment values, so omitting the flag alone is not proof of compatibility. This research did not inspect the machine’s environment/settings; changing how Ted handles user configuration is outside this update-time documentation change.
 
 ## Repeatable update-time checklist
 
 1. Record date, candidate `claude --version`, and `claude --help`; inspect help without supplying a prompt. Keep evidence free of credentials.
 2. Read Anthropic’s release notes from the last checked version through the candidate, searching for `bare`, `print`, `-p`, `SIMPLE`, OAuth, keychain, and authentication. Save version-specific URLs; re-read the linked CLI, headless, environment and authentication docs.
-3. Check TED’s actual launch arguments, subscription environment construction and hook requirements. Ensure neither the flag nor its environment equivalent activates bare mode. Preserve vendor-managed login; do not copy tokens or add API keys as a workaround.
+3. Check Ted’s actual launch arguments, subscription environment construction and hook requirements. Ensure neither the flag nor its environment equivalent activates bare mode. Preserve vendor-managed login; do not copy tokens or add API keys as a workaround.
 4. If bare becomes implicit, establish the officially supported opt-out and its version boundary before changing the launcher. If none is documented, treat subscription compatibility as unresolved rather than guessing a flag.
-5. Verify any launcher change with a targeted stub test of arguments/environment; a stub cannot establish upstream authentication behavior. For a live release check, use an isolated TED Dev home in this worktree (`node_modules/.cache/ted-home`) and a disposable Factory with Subscription billing. Start a minimal Claude Task using the candidate binary, confirm TED reports Subscription and the Run can complete a turn, then resume it and check that turn too. Check that TED receives the expected hook events and permission requests. Record the CLI version, non-secret auth classification and outcomes; never record credentials. A sign-in check alone is insufficient because it does not exercise `-p`. This live check is **not run** for this documentation change.
+5. Verify any launcher change with a targeted stub test of arguments/environment; a stub cannot establish upstream authentication behavior. For a live release check, use an isolated Ted Dev home in this worktree (`node_modules/.cache/ted-home`) and a disposable Factory with Subscription billing. Start a minimal Claude Task using the candidate binary, confirm Ted reports Subscription and the Run can complete a turn, then resume it and check that turn too. Check that Ted receives the expected hook events and permission requests. Record the CLI version, non-secret auth classification and outcomes; never record credentials. A sign-in check alone is insufficient because it does not exercise `-p`. This live check is **not run** for this documentation change.
 
 No runtime changes or broader terms review were needed for this finding.

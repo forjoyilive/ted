@@ -205,7 +205,7 @@ function StageTable({
           Reasons can overlap, for example a Run waiting for a slot while Checks run. Each hour
           counts once, under the first reason that applies, in the legend’s order: Agent working,
           Running Checks, Waiting on you, Waiting for a slot, Waiting on GitHub, then Blocked or
-          paused. Other is time no recorded reason covers, including history TED didn’t record.
+          paused. Other is time no recorded reason covers, including history Ted didn’t record.
           Hover a segment for its hours; click it for the Tasks.
         </p>
       )}
@@ -336,7 +336,7 @@ function StageSample({
       )}
       {selection.kind === 'left-out' && (
         <p className={styles.caption}>
-          TED has no complete record of when these Tasks were waiting for you.
+          Ted has no complete record of when these Tasks were waiting for you.
         </p>
       )}
       {stage && selection.kind === 'stage' && (
@@ -509,7 +509,7 @@ export function Stages({
             >
               {leftOut} {leftOut === 1 ? 'Task is' : 'Tasks are'} left out
             </button>
-            : TED has no complete record of when {leftOut === 1 ? 'it was' : 'they were'} waiting
+            : Ted has no complete record of when {leftOut === 1 ? 'it was' : 'they were'} waiting
             for you. Tick “Include time waiting for me” to count {leftOut === 1 ? 'it' : 'them'}.
           </p>
         )}

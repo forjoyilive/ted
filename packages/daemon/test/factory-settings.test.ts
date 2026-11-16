@@ -198,7 +198,7 @@ describe('Factory settings', () => {
 
     const create = (await ghCalls()).find((args) => args[0] === 'pr' && args[1] === 'create')
     expect(create).toBeDefined()
-    expect(create?.[create.indexOf('--title') + 1]).toBe('Update TED settings')
+    expect(create?.[create.indexOf('--title') + 1]).toBe('Update Ted settings')
     expect(create?.[create.indexOf('--base') + 1]).toBe('main')
     expect(create).not.toContain('--draft')
     const merge = (await ghCalls()).find((args) => args[0] === 'pr' && args[1] === 'merge')
@@ -461,7 +461,7 @@ describe('Factory settings', () => {
     expect(await originBranches()).toEqual(['main'])
   })
 
-  test('a repo added to .ted/workflow.yaml outside TED waits for the human to add it', async () => {
+  test('a repo added to .ted/workflow.yaml outside Ted waits for the human to add it', async () => {
     const second = path.join(scratch, 'acme', 'api.git')
     await run('git', ['init', '--bare', '--initial-branch=main', second])
     await run('git', ['push', second, 'main'], { cwd: path.join(scratch, 'seed') })
@@ -482,7 +482,7 @@ describe('Factory settings', () => {
       const banners = await client.ok<Banner[]>('GET', '/banners')
       const ask = banners.find((b) => b.problem === 'repo-in-workflow')
       expect(ask?.text).toBe(
-        '.ted/workflow.yaml adds acme/api · TED clones it only once you add it here',
+        '.ted/workflow.yaml adds acme/api · Ted clones it only once you add it here',
       )
       expect(
         await stat(path.join(home, 'repos', 'acme', 'api')).then(
@@ -511,7 +511,7 @@ describe('Factory settings', () => {
     }
   })
 
-  test('repos that would leave TED’s repos folder, or more than 10, are refused', async () => {
+  test('repos that would leave Ted’s repos folder, or more than 10, are refused', async () => {
     const client = await start()
     const view = await client.settings()
     const changes = edit(view, (repos) => {
@@ -670,7 +670,7 @@ describe('Factory settings', () => {
     expect((await client.settings()).source).toBe('file')
   })
 
-  test('only the TED app can change Factory settings', async () => {
+  test('only the Ted app can change Factory settings', async () => {
     const client = await start()
     const view = await client.settings()
     const fileToken = api(daemon?.port ?? 0, await tokenFor(home))
@@ -678,7 +678,7 @@ describe('Factory settings', () => {
     const changes = edit(view, ([primary]) => {
       if (primary) primary.mergeMethod = 'merge'
     })
-    const refused = { status: 403, body: { error: 'only the TED app can do this' } }
+    const refused = { status: 403, body: { error: 'only the Ted app can do this' } }
     expect(
       await fileToken.call('POST', `/factories/${id}/settings/save`, {
         changes,

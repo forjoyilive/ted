@@ -62,7 +62,7 @@ describe('taskStatus', () => {
     expect(taskStatus(at({ runs: ['finished'] }))).toBeUndefined()
   })
 
-  test('a working Run or TED work under way makes the Task Working', () => {
+  test('a working Run or Ted work under way makes the Task Working', () => {
     expect(taskStatus(at({ runs: ['idle', 'working'] }))).toEqual({ kind: 'working' })
     expect(taskStatus(at({ tedWorking: true }))).toEqual({ kind: 'working' })
     expect(taskStatus(at({ settingUp: true }))).toEqual({ kind: 'working' })
@@ -183,7 +183,7 @@ describe('taskStatus', () => {
 
   test('a Task that needs planning says so in its activity line', () => {
     expect(taskActivity(at({ stage: 'backlog', needsPlanning: true }))).toBe(
-      'Waiting for a plan made outside TED',
+      'Waiting for a plan made outside Ted',
     )
   })
 
@@ -206,7 +206,7 @@ describe('taskActivity', () => {
     )
   })
 
-  test('TED fills in for a Backlog Task and a blocked Task', () => {
+  test('Ted fills in for a Backlog Task and a blocked Task', () => {
     expect(taskActivity(at({ stage: 'backlog' }))).toBe('Not started')
     expect(taskActivity(at({ stage: 'design', blockedBy: ['NB-46'] }))).toBe(
       'Starts when NB-46 merges',

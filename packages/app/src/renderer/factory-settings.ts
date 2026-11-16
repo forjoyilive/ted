@@ -446,19 +446,19 @@ export function driftLine(
   const changed =
     drift.layer === 'library'
       ? `Your Library’s ${file} changed.`
-      : `TED’s default ${file} changed${drift.changedIn === undefined ? '' : ` in TED ${drift.changedIn}`}.`
+      : `Ted’s default ${file} changed${drift.changedIn === undefined ? '' : ` in Ted ${drift.changedIn}`}.`
   return `${label} version changed. ${changed} Your copy is based on ${drift.basedOn}.`
 }
 
 export function lastValidLine(invalid: LibraryInvalid & { url?: string }, now: number): string {
   if (invalid.url === undefined) {
     if (!invalid.lastValid) {
-      return 'TED has no earlier valid version, so TED’s defaults apply. Saving from here replaces the broken file.'
+      return 'Ted has no earlier valid version, so Ted’s defaults apply. Saving from here replaces the broken file.'
     }
-    return `TED is using the last valid version, from ${invalid.lastValid.version}, ${ago(invalid.lastValid.at, now)}. This page shows that version. Saving from here replaces the broken file.`
+    return `Ted is using the last valid version, from ${invalid.lastValid.version}, ${ago(invalid.lastValid.at, now)}. This page shows that version. Saving from here replaces the broken file.`
   }
   if (!invalid.lastValid) {
-    return 'TED has no earlier valid version, so the inherited settings apply. Saving from here replaces the broken file.'
+    return 'Ted has no earlier valid version, so the inherited settings apply. Saving from here replaces the broken file.'
   }
-  return `TED is using the last valid version, from ${invalid.lastValid.version}, ${ago(invalid.lastValid.at, now)}. This panel shows that version. Saving from here replaces the broken file, and the Save diff shows it.`
+  return `Ted is using the last valid version, from ${invalid.lastValid.version}, ${ago(invalid.lastValid.at, now)}. This panel shows that version. Saving from here replaces the broken file, and the Save diff shows it.`
 }

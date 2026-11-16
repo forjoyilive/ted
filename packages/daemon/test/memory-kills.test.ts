@@ -10,7 +10,7 @@ test('only a SIGKILL or exit 137 while memory was under the busy mark is a memor
   expect(memoryKill({ signal: 'SIGKILL' }, undefined)).toBe(false)
 })
 
-test('a Run’s ending counts by its signal or its exit code 137, and never when TED stopped it', () => {
+test('a Run’s ending counts by its signal or its exit code 137, and never when Ted stopped it', () => {
   expect(runKilledForMemory({ how: 'exited', signal: 'SIGKILL' }, 0.05)).toBe(true)
   expect(runKilledForMemory({ how: 'exited', code: 137 }, 0.05)).toBe(true)
   expect(runKilledForMemory({ how: 'stopped', signal: 'SIGKILL' }, 0.05)).toBe(false)

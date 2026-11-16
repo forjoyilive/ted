@@ -264,7 +264,7 @@ describe('Inbox and Gates', () => {
       }),
     )
     await addFactory(origin, 'NB')
-    // The stub’s first message after its prompt is TED’s Clarify brief; the next is the
+    // The stub’s first message after its prompt is Ted’s Clarify brief; the next is the
     // human’s answer, and only then may it propose, as a real Task Lead would.
     const proposeOnce = [
       { everyMessage: [] },

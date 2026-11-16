@@ -24,8 +24,8 @@ const defaults = () => readDefaultLayer()
 const library = (files: LayerFiles) => checkLayer({ kind: 'library', files })
 const factory = (files: LayerFiles) => checkLayer({ kind: 'factory', files })
 
-describe('TED defaults', () => {
-  test('sub-agent instructions carry writing guidance for delegated work and TED reviews', async () => {
+describe('Ted defaults', () => {
+  test('sub-agent instructions carry writing guidance for delegated work and Ted reviews', async () => {
     for (const prompt of [
       await subAgentPrompt('NB-1', 'Investigate login failures.'),
       await tedSubAgentPrompt('Review the change.'),
@@ -273,7 +273,7 @@ describe('layers', () => {
     const workflow = resolveWorkflow([await defaults(), layer])
 
     expect(layer.problems.map((p) => [p.severity, p.line, p.message])).toEqual([
-      ['warning', 3, 'Backlog can’t be turned off; TED ignores this'],
+      ['warning', 3, 'Backlog can’t be turned off; Ted ignores this'],
     ])
     expect(workflow.stages[0]).toBe('backlog')
     expect(workflow.stages.at(-1)).toBe('done')
@@ -410,7 +410,7 @@ describe('custom Stages', () => {
     expect(workflow.settings.stages.security).toMatchObject({ max_back: 3 })
     expect(workflow.settings.stages['release-notes']).toMatchObject({ gate: true, max_back: 3 })
     expect(nextStageMessage(workflow, 'release-notes')).toContain(
-      'TED moved this Task to Release notes.',
+      'Ted moved this Task to Release notes.',
     )
     expect(boardStages(workflow).filter((stage) => stage.custom)).toEqual([
       { id: 'security', name: 'Security', enabled: true, gate: false, custom: true },
@@ -598,11 +598,11 @@ describe('checking a layer', () => {
       'error .ted/workflow.yaml 12 9 the App API needs a `run` command',
       'error .ted/workflow.yaml 13 15 `kind` must be web, command, ios-simulator or android-emulator',
       'error .ted/workflow.yaml 14 16 `ready` must be url or start',
-      'warning .ted/workflow.yaml 15 16 TED sets `PORT` itself or keeps it out of worktrees, so it ignores it here',
+      'warning .ted/workflow.yaml 15 16 Ted sets `PORT` itself or keeps it out of worktrees, so it ignores it here',
       'error .ted/workflow.yaml 16 9 the Android emulator App Phone needs a `device`: an Android virtual device name',
       'error .ted/workflow.yaml 21 19 `electron` must be true or false',
       'warning .ted/workflow.yaml 24 9 only a command App can be an Electron app',
-      'warning .ted/workflow.yaml 28 9 pass $TED_ELECTRON_ARGS to Electron in `run`, or TED can’t reach the app or start it in the sandbox',
+      'warning .ted/workflow.yaml 28 9 pass $TED_ELECTRON_ARGS to Electron in `run`, or Ted can’t reach the app or start it in the sandbox',
     ])
   })
 
@@ -680,7 +680,7 @@ describe('checking a layer', () => {
     expect(
       problems({ 'workflow.yaml': 'version: 1\n', 'stages/security.md': '# Security\n' }),
     ).toEqual([
-      'warning .ted/stages/security.md 1 1 No `order` lists `security`, so TED ignores this file. Add `security` to `order` in workflow.yaml to run it as a Stage.',
+      'warning .ted/stages/security.md 1 1 No `order` lists `security`, so Ted ignores this file. Add `security` to `order` in workflow.yaml to run it as a Stage.',
     ])
   })
 
@@ -767,11 +767,11 @@ describe('checking a layer', () => {
 
     expect(layer.problems.map((p) => [p.severity, p.file, p.message])).toEqual([
       ['error', 'stages/work.md', 'the Stage file is empty'],
-      ['error', 'stages/design.md', 'TED couldn’t read the Stage file'],
+      ['error', 'stages/design.md', 'Ted couldn’t read the Stage file'],
       [
         'warning',
         'stages/Notes.md',
-        '`Notes` isn’t a Stage id, so TED ignores this file. A custom Stage id is lowercase letters, digits and hyphens, up to 40 characters.',
+        '`Notes` isn’t a Stage id, so Ted ignores this file. A custom Stage id is lowercase letters, digits and hyphens, up to 40 characters.',
       ],
     ])
     expect(layer.valid).toBe(false)
@@ -785,7 +785,7 @@ describe('checking a layer', () => {
 
   test('an unreadable stages folder is an error, so the last valid version stays in use', () => {
     expect(problems({ stages: null }, 'library')).toEqual([
-      'error stages 1 1 TED couldn’t read the stages folder',
+      'error stages 1 1 Ted couldn’t read the stages folder',
     ])
   })
 
@@ -849,7 +849,7 @@ describe('checking a layer', () => {
     ).toEqual([])
     expect(validate('max_back: 5\n    p1_only_from: 6')).toEqual([])
     expect(validate('p1_only_from: 7\n    max_back: 5')).toEqual([
-      'warning .ted/workflow.yaml 3 5 `stages.validate.p1_only_from` is 7, but `max_back: 5` in this file lets Validate reach round 6 at most before TED asks the human, so round 7 comes only if the human sends the Task back again',
+      'warning .ted/workflow.yaml 3 5 `stages.validate.p1_only_from` is 7, but `max_back: 5` in this file lets Validate reach round 6 at most before Ted asks the human, so round 7 comes only if the human sends the Task back again',
     ])
     expect(
       problems({ 'workflow.yaml': 'stages:\n  work: { p1_only_from: 3, sub_agents: true }\n' }),
@@ -981,7 +981,7 @@ describe('repos', () => {
     })
 
     expect(layer.problems.map((p) => [p.severity, p.message])).toEqual([
-      ['warning', 'the primary repo is the one holding .ted/, so TED ignores this `remote`'],
+      ['warning', 'the primary repo is the one holding .ted/, so Ted ignores this `remote`'],
     ])
   })
 })
@@ -1052,7 +1052,7 @@ describe('Stage effort', () => {
 })
 
 describe('shared layers', () => {
-  test('every read of TED’s defaults is its own copy of one parsed layer', async () => {
+  test('every read of Ted’s defaults is its own copy of one parsed layer', async () => {
     const shared = await sharedDefaultLayer()
     expect(await sharedDefaultLayer()).toBe(shared)
     const first = await defaults()

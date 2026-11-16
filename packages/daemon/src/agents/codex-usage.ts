@@ -108,7 +108,7 @@ export function readCodexPlanUsage(options: {
       id: 1,
       method: 'initialize',
       params: {
-        clientInfo: { name: 'ted', title: 'TED', version: tedVersion },
+        clientInfo: { name: 'ted', title: 'Ted', version: tedVersion },
         capabilities: null,
       },
     })

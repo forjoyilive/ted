@@ -432,7 +432,7 @@ describe('Talk it through', () => {
     }, 'the automatically started Lead to receive the talk')
   })
 
-  test('a talk confirms restarting a Lead that TED stopped at quit while its round is open', async () => {
+  test('a talk confirms restarting a Lead that Ted stopped at quit while its round is open', async () => {
     await writeFile(
       path.join(home, 'stub-claude.json'),
       JSON.stringify({ resumeSteps: [{ endTurn: true }] }),

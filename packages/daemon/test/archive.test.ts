@@ -128,7 +128,7 @@ const commitFile = (name: string) => ({
   run: [
     'sh',
     '-c',
-    `echo kept > ${name} && git add ${name} && git -c user.name=TED -c user.email=ted@example.com commit -qm ${name}`,
+    `echo kept > ${name} && git add ${name} && git -c user.name=Ted -c user.email=ted@example.com commit -qm ${name}`,
   ],
 })
 

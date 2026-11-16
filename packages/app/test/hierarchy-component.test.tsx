@@ -302,7 +302,7 @@ test('unarchiving a child greys out both choices while its parent works, and det
   expect(together.disabled).toBe(true)
   expect(detach.disabled).toBe(true)
   expect(
-    screen.getAllByText(/NB-40 is working, and TED doesn’t change a working Task’s children/),
+    screen.getAllByText(/NB-40 is working, and Ted doesn’t change a working Task’s children/),
   ).toHaveLength(2)
   await new Promise((resolve) => setTimeout(resolve, 0))
   expect(

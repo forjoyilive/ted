@@ -1,9 +1,9 @@
 {"t": 10.1, "driver": "type prompt"}
 {"hook_event_name": "UserPromptSubmit", "prompt": "Run these three shell commands one at a time, each as its own Bash tool call: `sleep 4; echo one`, `sleep 4; echo two`, `sleep 4; echo three`. Then reply with one short line.", "unix": 1794183147.75}
 {"hook_event_name": "PreToolUse", "tool_input": {"command": "sleep 4; echo one", "description": "Sleep 4 seconds then echo one"}, "unix": 1794183148.86}
-{"t": 12.89, "driver": "TED queues the message in its store"}
+{"t": 12.89, "driver": "Ted queues the message in its store"}
 {"hook_event_name": "PostToolUse", "tool_input": {"command": "sleep 4; echo one", "description": "Sleep 4 seconds then echo one"}, "unix": 1794183153.58}
-{"t": 16.59, "driver": "hook reports a tool-call boundary; TED types the message"}
+{"t": 16.59, "driver": "hook reports a tool-call boundary; Ted types the message"}
 {"hook_event_name": "UserPromptSubmit", "prompt": "New instruction from the human: after the commands, reply with the single word PINEAPPLE.", "unix": 1794183154.22}
 {"hook_event_name": "PreToolUse", "tool_input": {"command": "sleep 4; echo two", "description": "Sleep 4 seconds then echo two"}, "unix": 1794183155.41}
 {"hook_event_name": "PostToolUse", "tool_input": {"command": "sleep 4; echo two", "description": "Sleep 4 seconds then echo two"}, "unix": 1794183159.9}

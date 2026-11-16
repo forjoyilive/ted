@@ -142,7 +142,7 @@ function ignoredStageFiles(files: readonly string[], base: Base): string[] {
   })
 }
 
-export const settingsTitle = 'Update TED settings'
+export const settingsTitle = 'Update Ted settings'
 const closeWaitMs = 2000
 
 export function createFactorySettings(options: FactorySettingsOptions): FactorySettings {
@@ -257,22 +257,22 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
 
   async function github(): Promise<FactorySettingsView['github']> {
     const health = await options.health().catch(() => undefined)
-    if (!health) return { ready: false, problem: 'TED couldn’t check GitHub.' }
+    if (!health) return { ready: false, problem: 'Ted couldn’t check GitHub.' }
     const { cli, hosts } = health.github
     if (cli.state === 'not-installed') {
-      return { ready: false, problem: 'The GitHub CLI isn’t installed, so TED can’t save.' }
+      return { ready: false, problem: 'The GitHub CLI isn’t installed, so Ted can’t save.' }
     }
     if (cli.state !== 'ready') {
-      return { ready: false, problem: 'The GitHub CLI needs fixing before TED can save.' }
+      return { ready: false, problem: 'The GitHub CLI needs fixing before Ted can save.' }
     }
     const host = hosts.find((h) => h.host === 'github.com')
     if (!host || host.state === 'signed-out') {
-      return { ready: false, problem: 'GitHub is signed out, so TED can’t save.' }
+      return { ready: false, problem: 'GitHub is signed out, so Ted can’t save.' }
     }
     return {
       ready: host.state !== 'failed',
       ...(host.login !== undefined && { login: host.login }),
-      ...(host.state === 'failed' && { problem: 'TED couldn’t reach GitHub.' }),
+      ...(host.state === 'failed' && { problem: 'Ted couldn’t reach GitHub.' }),
     }
   }
 
@@ -493,7 +493,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     for (const repo of changes.repos) {
       if (repo.was === undefined) {
         effects.push(
-          `TED clones ${repo.repo} once this merges. A New setup Task can set up its Checks and Apps.`,
+          `Ted clones ${repo.repo} once this merges. A New setup Task can set up its Checks and Apps.`,
         )
       } else if (repo.was !== repo.name) {
         effects.push(`Checks that run in ${repo.was} now run in ${repo.name}.`)
@@ -555,25 +555,25 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
           if (step.on === 'review') {
             return {
               merged: false,
-              reason: `${where} needs an approving review, so TED left the pull request open.`,
+              reason: `${where} needs an approving review, so Ted left the pull request open.`,
             }
           }
           if (pr.mergeStateStatus === 'BLOCKED') {
             return {
               merged: false,
-              reason: `${where} needs passing checks before merging, so TED left the pull request open.`,
+              reason: `${where} needs passing checks before merging, so Ted left the pull request open.`,
             }
           }
           break
         case 'conflict':
           return {
             merged: false,
-            reason: `The pull request conflicts with ${target.base}, so TED left it open.`,
+            reason: `The pull request conflicts with ${target.base}, so Ted left it open.`,
           }
         case 'behind':
           return {
             merged: false,
-            reason: `${target.base} changed after TED saved, so TED left the pull request open.`,
+            reason: `${target.base} changed after Ted saved, so Ted left the pull request open.`,
           }
         case 'closed':
           return { merged: false, reason: 'The pull request was closed on GitHub.', terminal: true }
@@ -591,7 +591,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     }
     return {
       merged: false,
-      reason: 'GitHub hasn’t said whether the pull request can merge yet, so TED left it open.',
+      reason: 'GitHub hasn’t said whether the pull request can merge yet, so Ted left it open.',
     }
   }
 
@@ -679,7 +679,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
       const account = await github()
       if (!account.ready) throw new RequestError(409, account.problem ?? 'GitHub isn’t ready.')
       if (saving.has(factory.id)) {
-        throw new RequestError(409, 'TED is already saving this Factory’s settings.')
+        throw new RequestError(409, 'Ted is already saving this Factory’s settings.')
       }
       saving.add(factory.id)
       try {
@@ -687,7 +687,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         if (base.version !== version) {
           throw new RequestError(
             409,
-            'The TED settings changed on GitHub after this page loaded. Discard your changes to see them, then edit again.',
+            'The Ted settings changed on GitHub after this page loaded. Discard your changes to see them, then edit again.',
           )
         }
         const { problems, files } = edited(base, factory, changes)
@@ -703,7 +703,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
             source: { remote: repo },
             primary: false,
           })
-          if (!check.ok) throw new RequestError(409, check.problem?.text ?? `TED can’t add ${repo}`)
+          if (!check.ok) throw new RequestError(409, check.problem?.text ?? `Ted can’t add ${repo}`)
         }
         const clone = clonePath(reposDir, factory)
         const branch = `ted/settings-${new Date().toISOString().replace(/\D/g, '').slice(0, 14)}-${randomBytes(2).toString('hex')}`
@@ -768,7 +768,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     async merge(factoryId, { receipt }) {
       const factory = find(factoryId)
       if (saving.has(factory.id)) {
-        throw new RequestError(409, 'TED is already saving or merging this Factory’s settings.')
+        throw new RequestError(409, 'Ted is already saving or merging this Factory’s settings.')
       }
       saving.add(factory.id)
       try {
@@ -777,7 +777,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
           if (saved && Date.now() - saved.at > 24 * 60 * 60 * 1000) receipts.delete(factory.id)
           throw new RequestError(
             409,
-            'TED no longer has this settings save. Open the pull request on GitHub to review and merge it.',
+            'Ted no longer has this settings save. Open the pull request on GitHub to review and merge it.',
           )
         }
         if (saved.target.repo !== factory.repo || saved.target.base !== factory.defaultBranch) {
@@ -877,16 +877,16 @@ export function storedRepos(
 
 function pullRequestBody(effects: string[]): string {
   return [
-    'TED settings changed from Factory settings.',
+    'Ted settings changed from Factory settings.',
     ...effects.map((e) => `- ${e}`),
     '---',
-    'Opened by TED.',
+    'Opened by Ted.',
   ].join('\n\n')
 }
 
 function mergeDescription(drift: FoundDrift, view: StageDrift): string {
   const file = `${drift.stage}.md`
-  const source = drift.layer === 'ted' ? `TED’s default ${file}` : `The Library’s ${file}`
+  const source = drift.layer === 'ted' ? `Ted’s default ${file}` : `The Library’s ${file}`
   const changes =
     view.diffOf === 'inherited'
       ? [
@@ -896,7 +896,7 @@ function mergeDescription(drift: FoundDrift, view: StageDrift): string {
         ]
       : [
           '## Inherited file now',
-          `TED doesn’t have the version this copy was made from, so this is the whole of ${source} as it is now:`,
+          `Ted doesn’t have the version this copy was made from, so this is the whole of ${source} as it is now:`,
           fenced('markdown', drift.inherited),
         ]
   return [

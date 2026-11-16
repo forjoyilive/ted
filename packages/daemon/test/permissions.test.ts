@@ -267,7 +267,7 @@ describe('permission requests from Claude Code', () => {
 
     for (const action of ['approve', 'deny']) {
       const res = await client.fileToken.call('POST', `/comments/${request.id}/answer`, { action })
-      expect(res).toEqual({ status: 403, body: { error: 'only the TED app can do this' } })
+      expect(res).toEqual({ status: 403, body: { error: 'only the Ted app can do this' } })
     }
     expect(await stillOpen(request.id)).toBeUndefined()
 
@@ -435,7 +435,7 @@ describe('permission modes', () => {
       'the auto mode warning',
     )
     expect(banner.text).toBe(
-      'Claude Code’s auto mode is off under API key billing, because TED keeps the key out of the commands Claude runs · every permission prompt comes to the Inbox',
+      'Claude Code’s auto mode is off under API key billing, because Ted keeps the key out of the commands Claude runs · every permission prompt comes to the Inbox',
     )
   })
 
@@ -461,7 +461,7 @@ describe('permission modes', () => {
 })
 
 describe('permission requests from Codex', () => {
-  test('a Codex approval request becomes a permission Comment and Approve accepts it; Codex gets exactly the access the card showed; a file change shows the diff; a command shows where it runs; a legacy command shows quoted arguments; a request TED can’t show is denied without asking; a directory that only looks like the worktree gets no repo label', async () => {
+  test('a Codex approval request becomes a permission Comment and Approve accepts it; Codex gets exactly the access the card showed; a file change shows the diff; a command shows where it runs; a legacy command shows quoted arguments; a request Ted can’t show is denied without asking; a directory that only looks like the worktree gets no repo label', async () => {
     const client = await start()
     const diff = '@@ -1 +1 @@\n-old\n+new\n'
     const outside = `${home}/worktrees/NB-1/widgets/../../../evil`

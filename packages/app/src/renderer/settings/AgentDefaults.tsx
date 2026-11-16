@@ -154,7 +154,7 @@ function AgentDefault({
           disabled={busy}
           onClick={() => onChange(null)}
         >
-          Reset to TED default
+          Reset to Ted default
         </Button>
       )}
     </SettingRow>

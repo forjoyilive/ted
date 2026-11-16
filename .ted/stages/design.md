@@ -19,7 +19,7 @@ Work out the approach the same way, but don’t ask the user to approve it:
 3. Clarify should already have settled any choice that changes what the user gets. If two reasonable approaches would still give the user different results, ask a plain question with `ted comment --choice "<approach>" --choice "<approach>" "<question>"`, end your turn, and record the answer in the brief.
 4. Run `ted outcome advance --skip`. It moves the Task on without the Design sign-off.
 
-Never post a design review, or run `ted outcome advance` without `--skip`, for a change that is not visual: both ask the user to sign off. After this file, TED adds a line saying Design has a sign-off and to run `ted outcome advance` when the work is done. That line is for a visual change; for a change that is not visual, this section applies.
+Never post a design review, or run `ted outcome advance` without `--skip`, for a change that is not visual: both ask the user to sign off. After this file, Ted adds a line saying Design has a sign-off and to run `ted outcome advance` when the work is done. That line is for a visual change; for a change that is not visual, this section applies.
 
 ## Steps
 

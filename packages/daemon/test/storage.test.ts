@@ -129,7 +129,7 @@ describe('Settings → Storage', () => {
     await mkdir(partial, { recursive: true })
     const outside = path.join(scratch, 'outside')
     await mkdir(path.join(outside, 'repo'), { recursive: true })
-    await writeFile(path.join(outside, 'repo', 'keep.txt'), 'not TED’s')
+    await writeFile(path.join(outside, 'repo', 'keep.txt'), 'not Ted’s')
     await symlink(outside, path.join(paths.repos, 'linked'))
     await mkdir(path.join(paths.repos, 'owner'), { recursive: true })
     await symlink(path.join(outside, 'repo'), path.join(paths.repos, 'owner', 'repo'))

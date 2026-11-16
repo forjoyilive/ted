@@ -61,7 +61,7 @@ export function stayAwakeCommand(
     command: inhibit,
     args: [
       '--what=idle:sleep',
-      '--who=TED',
+      '--who=Ted',
       '--why=Runs are working',
       '--mode=block',
       tail,

@@ -46,16 +46,16 @@ function Updating({ status }: { status: Extract<DataStatus, { state: 'updating' 
   const left = timeLeft(status.secondsLeft)
   return (
     <>
-      <h1 className={styles.title}>Updating TED’s data…</h1>
+      <h1 className={styles.title}>Updating Ted’s data…</h1>
       <p className={styles.body}>
-        TED {status.version} is rebuilding its Tasks and Comments from the event log. Runs keep
+        Ted {status.version} is rebuilding its Tasks and Comments from the event log. Runs keep
         going in the background.
       </p>
       <div className={styles.progressStack}>
         <div
           className={styles.track}
           role="progressbar"
-          aria-label="Updating TED’s data"
+          aria-label="Updating Ted’s data"
           aria-valuemin={0}
           aria-valuemax={status.total}
           aria-valuenow={status.done}
@@ -80,9 +80,9 @@ function Failed({ status }: { status: Extract<DataStatus, { state: 'failed' }> }
       : undefined
   return (
     <>
-      <h1 className={styles.title}>TED couldn’t update its data</h1>
+      <h1 className={styles.title}>Ted couldn’t update its data</h1>
       <p className={styles.body}>
-        The update to TED {status.version} changes how TED stores Tasks, and rebuilding them stopped
+        The update to Ted {status.version} changes how Ted stores Tasks, and rebuilding them stopped
         partway. Nothing was deleted. Runs keep going in the background.
       </p>
       <div className={styles.error}>
@@ -94,7 +94,7 @@ function Failed({ status }: { status: Extract<DataStatus, { state: 'failed' }> }
         <div className={styles.row}>
           <CopyReport status={status} />
           <ActionButton type="button" className={styles.secondary} onClick={() => ted.quit()}>
-            Quit TED
+            Quit Ted
           </ActionButton>
         </div>
       </div>
@@ -107,19 +107,19 @@ function NeedsNewer({ status }: { status: Extract<DataStatus, { state: 'needs-ne
   return (
     <>
       <h1 className={styles.title}>
-        {needs ? `This data needs TED ${needs} or later` : 'This data needs a newer TED'}
+        {needs ? `This data needs Ted ${needs} or later` : 'This data needs a newer Ted'}
       </h1>
       <p className={styles.body}>
-        TED’s data in {status.dataDir}/{' '}
+        Ted’s data in {status.dataDir}/{' '}
         {status.lastOpenedBy
-          ? `was last opened by TED ${status.lastOpenedBy}.`
-          : 'was written by a newer TED.'}{' '}
-        This is TED {status.version}, which can’t read it. Runs keep going in the background.
+          ? `was last opened by Ted ${status.lastOpenedBy}.`
+          : 'was written by a newer Ted.'}{' '}
+        This is Ted {status.version}, which can’t read it. Runs keep going in the background.
       </p>
       <div className={styles.actions}>
         <div className={styles.row}>
           <ActionButton type="button" className={styles.primary} onClick={() => ted.downloadTed()}>
-            {needs ? `Download TED ${needs}` : 'Download TED'}
+            {needs ? `Download Ted ${needs}` : 'Download Ted'}
           </ActionButton>
           <CopyReport status={status} />
         </div>
@@ -144,7 +144,7 @@ function Restore({
 }) {
   const [restoring, setRestoring] = useState(false)
   const since = formatBackupDate(backup.takenAt)
-  const when = withVersion && backup.dataFrom ? `, when TED ${backup.dataFrom} last ran` : ''
+  const when = withVersion && backup.dataFrom ? `, when Ted ${backup.dataFrom} last ran` : ''
   return (
     <div className={styles.restore}>
       <ActionButton
@@ -164,7 +164,7 @@ function Restore({
           {when}.
         </span>
         <Help>
-          Puts TED’s data back as it was when this backup was taken. TED saves the current data as
+          Puts Ted’s data back as it was when this backup was taken. Ted saves the current data as
           another backup first.
         </Help>
       </div>
@@ -188,5 +188,5 @@ function CopyReport({ status }: { status: ProblemStatus }) {
 }
 
 function report(status: ProblemStatus): string {
-  return [`TED ${status.version}`, JSON.stringify(status, null, 2)].join('\n')
+  return [`Ted ${status.version}`, JSON.stringify(status, null, 2)].join('\n')
 }

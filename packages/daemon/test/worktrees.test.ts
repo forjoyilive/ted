@@ -459,7 +459,7 @@ describe('leftover worktrees', () => {
     const started = await client.ok<Task>('POST', `/tasks/${task.id}/start`)
     expect(started.branch).toBe('ted/nb-1-fix-login')
     expect((await notes(client, task)).at(-1)).toContain(
-      'TED removed it and its branch ted/nb-1-fix-login and started again',
+      'Ted removed it and its branch ted/nb-1-fix-login and started again',
     )
 
     const other = await createTask(client, 'Other')
@@ -502,12 +502,12 @@ describe('leftover worktrees', () => {
     await client.call('POST', `/tasks/${task.id}/start`)
     await leadRun(client, task)
     expect((await getTask(client, task.id))?.branch).toBe('ted/nb-1-fix-login')
-    expect((await notes(client, task)).join('\n')).toContain('TED found a widgets worktree left')
+    expect((await notes(client, task)).join('\n')).toContain('Ted found a widgets worktree left')
   })
 })
 
 describe('worktree removal', () => {
-  test('at Done, teardown runs in the worktree before TED removes it', async () => {
+  test('at Done, teardown runs in the worktree before Ted removes it', async () => {
     const marker = path.join(home, 'logs', 'worktrees', 'NB-1-widgets-teardown.log')
     await workflow(
       `      teardown: "pwd -P; printf %s \\"$GREETING\\""\n      env: { GREETING: bye }\n`,

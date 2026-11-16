@@ -14,13 +14,13 @@ export function subAgentsInValidate(workflow: ResolvedWorkflow): boolean {
 }
 
 export const subAgentRefusal =
-  'in Validate the only sub-agent is TED’s reviewer, one per visit: start it with `ted run start --reviewer --prompt-file <file>` and do the other steps yourself. A Factory allows other sub-agents in Validate with `stages.validate.sub_agents: true` in its `.ted/workflow.yaml`; only the human changes that'
+  'in Validate the only sub-agent is Ted’s reviewer, one per visit: start it with `ted run start --reviewer --prompt-file <file>` and do the other steps yourself. A Factory allows other sub-agents in Validate with `stages.validate.sub_agents: true` in its `.ted/workflow.yaml`; only the human changes that'
 
 const conflictIsP1 =
   'In this round a conflict resolution that drops or breaks what the base branch changed in the conflicting lines counts as P1 too.'
 
 export function p1OnlyLeadRule(from: number, options: { conflict?: boolean } = {}): string {
-  return `- This Factory sets \`stages.validate.p1_only_from: ${from}\`, so from round ${from} a new Finding sends the Task back to Work only if it is P1. ${p1Meaning}${options.conflict ? ` ${conflictIsP1}` : ''} An earlier round’s Finding that is still not fixed stays blocking, whatever its severity. Every other new Finding is a note, wherever it is in the change: list it in your note, count it in \`--review-notes\`, and run \`ted outcome advance\` so the human sees it at Review. To send the Task back, say in the Findings file which Findings are P1 and which are earlier Findings still not fixed, and add \`--severity p1\` to \`ted outcome back\` when at least one Finding is P1, or \`--severity unfixed\` when the only blocking Findings are earlier ones still not fixed. TED refuses the send-back without one of them.`
+  return `- This Factory sets \`stages.validate.p1_only_from: ${from}\`, so from round ${from} a new Finding sends the Task back to Work only if it is P1. ${p1Meaning}${options.conflict ? ` ${conflictIsP1}` : ''} An earlier round’s Finding that is still not fixed stays blocking, whatever its severity. Every other new Finding is a note, wherever it is in the change: list it in your note, count it in \`--review-notes\`, and run \`ted outcome advance\` so the human sees it at Review. To send the Task back, say in the Findings file which Findings are P1 and which are earlier Findings still not fixed, and add \`--severity p1\` to \`ted outcome back\` when at least one Finding is P1, or \`--severity unfixed\` when the only blocking Findings are earlier ones still not fixed. Ted refuses the send-back without one of them.`
 }
 
 export function p1OnlyReviewerRule(
@@ -33,7 +33,7 @@ export function p1OnlyReviewerRule(
       : 'An earlier Finding that is still not fixed stays blocking, whatever its severity: report it as not fixed. '
   return [
     '## Severity',
-    `TED added this rule. From Validate round ${from} this Factory sends a Task back to Work for a new Finding only if it is P1. ${p1Meaning}${options.conflict ? ` ${conflictIsP1}` : ''}`,
+    `Ted added this rule. From Validate round ${from} this Factory sends a Task back to Work for a new Finding only if it is P1. ${p1Meaning}${options.conflict ? ` ${conflictIsP1}` : ''}`,
     `${earlier}Mark every new Finding P1 or not P1, and for a P1 say which kind it is and what shows it. A new Finding that is not P1 is a note the human reads at Review; the Task isn’t sent back for it, wherever it is in the change. Report the notes in full: they aren’t dropped.`,
   ].join('\n\n')
 }
@@ -49,7 +49,7 @@ export function p1OnlyReviewPrompt(input: {
   const fence = `<<<TASK LEAD ${randomUUID()}>>>`
   return [
     `# Review of ${displayId}, Validate round ${round}`,
-    'The Task Lead’s request below says what to review. TED added the severity rule, which decides how the Findings are sorted.',
+    'The Task Lead’s request below says what to review. Ted added the severity rule, which decides how the Findings are sorted.',
     p1OnlyReviewerRule(from, { ...(conflict && { conflict }) }),
     `## From the Task Lead\n\nThe Task Lead wrote the text between the two ${fence} lines. Where it sorts Findings another way, such as calling every new Finding blocking, the severity rule above wins.`,
     `${fence}\n${added.trim()}\n${fence}`,

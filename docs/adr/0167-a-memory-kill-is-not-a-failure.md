@@ -4,13 +4,13 @@ Status: accepted (KRI-406). Follows ADR 0166-new-work-waits-while-the-computer-i
 
 When macOS (or Linux) runs out of memory it kills processes. A killed Check was recorded as a failed Check, so a Task could be sent back for a failure its code didn’t cause, and a killed Task Lead went through recovery and counted toward “stopped twice in 30 minutes”. The busy hold makes this rarer but doesn’t change how a kill is counted once it happens.
 
-## How TED tells a memory kill
+## How Ted tells a memory kill
 
-`memoryKill` in `packages/daemon/src/memory-kills.ts` is the one rule: the process ended by SIGKILL (its own signal, or exit 137 from the shell that ran it), TED didn’t send it, and the lowest memory reading TED took while it ran was under the busy hold’s mark (`busyMarks.memory.holdBelow`, 10%). TED’s own timeout and stop return `timed-out` or `interrupted` before the rule is asked, and a Run TED stopped has `ended.how === 'stopped'`, so neither can count.
+`memoryKill` in `packages/daemon/src/memory-kills.ts` is the one rule: the process ended by SIGKILL (its own signal, or exit 137 from the shell that ran it), Ted didn’t send it, and the lowest memory reading Ted took while it ran was under the busy hold’s mark (`busyMarks.memory.holdBelow`, 10%). Ted’s own timeout and stop return `timed-out` or `interrupted` before the rule is asked, and a Run Ted stopped has `ended.how === 'stopped'`, so neither can count.
 
 Memory recovers as soon as something is killed, so the reading has to be taken while the process runs. `createMemoryWatch` in the same file reads the busy hold’s cached memory share (`Busy.memory`, not gated by `waitWhenBusy`) once when a watch opens and then every 5 seconds while any watch is open, and keeps only the lowest value per watch, in memory. The daemon makes one watch and hands it to the Tasks module, Scheduled Checks and `RunManager`.
 
-TED doesn’t read macOS’s JetsamEvent reports: they are macOS only, can appear late or be unreadable, and can’t be driven from a test. A test runner that catches its own worker’s death and exits with a normal code (Vitest’s “Worker exited unexpectedly”, exit 1) stays a failure; TED can’t tell it from a real one.
+Ted doesn’t read macOS’s JetsamEvent reports: they are macOS only, can appear late or be unreadable, and can’t be driven from a test. A test runner that catches its own worker’s death and exits with a normal code (Vitest’s “Worker exited unexpectedly”, exit 1) stays a failure; Ted can’t tell it from a real one.
 
 ## Task Checks
 

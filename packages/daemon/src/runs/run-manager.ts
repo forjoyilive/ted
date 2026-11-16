@@ -201,7 +201,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   let closed = false
   let shuttingDown = false
   const refuseWhileShuttingDown = () => {
-    if (shuttingDown) throw new RequestError(503, 'TED is shutting down')
+    if (shuttingDown) throw new RequestError(503, 'Ted is shutting down')
   }
 
   const billingOf = (kind: AgentKind) => store.settings().billing[kind]
@@ -723,7 +723,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         if (waited >= stopGraceMs) {
           await kill()
           throw new Error(
-            'The agent did not start; TED stopped its host and agent before releasing the permission handoff',
+            'The agent did not start; Ted stopped its host and agent before releasing the permission handoff',
           )
         }
         await sleep(pollMs)
@@ -1332,7 +1332,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       await revokeLaunchAuthority(store)
       closed = true
       for (const controller of launchStops.values())
-        controller.abort(new RequestError(503, 'TED is shutting down'))
+        controller.abort(new RequestError(503, 'Ted is shutting down'))
       await Promise.all(following.values())
     },
   }

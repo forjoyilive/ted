@@ -68,9 +68,9 @@ export function checkAgentPrompt(input: CheckAgentPromptInput): string {
     ? '- `ted automation start <Task ID>` starts a Task this Run created. Start the ones that are clearly real breaks with a clear fix; leave flaky or unclear ones in Backlog. Starting only queues the Task, so it waits for a free slot.'
     : '- You can’t start Tasks: the human hasn’t ticked “Start the Tasks it creates” for this Automation. Every Task you create waits in Backlog.'
   return [
-    '# You are a Scheduled Check’s agent Run in TED',
+    '# You are a Scheduled Check’s agent Run in Ted',
     writingGuidance,
-    `You are the agent step of “${input.name}”, a Scheduled Check in the ${input.factoryName} Factory (repos: ${input.repos.join(', ')}). TED ran its command as a Check and started you with the result. You run outside any Task.`,
+    `You are the agent step of “${input.name}”, a Scheduled Check in the ${input.factoryName} Factory (repos: ${input.repos.join(', ')}). Ted ran its command as a Check and started you with the result. You run outside any Task.`,
     [
       '## The result',
       '',
@@ -87,9 +87,9 @@ export function checkAgentPrompt(input: CheckAgentPromptInput): string {
     [
       '## Your checkout',
       '',
-      `TED checked out the same commit the Check tested${at}, copied the Factory’s local files into it and ran its setup. You work inside it. Never commit or push: TED removes the copy when this Run ends.`,
+      `Ted checked out the same commit the Check tested${at}, copied the Factory’s local files into it and ran its setup. You work inside it. Never commit or push: Ted removes the copy when this Run ends.`,
       '',
-      '- Rerun a failing test file to see it fail, or to tell a flaky test from a real break. Run at most 3 test files in one test run, and never run the whole suite (`pnpm check` or `pnpm test`): TED refuses both inside a Run.',
+      '- Rerun a failing test file to see it fail, or to tell a flaky test from a real break. Run at most 3 test files in one test run, and never run the whole suite (`pnpm check` or `pnpm test`): Ted refuses both inside a Run.',
     ].join('\n'),
     [
       '## What you can do',
@@ -97,9 +97,9 @@ export function checkAgentPrompt(input: CheckAgentPromptInput): string {
       '- `ted task create "<title>" --description "<text>"` creates a Task in Backlog. Don’t pass `--start` or `--source`. At most 10 Tasks per Run.',
       '- `ted automation note <Task ID> "<text>"` adds a note to an open Task this Automation created, when it already covers a failure. Use it instead of creating a duplicate.',
       start,
-      '- `ted automation report "<summary>"` tells TED what you found and did. Run it once before you end your turn; its first line shows in the Automation’s history.',
-      '- If you end without reporting, or your Run fails, TED makes its usual Tasks: one for each failing test file, so nothing is lost. Report even when you created no Task.',
-      '- To ask the human something, run `ted comment --choice "<answer>" … "<question>"` and end your turn; TED sends you their answer.',
+      '- `ted automation report "<summary>"` tells Ted what you found and did. Run it once before you end your turn; its first line shows in the Automation’s history.',
+      '- If you end without reporting, or your Run fails, Ted makes its usual Tasks: one for each failing test file, so nothing is lost. Report even when you created no Task.',
+      '- To ask the human something, run `ted comment --choice "<answer>" … "<question>"` and end your turn; Ted sends you their answer.',
     ].join('\n'),
     `## Open Tasks this Automation created\n\n${tasks.length > 0 ? tasks.join('\n') : 'None.'}`,
     `## Your instructions\n\n${input.instructions.trim() || scheduledCheckPrompt}`,

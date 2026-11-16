@@ -33,7 +33,7 @@ async function runEntry(env: NodeJS.ProcessEnv, args: string[]) {
   return JSON.parse(stdout) as { argv: string[]; file: string }
 }
 
-describe('running one of TED’s own entry files', () => {
+describe('running one of Ted’s own entry files', () => {
   test('runs the file with this runtime and passes the arguments through', async () => {
     const result = await runEntry({}, ['task', '--task', 'NOTE-1', 'it’s "done"'])
 
@@ -57,7 +57,7 @@ describe('running one of TED’s own entry files', () => {
     const script = path.join(dir, 'ted')
     await writeFile(
       script,
-      shellScript(nodeEntry(entry, ['status'], {}), { TED_APP_EXECUTABLE: "/Apps/TED's.app" }),
+      shellScript(nodeEntry(entry, ['status'], {}), { TED_APP_EXECUTABLE: "/Apps/Ted's.app" }),
       { mode: 0o755 },
     )
     await writeFile(
@@ -69,7 +69,7 @@ describe('running one of TED’s own entry files', () => {
 
     expect(JSON.parse(stdout)).toEqual({
       argv: ['status', '--task', 'a b', "it's"],
-      app: "/Apps/TED's.app",
+      app: "/Apps/Ted's.app",
     })
   })
 })

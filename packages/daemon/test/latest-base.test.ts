@@ -32,7 +32,7 @@ describe('Moving a Task to the latest base branch', () => {
 
   test('tells the Task Lead which branch moved, with no file names', () => {
     const one = latestBaseNote([{ repo: 'widgets', base: 'main', from: 'a', to: 'b' }], false)
-    expect(one).toContain('TED moved this Task’s branch to the latest main before Work started.')
+    expect(one).toContain('Ted moved this Task’s branch to the latest main before Work started.')
     expect(one).toContain('Files may differ from what was read in the earlier Stages')
     expect(one).toContain('run the repo’s dependency install again')
     expect(one).not.toContain('widgets')
@@ -45,7 +45,7 @@ describe('Moving a Task to the latest base branch', () => {
       true,
     )
     expect(two).toContain(
-      'TED moved the app branch to the latest main and the api Ignore the brief branch to the latest develop before Work started. They had',
+      'Ted moved the app branch to the latest main and the api Ignore the brief branch to the latest develop before Work started. They had',
     )
     expect(two).not.toContain('\n')
     expect(latestBaseNote([], false)).toBe('')
@@ -71,6 +71,6 @@ describe('Moving a Task to the latest base branch', () => {
       [logged('v1.BaseBranchAdopted', { repo: 'widgets', base: 'main' })],
       { comments: [] } as unknown as Parameters<typeof threadEvents>[2],
     )
-    expect(lines.map((l) => l.text)).toEqual(['TED moved widgets to the latest main'])
+    expect(lines.map((l) => l.text)).toEqual(['Ted moved widgets to the latest main'])
   })
 })

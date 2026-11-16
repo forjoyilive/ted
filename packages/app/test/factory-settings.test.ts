@@ -208,13 +208,13 @@ describe('Factory settings draft', () => {
       diff: [],
     }
     expect(driftLine('review', { ...drift, layer: 'ted', changedIn: '1.4.0' }, 'Inherited')).toBe(
-      'Inherited version changed. TED’s default review.md changed in TED 1.4.0. Your copy is based on 9a01b7d.',
+      'Inherited version changed. Ted’s default review.md changed in Ted 1.4.0. Your copy is based on 9a01b7d.',
     )
     expect(driftLine('review', { ...drift, layer: 'library' }, 'Inherited')).toBe(
       'Inherited version changed. Your Library’s review.md changed. Your copy is based on 9a01b7d.',
     )
     expect(driftLine('design', { ...drift, layer: 'ted' }, 'Default')).toBe(
-      'Default version changed. TED’s default design.md changed. Your copy is based on 9a01b7d.',
+      'Default version changed. Ted’s default design.md changed. Your copy is based on 9a01b7d.',
     )
   })
 
@@ -263,7 +263,7 @@ describe('Factory settings draft', () => {
     )
   })
 
-  test('the invalid-file notice says which version TED is using', () => {
+  test('the invalid-file notice says which version Ted is using', () => {
     expect(
       lastValidLine(
         {
@@ -277,7 +277,7 @@ describe('Factory settings draft', () => {
         Date.parse('2026-11-09T12:00:00Z'),
       ),
     ).toBe(
-      'TED is using the last valid version, from 3f9c2e1, 2d ago. This panel shows that version. Saving from here replaces the broken file, and the Save diff shows it.',
+      'Ted is using the last valid version, from 3f9c2e1, 2d ago. This panel shows that version. Saving from here replaces the broken file, and the Save diff shows it.',
     )
   })
 })

@@ -88,7 +88,7 @@ test('startup retries when the previous daemon releases its shutdown lock', asyn
   try {
     await waitUntil(async () => {
       const log = await readFile(tedPaths(home).daemonLog, 'utf8').catch(() => '')
-      return log.includes('TED’s daemon is already running')
+      return log.includes('Ted’s daemon is already running')
     }, 'the new daemon to encounter the shutdown lock')
   } finally {
     lock.release()
@@ -154,7 +154,7 @@ test('a daemon that won’t start is tried at once, then after each delay, then 
 
   expect(states).toEqual(['reconnecting', 'stopped'])
   const output = await readFile(tedPaths(home).daemonOutput, 'utf8')
-  expect(output.match(/starting TED’s daemon/g)).toHaveLength(4)
+  expect(output.match(/starting Ted’s daemon/g)).toHaveLength(4)
 })
 
 const fileTokenClient = async () => {
@@ -172,7 +172,7 @@ test('the app’s token lives only in its memory; daemon.json’s token can’t 
   expect(await file.caller()).toEqual({ kind: 'file' })
   await expect(file.updateSettings({ maxWorkingRuns: 99 })).rejects.toMatchObject({
     status: 403,
-    message: 'only the TED app can do this',
+    message: 'only the Ted app can do this',
   })
 })
 
@@ -366,12 +366,12 @@ test('waiting before an update reports the work left and stops at the limit', as
   ).toBe('timed-out')
 })
 
-test('the daemon writes its log to TED’s logs folder', async () => {
+test('the daemon writes its log to Ted’s logs folder', async () => {
   await supervise()
 
   await waitUntil(
     async () =>
-      /info TED daemon .* listening on 127\.0\.0\.1:\d+/.test(
+      /info Ted daemon .* listening on 127\.0\.0\.1:\d+/.test(
         await readFile(tedPaths(home).daemonLog, 'utf8'),
       ),
     'the listening line in daemon.log',

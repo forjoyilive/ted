@@ -385,7 +385,7 @@ describe('the Workflow', () => {
     expect(entries.at(-1)?.stageFile).toBeUndefined()
     const messages = await userMessages(client, (await leadRun(client, task)).id)
     expect(messages.length).toBeGreaterThanOrEqual(6)
-    expect(messages[1]).toMatch(/^TED moved this Task to Clarify\./)
+    expect(messages[1]).toMatch(/^Ted moved this Task to Clarify\./)
     expect(messages[1]).toContain('# Clarify')
     expect(messages[5]).toContain('# Review')
   })

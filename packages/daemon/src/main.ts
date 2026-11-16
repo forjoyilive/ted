@@ -50,8 +50,8 @@ async function shutdown(): Promise<void> {
   stopping = true
   const daemon = await starting?.catch(() => null)
   if (daemon === null) return
-  await daemon?.stop((step) => console.log(`stopping TED’s daemon: ${step}`))
-  console.log('TED’s daemon stopped')
+  await daemon?.stop((step) => console.log(`stopping Ted’s daemon: ${step}`))
+  console.log('Ted’s daemon stopped')
   await demoLinear?.close()
   process.exit(0)
 }
@@ -59,7 +59,7 @@ async function shutdown(): Promise<void> {
 async function leaveUnattended(stoppedRuns: number): Promise<void> {
   if (stopping) return
   console.log(
-    `nothing has used TED’s daemon for a while: stopped ${stoppedRuns} Runs and stopping the daemon`,
+    `nothing has used Ted’s daemon for a while: stopped ${stoppedRuns} Runs and stopping the daemon`,
   )
   if (demoLinear && stoppedRuns > 0) {
     const { checkDemoHome, markDemo } = await import('./dev/home.ts')
@@ -131,7 +131,7 @@ try {
     }),
   })
   const daemon = await starting
-  console.log(`TED daemon ${tedVersion} listening on 127.0.0.1:${daemon.port}`)
+  console.log(`Ted daemon ${tedVersion} listening on 127.0.0.1:${daemon.port}`)
 } catch (error) {
   await demoLinear?.close()
   if (error instanceof DaemonAlreadyRunningError) {

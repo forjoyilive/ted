@@ -1,6 +1,6 @@
 # Incremental execution validation
 
-> **Shelved.** Remote execution is on hold. The code is kept but hidden behind `TED_REMOTE_EXECUTION=on`, which only TED Dev reads (see `docs/environment.md`). Don’t build new work on it or treat it as required.
+> **Shelved.** Remote execution is on hold. The code is kept but hidden behind `TED_REMOTE_EXECUTION=on`, which only Ted Dev reads (see `docs/environment.md`). Don’t build new work on it or treat it as required.
 
 > Validate doesn’t need these scenarios. Run them only for a Task that works on remote execution itself and turns the flag on.
 
@@ -49,7 +49,7 @@ Selections are explicit; empty and unknown selections fail.
 | `production-transport` | Real execution pairing, identity/version/expiry refusals, human-only authorization, restart and revocation; no Task execution | isolated loopback integration; production behavior |
 | `command-journal` | The command channel on real, separate processes: a dummy operation runs once through a lost command, a lost acknowledgment, a repeated result, a restart of either service at each crash point, a stop while disconnected and stale commands; reconciliation, limits and status text | isolated loopback integration; production behavior |
 | `two-mac` | Skipped until lab access and a real-machine adapter exist | actual two-Mac execution |
-| `native-sandbox` | On macOS, actual `/usr/bin/sandbox-exec` permits worktree/cache writes and refuses writes and private reads elsewhere in the synthetic TED home, during setup and teardown; missing-sandbox and local Bypass regressions also run | native-sandbox evidence |
+| `native-sandbox` | On macOS, actual `/usr/bin/sandbox-exec` permits worktree/cache writes and refuses writes and private reads elsewhere in the synthetic Ted home, during setup and teardown; missing-sandbox and local Bypass regressions also run | native-sandbox evidence |
 | `gui` | Native pairing/worker windows, expandable guidance, worker IPC refusal, close/quit and worker-only process lifetime | GUI evidence |
 
 Loopback success never counts as two-Mac, native-sandbox or GUI evidence. The
@@ -146,7 +146,7 @@ The native scenario requires a Mac with working `sandbox-exec`. A non-Mac run
 cannot supply its required observation and therefore cannot pass this checkpoint.
 An agent sandbox may need command escalation to run the actual native sandbox and
 inspect owned child processes. An unavailable native sandbox is unresolved evidence.
-The scenarios use synthetic homes and local bare origins, never personal TED homes.
+The scenarios use synthetic homes and local bare origins, never personal Ted homes.
 The process fixture copies `.env`, runs setup before the stub Lead, retains the
 worktree on Stop, runs teardown on Archive and checks Delete cleanup. The other
 selected files cover restart with the recorded setup, copy containment, rollback,

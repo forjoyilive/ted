@@ -54,7 +54,7 @@ const mergeSignoff = (client: Client, task: Task) =>
   )
 
 describe('Merge sign-off', () => {
-  test('TED posts the Merge sign-off only once CI passes, Autopilot approves the waiting request when turned on, and Merge merges at once', async () => {
+  test('Ted posts the Merge sign-off only once CI passes, Autopilot approves the waiting request when turned on, and Merge merges at once', async () => {
     const client = await start({
       files: ci,
       workflow: ['stages:', '  merge: { gate: true }'],
@@ -105,7 +105,7 @@ describe('Merge sign-off', () => {
     expect(done.repos[0]?.pullRequest?.state).toBe('merged')
     expect(await merges()).toHaveLength(1)
     expect(await lines(client, task)).not.toContain(
-      'Autopilot is on, so TED skipped the Merge Sign-Off',
+      'Autopilot is on, so Ted skipped the Merge Sign-Off',
     )
   })
 
@@ -122,7 +122,7 @@ describe('Merge sign-off', () => {
       return current.stage === 'merge' && current.status?.kind === 'waiting-for-github'
     }, 'Waiting for CI')
     expect(await lines(client, task)).toContain(
-      'Autopilot is on, so TED skipped the Merge Sign-Off',
+      'Autopilot is on, so Ted skipped the Merge Sign-Off',
     )
     await client.ok('PATCH', '/settings', { overnightMode: false })
     const { rows } = await client.ok<TaskGates>('GET', `/tasks/${task.id}/gates`)
@@ -173,7 +173,7 @@ describe('Merge sign-off', () => {
       const outcome = runClient.call('POST', `/tasks/${task.id}/outcome`, {
         outcome: 'back',
         to: 'validate',
-        findings: 'Hold the Task while TED fetches.',
+        findings: 'Hold the Task while Ted fetches.',
       })
       try {
         await waitUntil(
@@ -516,7 +516,7 @@ describe('Sending after sign-off', () => {
 })
 
 describe('Cancelling when GitHub won’t turn auto-merge off', () => {
-  test('the cancel fails closed and TED keeps trying until auto-merge is off', async () => {
+  test('the cancel fails closed and Ted keeps trying until auto-merge is off', async () => {
     const client = await start({
       files: ci,
       merge: {
@@ -541,7 +541,7 @@ describe('Cancelling when GitHub won’t turn auto-merge off', () => {
     const stuck = await getTask(client, task.id)
     expect(stuck.repos[0]?.pullRequest?.autoMerge).toBeDefined()
     expect(stuck.activity).toBe(
-      'Merge cancelled · GitHub auto-merge is still on; TED keeps trying to turn it off',
+      'Merge cancelled · GitHub auto-merge is still on; Ted keeps trying to turn it off',
     )
 
     await setGh({ disableAutoFails: false })

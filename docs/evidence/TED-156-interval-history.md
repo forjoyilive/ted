@@ -40,7 +40,7 @@ The first required run found three test assumptions invalidated by appending rec
 
 ## Required main integration
 
-TED’s Work advancement required merging main at 0c4d214386fa5980432042675b79e5fd895abf81. The only textual conflict was Task mapping in store/index.ts: preserve main’s preparation field and this Task’s observation callback and optional observe parameter. Other original handler writes, including Check timing materialization, remain intact under withIntervalBoundaries.
+Ted’s Work advancement required merging main at 0c4d214386fa5980432042675b79e5fd895abf81. The only textual conflict was Task mapping in store/index.ts: preserve main’s preparation field and this Task’s observation callback and optional observe parameter. Other original handler writes, including Check timing materialization, remain intact under withIntervalBoundaries.
 
 Main introduced v1.TaskResumedOvernight. The interval reducer now recognizes it as an explicit stopped-time end, lifecycle resume and durable queue entry. A public-store fixture covers a preparation stop released overnight. Typecheck and lint pass after integration. The merged Factory rules now say “Don’t run test files in Work” (.ted/stages/work.md); the new fixture and merged source must be tested in Validate. The recommended three-file command covers task-intervals-store.test.ts, task-interval-recovery.test.ts and retention.test.ts. Remaining affected files include status.test.ts, store.test.ts, runs.test.ts, run-output.test.ts, preparation.test.ts, data.test.ts and compact.test.ts; pre-merge verification is preserved above.
 

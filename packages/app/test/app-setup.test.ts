@@ -67,7 +67,7 @@ describe('setup Tasks', () => {
             { path: '.ted/workflow.yaml', about: 'Checks, Apps and Stage settings' },
             { path: '.ted/stages/validate.md', about: 'Start Web, sign in, check the main flow' },
           ],
-          defaults: 'Left as TED’s defaults: agents, permissions Auto, 6 working Runs.',
+          defaults: 'Left as Ted’s defaults: agents, permissions Auto, 6 working Runs.',
         },
       }),
     )
@@ -107,12 +107,12 @@ describe('setup Tasks', () => {
     await guide.getByText('Review the proposed setup.').waitFor()
     await guide.getByRole('button', { name: 'Open the proposal' }).click()
     const thread = window.getByRole('region', { name: 'Task thread' })
-    await thread.getByText(/WD-1\s+·\s+Brief\s+·\s+Created by TED/).waitFor()
+    await thread.getByText(/WD-1\s+·\s+Brief\s+·\s+Created by Ted/).waitFor()
     await thread.getByText('Setup', { exact: true }).waitFor()
     const details = window.getByRole('complementary', { name: 'Task details' })
     await details
       .getByText(
-        'The Design and Review sign-offs are always on for a setup Task. Tasks started before it merges use TED’s defaults.',
+        'The Design and Review sign-offs are always on for a setup Task. Tasks started before it merges use Ted’s defaults.',
       )
       .waitFor()
     const panel = details.getByRole('tabpanel', { name: 'Details' })
@@ -125,7 +125,7 @@ describe('setup Tasks', () => {
     await card.waitFor({ timeout: 40_000 })
     await card.getByRole('heading', { name: 'Proposed setup for Widgets' }).waitFor()
     const workflow = card.getByRole('region', { name: 'Workflow' })
-    await workflow.getByText('As TED’s default').waitFor()
+    await workflow.getByText('As Ted’s default').waitFor()
     await workflow.getByText('Send back at most 5 times · validate.md for Widgets').waitFor()
     const checks = card.getByRole('region', { name: 'Checks · tried on main' })
     expect(await checks.getByRole('listitem').allTextContents()).toEqual([
@@ -138,13 +138,13 @@ describe('setup Tasks', () => {
     const written = card.getByRole('region', { name: 'Files it will write' })
     expect(await written.getByRole('listitem').count()).toBe(3)
     await card
-      .getByText('Left as TED’s defaults: agents, permissions Auto, 6 working Runs.')
+      .getByText('Left as Ted’s defaults: agents, permissions Auto, 6 working Runs.')
       .waitFor()
     await thread
       .getByRole('region', { name: 'Answer', exact: true })
       .getByRole('button', { name: 'Approve' })
       .waitFor()
-    await thread.getByText('TED created this Task to set up this Factory').waitFor()
+    await thread.getByText('Ted created this Task to set up this Factory').waitFor()
     expect(await thread.getByText('Tutorial', { exact: true }).count()).toBe(0)
 
     const hide = await guide.getByRole('button', { name: 'Hide guide' }).boundingBox()

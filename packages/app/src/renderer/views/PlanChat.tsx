@@ -749,7 +749,7 @@ function extraItems(detail: PlanDetail, onOpenTask: (ref: string) => void): Chat
           at: request.createdAt,
           node: (
             <EventLine
-              text={`TED ${request.body.charAt(0).toLowerCase()}${request.body.slice(1)}`}
+              text={`Ted ${request.body.charAt(0).toLowerCase()}${request.body.slice(1)}`}
               at={request.createdAt}
               good
             />

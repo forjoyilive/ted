@@ -253,7 +253,7 @@ export function createRequestAnswers(
       await mergeSendBack(
         task.id,
         [
-          `TED asked the human about CI at Merge: ${comment.title ?? ''}.`,
+          `Ted asked the human about CI at Merge: ${comment.title ?? ''}.`,
           comment.body.split('\n\n')[0] ?? '',
           'The human sent it to you. Find out why CI hasn’t reported (a workflow that doesn’t run on this branch, a missing runner, a check that hangs), fix what belongs in this Task, and say what you found in the brief. The Task comes back through Validate for a short re-sign-off.',
           ...(text !== '' ? [`The human added: ${text}`] : []),
@@ -289,7 +289,7 @@ export function createRequestAnswers(
       store.postComment({
         taskId: task.id,
         author: { kind: 'ted' },
-        body: 'The human chose Merge anyway, so the Task Lead’s Merge work was skipped. TED merges as it would after the Task Lead’s advance: once CI passes, and after the Merge sign-off if it is on.',
+        body: 'The human chose Merge anyway, so the Task Lead’s Merge work was skipped. Ted merges as it would after the Task Lead’s advance: once CI passes, and after the Merge sign-off if it is on.',
       })
       return reply
     })
@@ -430,7 +430,7 @@ export function createRequestAnswers(
       if (!liveLead(current)) store.holdAnswer(comment.id)
       await enterValidate(
         [
-          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${diagnoseChoice}, so TED moved this Task to Validate although the Checks didn’t pass in Work. TED runs the Checks at entry. A Check that fails there is a failure case: assess it as Validate’s instructions say, and the human can then choose Retry, Fix in this Task or Accept this failure.`,
+          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${diagnoseChoice}, so Ted moved this Task to Validate although the Checks didn’t pass in Work. Ted runs the Checks at entry. A Check that fails there is a failure case: assess it as Validate’s instructions say, and the human can then choose Retry, Fix in this Task or Accept this failure.`,
           ...(text !== '' ? [`The human added:\n\n${text}`] : []),
         ].join('\n\n'),
       )
@@ -532,7 +532,7 @@ export function createRequestAnswers(
       if (store.newWorkHold() !== undefined) {
         throw new RequestError(
           409,
-          'The disk is almost full, so TED holds new Apps until there’s space',
+          'The disk is almost full, so Ted holds new Apps until there’s space',
         )
       }
       if (await simulator.hasRoom()) {
@@ -696,7 +696,7 @@ export function createRequestAnswers(
         throw new RequestError(400, 'answer a sign-off request with Approve or Request changes')
       }
     } else if (comment.kind !== 'question') {
-      throw new RequestError(400, `TED can’t answer a ${comment.kind} request yet`)
+      throw new RequestError(400, `Ted can’t answer a ${comment.kind} request yet`)
     } else if (request.action !== 'answer') {
       throw new RequestError(400, 'answer a question with a choice or your own words')
     } else if (request.choices !== undefined && !comment.multiple) {
@@ -829,7 +829,7 @@ export function createRequestAnswers(
             watchMerge(task.id)
             await deliver(
               from,
-              `${approved}${text === '' ? ' ' : ''}TED merges the pull requests now and moves the Task to Done when they’ve merged. There’s nothing for you to report.`,
+              `${approved}${text === '' ? ' ' : ''}Ted merges the pull requests now and moves the Task to Done when they’ve merged. There’s nothing for you to report.`,
             )
             return
           }
@@ -974,7 +974,7 @@ function archiveKeptMessage(task: Task, comment: Comment): string {
   const who = comment.autopilotAnswered ? 'Autopilot' : 'The user'
   const text = comment.answer?.kind === 'answered' ? comment.answer.text : undefined
   return [
-    `${who} chose ${keepArchiveChoice} on your request to archive ${task.displayId}, so TED won’t archive it.`,
+    `${who} chose ${keepArchiveChoice} on your request to archive ${task.displayId}, so Ted won’t archive it.`,
     ...(text !== undefined ? [`They added:\n\n${text}`] : []),
     `The Task stays in ${stageTitle(task.stage)}. Carry on with this Stage’s work. Ask to archive it again only if something new comes up.`,
   ].join('\n\n')

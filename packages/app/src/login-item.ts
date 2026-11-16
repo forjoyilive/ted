@@ -48,7 +48,7 @@ function applyOnMac(system: LoginItemSystem, enabled: boolean): LoginItemState {
 }
 
 function quoteExecArg(value: string): string {
-  if (/[\r\n]/.test(value)) throw new Error('TED’s path has a line break in it')
+  if (/[\r\n]/.test(value)) throw new Error('Ted’s path has a line break in it')
   const quoted = value.replace(/["`$\\]/g, (c) => `\\${c}`)
   return `"${quoted.replaceAll('\\', '\\\\').replaceAll('%', '%%')}"`
 }
@@ -57,8 +57,8 @@ export function desktopEntry(executable: string): string {
   return [
     '[Desktop Entry]',
     'Type=Application',
-    'Name=TED',
-    'Comment=Starts TED in the background',
+    'Name=Ted',
+    'Comment=Starts Ted in the background',
     `Exec=${quoteExecArg(executable)} ${backgroundFlag}`,
     'Terminal=false',
     'NoDisplay=true',

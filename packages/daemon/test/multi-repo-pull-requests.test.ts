@@ -213,7 +213,7 @@ test('a draft whose latest commits can’t be pushed stays a draft at sign-off',
   expect(repos.get('web')?.pullRequest?.state).toBe('ready')
 })
 
-test('TED pushes to the Factory’s URL and ignores the repo’s own git config', async () => {
+test('Ted pushes to the Factory’s URL and ignores the repo’s own git config', async () => {
   const api = await repoWith('api', 1)
   const marker = path.join(dir, 'ran')
   const elsewhere = path.join(dir, 'elsewhere.git')
@@ -253,7 +253,7 @@ test('TED pushes to the Factory’s URL and ignores the repo’s own git config'
   await expect(run('test', ['-e', marker])).rejects.toThrow()
 })
 
-test('a remote branch ahead of TED’s recorded push is pushed past when the pushed commit includes it', async () => {
+test('a remote branch ahead of Ted’s recorded push is pushed past when the pushed commit includes it', async () => {
   const api = await repoWith('api', 1)
   const { store, repos, reconciled } = fakeStore(['api'])
   const prs = createPullRequests({ store, gh: fakeGh().gh })
@@ -302,7 +302,7 @@ test('a remote branch with commits the pushed commit lacks is refused and left a
   expect(reconciled).toEqual([])
 })
 
-test('a remote branch that moves again while TED recovers is not overwritten', async () => {
+test('a remote branch that moves again while Ted recovers is not overwritten', async () => {
   const api = await repoWith('api', 1)
   const { store, repos, reconciled } = fakeStore(['api'], () => {
     const git = (...args: string[]) => execFileSync('git', args, { cwd: other, env })
@@ -327,7 +327,7 @@ test('a remote branch that moves again while TED recovers is not overwritten', a
   expect(await remoteTip('api')).toBe(during.stdout.trim())
 })
 
-test('a worktree that gains a commit during a push gets only the commit TED read first pushed', async () => {
+test('a worktree that gains a commit during a push gets only the commit Ted read first pushed', async () => {
   const api = await repoWith('api', 1)
   let reads = Number.NEGATIVE_INFINITY
   const { store, repos, reconciled } = fakeStore(['api'], undefined, () => {

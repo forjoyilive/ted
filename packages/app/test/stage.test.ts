@@ -22,13 +22,13 @@ async function stagedEdition(code: string): Promise<string> {
   return file
 }
 
-test('staged code is the release, not TED Dev', async () => {
+test('staged code is the release, not Ted Dev', async () => {
   const code = stripTypeScriptTypes(await readFile(editionSource, 'utf8'), { mode: 'strip' })
   const file = await stagedEdition(code)
   await markRelease(dir as string)
   const staged = (await import(pathToFileURL(file).href)) as typeof import('@ted/protocol')
   expect(staged.edition).toBe('release')
-  expect(staged.identity()).toMatchObject({ name: 'TED', homeFolder: '.ted' })
+  expect(staged.identity()).toMatchObject({ name: 'Ted', homeFolder: '.ted' })
 })
 
 test('staging fails when it can’t find the edition line', async () => {

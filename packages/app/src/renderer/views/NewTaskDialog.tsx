@@ -951,7 +951,7 @@ function SourceCard({
               <>
                 Source set.
                 <Help>
-                  TED copied the title, Priority and branch name from Linear. The issue’s
+                  Ted copied the title, Priority and branch name from Linear. The issue’s
                   description goes to the Task Lead as context, and its images and uploaded files
                   come with the Task.
                 </Help>

@@ -173,7 +173,7 @@ export function checkLayer(input: {
       file: displayPath(kind, 'workflow.yaml'),
       line: 1,
       column: 1,
-      message: 'TED couldn’t read workflow.yaml',
+      message: 'Ted couldn’t read workflow.yaml',
     })
   } else if (yamlText !== undefined) {
     settings = checkWorkflowYaml(yamlText, {
@@ -191,7 +191,7 @@ export function checkLayer(input: {
       file: displayPath(kind, 'stages'),
       line: 1,
       column: 1,
-      message: 'TED couldn’t read the stages folder',
+      message: 'Ted couldn’t read the stages folder',
     })
   }
   for (const [file, text] of Object.entries(files)) {
@@ -203,7 +203,7 @@ export function checkLayer(input: {
       problems.push({
         ...at,
         severity: 'warning',
-        message: `\`${id}\` isn’t a Stage id, so TED ignores this file. A custom Stage id is lowercase letters, digits and hyphens, up to ${maxCustomStageId} characters.`,
+        message: `\`${id}\` isn’t a Stage id, so Ted ignores this file. A custom Stage id is lowercase letters, digits and hyphens, up to ${maxCustomStageId} characters.`,
       })
     } else if (
       kind === 'factory' &&
@@ -214,10 +214,10 @@ export function checkLayer(input: {
       problems.push({
         ...at,
         severity: 'warning',
-        message: `No \`order\` lists \`${id}\`, so TED ignores this file. Add \`${id}\` to \`order\` in workflow.yaml to run it as a Stage.`,
+        message: `No \`order\` lists \`${id}\`, so Ted ignores this file. Add \`${id}\` to \`order\` in workflow.yaml to run it as a Stage.`,
       })
     } else if (text === null) {
-      problems.push({ ...at, message: 'TED couldn’t read the Stage file' })
+      problems.push({ ...at, message: 'Ted couldn’t read the Stage file' })
     } else if (text.trim() === '') {
       problems.push({ ...at, message: 'the Stage file is empty' })
     } else {
@@ -498,7 +498,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             ) {
               error(node, `${handsOff(id) ? 'Work' : 'Intake'} can’t be turned off`)
             } else if (entry.name === 'enabled' && id === 'backlog' && scalar(node) === false) {
-              warn(node, 'Backlog can’t be turned off; TED ignores this')
+              warn(node, 'Backlog can’t be turned off; Ted ignores this')
             } else stage[entry.name] = scalar(node) as boolean
             break
           case 'max_back':
@@ -573,7 +573,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
         const round = stage.max_back + 1
         warn(
           entries(stageNode).find((entry) => entry.name === 'p1_only_from')?.key ?? stageNode,
-          `\`stages.${id}.p1_only_from\` is ${p1From}, but \`max_back: ${stage.max_back}\` in this file lets Validate reach round ${round} at most before TED asks the human, so round ${p1From} comes only if the human sends the Task back again`,
+          `\`stages.${id}.p1_only_from\` is ${p1From}, but \`max_back: ${stage.max_back}\` in this file lets Validate reach round ${round} at most before Ted asks the human, so round ${p1From} comes only if the human sends the Task back again`,
         )
       }
       settings.stages[id as StageId] = stage
@@ -718,7 +718,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
           if (parsed === undefined) error(node, '`remote` must be a GitHub repo')
           else if (primary && context.primaryRepo !== undefined) {
             if (parsed.toLowerCase() !== context.primaryRepo.toLowerCase()) {
-              warn(node, 'the primary repo is the one holding .ted/, so TED ignores this `remote`')
+              warn(node, 'the primary repo is the one holding .ted/, so Ted ignores this `remote`')
             }
           } else repo.remote = remote
           break
@@ -818,7 +818,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             )
               warn(
                 entry.key,
-                'pass $TED_ELECTRON_ARGS to Electron in `run`, or TED can’t reach the app or start it in the sandbox',
+                'pass $TED_ELECTRON_ARGS to Electron in `run`, or Ted can’t reach the app or start it in the sandbox',
               )
             break
           }
@@ -837,7 +837,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
               ) {
                 warn(
                   variable.key,
-                  `TED sets \`${variable.name}\` itself or keeps it out of worktrees, so it ignores it here`,
+                  `Ted sets \`${variable.name}\` itself or keeps it out of worktrees, so it ignores it here`,
                 )
               }
             }
@@ -882,7 +882,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             } else if (isReservedEnvName(variable.name)) {
               warn(
                 variable.key,
-                `TED sets \`${variable.name}\` itself or keeps it out of worktrees, so it ignores it here`,
+                `Ted sets \`${variable.name}\` itself or keeps it out of worktrees, so it ignores it here`,
               )
             } else env[variable.name] = String(v)
           }

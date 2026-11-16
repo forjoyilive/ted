@@ -51,7 +51,7 @@ export function NotificationsPage({ settings }: SettingsPageProps) {
   return (
     <SettingsPage
       title="Notifications"
-      help="TED notifies you only when something needs you. More than 3 within a minute fold into one. Use your system’s Focus to quiet them."
+      help="Ted notifies you only when something needs you. More than 3 within a minute fold into one. Use your system’s Focus to quiet them."
     >
       {off && (
         <div className={styles.off} role="alert">
@@ -59,8 +59,8 @@ export function NotificationsPage({ settings }: SettingsPageProps) {
             !
           </span>
           <div className={styles.text}>
-            <span className={styles.title}>Notifications are off for TED in System Settings</span>
-            <span className={styles.detail}>TED can’t notify you until you turn them on.</span>
+            <span className={styles.title}>Notifications are off for Ted in System Settings</span>
+            <span className={styles.detail}>Ted can’t notify you until you turn them on.</span>
           </div>
           <Button onClick={() => ted.openNotificationSettings()}>Open System Settings</Button>
         </div>
@@ -68,9 +68,9 @@ export function NotificationsPage({ settings }: SettingsPageProps) {
       {offer === 'not-asked' && (
         <div className={styles.notAsked} role="status">
           <div className={styles.text}>
-            <span className={styles.title}>TED doesn’t send notifications yet</span>
+            <span className={styles.title}>Ted doesn’t send notifications yet</span>
             <span className={styles.detail}>
-              Turn them on and macOS will ask whether TED may send them.
+              Turn them on and macOS will ask whether Ted may send them.
             </span>
           </div>
           <Button primary onClick={() => ted.turnOnNotifications()}>

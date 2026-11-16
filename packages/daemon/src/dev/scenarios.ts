@@ -31,7 +31,7 @@ export function demoCheckProblem(runs: readonly CheckRun[]): string | undefined 
   const run = runs.find((r) => r.outcome === 'failed' || r.outcome === 'interrupted')
   if (!run) return undefined
   return run.outcome === 'interrupted'
-    ? `Demo Check run ${run.id} was interrupted: TED could not run it, so the Task has no Check coverage. The daemon log says why.`
+    ? `Demo Check run ${run.id} was interrupted: Ted could not run it, so the Task has no Check coverage. The daemon log says why.`
     : `Demo Check failed: ${JSON.stringify(run)}`
 }
 
@@ -149,7 +149,7 @@ async function populateScenarios(
     const task = await client.createTask({
       factory,
       title,
-      description: 'A realistic example for exploring TED Dev.',
+      description: 'A realistic example for exploring Ted Dev.',
       start: false,
       ...([
         'design',

@@ -446,7 +446,7 @@ export async function acquireSlot(
 }
 
 export function waitingMessage(pid: number): string {
-  return `Waiting for another TED test run (pid ${pid}) to finish…`
+  return `Waiting for another Ted test run (pid ${pid}) to finish…`
 }
 
 export function runRefusal(
@@ -469,7 +469,7 @@ export async function lockRun(
   const release = await acquireSlot({ onWait, files: fileCount, ...options })
   if (!release)
     console.warn(
-      `Running without a TED test slot: can’t write ${(options.dir ?? slotDir).replace(homedir(), '~')}.`,
+      `Running without a Ted test slot: can’t write ${(options.dir ?? slotDir).replace(homedir(), '~')}.`,
     )
   return release
 }

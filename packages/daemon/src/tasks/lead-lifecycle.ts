@@ -112,7 +112,7 @@ export const restartedMessage =
   'The human restarted you with new Task Lead settings, which interrupted your last turn. Carry on where you left off.'
 
 export const continueMessage =
-  'TED paused you because your agent couldn’t run (a usage limit, no connection, or a sign-in, version or credential problem). It can run again now. Carry on where you left off.'
+  'Ted paused you because your agent couldn’t run (a usage limit, no connection, or a sign-in, version or credential problem). It can run again now. Carry on where you left off.'
 
 export function createLeadLifecycle(options: LeadLifecycleOptions) {
   const {
@@ -296,7 +296,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       const now = flags.usesDefaultModel ? 'the CLI’s default model' : `the model ${flags.model}`
       await runs.send(
         run.id,
-        `TED restarted you on ${now} because ${run.model} isn’t available. Your last message got no answer; carry on from where you were.`,
+        `Ted restarted you on ${now} because ${run.model} isn’t available. Your last message got no answer; carry on from where you were.`,
       )
     }
   }
@@ -334,7 +334,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     if (lead.agent !== run.agent && store.newWorkHold() !== undefined)
       throw new RequestError(
         409,
-        'TED isn’t starting new work right now, so it can’t switch Providers',
+        'Ted isn’t starting new work right now, so it can’t switch Providers',
       )
     if (run.state === 'working') {
       if (lead.agent === run.agent) interruptedForRestart.add(run.id)
@@ -437,7 +437,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
         await runs.send(
           run.id,
           finished.report ??
-            `TED finished setting up the ${intent.step.repo.name} worktree: \`${intent.step.setup.command}\` passed.`,
+            `Ted finished setting up the ${intent.step.repo.name} worktree: \`${intent.step.setup.command}\` passed.`,
         )
       return
     }

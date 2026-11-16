@@ -623,7 +623,7 @@ export interface ProposalCreated {
 export const sizeChoices = {
   chat: 'Plan in chat',
   split: 'Split it',
-  outside: 'Plan it outside TED',
+  outside: 'Plan it outside Ted',
   grill: 'Grill anyway',
 } as const
 

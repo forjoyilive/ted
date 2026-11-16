@@ -80,7 +80,7 @@ export const messageDraftRoutes: Route[] = [
     method: 'GET',
     path,
     handle: async ({ params: [kind = '', id = ''], caller }, { store }) => {
-      if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can read unsent text')
+      if (caller.kind !== 'app') throw new HttpError(403, 'only the Ted app can read unsent text')
       const box = parseMessageBox(kind, id)
       const task =
         box.kind === 'comment' || box.kind === 'follow-up' ? store.getTask(id) : undefined

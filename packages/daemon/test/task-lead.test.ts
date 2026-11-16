@@ -318,7 +318,7 @@ describe('Model unavailable', () => {
       const [question] = await waitUntil(async () => {
         const comments = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
         return comments.length > 0 ? comments : undefined
-      }, 'TED’s question')
+      }, 'Ted’s question')
       expect(question).toMatchObject({ kind: 'question', author: { kind: 'ted' } })
       expect(question?.body).toContain('unavailable-9')
       expect(question?.body).toContain('Use the default model')
@@ -432,7 +432,7 @@ describe('Model unavailable', () => {
     await waitUntil(async () => {
       const comments = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
       return comments.some((c) => c.kind === 'question') || undefined
-    }, 'TED’s question')
+    }, 'Ted’s question')
 
     await client.ok('POST', `/tasks/${task.id}/lead/use-default-model`)
     await waitUntil(async () => {
@@ -559,7 +559,7 @@ describe('Stage effort', () => {
       await client.ok('POST', `/runs/${run.id}/interrupt`)
       await waitUntil(async () => {
         const input = await readFile(path.join(home, 'runs', run.id, 'input.jsonl'), 'utf8')
-        return input.includes('TED moved this Task to Work')
+        return input.includes('Ted moved this Task to Work')
       }, 'Stage instructions appended before acceptance')
       expect((await client.getRun(run.id)).run.state).toBe('idle')
       expect(await userMessages(client, run.id)).not.toContain(firstText)
@@ -757,7 +757,7 @@ describe('Stage effort', () => {
     expect(flag(starts[1]?.argv ?? [], '--effort')).toBe('high')
     expect(flag(starts[1]?.argv ?? [], '--resume')).toBe(initial.sessionId)
     expect((await leadRun(client, task)).id).toBe(initial.id)
-    expect((await userMessages(client, initial.id)).at(-1)).toContain('TED moved this Task to Work')
+    expect((await userMessages(client, initial.id)).at(-1)).toContain('Ted moved this Task to Work')
     expect(starts).toHaveLength(2)
   })
 
@@ -792,7 +792,7 @@ describe('Stage effort', () => {
           path.join(home, 'runs', initial.id, 'input.jsonl'),
           'utf8',
         ).catch(() => '')
-        return input.includes('TED moved this Task to Work')
+        return input.includes('Ted moved this Task to Work')
       }, 'Stage input appended before acceptance')
       await waitUntil(async () => {
         const { conversation } = await client.getRun(initial.id)
@@ -808,7 +808,7 @@ describe('Stage effort', () => {
         await waitUntil(
           async () =>
             (await userMessages(client, initial.id)).some((m) =>
-              m.includes('TED moved this Task to Work'),
+              m.includes('Ted moved this Task to Work'),
             ),
           'Stage acceptance',
         )
@@ -827,9 +827,9 @@ describe('Stage effort', () => {
         'recovery turn',
       )
       const messages = await userMessages(client, initial.id)
-      expect(messages.filter((m) => m.includes('TED moved this Task to Work'))).toHaveLength(1)
-      if (!accepted) expect(messages.at(-1)).toContain('TED moved this Task to Work')
-      else expect(messages.at(-1)).not.toContain('TED moved this Task to Work')
+      expect(messages.filter((m) => m.includes('Ted moved this Task to Work'))).toHaveLength(1)
+      if (!accepted) expect(messages.at(-1)).toContain('Ted moved this Task to Work')
+      else expect(messages.at(-1)).not.toContain('Ted moved this Task to Work')
       expect(await claudeStarts()).toHaveLength(3)
     },
   )
@@ -864,7 +864,7 @@ describe('Stage effort', () => {
     expect(await claudeStarts()).toHaveLength(1)
     expect(
       (await userMessages(client, initial.id)).some((m) =>
-        m.includes('TED moved this Task to Work'),
+        m.includes('Ted moved this Task to Work'),
       ),
     ).toBe(false)
     await daemon?.stop()
@@ -890,7 +890,7 @@ describe('Stage effort', () => {
     await waitUntil(
       async () =>
         (await userMessages(client, initial.id)).some((m) =>
-          m.includes('TED moved this Task to Work'),
+          m.includes('Ted moved this Task to Work'),
         ),
       'Work instructions after restart',
     )
@@ -903,7 +903,7 @@ describe('Stage effort', () => {
     })
     expect(
       (await userMessages(client, initial.id)).some((m) =>
-        m.includes('TED moved this Task to Work'),
+        m.includes('Ted moved this Task to Work'),
       ),
     ).toBe(true)
 
@@ -921,7 +921,7 @@ describe('Stage effort', () => {
     await waitUntil(
       async () =>
         (await userMessages(client, initial.id)).some((m) =>
-          m.includes('TED moved this Task to Review'),
+          m.includes('Ted moved this Task to Review'),
         ),
       'Review instructions',
     )

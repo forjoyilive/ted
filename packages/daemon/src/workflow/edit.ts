@@ -142,7 +142,7 @@ export function inputProblems(
       } else if (!envName.test(variable.name)) {
         add(`${label}: “${variable.name}” isn’t a valid environment variable name.`)
       } else if (isReservedEnvName(variable.name)) {
-        add(`${label}: TED sets ${variable.name} itself, so it can’t be set here.`)
+        add(`${label}: Ted sets ${variable.name} itself, so it can’t be set here.`)
       }
     }
     if (new Set(env.map((v) => v.name)).size !== env.length) {

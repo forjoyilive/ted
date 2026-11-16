@@ -4,7 +4,7 @@ import { memoryParts, memorySize, memoryTotal } from '@ted/protocol/memory'
 export function formatMemoryUse(use: MemoryUse): string {
   const { heapBytes, externalBytes } = use.daemon
   return [
-    `TED is using ${memorySize(memoryTotal(use))}.`,
+    `Ted is using ${memorySize(memoryTotal(use))}.`,
     ...memoryParts(use).map((part) =>
       part.label === 'Daemon'
         ? `  Daemon: ${memorySize(part.bytes)} (JavaScript heap ${memorySize(heapBytes)}, store and buffers ${memorySize(externalBytes)})`

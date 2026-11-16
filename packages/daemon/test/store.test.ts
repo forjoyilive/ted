@@ -355,7 +355,7 @@ describe('TedStore', () => {
   })
 
   test('Run starts store shared prompt text once and rebuild the same prompts from a mixed log', async () => {
-    const fixed = `# Working in TED\n\n${'Fixed guidance. '.repeat(40)}`
+    const fixed = `# Working in Ted\n\n${'Fixed guidance. '.repeat(40)}`
     const stage = `# Work\n\n${'Stage steps. '.repeat(30)}`
     const instructions = `# Review\n\n${'Read the diff. '.repeat(30)}`
     const leadPrompt = (title: string) => `${fixed}\n\n${stage}\n\n# Your Task: ${title}`

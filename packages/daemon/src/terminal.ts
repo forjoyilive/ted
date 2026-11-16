@@ -19,7 +19,7 @@ export function terminalScript(
     ...(removeSelf ? ['rm -f -- "$0"'] : []),
     `printf '%s\\n\\n' ${shellQuote(`$ ${command}`)}`,
     command,
-    `printf '\\n%s\\n' ${shellQuote('Done. You can close this window and go back to TED.')}`,
+    `printf '\\n%s\\n' ${shellQuote('Done. You can close this window and go back to Ted.')}`,
     '',
   ].join('\n')
 }
@@ -60,6 +60,6 @@ export function createTerminalOpener({ tmpDir }: { tmpDir: string }): OpenTermin
       child.unref()
       return
     }
-    throw new RequestError(409, 'TED couldn’t find a terminal app. Copy the command instead.')
+    throw new RequestError(409, 'Ted couldn’t find a terminal app. Copy the command instead.')
   }
 }

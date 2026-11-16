@@ -1,5 +1,5 @@
 // Adapted from agent-orchestrator (Apache-2.0): frontend/src/renderer/components/chat/
-// ActivityRun.tsx and ChatTimelineItems.tsx. TED changed: CSS Modules and RunChat items, its own
+// ActivityRun.tsx and ChatTimelineItems.tsx. Ted changed: CSS Modules and RunChat items, its own
 // grouping of calls (tool-groups.ts), and Edit rows that expand to their diff.
 import type { RunChat as Chat, ChatDiff, ChatItem, MessageBox, RunSummary } from '@ted/protocol'
 import { memo, type ReactNode, useEffect, useState } from 'react'
@@ -491,7 +491,7 @@ const ChatRow = memo(function ChatRow({ item, run, now, options }: ChatRowProps)
     case 'instructions':
       return (
         <Collapsible
-          label="TED’s instructions for this Run"
+          label="Ted’s instructions for this Run"
           meta={`${item.lines} lines${item.at !== undefined ? ` · ${clockTime(item.at)}` : ''}`}
         >
           <pre className={styles.output}>{item.text}</pre>
@@ -512,7 +512,7 @@ const ChatRow = memo(function ChatRow({ item, run, now, options }: ChatRowProps)
           <ul className={styles.lines}>
             <EventLine
               tone="quiet"
-              text={`From TED · ${item.text.replace(/\s+/g, ' ').trim()}`}
+              text={`From Ted · ${item.text.replace(/\s+/g, ' ').trim()}`}
               at={item.at ?? run.startedAt}
             />
           </ul>
@@ -520,7 +520,7 @@ const ChatRow = memo(function ChatRow({ item, run, now, options }: ChatRowProps)
       }
       return (
         <Collapsible
-          label="From TED"
+          label="From Ted"
           mono={item.title}
           meta={item.at !== undefined ? ago(item.at, now) : undefined}
         >

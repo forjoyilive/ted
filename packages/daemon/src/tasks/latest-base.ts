@@ -35,5 +35,5 @@ export function latestBaseNote(moved: readonly AdoptedBase[], multiRepo: boolean
     ? moved.map((m) => `the ${named(m.repo)} branch to the latest ${named(m.base)}`).join(' and ')
     : `this Task’s branch to the latest ${named(first.base)}`
   const had = moved.length === 1 ? 'It had' : 'They had'
-  return `TED moved ${what} before Work started. ${had} no commits of this Task yet. Files may differ from what was read in the earlier Stages, so read a file again before you rely on what it said. If the dependencies changed, run the repo’s dependency install again.`
+  return `Ted moved ${what} before Work started. ${had} no commits of this Task yet. Files may differ from what was read in the earlier Stages, so read a file again before you rely on what it said. If the dependencies changed, run the repo’s dependency install again.`
 }

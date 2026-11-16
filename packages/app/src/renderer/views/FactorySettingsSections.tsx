@@ -169,7 +169,7 @@ export function ValidateRounds({
           onChange={(subAgents) => onStage({ subAgents })}
         />
         <Help>
-          Off: in Validate the Task Lead can start only TED’s reviewer, one per visit. On: it can
+          Off: in Validate the Task Lead can start only Ted’s reviewer, one per visit. On: it can
           also start other sub-agents, for example to run slow tests. Each one takes a working Run,
           and a sub-agent that reviews the diff adds Findings that can cost another round. The
           one-reviewer rule stays either way.
@@ -199,7 +199,7 @@ export function WorkFailures({
           Off: when a test the Task Lead ran itself failed outside Validate and it recorded the
           failure, only you can close it, from a question in your Inbox. On: once the Task Lead runs
           the test again and it passes, it closes the failure itself with that evidence, and you get
-          a line in the thread and no question. TED doesn’t run the test, so you are trusting the
+          a line in the thread and no question. Ted doesn’t run the test, so you are trusting the
           Task Lead’s report. Failed Checks and failures found in Validate still need your decision,
           and only you can accept a failure that still happens.
         </Help>
@@ -226,9 +226,9 @@ export function MergeCommitTitles({
         />
         <Help>
           On: at Merge the Task Lead gives each pull request a Conventional Commits title, such as
-          “fix(app): keep the sidebar open (TED-12)”, and a short description. TED uses them as the
-          merge commit’s subject and body. If the Task Lead writes none, TED keeps the Task’s title
-          and GitHub’s own merge message. Off: TED keeps the Task’s title and GitHub’s merge
+          “fix(app): keep the sidebar open (TED-12)”, and a short description. Ted uses them as the
+          merge commit’s subject and body. If the Task Lead writes none, Ted keeps the Task’s title
+          and GitHub’s own merge message. Off: Ted keeps the Task’s title and GitHub’s merge
           message.
         </Help>
       </span>
@@ -708,7 +708,7 @@ export function DriftNotice({
       </p>
       {drift.diffOf === 'yours' && (
         <p className={styles.driftCaption}>
-          TED doesn’t have the version your copy was made from, so this compares your copy with the{' '}
+          Ted doesn’t have the version your copy was made from, so this compares your copy with the{' '}
           {label === 'Default' ? 'default' : 'inherited file'}.
         </p>
       )}
@@ -800,7 +800,7 @@ function ChecksSectionView({
         id="checks"
         setting="factory.checks"
         title="Checks"
-        help="Commands TED runs at Validate, one after another, before the agent’s own checks. Run now tries one on the base branch in a scratch worktree."
+        help="Commands Ted runs at Validate, one after another, before the agent’s own checks. Run now tries one on the base branch in a scratch worktree."
       />
       <div className={styles.table}>
         <div className={styles.scrollTable}>
@@ -922,11 +922,11 @@ function ChecksSectionView({
           })}
         </div>
         <div className={styles.builtInRow}>
-          <span>TED settings</span>
+          <span>Ted settings</span>
           <span className={styles.builtInText}>Built in.</span>
           <span className={base.spacer} />
           <Help align="end">
-            Added at Validate when a Task changes .ted/. It checks the TED settings files, like ted
+            Added at Validate when a Task changes .ted/. It checks the Ted settings files, like ted
             workflow check.
           </Help>
         </div>
@@ -1190,7 +1190,7 @@ function PermissionsSectionView({
           <>
             <p className={styles.bypass}>
               Agents act without asking: they can run any command, change any file and use the
-              network on {machine}. Agent-started Checks and Apps run outside TED’s sandbox.
+              network on {machine}. Agent-started Checks and Apps run outside Ted’s sandbox.
             </p>
             <Button disabled={busy} onClick={() => save('auto')}>
               Use Auto
@@ -1234,7 +1234,7 @@ function PermissionsSectionView({
               </h2>
               <p className={styles.bypass}>
                 Agents can run any command, change any file and use the network without asking.
-                Agent-started Checks and Apps also run outside TED’s sandbox. Use only on an
+                Agent-started Checks and Apps also run outside Ted’s sandbox. Use only on an
                 isolated machine or VM. This choice applies only to this Factory on {machine}.
               </p>
               <label>
@@ -1497,7 +1497,7 @@ function CleanupSectionView({ draft, onDraft }: { draft: SettingsDraft; onDraft:
         id="cleanup"
         setting="factory.cleanup"
         title="Cleanup"
-        help="Steps that run after a Task’s pull requests merge and before it moves to Done. TED runs the command steps itself, then the Task Lead does the instruction steps."
+        help="Steps that run after a Task’s pull requests merge and before it moves to Done. Ted runs the command steps itself, then the Task Lead does the instruction steps."
       />
       <div className={base.autoStartRow} data-setting="factory.cleanup.enabled">
         <div className={base.block}>

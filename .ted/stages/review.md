@@ -6,7 +6,7 @@ Hand the human a change they can sign off on quickly.
 
 ## Steps
 
-1. Write the Task brief with `ted brief write`. Under Current state, say what changed, how it was checked (the Checks, `/codex-review`, the security review and its method when it ran, any screenshots or recordings from Validate), and a “How to try it” list of steps for trying it by hand. Then run `ted outcome advance`: TED posts the sign-off to the human and marks the pull requests ready for review. If the Task came back from Merge (a rebase with conflicts, or CI failing), this is a short re-sign-off: add `--changes "<one line>"` saying what changed since the human approved, for example `--changes "main added a debounce; I kept it and moved the guard after it"`. TED lists the changed files.
+1. Write the Task brief with `ted brief write`. Under Current state, say what changed, how it was checked (the Checks, `/codex-review`, the security review and its method when it ran, any screenshots or recordings from Validate), and a “How to try it” list of steps for trying it by hand. Then run `ted outcome advance`: Ted posts the sign-off to the human and marks the pull requests ready for review. If the Task came back from Merge (a rebase with conflicts, or CI failing), this is a short re-sign-off: add `--changes "<one line>"` saying what changed since the human approved, for example `--changes "main added a debounce; I kept it and moved the guard after it"`. Ted lists the changed files.
 
 ## Done when
 
@@ -20,4 +20,4 @@ Decide whether the fix belongs in Work or in Design, put the human’s request i
 
 A reviewer finding needs a decision about what the Task should deliver.
 
-TED never approves the pull request on GitHub, and neither do you.
+Ted never approves the pull request on GitHub, and neither do you.

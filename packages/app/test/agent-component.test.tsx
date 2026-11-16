@@ -279,7 +279,7 @@ test('each agent’s panel shows what its Runs of the last 30 days would cost on
   expect(claude.getByText('2.4M input and 310K output tokens.')).toBeTruthy()
   expect(claude.getByText('The cost Claude Code reported for each Run.')).toBeTruthy()
   expect(claude.getByText('1 of them reported no cost and are left out.')).toBeTruthy()
-  expect(claude.getByText(/^Counted since .*, when TED began saving this\.$/)).toBeTruthy()
+  expect(claude.getByText(/^Counted since .*, when Ted began saving this\.$/)).toBeTruthy()
   const codex = within(screen.getByRole('region', { name: 'Codex' }))
   expect(codex.getByText('On an API key, last 30 days')).toBeTruthy()
   expect(codex.getByText('No finished Runs yet')).toBeTruthy()

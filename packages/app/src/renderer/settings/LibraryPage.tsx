@@ -512,7 +512,7 @@ function StageFile({
             <span className={styles.fileTitle}>{name}</span>{' '}
             <FromChip layer={text !== null ? 'library' : 'ted'} /> <Edited when={edited} />
           </span>
-          <span className={styles.filePath}>{text !== null ? shownPath : 'TED’s default'}</span>
+          <span className={styles.filePath}>{text !== null ? shownPath : 'Ted’s default'}</span>
         </span>
         <span className={base.spacer} />
         {text === null ? (
@@ -581,9 +581,9 @@ function StageFile({
           )}
           {tab === 'compare' &&
             (compared ? (
-              <FileDiff file={compared} label={`${name} compared with TED’s default`} />
+              <FileDiff file={compared} label={`${name} compared with Ted’s default`} />
             ) : (
-              <p className={base.caption}>Same as TED’s default.</p>
+              <p className={base.caption}>Same as Ted’s default.</p>
             ))}
         </div>
       )}

@@ -1,6 +1,6 @@
 # Chats start at once, outside the slot limit
 
-A chat is a Run the human talks to and waits on: the Coordinator, a side chat or a planning chat. Until now each one went through the working-Run queue like a Task (ADR 0030, ADR 0083). With every slot held by Task Leads, a message to a chat sat as “Queued” until some Task ended or waited, so the human could not get an answer while TED was busiest. A chat mostly waits for the human, so the slot it held also kept a Task from starting.
+A chat is a Run the human talks to and waits on: the Coordinator, a side chat or a planning chat. Until now each one went through the working-Run queue like a Task (ADR 0030, ADR 0083). With every slot held by Task Leads, a message to a chat sat as “Queued” until some Task ended or waited, so the human could not get an answer while Ted was busiest. A chat mostly waits for the human, so the slot it held also kept a Task from starting.
 
 ## The rule
 

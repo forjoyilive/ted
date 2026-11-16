@@ -73,17 +73,17 @@ function setVersion(version: string): void {
   }
 }
 
-const installed = '/Applications/TED.app'
-const built = path.join(releaseDir, 'mac-arm64/TED.app')
+const installed = '/Applications/Ted.app'
+const built = path.join(releaseDir, 'mac-arm64/Ted.app')
 
 function running(): boolean {
-  return spawnSync('pgrep', ['-f', `${installed}/Contents/MacOS/`]).status === 0
+  return spawnSync('pgrep', ['-i', '-f', `${installed}/Contents/MacOS/`]).status === 0
 }
 
 function install(): void {
   console.log(`\n== Install into ${installed}`)
   if (!existsSync(built)) fail(`the build isn’t at ${built}`)
-  if (running()) fail(`quit TED first (TED menu → Quit), then run: pnpm release --install`)
+  if (running()) fail(`quit Ted first (Ted menu → Quit), then run: pnpm release --install`)
   rmSync(installed, { recursive: true, force: true })
   step('Copy', 'ditto', [built, installed])
 }
@@ -123,7 +123,7 @@ function useSigningIdentity(): void {
   const name = chosen || pickSigningIdentity(listing)
   if (name === undefined) {
     fail(
-      'no Developer ID Application certificate in the keychain. Other Macs only open TED, and ' +
+      'no Developer ID Application certificate in the keychain. Other Macs only open Ted, and ' +
         'the updater only installs it, when it is signed with one. Create it in Xcode → ' +
         'Settings → Accounts → Manage Certificates → +.',
     )
@@ -324,7 +324,7 @@ function publish(): void {
       '--repo',
       repo,
       '--title',
-      `TED ${record.version}`,
+      `Ted ${record.version}`,
       '--notes-file',
       notesFile,
       '--verify-tag',
@@ -334,7 +334,7 @@ function publish(): void {
   mergeBack(record)
   updateWebsite(record)
   console.log(
-    `\nTED ${record.version} is published. Installed copies pick it up at their next check.`,
+    `\nTed ${record.version} is published. Installed copies pick it up at their next check.`,
   )
 }
 
@@ -404,7 +404,7 @@ export function notesPrompt(changes: Change[], version: string): string {
     return `- [${kinds[changeKind(change)]}] ${change.title}${pr} — touches ${areas.slice(0, 4).join(', ')}`
   })
   return [
-    `Write the release notes for TED ${version}, a macOS desktop app that runs software factories: agents carry development tasks through a workflow, and the human steers through an inbox and comments.`,
+    `Write the release notes for Ted ${version}, a macOS desktop app that runs software factories: agents carry development tasks through a workflow, and the human steers through an inbox and comments.`,
     '',
     'Below is every change merged since the last release, one per line, with a guessed kind and the folders it touched. Use only these changes; never invent one.',
     '',
@@ -415,7 +415,7 @@ export function notesPrompt(changes: Change[], version: string): string {
     '- ## Other: tests, docs, release tooling and internal changes, briefly; group related ones into one line.',
     'Leave out a section with nothing in it, except Major. Keep pull request numbers like (#431) on the lines they belong to. Merge lines that describe the same change.',
     '',
-    'Style: plain, direct language; name the concrete thing; no marketing words; curly quotes and apostrophes (’ “ ”). Write for someone who uses TED, not someone who builds it.',
+    'Style: plain, direct language; name the concrete thing; no marketing words; curly quotes and apostrophes (’ “ ”). Write for someone who uses Ted, not someone who builds it.',
     '',
     'Changes:',
     ...lines,
@@ -619,7 +619,7 @@ async function build(version: string, skipChecks: boolean): Promise<void> {
     setVersion(version)
     step('Commit', 'git', ['commit', '-am', `Release ${version}`])
   }
-  step('Tag', 'git', ['tag', '-a', `v${version}`, '-m', `TED ${version}`])
+  step('Tag', 'git', ['tag', '-a', `v${version}`, '-m', `Ted ${version}`])
   rmSync(releaseDir, { recursive: true, force: true })
   const record: ReleaseRecord = { version, base, commit: git('rev-parse', 'HEAD'), files: {} }
   writeRecord(record)
@@ -641,7 +641,7 @@ async function build(version: string, skipChecks: boolean): Promise<void> {
   )
   install()
   console.log(
-    `\nTED ${version} is built from ${base.slice(0, 8)}, tagged on this Mac only and installed in ${installed}.`,
+    `\nTed ${version} is built from ${base.slice(0, 8)}, tagged on this Mac only and installed in ${installed}.`,
   )
   console.log('Try it. Then run pnpm release publish to send it to everyone,')
   console.log('or pnpm release discard to throw it away and build the same version again.')
@@ -751,7 +751,7 @@ function updateWebsite(record: ReleaseRecord): void {
       outcome = 'current'
     } else {
       writeFileSync(file, `${JSON.stringify(facts, null, 2)}\n`)
-      const message = `Offer TED ${facts.version}`
+      const message = `Offer Ted ${facts.version}`
       if (run(scratch, 'Commit the website', ['commit', '-qm', message, '--', websiteFile])) {
         for (let attempt = 0; attempt < 3 && outcome === 'failed'; attempt++) {
           if (attempt > 0) {

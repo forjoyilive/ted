@@ -6,7 +6,7 @@ repos:
     worktree:
       setup: pnpm install --frozen-lockfile
     apps:
-      - name: TED Dev
+      - name: Ted Dev
         kind: command
         electron: true
         run: MAC_CHROMIUM_TMPDIR="$TMPDIR" TED_HOME="$PWD/node_modules/.cache/ted-home" pnpm app $TED_ELECTRON_ARGS

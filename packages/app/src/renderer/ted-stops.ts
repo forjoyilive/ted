@@ -24,8 +24,8 @@ export function tedStopsText({
     left > 0 && picked > 0 ? `${left} ${left === 1 ? 'stays' : 'stay'} stopped.` : undefined
   const note = [queue, stays].filter((part) => part !== undefined).join(' ')
   return {
-    heading: `${count} ${one ? 'Task was' : 'Tasks were'} working when TED quit`,
-    lead: `TED stopped ${one ? 'its Task Lead' : 'their Task Leads'} at ${stoppedAt}. Restart ${one ? 'it' : 'them'} now, or leave ${one ? 'it' : 'them'} stopped and resume ${one ? 'it' : 'each one'} later from the Task.`,
+    heading: `${count} ${one ? 'Task was' : 'Tasks were'} working when Ted quit`,
+    lead: `Ted stopped ${one ? 'its Task Lead' : 'their Task Leads'} at ${stoppedAt}. Restart ${one ? 'it' : 'them'} now, or leave ${one ? 'it' : 'them'} stopped and resume ${one ? 'it' : 'each one'} later from the Task.`,
     restart: one
       ? 'Restart'
       : picked === count

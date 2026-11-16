@@ -773,7 +773,7 @@ export function Cost({
             </tbody>
           </table>
           <p className={`${styles.caption} ${styles.byFactoryFoot}`}>
-            Codex cost comes from TED’s own price table, so treat it as an estimate.
+            Codex cost comes from Ted’s own price table, so treat it as an estimate.
           </p>
         </section>
       </div>

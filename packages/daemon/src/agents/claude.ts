@@ -75,9 +75,9 @@ function usageFrom(line: string): UsageSignal | undefined {
 
 const keySources: Record<string, string> = {
   ANTHROPIC_API_KEY:
-    'Claude Code found ANTHROPIC_API_KEY. TED removes it from Runs, so it comes from Claude Code’s own settings (the env block in ~/.claude/settings.json or the repo’s .claude/settings.json).',
+    'Claude Code found ANTHROPIC_API_KEY. Ted removes it from Runs, so it comes from Claude Code’s own settings (the env block in ~/.claude/settings.json or the repo’s .claude/settings.json).',
   ANTHROPIC_AUTH_TOKEN:
-    'Claude Code found ANTHROPIC_AUTH_TOKEN. TED removes it from Runs, so it comes from Claude Code’s own settings (the env block in ~/.claude/settings.json or the repo’s .claude/settings.json).',
+    'Claude Code found ANTHROPIC_AUTH_TOKEN. Ted removes it from Runs, so it comes from Claude Code’s own settings (the env block in ~/.claude/settings.json or the repo’s .claude/settings.json).',
   apiKeyHelper:
     'An apiKeyHelper in Claude Code’s settings (~/.claude/settings.json or the repo’s .claude/settings.json) gives it a key.',
   '/login managed key':

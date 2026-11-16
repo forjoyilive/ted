@@ -86,7 +86,7 @@ function emulators(tools: AndroidTools) {
   })
 }
 
-test('TED never kills an emulator running another AVD, and keeps a record until its AVD is deleted', async () => {
+test('Ted never kills an emulator running another AVD, and keeps a record until its AVD is deleted', async () => {
   let deletes = 0
   const { tools, calls } = fakeTools({
     avdName: result(0, 'Someone_Elses_AVD\nOK'),
@@ -104,7 +104,7 @@ test('TED never kills an emulator running another AVD, and keeps a record until 
   await emus.close()
 })
 
-test('when TED can’t tell which AVD runs on the port, it leaves the emulator and keeps its record', async () => {
+test('when Ted can’t tell which AVD runs on the port, it leaves the emulator and keeps its record', async () => {
   const { tools, calls } = fakeTools({
     avdName: result(1, '', 'error: could not connect'),
     delete: () => result(0),

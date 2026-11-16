@@ -141,7 +141,7 @@ test.each([false, true])(
   },
 )
 
-test('a reviewer request in Validate checks who owns the Task before TED plans the review', async () => {
+test('a reviewer request in Validate checks who owns the Task before Ted plans the review', async () => {
   const task = await store.createTask({ title: 'Owned elsewhere' })
   store.execution.assign({
     taskId: task.id,

@@ -141,16 +141,16 @@ function withCoordinator() {
   return { a, shown, open, changed }
 }
 
-test('the Coordinator draws its conversation like a Task thread: your messages to the Coordinator, TED’s continuation and receipts as event lines', async () => {
+test('the Coordinator draws its conversation like a Task thread: your messages to the Coordinator, Ted’s continuation and receipts as event lines', async () => {
   const { a, open } = withCoordinator()
   a.mount()
   const pane = await open()
   const chat = await within(pane).findByRole('region', { name: 'Run chat' })
   expect(within(chat).getByText('Start with NB-1.')).toBeTruthy()
   expect(within(chat).getByText('What should we work on next?')).toBeTruthy()
-  const fromTed = within(chat).getByText(`From TED · ${continuation}`)
+  const fromTed = within(chat).getByText(`From Ted · ${continuation}`)
   expect(fromTed.closest('li')).toBeTruthy()
-  expect(within(chat).queryByRole('button', { name: /From TED/ })).toBeNull()
+  expect(within(chat).queryByRole('button', { name: /From Ted/ })).toBeNull()
   expect(within(chat).getAllByText('Nabha Cosley')).toHaveLength(2)
   expect(within(chat).getAllByText(/to the Coordinator/)).toHaveLength(2)
   expect(within(chat).queryByText(/to this Run only/)).toBeNull()

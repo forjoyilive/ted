@@ -57,7 +57,7 @@ export async function runTaskCommand(
     })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    const problem = redactSecrets(`TED didn’t run ${label}: ${message}`)
+    const problem = redactSecrets(`Ted didn’t run ${label}: ${message}`)
     try {
       await mkdir(path.dirname(input.log), { recursive: true, mode: 0o700 })
       await writeFile(input.log, `${problem}\n`, { mode: 0o600 })

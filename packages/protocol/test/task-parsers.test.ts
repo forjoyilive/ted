@@ -66,7 +66,7 @@ roundTrip(P.parseCreateTaskRequest, {
   draftRevision: 'rev',
   title: 'Title',
   description: 'Details',
-  factory: 'TED',
+  factory: 'Ted',
   priority: 'high',
   clarifyDepth: 'few',
   lead,
