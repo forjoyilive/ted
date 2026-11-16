@@ -14,6 +14,7 @@ import dialogs from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
 import { ConfirmationCard } from '../components/ConfirmationCard.tsx'
+import { contextMenu, type MenuPosition, useActionMenu } from '../components/ContextMenu.tsx'
 import { EventLine } from '../components/EventLine.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { ChatSection, Composer, runMeta } from '../components/RunChat.tsx'
@@ -69,6 +70,7 @@ export function CoordinatorView({
   const [deleting, setDeleting] = useState<CoordinatorConversationSummary>()
   const earlier = useCoordinatorConversations(factory.id)
   const opened = earlier.value?.find((c) => c.id === shown)
+  const rowMenu = useActionMenu('coordinator-conversations')
   useEffect(() => {
     let active = true
     void ted.taskDefaults(factory.id).then(
@@ -121,6 +123,10 @@ export function CoordinatorView({
     else void reset()
   }
   const chip = coordinatorStatus[status]
+  const continueConversation = async (id: string) => {
+    await ted.continueCoordinatorConversation(factory.id, id)
+    setShown(undefined)
+  }
   const list = (
     <section
       className={`${views.pane} ${views.listPane}`}
@@ -138,6 +144,7 @@ export function CoordinatorView({
           New conversation
         </Button>
       </header>
+      {rowMenu.menu}
       <div className={styles.rows}>
         {coordinator && (
           <>
@@ -149,6 +156,11 @@ export function CoordinatorView({
               current={shown === undefined}
               chip={chip}
               onOpen={() => setShown(undefined)}
+              onMenu={(at) =>
+                rowMenu.open(at, 'Current conversation', [
+                  { label: 'New conversation', disabled: busy, action: startNew },
+                ])
+              }
             />
           </>
         )}
@@ -161,6 +173,16 @@ export function CoordinatorView({
             taskCount={c.taskCount}
             current={shown === c.id}
             onOpen={() => setShown(c.id)}
+            onMenu={(at) =>
+              rowMenu.open(at, 'Earlier conversation', [
+                {
+                  label: 'Continue',
+                  disabled: busy,
+                  action: () => continueConversation(c.id),
+                },
+                { label: 'Delete', danger: true, disabled: busy, action: () => setDeleting(c) },
+              ])
+            }
           />
         ))}
         {!coordinator && earlier.value?.length === 0 && (
@@ -356,6 +378,7 @@ function ConversationRow({
   current,
   chip,
   onOpen,
+  onMenu,
 }: {
   title: string
   at: string
@@ -363,6 +386,7 @@ function ConversationRow({
   current: boolean
   chip?: { label: string; tone: StatusTone; glyph?: StatusGlyph }
   onOpen: () => void
+  onMenu: (at: MenuPosition) => void
 }) {
   return (
     <ActionButton
@@ -370,6 +394,7 @@ function ConversationRow({
       data-nav-item
       className={styles.row}
       {...(current && { 'aria-current': 'true' as const })}
+      {...contextMenu(onMenu)}
       onClick={onOpen}
     >
       <span className={styles.rowTop}>
