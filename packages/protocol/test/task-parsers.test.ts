@@ -186,6 +186,8 @@ test('commitTitleProblem accepts Conventional Commits titles without the Task ID
   expect(P.commitTitleProblem('fix(App): a', 'TED-12')).toMatch(/Conventional Commits/)
   expect(P.commitTitleProblem('fix: keep it open (TED-12)', 'TED-12')).toMatch(/leave the Task ID/)
   expect(P.commitTitleProblem(`fix: ${'x'.repeat(60)}`, 'TED-12')).toMatch(/keep it to 72/)
+  expect(P.commitTitleProblem(`fix: ${'A'.repeat(100_000)}`, 'TED-12')).toMatch(/keep it to 72/)
+  expect(P.commitTitleProblem('fix: keep it open TED-12', 'TED-12')).toMatch(/leave the Task ID/)
   expect(P.commitTitle('fix: keep it open', 'TED-12')).toBe('fix: keep it open (TED-12)')
 })
 roundTrip(P.parseDeleteTaskRequest, {
