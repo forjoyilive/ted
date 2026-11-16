@@ -58,7 +58,7 @@ TED runs on your Mac with the logins already on it, and keeps its data in `~/.te
 
 ## Reporting a problem
 
-In the app, choose **Help → Report a problem**. It copies a diagnostic report, with tokens and URL passwords removed, and opens a new issue for you to paste it into.
+In the app, choose **Help → Report a problem**. Write what happened and, if you’d like a reply, your email. The window shows the diagnostic report, with tokens and URL passwords removed. Untick **Include the log** to leave out the daemon log and process command lines. Nothing is sent until you click **Send**. The report then goes to the TED team through Sentry. **Open a GitHub issue instead** copies the report and opens a new issue for you to paste it into.
 
 You can also [open an issue](https://github.com/forjoyilive/ted/issues/new) directly.
 

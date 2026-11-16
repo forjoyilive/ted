@@ -49,6 +49,7 @@ import { NotificationOfferBanner } from './components/NotificationOffer.tsx'
 import { PlanUsage } from './components/PlanUsage.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
+import { ReportProblemDialog } from './components/ReportProblemDialog.tsx'
 import { RequestSnoozeHost } from './components/RequestSnooze.tsx'
 import { resizeSidebarFromKey, SidebarLayout } from './components/ResizableSidebar.tsx'
 import { RestartStoppedDialog } from './components/RestartStoppedDialog.tsx'
@@ -313,6 +314,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [paletteChoose, setPaletteChoose] = useState<Command>()
   const [sheetOpen, setSheetOpen] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
   const [armed, setArmed] = useState<HTMLButtonElement>()
   const [cardDialog, setCardDialog] = useState<{ taskId: string; kind: TaskDialogKind }>()
   const [pendingPick, setPendingPick] = useState<{ taskId: string; event: string }>()
@@ -337,6 +339,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
     addFactoryOpen ||
     paletteOpen ||
     sheetOpen ||
+    reportOpen ||
     cardDialog !== undefined ||
     removing !== undefined ||
     automationDialog !== undefined
@@ -725,6 +728,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
 
   onMenuCommand.current = (command) => {
     if (command.kind === 'shortcuts') return setSheetOpen(true)
+    if (command.kind === 'report-problem') return setReportOpen(true)
     if (offline) return
     if (command.kind === 'open-inbox') dispatch({ type: 'open', screen: { kind: 'inbox' } })
     if (command.kind === 'open-all-tasks') {
@@ -1145,6 +1149,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
         }}
       />
       {sheetOpen && <ShortcutSheet onClose={() => setSheetOpen(false)} />}
+      {reportOpen && <ReportProblemDialog onClose={() => setReportOpen(false)} />}
       {cardDialog && cardDialogTask && (
         <TaskDialog
           task={cardDialogTask}

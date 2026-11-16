@@ -175,9 +175,11 @@ export function useBlocked(task: Task): Task[] {
 export function Dialog({
   children,
   onClose,
+  className,
 }: {
   children: (headingId: string) => ReactNode
   onClose: () => void
+  className?: string | undefined
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const headingId = useId()
@@ -187,7 +189,7 @@ export function Dialog({
   return (
     <dialog
       ref={dialog}
-      className={styles.dialog}
+      className={className === undefined ? styles.dialog : `${styles.dialog} ${className}`}
       aria-labelledby={headingId}
       onCancel={(event) => {
         event.preventDefault()
