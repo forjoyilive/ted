@@ -853,11 +853,11 @@ export function createPlans(options: PlansOptions): Plans {
     },
     async delete(id, caller) {
       refuseRun(caller)
-      await remove(find(id))
+      await remove(find(id), 'keep')
     },
     async removeFactory(factoryId) {
       for (const plan of saved.list().filter((p) => p.factoryId === factoryId)) {
-        await remove(plan)
+        await remove(plan, 'remove')
       }
     },
     async inbox() {
@@ -1068,7 +1068,7 @@ export function createPlans(options: PlansOptions): Plans {
     return describe(saved.get(plan.id) ?? plan, await slotsNow())
   }
 
-  async function remove(plan: StoredPlan): Promise<void> {
+  async function remove(plan: StoredPlan, output: 'keep' | 'remove'): Promise<void> {
     const run = store.getRun(plan.id)
     if (plan.state !== 'ended') {
       saved.ended(plan.id, { outcome: 'stopped' })
@@ -1079,9 +1079,11 @@ export function createPlans(options: PlansOptions): Plans {
     }
     saved.delete(plan.id)
     await discard(plan.checkout, folderOf(plan.id))
-    await removeInside(path.join(options.home, 'runs'), plan.id).catch((error: unknown) =>
-      console.error(`couldn’t remove the Run files of planning chat ${plan.id}:`, error),
-    )
+    if (output === 'remove') {
+      await removeInside(path.join(options.home, 'runs'), plan.id).catch((error: unknown) =>
+        console.error(`couldn’t remove the Run files of planning chat ${plan.id}:`, error),
+      )
+    }
     pump()
   }
 }

@@ -589,15 +589,17 @@ describe('Run output retention in the daemon', () => {
     expect(await ok('GET', '/chat-archive-expiry?days=7')).toEqual({ due: 0 })
     expect(await ok('GET', '/chat-archive-expiry?days=5')).toEqual({ due: 1 })
     expect((await client.call('GET', '/chat-archive-expiry?days=0')).status).toBe(400)
-    await ok('PATCH', '/settings', { deleteArchivedChatsAfterDays: 7 })
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-    expect((await client.call('GET', `/plans/${oldPlan.id}`)).status).toBe(200)
     await ok('PATCH', '/settings', { deleteArchivedChatsAfterDays: 5 })
     await waitUntil(
       async () => (await client.call('GET', `/plans/${oldPlan.id}`)).status === 404 || undefined,
       'the archived chat to be deleted',
     )
     expect((await ok<Plan[]>('GET', '/plans')).map((p) => p.id)).toEqual([openPlan.id])
+    await waitUntil(
+      async () => !(await runFolders()).includes(oldPlan.id) || undefined,
+      'retention to remove the deleted chat’s Run output',
+    )
+    expect(await runFolders()).toContain(openPlan.id)
     await ok('POST', `/plans/${openPlan.id}/stop`)
   })
 })

@@ -904,6 +904,7 @@ test('two open chats keep their own receipts and confirmations; deleting one lea
   expect((await a.run.call('GET', '/coordinator/tasks')).status).toBe(403)
   expect((await s.client.call('GET', `/runs/${a.c.runId}/chat`)).status).toBe(404)
   expect(existsSync(path.join(home, 'coordinators', a.c.runId))).toBe(false)
+  expect(existsSync(path.join(home, 'runs', a.c.runId))).toBe(true)
   expect(await s.waitingIds()).not.toContain(cardA.id)
   expect((await s.ok<Task[]>('GET', '/tasks')).map((t) => t.id)).toContain(one.id)
   expect((await read(bPath)).status).toBe('working')

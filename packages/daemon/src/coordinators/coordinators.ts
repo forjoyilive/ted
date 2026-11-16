@@ -1019,10 +1019,13 @@ export function createCoordinators(options: {
       if (run && run.state !== 'finished') await runs.stop(runId)
     }
   }
-  async function removeFolders(runIds: readonly string[]): Promise<void> {
+  async function removeFolders(
+    runIds: readonly string[],
+    bases: readonly string[] = ['coordinators', 'runs'],
+  ): Promise<void> {
     for (const runId of runIds) {
       if (!/^[a-f0-9-]{36}$/.test(runId)) throw new Error('invalid Coordinator Run ID')
-      for (const base of ['coordinators', 'runs']) {
+      for (const base of bases) {
         const parent = path.join(home, base),
           dir = path.join(parent, runId)
         const stat = await lstat(dir).catch(() => undefined)
@@ -1064,7 +1067,7 @@ export function createCoordinators(options: {
       await settle(c)
       const latest = saved.find(c.id) ?? c
       clearSnoozes(latest)
-      await removeFolders(latest.runIds)
+      await removeFolders(latest.runIds, ['coordinators'])
       gone.add(c.id)
       saved.delete(c.id)
       await store.persisted()
