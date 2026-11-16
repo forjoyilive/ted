@@ -109,8 +109,8 @@ describe('Planning chats', () => {
       .click()
     await window
       .getByRole('radiogroup', { name: 'Agent' })
-      .getByRole('radio', { name: 'Planner' })
-      .check()
+      .getByText('Planner', { exact: true })
+      .click()
     const fresh = window.getByRole('region', { name: 'New planning chat' })
     await fresh.waitFor()
     expect(
@@ -159,8 +159,8 @@ describe('Planning chats', () => {
     await sidebar(window)
       .getByRole('button', { name: /^Inbox/ })
       .click()
+    await row.waitFor({ state: 'detached' })
     await window.getByRole('region', { name: 'Nothing open' }).waitFor()
-    expect(await row.count()).toBe(0)
     await sidebar(window)
       .getByRole('button', { name: /^Agents/ })
       .click()
