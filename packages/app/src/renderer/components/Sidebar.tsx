@@ -1,14 +1,7 @@
 import type { Coordinator, Factory, FactoryGroup, FactoryLayout } from '@ted/protocol'
 import { factoryGroupNameMax } from '@ted/protocol/factory'
 import type { LucideIcon } from 'lucide-react'
-import {
-  Folder as FolderClosed,
-  FolderOpen,
-  Inbox,
-  LayoutDashboard,
-  ListTodo,
-  Settings,
-} from 'lucide-react'
+import { Inbox, LayoutDashboard, ListTodo, Settings } from 'lucide-react'
 import type { DragEvent, ReactNode } from 'react'
 import { Fragment, useEffect, useRef, useState } from 'react'
 import {
@@ -578,12 +571,11 @@ export function Sidebar({
     )
     const menuOpen = menu?.kind === 'group' && menu.groupId === group.id
     const openMenu = (x: number, y: number) => setMenu({ kind: 'group', groupId: group.id, x, y })
-    const Folder = isOpen ? FolderOpen : FolderClosed
     return (
       <Fragment key={group.id}>
         <section
           aria-label={group.name || 'New Factory group'}
-          className={`${styles.group} ${isOpen ? '' : styles.groupClosed} ${isDragging(key) ? styles.dragging : ''} ${lineClass(key)}`}
+          className={`${styles.group} ${isDragging(key) ? styles.dragging : ''} ${lineClass(key)}`}
         >
           {naming?.groupId === group.id ? (
             <GroupNameRow
@@ -614,10 +606,20 @@ export function Sidebar({
                 aria-expanded={isOpen}
                 onClick={() => setGroupOpen(group.id, !isOpen)}
               >
-                <span className={styles.groupIcon} aria-hidden="true">
-                  <Folder size={17} strokeWidth={1.75} />
-                </span>
                 <span className={styles.label}>{group.name}</span>
+                {!isOpen && (
+                  <span
+                    role="img"
+                    className={styles.groupCount}
+                    aria-label={`${members.length} ${members.length === 1 ? 'Factory' : 'Factories'}`}
+                  >
+                    {members.length}
+                  </span>
+                )}
+                <ChevronIcon
+                  open
+                  className={`${styles.chevron} ${isOpen ? '' : styles.chevronClosed}`}
+                />
                 {!isOpen && marks.failed && <DotIcon className={styles.failedDot} />}
                 {!isOpen && marks.stopsWork && (
                   <span role="img" aria-label="A problem stops work" className={styles.warning}>
@@ -650,10 +652,6 @@ export function Sidebar({
                 >
                   ⋯
                 </ActionButton>
-                <ChevronIcon
-                  open
-                  className={`${styles.chevron} ${isOpen ? '' : styles.chevronClosed}`}
-                />
               </span>
             </article>
           )}

@@ -589,6 +589,7 @@ test('Factory groups: New group from the + menu, Move to group, collapse and Ung
 
   await u.click(within(acme).getByRole('button', { name: 'Acme' }))
   expect(within(acme).queryByRole('article', { name: 'site' })).toBeNull()
+  expect(within(acme).getByRole('img', { name: '1 Factory' }).textContent).toBe('1')
 
   fireEvent.contextMenu(within(acme).getByRole('article', { name: 'Acme' }))
   await u.click(screen.getByRole('menuitem', { name: 'Ungroup' }))
