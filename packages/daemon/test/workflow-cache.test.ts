@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import { readDaemonInfo } from '@ted/protocol'
+import { type DaemonEvent, readDaemonInfo } from '@ted/protocol'
 import { afterEach, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { appClient, commitToOrigin, eventCount, makeOriginRepo, makeTempHome } from './helpers.ts'
@@ -66,6 +66,8 @@ process.exit(result.status ?? 1)
   if (!info) throw new Error('no daemon.json')
   const client = appClient(info, daemon.appToken)
   const factory = await client.addFactory({ repo: origin, key: 'NB' })
+  const events: DaemonEvent[] = []
+  const subscription = await client.subscribe((e) => events.push(e))
   const before = await client.factoryBoard(factory.id)
   await writeFile(log, '')
   for (let i = 0; i < 3; i++) expect(await client.factoryBoard(factory.id)).toEqual(before)
@@ -93,4 +95,10 @@ process.exit(result.status ?? 1)
   ).toBe(true)
   expect(await readFile(log, 'utf8')).not.toBe('')
   await expect.poll(accepted).toBe(acceptedBefore + 1)
+  await expect
+    .poll(() =>
+      events.some((e) => e.type === 'factory-stages-changed' && e.factoryId === factory.id),
+    )
+    .toBe(true)
+  subscription.close()
 }, 30_000)

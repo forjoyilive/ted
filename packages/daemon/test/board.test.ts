@@ -55,33 +55,35 @@ describe('a Factory’s Board stages', () => {
 
     expect(await client.factoryBoard(factory.id)).toEqual({
       stages: [
-        { id: 'backlog', enabled: true, gate: false },
-        { id: 'intake', enabled: true, gate: false },
-        { id: 'clarify', enabled: true, gate: false },
-        { id: 'design', enabled: true, gate: true },
-        { id: 'work', enabled: true, gate: false },
-        { id: 'validate', enabled: true, gate: false },
-        { id: 'review', enabled: true, gate: true },
-        { id: 'merge', enabled: true, gate: false },
-        { id: 'done', enabled: true, gate: false },
+        { id: 'backlog', name: 'Backlog', enabled: true, gate: false },
+        { id: 'intake', name: 'Intake', enabled: true, gate: false },
+        { id: 'clarify', name: 'Clarify', enabled: true, gate: false },
+        { id: 'design', name: 'Design', enabled: true, gate: true },
+        { id: 'work', name: 'Work', enabled: true, gate: false },
+        { id: 'validate', name: 'Validate', enabled: true, gate: false },
+        { id: 'review', name: 'Review', enabled: true, gate: true },
+        { id: 'merge', name: 'Merge', enabled: true, gate: false },
+        { id: 'done', name: 'Done', enabled: true, gate: false },
       ],
     })
   })
 
-  test('follow the Factory’s order, and list a Stage turned off there', async () => {
+  test('follow the Factory’s order, with its custom Stages, and list a Stage turned off there', async () => {
     await commitToOrigin(scratch, {
       '.ted/workflow.yaml':
-        'version: 1\norder: [intake, design, work]\nstages:\n  design: { enabled: false }\n  work: { gate: true }\n',
+        'version: 1\norder: [intake, design, security, work]\nstages:\n  design: { enabled: false }\n  work: { gate: true }\n  security: { name: Security review }\n',
+      '.ted/stages/security.md': '# Security\n',
     })
     const client = await start()
     const factory = await client.addFactory({ repo: origin, key: 'NB' })
 
     expect((await client.factoryBoard(factory.id)).stages).toEqual([
-      { id: 'backlog', enabled: true, gate: false },
-      { id: 'intake', enabled: true, gate: false },
-      { id: 'design', enabled: false, gate: true },
-      { id: 'work', enabled: true, gate: true },
-      { id: 'done', enabled: true, gate: false },
+      { id: 'backlog', name: 'Backlog', enabled: true, gate: false },
+      { id: 'intake', name: 'Intake', enabled: true, gate: false },
+      { id: 'design', name: 'Design', enabled: false, gate: true },
+      { id: 'security', name: 'Security review', enabled: true, gate: false, custom: true },
+      { id: 'work', name: 'Work', enabled: true, gate: true },
+      { id: 'done', name: 'Done', enabled: true, gate: false },
     ])
   })
 
