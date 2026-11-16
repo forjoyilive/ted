@@ -1,23 +1,14 @@
 // @vitest-environment jsdom
 import type { ChatItem, RunChat, RunSummary } from '@ted/protocol'
 import { act, render, screen, waitFor } from '@testing-library/react'
-import { expect, test, vi } from 'vitest'
+import { expect, test } from 'vitest'
+import { AgentAvatar } from '../src/renderer/components/Avatar.tsx'
 import { RunChat as Conversation } from '../src/renderer/components/RunChat.tsx'
 import { bridge } from './support/component.ts'
 import { createdAt } from './support/fixtures.ts'
+import { countDraws } from './support/react-draws.ts'
 
-const avatars = vi.hoisted(() => ({ drawn: 0 }))
-
-vi.mock('../src/renderer/components/Avatar.tsx', async (original) => {
-  const real = await original<typeof import('../src/renderer/components/Avatar.tsx')>()
-  return {
-    ...real,
-    AgentAvatar: (props: Parameters<typeof real.AgentAvatar>[0]) => {
-      avatars.drawn += 1
-      return real.AgentAvatar(props)
-    },
-  }
-})
+const avatars = countDraws(AgentAvatar)
 
 const lead: RunSummary = {
   id: 'r1',

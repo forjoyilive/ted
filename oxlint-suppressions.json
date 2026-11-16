@@ -1166,9 +1166,6 @@
     "anti-slop/no-chained-type-assertions": {
       "count": 2
     },
-    "anti-slop/no-module-mocking": {
-      "count": 1
-    },
     "anti-slop/no-unknown-parameters": {
       "count": 4
     },
@@ -1194,16 +1191,8 @@
       "count": 1
     }
   },
-  "packages/app/test/chat-reload-component.test.tsx": {
-    "anti-slop/no-module-mocking": {
-      "count": 1
-    }
-  },
   "packages/app/test/coordinator-cleanup.test.ts": {
     "anti-slop/no-chained-type-assertions": {
-      "count": 2
-    },
-    "anti-slop/no-module-mocking": {
       "count": 2
     }
   },
@@ -3102,11 +3091,6 @@
       "count": 3
     }
   },
-  "packages/daemon/test/agent-availability.test.ts": {
-    "anti-slop/no-module-mocking": {
-      "count": 1
-    }
-  },
   "packages/daemon/test/agent-health.test.ts": {
     "anti-slop/no-unknown-parameters": {
       "count": 1
@@ -3147,11 +3131,6 @@
   "packages/daemon/test/asana-intake.test.ts": {
     "anti-slop/no-runtime-typeof": {
       "count": 2
-    }
-  },
-  "packages/daemon/test/asana.test.ts": {
-    "anti-slop/no-module-mocking": {
-      "count": 1
     }
   },
   "packages/daemon/test/auto-start-backlog.test.ts": {
@@ -3204,11 +3183,6 @@
   },
   "packages/daemon/test/board.test.ts": {
     "anti-slop/no-unknown-parameters": {
-      "count": 1
-    }
-  },
-  "packages/daemon/test/browser.test.ts": {
-    "anti-slop/no-module-mocking": {
       "count": 1
     }
   },
@@ -3291,9 +3265,6 @@
     }
   },
   "packages/daemon/test/coordinator-recovery.test.ts": {
-    "anti-slop/no-module-mocking": {
-      "count": 6
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 1
     },
@@ -3764,11 +3735,6 @@
       "count": 3
     }
   },
-  "packages/daemon/test/release-env.test.ts": {
-    "anti-slop/no-module-mocking": {
-      "count": 3
-    }
-  },
   "packages/daemon/test/request-answers.test.ts": {
     "anti-slop/no-unknown-returns": {
       "count": 1
@@ -3902,14 +3868,6 @@
       "count": 1
     }
   },
-  "packages/daemon/test/stub-keyring.test.ts": {
-    "anti-slop/no-module-mocking": {
-      "count": 1
-    },
-    "anti-slop/no-runtime-typeof": {
-      "count": 1
-    }
-  },
   "packages/daemon/test/sub-agents.test.ts": {
     "anti-slop/no-runtime-typeof": {
       "count": 2
@@ -3968,9 +3926,6 @@
     }
   },
   "packages/daemon/test/talk-it-through.test.ts": {
-    "anti-slop/no-module-mocking": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 1
     },

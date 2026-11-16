@@ -1,6 +1,6 @@
 import { pathToFileURL } from 'node:url'
 import { AsyncEntry } from '@napi-rs/keyring'
-import { identity, tedEnv } from '@ted/protocol'
+import { type Edition, edition, identity, tedEnv } from '@ted/protocol'
 
 export type KeyringKind = 'macos-keychain' | 'secret-service'
 
@@ -65,8 +65,9 @@ export async function loadKeyring(
   env: NodeJS.ProcessEnv = process.env,
   platform: NodeJS.Platform = process.platform,
   account = linearKeyAccount,
+  which: Edition = edition,
 ): Promise<Keyring> {
-  const module = tedEnv('TED_KEYRING_MODULE', env)
+  const module = tedEnv('TED_KEYRING_MODULE', env, which)
   if (!module) return osKeyring(platform, account)
   const loaded = (await import(pathToFileURL(module).href)) as {
     default: (account?: string) => Keyring

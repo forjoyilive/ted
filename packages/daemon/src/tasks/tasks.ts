@@ -178,6 +178,7 @@ import type { AutoModeSignal } from '../agents/agent.ts'
 import { diffTexts } from '../agents/diff.ts'
 import type { Agents } from '../agents/index.ts'
 import {
+  type Apps,
   type AppsOptions,
   type AppTask,
   createApps,
@@ -869,6 +870,7 @@ export function createTasks(options: {
   busyCheckEveryMs?: number
   memory?: MemoryWatch
   appsDir?: string
+  wrapApps?: (apps: Apps) => Apps
   apps?: Pick<AppsOptions, 'pollMs' | 'readyTimeoutMs' | 'stopGraceMs' | 'logBytes'>
   simulators?: Omit<SimulatorOptions, 'dir' | 'banners'> & { dir?: string }
   emulators?: Omit<EmulatorOptions, 'dir' | 'banners'> & { dir?: string }
@@ -1052,7 +1054,7 @@ export function createTasks(options: {
       read: () => busy.memory(),
       ...(options.busyCheckEveryMs !== undefined && { everyMs: options.busyCheckEveryMs }),
     })
-  const apps = createApps({
+  const createdApps = createApps({
     appsDir: options.appsDir ?? path.join(path.dirname(worktreesDir), 'apps'),
     store,
     busy: async () => (await busy.check()) !== undefined,
@@ -1088,6 +1090,7 @@ export function createTasks(options: {
     sandbox: options.sandbox,
     sandboxProblem,
   })
+  const apps = options.wrapApps?.(createdApps) ?? createdApps
 
   async function sandboxProblem(factoryId: string): Promise<string | undefined> {
     const ref = { problem: 'sandbox-unavailable', factoryId }

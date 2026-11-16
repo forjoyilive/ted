@@ -42,6 +42,7 @@ import {
 } from '../agents/agent.ts'
 import type { AgentLaunch, Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
+import type { MakeDirectory } from '../files.ts'
 import type { IdleTimer } from '../idle.ts'
 import { holdsLock, isLockHeld } from '../lock.ts'
 import { type MemoryWatch, type MemoryWatching, runKilledForMemory } from '../memory-kills.ts'
@@ -90,6 +91,7 @@ export interface RunManagerOptions {
   stopGraceMs?: number
   inputAckMs?: number
   memory?: MemoryWatch
+  mkdir?: MakeDirectory
 }
 
 export interface RunObserver {
@@ -177,6 +179,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   const { home, store, agents, tokens } = options
   const stopGraceMs = options.stopGraceMs ?? 10_000
   const inputAckMs = options.inputAckMs ?? 10_000
+  const makeDirectory = options.mkdir ?? mkdir
   const runsDir = path.join(home, 'runs')
   const binDir = path.join(home, 'bin')
   await mkdir(runsDir, { recursive: true, mode: 0o700 })
@@ -906,7 +909,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         let handedOff = false
         try {
           const runDir = path.join(runsDir, id)
-          await mkdir(runDir, { mode: 0o700, recursive: store.sideChats.forRun(id) !== undefined })
+          await makeDirectory(runDir, {
+            mode: 0o700,
+            recursive: store.sideChats.forRun(id) !== undefined,
+          })
           permissions = runPermissions(store, { taskId })
           const launch = agent.launch({
             prompt,

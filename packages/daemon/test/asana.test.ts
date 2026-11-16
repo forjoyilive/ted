@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, rename } from 'node:fs/promises'
 import path from 'node:path'
 import {
   asanaScopes,
@@ -6,24 +6,18 @@ import {
   parseAsanaConfiguration,
   readDaemonInfo,
 } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
 import { type Keyring, KeyringUnavailableError } from '../src/linear/keyring.ts'
 import { startStubAsana, unusedPort } from './fixtures/stub-asana.ts'
 import { appClient, makeTempHome, waitUntil } from './helpers.ts'
 
-const writes = vi.hoisted(() => ({ failCommit: false }))
-vi.mock('node:fs/promises', async (original) => {
-  const fs = await original<typeof import('node:fs/promises')>()
-  return {
-    ...fs,
-    rename: async (...args: Parameters<typeof fs.rename>) => {
-      if (writes.failCommit && String(args[1]).endsWith('/asana-credentials/oauth.json'))
-        throw new Error('simulated file commit failure')
-      return fs.rename(...args)
-    },
-  }
-})
+const writes = { failCommit: false }
+const commitFile = async (temporary: string, file: string) => {
+  if (writes.failCommit && file.endsWith('/asana-credentials/oauth.json'))
+    throw new Error('simulated file commit failure')
+  await rename(temporary, file)
+}
 
 const configuration = { clientId: '12345', clientSecret: 'client-secret-opaque', inFile: false }
 let home: string
@@ -72,7 +66,14 @@ async function start() {
   daemon = await startDaemon({
     home,
     version: '9.9.9',
-    asana: { keyring, oauthOrigin: stub.url, apiOrigin: stub.url, callbackPort, now: () => clock },
+    asana: {
+      keyring,
+      oauthOrigin: stub.url,
+      apiOrigin: stub.url,
+      callbackPort,
+      now: () => clock,
+      commitFile,
+    },
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('No daemon info')

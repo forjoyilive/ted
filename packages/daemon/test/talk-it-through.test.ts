@@ -12,10 +12,11 @@ import {
   type ThreadEvent,
   tedPaths,
 } from '@ted/protocol'
-import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { type DaemonOptions, type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { revokeInput } from '../src/runs/input-permits.ts'
+import type { RunManager } from '../src/runs/run-manager.ts'
 import { openStore } from '../src/store/index.ts'
 import {
   api,
@@ -31,36 +32,36 @@ import {
   waitUntil,
 } from './helpers.ts'
 
-const transport = vi.hoisted(() => ({
+const transport = {
   loseCheckpoint: false,
   accepted: false,
   ackMs: undefined as number | undefined,
   beforeDispatch: undefined as (() => Promise<void>) | undefined,
-}))
-vi.mock('../src/runs/run-manager.ts', async (original) => {
-  const module = await original<typeof import('../src/runs/run-manager.ts')>()
+}
+function dispatchHooks(runs: RunManager): RunManager {
   return {
-    ...module,
-    startRunManager: async (...args: Parameters<typeof module.startRunManager>) => {
-      const runs = await module.startRunManager({
-        ...args[0],
-        ...(transport.ackMs !== undefined && { inputAckMs: transport.ackMs }),
-      })
-      return {
-        ...runs,
-        dispatch: async (...input: Parameters<typeof runs.dispatch>) => {
-          if (input[4]?.revocable) await transport.beforeDispatch?.()
-          const delivered = await runs.dispatch(...input)
-          if (delivered && transport.loseCheckpoint) {
-            transport.accepted = true
-            throw new Error('simulated daemon exit before the talk delivery checkpoint')
-          }
-          return delivered
-        },
+    ...runs,
+    dispatch: async (...input) => {
+      if (input[4]?.revocable) await transport.beforeDispatch?.()
+      const delivered = await runs.dispatch(...input)
+      if (delivered && transport.loseCheckpoint) {
+        transport.accepted = true
+        throw new Error('simulated daemon exit before the talk delivery checkpoint')
       }
+      return delivered
     },
   }
-})
+}
+function startTed(options: Pick<DaemonOptions, 'disk'> = {}) {
+  return startDaemon({
+    home,
+    version: '9.9.9',
+    claudeBin: stubClaudePath,
+    ...(transport.ackMs !== undefined && { runs: { inputAckMs: transport.ackMs } }),
+    wrap: { runs: dispatchHooks },
+    ...options,
+  })
+}
 
 let home: string
 let cleanup: () => Promise<void>
@@ -130,11 +131,11 @@ function connection() {
   return { ...client, ok }
 }
 
-async function start(options: Pick<Parameters<typeof startDaemon>[0], 'disk'> = {}) {
+async function start(options: Pick<DaemonOptions, 'disk'> = {}) {
   await commitToOrigin(scratch, {
     '.ted/workflow.yaml': 'version: 1\norder: [intake, clarify, work]\n',
   })
-  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath, ...options })
+  daemon = await startTed(options)
   const client = connection()
   const { ok } = client
   await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
@@ -421,7 +422,7 @@ describe('Talk it through', () => {
     } finally {
       await store.close()
     }
-    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+    daemon = await startTed()
     client = { ...client, ...connection() }
     const requested = await client.ok<Comment>('POST', `/comments/${item.request.id}/talk`)
     expect(requested).not.toHaveProperty('resumeRequired')
@@ -458,7 +459,7 @@ describe('Talk it through', () => {
     )
     await client.ok('POST', '/shutdown')
     await daemon?.stop()
-    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+    daemon = await startTed()
     const reopened = { ...client, ...connection() }
     expect(
       (await reopened.ok<{ id: string }[]>('GET', '/ted-stops')).some((t) => t.id === task.id),
@@ -520,7 +521,7 @@ describe('Talk it through', () => {
 
     await hostsStarted(home)
     await daemon?.stop()
-    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+    daemon = await startTed()
     client = { ...client, ...connection() }
     expect(
       (await comments(client, task)).find((c) => c.id === item.request.id)?.talkRequested,
@@ -848,7 +849,7 @@ describe('Talk it through', () => {
       )
     }
     await daemon?.stop()
-    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+    daemon = await startTed()
     client = { ...client, ...connection() }
     await waitUntil(
       async () => (await client.ok<RunSlots>('GET', '/slots')).working === 1,
@@ -1007,7 +1008,7 @@ describe('Talk it through', () => {
     await hostsStarted(home)
     await daemon?.stop()
     transport.loseCheckpoint = false
-    daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+    daemon = await startTed()
     client = { ...client, ...connection() }
     await waitUntil(async () => {
       const round = (await comments(client, task)).find((c) => c.id === item.request.id)

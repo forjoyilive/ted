@@ -56,6 +56,7 @@ import {
   session,
   shell,
   Tray,
+  WebContentsView,
 } from 'electron'
 import { appIconPng } from './app-icon.ts'
 import { authorizeAsana } from './asana.ts'
@@ -1106,6 +1107,7 @@ async function start(): Promise<void> {
         app: { repo: app.repo, name: app.name, browser: true },
       })
     },
+    { session, WebContentsView },
   )
   servePrototypes((file) => supervised.client.readAttachment(file))
   traceStartup('initial-state-start')

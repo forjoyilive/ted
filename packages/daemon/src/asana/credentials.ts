@@ -29,7 +29,9 @@ export class CredentialCleanupError extends Error {
   }
 }
 
-export function credentialStore(home: string, keyring: Keyring) {
+export type CommitFile = (temporary: string, file: string) => Promise<void>
+
+export function credentialStore(home: string, keyring: Keyring, commitFile: CommitFile = rename) {
   const directory = path.join(home, 'asana-credentials')
   const file = path.join(directory, 'oauth.json')
   async function safeDirectory(create = false) {
@@ -87,7 +89,7 @@ export function credentialStore(home: string, keyring: Keyring) {
       } finally {
         await handle.close()
       }
-      await rename(temporary, file)
+      await commitFile(temporary, file)
       const folder = await open(directory, constants.O_RDONLY | constants.O_NOFOLLOW)
       try {
         await folder.sync()

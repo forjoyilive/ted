@@ -1,31 +1,20 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, open, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { expect, test, vi } from 'vitest'
-import { readStubKeyring, stubKeyring } from './fixtures/stub-keyring.ts'
+import { expect, test } from 'vitest'
+import { readStubKeyring, stubKeyring, type WriteTemporary } from './fixtures/stub-keyring.ts'
 
-const writing = vi.hoisted(() => ({ pause: undefined as (() => Promise<void>) | undefined }))
-
-vi.mock('node:fs/promises', async (importOriginal) => {
-  const fs = await importOriginal<typeof import('node:fs/promises')>()
-  return {
-    ...fs,
-    writeFile: async (...args: Parameters<typeof fs.writeFile>) => {
-      if (writing.pause) {
-        const options = typeof args[2] === 'object' ? args[2] : undefined
-        const file = await fs.open(String(args[0]), options?.flag ?? 'w', options?.mode)
-        try {
-          await writing.pause()
-          await file.writeFile(args[1])
-        } finally {
-          await file.close()
-        }
-        return
-      }
-      return fs.writeFile(...args)
-    },
+function pausedWrite(pause: () => Promise<void>): WriteTemporary {
+  return async (file, text) => {
+    const handle = await open(file, 'wx', 0o600)
+    try {
+      await pause()
+      await handle.writeFile(text)
+    } finally {
+      await handle.close()
+    }
   }
-})
+}
 
 test.each(['set', 'delete'] as const)(
   'readers see complete keyring state while %s is still writing',
@@ -42,11 +31,13 @@ test.each(['set', 'delete'] as const)(
     const startedWriting = new Promise<void>((resolve) => {
       started = resolve
     })
-    writing.pause = () => {
-      started()
-      return held
-    }
-    const keyring = stubKeyring(file)
+    const keyring = stubKeyring(
+      file,
+      pausedWrite(() => {
+        started()
+        return held
+      }),
+    )
     const saving = operation === 'set' ? keyring.set('new') : keyring.delete()
     try {
       await startedWriting
@@ -57,7 +48,6 @@ test.each(['set', 'delete'] as const)(
         operation === 'set' ? { state: 'ok', secret: 'new' } : { state: 'ok' },
       )
     } finally {
-      writing.pause = undefined
       release()
       await saving
       await rm(home, { recursive: true, force: true })
