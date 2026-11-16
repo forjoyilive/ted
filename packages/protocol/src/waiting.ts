@@ -26,6 +26,7 @@ export type WaitingRequest =
   | (WaitingBase & {
       source: 'coordinator'
       chatId: string
+      chatTitle: string
       confirmationKind: 'archive' | 'delete'
     })
 

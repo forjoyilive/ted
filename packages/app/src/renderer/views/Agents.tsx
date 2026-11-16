@@ -9,15 +9,15 @@ import {
   useAgentsView,
 } from '../agent-chats.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
-import { AgentAbout } from '../components/AgentAbout.tsx'
 import { Button } from '../components/Button.tsx'
 import { contextMenu, type MenuPosition, useActionMenu } from '../components/ContextMenu.tsx'
-import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import type { ScrollReveal } from '../components/ScrollMemory.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { useCoordinatorChats, usePlansState } from '../data.ts'
+import { useMessageDraft } from '../message-drafts.ts'
 import { newPlan } from '../navigation.ts'
 import { when } from '../plans.ts'
+import { Segmented } from '../settings/controls.tsx'
 import { readableError, ted } from '../ted.ts'
 import styles from './Agents.module.css'
 import { CoordinatorChat, CoordinatorStart, DeleteCoordinatorChat } from './Coordinator.tsx'
@@ -200,21 +200,25 @@ export function AgentsView({
     </section>
   )
 
+  const switcher = (agent: AgentChatRef['agent']) => (
+    <AgentSwitch
+      factory={factory}
+      agent={agent}
+      onPick={(next) =>
+        next === 'planner'
+          ? onNewPlan()
+          : onOpenChat({ agent: 'coordinator', id: newCoordinatorChat })
+      }
+    />
+  )
   let middle: ReactNode
   if (shown === undefined) {
     middle = <section className={views.pane} aria-label="Agents" />
-  } else if (shown === 'start') {
-    middle = (
-      <StartPage
-        factory={factory}
-        onCoordinator={() => onOpenChat({ agent: 'coordinator', id: newCoordinatorChat })}
-        onPlanner={onNewPlan}
-      />
-    )
-  } else if (shown === 'new-coordinator') {
+  } else if (shown === 'start' || shown === 'new-coordinator') {
     middle = (
       <CoordinatorStart
         factory={factory}
+        switcher={switcher('coordinator')}
         onStarted={(id) => onOpenChat({ agent: 'coordinator', id })}
         onOpenTask={onOpenTask}
       />
@@ -228,6 +232,7 @@ export function AgentsView({
         planId={id}
         revealRequest={revealRequest}
         {...(planFrom !== undefined && { from: planFrom })}
+        {...(id === undefined && planFrom === undefined && { switcher: switcher('planner') })}
         onOpenPlan={(opened) => onOpenChat({ agent: 'planner', id: opened })}
         onPlanMore={onPlanMore}
         onOpenTask={onOpenTask}
@@ -312,46 +317,36 @@ function ChatRow({
   )
 }
 
-function StartPage({
+function AgentSwitch({
   factory,
-  onCoordinator,
-  onPlanner,
+  agent,
+  onPick,
 }: {
   factory: Factory
-  onCoordinator: () => void
-  onPlanner: () => void
+  agent: AgentChatRef['agent']
+  onPick: (agent: AgentChatRef['agent']) => void
 }) {
+  const coordinator = useMessageDraft({ kind: 'coordinator-new', id: factory.id })
+  const planner = useMessageDraft({ kind: 'new-plan', id: factory.id })
+  const pick = (next: AgentChatRef['agent']) => {
+    if (next === agent) return
+    const [from, to] = agent === 'coordinator' ? [coordinator, planner] : [planner, coordinator]
+    if (from.text.trim() !== '' && to.text.trim() === '') {
+      to.setText(from.text)
+      from.clear()
+    }
+    onPick(next)
+  }
   return (
-    <>
-      <section className={views.pane} aria-label="New chat">
-        <div className={styles.start}>
-          <h2>Start a chat in {factory.name}</h2>
-          <p className={styles.muted}>
-            Each chat is its own conversation, and your other chats keep running.
-          </p>
-          <div className={styles.choices}>
-            <ActionButton type="button" className={styles.choice} onClick={onCoordinator}>
-              <AgentAbout agent="Coordinator" />
-            </ActionButton>
-            <ActionButton
-              type="button"
-              className={styles.choice}
-              disabled={!factory.cloned}
-              onClick={onPlanner}
-            >
-              <AgentAbout agent="Planner" />
-            </ActionButton>
-          </div>
-        </div>
-      </section>
-      <DetailsPane className={views.detailsPane} aria-label="Agents">
-        <section className={styles.section}>
-          <h2>Agents</h2>
-          <p className={styles.muted}>
-            An Agent helps with this Factory outside any one Task. Pick one to start a chat.
-          </p>
-        </section>
-      </DetailsPane>
-    </>
+    <Segmented
+      label="Agent"
+      name="new-chat-agent"
+      value={agent}
+      options={[
+        { value: 'coordinator', label: 'Coordinator' },
+        { value: 'planner', label: 'Planner' },
+      ]}
+      onChange={pick}
+    />
   )
 }

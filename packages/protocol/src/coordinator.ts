@@ -52,6 +52,7 @@ export interface Coordinator {
   runIds: string[]
   started: boolean
   opening: string
+  title: string
   startedAt: string
   endedAt?: string
   lead: TaskLead
@@ -127,6 +128,10 @@ export interface CoordinatorConfirmationAnswer {
 export interface CoordinatorStatus {
   factoryId: string
   status: Coordinator['status']
+}
+
+export interface RenameCoordinatorChatRequest {
+  title: string
 }
 
 export interface CoordinatorMessage {

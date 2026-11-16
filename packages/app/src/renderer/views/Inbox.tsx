@@ -317,7 +317,7 @@ export function Inbox({
   useLayoutEffect(() => {
     if (showAnswered) return
     before.current = all
-    if (next === null) onClear()
+    if (next === null || next?.kind === 'plan' || next?.kind === 'coordinator') onClear()
     else next?.open()
   })
 
@@ -332,7 +332,7 @@ export function Inbox({
     if (row.kind === 'plan') {
       const item = row.item
       const { request, plan } = item
-      const where = [plan.title, ...factoryPart(plan.factoryId)]
+      const where = ['Planner', plan.title, ...factoryPart(plan.factoryId)]
       return (
         <button
           type="button"
@@ -408,7 +408,7 @@ export function Inbox({
     }
     if (row.kind === 'coordinator') {
       const confirmation = row.item
-      const where = ['Coordinator', ...factoryPart(confirmation.factoryId)]
+      const where = ['Coordinator', confirmation.chatTitle, ...factoryPart(confirmation.factoryId)]
       return (
         <button
           type="button"

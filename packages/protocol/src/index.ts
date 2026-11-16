@@ -301,6 +301,7 @@ export type {
   CoordinatorTaskList,
   CoordinatorTaskQuery,
   CoordinatorTaskSummary,
+  RenameCoordinatorChatRequest,
 } from './coordinator.ts'
 export {
   coordinatorTaskSearch,
@@ -310,6 +311,7 @@ export {
   parseCoordinatorMessage,
   parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
+  parseRenameCoordinatorChatRequest,
 } from './coordinator-parsers.ts'
 export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export type {

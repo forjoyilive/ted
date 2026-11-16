@@ -32,6 +32,7 @@ roundTrip(P.parseStartPlanRequest, {
   effort: 'high',
 })
 roundTrip(P.parseRenamePlanRequest, { title: 'New title' })
+roundTrip(P.parseRenameCoordinatorChatRequest, { title: 'Release review' })
 roundTrip(P.parseResumePlanRequest, { message: 'Carry on' })
 const round = {
   title: 'Choices',
@@ -284,6 +285,7 @@ rejects(P.parseResumePlanRequest, { message: 2 }, 'message must be text')
 rejects(P.parsePostPlanRequest, { supersedes: 2 }, 'supersedes must be')
 rejects(P.parseSendPeerMessage, { operation: 'id' }, 'operation and text are required')
 rejects(P.parseCoordinatorMessage, { text: 1 }, 'text is required')
+rejects(P.parseRenameCoordinatorChatRequest, { title: 2 }, 'title must be text')
 rejects(
   (v) => P.parseCoordinatorAction(v, 'tell'),
   { operation: 'id', version, message: 'a'.repeat(8001) },

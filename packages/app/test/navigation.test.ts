@@ -430,41 +430,7 @@ test('picking Dashboard Factories narrows from all, toggles after and falls back
   expect(pickFactories(['a', 'b', 'c'], ['d'], factories)).toBeUndefined()
 })
 
-test('Inbox Planning requests preserve Inbox navigation, then yield to Tasks and Automations', () => {
-  const opened = after(
-    { type: 'open-task', taskId: 't1', factoryId: 'nb', requestId: 'c1' },
-    { type: 'open-plan', factoryId: 'nb', planId: 'p1', requestId: 'round1' },
-  )
-  expect(opened).toMatchObject({
-    screen: { kind: 'inbox' },
-    planId: 'p1',
-    requestId: 'round1',
-    lastFactoryId: 'nb',
-  })
-  expect(opened.taskId).toBeUndefined()
-  const taskOpen = navigate(opened, {
-    type: 'open-task',
-    taskId: 't2',
-    factoryId: 'ms',
-    requestId: 'c2',
-  })
-  expect(taskOpen.planId).toBeUndefined()
-  expect(taskOpen.requestId).toBe('c2')
-  const automationOpen = navigate(opened, {
-    type: 'open-automation',
-    automationId: 'a1',
-    factoryId: 'ms',
-    runId: 'r1',
-    requestId: 'q1',
-  })
-  expect(automationOpen.planId).toBeUndefined()
-  expect(automationOpen.requestId).toBe('q1')
-  const left = navigate(opened, { type: 'open', screen: { kind: 'all-tasks' } })
-  expect(left.planId).toBeUndefined()
-  expect(left.requestId).toBeUndefined()
-})
-
-test('history restores an Inbox Planning request and its Factory after opening another Task', () => {
+test('an Inbox Planning request opens its chat on the Agents screen, and back returns to the Inbox', () => {
   let history = startHistory(initialNavigation)
   history = withHistory(history, {
     type: 'open-plan',
@@ -472,21 +438,12 @@ test('history restores an Inbox Planning request and its Factory after opening a
     planId: 'p1',
     requestId: 'round1',
   })
-  history = withHistory(history, {
-    type: 'open-task',
-    taskId: 't2',
-    factoryId: 'ms',
-    requestId: 'c2',
-  })
-  history = withHistory(history, { type: 'back' })
   expect(history.now).toMatchObject({
-    screen: { kind: 'inbox' },
+    screen: { kind: 'factory', factoryId: 'nb', view: 'agents' },
     planId: 'p1',
     requestId: 'round1',
-    lastFactoryId: 'nb',
   })
-  expect(history.now.taskId).toBeUndefined()
-  history = withHistory(history, { type: 'forward' })
-  expect(history.now).toMatchObject({ taskId: 't2', requestId: 'c2' })
+  history = withHistory(history, { type: 'back' })
+  expect(history.now.screen).toEqual({ kind: 'inbox' })
   expect(history.now.planId).toBeUndefined()
 })

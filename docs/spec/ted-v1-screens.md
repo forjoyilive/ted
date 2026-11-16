@@ -171,10 +171,12 @@ The Split it proposal uses the planning chat’s proposal card (KRI-60).
 Each Factory’s sidebar has one **Agents** row in place of the old Coordinator and Plans rows; it opens the Agents screen. The Plans list frames above (27:10471, 28:2053) are replaced by it; the planning chat frames still show the middle pane. No Figma frame yet: the design was reviewed as an HTML prototype on TED-436.
 
 - **Left, Agent chats:** every Coordinator chat and planning chat in the Factory, newest activity first, ended ones included. Each row names the Agent (Coordinator or Planner), its time, title, status chip and one line (Tasks, proposal, or the Task a Plan in chat came from), with a dot when the chat waits for the user. **Display → Group by Agent** splits the list by Agent. A Coordinator row’s right-click menu has Continue (ended chats) and Delete…; a planning chat’s actions are in the chat.
-- **Middle:** the open chat. A Coordinator chat is TED-435’s chat pane; a planning chat keeps its header actions (Stop, Resume, Retry, Mark finished, Rename…, Plan more from here…, Delete…).
+- **Middle:** the open chat. A Coordinator chat is TED-435’s chat pane; a planning chat keeps its header actions (Stop, Resume, Retry, Mark finished, Rename…, Plan more from here…, Delete…). Clicking either kind’s title renames it in place.
 - **Right:** the Agent, what it can do, its Provider and model, and the chat’s Tasks; for a planning chat also where it started (a Task’s size check or an earlier plan).
-- **New chat**, and Agents with no chats, show a start page with a Coordinator card and a Planner card; each opens that Agent’s start form. Opening Agents shows the chat last open in that Factory, else the newest.
-- ⌘K “Go to Agents” (G P), Coordinator confirmations in the Inbox, Plan in chat and “Plan more from here” open this screen.
+- **New chat**, and Agents with no chats, show one form (TED-437): “New chat” with a Coordinator | Planner switch in the title row, that Agent’s intro, the Provider, model and effort for this chat only, and the first message. Switching Agent keeps the typed message. There are no per-Agent buttons or shortcuts. The chat’s title is the first line of its first message; the user can rename it. Plan more from here opens the form on Planner without the switch. Opening Agents shows the chat last open in that Factory, else the newest.
+- **Inbox:** a request from a chat names the Agent and the chat in its second line (“Planner · <title> · <Factory>”, “Coordinator · <title> · <Factory>”) and opens that chat here, with the request shown. After the user answers a Task request, the Inbox doesn’t move on to a chat’s request by itself; the user opens it.
+- ⌘K “Go to Agents” (G P), Plan in chat and “Plan more from here” open this screen too.
+- No Figma frame for TED-437 either: it was reviewed as an HTML prototype.
 
 ---
 

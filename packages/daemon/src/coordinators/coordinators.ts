@@ -27,7 +27,13 @@ import type {
   StageId,
   Task,
 } from '@ted/protocol'
-import { archiveChoice, isTrackerGroupAsk, priorities } from '@ted/protocol'
+import {
+  archiveChoice,
+  isTrackerGroupAsk,
+  planTitle,
+  planTitleLength,
+  priorities,
+} from '@ted/protocol'
 import { mergesHere } from '@ted/protocol/stage'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import { RequestError } from '../errors.ts'
@@ -155,6 +161,7 @@ export interface Coordinators {
   holdFactoryRemoval(factoryId: string): () => void
   removeFactory(factoryId: string): Promise<void>
   continueChat(chatId: string): Promise<Coordinator>
+  renameChat(chatId: string, title: string): Promise<Coordinator>
   deleteChat(chatId: string): Promise<void>
   close(): Promise<void>
 }
@@ -258,10 +265,11 @@ export function createCoordinators(options: {
       .filter((at): at is string => at !== undefined && at !== '')
       .sort()
       .at(-1) ?? ''
+  const titleOf = (c: StoredCoordinator) => c.title ?? planTitle(c.opening)
   const summaryOf = (c: StoredCoordinator): CoordinatorChatSummary => ({
     id: c.id,
     factoryId: c.factoryId,
-    title: c.opening,
+    title: titleOf(c),
     status: status(c),
     startedAt: startedAt(c),
     lastAt: lastAt(c),
@@ -278,6 +286,7 @@ export function createCoordinators(options: {
       runIds: c.runIds,
       started: store.getRun(c.runId) !== undefined,
       opening: c.opening,
+      title: titleOf(c),
       startedAt: startedAt(c),
       ...(c.endedAt !== undefined && { endedAt: c.endedAt }),
       lead: c.lead,
@@ -1951,6 +1960,17 @@ export function createCoordinators(options: {
         await store.persisted()
       })
       return publicChat(requireChat(id))
+    },
+    async renameChat(id, title) {
+      const name = title.trim().replace(/\s+/g, ' ')
+      if (name === '') throw new RequestError(400, 'a chat needs a title')
+      if ([...name].length > planTitleLength) {
+        throw new RequestError(400, `titles are at most ${planTitleLength} characters`)
+      }
+      requireAnyChat(id)
+      saved.rename(id, name)
+      await store.persisted()
+      return publicChat(requireAnyChat(id))
     },
     async deleteChat(id) {
       requireAnyChat(id)
