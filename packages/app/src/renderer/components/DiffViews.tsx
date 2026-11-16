@@ -116,7 +116,7 @@ function PullRequestSummary({ remote, repo }: { remote: PullRequestChangesState;
   return (
     <div className={styles.remoteSummary}>
       <p className={styles.against}>
-        Pull request changes · Read-only. Use Local changes to leave line comments.
+        Pull request · Read-only. Switch to Local to leave line comments.
       </p>
       {snapshots.map((s) => (
         <p className={styles.against} key={s.repo.name}>
@@ -283,7 +283,7 @@ export function AllChanges({
     <section className={styles.all} aria-label="All changes">
       <header className={styles.allHeader}>
         <h2 className={styles.allTitle}>
-          {remote ? 'Pull request changes' : 'Local changes'} · All changes ·{' '}
+          {remote ? 'Pull request' : 'Local'} · All changes ·{' '}
           {files.length === 1 ? '1 file' : `${files.length} files`}
         </h2>
         <span className={styles.spacer} />
