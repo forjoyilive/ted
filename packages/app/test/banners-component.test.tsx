@@ -6,7 +6,7 @@ import { BannerStack } from '../src/renderer/components/BannerStack.tsx'
 import { AddFactoryDialog } from '../src/renderer/views/AddFactoryDialog.tsx'
 import { SetupPanel } from '../src/renderer/views/TaskViews.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, deferred, user } from './support/component.ts'
+import { bridge, deferred, expandFactory, user } from './support/component.ts'
 import { createdAt, factory, task } from './support/fixtures.ts'
 
 const warning: Banner = {
@@ -24,8 +24,7 @@ test('Factory warnings show only on their Factory pages and dismiss through the 
   a.handle('dismissBanner', () => warning)
   a.mount()
   const u = user()
-  await u.click(await screen.findByRole('button', { name: 'widgets' }))
-  await screen.findByText(warning.text)
+  await expandFactory()
   await u.click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Task views',
@@ -200,7 +199,7 @@ test('App removes the initial setup panel after clone Retry recovers', async () 
     return recovered
   })
   a.mount()
-  await user().click(await screen.findByRole('button', { name: 'widgets' }))
+  await expandFactory()
   await user().click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Task views',
@@ -240,7 +239,7 @@ test('App shows a global agent Fix banner, the paused Board status and clears th
   a.mount()
   const problems = await screen.findByRole('region', { name: 'Problems' })
   expect(within(problems).getByRole('button', { name: 'Fix' })).toBeTruthy()
-  await user().click(await screen.findByRole('button', { name: 'widgets' }))
+  await expandFactory()
   await user().click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Task views',

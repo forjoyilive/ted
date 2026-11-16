@@ -1,7 +1,7 @@
 import type { TedStoppedTask } from '@ted/protocol'
 import { useState } from 'react'
 import { useSlots, useTedStops } from '../data.ts'
-import { stageName } from '../list-view.ts'
+import { useStages } from '../stages.tsx'
 import { readableError, ted } from '../ted.ts'
 import { tedStopsText } from '../ted-stops.ts'
 import { formatTime } from '../time.ts'
@@ -15,6 +15,7 @@ const stopKey = (task: TedStoppedTask) => `${task.id}:${task.stoppedAt}`
 export function RestartStoppedDialog() {
   const offered = useTedStops()
   const slots = useSlots()
+  const stages = useStages()
   const [answered, setAnswered] = useState<ReadonlySet<string>>(new Set())
   const stops = offered.filter((task) => !answered.has(stopKey(task)))
   const [unticked, setUnticked] = useState<ReadonlySet<string>>(new Set())
@@ -98,7 +99,7 @@ export function RestartStoppedDialog() {
                   <>
                     <span className={styles.id}>{task.displayId}</span>
                     <span className={styles.title}>{task.title}</span>
-                    <span className={styles.stage}>{stageName(task.stage)}</span>
+                    <span className={styles.stage}>{stages.name(task.stage, task.factoryId)}</span>
                   </>
                 )
                 return (

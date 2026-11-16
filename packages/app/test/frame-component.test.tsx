@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 
 import type { FactoryLayout } from '@ted/protocol'
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, createEvent, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { Sidebar } from '../src/renderer/components/Sidebar.tsx'
 import { initialNavigation } from '../src/renderer/navigation.ts'
 import { appState } from './support/app.tsx'
-import { bridge, deferred, required, user } from './support/component.ts'
+import { bridge, deferred, expandFactory, required, user } from './support/component.ts'
 import { factory } from './support/fixtures.ts'
 
 const nav = () => screen.getByRole('navigation', { name: 'Sidebar' })
@@ -141,14 +141,27 @@ test('a slow resource reading does not overlap or restart polling after leaving 
   }
 })
 
-test('Factories open Dashboard with Board, List and Map folded under Tasks; All Tasks preserves expansion', async () => {
+test('a Factory name opens its Inbox and leaves its rows as they are; Board, List and Map fold under Tasks', async () => {
   const a = appState()
   const first = a.mount()
   const u = user()
   const shown = (name: string) => within(nav()).queryByRole('button', { name }) !== null
   const taskViews = () => within(nav()).getByRole('button', { name: 'Task views' })
   const factoryViews = () => within(nav()).getByRole('button', { name: 'Views' })
+  const factoryName = () => within(nav()).getByRole('button', { name: 'widgets' })
   await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await screen.findByRole('heading', { name: 'Inbox', level: 1 })
+  expect(factoryName().getAttribute('aria-current')).toBe('page')
+  expect(
+    within(nav())
+      .getByRole('button', { name: /^Inbox/ })
+      .hasAttribute('aria-current'),
+  ).toBe(false)
+  expect(factoryViews().getAttribute('aria-expanded')).toBe('false')
+  expect(shown('Tasks')).toBe(false)
+
+  await u.click(factoryViews())
+  await u.click(within(nav()).getByRole('button', { name: 'Dashboard' }))
   for (const name of ['Dashboard', 'Agents', 'Tasks', 'Automations']) expect(shown(name)).toBe(true)
   expect(['Board', 'List', 'Map'].filter(shown)).toEqual([])
   expect(taskViews().getAttribute('aria-expanded')).toBe('false')
@@ -185,14 +198,14 @@ test('Factories open Dashboard with Board, List and Map folded under Tasks; All 
 
   await u.click(within(nav()).getByRole('button', { name: 'All Tasks' }))
   expect(factoryViews().getAttribute('aria-expanded')).toBe('true')
-  await u.click(screen.getByRole('button', { name: 'widgets' }))
-  expect(factoryViews().getAttribute('aria-expanded')).toBe('false')
-  expect(shown('Tasks')).toBe(false)
-  await screen.findByRole('heading', { name: 'All Tasks', level: 1 })
-  await u.click(screen.getByRole('button', { name: 'widgets' }))
+  await u.click(factoryName())
+  await screen.findByRole('heading', { name: 'Inbox', level: 1 })
   expect(factoryViews().getAttribute('aria-expanded')).toBe('true')
   expect(taskViews().getAttribute('aria-expanded')).toBe('true')
-  await screen.findByRole('heading', { name: 'All Factories › Dashboard', level: 1 })
+  await u.click(factoryViews())
+  expect(shown('Tasks')).toBe(false)
+  await u.click(factoryName())
+  expect(factoryViews().getAttribute('aria-expanded')).toBe('false')
 })
 
 test('a live Factory event updates the sidebar', async () => {
@@ -252,7 +265,9 @@ test('sidebar expansion survives a component remount', async () => {
   const u = user()
   const views = (name: string) =>
     within(screen.getByRole('article', { name })).getByRole('button', { name: 'Views' })
-  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await screen.findByRole('article', { name: 'widgets' })
+  await u.click(views('widgets'))
+  expect(views('widgets').getAttribute('aria-expanded')).toBe('true')
   await u.click(views('widgets'))
   expect(views('widgets').getAttribute('aria-expanded')).toBe('false')
   views('site').focus()
@@ -267,7 +282,7 @@ test('sidebar expansion survives a component remount', async () => {
   await u.keyboard(' ')
   expect(views('site').getAttribute('aria-expanded')).toBe('false')
   await u.click(screen.getByRole('button', { name: 'widgets' }))
-  expect(views('widgets').getAttribute('aria-expanded')).toBe('true')
+  expect(views('widgets').getAttribute('aria-expanded')).toBe('false')
 })
 
 test('Settings shortcut and Back restore the previous screen', async () => {
@@ -288,7 +303,7 @@ test('view headers open New Task without a duplicate sidebar button', async () =
   const a = appState()
   a.mount()
   const u = user()
-  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await expandFactory()
   expect(within(nav()).queryByRole('button', { name: 'New Task…' })).toBeNull()
   await u.click(within(nav()).getByRole('button', { name: 'Tasks' }))
   for (const view of ['Board', 'List']) {
@@ -423,10 +438,14 @@ test('Move down saves the Factory layout and the numbered shortcut follows the n
       .map((e) => e.getAttribute('aria-label')),
   ).toEqual(['site', 'widgets'])
   fireEvent.keyDown(window, { key: '1', metaKey: true })
-  await screen.findByRole('heading', { name: /site.*Dashboard/ })
+  await vi.waitFor(() =>
+    expect(within(nav()).getByRole('button', { name: 'site' }).getAttribute('aria-current')).toBe(
+      'page',
+    ),
+  )
 })
 
-test('opening a Factory expands its collapsed group, even when it was already the current one', async () => {
+test('⌘1 opens the Factory’s Inbox and expands its collapsed group, even when it was already the current one', async () => {
   const a = appState()
   a.state.factories = [factory(), factory({ id: 'f2', name: 'site', key: 'MS', position: 1 })]
   a.state.layout = {
@@ -437,7 +456,11 @@ test('opening a Factory expands its collapsed group, even when it was already th
   const acme = await within(nav()).findByRole('region', { name: 'Acme' })
   await within(acme).findByRole('article', { name: 'widgets' })
   fireEvent.keyDown(window, { key: '1', metaKey: true })
-  await screen.findByRole('heading', { name: /widgets.*Dashboard/ })
+  await vi.waitFor(() =>
+    expect(within(acme).getByRole('button', { name: 'widgets' }).getAttribute('aria-current')).toBe(
+      'page',
+    ),
+  )
   await u.click(within(acme).getByRole('button', { name: 'Acme' }))
   expect(within(acme).queryByRole('article', { name: 'widgets' })).toBeNull()
   await u.click(within(nav()).getByRole('button', { name: /^Inbox/ }))
@@ -515,6 +538,49 @@ test('an open Task expands its own Factory’s group, not the group of the scree
   }
 })
 
+test('a Factory dragged to the strip under its group or above its group’s header leaves the group', async () => {
+  const a = appState()
+  a.state.factories = [factory(), factory({ id: 'f2', name: 'site', key: 'MS', position: 1 })]
+  a.state.layout = { items: [{ group: { id: 'acme', name: 'Acme', factoryIds: ['f1', 'f2'] } }] }
+  a.handle('saveFactoryLayout', (layout) => {
+    a.state.layout = layout as FactoryLayout
+    a.emit({ type: 'factory-layout-changed', layout: a.state.layout })
+    return a.state.layout
+  })
+  a.mount()
+  const acme = await within(nav()).findByRole('region', { name: 'Acme' })
+  const dataTransfer = { effectAllowed: '', setData: () => {} }
+  const dragOnto = (from: Element, to: Element, clientY = 0) => {
+    to.getBoundingClientRect = () => new DOMRect(0, 0, 200, 40)
+    fireEvent.dragStart(from, { dataTransfer })
+    for (const make of [createEvent.dragOver, createEvent.drop]) {
+      const event = make(to, { dataTransfer })
+      Object.defineProperty(event, 'clientY', { value: clientY })
+      fireEvent(to, event)
+    }
+  }
+  dragOnto(within(acme).getByRole('article', { name: 'site' }), required(acme.nextElementSibling))
+  await vi.waitFor(() =>
+    expect(a.state.layout).toEqual({
+      items: [{ group: { id: 'acme', name: 'Acme', factoryIds: ['f1'] } }, { factoryId: 'f2' }],
+    }),
+  )
+  dragOnto(
+    within(acme).getByRole('article', { name: 'widgets' }),
+    within(acme).getByRole('article', { name: 'Acme' }),
+    5,
+  )
+  await vi.waitFor(() =>
+    expect(a.state.layout).toEqual({
+      items: [
+        { factoryId: 'f1' },
+        { group: { id: 'acme', name: 'Acme', factoryIds: [] } },
+        { factoryId: 'f2' },
+      ],
+    }),
+  )
+})
+
 test('Factory groups: New group from the + menu, Move to group, collapse and Ungroup', async () => {
   const a = appState()
   a.state.factories = [factory(), factory({ id: 'f2', name: 'site', key: 'MS', position: 1 })]
@@ -546,6 +612,7 @@ test('Factory groups: New group from the + menu, Move to group, collapse and Ung
 
   await u.click(within(acme).getByRole('button', { name: 'Acme' }))
   expect(within(acme).queryByRole('article', { name: 'site' })).toBeNull()
+  expect(within(acme).getByRole('img', { name: '1 Factory' }).textContent).toBe('1')
 
   fireEvent.contextMenu(within(acme).getByRole('article', { name: 'Acme' }))
   await u.click(screen.getByRole('menuitem', { name: 'Ungroup' }))

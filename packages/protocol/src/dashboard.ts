@@ -182,6 +182,7 @@ export interface DashboardFlow {
   tasks: FlowTask[]
   current: FlowPeriod
   previous: FlowPeriod | null
+  stageNames: Record<string, string>
 }
 
 export type FlowReasonId =

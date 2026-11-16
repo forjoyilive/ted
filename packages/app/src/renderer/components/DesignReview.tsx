@@ -1,7 +1,7 @@
 import type { Attachment, DesignFile, DesignReview, SetupProposal } from '@ted/protocol'
 import { type ReactNode, useEffect, useState } from 'react'
 import { useBytes } from '../attachment-bytes.ts'
-import { stageName } from '../list-view.ts'
+import { useStages } from '../stages.tsx'
 import { readableError, ted } from '../ted.ts'
 import { ActionButton } from './ActionButton.tsx'
 import { Button } from './Button.tsx'
@@ -212,6 +212,7 @@ function SetupSection({ label, children }: { label: string; children: ReactNode 
 }
 
 function SetupProposalView({ setup }: { setup: SetupProposal }) {
+  const stages = useStages()
   return (
     <>
       {setup.workflow.length > 0 && (
@@ -219,7 +220,7 @@ function SetupProposalView({ setup }: { setup: SetupProposal }) {
           <dl className={styles.setupStages}>
             {setup.workflow.map((line) => (
               <div key={line.stage} className={styles.setupStage}>
-                <dt>{stageName(line.stage)}</dt>
+                <dt>{stages.name(line.stage)}</dt>
                 <dd className={line.setting === undefined ? styles.asDefault : undefined}>
                   {line.setting ?? 'As TED’s default'}
                 </dd>

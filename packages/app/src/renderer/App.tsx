@@ -128,6 +128,7 @@ import {
 } from './setup-notice.ts'
 import { keySequences } from './shortcuts.ts'
 import { factoryCapLine, runsLine } from './slots.ts'
+import { StagesProvider } from './stages.tsx'
 import { ted } from './ted.ts'
 import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
 import { AgentsView } from './views/Agents.tsx'
@@ -618,7 +619,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
       const factory = factories[Number(factoryNumber) - 1]
       if (!factory || anyDialog) return
       event.preventDefault()
-      dispatch({ type: 'open-factory', factoryId: factory.id })
+      dispatch({ type: 'open', screen: { kind: 'inbox', factoryId: factory.id } })
       return
     }
     const focused = focusedTaskRef()
@@ -1243,14 +1244,16 @@ export function App({ start }: { start?: AppStart | undefined }) {
     <div className={styles.window} data-loaded={factoriesLoaded}>
       {connection.state === 'reconnecting' && <ReconnectingBar />}
       <ProfileProvider settings={settings}>
-        <OvernightContext value={overnight}>
-          <ArmedContext value={armed}>
-            <SnoozedContext value={snoozed}>
-              <SidebarLayout className={styles.app}>{content}</SidebarLayout>
-              <RequestSnoozeHost />
-            </SnoozedContext>
-          </ArmedContext>
-        </OvernightContext>
+        <StagesProvider factoryIds={factories.map((f) => f.id)}>
+          <OvernightContext value={overnight}>
+            <ArmedContext value={armed}>
+              <SnoozedContext value={snoozed}>
+                <SidebarLayout className={styles.app}>{content}</SidebarLayout>
+                <RequestSnoozeHost />
+              </SnoozedContext>
+            </ArmedContext>
+          </OvernightContext>
+        </StagesProvider>
       </ProfileProvider>
     </div>
   )
@@ -1373,6 +1376,11 @@ export function App({ start }: { start?: AppStart | undefined }) {
       </Offline>
       <main className={styles.main}>
         {problems}
+        {inboxScreen?.factoryId !== undefined &&
+          bannerStack(
+            `${factoryName(factories, inboxScreen.factoryId)} problems`,
+            factoryBanners(banners, inboxScreen.factoryId),
+          )}
         <Offline when={offline}>
           <div ref={panes} className={styles.panes}>
             {find}

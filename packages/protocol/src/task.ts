@@ -562,7 +562,10 @@ export interface RoundQuestion {
   recommendedChoices?: string[]
 }
 
-export const joinChoices = (choices: readonly string[]): string => choices.join('; ')
+export const noChoicesPicked = 'None of these'
+
+export const joinChoices = (choices: readonly string[]): string =>
+  choices.length === 0 ? noChoicesPicked : choices.join('; ')
 
 export const sameChoices = (a: readonly string[], b: readonly string[]): boolean =>
   a.length === b.length && a.every((c) => b.includes(c))

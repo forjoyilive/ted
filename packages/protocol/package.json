@@ -7,8 +7,10 @@
   "exports": {
     ".": "./src/index.ts",
     "./time": "./src/time.ts",
+    "./parse": "./src/parse.ts",
     "./task": "./src/task.ts",
     "./stage": "./src/stage.ts",
+    "./stage-list": "./src/stage-list.ts",
     "./task-intervals": "./src/task-intervals.ts",
     "./stage-parts": "./src/stage-parts.ts",
     "./app": "./src/app.ts",
@@ -50,6 +52,7 @@
     "./asana-import": "./src/asana-import.ts",
     "./asana-intake": "./src/asana-intake.ts",
     "./asana-sync": "./src/asana-sync.ts",
+    "./linear-intake": "./src/linear-intake.ts",
     "./dashboard": "./src/dashboard.ts"
   }
 }

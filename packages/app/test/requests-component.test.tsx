@@ -381,7 +381,7 @@ test('a round question that allows several answers sends every ticked choice', a
   expect(f.queryAllByRole('radio')).toHaveLength(0)
   expect(f.getAllByText('Recommended')).toHaveLength(2)
   const submit = screen.getByRole('button', { name: 'Submit answers' }) as HTMLButtonElement
-  expect(submit.disabled).toBe(true)
+  expect(submit.disabled).toBe(false)
   await u.click(f.getByRole('checkbox', { name: /^Map/ }))
   await u.click(f.getByRole('checkbox', { name: /^Board/ }))
   expect(f.queryByText('Changed ·')).toBeNull()
@@ -397,6 +397,40 @@ test('a round question that allows several answers sends every ticked choice', a
   })
 })
 
+test('a round question that allows several answers can be sent with nothing ticked', async () => {
+  const { answer } = requestApi()
+  const several: Round = {
+    number: 1,
+    questions: [
+      {
+        question: 'Which views?',
+        choices: ['Board', 'List'],
+        recommended: 'Board',
+        multiple: true,
+        recommendedChoices: ['Board'],
+      },
+    ],
+  }
+  render(
+    <RequestCard
+      request={comment({ kind: 'round', round: several })}
+      task={task()}
+      onOpenRun={vi.fn()}
+    />,
+  )
+  const u = user()
+  const f = within(screen.getByRole('group', { name: /Which views/ }))
+  const submit = screen.getByRole('button', { name: 'Submit answers' }) as HTMLButtonElement
+  await u.click(f.getByRole('checkbox', { name: /^Other/ }))
+  expect(submit.disabled).toBe(true)
+  await u.click(f.getByRole('checkbox', { name: /^Other/ }))
+  await u.click(submit)
+  expect(answer).toHaveBeenCalledWith('c1', {
+    action: 'answer-round',
+    answers: [{ answer: '', choices: [] }],
+  })
+})
+
 test('a one-off question that allows several answers sends the ticked choices', async () => {
   const { answer } = requestApi()
   render(
@@ -409,7 +443,10 @@ test('a one-off question that allows several answers sends the ticked choices', 
   const send = screen.getByRole('button', { name: 'Send' }) as HTMLButtonElement
   expect(screen.getByText('Pick any that apply')).toBeTruthy()
   expect(screen.queryAllByRole('radio')).toHaveLength(0)
+  expect(send.disabled).toBe(false)
+  await u.click(screen.getByRole('checkbox', { name: /^Other/ }))
   expect(send.disabled).toBe(true)
+  await u.click(screen.getByRole('checkbox', { name: /^Other/ }))
   await u.click(screen.getByRole('checkbox', { name: 'Map' }))
   await u.click(screen.getByRole('checkbox', { name: 'Board' }))
   await u.click(screen.getByRole('checkbox', { name: 'Map' }))

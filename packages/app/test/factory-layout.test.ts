@@ -3,6 +3,7 @@ import { describe, expect, test } from 'vitest'
 import {
   addGroup,
   arrange,
+  dropTarget,
   groupSections,
   inSidebarOrder,
   moveStep,
@@ -67,6 +68,63 @@ describe('moveTo', () => {
   test('a drop that changes nothing saves nothing', () => {
     expect(moveTo(layout, { factoryId: 'b' }, { before: { factoryId: 'c' } })).toBeUndefined()
     expect(moveTo(layout, { factoryId: 'b' }, { after: { factoryId: 'b' } })).toBeUndefined()
+  })
+})
+
+describe('dropTarget', () => {
+  const drop = (
+    dragging: Parameters<typeof dropTarget>[1],
+    spot: Parameters<typeof dropTarget>[2],
+  ) => {
+    const target = dropTarget(layout, dragging, spot)
+    return target && moveTo(layout, dragging, target)
+  }
+
+  test('a group header’s top half puts a Factory above the group, its bottom half into it first', () => {
+    const header = { groupId: 'g1' }
+    expect(drop({ factoryId: 'c' }, { row: header, half: 'top' })).toEqual({
+      items: [{ factoryId: 'a' }, { factoryId: 'c' }, acme('b'), { factoryId: 'd' }],
+    })
+    expect(drop({ factoryId: 'd' }, { row: header, half: 'bottom' })).toEqual({
+      items: [{ factoryId: 'a' }, acme('d', 'b', 'c')],
+    })
+    expect(dropTarget(layout, { groupId: 'g1' }, { row: header, half: 'top' })).toBeUndefined()
+  })
+
+  test('a dragged group lands after a group on its header’s bottom half, never inside', () => {
+    const two: FactoryLayout = {
+      items: [acme('b'), { group: { id: 'g2', name: 'Home', factoryIds: ['a'] } }],
+    }
+    expect(dropTarget(two, { groupId: 'g2' }, { row: { groupId: 'g1' }, half: 'bottom' })).toEqual({
+      after: { groupId: 'g1' },
+    })
+    expect(dropTarget(two, { groupId: 'g2' }, { into: 'g1' })).toBeUndefined()
+    expect(
+      dropTarget(two, { groupId: 'g1' }, { row: { factoryId: 'b' }, half: 'top' }),
+    ).toBeUndefined()
+  })
+
+  test('the strip under a group and the end of the list put a Factory outside the group', () => {
+    expect(drop({ factoryId: 'b' }, { afterGroup: 'g1' })).toEqual({
+      items: [{ factoryId: 'a' }, acme('c'), { factoryId: 'b' }, { factoryId: 'd' }],
+    })
+    const last: FactoryLayout = { items: [{ factoryId: 'a' }, acme('b', 'c')] }
+    const target = dropTarget(last, { factoryId: 'c' }, { end: true })
+    expect(target && moveTo(last, { factoryId: 'c' }, target)).toEqual({
+      items: [{ factoryId: 'a' }, acme('b'), { factoryId: 'c' }],
+    })
+    expect(drop({ groupId: 'g1' }, { end: true })).toEqual({
+      items: [{ factoryId: 'a' }, { factoryId: 'd' }, acme('b', 'c')],
+    })
+  })
+
+  test('a Factory row’s halves put the dragged Factory above or below it', () => {
+    expect(drop({ factoryId: 'd' }, { row: { factoryId: 'a' }, half: 'top' })).toEqual({
+      items: [{ factoryId: 'd' }, { factoryId: 'a' }, acme('b', 'c')],
+    })
+    expect(drop({ factoryId: 'a' }, { row: { factoryId: 'c' }, half: 'bottom' })).toEqual({
+      items: [acme('b', 'c', 'a'), { factoryId: 'd' }],
+    })
   })
 })
 

@@ -102,6 +102,8 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
         planFrom: ______,
         ...rest
       } = state
+      if (action.screen.kind === 'inbox' && action.screen.factoryId !== undefined)
+        return { ...rest, screen: action.screen, lastFactoryId: action.screen.factoryId }
       if (action.screen.kind !== 'factory') return { ...rest, screen: action.screen }
       const { factoryId, view } = action.screen
       return {
@@ -268,6 +270,8 @@ function goTo(state: Navigation, place: Place): Navigation {
   return {
     ...rest,
     ...place,
+    ...(screen.kind === 'inbox' &&
+      screen.factoryId !== undefined && { lastFactoryId: screen.factoryId }),
     ...(screen.kind === 'factory' && {
       lastFactoryId: screen.factoryId,
       lastViews: { ...state.lastViews, [screen.factoryId]: screen.view },

@@ -50,7 +50,7 @@ const isChanged = (question: RoundQuestion, draft: Draft): boolean =>
 
 const isAnswered = (question: RoundQuestion, draft: Draft): boolean => {
   const written = draft.other === true && writtenText(draft).trim() !== ''
-  if (question.multiple) return picked(question, draft).length > 0 || written
+  if (question.multiple) return draft.other !== true || written
   return draft.other ? written : draft.answer.trim() !== ''
 }
 

@@ -90,6 +90,8 @@ export interface StageRowView {
   inheritedEffortFrom?: LayerKind
 
   id: StageId
+  name: string
+  custom?: true
   inOrder: boolean
   enabled: boolean
   gate: boolean
@@ -347,6 +349,8 @@ export interface LibraryStageRow {
   inheritedEffortFrom?: LayerKind
 
   id: StageId
+  name: string
+  custom?: true
   inOrder: boolean
   enabled: boolean
   gate: boolean

@@ -29,6 +29,13 @@ export function isStageId(id: unknown): id is StageId {
   return typeof id === 'string' && (isBuiltInStage(id) || isCustomStageId(id))
 }
 
+export function stageFileId(file: string): AgentStageId | undefined {
+  const match = /^stages\/(.+)\.md$/.exec(file)
+  const id = match?.[1]
+  if (id === undefined) return undefined
+  return isCustomStageId(id) || agentStageIds.some((s) => s === id) ? id : undefined
+}
+
 export function stageDisplayName(id: string, names: Readonly<Record<string, string>> = {}): string {
   const named = Object.hasOwn(names, id) ? names[id] : undefined
   return named ?? id.charAt(0).toUpperCase() + id.slice(1)
@@ -142,4 +149,19 @@ export function stagePhase(id: string, order: readonly string[] = []): StagePhas
 
 export function clarifyIsOver(id: string, order: readonly string[] = []): boolean {
   return isPast(id, stageWith('clarifyRounds'), order)
+}
+
+export function settingsStageOrder(order: readonly string[]): StageId[] {
+  const rows: StageId[] = ['backlog', ...order.filter((id) => !isHoldingStage(id)), 'done']
+  for (const id of builtInStageOrder) {
+    if (rows.includes(id)) continue
+    const at = rows.findIndex((other) => compareStages(other, id, order) > 0)
+    rows.splice(at === -1 ? rows.length : at, 0, id)
+  }
+  return rows
+}
+
+export function stageEnabled(id: string, inOrder: boolean, enabled: boolean | undefined): boolean {
+  if (isCleanup(id)) return enabled === true
+  return inOrder && (isHoldingStage(id) || enabled !== false)
 }

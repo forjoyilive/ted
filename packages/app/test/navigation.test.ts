@@ -52,6 +52,18 @@ describe('navigation', () => {
     expect(currentFactoryId(initialNavigation, tasks)).toBeUndefined()
   })
 
+  test('a Factory’s Inbox makes it the current Factory; the unfiltered Inbox keeps the last one', () => {
+    const inbox = after(
+      { type: 'open', screen: { kind: 'factory', factoryId: 'ms', view: 'board' } },
+      { type: 'open', screen: { kind: 'inbox', factoryId: 'nb' } },
+    )
+    expect(inbox.screen).toEqual({ kind: 'inbox', factoryId: 'nb' })
+    expect(currentFactoryId(inbox, tasks)).toBe('nb')
+    expect(
+      currentFactoryId(navigate(inbox, { type: 'open', screen: { kind: 'inbox' } }), tasks),
+    ).toBe('nb')
+  })
+
   test('opening a Factory shows the Dashboard narrowed to it the first time and its last-used View after', () => {
     expect(after({ type: 'open-factory', factoryId: 'nb' })).toMatchObject({
       screen: { kind: 'dashboard', dashboard: { factoryIds: ['nb'] } },
@@ -251,6 +263,18 @@ describe('back and forward (⌘[ and ⌘])', () => {
     const again = withHistory(withHistory(twice, { type: 'forward' }), { type: 'forward' })
     expect(again.now.screen).toEqual({ kind: 'all-tasks' })
     expect(again.now.taskId).toBe('t1')
+  })
+
+  test('back and forward between two Factories’ Inboxes restore which Factory is current', () => {
+    const state = walk(
+      { type: 'open', screen: { kind: 'inbox', factoryId: 'nb' } },
+      { type: 'open', screen: { kind: 'inbox', factoryId: 'ms' } },
+      { type: 'back' },
+    )
+    expect(state.now.screen).toEqual({ kind: 'inbox', factoryId: 'nb' })
+    expect(currentFactoryId(state.now, tasks)).toBe('nb')
+    const forward = withHistory(state, { type: 'forward' })
+    expect(currentFactoryId(forward.now, tasks)).toBe('ms')
   })
 
   test('going somewhere new after going back drops the forward places', () => {

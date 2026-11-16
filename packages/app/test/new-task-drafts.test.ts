@@ -138,7 +138,7 @@ describe('New Task drafts', () => {
     await closeApp(ctx.app)
     ctx.app = undefined
     window = await launchApp()
-    await openFactoryView(window, 'notebook', 'Dashboard')
+    await openFactoryView(window, 'notebook', 'Inbox')
     await open(window)
     expect(await form(window).getByLabel('Title', { exact: true }).inputValue()).toBe(
       'Keep my unfinished Task',
@@ -213,7 +213,7 @@ describe('New Task drafts', () => {
       first.id,
     )
 
-    await openFactoryView(window, 'notebook', 'Dashboard')
+    await openFactoryView(window, 'notebook', 'Inbox')
     await open(window)
     await form(window)
       .getByLabel('Description', { exact: true })
@@ -270,7 +270,7 @@ await import(${JSON.stringify(pathToFileURL(stubCodexPath).href)})
     )
     ctx.extraEnv.TED_CODEX_BIN = delayedCodex
     window = await launchApp()
-    await openFactoryView(window, 'widgets', 'Dashboard')
+    await openFactoryView(window, 'widgets', 'Inbox')
     const restarted = await daemonClient()
     await waitUntil(async () => {
       const health = await restarted.agentHealth()

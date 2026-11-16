@@ -135,7 +135,9 @@ test('Library event refresh preserves a draft until Discard reloads the current 
       version,
       agents: [],
       problems: [],
-      stages: [{ id: 'review', inOrder: true, enabled: true, gate: true, from: 'ted' }],
+      stages: [
+        { id: 'review', name: 'Review', inOrder: true, enabled: true, gate: true, from: 'ted' },
+      ],
     }),
   })
   render(<LibraryPage settings={defaultMachineSettings} dispatch={() => undefined} />)
@@ -241,7 +243,7 @@ test('Library Save loads no second view for its own event, and reloads after one
     version,
     agents: [],
     problems: [],
-    stages: [{ id: 'review', inOrder: true, enabled: true, gate, from: 'ted' }],
+    stages: [{ id: 'review', name: 'Review', inOrder: true, enabled: true, gate, from: 'ted' }],
   })
   let onDisk = library('v1', true)
   let saving = deferred<ReturnType<typeof library>>()

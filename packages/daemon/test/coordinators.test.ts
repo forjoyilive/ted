@@ -197,7 +197,12 @@ test('one conversation per Factory; scoped reads include fresh briefs and Commen
   })
   expect((await tasksWhere('?status=working')).matching).toBe(0)
   expect((await tasksWhere('?waiting=1')).matching).toBe(0)
-  expect((await run.call('GET', '/coordinator/tasks?stage=nowhere')).status).toBe(400)
+  const nowhere = await run.call('GET', '/coordinator/tasks?stage=nowhere')
+  expect(nowhere.status).toBe(400)
+  expect(nowhere.body).toMatchObject({
+    error: expect.stringContaining('unknown Stage nowhere; use one of backlog, intake,'),
+  })
+  expect((await run.call('GET', '/coordinator/tasks?stage=queued')).status).toBe(400)
   const symbols = await s.task('Sync & retry C++ at 100%')
   expect(
     (await tasksWhere(coordinatorTaskSearch({ search: '& retry C++ at 100%' }))).tasks.map(

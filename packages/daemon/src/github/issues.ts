@@ -134,7 +134,7 @@ export async function readGitHubIssue(
   return { state: 'found', issue }
 }
 
-function unreadableReason(error: unknown): GitHubUnreadable {
+export function unreadableReason(error: unknown): GitHubUnreadable {
   if (!(error instanceof GhError)) return 'failed'
   if (error.kind === 'missing') return 'gh-missing'
   if (error.kind === 'auth') return 'signed-out'

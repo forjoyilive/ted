@@ -37,6 +37,7 @@ import {
 import { mergesHere } from '@ted/protocol/stage'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import { RequestError } from '../errors.ts'
+import type { MakeDirectory } from '../files.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
@@ -44,6 +45,7 @@ import type { Steering } from '../runs/steering.ts'
 import type { PromptPart, StoredCoordinator } from '../store/coordinators.ts'
 import type { TedStore } from '../store/index.ts'
 import type { QueueSource } from '../tasks/queue.ts'
+import { startGuard } from '../tasks/queued-runs.ts'
 import type { Caller, Tasks } from '../tasks/tasks.ts'
 import { writingGuidance } from '../writing.ts'
 
@@ -136,7 +138,7 @@ export interface Coordinators {
   send(runId: string, text: string): Promise<RunMessage>
   stop(chatId: string): Promise<Coordinator>
   retry(chatId: string): Promise<Coordinator>
-  list(caller: Caller, query: CoordinatorTaskQuery): CoordinatorTaskList
+  list(caller: Caller, query: CoordinatorTaskQuery): Promise<CoordinatorTaskList>
   task(caller: Caller, ref: string, offset: number): CoordinatorTask
   act(
     caller: Caller,
@@ -187,11 +189,12 @@ export function createCoordinators(options: {
   tasks: Tasks
   health: AgentHealthMonitor
   steering: Steering
+  mkdir?: MakeDirectory
 }): Coordinators {
   const { home, store, runs, tasks, steering } = options
+  const makeDirectory = options.mkdir ?? mkdir
   const saved = store.coordinators
-  const launches = new Map<string, Promise<void>>()
-  const launching = new Set<string>()
+  const launching = startGuard('Coordinator')
   const stopping = new Set<string>()
   const removing = new Set<string>()
   const deleting = new Set<string>()
@@ -347,7 +350,7 @@ export function createCoordinators(options: {
     return messages.length
   }
   const source: QueueSource = {
-    starting: () => [...launching].flatMap((id) => saved.get(id)?.runId ?? []),
+    starting: () => launching.keys().flatMap((id) => saved.get(id)?.runId ?? []),
     queued: () =>
       saved
         .list()
@@ -365,26 +368,23 @@ export function createCoordinators(options: {
       )
     },
     begin(id) {
-      if (closed || launching.has(id)) return
-      launching.add(id)
-      const work = launch(id)
-        .catch((error) => {
+      if (closed) return
+      launching.begin(id, () => launch(id), {
+        failed(error) {
           if (error instanceof AgentDisabledError) {
             const current = saved.get(id)
             if (current?.phase === 'working' && !store.getRun(current.runId))
               save({ ...current, phase: 'queued' })
           } else fail(id, error)
-        })
-        .finally(() => {
-          launching.delete(id)
-          launches.delete(id)
+        },
+        done() {
           if (!closed) {
             const current = saved.get(id)
             if (current && store.getRun(current.runId)) steering.syncQueuedFlag(current.runId)
             pump()
           }
-        })
-      launches.set(id, work)
+        },
+      })
     },
     holders: () =>
       saved
@@ -421,14 +421,14 @@ export function createCoordinators(options: {
   async function folder(id: string): Promise<string> {
     if (!/^[a-f0-9-]{36}$/.test(id)) throw new RequestError(400, 'invalid Coordinator Run ID')
     const base = path.join(home, 'coordinators')
-    await mkdir(base, { recursive: true, mode: 0o700 })
+    await makeDirectory(base, { recursive: true, mode: 0o700 })
     if (
       !(await lstat(base)).isDirectory() ||
       (await realpath(base)) !== path.join(await realpath(home), 'coordinators')
     )
       throw new Error('unsafe Coordinator folder')
     const dir = path.join(base, id)
-    await mkdir(dir, { recursive: true, mode: 0o700 })
+    await makeDirectory(dir, { recursive: true, mode: 0o700 })
     if (
       !(await lstat(dir)).isDirectory() ||
       (await realpath(dir)) !== path.join(await realpath(base), id)
@@ -596,7 +596,7 @@ export function createCoordinators(options: {
       stopping.add(c.id)
       save({ ...c, phase: 'queued' })
       const work = (async () => {
-        await launches.get(c.id)
+        await launching.wait(c.id)
         await steering.drain(c.runId)
         if (closed || held(c.id)) return
         const latest = saved.get(c.id)
@@ -1008,7 +1008,7 @@ export function createCoordinators(options: {
   }
 
   async function settle(c: StoredCoordinator): Promise<void> {
-    await launches.get(c.id)?.catch(() => {})
+    await launching.wait(c.id)?.catch(() => {})
     await chains.get(c.factoryId)?.catch(() => {})
     await steering.drain(c.runId)
     for (const runId of (saved.get(c.id) ?? c).runIds) {
@@ -1182,7 +1182,7 @@ export function createCoordinators(options: {
       requireChat(id)
       stopping.add(id)
       try {
-        await launches.get(id)
+        await launching.wait(id)
         const current = requireChat(id)
         await steering.drain(current.runId)
         const latest = requireChat(id)
@@ -1239,9 +1239,20 @@ export function createCoordinators(options: {
       pump()
       return publicChat(requireChat(id))
     },
-    list(caller, query) {
+    async list(caller, query) {
       const c = actor(caller)
       const offset = query.offset ?? 0
+      if (query.stages) {
+        const { stages } = await tasks.board(c.factoryId)
+        const known = new Set<string>(stages.map((s) => s.id))
+        for (const t of store.taskOutlines()) if (t.factoryId === c.factoryId) known.add(t.stage)
+        const unknown = query.stages.find((s) => !known.has(s))
+        if (unknown !== undefined)
+          throw new RequestError(
+            400,
+            `unknown Stage ${unknown}; use one of ${stages.map((s) => s.id).join(', ')}`,
+          )
+      }
       const factory = store.taskOutlines().filter((t) => t.factoryId === c.factoryId)
       const open = Map.groupBy(
         store.listOpenRequests().filter((r) => r.kind !== 'note'),
@@ -1980,7 +1991,7 @@ export function createCoordinators(options: {
       closed = true
       unsubscribe()
       await Promise.allSettled([
-        ...launches.values(),
+        ...launching.all(),
         ...chains.values(),
         ...background,
         ...saved.list().map((c) => steering.drain(c.runId)),

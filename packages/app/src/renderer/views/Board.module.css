@@ -103,6 +103,13 @@
   font-weight: var(--weight-regular);
 }
 
+.columnNote {
+  margin: 0;
+  padding: 2px 4px;
+  color: var(--text-caption);
+  font-size: var(--text-12);
+}
+
 .turnedOffTag {
   padding: 0 7px;
   border: 1px solid var(--border-control);
@@ -111,6 +118,7 @@
   font-size: var(--text-11);
   font-weight: var(--weight-regular);
   line-height: var(--leading-17);
+  white-space: nowrap;
 }
 
 .card {

@@ -253,5 +253,13 @@ export function dashboardFlow(
       }),
     current,
     previous,
+    stageNames: recordedNames(facts),
   }
+}
+
+function recordedNames(facts: readonly DashboardTaskFacts[]): Record<string, string> {
+  const names: Record<string, string> = {}
+  for (const task of facts)
+    for (const entry of task.entries) if (entry.name !== undefined) names[entry.stage] = entry.name
+  return names
 }

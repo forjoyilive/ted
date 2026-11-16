@@ -113,6 +113,7 @@ test('the Work setting starts off, sends what the human picks and says what it t
 
 const validate: StageRowView = {
   id: 'validate',
+  name: 'Validate',
   inOrder: true,
   enabled: true,
   gate: false,

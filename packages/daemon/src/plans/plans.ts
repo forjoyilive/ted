@@ -13,10 +13,8 @@ import type {
   PlanTaskGone,
   ProposalCreated,
   ProposalInput,
-  QueuedForSlot,
   RoundInput,
   RunSlots,
-  SlotHolder,
   StartPlanRequest,
 } from '@ted/protocol'
 import { planRequestLabel, planTitle, planTitleLength } from '@ted/protocol'
@@ -31,7 +29,13 @@ import type { RunManager } from '../runs/run-manager.ts'
 import type { StoredFactory, StoredTask, TedStore } from '../store/index.ts'
 import type { PlanCheckout, StoredPlan } from '../store/plans.ts'
 import { approvedShape, createProposalTasks, highestPriority } from '../tasks/proposal-tasks.ts'
-import type { QueueEntry, QueueSource } from '../tasks/queue.ts'
+import {
+  afterProcessEnded,
+  queuedRunStatus,
+  queuedRuns,
+  type RunQueue,
+  runLimits,
+} from '../tasks/queued-runs.ts'
 import { removeInside } from '../tasks/remove-files.ts'
 import { type FactoryRepoEntry, factoryRepos } from '../tasks/repos.ts'
 import { roundAnswers } from '../tasks/rounds.ts'
@@ -54,11 +58,6 @@ import {
   taskDetachedNote,
 } from './prompts.ts'
 
-export interface PlanQueue {
-  addQueueSource(source: QueueSource): () => void
-  slots(): Promise<RunSlots>
-}
-
 export interface PlansOptions {
   home: string
   store: TedStore
@@ -67,7 +66,7 @@ export interface PlansOptions {
   health: AgentHealthMonitor
   banners: Banners
   workflows: Workflows
-  queue: PlanQueue
+  queue: RunQueue
   reposDir: string
   isCloned?: (factoryId: string) => boolean
   startTask: (taskId: string) => Promise<unknown>
@@ -117,11 +116,17 @@ function firstLine(text: string, max = 500): string {
 export function createPlans(options: PlansOptions): Plans {
   const { store, runs, health, banners, workflows } = options
   const saved = store.plans
-  const starting = new Set<string>()
-  const limited = new Set<string>()
   const retrying = new Set<string>()
   const stopping = new Map<string, Promise<void>>()
   let closed = false
+  const limits = runLimits({
+    store,
+    runs,
+    health,
+    owns: (runId) => saved.get(runId) !== undefined,
+    isClosed: () => closed,
+    ready: () => pump(),
+  })
 
   const plansDir = path.join(options.home, 'plans')
   const folderOf = (id: string) => path.join(plansDir, id)
@@ -188,31 +193,19 @@ export function createPlans(options: PlansOptions): Plans {
     if (plan.state === 'ended') return plan.outcome ?? 'stopped'
     if (plan.resume === 'queued') return 'queued'
     const run = store.getRun(plan.id)
-    if (!run) return 'queued'
-    if (run.state === 'finished') return 'stopped'
-    if (openRequest(plan.id) || run.state === 'waiting') return 'waiting'
-    if (limited.has(run.id) || store.agentPauses()[run.agent] !== undefined) return 'paused'
-    return run.state === 'working' ? 'working' : 'idle'
+    const shared = queuedRunStatus(run, { waiting: !!openRequest(plan.id), limits })
+    if (shared === 'ended') return 'stopped'
+    if (shared !== undefined) return shared
+    return run?.state === 'working' ? 'working' : 'idle'
   }
 
-  const queuedPlans = () =>
-    live().filter(
-      (p) =>
-        !starting.has(p.id) &&
-        (p.state === 'queued' || (p.state === 'started' && p.resume === 'queued')),
-    )
-
-  const source: QueueSource = {
-    starting: () => [...starting],
-    queued: () =>
-      queuedPlans().map(
-        (p): QueueEntry => ({
-          id: p.id,
-          kind: 'planning',
-          rank: Date.parse(p.createdAt),
-          factoryId: p.factoryId,
-        }),
-      ),
+  const { pump } = queuedRuns(options.queue, {
+    kind: 'planning',
+    what: 'Planning Run',
+    waiting: () =>
+      live()
+        .filter((p) => p.state === 'queued' || (p.state === 'started' && p.resume === 'queued'))
+        .map((p) => ({ id: p.id, rank: Date.parse(p.createdAt), factoryId: p.factoryId })),
     runnable(id) {
       const plan = saved.get(id)
       return (
@@ -221,49 +214,19 @@ export function createPlans(options: PlansOptions): Plans {
         store.agentPauses()[plan.agent] === undefined
       )
     },
-    begin(id) {
-      if (starting.has(id)) return
-      starting.add(id)
-      launch(id)
-        .catch((error: unknown) => console.error(`couldn’t start Planning Run ${id}:`, error))
-        .finally(() => {
-          starting.delete(id)
-          pump()
-        })
-    },
-    holders() {
-      return live().flatMap((plan): SlotHolder[] => {
-        const holds =
-          starting.has(plan.id) || (plan.state === 'started' && statusOf(plan) === 'working')
-        return holds
-          ? [
-              {
-                kind: 'planning',
-                runId: plan.id,
-                planId: plan.id,
-                name: plan.title,
-                factoryId: plan.factoryId,
-                runs: 1,
-              },
-            ]
-          : []
-      })
-    },
-    describe(id, place): QueuedForSlot | undefined {
+    launch: (id) => launch(id),
+    candidates: () => live().map((p) => p.id),
+    holds(id) {
       const plan = saved.get(id)
-      if (!plan) return undefined
-      return {
-        kind: 'planning',
-        place,
-        runId: plan.id,
-        planId: plan.id,
-        name: plan.title,
-        factoryId: plan.factoryId,
-      }
+      return plan?.state === 'started' && statusOf(plan) === 'working'
     },
-  }
-
-  const pump = options.queue.addQueueSource(source)
+    slot(id) {
+      const plan = saved.get(id)
+      return (
+        plan && { runId: plan.id, planId: plan.id, name: plan.title, factoryId: plan.factoryId }
+      )
+    },
+  })
 
   async function entriesOf(factory: StoredFactory): Promise<FactoryRepoEntry[]> {
     const { workflow } = await workflows.resolve(factory, { fetch: false })
@@ -440,55 +403,35 @@ export function createPlans(options: PlansOptions): Plans {
 
   function ended(runId: string, stopped: boolean, lastLines: readonly string[]): void {
     if (closed) return
-    limited.delete(runId)
+    limits.clear(runId)
     const plan = saved.get(runId)
     if (plan?.state !== 'started') return
-    if (stopped) {
+    const next = afterProcessEnded({
+      stopped,
+      run: store.getRun(runId),
+      resumedBefore: plan.resume !== undefined,
+      lastLines,
+    })
+    if ('stopped' in next) {
       withdrawUnlessResumable(plan.id)
       saved.ended(plan.id, { outcome: 'stopped' })
       endedWithout(plan, 'stopped')
       cleanUp(plan.id)
-      return
-    }
-    const error =
-      lastLines.findLast((l) => l.trim() !== '') ??
-      'The agent’s process ended before it finished its turn.'
-    const run = store.getRun(runId)
-    if (plan.resume === undefined && run?.sessionId !== undefined) {
-      saved.resumeQueued(plan.id, firstLine(error))
+    } else if ('resume' in next) {
+      saved.resumeQueued(plan.id, firstLine(next.resume))
       pump()
-      return
-    }
-    fail(plan.id, error)
+    } else fail(plan.id, next.fail)
   }
 
   runs.observe({
-    usage(run, signal) {
-      if (!closed && signal.limited && saved.get(run.id)) limited.add(run.id)
-    },
-    authFailed(run) {
-      if (!closed && saved.get(run.id)) limited.add(run.id)
-    },
     finished(run, { stopped, lastLines }) {
       setImmediate(() => ended(run.id, stopped, lastLines))
     },
   })
 
-  health.onReady(() => {
-    if (closed) return
-    for (const runId of [...limited]) {
-      const run = store.getRun(runId)
-      if (!run || store.agentPauses()[run.agent] === undefined) limited.delete(runId)
-    }
-    pump()
-  })
-
   const unsubscribe = store.subscribe((event) => {
     if (closed) return
-    if (event.type === 'run-updated' && saved.get(event.run.id)) {
-      if (event.run.state === 'working') limited.delete(event.run.id)
-      pump()
-    }
+    if (event.type === 'run-updated' && saved.get(event.run.id)) pump()
   })
 
   function createdTasks(planId: string): PlanTask[] {
@@ -1041,6 +984,7 @@ export function createPlans(options: PlansOptions): Plans {
     close() {
       closed = true
       unsubscribe()
+      limits.close()
     },
   }
 

@@ -202,6 +202,13 @@ export function AsanaGroup() {
             !pasting &&
             ' Credentials are stored in a private file in your TED home folder.'}
         </p>
+        {status?.user && !replacing && status.extraScopes && status.extraScopes.length > 0 && (
+          <p className={styles.explain}>
+            Asana also granted {status.extraScopes.join(', ')}. TED doesn’t need{' '}
+            {status.extraScopes.length === 1 ? 'it' : 'them'}; you can turn{' '}
+            {status.extraScopes.length === 1 ? 'it' : 'them'} off in the Asana developer console.
+          </p>
+        )}
         {(problem || status?.error) && (
           <p className={styles.bad} role="alert">
             {problem ?? status?.error}

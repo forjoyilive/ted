@@ -47,7 +47,11 @@ test('the shared App shortcuts navigate only the top sample dialog and preserve 
   localStorage.setItem('ted.dashboard', JSON.stringify({ range: '7d', panel: 'flow' }))
   a.mount()
   const u = user()
-  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await u.click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Dashboard',
+    }),
+  )
   const completed = await screen.findByRole('region', { name: 'Tasks completed' })
   expect(screen.getByRole('tab', { name: 'Overview' }).getAttribute('aria-selected')).toBe('true')
   const opener = within(completed).getByRole('button', { name: '2 tasks' })

@@ -7,11 +7,16 @@ import {
   isPast,
   isStageId,
   type StageTrait,
+  settingsStageOrder,
   stageDisplayName,
+  stageEnabled,
+  stageFileId,
   stagePhase,
   stageTraits,
   stageWith,
 } from '../src/stage.ts'
+import { mergeStageLists, stageNameIn } from '../src/stage-list.ts'
+import type { BoardStage } from '../src/workflow.ts'
 
 const traitStages: Record<StageTrait, string[]> = {
   entry: ['intake'],
@@ -151,4 +156,142 @@ test('a custom Stage ranks after the built-in Stage before it in order', () => {
   expect(compareStages('release-notes', 'review', order)).toBeLessThan(0)
   expect(compareStages('release-notes', 'validate', order)).toBeGreaterThan(0)
   expect(clarifyIsOver('security', order)).toBe(false)
+})
+
+test('Stage lists merge across Factories: built-ins in order, each custom Stage after the Stage before it', () => {
+  const stage = (id: string, extra: Partial<BoardStage> = {}): BoardStage => ({
+    id,
+    enabled: true,
+    gate: false,
+    ...extra,
+  })
+  const first = [
+    stage('backlog'),
+    stage('work'),
+    stage('merge'),
+    stage('ship', { name: 'Ship it', custom: true }),
+    stage('done'),
+  ]
+  const second = [
+    stage('backlog'),
+    stage('work'),
+    stage('merge'),
+    stage('docs', { custom: true }),
+    stage('done'),
+  ]
+  const merged = mergeStageLists([first, second])
+
+  expect(merged.map((s) => s.id)).toEqual([
+    'backlog',
+    'intake',
+    'clarify',
+    'design',
+    'work',
+    'validate',
+    'review',
+    'merge',
+    'ship',
+    'docs',
+    'cleanup',
+    'done',
+  ])
+  expect(merged.find((s) => s.id === 'design')?.enabled).toBe(false)
+  expect(stageNameIn(merged, 'ship')).toBe('Ship it')
+  expect(stageNameIn(merged, 'gone', { gone: 'Old pass' })).toBe('Old pass')
+  expect(stageNameIn(merged, 'gone')).toBe('Gone')
+  expect(stageNameIn(merged, 'ship', { ship: 'Ship' })).toBe('Ship')
+
+  const reordered = mergeStageLists([
+    ['backlog', 'intake', 'work', 'design', 'merge', 'done'].map((id) => stage(id)),
+  ])
+  expect(reordered.map((s) => s.id)).toEqual([
+    'backlog',
+    'intake',
+    'clarify',
+    'work',
+    'design',
+    'validate',
+    'review',
+    'merge',
+    'cleanup',
+    'done',
+  ])
+
+  const gone = stage('review', { removed: true, enabled: false })
+  expect(
+    mergeStageLists([[stage('backlog'), gone, stage('done')]]).find((s) => s.id === 'review'),
+  ).toMatchObject({ removed: true })
+  expect(
+    mergeStageLists([[stage('backlog'), gone, stage('done')], [stage('review')]]).find(
+      (s) => s.id === 'review',
+    )?.removed,
+  ).toBeUndefined()
+})
+
+test('settings rows follow the order, keep built-ins that are off and put Cleanup after Merge', () => {
+  expect(
+    settingsStageOrder([
+      'intake',
+      'clarify',
+      'work',
+      'security-audit',
+      'validate',
+      'review',
+      'merge',
+    ]),
+  ).toEqual([
+    'backlog',
+    'intake',
+    'clarify',
+    'design',
+    'work',
+    'security-audit',
+    'validate',
+    'review',
+    'merge',
+    'cleanup',
+    'done',
+  ])
+  expect(settingsStageOrder(['intake', 'work', 'merge', 'ship', 'cleanup'])).toEqual([
+    'backlog',
+    'intake',
+    'clarify',
+    'design',
+    'work',
+    'validate',
+    'review',
+    'merge',
+    'ship',
+    'cleanup',
+    'done',
+  ])
+  expect(settingsStageOrder(['intake', 'work', 'design', 'merge'])).toEqual([
+    'backlog',
+    'intake',
+    'clarify',
+    'work',
+    'design',
+    'validate',
+    'review',
+    'merge',
+    'cleanup',
+    'done',
+  ])
+})
+
+test('a Stage file name gives its Stage id only for a working or custom Stage', () => {
+  expect(stageFileId('stages/review.md')).toBe('review')
+  expect(stageFileId('stages/security-audit.md')).toBe('security-audit')
+  expect(stageFileId('stages/done.md')).toBeUndefined()
+  expect(stageFileId('stages/Bad Name.md')).toBeUndefined()
+  expect(stageFileId('stages/a/b.md')).toBeUndefined()
+  expect(stageFileId('notes.md')).toBeUndefined()
+})
+
+test('Cleanup is on only when turned on; other Stages are on unless turned off', () => {
+  expect(stageEnabled('cleanup', true, undefined)).toBe(false)
+  expect(stageEnabled('cleanup', true, true)).toBe(true)
+  expect(stageEnabled('design', true, undefined)).toBe(true)
+  expect(stageEnabled('design', false, undefined)).toBe(false)
+  expect(stageEnabled('backlog', true, false)).toBe(true)
 })

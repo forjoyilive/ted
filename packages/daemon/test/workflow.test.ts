@@ -7,6 +7,7 @@ import {
   readDefaultLayer,
   resolveAgentChoices,
   resolveWorkflow,
+  withStagesInUse,
 } from '../src/workflow/index.ts'
 import { sameFiles, sharedDefaultLayer } from '../src/workflow/layers.ts'
 import {
@@ -249,6 +250,10 @@ describe('layers', () => {
       gate: false,
     })
     expect(nextStageMessage(on, 'cleanup')).toContain('1. **Post note**\n\n   Post the link.')
+    expect(
+      boardStages(resolveWorkflow([await defaults()])).map((s) => [s.id, s.enabled]),
+    ).toContainEqual(['cleanup', false])
+    expect(boardStages(resolveWorkflow([await defaults()])).at(-2)?.id).toBe('cleanup')
     for (const off of [
       '    enabled: true\n    steps: []\n',
       '    steps:\n      - { name: Post note, instruction: Post the link. }\n',
@@ -411,6 +416,44 @@ describe('custom Stages', () => {
       { id: 'security', name: 'Security', enabled: true, gate: false, custom: true },
       { id: 'release-notes', name: 'Release notes', enabled: true, gate: true, custom: true },
     ])
+
+    const recorded = ['intake', 'work', 'validate', 'audit', 'review', 'merge'].map((stage) => ({
+      stage,
+      ...(stage === 'audit' && { name: 'Audit pass' }),
+    }))
+    const listed = withStagesInUse(boardStages(workflow), [
+      { stage: 'audit', recorded },
+      { stage: 'clarify', recorded: undefined },
+    ])
+    expect(listed.map((s) => s.id)).toEqual([
+      'backlog',
+      'intake',
+      'security',
+      'clarify',
+      'work',
+      'validate',
+      'release-notes',
+      'audit',
+      'review',
+      'merge',
+      'cleanup',
+      'done',
+    ])
+    expect(listed.find((s) => s.id === 'audit')).toEqual({
+      id: 'audit',
+      name: 'Audit pass',
+      custom: true,
+      removed: true,
+      enabled: false,
+      gate: false,
+    })
+    expect(listed.find((s) => s.id === 'clarify')).toEqual({
+      id: 'clarify',
+      name: 'Clarify',
+      removed: true,
+      enabled: false,
+      gate: false,
+    })
   })
 
   test('a custom Stage whose file a lower layer no longer has is left out', async () => {

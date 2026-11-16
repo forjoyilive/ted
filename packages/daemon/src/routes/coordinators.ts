@@ -116,7 +116,7 @@ export const coordinatorRoutes: Route[] = [
     handle: async ({ req, caller }, { coordinators }) => [
       200,
       context(
-        coordinators.list(
+        await coordinators.list(
           caller,
           parseCoordinatorTaskQuery(new URL(req.url ?? '/', 'http://localhost').search),
         ),

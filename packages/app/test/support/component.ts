@@ -1,7 +1,7 @@
 import type { NewTaskDraft } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { defaultMachineSettings } from '@ted/protocol/settings'
-import { cleanup } from '@testing-library/react'
+import { cleanup, screen, within } from '@testing-library/react'
 import { userEvent } from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, vi } from 'vitest'
 import { showDetailsTab } from '../../src/renderer/details.ts'
@@ -124,4 +124,11 @@ export function draftHandlers() {
     checkAgentHealth: () =>
       agentKinds.map((agent) => ({ agent, state: 'ready', version: '2.0.0' })),
   }
+}
+
+export async function expandFactory(name = 'widgets') {
+  const views = within(await screen.findByRole('article', { name })).getByRole('button', {
+    name: 'Views',
+  })
+  if (views.getAttribute('aria-expanded') !== 'true') await user().click(views)
 }

@@ -17,6 +17,7 @@ export interface StubLinearIssue {
   branchName?: string
   state?: string
   projectId?: string
+  assignedToMe?: boolean
   teamName?: string
   teamKey?: string
   comments?: LinearComment[]
@@ -25,11 +26,21 @@ export interface StubLinearIssue {
   commentsMissingCursor?: boolean
 }
 
+interface StubIntakeFilter {
+  assignee?: { isMe?: { eq?: boolean } }
+  state?: { type?: { in?: string[] } }
+  team?: { id: { eq: string } }
+  project?: { id: { eq: string } }
+}
+
 export interface StubLinearAccount {
   viewerReady?: Promise<void>
   intakeReady?: Promise<void>
+  lookupReady?: Promise<void>
+  onLookup?: (id: string) => void
   intakeMalformed?: boolean
   intakeMissingCursor?: boolean
+  intakeRepeats?: boolean
   teams?: { id: string; key: string; name: string }[]
   projects?: { id: string; name: string }[]
   name: string
@@ -157,6 +168,37 @@ export async function startStubLinear(
           },
         })
       }
+      if (query.includes('TedIntakeIssues')) {
+        await account.intakeReady
+        const { filter, after } = (
+          JSON.parse(body) as { variables: { filter: StubIntakeFilter; after: string | null } }
+        ).variables
+        const matching = (account.issues ?? []).filter(
+          (issue) =>
+            (filter.assignee?.isMe?.eq !== true || issue.assignedToMe === true) &&
+            (filter.state?.type?.in?.includes(stateOf(issue)?.type ?? '') ?? true) &&
+            (filter.team === undefined || `team-${teamKeyOf(issue)}` === filter.team.id.eq) &&
+            (filter.project === undefined || issue.projectId === filter.project.id.eq),
+        )
+        const offset = Number(after ?? 0)
+        return reply(200, {
+          data: {
+            organization,
+            issues: {
+              nodes: matching
+                .slice(
+                  account.intakeRepeats ? 0 : offset,
+                  (account.intakeRepeats ? 0 : offset) + 50,
+                )
+                .map((issue) => ({ identifier: issue.identifier, title: issue.title })),
+              pageInfo: {
+                hasNextPage: account.intakeRepeats === true || offset + 50 < matching.length,
+                endCursor: String(offset + 50),
+              },
+            },
+          },
+        })
+      }
       if (query.includes('TedIntakeMembership')) {
         await account.intakeReady
         const issue = byId(variables?.id)
@@ -243,6 +285,8 @@ export async function startStubLinear(
         })
       }
       if (query.includes('issue(')) {
+        account.onLookup?.(variables?.id ?? '')
+        await account.lookupReady
         const issue = account.issues?.find((i) => i.identifier === variables?.id)
         if (!issue) return reply(200, { data: null, errors: [notFound(['issue'])] })
         return reply(200, {

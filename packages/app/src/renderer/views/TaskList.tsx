@@ -31,7 +31,6 @@ import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
 import markerStyles from '../components/HierarchyMarker.module.css'
-import { HierarchyMarker } from '../components/HierarchyMarker.tsx'
 import { ChevronIcon, CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { PriorityButton } from '../components/PriorityMenu.tsx'
@@ -40,6 +39,7 @@ import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCo
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
 import { ordinal } from '../components/TaskStatus.tsx'
 import { emptyLayout, groups as factoryGroups } from '../factory-layout.ts'
+import { childProgress, parentOf, progressText } from '../hierarchy.ts'
 import { useListCollapsed } from '../list-collapse.ts'
 import {
   activeFilterCount,
@@ -53,14 +53,16 @@ import {
   groupTasks,
   isAllTasks,
   isQueueMode,
+  manualOrder,
   type NestedRow,
+  type NestedSlot,
+  nearestSlot,
   neighbours,
   nestedRows,
+  nestedSlots,
   selectionRange,
   shownColumns,
   sortLabels,
-  stageName,
-  stageOrder,
   statusFilterLabels,
   statusFilterOrder,
   summaryLine,
@@ -72,6 +74,7 @@ import {
 import { age, useNow } from '../requests.ts'
 import { selectionTarget, useSelection } from '../selection.ts'
 import { startTask } from '../setup-notice.ts'
+import { useStages } from '../stages.tsx'
 import { activeSubAgentCount } from '../sub-agents.ts'
 import { priorityLabels } from '../task-fields.ts'
 import { ted } from '../ted.ts'
@@ -84,6 +87,8 @@ const columnWidths: Record<ListColumn | 'queue', string> = {
   priority: '16px',
   id: '56px',
   title: 'minmax(160px, 1fr)',
+  children: '108px',
+  parent: '80px',
   factory: '110px',
   stage: '80px',
   status: '300px',
@@ -108,7 +113,12 @@ export function listGrid(
   columns: readonly (ListColumn | 'queue')[],
   tasks: readonly Pick<Task, 'displayId'>[],
 ): string {
-  const width = (c: ListColumn | 'queue') => (c === 'id' ? idColumnWidth(tasks) : columnWidths[c])
+  const width = (c: ListColumn | 'queue') =>
+    c === 'id'
+      ? idColumnWidth(tasks)
+      : c === 'parent'
+        ? `max(${columnWidths.parent}, calc(${idColumnWidth(tasks)} + 8px))`
+        : columnWidths[c]
   const status = (others: readonly (ListColumn | 'queue')[]) => {
     if (!others.includes('title')) return `minmax(${statusMin}, ${columnWidths.status})`
     const taken = [
@@ -147,7 +157,7 @@ function shortDate(iso: string): string {
   return formatDate(iso, { day: 'numeric', month: 'short' })
 }
 
-function ending(task: Task): string {
+function ending(task: Task, stageName: (stage: string) => string): string {
   const ended = task.archived?.ended
   if (!ended) return ''
   if (ended.kind === 'never-started') return 'Never started'
@@ -305,6 +315,7 @@ export function FilterMenu({
   board?: boolean
   onChange: (filters: ListFilters) => void
 }) {
+  const stages = useStages().within(factories.map((f) => f.id))
   const count = (keep: (filters: ListFilters) => ListFilters) =>
     filterTasks(tasks, keep(filters), '', layout).length
   const set = <K extends keyof ListFilters>(name: K, value: ListFilters[K]) => {
@@ -339,15 +350,20 @@ export function FilterMenu({
       )}
       {!board && (
         <Submenu label="Stage">
-          {stageOrder.map((stage) => (
-            <CheckItem
-              key={stage}
-              label={stageName(stage)}
-              checked={filters.stages?.includes(stage) ?? false}
-              count={count((c) => ({ ...c, stages: [stage] }))}
-              onChange={() => set('stages', toggled(filters.stages, stage))}
-            />
-          ))}
+          {stages.merged
+            .filter(
+              (s) =>
+                !s.removed || tasks.some((t) => t.stage === s.id) || filters.stages?.includes(s.id),
+            )
+            .map(({ id: stage }) => (
+              <CheckItem
+                key={stage}
+                label={stages.name(stage)}
+                checked={filters.stages?.includes(stage) ?? false}
+                count={count((c) => ({ ...c, stages: [stage] }))}
+                onChange={() => set('stages', toggled(filters.stages, stage))}
+              />
+            ))}
         </Submenu>
       )}
       <Submenu label="Status">
@@ -553,7 +569,7 @@ export function TaskList({
   }, [savedKey])
   const [text, setText] = useState('')
   const collapse = useListCollapsed(scope, view.group)
-  const [dragging, setDragging] = useState<{ task: Task; group: string }>()
+  const [dragging, setDragging] = useState<{ task: Task; group: string; depth: number }>()
   const [spot, setSpot] = useState<DropSpot>()
   const rowRefs = useRef(new Map<string, HTMLTableRowElement>())
 
@@ -570,29 +586,42 @@ export function TaskList({
 
   const inScope = allTasks ? tasks : tasks.filter((t) => t.factoryId === scope)
   const shown = filterTasks(inScope, view.filters, text, layout)
+  const scopedFactories = allTasks ? factories : factories.filter((f) => f.id === scope)
+  const stages = useStages().within(scopedFactories.map((f) => f.id))
   const groups = groupTasks(
     shown,
     view,
-    allTasks ? factories : factories.filter((f) => f.id === scope),
+    scopedFactories,
     dragging ? dropTargets(view.group) : [],
     layout,
+    stages,
   )
   const queueMode = isQueueMode(view)
   const columns = shownColumns(view)
   const archivedOnly = view.filters.archived === 'only'
   const nested = view.nested === true
   const canReorder = view.sort === 'manual' && !archivedOnly
-  const canDrag = canReorder && !nested
+  const canDrag = canReorder
   const isCollapsed = (group: TaskGroup) => collapse.collapsed(group.key, group.collapsed)
   const rowsOf = (group: TaskGroup): NestedRow[] =>
     nested
-      ? nestedRows(group.tasks, collapse.folded(group.key), inScope)
+      ? nestedRows(
+          group.tasks,
+          collapse.folded(group.key),
+          inScope,
+          view.sort === 'manual' ? manualOrder : undefined,
+        )
       : group.tasks.map((task) => ({ task, depth: 0, hasChildren: false }))
+  const slotsOf = (group: TaskGroup): NestedSlot[] => {
+    if (!dragging) return []
+    if (dragging.group !== group.key && dragging.depth > 0) return []
+    return nestedSlots(rowsOf(group), dragging.task.id)
+  }
   const ordered = groups.flatMap((g) =>
     isCollapsed(g) ? [] : rowsOf(g).flatMap((r) => (r.context ? [] : [r.task])),
   )
   const grid = listGrid([...(queueMode ? (['queue'] as const) : []), ...columns], tasks)
-  const chips = filterChips(view.filters, factories, layout)
+  const chips = filterChips(view.filters, factories, layout, stages)
   const displayIds = new Map(tasks.map((t) => [t.id, t.displayId]))
   const { selected, setSelected, anchor, setAnchor, toggle } = useSelection(ordered, scope)
   const chosen = tasks.filter((t) => selected.includes(t.id))
@@ -640,7 +669,10 @@ export function TaskList({
     const task = moving.task
     if (action === 'start') await startTask(task)
     if (action === 'unstart') await ted.moveToBacklog(task.id)
-    const placed = neighbours(group.tasks, task.id, target.index)
+    const slot = nested ? slotsOf(group)[target.index] : undefined
+    const placed = nested
+      ? { ...(slot?.after && { after: slot.after }), ...(slot?.before && { before: slot.before }) }
+      : neighbours(group.tasks, task.id, target.index)
     if (placed.after === undefined && placed.before === undefined) {
       if (view.group === 'priority' && task.priority !== target.group) {
         await ted.setPriority(task.id, target.group as Priority)
@@ -655,7 +687,7 @@ export function TaskList({
     const action = dropAction(dragging.task, view.group, dragging.group, target.group)
     if (action === 'start') return 'Drop to start · Joins the queue as Queued'
     if (action === 'unstart') return 'Drop to move back to Backlog'
-    if (action === 'reorder' && queueMode) {
+    if (action === 'reorder' && queueMode && !nested) {
       const from = ordered.findIndex((t) => t.id === dragging.task.id)
       const place = target.index + (from !== -1 && from < target.index ? 0 : 1)
       return `Moves ${dragging.task.displayId} to ${ordinal(Math.max(1, place))}`
@@ -670,10 +702,16 @@ export function TaskList({
       setSpot(undefined)
       return
     }
+    const slots = nested ? slotsOf(group) : []
+    if (nested && slots.length === 0) {
+      event.dataTransfer.dropEffect = 'none'
+      setSpot(undefined)
+      return
+    }
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
     const rest = group.tasks.filter((t) => t.id !== dragging.task.id)
-    const clamped = Math.min(Math.max(index, 0), rest.length)
+    const clamped = nested ? nearestSlot(slots, index) : Math.min(Math.max(index, 0), rest.length)
     if (spot?.group !== group.key || spot.index !== clamped) {
       setSpot({ group: group.key, index: clamped })
     }
@@ -716,17 +754,41 @@ export function TaskList({
           >
             {caret(nest, group)}
             <span className={styles.titleText}>{task.title}</span>
-            <HierarchyMarker task={task} tasks={tasks} showParent={nest.depth === 0} />
             <AutopilotLabel task={task} />
             {task.archived && <span className={styles.archivedChip}>Archived</span>}
           </span>
         )
+      case 'children': {
+        const progress = childProgress(task, tasks)
+        return progress.total > 0 ? (
+          <span className={markerStyles.marker} data-child-progress>
+            {progressText(progress)}
+          </span>
+        ) : (
+          <span className={styles.none}>—</span>
+        )
+      }
+      case 'parent': {
+        const parent = parentOf(task, tasks)
+        return parent ? (
+          <span className={markerStyles.marker} data-parent-marker>
+            ↑ {parent.displayId}
+          </span>
+        ) : (
+          <span className={styles.none}>—</span>
+        )
+      }
       case 'factory':
         return factories.find((f) => f.id === task.factoryId)?.name ?? 'No Factory'
       case 'stage':
-        return stageName(task.stage)
+        return stages.name(task.stage, task.factoryId)
       case 'status':
-        if (task.archived) return <span className={styles.meta}>{ending(task)}</span>
+        if (task.archived)
+          return (
+            <span className={styles.meta}>
+              {ending(task, (stage) => stages.name(stage, task.factoryId))}
+            </span>
+          )
         if (!task.status && task.markers.length === 0 && activeSubAgentCount(task.runs) === 0) {
           return <span className={styles.none}>—</span>
         }
@@ -752,13 +814,46 @@ export function TaskList({
 
   const rightAligned = new Set<ListColumn>(['updated', 'created', 'tokens', 'started'])
 
-  function contextRow(nest: NestedRow, group: TaskGroup) {
+  function dragHandlers(nest: NestedRow, group: TaskGroup, index: number) {
+    const task = nest.task
+    return {
+      draggable: canDrag && !task.archived,
+      onDragStart: (event: DragEvent<HTMLTableRowElement>) => {
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('text/plain', task.displayId)
+        setDragging({ task, group: group.key, depth: nest.depth })
+      },
+      onDragEnd: () => {
+        setDragging(undefined)
+        setSpot(undefined)
+      },
+      onDragOver: (event: DragEvent<HTMLTableRowElement>) => {
+        const box = event.currentTarget.getBoundingClientRect()
+        const below = event.clientY > box.top + box.height / 2
+        if (nested) return onDragOver(event, group, index + (below ? 1 : 0))
+        const rest = group.tasks.filter((t) => t.id !== dragging?.task.id)
+        const at = rest.findIndex((t) => t.id === task.id)
+        onDragOver(event, group, at === -1 ? index : at + (below ? 1 : 0))
+      },
+      onDrop: (event: DragEvent<HTMLTableRowElement>) => {
+        event.preventDefault()
+        if (spot) drop(spot).catch(report)
+      },
+    }
+  }
+
+  function contextRow(nest: NestedRow, group: TaskGroup, index: number) {
     const task = nest.task
     return (
       <tr
         key={`${group.key}-context-${task.id}`}
         data-context-task={task.displayId}
-        className={`${styles.row} ${styles.contextRow}`}
+        className={[
+          styles.row,
+          styles.contextRow,
+          dragging?.task.id === task.id ? styles.dragged : '',
+        ].join(' ')}
+        {...dragHandlers(nest, group, index)}
         title={`${task.displayId} is in another group`}
         onClick={() => onOpen(task)}
       >
@@ -783,7 +878,7 @@ export function TaskList({
   }
 
   function row(nest: NestedRow, group: TaskGroup, index: number) {
-    if (nest.context) return contextRow(nest, group)
+    if (nest.context) return contextRow(nest, group, index)
     const task = nest.task
     const isSelected = selected.includes(task.id)
     const place = task.status?.kind === 'queued' && 'place' in task.status ? task.status.place : 0
@@ -811,28 +906,7 @@ export function TaskList({
           task.archived ? styles.archived : '',
           dragging?.task.id === task.id ? styles.dragged : '',
         ].join(' ')}
-        title={canReorder && nested ? 'Turn off Nest child Tasks to reorder' : undefined}
-        draggable={canDrag && !task.archived}
-        onDragStart={(event) => {
-          event.dataTransfer.effectAllowed = 'move'
-          event.dataTransfer.setData('text/plain', task.displayId)
-          setDragging({ task, group: group.key })
-        }}
-        onDragEnd={() => {
-          setDragging(undefined)
-          setSpot(undefined)
-        }}
-        onDragOver={(event) => {
-          const box = event.currentTarget.getBoundingClientRect()
-          const below = event.clientY > box.top + box.height / 2
-          const rest = group.tasks.filter((t) => t.id !== dragging?.task.id)
-          const at = rest.findIndex((t) => t.id === task.id)
-          onDragOver(event, group, at === -1 ? index : at + (below ? 1 : 0))
-        }}
-        onDrop={(event) => {
-          event.preventDefault()
-          if (spot) drop(spot).catch(report)
-        }}
+        {...dragHandlers(nest, group, index)}
         onClick={(event) => {
           if (select(task, event)) return
           setSelected([])
@@ -889,7 +963,16 @@ export function TaskList({
   }
 
   function groupRows(group: TaskGroup) {
-    if (nested) return rowsOf(group).map((nest, i) => row(nest, group, i))
+    if (nested) {
+      const rows = rowsOf(group)
+      const slots = slotsOf(group)
+      const linesAt = (at: number) =>
+        slots.flatMap((slot, k) => (slot.row === at ? [dropLine(group, k)] : []))
+      return [
+        ...rows.flatMap((nest, i) => [...linesAt(i), row(nest, group, i)]),
+        ...linesAt(rows.length),
+      ]
+    }
     const rest = group.tasks.filter((t) => t.id !== dragging?.task.id)
     const items: ReactNode[] = []
     group.tasks.forEach((task, i) => {
@@ -1041,7 +1124,7 @@ export function TaskList({
             className={styles.table}
             style={{ gridTemplateColumns: grid, columnGap: listColumnGap }}
             aria-label={`${title} Tasks`}
-            data-rank-order={canDrag ? '' : undefined}
+            data-rank-order={canDrag && !nested ? '' : undefined}
           >
             <thead>
               <tr className={`${styles.row} ${styles.heads}`}>
@@ -1105,7 +1188,13 @@ export function TaskList({
                           className={styles.groupHead}
                           aria-expanded={!closed}
                           onClick={() => collapse.change(group.key, !closed)}
-                          onDragOver={(event) => onDragOver(event, group, group.tasks.length)}
+                          onDragOver={(event) =>
+                            onDragOver(
+                              event,
+                              group,
+                              nested ? rowsOf(group).length : group.tasks.length,
+                            )
+                          }
                           onDrop={(event) => {
                             event.preventDefault()
                             if (spot) drop(spot).catch(report)
@@ -1114,6 +1203,9 @@ export function TaskList({
                           <ChevronIcon open={!closed} />
                           <span className={styles.groupLabel}>{group.label}</span>
                           <span className={styles.groupCount}>{group.tasks.length}</span>
+                          {group.removed && (
+                            <span className={styles.removedTag}>Not in Workflow</span>
+                          )}
                         </ActionButton>
                       </th>
                     </tr>

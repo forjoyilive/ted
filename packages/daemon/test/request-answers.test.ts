@@ -495,7 +495,7 @@ test('a question that allows several answers records the ticked choices in their
   await expect(answer(comment, { action: 'answer', choices: ['Board', 'Grid'] })).rejects.toThrow(
     '“Grid” isn’t one of the question’s choices',
   )
-  await expect(answer(comment, { action: 'answer', choices: [] })).rejects.toThrow(
+  await expect(answer(comment, { action: 'answer' })).rejects.toThrow(
     'pick a choice or write an answer',
   )
   const answered = await answer(comment, {
@@ -505,6 +505,12 @@ test('a question that allows several answers records the ticked choices in their
   })
   expect(answered.answer).toMatchObject({ kind: 'answered', choices: ['Board', 'Map'] })
   expect(answerMessage(answered)).toContain('Board; Map\n\nMap first')
+  const none = await answer(
+    post({ kind: 'question' }, { choices: ['Board', 'List'], multiple: true, body: 'Which?' }),
+    { action: 'answer', choices: [] },
+  )
+  expect(none.answer).toMatchObject({ kind: 'answered', choices: [] })
+  expect(answerMessage(none)).toContain('None of these')
   const single = post({ kind: 'question' }, { choices: ['Yes', 'No'] })
   expect(single.multiple).toBeUndefined()
   await expect(answer(single, { action: 'answer', choices: ['Yes', 'No'] })).rejects.toThrow(
@@ -529,12 +535,6 @@ test('a round question that allows several answers is changed only when the tick
       },
     )
   const first = round(1)
-  await expect(
-    answer(first, {
-      action: 'answer-round',
-      answers: [{ answer: '', choices: [] }, { answer: 'A' }],
-    }),
-  ).rejects.toThrow('question 1 needs at least one answer')
   await expect(
     answer(first, {
       action: 'answer-round',
@@ -567,6 +567,13 @@ test('a round question that allows several answers is changed only when the tick
   const accepted = await answer(round(3), { action: 'accept-recommended' })
   expect(accepted.answer).toMatchObject({
     answers: [{ answer: 'Board; Map', choices: ['Board', 'Map'], changed: false }, {}],
+  })
+  const none = await answer(round(4), {
+    action: 'answer-round',
+    answers: [{ answer: '', choices: [] }, { answer: 'A' }],
+  })
+  expect(none.answer).toMatchObject({
+    answers: [{ answer: 'None of these', choices: [], changed: true }, {}],
   })
 })
 
