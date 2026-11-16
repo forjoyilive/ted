@@ -437,16 +437,16 @@ test.each([
       expect(started.prompt).toContain('- timezone.txt')
     }
     if (method === 'unresolved-conflict') {
-      const stopped = async (after: number) =>
+      const stopped = async (after: string | undefined) =>
         waitUntil(
           async () => {
             const t = await getTask(s.client, s.current.id)
-            return t.status?.kind === 'stopped' && t.runs.length > after ? t : undefined
+            return t.status?.kind === 'stopped' && t.leadRunId !== after ? t : undefined
           },
           'conflict left to the user',
           validateWaitMs,
         )
-      const first = await stopped(s.current.runs.length)
+      const first = await stopped(s.current.leadRunId)
       expect(first.stage).toBe('validate')
       expect(await s.client.ok('GET', `${s.root}/check-runs`)).toHaveLength(previousChecks.length)
       expect(
@@ -456,7 +456,7 @@ test.each([
       expect(held).toContain('`timezone.txt`')
       expect(held).toContain('The Task Lead didn’t resolve it. To go on, merge main')
       await s.client.ok('POST', `${s.root}/resume`, {})
-      await stopped(first.runs.length)
+      await stopped(first.leadRunId)
       await run('sh', ['-c', mergeBase(ctx.origin)], { cwd: affectedWorktree })
       await s.client.ok('POST', `${s.root}/resume`, {})
     }
