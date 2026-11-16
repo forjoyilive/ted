@@ -63,14 +63,14 @@ function Row({
 
 function holderRuns(holder: SlotHolder): string {
   if (holder.kind === 'automation') return 'Automation Run'
-  if (holder.kind === 'automation-draft') return 'Drafting an Automation Prompt'
+  if (holder.kind === 'automation-draft') return 'Drafting an Automation prompt'
   if (holder.kind === 'planning') return 'Planning Run'
   if (holder.kind === 'side-chat') return 'Side chat'
   if (holder.kind === 'coordinator') return 'Coordinator Run'
   if (holder.runs === 0 && holder.settingUp) return 'Setting up the worktree'
   const subs = holder.subAgents
   if (subs === 0) return 'Task Lead'
-  const named = subs === 1 ? '1 sub-agent' : `${subs} sub-agents`
+  const named = subs === 1 ? '1 Sub-Agent' : `${subs} Sub-Agents`
   return holder.runs > subs ? `Task Lead and ${named}` : named
 }
 
@@ -197,7 +197,7 @@ export function WorkingRunsPopover({
                     lead={ordinal(entry.place)}
                     place
                     title={`${entry.displayId} · ${entry.name}`}
-                    detail={`${name(entry.factoryId)} · Sub-agent`}
+                    detail={`${name(entry.factoryId)} · Sub-Agent`}
                   />
                 ) : entry.kind !== 'task' ? (
                   <Row
@@ -205,7 +205,7 @@ export function WorkingRunsPopover({
                     lead={ordinal(entry.place)}
                     place
                     title={entry.name}
-                    detail={`${name(entry.factoryId)} · ${entry.kind === 'planning' ? 'Planning Run' : entry.kind === 'side-chat' ? 'Side chat' : entry.kind === 'coordinator' ? 'Coordinator Run' : entry.kind === 'automation-draft' ? 'Drafting an Automation Prompt' : 'Automation Run'}`}
+                    detail={`${name(entry.factoryId)} · ${entry.kind === 'planning' ? 'Planning Run' : entry.kind === 'side-chat' ? 'Side chat' : entry.kind === 'coordinator' ? 'Coordinator Run' : entry.kind === 'automation-draft' ? 'Drafting an Automation prompt' : 'Automation Run'}`}
                   />
                 ) : (
                   <Row

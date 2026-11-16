@@ -27,7 +27,7 @@ const stageName = (stage: string) => stage.charAt(0).toUpperCase() + stage.slice
 
 export function waitKind(request: Pick<WaitRequest, 'kind' | 'purpose'>, stage: string | null) {
   if (request.kind === 'signoff' || request.kind === 'review' || request.purpose === 'gate')
-    return stage ? `${stageName(stage)} sign-off` : 'Sign-off'
+    return stage ? `${stageName(stage)} Sign-Off` : 'Sign-Off'
   if (request.kind === 'round') return 'Clarify round'
   if (request.kind === 'proposal') return 'Split proposal'
   if (request.kind === 'permission')

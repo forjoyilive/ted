@@ -472,7 +472,7 @@ export function TaskPanes({
           changes={shownChanges}
           seams={source === 'local' ? seams : {}}
           footer={source === 'local' ? bar : undefined}
-          backLabel={reviewOpen ? '← Back to sign-off' : 'Collapse'}
+          backLabel={reviewOpen ? '← Back to Sign-Off' : 'Collapse'}
           onCollapse={back}
           remote={remoteReader}
           sidebar
@@ -495,7 +495,7 @@ export function TaskPanes({
           seams={source === 'local' ? seams : {}}
           focus={view.focus}
           footer={source === 'local' ? bar : undefined}
-          backLabel={reviewOpen ? '← Back to sign-off' : '← Task Lead'}
+          backLabel={reviewOpen ? '← Back to Sign-Off' : '← Task Lead'}
           onBack={back}
           onOpen={openFile}
           remote={remoteReader}
@@ -899,7 +899,7 @@ export function TaskThread({
               )}
               {task.followUpOf ? (
                 <>
-                  {'  ·  Follow-up to '}
+                  {'  ·  Follow-Up to '}
                   <ActionButton
                     type="button"
                     className={styles.metaLink}

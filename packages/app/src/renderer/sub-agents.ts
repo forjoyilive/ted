@@ -5,5 +5,5 @@ export function activeSubAgentCount(runs: readonly Pick<RunSummary, 'role' | 'st
 }
 
 export function activeSubAgentLabel(count: number): string {
-  return `${count} active ${count === 1 ? 'sub-agent' : 'sub-agents'}`
+  return `${count} active ${count === 1 ? 'Sub-Agent' : 'Sub-Agents'}`
 }

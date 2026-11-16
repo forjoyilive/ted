@@ -322,7 +322,7 @@ export function AsanaGroup() {
                   )
                 }
               >
-                Remove configuration
+                Remove configuration…
               </Button>
             )}
           </div>

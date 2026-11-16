@@ -71,7 +71,7 @@ test('opens and reopens a separate exchange and sends only to side-chat controls
   expect(within(panel).getByText('Snapshot answer.')).toBeTruthy()
   expect(within(panel).getByText(/Earlier context omitted/)).toBeTruthy()
   expect(within(panel).queryByRole('button', { name: /Interrupt and send/ })).toBeNull()
-  const question = within(panel).getByRole('textbox', { name: 'Question for this side chat' })
+  const question = within(panel).getByRole('textbox', { name: 'Question for this Side chat' })
   await vi.waitFor(() =>
     expect(api.request.mock.calls.filter(([name]) => name === 'messageDraft')).toHaveLength(2),
   )
@@ -82,7 +82,7 @@ test('opens and reopens a separate exchange and sends only to side-chat controls
   expect(api.request).toHaveBeenCalledWith('sendSideChat', 'source', 'Why this approach?')
   await user().click(within(panel).getByRole('button', { name: 'Stop reply' }))
   await user().click(await within(panel).findByRole('button', { name: 'Retry' }))
-  await user().click(within(panel).getByRole('button', { name: 'Close side chat' }))
+  await user().click(within(panel).getByRole('button', { name: 'Close Side chat' }))
   expect(screen.queryByRole('region', { name: 'Side chat' })).toBeNull()
   view.rerender(<RunWithSideChat runId="source" bar={false} />)
   view.rerender(<RunWithSideChat runId="source" bar={false} openSideChat />)
@@ -126,7 +126,7 @@ test('Antigravity shows the approved tool explanation only in its help bubble, i
   )
   fireEvent.keyDown(toolHelp, { key: 'Escape' })
   expect(panel.queryByRole('tooltip')).toBeNull()
-  await user().click(panel.getByRole('button', { name: 'Close side chat' }))
+  await user().click(panel.getByRole('button', { name: 'Close Side chat' }))
   view.rerender(<RunWithSideChat runId="source" bar={false} />)
   view.rerender(<RunWithSideChat runId="source" bar={false} openSideChat />)
   expect(
@@ -202,7 +202,7 @@ test('Automation drafting shows native tool activity with the shared conversatio
   await user().click(screen.getByRole('button', { name: 'Generate draft' }))
   expect(await screen.findByText('manage_task')).toBeTruthy()
   expect(
-    (screen.getByRole('textbox', { name: 'Suggested Prompt' }) as HTMLTextAreaElement).value,
+    (screen.getByRole('textbox', { name: 'Suggested prompt' }) as HTMLTextAreaElement).value,
   ).toBe('Suggested instructions.')
   view.unmount()
   await vi.waitFor(() =>

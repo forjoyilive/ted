@@ -37,7 +37,7 @@ test('a few failing files get a Task each; none or too many get one Task for the
     { key: 'file:b.test.ts', title: 'Fix failing tests in b.test.ts', files: ['b.test.ts'] },
   ])
   expect(planCheckFailures('Nightly', [])).toMatchObject([
-    { key: 'check', title: 'Fix the scheduled Check “Nightly”' },
+    { key: 'check', title: 'Fix the Scheduled Check “Nightly”' },
   ])
   const many = Array.from({ length: maxTasksPerFiring + 1 }, (_, i) => `t${i}.test.ts`)
   expect(planCheckFailures('Nightly', many)).toMatchObject([{ key: 'check', files: many }])

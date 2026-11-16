@@ -124,7 +124,7 @@ test('the Coordinator draws its conversation like a Task thread: your messages t
     .closest('li')
   expect(receipt).toBeTruthy()
   expect(within(receipt as HTMLElement).getByRole('button', { name: 'Open Task' })).toBeTruthy()
-  expect(within(pane).queryByText('Earlier conversation')).toBeNull()
+  expect(within(pane).queryByText('Earlier Conversation')).toBeNull()
   expect(within(pane).queryByRole('button', { name: 'Stop response' })).toBeNull()
 })
 
@@ -240,7 +240,7 @@ test('New conversation saves the conversation under Earlier, where it opens read
     titles.findIndex((t) => t?.includes('Added first')),
   )
 
-  await user().click(within(earlier).getByRole('button', { name: 'Delete' }))
+  await user().click(within(earlier).getByRole('button', { name: 'Delete…' }))
   const dialog = await screen.findByRole('dialog')
   expect(dialog.textContent).toContain('Delete this conversation?')
   await user().click(within(dialog).getByRole('button', { name: 'Cancel' }))
@@ -277,7 +277,7 @@ test('New conversation saves the conversation under Earlier, where it opens read
   await user().click(
     within(
       await screen.findByRole('region', { name: 'Earlier Coordinator conversation' }),
-    ).getByRole('button', { name: 'Delete' }),
+    ).getByRole('button', { name: 'Delete…' }),
   )
   await user().click(
     within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete' }),
@@ -480,7 +480,7 @@ test('Autopilot is switched in Settings → General, not in the sidebar', async 
 
 const notice = () => screen.queryByRole('status', { name: 'Autopilot is on' })
 const noticeText =
-  '▲ Autopilot is on. Sign-offs set here are off until you turn it off in Settings → General. Setup Tasks and Tasks that change a Factory’s settings still wait for you.'
+  '▲ Autopilot is on. Sign-Offs set here are off until you turn it off in Settings → General. Setup Tasks and Tasks that change a Factory’s settings still wait for you.'
 
 function overnight(on: boolean, view: React.ReactNode) {
   const openGeneral = vi.fn()

@@ -10,7 +10,7 @@ export function NoFactories({ onAddFactory }: { onAddFactory: () => void }) {
         line="A Factory carries Tasks from request to merge for one product."
       >
         <Button variant="primary" onClick={onAddFactory}>
-          Add Factory
+          Add Factory…
         </Button>
       </EmptyState>
     </div>

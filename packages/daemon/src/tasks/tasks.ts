@@ -12492,7 +12492,7 @@ function followUpText(
   const given = title?.trim()
   if (given) return { title: given, description: text }
   const split = titleFromText(text)
-  return split.title ? split : { title: `Follow-up to ${displayId}`, description: text }
+  return split.title ? split : { title: `Follow-Up to ${displayId}`, description: text }
 }
 
 function firstLine(text: string): string {

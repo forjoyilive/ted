@@ -142,7 +142,7 @@ test('a parent shows nested children, merged progress, who it waits for and arch
 
   const created = vi.fn()
   window.addEventListener(newChildTaskEvent, created)
-  await u.click(children.getByRole('button', { name: 'Create child' }))
+  await u.click(children.getByRole('button', { name: 'Create child…' }))
   window.removeEventListener(newChildTaskEvent, created)
   const [[event] = []] = created.mock.calls as unknown as [CustomEvent][]
   expect(event?.detail).toEqual({
@@ -156,8 +156,8 @@ test('a Task without children shows only the buttons to add them', () => {
   const f = family()
   details(f.loose, Object.values(f))
   const children = within(screen.getByRole('region', { name: 'Children' }))
-  expect(children.getByRole('button', { name: 'Create child' })).toBeTruthy()
-  expect(children.getByRole('button', { name: 'Add existing Task' })).toBeTruthy()
+  expect(children.getByRole('button', { name: 'Create child…' })).toBeTruthy()
+  expect(children.getByRole('button', { name: 'Add existing Task…' })).toBeTruthy()
   expect(screen.queryByText(/No children/)).toBeNull()
 })
 
@@ -177,7 +177,7 @@ test('attaching an existing Task sends the current revision and shows the daemon
   details(f.parent, Object.values(f))
   const children = within(screen.getByRole('region', { name: 'Children' }))
   const u = user()
-  await u.click(children.getByRole('button', { name: 'Add existing Task' }))
+  await u.click(children.getByRole('button', { name: 'Add existing Task…' }))
   const options = within(children.getByRole('listbox', { name: 'Tasks' }))
   expect(options.getAllByRole('option').map((o) => o.textContent)).toEqual(['NB-50Settings page'])
   await u.click(options.getByRole('option'))
@@ -204,7 +204,7 @@ test('a child links to its parent, changes it without offering itself or Tasks u
   const u = user()
   await u.click(screen.getByRole('button', { name: /NB-40/ }))
   expect(open).toHaveBeenCalledWith('NB-40')
-  await u.click(screen.getByRole('button', { name: 'Change' }))
+  await u.click(screen.getByRole('button', { name: 'Change…' }))
   const offered = within(screen.getByRole('listbox', { name: 'Tasks' }))
     .getAllByRole('option')
     .map((o) => o.textContent)

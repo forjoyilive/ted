@@ -128,18 +128,18 @@ export function FactoryMenu({
       divider: index === 0,
       act: () => (group.id === groupId ? undefined : actions.onMoveToGroup(group.id)),
     })),
-    { label: 'New group…', act: actions.onNewGroup, divider: true },
+    { label: 'New Factory group…', act: actions.onNewGroup, divider: true },
     ...(current
       ? [{ label: `Remove from ${current.name}`, act: () => actions.onMoveToGroup(undefined) }]
       : []),
   ]
   const mainItems: MenuItem[] = [
-    { label: 'New Task', act: actions.onNewTask },
-    { label: 'Plan', act: actions.onPlan, disabled: !factory.cloned },
+    { label: 'New Task…', act: actions.onNewTask },
+    { label: 'Plan…', act: actions.onPlan, disabled: !factory.cloned },
     { label: 'Rename…', act: actions.onRename },
     { label: 'Move up', act: actions.onMoveUp, disabled: first },
     { label: 'Move down', act: actions.onMoveDown, disabled: last },
-    { label: 'Move to group…', act: () => setPage('groups'), keepOpen: true },
+    { label: 'Move to Factory group…', act: () => setPage('groups'), keepOpen: true },
     { label: 'Factory settings', act: actions.onSettings, divider: true },
     ...(factory.localFolder?.found === true
       ? [{ label: folderLabel, act: actions.onShowFolder }]
@@ -157,7 +157,7 @@ export function FactoryMenu({
   ]
   return (
     <PopoverMenu
-      label={page === 'main' ? 'Factory actions' : 'Move to group'}
+      label={page === 'main' ? 'Factory actions' : 'Move to Factory group'}
       at={at}
       items={page === 'main' ? mainItems : groupItems}
       pendingKey={`factory-actions:${factory.id}`}

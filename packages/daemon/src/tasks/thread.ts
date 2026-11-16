@@ -245,7 +245,7 @@ export function threadEvents(
         add(entry, 'run', `The Automation “${text(data.name)}” started this Task`)
         break
       case 'v1.TaskFollowsUp':
-        add(entry, 'edit', `Follow-up to ${context.displayIdOf(text(data.originalId))}`)
+        add(entry, 'edit', `Follow-Up to ${context.displayIdOf(text(data.originalId))}`)
         break
       case 'v1.TaskFollowedUp':
         add(entry, 'done', `You followed up in ${context.displayIdOf(text(data.followUpId))}`)
@@ -735,7 +735,7 @@ export function threadEvents(
           entry,
           'run',
           data.parentRunId
-            ? `Sub-agent “${text(data.name)}” started · ${agentLine(data)}`
+            ? `Sub-Agent “${text(data.name)}” started · ${agentLine(data)}`
             : `Task Lead started · ${agentLine(data)}`,
         )
         break
@@ -746,7 +746,7 @@ export function threadEvents(
         break
       }
       case 'v1.TaskGatesChanged':
-        add(entry, 'edit', 'You changed this Task’s sign-offs')
+        add(entry, 'edit', 'You changed this Task’s Sign-Offs')
         break
       case 'v1.GateKeptOvernight':
         add(
@@ -754,14 +754,14 @@ export function threadEvents(
           'quiet',
           `Autopilot is on, but ${
             overnightGuardTexts[text(data.reason) as OvernightGuard] ?? overnightGuardTexts.settings
-          }, so its ${stageTitle(text(data.stage))} sign-off stays on`,
+          }, so its ${stageTitle(text(data.stage))} Sign-Off stays on`,
         )
         break
       case 'v1.GateSkippedOvernight':
         add(
           entry,
           'quiet',
-          `Autopilot is on, so TED skipped the ${stageTitle(text(data.stage))} sign-off`,
+          `Autopilot is on, so TED skipped the ${stageTitle(text(data.stage))} Sign-Off`,
         )
         break
       case 'v1.TaskLeadSet':
@@ -784,7 +784,7 @@ export function threadEvents(
       case 'v1.AppStarted': {
         const by = text(data.by)
         const starter =
-          by === 'task-lead' ? 'Task Lead' : by === 'sub-agent' ? 'A sub-agent' : 'You'
+          by === 'task-lead' ? 'Task Lead' : by === 'sub-agent' ? 'A Sub-Agent' : 'You'
         const verb = data.restart === true ? 'restarted' : 'started'
         add(entry, 'run', `${starter} ${verb} ${text(data.name)}${appWhere(data)}`)
         break

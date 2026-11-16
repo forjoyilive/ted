@@ -251,7 +251,7 @@ export function SelectionBar({
               </>
             ) : (
               archivable.length > 0 && (
-                <Button onClick={() => setConfirmArchive(true)}>Archive</Button>
+                <Button onClick={() => setConfirmArchive(true)}>Archive…</Button>
               )
             )}
             <Button
@@ -316,7 +316,7 @@ export function SelectionBar({
                     {
                       label: 'Priority',
                       items: priorities.map((priority) => ({
-                        label: priority === 'none' ? 'No priority' : priorityLabels[priority],
+                        label: priority === 'none' ? 'No Priority' : priorityLabels[priority],
                         action: () => bulk((t) => ted.setPriority(t.id, priority), archivable),
                       })),
                     },

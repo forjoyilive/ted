@@ -176,7 +176,7 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
                 <span>Stage</span>
                 <span>On</span>
                 <span className={sections.gateHeading}>
-                  Sign-off
+                  Sign-Off
                   <Help>
                     When on, the Task waits for your approval at the end of this Stage before moving
                     on. If the Stage skips itself, its sign-off is skipped too.
@@ -364,7 +364,7 @@ function StageLine({
         <span>
           {agent ? (
             <Toggle
-              label={`${name} sign-off`}
+              label={`${name} Sign-Off`}
               checked={stage?.gate ?? row.gate}
               onChange={(gate) => onStage({ gate })}
             />

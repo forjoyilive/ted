@@ -118,7 +118,7 @@ export function dashboardFixture(empty = false): DashboardReport {
               {
                 stage: 'review',
                 totalMs: 24 * hour,
-                kinds: ['Review sign-off'],
+                kinds: ['Review Sign-Off'],
                 samples: [{ taskId: 't1', waitedMs: 24 * hour }],
               },
               {
@@ -137,7 +137,7 @@ export function dashboardFixture(empty = false): DashboardReport {
               {
                 taskId: 't1',
                 requestId: 'c1',
-                kind: 'Review sign-off',
+                kind: 'Review Sign-Off',
                 stage: 'review',
                 waitedMs: 24 * hour,
               },

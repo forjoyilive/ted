@@ -47,7 +47,7 @@ export function planCheckFailures(name: string, failing: readonly string[]): Che
     return [
       {
         key: 'check',
-        title: `Fix the scheduled Check “${name}”`,
+        title: `Fix the Scheduled Check “${name}”`,
         files: [...failing],
       },
     ]

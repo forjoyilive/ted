@@ -852,7 +852,7 @@ test('empty Inbox offers New Task, Show answered, and a Factory-filter reset', a
   requestApi()
   const props = inboxProps()
   const view = render(<Inbox {...props} />)
-  await user().click(screen.getByRole('button', { name: 'New Task' }))
+  await user().click(screen.getByRole('button', { name: 'New Task…' }))
   expect(props.onNewTask).toHaveBeenCalledOnce()
   view.rerender(<Inbox {...props} anyTasks />)
   await user().click(screen.getByRole('button', { name: 'Show answered' }))
@@ -1172,7 +1172,7 @@ test('empty Inbox opens New Task and Show answered opens the empty Answered view
   const a = appState()
   a.mount()
   const inbox = await screen.findByRole('region', { name: 'Inbox' })
-  await user().click(within(inbox).getByRole('button', { name: 'New Task' }))
+  await user().click(within(inbox).getByRole('button', { name: 'New Task…' }))
   const dialog = await screen.findByRole('dialog', { name: 'New Task' })
   await user().click(within(dialog).getByRole('button', { name: 'Close' }))
   await a.emitTask(task())
@@ -1613,7 +1613,7 @@ test('previous review resolves the referenced approval rather than the first sig
     />,
   )
   await user().click(screen.getByRole('button', { name: 'View previously approved review' }))
-  const old = await screen.findByRole('region', { name: 'Sign-off, read-only' })
+  const old = await screen.findByRole('region', { name: 'Sign-Off, read-only' })
   expect(within(old).getByText('The latest approved evidence.')).toBeTruthy()
   expect(within(old).queryByRole('textbox')).toBeNull()
   expect(screen.queryByText('The obsolete evidence.')).toBeNull()
@@ -1711,7 +1711,7 @@ test('previous Review keeps its own Check execution after a second Validate visi
     />,
   )
   await user().click(screen.getByRole('button', { name: 'View previously approved review' }))
-  const history = await screen.findByRole('region', { name: 'Sign-off, read-only' })
+  const history = await screen.findByRole('region', { name: 'Sign-Off, read-only' })
   await waitFor(() => expect(history.textContent).toMatch(/Old Check|New Check/))
   const text = history.textContent ?? ''
   expect({
@@ -1881,7 +1881,7 @@ test('previous Review retains its recorded Check plan and acceptance after later
   )
   expect(await screen.findByText('New Check', { exact: false })).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'View previously approved review' }))
-  const history = await screen.findByRole('region', { name: 'Sign-off, read-only' })
+  const history = await screen.findByRole('region', { name: 'Sign-Off, read-only' })
   await within(history).findByText('Original recommendation')
   expect(history.textContent).toContain('failed, accepted by you')
   expect(history.textContent).toContain('Original decision')
@@ -1951,7 +1951,7 @@ test('repair drafts survive switching and keyboard submission uses the valid rep
   await u.keyboard('{Enter}')
   expect(resolve).not.toHaveBeenCalled()
   expect(answer).not.toHaveBeenCalled()
-  await u.click(await screen.findByRole('button', { name: 'Choose repair' }))
+  await u.click(await screen.findByRole('button', { name: 'Choose repair…' }))
   await u.click(screen.getByRole('option', { name: /NB-2/ }))
   await u.click(screen.getByRole('radio', { name: 'Retry' }))
   expect(screen.queryByRole('region', { name: 'Wait for a repair Task' })).toBeNull()

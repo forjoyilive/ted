@@ -47,12 +47,12 @@ export function guideCard(
   })
   if (!factory.cloned || task === undefined) {
     return factory.setup?.some((repo) => repo.state === 'failed')
-      ? card('TED couldn’t clone your repos. See the banner at the top.')
+      ? card('TED couldn’t clone your repos. See the Banner at the top.')
       : card('TED is cloning your repos.')
   }
   if (guide.setUp) {
     return card('Your Factory is set up. Create your first Task.', {
-      label: 'New Task',
+      label: 'New Task…',
       open: 'new-task',
     })
   }
@@ -81,7 +81,7 @@ export function guideCard(
   const approval = signOff('review')
   if (approval) {
     return card('Approve the settings to merge them.', {
-      label: 'Open the sign-off',
+      label: 'Open the Sign-Off',
       open: 'request',
       requestId: approval.id,
     })

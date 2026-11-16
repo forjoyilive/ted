@@ -142,10 +142,10 @@ describe('Group by', () => {
     expect(shape(groupInbox(rows, 'kind', now))).toEqual([
       ['Blocking a Run', ['b1']],
       ['Questions', ['q1', 'q2']],
-      ['Sign-offs', ['s1']],
+      ['Sign-Offs', ['s1']],
     ])
     expect(shape(groupInbox([row('s1', { kind: 'signoff' })], 'kind', now))).toEqual([
-      ['Sign-offs', ['s1']],
+      ['Sign-Offs', ['s1']],
     ])
   })
 
@@ -226,7 +226,7 @@ describe('Group by', () => {
     expect(shape(groupInbox(rows, 'factory-group', now, undefined, layout))).toEqual([
       ['Internal', ['own']],
       ['Clients', ['client']],
-      ['No group', ['loose']],
+      ['No Factory group', ['loose']],
     ])
     expect(
       shape(
@@ -241,7 +241,7 @@ describe('Group by', () => {
     ).toEqual([
       ['Clients', ['client']],
       ['Internal', ['own']],
-      ['No group', ['loose']],
+      ['No Factory group', ['loose']],
     ])
   })
 
@@ -258,7 +258,7 @@ describe('Group by', () => {
       ['Urgent', ['urgent1', 'urgent2']],
       ['Medium', ['medium']],
       ['Low', ['low']],
-      ['No priority', ['none']],
+      ['No Priority', ['none']],
       ['Not from a Task', ['plan']],
     ])
   })

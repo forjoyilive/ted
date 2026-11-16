@@ -816,13 +816,13 @@ export function FollowUpDialog({
     <Dialog onClose={() => !submitting.current && !busy && onClose()}>
       {(headingId) => (
         <>
-          <h2 id={headingId} className={styles.heading}>{`Follow up ${task.displayId}?`}</h2>
+          <h2 id={headingId} className={styles.heading}>{`Follow-Up to ${task.displayId}?`}</h2>
           <p className={styles.body}>
             {`${task.title}. TED creates a new Task linked to ${task.displayId} that starts from its brief and pull requests. It skips Backlog and waits for a free Run slot. ${task.displayId} stays Done.`}
           </p>
           <textarea
             className={`${styles.text} ${grow.text}`}
-            aria-label="What should the Follow-up change?"
+            aria-label="What should the Follow-Up change?"
             placeholder="What should change?"
             value={text}
             onChange={(event) => setText(event.target.value)}
@@ -842,7 +842,7 @@ export function FollowUpDialog({
               Cancel
             </Button>
             <Button variant="primary" pending={busy} disabled={busy} onClick={() => followUp()}>
-              Follow up
+              Follow-Up
             </Button>
           </div>
         </>

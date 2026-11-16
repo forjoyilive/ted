@@ -159,7 +159,7 @@ describe('filters', () => {
     expect(chips.map((c) => c.label)).toEqual([
       'Factory is Marketing site',
       'Status is Queued',
-      'Archived: Only',
+      'Archived: only',
     ])
     expect(chips[1]?.clear({ statuses: ['queued'], archived: 'only' })).toEqual({
       archived: 'only',
@@ -241,7 +241,7 @@ describe('sort and group', () => {
     expect(groupTasks(all, { ...view, group: 'priority' }, factories).map((g) => g.label)).toEqual([
       'Urgent',
       'Low',
-      'No priority',
+      'No Priority',
     ])
     expect(
       groupTasks(all, { ...view, group: 'none' }, factories).map((g) => g.tasks.length),
@@ -257,7 +257,7 @@ describe('sort and group', () => {
       groupTasks(all, view, factories, [], layout).map((g) => [g.label, ids(g.tasks)]),
     ).toEqual([
       ['Clients', ['MS-10']],
-      ['No group', ['NB-11', 'NB-12', 'NB-10']],
+      ['No Factory group', ['NB-11', 'NB-12', 'NB-10']],
     ])
   })
 })

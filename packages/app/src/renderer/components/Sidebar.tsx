@@ -155,7 +155,7 @@ function GroupNameRow({
   }, [])
   const save = async () => {
     const trimmed = name.trim()
-    if (trimmed === '') return setError('Name the group')
+    if (trimmed === '') return setError('Name the Factory group')
     if (trimmed === initial) return onDone()
     await onSave(trimmed)
     onDone()
@@ -576,7 +576,7 @@ export function Sidebar({
     return (
       <section
         key={group.id}
-        aria-label={group.name || 'New group'}
+        aria-label={group.name || 'New Factory group'}
         className={`${styles.group} ${isOpen ? '' : styles.groupClosed} ${isDragging(key) ? styles.dragging : ''}`}
       >
         {naming?.groupId === group.id ? (
@@ -634,7 +634,7 @@ export function Sidebar({
               <ActionButton
                 type="button"
                 className={`${styles.more} ${menuOpen ? styles.moreOpen : ''}`}
-                aria-label="Group actions"
+                aria-label="Factory group actions"
                 aria-haspopup="menu"
                 aria-expanded={menuOpen}
                 onClick={(event) => {
@@ -723,8 +723,8 @@ export function Sidebar({
           <ActionButton
             type="button"
             className={styles.addFactory}
-            aria-label="New Factory or group"
-            title="New Factory or group"
+            aria-label="New Factory or Factory group"
+            title="New Factory or Factory group"
             aria-haspopup="menu"
             aria-expanded={menu?.kind === 'add'}
             onClick={(event) => {
@@ -747,19 +747,22 @@ export function Sidebar({
         )}
         {menu?.kind === 'add' && (
           <PopoverMenu
-            label="New Factory or group"
+            label="New Factory or Factory group"
             at={menu}
             pendingKey="sidebar-add"
             onClose={() => setMenu(undefined)}
             items={[
               { label: 'New Factory…', act: onAddFactory },
-              { label: 'New group', act: () => setNaming({ groupId: newId(), isNew: true }) },
+              {
+                label: 'New Factory group…',
+                act: () => setNaming({ groupId: newId(), isNew: true }),
+              },
             ]}
           />
         )}
         {menu?.kind === 'group' && menuGroup && (
           <PopoverMenu
-            label="Group actions"
+            label="Factory group actions"
             at={menu}
             pendingKey={`group-actions:${menuGroup.id}`}
             onClose={() => setMenu(undefined)}

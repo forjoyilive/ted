@@ -177,7 +177,7 @@ test('the sign-off’s Preview row opens a command App after one confirmation, t
     .click()
   await window.getByRole('row').filter({ hasText: 'NB-1' }).click()
   const card = window.getByRole('region', { name: 'Task thread' }).getByRole('region', {
-    name: 'Sign-off',
+    name: 'Sign-Off',
   })
   await card.waitFor({ timeout: 60_000 })
   await card.getByText('Desk isn’t running').waitFor()

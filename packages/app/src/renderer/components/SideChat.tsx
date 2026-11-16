@@ -145,7 +145,7 @@ function RunSideChat({
                         : 'Ready'}
               </span>
               <Button
-                aria-label="Close side chat"
+                aria-label="Close Side chat"
                 onClick={() => {
                   setOpen(false)
                   setWhich('source')
@@ -177,13 +177,13 @@ function RunSideChat({
                 chat={side.chat}
                 options={{
                   bar: false,
-                  label: 'Question for this side chat',
+                  label: 'Question for this Side chat',
                   placeholder: working ? 'Wait for this reply to finish…' : 'Ask about this Run…',
                   endedPlaceholder: working
                     ? 'Waiting for this reply to finish…'
                     : busy
                       ? 'Sending…'
-                      : 'This side chat’s output is no longer kept.',
+                      : 'This Side chat’s output is no longer kept.',
                   help:
                     side.chat.run.agent === 'antigravity'
                       ? 'Uses the starting Conversation snapshot. Antigravity can use built-in tools; see the help beside the tool warning.'
@@ -196,7 +196,7 @@ function RunSideChat({
                   },
                   readOnly: side.available ? undefined : (
                     <p className={styles.notice}>
-                      This side chat’s snapshot is no longer kept. Its history is read-only.
+                      This Side chat’s snapshot is no longer kept. Its history is read-only.
                     </p>
                   ),
                   pinned: working ? (
@@ -224,7 +224,7 @@ function RunSideChat({
                   ) : side.chat.items.length === 0 ? (
                     <div className={styles.notice}>
                       Ask about this Run. It answers from the Conversation as it was when you opened
-                      this side chat.
+                      this Side chat.
                     </div>
                   ) : undefined,
                 }}
@@ -232,7 +232,7 @@ function RunSideChat({
             )}
             {!side && (
               <p className={styles.notice}>
-                {busy ? 'Opening side chat…' : 'The side chat could not be opened.'}
+                {busy ? 'Opening Side chat…' : 'The Side chat could not be opened.'}
               </p>
             )}
           </section>

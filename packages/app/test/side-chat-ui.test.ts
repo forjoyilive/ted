@@ -89,7 +89,7 @@ test('side chat shows beside the original Run, reopens its replies and fits a na
   }
   await chooseSideChat()
   const side = window.getByRole('region', { name: 'Side chat', exact: true })
-  const question = side.getByRole('textbox', { name: 'Question for this side chat' })
+  const question = side.getByRole('textbox', { name: 'Question for this Side chat' })
   await question.fill(
     JSON.stringify({
       steps: [
@@ -112,7 +112,7 @@ test('side chat shows beside the original Run, reopens its replies and fits a na
   await mkdir(dir, { recursive: true })
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1600, 1000))
   await window.screenshot({ path: path.join(dir, 'side-chats-implemented-wide.png') })
-  await side.getByRole('button', { name: 'Close side chat' }).click()
+  await side.getByRole('button', { name: 'Close Side chat' }).click()
   await window.getByRole('button', { name: 'Task actions' }).click()
   await window.screenshot({ path: path.join(dir, 'task-actions-menu.png') })
   await window.getByRole('menuitem', { name: 'Side chat', exact: true }).click()

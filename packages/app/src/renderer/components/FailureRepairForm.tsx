@@ -152,7 +152,7 @@ export function FailureRepairForm({
           {kind === 'existing' ? (
             <>
               <BlockerPicker
-                addLabel={repair ? 'Change repair' : 'Choose repair'}
+                addLabel={repair ? 'Change repair…' : 'Choose repair…'}
                 tasks={tasks}
                 blockers={repair ? [repair] : []}
                 onAdd={setSelected}

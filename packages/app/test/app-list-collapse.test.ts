@@ -78,7 +78,7 @@ test('Backlog stays collapsed after visiting Inbox and reloading the app', async
     if (captures) await window.screenshot({ path: path.join(captures, 'list-hover.png') })
     await groupSelection.check()
     const actions = window.getByRole('toolbar', { name: 'Selected Tasks' })
-    await actions.getByRole('button', { name: 'Archive', exact: true }).waitFor()
+    await actions.getByRole('button', { name: 'Archive…', exact: true }).waitFor()
     expect(await actions.getByRole('button', { name: 'Clear selection' }).count()).toBe(0)
     if (captures) await window.screenshot({ path: path.join(captures, 'list-selection.png') })
     await actions.getByRole('button', { name: 'Prepare', exact: true }).click()

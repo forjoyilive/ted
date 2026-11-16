@@ -105,7 +105,7 @@ export function ParentField({
         (picking ? (
           <TaskPicker
             tasks={parentChoices(task, tasks)}
-            label="Find a parent Task"
+            label="Find a Parent Task"
             note="This Task and the Tasks under it are left out"
             error={error}
             menuAlign="end"
@@ -115,7 +115,7 @@ export function ParentField({
         ) : (
           <>
             <Button size="small" onClick={() => setPicking(true)}>
-              {task.parentId === undefined ? 'Set parent' : 'Change'}
+              {task.parentId === undefined ? 'Set parent…' : 'Change…'}
             </Button>
             {task.parentId !== undefined && (
               <Button size="small" onClick={() => change(null)}>
@@ -283,7 +283,7 @@ export function ChildrenField({
             <div className={styles.actions}>
               <Button onClick={() => newChildTask(task)}>
                 <PlusIcon />
-                Create child
+                Create child…
               </Button>
               {picking ? (
                 <TaskPicker
@@ -302,7 +302,7 @@ export function ChildrenField({
               ) : (
                 <Button onClick={() => setPicking(true)}>
                   <PlusIcon />
-                  Add existing Task
+                  Add existing Task…
                 </Button>
               )}
             </div>

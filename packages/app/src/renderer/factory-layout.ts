@@ -250,6 +250,6 @@ export function groupSections(layout: FactoryLayout): {
   return {
     keys: [...all.map((group) => group.id), noGroupKey],
     keyOf: (factoryId) => groupOf(layout, factoryId)?.id ?? noGroupKey,
-    labelOf: (key) => all.find((group) => group.id === key)?.name ?? 'No group',
+    labelOf: (key) => all.find((group) => group.id === key)?.name ?? 'No Factory group',
   }
 }

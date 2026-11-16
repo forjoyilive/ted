@@ -183,10 +183,10 @@ test('bulk selection sends Priority, Start and Archive to each selected Task', a
     await vi.waitFor(() => expect(a.request).toHaveBeenCalledWith('setPriority', id, 'urgent'))
   await u.click(bar.getByRole('button', { name: 'Start' }))
   for (const id of ['NB-1', 'MS-1']) expect(a.request).toHaveBeenCalledWith('startTask', id)
-  await u.click(bar.getByRole('button', { name: 'Archive' }))
+  await u.click(bar.getByRole('button', { name: 'Archive…' }))
   await u.click(bar.getByRole('button', { name: 'Cancel' }))
   expect(bar.queryByRole('button', { name: 'Archive 2 Tasks' })).toBeNull()
-  await u.click(bar.getByRole('button', { name: 'Archive' }))
+  await u.click(bar.getByRole('button', { name: 'Archive…' }))
   await u.click(bar.getByRole('button', { name: 'Archive 2 Tasks' }))
   for (const id of ['NB-1', 'MS-1'])
     expect(a.request).toHaveBeenCalledWith('archiveTask', id, { closePullRequests: false })
@@ -209,7 +209,7 @@ test('bulk selection sends Priority, Start and Archive to each selected Task', a
   fireEvent.click(required(document.querySelector('[data-task="NB-1"]')), { metaKey: true })
   const archivedBar = within(screen.getByRole('toolbar', { name: 'Selected Tasks' }))
   expect(archivedBar.queryByRole('combobox', { name: 'Autopilot for selected Tasks' })).toBeNull()
-  expect(archivedBar.queryByRole('button', { name: 'Archive' })).toBeNull()
+  expect(archivedBar.queryByRole('button', { name: 'Archive…' })).toBeNull()
   await u.click(archivedBar.getByRole('button', { name: 'More actions' }))
   const archivedMore = within(screen.getByRole('menu', { name: 'More actions' }))
   expect(archivedMore.queryByRole('menuitem', { name: 'Priority' })).toBeNull()
@@ -358,11 +358,11 @@ test('right-click uses all selected Tasks; an unselected row and the Priority ic
   expect(screen.queryByRole('menu', { name: '2 selected Tasks' })).toBeNull()
   fireEvent.keyDown(menu, { key: 'Escape' })
   expect(screen.queryByRole('menu', { name: 'Task actions · NB-2' })).toBeNull()
-  await u.click(screen.getByRole('button', { name: 'Priority: High. Change priority of NB-2' }))
+  await u.click(screen.getByRole('button', { name: 'Priority: High. Change Priority of NB-2' }))
   menu = await screen.findByRole('menu', { name: 'Priority' })
   const options = within(menu).getAllByRole('menuitemradio')
   expect(options.map((option) => option.textContent)).toEqual([
-    'No priority0',
+    'No Priority0',
     'Urgent1',
     'High2',
     'Medium3',
@@ -379,7 +379,7 @@ test('right-click uses all selected Tasks; an unselected row and the Priority ic
   await vi.waitFor(() => expect(a.request).toHaveBeenCalledWith('setPriority', 'NB-2', 'urgent'))
   await vi.waitFor(() => expect(screen.queryByRole('menu', { name: 'Priority' })).toBeNull())
   expect(screen.queryByRole('region', { name: 'Task thread' })).toBeNull()
-  await u.click(screen.getByRole('button', { name: 'Priority: Low. Change priority of NB-1' }))
+  await u.click(screen.getByRole('button', { name: 'Priority: Low. Change Priority of NB-1' }))
   await u.click(
     within(await screen.findByRole('menu', { name: 'Priority' })).getByRole('menuitemradio', {
       name: /Medium/,
@@ -456,7 +456,7 @@ test('group checkboxes prepare Tasks with a one-time notice and keep bulk Resume
   expect(bar().queryByRole('button', { name: 'Prepare' })).toBeNull()
   await u.click(bar().getByRole('button', { name: 'Resume' }))
   expect(a.request).toHaveBeenCalledWith('resumeTask', 'NB-1')
-  expect(bar().getByRole('button', { name: 'Archive' })).toBeTruthy()
+  expect(bar().getByRole('button', { name: 'Archive…' })).toBeTruthy()
   await u.click(main.getByRole('checkbox', { name: 'Select all Backlog Tasks' }))
   expect(bar().getByText('3 selected')).toBeTruthy()
   await u.click(bar().getByRole('button', { name: 'Start 2 · Resume 1' }))

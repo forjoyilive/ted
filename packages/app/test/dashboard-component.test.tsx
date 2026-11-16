@@ -280,7 +280,7 @@ test('Overview figures open the Tasks behind them, durations slowest first', asy
 
   const waits = screen.getByRole('region', { name: 'Waiting on you' })
   expect(waits.textContent).toContain('-25%')
-  expect(waits.textContent).toContain('Previous: 40h')
+  expect(waits.textContent).toContain('previous: 40h')
   expect(waits.textContent).toContain('median answer time · 3 requests')
   const stageRows = within(waits).getAllByRole('button', { name: /^Waiting on you in/ })
   expect(stageRows.map((row) => row.getAttribute('aria-label'))).toEqual([
@@ -297,7 +297,7 @@ test('Overview figures open the Tasks behind them, durations slowest first', asy
       .map((row) => row.textContent?.slice(0, 4)),
   ).toEqual(['NB-1', 'NB-2'])
   expect(within(sample).getByRole('button', { name: /NB-1.*Fix login/ }).textContent).toContain(
-    'Waited 1d 2h · Review sign-off, Question',
+    'Waited 1d 2h · Review Sign-Off, Question',
   )
   await close()
   await user().click(within(waits).getByRole('button', { name: 'Median answer time 6h' }))
@@ -316,7 +316,7 @@ test('Overview figures open the Tasks behind them, durations slowest first', asy
   const longest = screen.getByRole('region', { name: 'Longest waits on you' })
   const longestRows = within(longest).getAllByRole('button')
   expect(longestRows.map((row) => row.textContent)).toEqual([
-    'NB-1 Review sign-off1d',
+    'NB-1 Review Sign-Off1d',
     'NB-2 Clarify round4h',
     'NB-1 Question2h',
   ])
@@ -324,7 +324,7 @@ test('Overview figures open the Tasks behind them, durations slowest first', asy
   await user().click(longestRows[0] as HTMLElement)
   sample = screen.getByRole('dialog')
   expect(within(sample).getByRole('heading').textContent).toBe(
-    'Waiting on you · Review sign-off in Review',
+    'Waiting on you · Review Sign-Off in Review',
   )
   expect(within(sample).getAllByRole('button', { name: /NB-/ })).toHaveLength(1)
   await user().click(within(sample).getByRole('button', { name: /NB-1.*Fix login/ }))
@@ -924,7 +924,7 @@ test('the Cost tab shows cost per merged pull request, spend by kind of work and
   render(<DashboardView open={open} />)
   await screen.findByRole('region', { name: 'Tasks completed' })
   await user().click(screen.getByRole('tab', { name: 'Cost' }))
-  expect(screen.getByRole('heading', { name: 'API-Equivalent Cost' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'API-equivalent cost' })).toBeTruthy()
   expect(
     screen.getByText(/whatever your billing\. Runs still going aren’t counted yet\./),
   ).toBeTruthy()

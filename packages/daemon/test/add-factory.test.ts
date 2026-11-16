@@ -591,7 +591,7 @@ describe('local folder banner', () => {
       factoryId: factory.id,
       severity: 'warning',
       text: 'Local folder for widgets not found',
-      action: { label: 'Locate', choose: 'folder' },
+      action: { label: 'Locate…', choose: 'folder' },
     })
 
     const route = `/banners/${encodeURIComponent(banner?.id ?? '')}/action`

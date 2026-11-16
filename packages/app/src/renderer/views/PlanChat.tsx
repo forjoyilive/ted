@@ -435,7 +435,7 @@ function MoreMenu({
               return onRename()
             }}
           >
-            Rename
+            Rename…
           </ActionButton>
           <ActionButton
             type="button"
@@ -803,7 +803,7 @@ function EndedBar({ plan, onPlanMore }: { plan: Plan; onPlanMore: (planId: strin
         </Button>
       ) : (
         <Button variant="primary" onClick={() => onPlanMore(plan.id)}>
-          Plan more from here
+          Plan more from here…
         </Button>
       )}
     </div>

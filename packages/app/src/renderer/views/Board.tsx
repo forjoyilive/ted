@@ -96,7 +96,7 @@ const cardSizeLabels: Record<BoardView['cardSize'], string> = { full: 'Full', co
 const fieldLabels: Record<BoardField, string> = {
   priority: 'Priority',
   activity: 'Activity line',
-  'sub-agents': 'Sub-agent count',
+  'sub-agents': 'Sub-Agent count',
   blockers: 'Blockers',
   hierarchy: 'Parent and children',
 }
@@ -211,7 +211,7 @@ function DoneMenu({ count, onArchiveAll }: { count: number; onArchiveAll: () => 
               onArchiveAll()
             }}
           >
-            Archive all in Done
+            Archive all in Done…
           </button>
         </div>
       )}
@@ -418,7 +418,7 @@ export function Board({
       <div key="slot" className={styles.dropSlot}>
         {target.drop === 'start' ? (
           <>
-            <span className={styles.dropTitle}>Drop to Start</span>
+            <span className={styles.dropTitle}>Drop to start</span>
             <span>
               Joins the queue as Queued ·{' '}
               {ordinal(startPlace(target.placement, dragging.task, queue))}
@@ -677,7 +677,7 @@ export function Board({
         </MenuButton>
         <Button variant="primary" onClick={onNewTask}>
           <PlusIcon />
-          New Task
+          New Task…
         </Button>
       </header>
       {banners}
@@ -750,7 +750,7 @@ export function Board({
                   {column.gate && (
                     <span className={styles.gate}>
                       <LockIcon />
-                      Sign-off
+                      Sign-Off
                     </span>
                   )}
                   {column.turnedOff && <span className={styles.turnedOffTag}>Turned off</span>}
@@ -804,9 +804,9 @@ export function Board({
               help="A Task is one piece of work that agents carry through this Factory’s Stages, from request to merge. Plan helps split a piece of work too big for one Task."
             >
               <Button variant="primary" onClick={onNewTask}>
-                New Task
+                New Task…
               </Button>
-              <Button onClick={onPlan}>Plan</Button>
+              <Button onClick={onPlan}>Plan…</Button>
             </EmptyState>
           </div>
         )}

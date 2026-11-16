@@ -55,13 +55,13 @@ test('empty Board keeps Workflow columns and New Task and Plan actions', async (
   expect(
     [...document.querySelectorAll('[data-stage]')].map((e) => e.getAttribute('aria-label')),
   ).toEqual(['Backlog', 'Intake', 'Work', 'Review', 'Done'])
-  expect(within(screen.getByRole('region', { name: 'Review' })).getByText('Sign-off')).toBeTruthy()
-  expect(within(screen.getByRole('region', { name: 'Work' })).queryByText('Sign-off')).toBeNull()
+  expect(within(screen.getByRole('region', { name: 'Review' })).getByText('Sign-Off')).toBeTruthy()
+  expect(within(screen.getByRole('region', { name: 'Work' })).queryByText('Sign-Off')).toBeNull()
   const u = user()
   const empty = screen.getByRole('region', { name: 'No Tasks yet' })
   if (!empty) throw new Error('Missing empty Board')
-  await u.click(within(empty).getByRole('button', { name: 'New Task' }))
-  await u.click(within(empty).getByRole('button', { name: 'Plan' }))
+  await u.click(within(empty).getByRole('button', { name: 'New Task…' }))
+  await u.click(within(empty).getByRole('button', { name: 'Plan…' }))
   expect(p.onNewTask).toHaveBeenCalledOnce()
   expect(p.onPlan).toHaveBeenCalledOnce()
 })
@@ -117,7 +117,7 @@ test('Display sets card size, card fields and columns, and saves them for the Fa
     />,
   )
   await screen.findByRole('region', { name: 'Review' })
-  expect(screen.queryByRole('button', { name: 'Plan' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Plan…' })).toBeNull()
   const stagesShown = () =>
     [...document.querySelectorAll('[data-stage]')].map((e) => e.getAttribute('aria-label'))
   const card = (id: string) => {
@@ -210,7 +210,7 @@ test('Done cards show merged metadata, request the Done List and confirm Archive
   await user().click(screen.getByRole('button', { name: 'Show all 2 →' }))
   expect(p.onShowAllDone).toHaveBeenCalledOnce()
   await user().click(screen.getByRole('button', { name: 'Done column actions' }))
-  await user().click(screen.getByRole('menuitem', { name: 'Archive all in Done' }))
+  await user().click(screen.getByRole('menuitem', { name: 'Archive all in Done…' }))
   const dialog = screen.getByRole('dialog', { name: 'Archive 2 Done Tasks?' })
   await user().click(within(dialog).getByRole('button', { name: 'Archive 2' }))
   expect(a.request).toHaveBeenCalledWith('archiveDone', 'f1')
@@ -238,7 +238,7 @@ test('Board Priority filter narrows cards and the card’s Priority icon changes
   expect(document.querySelector('[data-task="NB-2"]')).toBeNull()
   expect(document.querySelector('[data-task="NB-1"]')).toBeTruthy()
   bridgeApi.handle('setPriority', () => undefined)
-  await u.click(screen.getByRole('button', { name: 'Priority: High. Change priority of NB-1' }))
+  await u.click(screen.getByRole('button', { name: 'Priority: High. Change Priority of NB-1' }))
   const menu = await screen.findByRole('menu', { name: 'Priority' })
   await u.click(within(menu).getByRole('menuitemradio', { name: /Low/ }))
   await vi.waitFor(() =>
@@ -420,13 +420,13 @@ test('List and Board keep the user request beside purple running and neutral wai
   await screen.findByRole('region', { name: 'Work' })
   const verify = () => {
     expect(screen.getByText('Waiting on you')).toBeTruthy()
-    for (const label of ['Running checks', 'Running tests']) {
+    for (const label of ['Running Checks', 'Running tests']) {
       const chip = screen.getByText(label)
       expect(chip.className).toContain('testing')
       expect(chip.querySelector('svg')?.className.baseVal).toContain('spinning')
     }
     expect(screen.getByText('Waiting for tests').className).toContain('neutral')
-    expect(screen.getByText('Running checks').title).toBe('Typecheck · 1 of 2 Checks')
+    expect(screen.getByText('Running Checks').title).toBe('Typecheck · 1 of 2 Checks')
     expect(screen.getByText('Running tests').title).toBe('2 supported test commands running')
     expect(
       screen.getByText('Waiting for tests').querySelector('svg')?.className.baseVal,
@@ -472,7 +472,7 @@ test('List and Board keep the user request beside purple running and neutral wai
   const labels = (markers: TaskMarker[]) =>
     markers.filter((m) => m.kind === 'test-activity').map((m) => m.label)
   expect(labels(taskMarkers({ ...facts, checksWaiting: { place: 2 } }, current.status))).toEqual([
-    'Waiting for checks',
+    'Waiting for Checks',
     'Running tests',
     'Waiting for tests',
   ])
@@ -483,7 +483,7 @@ test('List and Board keep the user request beside purple running and neutral wai
         current.status,
       ),
     ),
-  ).toEqual(['Waiting for checks'])
+  ).toEqual(['Waiting for Checks'])
   expect(
     taskActivity({ ...facts, testActivity: { running: 0, waiting: 0, checksWaiting: true } }),
   ).toContain('shared test slot')

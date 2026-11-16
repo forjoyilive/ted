@@ -289,12 +289,12 @@ test('view headers open New Task without a duplicate sidebar button', async () =
   a.mount()
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'widgets' }))
-  expect(within(nav()).queryByRole('button', { name: 'New Task' })).toBeNull()
+  expect(within(nav()).queryByRole('button', { name: 'New Task…' })).toBeNull()
   await u.click(within(nav()).getByRole('button', { name: 'Tasks' }))
   for (const view of ['Board', 'List']) {
     await u.click(within(nav()).getByRole('button', { name: view }))
     const header = required(screen.getByRole('main').querySelector('header'))
-    await u.click(within(header).getByRole('button', { name: 'New Task' }))
+    await u.click(within(header).getByRole('button', { name: 'New Task…' }))
     const dialog = await screen.findByRole('dialog', { name: 'New Task' })
     expect(within(dialog).getByRole('combobox', { name: 'Factory' }).dataset.value).toBe('f1')
     await u.click(within(dialog).getByRole('button', { name: 'Close' }))
@@ -526,8 +526,8 @@ test('Factory groups: New group from the + menu, Move to group, collapse and Ung
   a.mount()
   const u = user()
   await screen.findByRole('article', { name: 'widgets' })
-  await u.click(within(nav()).getByRole('button', { name: 'New Factory or group' }))
-  await u.click(screen.getByRole('menuitem', { name: 'New group' }))
+  await u.click(within(nav()).getByRole('button', { name: 'New Factory or Factory group' }))
+  await u.click(screen.getByRole('menuitem', { name: 'New Factory group…' }))
   await u.type(screen.getByLabelText('Group name'), 'Acme{Enter}')
   const saved = a.request.mock.calls.filter(([name]) => name === 'saveFactoryLayout')
   const created = (required(saved.at(-1))[1] as FactoryLayout).items[0]
@@ -537,7 +537,7 @@ test('Factory groups: New group from the + menu, Move to group, collapse and Ung
   expect(within(acme).getByText('Drag a Factory here')).toBeTruthy()
 
   fireEvent.contextMenu(screen.getByRole('article', { name: 'site' }))
-  await u.click(screen.getByRole('menuitem', { name: 'Move to group…' }))
+  await u.click(screen.getByRole('menuitem', { name: 'Move to Factory group…' }))
   await u.click(screen.getByRole('menuitemradio', { name: 'Acme' }))
   expect(a.state.layout).toEqual({
     items: [{ group: { id: groupId, name: 'Acme', factoryIds: ['f2'] } }, { factoryId: 'f1' }],

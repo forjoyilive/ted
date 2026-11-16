@@ -58,7 +58,7 @@ export function briefUpdatedLine(
     (c) => c.gate !== undefined && c.stage === brief.stage && c.createdAt >= brief.createdAt,
   )
   const where = atGate
-    ? `at the ${stageName(brief.stage)} sign-off`
+    ? `at the ${stageName(brief.stage)} Sign-Off`
     : `in ${stageName(brief.stage)}`
   return `Updated by the Task Lead ${where} · ${ago(brief.createdAt, now)}`
 }
@@ -69,7 +69,7 @@ export function briefSummary(brief: TaskBrief | null | undefined, now: number): 
 
 export function runStateWord(run: RunSummary): string {
   if (run.paused !== undefined) return 'paused'
-  if (run.onSubAgents) return 'on sub-agents'
+  if (run.onSubAgents) return 'on Sub-Agents'
   if (run.state === 'waiting') return 'waiting on you'
   return run.state
 }

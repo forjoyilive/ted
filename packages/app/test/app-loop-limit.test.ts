@@ -63,7 +63,7 @@ test('a concise limit question keeps the complete Findings in history', async ()
   await answer.getByRole('radio', { name: 'Move to Review anyway', exact: true }).waitFor()
   expect(await answer.getByRole('button', { name: 'Send', exact: true }).isDisabled()).toBe(true)
   await thread.getByText('Validate wants to send this Task back to Work', { exact: true }).waitFor()
-  expect(await thread.getByRole('region', { name: 'Blocking findings' }).allTextContents()).toEqual(
+  expect(await thread.getByRole('region', { name: 'Blocking Findings' }).allTextContents()).toEqual(
     expect.arrayContaining([expect.stringContaining(evidence)]),
   )
 

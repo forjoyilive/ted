@@ -123,7 +123,7 @@ describe('Line comments', () => {
     await added.getByRole('button', { name: 'Comment on line 3' }).click()
     await diff.getByRole('textbox', { name: 'Line comment' }).fill('Keep it lower case.')
     await diff.getByText('Line 3', { exact: true }).waitFor()
-    await diff.getByRole('button', { name: 'Add comment' }).click()
+    await diff.getByRole('button', { name: 'Add Line comment' }).click()
 
     const card = diff.getByRole('article', { name: 'Line comment on line 3' })
     const profile = await (await daemonAsApp(home, env())).getProfile()
@@ -131,7 +131,7 @@ describe('Line comments', () => {
     await card.getByText('· draft · line 3').waitFor()
     await card.getByText('Keep it lower case.').waitFor()
     await changes.getByText('3 files · 1 draft', { exact: true }).waitFor()
-    const bar = diff.getByRole('region', { name: 'Draft line comments' })
+    const bar = diff.getByRole('region', { name: 'Draft Line comments' })
     await bar.getByText('1 draft comment on 1 file').waitFor()
 
     await card.getByRole('button', { name: 'Edit' }).click()
@@ -153,7 +153,7 @@ describe('Line comments', () => {
     const thread = window.getByRole('region', { name: 'Task thread' })
     await thread.getByRole('button', { name: '1 unsent line comment' }).click()
     await thread.getByRole('button', { name: 'src/search/SearchPanel.tsx · line 3' }).click()
-    await diff.getByRole('region', { name: 'Draft line comments' }).waitFor()
+    await diff.getByRole('region', { name: 'Draft Line comments' }).waitFor()
 
     await bar.getByRole('button', { name: 'Send to Task Lead' }).click()
     await bar.waitFor({ state: 'detached' })

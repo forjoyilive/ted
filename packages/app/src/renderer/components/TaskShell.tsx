@@ -214,7 +214,7 @@ export function TaskShell({
                       .finally(() => setBusy(false))
                   }}
                 >
-                  Open Shell
+                  Open shell
                 </Button>
               </>
             ) : (

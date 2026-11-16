@@ -108,7 +108,7 @@ test('Blocked by sends add/remove requests and displays a rejected cycle', async
       onOpenShell={vi.fn()}
     />,
   )
-  await user().click(screen.getByRole('button', { name: 'Add blocker' }))
+  await user().click(screen.getByRole('button', { name: 'Add blocker…' }))
   await user().type(screen.getByLabelText('Find a Task'), 'offline')
   await user().click(screen.getByRole('option', { name: /NB-2/ }))
   expect(api.request).toHaveBeenCalledWith('blockTask', 'NB-1', 'NB-2')
@@ -155,7 +155,7 @@ test('Blocked by dismisses on outside clicks while keeping search and selection 
     api.request.mock.calls.filter(([name]) => name === 'blockTask' || name === 'unblockTask'),
   ).toEqual([])
 
-  await u.click(screen.getByRole('button', { name: 'Add blocker' }))
+  await u.click(screen.getByRole('button', { name: 'Add blocker…' }))
   await u.keyboard('{Escape}')
   expect(screen.queryByRole('listbox', { name: 'Tasks' })).toBeNull()
   await u.click(screen.getByRole('button', { name: 'Task actions' }))
@@ -244,7 +244,7 @@ test('Task details displays saved Priority, menu depth attribution and a success
   await u.click(screen.getByRole('menuitem', { name: 'Settings' }))
   await u.click(screen.getByRole('menuitemradio', { name: /Few/ }))
   await within(details).findByText('Few · set by you')
-  await u.click(within(details).getByRole('button', { name: 'Add blocker' }))
+  await u.click(within(details).getByRole('button', { name: 'Add blocker…' }))
   await u.type(screen.getByLabelText('Find a Task'), 'offline')
   await u.click(screen.getByRole('option', { name: /NB-2/ }))
   expect(within(details).getByText('Offline editing')).toBeTruthy()
@@ -381,7 +381,7 @@ test('blocker changes keep pending feedback and reject repeats until completion'
       onOpenShell={vi.fn()}
     />,
   )
-  await user().click(screen.getByRole('button', { name: 'Add blocker' }))
+  await user().click(screen.getByRole('button', { name: 'Add blocker…' }))
   await user().type(screen.getByLabelText('Find a Task'), 'offline')
   const option = screen.getByRole('option', { name: /NB-2/ })
   await user().click(option)

@@ -93,7 +93,7 @@ export const LinearIntakeSection = memo(function LinearIntakeSection({
         </span>
         <span className={styles.caption}>
           {loading
-            ? 'Loading Linear Teams and Projects…'
+            ? 'Loading Linear teams and projects…'
             : 'Connect Linear in App Settings → Integrations to choose a Team or Project.'}
           {!loading && scope ? ` The saved scope (${savedLabel}) stays in effect.` : ''}
         </span>
@@ -125,8 +125,8 @@ export const LinearIntakeSection = memo(function LinearIntakeSection({
           }}
         >
           <option value="none">Unscoped</option>
-          <option value="team">One Team</option>
-          <option value="project">One Project</option>
+          <option value="team">One team</option>
+          <option value="project">One project</option>
         </Select>
       </div>
       {kind !== 'none' && (

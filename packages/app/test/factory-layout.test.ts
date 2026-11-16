@@ -143,7 +143,7 @@ describe('groupSections', () => {
     }
     const sections = groupSections(two)
     expect(sections.keys).toEqual(['g2', 'g1', 'none'])
-    expect(sections.keys.map(sections.labelOf)).toEqual(['Clients', 'Acme', 'No group'])
+    expect(sections.keys.map(sections.labelOf)).toEqual(['Clients', 'Acme', 'No Factory group'])
     expect(['a', 'b', 'd', 'e'].map(sections.keyOf)).toEqual(['none', 'g1', 'g2', 'none'])
   })
 })

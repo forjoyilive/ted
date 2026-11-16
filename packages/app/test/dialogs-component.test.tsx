@@ -155,7 +155,7 @@ test('a blocker from another Factory is sent with its waiting explanation', asyn
   )
   const u = user()
   await formReady()
-  await u.click(screen.getByRole('button', { name: 'Add blocker' }))
+  await u.click(screen.getByRole('button', { name: 'Add blocker…' }))
   await u.type(screen.getByLabelText('Find a Task'), 'crash')
   await u.click(screen.getByRole('option', { name: /DEV-1/ }))
   expect(screen.getByText('Waits as Blocked until DEV-1 merges')).toBeTruthy()

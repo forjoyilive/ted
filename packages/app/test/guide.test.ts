@@ -24,7 +24,7 @@ describe('the guide card follows the setup Task', () => {
     })
     const failed = factory({ cloned: false, setup: [{ repo: 'acme/widgets', state: 'failed' }] })
     expect(card(guided(false, failed), undefined, [])).toEqual({
-      text: 'TED couldn’t clone your repos. See the banner at the top.',
+      text: 'TED couldn’t clone your repos. See the Banner at the top.',
     })
   })
 
@@ -56,7 +56,7 @@ describe('the guide card follows the setup Task', () => {
     const signOff = comment({ id: 's1', taskId: 't1', kind: 'signoff', stage: 'review' })
     expect(card(guided(), setup('review'), [signOff])).toEqual({
       text: 'Approve the settings to merge them.',
-      button: { label: 'Open the sign-off', open: 'request', requestId: 's1' },
+      button: { label: 'Open the Sign-Off', open: 'request', requestId: 's1' },
     })
     const permission = comment({ id: 'q1', taskId: 't1', kind: 'permission', stage: 'work' })
     expect(card(guided(), setup('work'), [permission])).toEqual({
@@ -80,7 +80,7 @@ describe('the guide card follows the setup Task', () => {
     expect(card(guided(), setup('merge'), [])).toEqual({
       text: 'TED is merging the pull request.',
     })
-    const newTask = { label: 'New Task', open: 'new-task' }
+    const newTask = { label: 'New Task…', open: 'new-task' }
     expect(card(guided(true), setup('done'), [])).toEqual({
       text: 'Your Factory is set up. Create your first Task.',
       button: newTask,

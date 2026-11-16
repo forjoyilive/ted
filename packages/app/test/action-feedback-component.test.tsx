@@ -306,7 +306,7 @@ test('Automation Run now shows pending and prevents duplicate firings before its
   expect(button.getAttribute('aria-busy')).toBe('true')
   fireEvent.click(button)
   expect(run).toHaveBeenCalledOnce()
-  expect((screen.getByRole('button', { name: 'Edit' }) as HTMLButtonElement).disabled).toBe(true)
+  expect((screen.getByRole('button', { name: 'Edit…' }) as HTMLButtonElement).disabled).toBe(true)
   await user().click(screen.getByRole('button', { name: 'Automation actions' }))
   const menuRun = screen.getByRole('menuitem', { name: 'Run now' })
   expect(menuRun.getAttribute('aria-busy')).toBe('true')

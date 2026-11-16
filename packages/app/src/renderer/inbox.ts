@@ -143,14 +143,14 @@ const priorityHeadings: readonly (readonly [string, string])[] = [
   ['high', priorityLabels.high],
   ['medium', priorityLabels.medium],
   ['low', priorityLabels.low],
-  ['none', 'No priority'],
+  ['none', 'No Priority'],
   ['no-task', 'Not from a Task'],
 ]
 
 const kindHeadings: readonly (readonly [InboxKind, string])[] = [
   ['blocking', 'Blocking a Run'],
   ['question', 'Questions'],
-  ['signoff', 'Sign-offs'],
+  ['signoff', 'Sign-Offs'],
 ]
 
 export interface InboxOrder {

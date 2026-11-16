@@ -99,7 +99,7 @@ const entries = {
     platform: 'linux',
   },
   'app.general.startup.stay-awake': {
-    name: 'Stay Awake while Runs are working',
+    name: 'Stay awake while Runs are working',
     help: 'Keeps this computer from going to sleep on its own while any Run is working. Automations don’t keep it awake.',
   },
   'app.general.editor': { name: 'Editor and command line', heading: true },
@@ -247,11 +247,11 @@ const entries = {
   'app.storage.run-output': { name: 'Delete automatically', heading: true },
   'app.storage.run-output.days': {
     name: 'Delete agent chats',
-    help: 'Only the chats go. The task, its comments and its brief stay. Counted from when the task is done or archived, or for a chat with no task, from when it ends.',
+    help: 'Only the chats go. The Task, its Comments and its Task brief stay. Counted from when the Task is Done or archived, or for a chat with no Task, from when it ends.',
   },
   'app.storage.archived-tasks': {
-    name: 'Delete archived tasks',
-    help: 'The whole task goes, with its comments, brief and chats. Counted from when it was archived. Done tasks that aren’t archived stay. This can’t be undone.',
+    name: 'Delete archived Tasks',
+    help: 'The whole Task goes, with its Comments, Task brief and chats. Counted from when it was archived. Done Tasks that aren’t archived stay. This can’t be undone.',
   },
   'app.storage.export': { name: 'Export a Factory', heading: true },
   'app.storage.export.factory': { name: 'Factory' },
@@ -372,7 +372,7 @@ const entries = {
     help: 'Off: every blocking Finding sends the Task back to Work. From a round: in that round of Validate and every later one, a new Finding sends it back only if it is P1. P1 means lost or corrupted data, a security hole, or broken behaviour the Task asks for. A Finding from an earlier round that is still not fixed sends it back too. Every other new Finding stays unfixed and is listed as a note for you at Review. You get fewer rounds, and problems Validate found can merge if you approve without reading the notes.',
   },
   'factory.workflow.validate-sub-agents': {
-    name: 'Other sub-agents in Validate',
+    name: 'Other Sub-Agents in Validate',
     help: 'Off: in Validate the Task Lead can start only TED’s reviewer, one per visit. On: it can also start other sub-agents, for example to run slow tests. Each one takes a working Run, and a sub-agent that reviews the diff adds Findings that can cost another round. The one-reviewer rule stays either way.',
   },
   'factory.workflow.lead-closes-failures': {

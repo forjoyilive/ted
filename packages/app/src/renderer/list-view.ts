@@ -52,7 +52,7 @@ export const createdByLabels: Record<CreatedBy, string> = {
   automation: 'An Automation',
   planning: 'A planning chat',
   split: 'A split',
-  'follow-up': 'A Follow-up',
+  'follow-up': 'A Follow-Up',
   setup: 'Factory setup',
   coordinator: 'The Coordinator',
 }
@@ -319,7 +319,7 @@ export function groupTasks(
       return make(
         priorities,
         (t) => t.priority,
-        (p: Priority) => (p === 'none' ? 'No priority' : priorityLabels[p]),
+        (p: Priority) => (p === 'none' ? 'No Priority' : priorityLabels[p]),
       )
     case 'status':
       return make(
@@ -449,8 +449,8 @@ export function filterChips(
     add('createdBy', `Created by ${joined(filters.createdBy.map((c) => createdByLabels[c]))}`)
   }
   if (filters.needsPlanning) add('needsPlanning', 'Needs planning')
-  if (filters.archived === 'included') add('archived', 'Archived: Included')
-  if (filters.archived === 'only') add('archived', 'Archived: Only')
+  if (filters.archived === 'included') add('archived', 'Archived: included')
+  if (filters.archived === 'only') add('archived', 'Archived: only')
   return chips
 }
 

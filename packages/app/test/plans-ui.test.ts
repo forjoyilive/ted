@@ -102,7 +102,7 @@ describe('Planning chats', () => {
     await openFirstFactory(window)
     await sidebar(window).getByRole('button', { name: 'Task views' }).click()
     await sidebar(window).getByRole('button', { name: 'List', exact: true }).click()
-    await window.getByRole('button', { name: 'Plan', exact: true }).first().click()
+    await window.getByRole('button', { name: 'Plan…', exact: true }).first().click()
     const fresh = window.getByRole('region', { name: 'New planning chat' })
     await fresh.waitFor()
     expect(
@@ -244,7 +244,7 @@ describe('Planning chats', () => {
       .waitFor({ state: 'detached' })
 
     await quickRow.getByRole('button', { name: 'Actions for Quick plan' }).click()
-    await quickRow.getByRole('menuitem', { name: 'Plan more from here' }).click()
+    await quickRow.getByRole('menuitem', { name: 'Plan more from here…' }).click()
     const fresh = window.getByRole('region', { name: 'New planning chat' })
     await fresh.getByText('Builds on “Quick plan”', { exact: false }).waitFor()
     await fresh

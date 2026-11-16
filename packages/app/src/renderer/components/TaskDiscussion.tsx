@@ -97,7 +97,7 @@ export function TaskDiscussion({
           ))}
           {error && retry && <LoadingError error={error} retry={retry} />}
           {leadRunId && !chat && !error && (
-            <Skeleton shape="history" label="Loading Task Lead conversation…" />
+            <Skeleton shape="history" label="Loading Task Lead Conversation…" />
           )}
           <ChatTimeline chat={shown} options={{ extra }} />
         </ScrollMemory>
@@ -154,7 +154,7 @@ function EarlierConversation({
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
       <summary>
-        Earlier conversation ·{' '}
+        Earlier Conversation ·{' '}
         {formatDate(run.startedAt, { day: 'numeric', month: 'short', year: 'numeric' })} ·{' '}
         {clockTime(run.startedAt)}
       </summary>
@@ -197,7 +197,7 @@ function EarlierMessages({
         <div className={`${styles.olderItems} ${column.nested}`}>
           {resource.error && <LoadingError error={resource.error} retry={resource.retry} />}
           {!resource.value && !resource.error && (
-            <Skeleton shape="history" label="Loading earlier conversation…" />
+            <Skeleton shape="history" label="Loading earlier Conversation…" />
           )}
           <ChatTimeline
             chat={visibleChat(resource.value, comments, entries, stage)}

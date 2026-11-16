@@ -129,7 +129,7 @@ describe('TED app', () => {
     const passed = thread.getByRole('listitem').filter({ hasText: 'Validate passed' })
     await passed.waitFor({ timeout: 40_000 })
     await passed.getByRole('listitem').filter({ hasText: 'Review · 2 notes' }).waitFor()
-    const card = thread.getByRole('region', { name: 'Sign-off' })
+    const card = thread.getByRole('region', { name: 'Sign-Off' })
     await card.waitFor({ timeout: 40_000 })
     const row = card.getByRole('list', { name: 'Checks' })
     await row.getByRole('button', { name: '✓ Typecheck' }).waitFor()
@@ -155,7 +155,7 @@ describe('TED app', () => {
 
     const banners = window.getByRole('region', { name: 'widgets problems' })
     await banners.getByText('Local folder for widgets not found').waitFor()
-    await banners.getByRole('button', { name: 'Locate' }).click()
+    await banners.getByRole('button', { name: 'Locate…' }).click()
 
     await window.getByText('Local folder for widgets not found').waitFor({ state: 'detached' })
     const [factory] = await (await daemonClient()).listFactories()
