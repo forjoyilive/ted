@@ -31,7 +31,6 @@ import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
 import { Help } from '../components/Help.tsx'
 import markerStyles from '../components/HierarchyMarker.module.css'
-import { HierarchyMarker } from '../components/HierarchyMarker.tsx'
 import { ChevronIcon, CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { PriorityButton } from '../components/PriorityMenu.tsx'
@@ -40,6 +39,7 @@ import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCo
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
 import { ordinal } from '../components/TaskStatus.tsx'
 import { emptyLayout, groups as factoryGroups } from '../factory-layout.ts'
+import { childProgress, parentOf, progressText } from '../hierarchy.ts'
 import { useListCollapsed } from '../list-collapse.ts'
 import {
   activeFilterCount,
@@ -87,6 +87,8 @@ const columnWidths: Record<ListColumn | 'queue', string> = {
   priority: '16px',
   id: '56px',
   title: 'minmax(160px, 1fr)',
+  children: '108px',
+  parent: '80px',
   factory: '110px',
   stage: '80px',
   status: '300px',
@@ -111,7 +113,12 @@ export function listGrid(
   columns: readonly (ListColumn | 'queue')[],
   tasks: readonly Pick<Task, 'displayId'>[],
 ): string {
-  const width = (c: ListColumn | 'queue') => (c === 'id' ? idColumnWidth(tasks) : columnWidths[c])
+  const width = (c: ListColumn | 'queue') =>
+    c === 'id'
+      ? idColumnWidth(tasks)
+      : c === 'parent'
+        ? `max(${columnWidths.parent}, calc(${idColumnWidth(tasks)} + 8px))`
+        : columnWidths[c]
   const status = (others: readonly (ListColumn | 'queue')[]) => {
     if (!others.includes('title')) return `minmax(${statusMin}, ${columnWidths.status})`
     const taken = [
@@ -747,11 +754,30 @@ export function TaskList({
           >
             {caret(nest, group)}
             <span className={styles.titleText}>{task.title}</span>
-            <HierarchyMarker task={task} tasks={tasks} showParent={nest.depth === 0} />
             <AutopilotLabel task={task} />
             {task.archived && <span className={styles.archivedChip}>Archived</span>}
           </span>
         )
+      case 'children': {
+        const progress = childProgress(task, tasks)
+        return progress.total > 0 ? (
+          <span className={markerStyles.marker} data-child-progress>
+            {progressText(progress)}
+          </span>
+        ) : (
+          <span className={styles.none}>—</span>
+        )
+      }
+      case 'parent': {
+        const parent = parentOf(task, tasks)
+        return parent ? (
+          <span className={markerStyles.marker} data-parent-marker>
+            ↑ {parent.displayId}
+          </span>
+        ) : (
+          <span className={styles.none}>—</span>
+        )
+      }
       case 'factory':
         return factories.find((f) => f.id === task.factoryId)?.name ?? 'No Factory'
       case 'stage':

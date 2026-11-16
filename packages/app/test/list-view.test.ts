@@ -85,6 +85,8 @@ describe('defaults', () => {
       'priority',
       'id',
       'title',
+      'children',
+      'parent',
       'stage',
       'status',
       'updated',
@@ -101,6 +103,17 @@ describe('defaults', () => {
     expect(viewFor({}, 'all').group).toBe('stage')
     const saved = { ...defaultView('all'), group: 'factory' as const }
     expect(viewFor({ all: saved }, 'all')).toBe(saved)
+  })
+
+  test('a saved view gains each column added since it was saved, once', () => {
+    const base = { sort: 'manual' as const, group: 'stage' as const, filters: {} }
+    const unversioned = viewFor({ nb: { ...base, columns: ['id', 'title'] } }, 'nb')
+    expect(unversioned).toMatchObject({ columnsVersion: 3 })
+    expect(shownColumns(unversioned)).toEqual(['id', 'title', 'children', 'parent', 'started'])
+    const two = viewFor({ nb: { ...base, columnsVersion: 2, columns: ['title', 'updated'] } }, 'nb')
+    expect(shownColumns(two)).toEqual(['title', 'children', 'parent', 'updated'])
+    const three = { ...base, columnsVersion: 3 as const, columns: ['title' as const] }
+    expect(viewFor({ nb: three }, 'nb')).toBe(three)
   })
 
   test('Title always shows', () => {

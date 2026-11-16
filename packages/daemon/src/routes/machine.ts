@@ -17,6 +17,7 @@ import {
   type ListFilters,
   type ListView,
   listColumns,
+  listColumnsVersions,
   listGroups,
   listSorts,
   type MachineSettings,
@@ -227,13 +228,14 @@ function listView(value: unknown): ListView {
     throw new HttpError(400, 'nested must be true or false')
   }
   const columns = oneOfList('columns', view.columns, listColumns)
-  if (view.columnsVersion !== undefined && view.columnsVersion !== 2) {
-    throw new HttpError(400, 'columnsVersion must be 2')
+  const columnsVersion = listColumnsVersions.find((v) => v === view.columnsVersion)
+  if (view.columnsVersion !== undefined && columnsVersion === undefined) {
+    throw new HttpError(400, `columnsVersion must be ${listColumnsVersions.join(' or ')}`)
   }
   return {
     sort,
     group,
-    ...(view.columnsVersion === 2 && { columnsVersion: 2 }),
+    ...(columnsVersion !== undefined && { columnsVersion }),
     columns: columns.includes('title') ? columns : ['title', ...columns],
     filters: listFilters(view.filters ?? {}),
     ...(view.showEmptyGroups !== undefined && { showEmptyGroups: view.showEmptyGroups }),
