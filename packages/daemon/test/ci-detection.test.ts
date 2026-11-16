@@ -184,6 +184,8 @@ describe('workflow triggers', () => {
     expect(filterMatches('**', 'ted/nb-1')).toBe(true)
     expect(filterMatches('release/v[0-9].x', 'release/v2.x')).toBe(true)
     expect(filterMatches('feature.x', 'featureAx')).toBe(false)
+    expect(filterMatches(`${'*a'.repeat(20)}b`, 'a'.repeat(60))).toBe(true)
+    expect(filterMatches('x'.repeat(201), 'ted/nb-1')).toBe(true)
   })
 })
 

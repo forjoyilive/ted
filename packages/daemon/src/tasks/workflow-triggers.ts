@@ -70,7 +70,21 @@ function included(list: readonly string[], branch: string): boolean {
   return matched
 }
 
+const maxPatternLength = 200
+const maxWildcards = 3
+
 export function filterMatches(pattern: string, branch: string): boolean {
+  const compact = pattern.replace(/\*{3,}/g, '**')
+  const wildcards = compact.match(/\*\*|[*?+]/g)?.length ?? 0
+  if (compact.length > maxPatternLength || wildcards > maxWildcards) return true
+  try {
+    return new RegExp(`^${patternSource(compact)}$`).test(branch)
+  } catch {
+    return true
+  }
+}
+
+function patternSource(pattern: string): string {
   let source = ''
   for (let i = 0; i < pattern.length; i++) {
     const char = pattern.charAt(i)
@@ -88,9 +102,5 @@ export function filterMatches(pattern: string, branch: string): boolean {
       }
     } else source += char.replace(/[.^$|(){}\\\]]/g, '\\$&')
   }
-  try {
-    return new RegExp(`^${source}$`).test(branch)
-  } catch {
-    return true
-  }
+  return source
 }
