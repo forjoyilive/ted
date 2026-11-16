@@ -25,6 +25,7 @@ import {
   ctx,
   getTask,
   lines,
+  mergeAdvance,
   merges,
   readGh,
   run,
@@ -35,6 +36,8 @@ import {
 } from './merge-harness.ts'
 
 useMergeHarness()
+
+const atMerge = { run: ['sh', '-c', `${mergeAdvance} || true`] }
 
 const gated = {
   order: 'intake, design, work, validate, review, merge',
@@ -61,7 +64,7 @@ async function begin(
 ): Promise<Task> {
   const task = await client.ok<Task>('POST', '/tasks', {
     title: JSON.stringify({
-      steps: [{ everyMessage: [{ endTurn: true }] }, step, { endTurn: true }],
+      steps: [{ everyMessage: [atMerge, { endTurn: true }] }, step, { endTurn: true }],
     }),
     factory: 'NB',
     ...extra,
