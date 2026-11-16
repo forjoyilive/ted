@@ -1,4 +1,5 @@
 import type { CleanupStepReport } from '@ted/protocol'
+import { isCleanup, mergesHere } from '@ted/protocol/stage'
 import { type CleanupStep, isCommandStep } from '../workflow/check.ts'
 
 export const cleanupNoBack =
@@ -32,12 +33,12 @@ export function cleanupMoveTarget<T extends string>(
   to: T,
   stages: readonly string[],
 ): { next: T | 'merge' | 'cleanup'; why?: 'merge-off' | 'cleanup' } {
-  if (from === 'merge' && (to === 'done' || to === 'cleanup') && stages.includes('cleanup'))
+  if (mergesHere(from) && (to === 'done' || isCleanup(to)) && stages.some(isCleanup))
     return { next: 'cleanup', why: 'cleanup' }
   if (
-    from !== 'merge' &&
-    from !== 'cleanup' &&
-    (to === 'cleanup' || (to === 'done' && !stages.includes('merge')))
+    !mergesHere(from) &&
+    !isCleanup(from) &&
+    (isCleanup(to) || (to === 'done' && !stages.some(mergesHere)))
   )
     return { next: 'merge', why: 'merge-off' }
   return { next: to }

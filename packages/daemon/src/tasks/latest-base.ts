@@ -1,3 +1,4 @@
+import { handsOff } from '@ted/protocol/stage'
 import { redactSecrets } from '../redact.ts'
 import { oneLine } from './review-rounds.ts'
 
@@ -11,7 +12,7 @@ export interface AdoptedBase {
 export type BaseStep = 'current' | 'move' | 'own-commits' | 'clone-behind'
 
 export function firstWorkEntry(to: string, entries: readonly { stage: string }[]): boolean {
-  return to === 'work' && !entries.some((entry) => entry.stage === 'work')
+  return handsOff(to) && !entries.some((entry) => handsOff(entry.stage))
 }
 
 export function baseStep(found: {

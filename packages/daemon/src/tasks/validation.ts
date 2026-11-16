@@ -12,6 +12,7 @@ import type {
 } from '@ted/protocol'
 import { validationExecution } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
+import { handsOff, mergesHere, validates } from '@ted/protocol/stage'
 import { RequestError } from '../errors.ts'
 import type { MemoryWatch } from '../memory-kills.ts'
 import { redactSecrets } from '../redact.ts'
@@ -88,10 +89,10 @@ export function createValidation(options: ValidationOptions) {
   const { store, failures, find, reportingEnv } = options
   const visitStart = (task: Task) => {
     const entries = store.listStageEntries(task.id)
-    const merge = entries.findLast((e) => e.stage === 'merge')?.at ?? ''
+    const merge = entries.findLast((e) => mergesHere(e.stage))?.at ?? ''
     return (
-      (task.stage === 'merge' ? store.latestRebase(task.id, merge) : undefined) ??
-      entries.findLast((e) => e.stage === 'validate')?.at ??
+      (mergesHere(task.stage) ? store.latestRebase(task.id, merge) : undefined) ??
+      entries.findLast((e) => validates(e.stage))?.at ??
       ''
     )
   }
@@ -109,7 +110,7 @@ export function createValidation(options: ValidationOptions) {
   const merged = (task: Task) => {
     const opened = task.repos.filter((r) => !r.removed && r.pullRequest !== undefined)
     return (
-      task.stage === 'merge' &&
+      mergesHere(task.stage) &&
       opened.length > 0 &&
       opened.every((r) => r.pullRequest?.state === 'merged')
     )
@@ -173,10 +174,10 @@ export function createValidation(options: ValidationOptions) {
   }
 
   function mergeChecksStarted(task: Task): boolean {
-    const since = store.listStageEntries(task.id).findLast((e) => e.stage === 'merge')?.at ?? ''
+    const since = store.listStageEntries(task.id).findLast((e) => mergesHere(e.stage))?.at ?? ''
     return store
       .listCheckRuns(task.id)
-      .some((run) => run.trigger === 'merge' && run.stage === 'merge' && run.startedAt >= since)
+      .some((run) => run.trigger === 'merge' && mergesHere(run.stage) && run.startedAt >= since)
   }
 
   async function beginChecks(
@@ -190,14 +191,14 @@ export function createValidation(options: ValidationOptions) {
     if (hold) throw new RequestError(409, hold)
     const requested = trigger === 'agent'
     const mergeVisit =
-      store.listStageEntries(task.id).findLast((e) => e.stage === 'merge')?.at ?? ''
+      store.listStageEntries(task.id).findLast((e) => mergesHere(e.stage))?.at ?? ''
     const merging =
-      task.stage === 'merge' &&
+      mergesHere(task.stage) &&
       (trigger === 'merge' ||
         store.latestRebase(task.id, mergeVisit) !== undefined ||
         mergeChecksStarted(task))
     if (merging) trigger = 'merge'
-    const validating = task.stage === 'validate' && trigger !== 'merge'
+    const validating = validates(task.stage) && trigger !== 'merge'
     const diagnosing = validating || merging
     const existing = store.failures.progress(task.id)
     const order = resolution.workflow.order
@@ -480,7 +481,7 @@ export function createValidation(options: ValidationOptions) {
   async function resumeValidation(taskId: string): Promise<void> {
     const task = find(taskId)
     const progress = store.failures.progress(taskId)
-    if (task.stage !== 'validate' || task.archived || task.stopped) {
+    if (!validates(task.stage) || task.archived || task.stopped) {
       options.setChecking(taskId, false)
       return
     }
@@ -493,7 +494,7 @@ export function createValidation(options: ValidationOptions) {
       options.setChecking(taskId, false)
       await options.holding(task, async () => {
         for (const value of fixes) {
-          if (find(taskId).stage !== 'validate') break
+          if (!validates(find(taskId).stage)) break
           await options.fix(find(taskId), value)
         }
       })
@@ -510,7 +511,7 @@ export function createValidation(options: ValidationOptions) {
     const taskId = task.id
     const progress = store.failures.progress(taskId)
     if (!progress) return true
-    const kind = task.stage === 'merge' ? 'post-rebase-check' : 'factory-check'
+    const kind = mergesHere(task.stage) ? 'post-rebase-check' : 'factory-check'
     const execution = progress.executions.at(-1)
     const run = execution && store.getCheckRun(execution.runId)
     const position =
@@ -551,7 +552,7 @@ export function createValidation(options: ValidationOptions) {
         })
       } else {
         if (
-          task.stage === 'merge' &&
+          mergesHere(task.stage) &&
           progress.failureId === value.id &&
           !progress.pending &&
           progress.next === execution.start + position
@@ -567,12 +568,12 @@ export function createValidation(options: ValidationOptions) {
         })
         options.setChecking(taskId, false)
         await store.persisted()
-        if (task.stage === 'validate')
+        if (validates(task.stage))
           await options.deliver(
             task,
             `Validate failure ${shortReference(value.id)} still needs diagnosis or a human decision. Original evidence:\n\n${value.evidence}`,
           )
-        if (task.stage === 'merge') await options.notify(task)
+        if (mergesHere(task.stage)) await options.notify(task)
         return false
       }
     }
@@ -647,7 +648,7 @@ export function createValidation(options: ValidationOptions) {
       const result = await started.done
       const checkRun = store.getCheckRun(started.checkRun.id) ?? started.checkRun
       const current = find(taskId)
-      if (result.outcome === 'interrupted' || current.stage !== 'validate') return
+      if (result.outcome === 'interrupted' || !validates(current.stage)) return
       if (result.outcome === 'passed') {
         const progress = store.failures.progress(taskId)
         const previousFailures = progress?.checks.some(
@@ -681,7 +682,7 @@ export function createValidation(options: ValidationOptions) {
 
   async function mergeChecks(taskId: string, resolution: WorkflowResolution): Promise<boolean> {
     const task = find(taskId)
-    const since = store.listStageEntries(taskId).findLast((e) => e.stage === 'merge')?.at ?? ''
+    const since = store.listStageEntries(taskId).findLast((e) => mergesHere(e.stage))?.at ?? ''
     if (
       store.latestRebase(taskId, since) === undefined &&
       !pendingRepair(task) &&
@@ -784,9 +785,9 @@ export function createValidation(options: ValidationOptions) {
       return failures.resolve(task, id, input, sendDrafts)
     }
     const merging =
-      task.stage === 'merge' &&
+      mergesHere(task.stage) &&
       (value.source.kind === 'post-rebase-check' || value.source.kind === 'github-ci')
-    if (task.stage !== 'validate' && !merging)
+    if (!validates(task.stage) && !merging)
       throw new RequestError(409, 'this Check decision is no longer current')
     if (input.resolution === 'fixed' || input.resolution === 'no-longer-applicable')
       throw new RequestError(
@@ -846,7 +847,7 @@ export function createValidation(options: ValidationOptions) {
   ): Promise<boolean> {
     const progress = store.failures.progress(task.id)
     if (task.stage === 'done') return true
-    if (!progress) return task.stage !== 'validate' && visitStart(task) === ''
+    if (!progress) return !validates(task.stage) && visitStart(task) === ''
     if (
       (progress.pending || progress.next < progress.checks.length) &&
       (!refreshPending || options.isChecking(task.id))
@@ -856,7 +857,7 @@ export function createValidation(options: ValidationOptions) {
     const tested = progress.coverage ?? (previous && coverageOf(previous))
     // The Check plan is read from the default branch, which holds this Task’s own changes
     // once its pull requests have merged, so only the code is compared from then on.
-    if (merged(task) || (mergedOnGitHub && task.stage === 'merge')) {
+    if (merged(task) || (mergedOnGitHub && mergesHere(task.stage))) {
       if (
         progress.visit !== visitStart(task) ||
         progress.pending ||
@@ -929,7 +930,7 @@ export function createValidation(options: ValidationOptions) {
             .listStageEntries(task.id)
             .some(
               (entry) =>
-                entry.stage === 'work' && entry.at > source.startedAt && entry.at < progress.visit,
+                handsOff(entry.stage) && entry.at > source.startedAt && entry.at < progress.visit,
             ))) ||
       !original ||
       progress.checks.some((c, position) => {
@@ -1013,7 +1014,10 @@ export function createValidation(options: ValidationOptions) {
     for (const checkRun of store.listCheckRuns().filter((r) => r.finishedAt === undefined)) {
       const task = store.getTask(checkRun.taskId)
       const restart =
-        checkRun.trigger === 'validate' && task?.stage === 'validate' && !pendingRepair(task)
+        checkRun.trigger === 'validate' &&
+        task !== undefined &&
+        validates(task.stage) &&
+        !pendingRepair(task)
       if (restart) options.setChecking(task.id, true)
       store.checkSlotBoundary(checkRun.id, 'recovered', new Date().toISOString())
       store.finishChecks(checkRun.id, 'interrupted')
@@ -1031,7 +1035,7 @@ export function createValidation(options: ValidationOptions) {
         decision?.resolution === 'accepted' ||
         decision?.resolution === 'fix'
       if (
-        task.stage === 'validate' &&
+        validates(task.stage) &&
         !pendingRepair(task) &&
         !task.archived &&
         !store.failures.list(task.id).some((f) => {
