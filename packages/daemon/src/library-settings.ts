@@ -163,7 +163,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
       return {
         id,
         inOrder,
-        enabled: inOrder && (id === 'done' || stage?.enabled !== false),
+        enabled: inOrder && (id === 'backlog' || id === 'done' || stage?.enabled !== false),
         gate: stage?.gate === true,
         ...(agent && {
           effort: (own.settings.stages[id]?.effort ?? null) as Effort | null,

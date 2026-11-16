@@ -557,7 +557,7 @@ test('App settings navigation selects real pages and Factory settings leaves the
   a.handle('library', () => ({
     path: '/test/library',
     version: 'v1',
-    stages: [],
+    stages: [{ id: 'backlog', inOrder: true, enabled: true, gate: false, from: 'ted' }],
     agents: [],
     problems: [],
   }))
@@ -574,6 +574,11 @@ test('App settings navigation selects real pages and Factory settings leaves the
     expect(
       within(screen.getByRole('main', { name })).getByRole('heading', { name, level: 1 }),
     ).toBeTruthy()
+    if (name === 'Library') {
+      const library = within(screen.getByRole('main', { name }))
+      expect((await library.findByText('Always on')).title).toBe('Backlog can’t be turned off')
+      expect(library.queryByRole('switch', { name: 'Backlog on' })).toBeNull()
+    }
   }
   await user().click(within(nav).getByRole('button', { name: 'widgets' }))
   await screen.findByRole('heading', { name: /widgets.*Settings/, level: 1 })

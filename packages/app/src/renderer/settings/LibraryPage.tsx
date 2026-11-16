@@ -323,7 +323,7 @@ function StageLine({
   const file = agent ? (draft.stageFiles[row.id as AgentStageId] ?? null) : null
   const holding = <span className={styles.holding}>holding</span>
   const dash = <span className={sections.dash}>—</span>
-  const fixed = row.id === 'intake' || row.id === 'work'
+  const fixed = row.id === 'backlog' || row.id === 'intake' || row.id === 'work'
   const drift =
     agent && file !== null && !draft.keepStageFiles.includes(row.id as AgentStageId)
       ? row.drift
@@ -341,12 +341,6 @@ function StageLine({
         <span>
           {row.id === 'done' ? (
             holding
-          ) : row.id === 'backlog' ? (
-            <Toggle
-              label="Backlog on"
-              checked={stage?.enabled ?? row.enabled}
-              onChange={(enabled) => onStage({ enabled })}
-            />
           ) : fixed ? (
             <span className={sections.always} title={`${name} can’t be turned off`}>
               Always on

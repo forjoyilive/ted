@@ -254,14 +254,18 @@ describe('layers', () => {
     expect(resolveWorkflow([await defaults()]).stages).not.toContain('cleanup')
   })
 
-  test('stages.backlog.enabled: false leaves Backlog out; Done always stays last', async () => {
-    const workflow = resolveWorkflow([
-      await defaults(),
-      library({ 'workflow.yaml': 'version: 1\nstages:\n  backlog: { enabled: false }\n' }),
-    ])
+  test('stages.backlog.enabled: false is ignored with a warning; Backlog stays first and Done last', async () => {
+    const layer = library({
+      'workflow.yaml': 'version: 1\nstages:\n  backlog: { enabled: false }\n',
+    })
+    const workflow = resolveWorkflow([await defaults(), layer])
 
-    expect(workflow.stages[0]).toBe('intake')
+    expect(layer.problems.map((p) => [p.severity, p.line, p.message])).toEqual([
+      ['warning', 3, 'Backlog can’t be turned off; TED ignores this'],
+    ])
+    expect(workflow.stages[0]).toBe('backlog')
     expect(workflow.stages.at(-1)).toBe('done')
+    expect(boardStages(workflow)[0]).toMatchObject({ id: 'backlog', enabled: true })
   })
 
   test('Factory-only keys in the Library are ignored with a warning', async () => {

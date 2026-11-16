@@ -254,7 +254,9 @@ test('Workflow and notes stay staged across pages while confirmed permissions sa
   expect(gate.getAttribute('aria-checked')).toBe('true')
   expect(screen.queryByRole('switch', { name: 'Work on' })).toBeNull()
   expect(screen.queryByRole('switch', { name: 'Intake on' })).toBeNull()
+  expect(screen.queryByRole('switch', { name: 'Backlog on' })).toBeNull()
   expect(screen.getAllByText('Always on').map((on) => on.title)).toEqual([
+    'Backlog can’t be turned off',
     'Intake can’t be turned off',
     'Work can’t be turned off',
   ])

@@ -387,7 +387,7 @@ function StageRow({
     : file !== null
       ? 'factory'
       : (row.inherited?.layer ?? (row.from === 'factory' ? 'ted' : row.from))
-  const fixed = row.id === 'intake' || row.id === 'work'
+  const fixed = row.id === 'backlog' || row.id === 'intake' || row.id === 'work'
   const dash = <span className={styles.dash}>—</span>
   const drift =
     agent && file !== null && !draft.keepStageFiles.includes(row.id as AgentStageId)

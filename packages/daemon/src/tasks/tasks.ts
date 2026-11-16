@@ -5042,10 +5042,7 @@ export function createTasks(options: {
     for (const id of new Set([...existingParents, ...heldIds])) holdParent(id)
     for (const id of reread) if (!heldIds.includes(id)) wakeTask(id)
     tellHierarchyChanged([...existingParents, ...plan.links.map((link) => link.taskId)])
-    const startAll =
-      resolution !== undefined &&
-      !held &&
-      (input.start === true || !resolution.workflow.stages.includes('backlog'))
+    const startAll = resolution !== undefined && !held && input.start === true
     if (startAll) {
       for (const task of created) {
         await start(task.id).catch((error: unknown) => {
@@ -10582,7 +10579,7 @@ export function createTasks(options: {
       resolution &&
       !automation?.check &&
       !githubIntake &&
-      (startNow === true || !resolution.workflow.stages.includes('backlog'))
+      startNow === true
     ) {
       for (const id of descendants(task.id)) {
         await queueAndAnswer(id).catch((error: unknown) => {
@@ -10592,8 +10589,7 @@ export function createTasks(options: {
     }
     if (!resolution || unmergedBlockers(task.id).length > 0 || automation?.check || githubIntake)
       return task
-    const hasBacklog = resolution.workflow.stages.includes('backlog')
-    if (hasBacklog && startNow !== true) return task
+    if (startNow !== true) return task
     return startInBackground === true ? queueAndAnswer(task.id) : start(task.id)
   }
 

@@ -251,7 +251,7 @@ describe('creating a Task from the New Task dialog', () => {
     expect(task.description).toBe('')
   })
 
-  test('with Backlog turned off, Start now unchecked still starts at Intake', async () => {
+  test('a Workflow that turns Backlog off still leaves a new Task waiting in Backlog', async () => {
     await commitToOrigin(scratch, {
       '.ted/workflow.yaml': 'version: 1\nstages:\n  backlog: { enabled: false }\n',
     })
@@ -263,7 +263,8 @@ describe('creating a Task from the New Task dialog', () => {
       start: false,
     })
 
-    expect(task.stage).toBe('intake')
+    expect(task.stage).toBe('backlog')
+    expect(task.leadRunId).toBeUndefined()
   })
 })
 
