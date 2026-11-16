@@ -125,6 +125,7 @@ import {
   type WaitingRequest,
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
+import { planTitle as titleFromMessage } from '@ted/protocol/plan'
 import {
   compareStages,
   hasClarifyRounds,
@@ -3599,6 +3600,7 @@ export async function openStore({
             source: 'coordinator',
             id: c.id,
             chatId: row.id,
+            chatTitle: row.title ?? titleFromMessage(chat.opening),
             factoryId: row.factoryId,
             createdAt: c.askedAt,
             headline: confirmationHeadline(c),

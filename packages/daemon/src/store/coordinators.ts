@@ -24,6 +24,7 @@ export interface StoredCoordinator {
   lead: TaskLead
   phase: 'ready' | 'queued' | 'working' | 'failed'
   opening: string
+  title?: string
   startedAt?: string
   endedAt?: string
   error?: string | undefined
@@ -46,14 +47,26 @@ export interface CoordinatorStore {
   endedForRun(runId: string): StoredCoordinator | undefined
   save(value: StoredCoordinator, canceled?: readonly RunMessage[]): void
   reopen(id: string): void
+  rename(id: string, title: string): void
   delete(id: string): void
 }
 
-type Row = { id: string; factoryId: string; endedAt: string | null; data: string }
+type Row = {
+  id: string
+  factoryId: string
+  endedAt: string | null
+  title: string | null
+  data: string
+}
 
 const chatOf = (row: Row): StoredCoordinator => {
-  const { endedAt: _ended, ...data } = JSON.parse(row.data) as StoredCoordinator
-  return { ...data, id: row.id, ...(row.endedAt !== null && { endedAt: row.endedAt }) }
+  const { endedAt: _ended, title: _title, ...data } = JSON.parse(row.data) as StoredCoordinator
+  return {
+    ...data,
+    id: row.id,
+    ...(row.endedAt !== null && { endedAt: row.endedAt }),
+    ...(row.title !== null && { title: row.title }),
+  }
 }
 
 export function createCoordinatorStore(options: {
@@ -78,10 +91,10 @@ export function createCoordinatorStore(options: {
     forRun: (id) => list().find((c) => c.runIds.includes(id)),
     endedForRun: (id) => all().find((c) => c.endedAt !== undefined && c.runIds.includes(id)),
     save(value, canceled = []) {
-      const { endedAt: _ended, ...kept } = value
+      const { endedAt: _ended, title: _title, ...kept } = value
       const trimmed = { ...kept, receipts: value.receipts.slice(-receiptsKept) }
       const before = find(value.id)
-      const { endedAt: _before, ...old } = before ?? {}
+      const { endedAt: _before, title: _oldTitle, ...old } = before ?? {}
       const change = coordinatorChange(
         before && (old as Record<string, unknown>),
         trimmed as unknown as Record<string, unknown>,
@@ -107,6 +120,12 @@ export function createCoordinatorStore(options: {
       const c = find(id)
       if (!c) return
       options.commit(events.coordinatorChatContinued({ id }))
+      options.changed(c.factoryId, id)
+    },
+    rename(id, title) {
+      const c = find(id)
+      if (!c || c.title === title) return
+      options.commit(events.coordinatorChatRenamed({ id, title }))
       options.changed(c.factoryId, id)
     },
     delete(id) {

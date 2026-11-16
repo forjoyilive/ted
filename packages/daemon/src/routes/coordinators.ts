@@ -9,6 +9,7 @@ import {
   parseCoordinatorMessage,
   parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
+  parseRenameCoordinatorChatRequest,
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
@@ -86,6 +87,13 @@ export const coordinatorRoutes: Route[] = [
       await coordinators.continueChat(id),
     ],
   },
+  jsonRoute(parseRenameCoordinatorChatRequest, {
+    method: 'PATCH',
+    path: /^\/coordinator-chats\/([^/]+)$/,
+    async handle({ params: [id = ''], body }, { coordinators }) {
+      return [200, await coordinators.renameChat(id, body.title)]
+    },
+  }),
   {
     method: 'DELETE',
     path: /^\/coordinator-chats\/([^/]+)$/,

@@ -479,6 +479,10 @@ export class DaemonClient {
     return this.#request('POST', `/coordinator-chats/${encodeURIComponent(chatId)}/retry`)
   }
 
+  renameCoordinatorChat(chatId: string, title: string): Promise<Coordinator> {
+    return this.#request('PATCH', `/coordinator-chats/${encodeURIComponent(chatId)}`, { title })
+  }
+
   continueCoordinatorChat(chatId: string): Promise<Coordinator> {
     return this.#request('POST', `/coordinator-chats/${encodeURIComponent(chatId)}/continue`)
   }

@@ -37,6 +37,7 @@ export const forwardedRequests = [
   'listPlans',
   'getPlan',
   'startPlan',
+  'renameCoordinatorChat',
   'renamePlan',
   'stopPlan',
   'resumePlan',

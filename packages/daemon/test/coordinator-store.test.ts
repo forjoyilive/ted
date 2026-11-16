@@ -56,7 +56,15 @@ test('a chat saves only what changed, keeps the newest receipts, and rebuilds fr
   store.coordinators.save({ ...current, phase: 'working', error: 'Stopped' })
   store.coordinators.save({ ...current, phase: 'working' })
   store.coordinators.save({ ...current, phase: 'working' })
+  store.coordinators.rename('chat-2', 'Release review')
+  store.coordinators.rename('chat-2', 'Release review')
+  store.coordinators.save({ ...chatIn('factory-1', 'chat-2', 'run-2'), phase: 'working' })
   await store.persisted()
+  expect(await eventArgs(temporary.home, 'v1.CoordinatorChatRenamed')).toHaveLength(1)
+  expect(store.coordinators.get('chat-2')).toMatchObject({
+    title: 'Release review',
+    phase: 'working',
+  })
 
   const live = store.coordinators.get('chat-1')
   expect(live?.receipts).toHaveLength(receiptsKept)
@@ -79,6 +87,7 @@ test('a chat saves only what changed, keeps the newest receipts, and rebuilds fr
   await pretendStateSchemaChanged(temporary.home)
   store = await openStore({ directory })
   expect(store.coordinators.get('chat-1')).toEqual(live)
+  expect(store.coordinators.get('chat-2')?.title).toBe('Release review')
   expect(
     store.coordinators
       .chats('factory-1')

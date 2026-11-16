@@ -3,6 +3,7 @@ import type {
   Coordinator,
   CoordinatorChatSummary,
   CoordinatorStatus,
+  MessageBox,
   Plan,
   RunChat,
 } from '@ted/protocol'
@@ -28,6 +29,7 @@ function coordinator(fields: Partial<Coordinator> = {}): Coordinator {
     runIds: ['r1', 'r2'],
     started: true,
     opening: 'What should we work on next?',
+    title: 'What should we work on next?',
     startedAt: createdAt,
     lead: { agent: 'claude' },
     status: 'ready',
@@ -209,21 +211,29 @@ test('the Coordinator composer sends on Enter, queues while working and stops wi
   expect(stop).toHaveBeenCalledWith('k1')
 })
 
-test('New chat opens the start page and leaves the open chat running; an ended chat opens read only and can be continued or deleted', async () => {
+test('a chat is renamed by clicking its title; New chat leaves the open chat running; an ended chat opens read only and can be continued or deleted', async () => {
   const { a, shown, open } = withCoordinator()
   shown.chats = [summary(), ended]
   const continued = vi.fn(() => coordinator({ id: ended.id }))
   const deleted = vi.fn(() => null)
+  const renamed = vi.fn(() => coordinator({ title: 'Release review' }))
   a.handle('continueCoordinatorChat', continued)
   a.handle('deleteCoordinatorChat', deleted)
+  a.handle('renameCoordinatorChat', renamed)
   a.mount()
-  await open()
+  const chat = await open()
+  await user().click(
+    await within(chat).findByRole('button', { name: 'What should we work on next?' }),
+  )
+  const title = within(chat).getByRole('textbox', { name: 'Title' })
+  await user().clear(title)
+  await user().type(title, 'Release review{Enter}')
+  await vi.waitFor(() => expect(renamed).toHaveBeenCalledWith('k1', 'Release review'))
+
   const list = screen.getByRole('region', { name: 'Agent chats' })
   await user().click(within(list).getByRole('button', { name: 'New chat' }))
   expect(screen.queryByRole('dialog')).toBeNull()
-  const picker = screen.getByRole('region', { name: 'New chat' })
-  await user().click(within(picker).getByRole('button', { name: /^Coordinator/ }))
-  const start = screen.getByRole('region', { name: 'Coordinator' })
+  const start = await screen.findByRole('region', { name: 'Coordinator' })
   expect(await within(start).findByText('What needs your attention in widgets?')).toBeTruthy()
   expect(a.request).not.toHaveBeenCalledWith('stopCoordinator', expect.anything())
 
@@ -401,19 +411,36 @@ test('leaving the Coordinator and coming back shows the same conversation', asyn
   expect(within(chat).getByText('What should we work on next?')).toBeTruthy()
 })
 
-test('with no chats Agents opens the start page, and sending to the Coordinator starts a chat', async () => {
+test('with no chats Agents opens New chat; switching the Agent keeps the message, and sending starts a chat with the chosen Agent', async () => {
   const { a, shown, open } = withCoordinator()
   shown.chats = []
   const started = vi.fn(() => coordinator())
   a.handle('startCoordinatorChat', started)
+  a.handle('messageDraft', (box) => ({
+    draft:
+      (box as MessageBox).kind === 'new-plan' ? { text: 'An older plan', attachments: [] } : null,
+  }))
   a.mount()
-  const picker = await open('New chat')
-  expect(within(picker).getByRole('button', { name: /^Planner/ })).toBeTruthy()
-  await user().click(within(picker).getByRole('button', { name: /^Coordinator/ }))
-  const pane = await screen.findByRole('region', { name: 'Coordinator' })
+  const pane = await open('Coordinator')
   await within(pane).findByRole('heading', { name: /What needs your attention/ })
+  const agent = within(pane).getByRole('radiogroup', { name: 'Agent' })
+  expect(within(agent).getByRole('radio', { name: 'Coordinator' })).toHaveProperty('checked', true)
   await user().click(within(pane).getByRole('button', { name: 'What should we work on next?' }))
-  const box = within(pane).getByRole('textbox', { name: 'Message to the Coordinator' })
+  await user().click(within(agent).getByRole('radio', { name: 'Planner' }))
+  const planning = await screen.findByRole('region', { name: 'New planning chat' })
+  await vi.waitFor(() =>
+    expect(
+      within(planning).getByRole('textbox', { name: 'What do you want to plan?' }),
+    ).toHaveProperty('value', 'What should we work on next?'),
+  )
+  await user().click(
+    within(within(planning).getByRole('radiogroup', { name: 'Agent' })).getByRole('radio', {
+      name: 'Coordinator',
+    }),
+  )
+  const back = await screen.findByRole('region', { name: 'Coordinator' })
+  const box = within(back).getByRole('textbox', { name: 'Message to the Coordinator' })
+  await vi.waitFor(() => expect(box).toHaveProperty('value', 'What should we work on next?'))
   fireEvent.keyDown(box, { key: 'Enter' })
   await vi.waitFor(() =>
     expect(started).toHaveBeenCalledWith('f1', {
@@ -431,9 +458,7 @@ test('a start that answers after New chat was clicked leaves the new start page 
   const answer = deferred<Coordinator>()
   a.handle('startCoordinatorChat', () => answer.promise)
   a.mount()
-  const picker = await open('New chat')
-  await user().click(within(picker).getByRole('button', { name: /^Coordinator/ }))
-  const pane = await screen.findByRole('region', { name: 'Coordinator' })
+  const pane = await open('Coordinator')
   await within(pane).findByRole('heading', { name: /What needs your attention/ })
   await user().click(within(pane).getByRole('button', { name: 'What should we work on next?' }))
   fireEvent.keyDown(within(pane).getByRole('textbox', { name: 'Message to the Coordinator' }), {
@@ -449,9 +474,9 @@ test('a start that answers after New chat was clicked leaves the new start page 
   )
   expect(await screen.findByText('Start with NB-1.')).toBeTruthy()
   await user().click(within(list).getByRole('button', { name: 'New chat' }))
-  expect(await screen.findByRole('region', { name: 'New chat' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'New chat' })).toBeTruthy()
   await act(async () => answer.resolve(coordinator()))
-  expect(screen.getByRole('region', { name: 'New chat' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'New chat' })).toBeTruthy()
   expect(screen.queryByText('Start with NB-1.')).toBeNull()
 })
 
