@@ -157,7 +157,7 @@ test('parseCoordinatorTaskQuery keeps every field and coordinatorTaskSearch writ
   const query: AllFields<P.CoordinatorTaskQuery> = {
     offset: 100,
     all: true,
-    stages: ['backlog', 'work'],
+    stages: ['backlog', 'work', 'security-review'],
     statuses: ['waiting-on-you', 'failed'],
     waiting: true,
     search: 'offline badge & sync',

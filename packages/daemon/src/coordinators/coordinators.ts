@@ -130,7 +130,7 @@ export interface Coordinators {
   send(runId: string, text: string): Promise<RunMessage>
   stop(chatId: string): Promise<Coordinator>
   retry(chatId: string): Promise<Coordinator>
-  list(caller: Caller, query: CoordinatorTaskQuery): CoordinatorTaskList
+  list(caller: Caller, query: CoordinatorTaskQuery): Promise<CoordinatorTaskList>
   task(caller: Caller, ref: string, offset: number): CoordinatorTask
   act(
     caller: Caller,
@@ -1230,8 +1230,14 @@ export function createCoordinators(options: {
       pump()
       return publicChat(requireChat(id))
     },
-    list(caller, query) {
+    async list(caller, query) {
       const c = actor(caller)
+      if (query.stages) {
+        const known = (await tasks.board(c.factoryId)).stages.map((s) => s.id)
+        const unknown = query.stages.find((stage) => !known.includes(stage))
+        if (unknown !== undefined)
+          throw new RequestError(400, `unknown Stage ${unknown}; use one of ${known.join(', ')}`)
+      }
       const offset = query.offset ?? 0
       const factory = store.taskOutlines().filter((t) => t.factoryId === c.factoryId)
       const open = Map.groupBy(
