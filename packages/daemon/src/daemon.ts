@@ -673,6 +673,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         tasks,
         health,
         steering,
+        workflows,
         ...(options.mkdir !== undefined && { mkdir: options.mkdir }),
       })
       coordinators = options.wrap?.coordinators?.(createdCoordinators) ?? createdCoordinators

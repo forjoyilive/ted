@@ -1,0 +1,6 @@
+coordinator:
+  name: Coordinator
+  powers: [ask, manage_tasks]
+planner:
+  name: Planner
+  powers: [ask, propose_tasks, read_code]

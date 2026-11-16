@@ -43,6 +43,7 @@ import type { Caller, PlanApproval, PlanEnd } from '../tasks/tasks.ts'
 import { copyFiles } from '../tasks/worktree.ts'
 import { messageOf } from '../text.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
+import { builtInAgentText } from '../workflow/layers.ts'
 import type { Workflows } from '../workflow/workflows.ts'
 import {
   earlierPlanContext,
@@ -320,7 +321,9 @@ export function createPlans(options: PlansOptions): Plans {
     if (plan.state !== 'queued') return
     let prepared: StoredPlan['checkout'] = []
     try {
-      const entries = await entriesOf(factory)
+      const { workflow } = await workflows.resolve(factory, { fetch: false })
+      const entries = factoryRepos(workflow, factory)
+      const role = workflow.agent('planner')?.instructions ?? (await builtInAgentText('planner'))
       const checkout = await checkOut(plan, factory, entries)
       prepared = checkout
       if (saved.get(id)?.state !== 'queued') {
@@ -333,6 +336,7 @@ export function createPlans(options: PlansOptions): Plans {
         agent: plan.agent,
         onStarting: () => saved.began(id, checkout),
         prompt: `${plannerInstructions({
+          role,
           factory,
           entries,
           folder: folderOf(id),
