@@ -29,6 +29,7 @@ import type {
   Task,
 } from '@ted/protocol'
 import { archiveChoice, isTrackerGroupAsk, priorities } from '@ted/protocol'
+import { mergesHere } from '@ted/protocol/stage'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
@@ -1415,7 +1416,7 @@ export function createCoordinators(options: {
               return
             }
             if (kind === 'done') {
-              if (task.archived || task.stage !== 'merge')
+              if (task.archived || !mergesHere(task.stage))
                 throw new RequestError(409, 'This action only applies to Tasks at Merge')
               return
             }
