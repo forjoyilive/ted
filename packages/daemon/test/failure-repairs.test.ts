@@ -421,7 +421,10 @@ test.each([
         const t = await getTask(s.client, s.current.id)
         return t.leadRunId !== s.current.leadRunId ? t.leadRunId : undefined
       }, 'a Task Lead that receives the conflict')
-      const started = await s.client.ok<{ prompt?: string }>('GET', `/runs/${lead}`)
+      const { run: started } = await s.client.ok<{ run: { prompt?: string } }>(
+        'GET',
+        `/runs/${lead}`,
+      )
       expect(started.prompt).toContain('git merge ')
       expect(started.prompt).toContain('- timezone.txt')
     }
