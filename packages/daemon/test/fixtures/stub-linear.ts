@@ -40,6 +40,7 @@ export interface StubLinearAccount {
   onLookup?: (id: string) => void
   intakeMalformed?: boolean
   intakeMissingCursor?: boolean
+  intakeRepeats?: boolean
   teams?: { id: string; key: string; name: string }[]
   projects?: { id: string; name: string }[]
   name: string
@@ -185,10 +186,13 @@ export async function startStubLinear(
             organization,
             issues: {
               nodes: matching
-                .slice(offset, offset + 50)
+                .slice(
+                  account.intakeRepeats ? 0 : offset,
+                  (account.intakeRepeats ? 0 : offset) + 50,
+                )
                 .map((issue) => ({ identifier: issue.identifier, title: issue.title })),
               pageInfo: {
-                hasNextPage: offset + 50 < matching.length,
+                hasNextPage: account.intakeRepeats === true || offset + 50 < matching.length,
                 endCursor: String(offset + 50),
               },
             },

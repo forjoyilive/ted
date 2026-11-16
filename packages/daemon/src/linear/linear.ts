@@ -264,6 +264,8 @@ export function createLinear(options: LinearOptions): Linear {
       const cursors = new Set<string>()
       let workspace: { id: string; urlKey: string } | undefined
       let after: string | null = null
+      let listed = 0
+      let cut = false
       for (;;) {
         const data: Json = await query<Json>(
           key,
@@ -290,6 +292,11 @@ export function createLinear(options: LinearOptions): Linear {
           throw new Error('Linear changed workspace while TED read the issue list')
         workspace = page
         for (const node of nodes) {
+          if (listed >= maxLinearIntakeListed) {
+            cut = true
+            break
+          }
+          listed++
           if (!isObject(node) || !isString(node.identifier) || !isString(node.title))
             throw new Error('Linear returned an incomplete issue')
           const link = parseLinearUrl(`https://linear.app/${page.urlKey}/issue/${node.identifier}`)
@@ -303,11 +310,10 @@ export function createLinear(options: LinearOptions): Linear {
           })
         }
         const result = { workspaceId: page.id, workspace: page.urlKey, issues }
-        if (!pageInfo.hasNextPage) return result
-        if (issues.length >= maxLinearIntakeListed)
+        if (!pageInfo.hasNextPage && !cut) return result
+        if (listed >= maxLinearIntakeListed)
           return {
             ...result,
-            issues: issues.slice(0, maxLinearIntakeListed),
             incomplete: `TED read the first ${maxLinearIntakeListed} issues; the rest wait for the next run.`,
           }
         const cursor: Json | undefined = pageInfo.endCursor

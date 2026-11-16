@@ -104,3 +104,44 @@ test('intake choices are read once per key within the cache time, and again afte
     await stub.close()
   }
 })
+
+test('the intake listing stops after 1,000 issues read, even when pages repeat issues', async () => {
+  const key = 'lin_api_fake_key_for_listing_tests'
+  const account = {
+    name: 'Test',
+    workspace: { name: 'Acme', urlKey: 'acme' },
+    issues: Array.from({ length: 60 }, (_, i) => ({
+      identifier: `NB-${i + 1}`,
+      title: `Issue ${i + 1}`,
+      assignedToMe: true,
+    })),
+    intakeRepeats: true,
+  }
+  const stub = await startStubLinear({ [key]: account })
+  try {
+    const linear = createLinear({
+      keyring: {
+        kind: 'macos-keychain',
+        get: async () => key,
+        set: async () => {},
+        delete: async () => {},
+      },
+      keyFile: '/unused-test-key',
+      apiUrl: stub.url,
+    })
+    const list = await linear.intakeIssues({
+      kind: 'team',
+      id: 'team-NB',
+      name: 'Notebook',
+      workspaceId: 'workspace-acme',
+      workspace: 'acme',
+    })
+    expect(list.issues).toHaveLength(50)
+    expect(list.incomplete).toBe('TED read the first 1000 issues; the rest wait for the next run.')
+    expect(
+      stub.requests.filter((request) => request.query.includes('TedIntakeIssues')),
+    ).toHaveLength(20)
+  } finally {
+    await stub.close()
+  }
+})
