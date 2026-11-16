@@ -188,7 +188,7 @@ export function WorkingRunsPopover({
             <Group
               label="Queued"
               count={slots.queue.length}
-              help="The next free slot goes to the first in line: the setup Task, sub-agent requests, Automation drafts, Automation Runs, then Tasks by Priority and rank. A chat waits here only while the disk is full or its agent can’t run."
+              help="The next free slot goes to the first in line: the setup Task, sub-agent requests, Automation drafts, Automation Runs, then Tasks by Priority and rank. A chat waits here only while the disk is full or its Provider can’t run."
             >
               {slots.queue.map((entry) =>
                 entry.kind === 'sub-agent' ? (
