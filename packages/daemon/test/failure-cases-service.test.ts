@@ -6,7 +6,12 @@ import { shortReference } from '@ted/protocol/reference'
 import { afterEach, expect, test, vi } from 'vitest'
 import { RequestError } from '../src/errors.ts'
 import { openStore } from '../src/store/index.ts'
-import { acceptRefusals, createFailureCases, failureText } from '../src/tasks/failure-cases.ts'
+import {
+  acceptRefusals,
+  checkAskRefusal,
+  createFailureCases,
+  failureText,
+} from '../src/tasks/failure-cases.ts'
 
 const lead = 'run-lead-7f3a'
 const secret = 'abcdefghijklmnopqrstuvwxyz'
@@ -62,6 +67,22 @@ async function setup() {
       evidence: 'Reproduced in the stub',
       ...(contextId && { contextId }),
     })
+  const recordCheck = (contextId: string) => {
+    const run = store.startChecks({
+      taskId: task.id,
+      trigger: 'validate',
+      stage: 'validate',
+      checks: [{ name: 'Affected tests', command: 'pnpm check', timeout: '10m', state: 'waiting' }],
+    })
+    store.checkStarted(run.id, 0)
+    store.checkFinished(run.id, 0, { state: 'failed', durationMs: 1000, exitCode: 1 })
+    store.finishChecks(run.id, 'failed')
+    return service.recordCheck(task, lead, {
+      source: { kind: 'factory-check', checkRunId: run.id, position: 0 },
+      evidence: 'The demo reset test failed',
+      contextId,
+    })
+  }
   const assess = (value: FailureCase) =>
     service.assess(task, value.id, lead, {
       assessment: 'unrelated',
@@ -102,6 +123,7 @@ async function setup() {
     worktree,
     capture,
     record,
+    recordCheck,
     assess,
     decision,
     request,
@@ -356,6 +378,35 @@ test('a stale ask is still posted when no new context could be attached or read'
   expect(s.notes('Failure acceptance refused')[0]?.body).toContain('is a new case')
   expect((await s.resolve(asked, 'fixed', 'A later commit repaired it.')).resolutions).toHaveLength(
     1,
+  )
+})
+
+test('a Check failure stays acceptable with later evidence on the same code, and an ask after a change is refused', async () => {
+  const s = await setup()
+  const tested = await s.capture()
+  const value = await s.recordCheck(tested.id)
+  const later = await s.capture()
+  s.evidence(value, 'The same test fails on main', later.id)
+  const asked = await s.request(value)
+  expect(asked.decisions.at(-1)?.contextId).toBe(later.id)
+  expect(s.comment(asked.decisions.at(-1)?.commentId)?.choices).toContain('Accept this failure')
+  expect((await s.resolve(asked)).resolutions.at(-1)?.resolution).toBe('accepted')
+  expect(await s.obligations()).toMatchObject({
+    cases: [{ disposition: 'accepted', context: 'current' }],
+  })
+
+  const changed = await s.recordCheck((await s.capture()).id)
+  s.worktree.head = 'head-2'
+  const questions = s.store.listComments(s.task.id).filter((c) => c.kind === 'question').length
+  await s.assess(changed)
+  const refused = await refusalText(() => s.decision(changed))
+  expect(refused).toBe(checkAskRefusal(changed.contextId))
+  expect(refused).toContain('`ted checks`')
+  s.evidence(changed, 'Looked at the new commit', (await s.capture()).id)
+  await s.assess(changed)
+  expect(await refusalText(() => s.decision(changed))).toBe(checkAskRefusal())
+  expect(s.store.listComments(s.task.id).filter((c) => c.kind === 'question')).toHaveLength(
+    questions,
   )
 })
 
