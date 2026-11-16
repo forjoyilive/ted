@@ -324,7 +324,7 @@ describe('settings and Factories over the daemon API', () => {
     await ted.updateSettings({ deleteArchivedAfterDays: null })
     expect((await ted.getSettings()).deleteArchivedAfterDays).toBeNull()
 
-    expect((await ted.getSettings()).sleepIdleRunsAfterMinutes).toBe(30)
+    expect((await ted.getSettings()).sleepIdleRunsAfterMinutes).toBe(10)
     await ted.updateSettings({ sleepIdleRunsAfterMinutes: 1440 })
     expect((await ted.getSettings()).sleepIdleRunsAfterMinutes).toBe(1440)
     await expect(ted.updateSettings({ sleepIdleRunsAfterMinutes: 0 })).rejects.toThrow(

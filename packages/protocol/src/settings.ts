@@ -163,7 +163,7 @@ export const defaultMachineSettings: MachineSettings = {
   startAtLogin: true,
   stayAwake: true,
   restartIdleRuns: true,
-  sleepIdleRunsAfterMinutes: 30,
+  sleepIdleRunsAfterMinutes: 10,
   notifyInboxItems: true,
   notifyProblems: true,
   notifyTaskMerged: false,

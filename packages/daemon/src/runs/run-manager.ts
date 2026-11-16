@@ -300,6 +300,16 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   }
 
   function restFromMarker(runId: string, inputFrom: number): void {
+    const run = store.getRun(runId)
+    if (
+      run?.state !== 'idle' ||
+      run.sessionId === undefined ||
+      run.parentRunId !== undefined ||
+      run.taskId === undefined
+    ) {
+      rmSync(runFiles(path.join(runsDir, runId)).asleep, { force: true })
+      return
+    }
     rest(runId, inputFrom, true)
     let size = 0
     try {

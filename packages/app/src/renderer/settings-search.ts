@@ -193,6 +193,16 @@ const entries = {
     name: 'Limit the CPU Scheduled Checks use too',
     help: 'When this is off, a Scheduled Check isn’t told a number and may use the whole computer. It finishes sooner, but new Runs may wait until it ends.',
   },
+  'app.limits.sleep-idle': {
+    name: 'End idle Task Lead agents to free memory',
+    help: 'A Task Lead that is only waiting keeps its agent and the tools the agent started in memory, about 1 GB each. With this on, TED ends an idle Task Lead’s agent and starts it again, in the same conversation, when there is something for it to do.',
+    detail:
+      'The first message after a wait takes a few seconds longer. Anything the agent left running in the background ends with it.',
+  },
+  'app.limits.sleep-idle-after': {
+    name: 'End an agent after it has been idle for',
+    help: 'How long a Task Lead’s agent has done nothing before TED ends it.',
+  },
   'app.limits.low-priority': {
     name: 'Run agents and Checks at low priority',
     help: 'For agents, Checks, worktree setup and teardown, and Apps an agent starts. On macOS they run at the system’s “utility” priority, so they give way to your other apps and may run slower. On Linux they run at a lower scheduling priority. Apps you start with ▶ and Task shells keep normal priority.',

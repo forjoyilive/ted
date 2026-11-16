@@ -123,6 +123,11 @@ test('Limits changes how many Checks run at once and turns low priority off', as
   const scheduled = screen.getByRole('switch', { name: 'Limit the CPU Scheduled Checks use too' })
   expect(scheduled.getAttribute('aria-checked')).toBe('true')
   await user().click(scheduled)
+  expect(screen.getByText('10 min')).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'End idle agents later' }))
+  await user().click(
+    screen.getByRole('switch', { name: 'End idle Task Lead agents to free memory' }),
+  )
   expect(update.mock.calls).toEqual([
     [{ lowPriorityWork: false }],
     [{ maxChecksAtOnce: 3 }],
@@ -130,6 +135,8 @@ test('Limits changes how many Checks run at once and turns low priority off', as
     [{ checkCpuPercent: 60 }],
     [{ checkCpuPercent: 40 }],
     [{ limitScheduledCheckCpus: false }],
+    [{ sleepIdleRunsAfterMinutes: 15 }],
+    [{ sleepIdleRunsAfterMinutes: null }],
   ])
 })
 
