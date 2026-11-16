@@ -2,13 +2,28 @@
 
 ## Goal
 
-Decide how to build a visual change before building it.
+Decide how to build the change before building it. Only a visual change goes to the user as a design review for approval.
+
+A change is visual when it changes what a screen looks like or how the user moves through it: new or changed screens, layouts, components, dialogs or flows. A change that only rewords labels or messages is not visual.
 
 ## Skip when
 
-The change is not visual, or the change is small and the approach is obvious. Post a one-line note saying Design had nothing to decide, then run `ted outcome advance --skip`.
+The change is small and the approach is obvious, visual or not. Post a one-line note saying Design had nothing to decide, then run `ted outcome advance --skip`.
+
+## When the change is not visual
+
+Work out the approach the same way, but don’t ask the user to approve it:
+
+1. Follow steps 1 to 3 below: read, work out the approach, and write it into the Task brief.
+2. Post a short note with `ted comment` that leads with the approach and the choices that matter, so the user can follow it without opening the brief.
+3. Clarify should already have settled any choice that changes what the user gets. If two reasonable approaches would still give the user different results, ask a plain question with `ted comment --choice "<approach>" --choice "<approach>" "<question>"`, end your turn, and record the answer in the brief.
+4. Run `ted outcome advance --skip`. It moves the Task on without the Design sign-off.
+
+Never post a design review, or run `ted outcome advance` without `--skip`, for a change that is not visual: both ask the user to sign off. After this file, TED adds a line saying Design has a sign-off and to run `ted outcome advance` when the work is done. That line is for a visual change; for a change that is not visual, this section applies.
 
 ## Steps
+
+For a visual change, follow every step. For a change that is not visual, follow steps 1 to 3, then the section above.
 
 1. Read the Task, its brief, the code the change touches and the repo’s own `AGENTS.md` or `CLAUDE.md`, if there is one.
 2. Work out the approach: which files and interfaces change, what new pieces there are, and how each acceptance criterion will be checked. For interfaces and module boundaries, use `codebase-design` if the skill is available to your agent; otherwise work out those boundaries from the existing code. Prefer existing public boundaries for tests. If earlier Stages left no criteria, derive them from the request and mark unresolved scope choices for the design review.
@@ -35,8 +50,8 @@ The change is not visual, or the change is small and the approach is obvious. Po
 
 ## Done when
 
-The approach is in the brief and the design review is posted with `ted outcome advance --design <file>`. With the Design sign-off on, the human then approves it or asks for changes. If they ask for changes, the Task stays in Design: change the approach, write the brief again and post a new design review.
+For a visual change: the approach is in the brief and the design review is posted with `ted outcome advance --design <file>`. With the Design sign-off on, the human then approves it or asks for changes. If they ask for changes, the Task stays in Design: change the approach, write the brief again and post a new design review.
 
 ## Ask the human when
 
-Two approaches are both reasonable and the choice changes what the human gets. Lay out both in the design review’s summary and Worth your eye.
+Two approaches to a visual change are both reasonable and the choice changes what the human gets. Lay out both in the design review’s summary and Worth your eye.
