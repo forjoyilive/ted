@@ -220,6 +220,12 @@ describe('first launch', () => {
     await antigravity.getByText('Not installed').waitFor()
     await antigravity.getByRole('button', { name: 'Open Terminal' }).waitFor()
     expect(await overflowsRow(antigravity)).toEqual([])
+    const tops = await Promise.all(
+      ['Copy', 'Open Terminal'].map((name) =>
+        antigravity.getByRole('button', { name }).evaluate((b) => b.getBoundingClientRect().top),
+      ),
+    )
+    expect(tops[0]).toBe(tops[1])
     const git = row(window, 'Git')
     await git.getByText('No name or email set').waitFor()
     await git.getByText('git config --global user.name "Your Name"').waitFor()
