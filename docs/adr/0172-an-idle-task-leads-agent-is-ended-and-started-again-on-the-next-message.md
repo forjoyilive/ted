@@ -16,6 +16,8 @@ Every live Run keeps its whole process tree: the Run host (30 to 60 MB), the age
 
 **Setting.** Settings → Limits has a switch, **End idle Task Lead agents to free memory**, and while it is on a stepper for the idle time in steps of 5 minutes. Turning the switch on sets the default.
 
+**What a wake trusts.** A wake happens far more often than the host replacement it reuses, so it takes less from the Run folder on trust. `RunManager` keeps the environment each Run was started or revived with in memory and a wake uses that copy. Only after a daemon restart does it read `env.json`, once, and then it drops every name a Workflow couldn’t set either (`isReservedEnvName`: `NODE_OPTIONS`, `PATH`, the loader and agent prefixes), keeping `TED_` names. A sleep marker counts at daemon start only for an idle Task Run with a session. The forced kill after a sleep reaches the agent’s PID only if it was the host’s child when the sleep began. A restart of a sleeping Run is refused before anything is recorded when the wake would be refused. A file in the Run folder can still add an ordinary variable after a daemon restart; whoever can write there can already write the rest of `TED_HOME`.
+
 **Diagnostics.** `ted dev memory` and Settings → Developer find a Run’s processes from the host’s current PID file, not the first start record, and leave sleeping Runs out; `MemoryUse.asleepRuns` counts them.
 
 ## Consequences

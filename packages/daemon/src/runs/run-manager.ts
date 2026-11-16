@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import {
   appendFileSync,
@@ -55,6 +55,7 @@ import type { RunTokens } from '../run-token.ts'
 import { sideFolder } from '../side-chats/context.ts'
 import { signalGroup, signalProcess } from '../signal.ts'
 import type { RunFlags, TedStore } from '../store/index.ts'
+import { isReservedEnvName } from '../workflow/check.ts'
 import { fixedPromptTexts } from '../workflow/workflow.ts'
 import {
   forGeneration,
@@ -202,6 +203,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   const outdated = new Set<string>()
   const replacing = new Set<string>()
   const asleep = new Map<string, Resting>()
+  const launchEnvs = new Map<string, Record<string, string>>()
   const dispatching = new Map<string, number>()
   const stirred = new Set<string>()
   const oldestHost = options.oldestHost ?? oldestHostProtocol
@@ -345,13 +347,17 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     signal.throwIfAborted()
   }
 
-  function wake(runId: string): Promise<void> {
-    const resting = asleep.get(runId)
-    if (!resting) return Promise.resolve()
+  function refuseWake(): void {
     refuseWhileShuttingDown()
     const hold = store.newWorkHold()
     if (hold !== undefined)
       throw new RequestError(409, `TED isn’t starting agents right now: ${hold}`)
+  }
+
+  function wake(runId: string): Promise<void> {
+    const resting = asleep.get(runId)
+    if (!resting) return Promise.resolve()
+    refuseWake()
     resting.wake = true
     return new Promise((resolve, reject) => resting.waiters.add({ resolve, reject }))
   }
@@ -780,7 +786,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const runDir = path.join(runsDir, runId)
     const files = runFiles(runDir)
     const permissions = runPermissions(store, run)
-    const env = await readRunEnv(files.env)
+    const env = launchEnvs.get(runId) ?? rememberEnv(runId, await readRunEnv(files.env))
     signal.throwIfAborted()
     const launch = agents.get(run.agent).launch({
       prompt: '',
@@ -853,6 +859,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       if (signal?.aborted && !closed) await kill()
       throw error
     }
+  }
+
+  function rememberEnv(id: string, env: Record<string, string>): Record<string, string> {
+    launchEnvs.set(id, env)
+    return env
   }
 
   function runEnv(id: string, env: Record<string, string>): NodeJS.ProcessEnv {
@@ -1192,7 +1203,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           const launch = agent.launch({
             prompt,
             runDir,
-            env: runEnv(id, env),
+            env: runEnv(id, rememberEnv(id, env)),
             ...(resume !== undefined && { resume }),
             ...(model !== undefined && { model }),
             ...(effort !== undefined && { effort }),
@@ -1272,7 +1283,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         const launch = agents.get(run.agent).launch({
           prompt,
           runDir,
-          env: runEnv(runId, env),
+          env: runEnv(runId, rememberEnv(runId, env)),
           ...(sessionId !== undefined && { resume: sessionId }),
           ...(choice.model !== undefined && !choice.usesDefaultModel && { model: choice.model }),
           ...(choice.effort !== undefined && { effort: choice.effort }),
@@ -1325,6 +1336,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       if (!signal) throw new Error(`Run ${runId} has no live launch controller`)
       signal.throwIfAborted()
       if (asleep.has(runId)) {
+        refuseWake()
         const restarted = store.restartRun(runId, flags)
         await wake(runId)
         return store.getRun(runId) ?? restarted
@@ -1395,13 +1407,16 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       writeFileSync(temporary, JSON.stringify({ inputFrom }), { mode: 0o600, flag: 'wx' })
       renameSync(temporary, files.asleep)
       rest(runId, inputFrom)
+      const agentPid = (await lastStartRecord(runDir))?.agentPid ?? undefined
+      const agent =
+        agentPid !== undefined && (await parentOf(agentPid)) === pid ? agentPid : undefined
       await signalHost(runDir, pid, 'SIGTERM')
       void (async () => {
         for (let waited = 0; waited < stopGraceMs && isLockHeld(files.lock); waited += pollMs) {
           await sleep(pollMs)
         }
         if (!(await holdsLock(files.lock, pid))) return
-        signal((await lastStartRecord(runDir))?.agentPid ?? null, 'SIGKILL')
+        if (agent !== undefined && (await parentOf(agent)) === pid) signal(agent, 'SIGKILL')
         signal(pid, 'SIGKILL')
       })().catch((error: Error) => console.error(`couldn’t end Run ${runId}’s host:`, error))
       return true
@@ -1710,7 +1725,9 @@ async function readRunEnv(file: string): Promise<Record<string, string>> {
     if (typeof parsed !== 'object' || parsed === null) return {}
     return Object.fromEntries(
       Object.entries(parsed).filter(
-        (entry): entry is [string, string] => typeof entry[1] === 'string',
+        (entry): entry is [string, string] =>
+          typeof entry[1] === 'string' &&
+          (entry[0].toUpperCase().startsWith('TED_') || !isReservedEnvName(entry[0])),
       ),
     )
   } catch {
@@ -1736,6 +1753,15 @@ function killGroup(pid: number | undefined): void {
   try {
     signalGroup(pid, 'SIGKILL')
   } catch {}
+}
+
+function parentOf(pid: number): Promise<number | undefined> {
+  return new Promise((resolve) => {
+    execFile('ps', ['-o', 'ppid=', '-p', String(pid)], (error, stdout) => {
+      const parent = Number(stdout.trim())
+      resolve(error || !Number.isSafeInteger(parent) || parent <= 0 ? undefined : parent)
+    })
+  })
 }
 
 function signal(pid: number | null, name: NodeJS.Signals): void {

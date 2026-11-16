@@ -77,6 +77,13 @@ const agentStarts = async () =>
     .filter((line) => line !== '')
     .map((line) => JSON.parse(line) as { argv: string[] })
 
+const agentEnv = async () =>
+  (
+    JSON.parse(
+      await readFile(path.join(home, 'worktrees', 'NB-1', 'widgets', 'stub-record.json'), 'utf8'),
+    ) as { env: Record<string, string | undefined> }
+  ).env
+
 const hostStarts = async (runId: string) =>
   (await hostRecords(home, runId)).filter((record) => record.t === 'start')
 
@@ -132,6 +139,15 @@ test('an idle Task Lead’s agent is ended after the idle time and starts again 
   expect(held.status).toBeLessThan(300)
 
   await daemon?.stop()
+  const envFile = path.join(home, 'runs', run.id, 'env.json')
+  await writeFile(
+    envFile,
+    JSON.stringify({
+      ...JSON.parse(await readFile(envFile, 'utf8')),
+      NODE_OPTIONS: '--title=forged',
+      CLAUDE_CONFIG_DIR: '/forged',
+    }),
+  )
   client = await start()
   expect(await asleep('the Run to stay asleep under a new daemon')).toMatchObject({
     state: 'idle',
@@ -145,18 +161,27 @@ test('an idle Task Lead’s agent is ended after the idle time and starts again 
   )
   const second = await agentStarts()
   expect(second).toHaveLength(2)
+  const wokenEnv = await agentEnv()
+  expect(wokenEnv.TED_TASK).toBe('NB-1')
+  expect(wokenEnv.NODE_OPTIONS).not.toBe('--title=forged')
+  expect(wokenEnv.CLAUDE_CONFIG_DIR).not.toBe('/forged')
   expect(second[1]?.argv[(second[1]?.argv.indexOf('--resume') ?? -1) + 1]).toBe(run.sessionId)
 
   await waitUntil(async () => {
     const found = (await client.getRun(run.id)).run
     return (found.asleep && (await hostStarts(run.id)).length === 2) || undefined
   }, 'the Run to sleep again')
+  await writeFile(
+    envFile,
+    JSON.stringify({ ...JSON.parse(await readFile(envFile, 'utf8')), FORGED: 'yes' }),
+  )
   await client.ok('POST', `/tasks/${task.id}/comments`, { body: 'Are you there?' })
   await waitUntil(
     async () => ((await answered()) === 2 ? true : undefined),
     'the woken agent to answer the Comment',
   )
   expect(await agentStarts()).toHaveLength(3)
+  expect((await agentEnv()).FORGED).toBeUndefined()
 
   await waitUntil(async () => {
     const found = (await client.getRun(run.id)).run
