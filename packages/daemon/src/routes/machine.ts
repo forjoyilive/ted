@@ -37,6 +37,7 @@ import {
   timeFormats,
   workingRunLimits,
 } from '@ted/protocol'
+import { parseDiagnosticsSort } from '@ted/protocol/diagnostics-sort'
 import { isInteger, isString } from '@ted/protocol/parse'
 import { isReportEmail } from '@ted/protocol/problem-report'
 import { builtInStageOrder, isStageId } from '@ted/protocol/stage'
@@ -296,6 +297,10 @@ export const settingParsers: {
       ]),
     )
   },
+  diagnosticsSort: (value) =>
+    parseDiagnosticsSort(value, (message) => {
+      throw new HttpError(400, `diagnosticsSort: ${message}`)
+    }),
   boardViews(value) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
       throw new HttpError(400, 'boardViews must be an object of Board views by Factory')

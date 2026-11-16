@@ -342,5 +342,22 @@ describe('List views', () => {
     ]) {
       expect((await client.call('PATCH', '/settings', { boardViews: bad })).status).toBe(400)
     }
+
+    const diagnosticsSort = {
+      runs: { column: 'tokensIn', direction: 'ascending' },
+      processes: { column: 'command', direction: 'descending' },
+    }
+    await client.ok('PATCH', '/settings', { diagnosticsSort })
+    expect(
+      (await client.ok<{ diagnosticsSort: unknown }>('GET', '/settings')).diagnosticsSort,
+    ).toEqual(diagnosticsSort)
+    for (const bad of [
+      { ...diagnosticsSort, runs: { column: 'command', direction: 'ascending' } },
+      { ...diagnosticsSort, processes: { column: 'cpu', direction: 'up' } },
+      { runs: diagnosticsSort.runs },
+      null,
+    ]) {
+      expect((await client.call('PATCH', '/settings', { diagnosticsSort: bad })).status).toBe(400)
+    }
   })
 })

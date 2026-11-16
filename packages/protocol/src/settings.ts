@@ -1,5 +1,6 @@
 import type { AsanaIntakeScope } from './asana-intake.ts'
 import type { BoardView } from './board-view.ts'
+import { type DiagnosticsSort, defaultDiagnosticsSort } from './diagnostics-sort.ts'
 import type { GitHubIntakeScope } from './github-intake.ts'
 import type { Billing } from './health.ts'
 import type { LinearIntakeScope } from './linear.ts'
@@ -115,6 +116,7 @@ export interface MachineSettings {
   factoryNotifications: Readonly<Record<string, FactoryNotifications>>
   listViews: Readonly<Record<string, ListView>>
   boardViews: Readonly<Record<string, BoardView>>
+  diagnosticsSort: DiagnosticsSort
   firstLaunchDone: boolean
   onboardingOnNextOpen: boolean
   guideNextFactory: boolean
@@ -175,6 +177,7 @@ export const defaultMachineSettings: MachineSettings = {
   factoryNotifications: {},
   listViews: {},
   boardViews: {},
+  diagnosticsSort: defaultDiagnosticsSort,
   firstLaunchDone: false,
   onboardingOnNextOpen: false,
   guideNextFactory: false,
