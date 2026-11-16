@@ -788,6 +788,14 @@ describe('custom Stages', () => {
       factory: 'NB',
     })
     await client.ok('PUT', `/tasks/${task.id}/autopilot`, { choice: 'on' })
+    const { revision } = await client.ok<TaskGates>('GET', `/tasks/${task.id}/gates`)
+    await client.ok('PUT', `/tasks/${task.id}/gates`, { revision, overrides: { security: true } })
+    const gates = await client.ok<TaskGates>('GET', `/tasks/${task.id}/gates`)
+    expect(gates.overrides).toEqual({ security: true })
+    expect(gates.rows.find((row) => row.stage === 'security')).toMatchObject({
+      inherited: false,
+      override: true,
+    })
     await client.ok('POST', `/tasks/${task.id}/start`)
     await waitForStage(client, task, 'security')
 

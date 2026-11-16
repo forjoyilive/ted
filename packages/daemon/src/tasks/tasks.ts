@@ -126,7 +126,6 @@ import type {
 import {
   type AsanaStatus,
   agentShortNames,
-  agentStageIds,
   archiveChoice,
   asanaAddChoice,
   asanaSyncAllowable,
@@ -11472,8 +11471,8 @@ export function createTasks(options: {
         if (find(id).archived || find(id).stage === 'done')
           throw new RequestError(409, 'This Task has finished')
         const overrides: TaskGateOverrides = {}
-        for (const stage of agentStageIds)
-          if (request.overrides[stage] !== undefined) overrides[stage] = request.overrides[stage]
+        for (const [stage, gate] of Object.entries(request.overrides))
+          if (gate !== undefined) overrides[stage] = gate
         store.setTaskGates(id, overrides)
         return gatesFor(id)
       })

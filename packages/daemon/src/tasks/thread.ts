@@ -178,7 +178,7 @@ export function threadEvents(
   )
   const usedApprovals = new Set<number>()
   const names: Record<string, string> = {}
-  for (const entry of log) {
+  const learnNames = (entry: LoggedEvent) => {
     if (entry.name === 'v4.TaskStageEntered' && typeof entry.data.names === 'string') {
       Object.assign(names, JSON.parse(entry.data.names) as Record<string, string>)
     }
@@ -234,7 +234,9 @@ export function threadEvents(
   const setup = log.some((entry) => entry.name === 'v1.SetupTaskCreated')
   const byLead = log.find((entry) => entry.name === 'v1.TaskCreatedByTaskLead')
   const reset = log.findLastIndex((entry) => entry.name === 'v1.TaskReset')
+  for (const entry of log.slice(0, Math.max(reset, 0))) learnNames(entry)
   for (const entry of reset < 0 ? log : log.slice(reset)) {
+    learnNames(entry)
     const { data } = entry
     const who = data.runId ? 'Task Lead' : 'You'
     switch (entry.name) {
