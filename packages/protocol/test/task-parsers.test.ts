@@ -265,6 +265,7 @@ variant(P.parseReportOutcomeRequest, {
   findings: 'Fix this',
   severity: 'unfixed',
 })
+variant(P.parseReportOutcomeRequest, { outcome: 'back', to: 'security', findings: 'Fix this' })
 roundTrip(P.parseReportOutcomeRequest, {
   outcome: 'ask',
   question: 'Proceed?',
@@ -322,6 +323,12 @@ rejects(
   'startInBackground must be true or false',
 )
 rejects(P.parseTaskLead, { agent: 'other' }, 'agent must be claude, codex or antigravity')
+for (const to of ['backlog', 'Security', 'security_review'])
+  rejects(
+    P.parseReportOutcomeRequest,
+    { outcome: 'back', to, findings: 'Fix this' },
+    'to must be a Stage id, such as intake, clarify, design, work, validate, review, merge, cleanup',
+  )
 rejects(
   P.parseReportOutcomeRequest,
   { outcome: 'back', to: 'work', findings: 'Fix this', cause: 'tired' },

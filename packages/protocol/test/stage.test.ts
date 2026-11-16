@@ -3,8 +3,11 @@ import {
   builtInStageOrder,
   clarifyIsOver,
   compareStages,
+  isCustomStageId,
   isPast,
+  isStageId,
   type StageTrait,
+  stageDisplayName,
   stagePhase,
   stageTraits,
   stageWith,
@@ -108,4 +111,44 @@ test('an unknown Stage outside the order counts as before Work', () => {
   expect(stagePhase('qa', ['intake', 'work'])).toBe('before')
   expect(clarifyIsOver('qa')).toBe(true)
   expect(isPast('work', 'qa')).toBe(true)
+})
+
+test('a custom Stage id is lowercase letters, digits and hyphens, up to 40 characters, and not built in', () => {
+  for (const id of ['security', 'release-notes', 'qa2', 'a'.repeat(40)]) {
+    expect(isCustomStageId(id)).toBe(true)
+  }
+  for (const id of [
+    'work',
+    'done',
+    'backlog',
+    'Security',
+    'release_notes',
+    '-qa',
+    'qa-',
+    'a--b',
+    '',
+    'a'.repeat(41),
+  ]) {
+    expect(isCustomStageId(id)).toBe(false)
+  }
+  expect(isStageId('work')).toBe(true)
+  expect(isStageId('security')).toBe(true)
+  expect(isStageId(3)).toBe(false)
+})
+
+test('a Stage shows its display name, or its id with a capital letter', () => {
+  expect(stageDisplayName('release-notes', { 'release-notes': 'Release notes' })).toBe(
+    'Release notes',
+  )
+  expect(stageDisplayName('security')).toBe('Security')
+  expect(stageDisplayName('constructor', {})).toBe('Constructor')
+})
+
+test('a custom Stage ranks after the built-in Stage before it in order', () => {
+  const order = ['intake', 'security', 'work', 'validate', 'release-notes', 'review', 'merge']
+  expect(stagePhase('security', order)).toBe('before')
+  expect(stagePhase('release-notes', order)).toBe('after')
+  expect(compareStages('release-notes', 'review', order)).toBeLessThan(0)
+  expect(compareStages('release-notes', 'validate', order)).toBeGreaterThan(0)
+  expect(clarifyIsOver('security', order)).toBe(false)
 })
