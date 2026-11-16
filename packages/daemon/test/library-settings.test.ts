@@ -113,6 +113,15 @@ describe('Library settings', () => {
       ['planner', 'ted', undefined],
     ])
     expect(view.agents[0]?.default).toEqual({ agent: 'claude' })
+    expect(view.agentFiles.map((a) => [a.id, a.from, a.builtIn, a.own])).toEqual([
+      ['coordinator', 'ted', true, undefined],
+      ['planner', 'ted', true, undefined],
+    ])
+    expect(view.agentFiles[0]).toMatchObject({
+      name: 'Coordinator',
+      powers: ['ask', 'manage_tasks'],
+      inherited: { layer: 'ted', settings: { name: 'Coordinator' } },
+    })
   })
 
   test('Edit in Library copies the default with based_on, and Save writes straight to the Library', async () => {
@@ -142,6 +151,47 @@ describe('Library settings', () => {
     })
     expect(after.stages.find((s) => s.id === 'design')).toMatchObject({ gate: false })
 
+    const coordinator = after.agentFiles.find((a) => a.id === 'coordinator')
+    const instructions = coordinator?.inherited?.instructions ?? ''
+    const agentChanges: LibraryChanges = {
+      agentFiles: [
+        {
+          id: 'coordinator',
+          settings: { name: 'Coordinator', powers: ['ask', 'manage_tasks'], model: 'opus' },
+          instructions: `${instructions}\nKeep answers short.\n`,
+        },
+        {
+          id: 'release-notes',
+          settings: { name: 'Release notes', agent: 'claude', powers: ['ask', 'read_code'] },
+          instructions: '# Release notes\n\nWrite the notes.\n',
+        },
+      ],
+    }
+    expect((await client.preview(agentChanges)).files.map((f) => f.path)).toEqual([
+      'agents.yaml',
+      'agents/coordinator.md',
+      'agents/release-notes.md',
+    ])
+    const withAgents = await client.save(agentChanges, after.version)
+    expect(parse((await libraryFile('agents.yaml')) ?? '')).toEqual({
+      coordinator: {
+        name: 'Coordinator',
+        model: 'opus',
+        powers: ['ask', 'manage_tasks'],
+        based_on: blobHash(instructions),
+      },
+      'release-notes': { name: 'Release notes', agent: 'claude', powers: ['ask', 'read_code'] },
+    })
+    expect(await libraryFile('agents/release-notes.md')).toBe(
+      '# Release notes\n\nWrite the notes.\n',
+    )
+    expect(withAgents.agentFiles.map((a) => [a.id, a.from])).toEqual([
+      ['coordinator', 'library'],
+      ['planner', 'ted'],
+      ['release-notes', 'library'],
+    ])
+    expect(withAgents.agentFiles[0]?.own).toMatchObject({ basedOn: blobHash(instructions) })
+
     const factory = await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
     await waitUntil(
       async () => (await client.call('GET', `/factories/${factory.id}/settings`)).status === 200,
@@ -156,12 +206,25 @@ describe('Library settings', () => {
       inherited: { layer: 'library', text: edited },
     })
     expect(settings.stages.find((s) => s.id === 'design')).toMatchObject({ gate: false })
+    expect(settings.agentFiles.find((a) => a.id === 'release-notes')).toMatchObject({
+      from: 'library',
+      powers: ['ask', 'read_code'],
+      inherited: { layer: 'library' },
+    })
+    expect(settings.agentFiles.find((a) => a.id === 'release-notes')?.own).toBeUndefined()
+
+    const removed = await client.save(
+      { agentFiles: [{ id: 'release-notes', settings: null, instructions: null }] },
+      withAgents.version,
+    )
+    expect(await libraryFile('agents/release-notes.md')).toBeUndefined()
+    expect(removed.agentFiles.map((a) => a.id)).toEqual(['coordinator', 'planner'])
 
     const designGate = async () =>
       (
         await client.ok<FactorySettingsView>('GET', `/factories/${factory.id}/settings`)
       ).stages.find((s) => s.id === 'design')?.gate
-    await client.save({ stages: { design: { gate: true } } }, after.version)
+    await client.save({ stages: { design: { gate: true } } }, removed.version)
     expect(await designGate()).toBe(true)
     const written = await libraryFile('workflow.yaml')
     expect(written).toContain('gate: true')
@@ -244,6 +307,14 @@ describe('Library settings', () => {
       version: view.version,
     })
     expect(res.status).toBe(400)
+    const nameless = await client.call('POST', '/library/save', {
+      changes: {
+        agentFiles: [{ id: 'helper', settings: { powers: ['ask'] }, instructions: 'Hi' }],
+      },
+      version: view.version,
+    })
+    expect(nameless.status).toBe(400)
+    expect(JSON.stringify(nameless.body)).toContain('needs a `name`')
     expect(await readdir(libraryDir()).catch(() => [])).toEqual([])
   })
 

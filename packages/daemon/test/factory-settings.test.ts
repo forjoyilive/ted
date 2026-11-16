@@ -15,6 +15,7 @@ import type {
 } from '@ted/protocol'
 import { readDaemonInfo, settingsInput } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { parse } from 'yaml'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
   api,
@@ -168,6 +169,20 @@ describe('Factory settings', () => {
       primary.env.push({ name: 'NODE_ENV', value: 'development' })
       primary.copy.push('.npmrc')
     })
+    const planner = view.agentFiles.find((a) => a.id === 'planner')
+    expect(planner).toMatchObject({ from: 'ted', builtIn: true })
+    changes.agentFiles = [
+      {
+        id: 'release-notes',
+        settings: { name: 'Release notes', powers: ['ask', 'read_code'] },
+        instructions: '# Release notes\n\nWrite the notes.\n',
+      },
+      {
+        id: 'planner',
+        settings: { name: 'Planner', powers: ['ask', 'propose_tasks'] },
+        instructions: planner?.inherited?.instructions ?? '',
+      },
+    ]
 
     const preview = await client.ok<SettingsPreview>(
       'POST',
@@ -175,7 +190,12 @@ describe('Factory settings', () => {
       changes,
     )
     expect(preview.valid).toBe(true)
-    expect(preview.files.map((f) => f.path)).toEqual(['.ted/workflow.yaml'])
+    expect(preview.files.map((f) => f.path)).toEqual([
+      '.ted/workflow.yaml',
+      '.ted/agents.yaml',
+      '.ted/agents/planner.md',
+      '.ted/agents/release-notes.md',
+    ])
     const added = preview.files[0]?.lines.filter((l) => l.kind === 'added').map((l) => l.text)
     expect(added?.map((t) => t.trim())).toEqual(
       expect.arrayContaining([
@@ -209,7 +229,25 @@ describe('Factory settings', () => {
     const merge = (await ghCalls()).find((args) => args[0] === 'pr' && args[1] === 'merge')
     expect(merge).toContain('--squash')
 
+    expect(parse(await originFile('.ted/agents.yaml'))).toEqual({
+      'release-notes': { name: 'Release notes', powers: ['ask', 'read_code'] },
+      planner: {
+        name: 'Planner',
+        powers: ['ask', 'propose_tasks'],
+        based_on: expect.stringMatching(/^[0-9a-f]{7}$/),
+      },
+    })
+    expect(await originFile('.ted/agents/release-notes.md')).toBe(
+      '# Release notes\n\nWrite the notes.\n',
+    )
+
     const after = await client.settings()
+    expect(after.agentFiles.map((a) => [a.id, a.from, a.powers])).toEqual([
+      ['coordinator', 'ted', ['ask', 'manage_tasks']],
+      ['planner', 'factory', ['ask', 'propose_tasks']],
+      ['release-notes', 'factory', ['ask', 'read_code']],
+    ])
+    expect(after.agentFiles[1]).toMatchObject({ inherited: { layer: 'ted' }, own: {} })
     expect(after.repos[0]?.mergeMethod).toBe('rebase')
     expect(after.repos[0]?.pullRequestCi).toBe('none')
     expect(after.repos[0]?.env).toContainEqual({ name: 'NODE_ENV', value: 'development' })
@@ -356,6 +394,7 @@ describe('Factory settings', () => {
       primary.name = 'Not Valid'
       primary.setup = { run: 'npm ci', timeout: 'forever' }
     })
+    changes.agentFiles = [{ id: 'helper', settings: { powers: ['ask'] }, instructions: 'Hi' }]
     const preview = await client.ok<SettingsPreview>(
       'POST',
       `/factories/${client.factory.id}/settings/preview`,
@@ -366,6 +405,7 @@ describe('Factory settings', () => {
       expect.arrayContaining([
         'a repo `name` uses only lowercase letters, digits and dashes',
         '`timeout` must be a duration such as 30s, 15m or 1h',
+        '`helper` needs a `name`',
       ]),
     )
     const res = await client.call('POST', `/factories/${client.factory.id}/settings/save`, {

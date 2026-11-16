@@ -33,6 +33,8 @@ import {
 import { RequestError } from './errors.ts'
 import type { TedStore } from './store/index.ts'
 import { resolveAgentChoices } from './workflow/agent-choices.ts'
+import { agentFileRows, applyAgentChanges } from './workflow/agent-edit.ts'
+import { agentFileId, resolveAgents } from './workflow/agent-files.ts'
 import { type CheckedLayer, checkLayer, type LayerFiles } from './workflow/check.ts'
 import { driftView, findDrift } from './workflow/drift.ts'
 import { applyChanges } from './workflow/edit.ts'
@@ -71,7 +73,11 @@ interface Base {
   own: CheckedLayer
 }
 
-const knownFile = (file: string) => file === 'workflow.yaml' || stageFileId(file) !== undefined
+const knownFile = (file: string) =>
+  file === 'workflow.yaml' ||
+  file === 'agents.yaml' ||
+  stageFileId(file) !== undefined ||
+  agentFileId(file) !== undefined
 
 const library = (files: LayerFiles) => checkLayer({ kind: 'library', files })
 
@@ -140,6 +146,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
       Object.keys(changes.stages ?? {}).length > 0 ||
       Object.keys(changes.agents ?? {}).length > 0
     if (touchesYaml) after['workflow.yaml'] = applyChanges(base.text, changes, [], basedOn)
+    applyAgentChanges(after, changes, resolveAgents([base.defaults]))
     const errors = library(after).problems.filter((p) => p.severity === 'error')
     if (errors.length > 0) return { problems: errors, files: {} }
     const writes: Record<string, string | null> = {}
@@ -249,6 +256,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
       version: base.version,
       stages: stageRows(base),
       agents: agentRows(base),
+      agentFiles: agentFileRows([base.defaults], base.own),
       problems: base.problems,
       ...(problem && { invalid: problem }),
     }
@@ -318,7 +326,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
 }
 
 function fileOrder(a: string, b: string): number {
-  const rank = (name: string) => (name === 'workflow.yaml' ? 0 : 1)
+  const rank = (name: string) => (name === 'workflow.yaml' ? 0 : name === 'agents.yaml' ? 1 : 2)
   return rank(a) - rank(b) || a.localeCompare(b)
 }
 
