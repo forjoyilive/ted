@@ -31,8 +31,19 @@ function triggersRun(on: Json | undefined, pushed: PushedBranch): boolean {
 function runsOn(trigger: string, filters: Json | undefined, pushed: PushedBranch): boolean {
   if (trigger === 'merge_group') return true
   if (trigger === 'push') return pushRuns(filters, pushed.branch)
-  if (pullRequestTriggers.includes(trigger)) return branchesMatch(filters, pushed.base)
+  if (pullRequestTriggers.includes(trigger)) {
+    return pushEventTypes(filters) && branchesMatch(filters, pushed.base)
+  }
   return false
+}
+
+const pullRequestEventsFromPushes = ['opened', 'synchronize', 'reopened', 'ready_for_review']
+
+function pushEventTypes(filters: Json | undefined): boolean {
+  if (!isObject(filters) || filters.types === undefined) return true
+  const types = patterns(filters.types)
+  if (types === null || types === undefined) return true
+  return types.some((type) => pullRequestEventsFromPushes.includes(type))
 }
 
 function pushRuns(filters: Json | undefined, branch: string): boolean {

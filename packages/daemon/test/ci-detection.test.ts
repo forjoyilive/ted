@@ -174,6 +174,11 @@ describe('workflow triggers', () => {
     expect(runsOnChanges('on:\n  pull_request:\n    branches: [main]\n', pushed)).toBe(true)
     expect(runsOnChanges('on:\n  pull_request_target:\n    branches: [dev]\n', pushed)).toBe(false)
     expect(runsOnChanges('on:\n  push:\n    paths: [src/**]\n', pushed)).toBe(true)
+    const closedOnly = 'on:\n  pull_request:\n    types: [closed]\n    branches: [main]\n'
+    expect(runsOnChanges(closedOnly, pushed)).toBe(false)
+    const opened = 'on:\n  pull_request_target:\n    types: [opened, synchronize]\n'
+    expect(runsOnChanges(opened, pushed)).toBe(true)
+    expect(runsOnChanges('on:\n  pull_request:\n    types: 7\n', pushed)).toBe(true)
     expect(runsOnChanges('on:\n  push:\n    branches: ["**", "!ted/**"]\n', pushed)).toBe(false)
     expect(runsOnChanges('on:\n  push:\n    branches: 7\n', pushed)).toBe(true)
     const crafted = `"${'*a'.repeat(20)}"`
