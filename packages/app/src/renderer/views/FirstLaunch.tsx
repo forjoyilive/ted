@@ -15,6 +15,7 @@ import { Help } from '../components/Help.tsx'
 import { Loading } from '../components/Loading.tsx'
 import { StatusChip, type StatusTone } from '../components/StatusChip.tsx'
 import { useAgentHealth } from '../data.ts'
+import { reportingLabel, reportingShort } from '../reporting.ts'
 import { useIntegrations } from '../settings/IntegrationsPage.tsx'
 import { ted } from '../ted.ts'
 import styles from './FirstLaunch.module.css'
@@ -442,11 +443,15 @@ export function FirstLaunch({
   settings,
   startAtLogin,
   onStartAtLogin,
+  reporting,
+  onReporting,
   footer,
 }: {
   settings: MachineSettings
   startAtLogin: boolean
   onStartAtLogin: (on: boolean) => void
+  reporting: boolean
+  onReporting: (on: boolean) => void
   footer: (ready: boolean) => ReactNode
 }) {
   const agents = useAgentHealth()
@@ -575,6 +580,18 @@ export function FirstLaunch({
           onChange={(event) => onStartAtLogin(event.target.checked)}
         />
         Start TED in the background when you log in
+      </label>
+      <label className={styles.reporting}>
+        <input
+          type="checkbox"
+          className={styles.checkbox}
+          checked={reporting}
+          onChange={(event) => onReporting(event.target.checked)}
+        />
+        <span>
+          {reportingLabel}
+          <span className={styles.reportingNote}>{reportingShort}</span>
+        </span>
       </label>
       {/Mac/.test(navigator.userAgent) && (
         <p className={styles.permissions}>

@@ -1,5 +1,6 @@
 import { foldText, matchesTerms, searchTerms } from '@ted/protocol/search'
 import { type SettingsSectionId, shownSettingsSectionIds } from './navigation.ts'
+import { reportingHelp, reportingLabel } from './reporting.ts'
 
 export const settingsPageNames: Record<SettingsSectionId, string> = {
   general: 'General',
@@ -103,6 +104,12 @@ const entries = {
   'app.general.startup.stay-awake': {
     name: 'Stay awake while Runs are working',
     help: 'Keeps this computer from going to sleep on its own while any Run is working. Automations don’t keep it awake.',
+  },
+  'app.general.privacy': { name: 'Privacy', heading: true },
+  'app.general.privacy.reporting': {
+    name: reportingLabel,
+    keywords: 'telemetry crash error usage sentry diagnostics',
+    help: reportingHelp,
   },
   'app.general.editor': { name: 'Editor and command line', heading: true },
   'app.general.editor.editor': {

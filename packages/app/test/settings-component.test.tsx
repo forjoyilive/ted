@@ -68,7 +68,7 @@ test('About shows the version and loads and closes third-party licenses', async 
   expect(screen.queryByRole('dialog')).toBeNull()
 })
 
-test('quit choice, login and Stay Awake switches send machine settings', async () => {
+test('quit choice, login, Stay Awake and reporting switches send machine settings', async () => {
   const update = vi.fn()
   bridge({
     getProfile: () => ({ name: 'Nabha' }),
@@ -92,10 +92,16 @@ test('quit choice, login and Stay Awake switches send machine settings', async (
     expect(toggle.getAttribute('aria-checked')).toBe('true')
     await u.click(toggle)
   }
+  const reporting = screen.getByRole('switch', {
+    name: 'Send error reporting and usage data to the TED team',
+  })
+  expect(reporting.getAttribute('aria-checked')).toBe('false')
+  await u.click(reporting)
   expect(update.mock.calls).toEqual([
     [{ quitWithWorkRunning: 'stop' }],
     [{ startAtLogin: false }],
     [{ stayAwake: false }],
+    [{ reporting: true, reportingAsked: true }],
   ])
 })
 
@@ -682,4 +688,28 @@ test('an asynchronous settings switch acknowledges activation and blocks repeat 
   })
   await act(async () => completion.resolve({}))
   expect(toggle.getAttribute('aria-busy')).toBeNull()
+})
+
+test('the reporting question asks once after setup and saves the answer', async () => {
+  const a = appState()
+  a.state.settings = { ...a.state.settings, reportingAsked: false }
+  const view = a.mount()
+  const dialog = await screen.findByRole('dialog', {
+    name: 'Send error reporting and usage data to the TED team?',
+  })
+  await user().click(within(dialog).getByRole('button', { name: 'Send reports' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(a.state.settings).toMatchObject({ reporting: true, reportingAsked: true })
+  view.unmount()
+
+  a.state.settings = { ...a.state.settings, reporting: false, reportingAsked: false }
+  a.mount()
+  fireEvent(
+    await screen.findByRole('dialog', {
+      name: 'Send error reporting and usage data to the TED team?',
+    }),
+    new Event('cancel', { cancelable: true }),
+  )
+  await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+  expect(a.state.settings).toMatchObject({ reporting: false, reportingAsked: true })
 })

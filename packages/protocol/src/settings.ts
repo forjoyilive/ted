@@ -111,6 +111,8 @@ export interface MachineSettings {
   firstLaunchDone: boolean
   onboardingOnNextOpen: boolean
   guideNextFactory: boolean
+  reporting: boolean
+  reportingAsked: boolean
   enabledAgents: readonly AgentKind[]
   billing: Readonly<Record<AgentKind, Billing>>
   editor: EditorChoice | null
@@ -166,6 +168,8 @@ export const defaultMachineSettings: MachineSettings = {
   firstLaunchDone: false,
   onboardingOnNextOpen: false,
   guideNextFactory: false,
+  reporting: false,
+  reportingAsked: false,
   enabledAgents: [...agentKinds],
   billing: { claude: 'subscription', codex: 'subscription', antigravity: 'subscription' },
   editor: null,

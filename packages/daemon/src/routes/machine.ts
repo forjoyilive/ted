@@ -401,6 +401,8 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   },
   firstLaunchDone: onOff('firstLaunchDone'),
   onboardingOnNextOpen: onOff('onboardingOnNextOpen'),
+  reporting: onOff('reporting'),
+  reportingAsked: onOff('reportingAsked'),
   guideNextFactory: onOff('guideNextFactory'),
   linearIntakeScopes(value) {
     if (
