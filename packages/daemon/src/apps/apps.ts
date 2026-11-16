@@ -945,18 +945,17 @@ export function createApps(options: AppsOptions): Apps {
   async function follow(taskId: string, key: string, dir: string): Promise<void> {
     let marked: { pid: number; unmark: () => void } | undefined
     try {
-      await followHost(taskId, dir, key, (pid, name) => {
+      await followHost(taskId, dir, key, async (pid, name) => {
         if (marked?.pid === pid) return
         marked?.unmark()
+        marked = { pid, unmark: () => {} }
+        if (!(await holdsLock(appFiles(dir).lock, pid)) || marked.pid !== pid) return
         const task = store.getTask(taskId)?.displayId
-        marked = {
-          pid,
-          unmark: markProcessRoot(pid, {
-            kind: 'app',
-            appName: name,
-            ...(task !== undefined && { task }),
-          }),
-        }
+        marked.unmark = markProcessRoot(pid, {
+          kind: 'app',
+          appName: name,
+          ...(task !== undefined && { task }),
+        })
       })
     } finally {
       marked?.unmark()
@@ -967,7 +966,7 @@ export function createApps(options: AppsOptions): Apps {
     taskId: string,
     dir: string,
     key: string,
-    onHost: (pid: number, name: string) => void,
+    onHost: (pid: number, name: string) => Promise<void>,
   ): Promise<void> {
     let launchedAt = Date.now()
     while (!closed) {
@@ -985,7 +984,7 @@ export function createApps(options: AppsOptions): Apps {
       }
       const found = await records(dir)
       const start = found.find((r) => r.t === 'start')
-      if (start?.t === 'start') onHost(start.hostPid, instance.name)
+      if (start?.t === 'start') await onHost(start.hostPid, instance.name)
       const exit = found.find((r) => r.t === 'exit')
       if (exit?.t === 'exit') {
         await settle(taskId, dir, instance, exit, stopping.has(key))

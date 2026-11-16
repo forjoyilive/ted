@@ -22,7 +22,7 @@ test('each process is named so it can be found in Activity Monitor', () => {
       kind: 'agent-tool',
       run: { runId: 'b', agent: 'codex', role: 'sub-agent', task: 'TED-12' },
     }),
-  ).toBe('Tool or MCP server of a sub-agent of TED-12')
+  ).toBe('Tool or MCP server of a Sub-Agent of TED-12')
   expect(
     named({
       owner: { runId: 'c' },

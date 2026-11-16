@@ -74,7 +74,7 @@ function runName(run: ProcessRun): string {
     case 'task-lead':
       return run.task === undefined ? 'a Task Lead' : `${run.task}’s Task Lead`
     case 'sub-agent':
-      return run.task === undefined ? 'a sub-agent' : `a sub-agent of ${run.task}`
+      return run.task === undefined ? 'a Sub-Agent' : `a Sub-Agent of ${run.task}`
     case 'coordinator':
       return 'a Coordinator chat'
     case 'planning':
