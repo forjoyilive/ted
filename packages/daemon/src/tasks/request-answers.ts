@@ -27,7 +27,7 @@ import { backStageMessage, nextStageMessage, stageTitle } from '../workflow/work
 import type { WorkflowResolution } from '../workflow/workflows.ts'
 import { answerMessage } from './answer-message.ts'
 import { type createFailureCases, failureText } from './failure-cases.ts'
-import { mergeAnywayChoice, sendToLeadChoice } from './merge-watcher.ts'
+import { leadPending, mergeAnywayChoice, sendToLeadChoice } from './merge-watcher.ts'
 import { checkPreparationWorkflow } from './preparation.ts'
 import { approvedShape, createProposalTasks } from './proposal-tasks.ts'
 import { roundAnswerMessage, roundAnswers } from './rounds.ts'
@@ -255,6 +255,38 @@ export function createRequestAnswers(
       await deliverAnswer(task, answered, `The human answered “${comment.title ?? ''}”:\n\n${text}`)
     }
     return store.getComment(comment.id) ?? answered
+  }
+
+  async function mergeAnywayAfterFailure(
+    task: StoredTask,
+    comment: Comment,
+    text: string,
+  ): Promise<Comment> {
+    const answered = await holding(task, async () => {
+      const current = find(task.id)
+      if (store.getComment(comment.id)?.answer)
+        throw new RequestError(409, 'this request has already been answered')
+      if (current.stage !== 'merge' || !leadPending(store, task.id))
+        throw new RequestError(
+          409,
+          `Merge anyway applies only while ${task.displayId} is at Merge and its Merge work isn’t done`,
+        )
+      const reply = store.answerComment(comment.id, {
+        kind: 'answered',
+        at: new Date().toISOString(),
+        choice: mergeAnywayChoice,
+        ...(text !== '' && { text }),
+      })
+      store.mergeLeadAdvanced(task.id, 'human')
+      store.postComment({
+        taskId: task.id,
+        author: { kind: 'ted' },
+        body: 'The human chose Merge anyway, so the Task Lead’s Merge work was skipped. TED merges as it would after the Task Lead’s advance: once CI passes, and after the Merge sign-off if it is on.',
+      })
+      return reply
+    })
+    watchMerge(task.id)
+    return answered
   }
 
   async function answerProposal(
@@ -706,6 +738,11 @@ export function createRequestAnswers(
       return answerCiStuck(task, comment, request.choice, text)
     }
     if (comment.purpose?.kind === 'failed-run' && comment.answer === undefined) {
+      if (request.action === 'answer' && request.choice === mergeAnywayChoice) {
+        if (mark !== undefined)
+          throw new RequestError(403, 'only the human can choose Merge anyway')
+        return mergeAnywayAfterFailure(task, comment, text)
+      }
       if (request.action === 'answer' && request.choice === retryChoice) {
         await resumeByHand(task.id, { comment: text, sendDrafts })
       } else {

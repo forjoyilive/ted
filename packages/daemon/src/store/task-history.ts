@@ -7,6 +7,8 @@ export interface MergeHistory {
   started: boolean
   canceledAt?: string
   latest?: 'started' | 'canceled'
+  awaitsLead: boolean
+  leadAdvanced?: { by: 'lead' | 'human'; at: string }
 }
 
 export interface FailureHistory {
@@ -68,6 +70,11 @@ export function createTaskHistory(
         (e) => (e.name === 'v1.MergeStarted' || e.name === 'v1.MergeCanceled') && e.at >= since,
       )
       const last = actions.at(-1)
+      const lead = read(taskId).filter(
+        (e) =>
+          (e.name === 'v1.MergeAwaitsLead' || e.name === 'v1.MergeLeadAdvanced') && e.at >= since,
+      )
+      const advanced = lead.findLast((e) => e.name === 'v1.MergeLeadAdvanced')
       const canceledAt = actions
         .filter((e) => e.name === 'v1.MergeCanceled')
         .reduce<string | undefined>(
@@ -78,6 +85,10 @@ export function createTaskHistory(
         started: actions.some((e) => e.name === 'v1.MergeStarted'),
         ...(canceledAt !== undefined && { canceledAt }),
         ...(last && { latest: last.name === 'v1.MergeStarted' ? 'started' : 'canceled' }),
+        awaitsLead: lead.some((e) => e.name === 'v1.MergeAwaitsLead'),
+        ...(advanced && {
+          leadAdvanced: { by: advanced.data.by === 'human' ? 'human' : 'lead', at: advanced.at },
+        }),
       }
     },
     approvalsBoundToCommit(taskId: string, commit: string): string[] {

@@ -10,6 +10,7 @@ import type { RecordedSetup, RunFlags, StoredTask, TedStore } from '../store/ind
 import type { WorkflowSettings } from '../workflow/check.ts'
 import type { WorkflowResolution } from '../workflow/workflows.ts'
 import { endingReason, failedAsk, memoryReason, revivedMessage, silentReason } from './failures.ts'
+import { leadPending } from './merge-watcher.ts'
 import { overnightGuidance } from './overnight.ts'
 import { type FactoryRepoEntry, repoEntry, sameRepo } from './repos.ts'
 
@@ -575,6 +576,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       resumeFailed,
       ...(recovery === 'failed' && {
         ask: failedAsk(run.agent, history.sinceFirst, reason, ended, now),
+        ...(task.stage === 'merge' && leadPending(store, task.id) && { mergeAnyway: true }),
       }),
     })
     if (recovery === 'resume' && killedForMemory) {

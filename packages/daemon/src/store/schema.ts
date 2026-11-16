@@ -2382,6 +2382,22 @@ export const events = {
     name: 'v1.MergeStarted',
     schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
   }),
+  mergeAwaitsLead: Events.synced({
+    name: 'v1.MergeAwaitsLead',
+    schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
+  }),
+  failedRunMergeAnywayOffered: Events.synced({
+    name: 'v1.FailedRunMergeAnywayOffered',
+    schema: Schema.Struct({ commentId: Schema.String, choices: Schema.String }),
+  }),
+  mergeLeadAdvanced: Events.synced({
+    name: 'v1.MergeLeadAdvanced',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      by: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   gateRequestedFor: Events.synced({
     name: 'v1.GateRequestedFor',
     schema: Schema.Struct({
@@ -4016,6 +4032,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.GitHubActivityQueued': (args) => task(args, { notices: args.notices }),
   'v1.GitHubActivityHeld': (args) => task(args, { notices: args.notices }),
   'v1.MergeStarted': (args) => task(args),
+  'v1.MergeAwaitsLead': (args) => task(args),
+  'v1.MergeLeadAdvanced': (args) => task(args, { by: args.by }),
   'v1.GateSkippedOvernight': (args) => task(args, { stage: args.stage }),
   'v1.GateKeptOvernight': (args) => task(args, { stage: args.stage, reason: args.reason }),
   'v1.GateRequestedFor': (args) =>
@@ -4327,6 +4345,10 @@ const materializers = counted(
       'v1.TaskLeadNudged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.MergeStarted': ({ taskId, at }) => tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.MergeAwaitsLead': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.MergeLeadAdvanced': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.GateRequestedFor': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.GateApprovalBound': ({ taskId, at }) =>
@@ -4972,6 +4994,8 @@ const materializers = counted(
               }),
             ]),
       ],
+      'v1.FailedRunMergeAnywayOffered': ({ commentId, choices }) =>
+        comments.update({ choices }).where({ id: commentId }),
       'v1.TaskRetried': ({ taskId, rank, at }) => [
         taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
         tasks
