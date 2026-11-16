@@ -455,7 +455,7 @@ test('Developer diagnostics retain their values after a rejected poll and during
     expect(screen.getByRole('region', { name: 'Diagnostics' })).toBeTruthy()
     api.handle('getDiagnostics', () => Promise.reject(new Error('Diagnostics refresh failed')))
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(2000)
+      await vi.advanceTimersByTimeAsync(5_000)
     })
     expect(screen.getByRole('alert').textContent).toContain('Diagnostics refresh failed')
     expect(screen.getByRole('region', { name: 'Diagnostics' })).toBeTruthy()

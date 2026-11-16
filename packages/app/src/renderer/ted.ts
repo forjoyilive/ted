@@ -140,6 +140,7 @@ export const ted = {
   chooseProfilePicture: () => request('chooseProfilePicture'),
   copyReport: () => request('copyReport'),
   memoryUse: () => request('memoryUse'),
+  resourceUsage: () => request('resourceUsage'),
   tedFolder: () => request('tedFolder'),
   showTedFolder: () => request('showTedFolder'),
   showBackupInFolder: (name: string) => request('showBackupInFolder', name),

@@ -1,4 +1,5 @@
 import type { ProcessUsage } from '@ted/protocol'
+import { memorySize } from '@ted/protocol/memory'
 import { useEffect, useState } from 'react'
 import { ted } from '../ted.ts'
 import styles from './ResourceUsage.module.css'
@@ -18,7 +19,7 @@ export function ResourceUsage() {
       if (stopped || running || document.hidden) return
       running = true
       try {
-        const next = await ted.getProcessUsage()
+        const next = await ted.resourceUsage()
         if (!stopped) {
           setUsage(next)
           setFailed(false)
@@ -49,10 +50,10 @@ export function ResourceUsage() {
     <section
       className={styles.usage}
       aria-label="Developer resource usage"
-      title="Daemon-owned processes and Run process trees, not the Electron app or all system usage. Refreshes every five seconds. CPU can exceed 100% across cores."
+      title="TED’s app, daemon, Runs and Checks, not the rest of this Mac. Refreshes every five seconds. CPU can exceed 100% across cores."
     >
       {usage
-        ? `CPU ${Math.round(usage.cpuPercent * 10) / 10}% · Memory ${(usage.memoryBytes / 1024 ** 2).toFixed(0)} MB`
+        ? `CPU ${Math.round(usage.cpuPercent * 10) / 10}% · Memory ${memorySize(usage.memoryBytes)}`
         : failed
           ? 'CPU / Memory unavailable'
           : 'CPU / Memory reading…'}

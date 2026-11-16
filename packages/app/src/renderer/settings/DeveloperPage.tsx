@@ -1,5 +1,5 @@
 import type { Diagnostics, LogText, ProcessInfo } from '@ted/protocol'
-import { memorySummary } from '@ted/protocol/memory'
+import { memorySize, memorySummary } from '@ted/protocol/memory'
 import { shortReference } from '@ted/protocol/reference'
 import { profileSeconds } from '@ted/protocol/slow'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -11,8 +11,9 @@ import type { SettingsPageProps } from './sections.tsx'
 import styles from './settings.module.css'
 
 const refreshMs = 2_000
+const processRefreshMs = 5_000
 
-function usePolled<T>(load: () => Promise<T>) {
+function usePolled<T>(load: () => Promise<T>, everyMs = refreshMs) {
   const [state, setState] = useState<{
     load: () => Promise<T>
     value?: T | undefined
@@ -41,13 +42,13 @@ function usePolled<T>(load: () => Promise<T>) {
         })
     }
     void tick()?.finally(() => settled(attempt))
-    const timer = setInterval(tick, refreshMs)
+    const timer = setInterval(tick, everyMs)
     return () => {
       stopped = true
       settled(attempt)
       clearInterval(timer)
     }
-  }, [load, attempt, settled])
+  }, [load, everyMs, attempt, settled])
   return {
     value: state?.load === load ? state.value : undefined,
     error: state?.load === load ? state.error : undefined,
@@ -55,7 +56,6 @@ function usePolled<T>(load: () => Promise<T>) {
   }
 }
 
-const megabytes = (bytes: number) => `${(bytes / (1024 * 1024)).toFixed(0)} MB`
 const gigabytes = (bytes: number) => `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`
 const tokens = (count: number) => count.toLocaleString('en-US')
 
@@ -94,7 +94,7 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
   const [folderProblem, setFolderProblem] = useState<string>()
   const report = useCopyReport()
   const profile = useProfile()
-  const memory = usePolled(ted.memoryUse)
+  const memory = usePolled(ted.memoryUse, processRefreshMs)
 
   useEffect(() => {
     void ted.tedFolder().then(setFolder, (error: unknown) => setFolderProblem(readableError(error)))
@@ -181,7 +181,7 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
 }
 
 function DeveloperTools({ onCopyReport }: { onCopyReport: () => void }) {
-  const resource = usePolled(ted.getDiagnostics)
+  const resource = usePolled(ted.getDiagnostics, processRefreshMs)
   const diagnostics = resource.value
   return (
     <>
@@ -263,7 +263,7 @@ function DiagnosticsView({
                       {run.state === 'finished' ? '–' : `${run.cpuPercent}%`}
                     </td>
                     <td className={styles.number}>
-                      {run.state === 'finished' ? '–' : megabytes(run.memoryBytes)}
+                      {run.state === 'finished' ? '–' : memorySize(run.memoryBytes)}
                     </td>
                     <td className={styles.number}>{tokens(run.tokens.input)}</td>
                     <td className={styles.number}>{tokens(run.tokens.output)}</td>
@@ -292,7 +292,7 @@ function DiagnosticsView({
                   <td className={styles.mono}>{process.command}</td>
                   <td>{owner(process)}</td>
                   <td className={styles.number}>{process.cpuPercent}%</td>
-                  <td className={styles.number}>{megabytes(process.memoryBytes)}</td>
+                  <td className={styles.number}>{memorySize(process.memoryBytes)}</td>
                 </tr>
               ))}
             </tbody>
