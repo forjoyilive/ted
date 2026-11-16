@@ -532,13 +532,18 @@ export function threadEvents(
           add(entry, 'quiet', 'Blockers removed · resume the Task to carry on')
           break
         }
+        if (data.why === 'repair-incorporation') {
+          add(entry, 'quiet', 'TED stopped the Task until the merged repair is brought in')
+          break
+        }
         const runs = typeof data.runs === 'number' ? data.runs : 0
+        const who = data.why === undefined || data.why === 'human' ? 'You' : 'TED'
         add(
           entry,
-          'edit',
+          who === 'You' ? 'edit' : 'quiet',
           runs === 0
-            ? 'You stopped the Task'
-            : `You stopped the Task · ${runs} ${runs === 1 ? 'Run' : 'Runs'} stopped`,
+            ? `${who} stopped the Task`
+            : `${who} stopped the Task · ${runs} ${runs === 1 ? 'Run' : 'Runs'} stopped`,
         )
         break
       }
