@@ -334,7 +334,7 @@ describe('List views', () => {
       { nb: { ...board, cardSize: 'tiny' } },
       { nb: { ...board, fields: ['title'] } },
       { nb: { ...board, fields: 'priority' } },
-      { nb: { ...board, hiddenStages: ['nowhere'] } },
+      { nb: { ...board, hiddenStages: ['Not a Stage'] } },
       { nb: { ...board, hideEmpty: 'yes' } },
       { nb: { cardSize: 'full' } },
       { nb: null },
