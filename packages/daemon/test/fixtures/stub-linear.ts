@@ -36,6 +36,8 @@ interface StubIntakeFilter {
 export interface StubLinearAccount {
   viewerReady?: Promise<void>
   intakeReady?: Promise<void>
+  lookupReady?: Promise<void>
+  onLookup?: (id: string) => void
   intakeMalformed?: boolean
   intakeMissingCursor?: boolean
   teams?: { id: string; key: string; name: string }[]
@@ -279,6 +281,8 @@ export async function startStubLinear(
         })
       }
       if (query.includes('issue(')) {
+        account.onLookup?.(variables?.id ?? '')
+        await account.lookupReady
         const issue = account.issues?.find((i) => i.identifier === variables?.id)
         if (!issue) return reply(200, { data: null, errors: [notFound(['issue'])] })
         return reply(200, {

@@ -1776,6 +1776,47 @@ describe('Factory Linear intake enforcement', () => {
         { id: 'NB-2', stage: 'backlog' },
         { id: 'NB-3', stage: 'backlog' },
       ])
+      const account = linear.accounts.get(key)
+      if (!account?.issues) throw new Error('no stub account')
+      account.issues.push({ identifier: 'NB-8', title: 'Scope cleared', assignedToMe: true })
+      let release = () => {}
+      account.lookupReady = new Promise((resolve) => {
+        release = resolve
+      })
+      const looking = new Promise<void>((resolve) => {
+        account.onLookup = (id) => {
+          if (id === 'NB-8') resolve()
+        }
+      })
+      await client.ok('POST', `/automations/${automation.id}/run`)
+      await looking
+      await client.ok('PUT', `/factories/${factory.id}/linear-intake`, { scope: null })
+      release()
+      const rows = await waitForHistory(
+        client,
+        automation.id,
+        (rows) => rows.length === 3 && rows.every((row) => row.result.kind !== 'running'),
+        'Linear intake firing 3',
+      )
+      const runId = rows.find((row) => row.runId && !seen.has(row.runId))?.runId ?? ''
+      const [stopped] = await commandResults(client, runId)
+      expect(stopped?.stdout).toContain(
+        'Linear intake scope changed during the import. TED stopped; the next run uses the new scope.',
+      )
+      expect(
+        (await client.ok<Task[]>('GET', '/tasks')).some(
+          (task) => task.source?.linear?.identifier === 'NB-8',
+        ),
+      ).toBe(false)
+      await client.ok('PUT', `/factories/${factory.id}/linear-intake`, {
+        scope: {
+          kind: 'team',
+          id: 'team-NB',
+          name: 'Widgets',
+          workspaceId: 'workspace-acme',
+          workspace: 'acme',
+        },
+      })
       await client.ok('DELETE', '/integrations/linear/key')
       const disconnected = await client.call('POST', '/linear-intake', { factory: 'NB' })
       expect(disconnected.status).toBe(409)
