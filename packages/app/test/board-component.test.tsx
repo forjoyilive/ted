@@ -185,7 +185,7 @@ test('Board filters matching nothing offer Clear filters', async () => {
 })
 
 test('Help shows its tooltip on hover and hides it when the pointer leaves', async () => {
-  render(<Help>Queued Tasks wait for a Run slot.</Help>)
+  draw(<Help>Queued Tasks wait for a Run slot.</Help>)
   expect(screen.queryByRole('tooltip')).toBeNull()
   const u = user()
   const help = screen.getByRole('button', { name: 'Help' })

@@ -472,7 +472,7 @@ describe('the Board’s Display choices', () => {
       takesIntake,
     )
     expect(layout.columns.map((c) => c.stage)).toEqual(['backlog', 'design', 'done'])
-    expect(layout.hidden).toEqual([{ stage: 'intake', count: 0, needsYou: 0 }])
+    expect(layout.hidden).toEqual([{ stage: 'intake', name: 'Intake', count: 0, needsYou: 0 }])
   })
 
   test('with Blockers off a card loses its blocked status and keeps its other markers', () => {
