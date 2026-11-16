@@ -116,8 +116,18 @@ export function childChoices(task: Task, tasks: readonly Task[]): Task[] {
   )
 }
 
-export function progressText({ merged, total }: ChildProgress): string {
+type Counts = Pick<ChildProgress, 'merged' | 'total'>
+
+export function progressText({ merged, total }: Counts): string {
   return `${merged} of ${total} merged`
+}
+
+export function progressCount({ merged, total }: Counts): string {
+  return `${merged}/${total}`
+}
+
+export function progressLabel({ merged, total }: Counts): string {
+  return `${merged} of ${total} ${total === 1 ? 'child' : 'children'} merged`
 }
 
 export function waitingText(task: Task, progress: ChildProgress, stage: (t: Task) => string) {

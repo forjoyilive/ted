@@ -7,6 +7,7 @@ import {
   DeleteDialog,
   UnarchiveDialog,
 } from '../src/renderer/components/ArchiveDialogs.tsx'
+import { ProgressRing } from '../src/renderer/components/ProgressRing.tsx'
 import { newChildTaskEvent } from '../src/renderer/hierarchy.ts'
 import { TaskDetails } from '../src/renderer/views/TaskThread.tsx'
 import { bridge, user } from './support/component.ts'
@@ -114,6 +115,11 @@ test('a parent shows nested children, merged progress, who it waits for and arch
   expect(labels.slice(labels.indexOf('Parent'))).toEqual(['Parent', 'Children', 'Blocked by'])
   const children = within(screen.getByRole('region', { name: 'Children' }))
   expect(children.getByText('1 of 3 merged')).toBeTruthy()
+  const queueRow = document.querySelector<HTMLElement>('[data-task="NB-42"]')
+  if (!queueRow) throw new Error('Missing NB-42 row')
+  const nested = within(queueRow).getByRole('img', { name: '0 of 1 child merged' })
+  expect(nested.textContent).toBe('0/1')
+  expect(nested.getAttribute('title')).toBe('0 of 1 child merged')
   const waiting = children.getByRole('status')
   expect(waiting.textContent).toBe(
     'Waiting for 2 children: NB-42 (Work), NB-44 (Clarify). NB-40 does its own remaining work when they merge.',
@@ -318,4 +324,19 @@ test('unarchiving a child greys out both choices while its parent works, and det
     unlinkParent: true,
     hierarchyRevision: 'preview-c4',
   })
+})
+
+test('the progress ring counts merged children and marks a finished parent', () => {
+  render(
+    <>
+      <ProgressRing merged={1} total={3} />
+      <ProgressRing merged={3} total={3} />
+    </>,
+  )
+  const partial = screen.getByRole('img', { name: '1 of 3 children merged' })
+  expect(partial.textContent).toBe('1/3')
+  expect(partial.hasAttribute('data-done')).toBe(false)
+  const done = screen.getByRole('img', { name: '3 of 3 children merged' })
+  expect(done.textContent).toBe('3/3')
+  expect(done.hasAttribute('data-done')).toBe(true)
 })
