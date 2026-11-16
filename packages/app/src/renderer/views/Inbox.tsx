@@ -81,6 +81,7 @@ export function Inbox({
   onNewTask,
   onOpenNotifications,
   settings,
+  banners,
   children,
 }: {
   items: readonly InboxItem[]
@@ -106,6 +107,7 @@ export function Inbox({
   onNewTask: () => void
   onOpenNotifications?: () => void
   settings?: MachineSettings | undefined
+  banners?: ReactNode
   children?: ReactNode
 }) {
   const view = useInboxGrouping(showAnswered ? 'answered' : 'waiting')
@@ -614,6 +616,7 @@ export function Inbox({
             </div>
           )}
         </header>
+        {banners}
         {uncounted.length > 0 && (
           <p className={styles.uncountedNote}>
             <BellOffIcon />

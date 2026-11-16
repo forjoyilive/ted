@@ -282,6 +282,8 @@ function goTo(state: Navigation, place: Place): Navigation {
   return {
     ...rest,
     ...place,
+    ...(screen.kind === 'inbox' &&
+      screen.factoryId !== undefined && { lastFactoryId: screen.factoryId }),
     ...(screen.kind === 'factory' && {
       lastFactoryId: screen.factoryId,
       lastViews: { ...state.lastViews, [screen.factoryId]: screen.view },

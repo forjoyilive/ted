@@ -881,6 +881,14 @@ export function App({ start }: { start?: AppStart | undefined }) {
           layout={factoryLayout}
           factoryId={screen.factoryId}
           groupId={screen.groupId}
+          banners={
+            screen.factoryId === undefined
+              ? undefined
+              : bannerStack(
+                  `${factoryName(factories, screen.factoryId)} problems`,
+                  factoryBanners(banners, screen.factoryId),
+                )
+          }
           showAnswered={screen.answered === true}
           anyTasks={tasks.length > 0}
           settings={settings}

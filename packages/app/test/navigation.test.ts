@@ -265,6 +265,18 @@ describe('back and forward (⌘[ and ⌘])', () => {
     expect(again.now.taskId).toBe('t1')
   })
 
+  test('back and forward between two Factories’ Inboxes restore which Factory is current', () => {
+    const state = walk(
+      { type: 'open', screen: { kind: 'inbox', factoryId: 'nb' } },
+      { type: 'open', screen: { kind: 'inbox', factoryId: 'ms' } },
+      { type: 'back' },
+    )
+    expect(state.now.screen).toEqual({ kind: 'inbox', factoryId: 'nb' })
+    expect(currentFactoryId(state.now, tasks)).toBe('nb')
+    const forward = withHistory(state, { type: 'forward' })
+    expect(currentFactoryId(forward.now, tasks)).toBe('ms')
+  })
+
   test('going somewhere new after going back drops the forward places', () => {
     const state = walk(
       { type: 'open', screen: { kind: 'all-tasks' } },
