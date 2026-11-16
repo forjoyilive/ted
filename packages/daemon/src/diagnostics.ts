@@ -237,10 +237,13 @@ export function readRunOutput(home: string, runId: string): Promise<LogText> {
 
 const megabytes = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`
 
-export async function report(sources: DiagnosticsSources): Promise<string> {
+export async function report(
+  sources: DiagnosticsSources,
+  { includeLog = true }: { includeLog?: boolean } = {},
+): Promise<string> {
   const diagnostics = await collectDiagnostics(sources)
   const settings = sources.store.settings()
-  const log = await tail(tedPaths(sources.home).daemonLog, reportLogBytes)
+  const log = includeLog ? await tail(tedPaths(sources.home).daemonLog, reportLogBytes) : undefined
   const { totalBytes, availableBytes } = diagnostics.memory
   const lines = [
     `TED ${sources.version}`,
@@ -258,11 +261,11 @@ export async function report(sources: DiagnosticsSources): Promise<string> {
     'Processes',
     ...diagnostics.processes.map(
       (p) =>
-        `${p.pid} (parent ${p.ppid}) ${p.command} · ${p.owner === 'daemon' ? 'daemon' : `Run ${shortReference(p.owner.runId)}`} · CPU ${p.cpuPercent}% · ${megabytes(p.memoryBytes)}`,
+        `${p.pid} (parent ${p.ppid})${includeLog ? ` ${p.command}` : ''} · ${p.owner === 'daemon' ? 'daemon' : `Run ${shortReference(p.owner.runId)}`} · CPU ${p.cpuPercent}% · ${megabytes(p.memoryBytes)}`,
     ),
-    '',
-    `Daemon log${log.truncated ? ' (last 64 KB)' : ''}`,
-    log.text,
+    ...(log
+      ? ['', `Daemon log${log.truncated ? ' (last 64 KB)' : ''}`, log.text]
+      : ['', 'Daemon log and process command lines left out']),
   ]
   return redactSecrets(hideHome(lines.join('\n'), sources.home))
 }
