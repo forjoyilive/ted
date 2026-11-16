@@ -10,8 +10,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p packages/app/tsconfig.json",
-    "lint": "biome check .",
-    "format": "biome check --write .",
+    "lint": "biome check . && oxlint && ! git grep --untracked -nE '(//|/\\*).*(oxlint|eslint)-(disable|enable)' -- '*.ts' '*.tsx' ':!tools/oxlint/anti-slop'",
+    "format": "oxlint --fix && biome check --write .",
     "test": "vitest run",
     "ted": "node packages/cli/src/main.ts",
     "app": "pnpm --filter @ted/app start",
@@ -24,7 +24,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.6",
+    "@oxlint/plugins": "1.94.0",
     "@types/node": "^24.19.2",
+    "oxlint": "1.94.0",
     "typescript": "^7.0.2",
     "vitest": "^5.1.0"
   }
