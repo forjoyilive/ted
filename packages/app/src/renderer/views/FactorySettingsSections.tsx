@@ -406,12 +406,15 @@ function StageRow({
         <span>
           {row.id === 'done' ? (
             dash
+          ) : fixed ? (
+            <span className={styles.always} title={`${name} can’t be turned off`}>
+              Always on
+            </span>
           ) : (
             <Toggle
               label={`${name} on`}
               checked={stage?.enabled ?? row.enabled}
-              disabled={fixed || !row.inOrder}
-              {...(fixed && { title: `${name} can’t be turned off` })}
+              disabled={!row.inOrder}
               {...(!row.inOrder && { title: `${name} isn’t in this Factory’s order` })}
               onChange={(enabled) => onStage({ enabled })}
             />

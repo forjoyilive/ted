@@ -34,8 +34,8 @@
 }
 
 .workflowRow {
-  min-width: 860px;
-  grid-template-columns: 92px 36px 76px 60px 104px minmax(160px, 1fr) 68px minmax(0, 1fr);
+  min-width: 896px;
+  grid-template-columns: 92px 72px 76px 60px 104px minmax(160px, 1fr) 68px minmax(0, 1fr);
 }
 
 .checkRow {
@@ -201,7 +201,7 @@
 }
 
 .switch:disabled {
-  background: var(--text-faint);
+  opacity: 0.45;
 }
 
 .switch:focus-visible {

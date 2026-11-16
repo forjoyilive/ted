@@ -347,12 +347,16 @@ function StageLine({
               checked={stage?.enabled ?? row.enabled}
               onChange={(enabled) => onStage({ enabled })}
             />
+          ) : fixed ? (
+            <span className={sections.always} title={`${name} can’t be turned off`}>
+              Always on
+            </span>
           ) : (
             <Toggle
               label={`${name} on`}
               checked={stage?.enabled ?? row.enabled}
-              disabled={fixed || !row.inOrder}
-              {...(fixed && { title: `${name} can’t be turned off` })}
+              disabled={!row.inOrder}
+              {...(!row.inOrder && { title: `${name} isn’t in the Library’s order` })}
               onChange={(enabled) => onStage({ enabled })}
             />
           )}
