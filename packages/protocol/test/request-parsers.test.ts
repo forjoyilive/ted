@@ -179,7 +179,7 @@ test('parseAsanaChoicesQuery keeps the offset and refuses anything else', () => 
   expect(() => P.parseAsanaChoicesQuery('?limit=5')).toThrow('unknown query parameter limit')
 })
 const taskQueryRejections: [string, string][] = [
-  ['stage=queued', 'unknown Stage queued'],
+  ['stage=Queued', 'unknown Stage Queued'],
   ['status=idle', 'unknown status idle'],
   ['offset=-1', 'offset must be a whole number'],
   ['all=yes', 'all takes no value'],
@@ -347,6 +347,61 @@ rejects(
 rejects(P.parseAddFailureEvidenceRequest, { evidence: '' }, 'nonempty text')
 rejects(P.parseAssessFailureRequest, { assessment: 'other' }, 'unknown failure assessment')
 rejects(P.parseResolveFailureRequest, { resolution: 'other' }, 'unknown failure resolution')
+for (const body of [null, [], 'text', 0])
+  rejects(P.parseVerifyFailureRequest, body, 'failure request must be an object')
+rejects(
+  P.parseAddFailureEvidenceRequest,
+  { evidence: 'x'.repeat(16_001) },
+  'evidence must be nonempty text up to 16000 characters',
+)
+rejects(
+  P.parseAddFailureEvidenceRequest,
+  { evidence: 'Evidence', contextId: 7 },
+  'contextId must be nonempty text',
+)
+for (const position of [-1, 1.5, '1'])
+  rejects(
+    P.parseRecordFailureRequest,
+    { source: { kind: 'factory-check', checkRunId: 'check', position }, evidence: 'Hi' },
+    'position must be a nonnegative integer',
+  )
+const ci = { kind: 'github-ci', repo: 'owner/repo', number: 1, head: 'a'.repeat(40), attempt: '1' }
+for (const number of [0, 1.5, '1'])
+  rejects(
+    P.parseRecordFailureRequest,
+    { source: { ...ci, number }, evidence: 'Hi' },
+    'number must be a positive PR number',
+  )
+rejects(
+  P.parseRecordFailureRequest,
+  { source: { ...ci, head: 'main' }, evidence: 'Hi' },
+  'head must be a commit ID',
+)
+rejects(
+  P.parseRecordFailureRequest,
+  { source: 'finding', evidence: 'Hi' },
+  'failure request must be an object',
+)
+rejects(
+  P.parseResolveFailureRequest,
+  { requestId: 'r', resolution: 'repair' },
+  'failure request must be an object',
+)
+rejects(
+  P.parseResolveFailureRequest,
+  { requestId: 'r', resolution: 'repair', repair: {} },
+  'choose an existing or new repair Task',
+)
+rejects(
+  P.parseResolveFailureRequest,
+  { requestId: 'r', resolution: 'repair', repair: { kind: 'new', title: 'T', start: 'yes' } },
+  'start must be a boolean',
+)
+rejects(
+  P.parseResolveFailureRequest,
+  { requestId: 'r', resolution: 'fix', repair: { kind: 'existing', taskId: 't' } },
+  'repair selection needs repair resolution',
+)
 
 test('permissive optional bodies retain defaults', () => {
   expect(P.parseBannerActionInput({ folder: 2 })).toEqual({})
