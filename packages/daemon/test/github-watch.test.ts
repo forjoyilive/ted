@@ -306,7 +306,10 @@ describe('Watching GitHub', () => {
       })
       const { task, signoff } = await toSignoff(client, { title: guardedSteps(client) })
       await approve(client, signoff)
-      await waitUntil(async () => (await getTask(client, task.id)).stage === 'merge', 'Merge')
+      await waitUntil(
+        async () => (await getTask(client, task.id)).status?.kind === 'waiting-for-github',
+        'the Task Lead to advance at Merge',
+      )
       const first = await leadOf(client, task)
       expect((await client.call('POST', '/shutdown', {})).status).toBe(200)
       await ctx.daemon?.stop()

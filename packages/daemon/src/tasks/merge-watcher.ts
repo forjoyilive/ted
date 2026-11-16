@@ -803,17 +803,20 @@ export function leadPending(store: TedStore, taskId: string): boolean {
   if (!awaitsLead) return false
   if (leadAdvanced === undefined) return true
   if (leadAdvanced.by === 'human') return false
+  return openMergeFailures(store, taskId).some((f) => f.createdAt > leadAdvanced.at)
+}
+
+const closedResolutions = ['accepted', 'fixed', 'no-longer-applicable']
+
+export function openMergeFailures(store: TedStore, taskId: string) {
   return store.failures
     .list(taskId)
-    .some(
+    .filter(
       (f) =>
-        f.createdAt > leadAdvanced.at &&
         (f.source.kind === 'github-ci' || f.source.kind === 'post-rebase-check') &&
         !closedResolutions.includes(f.resolutions.at(-1)?.resolution ?? ''),
     )
 }
-
-const closedResolutions = ['accepted', 'fixed', 'no-longer-applicable']
 
 function mergeVisit(store: TedStore, task: Task): string {
   return store.listStageEntries(task.id).findLast((e) => e.stage === task.stage)?.at ?? ''
