@@ -297,7 +297,7 @@ rejects(
   },
   'too large',
 )
-rejects(P.parseLibraryChanges, { keepStageFiles: ['other'] }, 'unknown Stage')
+rejects(P.parseLibraryChanges, { keepStageFiles: ['Other stage'] }, 'unknown Stage')
 rejects(P.parseSaveLibraryRequest, { changes: library }, 'version is required')
 
 test('legacy Factory normalization and defaults', () => {
@@ -359,9 +359,6 @@ test('a custom Stage takes the general settings and its Stage file, but no built
       P.parseLibraryChanges({ stages: { 'security-audit': { [field]: false } } }),
     ).toThrow(`security-audit.${field} can’t be set on a custom Stage`)
   }
-  expect(() => P.parseLibraryChanges({ stages: { review: { depth: 'few' } } })).toThrow(
-    'review.depth must be one of',
-  )
   expect(() => P.parseLibraryChanges({ stages: { 'Not A Stage': { gate: true } } })).toThrow(
     'unknown Stage Not A Stage',
   )

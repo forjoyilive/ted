@@ -233,6 +233,7 @@ test('Workflow and notes stay staged across pages while confirmed permissions sa
         stages: [
           {
             id: 'backlog' as const,
+            name: 'Backlog',
             inOrder: true,
             enabled: true,
             gate: false,

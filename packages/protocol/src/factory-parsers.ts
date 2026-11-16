@@ -52,15 +52,7 @@ import {
   type WorktreeCommandInput,
 } from './factory-settings.ts'
 import { permissionModes } from './run.ts'
-import {
-  handsOff,
-  hasClarifyRounds,
-  isBuiltInStage,
-  isStageId,
-  mergesHere,
-  stageFileId,
-  validates,
-} from './stage.ts'
+import { handsOff, isBuiltInStage, isStageId, mergesHere, stageFileId, validates } from './stage.ts'
 import {
   type AgentStageId,
   type ClarifyDepth,
@@ -146,8 +138,8 @@ function stageSettings(given: unknown): Partial<Record<StageId, StageSettingsInp
       throw new HttpError(400, `${id}.effort must be an effort level or null on a working Stage`)
     }
     const depth = stage.depth
-    if (depth !== undefined && (!hasClarifyRounds(id) || !clarifyDepths.some((d) => d === depth))) {
-      throw new HttpError(400, `${id}.depth must be one of ${clarifyDepths.join(', ')}, on Clarify`)
+    if (depth !== undefined && !clarifyDepths.some((d) => d === depth)) {
+      throw new HttpError(400, `${id}.depth must be one of ${clarifyDepths.join(', ')}`)
     }
     const enabled = flag('enabled')
     const gate = flag('gate')
