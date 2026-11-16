@@ -503,13 +503,13 @@ test('resource readings refresh while Developer mode is visible and stop when hi
     expect(screen.getByText('12.5%')).toBeTruthy()
     expect(screen.getByText('128 MB')).toBeTruthy()
     cpuPercent = 37.8
-    await act(async () => vi.advanceTimersByTimeAsync(2_000))
+    await act(async () => vi.advanceTimersByTimeAsync(5_000))
     expect(screen.getByText('37.8%')).toBeTruthy()
     expect(screen.queryByText('12.5%')).toBeNull()
     expect(diagnostics).toHaveBeenCalledTimes(2)
 
     view.rerender(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
-    await act(async () => vi.advanceTimersByTimeAsync(4_000))
+    await act(async () => vi.advanceTimersByTimeAsync(10_000))
     expect(screen.queryByRole('region', { name: 'Diagnostics' })).toBeNull()
     expect(diagnostics).toHaveBeenCalledTimes(2)
   } finally {
