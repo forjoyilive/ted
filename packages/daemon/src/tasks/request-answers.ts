@@ -706,7 +706,12 @@ export function createRequestAnswers(
     } else if (request.choices?.some((c) => !comment.choices?.includes(c))) {
       const outside = request.choices.find((c) => !comment.choices?.includes(c))
       throw new RequestError(400, `“${outside}” isn’t one of the question’s choices`)
-    } else if (request.choice === undefined && !request.choices?.length && text === '') {
+    } else if (
+      request.choice === undefined &&
+      !request.choices?.length &&
+      text === '' &&
+      !(comment.multiple && request.choices !== undefined)
+    ) {
       throw new RequestError(400, 'pick a choice or write an answer')
     }
     if (
@@ -938,7 +943,12 @@ export function createRequestAnswers(
         {
           kind: 'answered',
           at,
-          ...(picks ? picks.length > 0 && { choices: picks } : choice !== undefined && { choice }),
+          ...(picks
+            ? (picks.length > 0 ||
+                (request.action === 'answer' && request.choices !== undefined)) && {
+                choices: picks,
+              }
+            : choice !== undefined && { choice }),
           ...(text !== '' && { text }),
         },
         text !== '' && !aboutModel && sendDrafts ? drafts(task.id) : undefined,
