@@ -7,7 +7,7 @@ import { OvernightContext } from '../src/renderer/overnight.tsx'
 import { LibraryPage } from '../src/renderer/settings/LibraryPage.tsx'
 import { FactorySettings } from '../src/renderer/views/FactorySettings.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, user } from './support/component.ts'
+import { bridge, deferred, user } from './support/component.ts'
 import { createdAt, factory, settingsView, task } from './support/fixtures.ts'
 
 const nav = () => screen.getByRole('navigation', { name: 'Sidebar' })
@@ -326,6 +326,31 @@ test('with no chats the Coordinator opens the start page, and sending starts a c
   )
   expect(await screen.findByText('Start with NB-1.')).toBeTruthy()
   expect(screen.queryByRole('heading', { name: 'New chat' })).toBeNull()
+})
+
+test('a start that answers after New chat was clicked leaves the new start page open', async () => {
+  const { a, shown, open, changed } = withCoordinator()
+  shown.chats = []
+  const answer = deferred<Coordinator>()
+  a.handle('startCoordinatorChat', () => answer.promise)
+  a.mount()
+  const pane = await open()
+  await within(pane).findByRole('heading', { name: /What needs your attention/ })
+  await user().click(within(pane).getByRole('button', { name: 'What should we work on next?' }))
+  fireEvent.keyDown(within(pane).getByRole('textbox', { name: 'Message to the Coordinator' }), {
+    key: 'Enter',
+  })
+  await act(async () => {
+    shown.chats = [summary()]
+    changed()
+  })
+  expect(await screen.findByText('Start with NB-1.')).toBeTruthy()
+  const list = screen.getByRole('region', { name: 'Coordinator chats' })
+  await user().click(within(list).getByRole('button', { name: 'New chat' }))
+  expect(await screen.findByRole('heading', { name: 'New chat' })).toBeTruthy()
+  await act(async () => answer.resolve(coordinator()))
+  expect(screen.getByRole('heading', { name: 'New chat' })).toBeTruthy()
+  expect(screen.queryByText('Start with NB-1.')).toBeNull()
 })
 
 test('the sidebar lists Coordinator above Tasks and shows Working only while it works', async () => {

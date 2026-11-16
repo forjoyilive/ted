@@ -685,6 +685,8 @@ export function createCoordinators(options: {
         ]),
       )
       .digest('hex')
+  const createdKey = (c: StoredCoordinator, operation: string) =>
+    c.id === c.factoryId ? operation : `${c.id}:${operation}`
   const touch = (c: StoredCoordinator, ids: string[]) =>
     save({ ...c, taskIds: [...new Set([...c.taskIds, ...ids])].slice(-100) })
   const waiting = (t: Task) =>
@@ -1560,7 +1562,7 @@ export function createCoordinators(options: {
               throw new RequestError(409, 'operation ID already used for another action')
             const made =
               old.taskId === undefined &&
-              store.coordinatorCreated(current.factoryId, input.operation)
+              store.coordinatorCreated(current.factoryId, createdKey(current, input.operation))
             if (!made) return old
             const recovered: CoordinatorReceipt = {
               ...old,
@@ -1609,7 +1611,7 @@ export function createCoordinators(options: {
                 ...(input.lead !== undefined && { lead: input.lead }),
                 ...(input.start === true && { start: true }),
               },
-              input.operation,
+              createdKey(current, input.operation),
             )
             receipt.taskId = created.id
             const missed: string[] = []
@@ -1659,7 +1661,7 @@ export function createCoordinators(options: {
             const why = error instanceof Error ? error.message : String(error)
             const made = receipt.taskId
               ? store.getTask(receipt.taskId)
-              : store.coordinatorCreated(current.factoryId, input.operation)
+              : store.coordinatorCreated(current.factoryId, createdKey(current, input.operation))
             if (made) {
               receipt.taskId = made.id
               receipt.text = redactSecrets(

@@ -525,9 +525,14 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
     const saved = store.coordinators.list().find((c) => c.factoryId === s.factory.id)
     if (!saved) throw new Error('missing saved Coordinator')
     await store.createTask({
+      title: 'Made by another chat',
+      factoryId: s.factory.id,
+      coordinatorOperation: 'another-chat:create-crash',
+    })
+    await store.createTask({
       title: 'Crashed',
       factoryId: s.factory.id,
-      coordinatorOperation: 'create-crash',
+      coordinatorOperation: `${saved.id}:create-crash`,
     })
     const crashed: CoordinatorReceipt = {
       id: 'create-crash',
@@ -825,10 +830,21 @@ test('two open chats keep their own receipts and confirmations; deleting one lea
   expect((await removal(a.run, 'delete-a', one)).status).toBe(200)
   expect((await removal(b.run, 'delete-b', two)).status).toBe(200)
 
+  const created = await Promise.all(
+    [a.run, b.run].map((run, i) =>
+      run.call('POST', '/coordinator/tasks', { operation: 'same-operation', title: `From ${i}` }),
+    ),
+  )
+  const madeIds = created.map((r) => (r.body as CoordinatorReceipt).taskId)
+  expect(madeIds.every((id) => id !== undefined)).toBe(true)
+  expect(new Set(madeIds).size).toBe(2)
+
   const chatA = await read(aPath)
   const chatB = await read(bPath)
-  expect(chatA.receipts.map((r) => r.id)).toEqual(['tell-a'])
-  expect(chatB.receipts).toEqual([])
+  expect(chatA.receipts.map((r) => r.id)).toEqual(['tell-a', 'same-operation'])
+  expect(chatB.receipts.map((r) => r.id)).toEqual(['same-operation'])
+  expect(chatA.receipts[1]?.taskId).toBe(madeIds[0])
+  expect(chatB.receipts[0]?.taskId).toBe(madeIds[1])
   expect(chatA.confirmations.map((x) => x.operation)).toEqual(['delete-a'])
   expect(chatB.confirmations.map((x) => x.operation)).toEqual(['delete-b'])
   const cardA = chatA.confirmations[0]
@@ -853,7 +869,7 @@ test('two open chats keep their own receipts and confirmations; deleting one lea
 
   const listed = await s.ok<CoordinatorChatSummary[]>('GET', s.chats)
   expect(listed.map((c) => c.id).sort()).toEqual([a.c.id, b.c.id].sort())
-  expect(listed.find((c) => c.id === a.c.id)).toMatchObject({ waiting: true, taskCount: 1 })
+  expect(listed.find((c) => c.id === a.c.id)).toMatchObject({ waiting: true, taskCount: 2 })
   expect(listed.find((c) => c.id === b.c.id)).toMatchObject({ waiting: false })
   expect(listed.every((c) => c.endedAt === undefined)).toBe(true)
   expect(await s.ok('GET', '/coordinators')).toEqual([

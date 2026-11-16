@@ -8,7 +8,7 @@ import type {
   Task,
   TaskLead,
 } from '@ted/protocol'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import dialogs from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
@@ -197,6 +197,13 @@ function NewChat({
   const box: MessageBox = { kind: 'coordinator-new', id: factory.id }
   const { setText } = useMessageDraft(box)
   const [lead, setLead] = useState<TaskLead>()
+  const shown = useRef(true)
+  useEffect(() => {
+    shown.current = true
+    return () => {
+      shown.current = false
+    }
+  }, [])
   useEffect(() => {
     let active = true
     void ted.taskDefaults(factory.id).then(
@@ -223,10 +230,7 @@ function NewChat({
         </header>
         <div className={styles.intro}>
           <h2>What needs your attention in {factory.name}?</h2>
-          <p>
-            I can compare Tasks, recommend next work, and start or reorder Tasks when you ask. Your
-            other chats keep running.
-          </p>
+          <p>I can compare Tasks, recommend next work, and start or reorder Tasks when you ask.</p>
           <Button onClick={() => setText('What should we work on next?')}>
             What should we work on next?
           </Button>
@@ -242,7 +246,7 @@ function NewChat({
           box={box}
           send={async (message) => {
             const started = await ted.startCoordinatorChat(factory.id, { text: message, ...lead })
-            onStarted(started.id)
+            if (shown.current) onStarted(started.id)
             return started
           }}
           stopTurn={async () => null}
