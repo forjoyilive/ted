@@ -5,6 +5,14 @@ import { readableError, ted } from '../ted.ts'
 import styles from './Autopilot.module.css'
 import { Select } from './Select.tsx'
 
+export const autopilotChoices: readonly AutopilotChoice[] = ['inherit', 'on', 'off']
+
+export function autopilotChoiceLabel(choice: AutopilotChoice, globalOn: boolean): string {
+  if (choice === 'on') return 'Autopilot on'
+  if (choice === 'off') return 'Autopilot off'
+  return `Use global setting (${globalOn ? 'On' : 'Off'})`
+}
+
 export function AutopilotLabel({ task }: { task: Task }) {
   const choice = task.autopilot?.choice ?? 'inherit'
   if (choice === 'inherit') return null
@@ -37,9 +45,11 @@ export function AutopilotField({ task }: { task: Task }) {
         disabled={busy || !!task.archived || task.stage === 'done'}
         onChange={(event) => void change(event.target.value)}
       >
-        <option value="inherit">Use global setting ({on ? 'On' : 'Off'})</option>
-        <option value="on">Autopilot on</option>
-        <option value="off">Autopilot off</option>
+        {autopilotChoices.map((option) => (
+          <option key={option} value={option}>
+            {autopilotChoiceLabel(option, on)}
+          </option>
+        ))}
       </Select>
       <small>
         {enabled
