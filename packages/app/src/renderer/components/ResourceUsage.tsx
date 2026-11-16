@@ -50,7 +50,7 @@ export function ResourceUsage() {
     <section
       className={styles.usage}
       aria-label="Developer resource usage"
-      title="TED’s app, daemon, Runs and Checks, not the rest of this Mac. Refreshes every five seconds. CPU can exceed 100% across cores."
+      title="TED’s app, daemon, Runs and Checks, not the rest of this Mac. Refreshes every five seconds. CPU is a share of all this computer’s cores: 100% means every core is in use."
     >
       {usage
         ? `CPU ${Math.round(usage.cpuPercent * 10) / 10}% · Memory ${memorySize(usage.memoryBytes)}`

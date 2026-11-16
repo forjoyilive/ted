@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { readFile, rm, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { availableParallelism, homedir } from 'node:os'
 import path from 'node:path'
 import { executionHome } from '@ted/daemon/execution'
 import {
@@ -259,7 +259,7 @@ const requests = {
   resourceUsage: async (client) => {
     const [usage, own] = await Promise.all([client.getProcessUsage(), appUsage()])
     return {
-      cpuPercent: usage.cpuPercent + own.cpuPercent,
+      cpuPercent: (usage.cpuPercent + own.cpuPercent) / availableParallelism(),
       memoryBytes: usage.memoryBytes + own.memoryBytes,
     }
   },
