@@ -601,3 +601,49 @@ export function nestedRows(
   for (const task of tasks) if (!visited.has(task.id)) walk(task, 0)
   return rows
 }
+
+export interface NestedSlot {
+  row: number
+  after?: string
+  before?: string
+}
+
+const subtreeEnd = (rows: readonly NestedRow[], at: number) => {
+  let end = at + 1
+  while (end < rows.length && (rows[end]?.depth ?? 0) > (rows[at]?.depth ?? 0)) end++
+  return end
+}
+
+export function nestedSlots(rows: readonly NestedRow[], movingId: string): NestedSlot[] {
+  const from = rows.findIndex((r) => r.task.id === movingId)
+  const depth = from === -1 ? 0 : (rows[from]?.depth ?? 0)
+  let start = 0
+  let end = rows.length
+  if (depth > 0) {
+    for (start = from; start > 0 && (rows[start - 1]?.depth ?? 0) >= depth; ) start--
+    end = start === 0 ? rows.length : subtreeEnd(rows, start - 1)
+  }
+  const siblings: number[] = []
+  for (let i = start; i < end; i++) {
+    if (rows[i]?.depth === depth && rows[i]?.task.id !== movingId) siblings.push(i)
+  }
+  const last = siblings.at(-1)
+  return [...siblings, undefined].map((at, k) => {
+    const after = rows[siblings[k - 1] ?? -1]?.task.id
+    const before = at === undefined ? undefined : rows[at]?.task.id
+    return {
+      row: at ?? (last === undefined ? start : subtreeEnd(rows, last)),
+      ...(after !== undefined && { after }),
+      ...(before !== undefined && { before }),
+    }
+  })
+}
+
+export function nearestSlot(slots: readonly NestedSlot[], boundary: number): number {
+  let best = 0
+  slots.forEach((slot, i) => {
+    const current = slots[best]
+    if (current && Math.abs(slot.row - boundary) < Math.abs(current.row - boundary)) best = i
+  })
+  return best
+}
