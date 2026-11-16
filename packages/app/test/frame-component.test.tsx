@@ -326,7 +326,7 @@ test('G navigation and history shortcuts use the App keymap', async () => {
     await screen.findByRole('heading', { name: heading, level: 1 })
   }
   fireEvent.keyDown(window, { key: ']', code: 'BracketRight', metaKey: true })
-  await screen.findByRole('heading', { name: /widgets.*Plans/, level: 1 })
+  await screen.findByRole('heading', { name: 'Agents', level: 1 })
   fireEvent.keyDown(window, { key: 'g' })
   fireEvent.keyDown(window, { key: 'i' })
   await screen.findByRole('heading', { name: 'Inbox', level: 1 })
