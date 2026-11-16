@@ -56,6 +56,22 @@ describe('event lines', () => {
     ).toEqual([done('You'), done('You'), done('The Task Lead'), done('The Coordinator')])
   })
 
+  test('a stop names TED when TED stopped the Task', () => {
+    expect(
+      lines([
+        entry('v1.TaskStopped', 1, { runs: 0 }),
+        entry('v1.TaskStopped', 2, { runs: 2, why: 'human' }),
+        entry('v1.TaskStopped', 3, { runs: 1, why: 'repair-incorporation' }),
+        entry('v1.TaskStopped', 4, { runs: 1, why: 'something-new' }),
+      ]),
+    ).toEqual([
+      { tone: 'edit', text: 'You stopped the Task' },
+      { tone: 'edit', text: 'You stopped the Task · 2 Runs stopped' },
+      { tone: 'quiet', text: 'TED stopped the Task until the merged repair is brought in' },
+      { tone: 'quiet', text: 'TED stopped the Task · 1 Run stopped' },
+    ])
+  })
+
   test('a push record TED brought up to date names both commits', () => {
     expect(
       lines([
