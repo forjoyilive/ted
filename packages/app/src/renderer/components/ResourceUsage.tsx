@@ -108,7 +108,7 @@ export function ResourceUsage({ dispatch }: { dispatch: (action: NavigationActio
         className={styles.line}
         aria-expanded={shown}
         disabled={memory === undefined}
-        onClick={() => setOpen((was) => !was)}
+        onClick={show}
       >
         {usage
           ? `CPU ${Math.round(usage.cpuPercent * 10) / 10}% · Memory ${memorySize(usage.memoryBytes)}`
