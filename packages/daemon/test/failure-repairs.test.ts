@@ -35,7 +35,7 @@ function required<T>(value: T | undefined): T {
   return value
 }
 
-async function begin(check = false, command = 'test -f timezone.txt') {
+async function begin(check = false, command = 'test -f timezone.txt', mergesBase = false) {
   const client = await start({
     ...(check && {
       workflow: [
@@ -61,6 +61,7 @@ async function begin(check = false, command = 'test -f timezone.txt') {
             '[ -f source-change.txt ] || (echo change > source-change.txt && git add source-change.txt && git -c user.name=T -c user.email=t@example.com commit -qm change)',
           ],
         },
+        ...(mergesBase ? [{ run: ['sh', '-c', mergeBase(ctx.origin)] }] : []),
         { run: ['ted', 'outcome', 'advance'] },
         { endTurn: true },
       ],
@@ -130,6 +131,12 @@ async function decide({ client, task, check }: Awaited<ReturnType<typeof begin>>
 }
 
 const setup = async (check = false) => decide(await begin(check))
+
+const mergeBase = (origin: string) =>
+  [
+    `git fetch -q ${JSON.stringify(origin)} main`,
+    'git -c user.name=T -c user.email=t@example.com merge -q -X theirs --no-edit FETCH_HEAD',
+  ].join(' && ')
 
 test('approved repair creation is idempotent, stops the Lead and retains failure and worktree', async () => {
   const s = await setup()
@@ -286,15 +293,18 @@ test.each([
   'replaced-check',
   'dirty-worktree',
   'conflict',
+  'unresolved-conflict',
   'failed-repair',
 ] as const)(
   'a %s repair is incorporated before fresh Checks, with the original failure retained',
   async (method) => {
+    const conflict = method === 'conflict' || method === 'unresolved-conflict'
     const begun = await begin(
       true,
       method === 'failed-repair'
         ? 'test ! -f source-change.txt || test -f timezone.txt'
         : undefined,
+      method === 'conflict',
     )
     const { client } = begun
     const repairedFile = method === 'failed-repair' ? 'unrelated.txt' : 'timezone.txt'
@@ -339,7 +349,7 @@ test.each([
     const affectedWorktree = required(s.current.repos[0]).worktree
     if (method === 'dirty-worktree')
       await writeFile(path.join(affectedWorktree, 'local-draft.txt'), 'Keep this draft\n')
-    if (method === 'conflict') {
+    if (conflict) {
       await writeFile(path.join(affectedWorktree, 'timezone.txt'), 'Conflicting local work\n')
       await run('git', ['add', 'timezone.txt'], { cwd: affectedWorktree })
       await run(
@@ -397,7 +407,45 @@ test.each([
       async () => (await getTask(s.client, repair.id)).stage === 'done',
       'repair merge',
     )
-    if (method === 'dirty-worktree' || method === 'conflict') {
+    const notes = async () =>
+      (await s.client.ok<Comment[]>('GET', `${s.root}/comments`))
+        .filter((c) => c.author.kind === 'ted')
+        .map((c) => c.body)
+    if (conflict) {
+      const handedOff = await waitUntil(async () => {
+        const body = (await notes()).find((b) => b.includes('TED asked the Task Lead to merge'))
+        return body
+      }, 'conflict handed to the Task Lead')
+      expect(handedOff).toContain('`timezone.txt`')
+      const lead = await waitUntil(async () => {
+        const t = await getTask(s.client, s.current.id)
+        return t.leadRunId !== s.current.leadRunId ? t.leadRunId : undefined
+      }, 'a Task Lead that receives the conflict')
+      const started = await s.client.ok<{ prompt?: string }>('GET', `/runs/${lead}`)
+      expect(started.prompt).toContain('git merge ')
+      expect(started.prompt).toContain('- timezone.txt')
+    }
+    if (method === 'unresolved-conflict') {
+      const stopped = async (after: number) =>
+        waitUntil(async () => {
+          const t = await getTask(s.client, s.current.id)
+          return t.status?.kind === 'stopped' && t.runs.length > after ? t : undefined
+        }, 'conflict left to the user')
+      const first = await stopped(s.current.runs.length)
+      expect(first.stage).toBe('validate')
+      expect(await s.client.ok('GET', `${s.root}/check-runs`)).toHaveLength(previousChecks.length)
+      expect(
+        (await s.client.ok<FailureCase[]>('GET', `${s.root}/failures`))[0]?.repairProgress,
+      ).toBeUndefined()
+      const held = (await notes()).find((b) => b.includes('still conflicts'))
+      expect(held).toContain('`timezone.txt`')
+      expect(held).toContain('The Task Lead didn’t resolve it. To go on, merge main')
+      await s.client.ok('POST', `${s.root}/resume`, {})
+      await stopped(first.runs.length)
+      await run('sh', ['-c', mergeBase(ctx.origin)], { cwd: affectedWorktree })
+      await s.client.ok('POST', `${s.root}/resume`, {})
+    }
+    if (method === 'dirty-worktree') {
       const held = await waitUntil(async () => {
         const t = await getTask(s.client, s.current.id)
         return t.status?.kind === 'stopped' ? t : undefined
@@ -407,14 +455,9 @@ test.each([
       const history = await s.client.ok<FailureCase[]>('GET', `${s.root}/failures`)
       expect(history[0]?.repairProgress).toBeUndefined()
       expect((await s.client.ok<TaskBrief>('GET', `${s.root}/brief`)).text).toContain(
-        'incorporation is held',
+        'has uncommitted changes. TED can’t bring the repair in over them.',
       )
-      if (method === 'conflict') {
-        expect(await readFile(path.join(affectedWorktree, 'timezone.txt'), 'utf8')).toBe(
-          'Conflicting local work\n',
-        )
-        return
-      }
+      expect((await notes()).join('\n')).toContain('`local-draft.txt`')
       const { rm } = await import('node:fs/promises')
       expect(await readFile(path.join(affectedWorktree, 'local-draft.txt'), 'utf8')).toBe(
         'Keep this draft\n',
