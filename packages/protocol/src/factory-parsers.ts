@@ -51,6 +51,7 @@ import {
   settingsMergeMethods,
   type WorktreeCommandInput,
 } from './factory-settings.ts'
+import { isOneOf } from './parse.ts'
 import { permissionModes } from './run.ts'
 import { handsOff, isBuiltInStage, isStageId, mergesHere, stageFileId, validates } from './stage.ts'
 import {
@@ -59,6 +60,7 @@ import {
   clarifyDepths,
   type Effort,
   efforts,
+  pullRequestCiModes,
   type StageId,
 } from './task.ts'
 import {
@@ -324,6 +326,10 @@ function settingsRepo(given: unknown): RepoSettingsInput {
   if (mergeMethod !== undefined && !settingsMergeMethods.some((m) => m === mergeMethod)) {
     throw new HttpError(400, 'mergeMethod must be squash, merge or rebase')
   }
+  const pullRequestCi = body.pullRequestCi
+  if (pullRequestCi !== undefined && !isOneOf(pullRequestCi, pullRequestCiModes)) {
+    throw new HttpError(400, 'pullRequestCi must be auto, none or required')
+  }
   const setup = command(body.setup, 'setup')
   const teardown = command(body.teardown, 'teardown')
   return {
@@ -333,6 +339,7 @@ function settingsRepo(given: unknown): RepoSettingsInput {
     name: text(body.name, 'name'),
     ...(baseBranch !== undefined && { baseBranch }),
     ...(mergeMethod !== undefined && { mergeMethod: mergeMethod as SettingsMergeMethod }),
+    ...(pullRequestCi !== undefined && { pullRequestCi }),
     ...(setup && { setup }),
     ...(teardown && { teardown }),
     env: list(body.env, 'env').map((v) => {

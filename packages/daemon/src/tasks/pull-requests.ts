@@ -1,9 +1,10 @@
 import type { CiSignal, TaskRepo } from '@ted/protocol'
-import { parse } from 'yaml'
+import { isArray, isObject, type Json, type Untyped } from '@ted/protocol/parse'
 import * as git from '../git.ts'
 import type { Gh } from '../github/gh.ts'
 import { redactSecrets } from '../redact.ts'
 import type { TedStore } from '../store/index.ts'
+import { runsOnChanges } from './workflow-triggers.ts'
 
 export interface PullRequestTarget {
   name: string
@@ -301,6 +302,7 @@ export async function detectCi(input: {
   gh: Pick<Gh, 'api' | 'graphql'>
   repo: string
   base: string
+  branch: string
   worktree: string
   commit: string
 }): Promise<{ ci: boolean; ciSignals: CiSignal[] }> {
@@ -315,7 +317,10 @@ export async function detectCi(input: {
         ).filter((file) => /\.ya?ml$/.test(file))
         const runs = await Promise.all(
           files.map((file) =>
-            git.showFile(input.worktree, input.commit, file).then(runsOnChanges, () => true),
+            git.showFile(input.worktree, input.commit, file).then(
+              (text) => runsOnChanges(text, input),
+              () => true,
+            ),
           ),
         )
         return runs.includes(true)
@@ -338,16 +343,12 @@ export async function detectCi(input: {
       },
     ],
     [
-      'recent-checks',
-      async () => {
-        const result = (await input.gh.graphql(recentChecksQuery, {
-          owner,
-          name,
-          ref: `refs/heads/${input.base}`,
-        })) as RecentChecksBody
-        const nodes = result?.data?.repository?.ref?.target?.history?.nodes ?? []
-        return nodes.some((node) => node?.statusCheckRollup != null)
-      },
+      'recent-pull-requests',
+      async () =>
+        pullRequestsHadChecks(
+          await input.gh.graphql(recentPullRequestsQuery, { owner, name, base: input.base }),
+          input.branch,
+        ),
     ],
   ]
   const found = await Promise.all(
@@ -357,51 +358,35 @@ export async function detectCi(input: {
   return { ci: ciSignals.length > 0, ciSignals }
 }
 
-const changeTriggers = ['pull_request', 'pull_request_target', 'push', 'merge_group']
+const field = (value: Json | undefined, key: string): Json | undefined =>
+  isObject(value) ? value[key] : undefined
 
-export function runsOnChanges(workflow: string): boolean {
-  let on: unknown
-  try {
-    on = (parse(workflow) as { on?: unknown } | null)?.on
-  } catch {
-    return true
-  }
-  const triggers =
-    typeof on === 'string'
-      ? [on]
-      : Array.isArray(on)
-        ? on
-        : on !== null && typeof on === 'object'
-          ? Object.keys(on)
-          : undefined
-  if (triggers === undefined) return true
-  return triggers.some((trigger) => typeof trigger !== 'string' || changeTriggers.includes(trigger))
+export function pullRequestsHadChecks(result: Untyped, ownBranch: string): boolean {
+  const data = isObject(result) ? result.data : undefined
+  const nodes = field(field(field(data, 'repository'), 'pullRequests'), 'nodes')
+  if (!isArray(nodes)) return false
+  return nodes.some((pr) => {
+    if (field(pr, 'headRefName') === ownBranch) return false
+    const commits = field(field(pr, 'commits'), 'nodes')
+    if (!isArray(commits)) return false
+    return commits.some((c) => {
+      const rollup = field(field(c, 'commit'), 'statusCheckRollup')
+      return rollup !== undefined && rollup !== null
+    })
+  })
 }
 
-interface BranchBody {
-  protection?: { required_status_checks?: { contexts?: unknown[]; checks?: unknown[] } }
-}
-
-interface RecentChecksBody {
-  data?: {
-    repository?: {
-      ref?: {
-        target?: { history?: { nodes?: ({ statusCheckRollup?: unknown } | null)[] } }
-      } | null
-    } | null
-  }
-}
-
-const recentChecksQuery = `query($owner: String!, $name: String!, $ref: String!) {
+const recentPullRequestsQuery = `query($owner: String!, $name: String!, $base: String!) {
   repository(owner: $owner, name: $name) {
-    ref(qualifiedName: $ref) {
-      target {
-        ... on Commit {
-          history(first: 20) {
-            nodes { statusCheckRollup { state } }
-          }
-        }
+    pullRequests(baseRefName: $base, states: [OPEN, MERGED], first: 10, orderBy: { field: UPDATED_AT, direction: DESC }) {
+      nodes {
+        headRefName
+        commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       }
     }
   }
 }`
+
+interface BranchBody {
+  protection?: { required_status_checks?: { contexts?: unknown[]; checks?: unknown[] } }
+}

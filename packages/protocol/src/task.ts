@@ -394,9 +394,18 @@ export interface TaskRepo {
   pullRequest?: TaskPullRequest
 }
 
-export const ciSignals = ['workflow-files', 'required-checks', 'recent-checks'] as const
+export const ciSignals = [
+  'workflow-files',
+  'required-checks',
+  'recent-pull-requests',
+  'recent-checks',
+] as const
 
 export type CiSignal = (typeof ciSignals)[number]
+
+export const pullRequestCiModes = ['auto', 'none', 'required'] as const
+
+export type PullRequestCiMode = (typeof pullRequestCiModes)[number]
 
 export interface TaskPush {
   commit: string

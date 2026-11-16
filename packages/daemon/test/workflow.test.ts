@@ -954,13 +954,14 @@ describe('repos', () => {
     ])
   })
 
-  test('a name must be lowercase letters, digits and dashes; merge_method and timeouts are checked', () => {
+  test('a name must be lowercase letters, digits and dashes; merge_method, pull_request_ci and timeouts are checked', () => {
     expect(
       repoProblems(
         [
           'repos:',
           '  - name: My App',
           '    merge_method: fast-forward',
+          '    pull_request_ci: sometimes',
           '    worktree:',
           '      setup: { run: "x", timeout: soon }',
           '',
@@ -969,7 +970,8 @@ describe('repos', () => {
     ).toEqual([
       '2:11 a repo `name` uses only lowercase letters, digits and dashes',
       '3:19 `merge_method` must be squash, merge or rebase',
-      '5:35 `timeout` must be a duration such as 30s, 15m or 1h',
+      '4:22 `pull_request_ci` must be auto, none or required',
+      '6:35 `timeout` must be a duration such as 30s, 15m or 1h',
     ])
   })
 

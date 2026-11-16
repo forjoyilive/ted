@@ -69,6 +69,7 @@ import type {
   ProposalCreated,
   ProposalInput,
   PullRequestChanges,
+  PullRequestCiMode,
   RecordAppRequest,
   RecordFailureRequest,
   ReportCleanupStepRequest,
@@ -80,6 +81,7 @@ import type {
   Run,
   RunMessage,
   RunSlots,
+  SaveSettingsResult,
   SendBack,
   SendBackCause,
   SetClarifyDepthRequest,
@@ -423,6 +425,7 @@ import {
   chooseMethod,
   defaultHost,
   deleteBranch,
+  expectsCi,
   nextStep,
   type PullRequestRead,
   type PullRequestRef,
@@ -883,6 +886,11 @@ export function createTasks(options: {
   emulators?: Omit<EmulatorOptions, 'dir' | 'banners'> & { dir?: string }
   saveAttachment?: (file: string, name: string, mediaType: string) => Promise<Attachment>
   planning?: () => TaskPlanning | undefined
+  setPullRequestCi?: (
+    factoryId: string,
+    repo: string,
+    mode: PullRequestCiMode,
+  ) => Promise<SaveSettingsResult>
   sandbox: Sandbox
   checkSlots: CheckSlots
 }): Tasks {
@@ -3627,7 +3635,7 @@ export function createTasks(options: {
           ...target,
           number: pr.number,
           expectedHead: pr.signedOff ?? '',
-          hasCi: repo.pushed?.ci ?? true,
+          hasCi: expectsCi(repoEntry(order, repo)?.pullRequestCi, repo.pushed),
           method: method as MergeMethod,
           ...(message && { message }),
         },
@@ -6261,6 +6269,7 @@ export function createTasks(options: {
         stopLeadForChildren,
         waitForChildren,
         ...(options.planning && { planning: options.planning }),
+        ...(options.setPullRequestCi && { setPullRequestCi: options.setPullRequestCi }),
       },
       automatic ? { guard: (comment) => guardAutopilotAnswer(comment, expectedLead) } : undefined,
     )(id, request, sendDrafts, mark)

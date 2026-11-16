@@ -7,9 +7,12 @@ import {
   isModelName,
   type LayerKind,
   maxCleanupStepName,
+  type PullRequestCiMode,
+  pullRequestCiModes,
   type StageId,
   type WorkflowProblem,
 } from '@ted/protocol'
+import { isOneOf } from '@ted/protocol/parse'
 import {
   handsOff,
   hasClarifyRounds,
@@ -83,6 +86,7 @@ export interface RepoSettings {
   remote?: string
   base_branch?: string
   merge_method?: string
+  pull_request_ci?: PullRequestCiMode
   worktree?: {
     setup?: WorktreeCommand
     teardown?: WorktreeCommand
@@ -732,6 +736,12 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             error(node, '`merge_method` must be squash, merge or rebase')
           else repo.merge_method = scalar(node) as string
           break
+        case 'pull_request_ci': {
+          const mode = scalar(node)
+          if (isOneOf(mode, pullRequestCiModes)) repo.pull_request_ci = mode
+          else error(node, '`pull_request_ci` must be auto, none or required')
+          break
+        }
         case 'worktree': {
           const worktree = checkWorktree(node)
           if (worktree) repo.worktree = worktree

@@ -1,6 +1,7 @@
+import type { PullRequestCiMode } from '@ted/protocol'
 import { type AppDeclaration, appDeclarations } from '../apps/declared.ts'
 import type { StoredFactory } from '../store/index.ts'
-import { githubRepoOf } from '../workflow/check.ts'
+import { githubRepoOf, type RepoSettings } from '../workflow/check.ts'
 import type { ResolvedWorkflow } from '../workflow/resolve.ts'
 import { primaryRepoWorktree, type RepoWorktree, worktreeCommands } from './worktree.ts'
 
@@ -9,6 +10,7 @@ export interface FactoryRepoEntry extends Omit<RepoWorktree, 'baseBranch'> {
   cloneUrl: string
   primary: boolean
   baseBranch?: string
+  pullRequestCi?: PullRequestCiMode
   apps?: AppDeclaration[]
 }
 
@@ -21,6 +23,13 @@ export function sameRepo(a: string, b: string): boolean {
 export function isSafeRepo(repo: string): boolean {
   const parts = repo.split('/')
   return parts.length === 2 && parts.every((p) => safeSegment.test(p) && p !== '.' && p !== '..')
+}
+
+function pullRequestCiOf(settings: RepoSettings | undefined): {
+  pullRequestCi?: PullRequestCiMode
+} {
+  const mode = settings?.pull_request_ci
+  return mode === undefined ? {} : { pullRequestCi: mode }
 }
 
 function safeName(name: string): boolean {
@@ -38,6 +47,7 @@ export function factoryRepos(
       repo: factory.repo,
       cloneUrl: factory.cloneUrl,
       primary: true,
+      ...pullRequestCiOf(workflow.settings.repos?.[0]),
       apps: appDeclarations(workflow.settings.repos?.[0]?.apps),
     },
   ]
@@ -59,6 +69,7 @@ export function factoryRepos(
         cloneUrl: stored.cloneUrl,
         primary: false,
         ...(settings.base_branch !== undefined && { baseBranch: settings.base_branch }),
+        ...pullRequestCiOf(settings),
         ...worktreeCommands(settings.worktree),
         apps: appDeclarations(settings.apps),
       })

@@ -60,6 +60,8 @@ export function repoSettingsFrom(
       name,
       ...(entry.base_branch !== undefined && { baseBranch: entry.base_branch }),
       ...(isMergeMethod(entry.merge_method) && { mergeMethod: entry.merge_method }),
+      ...(entry.pull_request_ci !== undefined &&
+        entry.pull_request_ci !== 'auto' && { pullRequestCi: entry.pull_request_ci }),
       ...(entry.worktree?.setup && { setup: entry.worktree.setup }),
       ...(entry.worktree?.teardown && { teardown: entry.worktree.teardown }),
       env: Object.entries(entry.worktree?.env ?? {}).map(([n, value]) => ({ name: n, value })),
@@ -465,6 +467,11 @@ function writeRepo(doc: Document, map: YAMLMap, repo: RepoSettingsInput, primary
   }
   setOrDelete(map, 'base_branch', repo.baseBranch?.trim() || undefined)
   setOrDelete(map, 'merge_method', repo.mergeMethod)
+  setOrDelete(
+    map,
+    'pull_request_ci',
+    repo.pullRequestCi === 'auto' ? undefined : repo.pullRequestCi,
+  )
 
   const worktree = map.get('worktree', true)
   const tree = isMap(worktree) ? worktree : (doc.createNode({}) as YAMLMap)
@@ -556,6 +563,7 @@ const keyOrder = [
   'remote',
   'base_branch',
   'merge_method',
+  'pull_request_ci',
   'worktree',
   'apps',
   'setup',
