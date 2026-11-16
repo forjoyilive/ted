@@ -285,7 +285,7 @@ test('New conversation saves the conversation under Earlier, where it opens read
   await vi.waitFor(() => expect(deleted).toHaveBeenCalledWith('f1', 'c1'))
 })
 
-test('New conversation asks first while the Coordinator is working, from an earlier conversation too', async () => {
+test('New conversation asks first while the Coordinator is working, from an earlier conversation and its right-click menu too', async () => {
   const { a, shown, open } = withCoordinator()
   shown.coordinator = coordinator({ status: 'working' })
   const summary = {
@@ -323,6 +323,79 @@ test('New conversation asks first while the Coordinator is working, from an earl
     within(await screen.findByRole('dialog')).getByRole('button', { name: 'Stop and start new' }),
   )
   await vi.waitFor(() => expect(reset).toHaveBeenCalledWith('f1'))
+})
+
+test('right-clicking a Coordinator conversation offers New conversation on the current one, and Continue and Delete on an earlier one', async () => {
+  const { a, shown, open } = withCoordinator()
+  shown.coordinator = coordinator({ status: 'working' })
+  const summary = {
+    id: 'c1',
+    title: 'Archive what merged',
+    startedAt: createdAt,
+    endedAt: createdAt,
+    taskCount: 0,
+  }
+  shown.earlier = [summary]
+  let finishContinue = () => {}
+  const continued = vi.fn(
+    () =>
+      new Promise((resolve) => {
+        finishContinue = () => resolve(shown.coordinator)
+      }),
+  )
+  const deleted = vi.fn(() => null)
+  a.handle('continueCoordinatorConversation', continued)
+  a.handle('deleteCoordinatorConversation', deleted)
+  a.mount()
+  await open()
+  const list = screen.getByRole('region', { name: 'Coordinator conversations' })
+  await within(list).findByText('Current')
+  const rowsNamed = (name: RegExp) => within(list).getByRole('button', { name })
+
+  fireEvent.contextMenu(rowsNamed(/What should we work on next\?/))
+  const current = await screen.findByRole('menu', { name: 'Current conversation' })
+  expect(
+    within(current)
+      .getAllByRole('menuitem')
+      .map((i) => i.textContent),
+  ).toEqual(['New conversation'])
+  await user().click(within(current).getByRole('menuitem', { name: 'New conversation' }))
+  const stop = await screen.findByRole('dialog')
+  expect(stop.textContent).toContain('Stop the Coordinator and start a new conversation?')
+  await user().click(within(stop).getByRole('button', { name: 'Cancel' }))
+
+  fireEvent.contextMenu(rowsNamed(/Archive what merged/))
+  const menu = await screen.findByRole('menu', { name: 'Earlier conversation' })
+  expect(
+    within(menu)
+      .getAllByRole('menuitem')
+      .map((i) => i.textContent),
+  ).toEqual(['Continue', 'Delete'])
+  await user().click(within(menu).getByRole('menuitem', { name: 'Delete' }))
+  const confirm = await screen.findByRole('dialog')
+  expect(confirm.textContent).toContain('Delete this conversation?')
+  expect(deleted).not.toHaveBeenCalled()
+  await user().click(within(confirm).getByRole('button', { name: 'Delete' }))
+  await vi.waitFor(() => expect(deleted).toHaveBeenCalledWith('f1', 'c1'))
+
+  fireEvent.contextMenu(rowsNamed(/Archive what merged/))
+  await user().click(
+    within(await screen.findByRole('menu', { name: 'Earlier conversation' })).getByRole(
+      'menuitem',
+      { name: 'Continue' },
+    ),
+  )
+  await vi.waitFor(() => expect(continued).toHaveBeenCalledWith('f1', 'c1'))
+  expect(
+    (within(list).getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
+  ).toBe(true)
+  await act(async () => finishContinue())
+  await vi.waitFor(() =>
+    expect(
+      (within(list).getByRole('button', { name: 'New conversation' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false),
+  )
 })
 
 test('leaving the Coordinator and coming back shows the same conversation', async () => {
