@@ -4199,6 +4199,8 @@ export function createTasks(options: {
     mayContinue: (id) => {
       const task = store.getTask(id)
       if (!task) return true
+      const lead = liveLeadOf(store, task)
+      if (lead && shouldStopForBlockers(task, lead)) return false
       if (
         !task.pendingLeadMessages.some((message) => message.waitForSlot) &&
         !queuedAnswers(id).length
