@@ -287,8 +287,8 @@ describe('List views', () => {
       filters: { ...view.filters, factories: ['f1'], factoryGroups: ['g1'] },
       showEmptyGroups: true,
       nested: true,
-      columnsVersion: 2,
-      columns: ['title', 'updated', 'started'],
+      columnsVersion: 3,
+      columns: ['title', 'children', 'parent', 'updated', 'started'],
     }
     await client.ok('PATCH', '/settings', { listViews: { all: withEmpty, nb: view } })
     expect((await client.ok<{ listViews: unknown }>('GET', '/settings')).listViews).toEqual({
@@ -304,7 +304,7 @@ describe('List views', () => {
       { all: { ...view, showEmptyGroups: 'yes' } },
       { all: { ...view, showEmptyGroups: null } },
       { all: { ...view, nested: 'yes' } },
-      { all: { ...view, columnsVersion: 3 } },
+      { all: { ...view, columnsVersion: 4 } },
       { all: { ...view, sort: 'sideways' } },
       { all: { ...view, columns: ['nonsense'] } },
       { all: { ...view, filters: { archived: 'maybe' } } },
