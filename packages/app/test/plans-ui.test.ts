@@ -100,9 +100,14 @@ describe('Planning chats', () => {
     app = await electron.launch({ executablePath: electronPath, args: [appDir], env: env() })
     const window = await loadedWindow(app)
     await openFirstFactory(window)
-    await sidebar(window).getByRole('button', { name: 'Task views' }).click()
-    await sidebar(window).getByRole('button', { name: 'List', exact: true }).click()
-    await window.getByRole('button', { name: 'Plan…', exact: true }).first().click()
+    await sidebar(window)
+      .getByRole('button', { name: /^Plans/ })
+      .click()
+    await window
+      .getByRole('region', { name: /· Plans$/ })
+      .getByRole('button', { name: 'Plan', exact: true })
+      .first()
+      .click()
     const fresh = window.getByRole('region', { name: 'New planning chat' })
     await fresh.waitFor()
     expect(
