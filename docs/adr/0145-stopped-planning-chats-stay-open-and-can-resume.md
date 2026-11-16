@@ -1,5 +1,7 @@
 # Stopped planning chats stay open and can resume
 
+Status: replaced by ADR 0178-agent-chats-are-archived-like-tasks. Mark finished and the Open and Past groups are gone; Resume and Retry stay.
+
 A planning chat ended as Stopped when the user pressed Stop, and also when its Run ended because TED quit, shut down or stopped the Run. Stop withdrew its open round or proposal, the Plans list put it under Past beside Finished chats, and only **Plan more from here** could take it further, as a new chat with a text copy of the old one. **Retry**, which resumes the same planner session, was for Failed chats only (ADR 0083). Chats were lost to an app restart, and Stopped chats’ conversations were deleted 7 days after they stopped.
 
 **A Stopped or Failed chat stays under Open.** Only Finished chats go to Past. **Mark finished** (`POST /plans/:id/finish`, app only) ends a Stopped or Failed chat as Finished: one commit holds `v1.PlanEnded` with `finished` and a `withdrawn` answer for each open request. A running chat must be stopped first.
