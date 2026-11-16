@@ -514,10 +514,15 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  margin: 6px 0;
+  margin: 6px 0 0;
   border: 1px solid var(--border-subtle);
   border-radius: 9px;
   background: var(--surface-card);
+}
+
+.afterGroup {
+  flex-shrink: 0;
+  height: 6px;
 }
 
 .groupClosed {
