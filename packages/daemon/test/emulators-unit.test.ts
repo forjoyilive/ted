@@ -22,7 +22,7 @@ beforeEach(async () => {
     path.join(dir, 'devices.json'),
     JSON.stringify({
       't1/widgets/android': {
-        avd: 'TED_Dev_NB-1_widgets_android',
+        avd: 'Ted_Dev_NB-1_widgets_android',
         taskId: 't1',
         repo: 'widgets',
         name: 'android',

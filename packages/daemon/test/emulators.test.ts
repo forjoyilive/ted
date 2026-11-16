@@ -28,7 +28,7 @@ import {
 } from './helpers.ts'
 
 const image = 'system-images;android-35;google_apis;arm64-v8a'
-const avd = 'TED_Dev_NB-1_widgets_android'
+const avd = 'Ted_Dev_NB-1_widgets_android'
 
 let home: string
 let cleanup: () => Promise<void>

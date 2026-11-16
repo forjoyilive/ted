@@ -14,13 +14,13 @@ describe('Ted Dev and the release', () => {
       edition: 'release',
       name: 'Ted',
       homeFolder: '.ted',
-      keyringService: 'Ted',
+      keyringService: 'TED',
     })
     expect(identity('dev')).toEqual({
       edition: 'dev',
       name: 'Ted Dev',
       homeFolder: '.ted-dev',
-      keyringService: 'Ted Dev',
+      keyringService: 'TED Dev',
     })
   })
 
