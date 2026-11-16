@@ -1951,12 +1951,13 @@ describe('Factory GitHub intake enforcement', () => {
     await client.ok('PUT', `/factories/${factory.id}/github-intake`, { scope: { label: 'ready' } })
     const byHand = await client.ok<Task>('POST', '/tasks', { factory: 'NB', source: url(7) })
     await client.ok('POST', `/automations/${intake.id}/run`)
-    const [row] = await waitForHistory(
+    const rows = await waitForHistory(
       client,
       intake.id,
-      (rows) => rows[0]?.result.kind === 'created',
+      (rows) => rows.some((r) => r.result.kind === 'created'),
       'the labelled bulk import to finish',
     )
+    const row = rows.find((r) => r.result.kind === 'created')
     const [imported] = await commandResults(client, row?.runId ?? '')
     expect(imported?.code).toBe(0)
     expect(imported?.stdout).toContain('Imported 2 GitHub issues labelled "ready"')
