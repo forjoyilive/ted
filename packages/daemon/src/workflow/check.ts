@@ -13,8 +13,12 @@ import {
 import {
   handsOff,
   hasClarifyRounds,
+  isBuiltInStage,
   isCleanup,
+  isCustomStageId,
   isEntryStage,
+  maxCustomStageId,
+  maxStageName,
   mergesHere,
   validates,
 } from '@ted/protocol/stage'
@@ -53,6 +57,7 @@ export function isCommandStep(step: CleanupStep): step is CleanupCommandStep {
 }
 
 export interface StageSettings {
+  name?: string
   effort?: string
   enabled?: boolean
   gate?: boolean
@@ -110,8 +115,24 @@ export interface CheckedLayer {
   valid: boolean
 }
 
+export interface InheritedStages {
+  files: readonly string[]
+  order?: readonly string[]
+}
+
+export function inheritedFrom(below: readonly CheckedLayer[]): InheritedStages {
+  const files = new Set<string>(agentStageIds)
+  let order: readonly string[] | undefined
+  for (const layer of below) {
+    for (const id of Object.keys(layer.stageFiles)) files.add(id)
+    if (layer.settings.order) order = layer.settings.order
+  }
+  return { files: [...files], ...(order && { order }) }
+}
+
 const allStageIds: readonly string[] = ['backlog', ...agentStageIds, 'done']
 const cleanupKeys = ['enabled', 'effort', 'based_on', 'steps']
+const customKeys = ['name', 'gate', 'max_back', 'effort', 'enabled', 'based_on']
 export const maxStepName = maxCleanupStepName
 const efforts = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 const depths = ['auto', 'none', 'few', 'grilling']
@@ -139,9 +160,11 @@ export function checkLayer(input: {
   kind: LayerKind
   files: LayerFiles
   primaryRepo?: string
+  inherited?: InheritedStages
 }): CheckedLayer {
   const { kind, files } = input
   const problems: WorkflowProblem[] = []
+  const orderAt = new Map<string, { line: number; column: number }>()
   const yamlText = files['workflow.yaml']
   let settings: WorkflowSettings = { stages: {} }
   if (yamlText === null) {
@@ -153,8 +176,12 @@ export function checkLayer(input: {
       message: 'TED couldn’t read workflow.yaml',
     })
   } else if (yamlText !== undefined) {
-    settings = checkWorkflowYaml(yamlText, { kind, problems, primaryRepo: input.primaryRepo })
-    problems.sort((a, b) => a.line - b.line || a.column - b.column)
+    settings = checkWorkflowYaml(yamlText, {
+      kind,
+      problems,
+      primaryRepo: input.primaryRepo,
+      orderAt,
+    })
   }
 
   const stageFiles: Partial<Record<AgentStageId, string>> = {}
@@ -171,11 +198,23 @@ export function checkLayer(input: {
     if (!file.startsWith('stages/')) continue
     const at = { severity: 'error' as const, file: displayPath(kind, file), line: 1, column: 1 }
     const id = file.slice('stages/'.length).replace(/\.md$/, '')
-    if (!file.endsWith('.md') || !(agentStageIds as readonly string[]).includes(id)) {
+    const listed = settings.order ?? input.inherited?.order ?? []
+    if (!file.endsWith('.md') || (!isBuiltInStage(id) && !isCustomStageId(id))) {
       problems.push({
         ...at,
         severity: 'warning',
-        message: `TED has no Stage \`${id}\`, so it ignores this file. To add a step, edit the built-in Stage file it belongs to.`,
+        message: `\`${id}\` isn’t a Stage id, so TED ignores this file. A custom Stage id is lowercase letters, digits and hyphens, up to ${maxCustomStageId} characters.`,
+      })
+    } else if (
+      kind === 'factory' &&
+      yamlText !== undefined &&
+      !isBuiltInStage(id) &&
+      !listed.includes(id)
+    ) {
+      problems.push({
+        ...at,
+        severity: 'warning',
+        message: `No \`order\` lists \`${id}\`, so TED ignores this file. Add \`${id}\` to \`order\` in workflow.yaml to run it as a Stage.`,
       })
     } else if (text === null) {
       problems.push({ ...at, message: 'TED couldn’t read the Stage file' })
@@ -185,6 +224,23 @@ export function checkLayer(input: {
       stageFiles[id as AgentStageId] = text
     }
   }
+
+  const known = new Set(input.inherited?.files ?? agentStageIds)
+  for (const id of settings.order ?? []) {
+    if (isBuiltInStage(id) || Object.hasOwn(stageFiles, id) || known.has(id)) continue
+    const at = orderAt.get(id) ?? { line: 1, column: 1 }
+    problems.push({
+      severity: 'error',
+      file: displayPath(kind, 'workflow.yaml'),
+      ...at,
+      message: `\`${id}\` has no Stage file; add stages/${id}.md`,
+    })
+  }
+  const yamlFile = displayPath(kind, 'workflow.yaml')
+  const rank = (p: WorkflowProblem) => (p.file === yamlFile ? 0 : 1)
+  problems.sort(
+    (a, b) => rank(a) - rank(b) || (rank(a) === 0 ? a.line - b.line || a.column - b.column : 0),
+  )
 
   const notes = kind === 'factory' ? files['notes.md'] : undefined
   return {
@@ -202,6 +258,7 @@ interface Context {
   kind: LayerKind
   problems: WorkflowProblem[]
   primaryRepo: string | undefined
+  orderAt: Map<string, { line: number; column: number }>
 }
 
 function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
@@ -352,13 +409,17 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
       } else if (typeof id === 'string' && isCleanup(id)) {
         error(item, '`cleanup` can’t be in `order`; turn it on with `stages.cleanup.enabled`')
         ok = false
-      } else if (typeof id !== 'string' || !(agentStageIds as readonly string[]).includes(id)) {
-        error(item, `unknown Stage \`${String(id)}\``)
+      } else if (typeof id !== 'string' || (!isBuiltInStage(id) && !isCustomStageId(id))) {
+        error(item, customIdProblem(id))
         ok = false
-      } else if (ids.includes(id as AgentStageId)) {
+      } else if (ids.includes(id)) {
         error(item, `\`${id}\` is listed twice in \`order\``)
         ok = false
-      } else ids.push(id as AgentStageId)
+      } else {
+        const { line, col } = lineCounter.linePos(item?.range?.[0] ?? 0)
+        context.orderAt.set(id, { line, column: col })
+        ids.push(id)
+      }
     }
     if (!ok) return undefined
     if (ids[0] === undefined || !isEntryStage(ids[0]))
@@ -374,8 +435,9 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
   function checkStages(value: Node | null): void {
     if (!isMap(value)) return void error(value, '`stages` must be a map of Stage ids')
     for (const { key, value: stageNode, name: id } of entries(value)) {
-      if (!allStageIds.includes(id)) {
-        error(key, `unknown Stage \`${id}\``)
+      const custom = !allStageIds.includes(id)
+      if (custom && !isCustomStageId(id)) {
+        error(key, customIdProblem(id))
         continue
       }
       if (stageNode === null || (isScalar(stageNode) && stageNode.value === null)) continue
@@ -395,11 +457,31 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
           error(entry.key, 'Backlog takes only `enabled`')
           continue
         }
+        if (custom && !customKeys.includes(entry.name)) {
+          error(
+            entry.key,
+            `a custom Stage takes only ${customKeys.map((k) => `\`${k}\``).join(', ')}`,
+          )
+          continue
+        }
         if (isCleanup(id) && !cleanupKeys.includes(entry.name)) {
           error(entry.key, `Cleanup takes only ${cleanupKeys.map((k) => `\`${k}\``).join(', ')}`)
           continue
         }
         switch (entry.name) {
+          case 'name': {
+            const name = scalar(node)
+            if (!custom) error(entry.key, 'only a custom Stage takes `name`')
+            else if (
+              typeof name !== 'string' ||
+              name.trim() === '' ||
+              /[\r\n]/.test(name) ||
+              name.length > maxStageName
+            ) {
+              error(node, `\`${path}\` must be one line of text, up to ${maxStageName} characters`)
+            } else stage.name = name.trim()
+            break
+          }
           case 'effort':
             if (!oneOf(node, efforts))
               error(node, `\`${path}\` must be one of ${efforts.join(', ')}`)
@@ -885,6 +967,10 @@ export function isSocketEntry(entry: string): boolean {
     rest !== '' &&
     !rest.split('/').some((part) => part === '..' || part === '')
   )
+}
+
+function customIdProblem(id: unknown): string {
+  return `unknown Stage \`${String(id)}\`; a custom Stage id is lowercase letters, digits and hyphens, up to ${maxCustomStageId} characters, and not a built-in id`
 }
 
 function scalar(node: Node | null | undefined): unknown {

@@ -33,6 +33,7 @@ const historyNames = [
   'v1.TaskStageEntered',
   'v2.TaskStageEntered',
   'v3.TaskStageEntered',
+  'v4.TaskStageEntered',
   'v1.TaskArchived',
   'v2.TaskArchived',
   'v3.TaskArchived',

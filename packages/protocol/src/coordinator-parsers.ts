@@ -9,6 +9,7 @@ import type {
   CoordinatorRemovalKind,
   CoordinatorTaskQuery,
 } from './coordinator.ts'
+import { isStageId } from './stage.ts'
 import {
   agentStageIds,
   blockedChoices,
@@ -328,7 +329,7 @@ export function parseCoordinatorTaskQuery(search: string): CoordinatorTaskQuery 
   }
   const stages = [...new Set(params.getAll('stage'))]
   for (const stage of stages)
-    if (!queryStages.includes(stage))
+    if (!isStageId(stage))
       throw new HttpError(400, `unknown Stage ${stage}; use one of ${queryStages.join(', ')}`)
   if (stages.length > 0) query.stages = stages as StageId[]
   const statuses = [...new Set(params.getAll('status'))]

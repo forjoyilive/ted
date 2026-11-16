@@ -715,7 +715,8 @@ export function threadEvents(
       }
       case 'v1.TaskStageEntered':
       case 'v2.TaskStageEntered':
-      case 'v3.TaskStageEntered': {
+      case 'v3.TaskStageEntered':
+      case 'v4.TaskStageEntered': {
         const stage = text(data.stage)
         judged = undefined
         declared = undefined

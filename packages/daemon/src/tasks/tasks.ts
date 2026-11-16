@@ -163,6 +163,7 @@ import {
   bindsApproval,
   handsOff,
   hasClarifyRounds,
+  isBuiltInStage,
   isCleanup,
   maySkip,
   mergesHere,
@@ -249,6 +250,7 @@ import {
   type CleanupStep,
   checkLayer,
   githubRepoOf,
+  inheritedFrom,
   isCommandStep,
   type WorkflowSettings,
 } from '../workflow/check.ts'
@@ -262,6 +264,7 @@ import {
   setupWorkflow,
   withForcedGates,
   withoutGates,
+  withRecorded,
   withTaskGates,
 } from '../workflow/resolve.ts'
 import {
@@ -1377,10 +1380,13 @@ export function createTasks(options: {
         : task.forcedGates,
     )
     const based = task.changesSettings ? onDefaultBranch(forced) : forced
-    const workflow = task.setup ? setupWorkflow(based, await setupInstructions()) : based
+    const workflow = withRecorded(
+      task.setup ? setupWorkflow(based, await setupInstructions()) : based,
+      store.recordedStages(task.id),
+    )
     const overnightGates = night.off.filter((id) => workflow.settings.stages[id]?.gate !== true)
     if (kept !== undefined) {
-      const stages = agentStageIds.filter(
+      const stages = workflow.order.filter(
         (id) =>
           workflow.stages.includes(id) &&
           workflow.settings.stages[id]?.gate === true &&
@@ -2447,7 +2453,12 @@ export function createTasks(options: {
     if (!primary) return undefined
     const found = await readGitLayer(primary.worktree, 'HEAD').catch(() => undefined)
     if (!found) return undefined
-    const layer = checkLayer({ kind: 'factory', files: found.files, primaryRepo: factory.repo })
+    const layer = checkLayer({
+      kind: 'factory',
+      files: found.files,
+      primaryRepo: factory.repo,
+      inherited: inheritedFrom(await workflows.inherited()),
+    })
     if (!layer.valid) return undefined
     const proposal = store
       .listComments(task.id)
@@ -6290,6 +6301,7 @@ export function createTasks(options: {
     const order = workflow.order.map((id) => ({
       stage: id,
       enabled: workflow.stages.includes(id),
+      ...(!isBuiltInStage(id) && { name: workflow.name(id) }),
     }))
     const effort =
       stage === 'done' ? undefined : (workflow.settings.stages[stage]?.effort as Effort | undefined)

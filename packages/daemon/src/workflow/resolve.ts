@@ -1,11 +1,18 @@
-import {
-  type AgentStageId,
-  agentStageIds,
-  type BoardStage,
-  type LayerKind,
-  type StageId,
+import type {
+  AgentStageId,
+  BoardStage,
+  BuiltInAgentStageId,
+  LayerKind,
+  StageId,
 } from '@ted/protocol'
-import { builtInStageOrder, isCleanup, isEntryStage, isPast, stageWith } from '@ted/protocol/stage'
+import {
+  isBuiltInStage,
+  isCleanup,
+  isEntryStage,
+  isPast,
+  stageDisplayName,
+  stageWith,
+} from '@ted/protocol/stage'
 import {
   type AgentChoice,
   type CheckedLayer,
@@ -36,8 +43,12 @@ export interface ResolvedWorkflow {
   overnightGates?: readonly AgentStageId[]
   overnightKept?: { reason: OvernightGuard; stages: readonly AgentStageId[]; unseen?: boolean }
   notes?: string
+  names: Readonly<Record<string, string>>
+  missing?: readonly string[]
+  recorded?: readonly string[]
   stageFile(id: AgentStageId): ResolvedStageFile | undefined
-  next(current: StageId): StageId
+  name(id: StageId): string
+  next(current: StageId, recorded?: readonly string[]): StageId
 }
 
 const agentKeys = ['lead', 'reviewer', 'planner'] as const
@@ -52,7 +63,7 @@ const lastWins = [
 
 export function resolveWorkflow(layers: CheckedLayer[]): ResolvedWorkflow {
   const settings: WorkflowSettings = { stages: {} }
-  const stageFiles = new Map<AgentStageId, ResolvedStageFile>()
+  const stageFiles = new Map<string, ResolvedStageFile>()
   let notes: string | undefined
 
   for (const layer of layers) {
@@ -84,32 +95,64 @@ export function cleanupOn(settings: WorkflowSettings): boolean {
   return cleanup?.enabled === true && (cleanup.steps?.length ?? 0) > 0
 }
 
+export const customMaxBack = 3
+
 function built(
-  settings: WorkflowSettings,
+  given: WorkflowSettings,
   stageFile: (id: AgentStageId) => ResolvedStageFile | undefined,
   notes: string | undefined,
 ): ResolvedWorkflow {
-  const enabled = (id: StageId) => settings.stages[id]?.enabled !== false
   const order: AgentStageId[] = [
-    ...(settings.order ?? ['intake', 'work']).filter((id) => !isCleanup(id)),
-    ...(cleanupOn(settings) ? [stageWith('cleanup')] : []),
+    ...(given.order ?? ['intake', 'work']).filter((id) => !isCleanup(id)),
+    ...(cleanupOn(given) ? [stageWith('cleanup')] : []),
   ]
+  const custom = order.filter((id) => !isBuiltInStage(id))
+  const stageSettings = { ...given.stages }
+  for (const id of custom) stageSettings[id] = { max_back: customMaxBack, ...stageSettings[id] }
+  const settings = custom.length > 0 ? { ...given, stages: stageSettings } : given
+  const missing = custom.filter((id) => stageFile(id) === undefined)
+  const enabled = (id: StageId) => settings.stages[id]?.enabled !== false && !missing.includes(id)
   const stages: StageId[] = ['backlog', ...order.filter(enabled), 'done']
+  const names = stageNames(settings, order)
 
   return {
     stages,
     order,
     settings,
     ...(notes !== undefined && { notes }),
+    names,
+    ...(missing.length > 0 && { missing }),
     stageFile,
-    next(current) {
-      if (current === 'done') return 'done'
-      const index = stages.indexOf(current)
-      if (index !== -1) return stages[index + 1] ?? 'done'
-      const rank = builtInStageOrder.indexOf(current)
-      return stages.find((id) => id !== 'backlog' && builtInStageOrder.indexOf(id) > rank) ?? 'done'
-    },
+    name: (id) => stageDisplayName(id, names),
+    next: (current, recorded) => nextStage(stages, order, current, recorded),
   }
+}
+
+function stageNames(settings: WorkflowSettings, order: readonly string[]): Record<string, string> {
+  const names: Record<string, string> = {}
+  for (const id of order) {
+    if (isBuiltInStage(id)) continue
+    names[id] = settings.stages[id]?.name ?? stageDisplayName(id)
+  }
+  return names
+}
+
+export function nextStage(
+  stages: readonly StageId[],
+  order: readonly string[],
+  current: StageId,
+  recorded?: readonly string[],
+): StageId {
+  if (current === 'done') return 'done'
+  const index = stages.indexOf(current)
+  if (index !== -1) return stages[index + 1] ?? 'done'
+  const at = recorded?.indexOf(current) ?? -1
+  if (recorded && at !== -1) {
+    const later = recorded.slice(at + 1).find((id) => id !== 'backlog' && stages.includes(id))
+    if (later !== undefined) return later
+  }
+  const ranked = recorded && at !== -1 ? recorded : order
+  return stages.find((id) => id !== 'backlog' && isPast(id, current, ranked)) ?? 'done'
 }
 
 export function withTaskGates(
@@ -117,9 +160,9 @@ export function withTaskGates(
   overrides: import('@ted/protocol').TaskGateOverrides = {},
 ): ResolvedWorkflow {
   const stages = { ...workflow.settings.stages }
-  for (const id of agentStageIds) {
-    if (overrides[id] !== undefined && workflow.stages.includes(id)) {
-      stages[id] = { ...stages[id], gate: overrides[id] }
+  for (const [id, gate] of Object.entries(overrides)) {
+    if (gate !== undefined && workflow.stages.includes(id)) {
+      stages[id] = { ...stages[id], gate }
     }
   }
   return { ...workflow, settings: { ...workflow.settings, stages } }
@@ -130,7 +173,7 @@ export function withoutGates(workflow: ResolvedWorkflow): {
   off: AgentStageId[]
 } {
   const stages = { ...workflow.settings.stages }
-  const off = agentStageIds.filter(
+  const off = workflow.order.filter(
     (id) => workflow.stages.includes(id) && stages[id]?.gate === true,
   )
   for (const id of off) stages[id] = { ...stages[id], gate: false }
@@ -142,19 +185,22 @@ export function withForcedGates(
   forced: readonly AgentStageId[],
 ): ResolvedWorkflow {
   if (forced.length === 0) return workflow
-  const rank = (id: StageId) => builtInStageOrder.indexOf(id)
   const stages = { ...workflow.settings.stages }
   const order = [...workflow.order]
   for (const id of forced) {
+    if (!order.includes(id) && !isBuiltInStage(id)) continue
     stages[id] = { ...stages[id], enabled: true, gate: true }
     if (order.includes(id)) continue
-    const before = order.findIndex((other) => !isEntryStage(other) && isPast(other, id))
+    const before = order.findIndex(
+      (other) => !isEntryStage(other) && isPast(other, id, workflow.order),
+    )
     if (before === -1) order.push(id)
     else order.splice(before, 0, id)
   }
+  const missing = workflow.missing ?? []
   const included: StageId[] = [
     'backlog',
-    ...order.filter((id) => stages[id]?.enabled !== false),
+    ...order.filter((id) => stages[id]?.enabled !== false && !missing.includes(id)),
     'done',
   ]
   return {
@@ -162,12 +208,35 @@ export function withForcedGates(
     stages: included,
     order,
     settings: { ...workflow.settings, stages, order },
-    next(current) {
-      if (current === 'done') return 'done'
-      const index = included.indexOf(current)
-      if (index !== -1) return included[index + 1] ?? 'done'
-      return included.find((id) => id !== 'backlog' && rank(id) > rank(current)) ?? 'done'
-    },
+    next: (current, recorded) => nextStage(included, order, current, recorded),
+  }
+}
+
+export function isEarlierStage(workflow: ResolvedWorkflow, id: string, than: string): boolean {
+  const { order } = workflow
+  if (order.includes(id) && order.includes(than)) return order.indexOf(id) < order.indexOf(than)
+  return isPast(than, id, workflow.recorded ?? order)
+}
+
+export function withRecorded(
+  workflow: ResolvedWorkflow,
+  recorded: readonly { stage: string; name?: string }[] | undefined,
+): ResolvedWorkflow {
+  if (!recorded) return workflow
+  const ids = recorded.map((planned) => planned.stage)
+  const earlier = Object.fromEntries(
+    recorded.flatMap((planned) =>
+      planned.name === undefined ? [] : [[planned.stage, planned.name]],
+    ),
+  )
+  return {
+    ...workflow,
+    recorded: ids,
+    name: (id) =>
+      Object.hasOwn(workflow.names, id) || !Object.hasOwn(earlier, id)
+        ? workflow.name(id)
+        : stageDisplayName(id, earlier),
+    next: (current, given) => workflow.next(current, given ?? ids),
   }
 }
 
@@ -178,7 +247,7 @@ export function onDefaultBranch(workflow: ResolvedWorkflow): ResolvedWorkflow {
   return { ...workflow, settings: { ...workflow.settings, repos: [kept, ...rest] } }
 }
 
-const setupForced: Partial<Record<AgentStageId, StageSettings>> = {
+const setupForced: Partial<Record<BuiltInAgentStageId, StageSettings>> = {
   clarify: { enabled: true, depth: 'grilling' },
   design: { enabled: true, gate: true },
   review: { enabled: true, gate: true },
@@ -191,7 +260,7 @@ export function setupWorkflow(
   const order = [...workflow.order]
   for (const id of Object.keys(setupForced) as AgentStageId[]) {
     if (order.includes(id)) continue
-    const before = order.findIndex((other) => isPast(other, id))
+    const before = order.findIndex((other) => isPast(other, id, workflow.order))
     order.splice(before === -1 ? order.length : before, 0, id)
   }
   const stages = { ...workflow.settings.stages }
@@ -221,9 +290,11 @@ export function boardStages(workflow: ResolvedWorkflow, overnightMode = false): 
     const gate = id !== 'backlog' && id !== 'done' && stages[id]?.gate === true
     return {
       id,
-      enabled: id === 'backlog' || id === 'done' || stages[id]?.enabled !== false,
+      name: workflow.name(id),
+      enabled: id === 'backlog' || id === 'done' || workflow.stages.includes(id),
       gate,
       ...(gate && overnightMode && { overnight: true as const }),
+      ...(!isBuiltInStage(id) && { custom: true as const }),
     }
   })
 }

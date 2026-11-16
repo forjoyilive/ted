@@ -10,7 +10,16 @@ import type { BusyHold } from './slots.ts'
 import type { AgentStageId, StageId } from './stage.ts'
 import { RequestValidationError } from './validation.ts'
 
-export { type AgentStageId, agentStageIds, clarifyIsOver, type StageId } from './stage.ts'
+export {
+  type AgentStageId,
+  agentStageIds,
+  type BuiltInAgentStageId,
+  type BuiltInStageId,
+  clarifyIsOver,
+  isCustomStageId,
+  type StageId,
+  stageDisplayName,
+} from './stage.ts'
 
 export const priorities = ['urgent', 'high', 'medium', 'low', 'none'] as const
 
@@ -131,6 +140,7 @@ export type TrackState = 'past' | 'current' | 'skipped' | 'future'
 
 export interface TrackStage {
   stage: AgentStageId
+  name?: string
   state: TrackState
 }
 

@@ -30,7 +30,7 @@ import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { StoredTask, TedStore } from '../store/index.ts'
-import type { ResolvedWorkflow } from '../workflow/resolve.ts'
+import { isEarlierStage, type ResolvedWorkflow } from '../workflow/resolve.ts'
 import { backStageMessage, nextStageMessage, stageTitle } from '../workflow/workflow.ts'
 import type { WorkflowResolution } from '../workflow/workflows.ts'
 import { answerMessage } from './answer-message.ts'
@@ -1007,7 +1007,7 @@ export function checkBack(workflow: ResolvedWorkflow, from: AgentStageId, to: Ag
   if (!workflow.stages.includes(to)) {
     throw new RequestError(409, `${stageTitle(to)} isn’t on in this Factory’s Workflow`)
   }
-  if (workflow.order.indexOf(to) >= workflow.order.indexOf(from)) {
+  if (!isEarlierStage(workflow, to, from)) {
     throw new RequestError(
       409,
       `\`back\` goes only to an earlier Stage; ${stageTitle(to)} isn’t before ${stageTitle(from)}`,
