@@ -39,6 +39,14 @@ const github = `Triage this Factory’s new GitHub issues.
 
 End with one line naming the Tasks you created, or “No new Tasks”, then the issues you skipped.`
 
+const githubIntake = `Bring this Factory’s labelled GitHub issues into TED as Backlog Tasks.
+
+1. Run \`ted github intake\` once. TED lists the open issues in this Factory’s repos that carry its GitHub intake label, imports each one with its open sub-issues, and leaves alone what it already tracks.
+2. Don’t list or read GitHub issues yourself, don’t create Tasks from GitHub issues any other way, and don’t comment on, label or close anything on GitHub.
+3. If TED refuses, for example because no GitHub intake label is chosen, don’t try again or work around it.
+
+End with one line: the Tasks TED imported, or that it imported nothing new, plus anything else TED reports: how many issues were already tracked or left for the next run, which issues it skipped, which repos it couldn’t list, and why it stopped early. Or TED’s refusal.`
+
 const architecture = `Review this Factory’s codebase architecture and create worthwhile improvements as Backlog Tasks for the human to choose from. This is an unattended adaptation of improve-codebase-architecture; all the instructions you need are here.
 
 1. Read code through your own authenticated GitHub tools or read-only \`gh api\` calls. This Automation’s working folder is not a checkout. For each repo named in TED’s Factory preamble, read its metadata to find the default branch, resolve that branch to a commit, and inspect recent commits and changed paths. For example, use \`gh api repos/<owner>/<repo>\`, \`gh api 'repos/<owner>/<repo>/commits?per_page=50' --paginate\`, and the commit, git/trees and contents endpoints. Pin file reads to the inspected commit so the evidence is consistent. Paginate results; if a recursive tree is truncated, walk the relevant subtrees. Prioritize code changed in the last month, widening the review only when needed. Do not clone, read TED’s private clones, install dependencies, run repo code, or modify files or anything on GitHub. If repository access is unavailable or incomplete, report exactly what could not be reviewed with \`ted comment\`; never invent findings or call an incomplete scan clean.
@@ -97,6 +105,13 @@ export const automationTemplates: readonly AutomationTemplate[] = [
     summary: 'Reads new GitHub issues and makes Tasks for the ones worth doing.',
     prompt: github,
     schedule: { kind: 'daily', at: '09:00' },
+  },
+  {
+    id: 'github-intake',
+    name: 'Import GitHub issues',
+    summary: 'Imports the open issues that carry the Factory’s GitHub intake label into Backlog.',
+    prompt: githubIntake,
+    schedule: { kind: 'every', every: 30, unit: 'minutes' },
   },
   {
     id: 'architecture',

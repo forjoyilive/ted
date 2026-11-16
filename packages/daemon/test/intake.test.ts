@@ -13,7 +13,9 @@ import {
   asanaIntakeHold,
   automationGitHubTask,
   automationIntake,
+  githubIntakeHold,
   intakeLines,
+  planGitHubIntake,
   refuseAsanaRoot,
 } from '../src/tasks/intake.ts'
 import type { SourceClash } from '../src/tasks/sources.ts'
@@ -395,4 +397,36 @@ test('the prompt’s intake lines follow each Factory’s Linear and GitHub sett
     'Linear intake scope: Unscoped. Your instructions may search all Linear teams and projects.',
     'GitHub intake: any open issue in this Factory’s repos. TED refuses an issue that is closed, outside this Factory’s repos, or a sub-issue of an issue this Factory already tracks.',
   ])
+})
+
+describe('bulk GitHub intake', () => {
+  const factory = { id: 'factory', name: 'Notebook' }
+  const issue = (number: number, parent?: number) => ({
+    url: `https://github.com/acme/notebook/issues/${number}`,
+    ...(parent !== undefined && {
+      parent: { url: `https://github.com/acme/notebook/issues/${parent}` },
+    }),
+  })
+
+  test('without a label the bulk import is refused, and a changed label stops it', () => {
+    expect(() => githubIntakeHold(settingsStore(), factory, () => false)).toThrow(
+      'Choose a label in Notebook’s Factory settings → GitHub intake first.',
+    )
+    const store = settingsStore({ githubIntakeScopes: { factory: { label: 'ready' } } })
+    const hold = githubIntakeHold(store, factory, () => false)
+    expect(hold.scope).toEqual({ label: 'ready' })
+    expect(() => hold.unchanged()).not.toThrow()
+    store.set({ githubIntakeScopes: { factory: { label: 'later' } } })
+    expect(() => hold.unchanged()).toThrow('GitHub intake label changed during the import')
+  })
+
+  test('tracked issues, sub-issues of tracked issues and sub-issues of listed issues are left out', () => {
+    const trackedUrls = new Set([issue(1).url, issue(2).url])
+    const plan = planGitHubIntake(
+      [issue(1), issue(3, 2), issue(4), issue(5, 4), issue(6, 9), issue(4)],
+      (url) => trackedUrls.has(url),
+    )
+    expect(plan.tracked).toBe(2)
+    expect(plan.candidates.map((i) => i.url)).toEqual([issue(4).url, issue(6).url])
+  })
 })

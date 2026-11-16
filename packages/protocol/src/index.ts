@@ -556,10 +556,18 @@ export {
   validationExecution,
 } from './failures.ts'
 export {
+  type GitHubIntakeImported,
+  type GitHubIntakeRequest,
+  type GitHubIntakeResult,
   type GitHubIntakeScope,
+  type GitHubIntakeSkipped,
+  type GitHubIntakeTaskRef,
+  type GitHubIntakeUnlisted,
   isGitHubIntakeScope,
   isGitHubLabel,
+  maxGitHubIntakeTasks,
   maxGitHubLabelLength,
+  parseGitHubIntakeRequest,
   parseSetFactoryGitHubIntakeRequest,
   type SetFactoryGitHubIntakeRequest,
   sameGitHubLabel,

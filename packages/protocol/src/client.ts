@@ -145,7 +145,7 @@ import type {
   ResolveFailureRequest,
   ValidationObligations,
 } from './failures.ts'
-import type { GitHubIntakeScope } from './github-intake.ts'
+import type { GitHubIntakeRequest, GitHubIntakeResult, GitHubIntakeScope } from './github-intake.ts'
 import type {
   GitHubNameCheck,
   GitHubNameRequest,
@@ -622,6 +622,10 @@ export class DaemonClient {
 
   runAsanaIntake(input: AsanaIntakeRequest = {}): Promise<AsanaIntakeResult> {
     return this.#request('POST', '/asana-intake', input)
+  }
+
+  runGitHubIntake(input: GitHubIntakeRequest = {}): Promise<GitHubIntakeResult> {
+    return this.#request('POST', '/github-intake', input)
   }
 
   setTaskSnooze(ref: string, snoozedUntil: string | null): Promise<Task> {

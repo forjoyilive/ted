@@ -89,7 +89,7 @@ export interface DaemonOptions {
   fixPollMs?: number
   integrations?: DaemonIntegrationsOptions
   asana?: Omit<AsanaOptions, 'home' | 'keyring'> & { keyring?: Keyring; intakeLimit?: number }
-  github?: { uploadOrigins?: string[] }
+  github?: { uploadOrigins?: string[]; intakeLimit?: number }
   linear?: { apiUrl?: string; keyring?: Keyring }
   snoozes?: { now?: () => Date; checkEveryMs?: number }
   heldRequests?: { maxMs?: number }
@@ -541,6 +541,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           },
           ...(options.github?.uploadOrigins !== undefined && {
             uploads: { origins: new Set(options.github.uploadOrigins) },
+          }),
+          ...(options.github?.intakeLimit !== undefined && {
+            intakeLimit: options.github.intakeLimit,
           }),
         },
         env: environment.current,

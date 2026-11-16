@@ -51,6 +51,8 @@ import type {
   FailureContext,
   FileDiff,
   FindingSeverity,
+  GitHubIntakeRequest,
+  GitHubIntakeResult,
   GitHubIssueUrl,
   InboxItem,
   LinearFile,
@@ -144,6 +146,7 @@ import {
   joinChoices,
   keepArchiveChoice,
   maxAsanaIntakeTasks,
+  maxGitHubIntakeTasks,
   memoryFailedChoice,
   memoryRetryChoice,
   parseAsanaTaskUrl,
@@ -198,6 +201,7 @@ import { clonePath, ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
 import { fetchGitHubFiles, type GitHubUploads, uploadRefs } from '../github/files.ts'
 import { type Gh, GhError } from '../github/gh.ts'
+import { intakePageSize, listIntakeIssues, maxIntakePages } from '../github/intake.ts'
 import { gitHubIssueSyncApi } from '../github/issue-sync.ts'
 import {
   choosePosts,
@@ -385,7 +389,9 @@ import {
   asanaIntakeHold,
   automationGitHubTask,
   automationIntake,
+  githubIntakeHold,
   githubUnreadableWhy,
+  planGitHubIntake,
   refuseAsanaRoot,
 } from './intake.ts'
 import { type AdoptedBase, baseStep, firstWorkEntry, latestBaseNote } from './latest-base.ts'
@@ -629,6 +635,7 @@ export interface Tasks {
   asanaPreview(input: AsanaImportRequest, caller?: Caller): Promise<AsanaImportPreview>
   importAsana(input: AsanaImportRequest, caller?: Caller): Promise<AsanaImportResult>
   asanaIntake(input: AsanaIntakeRequest, caller?: Caller): Promise<AsanaIntakeResult>
+  githubIntake(input: GitHubIntakeRequest, caller?: Caller): Promise<GitHubIntakeResult>
   cancelMerge(ref: string, comment: string, attachments?: Attachment[]): Promise<Comment>
   markDone(ref: string, by?: 'human' | 'coordinator'): Promise<Task>
   leadDone(ref: string, caller: Caller): Promise<Task>
@@ -847,7 +854,7 @@ export function createTasks(options: {
   isCloned?: (factoryId: string) => boolean
   idle?: IdleTimer
   gh?: Gh
-  github?: { files?: FileStore; uploads?: GitHubUploads }
+  github?: { files?: FileStore; uploads?: GitHubUploads; intakeLimit?: number }
   env?: () => NodeJS.ProcessEnv
   clock?: Clock
   nudgeAfterMs?: number
@@ -4936,6 +4943,143 @@ export function createTasks(options: {
       console.log(
         redactSecrets(
           `Asana intake for ${factory.key} from ${scopeName(confirmed)}: imported ${result.imported.length}, skipped ${result.skipped.length}, left ${result.left}${result.stopped ? ', stopped' : ''}`,
+        ),
+      )
+    }
+    return result
+  }
+
+  const githubIntakes = new Map<string, Promise<unknown>>()
+  const githubIntakeLimit = options.github?.intakeLimit ?? maxGitHubIntakeTasks
+
+  function githubIntake(
+    input: GitHubIntakeRequest,
+    caller: Caller = { kind: 'app' },
+  ): Promise<GitHubIntakeResult> {
+    const automation =
+      caller.kind === 'run' && store.automations.firing(caller.runId)
+        ? automationCaller(caller)
+        : undefined
+    if (!automation) {
+      throw new RequestError(
+        403,
+        'Only an Automation Run imports GitHub issues in bulk. Use an Automation that runs `ted github intake`, and Run now to try it.',
+      )
+    }
+    if (automation.check) {
+      throw new RequestError(403, 'A Scheduled Check doesn’t import GitHub issues.')
+    }
+    if (input.factory !== undefined && input.factory !== automation.factoryKey) {
+      throw new RequestError(
+        403,
+        `this Automation imports only into ${automation.factoryKey}, its own Factory`,
+      )
+    }
+    const factory = store.getFactory(automation.factoryId)
+    if (!factory || removingFactories.has(factory.id)) {
+      throw new RequestError(409, `${automation.factoryKey} is being removed`)
+    }
+    const prior = githubIntakes.get(factory.id) ?? Promise.resolve()
+    const next = prior
+      .catch(() => undefined)
+      .then(() => githubIntakeNow(factory, caller, automation))
+    githubIntakes.set(factory.id, next)
+    return next.finally(() => {
+      if (githubIntakes.get(factory.id) === next) githubIntakes.delete(factory.id)
+    })
+  }
+
+  function githubAllowance(automation: { link: { automationId: string; firingId: string } }) {
+    const { automationId, firingId } = automation.link
+    const used = store.automations
+      .createdTasks(automationId)
+      .filter(
+        (row) =>
+          row.firingId === firingId &&
+          parseGitHubIssueUrl(store.getTask(row.taskId)?.source?.url ?? '') !== undefined,
+      ).length
+    return githubIntakeLimit - used
+  }
+
+  async function githubIntakeNow(
+    factory: StoredFactory,
+    caller: Caller,
+    automation: { link: { automationId: string; firingId: string } },
+  ): Promise<GitHubIntakeResult> {
+    const { scope, unchanged } = githubIntakeHold(
+      store,
+      factory,
+      () => removingFactories.has(factory.id) || !store.getFactory(factory.id),
+    )
+    const gh = options.gh
+    if (!gh) throw new RequestError(409, 'TED can’t reach GitHub here, so it imported nothing.')
+    const resolution = await resolveWorkflow(factory, { fetch: cloned(factory.id) }).catch(
+      () => undefined,
+    )
+    const repos = resolution
+      ? factoryRepos(resolution.workflow, factory).map((entry) => entry.repo)
+      : [factory.repo]
+    const listing = await listIntakeIssues(gh, repos, scope.label)
+    unchanged()
+    const plan = planGitHubIntake(
+      listing.issues,
+      (url) => sourceClash(sameSource(url), factory.id, url) !== undefined,
+    )
+    const listedAtMost = intakePageSize * maxIntakePages
+    const result: GitHubIntakeResult = {
+      label: scope.label,
+      imported: [],
+      skipped: [],
+      tracked: plan.tracked,
+      left: 0,
+      unlisted: listing.unlisted.map(({ repo, reason }) => ({
+        repo,
+        reason: githubUnreadableWhy[reason],
+      })),
+      ...(listing.incomplete.length > 0 && {
+        incomplete: `GitHub listed more than ${listedAtMost} open issues with the label in ${listing.incomplete.join(', ')}; TED checked the first ${listedAtMost} in each.`,
+      }),
+    }
+    let budget = githubAllowance(automation)
+    for (const issue of plan.candidates) {
+      if (budget <= 0) {
+        result.left++
+        continue
+      }
+      try {
+        unchanged()
+        const task = await createTask({ source: issue.url }, caller, { budget, unchanged })
+        const created = [task.id, ...descendants(task.id)].flatMap((id) => {
+          const made = store.getTask(id)
+          return made ? [{ taskId: made.id, displayId: made.displayId }] : []
+        })
+        budget -= created.length
+        result.imported.push({
+          url: issue.url,
+          title: task.title,
+          root: { taskId: task.id, displayId: task.displayId },
+          created,
+        })
+      } catch (error) {
+        if (error instanceof IntakeBudgetError) {
+          budget = 0
+          result.left++
+          continue
+        }
+        const reason = redactSecrets(error instanceof Error ? error.message : String(error))
+        try {
+          unchanged()
+        } catch (changed) {
+          result.stopped = changed instanceof Error ? changed.message : reason
+          break
+        }
+        result.skipped.push({ url: issue.url, title: issue.title, reason })
+      }
+    }
+    if (result.imported.length > 0 || result.stopped !== undefined) {
+      console.log(
+        redactSecrets(
+          `GitHub intake for ${factory.key}: imported ${result.imported.length}, skipped ${result.skipped.length}, left ${result.left}${result.stopped ? ', stopped' : ''}`,
         ),
       )
     }
@@ -10491,6 +10635,7 @@ export function createTasks(options: {
       ...fields
     }: CreateTaskInput,
     caller: Caller = { kind: 'app' },
+    bulk?: IntakeImport,
   ): Promise<Task> {
     if (fields.draftRevision !== undefined && caller.kind !== 'app') {
       throw new RequestError(403, 'only the app can consume a New Task draft')
@@ -10697,6 +10842,10 @@ export function createTasks(options: {
       github: child.source,
       ...(automation && { automation: automation.link }),
     }))
+    if (bulk) {
+      if (1 + children.length > bulk.budget) throw new IntakeBudgetError()
+      bulk.unchanged()
+    }
     const task = await store.createTask({
       ...fields,
       ...(fields.description !== undefined && {
@@ -10928,6 +11077,7 @@ export function createTasks(options: {
     automationStart,
     importAsana: (input, caller) => importAsana(input, caller),
     asanaIntake,
+    githubIntake,
 
     async setUpFactory(factoryId) {
       const factory = store.getFactory(factoryId)
