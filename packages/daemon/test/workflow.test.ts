@@ -450,6 +450,7 @@ describe('custom Stages', () => {
     expect(listed.find((s) => s.id === 'clarify')).toEqual({
       id: 'clarify',
       name: 'Clarify',
+      removed: true,
       enabled: false,
       gate: false,
     })

@@ -317,16 +317,14 @@ export function withStagesInUse(
     const order = recorded?.map((r) => r.stage) ?? list.map((s) => s.id)
     const at = list.findIndex((s) => compareStages(s.id, stage, order) > 0)
     const name = recorded?.find((r) => r.stage === stage)?.name
-    const entry: BoardStage = isBuiltInStage(stage)
-      ? { id: stage, name: stageDisplayName(stage), enabled: false, gate: false }
-      : {
-          id: stage,
-          name: name ?? stageDisplayName(stage),
-          custom: true,
-          removed: true,
-          enabled: false,
-          gate: false,
-        }
+    const entry: BoardStage = {
+      id: stage,
+      name: isBuiltInStage(stage) ? stageDisplayName(stage) : (name ?? stageDisplayName(stage)),
+      ...(!isBuiltInStage(stage) && { custom: true as const }),
+      removed: true,
+      enabled: false,
+      gate: false,
+    }
     list.splice(at === -1 ? list.length : at, 0, entry)
   }
   return list

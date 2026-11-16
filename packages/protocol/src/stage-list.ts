@@ -13,7 +13,8 @@ export function stageNameIn(
   id: string,
   recorded: Readonly<Record<string, string>> = {},
 ): string {
-  return list.find((s) => s.id === id)?.name ?? stageDisplayName(id, recorded)
+  if (Object.hasOwn(recorded, id)) return stageDisplayName(id, recorded)
+  return list.find((s) => s.id === id)?.name ?? stageDisplayName(id)
 }
 
 export function stageIndexIn(list: readonly BoardStage[], id: string): number {
@@ -21,27 +22,51 @@ export function stageIndexIn(list: readonly BoardStage[], id: string): number {
   return at === -1 ? list.length : at
 }
 
+function insertAfter(
+  merged: BoardStage[],
+  at: number,
+  stage: BoardStage,
+  own: ReadonlySet<string>,
+): number {
+  let place = at + 1
+  while (place < merged.length) {
+    const next = merged[place]?.id ?? ''
+    if (isBuiltInStage(next) || own.has(next)) break
+    place++
+  }
+  merged.splice(place, 0, stage)
+  return place
+}
+
 export function mergeStageLists(lists: readonly (readonly BoardStage[])[]): BoardStage[] {
-  const merged: BoardStage[] = defaultStageList.map((s) => ({ ...s, enabled: false }))
+  const merged: BoardStage[] = []
   for (const list of lists) {
-    list.forEach((stage, i) => {
+    const own = new Set(list.map((s) => s.id))
+    let after = -1
+    for (const stage of list) {
       const at = merged.findIndex((s) => s.id === stage.id)
-      if (at !== -1) {
-        const known = merged[at] as BoardStage
-        const next: BoardStage = {
-          ...known,
-          enabled: known.enabled || stage.enabled,
-          gate: known.gate || stage.gate,
-        }
-        if (!stage.removed) delete next.removed
-        merged[at] = next
-        return
+      if (at === -1) {
+        after = insertAfter(merged, after, { ...stage }, own)
+        continue
       }
-      const before = list.slice(0, i).findLast((s) => merged.some((m) => m.id === s.id))
-      let place = before === undefined ? 0 : merged.findIndex((m) => m.id === before.id) + 1
-      while (place < merged.length && !isBuiltInStage(merged[place]?.id ?? '')) place++
-      merged.splice(place, 0, { ...stage })
-    })
+      const known = merged[at] as BoardStage
+      const next: BoardStage = {
+        ...known,
+        enabled: known.enabled || stage.enabled,
+        gate: known.gate || stage.gate,
+      }
+      if (!stage.removed) delete next.removed
+      merged[at] = next
+      after = at
+    }
+  }
+  for (const stage of defaultStageList) {
+    if (merged.some((s) => s.id === stage.id)) continue
+    const rank = builtInStageOrder.indexOf(stage.id as (typeof builtInStageOrder)[number])
+    const before = merged.findLastIndex(
+      (s) => isBuiltInStage(s.id) && builtInStageOrder.indexOf(s.id) < rank,
+    )
+    insertAfter(merged, before, { ...stage, enabled: false }, new Set())
   }
   return merged
 }

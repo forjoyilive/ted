@@ -59,7 +59,12 @@ export function boardColumns(
   for (const id of new Set(live.map((t) => t.stage))) {
     if (listed.some((s) => s.id === id)) continue
     const at = listed.findIndex((s) => compareStages(s.id, id, order) > 0)
-    listed.splice(at === -1 ? listed.length : at, 0, { id, enabled: false, gate: false })
+    listed.splice(at === -1 ? listed.length : at, 0, {
+      id,
+      removed: true,
+      enabled: false,
+      gate: false,
+    })
   }
   return listed.flatMap(({ id, name, removed, enabled, gate }): BoardColumn[] => {
     const shared = {

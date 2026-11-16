@@ -10,7 +10,7 @@ import {
   taskStatus,
 } from '../../daemon/src/tasks/status.ts'
 import { Help } from '../src/renderer/components/Help.tsx'
-import { StagesProvider } from '../src/renderer/stages.tsx'
+import { affects, StagesProvider } from '../src/renderer/stages.tsx'
 import { Board } from '../src/renderer/views/Board.tsx'
 import { idColumnWidth, listGrid, TaskList } from '../src/renderer/views/TaskList.tsx'
 import { appState } from './support/app.tsx'
@@ -645,4 +645,14 @@ test('folding a parent in one Stage group keeps its children in other groups and
   first.unmount()
   mount()
   expect(rows()).toEqual(['NB-1', '(NB-1)', 'NB-3'])
+})
+
+test('the Stage lists reload for a requested Factory, even before its first list has loaded', () => {
+  const stagesChanged = { type: 'factory-stages-changed', factoryId: 'f1' } as const
+  expect(affects(stagesChanged, ['f1'], {})).toBe(true)
+  expect(affects(stagesChanged, ['f2'], {})).toBe(false)
+  const moved = { type: 'task-updated', task: task({ stage: 'work' }) } as const
+  expect(affects(moved, ['f1'], {})).toBe(true)
+  const listed = { f1: [{ id: 'work', enabled: true, gate: false }] }
+  expect(affects(moved, ['f1'], listed)).toBe(false)
 })

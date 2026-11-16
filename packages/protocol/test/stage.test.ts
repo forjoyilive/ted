@@ -196,4 +196,31 @@ test('Stage lists merge across Factories: built-ins in order, each custom Stage 
   expect(stageNameIn(merged, 'ship')).toBe('Ship it')
   expect(stageNameIn(merged, 'gone', { gone: 'Old pass' })).toBe('Old pass')
   expect(stageNameIn(merged, 'gone')).toBe('Gone')
+  expect(stageNameIn(merged, 'ship', { ship: 'Ship' })).toBe('Ship')
+
+  const reordered = mergeStageLists([
+    ['backlog', 'intake', 'work', 'design', 'merge', 'done'].map((id) => stage(id)),
+  ])
+  expect(reordered.map((s) => s.id)).toEqual([
+    'backlog',
+    'intake',
+    'clarify',
+    'work',
+    'design',
+    'validate',
+    'review',
+    'merge',
+    'cleanup',
+    'done',
+  ])
+
+  const gone = stage('review', { removed: true, enabled: false })
+  expect(
+    mergeStageLists([[stage('backlog'), gone, stage('done')]]).find((s) => s.id === 'review'),
+  ).toMatchObject({ removed: true })
+  expect(
+    mergeStageLists([[stage('backlog'), gone, stage('done')], [stage('review')]]).find(
+      (s) => s.id === 'review',
+    )?.removed,
+  ).toBeUndefined()
 })

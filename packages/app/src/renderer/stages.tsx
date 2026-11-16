@@ -8,13 +8,21 @@ const StagesContext = createContext<Stages>(stagesFrom({}))
 
 export const useStages = () => useContext(StagesContext)
 
-function affects(event: TedEvent, lists: Readonly<Record<string, readonly BoardStage[]>>) {
-  if (event.type === 'factory-stages-changed') return event.factoryId in lists
+export function affects(
+  event: TedEvent,
+  requested: readonly string[],
+  lists: Readonly<Record<string, readonly BoardStage[]>>,
+): boolean {
+  if (event.type === 'factory-stages-changed') return requested.includes(event.factoryId)
   if (event.type === 'task-deleted')
-    return Object.values(lists).some((list) => list.some((s) => s.removed))
+    return (
+      requested.some((id) => lists[id] === undefined) ||
+      Object.values(lists).some((list) => list.some((s) => s.removed))
+    )
   if (event.type !== 'task-created' && event.type !== 'task-updated') return false
+  if (!requested.includes(event.task.factoryId)) return false
   const list = lists[event.task.factoryId]
-  if (list === undefined) return false
+  if (list === undefined) return true
   return !list.some((s) => s.id === event.task.stage) || list.some((s) => s.removed)
 }
 
@@ -39,7 +47,7 @@ export function StagesProvider({
             .map(async (id) => [id, (await ted.factoryBoard(id)).stages] as const),
         ),
       ),
-    event: (event) => (affects(event, shown.current) ? 'reload' : undefined),
+    event: (event) => (affects(event, key.split(','), shown.current) ? 'reload' : undefined),
     error: (error) => console.error(error),
   })
   shown.current = value

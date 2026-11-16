@@ -159,18 +159,18 @@ describe('Board columns', () => {
     ).toEqual(['review'])
   })
 
-  test('a Stage the Workflow no longer lists keeps a turned-off column in its built-in place', () => {
+  test('a Stage the Workflow no longer lists keeps a column marked removed in its built-in place', () => {
     const columns = boardColumns(
       [on('backlog'), on('intake'), on('work'), on('done')],
       [task({ displayId: 'NB-1', stage: 'clarify' })],
     )
 
-    expect(columns.map((c) => [c.stage, c.turnedOff])).toEqual([
-      ['backlog', false],
-      ['intake', false],
-      ['clarify', true],
-      ['work', false],
-      ['done', false],
+    expect(columns.map((c) => [c.stage, c.turnedOff, c.removed === true])).toEqual([
+      ['backlog', false, false],
+      ['intake', false, false],
+      ['clarify', true, true],
+      ['work', false, false],
+      ['done', false, false],
     ])
   })
 
