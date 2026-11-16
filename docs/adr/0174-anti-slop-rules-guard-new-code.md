@@ -28,7 +28,7 @@ The fallback, had the feature not behaved this way, was an `overrides` entry tur
 
 ## No disable comments
 
-A violation is fixed, or its file pattern is exempted in `oxlint.config.ts` with a reason. Oxlint can’t refuse disable comments: `reportUnusedDisableDirectives` reports only those that disable nothing, and a lint rule that reports disable comments is itself switched off by a file-wide `/* oxlint-disable */`. So `pnpm lint` ends with a `git grep` over `.ts` and `.tsx` files, tracked and untracked, for a comment containing `oxlint-disable`, `oxlint-enable`, `eslint-disable` or `eslint-enable`, and fails when it finds one. `respectEslintDisableDirectives: false` also stops Oxlint from honouring the `eslint-` forms.
+A violation is fixed, or its file pattern is exempted in `oxlint.config.ts` with a reason. Oxlint can’t refuse disable comments: `reportUnusedDisableDirectives` reports only those that disable nothing, and a lint rule that reports disable comments is itself switched off by a file-wide `/* oxlint-disable */`. So `pnpm lint` ends with a `git grep` over `.ts` and `.tsx` files, tracked and untracked, for the text `oxlint-disable`, `oxlint-enable`, `eslint-disable` or `eslint-enable` anywhere on a line, and fails when it finds one. It doesn’t look for a comment marker first, because Oxlint honours a directive on its own line inside a multi-line block comment. A string that contains that text fails too; none does today. `respectEslintDisableDirectives: false` also stops Oxlint from honouring the `eslint-` forms.
 
 ## The plugin is TED’s own copy
 
