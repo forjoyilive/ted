@@ -306,6 +306,7 @@ export interface LeadFailure {
   recovery: 'resume' | 'fresh' | 'failed'
   resumeFailed: boolean
   ask?: { title: string; body: string }
+  mergeAnyway?: boolean
 }
 
 export interface LeadMessage {
@@ -810,6 +811,7 @@ export interface TedStore extends TaskHistory {
   pullRequestSignedOff(taskId: string, name: string, commit: string | undefined): void
   autoMergeDisabled(taskId: string, name: string): void
   mergeStarted(taskId: string): void
+  mergeLeadAdvanced(taskId: string, by: 'lead' | 'human'): void
   gateSkippedOvernight(taskId: string, stage: AgentStageId): void
   gateApprovalBound(taskId: string, commentId: string, name: string, commit: string): void
   gateRequestedFor(taskId: string, commentId: string, name: string, commit: string): void
@@ -2064,11 +2066,14 @@ export async function openStore({
     )
     const waitingOn = unmerged.map((b) => b.displayId)
     const firstEnded = unmerged[0]?.ended
-    const github =
+    const visit = stage === 'merge' ? history.mergeHistory(row.id) : undefined
+    const leadWorks = visit?.awaitsLead === true && visit.leadAdvanced === undefined
+    const waitingFor =
       stage === 'merge'
         ? repos.find((r) => !r.removed && r.pullRequest?.waiting !== undefined)?.pullRequest
             ?.waiting
         : undefined
+    const github = leadWorks && waitingFor !== 'sign-in' ? undefined : waitingFor
     const openPullRequest = repos.some(
       (r) => !r.removed && r.pullRequest && r.pullRequest.state !== 'merged',
     )
@@ -2153,6 +2158,7 @@ export async function openStore({
         },
       }),
       stage,
+      ...(leadWorks && { mergeLeadWorks: true }),
       ...(leadLive && { leadLive }),
       ...(leadStopped &&
         !held &&
@@ -4854,7 +4860,7 @@ export async function openStore({
       updatedTask(taskId)
       return comment
     },
-    leadFailed({ taskId, runId, reason, recovery, resumeFailed, ask }) {
+    leadFailed({ taskId, runId, reason, recovery, resumeFailed, ask, mergeAnyway }) {
       const at = new Date().toISOString()
       const id = ask && randomUUID()
       commit(
@@ -4874,6 +4880,14 @@ export async function openStore({
                 commentId: id,
                 purpose: JSON.stringify({ kind: 'failed-run' }),
               }),
+              ...(mergeAnyway
+                ? [
+                    events.failedRunMergeAnywayOffered({
+                      commentId: id,
+                      choices: JSON.stringify(['Retry', 'Merge anyway']),
+                    }),
+                  ]
+                : []),
             ]
           : []),
       )
@@ -5399,6 +5413,10 @@ export async function openStore({
       commit(events.mergeStarted({ taskId, at: new Date().toISOString() }))
       updatedTask(taskId)
     },
+    mergeLeadAdvanced(taskId, by) {
+      commit(events.mergeLeadAdvanced({ taskId, by, at: new Date().toISOString() }))
+      updatedTask(taskId)
+    },
     gateKeptOvernight(taskId, stage, reason) {
       commit(events.gateKeptOvernight({ taskId, stage, reason, at: new Date().toISOString() }))
       updatedTask(taskId)
@@ -5524,6 +5542,7 @@ export async function openStore({
             ]
           : []),
         ...(entry ? [stageEntered(taskId, stage, entry, at)] : []),
+        ...(stage === 'merge' ? [events.mergeAwaitsLead({ taskId, at })] : []),
         ...withdrawn.map(({ id }) =>
           events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
         ),

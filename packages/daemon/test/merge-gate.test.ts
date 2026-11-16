@@ -22,6 +22,7 @@ import {
   getTask,
   lines,
   merges,
+  quietGuard,
   readGh,
   run,
   setGh,
@@ -169,7 +170,11 @@ describe('Merge sign-off', () => {
       const runToken = (await loadRunTokens(tedPaths(ctx.home).runTokenKey)).issue(lead)
       const runClient = api(ctx.daemon?.port ?? 0, runToken)
       await writeFile(gate, '')
-      const outcome = runClient.call('POST', `/tasks/${task.id}/outcome`, { outcome: 'advance' })
+      const outcome = runClient.call('POST', `/tasks/${task.id}/outcome`, {
+        outcome: 'back',
+        to: 'validate',
+        findings: 'Hold the Task while TED fetches.',
+      })
       try {
         await waitUntil(
           async () => (await stat(fetching).catch(() => undefined)) !== undefined,
@@ -303,7 +308,7 @@ describe('Merge off', () => {
 function resignoffSteps(client: Client, summary: string) {
   const outcome = `out=$(ted outcome advance --changes '${summary}' 2>&1) || case "$out" in *"asked for changes"*) ted outcome back --to work --findings '${client.findingsFile}';; esac`
   const script = [
-    `[ -e '${client.mergingFile}' ] && exit 0`,
+    quietGuard(client),
     commitStep.run[2],
     `ted brief write --file '${client.briefFile}'`,
     outcome,

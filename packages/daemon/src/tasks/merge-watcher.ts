@@ -27,7 +27,7 @@ import {
 } from './merge.ts'
 
 export type MergeCycle = 'done' | 'wait' | 'busy'
-export type MergeMode = 'off' | 'gate' | 'merge' | 'canceled'
+export type MergeMode = 'off' | 'lead' | 'gate' | 'merge' | 'canceled'
 export type MergeWork = MergeTarget & { url: string; worktree: string }
 
 export interface MergePort {
@@ -457,7 +457,8 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
       if ((await turnOffAutoMerge(taskId)).length > 0) return 'wait'
       return watchOnlyCycle(taskId, read, { markWaiting: false, deleteBranches: true })
     }
-    if (mode === 'gate' && (await turnOffAutoMerge(taskId)).length > 0) return 'wait'
+    if ((mode === 'gate' || mode === 'lead') && (await turnOffAutoMerge(taskId)).length > 0)
+      return 'wait'
     if (mode !== 'off' && read && port.ciFailures) {
       await port.ciFailures(taskId, read)
       if (find(taskId).stage !== 'merge') return 'done'
@@ -635,6 +636,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     if (ready.length === 0 || ready.length !== open) {
       return open === 0 ? finishMerge(taskId) : 'wait'
     }
+    if (mode === 'lead') return 'wait'
     if (mode === 'gate') {
       for (const { target } of ready) setWait(taskId, target.name, undefined)
       const kept = resolution.workflow.overnightKept
@@ -768,6 +770,7 @@ export function mergeMode(
       )
   )
     return 'canceled'
+  if (leadPending(store, task.id)) return 'lead'
   const kept = workflow.overnightKept
   if (kept?.unseen) return 'gate'
   if (
@@ -793,6 +796,29 @@ export function startMerging(store: TedStore, task: Task, workflow: ResolvedWork
     store.gateSkippedOvernight(task.id, 'merge')
   }
   store.mergeStarted(task.id)
+}
+
+export function leadPending(store: TedStore, taskId: string): boolean {
+  const { awaitsLead, leadAdvanced } = store.mergeHistory(taskId)
+  if (!awaitsLead) return false
+  if (leadAdvanced === undefined) return true
+  if (leadAdvanced.by === 'human') return false
+  return openMergeFailures(store, taskId).some((f) => f.createdAt > leadAdvanced.at)
+}
+
+const closedResolutions = ['accepted', 'fixed', 'no-longer-applicable']
+
+export function openMergeFailures(store: TedStore, taskId: string) {
+  const since = store.listStageEntries(taskId).findLast((e) => e.stage === 'merge')?.at ?? ''
+  return store.failures
+    .list(taskId)
+    .filter(
+      (f) =>
+        (f.source.kind === 'github-ci' || f.source.kind === 'post-rebase-check') &&
+        f.createdAt >= since &&
+        !f.verifications?.length &&
+        !closedResolutions.includes(f.resolutions.at(-1)?.resolution ?? ''),
+    )
 }
 
 function mergeVisit(store: TedStore, task: Task): string {

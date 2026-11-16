@@ -11,6 +11,7 @@ import {
   getTask,
   ghCalls,
   lines,
+  quietGuard,
   setGh,
   start,
   toSignoff,
@@ -22,7 +23,7 @@ useMergeHarness()
 const quiet = (client: Client) => writeFile(client.mergingFile, '')
 
 function guardedSteps(client: Client): string {
-  const guard = `[ -e '${client.mergingFile}' ] && exit 0`
+  const guard = quietGuard(client)
   const outcome = `out=$(ted outcome advance 2>&1) || case "$out" in *"asked for changes"*) ted outcome back --to work --findings '${client.findingsFile}';; esac`
   const script = [guard, commitStep.run[2], `ted brief write --file '${client.briefFile}'`, outcome]
   const each = [{ run: ['sh', '-c', script.join('\n')] }, { endTurn: true }]
@@ -305,7 +306,10 @@ describe('Watching GitHub', () => {
       })
       const { task, signoff } = await toSignoff(client, { title: guardedSteps(client) })
       await approve(client, signoff)
-      await waitUntil(async () => (await getTask(client, task.id)).stage === 'merge', 'Merge')
+      await waitUntil(
+        async () => (await getTask(client, task.id)).status?.kind === 'waiting-for-github',
+        'the Task Lead to advance at Merge',
+      )
       const first = await leadOf(client, task)
       expect((await client.call('POST', '/shutdown', {})).status).toBe(200)
       await ctx.daemon?.stop()

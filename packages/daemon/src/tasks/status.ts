@@ -54,6 +54,7 @@ export interface TaskFacts {
   waitingOnEmulator?: boolean
   retrying?: boolean
   interrupted?: boolean
+  mergeLeadWorks?: boolean
 }
 
 export function taskCanResume(facts: TaskFacts): boolean {
@@ -66,7 +67,7 @@ export function taskCanResume(facts: TaskFacts): boolean {
     !facts.paused &&
     facts.stage !== 'backlog' &&
     facts.stage !== 'done' &&
-    facts.stage !== 'merge' &&
+    (facts.stage !== 'merge' || facts.mergeLeadWorks === true) &&
     facts.runs.length === 0 &&
     !facts.leadLive &&
     (facts.openRequests ?? 0) === 0 &&

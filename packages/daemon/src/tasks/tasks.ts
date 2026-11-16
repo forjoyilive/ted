@@ -404,9 +404,11 @@ import {
 import {
   createMergeWatcher,
   isCiStuck,
+  leadPending,
   type MergeCycle,
   type MergeWork,
   mergeMode as mergeModeFor,
+  openMergeFailures,
   startMerging as startMergingFor,
 } from './merge-watcher.ts'
 import { placeBetween } from './order.ts'
@@ -956,6 +958,7 @@ export function createTasks(options: {
   const caps = new Map<string, number | undefined>()
   const listeners = new Set<(event: DaemonEvent) => void>()
   const mergeWaits = new Map<string, AbortController>()
+  const mergeUrgent = new Set<string>()
   const checkWaits = new Map<string, AbortController>()
   const memoryWaits = new Map<string, AbortController>()
   const memoryAnswers = new Map<string, (choice: string | undefined) => void>()
@@ -3318,7 +3321,8 @@ export function createTasks(options: {
     const resolution = await gateWorkflow(task, { fetch: false })
     const mode = mergeMode(task, resolution.workflow)
     const merging = task.stage === 'merge' && !task.archived
-    const recording = merging && !task.stopped && (mode === 'merge' || mode === 'gate')
+    const recording =
+      merging && !task.stopped && (mode === 'merge' || mode === 'gate' || mode === 'lead')
     const accepted = acceptedCi(taskId)
     const pulls = (merging ? await mergeTargets(task, resolution) : []).flatMap((target) => {
       const pr = read.pulls.get(`${taskId}:${target.name}`)
@@ -3492,7 +3496,7 @@ export function createTasks(options: {
           let next: MergeCycle = 'wait'
           let read: PullRequestRead | undefined
           if (canWatch() && watch) {
-            read = await watch.next({ now: urgent })
+            read = await watch.next({ now: mergeUrgent.delete(taskId) || urgent })
             if (closed || !watched(taskNow(taskId))) return
           }
           const current = taskNow(taskId)
@@ -3726,6 +3730,63 @@ export function createTasks(options: {
         ...(changes && { changes }),
       },
     })
+  }
+
+  async function advanceMerge(taskId: string, skip: boolean): Promise<OutcomeResult> {
+    if (skip) {
+      throw new RequestError(409, 'only Clarify and Design can skip themselves; Merge can’t')
+    }
+    const { workflow } = await gateWorkflow(find(taskId), { fetch: false })
+    const task = find(taskId)
+    if (task.stage !== 'merge') {
+      throw new RequestError(
+        409,
+        `${task.displayId} changed Stage while this outcome waited; read the Task again before reporting`,
+      )
+    }
+    if (mergeMode(task, workflow) === 'canceled') {
+      throw new RequestError(
+        409,
+        `the human cancelled ${task.displayId}’s merge or asked for changes; send the Task back to Work or Design with \`ted outcome back --to work|design --findings <file>\``,
+      )
+    }
+    if (!leadPending(store, task.id)) {
+      throw new RequestError(
+        409,
+        store.mergeHistory(task.id).awaitsLead
+          ? `${task.displayId}’s Merge work is already reported; TED takes it from here and tells you if CI or a Check fails`
+          : `TED merges ${task.displayId}’s pull requests and moves it to Done when they’ve merged; there’s no outcome to report at Merge`,
+      )
+    }
+    const open = openMergeFailures(store, task.id)
+    if (open.length > 0) {
+      throw new RequestError(
+        409,
+        `${task.displayId} has ${open.length === 1 ? 'an open failure' : `${open.length} open failures`} at Merge; assess ${open.length === 1 ? 'it' : 'them'} with \`ted failure\` first. TED goes on with the merge once ${open.length === 1 ? 'it is' : 'they are'} resolved.`,
+      )
+    }
+    store.mergeLeadAdvanced(task.id, 'lead')
+    const advanced = find(task.id)
+    const mode = mergeMode(advanced, workflow)
+    if (mode === 'merge') startMerging(advanced, workflow)
+    mergeUrgent.add(task.id)
+    mergeWaits.get(task.id)?.abort()
+    if (inFlight.is(task.id, 'merging')) watch?.kick()
+    watchMerge(task.id)
+    const held =
+      openRequests(task.id).length > 0
+        ? ' TED holds the merge while a request on the Task is open.'
+        : ''
+    return {
+      task: publicTask(task.id),
+      message:
+        (mode === 'off'
+          ? `Merge is off for this Factory: the human merges ${task.displayId}’s pull requests on GitHub, and TED moves it to Done when it sees the merge. End your turn.`
+          : mode === 'gate'
+            ? `TED posts the Merge sign-off for ${task.displayId} once CI passes and merges when the human approves it. End your turn; TED tells you if CI or a Check fails.`
+            : `TED merges ${task.displayId}’s pull requests once CI passes and moves it to Done. End your turn; TED tells you if CI or a Check fails.`) +
+        held,
+    }
   }
 
   async function cancelMerge(
@@ -9232,9 +9293,8 @@ export function createTasks(options: {
     if (run.taskId === undefined || run.parentRunId !== undefined) return undefined
     const task = store.getTask(run.taskId)
     if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return undefined
-    if (task.stage === 'backlog' || task.stage === 'done' || task.stage === 'merge') {
-      return undefined
-    }
+    if (task.stage === 'backlog' || task.stage === 'done') return undefined
+    if (task.stage === 'merge' && !leadPending(store, task.id)) return undefined
     return task
   }
 
@@ -9330,7 +9390,8 @@ export function createTasks(options: {
     if (run?.state !== 'idle' || run.problem !== undefined || run.taskId === undefined) return
     const task = store.getTask(run.taskId)
     if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return
-    if (task.stage === 'backlog' || task.stage === 'done' || task.stage === 'merge') return
+    if (task.stage === 'backlog' || task.stage === 'done') return
+    if (task.stage === 'merge' && !leadPending(store, task.id)) return
     if (inFlight.is(task.id, 'transition')) return
     if (tedWorkingFor(task, run)) {
       watchIdle(run)
@@ -11519,6 +11580,9 @@ export function createTasks(options: {
         if (task.stage === 'backlog' || task.stage === 'done') {
           throw new RequestError(409, `${task.displayId} isn’t in a Stage that has an outcome`)
         }
+        if (outcome.outcome === 'advance' && task.stage === 'merge') {
+          return advanceMerge(task.id, outcome.skip === true)
+        }
         if (inFlight.is(task.id, 'checking')) {
           throw new RequestError(
             409,
@@ -11607,6 +11671,12 @@ export function createTasks(options: {
           const changesAsked =
             (stage === 'review' || stage === 'merge') && lastChangesRequested(current) !== ''
           if (outcome.outcome === 'back') {
+            if (stage === 'merge' && outcome.to !== 'work' && outcome.to !== 'design') {
+              throw new RequestError(
+                409,
+                'Merge sends a Task back only to Work or Design; the fix passes Validate again on its way back',
+              )
+            }
             if (changesAsked && outcome.to !== 'work' && outcome.to !== 'design') {
               throw new RequestError(
                 409,
@@ -11672,17 +11742,6 @@ export function createTasks(options: {
             )
           }
           if (stage === 'cleanup') return finishCleanup(current, resolution)
-          if (stage === 'merge') {
-            const mode = mergeMode(current, workflow)
-            throw new RequestError(
-              409,
-              mode === 'off'
-                ? `Merge is off for this Factory: the human merges ${task.displayId}’s pull requests on GitHub and TED moves it to Done when it sees the merge; there’s no outcome to report at Merge`
-                : mode === 'gate'
-                  ? `TED posts the Merge sign-off for ${task.displayId} once CI passes, then merges; there’s no outcome to report at Merge`
-                  : `TED merges ${task.displayId}’s pull requests and moves it to Done when they’ve merged; there’s no outcome to report at Merge`,
-            )
-          }
           if (
             stage === 'work' ||
             ((stage === 'validate' || stage === 'review') &&
@@ -12409,7 +12468,7 @@ export function createTasks(options: {
 const skippableStages: readonly StageId[] = ['clarify', 'design']
 
 const mergeOffMessage =
-  'Merge is off for this Factory: the human merges the pull requests on GitHub, and TED moves the Task to Done when it sees the merge. There’s nothing for you to do or report.'
+  'Merge is off for this Factory: the human merges the pull requests on GitHub, and TED moves the Task to Done when it sees the merge. Check that each pull request’s description still matches what the Task does, update the Task brief, then run `ted outcome advance`. Don’t commit, push or merge.'
 
 function textOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)

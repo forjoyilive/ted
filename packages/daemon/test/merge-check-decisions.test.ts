@@ -22,6 +22,7 @@ import {
   ghCalls,
   leadSteps,
   merges,
+  quietGuard,
   readGh,
   run,
   setGh,
@@ -470,7 +471,7 @@ test(
       const commit = (repo: string) =>
         `(cd ${repo} && { [ -e stub-built ] || { ${commitStep.run[2]}; touch stub-built; }; })`
       const script = [
-        `[ -e '${client.mergingFile}' ] && exit 0`,
+        quietGuard(client),
         commit('widgets'),
         commit('api'),
         `ted brief write --file '${client.briefFile}'`,
