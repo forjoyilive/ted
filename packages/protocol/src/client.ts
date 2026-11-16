@@ -73,9 +73,8 @@ import type { CommandLineStatus } from './command-line.ts'
 import type {
   Coordinator,
   CoordinatorAction,
+  CoordinatorChatSummary,
   CoordinatorConfirmationAnswer,
-  CoordinatorConversation,
-  CoordinatorConversationSummary,
   CoordinatorCreate,
   CoordinatorMessage,
   CoordinatorOperation,
@@ -443,74 +442,48 @@ export class DaemonClient {
     return this.#request('GET', `/plans${factoryQuery(factory)}`)
   }
 
-  coordinator(factoryId: string): Promise<Coordinator | null> {
-    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/coordinator`)
+  coordinatorChats(factoryId: string): Promise<CoordinatorChatSummary[]> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/coordinator-chats`)
   }
 
-  coordinatorChat(factoryId: string): Promise<RunChat | null> {
-    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/coordinator/chat`)
+  startCoordinatorChat(factoryId: string, input: CoordinatorMessage): Promise<Coordinator> {
+    return this.#request(
+      'POST',
+      `/factories/${encodeURIComponent(factoryId)}/coordinator-chats`,
+      input,
+    )
+  }
+
+  coordinator(chatId: string): Promise<Coordinator> {
+    return this.#request('GET', `/coordinator-chats/${encodeURIComponent(chatId)}`)
+  }
+
+  coordinatorChat(chatId: string): Promise<RunChat> {
+    return this.#request('GET', `/coordinator-chats/${encodeURIComponent(chatId)}/chat`)
   }
 
   coordinatorStatuses(): Promise<CoordinatorStatus[]> {
     return this.#request('GET', '/coordinators')
   }
 
-  messageCoordinator(factoryId: string, input: CoordinatorMessage): Promise<Coordinator> {
-    return this.#request(
-      'POST',
-      `/factories/${encodeURIComponent(factoryId)}/coordinator/messages`,
-      input,
-    )
+  messageCoordinator(chatId: string, input: CoordinatorMessage): Promise<Coordinator> {
+    return this.#request('POST', `/coordinator-chats/${encodeURIComponent(chatId)}/messages`, input)
   }
 
-  stopCoordinator(factoryId: string): Promise<Coordinator> {
-    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/coordinator/stop`)
+  stopCoordinator(chatId: string): Promise<Coordinator> {
+    return this.#request('POST', `/coordinator-chats/${encodeURIComponent(chatId)}/stop`)
   }
 
-  retryCoordinator(factoryId: string): Promise<Coordinator> {
-    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/coordinator/retry`)
+  retryCoordinator(chatId: string): Promise<Coordinator> {
+    return this.#request('POST', `/coordinator-chats/${encodeURIComponent(chatId)}/retry`)
   }
 
-  resetCoordinator(factoryId: string): Promise<null> {
-    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/coordinator/reset`)
+  continueCoordinatorChat(chatId: string): Promise<Coordinator> {
+    return this.#request('POST', `/coordinator-chats/${encodeURIComponent(chatId)}/continue`)
   }
 
-  coordinatorConversations(factoryId: string): Promise<CoordinatorConversationSummary[]> {
-    return this.#request(
-      'GET',
-      `/factories/${encodeURIComponent(factoryId)}/coordinator/conversations`,
-    )
-  }
-
-  coordinatorConversation(
-    factoryId: string,
-    conversationId: string,
-  ): Promise<CoordinatorConversation> {
-    return this.#request(
-      'GET',
-      `/factories/${encodeURIComponent(factoryId)}/coordinator/conversations/${encodeURIComponent(conversationId)}`,
-    )
-  }
-
-  coordinatorConversationChat(factoryId: string, conversationId: string): Promise<RunChat> {
-    return this.#request(
-      'GET',
-      `/factories/${encodeURIComponent(factoryId)}/coordinator/conversations/${encodeURIComponent(conversationId)}/chat`,
-    )
-  }
-
-  continueCoordinatorConversation(factoryId: string, conversationId: string): Promise<Coordinator> {
-    return this.#request(
-      'POST',
-      `/factories/${encodeURIComponent(factoryId)}/coordinator/conversations/${encodeURIComponent(conversationId)}/continue`,
-    )
-  }
-
-  deleteCoordinatorConversation(factoryId: string, conversationId: string): Promise<null> {
-    return this.#request(
-      'DELETE',
-      `/factories/${encodeURIComponent(factoryId)}/coordinator/conversations/${encodeURIComponent(conversationId)}`,
-    )
+  deleteCoordinatorChat(chatId: string): Promise<null> {
+    return this.#request('DELETE', `/coordinator-chats/${encodeURIComponent(chatId)}`)
   }
 
   coordinatorTasks(query: CoordinatorTaskQuery = {}): Promise<{ context: string }> {
@@ -541,13 +514,13 @@ export class DaemonClient {
   }
 
   answerCoordinatorConfirmation(
-    factoryId: string,
+    chatId: string,
     confirmationId: string,
     answer: CoordinatorConfirmationAnswer,
   ): Promise<Coordinator> {
     return this.#request(
       'POST',
-      `/factories/${encodeURIComponent(factoryId)}/coordinator/confirmations/${encodeURIComponent(confirmationId)}`,
+      `/coordinator-chats/${encodeURIComponent(chatId)}/confirmations/${encodeURIComponent(confirmationId)}`,
       answer,
     )
   }

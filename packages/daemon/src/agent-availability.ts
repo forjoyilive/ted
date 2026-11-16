@@ -54,7 +54,7 @@ export function createAgentAvailability(services: Omit<Services, 'agentAvailabil
           continue
         const coordinator = store.coordinators.forRun(run.id)
         const side = store.sideChats.forRun(run.id)
-        if (coordinator?.runId === run.id) pending.push(coordinators.stop(coordinator.factoryId))
+        if (coordinator?.runId === run.id) pending.push(coordinators.stop(coordinator.id))
         else if (side) pending.push(sideChats.stop(side.sourceRunId))
         else if (store.plans.get(run.id)?.state === 'started')
           pending.push(plans.stop(run.id, { kind: 'app' }))

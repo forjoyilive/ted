@@ -221,12 +221,15 @@ test('disabled Task, Planning and Coordinator choices wait without blocking enab
     kind: 'paused',
     reason: expect.stringContaining('off'),
   })
-  await client.messageCoordinator(factory.id, { text: 'Saved Coordinator choice', agent: 'claude' })
+  const saved = await client.startCoordinatorChat(factory.id, {
+    text: 'Saved Coordinator choice',
+    agent: 'claude',
+  })
   const queued = await taskOf(client, task.id)
   expect(queued.lead?.agent).toBe('claude')
   expect(queued.status).toMatchObject({ kind: 'queued', hold: expect.stringContaining('off') })
   expect((await client.getPlan(plan.id)).plan.paused).toContain('off')
-  expect((await client.coordinator(factory.id))?.error).toContain('off')
+  expect((await client.coordinator(saved.id)).error).toContain('off')
   const enabled = await client.createTask({
     factory: 'NB',
     title: 'Enabled Codex work',
@@ -405,7 +408,7 @@ test('a Coordinator refused after queue admission releases its slot and retries 
     await release.promise
   }
   try {
-    const coordinator = await client.messageCoordinator(factory.id, {
+    const coordinator = await client.startCoordinatorChat(factory.id, {
       agent: 'claude',
       text: 'Keep this request for after re-enable',
     })
@@ -413,10 +416,10 @@ test('a Coordinator refused after queue admission releases its slot and retries 
     await client.changeAgentAvailability({ agent: 'claude', enabled: false })
     release.resolve()
     await waitUntil(async () => {
-      const current = await client.coordinator(factory.id)
-      return current?.status === 'queued' && current.error?.includes('off')
+      const current = await client.coordinator(coordinator.id)
+      return current.status === 'queued' && current.error?.includes('off')
     }, 'Coordinator to return to the queue')
-    expect((await client.coordinator(factory.id))?.started).toBe(false)
+    expect((await client.coordinator(coordinator.id)).started).toBe(false)
     const task = await client.createTask({
       factory: 'NB',
       title: JSON.stringify({ steps: [{ endTurn: true }] }),
@@ -434,7 +437,7 @@ test('a Coordinator refused after queue admission releases its slot and retries 
     pauses.folder = undefined
     await client.changeAgentAvailability({ agent: 'claude', enabled: true })
     await waitUntil(
-      async () => (await client.coordinator(factory.id))?.started,
+      async () => (await client.coordinator(coordinator.id)).started,
       'Coordinator to retry',
     )
     expect((await client.getRun(coordinator.runId)).run.prompt).toContain(

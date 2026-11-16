@@ -1,11 +1,5 @@
 // @vitest-environment jsdom
-import type {
-  Coordinator,
-  CoordinatorConversation,
-  CoordinatorConversationSummary,
-  CoordinatorStatus,
-  RunChat,
-} from '@ted/protocol'
+import type { Coordinator, CoordinatorChatSummary, CoordinatorStatus, RunChat } from '@ted/protocol'
 import { defaultMachineSettings } from '@ted/protocol/settings'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
@@ -13,7 +7,7 @@ import { OvernightContext } from '../src/renderer/overnight.tsx'
 import { LibraryPage } from '../src/renderer/settings/LibraryPage.tsx'
 import { FactorySettings } from '../src/renderer/views/FactorySettings.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, user } from './support/component.ts'
+import { bridge, deferred, user } from './support/component.ts'
 import { createdAt, factory, settingsView, task } from './support/fixtures.ts'
 
 const nav = () => screen.getByRole('navigation', { name: 'Sidebar' })
@@ -22,6 +16,7 @@ const continuation =
 
 function coordinator(fields: Partial<Coordinator> = {}): Coordinator {
   return {
+    id: 'k1',
     factoryId: 'f1',
     runId: 'r2',
     runIds: ['r1', 'r2'],
@@ -81,16 +76,50 @@ function conversation(): RunChat {
   }
 }
 
+function summary(fields: Partial<CoordinatorChatSummary> = {}): CoordinatorChatSummary {
+  return {
+    id: 'k1',
+    factoryId: 'f1',
+    title: 'What should we work on next?',
+    status: 'ready',
+    startedAt: createdAt,
+    lastAt: createdAt,
+    taskCount: 0,
+    waiting: false,
+    ...fields,
+  }
+}
+
+const ended = summary({ id: 'k0', title: 'Archive what merged', endedAt: createdAt })
+
 function withCoordinator() {
   const a = appState()
   const shown: {
-    coordinator: Coordinator | null
-    chat: RunChat | null
+    coordinator: Coordinator
+    chats: CoordinatorChatSummary[]
+    chat: RunChat
     statuses: CoordinatorStatus[]
-    earlier: CoordinatorConversationSummary[]
-  } = { coordinator: coordinator(), chat: conversation(), statuses: [], earlier: [] }
-  a.handle('coordinator', () => shown.coordinator)
-  a.handle('coordinatorConversations', () => shown.earlier)
+  } = {
+    coordinator: coordinator(),
+    chats: [summary()],
+    chat: conversation(),
+    statuses: [],
+  }
+  a.handle('coordinatorChats', () => shown.chats)
+  a.handle('coordinator', (id) =>
+    id === ended.id
+      ? coordinator({
+          id: ended.id,
+          opening: ended.title,
+          endedAt: createdAt,
+          runIds: ['r0'],
+          tasks: [
+            task({ id: 'NB-2', title: 'Added last' }),
+            task({ id: 'NB-1', title: 'Added first' }),
+          ],
+        })
+      : shown.coordinator,
+  )
   a.handle('coordinatorChat', () => shown.chat)
   a.handle('coordinatorStatuses', () => shown.statuses)
   a.handle('taskDefaults', () => ({ lead: { agent: 'claude' }, planner: { agent: 'claude' } }))
@@ -100,7 +129,8 @@ function withCoordinator() {
     await user().click(within(nav()).getByRole('button', { name: /^Coordinator/ }))
     return screen.findByRole('region', { name: 'Coordinator' })
   }
-  return { a, shown, open }
+  const changed = () => a.emit({ type: 'coordinator-changed', factoryId: 'f1', chatId: 'k1' })
+  return { a, shown, open, changed }
 }
 
 test('the Coordinator draws its conversation like a Task thread: your messages to the Coordinator, TED’s continuation and receipts as event lines', async () => {
@@ -129,7 +159,7 @@ test('the Coordinator draws its conversation like a Task thread: your messages t
 })
 
 test('the Coordinator composer sends on Enter, queues while working and stops with the Run chat’s ■', async () => {
-  const { a, shown, open } = withCoordinator()
+  const { a, shown, open, changed } = withCoordinator()
   const send = vi.fn(() => shown.coordinator)
   const stop = vi.fn(() => shown.coordinator)
   a.handle('messageCoordinator', send)
@@ -144,7 +174,7 @@ test('the Coordinator composer sends on Enter, queues while working and stops wi
   expect(within(pane).queryByRole('button', { name: /Interrupt and send/ })).toBeNull()
   fireEvent.change(box, { target: { value: 'Start NB-2 too.' } })
   fireEvent.keyDown(box, { key: 'Enter' })
-  await vi.waitFor(() => expect(send).toHaveBeenCalledWith('f1', { text: 'Start NB-2 too.' }))
+  await vi.waitFor(() => expect(send).toHaveBeenCalledWith('k1', { text: 'Start NB-2 too.' }))
   await act(async () => {
     shown.coordinator = coordinator({ status: 'working' })
     shown.chat = {
@@ -161,77 +191,39 @@ test('the Coordinator composer sends on Enter, queues while working and stops wi
         },
       ],
     }
-    a.emit({ type: 'coordinator-changed', factoryId: 'f1' })
+    changed()
   })
   await within(pane).findByText('Queued')
   expect(within(pane).getByRole('button', { name: 'Delete' })).toBeTruthy()
   expect(within(pane).queryByRole('button', { name: 'Send now' })).toBeNull()
   expect(within(pane).getAllByText('Working').length).toBeGreaterThan(0)
   await user().click(within(pane).getByRole('button', { name: 'Stop the turn' }))
-  expect(stop).toHaveBeenCalledWith('f1')
+  expect(stop).toHaveBeenCalledWith('k1')
 })
 
-test('New conversation saves the conversation under Earlier, where it opens read only and can be continued or deleted', async () => {
+test('New chat opens the start page and leaves the open chat running; an ended chat opens read only and can be continued or deleted', async () => {
   const { a, shown, open } = withCoordinator()
-  const saved: CoordinatorConversation = {
-    id: 'c1',
-    title: 'What should we work on next?',
-    startedAt: createdAt,
-    endedAt: createdAt,
-    taskCount: 2,
-    factoryId: 'f1',
-    lead: { agent: 'claude' },
-    runIds: ['r1', 'r2'],
-    receipts: coordinator().receipts,
-    confirmations: [],
-    tasks: [task({ id: 'NB-2', title: 'Added last' }), task({ id: 'NB-1', title: 'Added first' })],
-  }
-  const reset = vi.fn(() => {
-    shown.coordinator = null
-    shown.chat = null
-    shown.earlier = [saved]
-    return null
-  })
-  const continued = vi.fn(() => {
-    shown.coordinator = coordinator()
-    shown.chat = conversation()
-    shown.earlier = []
-    return shown.coordinator
-  })
-  const deleted = vi.fn(() => {
-    shown.earlier = []
-    return null
-  })
-  a.handle('resetCoordinator', reset)
-  a.handle('coordinatorConversation', () => saved)
-  a.handle('coordinatorConversationChat', () => conversation())
-  a.handle('continueCoordinatorConversation', continued)
-  a.handle('deleteCoordinatorConversation', deleted)
+  shown.chats = [summary(), ended]
+  const continued = vi.fn(() => coordinator({ id: ended.id }))
+  const deleted = vi.fn(() => null)
+  a.handle('continueCoordinatorChat', continued)
+  a.handle('deleteCoordinatorChat', deleted)
   a.mount()
   await open()
-  const list = screen.getByRole('region', { name: 'Coordinator conversations' })
-  await within(list).findByText('Current')
-  await user().click(within(list).getByRole('button', { name: 'New conversation' }))
-  await vi.waitFor(() => expect(reset).toHaveBeenCalledWith('f1'))
+  const list = screen.getByRole('region', { name: 'Coordinator chats' })
+  await user().click(within(list).getByRole('button', { name: 'New chat' }))
   expect(screen.queryByRole('dialog')).toBeNull()
-  await act(async () => {
-    a.emit({ type: 'coordinator-changed', factoryId: 'f1' })
-  })
-  const pane = screen.getByRole('region', { name: 'Coordinator' })
-  await within(pane).findByText('What needs your attention in widgets?')
-  expect(
-    (within(list).getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
-  ).toBe(true)
+  const start = screen.getByRole('region', { name: 'Coordinator' })
+  expect(await within(start).findByText('What needs your attention in widgets?')).toBeTruthy()
+  expect(a.request).not.toHaveBeenCalledWith('stopCoordinator', expect.anything())
 
-  await user().click(
-    await within(list).findByRole('button', { name: /What should we work on next\?/ }),
-  )
-  const earlier = await screen.findByRole('region', { name: 'Earlier Coordinator conversation' })
-  expect(await within(earlier).findByText('Start with NB-1.')).toBeTruthy()
+  await user().click(within(list).getByRole('button', { name: /Archive what merged/ }))
+  const pane = await screen.findByRole('region', { name: 'Coordinator' })
+  expect(await within(pane).findByText('Start with NB-1.')).toBeTruthy()
   expect(
-    within(earlier).getByText('Read only. Continue this conversation to send a message.'),
+    await within(pane).findByText('Read only. Continue this chat to send a message.'),
   ).toBeTruthy()
-  expect(within(earlier).queryByRole('textbox')).toBeNull()
+  expect(within(pane).queryByRole('textbox')).toBeNull()
   const details = screen.getByRole('complementary', { name: 'Coordinator details' })
   const titles = within(details)
     .getAllByRole('button')
@@ -240,162 +232,64 @@ test('New conversation saves the conversation under Earlier, where it opens read
     titles.findIndex((t) => t?.includes('Added first')),
   )
 
-  await user().click(within(earlier).getByRole('button', { name: 'Delete…' }))
+  await user().click(within(pane).getByRole('button', { name: 'Delete…' }))
   const dialog = await screen.findByRole('dialog')
-  expect(dialog.textContent).toContain('Delete this conversation?')
+  expect(dialog.textContent).toContain('Delete this chat?')
+  expect(dialog.textContent).not.toContain('stops this chat’s reply')
   await user().click(within(dialog).getByRole('button', { name: 'Cancel' }))
   expect(deleted).not.toHaveBeenCalled()
 
-  await user().click(within(list).getByRole('button', { name: 'New conversation' }))
-  expect(
-    await within(await screen.findByRole('region', { name: 'Coordinator' })).findByText(
-      'What needs your attention in widgets?',
-    ),
-  ).toBeTruthy()
-  expect(reset).toHaveBeenCalledTimes(1)
-  await user().click(within(list).getByRole('button', { name: /What should we work on next\?/ }))
-  await user().click(
-    within(
-      await screen.findByRole('region', { name: 'Earlier Coordinator conversation' }),
-    ).getByRole('button', { name: 'Continue' }),
-  )
-  await vi.waitFor(() => expect(continued).toHaveBeenCalledWith('f1', 'c1'))
-  await act(async () => {
-    a.emit({ type: 'coordinator-changed', factoryId: 'f1' })
-  })
-  const live = await screen.findByRole('region', { name: 'Coordinator' })
-  expect(
-    await within(live).findByRole('textbox', { name: 'Message to the Coordinator' }),
-  ).toBeTruthy()
+  await user().click(within(pane).getByRole('button', { name: 'Continue' }))
+  await vi.waitFor(() => expect(continued).toHaveBeenCalledWith('k0'))
 
-  shown.earlier = [saved]
-  await act(async () => {
-    a.emit({ type: 'coordinator-changed', factoryId: 'f1' })
-  })
-  const rows = within(list).getAllByRole('button', { name: /What should we work on next\?/ })
-  await user().click(rows.at(-1) as HTMLElement)
-  await user().click(
-    within(
-      await screen.findByRole('region', { name: 'Earlier Coordinator conversation' }),
-    ).getByRole('button', { name: 'Delete…' }),
-  )
+  await user().click(within(pane).getByRole('button', { name: 'Delete…' }))
   await user().click(
     within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete' }),
   )
-  await vi.waitFor(() => expect(deleted).toHaveBeenCalledWith('f1', 'c1'))
+  await vi.waitFor(() => expect(deleted).toHaveBeenCalledWith('k0'))
 })
 
-test('New conversation asks first while the Coordinator is working, from an earlier conversation and its right-click menu too', async () => {
+test('the chat list shows no status, marks a chat that waits for you, and its right-click menu offers Delete, plus Continue on an ended chat', async () => {
   const { a, shown, open } = withCoordinator()
   shown.coordinator = coordinator({ status: 'working' })
-  const summary = {
-    id: 'c1',
-    title: 'Archive what merged',
-    startedAt: createdAt,
-    endedAt: createdAt,
-    taskCount: 0,
-  }
-  shown.earlier = [summary]
-  a.handle('coordinatorConversation', () => ({
-    ...summary,
-    factoryId: 'f1',
-    lead: { agent: 'claude' },
-    runIds: ['r0'],
-    receipts: [],
-    confirmations: [],
-    tasks: [],
-  }))
-  a.handle('coordinatorConversationChat', () => conversation())
-  const reset = vi.fn(() => null)
-  a.handle('resetCoordinator', reset)
-  a.mount()
-  await open()
-  const list = screen.getByRole('region', { name: 'Coordinator conversations' })
-  await user().click(await within(list).findByRole('button', { name: /Archive what merged/ }))
-  await screen.findByRole('region', { name: 'Earlier Coordinator conversation' })
-  await user().click(within(list).getByRole('button', { name: 'New conversation' }))
-  const dialog = await screen.findByRole('dialog')
-  expect(dialog.textContent).toContain('Stop the Coordinator and start a new conversation?')
-  await user().click(within(dialog).getByRole('button', { name: 'Cancel' }))
-  expect(reset).not.toHaveBeenCalled()
-  await user().click(within(list).getByRole('button', { name: 'New conversation' }))
-  await user().click(
-    within(await screen.findByRole('dialog')).getByRole('button', { name: 'Stop and start new' }),
-  )
-  await vi.waitFor(() => expect(reset).toHaveBeenCalledWith('f1'))
-})
-
-test('right-clicking a Coordinator conversation offers New conversation on the current one, and Continue and Delete on an earlier one', async () => {
-  const { a, shown, open } = withCoordinator()
-  shown.coordinator = coordinator({ status: 'working' })
-  const summary = {
-    id: 'c1',
-    title: 'Archive what merged',
-    startedAt: createdAt,
-    endedAt: createdAt,
-    taskCount: 0,
-  }
-  shown.earlier = [summary]
-  let finishContinue = () => {}
-  const continued = vi.fn(
-    () =>
-      new Promise((resolve) => {
-        finishContinue = () => resolve(shown.coordinator)
-      }),
-  )
+  shown.chats = [summary({ status: 'working', waiting: true }), ended]
+  const continued = vi.fn(() => coordinator({ id: ended.id }))
   const deleted = vi.fn(() => null)
-  a.handle('continueCoordinatorConversation', continued)
-  a.handle('deleteCoordinatorConversation', deleted)
+  a.handle('continueCoordinatorChat', continued)
+  a.handle('deleteCoordinatorChat', deleted)
   a.mount()
   await open()
-  const list = screen.getByRole('region', { name: 'Coordinator conversations' })
-  await within(list).findByText('Current')
-  const rowsNamed = (name: RegExp) => within(list).getByRole('button', { name })
+  const list = screen.getByRole('region', { name: 'Coordinator chats' })
+  const row = (name: RegExp) => within(list).getByRole('button', { name })
+  await within(list).findByRole('button', { name: /What should we work on next\?/ })
+  expect(within(list).queryByText('Working')).toBeNull()
+  expect(
+    within(row(/What should we work on next\?/)).getByRole('img', { name: 'Waiting for you' }),
+  ).toBeTruthy()
+  expect(within(row(/Archive what merged/)).queryByRole('img')).toBeNull()
 
-  fireEvent.contextMenu(rowsNamed(/What should we work on next\?/))
-  const current = await screen.findByRole('menu', { name: 'Current conversation' })
+  fireEvent.contextMenu(row(/What should we work on next\?/))
+  const current = await screen.findByRole('menu', { name: 'Chat' })
   expect(
     within(current)
       .getAllByRole('menuitem')
       .map((i) => i.textContent),
-  ).toEqual(['New conversation'])
-  await user().click(within(current).getByRole('menuitem', { name: 'New conversation' }))
+  ).toEqual(['Delete…'])
+  await user().click(within(current).getByRole('menuitem', { name: 'Delete…' }))
   const stop = await screen.findByRole('dialog')
-  expect(stop.textContent).toContain('Stop the Coordinator and start a new conversation?')
-  await user().click(within(stop).getByRole('button', { name: 'Cancel' }))
+  expect(stop.textContent).toContain('The Coordinator stops this chat’s reply')
+  await user().click(within(stop).getByRole('button', { name: 'Delete' }))
+  await vi.waitFor(() => expect(deleted).toHaveBeenCalledWith('k1'))
 
-  fireEvent.contextMenu(rowsNamed(/Archive what merged/))
-  const menu = await screen.findByRole('menu', { name: 'Earlier conversation' })
+  fireEvent.contextMenu(row(/Archive what merged/))
+  const menu = await screen.findByRole('menu', { name: 'Ended chat' })
   expect(
     within(menu)
       .getAllByRole('menuitem')
       .map((i) => i.textContent),
-  ).toEqual(['Continue', 'Delete'])
-  await user().click(within(menu).getByRole('menuitem', { name: 'Delete' }))
-  const confirm = await screen.findByRole('dialog')
-  expect(confirm.textContent).toContain('Delete this conversation?')
-  expect(deleted).not.toHaveBeenCalled()
-  await user().click(within(confirm).getByRole('button', { name: 'Delete' }))
-  await vi.waitFor(() => expect(deleted).toHaveBeenCalledWith('f1', 'c1'))
-
-  fireEvent.contextMenu(rowsNamed(/Archive what merged/))
-  await user().click(
-    within(await screen.findByRole('menu', { name: 'Earlier conversation' })).getByRole(
-      'menuitem',
-      { name: 'Continue' },
-    ),
-  )
-  await vi.waitFor(() => expect(continued).toHaveBeenCalledWith('f1', 'c1'))
-  expect(
-    (within(list).getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
-  ).toBe(true)
-  await act(async () => finishContinue())
-  await vi.waitFor(() =>
-    expect(
-      (within(list).getByRole('button', { name: 'New conversation' }) as HTMLButtonElement)
-        .disabled,
-    ).toBe(false),
-  )
+  ).toEqual(['Continue', 'Delete…'])
+  await user().click(within(menu).getByRole('menuitem', { name: 'Continue' }))
+  await vi.waitFor(() => expect(continued).toHaveBeenCalledWith('k0'))
 })
 
 test('leaving the Coordinator and coming back shows the same conversation', async () => {
@@ -409,15 +303,15 @@ test('leaving the Coordinator and coming back shows the same conversation', asyn
   await user().click(within(nav()).getByRole('button', { name: /^Coordinator/ }))
   const back = await screen.findByRole('region', { name: 'Coordinator' })
   expect(await within(back).findByText('Start with NB-1.')).toBeTruthy()
-  expect(within(back).getByText('What should we work on next?')).toBeTruthy()
+  const chat = within(back).getByRole('region', { name: 'Run chat' })
+  expect(within(chat).getByText('What should we work on next?')).toBeTruthy()
 })
 
-test('a new Coordinator starts from the same composer', async () => {
+test('with no chats the Coordinator opens the start page, and sending starts a chat', async () => {
   const { a, shown, open } = withCoordinator()
-  shown.coordinator = null
-  shown.chat = null
-  const send = vi.fn(() => coordinator())
-  a.handle('messageCoordinator', send)
+  shown.chats = []
+  const started = vi.fn(() => coordinator())
+  a.handle('startCoordinatorChat', started)
   a.mount()
   const pane = await open()
   await within(pane).findByRole('heading', { name: /What needs your attention/ })
@@ -425,15 +319,42 @@ test('a new Coordinator starts from the same composer', async () => {
   const box = within(pane).getByRole('textbox', { name: 'Message to the Coordinator' })
   fireEvent.keyDown(box, { key: 'Enter' })
   await vi.waitFor(() =>
-    expect(send).toHaveBeenCalledWith('f1', {
+    expect(started).toHaveBeenCalledWith('f1', {
       text: 'What should we work on next?',
       agent: 'claude',
     }),
   )
+  expect(await screen.findByText('Start with NB-1.')).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: 'New chat' })).toBeNull()
+})
+
+test('a start that answers after New chat was clicked leaves the new start page open', async () => {
+  const { a, shown, open, changed } = withCoordinator()
+  shown.chats = []
+  const answer = deferred<Coordinator>()
+  a.handle('startCoordinatorChat', () => answer.promise)
+  a.mount()
+  const pane = await open()
+  await within(pane).findByRole('heading', { name: /What needs your attention/ })
+  await user().click(within(pane).getByRole('button', { name: 'What should we work on next?' }))
+  fireEvent.keyDown(within(pane).getByRole('textbox', { name: 'Message to the Coordinator' }), {
+    key: 'Enter',
+  })
+  await act(async () => {
+    shown.chats = [summary()]
+    changed()
+  })
+  expect(await screen.findByText('Start with NB-1.')).toBeTruthy()
+  const list = screen.getByRole('region', { name: 'Coordinator chats' })
+  await user().click(within(list).getByRole('button', { name: 'New chat' }))
+  expect(await screen.findByRole('heading', { name: 'New chat' })).toBeTruthy()
+  await act(async () => answer.resolve(coordinator()))
+  expect(screen.getByRole('heading', { name: 'New chat' })).toBeTruthy()
+  expect(screen.queryByText('Start with NB-1.')).toBeNull()
 })
 
 test('the sidebar lists Coordinator above Tasks and shows Working only while it works', async () => {
-  const { a, shown } = withCoordinator()
+  const { a, shown, changed } = withCoordinator()
   a.mount()
   await user().click(await screen.findByRole('button', { name: 'widgets' }))
   const names = within(nav())
@@ -448,18 +369,18 @@ test('the sidebar lists Coordinator above Tasks and shows Working only while it 
   expect(within(row()).queryByRole('img')).toBeNull()
   await act(async () => {
     shown.statuses = [{ factoryId: 'f1', status: 'working' }]
-    a.emit({ type: 'coordinator-changed', factoryId: 'f1' })
+    changed()
   })
   expect(await within(row()).findByRole('img', { name: 'Working' })).toBeTruthy()
   await act(async () => {
     shown.statuses = [{ factoryId: 'f1', status: 'failed' }]
-    a.emit({ type: 'coordinator-changed', factoryId: 'f1' })
+    changed()
   })
   expect(await within(row()).findByRole('img', { name: 'The Coordinator failed' })).toBeTruthy()
   expect(within(row()).queryByRole('img', { name: 'Working' })).toBeNull()
   await act(async () => {
     shown.statuses = [{ factoryId: 'f1', status: 'ready' }]
-    a.emit({ type: 'coordinator-changed', factoryId: 'f1' })
+    changed()
   })
   await vi.waitFor(() => expect(within(row()).queryByRole('img')).toBeNull())
 })
@@ -567,7 +488,7 @@ test('the notice follows the setting live and its link opens Settings → Genera
 })
 
 test('Coordinator loading failures can retry without losing the combined conversation', async () => {
-  const { a, open } = withCoordinator()
+  const { a, open, changed } = withCoordinator()
   a.handle('coordinator', () => Promise.reject(new Error('Coordinator unavailable')))
   a.handle('coordinatorChat', () => Promise.reject(new Error('Conversation unavailable')))
   a.mount()
@@ -584,7 +505,7 @@ test('Coordinator loading failures can retry without losing the combined convers
   await user().click(within(region).getByRole('button', { name: 'Try again' }))
   await within(region).findByText('Start with NB-1.')
   a.handle('coordinatorChat', () => Promise.reject(new Error('Refresh unavailable')))
-  act(() => a.emit({ type: 'coordinator-changed', factoryId: 'f1' }))
+  act(() => changed())
   await within(region).findByRole('alert')
   expect(within(region).getByText('Start with NB-1.')).toBeTruthy()
 })
@@ -625,7 +546,7 @@ test('a Coordinator confirmation card shows its warnings and sends the human’s
   await user().click(close)
   await user().click(within(card).getByRole('radio', { name: /Detach them and keep them/ }))
   await user().click(within(card).getByRole('button', { name: 'Archive NB-3' }))
-  expect(answer).toHaveBeenCalledWith('f1', 'c1', {
+  expect(answer).toHaveBeenCalledWith('k1', 'c1', {
     decision: 'confirm',
     choices: { 'NB-3': { closePullRequests: true, children: 'detach' } },
   })

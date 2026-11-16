@@ -6,8 +6,7 @@ import path from 'node:path'
 import {
   type Comment,
   type Coordinator,
-  type CoordinatorConversation,
-  type CoordinatorConversationSummary,
+  type CoordinatorChatSummary,
   type CoordinatorReceipt,
   type CoordinatorRequest,
   type CoordinatorTask,
@@ -29,13 +28,16 @@ import { afterEach, beforeEach, expect, test } from 'vitest'
 import { coordinatorLine } from '../src/coordinators/coordinators.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
+import type { StoredCoordinator } from '../src/store/coordinators.ts'
 import { openStore } from '../src/store/index.ts'
 import {
   api,
   commitToOrigin,
+  editEventlog,
   killRunHosts,
   makeOriginRepo,
   makeTempHome,
+  pretendStateSchemaChanged,
   stubClaudePath,
   stubCodexPath,
   waitUntil,
@@ -80,14 +82,24 @@ async function setup(
     return res.body as T
   }
   const factory = await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
-  const base = `/factories/${factory.id}/coordinator`
-  const chat = () => ok<Coordinator>('GET', base)
+  const chats = `/factories/${factory.id}/coordinator-chats`
+  let chatId: string | undefined
+  const chatPath = () => {
+    if (chatId === undefined) throw new Error('no Coordinator chat yet')
+    return `/coordinator-chats/${chatId}`
+  }
+  const chat = () => ok<Coordinator>('GET', chatPath())
+  const message = async (body: Record<string, unknown>) => {
+    const c =
+      chatId === undefined
+        ? await ok<Coordinator>('POST', chats, body)
+        : await ok<Coordinator>('POST', `${chatPath()}/messages`, body)
+    chatId = c.id
+    return c
+  }
   const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
   async function start(steps: unknown[] = [{ waitFor: path.join(scratch, 'finish') }]) {
-    const c = await ok<Coordinator>('POST', `${base}/messages`, {
-      text: JSON.stringify({ steps }),
-      agent: 'claude',
-    })
+    const c = await message({ text: JSON.stringify({ steps }), agent: 'claude' })
     await waitUntil(async () => {
       const current = await chat()
       return current.started && current.status === 'working' ? current : undefined
@@ -108,7 +120,27 @@ async function setup(
   const comments = (id: string) => ok<Comment[]>('GET', `/tasks/${id}/comments`)
   const waitingIds = async () =>
     (await ok<WaitingRequest[]>('GET', '/inbox/waiting')).map((w) => w.id)
-  return { port, client, ok, factory, base, chat, tokens, start, task, led, comments, waitingIds }
+  return {
+    port,
+    client,
+    ok,
+    factory,
+    chats,
+    get base() {
+      return chatPath()
+    },
+    useChat(id: string | undefined) {
+      chatId = id
+    },
+    chat,
+    message,
+    tokens,
+    start,
+    task,
+    led,
+    comments,
+    waitingIds,
+  }
 }
 type Api = ReturnType<typeof api>
 function fullDisk(free = 1.4e9) {
@@ -178,7 +210,7 @@ test('one conversation per Factory; scoped reads include fresh briefs and Commen
     (await run.call('GET', `/coordinator/tasks/${task.id}`)).body,
   )
   expect(read.comments.some((c) => c.body === 'Fresh context from the human')).toBe(true)
-  const again = await s.ok<Coordinator>('POST', `${s.base}/messages`, {
+  const again = await s.message({
     text: 'Compare these Tasks',
   })
   expect(again.runId).toBe(c.runId)
@@ -202,9 +234,12 @@ test('Coordinator tokens cannot use generic reads, mutations, or human-only acti
     ['POST', `/tasks/${task.id}/start`],
     ['POST', `/tasks/${task.id}/outcome`],
     ['POST', `${s.base}/messages`],
+    ['POST', s.chats],
+    ['POST', `${s.base}/continue`],
+    ['DELETE', s.base],
   ] as const) {
     expect(
-      (await run.call(method, route, method === 'GET' ? undefined : { text: 'bypass' })).status,
+      (await run.call(method, route, method === 'POST' ? { text: 'bypass' } : undefined)).status,
       route,
     ).toBe(403)
   }
@@ -219,6 +254,8 @@ test('Coordinator tokens cannot use generic reads, mutations, or human-only acti
   if (!info) throw new Error('missing daemon connection')
   const file = api(s.port, info.token)
   expect((await file.call('POST', `${s.base}/messages`, { text: 'bypass' })).status).toBe(403)
+  expect((await file.call('POST', s.chats, { text: 'bypass' })).status).toBe(403)
+  expect((await file.call('DELETE', s.base)).status).toBe(403)
   expect((await file.call('POST', `/coordinator/tasks/${task.id}/start`, {})).status).toBe(403)
 })
 
@@ -485,12 +522,17 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   const store = await openStore({ directory: tedPaths(home).store })
   let deliveredId = ''
   try {
-    const saved = store.coordinators.get(s.factory.id)
+    const saved = store.coordinators.list().find((c) => c.factoryId === s.factory.id)
     if (!saved) throw new Error('missing saved Coordinator')
+    await store.createTask({
+      title: 'Made by another chat',
+      factoryId: s.factory.id,
+      coordinatorOperation: 'another-chat:create-crash',
+    })
     await store.createTask({
       title: 'Crashed',
       factoryId: s.factory.id,
-      coordinatorOperation: 'create-crash',
+      coordinatorOperation: `${saved.id}:create-crash`,
     })
     const crashed: CoordinatorReceipt = {
       id: 'create-crash',
@@ -650,7 +692,7 @@ test('Stop cancels an unstarted conversation turn; later messages do not execute
   const disk = fullDisk()
   const s = await setup(disk)
   await diskHold(s)
-  const c = await s.ok<Coordinator>('POST', `${s.base}/messages`, {
+  const c = await s.message({
     agent: 'claude',
     text: JSON.stringify({ steps: [{ say: 'Cancelled response' }, { endTurn: true }] }),
   })
@@ -659,7 +701,7 @@ test('Stop cancels an unstarted conversation turn; later messages do not execute
     .poll(() => s.ok<import('@ted/protocol').Activity>('GET', '/activity'))
     .toMatchObject({ runs: { queued: 1 } })
   await s.ok('POST', `${s.base}/stop`)
-  await s.ok('POST', `${s.base}/messages`, {
+  await s.message({
     text: JSON.stringify({ steps: [{ say: 'Replacement response' }, { endTurn: true }] }),
   })
   disk.free = 30e9
@@ -671,32 +713,33 @@ test('Stop cancels an unstarted conversation turn; later messages do not execute
   expect(chat.items.some((i) => i.kind === 'agent' && i.text === 'Cancelled response')).toBe(false)
 })
 
-test('concurrent first messages share one Coordinator and survive daemon restart', async () => {
+test('chats started at the same time each get their own Coordinator and survive daemon restart', async () => {
   const disk = fullDisk()
   const s = await setup(disk)
   await diskHold(s)
   const inputs = ['First queued message', 'Second queued message']
   const chats = await Promise.all(
-    inputs.map((text) =>
-      s.ok<Coordinator>('POST', `${s.base}/messages`, { text, agent: 'claude' }),
-    ),
+    inputs.map((text) => s.ok<Coordinator>('POST', s.chats, { text, agent: 'claude' })),
   )
-  expect(chats[0]?.runId).toBe(chats[1]?.runId)
+  expect(new Set(chats.map((c) => c.id)).size).toBe(2)
+  expect(chats[0]?.runId).not.toBe(chats[1]?.runId)
   await daemon?.stop()
   daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath, disk })
   const client = api(daemon.port, { appKey: daemon.appToken })
-  const reopened = (await client.call('GET', s.base)).body as Coordinator
-  expect(reopened.runId).toBe(chats[0]?.runId)
-  expect(reopened.status).toBe('queued')
-  expect(reopened.started).toBe(false)
+  const read = async (id: string) =>
+    (await client.call('GET', `/coordinator-chats/${id}`)).body as Coordinator
+  for (const c of chats) {
+    expect(await read(c.id)).toMatchObject({ runId: c.runId, status: 'queued', started: false })
+  }
   disk.free = 30e9
-  await waitUntil(
-    async () => ((await client.call('GET', s.base)).body as Coordinator).started,
-    'recovered Coordinator',
-  )
-  const chat = (await client.call('GET', `/runs/${reopened.runId}/chat`)).body as RunChat
-  for (const text of inputs)
-    expect(chat.items.some((i) => i.kind === 'human' && i.text.includes(text))).toBe(true)
+  for (const [i, c] of chats.entries()) {
+    await waitUntil(async () => (await read(c.id)).started, 'recovered Coordinator')
+    const chat = (await client.call('GET', `/coordinator-chats/${c.id}/chat`)).body as RunChat
+    expect(chat.items.some((item) => item.kind === 'human' && item.text === inputs[i])).toBe(true)
+    expect(chat.items.some((item) => item.kind === 'human' && item.text === inputs[1 - i])).toBe(
+      false,
+    )
+  }
 })
 
 test('failed session resumption can retry in a replacement Run with history and stale tokens refused', async () => {
@@ -720,7 +763,7 @@ test('failed session resumption can retry in a replacement Run with history and 
   expect(replaced.status).toBe('working')
   const replacement = api(s.port, s.tokens.issue(replaced.runId))
   expect((await replacement.call('GET', '/coordinator/tasks')).status).toBe(200)
-  await s.ok('POST', `${s.base}/messages`, {
+  await s.message({
     text: JSON.stringify({ steps: [{ run: ['ted', 'coordinator', 'tasks'] }, { endTurn: true }] }),
   })
   await waitUntil(
@@ -741,89 +784,197 @@ test('failed session resumption can retry in a replacement Run with history and 
   expect(history.items.some((i) => i.kind === 'agent' && i.text === 'Saved advice')).toBe(true)
 })
 
-test('Factory removal deletes Coordinator history, saved conversations, pending work and managed files', async () => {
+test('Factory removal deletes every Coordinator chat, its pending work and managed files', async () => {
   const s = await setup()
   const first = await s.start()
-  await s.ok('POST', `${s.base}/reset`)
+  s.useChat(undefined)
   const { c, run } = await s.start()
+  const firstPath = `/coordinator-chats/${first.c.id}`
   await s.ok('POST', `/factories/${s.factory.id}/remove`, { key: 'NB', closePullRequests: false })
   expect((await s.client.call('GET', s.base)).status).toBe(404)
-  expect((await s.client.call('GET', `${s.base}/conversations`)).status).toBe(404)
+  expect((await s.client.call('GET', firstPath)).status).toBe(404)
+  expect((await s.client.call('GET', s.chats)).status).toBe(404)
   for (const runId of [first.c.runId, c.runId]) {
     expect((await s.client.call('GET', `/runs/${runId}/chat`)).status).toBe(404)
     expect(existsSync(path.join(home, 'coordinators', runId))).toBe(false)
     expect(existsSync(path.join(home, 'runs', runId))).toBe(false)
   }
   expect((await run.call('GET', '/coordinator/tasks')).status).toBe(403)
+  expect((await first.run.call('GET', '/coordinator/tasks')).status).toBe(403)
 })
 
-test('New conversation saves the conversation, which can be read, continued with its history and deleted', async () => {
+test('two open chats keep their own receipts and confirmations; deleting one leaves the other working', async () => {
   const s = await setup()
-  const { c, run } = await s.start([{ say: 'Saved advice' }, { endTurn: true }])
-  await waitUntil(async () => (await s.chat()).status === 'ready', 'the first reply')
-  const conversations = () =>
-    s.ok<CoordinatorConversationSummary[]>('GET', `${s.base}/conversations`)
-  await s.ok('POST', `${s.base}/reset`)
-  expect(await s.chat()).toBeNull()
-  expect((await run.call('GET', '/coordinator/tasks')).status).toBe(403)
-  expect((await api(s.port, s.tokens.issue(c.runId)).call('POST', `${s.base}/reset`)).status).toBe(
-    403,
+  const one = await s.task('One')
+  const two = await s.task('Two')
+  const a = await s.start([{ waitFor: path.join(scratch, 'finish-a') }])
+  const aPath = s.base
+  s.useChat(undefined)
+  const b = await s.start([{ waitFor: path.join(scratch, 'finish-b') }, { endTurn: true }])
+  const bPath = s.base
+  expect(b.c.id).not.toBe(a.c.id)
+  const read = (route: string) => s.ok<Coordinator>('GET', route)
+  expect((await read(aPath)).status).toBe('working')
+  expect((await read(bPath)).status).toBe('working')
+
+  const told = await a.run.call('POST', `/coordinator/tasks/${one.id}/tell`, {
+    operation: 'tell-a',
+    version: await version(a.run, one.id),
+    message: 'From chat A',
+  })
+  expect(told.status).toBe(200)
+  const removal = (run: Api, operation: string, task: Task) =>
+    version(run, task.id).then((v) =>
+      run.call('POST', '/coordinator/delete', { operation, tasks: [{ id: task.id, version: v }] }),
+    )
+  expect((await removal(a.run, 'delete-a', one)).status).toBe(200)
+  expect((await removal(b.run, 'delete-b', two)).status).toBe(200)
+
+  const created = await Promise.all(
+    [a.run, b.run].map((run, i) =>
+      run.call('POST', '/coordinator/tasks', { operation: 'same-operation', title: `From ${i}` }),
+    ),
   )
-  const [saved] = await conversations()
-  if (!saved) throw new Error('the conversation was not saved')
-  expect(saved).toMatchObject({ title: c.opening, taskCount: 0 })
+  const madeIds = created.map((r) => (r.body as CoordinatorReceipt).taskId)
+  expect(madeIds.every((id) => id !== undefined)).toBe(true)
+  expect(new Set(madeIds).size).toBe(2)
+
+  const chatA = await read(aPath)
+  const chatB = await read(bPath)
+  expect(chatA.receipts.map((r) => r.id)).toEqual(['tell-a', 'same-operation'])
+  expect(chatB.receipts.map((r) => r.id)).toEqual(['same-operation'])
+  expect(chatA.receipts[1]?.taskId).toBe(madeIds[0])
+  expect(chatB.receipts[0]?.taskId).toBe(madeIds[1])
+  expect(chatA.confirmations.map((x) => x.operation)).toEqual(['delete-a'])
+  expect(chatB.confirmations.map((x) => x.operation)).toEqual(['delete-b'])
+  const cardA = chatA.confirmations[0]
+  const cardB = chatB.confirmations[0]
+  if (!cardA || !cardB) throw new Error('missing confirmation cards')
+  const waiting = await s.ok<WaitingRequest[]>('GET', '/inbox/waiting')
   expect(
-    await s.ok<CoordinatorConversation>('GET', `${s.base}/conversations/${saved.id}`),
-  ).toMatchObject({
+    waiting.flatMap((w) => (w.source === 'coordinator' ? [[w.id, w.chatId]] : [])).sort(),
+  ).toEqual(
+    [
+      [cardA.id, a.c.id],
+      [cardB.id, b.c.id],
+    ].sort(),
+  )
+  expect(
+    (await s.client.call('POST', `${aPath}/confirmations/${cardB.id}`, { decision: 'cancel' }))
+      .status,
+  ).toBe(404)
+  await s.ok('POST', `${bPath}/confirmations/${cardB.id}`, { decision: 'cancel' })
+  expect((await read(bPath)).confirmations[0]?.answer?.decision).toBe('cancel')
+  expect((await read(aPath)).confirmations[0]?.answer).toBeUndefined()
+
+  const listed = await s.ok<CoordinatorChatSummary[]>('GET', s.chats)
+  expect(listed.map((c) => c.id).sort()).toEqual([a.c.id, b.c.id].sort())
+  expect(listed.find((c) => c.id === a.c.id)).toMatchObject({ waiting: true, taskCount: 2 })
+  expect(listed.find((c) => c.id === b.c.id)).toMatchObject({ waiting: false })
+  expect(listed.every((c) => c.endedAt === undefined)).toBe(true)
+  expect(await s.ok('GET', '/coordinators')).toEqual([
+    { factoryId: s.factory.id, status: 'working' },
+  ])
+
+  await s.ok('DELETE', aPath)
+  expect((await s.client.call('GET', aPath)).status).toBe(404)
+  expect((await a.run.call('GET', '/coordinator/tasks')).status).toBe(403)
+  expect((await s.client.call('GET', `/runs/${a.c.runId}/chat`)).status).toBe(404)
+  expect(existsSync(path.join(home, 'coordinators', a.c.runId))).toBe(false)
+  expect(await s.waitingIds()).not.toContain(cardA.id)
+  expect((await s.ok<Task[]>('GET', '/tasks')).map((t) => t.id)).toContain(one.id)
+  expect((await read(bPath)).status).toBe('working')
+  expect((await b.run.call('GET', '/coordinator/tasks')).status).toBe(200)
+  expect((await s.ok<CoordinatorChatSummary[]>('GET', s.chats)).map((c) => c.id)).toEqual([b.c.id])
+  await writeFile(path.join(scratch, 'finish-b'), '')
+  await waitUntil(async () => (await read(bPath)).status === 'ready', 'chat B to finish')
+}, 60_000)
+
+test('a conversation saved before chats is an ended chat that can be read, continued and deleted', async () => {
+  const s = await setup()
+  const { c } = await s.start([{ say: 'Saved advice' }, { endTurn: true }])
+  await waitUntil(async () => (await s.chat()).status === 'ready', 'the first reply')
+  await daemon?.stop()
+  const store = await openStore({ directory: tedPaths(home).store })
+  let old: Omit<StoredCoordinator, 'id'>
+  try {
+    const current = store.coordinators.get(c.id)
+    if (!current) throw new Error('missing chat')
+    const { id: _id, ...rest } = current
+    old = rest
+    store.coordinators.save({ ...current, id: 'placeholder', runIds: [] })
+    await store.persisted()
+  } finally {
+    await store.close()
+  }
+  const endedAt = '2026-01-02T00:00:00.000Z'
+  const saved = {
+    id: 'saved-1',
+    factoryId: s.factory.id,
+    endedAt,
+    data: JSON.stringify({ id: 'saved-1', startedAt: old.startedAt ?? '', endedAt, chat: old }),
+  }
+  await editEventlog(
+    home,
+    `UPDATE eventlog SET name = 'v2.CoordinatorChanged',
+       argsJson = json_set(json_remove(argsJson, '$.id'), '$.factoryId', '${s.factory.id}')
+       WHERE name = 'v1.CoordinatorChatChanged' AND json_extract(argsJson, '$.id') = '${c.id}';
+     UPDATE eventlog SET name = 'v1.CoordinatorConversationSaved',
+       argsJson = '${JSON.stringify(saved).replaceAll("'", "''")}'
+       WHERE name = 'v1.CoordinatorChatChanged'
+         AND json_extract(argsJson, '$.id') = 'placeholder';`,
+  )
+  await pretendStateSchemaChanged(home)
+  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
+  const client = api(daemon.port, { appKey: daemon.appToken })
+  const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
+    const res = await client.call(method, route, body)
+    if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
+    return res.body as T
+  }
+  expect(await ok<CoordinatorChatSummary[]>('GET', s.chats)).toMatchObject([
+    { id: 'saved-1', endedAt, title: c.opening, status: 'ready' },
+  ])
+  expect(await ok<Coordinator>('GET', '/coordinator-chats/saved-1')).toMatchObject({
+    endedAt,
     runIds: [c.runId],
   })
-  const kept = await s.ok<RunChat>('GET', `${s.base}/conversations/${saved.id}/chat`)
+  const kept = await ok<RunChat>('GET', '/coordinator-chats/saved-1/chat')
   expect(kept.items.some((i) => i.kind === 'agent' && i.text === 'Saved advice')).toBe(true)
-  expect(existsSync(path.join(home, 'coordinators', c.runId))).toBe(true)
-  for (const [method, route] of [
-    ['GET', `${s.base}/conversations`],
-    ['POST', `${s.base}/conversations/${saved.id}/continue`],
-    ['DELETE', `${s.base}/conversations/${saved.id}`],
-  ] as const)
-    expect((await api(s.port, s.tokens.issue(c.runId)).call(method, route)).status).toBe(403)
+  expect(
+    (await client.call('POST', '/coordinator-chats/saved-1/messages', { text: 'Too early' }))
+      .status,
+  ).toBe(404)
 
-  const next = await s.start([{ say: 'A fresh start' }, { endTurn: true }])
-  expect(next.c.runId).not.toBe(c.runId)
-  expect(next.c.runIds).toEqual([next.c.runId])
-  expect(next.c.receipts).toEqual([])
-  await waitUntil(async () => (await s.chat()).status === 'ready', 'the second reply')
-
-  const continued = await s.ok<Coordinator>('POST', `${s.base}/conversations/${saved.id}/continue`)
-  expect(continued).toMatchObject({ runIds: [c.runId], status: 'ready', opening: c.opening })
-  const others = await conversations()
-  expect(others.map((x) => x.title)).toEqual([next.c.opening])
-  expect((await s.client.call('GET', `${s.base}/conversations/${saved.id}`)).status).toBe(404)
-
-  await s.ok('POST', `${s.base}/messages`, {
+  const continued = await ok<Coordinator>('POST', '/coordinator-chats/saved-1/continue')
+  expect(continued).toMatchObject({ id: 'saved-1', status: 'ready', runIds: [c.runId] })
+  expect(continued.endedAt).toBeUndefined()
+  await ok('POST', '/coordinator-chats/saved-1/messages', {
     text: JSON.stringify({ steps: [{ say: 'Back again' }, { endTurn: true }] }),
   })
   const resumed = await waitUntil(async () => {
-    const chat = await s.ok<RunChat>('GET', `${s.base}/chat`)
+    const chat = await ok<RunChat>('GET', '/coordinator-chats/saved-1/chat')
     return chat.items.some((i) => i.kind === 'agent' && i.text === 'Back again') ? chat : undefined
-  }, 'the continued conversation’s reply')
+  }, 'the continued chat’s reply')
   expect(resumed.items.some((i) => i.kind === 'agent' && i.text === 'Saved advice')).toBe(true)
-  expect((await s.chat()).runIds[0]).toBe(c.runId)
+  await waitUntil(
+    async () => (await ok<Coordinator>('GET', '/coordinator-chats/saved-1')).status === 'ready',
+    'the continued chat to settle',
+  )
 
-  const other = others[0]
-  if (!other) throw new Error('the second conversation was not saved')
-  await s.ok('DELETE', `${s.base}/conversations/${other.id}`)
-  expect(await conversations()).toEqual([])
-  expect((await s.client.call('GET', `/runs/${next.c.runId}/chat`)).status).toBe(404)
-  expect(existsSync(path.join(home, 'coordinators', next.c.runId))).toBe(false)
-  expect((await s.client.call('DELETE', `${s.base}/conversations/${other.id}`)).status).toBe(404)
-})
+  await ok('DELETE', '/coordinator-chats/saved-1')
+  expect(await ok('GET', s.chats)).toEqual([])
+  expect((await client.call('GET', `/runs/${c.runId}/chat`)).status).toBe(404)
+  expect(existsSync(path.join(home, 'coordinators', c.runId))).toBe(false)
+  expect((await client.call('DELETE', '/coordinator-chats/saved-1')).status).toBe(404)
+}, 60_000)
 
 test('agent health pauses queued responses and sending advice leaves Tasks unchanged', async () => {
   const s = await setup()
   const task = await s.task()
   await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: false }))
   await s.ok('POST', '/agents/health/check')
-  const c = await s.ok<Coordinator>('POST', `${s.base}/messages`, {
+  const c = await s.message({
     agent: 'claude',
     text: JSON.stringify({
       steps: [{ say: 'I recommend discussing priorities first.' }, { endTurn: true }],
@@ -914,7 +1065,7 @@ test('a message after Stop starts a new Run and the conversation keeps both Runs
     'the first reply',
   )
   await s.ok('POST', `${s.base}/stop`)
-  await s.ok('POST', `${s.base}/messages`, {
+  await s.message({
     text: JSON.stringify({ steps: [{ say: 'Second reply' }, { endTurn: true }] }),
   })
   const chat = await waitUntil(async () => {
@@ -963,7 +1114,7 @@ test('a human message queued after Retry is delivered with TED’s continuation 
   await signIn(s, false)
   await s.ok('POST', `${s.base}/retry`)
   const typed = JSON.stringify({ steps: [{ say: 'Resumed reply' }, { endTurn: true }] })
-  await s.ok('POST', `${s.base}/messages`, { text: typed })
+  await s.message({ text: typed })
   expect((await s.chat()).started).toBe(true)
   await signIn(s, true)
   const conversation = () => s.ok<RunChat>('GET', `${s.base}/chat`)
@@ -990,8 +1141,8 @@ test('two human messages delivered as one resumed turn show as two sent bubbles'
   ])
   const first = 'Look at the release Tasks first.'
   const second = JSON.stringify({ steps: [{ say: 'Resumed reply' }, { endTurn: true }] })
-  await s.ok('POST', `${s.base}/messages`, { text: first })
-  await s.ok('POST', `${s.base}/messages`, { text: second })
+  await s.message({ text: first })
+  await s.message({ text: second })
   await writeFile(path.join(scratch, 'fail'), '')
   await waitUntil(async () => (await s.chat()).status === 'failed', 'the failure')
   await s.ok('POST', `${s.base}/retry`)
@@ -1013,8 +1164,8 @@ test('an opening prompt that carries two pending messages shows each as its own 
   await signIn(s, false)
   const first = 'Compare the release Tasks.'
   const second = JSON.stringify({ steps: [{ say: 'Both read' }, { endTurn: true }] })
-  await s.ok('POST', `${s.base}/messages`, { text: first, agent: 'claude' })
-  await s.ok('POST', `${s.base}/messages`, { text: second })
+  await s.message({ text: first, agent: 'claude' })
+  await s.message({ text: second })
   const conversation = () => s.ok<RunChat>('GET', `${s.base}/chat`)
   expect(bubbles(await conversation())).toEqual([
     { human: first, sent: false, queued: true },
@@ -1042,7 +1193,7 @@ test('disk holds keep Coordinator turns queued until space recovers', async () =
     const banners = await s.ok<{ problem: string }[]>('GET', '/banners')
     return banners.some((b) => b.problem === 'disk-full')
   }, 'disk hold')
-  const c = await s.ok<Coordinator>('POST', `${s.base}/messages`, {
+  const c = await s.message({
     agent: 'claude',
     text: JSON.stringify({ steps: [{ say: 'Space recovered' }, { endTurn: true }] }),
   })
@@ -1093,7 +1244,7 @@ test('deleting the last queued follow-up returns Ready and never runs it', async
   expect((await s.chat()).status).toBe('ready')
   const chat = await s.ok<RunChat>('GET', `/runs/${c.runId}/chat`)
   expect(chat.items.some((i) => i.kind === 'agent' && i.text === 'Deleted answer')).toBe(false)
-  await s.ok('POST', `${s.base}/messages`, {
+  await s.message({
     text: JSON.stringify({ steps: [{ say: 'Later answer' }, { endTurn: true }] }),
   })
   await waitUntil(async () => {
@@ -1107,7 +1258,7 @@ test('Stop followed by a message replaces the Run, uses scoped tools and release
   const s = await setup()
   const { c } = await s.start()
   await s.ok('POST', `${s.base}/stop`)
-  await s.ok('POST', `${s.base}/messages`, {
+  await s.message({
     text: JSON.stringify({ steps: [{ run: ['ted', 'coordinator', 'tasks'] }, { endTurn: true }] }),
   })
   const replacement = await waitUntil(async () => {
@@ -1672,7 +1823,7 @@ test('the Coordinator CLI tells and answers with a message argument and never re
   await writeFile(release, '')
   await waitUntil(async () => (await s.chat()).status === 'ready', 'first turn to end')
   const common = ['--message', 'Wait for the queued reviewer.', '--operation']
-  await s.ok('POST', `${s.base}/messages`, {
+  await s.message({
     text: JSON.stringify({
       steps: [
         {
@@ -1729,7 +1880,7 @@ test('the Coordinator CLI tells and answers with a message argument and never re
 
   const secret = path.join(scratch, 'secret.txt')
   await writeFile(secret, 'private key')
-  await s.ok('POST', `${s.base}/messages`, {
+  await s.message({
     text: JSON.stringify({
       steps: [
         {

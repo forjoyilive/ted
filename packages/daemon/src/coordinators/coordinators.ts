@@ -6,11 +6,10 @@ import type {
   Comment,
   Coordinator,
   CoordinatorAction,
+  CoordinatorChatSummary,
   CoordinatorConfirmation,
   CoordinatorConfirmationAnswer,
   CoordinatorConfirmationTask,
-  CoordinatorConversation,
-  CoordinatorConversationSummary,
   CoordinatorCreate,
   CoordinatorMessage,
   CoordinatorOperation,
@@ -36,11 +35,7 @@ import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { Steering } from '../runs/steering.ts'
-import type {
-  PromptPart,
-  SavedCoordinatorConversation,
-  StoredCoordinator,
-} from '../store/coordinators.ts'
+import type { PromptPart, StoredCoordinator } from '../store/coordinators.ts'
 import type { TedStore } from '../store/index.ts'
 import type { QueueSource } from '../tasks/queue.ts'
 import type { Caller, Tasks } from '../tasks/tasks.ts'
@@ -127,12 +122,14 @@ export function coordinatorTurn(messages: readonly RunMessage[]): string {
 export const coordinatorPageSize = 100
 
 export interface Coordinators {
-  get(factoryId: string): Coordinator | null
+  chats(factoryId: string): CoordinatorChatSummary[]
+  get(chatId: string): Coordinator
   statuses(): CoordinatorStatus[]
-  message(factoryId: string, input: CoordinatorMessage): Promise<Coordinator>
+  start(factoryId: string, input: CoordinatorMessage): Promise<Coordinator>
+  message(chatId: string, input: CoordinatorMessage): Promise<Coordinator>
   send(runId: string, text: string): Promise<RunMessage>
-  stop(factoryId: string): Promise<Coordinator>
-  retry(factoryId: string): Promise<Coordinator>
+  stop(chatId: string): Promise<Coordinator>
+  retry(chatId: string): Promise<Coordinator>
   list(caller: Caller, query: CoordinatorTaskQuery): CoordinatorTaskList
   task(caller: Caller, ref: string, offset: number): CoordinatorTask
   act(
@@ -148,8 +145,8 @@ export interface Coordinators {
     input: CoordinatorRemoval,
   ): Promise<CoordinatorRemovalResult>
   answerConfirmation(
-    factoryId: string,
-    id: string,
+    chatId: string,
+    confirmationId: string,
     answer: CoordinatorConfirmationAnswer,
   ): Promise<Coordinator>
   deliveryAllowed(runId: string, admitted: boolean): boolean
@@ -157,11 +154,8 @@ export interface Coordinators {
   messageRemoved(runId: string): void
   holdFactoryRemoval(factoryId: string): () => void
   removeFactory(factoryId: string): Promise<void>
-  reset(factoryId: string): Promise<void>
-  conversations(factoryId: string): CoordinatorConversationSummary[]
-  conversation(factoryId: string, conversationId: string): CoordinatorConversation
-  continueConversation(factoryId: string, conversationId: string): Promise<Coordinator>
-  deleteConversation(factoryId: string, conversationId: string): Promise<void>
+  continueChat(chatId: string): Promise<Coordinator>
+  deleteChat(chatId: string): Promise<void>
   close(): Promise<void>
 }
 
@@ -193,12 +187,17 @@ export function createCoordinators(options: {
   const launching = new Set<string>()
   const stopping = new Set<string>()
   const removing = new Set<string>()
-  const resetting = new Set<string>()
+  const deleting = new Set<string>()
+  const gone = new Set<string>()
   const changing = new Map<string, Promise<void>>()
-  const held = (id: string) => removing.has(id) || resetting.has(id)
-  const notResetting = (id: string) => {
-    if (resetting.has(id) || changing.has(id))
-      throw new RequestError(409, 'The Coordinator is being reset; send the message again')
+  const held = (id: string) => {
+    if (deleting.has(id) || gone.has(id)) return true
+    const c = saved.find(id)
+    return c !== undefined && removing.has(c.factoryId)
+  }
+  const notChanging = (id: string) => {
+    if (deleting.has(id) || changing.has(id))
+      throw new RequestError(409, 'This Coordinator chat is changing; send the message again')
   }
   const chains = new Map<string, Promise<unknown>>()
   const background = new Set<Promise<unknown>>()
@@ -211,13 +210,20 @@ export function createCoordinators(options: {
     return f
   }
   const requireChat = (id: string) => {
-    requireFactory(id)
     const c = saved.get(id)
-    if (!c) throw new RequestError(404, 'no Coordinator conversation')
+    if (!c || deleting.has(id)) throw new RequestError(404, 'no such Coordinator chat')
+    requireFactory(c.factoryId)
+    return c
+  }
+  const requireAnyChat = (id: string) => {
+    const c = saved.find(id)
+    if (!c || deleting.has(id)) throw new RequestError(404, 'no such Coordinator chat')
+    requireFactory(c.factoryId)
     return c
   }
   const save = (c: StoredCoordinator, canceled: readonly RunMessage[] = []) => {
-    if (!closed && !held(c.factoryId)) saved.save(c, canceled)
+    if (!closed && !held(c.id) && !removing.has(c.factoryId) && c.endedAt === undefined)
+      saved.save(c, canceled)
   }
   const status = (c: StoredCoordinator): Coordinator['status'] =>
     c.phase === 'failed'
@@ -238,29 +244,42 @@ export function createCoordinators(options: {
     c.startedAt ??
     c.runIds.map((id) => store.getRun(id)?.startedAt).find((at) => at !== undefined) ??
     ''
-  const requireConversation = (factoryId: string, id: string) => {
-    requireFactory(factoryId)
-    const found = saved.conversation(id)
-    if (!found || found.chat.factoryId !== factoryId)
-      throw new RequestError(404, 'no such Coordinator conversation')
-    return found
-  }
-  const summaryOf = (c: SavedCoordinatorConversation): CoordinatorConversationSummary => ({
+  const lastAt = (c: StoredCoordinator) =>
+    [
+      startedAt(c),
+      c.endedAt,
+      ...c.receipts.map((r) => r.at),
+      ...(c.confirmations ?? []).flatMap((x) => [x.askedAt, x.answer?.at]),
+      ...c.runIds.flatMap((id) => [
+        store.lastOutputAt(id),
+        ...store.runMessages(id).map((m) => m.at),
+      ]),
+    ]
+      .filter((at): at is string => at !== undefined && at !== '')
+      .sort()
+      .at(-1) ?? ''
+  const summaryOf = (c: StoredCoordinator): CoordinatorChatSummary => ({
     id: c.id,
-    title: c.chat.opening,
-    startedAt: c.startedAt,
-    endedAt: c.endedAt,
-    taskCount: chatTasks(c.chat).length,
+    factoryId: c.factoryId,
+    title: c.opening,
+    status: status(c),
+    startedAt: startedAt(c),
+    lastAt: lastAt(c),
+    ...(c.endedAt !== undefined && { endedAt: c.endedAt }),
+    taskCount: chatTasks(c).length,
+    waiting: (c.confirmations ?? []).some((x) => x.answer === undefined),
   })
   const publicChat = (c: StoredCoordinator): Coordinator => {
     const reason = agentStartHold(store, c.lead.agent, c.runId) ?? c.error
     return {
+      id: c.id,
       factoryId: c.factoryId,
       runId: c.runId,
       runIds: c.runIds,
       started: store.getRun(c.runId) !== undefined,
       opening: c.opening,
       startedAt: startedAt(c),
+      ...(c.endedAt !== undefined && { endedAt: c.endedAt }),
       lead: c.lead,
       status: status(c),
       ...(reason !== undefined && { error: reason }),
@@ -324,13 +343,9 @@ export function createCoordinators(options: {
       saved
         .list()
         .filter(
-          (c) =>
-            c.phase === 'queued' &&
-            !launching.has(c.factoryId) &&
-            !held(c.factoryId) &&
-            !changing.has(c.factoryId),
+          (c) => c.phase === 'queued' && !launching.has(c.id) && !held(c.id) && !changing.has(c.id),
         )
-        .map((c) => ({ id: c.factoryId, factoryId: c.factoryId, kind: 'coordinator', rank: 0 })),
+        .map((c) => ({ id: c.id, factoryId: c.factoryId, kind: 'coordinator', rank: 0 })),
     runnable: (id) => {
       const c = saved.get(id)
       return (
@@ -368,8 +383,8 @@ export function createCoordinators(options: {
         .filter(
           (c) =>
             c.phase === 'working' ||
-            launching.has(c.factoryId) ||
-            stopping.has(c.factoryId) ||
+            launching.has(c.id) ||
+            stopping.has(c.id) ||
             ['working', 'waiting'].includes(store.getRun(c.runId)?.state ?? ''),
         )
         .map((c) => ({
@@ -414,7 +429,7 @@ export function createCoordinators(options: {
   }
 
   async function startNew(c: StoredCoordinator): Promise<void> {
-    const id = c.factoryId
+    const id = c.id
     const cwd = await folder(c.runId)
     if (stopping.has(id) || held(id) || closed) return
     const messages = pending(c.runId)
@@ -556,30 +571,26 @@ export function createCoordinators(options: {
     finished(run, ending) {
       if (closed) return
       const c = saved.forRun(run.id)
-      if (!c || c.runId !== run.id || stopping.has(c.factoryId) || closed) return
+      if (!c || c.runId !== run.id || stopping.has(c.id) || closed) return
       if (c.phase === 'failed') {
         pump()
         return
       }
       if (ending.stopped) save({ ...c, phase: 'ready' })
-      else
-        fail(
-          c.factoryId,
-          'The Coordinator stopped before the conversation ended. Retry to continue.',
-        )
+      else fail(c.id, 'The Coordinator stopped before the conversation ended. Retry to continue.')
       pump()
     },
   })
   options.health.onPaused((agent) => {
     if (closed) return
     for (const c of saved.list().filter((c) => c.lead.agent === agent && c.phase === 'working')) {
-      stopping.add(c.factoryId)
+      stopping.add(c.id)
       save({ ...c, phase: 'queued' })
       const work = (async () => {
-        await launches.get(c.factoryId)
+        await launches.get(c.id)
         await steering.drain(c.runId)
-        if (closed || held(c.factoryId)) return
-        const latest = saved.get(c.factoryId)
+        if (closed || held(c.id)) return
+        const latest = saved.get(c.id)
         if (!latest) return
         if (pending(latest.runId).length === 0)
           store.queueRunMessage({
@@ -591,9 +602,9 @@ export function createCoordinators(options: {
         if (store.getRun(latest.runId)?.state !== 'finished' && store.getRun(latest.runId))
           await runs.stop(latest.runId)
       })()
-        .catch((error) => fail(c.factoryId, error))
+        .catch((error) => fail(c.id, error))
         .finally(() => {
-          stopping.delete(c.factoryId)
+          stopping.delete(c.id)
           background.delete(work)
           if (!closed) pump()
         })
@@ -630,7 +641,7 @@ export function createCoordinators(options: {
       !c ||
       c.runId !== caller.runId ||
       c.phase !== 'working' ||
-      stopping.has(c.factoryId) ||
+      stopping.has(c.id) ||
       store.getRun(c.runId)?.state === 'finished'
     )
       throw new RequestError(403, 'This is not the active Coordinator Run')
@@ -639,8 +650,8 @@ export function createCoordinators(options: {
   }
   function admit(caller: Caller): StoredCoordinator {
     const c = actor(caller)
-    if (changing.has(c.factoryId))
-      throw new RequestError(409, 'The human is starting a new Coordinator conversation')
+    if (changing.has(c.id) || deleting.has(c.id))
+      throw new RequestError(409, 'The human is deleting this Coordinator chat')
     return c
   }
   function target(c: StoredCoordinator, ref: string): Task {
@@ -675,6 +686,8 @@ export function createCoordinators(options: {
         ]),
       )
       .digest('hex')
+  const createdKey = (c: StoredCoordinator, operation: string) =>
+    c.id === c.factoryId ? operation : `${c.id}:${operation}`
   const touch = (c: StoredCoordinator, ids: string[]) =>
     save({ ...c, taskIds: [...new Set([...c.taskIds, ...ids])].slice(-100) })
   const waiting = (t: Task) =>
@@ -909,7 +922,7 @@ export function createCoordinators(options: {
     return changes.length > 0 ? changes.join(' and ') : undefined
   }
   async function perform(
-    factoryId: string,
+    chatId: string,
     kind: CoordinatorRemovalKind,
     task: Task,
     choices: CoordinatorConfirmationTask | CoordinatorRemoval,
@@ -926,7 +939,7 @@ export function createCoordinators(options: {
       fingerprint,
       before: snapshot(task),
     }
-    const opened = requireChat(factoryId)
+    const opened = requireChat(chatId)
     save({ ...opened, receipts: [...opened.receipts, receipt] })
     await store.persisted()
     let done = false
@@ -972,7 +985,7 @@ export function createCoordinators(options: {
     }
     const after = store.getTask(task.id)
     if (after) receipt.after = snapshot(after)
-    const latest = requireChat(factoryId)
+    const latest = requireChat(chatId)
     save({ ...latest, receipts: latest.receipts.map((r) => (r.id === receipt.id ? receipt : r)) })
     await store.persisted()
     return { receipt, done, ...(refusal !== undefined && { refusal }) }
@@ -986,11 +999,10 @@ export function createCoordinators(options: {
   }
 
   async function settle(c: StoredCoordinator): Promise<void> {
-    const id = c.factoryId
-    await launches.get(id)?.catch(() => {})
-    await chains.get(id)?.catch(() => {})
+    await launches.get(c.id)?.catch(() => {})
+    await chains.get(c.factoryId)?.catch(() => {})
     await steering.drain(c.runId)
-    for (const runId of (saved.get(id) ?? c).runIds) {
+    for (const runId of (saved.get(c.id) ?? c).runIds) {
       const run = store.getRun(runId)
       if (run && run.state !== 'finished') await runs.stop(runId)
     }
@@ -1018,8 +1030,7 @@ export function createCoordinators(options: {
       if (snoozed.has(asked.id)) store.snoozeRequest(asked.id, null)
   }
   async function exclusive(id: string, work: () => Promise<void>): Promise<void> {
-    if (changing.has(id))
-      throw new RequestError(409, 'The Coordinator is already changing conversations')
+    if (changing.has(id)) throw new RequestError(409, 'This Coordinator chat is already changing')
     let finished = () => {}
     changing.set(
       id,
@@ -1030,100 +1041,66 @@ export function createCoordinators(options: {
     try {
       await work()
     } finally {
-      resetting.delete(id)
       changing.delete(id)
       finished()
       if (!closed) pump()
     }
   }
-  async function shelve(id: string, restore?: SavedCoordinatorConversation): Promise<void> {
-    const c = saved.get(id)
-    if (!c) {
-      if (restore && !removing.has(id) && !closed) saved.restore(restore)
-      await store.persisted()
-      return
-    }
-    await settle(c)
-    if (removing.has(id) || closed) return
-    resetting.add(id)
-    const latest = saved.get(id) ?? c
-    clearSnoozes(latest)
-    const started = latest.runIds.filter((runId) => store.getRun(runId) !== undefined)
-    const dropped = latest.runIds.filter((runId) => !started.includes(runId))
-    const canceled = latest.runIds.flatMap((runId) => pending(runId))
-    const last = started.at(-1)
-    if (last === undefined) {
+  async function erase(c: StoredCoordinator): Promise<void> {
+    deleting.add(c.id)
+    try {
+      await settle(c)
+      const latest = saved.find(c.id) ?? c
+      clearSnoozes(latest)
       await removeFolders(latest.runIds)
-      saved.remove(id)
-      if (restore) saved.restore(restore)
+      gone.add(c.id)
+      saved.delete(c.id)
       await store.persisted()
-      return
+    } finally {
+      deleting.delete(c.id)
     }
-    await removeFolders(dropped)
-    const at = new Date().toISOString()
-    const { error: _error, launch: _launch, prompts, ...kept } = latest
-    const chat: StoredCoordinator = {
-      ...kept,
-      runId: last,
-      runIds: started,
-      phase: 'ready',
-      unsentMessages: [],
-      startedAt: startedAt(latest),
-      confirmations: (latest.confirmations ?? []).map((asked) =>
-        asked.answer ? asked : { ...asked, answer: { decision: 'cancel' as const, at } },
-      ),
-      ...(prompts && {
-        prompts: Object.fromEntries(
-          Object.entries(prompts).filter(([runId]) => started.includes(runId)),
-        ),
-      }),
-    }
-    saved.keep(
-      { id: randomUUID(), startedAt: chat.startedAt ?? '', endedAt: at, chat },
-      canceled,
-      restore,
-    )
-    await store.persisted()
   }
 
+  const busiest: Coordinator['status'][] = ['working', 'queued', 'failed', 'paused', 'ready']
   const service: Coordinators = {
-    get(id) {
-      requireFactory(id)
-      const c = saved.get(id)
-      return c ? publicChat(c) : null
+    chats(factoryId) {
+      requireFactory(factoryId)
+      return saved
+        .chats(factoryId)
+        .filter((c) => !deleting.has(c.id))
+        .map(summaryOf)
+        .sort((a, b) => b.lastAt.localeCompare(a.lastAt))
     },
-    statuses: () =>
-      saved
-        .list()
-        .filter((c) => !held(c.factoryId))
-        .map((c) => ({ factoryId: c.factoryId, status: status(c) })),
-    async message(id, input) {
-      const factory = requireFactory(id)
-      notResetting(id)
+    get(id) {
+      return publicChat(requireAnyChat(id))
+    },
+    statuses() {
+      const byFactory = new Map<string, Coordinator['status']>()
+      for (const c of saved.list()) {
+        if (held(c.id)) continue
+        const now = status(c)
+        const before = byFactory.get(c.factoryId)
+        if (before === undefined || busiest.indexOf(now) < busiest.indexOf(before))
+          byFactory.set(c.factoryId, now)
+      }
+      return [...byFactory].map(([factoryId, status]) => ({ factoryId, status }))
+    },
+    async start(factoryId, input) {
+      const factory = requireFactory(factoryId)
       if (input.text.trim() === '' || input.text.length > 100_000)
         throw new RequestError(400, 'message must contain 1–100000 characters')
-      const c = saved.get(id)
-      if (c) {
-        await service.send(c.runId, input.text)
-        return publicChat(requireChat(id))
-      }
       const defaults = await tasks.defaults(factory.id)
-      requireFactory(id)
-      notResetting(id)
+      requireFactory(factoryId)
       const lead = {
         ...defaults.planner,
         ...(input.agent && { agent: input.agent }),
         ...(input.model !== undefined && { model: input.model }),
         ...(input.effort !== undefined && { effort: input.effort }),
       }
-      const existing = saved.get(id)
-      if (existing) {
-        await service.send(existing.runId, input.text)
-        return publicChat(requireChat(id))
-      }
       const runId = randomUUID()
       const created: StoredCoordinator = {
-        factoryId: id,
+        id: randomUUID(),
+        factoryId,
         runId,
         runIds: [runId],
         lead,
@@ -1137,7 +1114,13 @@ export function createCoordinators(options: {
       save(created)
       await store.persisted()
       pump()
-      return publicChat(created)
+      return publicChat(requireChat(created.id))
+    },
+    async message(id, input) {
+      const c = requireChat(id)
+      notChanging(id)
+      await service.send(c.runId, input.text)
+      return publicChat(requireChat(id))
     },
     async send(runId, text) {
       if (closed) throw new RequestError(503, 'The Coordinator is shutting down')
@@ -1145,8 +1128,8 @@ export function createCoordinators(options: {
       if (!c || c.runId !== runId)
         throw new RequestError(409, 'This Coordinator Run was replaced; open the current chat')
       requireFactory(c.factoryId)
-      notResetting(c.factoryId)
-      if (stopping.has(c.factoryId)) throw new RequestError(409, 'The Coordinator is stopping')
+      notChanging(c.id)
+      if (stopping.has(c.id)) throw new RequestError(409, 'The Coordinator is stopping')
       if (text.trim() === '' || text.length > 100_000)
         throw new RequestError(400, 'message must contain 1–100000 characters')
       if (c.phase === 'failed') throw new RequestError(409, 'Retry the Coordinator before sending')
@@ -1164,16 +1147,16 @@ export function createCoordinators(options: {
         c?.runId === runId &&
         c.phase === 'working' &&
         !closed &&
-        !stopping.has(c.factoryId) &&
-        !held(c.factoryId) &&
-        (admitted || (!launching.has(c.factoryId) && store.getRun(runId)?.state === 'working'))
+        !stopping.has(c.id) &&
+        !held(c.id) &&
+        (admitted || (!launching.has(c.id) && store.getRun(runId)?.state === 'working'))
       )
     },
     deliveryFinished(runId, error) {
       if (closed) return
       const c = saved.forRun(runId)
-      if (!c || c.runId !== runId || stopping.has(c.factoryId) || held(c.factoryId)) return
-      if (error) fail(c.factoryId, error)
+      if (!c || c.runId !== runId || stopping.has(c.id) || held(c.id)) return
+      if (error) fail(c.id, error)
       else if (c.phase === 'working' && store.getRun(runId)?.state === 'idle')
         save({ ...c, phase: pending(runId).length > 0 ? 'queued' : 'ready' })
       pump()
@@ -1521,7 +1504,7 @@ export function createCoordinators(options: {
           }
           const after = store.getTask(task.id)
           if (after) receipt.after = snapshot(after)
-          const latest = requireChat(current.factoryId)
+          const latest = requireChat(current.id)
           save({
             ...latest,
             receipts: latest.receipts.map((r) => (r.id === receipt.id ? receipt : r)),
@@ -1565,7 +1548,7 @@ export function createCoordinators(options: {
             )
             .digest('hex')
           const finish = (receipt: CoordinatorReceipt) => {
-            const latest = requireChat(current.factoryId)
+            const latest = requireChat(current.id)
             save({
               ...latest,
               receipts: latest.receipts.map((r) => (r.id === receipt.id ? receipt : r)),
@@ -1580,7 +1563,7 @@ export function createCoordinators(options: {
               throw new RequestError(409, 'operation ID already used for another action')
             const made =
               old.taskId === undefined &&
-              store.coordinatorCreated(current.factoryId, input.operation)
+              store.coordinatorCreated(current.factoryId, createdKey(current, input.operation))
             if (!made) return old
             const recovered: CoordinatorReceipt = {
               ...old,
@@ -1629,7 +1612,7 @@ export function createCoordinators(options: {
                 ...(input.lead !== undefined && { lead: input.lead }),
                 ...(input.start === true && { start: true }),
               },
-              input.operation,
+              createdKey(current, input.operation),
             )
             receipt.taskId = created.id
             const missed: string[] = []
@@ -1679,7 +1662,7 @@ export function createCoordinators(options: {
             const why = error instanceof Error ? error.message : String(error)
             const made = receipt.taskId
               ? store.getTask(receipt.taskId)
-              : store.coordinatorCreated(current.factoryId, input.operation)
+              : store.coordinatorCreated(current.factoryId, createdKey(current, input.operation))
             if (made) {
               receipt.taskId = made.id
               receipt.text = redactSecrets(
@@ -1786,7 +1769,7 @@ export function createCoordinators(options: {
           const now = store.getTask(task.id)
           if (!now) continue
           const { receipt } = await perform(
-            current.factoryId,
+            current.id,
             kind,
             now,
             input,
@@ -1807,11 +1790,11 @@ export function createCoordinators(options: {
         return { receipts }
       })
     },
-    answerConfirmation(factoryId, id, answer) {
-      requireChat(factoryId)
-      notResetting(factoryId)
+    answerConfirmation(chatId, id, answer) {
+      const { factoryId } = requireChat(chatId)
+      notChanging(chatId)
       return serial(factoryId, async () => {
-        const c = requireChat(factoryId)
+        const c = requireChat(chatId)
         const asked = (c.confirmations ?? []).find((x) => x.id === id)
         if (!asked) throw new RequestError(404, 'no such confirmation')
         if (asked.answer) throw new RequestError(409, 'This confirmation was already answered')
@@ -1831,7 +1814,7 @@ export function createCoordinators(options: {
           answer: { decision: answer.decision, at: new Date().toISOString() },
         }
         const update = (next: CoordinatorConfirmation) => {
-          const latest = requireChat(factoryId)
+          const latest = requireChat(chatId)
           save({
             ...latest,
             confirmations: (latest.confirmations ?? []).map((x) => (x.id === id ? next : x)),
@@ -1839,7 +1822,7 @@ export function createCoordinators(options: {
         }
         update(answered)
         await store.persisted()
-        if (answer.decision === 'cancel') return publicChat(requireChat(factoryId))
+        if (answer.decision === 'cancel') return publicChat(requireChat(chatId))
         const verb = asked.kind === 'archive' ? 'archived' : 'deleted'
         const together = asked.kind === 'archive' ? 'archive' : 'delete'
         const sweeps = (card: CoordinatorConfirmationTask) =>
@@ -1921,7 +1904,7 @@ export function createCoordinators(options: {
             result = refused(why ?? `${card.displayId} no longer exists`)
           } else {
             const done = await perform(
-              factoryId,
+              chatId,
               asked.kind,
               task,
               card,
@@ -1937,7 +1920,7 @@ export function createCoordinators(options: {
           update({ ...answered, tasks: [...cards] })
           await store.persisted()
         }
-        return publicChat(requireChat(factoryId))
+        return publicChat(requireChat(chatId))
       })
     },
     holdFactoryRemoval(id) {
@@ -1945,57 +1928,33 @@ export function createCoordinators(options: {
       return () => removing.delete(id)
     },
     async removeFactory(id) {
-      await changing.get(id)
+      for (const c of saved.chats(id)) await changing.get(c.id)
       try {
-        const c = saved.get(id)
-        if (c) {
+        for (const c of saved.chats(id)) {
           await settle(c)
-          await removeFolders(saved.get(id)?.runIds ?? c.runIds)
-          clearSnoozes(saved.get(id) ?? c)
-          saved.remove(id)
-        }
-        for (const conversation of saved.conversations(id)) {
-          await removeFolders(conversation.chat.runIds)
-          saved.forget(conversation.id)
+          const latest = saved.find(c.id) ?? c
+          await removeFolders(latest.runIds)
+          clearSnoozes(latest)
+          gone.add(c.id)
+          saved.delete(c.id)
         }
         await store.persisted()
       } finally {
         if (!closed) pump()
       }
     },
-    async reset(id) {
-      requireFactory(id)
-      await exclusive(id, () => shelve(id))
-    },
-    conversations(id) {
-      requireFactory(id)
-      return saved.conversations(id).map(summaryOf)
-    },
-    conversation(id, conversationId) {
-      const found = requireConversation(id, conversationId)
-      return {
-        ...summaryOf(found),
-        factoryId: id,
-        lead: found.chat.lead,
-        runIds: found.chat.runIds,
-        receipts: found.chat.receipts,
-        confirmations: found.chat.confirmations ?? [],
-        tasks: chatTasks(found.chat),
-      }
-    },
-    async continueConversation(id, conversationId) {
-      requireConversation(id, conversationId)
-      await exclusive(id, () => shelve(id, requireConversation(id, conversationId)))
-      return publicChat(requireChat(id))
-    },
-    async deleteConversation(id, conversationId) {
-      requireConversation(id, conversationId)
+    async continueChat(id) {
+      const c = requireAnyChat(id)
+      if (c.endedAt === undefined) return publicChat(c)
       await exclusive(id, async () => {
-        const found = requireConversation(id, conversationId)
-        await removeFolders(found.chat.runIds)
-        saved.forget(found.id)
+        saved.reopen(id)
         await store.persisted()
       })
+      return publicChat(requireChat(id))
+    },
+    async deleteChat(id) {
+      requireAnyChat(id)
+      await exclusive(id, async () => erase(requireAnyChat(id)))
     },
     async close() {
       closed = true

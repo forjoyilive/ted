@@ -5,7 +5,6 @@ import { DatabaseSync } from 'node:sqlite'
 import type { NewTaskDraft } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { blankReplacedText, replacedTextCount } from '../src/store/blank-replaced.ts'
-import type { StoredCoordinator } from '../src/store/coordinators.ts'
 import { eventlogFile } from '../src/store/files.ts'
 import { openStore } from '../src/store/index.ts'
 
@@ -89,8 +88,9 @@ async function stateTables(folder: string): Promise<Record<string, unknown[]>> {
   }
 }
 
-// Coordinators write v1.CoordinatorChanged only when a saved conversation is restored; the
+// Coordinators wrote v1.CoordinatorChanged only when a saved conversation was restored; the
 // second restore lands on a row a v2 patch changed, so a blanked first one must still parse.
+let oldCoordinatorEvents: [string, unknown][] = []
 async function homeWithReplacedText(): Promise<void> {
   const store = await openStore({ directory: dir })
   const factory = store.addFactory({
@@ -122,38 +122,42 @@ async function homeWithReplacedText(): Promise<void> {
   })
   store.dropSubAgentRequest('dropped')
 
-  const chat: StoredCoordinator = {
+  const chat = {
     factoryId: factory.id,
     runId: 'run-1',
     runIds: ['run-1'],
-    lead: { agent: 'claude' },
-    phase: 'ready',
+    lead: { agent: 'claude' as const },
+    phase: 'ready' as const,
     opening: long('Opening prompt.'),
     receipts: [],
     taskIds: [],
   }
-  const keep = (id: string, saved: StoredCoordinator) => {
-    store.coordinators.save(saved)
-    store.coordinators.keep(
-      {
-        id,
-        startedAt: '2025-12-31T00:00:00.000Z',
-        endedAt: '2026-01-01T00:00:00.000Z',
-        chat: saved,
-      },
-      [],
-    )
+  const saved = (id: string, value: typeof chat) => {
+    const endedAt = '2026-01-01T00:00:00.000Z'
+    const data = { id, startedAt: '2025-12-31T00:00:00.000Z', endedAt, chat: value }
+    return { id, factoryId: factory.id, endedAt, data: JSON.stringify(data) }
   }
-  keep('conversation-a', chat)
-  keep('conversation-b', { ...chat, runId: 'run-2', runIds: ['run-2'] })
-  const restore = (id: string) => {
-    const saved = store.coordinators.conversation(id)
-    if (!saved) throw new Error(`no saved conversation ${id}`)
-    store.coordinators.restore(saved)
-    store.coordinators.save({ ...saved.chat, phase: 'working' })
-  }
-  restore('conversation-a')
-  restore('conversation-b')
+  const second = { ...chat, runId: 'run-2', runIds: ['run-2'] }
+  const patch = (set: object) => ({
+    factoryId: factory.id,
+    set: JSON.stringify(set),
+    unset: [],
+    lists: null,
+  })
+  oldCoordinatorEvents = [
+    ['v2.CoordinatorChanged', patch(chat)],
+    ['v1.CoordinatorConversationSaved', saved('conversation-a', chat)],
+    ['v2.CoordinatorChanged', patch(second)],
+    ['v1.CoordinatorConversationSaved', saved('conversation-b', second)],
+    ['v1.CoordinatorConversationContinued', { id: 'conversation-a', factoryId: factory.id }],
+    ['v1.CoordinatorChanged', { factoryId: factory.id, data: JSON.stringify(chat) }],
+    ['v2.CoordinatorChanged', patch({ phase: 'working' })],
+    ['v1.CoordinatorConversationContinued', { id: 'conversation-b', factoryId: factory.id }],
+    ['v1.CoordinatorChanged', { factoryId: factory.id, data: JSON.stringify(second) }],
+    ['v2.CoordinatorChanged', patch({ phase: 'working' })],
+  ]
+  for (const [i] of oldCoordinatorEvents.entries())
+    store.coordinators.save({ ...chat, id: `placeholder-${i}`, phase: 'ready' })
 
   const layers = ['library', 'library', 'library', `factory:${factory.id}`, `factory:${factory.id}`]
   for (const [i, layer] of layers.entries()) {
@@ -181,6 +185,11 @@ async function homeWithReplacedText(): Promise<void> {
   await store.close()
 
   await inEventlog((db) => {
+    for (const [name, args] of oldCoordinatorEvents)
+      db.prepare(
+        `UPDATE eventlog SET name = ?, argsJson = ? WHERE seqNumGlobal = (SELECT seqNumGlobal
+           FROM eventlog WHERE name = 'v1.CoordinatorChatChanged' ORDER BY seqNumGlobal LIMIT 1)`,
+      ).run(name, JSON.stringify(args))
     db.exec(`UPDATE eventlog SET name = 'v1.SubAgentRequested' WHERE name = 'v2.SubAgentRequested'`)
     const start = db
       .prepare(`SELECT argsJson FROM eventlog WHERE name = 'v5.RunStarted'`)

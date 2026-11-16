@@ -46,12 +46,14 @@ export interface CoordinatorReceipt {
 }
 
 export interface Coordinator {
+  id: string
   factoryId: string
   runId: string
   runIds: string[]
   started: boolean
   opening: string
   startedAt: string
+  endedAt?: string
   lead: TaskLead
   status: 'ready' | 'queued' | 'working' | 'paused' | 'failed'
   error?: string
@@ -61,21 +63,16 @@ export interface Coordinator {
   tasks: Task[]
 }
 
-export interface CoordinatorConversationSummary {
+export interface CoordinatorChatSummary {
   id: string
-  title: string
-  startedAt: string
-  endedAt: string
-  taskCount: number
-}
-
-export interface CoordinatorConversation extends CoordinatorConversationSummary {
   factoryId: string
-  lead: TaskLead
-  runIds: string[]
-  receipts: CoordinatorReceipt[]
-  confirmations: CoordinatorConfirmation[]
-  tasks: Task[]
+  title: string
+  status: Coordinator['status']
+  startedAt: string
+  lastAt: string
+  endedAt?: string
+  taskCount: number
+  waiting: boolean
 }
 
 export interface CoordinatorRemoval {

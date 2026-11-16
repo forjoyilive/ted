@@ -33,94 +33,74 @@ const operations: readonly string[] = [
 export const coordinatorRoutes: Route[] = [
   {
     method: 'GET',
-    path: /^\/factories\/([^/]+)\/coordinator$/,
-    handle: async ({ params: [id = ''] }, { coordinators }) => [200, coordinators.get(id)],
+    path: /^\/factories\/([^/]+)\/coordinator-chats$/,
+    handle: async ({ params: [id = ''] }, { coordinators }) => [200, coordinators.chats(id)],
   },
-  {
-    method: 'GET',
-    path: /^\/factories\/([^/]+)\/coordinator\/chat$/,
-    handle: async ({ params: [id = ''] }, { coordinators, conversations }) => [
-      200,
-      coordinators.get(id) ? await conversations.coordinatorChat(id) : null,
-    ],
-  },
+  jsonRoute(parseCoordinatorMessage, {
+    method: 'POST',
+    path: /^\/factories\/([^/]+)\/coordinator-chats$/,
+    async handle({ params: [id = ''], body }, { coordinators }) {
+      return [201, await coordinators.start(id, body)]
+    },
+  }),
   {
     method: 'GET',
     path: /^\/coordinators$/,
     handle: async (_, { coordinators }) => [200, coordinators.statuses()],
   },
+  {
+    method: 'GET',
+    path: /^\/coordinator-chats\/([^/]+)$/,
+    handle: async ({ params: [id = ''] }, { coordinators }) => [200, coordinators.get(id)],
+  },
+  {
+    method: 'GET',
+    path: /^\/coordinator-chats\/([^/]+)\/chat$/,
+    handle: async ({ params: [id = ''] }, { coordinators, conversations }) => {
+      coordinators.get(id)
+      return [200, await conversations.coordinatorChat(id)]
+    },
+  },
   jsonRoute(parseCoordinatorMessage, {
     method: 'POST',
-    path: /^\/factories\/([^/]+)\/coordinator\/messages$/,
+    path: /^\/coordinator-chats\/([^/]+)\/messages$/,
     async handle({ params: [id = ''], body }, { coordinators }) {
       return [201, await coordinators.message(id, body)]
     },
   }),
   {
     method: 'POST',
-    path: /^\/factories\/([^/]+)\/coordinator\/stop$/,
+    path: /^\/coordinator-chats\/([^/]+)\/stop$/,
     handle: async ({ params: [id = ''] }, { coordinators }) => [200, await coordinators.stop(id)],
   },
   {
     method: 'POST',
-    path: /^\/factories\/([^/]+)\/coordinator\/reset$/,
-    async handle({ params: [id = ''] }, { coordinators }) {
-      await coordinators.reset(id)
-      return [200, null]
-    },
-  },
-  {
-    method: 'GET',
-    path: /^\/factories\/([^/]+)\/coordinator\/conversations$/,
-    handle: async ({ params: [id = ''] }, { coordinators }) => [
-      200,
-      coordinators.conversations(id),
-    ],
-  },
-  {
-    method: 'GET',
-    path: /^\/factories\/([^/]+)\/coordinator\/conversations\/([^/]+)$/,
-    handle: async ({ params: [id = '', conversation = ''] }, { coordinators }) => [
-      200,
-      coordinators.conversation(id, conversation),
-    ],
-  },
-  {
-    method: 'GET',
-    path: /^\/factories\/([^/]+)\/coordinator\/conversations\/([^/]+)\/chat$/,
-    handle: async ({ params: [id = '', conversation = ''] }, { coordinators, conversations }) => {
-      coordinators.conversation(id, conversation)
-      return [200, await conversations.savedCoordinatorChat(conversation)]
-    },
+    path: /^\/coordinator-chats\/([^/]+)\/retry$/,
+    handle: async ({ params: [id = ''] }, { coordinators }) => [200, await coordinators.retry(id)],
   },
   {
     method: 'POST',
-    path: /^\/factories\/([^/]+)\/coordinator\/conversations\/([^/]+)\/continue$/,
-    handle: async ({ params: [id = '', conversation = ''] }, { coordinators }) => [
+    path: /^\/coordinator-chats\/([^/]+)\/continue$/,
+    handle: async ({ params: [id = ''] }, { coordinators }) => [
       200,
-      await coordinators.continueConversation(id, conversation),
+      await coordinators.continueChat(id),
     ],
   },
   {
     method: 'DELETE',
-    path: /^\/factories\/([^/]+)\/coordinator\/conversations\/([^/]+)$/,
-    async handle({ params: [id = '', conversation = ''] }, { coordinators }) {
-      await coordinators.deleteConversation(id, conversation)
+    path: /^\/coordinator-chats\/([^/]+)$/,
+    async handle({ params: [id = ''] }, { coordinators }) {
+      await coordinators.deleteChat(id)
       return [200, null]
     },
   },
   jsonRoute(parseCoordinatorConfirmationAnswer, {
     method: 'POST',
-    path: /^\/factories\/([^/]+)\/coordinator\/confirmations\/([^/]+)$/,
+    path: /^\/coordinator-chats\/([^/]+)\/confirmations\/([^/]+)$/,
     async handle({ params: [id = '', confirmation = ''], body }, { coordinators }) {
       return [200, await coordinators.answerConfirmation(id, confirmation, body)]
     },
   }),
-  {
-    method: 'POST',
-    path: /^\/factories\/([^/]+)\/coordinator\/retry$/,
-    handle: async ({ params: [id = ''] }, { coordinators }) => [200, await coordinators.retry(id)],
-  },
   {
     method: 'GET',
     path: /^\/coordinator\/tasks(?:\?[^#]{0,2000})?$/,

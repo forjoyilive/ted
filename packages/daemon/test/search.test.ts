@@ -196,6 +196,7 @@ describe('search over the store', () => {
     store.startRun({ id: firing.id, agent: 'claude', prompt: '', cwd: dir })
     store.startRun({ id: 'coordinator', agent: 'claude', prompt: '', cwd: dir })
     store.coordinators.save({
+      id: 'coordinator-chat',
       factoryId: notebook.id,
       runId: 'coordinator',
       runIds: ['coordinator'],

@@ -16,7 +16,7 @@ import type { SnoozedRequest, WaitingRequest } from './waiting.ts'
 
 export type DaemonEvent =
   | { type: 'side-chat-changed'; sourceRunId: string }
-  | { type: 'coordinator-changed'; factoryId: string }
+  | { type: 'coordinator-changed'; factoryId: string; chatId: string }
   | { type: 'task-created'; task: Task }
   | { type: 'task-updated'; task: Task }
   | { type: 'task-deleted'; taskId: string }

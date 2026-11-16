@@ -911,7 +911,12 @@ export function App({ start }: { start?: AppStart | undefined }) {
           onOpenConfirmation={(confirmation) =>
             dispatch({
               type: 'open',
-              screen: { kind: 'factory', factoryId: confirmation.factoryId, view: 'coordinator' },
+              screen: {
+                kind: 'factory',
+                factoryId: confirmation.factoryId,
+                view: 'coordinator',
+                chatId: confirmation.chatId,
+              },
             })
           }
           onFilter={(scope) => openInbox({ scope })}
@@ -1088,7 +1093,14 @@ export function App({ start }: { start?: AppStart | undefined }) {
           )
         }
         if (screen.view === 'coordinator' && factory)
-          return <CoordinatorView key={factory.id} factory={factory} onOpenTask={openTaskByRef} />
+          return (
+            <CoordinatorView
+              key={factory.id}
+              factory={factory}
+              chatId={screen.chatId}
+              onOpenTask={openTaskByRef}
+            />
+          )
         if (screen.view === 'plans' && factory) {
           const backToPlans = () =>
             dispatch({

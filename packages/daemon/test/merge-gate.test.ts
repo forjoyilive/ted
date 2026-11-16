@@ -470,9 +470,9 @@ describe('Sending after sign-off', () => {
     })
     await client.ok('GET', `/factories/${task.factoryId}/settings?refresh=first`)
     const checkRuns = await client.ok<unknown[]>('GET', `/tasks/${task.id}/check-runs`)
-    const started = await client.ok<{ runId: string }>(
+    const started = await client.ok<{ id: string; runId: string }>(
       'POST',
-      `/factories/${task.factoryId}/coordinator/messages`,
+      `/factories/${task.factoryId}/coordinator-chats`,
       {
         text: JSON.stringify({ steps: [{ waitFor: path.join(ctx.scratch, 'coordinator') }] }),
         agent: 'claude',
@@ -481,7 +481,7 @@ describe('Sending after sign-off', () => {
     await waitUntil(async () => {
       const chat = await client.ok<{ started: boolean; status: string }>(
         'GET',
-        `/factories/${task.factoryId}/coordinator`,
+        `/coordinator-chats/${started.id}`,
       )
       return chat.started && chat.status === 'working' ? chat : undefined
     }, 'the Coordinator to start')

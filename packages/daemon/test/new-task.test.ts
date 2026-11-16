@@ -586,7 +586,7 @@ describe('unsent message text', () => {
       ),
     ).toEqual({ draft: { text: 'Later', attachments: [], fields: '{"a":1}' } })
     await client.saveMessageDraft(
-      { kind: 'coordinator', id: factory.id },
+      { kind: 'coordinator-new', id: factory.id },
       { text: 'What next?', attachments: [] },
     )
     await client.saveMessageDraft(
@@ -680,7 +680,7 @@ describe('unsent message text', () => {
     )
 
     await restarted.removeFactory(factory.id, { key: 'NB', closePullRequests: false })
-    expect(await restarted.messageDraft({ kind: 'coordinator', id: factory.id })).toEqual({
+    expect(await restarted.messageDraft({ kind: 'coordinator-new', id: factory.id })).toEqual({
       draft: null,
     })
     expect(await restarted.messageDraft({ kind: 'new-plan', id: factory.id })).toEqual({

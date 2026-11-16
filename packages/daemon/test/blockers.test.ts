@@ -1174,16 +1174,12 @@ test('a queued parent is held before launch; Coordinator edits share app safety 
   await client.ok('PATCH', '/settings', { maxWorkingRuns: 3 })
   const factory = (await client.ok<Factory[]>('GET', '/factories')).find((f) => f.key === 'NB')
   if (!factory) throw new Error('no Factory')
-  const chat = await client.ok<Coordinator>(
-    'POST',
-    `/factories/${factory.id}/coordinator/messages`,
-    {
-      text: steps({ waitFor: path.join(scratch, 'coordinator-finish') }),
-      agent: 'claude',
-    },
-  )
+  const chat = await client.ok<Coordinator>('POST', `/factories/${factory.id}/coordinator-chats`, {
+    text: steps({ waitFor: path.join(scratch, 'coordinator-finish') }),
+    agent: 'claude',
+  })
   await waitUntil(async () => {
-    const current = await client.ok<Coordinator>('GET', `/factories/${factory.id}/coordinator`)
+    const current = await client.ok<Coordinator>('GET', `/coordinator-chats/${chat.id}`)
     return current.started && current.status === 'working' ? current : undefined
   }, 'Coordinator to start')
   const coordinator = api(daemon?.port ?? 0, tokens.issue(chat.runId))

@@ -264,6 +264,7 @@ describe('pruning Run output', () => {
     const first = await makeRun()
     const second = await makeRun()
     store.coordinators.save({
+      id: 'chat-1',
       factoryId: 'factory-1',
       runId: second,
       runIds: [first, second],
@@ -276,7 +277,7 @@ describe('pruning Run output', () => {
 
     expect(await prune(400)).toEqual({ removed: [] })
 
-    store.coordinators.remove('factory-1')
+    store.coordinators.delete('chat-1')
     expect(await prune(6)).toEqual({ removed: [] })
     expect((await prune(8)).removed.sort()).toEqual([first, second].sort())
   })

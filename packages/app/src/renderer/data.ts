@@ -10,7 +10,6 @@ import type {
   Banner,
   CheckRun,
   Comment,
-  Coordinator,
   CoordinatorStatus,
   DataStatus,
   DescriptionVersion,
@@ -744,69 +743,43 @@ const planEvent = (event: TedEvent, factoryId: string | undefined, planId?: stri
 const busyEvents = (event: TedEvent) =>
   event.type === 'task-updated' || event.type === 'run-updated' || event.type === 'slots-changed'
 
-export function useCoordinator(factoryId: string): Coordinator | null | undefined {
-  return useCoordinatorState(factoryId).value
-}
-
-export function useCoordinatorState(factoryId: string) {
+export function useCoordinatorChats(factoryId: string) {
   return useReloadingState(
-    () => ted.coordinator(factoryId),
+    () => ted.coordinatorChats(factoryId),
     (event) =>
       (event.type === 'coordinator-changed' && event.factoryId === factoryId) ||
       (event.type === 'task-updated' && event.task.factoryId === factoryId) ||
       event.type === 'run-updated' ||
-      event.type === 'slots-changed' ||
       event.type === 'agent-health-changed',
     factoryId,
     busyEvents,
   )
 }
 
-export function useCoordinatorChat(
-  factoryId: string,
-  runIds: readonly string[],
-): RunChat | null | undefined {
-  return useCoordinatorChatState(factoryId, runIds).value
+export function useCoordinatorState(chatId: string) {
+  return useReloadingState(
+    () => ted.coordinator(chatId),
+    (event) =>
+      (event.type === 'coordinator-changed' && event.chatId === chatId) ||
+      event.type === 'task-updated' ||
+      event.type === 'run-updated' ||
+      event.type === 'slots-changed' ||
+      event.type === 'agent-health-changed',
+    chatId,
+    busyEvents,
+  )
 }
 
-export function useCoordinatorChatState(factoryId: string, runIds: readonly string[]) {
+export function useCoordinatorChatState(chatId: string, runIds: readonly string[]) {
   return useReloadingState(
-    () => ted.coordinatorChat(factoryId),
+    () => ted.coordinatorChat(chatId),
     (event) =>
-      (event.type === 'coordinator-changed' && event.factoryId === factoryId) ||
+      (event.type === 'coordinator-changed' && event.chatId === chatId) ||
       (event.type === 'run-output' && runIds.includes(event.runId)) ||
       (event.type === 'run-updated' && runIds.includes(event.run.id)) ||
       event.type === 'agent-health-changed',
-    factoryId,
+    chatId,
     outputLines,
-  )
-}
-
-export function useCoordinatorConversations(factoryId: string) {
-  return useReloadingState(
-    () => ted.coordinatorConversations(factoryId),
-    (event) =>
-      (event.type === 'coordinator-changed' && event.factoryId === factoryId) ||
-      (event.type === 'task-updated' && event.task.factoryId === factoryId),
-    factoryId,
-  )
-}
-
-export function useCoordinatorConversationState(factoryId: string, conversationId: string) {
-  return useReloadingState(
-    () => ted.coordinatorConversation(factoryId, conversationId),
-    (event) =>
-      (event.type === 'coordinator-changed' && event.factoryId === factoryId) ||
-      (event.type === 'task-updated' && event.task.factoryId === factoryId),
-    `${factoryId}:${conversationId}`,
-  )
-}
-
-export function useCoordinatorConversationChatState(factoryId: string, conversationId: string) {
-  return useReloadingState(
-    () => ted.coordinatorConversationChat(factoryId, conversationId),
-    (event) => event.type === 'coordinator-changed' && event.factoryId === factoryId,
-    `${factoryId}:${conversationId}`,
   )
 }
 
