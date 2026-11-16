@@ -657,7 +657,12 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
   const boxId = useId()
   const box: MessageBox = { kind: 'request', id: request.id }
   const kept = useMessageDraft(box)
-  const { text, setText } = kept
+  const savedOther = kept.fields.otherText
+  const text = kept.text === '' && typeof savedOther === 'string' ? savedOther : kept.text
+  const setText = (value: string) => {
+    kept.setText(value)
+    if (savedOther !== undefined) kept.setField('otherText', undefined)
+  }
   const [selection, setSelection] = draftField(
     kept,
     'selection',
@@ -674,12 +679,6 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
           ('choice' in value &&
             typeof value.choice === 'string' &&
             (request.choices ?? []).includes(value.choice)))),
-  )
-  const [otherText, setOtherText] = draftField(
-    kept,
-    'otherText',
-    '',
-    (value): value is string => typeof value === 'string',
   )
   const {
     send: post,
@@ -726,14 +725,13 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
       : other
         ? 'Message to the Task Lead'
         : undefined
-  const answerText = questionChoices && other ? otherText : text
   const ready = questionChoices
     ? !repairing &&
       (several
-        ? picks.length > 0 || (other && otherText.trim() !== '')
+        ? picks.length > 0 || (other && typed)
         : selectedChoice !== undefined
           ? !needsReason || typed
-          : other && otherText.trim() !== '')
+          : other && typed)
     : typed
 
   const enter = request.simulator
@@ -761,15 +759,14 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
             action: 'answer',
             ...(questionChoices && selectedChoice !== undefined && { choice: selectedChoice }),
             ...(several && picks.length > 0 && { choices: picks }),
-            ...(answerText.trim() !== '' && { text: answerText }),
+            ...(typed && { text }),
           },
     )
   }
 
   async function commentInstead() {
-    if (!(await comment(answerText))) return
-    if (questionChoices && other) setOtherText('')
-    else setText('')
+    if (!(await comment(text))) return
+    setText('')
   }
 
   function pressEnter() {
@@ -823,13 +820,9 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
                         : 'Add to this answer…'
                       : 'Comment to the Task Lead…'
           }
-          value={answerText}
+          value={text}
           disabled={sending}
-          onChange={(event) =>
-            questionChoices && other
-              ? setOtherText(event.target.value)
-              : setText(event.target.value)
-          }
+          onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) =>
             repairing
               ? sendOnEnter(
@@ -869,7 +862,7 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
       )}
       <div className={styles.buttons}>
         {lead?.({
-          disabled: sending || answerText.trim() === '',
+          disabled: sending || !typed,
           pending: commenting,
           send: () => void commentInstead(),
         })}

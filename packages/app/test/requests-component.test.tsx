@@ -51,7 +51,7 @@ function requestApi() {
   return { ...api, answer }
 }
 
-test('question choices wait for Send, preserve drafts when switching, and retain selection after errors', async () => {
+test('question choices wait for Send, keep one answer text when switching, and retain selection after errors', async () => {
   const { answer, handle } = requestApi()
   const pending = deferred<never>()
   handle(
@@ -66,18 +66,22 @@ test('question choices wait for Send, preserve drafts when switching, and retain
   await u.click(screen.getByRole('radio', { name: 'Compact' }))
   await u.type(screen.getByLabelText('Your answer'), 'Keep it readable.')
   await u.click(screen.getByRole('radio', { name: 'Other answer' }))
+  expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe(
+    'Keep it readable.',
+  )
+  await u.clear(screen.getByLabelText('Your answer'))
   expect(send.disabled).toBe(true)
   await u.type(screen.getByLabelText('Your answer'), 'Use a custom layout.')
   await u.click(screen.getByRole('radio', { name: 'Comfortable' }))
   expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe(
-    'Keep it readable.',
+    'Use a custom layout.',
   )
   expect(answer).not.toHaveBeenCalled()
   await u.click(send)
   expect(answer).toHaveBeenCalledExactlyOnceWith('c1', {
     action: 'answer',
     choice: 'Comfortable',
-    text: 'Keep it readable.',
+    text: 'Use a custom layout.',
   })
   expect(send.disabled).toBe(true)
   expect(screen.getByRole('radio', { name: 'Compact' }).matches(':disabled')).toBe(true)
@@ -105,6 +109,27 @@ test('question choices wait for Send, preserve drafts when switching, and retain
   expect(send.disabled).toBe(true)
   await u.keyboard('{Enter}')
   expect(answer).toHaveBeenCalledTimes(2)
+})
+
+test('an unsent Other answer saved in the older separate field still shows and sends', async () => {
+  const { answer, handle } = requestApi()
+  handle('messageDraft', () => ({
+    draft: {
+      text: '',
+      attachments: [],
+      fields: JSON.stringify({ selection: { other: true }, otherText: 'Older text' }),
+    },
+  }))
+  render(<RequestCard task={task()} request={comment({ choices: ['Compact', 'Comfortable'] })} />)
+  const box = (await screen.findByDisplayValue('Older text')) as HTMLTextAreaElement
+  await user().click(screen.getByRole('radio', { name: 'Compact' }))
+  expect(box.value).toBe('Older text')
+  await user().click(screen.getByRole('button', { name: 'Send' }))
+  expect(answer).toHaveBeenCalledExactlyOnceWith('c1', {
+    action: 'answer',
+    choice: 'Compact',
+    text: 'Older text',
+  })
 })
 
 test('Linear team questions select before Send and offer only supported answers', async () => {
@@ -154,9 +179,10 @@ test('Automation question choices and written answers wait for Send', async () =
   expect(answer).not.toHaveBeenCalled()
   await u.click(send)
   expect(answer).toHaveBeenCalledExactlyOnceWith('aq', { choice: 'Skip' })
-  await u.click(screen.getByRole('radio', { name: 'Other answer' }))
-  expect(send.disabled).toBe(true)
   await u.type(screen.getByLabelText('Your answer'), 'Ask tomorrow.')
+  await u.click(screen.getByRole('radio', { name: 'Other answer' }))
+  expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe('Ask tomorrow.')
+  await u.click(screen.getByLabelText('Your answer'))
   answer.mockImplementationOnce(() => {
     throw new Error('Couldn’t answer')
   })
