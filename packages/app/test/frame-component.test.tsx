@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import type { FactoryLayout } from '@ted/protocol'
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, createEvent, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { Sidebar } from '../src/renderer/components/Sidebar.tsx'
 import { initialNavigation } from '../src/renderer/navigation.ts'
@@ -513,6 +513,49 @@ test('an open Task expands its own Factory’s group, not the group of the scree
     expect(within(group('Acme')).queryByRole('article', { name: 'widgets' })).toBeNull()
     view.unmount()
   }
+})
+
+test('a Factory dragged to the strip under its group or above its group’s header leaves the group', async () => {
+  const a = appState()
+  a.state.factories = [factory(), factory({ id: 'f2', name: 'site', key: 'MS', position: 1 })]
+  a.state.layout = { items: [{ group: { id: 'acme', name: 'Acme', factoryIds: ['f1', 'f2'] } }] }
+  a.handle('saveFactoryLayout', (layout) => {
+    a.state.layout = layout as FactoryLayout
+    a.emit({ type: 'factory-layout-changed', layout: a.state.layout })
+    return a.state.layout
+  })
+  a.mount()
+  const acme = await within(nav()).findByRole('region', { name: 'Acme' })
+  const dataTransfer = { effectAllowed: '', setData: () => {} }
+  const dragOnto = (from: Element, to: Element, clientY = 0) => {
+    to.getBoundingClientRect = () => new DOMRect(0, 0, 200, 40)
+    fireEvent.dragStart(from, { dataTransfer })
+    for (const make of [createEvent.dragOver, createEvent.drop]) {
+      const event = make(to, { dataTransfer })
+      Object.defineProperty(event, 'clientY', { value: clientY })
+      fireEvent(to, event)
+    }
+  }
+  dragOnto(within(acme).getByRole('article', { name: 'site' }), required(acme.nextElementSibling))
+  await vi.waitFor(() =>
+    expect(a.state.layout).toEqual({
+      items: [{ group: { id: 'acme', name: 'Acme', factoryIds: ['f1'] } }, { factoryId: 'f2' }],
+    }),
+  )
+  dragOnto(
+    within(acme).getByRole('article', { name: 'widgets' }),
+    within(acme).getByRole('article', { name: 'Acme' }),
+    5,
+  )
+  await vi.waitFor(() =>
+    expect(a.state.layout).toEqual({
+      items: [
+        { factoryId: 'f1' },
+        { group: { id: 'acme', name: 'Acme', factoryIds: [] } },
+        { factoryId: 'f2' },
+      ],
+    }),
+  )
 })
 
 test('Factory groups: New group from the + menu, Move to group, collapse and Ungroup', async () => {
