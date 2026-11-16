@@ -115,6 +115,7 @@ export function defaultView(scope: string): ListView {
   return {
     sort: 'manual',
     group: 'stage',
+    ...(!all && { nested: true }),
     columnsVersion: 2,
     columns: [
       'priority',

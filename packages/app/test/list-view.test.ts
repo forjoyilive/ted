@@ -76,8 +76,8 @@ const factories: Factory[] = [
 const ids = (tasks: readonly Task[]) => tasks.map((t) => t.displayId)
 
 describe('defaults', () => {
-  test('Lists group by Stage; All Tasks also shows the Factory column', () => {
-    expect(defaultView('nb')).toMatchObject({ sort: 'manual', group: 'stage' })
+  test('Lists group by Stage and nest child Tasks; All Tasks shows the Factory column, flat', () => {
+    expect(defaultView('nb')).toMatchObject({ sort: 'manual', group: 'stage', nested: true })
     expect(shownColumns(defaultView('nb'))).toEqual([
       'priority',
       'id',
@@ -88,6 +88,8 @@ describe('defaults', () => {
       'started',
     ])
     expect(defaultView('all')).toMatchObject({ sort: 'manual', group: 'stage' })
+    expect(defaultView('all').nested).toBeUndefined()
+    expect(viewFor({ nb: { ...defaultView('nb'), nested: false } }, 'nb').nested).toBe(false)
     expect(shownColumns(defaultView('all'))).toContain('factory')
   })
 
