@@ -936,6 +936,9 @@ export function threadEvents(
         )
         break
       }
+      case 'v1.PullRequestTitleSet':
+        add(entry, 'edit', `The Task Lead titled the pull request “${text(data.title)}”`)
+        break
       case 'v1.TaskBranchRebased':
         add(
           entry,

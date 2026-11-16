@@ -153,6 +153,10 @@ function stageSettings(given: unknown): Partial<Record<StageId, StageSettingsInp
     ) {
       throw new HttpError(400, `${id}.leadClosesFailures must be true or false, on Work`)
     }
+    const commitTitles = stage.commitTitles
+    if (commitTitles !== undefined && (id !== 'merge' || typeof commitTitles !== 'boolean')) {
+      throw new HttpError(400, `${id}.commitTitles must be true or false, on Merge`)
+    }
     stages[id as StageId] = {
       ...(effort !== undefined && { effort: effort as Effort | null }),
       ...(enabled !== undefined && { enabled }),
@@ -164,6 +168,7 @@ function stageSettings(given: unknown): Partial<Record<StageId, StageSettingsInp
       ...(leadClosesFailures !== undefined && {
         leadClosesFailures: leadClosesFailures as boolean,
       }),
+      ...(commitTitles !== undefined && { commitTitles: commitTitles as boolean }),
     }
   }
   return stages

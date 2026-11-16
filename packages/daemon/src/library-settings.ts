@@ -180,6 +180,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
           subAgents: stage?.sub_agents === true,
         }),
         ...(id === 'work' && { leadClosesFailures: stage?.lead_closes_failures === true }),
+        ...(id === 'merge' && { commitTitles: stage?.commit_titles !== false }),
         from: libraryFile !== undefined ? 'library' : 'ted',
         ...(libraryFile !== undefined && { libraryFile }),
         ...(defaultText !== undefined && { defaultText }),

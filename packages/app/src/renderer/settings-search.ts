@@ -379,6 +379,10 @@ const entries = {
     name: 'Task Lead closes its own fixed failures',
     help: 'Off: when a test the Task Lead ran itself failed outside Validate and it recorded the failure, only you can close it, from a question in your Inbox. On: once the Task Lead runs the test again and it passes, it closes the failure itself with that evidence, and you get a line in the thread and no question. TED doesn’t run the test, so you are trusting the Task Lead’s report. Failed Checks and failures found in Validate still need your decision, and only you can accept a failure that still happens.',
   },
+  'factory.workflow.commit-titles': {
+    name: 'Task Lead writes the merge commit',
+    help: 'On: at Merge the Task Lead gives each pull request a Conventional Commits title, such as “fix(app): keep the sidebar open (TED-12)”, and a short description. TED uses them as the merge commit’s subject and body. If the Task Lead writes none, TED keeps the Task’s title and GitHub’s own merge message. Off: TED keeps the Task’s title and GitHub’s merge message.',
+  },
   'factory.checks': {
     name: 'Checks',
     help: 'Commands TED runs at Validate, one after another, before the agent’s own checks. Run now tries one on the base branch in a scratch worktree.',

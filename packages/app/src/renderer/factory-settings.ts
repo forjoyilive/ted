@@ -123,6 +123,7 @@ export interface StageDraft {
   p1OnlyFrom?: number | false
   subAgents?: boolean
   leadClosesFailures?: boolean
+  commitTitles?: boolean
 }
 
 export interface SettingsDraft {
@@ -229,17 +230,20 @@ const stageFields = [
   'p1OnlyFrom',
   'subAgents',
   'leadClosesFailures',
+  'commitTitles',
 ] as const
 
 export function stageOptionsDraft(row: {
   p1OnlyFrom?: number | false
   subAgents?: boolean
   leadClosesFailures?: boolean
-}): Pick<StageDraft, 'p1OnlyFrom' | 'subAgents' | 'leadClosesFailures'> {
+  commitTitles?: boolean
+}): Pick<StageDraft, 'p1OnlyFrom' | 'subAgents' | 'leadClosesFailures' | 'commitTitles'> {
   return {
     ...(row.p1OnlyFrom !== undefined && { p1OnlyFrom: row.p1OnlyFrom }),
     ...(row.subAgents !== undefined && { subAgents: row.subAgents }),
     ...(row.leadClosesFailures !== undefined && { leadClosesFailures: row.leadClosesFailures }),
+    ...(row.commitTitles !== undefined && { commitTitles: row.commitTitles }),
   }
 }
 
@@ -379,6 +383,7 @@ export type StageField =
   | 'p1OnlyFrom'
   | 'subAgents'
   | 'leadClosesFailures'
+  | 'commitTitles'
   | 'file'
   | 'kept'
 

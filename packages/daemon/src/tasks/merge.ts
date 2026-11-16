@@ -10,6 +10,7 @@ export interface MergeTarget {
   expectedHead: string
   hasCi: boolean
   method: MergeMethod
+  message?: { subject: string; body?: string }
 }
 
 export type CheckState = 'pending' | 'passed' | 'failed'
@@ -285,7 +286,17 @@ export async function mergePullRequest(
     '--match-head-commit',
     target.expectedHead,
     ...(options.auto ? ['--auto'] : []),
+    ...mergeMessage(target.message, method),
   ])
+}
+
+export function mergeMessage(message: MergeTarget['message'], method: MergeMethod): string[] {
+  if (!message || method === 'rebase') return []
+  return [
+    '--subject',
+    message.subject,
+    ...(message.body !== undefined ? ['--body', message.body] : []),
+  ]
 }
 
 export async function disableAutoMerge(

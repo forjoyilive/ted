@@ -33,6 +33,7 @@ import {
   FromChip,
   InvalidNotice,
   Markdown,
+  MergeCommitTitles,
   Toggle,
   ValidateRounds,
   WorkFailures,
@@ -425,6 +426,7 @@ function StageLine({
       </div>
       {row.id === 'validate' && <ValidateRounds stage={stage} onStage={onStage} />}
       {row.id === 'work' && <WorkFailures stage={stage} onStage={onStage} />}
+      {row.id === 'merge' && <MergeCommitTitles stage={stage} onStage={onStage} />}
       {drift && (
         <DriftNotice
           stage={row.id as AgentStageId}

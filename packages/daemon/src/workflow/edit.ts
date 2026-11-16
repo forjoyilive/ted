@@ -208,6 +208,7 @@ export function applyChanges(
       ['p1_only_from', stage.p1OnlyFrom],
       ['sub_agents', stage.subAgents],
       ['lead_closes_failures', stage.leadClosesFailures],
+      ['commit_titles', stage.commitTitles],
     ]
     if (fields.every(([, value]) => value === undefined)) continue
     const map = stageMap(doc, root, id)
@@ -574,6 +575,7 @@ const keyOrder = [
   'p1_only_from',
   'sub_agents',
   'lead_closes_failures',
+  'commit_titles',
   'checks',
   'based_on',
 ]

@@ -236,6 +236,7 @@ import type {
   SaveTaskDraftRequest,
   SetClarifyDepthRequest,
   SetPriorityRequest,
+  SetPullRequestTitleRequest,
   SetTaskLeadRequest,
   SetTaskParentRequest,
   SetTaskReposRequest,
@@ -738,6 +739,13 @@ export class DaemonClient {
   markDone(ref: string): Promise<Task> {
     const body: MarkDoneRequest = {}
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/mark-done`, body)
+  }
+
+  setPullRequestTitle(
+    ref: string,
+    request: SetPullRequestTitleRequest,
+  ): Promise<{ title: string; message: string }> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/pull-request-title`, request)
   }
 
   leadDone(ref: string): Promise<Task> {

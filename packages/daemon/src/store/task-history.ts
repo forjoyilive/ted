@@ -91,6 +91,12 @@ export function createTaskHistory(
         }),
       }
     },
+    pullRequestTitle(taskId: string): { title: string; body?: string } | undefined {
+      const set = read(taskId).findLast((e) => e.name === 'v1.PullRequestTitleSet')
+      if (!set || typeof set.data.title !== 'string') return undefined
+      const body = typeof set.data.body === 'string' ? set.data.body : ''
+      return { title: set.data.title, ...(body !== '' && { body }) }
+    },
     approvalsBoundToCommit(taskId: string, commit: string): string[] {
       return read(taskId)
         .filter((e) => e.name === 'v1.GateApprovalBound' && e.data.commit === commit)

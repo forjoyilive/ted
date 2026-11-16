@@ -625,6 +625,15 @@ describe('checking a layer', () => {
     expect(validate('lead_closes_failures: true')).toEqual([
       'warning .ted/workflow.yaml 3 5 unknown key `stages.validate.lead_closes_failures`',
     ])
+    const merge = (line: string) =>
+      problems({ 'workflow.yaml': `stages:\n  merge:\n    ${line}\n` })
+    expect(merge('commit_titles: 1')).toEqual([
+      'error .ted/workflow.yaml 3 20 `stages.merge.commit_titles` must be true or false',
+    ])
+    for (const value of ['true', 'false']) expect(merge(`commit_titles: ${value}`)).toEqual([])
+    expect(work('commit_titles: false')).toEqual([
+      'warning .ted/workflow.yaml 3 5 unknown key `stages.work.commit_titles`',
+    ])
   })
 
   test('Checks are Factory only', () => {
