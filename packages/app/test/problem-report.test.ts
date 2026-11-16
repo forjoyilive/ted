@@ -162,13 +162,13 @@ describe('sendProblemReport', () => {
 
   test('keeps the message within Sentry’s 4,096 code points after redaction', async () => {
     const { given, sent } = deps({ ok: true, status: 200 }, 'r')
-    const secret = 'Bearer abc'
+    const secret = 'Bearer abc '
     const description = `${secret}${'y'.repeat(maxProblemDescription - secret.length)}`
     await sendProblemReport({ description, email: '', includeLog: true }, given)
     const event = JSON.parse(sent().split('\n')[2] ?? '')
     const message: string = event.contexts.feedback.message
     expect([...message]).toHaveLength(maxProblemDescription)
-    expect(message.startsWith('Bearer [redacted]')).toBe(true)
+    expect(message.startsWith('Bearer [redacted] y')).toBe(true)
   })
 
   test('says why a report wasn’t sent', async () => {
