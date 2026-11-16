@@ -9902,22 +9902,22 @@ export function createTasks(options: {
     finished: leadLifecycle.finished,
   })
 
+  function retryAfterHandOff(run: Run, at: string | undefined): void {
+    if (run.taskId === undefined) return
+    const since = repairHandOffs.get(run.taskId)
+    const task = store.getTask(run.taskId)
+    if (since === undefined || task?.leadRunId !== run.id || (at !== undefined && at < since))
+      return
+    repairHandOffs.delete(task.id)
+    inBackground(`bring the repair into ${task.displayId} after its Task Lead’s turn`, async () => {
+      while (inFlight.is(task.id, 'checking')) await untilChecksIdle(task.id)
+      scheduleRepairChecks(task.id, 'after-hand-off')
+    })
+  }
+
   runs.observe({
-    turnEnded(run, at) {
-      if (run.taskId === undefined) return
-      const since = repairHandOffs.get(run.taskId)
-      const task = store.getTask(run.taskId)
-      if (since === undefined || task?.leadRunId !== run.id || (at !== undefined && at < since))
-        return
-      repairHandOffs.delete(task.id)
-      inBackground(
-        `bring the repair into ${task.displayId} after its Task Lead’s turn`,
-        async () => {
-          while (inFlight.is(task.id, 'checking')) await untilChecksIdle(task.id)
-          scheduleRepairChecks(task.id, 'after-hand-off')
-        },
-      )
-    },
+    turnEnded: retryAfterHandOff,
+    finished: (run) => retryAfterHandOff(run, undefined),
   })
 
   health.onReady((agent) => {
@@ -10183,7 +10183,10 @@ export function createTasks(options: {
   }
   for (const task of store.listTasks()) {
     const lead = task.leadRunId && store.getRun(task.leadRunId)
-    if (lead && lead.state !== 'finished') scheduleRepairChecks(task.id)
+    if (!lead || lead.state === 'finished') continue
+    if (!awaitsIncorporation(task.id)) scheduleRepairChecks(task.id)
+    else if (lead.state === 'idle') scheduleRepairChecks(task.id, 'after-hand-off')
+    else repairHandOffs.set(task.id, new Date().toISOString())
   }
   for (const task of interruptedHandOffs) {
     if (handOffHalted(task, task.leadRunId)) {
@@ -10612,6 +10615,7 @@ export function createTasks(options: {
     task: StoredTask,
     mode: 'lead-starting' | 'lead-live' | 'after-hand-off',
   ): Promise<boolean> {
+    if (mode === 'lead-starting') repairHandOffs.delete(task.id)
     let incorporated = false
     for (const value of store.failures.list(task.id)) {
       const decision = value.resolutions.at(-1)
@@ -10785,6 +10789,19 @@ export function createTasks(options: {
     }
     await store.persisted()
     return incorporated
+  }
+
+  function awaitsIncorporation(taskId: string): boolean {
+    return store.failures.list(taskId).some((value) => {
+      const decision = value.resolutions.at(-1)
+      return (
+        decision?.resolution === 'repair' &&
+        decision.repairTask !== undefined &&
+        !value.verifications?.length &&
+        !value.repairProgress?.some((p) => p.requestId === decision.requestId) &&
+        store.isMerged(decision.repairTask.id)
+      )
+    })
   }
 
   function refuseDuringRepairHandOff(task: StoredTask): void {
