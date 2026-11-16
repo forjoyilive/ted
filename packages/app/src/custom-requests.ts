@@ -6,6 +6,8 @@ import type {
   ExportFormat,
   MachineSettings,
   MemoryUse,
+  ProblemReportRequest,
+  ProblemReportResult,
   ProcessUsage,
   RunFixRequest,
   RunFixResult,
@@ -77,6 +79,9 @@ export interface CustomRequests {
   checkForUpdates: () => Promise<UpdateStatus>
   restartToUpdate: () => Promise<void>
   copyCrashReport: () => Promise<void>
+  problemReport: () => Promise<{ text: string; daemon: boolean }>
+  sendProblemReport: (request: ProblemReportRequest) => Promise<ProblemReportResult>
+  openGitHubIssue: () => Promise<void>
   runFix: (request: RunFixRequest) => Promise<RunFixResult>
   openLinearKeyPage: () => Promise<void>
 }

@@ -35,6 +35,8 @@ import {
   timeFormats,
   workingRunLimits,
 } from '@ted/protocol'
+import { isString } from '@ted/protocol/parse'
+import { isReportEmail } from '@ted/protocol/problem-report'
 import { builtInStageOrder, isStageId } from '@ted/protocol/stage'
 import { parseEditorCommand } from '../editors.ts'
 import { RequestError as HttpError } from '../errors.ts'
@@ -335,6 +337,13 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
       )
     }
     return value
+  },
+  reportEmail(value) {
+    const email = isString(value) ? value.trim() : undefined
+    if (email === undefined || !isReportEmail(email)) {
+      throw new HttpError(400, 'reportEmail must be an email address or empty')
+    }
+    return email
   },
   developerMode(value) {
     if (typeof value !== 'boolean') throw new HttpError(400, 'developerMode must be true or false')

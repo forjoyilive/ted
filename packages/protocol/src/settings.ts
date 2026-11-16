@@ -86,6 +86,7 @@ export interface MachineSettings {
   appearance: Appearance
   terminalFontSize: number
   profilePicture: string | null
+  reportEmail: string
   developerMode: boolean
   preparationNoticeSeen: boolean
   overnightMode: boolean
@@ -143,6 +144,7 @@ export const defaultMachineSettings: MachineSettings = {
   appearance: 'system',
   terminalFontSize: 13,
   profilePicture: null,
+  reportEmail: '',
   developerMode: false,
   preparationNoticeSeen: false,
   overnightMode: false,

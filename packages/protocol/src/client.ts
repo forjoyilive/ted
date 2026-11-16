@@ -1373,8 +1373,8 @@ export class DaemonClient {
     return this.#request('GET', '/diagnostics/memory')
   }
 
-  getReport(): Promise<{ text: string }> {
-    return this.#request('GET', '/diagnostics/report')
+  getReport(options: { log?: boolean } = {}): Promise<{ text: string }> {
+    return this.#request('GET', `/diagnostics/report${options.log === false ? '?log=0' : ''}`)
   }
 
   getSlowMoments(): Promise<SlowMoments> {
