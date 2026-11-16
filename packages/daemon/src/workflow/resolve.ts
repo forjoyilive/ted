@@ -94,11 +94,7 @@ function built(
     ...(settings.order ?? ['intake', 'work']).filter((id) => id !== 'cleanup'),
     ...(cleanupOn(settings) ? (['cleanup'] as const) : []),
   ]
-  const stages: StageId[] = [
-    ...(enabled('backlog') ? (['backlog'] as const) : []),
-    ...order.filter(enabled),
-    'done',
-  ]
+  const stages: StageId[] = ['backlog', ...order.filter(enabled), 'done']
 
   return {
     stages,
@@ -157,7 +153,7 @@ export function withForcedGates(
     else order.splice(before, 0, id)
   }
   const included: StageId[] = [
-    ...(workflow.stages.includes('backlog') ? (['backlog'] as const) : []),
+    'backlog',
     ...order.filter((id) => stages[id]?.enabled !== false),
     'done',
   ]
@@ -226,7 +222,7 @@ export function boardStages(workflow: ResolvedWorkflow, overnightMode = false): 
     const gate = id !== 'backlog' && id !== 'done' && stages[id]?.gate === true
     return {
       id,
-      enabled: id === 'done' || stages[id]?.enabled !== false,
+      enabled: id === 'backlog' || id === 'done' || stages[id]?.enabled !== false,
       gate,
       ...(gate && overnightMode && { overnight: true as const }),
     }

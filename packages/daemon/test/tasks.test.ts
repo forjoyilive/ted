@@ -498,17 +498,4 @@ describe('the Workflow', () => {
       problems: [{ severity: 'error', message: '`order` must start with `intake`' }],
     })
   })
-
-  test('with Backlog turned off, a new Task starts at Intake', async () => {
-    await commitToOrigin(scratch, {
-      '.ted/workflow.yaml': 'version: 1\nstages:\n  backlog: { enabled: false }\n',
-    })
-    const client = await startWithStub()
-    await addFactory(client)
-
-    const task = await createTask(client, steps({ endTurn: true }))
-
-    expect(task.stage).toBe('intake')
-    expect((await getTask(client, task.id))?.leadRunId).toBeDefined()
-  })
 })

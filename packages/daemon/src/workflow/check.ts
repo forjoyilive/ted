@@ -405,6 +405,8 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
               scalar(node) === false
             ) {
               error(node, `${id === 'work' ? 'Work' : 'Intake'} can’t be turned off`)
+            } else if (entry.name === 'enabled' && id === 'backlog' && scalar(node) === false) {
+              warn(node, 'Backlog can’t be turned off; TED ignores this')
             } else stage[entry.name] = scalar(node) as boolean
             break
           case 'max_back':

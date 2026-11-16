@@ -225,7 +225,23 @@ test('Workflow and notes stay staged across pages while confirmed permissions sa
     pullRequest: { number: 1, url: 'https://github.com/acme/widgets/pull/1' },
   }))
   const api = open({
-    factorySettings: () => ({ ...settingsView(), permissions }),
+    factorySettings: () => {
+      const view = settingsView()
+      return {
+        ...view,
+        permissions,
+        stages: [
+          {
+            id: 'backlog' as const,
+            inOrder: true,
+            enabled: true,
+            gate: false,
+            from: 'ted' as const,
+          },
+          ...view.stages,
+        ],
+      }
+    },
     setFactoryPermissions: (_id, mode) => {
       if (mode !== 'auto' && mode !== 'bypass') throw new Error('Unexpected permission mode')
       permissions = mode
@@ -254,7 +270,9 @@ test('Workflow and notes stay staged across pages while confirmed permissions sa
   expect(gate.getAttribute('aria-checked')).toBe('true')
   expect(screen.queryByRole('switch', { name: 'Work on' })).toBeNull()
   expect(screen.queryByRole('switch', { name: 'Intake on' })).toBeNull()
+  expect(screen.queryByRole('switch', { name: 'Backlog on' })).toBeNull()
   expect(screen.getAllByText('Always on').map((on) => on.title)).toEqual([
+    'Backlog can’t be turned off',
     'Intake can’t be turned off',
     'Work can’t be turned off',
   ])

@@ -293,7 +293,7 @@ Rules:
 | `stages.<id>.gate` | any layer | `true` puts a sign-off at the end of the Stage. | KRI-12 |
 | `stages.<id>.max_back` | any layer | Limit on send-backs from this Stage (6.7). UI label: **Send-backs**. | KRI-12, KRI-58, KRI-65 |
 | `stages.<id>.based_on` | Factory or Library | Hash of the inherited Stage file an override was copied from (5.5). | KRI-22, KRI-58 |
-| `stages.backlog.enabled` | any layer | The only setting Backlog takes. Done takes none. | KRI-15, KRI-58 |
+| `stages.backlog.enabled` | any layer | The only key Backlog accepts. Backlog is always on: `false` is ignored with a warning. Done takes none. | KRI-15, KRI-58, KRI-411 |
 | `stages.cleanup.enabled` | any layer | `true` turns on Cleanup after Merge (6.15) when at least one step is listed. Default off. Cleanup can’t be in `order` and takes only `enabled`, `effort`, `based_on` and `steps`. | ADR 0148 |
 | `stages.cleanup.steps` | any layer | List of Cleanup steps, each `{name, instruction}` or `{name, command, timeout?}`: a unique one-line name of at most 80 characters and either the instruction the Task Lead follows or a shell command TED runs itself (`timeout` like a Check’s, default `10m`). | ADR 0148, ADR 0149 |
 | `stages.clarify.depth` | any layer | `auto` (default), `none`, `few`, `grilling`. | KRI-19 |
@@ -393,7 +393,7 @@ Task branches in `api` start from `develop` and their pull requests target it; `
 
 - v1 has the built-in Stages only: Backlog, Intake, Clarify, Design, Work, Validate, Review, Merge, Done. Custom Stages, including plain agent Stages from a Stage file, are later (KRI-50). (KRI-58)
 - `order` lists agent Stages only, each at most once: `intake`, `clarify`, `design`, `work`, `validate`, `review`, `merge`. Rules: `intake` first, `work` present, `merge` last when listed. Anything else may be reordered. A Stage left out of `order` is off. (KRI-58)
-- Backlog is always first and Done always last; neither appears in `order`. Backlog can be turned off with `stages.backlog.enabled: false`; Done can’t. (KRI-58)
+- Backlog is always first and Done always last; neither appears in `order`, and neither can be turned off. TED ignores `stages.backlog.enabled: false` with a warning. (KRI-58, KRI-411)
 - A Stage file with an unknown id (`.ted/stages/security.md`) is ignored, with a warning in settings. To add a step, edit the built-in Stage file it belongs to. (KRI-58)
 
 ### 4.8 Stage files
@@ -502,7 +502,7 @@ Factory setup is the Factory’s first Task, run through the inherited Workflow.
 - **Sections:** (KRI-58, KRI-65, KRI-53)
   1. **General** (this Mac): Name, Key (read-only, “Can’t be changed”), **Remove Factory…**
   2. **Repos** (repo, except Local folder): one card per repo, primary first. Name, Base branch (placeholder “main (GitHub default)”), Merge method, **Worktree** (Setup, Teardown, an environment variables table with “Committed to the repo, so no secrets. Put secrets in a file to copy.”, Files to copy), **Local folder** (this Mac: path, **Choose…**, **Clear**, “✓ .env found”; amber with **Locate…** when missing), and **Apps** with **+ Add App**. The primary card reads “Can’t be removed or moved”. Secondary cards have a drag handle and ⋯ with **Open on GitHub** and **Remove from Factory…**. **+ Add repo** uses the Add Factory row.
-  3. **Workflow:** one table with Stage, On, Sign-off, Send-backs, Clarify depth, From (**Default**, **Library** or **Factory**), and actions (**Override**, or **Edit file** and **Reset to inherited**). Intake’s and Work’s toggles are disabled. Backlog reads “Always first” with its on/off toggle; Done reads “Always last”. Ignored unknown Stage files show as a warning line. Drift sits on its Stage’s row (5.5).
+  3. **Workflow:** one table with Stage, On, Sign-off, Send-backs, Clarify depth, From (**Default**, **Library** or **Factory**), and actions (**Override**, or **Edit file** and **Reset to inherited**). Backlog, Intake and Work read “Always on” instead of a toggle; Backlog also reads “Always first” and Done “Always last”. Ignored unknown Stage files show as a warning line. Drift sits on its Stage’s row (5.5).
   4. **Checks:** Name, Command, Repo (multi-repo only), Timeout (placeholder 10m), Last run, **Run now** (or **Stop**) and ×. The built-in TED settings Check is a read-only last row.
   5. **Agents:** Task Lead (`lead`), Reviewer (`reviewer`), Planner (`planner`), each with agent, model (placeholder “default model”), effort, a From chip and **Reset to inherited**. Inherited rows are read-only until **Override** is clicked.
   6. **Permissions and limits:** **Auto** and **Bypass** radios. Bypass reads “Only for Factories whose Runs happen in an isolated machine or VM. Can’t be set in the Library.” Then **Limit on working Runs**: “of this Mac’s 6. Leave empty to use only the Mac’s limit.”
@@ -648,7 +648,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 ### 6.8 Backlog
 
 - Built-in holding Stage, always first. No Stage file, no Run, no worktree, no tokens. (KRI-15, KRI-58)
-- Can be turned off with `stages.backlog.enabled: false`; then every new Task starts at Intake. (KRI-15)
+- Always on. A new Task waits here unless it is started at once (Start now, an Automation, or the Factory’s automatic Backlog starts). `stages.backlog.enabled: false` is ignored with a warning. (KRI-15, KRI-411)
 - For Tasks that are blocked or not wanted yet. “Not clear yet” is not a reason; Clarify handles that. (KRI-15)
 
 ### 6.9 Intake
