@@ -1072,7 +1072,6 @@ export function QuestionCard({
 }) {
   const now = useNow()
   const [text, setText] = useState('')
-  const [otherText, setOtherText] = useState('')
   const [selection, setSelection] = useState<QuestionSelection>()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
@@ -1084,7 +1083,6 @@ export function QuestionCard({
       () => {
         setBusy(false)
         setText('')
-        setOtherText('')
         onAnswered?.()
       },
       (failure: unknown) => {
@@ -1096,15 +1094,14 @@ export function QuestionCard({
   const hasChoices = (request.choices?.length ?? 0) > 0
   const selectedChoice = selection && 'choice' in selection ? selection.choice : undefined
   const other = selection && 'other' in selection
-  const answerText = hasChoices && other ? otherText : text
   const ready = hasChoices
-    ? selectedChoice !== undefined || (other && otherText.trim() !== '')
+    ? selectedChoice !== undefined || (other && text.trim() !== '')
     : text.trim() !== ''
   function sendAnswer() {
     if (!ready || busy) return
     return answer({
       ...(hasChoices && selectedChoice !== undefined && { choice: selectedChoice }),
-      ...(answerText.trim() !== '' && { text: answerText }),
+      ...(text.trim() !== '' && { text }),
     })
   }
   const minutes = Math.max(Math.round((now - Date.parse(request.createdAt)) / 60_000), 0)
@@ -1133,11 +1130,9 @@ export function QuestionCard({
         className={`${styles.answer} ${grow.text}`}
         aria-label="Your answer"
         placeholder={hasChoices && !other ? 'Add to this answer…' : 'Write your answer…'}
-        value={answerText}
+        value={text}
         disabled={busy}
-        onChange={(event) =>
-          hasChoices && other ? setOtherText(event.target.value) : setText(event.target.value)
-        }
+        onChange={(event) => setText(event.target.value)}
         onKeyDown={sendOnEnter(sendAnswer, () => !!ready && !busy)}
       />
       {error !== undefined && (
