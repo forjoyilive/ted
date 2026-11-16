@@ -2,7 +2,7 @@
 
 ## Reporting a vulnerability
 
-Report security problems privately through GitHub: open the repo’s [Security tab](https://github.com/forjoyilive/ted/security) and click **Report a vulnerability**. Only you and TED’s maintainers can see the report.
+Report security problems privately through GitHub: open the repo’s [Security tab](https://github.com/forjoyilive/ted/security) and click **Report a vulnerability**. The report stays private.
 
 Don’t open a public issue, discussion or pull request for a security problem.
 
@@ -32,5 +32,5 @@ Problems in TED’s own code, such as:
 
 - Bugs in the agent CLIs TED starts, such as Claude Code and Codex. Report those to their makers.
 - Bugs in GitHub, Linear, Asana or other services TED connects to.
-- Anything a Run does in a Factory whose permission mode is set to Bypass, which turns off TED’s sandbox on purpose.
+- Commands that run outside TED’s sandbox in a Factory set to Bypass, which turns the sandbox off on purpose. TED’s other protections, such as the daemon’s token checks, still apply in Bypass, and flaws in them are in scope.
 - Problems that need someone who already controls your computer or your user account.
