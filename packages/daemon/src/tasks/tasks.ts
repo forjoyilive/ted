@@ -56,6 +56,8 @@ import type {
   GitHubIssueUrl,
   InboxItem,
   LinearFile,
+  LinearIntakeRequest,
+  LinearIntakeResult,
   LinearIssue,
   LineComment,
   MachineSettings,
@@ -147,6 +149,7 @@ import {
   keepArchiveChoice,
   maxAsanaIntakeTasks,
   maxGitHubIntakeTasks,
+  maxLinearIntakeTasks,
   memoryFailedChoice,
   memoryRetryChoice,
   parseAsanaTaskUrl,
@@ -391,8 +394,10 @@ import {
   automationIntake,
   githubIntakeHold,
   githubUnreadableWhy,
+  linearIntakeHold,
   planGitHubIntake,
   refuseAsanaRoot,
+  refuseLinearList,
 } from './intake.ts'
 import { type AdoptedBase, baseStep, firstWorkEntry, latestBaseNote } from './latest-base.ts'
 import {
@@ -636,6 +641,7 @@ export interface Tasks {
   importAsana(input: AsanaImportRequest, caller?: Caller): Promise<AsanaImportResult>
   asanaIntake(input: AsanaIntakeRequest, caller?: Caller): Promise<AsanaIntakeResult>
   githubIntake(input: GitHubIntakeRequest, caller?: Caller): Promise<GitHubIntakeResult>
+  linearIntake(input: LinearIntakeRequest, caller?: Caller): Promise<LinearIntakeResult>
   cancelMerge(ref: string, comment: string, attachments?: Attachment[]): Promise<Comment>
   markDone(ref: string, by?: 'human' | 'coordinator'): Promise<Task>
   leadDone(ref: string, caller: Caller): Promise<Task>
@@ -837,7 +843,8 @@ export function createTasks(options: {
   attachmentFile: (attachment: Attachment) => string
   linear?: Pick<Linear, 'issueFor'> &
     Partial<LinearSyncApi> &
-    Partial<Pick<Linear, 'intakeMembership'>>
+    Partial<Pick<Linear, 'intakeMembership' | 'intakeIssues'>>
+  linearIntakeLimit?: number
   linearSyncMs?: number
   asana?: {
     read: AsanaRead
@@ -5079,6 +5086,125 @@ export function createTasks(options: {
       console.log(
         redactSecrets(
           `GitHub intake for ${factory.key}: imported ${result.imported.length}, skipped ${result.skipped.length}, left ${result.left}${result.stopped ? ', stopped' : ''}`,
+        ),
+      )
+    }
+    return result
+  }
+
+  const linearIntakeLimit = options.linearIntakeLimit ?? maxLinearIntakeTasks
+  const linearIntakes = new Map<string, Promise<unknown>>()
+
+  function linearAllowance(
+    automation: { link: { automationId: string; firingId: string } } | undefined,
+    imported: number,
+  ): number {
+    if (!automation) return linearIntakeLimit - imported
+    const { automationId, firingId } = automation.link
+    const used = store.automations
+      .createdTasks(automationId)
+      .filter(
+        (row) =>
+          row.firingId === firingId &&
+          parseLinearUrl(store.getTask(row.taskId)?.source?.url ?? '') !== undefined,
+      ).length
+    return linearIntakeLimit - used
+  }
+
+  function linearIntake(
+    input: LinearIntakeRequest,
+    caller: Caller = { kind: 'app' },
+  ): Promise<LinearIntakeResult> {
+    const automation = automationCaller(caller)
+    if (automation && input.factory !== undefined && input.factory !== automation.factoryKey) {
+      throw new RequestError(
+        403,
+        `this Automation imports only into ${automation.factoryKey}, its own Factory`,
+      )
+    }
+    const key = automation?.factoryKey ?? input.factory
+    if (key === undefined) throw new RequestError(400, 'name the Factory to import into')
+    const factory = store.listFactories().find((f) => f.key === key)
+    if (!factory) throw new RequestError(404, `no Factory with key ${key}`)
+    if (removingFactories.has(factory.id)) {
+      throw new RequestError(409, `${factory.name} is being removed`)
+    }
+    const prior = linearIntakes.get(factory.id) ?? Promise.resolve()
+    const next = prior.catch(() => undefined).then(() => linearIntakeNow(factory, caller))
+    linearIntakes.set(factory.id, next)
+    return next.finally(() => {
+      if (linearIntakes.get(factory.id) === next) linearIntakes.delete(factory.id)
+    })
+  }
+
+  async function linearIntakeNow(
+    factory: StoredFactory,
+    caller: Caller,
+  ): Promise<LinearIntakeResult> {
+    const { scope, unchanged } = linearIntakeHold(store, factory, () =>
+      removingFactories.has(factory.id),
+    )
+    const linear = options.linear
+    if (!linear?.intakeIssues) {
+      throw new RequestError(
+        409,
+        'Linear isn’t connected. Connect it in App Settings → Integrations first.',
+      )
+    }
+    const list = await linear.intakeIssues(scope)
+    unchanged()
+    refuseLinearList(scope, list)
+    const result: LinearIntakeResult = {
+      scope,
+      imported: [],
+      skipped: [],
+      tracked: 0,
+      left: 0,
+      ...(list.incomplete !== undefined && { incomplete: list.incomplete }),
+    }
+    const automation = automationCaller(caller)
+    const allowance = () => linearAllowance(automation, result.imported.length)
+    for (const issue of list.issues) {
+      if (sourceClash(sameSource(issue.url), factory.id, issue.url)) {
+        result.tracked++
+        continue
+      }
+      if (allowance() <= 0) {
+        result.left++
+        continue
+      }
+      try {
+        unchanged()
+        const task = await createTask(
+          { factory: factory.key, source: issue.url, title: issue.title },
+          caller,
+          { allowance, unchanged },
+        )
+        result.imported.push({
+          identifier: issue.identifier,
+          title: task.title,
+          url: issue.url,
+          task: { taskId: task.id, displayId: task.displayId },
+        })
+      } catch (error) {
+        if (error instanceof IntakeBudgetError) {
+          result.left++
+          continue
+        }
+        const reason = redactSecrets(error instanceof Error ? error.message : String(error))
+        try {
+          unchanged()
+        } catch (changed) {
+          result.stopped = changed instanceof Error ? changed.message : reason
+          break
+        }
+        result.skipped.push({ identifier: issue.identifier, url: issue.url, reason })
+      }
+    }
+    if (result.imported.length > 0 || result.stopped !== undefined) {
+      console.log(
+        redactSecrets(
+          `Linear intake for ${factory.key} from ${scope.kind} ${scope.name}: imported ${result.imported.length}, skipped ${result.skipped.length}, left ${result.left}${result.stopped ? ', stopped' : ''}`,
         ),
       )
     }
@@ -11077,6 +11203,7 @@ export function createTasks(options: {
     importAsana: (input, caller) => importAsana(input, caller),
     asanaIntake,
     githubIntake,
+    linearIntake,
 
     async setUpFactory(factoryId) {
       const factory = store.getFactory(factoryId)

@@ -1695,6 +1695,96 @@ describe('Factory Linear intake enforcement', () => {
     }
   })
 
+  test('ted linear intake creates Backlog Tasks for the not-started issues assigned to the user in the scope, skips tracked ones and refuses without a scope or a connection', async () => {
+    const key = 'lin_api_abcdefghijklmnopqrstuvwxyz0123456789ABCD'
+    const linear = await startStubLinear({
+      [key]: {
+        name: 'Nabha',
+        workspace: { name: 'Acme', urlKey: 'acme' },
+        teams: [{ id: 'team-NB', name: 'Widgets', key: 'NB' }],
+        issues: [
+          { identifier: 'NB-1', title: 'Todo for me', assignedToMe: true },
+          { identifier: 'NB-2', title: 'Backlog for me', state: 'Backlog', assignedToMe: true },
+          { identifier: 'NB-3', title: 'Triage for me', state: 'Triage', assignedToMe: true },
+          { identifier: 'NB-4', title: 'Tracked already', state: 'Backlog', assignedToMe: true },
+          { identifier: 'NB-5', title: 'Started', state: 'In Progress', assignedToMe: true },
+          { identifier: 'NB-6', title: 'Not mine' },
+          { identifier: 'OT-7', title: 'Other team', assignedToMe: true },
+        ],
+      },
+    })
+    try {
+      await writeFile(stubKeyringFile(home), JSON.stringify({ secret: key }))
+      const client = await startTed({
+        linear: {
+          apiUrl: linear.url,
+          keyring: stubKeyring(stubKeyringFile(home)),
+          intakeLimit: 2,
+        },
+      })
+      const [factory] = await client.ok<Factory[]>('GET', '/factories')
+      if (!factory) throw new Error('no Factory')
+      const unscoped = await client.call('POST', '/linear-intake', { factory: 'NB' })
+      expect(unscoped.status).toBe(403)
+      expect(JSON.stringify(unscoped.body)).toContain('Choose a Linear Team or Project')
+      await client.ok('PUT', `/factories/${factory.id}/linear-intake`, {
+        scope: {
+          kind: 'team',
+          id: 'team-NB',
+          name: 'Widgets',
+          workspaceId: 'workspace-acme',
+          workspace: 'acme',
+        },
+      })
+      await client.ok<Task>('POST', '/tasks', {
+        factory: 'NB',
+        source: 'https://linear.app/acme/issue/NB-4',
+        title: 'Tracked already',
+      })
+      const automation = await create(client, {
+        on: false,
+        name: 'Import my Linear work',
+        prompt: steps({ run: ['ted', 'linear', 'intake'] }, { endTurn: true }),
+      })
+      const outputs: string[] = []
+      const seen = new Set<string>()
+      for (const firings of [1, 2]) {
+        await client.ok('POST', `/automations/${automation.id}/run`)
+        const rows = await waitForHistory(
+          client,
+          automation.id,
+          (rows) => rows.length === firings && rows.every((row) => row.result.kind === 'created'),
+          `Linear intake firing ${firings}`,
+        )
+        const runId = rows.find((row) => row.runId && !seen.has(row.runId))?.runId ?? ''
+        seen.add(runId)
+        const [result] = await commandResults(client, runId)
+        expect(result?.code, result?.stderr).toBe(0)
+        outputs.push(result?.stdout ?? '')
+      }
+      expect(outputs[0]).toContain('Imported 2 Linear issues from the Linear team Widgets')
+      expect(outputs[0]).toContain('1 issue is already tracked')
+      expect(outputs[0]).toContain('1 more issue waits for the next run')
+      expect(outputs[1]).toContain('Imported 1 Linear issue from the Linear team Widgets')
+      expect(outputs[1]).toContain('3 issues are already tracked')
+      const imported = (await client.ok<Task[]>('GET', '/tasks'))
+        .filter((task) => task.createdBy === 'automation')
+        .map((task) => ({ id: task.source?.linear?.identifier, stage: task.stage }))
+        .sort((a, b) => (a.id ?? '').localeCompare(b.id ?? ''))
+      expect(imported).toEqual([
+        { id: 'NB-1', stage: 'backlog' },
+        { id: 'NB-2', stage: 'backlog' },
+        { id: 'NB-3', stage: 'backlog' },
+      ])
+      await client.ok('DELETE', '/integrations/linear/key')
+      const disconnected = await client.call('POST', '/linear-intake', { factory: 'NB' })
+      expect(disconnected.status).toBe(409)
+      expect(JSON.stringify(disconnected.body)).toContain('Linear isn’t connected')
+    } finally {
+      await linear.close()
+    }
+  })
+
   test('a scoped Automation cannot import unverifiable issues, but a human can', async () => {
     const client = await startTed()
     const [factory] = await client.ok<Factory[]>('GET', '/factories')

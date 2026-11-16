@@ -17,12 +17,20 @@ export interface StubLinearIssue {
   branchName?: string
   state?: string
   projectId?: string
+  assignedToMe?: boolean
   teamName?: string
   teamKey?: string
   comments?: LinearComment[]
   commentsFailAfter?: number
   commentsGraphqlError?: boolean
   commentsMissingCursor?: boolean
+}
+
+interface StubIntakeFilter {
+  assignee?: { isMe?: { eq?: boolean } }
+  state?: { type?: { in?: string[] } }
+  team?: { id: { eq: string } }
+  project?: { id: { eq: string } }
 }
 
 export interface StubLinearAccount {
@@ -152,6 +160,34 @@ export async function startStubLinear(
               pageInfo: {
                 hasNextPage: offset + 100 < nodes.length,
                 endCursor: account.intakeMissingCursor ? null : String(offset + 100),
+              },
+            },
+          },
+        })
+      }
+      if (query.includes('TedIntakeIssues')) {
+        await account.intakeReady
+        const { filter, after } = (
+          JSON.parse(body) as { variables: { filter: StubIntakeFilter; after: string | null } }
+        ).variables
+        const matching = (account.issues ?? []).filter(
+          (issue) =>
+            (filter.assignee?.isMe?.eq !== true || issue.assignedToMe === true) &&
+            (filter.state?.type?.in?.includes(stateOf(issue)?.type ?? '') ?? true) &&
+            (filter.team === undefined || `team-${teamKeyOf(issue)}` === filter.team.id.eq) &&
+            (filter.project === undefined || issue.projectId === filter.project.id.eq),
+        )
+        const offset = Number(after ?? 0)
+        return reply(200, {
+          data: {
+            organization,
+            issues: {
+              nodes: matching
+                .slice(offset, offset + 50)
+                .map((issue) => ({ identifier: issue.identifier, title: issue.title })),
+              pageInfo: {
+                hasNextPage: offset + 50 < matching.length,
+                endCursor: String(offset + 50),
               },
             },
           },

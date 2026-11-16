@@ -652,6 +652,15 @@ export {
   type SetFactoryLinearIntakeRequest,
 } from './linear.ts'
 export {
+  type LinearIntakeImported,
+  type LinearIntakeRequest,
+  type LinearIntakeResult,
+  type LinearIntakeSkipped,
+  linearIntakeStateTypes,
+  maxLinearIntakeTasks,
+  parseLinearIntakeRequest,
+} from './linear-intake.ts'
+export {
   parseAllowLinearTeamRequest,
   parseLinearLookupRequest,
   parseSaveLinearKeyRequest,
