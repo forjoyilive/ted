@@ -546,6 +546,7 @@ describe('ted automation', () => {
       'Import my Asana work',
       'Turn new Sentry issues into Tasks',
       'Daily GitHub issue triage',
+      'Import GitHub issues',
       'Review codebase architecture',
       'Audit the Apps',
     ])

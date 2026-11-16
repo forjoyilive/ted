@@ -971,6 +971,15 @@ export const commands = [
     options: options('factory'),
   },
   {
+    name: 'github intake',
+    handler: 'githubIntake',
+    min: 0,
+    max: 0,
+    help: '  ted github intake                          Import the open issues in the Factory’s repos that\n                                             carry its GitHub intake label into Backlog',
+    callers: 'Automation Run',
+    options: options(),
+  },
+  {
     name: 'task create',
     handler: 'createTask',
     argumentOrOption: 'source',

@@ -74,6 +74,7 @@ async function startTed(
     resetSettings?: boolean
     systemTimeZone?: () => string
     linear?: Parameters<typeof startDaemon>[0]['linear']
+    github?: Parameters<typeof startDaemon>[0]['github']
   } = {},
 ) {
   daemon = await startDaemon({
@@ -90,6 +91,7 @@ async function startTed(
     disk: { freeBytes: async () => free, checkEveryMs: 50 },
     load: { ratio: () => load, memoryAvailable: () => memory, checkEveryMs: 30 },
     ...(options.linear && { linear: options.linear }),
+    ...(options.github && { github: options.github }),
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
@@ -1868,6 +1870,112 @@ describe('Factory GitHub intake enforcement', () => {
     ).toEqual([
       [1, 'backlog'],
       [2, 'backlog'],
+    ])
+  })
+
+  // Its own daemon: the per-run cap is lowered through startDaemon's github.intakeLimit.
+  test('ted github intake imports every labelled open issue into Backlog, skips tracked ones and sub-issues of tracked ones, imports past a tree too big for the cap, stops at the cap, and refuses without a label or outside an Automation', async () => {
+    process.env.TED_STUB_GH = path.join(home, 'gh.json')
+    const client = await startTed({ github: { intakeLimit: 2 } })
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    if (!factory) throw new Error('no Factory')
+    const repo = factory.repo
+    const url = (n: number) => `https://github.com/${repo}/issues/${n}`
+    const answer = (
+      n: number,
+      extra: { state?: string; labels?: string[]; parent?: number; sub?: number[] } = {},
+    ) => ({
+      number: n,
+      title: `Issue ${n}`,
+      state: extra.state ?? 'OPEN',
+      locked: false,
+      url: url(n),
+      body: 'Details',
+      bodyHTML: '',
+      createdAt: '2026-11-01T10:00:00Z',
+      authorAssociation: 'OWNER',
+      author: { login: 'owner' },
+      repository: { nameWithOwner: repo },
+      labels: {
+        totalCount: extra.labels?.length ?? 0,
+        nodes: (extra.labels ?? []).map((name) => ({ name })),
+      },
+      ...(extra.parent !== undefined && { parent: { url: url(extra.parent) } }),
+      comments: { totalCount: 0, nodes: [] },
+      ...(extra.sub && {
+        subIssues: {
+          totalCount: extra.sub.length,
+          nodes: extra.sub.map((number) => ({
+            number,
+            state: 'OPEN',
+            repository: { nameWithOwner: repo },
+          })),
+        },
+      }),
+    })
+    const ready = ['Ready']
+    await writeFile(
+      path.join(home, 'gh.json'),
+      JSON.stringify({
+        issues: Object.fromEntries(
+          [
+            answer(1, { labels: ready, sub: [5, 11] }),
+            answer(2),
+            answer(3, { state: 'CLOSED', labels: ready }),
+            answer(5, { labels: ready, parent: 1 }),
+            answer(7, { labels: ready }),
+            answer(8, { labels: ready, parent: 7 }),
+            answer(9, { labels: ready }),
+            answer(10, { labels: ready }),
+            answer(11, { labels: ready, parent: 1 }),
+            answer(12, { labels: ready }),
+          ].map((issue) => [`${repo.toLowerCase()}#${issue.number}`, issue]),
+        ),
+      }),
+    )
+    const intake = await create(client, {
+      on: false,
+      name: 'Import GitHub issues',
+      prompt: steps({ run: ['ted', 'github', 'intake'] }, { endTurn: true }),
+    })
+    await client.ok('POST', `/automations/${intake.id}/run`)
+    const [refused] = await waitForHistory(
+      client,
+      intake.id,
+      (rows) => rows[0]?.result.kind === 'no-new-tasks',
+      'the import without a label to finish',
+    )
+    const [noLabel] = await commandResults(client, refused?.runId ?? '')
+    expect(noLabel?.code).toBe(1)
+    expect(noLabel?.stderr).toContain('Choose a label in')
+    expect((await client.call('POST', '/github-intake', {})).status).toBe(403)
+
+    await client.ok('PUT', `/factories/${factory.id}/github-intake`, { scope: { label: 'ready' } })
+    const byHand = await client.ok<Task>('POST', '/tasks', { factory: 'NB', source: url(7) })
+    await client.ok('POST', `/automations/${intake.id}/run`)
+    const rows = await waitForHistory(
+      client,
+      intake.id,
+      (rows) => rows.some((r) => r.result.kind === 'created'),
+      'the labelled bulk import to finish',
+    )
+    const row = rows.find((r) => r.result.kind === 'created')
+    const [imported] = await commandResults(client, row?.runId ?? '')
+    expect(imported?.code).toBe(0)
+    expect(imported?.stdout).toContain('Imported 2 GitHub issues labelled "ready"')
+    expect(imported?.stdout).toContain(`${repo}#9`)
+    expect(imported?.stdout).not.toContain('Issue 9')
+    expect(imported?.stdout).toContain('2 issues are already tracked or under a tracked issue.')
+    expect(imported?.stdout).toContain('2 more issues wait for the next run')
+    const tasks = await client.ok<Task[]>('GET', '/tasks')
+    expect(
+      tasks
+        .filter((t) => t.id !== byHand.id)
+        .map((t) => [t.source?.github?.number, t.stage, t.createdBy])
+        .sort(),
+    ).toEqual([
+      [10, 'backlog', 'automation'],
+      [9, 'backlog', 'automation'],
     ])
   })
 })

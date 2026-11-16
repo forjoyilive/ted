@@ -1,3 +1,4 @@
+import { reader, type Untyped } from './parse.ts'
 import { bodyObject, RequestValidationError } from './validation.ts'
 
 export const maxGitHubLabelLength = 50
@@ -42,4 +43,58 @@ export function parseSetFactoryGitHubIntakeRequest(value: unknown): SetFactoryGi
     )
   }
   return { scope: { label: label as string } }
+}
+
+export const maxGitHubIntakeTasks = 100
+
+export interface GitHubIntakeRequest {
+  factory?: string
+}
+
+export interface GitHubIntakeTaskRef {
+  taskId: string
+  displayId: string
+}
+
+export interface GitHubIntakeImported {
+  url: string
+  issue: string
+  root: GitHubIntakeTaskRef
+  created: GitHubIntakeTaskRef[]
+}
+
+export interface GitHubIntakeSkipped {
+  url: string
+  issue: string
+  reason: string
+}
+
+export interface GitHubIntakeUnlisted {
+  repo: string
+  reason: string
+}
+
+export interface GitHubIntakeResult {
+  label: string
+  imported: GitHubIntakeImported[]
+  skipped: GitHubIntakeSkipped[]
+  tracked: number
+  left: number
+  unlisted: GitHubIntakeUnlisted[]
+  incomplete?: string
+  stopped?: string
+}
+
+const readIntake = reader((message) => {
+  throw new RequestValidationError(400, message)
+})
+
+export function parseGitHubIntakeRequest(value: Untyped): GitHubIntakeRequest {
+  if (value === undefined || value === null) return {}
+  const body = readIntake.object(value, 'request', 'the request must be an object')
+  const factory = readIntake.optional(body, 'factory', (object, field) =>
+    readIntake.string(object, field, 'factory must be a Factory key'),
+  )
+  if (factory === '') throw new RequestValidationError(400, 'factory must be a Factory key')
+  return factory === undefined ? {} : { factory }
 }

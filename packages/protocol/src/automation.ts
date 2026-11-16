@@ -8,6 +8,7 @@ export const automationTemplateIds = [
   'asana',
   'sentry',
   'github',
+  'github-intake',
   'architecture',
   'audit',
 ] as const
