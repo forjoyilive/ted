@@ -252,7 +252,12 @@ test('Workflow and notes stay staged across pages while confirmed permissions sa
   await page('Workflow')
   const gate = await screen.findByRole('switch', { name: 'Design sign-off' })
   expect(gate.getAttribute('aria-checked')).toBe('true')
-  expect((screen.getByRole('switch', { name: 'Work on' }) as HTMLButtonElement).disabled).toBe(true)
+  expect(screen.queryByRole('switch', { name: 'Work on' })).toBeNull()
+  expect(screen.queryByRole('switch', { name: 'Intake on' })).toBeNull()
+  expect(screen.getAllByText('Always on').map((on) => on.title)).toEqual([
+    'Intake can’t be turned off',
+    'Work can’t be turned off',
+  ])
   await u.click(gate)
   expect(screen.getByText('1 unsaved change to .ted/workflow.yaml')).toBeTruthy()
   expect(unsavedOn('Workflow')).toBe(true)
