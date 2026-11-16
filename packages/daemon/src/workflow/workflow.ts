@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import type { AgentStageId, Attachment, Task } from '@ted/protocol'
+import { isCleanup } from '@ted/protocol/stage'
 import { writingGuidance } from '../writing.ts'
 import { type CleanupInstructionStep, type CleanupStep, isCommandStep } from './check.ts'
 import type { ResolvedWorkflow } from './resolve.ts'
@@ -27,8 +28,7 @@ function stageFileText(workflow: ResolvedWorkflow, stage: AgentStageId): string 
           `${stageTitle(stage)} has a sign-off. When its work is done, write the Task brief with \`ted brief write\`, then run \`ted outcome advance\`. TED posts your brief to the human as a request and sends you their answer.`,
         ]
       : []
-  const steps =
-    stage === 'cleanup' ? [cleanupStepsText(workflow.settings.stages.cleanup?.steps)] : []
+  const steps = isCleanup(stage) ? [cleanupStepsText(workflow.settings.stages.cleanup?.steps)] : []
   return [file.text.trim(), ...gate, ...steps].join('\n\n')
 }
 

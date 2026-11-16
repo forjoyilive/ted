@@ -10,6 +10,14 @@ import {
   type StageId,
   type WorkflowProblem,
 } from '@ted/protocol'
+import {
+  handsOff,
+  hasClarifyRounds,
+  isCleanup,
+  isEntryStage,
+  mergesHere,
+  validates,
+} from '@ted/protocol/stage'
 import { isMap, isScalar, isSeq, LineCounter, type Node, parseDocument, type YAMLMap } from 'yaml'
 
 export type LayerFiles = Record<string, string | null>
@@ -341,7 +349,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
         const where = id === 'backlog' ? 'first' : 'last'
         error(item, `\`${id}\` can’t be in \`order\`; it is always ${where}`)
         ok = false
-      } else if (id === 'cleanup') {
+      } else if (typeof id === 'string' && isCleanup(id)) {
         error(item, '`cleanup` can’t be in `order`; turn it on with `stages.cleanup.enabled`')
         ok = false
       } else if (typeof id !== 'string' || !(agentStageIds as readonly string[]).includes(id)) {
@@ -353,9 +361,10 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
       } else ids.push(id as AgentStageId)
     }
     if (!ok) return undefined
-    if (ids[0] !== 'intake') return void error(value, '`order` must start with `intake`')
-    if (!ids.includes('work')) return void error(value, '`order` must include `work`')
-    const merge = ids.indexOf('merge')
+    if (ids[0] === undefined || !isEntryStage(ids[0]))
+      return void error(value, '`order` must start with `intake`')
+    if (!ids.some(handsOff)) return void error(value, '`order` must include `work`')
+    const merge = ids.findIndex(mergesHere)
     if (merge !== -1 && merge !== ids.length - 1) {
       return void error(value.items[merge] as Node, '`merge` must be last in `order`')
     }
@@ -386,7 +395,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
           error(entry.key, 'Backlog takes only `enabled`')
           continue
         }
-        if (id === 'cleanup' && !cleanupKeys.includes(entry.name)) {
+        if (isCleanup(id) && !cleanupKeys.includes(entry.name)) {
           error(entry.key, `Cleanup takes only ${cleanupKeys.map((k) => `\`${k}\``).join(', ')}`)
           continue
         }
@@ -402,10 +411,10 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
               error(node, `\`${path}\` must be true or false`)
             } else if (
               entry.name === 'enabled' &&
-              (id === 'intake' || id === 'work') &&
+              (isEntryStage(id) || handsOff(id)) &&
               scalar(node) === false
             ) {
-              error(node, `${id === 'work' ? 'Work' : 'Intake'} can’t be turned off`)
+              error(node, `${handsOff(id) ? 'Work' : 'Intake'} can’t be turned off`)
             } else if (entry.name === 'enabled' && id === 'backlog' && scalar(node) === false) {
               warn(node, 'Backlog can’t be turned off; TED ignores this')
             } else stage[entry.name] = scalar(node) as boolean
@@ -419,50 +428,50 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             else stage.based_on = scalar(node) as string
             break
           case 'depth':
-            if (id !== 'clarify') warn(entry.key, `unknown key \`${path}\``)
+            if (!hasClarifyRounds(id)) warn(entry.key, `unknown key \`${path}\``)
             else if (!oneOf(node, depths)) {
               error(node, `\`${path}\` must be one of ${depths.join(', ')}`)
             } else stage.depth = scalar(node) as string
             break
           case 'loop_check':
-            if (id !== 'validate') warn(entry.key, `unknown key \`${path}\``)
+            if (!validates(id)) warn(entry.key, `unknown key \`${path}\``)
             else if (scalar(node) !== false && !wholeNumber(node, 1)) {
               error(node, `\`${path}\` must be a whole number above 0, or false`)
             } else stage.loop_check = scalar(node) as number | false
             break
           case 'p1_only_from':
-            if (id !== 'validate') warn(entry.key, `unknown key \`${path}\``)
+            if (!validates(id)) warn(entry.key, `unknown key \`${path}\``)
             else if (scalar(node) !== false && !wholeNumber(node, 2)) {
               error(node, `\`${path}\` must be a round number, 2 or more, or false`)
             } else stage.p1_only_from = scalar(node) as number | false
             break
           case 'sub_agents':
-            if (id !== 'validate') warn(entry.key, `unknown key \`${path}\``)
+            if (!validates(id)) warn(entry.key, `unknown key \`${path}\``)
             else if (typeof scalar(node) !== 'boolean') {
               error(node, `\`${path}\` must be true or false`)
             } else stage.sub_agents = scalar(node) as boolean
             break
           case 'lead_closes_failures':
-            if (id !== 'work') warn(entry.key, `unknown key \`${path}\``)
+            if (!handsOff(id)) warn(entry.key, `unknown key \`${path}\``)
             else if (typeof scalar(node) !== 'boolean') {
               error(node, `\`${path}\` must be true or false`)
             } else stage.lead_closes_failures = scalar(node) as boolean
             break
           case 'commit_titles':
-            if (id !== 'merge') warn(entry.key, `unknown key \`${path}\``)
+            if (!mergesHere(id)) warn(entry.key, `unknown key \`${path}\``)
             else if (typeof scalar(node) !== 'boolean') {
               error(node, `\`${path}\` must be true or false`)
             } else stage.commit_titles = scalar(node) as boolean
             break
           case 'steps':
-            if (id !== 'cleanup') warn(entry.key, `unknown key \`${path}\``)
+            if (!isCleanup(id)) warn(entry.key, `unknown key \`${path}\``)
             else {
               const steps = checkSteps(node)
               if (steps) stage.steps = steps
             }
             break
           case 'checks':
-            if (id !== 'validate') warn(entry.key, `unknown key \`${path}\``)
+            if (!validates(id)) warn(entry.key, `unknown key \`${path}\``)
             else if (context.kind === 'library') warn(entry.key, `\`${path}${factoryOnly}`)
             else {
               const checks = checkChecks(node)
