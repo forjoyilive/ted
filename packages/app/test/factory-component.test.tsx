@@ -7,7 +7,7 @@ import { RemoveFactoryDialog } from '../src/renderer/components/RemoveFactoryDia
 import type { FactorySectionId } from '../src/renderer/settings-search.ts'
 import { FactorySettings } from '../src/renderer/views/FactorySettings.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, deferred, user } from './support/component.ts'
+import { bridge, deferred, expandFactory, user } from './support/component.ts'
 import { factory, settingsView, task } from './support/fixtures.ts'
 
 function props() {
@@ -674,7 +674,7 @@ test('Factory drift counts lead to Keep mine staging the actual parent draft', a
   }))
   a.mount()
   const u = user()
-  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await expandFactory()
   const settings = await screen.findByRole('button', { name: /^Settings\s*1$/ })
   await u.click(settings)
   expect((await screen.findByRole('region', { name: 'General' })).textContent).toBeTruthy()

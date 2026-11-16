@@ -620,7 +620,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
       const factory = factories[Number(factoryNumber) - 1]
       if (!factory || anyDialog) return
       event.preventDefault()
-      dispatch({ type: 'open-factory', factoryId: factory.id })
+      dispatch({ type: 'open', screen: { kind: 'inbox', factoryId: factory.id } })
       return
     }
     const focused = focusedTaskRef()
@@ -1399,6 +1399,11 @@ export function App({ start }: { start?: AppStart | undefined }) {
       </Offline>
       <main className={styles.main}>
         {problems}
+        {inboxScreen?.factoryId !== undefined &&
+          bannerStack(
+            `${factoryName(factories, inboxScreen.factoryId)} problems`,
+            factoryBanners(banners, inboxScreen.factoryId),
+          )}
         <Offline when={offline}>
           <div ref={panes} className={styles.panes}>
             {find}

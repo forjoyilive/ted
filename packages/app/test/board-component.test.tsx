@@ -14,7 +14,7 @@ import { affects, StagesProvider } from '../src/renderer/stages.tsx'
 import { Board } from '../src/renderer/views/Board.tsx'
 import { idColumnWidth, listGrid, TaskList } from '../src/renderer/views/TaskList.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, required, user } from './support/component.ts'
+import { bridge, expandFactory, required, user } from './support/component.ts'
 import { factory, task } from './support/fixtures.ts'
 
 const Stages = ({ children }: { children: ReactNode }) => (
@@ -297,7 +297,7 @@ test('Board Show all opens its Factory’s Done-filtered List and saves that vie
   }))
   a.mount()
   const u = user()
-  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await expandFactory()
   await u.click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Task views',
@@ -521,7 +521,7 @@ test('Board cards select with ⌘-click, ⇧-click and X, and share the List’s
   a.handle('startTask', vi.fn())
   a.mount()
   const u = user()
-  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await expandFactory()
   await u.click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Task views',

@@ -7,7 +7,7 @@ import { runsCollapsedSummary } from '../src/renderer/details.ts'
 import { activeSubAgentCount } from '../src/renderer/sub-agents.ts'
 import { Board } from '../src/renderer/views/Board.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, required, user } from './support/component.ts'
+import { bridge, expandFactory, required, user } from './support/component.ts'
 import { createdAt, factory, task } from './support/fixtures.ts'
 
 function run(fields: Partial<TaskRun> = {}): TaskRun {
@@ -81,7 +81,7 @@ test('All Tasks and Factory List counts follow search, filters and live Task upd
   expect(within(row).queryByText(/Sub-Agents?/i)).toBeNull()
   await u.clear(screen.getByRole('searchbox'))
   expect(screen.getByText('1 active Sub-Agent')).toBeTruthy()
-  await u.click(screen.getByRole('button', { name: 'widgets' }))
+  await expandFactory()
   await u.click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Task views',

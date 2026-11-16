@@ -251,6 +251,7 @@ function sameScreen(a: Screen, b: Screen): boolean {
   if (a.kind === 'factory' && b.kind === 'factory') {
     return a.factoryId === b.factoryId && a.view === b.view
   }
+  if (a.kind === 'inbox' && b.kind === 'inbox') return a.factoryId === b.factoryId
   return a.kind === b.kind
 }
 
@@ -299,7 +300,9 @@ export function Sidebar({
         ? screen.factoryId
         : screen.kind === 'dashboard' && screen.dashboard?.factoryIds?.length === 1
           ? screen.dashboard.factoryIds[0]
-          : undefined
+          : screen.kind === 'inbox'
+            ? screen.factoryId
+            : undefined
   const arrivedGroup = arrivedAt === undefined ? undefined : groupOf(layout, arrivedAt)?.id
   const arrival = arrivedAt === undefined ? undefined : JSON.stringify([screen, navigation.taskId])
   // biome-ignore lint/correctness/useExhaustiveDependencies: opens only when arriving at a Factory or Task
@@ -426,10 +429,10 @@ export function Sidebar({
               type="button"
               className={`${styles.row} ${styles.factoryName} ${isCurrent ? styles.strong : ''} ${waiting > 0 ? styles.counted : styles.withMore}`}
               onClick={() => {
-                if (expanded) return setFactoryOpen(factory.id, false)
-                setFactoryOpen(factory.id, true)
-                return dispatch({ type: 'open-factory', factoryId: factory.id })
+                if (openFactories[factory.id] === undefined) setFactoryOpen(factory.id, expanded)
+                open({ kind: 'inbox', factoryId: factory.id })
               }}
+              {...current({ kind: 'inbox', factoryId: factory.id })}
             >
               <FactoryIcon factory={factory} />
               <span className={styles.label}>{factory.name}</span>
