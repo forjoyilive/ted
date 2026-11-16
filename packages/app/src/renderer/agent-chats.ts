@@ -1,7 +1,7 @@
 import type { Coordinator, CoordinatorChatSummary, Plan } from '@ted/protocol'
 import { useCallback, useState } from 'react'
 import type { StatusGlyph, StatusTone } from './components/StatusChip.tsx'
-import { planEnded, planStatusChip, planTasksLabel } from './plans.ts'
+import { planStatusChip, planTasksLabel } from './plans.ts'
 
 export type AgentName = 'Coordinator' | 'Planner'
 
@@ -16,7 +16,7 @@ export interface AgentChatRow {
   chip: { label: string; tone: StatusTone; glyph?: StatusGlyph }
   lastAt: string
   waiting: boolean
-  ended: boolean
+  archivedAt?: string
   meta: string
 }
 
@@ -31,18 +31,18 @@ export const coordinatorStatus: Record<
   failed: { label: 'Failed', tone: 'failed', glyph: 'failed' },
 }
 
-const endedChip = { label: 'Ended', tone: 'neutral' as const }
+const archivedChip = { label: 'Archived', tone: 'neutral' as const }
 
 function coordinatorRow(chat: CoordinatorChatSummary): AgentChatRow {
-  const ended = chat.endedAt !== undefined
+  const archived = chat.endedAt !== undefined
   return {
     ref: { agent: 'coordinator', id: chat.id },
     agent: 'Coordinator',
     title: chat.title || 'Coordinator chat',
-    chip: ended ? endedChip : chat.waiting ? waitingChip : coordinatorStatus[chat.status],
+    chip: archived ? archivedChip : chat.waiting ? waitingChip : coordinatorStatus[chat.status],
     lastAt: chat.lastAt,
-    waiting: chat.waiting,
-    ended,
+    waiting: !archived && chat.waiting,
+    ...(chat.endedAt !== undefined && { archivedAt: chat.endedAt }),
     meta: chat.taskCount === 1 ? '1 Task' : `${chat.taskCount} Tasks`,
   }
 }
@@ -50,14 +50,15 @@ function coordinatorRow(chat: CoordinatorChatSummary): AgentChatRow {
 const waitingChip = { label: 'Waiting on you', tone: 'waiting' as const, glyph: 'waiting' as const }
 
 function planRow(plan: Plan): AgentChatRow {
+  const archived = plan.archivedAt !== undefined
   return {
     ref: { agent: 'planner', id: plan.id },
     agent: 'Planner',
     title: plan.title,
-    chip: planStatusChip(plan),
+    chip: archived ? archivedChip : planStatusChip(plan),
     lastAt: plan.lastAt,
-    waiting: plan.status === 'waiting' || plan.openRequest === true,
-    ended: planEnded(plan),
+    waiting: !archived && (plan.status === 'waiting' || plan.openRequest === true),
+    ...(plan.archivedAt !== undefined && { archivedAt: plan.archivedAt }),
     meta: plan.fromTask
       ? `From ${plan.fromTask.displayId}`
       : planTasksLabel(plan) === '—'
@@ -73,6 +74,20 @@ export function agentChatRows(
   return [...coordinatorChats.map(coordinatorRow), ...plans.map(planRow)].sort((a, b) =>
     b.lastAt.localeCompare(a.lastAt),
   )
+}
+
+export interface ArchiveSplit {
+  open: AgentChatRow[]
+  archived: AgentChatRow[]
+}
+
+export function splitArchived(rows: readonly AgentChatRow[]): ArchiveSplit {
+  return {
+    open: rows.filter((r) => r.archivedAt === undefined),
+    archived: rows
+      .filter((r) => r.archivedAt !== undefined)
+      .sort((a, b) => (b.archivedAt ?? '').localeCompare(a.archivedAt ?? '')),
+  }
 }
 
 export function groupedRows(

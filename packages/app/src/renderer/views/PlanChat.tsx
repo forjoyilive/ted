@@ -558,14 +558,15 @@ function PlanHeader({
   const [stopping, setStopping] = useState(false)
   const [error, setError] = useState<string>()
   const [renameSignal, setRenameSignal] = useState(0)
-  const chip = planStatusChip(plan)
+  const archived = plan.archivedAt !== undefined
+  const chip = archived ? { tone: 'neutral' as const, label: 'Archived' } : planStatusChip(plan)
   const ended = planEnded(plan)
 
-  async function stop() {
+  async function act(action: () => Promise<Plan>) {
     setStopping(true)
     setError(undefined)
     try {
-      await ted.stopPlan(plan.id)
+      await action()
     } catch (failed) {
       setError(readableError(failed))
     } finally {
@@ -600,8 +601,17 @@ function PlanHeader({
           {[agentLabels[plan.agent], plan.model, plan.effort].filter(Boolean).join(' · ')}
         </span>
         {!ended && (
-          <Button disabled={stopping} onClick={() => stop()}>
+          <Button disabled={stopping} onClick={() => act(() => ted.stopPlan(plan.id))}>
             Stop
+          </Button>
+        )}
+        {archived ? (
+          <Button disabled={stopping} onClick={() => act(() => ted.unarchivePlan(plan.id))}>
+            Unarchive
+          </Button>
+        ) : (
+          <Button disabled={stopping} onClick={() => act(() => ted.archivePlan(plan.id))}>
+            Archive
           </Button>
         )}
         <MoreMenu
@@ -810,27 +820,32 @@ function extraItems(detail: PlanDetail, onOpenTask: (ref: string) => void): Chat
 function EndedBar({ plan, onPlanMore }: { plan: Plan; onPlanMore: (planId: string) => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
-  async function act(action: () => Promise<unknown>) {
+  async function act(action: () => Promise<Plan>) {
     setBusy(true)
     setError(undefined)
     try {
       await action()
     } catch (failed) {
       setError(readableError(failed))
+    } finally {
       setBusy(false)
     }
   }
   const failed = plan.status === 'failed'
-  const open = failed || plan.status === 'stopped'
-  const line = failed
-    ? plan.canResume
-      ? 'This planning chat failed. Retry resumes the planner where it stopped.'
-      : 'This planning chat failed before the planner started a session, so it can’t resume. Plan more from here starts a new chat from it.'
-    : plan.status === 'stopped'
+  const archived = plan.archivedAt !== undefined
+  const line = archived
+    ? 'This chat is archived. Unarchive it to write to it again.'
+    : failed
       ? plan.canResume
-        ? 'This planning chat stopped. Resume carries on where it left off.'
-        : 'The planner stopped before it started a session, so this chat can’t resume. Plan more from here starts a new chat from it.'
-      : 'This planning chat is finished. It stays as history.'
+        ? 'This planning chat failed. Retry resumes the planner where it stopped.'
+        : 'This planning chat failed before the planner started a session, so it can’t resume. Plan more from here starts a new chat from it.'
+      : plan.status === 'stopped'
+        ? plan.canResume
+          ? 'This planning chat stopped. Resume carries on where it left off.'
+          : 'The planner stopped before it started a session, so this chat can’t resume. Plan more from here starts a new chat from it.'
+        : plan.canResume
+          ? 'This planning chat finished. Write to it to carry on, or archive it.'
+          : 'This planning chat finished. Plan more from here starts a new chat from it.'
   return (
     <div className={`${styles.endedBar} ${styles.endedRow}`}>
       <span className={styles.spacer}>{line}</span>
@@ -839,19 +854,27 @@ function EndedBar({ plan, onPlanMore }: { plan: Plan; onPlanMore: (planId: strin
           {error}
         </span>
       )}
-      {open && (
-        <Button disabled={busy} onClick={() => act(() => ted.markPlanFinished(plan.id))}>
-          Mark finished
-        </Button>
-      )}
-      {plan.canResume ? (
-        <Button
-          variant="primary"
-          disabled={busy}
-          onClick={() => act(() => ted.resumePlan(plan.id))}
-        >
-          {failed ? 'Retry' : 'Resume'}
-        </Button>
+      {archived ? (
+        <>
+          <Button onClick={() => onPlanMore(plan.id)}>Plan more from here…</Button>
+          <Button
+            variant="primary"
+            disabled={busy}
+            onClick={() => act(() => ted.unarchivePlan(plan.id))}
+          >
+            Unarchive
+          </Button>
+        </>
+      ) : plan.canResume ? (
+        plan.status !== 'finished' && (
+          <Button
+            variant="primary"
+            disabled={busy}
+            onClick={() => act(() => ted.resumePlan(plan.id))}
+          >
+            {failed ? 'Retry' : 'Resume'}
+          </Button>
+        )
       ) : (
         <Button variant="primary" onClick={() => onPlanMore(plan.id)}>
           Plan more from here…

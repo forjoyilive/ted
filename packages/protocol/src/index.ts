@@ -710,6 +710,7 @@ export type {
 } from './peers.ts'
 export type { PostPlanRequest, RenamePlanRequest, ResumePlanRequest } from './plan.ts'
 export {
+  type ChatArchiveExpiry,
   openPlanRequest,
   type Plan,
   type PlanDetail,

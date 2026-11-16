@@ -34,6 +34,8 @@ const planEndLines: Record<string, string> = {
     'Planning chat failed without approval. TED told the Task Lead to ask its size question again.',
   deleted:
     'Planning chat deleted without approval. TED told the Task Lead to ask its size question again.',
+  archived:
+    'Planning chat archived without approval. TED told the Task Lead to ask its size question again.',
 }
 
 export const nudgeMessage =

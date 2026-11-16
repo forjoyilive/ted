@@ -162,7 +162,8 @@ export interface Coordinators {
   messageRemoved(runId: string): void
   holdFactoryRemoval(factoryId: string): () => void
   removeFactory(factoryId: string): Promise<void>
-  continueChat(chatId: string): Promise<Coordinator>
+  archiveChat(chatId: string): Promise<Coordinator>
+  unarchiveChat(chatId: string): Promise<Coordinator>
   renameChat(chatId: string, title: string): Promise<Coordinator>
   deleteChat(chatId: string): Promise<void>
   close(): Promise<void>
@@ -221,6 +222,8 @@ export function createCoordinators(options: {
   }
   const requireChat = (id: string) => {
     const c = saved.get(id)
+    if (!c && saved.find(id) && !deleting.has(id))
+      throw new RequestError(409, 'This Coordinator chat is archived; unarchive it first')
     if (!c || deleting.has(id)) throw new RequestError(404, 'no such Coordinator chat')
     requireFactory(c.factoryId)
     return c
@@ -1963,7 +1966,31 @@ export function createCoordinators(options: {
         if (!closed) pump()
       }
     },
-    async continueChat(id) {
+    async archiveChat(id) {
+      if (requireAnyChat(id).endedAt !== undefined) return publicChat(requireAnyChat(id))
+      await service.stop(id)
+      await exclusive(id, async () => {
+        const c = requireAnyChat(id)
+        if (c.endedAt !== undefined) return
+        await settle(c)
+        const latest = requireChat(id)
+        clearSnoozes(latest)
+        const at = new Date().toISOString()
+        save({
+          ...latest,
+          phase: 'ready',
+          error: undefined,
+          confirmations: (latest.confirmations ?? []).map((x) =>
+            x.answer ? x : { ...x, answer: { decision: 'cancel', at } },
+          ),
+        })
+        saved.archive(id, at)
+        await store.persisted()
+      })
+      pump()
+      return publicChat(requireAnyChat(id))
+    },
+    async unarchiveChat(id) {
       const c = requireAnyChat(id)
       if (c.endedAt === undefined) return publicChat(c)
       await exclusive(id, async () => {
