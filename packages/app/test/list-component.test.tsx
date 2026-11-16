@@ -314,6 +314,7 @@ test('right-click uses all selected Tasks; an unselected row and the Priority ic
   const a = await list()
   a.handle('setPriority', vi.fn())
   a.handle('setTaskLead', vi.fn())
+  a.handle('setTaskAutopilot', vi.fn())
   await a.emitTask(
     task({ title: 'Export notes', priority: 'low', lead: { agent: 'codex', model: 'custom' } }),
   )
@@ -352,6 +353,18 @@ test('right-click uses all selected Tasks; an unselected row and the Priority ic
     expect(a.request).toHaveBeenCalledWith('setTaskLead', 'MS-1', { agent: 'codex' }),
   )
   expect(a.request).not.toHaveBeenCalledWith('setTaskLead', 'NB-1', expect.anything())
+  fireEvent.contextMenu(required(document.querySelector('[data-task="NB-1"]')))
+  menu = await screen.findByRole('menu', { name: '2 selected Tasks' })
+  await u.click(within(menu).getByRole('menuitem', { name: 'Autopilot' }))
+  await u.click(
+    within(screen.getByRole('menu', { name: 'Autopilot' })).getByRole('menuitem', {
+      name: 'Autopilot off',
+    }),
+  )
+  await vi.waitFor(() => {
+    expect(a.request).toHaveBeenCalledWith('setTaskAutopilot', 'NB-1', { choice: 'off' })
+    expect(a.request).toHaveBeenCalledWith('setTaskAutopilot', 'MS-1', { choice: 'off' })
+  })
   fireEvent.contextMenu(required(document.querySelector('[data-task="NB-2"]')))
   menu = await screen.findByRole('menu', { name: 'Task actions · NB-2' })
   expect(within(menu).getByRole('menuitem', { name: /^Edit title/ })).toBeTruthy()

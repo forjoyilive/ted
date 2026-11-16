@@ -240,14 +240,14 @@ test('App switches Delete to Archive, cancels it, then removes the deleted Task 
 
 test('Task actions opens and chooses actions without opening the enclosing Task', async () => {
   const open = vi.fn()
-  const api = bridge({ setPriority: vi.fn() })
+  const api = bridge({ setPriority: vi.fn(), setTaskAutopilot: vi.fn() })
   await act(async () => {
     render(
       <table>
         <tbody>
           <tr onClick={open} onKeyDown={() => undefined} tabIndex={0}>
             <td>
-              <TaskActionsMenu task={task()} />
+              <TaskActionsMenu task={task({ autopilot: { choice: 'off', enabled: false } })} />
             </td>
           </tr>
         </tbody>
@@ -269,8 +269,24 @@ test('Task actions opens and chooses actions without opening the enclosing Task'
   const settings = screen.getByRole('menu', { name: 'Settings' })
   expect(within(settings).getByText('Task Lead')).toBeTruthy()
   expect(within(settings).getByRole('menuitemradio', { name: 'Few' })).toBeTruthy()
+  expect(screen.getByRole('menuitem', { name: 'Settings' }).textContent).toContain('Autopilot off')
+  expect(within(settings).getByRole('menuitemradio', { name: 'Autopilot off' }).ariaChecked).toBe(
+    'true',
+  )
+  expect(
+    within(settings).getByRole('menuitemradio', { name: 'Use global setting (Off)' }),
+  ).toBeTruthy()
   await u.click(within(settings).getByRole('menuitemradio', { name: 'Urgent' }))
   expect(api.request).toHaveBeenCalledWith('setPriority', 'NB-1', 'urgent')
+  await vi.waitFor(() => expect(screen.queryByRole('menu', { name: /Task actions/ })).toBeNull())
+  await u.click(screen.getByRole('button', { name: 'Task actions' }))
+  await u.click(screen.getByRole('menuitem', { name: 'Settings' }))
+  await u.click(
+    within(screen.getByRole('menu', { name: 'Settings' })).getByRole('menuitemradio', {
+      name: 'Autopilot on',
+    }),
+  )
+  expect(api.request).toHaveBeenCalledWith('setTaskAutopilot', 'NB-1', { choice: 'on' })
   expect(open).not.toHaveBeenCalled()
 })
 

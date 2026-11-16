@@ -1,7 +1,8 @@
 import type { Task } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, clarifyIsOver, priorities } from '@ted/protocol/task'
-import { useEffect, useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
+import { OvernightContext } from '../overnight.tsx'
 import { usePendingAction } from '../pending-action.ts'
 import { runStatusAction, statusAction } from '../task-actions.ts'
 import { agentLabels, clarifyDepthLabels, priorityLabels } from '../task-fields.ts'
@@ -11,6 +12,7 @@ import { plural } from '../words.ts'
 import { useEnabledAgents } from './AgentOptions.tsx'
 import dialogStyles from './ArchiveDialogs.module.css'
 import { Dialog, needsUnarchiveDialog } from './ArchiveDialogs.tsx'
+import { autopilotChoiceLabel, autopilotChoices } from './Autopilot.tsx'
 import { Button } from './Button.tsx'
 import menuStyles from './ContextMenu.module.css'
 import { ContextMenu, type MenuAction, MenuItems, type MenuPosition } from './ContextMenu.tsx'
@@ -180,6 +182,7 @@ function BulkTaskMenu({
   onClose: () => void
 }) {
   const enabledAgents = useEnabledAgents()
+  const { on: autopilotOn } = useContext(OvernightContext)
   const activity = usePendingAction(
     `task-actions:${tasks
       .map((t) => t.id)
@@ -251,6 +254,14 @@ function BulkTaskMenu({
         items: clarifyDepths.map((depth) => ({
           label: clarifyDepthLabels[depth],
           action: () => each((t) => ted.setClarifyDepth(t.id, { depth })),
+        })),
+      })
+    if (tasks.every((t) => t.stage !== 'done'))
+      items.push({
+        label: 'Autopilot',
+        items: autopilotChoices.map((choice) => ({
+          label: autopilotChoiceLabel(choice, autopilotOn),
+          action: () => each((t) => ted.setTaskAutopilot(t.id, { choice })),
         })),
       })
   }
