@@ -836,6 +836,7 @@ describe('Automations', () => {
         make('Third'),
         make('Fourth'),
         { endTurn: true },
+        { everyMessage: [{ endTurn: true }] },
       ),
     })
     const lead = await waitUntil(async () => {
