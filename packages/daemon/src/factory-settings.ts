@@ -401,6 +401,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
           subAgents: stage?.sub_agents === true,
         }),
         ...(id === 'work' && { leadClosesFailures: stage?.lead_closes_failures === true }),
+        ...(id === 'merge' && { commitTitles: stage?.commit_titles !== false }),
         from: file?.layer ?? 'ted',
         ...(factoryFile !== undefined && { factoryFile }),
         ...(from &&

@@ -2400,6 +2400,15 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  pullRequestTitleSet: Events.synced({
+    name: 'v1.PullRequestTitleSet',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      title: Schema.String,
+      body: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   gateRequestedFor: Events.synced({
     name: 'v1.GateRequestedFor',
     schema: Schema.Struct({
@@ -4060,6 +4069,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.MergeStarted': (args) => task(args),
   'v1.MergeAwaitsLead': (args) => task(args),
   'v1.MergeLeadAdvanced': (args) => task(args, { by: args.by }),
+  'v1.PullRequestTitleSet': (args) => task(args, { title: args.title, body: args.body }),
   'v1.GateSkippedOvernight': (args) => task(args, { stage: args.stage }),
   'v1.GateKeptOvernight': (args) => task(args, { stage: args.stage, reason: args.reason }),
   'v1.GateRequestedFor': (args) =>
@@ -4374,6 +4384,8 @@ const materializers = counted(
       'v1.MergeAwaitsLead': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.MergeLeadAdvanced': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.PullRequestTitleSet': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.GateRequestedFor': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),

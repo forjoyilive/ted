@@ -199,7 +199,7 @@ describe('Factory settings: Workflow', () => {
     expect(after.stages.find((s) => s.id === 'work')?.maxBack).toBe(2)
   })
 
-  test('the Validate round settings show as off, save to workflow.yaml and turn off again', async () => {
+  test('the Validate round settings, the Work and Merge switches show their defaults, save to workflow.yaml and turn off again', async () => {
     const client = await start()
     const view = await client.settings()
     const validate = (v: typeof view) => v.stages.find((s) => s.id === 'validate')
@@ -212,6 +212,7 @@ describe('Factory settings: Workflow', () => {
         stages: {
           validate: { p1OnlyFrom: 3, subAgents: true },
           work: { leadClosesFailures: true },
+          merge: { commitTitles: false },
         },
       },
       view.version,
@@ -220,11 +221,14 @@ describe('Factory settings: Workflow', () => {
     expect(yaml).toMatch(/p1_only_from: 3/)
     expect(yaml).toMatch(/sub_agents: true/)
     expect(yaml).toMatch(/lead_closes_failures: true/)
+    expect(yaml).toMatch(/commit_titles: false/)
     expect(yaml).toContain('- { name: Typecheck, run: npm run typecheck }')
     const on = await client.settings()
     expect(validate(on)).toMatchObject({ p1OnlyFrom: 3, subAgents: true, maxBack: 5 })
     expect(view.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: false })
     expect(on.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: true })
+    expect(view.stages.find((s) => s.id === 'merge')).toMatchObject({ commitTitles: true })
+    expect(on.stages.find((s) => s.id === 'merge')).toMatchObject({ commitTitles: false })
 
     for (const stages of [
       { validate: { p1OnlyFrom: 1 } },
@@ -232,6 +236,7 @@ describe('Factory settings: Workflow', () => {
       { work: { p1OnlyFrom: 3 } },
       { work: { subAgents: true } },
       { validate: { leadClosesFailures: true } },
+      { work: { commitTitles: false } },
     ]) {
       const refused = await client.call(
         'POST',

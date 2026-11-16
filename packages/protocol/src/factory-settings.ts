@@ -68,6 +68,7 @@ export interface StageSettingsInput {
   p1OnlyFrom?: number | false
   subAgents?: boolean
   leadClosesFailures?: boolean
+  commitTitles?: boolean
 }
 
 export interface FactorySettingsChanges {
@@ -98,6 +99,7 @@ export interface StageRowView {
   p1OnlyFrom?: number | false
   subAgents?: boolean
   leadClosesFailures?: boolean
+  commitTitles?: boolean
   from: LayerKind
   factoryFile?: string
   inherited?: { layer: LayerKind; text: string }
@@ -354,6 +356,7 @@ export interface LibraryStageRow {
   p1OnlyFrom?: number | false
   subAgents?: boolean
   leadClosesFailures?: boolean
+  commitTitles?: boolean
   from: LayerKind
   libraryFile?: string
   defaultText?: string

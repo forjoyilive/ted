@@ -33,6 +33,7 @@ import {
   parseSetActivityRequest,
   parseSetClarifyDepthRequest,
   parseSetPriorityRequest,
+  parseSetPullRequestTitleRequest,
   parseSetTaskAutopilotRequest,
   parseSetTaskGatesRequest,
   parseSetTaskParentRequest,
@@ -353,6 +354,14 @@ export const taskRoutes: Route[] = [
     path: /^\/tasks\/([^/]+)\/archive$/,
     async handle({ body, params: [ref = ''] }, { tasks }) {
       return [200, tasks.archive(ref, body)]
+    },
+  }),
+  jsonRoute(parseSetPullRequestTitleRequest, {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/pull-request-title$/,
+    runToken: true,
+    async handle({ body, params: [ref = ''], caller }, { tasks }) {
+      return [200, await tasks.setPullRequestTitle(ref, caller, body)]
     },
   }),
   jsonRoute(parseReportCleanupStepRequest, {

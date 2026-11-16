@@ -1677,6 +1677,19 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         `Asked the human to archive ${ref} (request ${asked.id}). End your turn now; TED sends you their answer.`,
       )
     },
+    taskPullRequest: async () => {
+      const ref = tedEnv('TED_TASK', env)
+      if (!ref) throw new UsageError('ted task pr works only inside a Task Lead’s Run')
+      const file = options['body-file']
+      const body = file === undefined ? undefined : await readFile(path.resolve(file), 'utf8')
+      const set = await withDaemon(home, (client) =>
+        client.setPullRequestTitle(ref, {
+          title: args[0] ?? '',
+          ...(body !== undefined && { body }),
+        }),
+      )
+      console.log(set.message)
+    },
     taskDone: async () => {
       const ref = tedEnv('TED_TASK', env)
       if (!ref) throw new UsageError('ted task done works only inside a Task Lead’s Run')

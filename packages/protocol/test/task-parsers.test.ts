@@ -163,6 +163,31 @@ rejects(
   { step: 'Post note', result: 'done', text: 'x'.repeat(4001) },
   'at most 4000 characters',
 )
+roundTrip(P.parseSetPullRequestTitleRequest, {
+  title: 'fix(app): keep the sidebar open',
+  body: 'The sidebar stayed shut after a restart.\n\nIt now opens.',
+})
+test('parseSetPullRequestTitleRequest keeps the title to one line and drops an empty body', () => {
+  expect(P.parseSetPullRequestTitleRequest({ title: ' fix: a\n b ', body: ' \n' })).toEqual({
+    title: 'fix: a b',
+  })
+})
+rejects(P.parseSetPullRequestTitleRequest, { title: ' ' }, 'give the pull request’s title')
+rejects(P.parseSetPullRequestTitleRequest, { title: 'fix: a', body: 1 }, 'body must be text')
+rejects(
+  P.parseSetPullRequestTitleRequest,
+  { title: 'fix: a', body: 'x'.repeat(4001) },
+  'at most 4000 characters',
+)
+test('commitTitleProblem accepts Conventional Commits titles without the Task ID', () => {
+  expect(P.commitTitleProblem('fix(app): keep the sidebar open', 'TED-12')).toBeUndefined()
+  expect(P.commitTitleProblem('feat!: drop the old flag', 'TED-12')).toBeUndefined()
+  expect(P.commitTitleProblem('Keep the sidebar open', 'TED-12')).toMatch(/Conventional Commits/)
+  expect(P.commitTitleProblem('fix(App): a', 'TED-12')).toMatch(/Conventional Commits/)
+  expect(P.commitTitleProblem('fix: keep it open (TED-12)', 'TED-12')).toMatch(/leave the Task ID/)
+  expect(P.commitTitleProblem(`fix: ${'x'.repeat(60)}`, 'TED-12')).toMatch(/keep it to 72/)
+  expect(P.commitTitle('fix: keep it open', 'TED-12')).toBe('fix: keep it open (TED-12)')
+})
 roundTrip(P.parseDeleteTaskRequest, {
   blocked: 'unblock',
   children: 'delete',

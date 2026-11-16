@@ -138,6 +138,8 @@ import {
   clarifyIsOver,
   cleanupFinishChoice,
   cleanupRetryChoice,
+  commitTitle,
+  commitTitleProblem,
   isChat,
   isLoopbackUrl,
   isTrackerClosedQuestion,
@@ -153,6 +155,7 @@ import {
   type ResetRefusal,
   resetRefusal,
   runOnlyBrowserActions,
+  type SetPullRequestTitleRequest,
   sizeChoices,
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
@@ -615,6 +618,11 @@ export interface Tasks {
   cancelMerge(ref: string, comment: string, attachments?: Attachment[]): Promise<Comment>
   markDone(ref: string, by?: 'human' | 'coordinator'): Promise<Task>
   leadDone(ref: string, caller: Caller): Promise<Task>
+  setPullRequestTitle(
+    ref: string,
+    caller: Caller,
+    input: SetPullRequestTitleRequest,
+  ): Promise<{ title: string; message: string }>
   reportCleanupStep(
     ref: string,
     caller: Caller,
@@ -3556,6 +3564,13 @@ export function createTasks(options: {
       return i === -1 ? order.length : i
     }
     const targets = (await pullRequestTargets(task)).sort((a, b) => rank(a.repo) - rank(b.repo))
+    const written = commitTitlesOn(resolution.workflow)
+      ? store.pullRequestTitle(task.id)
+      : undefined
+    const message = written && {
+      subject: written.title,
+      ...(written.body !== undefined && { body: written.body }),
+    }
     return targets.flatMap((target) => {
       const repo = open.find((r) => r.name === target.name)
       const pr = repo?.pullRequest
@@ -3568,9 +3583,14 @@ export function createTasks(options: {
           expectedHead: pr.signedOff ?? '',
           hasCi: repo.pushed?.ci ?? true,
           method: method as MergeMethod,
+          ...(message && { message }),
         },
       ]
     })
+  }
+
+  function commitTitlesOn(workflow: ResolvedWorkflow): boolean {
+    return workflow.settings.stages.merge?.commit_titles !== false
   }
 
   async function mergeChecks(taskId: string, resolution: WorkflowResolution): Promise<boolean> {
@@ -11939,6 +11959,61 @@ export function createTasks(options: {
         await store.persisted()
         return store.cleanupReports(current.id)
       })
+    },
+
+    async setPullRequestTitle(ref, caller, input) {
+      const does = 'titles its pull request'
+      const { task } = taskLead(ref, caller, does)
+      if (task.stage !== 'merge') {
+        throw new RequestError(
+          409,
+          `${task.displayId} is in ${task.stage}; the pull request title is written at Merge`,
+        )
+      }
+      const { workflow } = await taskWorkflow(task, { fetch: false })
+      if (!commitTitlesOn(workflow)) {
+        throw new RequestError(
+          409,
+          `this Factory has the Task Lead’s merge commit turned off, so TED keeps ${task.displayId}’s title and GitHub’s merge message; skip this step`,
+        )
+      }
+      const problem = commitTitleProblem(input.title, task.displayId)
+      if (problem) throw new RequestError(400, problem)
+      const prs = pullRequests
+      const open = task.repos.some(
+        (r) =>
+          !r.removed &&
+          r.pullRequest !== undefined &&
+          r.pullRequest.state !== 'closed' &&
+          r.pullRequest.state !== 'merged',
+      )
+      if (!prs || !open) {
+        throw new RequestError(409, `${task.displayId} has no open pull request to title`)
+      }
+      const current = taskLead(ref, caller, does).task
+      if (current.stage !== 'merge' || !leadPending(store, current.id)) {
+        throw new RequestError(
+          409,
+          `${current.displayId}’s Merge work is already reported; write the title before \`ted outcome advance\``,
+        )
+      }
+      const title = commitTitle(input.title, current.displayId)
+      try {
+        await prs.retitle(current.id, title)
+      } catch (error) {
+        throw new RequestError(
+          502,
+          `GitHub didn’t take the new title: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
+        )
+      }
+      store.pullRequestTitleSet(current.id, {
+        title,
+        ...(input.body !== undefined && { body: redactSecrets(input.body) }),
+      })
+      return {
+        title,
+        message: `TED titled ${current.displayId}’s pull request “${title}” and uses it${input.body !== undefined ? ' and your description' : ''} for the merge commit. Run \`ted outcome advance\` when the Merge work is done.`,
+      }
     },
 
     async leadDone(ref, caller) {

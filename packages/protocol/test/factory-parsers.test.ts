@@ -31,6 +31,7 @@ const library = {
       leadClosesFailures: true,
     },
     validate: { p1OnlyFrom: 3, subAgents: true },
+    merge: { commitTitles: false },
   },
   stageFiles: { work: '# Work', review: null },
   keepStageFiles: ['work'],
@@ -243,6 +244,11 @@ rejects(
   P.parseLibraryChanges,
   { stages: { validate: { leadClosesFailures: true } } },
   'validate.leadClosesFailures must be true or false, on Work',
+)
+rejects(
+  P.parseLibraryChanges,
+  { stages: { work: { commitTitles: true } } },
+  'work.commitTitles must be true or false, on Merge',
 )
 rejects(
   P.parseSaveSettingsRequest,

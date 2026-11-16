@@ -56,6 +56,7 @@ export interface StageSettings {
   p1_only_from?: number | false
   sub_agents?: boolean
   lead_closes_failures?: boolean
+  commit_titles?: boolean
   steps?: CleanupStep[]
 }
 
@@ -446,6 +447,12 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             else if (typeof scalar(node) !== 'boolean') {
               error(node, `\`${path}\` must be true or false`)
             } else stage.lead_closes_failures = scalar(node) as boolean
+            break
+          case 'commit_titles':
+            if (id !== 'merge') warn(entry.key, `unknown key \`${path}\``)
+            else if (typeof scalar(node) !== 'boolean') {
+              error(node, `\`${path}\` must be true or false`)
+            } else stage.commit_titles = scalar(node) as boolean
             break
           case 'steps':
             if (id !== 'cleanup') warn(entry.key, `unknown key \`${path}\``)

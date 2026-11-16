@@ -15,6 +15,7 @@ const flags = {
   'close-pull-requests': { type: 'boolean' },
   'keep-pull-requests': { type: 'boolean' },
   'pull-request-reason': { type: 'string' },
+  'body-file': { type: 'string' },
   recommended: { type: 'boolean' },
   'skip-rows': { type: 'string' },
   'start-unblocked': { type: 'boolean' },
@@ -1025,6 +1026,15 @@ export const commands = [
     help: '  ted cleanup report "<step>" done|skipped|failed "<what happened>"\n                                             In Cleanup, report the result of one Cleanup step',
     callers: 'Task Lead',
     options: options(),
+  },
+  {
+    name: 'task pr',
+    handler: 'taskPullRequest',
+    min: 1,
+    max: 1,
+    help: '  ted task pr "<title>" [--body-file <file>] At Merge, title this Task’s pull request in\n                                             Conventional Commits form; TED adds the Task ID and\n                                             uses the title and file as the merge commit message',
+    callers: 'Task Lead',
+    options: options('body-file'),
   },
   {
     name: 'task done',

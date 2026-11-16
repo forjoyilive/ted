@@ -809,6 +809,11 @@ export const cleanupStepResults = ['done', 'skipped', 'failed'] as const
 
 export type CleanupStepResult = (typeof cleanupStepResults)[number]
 
+export interface SetPullRequestTitleRequest {
+  title: string
+  body?: string
+}
+
 export interface ReportCleanupStepRequest {
   step: string
   result: CleanupStepResult

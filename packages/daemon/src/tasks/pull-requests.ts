@@ -34,6 +34,7 @@ export interface PullRequests {
   ready(task: PullRequestTask, targets: PullRequestTarget[]): Promise<void>
   close(taskId: string): Promise<void>
   reopen(taskId: string): Promise<void>
+  retitle(taskId: string, title: string): Promise<void>
 }
 
 export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRequests {
@@ -229,6 +230,14 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
             redactSecrets(error instanceof Error ? error.message : String(error)),
           )
         }
+      }
+    },
+
+    async retitle(taskId, title) {
+      for (const repo of store.getTask(taskId)?.repos ?? []) {
+        const pr = repo.pullRequest
+        if (repo.removed || !pr || pr.state === 'closed' || pr.state === 'merged') continue
+        await gh.run(['pr', 'edit', String(pr.number), '--repo', repo.repo, '--title', title])
       }
     },
 

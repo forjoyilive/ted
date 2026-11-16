@@ -812,6 +812,7 @@ export interface TedStore extends TaskHistory {
   autoMergeDisabled(taskId: string, name: string): void
   mergeStarted(taskId: string): void
   mergeLeadAdvanced(taskId: string, by: 'lead' | 'human'): void
+  pullRequestTitleSet(taskId: string, input: { title: string; body?: string }): void
   gateSkippedOvernight(taskId: string, stage: AgentStageId): void
   gateApprovalBound(taskId: string, commentId: string, name: string, commit: string): void
   gateRequestedFor(taskId: string, commentId: string, name: string, commit: string): void
@@ -5412,6 +5413,16 @@ export async function openStore({
     mergeStarted(taskId) {
       commit(events.mergeStarted({ taskId, at: new Date().toISOString() }))
       updatedTask(taskId)
+    },
+    pullRequestTitleSet(taskId, { title, body }) {
+      commit(
+        events.pullRequestTitleSet({
+          taskId,
+          title,
+          body: body ?? '',
+          at: new Date().toISOString(),
+        }),
+      )
     },
     mergeLeadAdvanced(taskId, by) {
       commit(events.mergeLeadAdvanced({ taskId, by, at: new Date().toISOString() }))

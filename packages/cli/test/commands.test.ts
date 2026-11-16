@@ -214,6 +214,8 @@ describe('importable CLI execution', () => {
     expect(await runCli(['comment', '--attach', 'missing.txt', '--skip'], runtime)).toBe(2)
     expect(await runCli(['task', 'done'], runtime)).toBe(2)
     expect(errors).toContain('ted task done works only inside a Task Lead’s Run')
+    expect(await runCli(['task', 'pr', 'fix: keep it open'], runtime)).toBe(2)
+    expect(errors).toContain('ted task pr works only inside a Task Lead’s Run')
     expect(await runCli(['task', 'archive', '--reason', 'Duplicate'], runtime)).toBe(2)
     expect(errors).toContain('ted task archive works only inside a Task Lead’s Run')
     expect(errors).toContain('--design')
@@ -350,6 +352,22 @@ describe('marking a merged Task done', () => {
     ).toBe('coordinatorDone')
     expect(helpText()).toContain('ted task done')
     expect(helpText()).toContain('ted coordinator done')
+  })
+})
+
+describe('titling the pull request', () => {
+  test('parses ted task pr with a title and an optional body file', () => {
+    const parsed = parseInvocation(
+      ['task', 'pr', 'fix(app): keep it open', '--body-file', 'body.md'],
+      { TED_TASK: 'NB-1' },
+    )
+    expect(parsed).toMatchObject({
+      handler: 'taskPullRequest',
+      args: ['fix(app): keep it open'],
+      options: { 'body-file': 'body.md' },
+    })
+    expect(() => parseInvocation(['task', 'pr'], { TED_TASK: 'NB-1' })).toThrow(UsageError)
+    expect(helpText()).toContain('ted task pr')
   })
 })
 

@@ -204,6 +204,34 @@ export function WorkFailures({
   )
 }
 
+export function MergeCommitTitles({
+  stage,
+  onStage,
+}: {
+  stage: Pick<StageDraft, 'commitTitles'> | undefined
+  onStage: (fields: Pick<StageDraft, 'commitTitles'>) => void
+}) {
+  return (
+    <div className={styles.validateRounds}>
+      <span className={styles.roundSetting} data-setting="factory.workflow.commit-titles">
+        Task Lead writes the merge commit
+        <Toggle
+          label="Task Lead writes the merge commit"
+          checked={stage?.commitTitles !== false}
+          onChange={(commitTitles) => onStage({ commitTitles })}
+        />
+        <Help>
+          On: at Merge the Task Lead gives each pull request a Conventional Commits title, such as
+          “fix(app): keep the sidebar open (TED-12)”, and a short description. TED uses them as the
+          merge commit’s subject and body. If the Task Lead writes none, TED keeps the Task’s title
+          and GitHub’s own merge message. Off: TED keeps the Task’s title and GitHub’s merge
+          message.
+        </Help>
+      </span>
+    </div>
+  )
+}
+
 export function InvalidNotice({
   invalid,
 }: {
@@ -520,6 +548,7 @@ function StageRow({
       </div>
       {row.id === 'validate' && <ValidateRounds stage={stage} onStage={onStage} />}
       {row.id === 'work' && <WorkFailures stage={stage} onStage={onStage} />}
+      {row.id === 'merge' && <MergeCommitTitles stage={stage} onStage={onStage} />}
       {drift && (
         <DriftNotice
           stage={row.id as AgentStageId}

@@ -102,7 +102,7 @@ describe('Approve and merge', () => {
     expect(await lines(client, task)).toContain(`Merged ${done.repos[0]?.name}`)
   })
 
-  test('TED doesn’t merge until the Task Lead advances at Merge; before that a Comment steers the Task Lead, and the Task Lead can send back only to Work or Design or advance once', async () => {
+  test('TED doesn’t merge until the Task Lead advances at Merge; before that a Comment steers the Task Lead, the Task Lead titles the pull request for the merge commit, and it can send back only to Work or Design or advance once', async () => {
     const client = await start()
     const script = [
       `[ -e '${client.mergingFile}' ] && exit 0`,
@@ -134,15 +134,39 @@ describe('Approve and merge', () => {
     const back = await outcome({ outcome: 'back', to: 'validate', findings: 'Recheck it.' })
     expect(back.status).toBe(409)
     expect(JSON.stringify(back.body)).toContain('only to Work or Design')
+    const titled = (body: unknown) =>
+      lead.call('POST', `/tasks/${task.id}/pull-request-title`, body)
+    const loose = await titled({ title: 'Keep the sidebar open' })
+    expect(loose.status).toBe(400)
+    expect(JSON.stringify(loose.body)).toContain('Conventional Commits')
+    const subject = `fix(app): keep the sidebar open (${task.displayId})`
+    const body = 'The sidebar closed after a restart.\n\nIt now stays open.'
+    const set = await titled({ title: 'fix(app): keep the sidebar open', body })
+    expect(set.status).toBe(200)
+    expect(set.body).toMatchObject({ title: subject })
+    expect((await ghCalls()).map((c) => c.args)).toContainEqual([
+      'pr',
+      'edit',
+      '7',
+      '--repo',
+      'acme/widgets',
+      '--title',
+      subject,
+    ])
     const advanced = await outcome({ outcome: 'advance' })
     expect(advanced.status).toBe(200)
     expect(JSON.stringify(advanced.body)).toContain('merges')
     const again = await outcome({ outcome: 'advance' })
     expect(again.status).toBe(409)
     expect(JSON.stringify(again.body)).toContain('already reported')
+    expect((await titled({ title: 'fix: something else' })).status).toBe(409)
 
     await waitForStage(client, task, 'done')
-    expect(await merges()).toHaveLength(1)
+    const [merge] = await merges()
+    expect(merge?.slice(-4)).toEqual(['--subject', subject, '--body', body])
+    expect(await lines(client, task)).toContain(
+      `The Task Lead titled the pull request “${subject}”`,
+    )
   })
 
   test('a Task waiting at Merge can be reset: TED closes the pull request and deletes the branch, and a branch GitHub won’t delete stops the reset', async () => {

@@ -272,6 +272,13 @@ export {
   type Subscription,
 } from './client.ts'
 export type { CommandLineStatus } from './command-line.ts'
+export {
+  commitTitle,
+  commitTitleProblem,
+  commitTypes,
+  maxCommitBody,
+  maxCommitTitle,
+} from './commit-title.ts'
 export type {
   ConfirmationChoices,
   ConfirmationTaskRef,
@@ -963,6 +970,7 @@ export {
   type SetActivityRequest,
   type SetClarifyDepthRequest,
   type SetPriorityRequest,
+  type SetPullRequestTitleRequest,
   type SetTaskLeadRequest,
   type SetTaskParentRequest,
   type SetTaskReposRequest,
@@ -1068,6 +1076,7 @@ export {
   parseSetActivityRequest,
   parseSetClarifyDepthRequest,
   parseSetPriorityRequest,
+  parseSetPullRequestTitleRequest,
   parseSetTaskGatesRequest,
   parseSetTaskParentRequest,
   parseSetTaskReposRequest,

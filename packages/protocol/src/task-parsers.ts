@@ -6,6 +6,7 @@ import {
   findingSeverities,
   type RunChecksRequest,
 } from './checks.ts'
+import { maxCommitBody } from './commit-title.ts'
 import { proposalCycle } from './proposal.ts'
 import { agentKindList } from './run.ts'
 import type {
@@ -23,6 +24,7 @@ import type {
   RequestArchiveRequest,
   SaveTaskDraftRequest,
   SetPriorityRequest,
+  SetPullRequestTitleRequest,
   SetTaskParentRequest,
   UnarchiveTaskRequest,
 } from './task.ts'
@@ -1117,6 +1119,18 @@ export function parseReportCleanupStepRequest(value: unknown): ReportCleanupStep
     result: result as ReportCleanupStepRequest['result'],
     text,
   }
+}
+
+export function parseSetPullRequestTitleRequest(value: unknown): SetPullRequestTitleRequest {
+  const body = objectOrNull(value, 'the request')
+  if (typeof body.title !== 'string' || oneLine(body.title) === '')
+    throw new HttpError(400, 'give the pull request’s title')
+  if (body.body !== undefined && typeof body.body !== 'string')
+    throw new HttpError(400, 'body must be text')
+  const text = body.body === undefined ? '' : stripVTControlCharacters(body.body).trim()
+  if (text.length > maxCommitBody)
+    throw new HttpError(400, `the description must be at most ${maxCommitBody} characters`)
+  return { title: oneLine(body.title), ...(text !== '' && { body: text }) }
 }
 
 export function parseArchiveTaskRequest(value: unknown): ArchiveTaskRequest {
