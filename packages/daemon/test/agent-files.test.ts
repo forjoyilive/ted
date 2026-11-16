@@ -162,16 +162,16 @@ describe('Agent layers', () => {
       })
 
     expect(findAgentDrift([defaults], override(stageFileHash(builtIn)))).toEqual([])
-    expect(findAgentDrift([defaults], override('0000000'))).toEqual([
+    expect(findAgentDrift([defaults], override('abc1234'))).toEqual([
       {
         agent: 'planner',
-        basedOn: '0000000',
+        basedOn: 'abc1234',
         current: stageFileHash(builtIn),
         layer: 'ted',
         inherited: builtIn,
         own: 'Plan in fewer rounds.\n',
       },
     ])
-    expect(driftCount([defaults], override('0000000'))).toBe(1)
+    expect(driftCount([defaults], override('abc1234'))).toBe(1)
   })
 })
