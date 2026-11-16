@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -7,7 +7,8 @@ import {
   readDaemonInfo,
   tedPaths,
 } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test } from 'vitest'
+import type { MakeDirectory } from '../src/files.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { resolveAgentChoices } from '../src/workflow/agent-choices.ts'
@@ -23,17 +24,11 @@ import {
   waitUntil,
 } from './helpers.ts'
 
-const pauses = vi.hoisted(() => ({ folder: undefined as (() => Promise<void>) | undefined }))
-vi.mock('node:fs/promises', async (original) => {
-  const fs = await original<typeof import('node:fs/promises')>()
-  return {
-    ...fs,
-    mkdir: async (...args: Parameters<typeof fs.mkdir>) => {
-      if (/\/coordinators\/[a-f0-9-]{36}$/.test(String(args[0]))) await pauses.folder?.()
-      return fs.mkdir(...args)
-    },
-  }
-})
+const pauses = { folder: undefined as (() => Promise<void>) | undefined }
+const pausingMkdir: MakeDirectory = async (dir, options) => {
+  if (/\/coordinators\/[a-f0-9-]{36}$/.test(dir)) await pauses.folder?.()
+  return mkdir(dir, options)
+}
 
 let home: string
 let cleanup: () => Promise<void>
@@ -66,6 +61,7 @@ async function start() {
     version: '9.9.9',
     claudeBin: stubClaudePath,
     codexBin: stubCodexPath,
+    mkdir: pausingMkdir,
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('Missing daemon info')

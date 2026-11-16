@@ -48,11 +48,12 @@ function makeContents() {
     ),
   })
 }
-const mocks = vi.hoisted(() => ({
+const mocks = {
   views: [] as { webContents: ReturnType<typeof makeContents> }[],
   sessions: [] as ReturnType<typeof makeSession>[],
-}))
-vi.mock('electron', () => ({
+}
+
+const electron: BrowserViews = {
   session: {
     fromPartition: () => {
       const ses = makeSession()
@@ -67,10 +68,10 @@ vi.mock('electron', () => ({
     }
     setBounds = vi.fn()
   },
-}))
+} as never
 
 import { createBrowserBroker } from '../../daemon/src/tasks/browser.ts'
-import { createTaskBrowsers } from '../src/browser.ts'
+import { type BrowserViews, createTaskBrowsers } from '../src/browser.ts'
 
 const app = {
   name: 'Web',
@@ -156,6 +157,7 @@ test.each(
       () => undefined,
       () => transport.client,
       vi.fn(),
+      electron,
     )
     controllers.push(controller)
     await transport.send('open', 'one', 'open')
@@ -201,6 +203,7 @@ test('broker cancellation reaches a held executor before native input can resume
     () => undefined,
     () => client,
     vi.fn(),
+    electron,
   )
   controllers.push(controller)
   const result = await broker.request({ taskId: 'one', app, request: { action: 'snapshot' } })
@@ -234,6 +237,7 @@ test('a new client resumes polling while an idle Task retains its page and sessi
     () => undefined,
     () => client,
     vi.fn(),
+    electron,
   )
   controllers.push(controller)
   await first.send('open', 'one', 'open')
@@ -260,6 +264,7 @@ test('a delayed lookup cannot click after expiry and another Task keeps progress
     () => undefined,
     () => transport.client,
     vi.fn(),
+    electron,
   )
   controllers.push(controller)
   await transport.send('snapshot', 'one', 'snapshot')
@@ -297,6 +302,7 @@ test('a navigation that never finishes is bounded without stopping other Tasks',
     () => undefined,
     () => transport.client,
     vi.fn(),
+    electron,
   )
   controllers.push(controller)
   await transport.send('open', 'one', 'open')
@@ -321,6 +327,7 @@ test('an expired queued fill checks its deadline before touching the document', 
     () => undefined,
     () => transport.client,
     vi.fn(),
+    electron,
   )
   controllers.push(controller)
   await transport.send('snapshot', 'one', 'snapshot')
@@ -349,6 +356,7 @@ test('a transient polling error preserves an idle page and its session', async (
     () => undefined,
     () => transport.client,
     vi.fn(),
+    electron,
   )
   controllers.push(controller)
   await transport.send('open', 'one', 'open')
@@ -369,6 +377,7 @@ test('ending the requesting Run cancels a delayed click without replay', async (
     () => undefined,
     () => transport.client,
     vi.fn(),
+    electron,
   )
   controllers.push(controller)
   await transport.send('snapshot', 'one', 'snapshot')
@@ -404,6 +413,7 @@ test.each(['App stop', 'App restart', 'Task deletion', 'Factory deletion'])(
       () => undefined,
       () => transport.client,
       vi.fn(),
+      electron,
     )
     controllers.push(controller)
     await transport.send('open', 'one', 'open')
@@ -436,6 +446,7 @@ test('reopening a restarted App clears a canceled guest session before lifecycle
     () => undefined,
     () => transport.client,
     vi.fn(),
+    electron,
   )
   controllers.push(controller)
   await transport.send('open', 'one', 'open')
@@ -461,6 +472,7 @@ test('guests reject system client certificates', async () => {
     () => undefined,
     () => transport.client,
     vi.fn(),
+    electron,
   )
   controllers.push(controller)
   await transport.send('open', 'one', 'open')
@@ -492,6 +504,7 @@ test.each(['stop', 'restart'])(
       () => undefined,
       () => transport.client,
       vi.fn(),
+      electron,
     )
     controllers.push(controller)
     for (const [index, selected] of [app, other, app, other].entries()) {
@@ -525,6 +538,7 @@ test('reopening an App after switching away detects its restart before lifecycle
     () => undefined,
     () => transport.client,
     vi.fn(),
+    electron,
   )
   controllers.push(controller)
   await transport.send('first', 'one', 'open')
@@ -550,6 +564,7 @@ test('a Task whose App is being switched reports Opening until the new page is r
     () => undefined,
     () => transport.client,
     vi.fn(),
+    electron,
   )
   controllers.push(controller)
   await transport.send('first', 'one', 'open')
@@ -578,6 +593,7 @@ test('switching Apps does not discard a pending lifecycle check for the retained
     () => undefined,
     () => transport.client,
     vi.fn(),
+    electron,
   )
   controllers.push(controller)
   await transport.send('first', 'one', 'open')
@@ -610,6 +626,7 @@ test.each(['stop', 'restart', 'Task deletion', 'Factory deletion'])(
       () => undefined,
       () => transport.client,
       vi.fn(),
+      electron,
     )
     controllers.push(controller)
     await transport.send('first', 'one', 'open')
@@ -637,6 +654,7 @@ test('an obsolete reconnect validation cannot clear a later connection’s sessi
     () => undefined,
     () => client,
     vi.fn(),
+    electron,
   )
   controllers.push(controller)
   await first.send('open', 'one', 'open')
@@ -665,6 +683,7 @@ test('navigation after a coordinate lookup prevents input to the new document', 
     () => undefined,
     () => transport.client,
     vi.fn(),
+    electron,
   )
   controllers.push(controller)
   await transport.send('snapshot', 'one', 'snapshot')
@@ -700,6 +719,7 @@ test.each(['click', 'press'])(
       () => undefined,
       () => transport.client,
       vi.fn(),
+      electron,
     )
     controllers.push(controller)
     await transport.send('snapshot', 'one', 'snapshot')
@@ -728,6 +748,7 @@ test('reconnect retries temporary validation failures without losing the retaine
     () => undefined,
     () => transport.client,
     vi.fn(),
+    electron,
   )
   controllers.push(controller)
   await transport.send('open', 'one', 'open')
@@ -748,6 +769,7 @@ test('lifecycle teardown stops retained workers even after the guest was cancele
     () => undefined,
     () => transport.client,
     vi.fn(),
+    electron,
   )
   controllers.push(controller)
   await transport.send('open', 'one', 'open')

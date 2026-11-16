@@ -31,6 +31,7 @@ import { archiveChoice, isTrackerGroupAsk, priorities } from '@ted/protocol'
 import { mergesHere } from '@ted/protocol/stage'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import { RequestError } from '../errors.ts'
+import type { MakeDirectory } from '../files.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
@@ -180,8 +181,10 @@ export function createCoordinators(options: {
   tasks: Tasks
   health: AgentHealthMonitor
   steering: Steering
+  mkdir?: MakeDirectory
 }): Coordinators {
   const { home, store, runs, tasks, steering } = options
+  const makeDirectory = options.mkdir ?? mkdir
   const saved = store.coordinators
   const launches = new Map<string, Promise<void>>()
   const launching = new Set<string>()
@@ -412,14 +415,14 @@ export function createCoordinators(options: {
   async function folder(id: string): Promise<string> {
     if (!/^[a-f0-9-]{36}$/.test(id)) throw new RequestError(400, 'invalid Coordinator Run ID')
     const base = path.join(home, 'coordinators')
-    await mkdir(base, { recursive: true, mode: 0o700 })
+    await makeDirectory(base, { recursive: true, mode: 0o700 })
     if (
       !(await lstat(base)).isDirectory() ||
       (await realpath(base)) !== path.join(await realpath(home), 'coordinators')
     )
       throw new Error('unsafe Coordinator folder')
     const dir = path.join(base, id)
-    await mkdir(dir, { recursive: true, mode: 0o700 })
+    await makeDirectory(dir, { recursive: true, mode: 0o700 })
     if (
       !(await lstat(dir)).isDirectory() ||
       (await realpath(dir)) !== path.join(await realpath(base), id)

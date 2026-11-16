@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -12,7 +12,9 @@ import {
   type Task,
   tedPaths,
 } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test } from 'vitest'
+import type { DaemonWrappers } from '../src/daemon.ts'
+import type { MakeDirectory } from '../src/files.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { openStore } from '../src/store/index.ts'
@@ -26,7 +28,7 @@ import {
   waitUntil,
 } from './helpers.ts'
 
-const pauses = vi.hoisted(() => ({
+const pauses = {
   closing: undefined as (() => void) | undefined,
   runFolder: undefined as (() => Promise<void>) | undefined,
   folder: undefined as (() => Promise<void>) | undefined,
@@ -39,116 +41,69 @@ const pauses = vi.hoisted(() => ({
   dispatched: undefined as (() => Promise<void>) | undefined,
   persisted: undefined as (() => Promise<void>) | undefined,
   dispatchPhase: undefined as string | undefined,
-}))
-vi.mock('node:fs/promises', async (original) => {
-  const fs = await original<typeof import('node:fs/promises')>()
-  return {
-    ...fs,
-    mkdir: async (...args: Parameters<typeof fs.mkdir>) => {
-      if (/\/coordinators\/[a-f0-9-]{36}$/.test(String(args[0]))) await pauses.folder?.()
-      const result = await fs.mkdir(...args)
-      if (/\/runs\/[a-f0-9-]{36}$/.test(String(args[0]))) await pauses.runFolder?.()
+}
+
+const pausingMkdir: MakeDirectory = async (dir, options) => {
+  if (/\/coordinators\/[a-f0-9-]{36}$/.test(dir)) await pauses.folder?.()
+  const result = await mkdir(dir, options)
+  if (/\/runs\/[a-f0-9-]{36}$/.test(dir)) await pauses.runFolder?.()
+  return result
+}
+
+const pausing: DaemonWrappers = {
+  coordinators: (coordinators) => ({
+    ...coordinators,
+    close: () => {
+      const result = coordinators.close()
+      pauses.closing?.()
       return result
     },
-  }
-})
-vi.mock('../src/coordinators/coordinators.ts', async (original) => {
-  const module = await original<typeof import('../src/coordinators/coordinators.ts')>()
-  return {
-    ...module,
-    createCoordinators: (...args: Parameters<typeof module.createCoordinators>) => {
-      const coordinators = module.createCoordinators(...args)
-      return {
-        ...coordinators,
-        close: () => {
-          const result = coordinators.close()
-          pauses.closing?.()
-          return result
-        },
-      }
+  }),
+  workflows: (workflows) => ({
+    ...workflows,
+    resolve: async (...input) => {
+      const result = await workflows.resolve(...input)
+      await pauses.defaults?.()
+      return result
     },
-  }
-})
-vi.mock('../src/workflow/workflows.ts', async (original) => {
-  const module = await original<typeof import('../src/workflow/workflows.ts')>()
-  return {
-    ...module,
-    createWorkflows: (...args: Parameters<typeof module.createWorkflows>) => {
-      const workflows = module.createWorkflows(...args)
-      return {
-        ...workflows,
-        resolve: async (...input: Parameters<typeof workflows.resolve>) => {
-          const result = await workflows.resolve(...input)
-          await pauses.defaults?.()
-          return result
-        },
-      }
+  }),
+  plans: (plans) => ({
+    ...plans,
+    removeFactory: async (...input) => {
+      await plans.removeFactory(...input)
+      await pauses.removal?.()
     },
-  }
-})
-vi.mock('../src/plans/plans.ts', async (original) => {
-  const module = await original<typeof import('../src/plans/plans.ts')>()
-  return {
-    ...module,
-    createPlans: (...args: Parameters<typeof module.createPlans>) => {
-      const plans = module.createPlans(...args)
-      return {
-        ...plans,
-        removeFactory: async (...input: Parameters<typeof plans.removeFactory>) => {
-          await plans.removeFactory(...input)
-          await pauses.removal?.()
-        },
-      }
+  }),
+  runs: (runs, store) => ({
+    ...runs,
+    start: async (...input) => {
+      const result = await runs.start(...input)
+      await pauses.started?.()
+      return result
     },
-  }
-})
-
-vi.mock('../src/runs/run-manager.ts', async (original) => {
-  const module = await original<typeof import('../src/runs/run-manager.ts')>()
-  return {
-    ...module,
-    startRunManager: async (...args: Parameters<typeof module.startRunManager>) => {
-      const runs = await module.startRunManager(...args)
-      return {
-        ...runs,
-        start: async (...input: Parameters<typeof runs.start>) => {
-          const result = await runs.start(...input)
-          await pauses.started?.()
-          return result
-        },
-        revive: async (...input: Parameters<typeof runs.revive>) => {
-          await pauses.resume?.()
-          const result = await runs.revive(...input)
-          await pauses.resumed?.()
-          return result
-        },
-        dispatch: async (...input: Parameters<typeof runs.dispatch>) => {
-          await pauses.dispatch?.()
-          pauses.dispatchPhase = args[0].store.coordinators.forRun(input[0])?.phase
-          const result = await runs.dispatch(...input)
-          await pauses.dispatched?.()
-          return result
-        },
-      }
+    revive: async (...input) => {
+      await pauses.resume?.()
+      const result = await runs.revive(...input)
+      await pauses.resumed?.()
+      return result
     },
-  }
-})
-
-vi.mock('../src/store/index.ts', async (original) => {
-  const module = await original<typeof import('../src/store/index.ts')>()
-  return {
-    ...module,
-    openStore: async (...args: Parameters<typeof module.openStore>) => {
-      const store = await module.openStore(...args)
-      const persisted = store.persisted
-      store.persisted = async () => {
-        await persisted()
-        if (new Error().stack?.includes('/runs/steering.ts:')) await pauses.persisted?.()
-      }
-      return store
+    dispatch: async (...input) => {
+      await pauses.dispatch?.()
+      pauses.dispatchPhase = store.coordinators.forRun(input[0])?.phase
+      const result = await runs.dispatch(...input)
+      await pauses.dispatched?.()
+      return result
     },
-  }
-})
+  }),
+  store: (store) => {
+    const persisted = store.persisted
+    store.persisted = async () => {
+      await persisted()
+      if (new Error().stack?.includes('/runs/steering.ts:')) await pauses.persisted?.()
+    }
+    return store
+  },
+}
 
 let home: string, scratch: string, cleanup: () => Promise<void>, daemon: RunningDaemon | undefined
 const releases: (() => void)[] = []
@@ -200,6 +155,8 @@ async function setup(runs?: { inputAckMs: number }) {
     claudeBin: stubClaudePath,
     codexBin: stubCodexPath,
     ...(runs && { runs }),
+    wrap: pausing,
+    mkdir: pausingMkdir,
   })
   let client = api(daemon.port, { appKey: daemon.appToken })
   async function call<T>(method: string, route: string, body?: unknown): Promise<T> {
@@ -248,6 +205,8 @@ async function setup(runs?: { inputAckMs: number }) {
         claudeBin: stubClaudePath,
         codexBin: stubCodexPath,
         ...(runs && { runs }),
+        wrap: pausing,
+        mkdir: pausingMkdir,
       })
       client = api(daemon.port, { appKey: daemon.appToken })
       return daemon

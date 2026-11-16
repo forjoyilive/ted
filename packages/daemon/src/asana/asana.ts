@@ -11,7 +11,12 @@ import { type Clock, systemClock, type Timer } from '../clock.ts'
 import { RequestError } from '../errors.ts'
 import { type Keyring, KeyringUnavailableError } from '../linear/keyring.ts'
 import { redactSecrets } from '../redact.ts'
-import { CredentialCleanupError, type Credentials, credentialStore } from './credentials.ts'
+import {
+  type CommitFile,
+  CredentialCleanupError,
+  type Credentials,
+  credentialStore,
+} from './credentials.ts'
 
 export interface AsanaOptions {
   home: string
@@ -24,6 +29,7 @@ export interface AsanaOptions {
   timeoutMs?: number
   hold?: () => () => void
   clock?: Clock
+  commitFile?: CommitFile
 }
 
 class ConnectionError extends Error {
@@ -69,7 +75,7 @@ export function createAsana(options: AsanaOptions) {
   const port = options.callbackPort ?? (edition === 'release' ? 49174 : 49175)
   const redirectUri = `http://127.0.0.1:${port}/asana/callback`
   const now = options.now ?? options.clock?.now ?? Date.now
-  const store = credentialStore(options.home, options.keyring)
+  const store = credentialStore(options.home, options.keyring, options.commitFile)
   let generation = 0
   let tail: Promise<unknown> = Promise.resolve()
   let notice: string | undefined

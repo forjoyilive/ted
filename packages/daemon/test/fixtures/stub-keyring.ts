@@ -18,12 +18,17 @@ export async function readStubKeyring(file: string): Promise<StubKeyringState> {
   return JSON.parse(await readFile(file, 'utf8').catch(() => '{}')) as StubKeyringState
 }
 
-export function stubKeyring(file: string): Keyring {
+export type WriteTemporary = (file: string, text: string) => Promise<void>
+
+const writeTemporary: WriteTemporary = (file, text) =>
+  writeFile(file, text, { flag: 'wx', mode: 0o600 })
+
+export function stubKeyring(file: string, write: WriteTemporary = writeTemporary): Keyring {
   const load = () => readStubKeyring(file)
   const save = async (state: StubKeyringState) => {
     const temporary = `${file}.${randomUUID()}.tmp`
     try {
-      await writeFile(temporary, JSON.stringify(state), { flag: 'wx', mode: 0o600 })
+      await write(temporary, JSON.stringify(state))
       await rename(temporary, file)
     } finally {
       await rm(temporary, { force: true })

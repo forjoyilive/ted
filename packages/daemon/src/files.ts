@@ -1,3 +1,4 @@
+import type { MakeDirectoryOptions } from 'node:fs'
 import { stat } from 'node:fs/promises'
 
 export function exists(file: string): Promise<boolean> {
@@ -6,3 +7,8 @@ export function exists(file: string): Promise<boolean> {
     () => false,
   )
 }
+
+export type MakeDirectory = (
+  dir: string,
+  options: MakeDirectoryOptions,
+) => Promise<string | undefined>
