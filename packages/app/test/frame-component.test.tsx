@@ -309,7 +309,7 @@ test('G navigation and history shortcuts use the App keymap', async () => {
     ['a', 'All Tasks'],
     ['b', /widgets.*Board/],
     ['l', /widgets.*List/],
-    ['p', /widgets.*Plans/],
+    ['p', 'Agents'],
   ] as const) {
     fireEvent.keyDown(window, { key: 'g' })
     fireEvent.keyDown(window, { key: letter })

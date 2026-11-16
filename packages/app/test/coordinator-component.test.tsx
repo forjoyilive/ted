@@ -443,8 +443,11 @@ test('a start that answers after New chat was clicked leaves the new start page 
     shown.chats = [summary()]
     changed()
   })
-  expect(await screen.findByText('Start with NB-1.')).toBeTruthy()
   const list = screen.getByRole('region', { name: 'Agent chats' })
+  await user().click(
+    await within(list).findByRole('button', { name: /What should we work on next\?/ }),
+  )
+  expect(await screen.findByText('Start with NB-1.')).toBeTruthy()
   await user().click(within(list).getByRole('button', { name: 'New chat' }))
   expect(await screen.findByRole('region', { name: 'New chat' })).toBeTruthy()
   await act(async () => answer.resolve(coordinator()))
