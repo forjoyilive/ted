@@ -203,7 +203,7 @@ test('Storage sets when chats and archived tasks are deleted and measures again 
       dispatch={vi.fn()}
     />,
   )
-  expect(await screen.findByText(/^Kept for now: 1 archived task, because it has/)).toBeTruthy()
+  expect(await screen.findByText(/^Kept for now: 1 archived Task, because it has/)).toBeTruthy()
   await user().selectOptions(archived, '0')
   expect(update.mock.calls.at(-1)).toEqual([{ deleteArchivedAfterDays: null }])
 
