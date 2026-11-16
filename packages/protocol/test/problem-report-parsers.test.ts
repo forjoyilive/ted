@@ -3,6 +3,7 @@ import {
   isReportEmail,
   maxProblemDescription,
   parseProblemReportRequest,
+  withinDescriptionLimit,
 } from '../src/problem-report.ts'
 
 test('a problem report request reads every field and trims the text', () => {
@@ -27,13 +28,23 @@ test('a problem report request is refused without a description, with a bad emai
   )
   expect(() =>
     parseProblemReportRequest({ ...base, description: 'x'.repeat(maxProblemDescription + 1) }),
-  ).toThrow('Keep what happened under')
+  ).toThrow('Keep what happened under 4,096 characters.')
   expect(() => parseProblemReportRequest({ ...base, email: 'not an email' })).toThrow(
     'Enter an email address, or leave it empty.',
   )
   expect(() => parseProblemReportRequest({ ...base, includeLog: 'yes' })).toThrow('includeLog')
   expect(() => parseProblemReportRequest({ ...base, email: undefined })).toThrow('email')
   expect(() => parseProblemReportRequest('report')).toThrow('request')
+})
+
+test('the description limit is Sentry’s 4,096 code points, not UTF-16 units', () => {
+  const emoji = '🙂'.repeat(maxProblemDescription)
+  expect(emoji.length).toBe(maxProblemDescription * 2)
+  expect(
+    parseProblemReportRequest({ description: emoji, email: '', includeLog: true }).description,
+  ).toBe(emoji)
+  expect(withinDescriptionLimit(`${emoji}🙂`)).toBe(emoji)
+  expect(withinDescriptionLimit('short')).toBe('short')
 })
 
 test('a report email is empty or one address', () => {

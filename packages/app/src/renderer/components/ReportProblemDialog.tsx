@@ -1,4 +1,4 @@
-import { isReportEmail } from '@ted/protocol/problem-report'
+import { isReportEmail, maxProblemDescription } from '@ted/protocol/problem-report'
 import { useEffect, useState } from 'react'
 import { useSettings } from '../data.ts'
 import { readableError, ted } from '../ted.ts'
@@ -81,6 +81,7 @@ export function ReportProblemDialog({ onClose }: { onClose: () => void }) {
               </span>
             </div>
             <div className={styles.footer}>
+              <span className={styles.grow} />
               <Button variant="primary" onClick={onClose}>
                 Done
               </Button>
@@ -106,6 +107,7 @@ export function ReportProblemDialog({ onClose }: { onClose: () => void }) {
             <textarea
               className={styles.input}
               rows={4}
+              maxLength={maxProblemDescription}
               value={what}
               disabled={sending}
               placeholder="What were you doing, and what did you expect to happen?"

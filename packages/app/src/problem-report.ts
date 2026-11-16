@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import os from 'node:os'
+import { setTimeout as delay } from 'node:timers/promises'
 import { redactSecrets } from '@ted/daemon/redact'
 import type { Edition, ProblemReportRequest, ProblemReportResult } from '@ted/protocol'
+import { withinDescriptionLimit } from '@ted/protocol/problem-report'
 
 export interface SentryTarget {
   url: string
@@ -30,6 +32,7 @@ export interface SendDeps {
   post: Post
   now?: () => Date
   timeoutMs?: number
+  reportTimeoutMs?: number
 }
 
 const loopbackHosts = ['127.0.0.1', 'localhost', '[::1]']
@@ -122,17 +125,30 @@ export function appOnlyReport({
   ].join('\n')
 }
 
-export type ReportSources = Pick<SendDeps, 'version' | 'edition' | 'report' | 'now'>
+export type ReportSources = Pick<
+  SendDeps,
+  'version' | 'edition' | 'report' | 'now' | 'reportTimeoutMs'
+>
 
 export async function reportText(
   deps: ReportSources,
   includeLog: boolean,
 ): Promise<{ text: string; daemon: boolean }> {
   const now = deps.now?.() ?? new Date()
-  const text = await deps.report(includeLog).catch(() => undefined)
+  const text = await withDeadline(deps.report(includeLog), deps.reportTimeoutMs ?? 10_000)
   return text === undefined
     ? { text: appOnlyReport({ version: deps.version, edition: deps.edition, now }), daemon: false }
     : { text: redactSecrets(text), daemon: true }
+}
+
+async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T | undefined> {
+  const stop = new AbortController()
+  const late = delay(ms, undefined, { signal: stop.signal }).catch(() => undefined)
+  try {
+    return await Promise.race([work.catch(() => undefined), late])
+  } finally {
+    stop.abort()
+  }
 }
 
 export async function sendProblemReport(
@@ -148,7 +164,7 @@ export async function sendProblemReport(
     eventId,
     sentAt,
     dsn: deps.dsn,
-    description: redactSecrets(request.description),
+    description: withinDescriptionLimit(redactSecrets(request.description)),
     email: redactSecrets(request.email),
     report: text,
     environment: deps.edition,

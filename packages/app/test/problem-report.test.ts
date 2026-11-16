@@ -1,3 +1,4 @@
+import { maxProblemDescription } from '@ted/protocol/problem-report'
 import { describe, expect, test } from 'vitest'
 import {
   feedbackEnvelope,
@@ -147,6 +148,27 @@ describe('sendProblemReport', () => {
     await sendProblemReport({ description: 'x', email: '', includeLog: true }, given)
     expect(sent()).toContain('TED 1.2.3 (dev)')
     expect(sent()).toContain('The daemon’s report couldn’t be read')
+  })
+
+  test('with the daemon hanging, sends what the app knows once the deadline passes', async () => {
+    const { given, sent } = deps({ ok: true, status: 200 })
+    const result = await sendProblemReport(
+      { description: 'x', email: '', includeLog: true },
+      { ...given, reportTimeoutMs: 10, report: () => new Promise<string>(() => {}) },
+    )
+    expect(result).toMatchObject({ sent: true })
+    expect(sent()).toContain('The daemon’s report couldn’t be read')
+  })
+
+  test('keeps the message within Sentry’s 4,096 code points after redaction', async () => {
+    const { given, sent } = deps({ ok: true, status: 200 }, 'r')
+    const secret = 'Bearer abc'
+    const description = `${secret}${'y'.repeat(maxProblemDescription - secret.length)}`
+    await sendProblemReport({ description, email: '', includeLog: true }, given)
+    const event = JSON.parse(sent().split('\n')[2] ?? '')
+    const message: string = event.contexts.feedback.message
+    expect([...message]).toHaveLength(maxProblemDescription)
+    expect(message.startsWith('Bearer [redacted]')).toBe(true)
   })
 
   test('says why a report wasn’t sent', async () => {
