@@ -130,10 +130,10 @@ test('Display sets card size, card fields and columns, and saves them for the Fa
   const item = (name: string) => screen.getByRole('menuitemcheckbox', { name: new RegExp(name) })
 
   expect(card('NB-2').getByText('↑ NB-1')).toBeTruthy()
-  expect(card('NB-1').getByText('0 of 1 merged')).toBeTruthy()
+  expect(card('NB-1').getByRole('img', { name: '0 of 1 child merged' }).textContent).toBe('0/1')
   await u.click(item('Parent and children'))
   expect(card('NB-2').queryByText('↑ NB-1')).toBeNull()
-  expect(card('NB-1').queryByText('0 of 1 merged')).toBeNull()
+  expect(card('NB-1').queryByRole('img', { name: '0 of 1 child merged' })).toBeNull()
 
   await u.click(item('Activity line'))
   expect(screen.queryByText('Asked a question')).toBeNull()
