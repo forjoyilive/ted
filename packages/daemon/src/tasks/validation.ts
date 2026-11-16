@@ -12,7 +12,7 @@ import type {
 } from '@ted/protocol'
 import { validationExecution } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
-import { handsOff, mergesHere, validates } from '@ted/protocol/stage'
+import { handsOff, mergesHere, stageWith, validates } from '@ted/protocol/stage'
 import { RequestError } from '../errors.ts'
 import type { MemoryWatch } from '../memory-kills.ts'
 import { redactSecrets } from '../redact.ts'
@@ -206,7 +206,7 @@ export function createValidation(options: ValidationOptions) {
       diagnosing ||
       (visitStart(task) !== '' &&
         only === undefined &&
-        order.indexOf(task.stage as AgentStageId) > order.indexOf('validate'))
+        order.indexOf(task.stage as AgentStageId) > order.indexOf(stageWith('validates')))
     let plan = await options.plan(task, resolution, merging ? undefined : only, reads)
     if (plan.length === 0) {
       if (tracking) {
