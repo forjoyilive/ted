@@ -10818,17 +10818,20 @@ export function createTasks(options: {
 
     create(input, caller = { kind: 'app' }) {
       const firing = caller.kind === 'run' ? store.automations.firing(caller.runId) : undefined
-      if (!firing || !store.automations.check(firing.automationId)) return createTask(input, caller)
-      const next = (checkCreates.get(firing.id) ?? Promise.resolve()).then(() =>
+      const leadTask =
+        caller.kind === 'run' && !firing ? store.getRun(caller.runId)?.taskId : undefined
+      const key = leadTask ?? (firing && store.automations.check(firing.automationId) && firing.id)
+      if (!key) return createTask(input, caller)
+      const next = (checkCreates.get(key) ?? Promise.resolve()).then(() =>
         createTask(input, caller),
       )
       const settled = next.then(
         () => undefined,
         () => undefined,
       )
-      checkCreates.set(firing.id, settled)
+      checkCreates.set(key, settled)
       void settled.then(() => {
-        if (checkCreates.get(firing.id) === settled) checkCreates.delete(firing.id)
+        if (checkCreates.get(key) === settled) checkCreates.delete(key)
       })
       return next
     },

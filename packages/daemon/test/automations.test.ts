@@ -873,8 +873,8 @@ describe('Automations', () => {
       ]),
     )
     await waitUntil(async () => {
-      const found = await client.ok<Task>('GET', `/tasks/${task.id}`)
-      return found.status?.kind === 'blocked' ? found : undefined
+      const found = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
+      return found?.status?.kind === 'blocked' ? found : undefined
     }, 'the creating Task to wait for its child')
   })
 
