@@ -6,7 +6,6 @@ import type {
   RoundAnswer,
   RoundQuestion,
 } from '@ted/protocol'
-import { sameChoices } from '@ted/protocol/task'
 import { type KeyboardEvent, useId } from 'react'
 import { enterAction } from '../composer-keys.ts'
 import { draftField, useMessageDraft } from '../message-drafts.ts'
@@ -47,9 +46,7 @@ const picked = (question: RoundQuestion, draft: Draft): string[] =>
   (question.choices ?? []).filter((c) => draft.picks?.includes(c))
 
 const isChanged = (question: RoundQuestion, draft: Draft): boolean =>
-  question.multiple
-    ? (draft.other ?? false) || !sameChoices(picked(question, draft), recommendedPicks(question))
-    : (draft.other ?? false) || draft.answer.trim() !== question.recommended.trim()
+  draft.answer.trim() !== question.recommended.trim()
 
 const isAnswered = (question: RoundQuestion, draft: Draft): boolean => {
   const written = draft.other === true && writtenText(draft).trim() !== ''
@@ -92,16 +89,9 @@ function Question({
   const changed = isChanged(question, draft)
   const text = writtenText(draft)
   const write = (value: string) => onChange({ ...draft, note: value, custom: value })
-  const reset = () =>
-    onChange({
-      ...draft,
-      answer: question.multiple ? '' : question.recommended,
-      other: false,
-      ...(question.multiple && { picks: recommendedPicks(question) }),
-    })
+  const reset = () => onChange({ ...draft, answer: question.recommended })
   const several = question.multiple === true
   const ticked = picked(question, draft)
-  const changedAt = !changed ? undefined : (ticked[0] ?? (draft.other ? 'other' : undefined))
   const toggle = (choice: string) =>
     onChange({
       ...draft,
@@ -125,7 +115,6 @@ function Question({
                 const selected = several
                   ? ticked.includes(choice)
                   : !draft.other && draft.answer === choice
-                const tagged = several ? changedAt === choice : selected && (changed || recommended)
                 return (
                   <label
                     key={choice}
@@ -143,11 +132,7 @@ function Question({
                       }
                     />
                     <ChoiceText choice={choice} className={styles.optionText} />
-                    {tagged ? (
-                      <Tag changed={changed} onReset={reset} />
-                    ) : (
-                      recommended && <span className={styles.tag}>Recommended</span>
-                    )}
+                    {recommended && <span className={styles.tag}>Recommended</span>}
                   </label>
                 )
               })}
@@ -162,7 +147,6 @@ function Question({
                   onChange={() => onChange({ ...draft, other: several ? !draft.other : true })}
                 />
                 <span className={styles.optionText}>Other</span>
-                {(several ? changedAt === 'other' : draft.other) && <Tag changed onReset={reset} />}
               </label>
             </div>
             {draft.other ? (

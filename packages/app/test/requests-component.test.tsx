@@ -308,7 +308,7 @@ test('chat edits synchronize with the still-mounted thread before submission', a
   })
 })
 
-test('round recommendations, reset, Other validation and notes are sent as answers', async () => {
+test('round recommendations, written-answer reset, Other validation and notes are sent as answers', async () => {
   const { answer } = requestApi()
   render(
     <RequestCard request={comment({ kind: 'round', round })} task={task()} onOpenRun={vi.fn()} />,
@@ -319,10 +319,8 @@ test('round recommendations, reset, Other validation and notes are sent as answe
   const f = within(first)
   expect((f.getByRole('radio', { name: /Keep both/ }) as HTMLInputElement).checked).toBe(false)
   await u.click(f.getByText('Keep latest'))
-  expect(f.getByText('Changed ·')).toBeTruthy()
-  await u.click(f.getByRole('button', { name: 'Reset' }))
   expect(f.queryByText('Changed ·')).toBeNull()
-  await u.click(f.getByText('Keep latest'))
+  expect(screen.getAllByText('Recommended')).toHaveLength(2)
   await u.type(f.getByLabelText('Add to answer 1'), 'Clashes are rare.')
   await u.click(f.getByRole('radio', { name: 'Other' }))
   const submit = screen.getByRole('button', { name: 'Submit answers' }) as HTMLButtonElement
@@ -334,8 +332,6 @@ test('round recommendations, reset, Other validation and notes are sent as answe
   expect(submit.disabled).toBe(true)
   await u.clear(f.getByLabelText('Your answer 1'))
   await u.type(f.getByLabelText('Your answer 1'), 'Ask me to resolve each conflict.')
-  await u.click(f.getByRole('button', { name: 'Reset' }))
-  expect((f.getByRole('radio', { name: /Keep both/ }) as HTMLInputElement).checked).toBe(true)
   await u.click(f.getByText('Keep latest'))
   expect((f.getByLabelText('Add to answer 1') as HTMLInputElement).value).toBe(
     'Ask me to resolve each conflict.',
@@ -344,6 +340,13 @@ test('round recommendations, reset, Other validation and notes are sent as answe
   expect((f.getByLabelText('Your answer 1') as HTMLInputElement).value).toBe(
     'Ask me to resolve each conflict.',
   )
+  expect(f.queryByText('Changed ·')).toBeNull()
+  const second = within(screen.getByRole('group', { name: /Which wins/ }))
+  await u.type(second.getByLabelText('Answer 2'), ' Mostly.')
+  expect(second.getByText('Changed ·')).toBeTruthy()
+  await u.click(second.getByRole('button', { name: 'Reset' }))
+  expect((second.getByLabelText('Answer 2') as HTMLTextAreaElement).value).toBe('The edit wins.')
+  expect(second.getByText('Recommended')).toBeTruthy()
   await u.click(submit)
   expect(answer).toHaveBeenCalledWith('c1', {
     action: 'answer-round',
@@ -383,7 +386,8 @@ test('a round question that allows several answers sends every ticked choice', a
   await u.click(f.getByRole('checkbox', { name: /^Board/ }))
   expect(f.queryByText('Changed ·')).toBeNull()
   await u.click(f.getByRole('checkbox', { name: /^List/ }))
-  expect(f.getByText('Changed ·')).toBeTruthy()
+  expect(f.queryByText('Changed ·')).toBeNull()
+  expect(f.getAllByText('Recommended')).toHaveLength(2)
   await u.click(f.getByRole('checkbox', { name: /^Map/ }))
   await u.type(f.getByLabelText('Add to answer 1'), 'Map later.')
   await u.click(submit)
