@@ -383,8 +383,15 @@ test('a stale ask is still posted when no new context could be attached or read'
 
 test('a Check failure stays acceptable with later evidence on the same code, and an ask after a change is refused', async () => {
   const s = await setup()
+  vi.useFakeTimers({ toFake: ['Date'] })
+  cleanups.push(async () => {
+    vi.useRealTimers()
+  })
+  const start = Date.parse('2026-11-16T12:00:00Z')
+  vi.setSystemTime(start)
   const tested = await s.capture()
   const value = await s.recordCheck(tested.id)
+  vi.setSystemTime(start + 1000)
   const later = await s.capture()
   s.evidence(value, 'The same test fails on main', later.id)
   const asked = await s.request(value)
@@ -395,7 +402,9 @@ test('a Check failure stays acceptable with later evidence on the same code, and
     cases: [{ disposition: 'accepted', context: 'current' }],
   })
 
+  vi.setSystemTime(start + 2000)
   const changed = await s.recordCheck((await s.capture()).id)
+  vi.setSystemTime(start + 3000)
   s.worktree.head = 'head-2'
   const questions = s.store.listComments(s.task.id).filter((c) => c.kind === 'question').length
   await s.assess(changed)
