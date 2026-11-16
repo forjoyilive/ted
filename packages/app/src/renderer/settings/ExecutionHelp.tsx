@@ -85,8 +85,9 @@ export function ExecutionHelp({ worker = false }: { worker?: boolean }) {
         </p>
         <p>
           After logout or reboot, open TED in worker mode or use CLI Start. Automatic login startup
-          is not included yet. Sleep or network loss shows Disconnected; pairing stays saved. Provider
-          sign-ins stay on the worker, and unverified model access stays labelled unverified.
+          is not included yet. Sleep or network loss shows Disconnected; pairing stays saved.
+          Provider sign-ins stay on the worker, and unverified model access stays labelled
+          unverified.
         </p>
       </details>
     </div>
