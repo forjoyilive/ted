@@ -70,7 +70,7 @@ export function shownFactoryIds(
   factories: readonly { id: string }[],
 ): string[] | undefined {
   if (wanted === undefined) return undefined
-  const shown = factories.filter((f) => wanted.includes(f.id)).map((f) => f.id)
+  const shown = factories.flatMap((f) => (wanted.includes(f.id) ? [f.id] : []))
   return shown.length === 0 || shown.length === factories.length ? undefined : shown
 }
 
@@ -81,9 +81,9 @@ export function pickFactories(
 ): string[] | undefined {
   if (shown === undefined) return shownFactoryIds(ids, factories)
   const all = ids.every((id) => shown.includes(id))
-  const next = factories
-    .map((f) => f.id)
-    .filter((id) => (ids.includes(id) ? !all : shown.includes(id)))
+  const next = factories.flatMap((f) =>
+    (ids.includes(f.id) ? !all : shown.includes(f.id)) ? [f.id] : [],
+  )
   return shownFactoryIds(next, factories)
 }
 

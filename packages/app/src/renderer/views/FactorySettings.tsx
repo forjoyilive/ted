@@ -1149,12 +1149,12 @@ function CommandField({
   const id = useId()
   const run = value?.run ?? ''
   const timeout = value?.timeout
-  const update = (next: { run: string; timeout?: string | undefined }) =>
-    onChange(
-      next.run === '' && (next.timeout ?? '') === ''
-        ? undefined
-        : { run: next.run, ...(next.timeout ? { timeout: next.timeout } : {}) },
-    )
+  const update = (next: { run: string; timeout?: string | undefined }) => {
+    if (next.run === '' && (next.timeout ?? '') === '') return onChange(undefined)
+    const setup: NonNullable<RepoSettingsInput['setup']> = { run: next.run }
+    if (next.timeout) setup.timeout = next.timeout
+    return onChange(setup)
+  }
   return (
     <div className={styles.field} data-setting={setting}>
       <label className={styles.label} htmlFor={id}>

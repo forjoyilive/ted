@@ -65,7 +65,9 @@ describe('App Settings', () => {
 
     await window.getByRole('button', { name: /^Show in / }).click()
     await expect
-      .poll(() => ctx.app?.evaluate(() => (globalThis as unknown as { opened: string[] }).opened))
+      .poll(() =>
+        ctx.app?.evaluate(() => (globalThis as typeof globalThis & { opened: string[] }).opened),
+      )
       .toEqual([ctx.home])
   })
 })

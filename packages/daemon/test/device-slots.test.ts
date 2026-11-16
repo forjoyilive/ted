@@ -83,7 +83,7 @@ function setup(
     getTask: () => undefined,
     getComment: (id: string) => comments.get(id),
     requestSimulator(input: { taskId: string; title: string; body: string }) {
-      const comment = { id: `c${comments.size + 1}`, ...input } as unknown as Comment
+      const comment = { id: `c${comments.size + 1}`, ...input } as Comment
       comments.set(comment.id, comment)
       return comment
     },
@@ -92,7 +92,7 @@ function setup(
       comments.set(id, comment)
       return comment
     },
-  } as unknown as DeviceSlotsStore
+  } as DeviceSlotsStore
   const slots = createDeviceSlots({
     dir,
     store,

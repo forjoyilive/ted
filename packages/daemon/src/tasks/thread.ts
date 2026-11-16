@@ -190,7 +190,7 @@ export function threadEvents(
   let judged: Record<string, unknown> | undefined
   let declared: string | undefined
   let depthSet = false
-  const splits = new Set(log.filter((e) => e.name === 'v1.TaskSplit').map((e) => e.at))
+  const splits = new Set(log.flatMap((e) => (e.name === 'v1.TaskSplit' ? [e.at] : [])))
   const descriptionChanges = (version: unknown) => {
     const versions = context.descriptions ?? []
     const at = typeof version === 'number' ? version : undefined
@@ -199,12 +199,12 @@ export function threadEvents(
     return before && after ? { changes: diffTexts('Description', before.text, after.text) } : {}
   }
   const edits = new Map(
-    log.filter((e) => e.name === 'v1.TaskEdited').map((e) => [e.at, e.data.version] as const),
+    log.flatMap((e) => (e.name === 'v1.TaskEdited' ? [[e.at, e.data.version] as const] : [])),
   )
   const causes = new Map(
-    log
-      .filter((e) => e.name === 'v1.SendBackCauseRecorded')
-      .map((e) => [e.at, e.data.cause] as const),
+    log.flatMap((e) =>
+      e.name === 'v1.SendBackCauseRecorded' ? [[e.at, e.data.cause] as const] : [],
+    ),
   )
   const add = (
     entry: LoggedEvent,

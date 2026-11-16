@@ -745,7 +745,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
             console.error(`couldn’t read ${factory.repo}’s Workflow:`, error)
           })
         }
-        return { pullRequest, ...result, ...(terminal ? {} : { receipt }) }
+        return { pullRequest, ...result, ...(!terminal && { receipt }) }
       } finally {
         saving.delete(factory.id)
       }
@@ -787,7 +787,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
             )
           })
         }
-        return { pullRequest: saved.pullRequest, ...result, ...(terminal ? {} : { receipt }) }
+        return { pullRequest: saved.pullRequest, ...result, ...(!terminal && { receipt }) }
       } catch (error) {
         if (error instanceof RequestError) throw error
         throw new RequestError(

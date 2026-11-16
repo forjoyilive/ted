@@ -44,7 +44,7 @@ try {
       root: checkoutRoot,
       action: values.action as LabOptions['action'],
       scenarios: values.scenario ?? [],
-      ...(values['run-id'] ? { runId: values['run-id'] } : {}),
+      ...(values['run-id'] && { runId: values['run-id'] }),
     })
     console.log(
       redactSecrets(

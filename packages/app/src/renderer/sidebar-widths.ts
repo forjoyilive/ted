@@ -1,3 +1,5 @@
+import { isObject } from '@ted/protocol/parse'
+
 export type SidebarSide = 'navigation' | 'details'
 export type SidebarWidths = Record<SidebarSide, number>
 
@@ -13,9 +15,9 @@ export function clampSidebar(side: SidebarSide, width: number): number {
 export function readSidebarWidths(): SidebarWidths {
   try {
     const value: unknown = JSON.parse(localStorage.getItem(storageKey) ?? 'null')
-    if (typeof value !== 'object' || value === null) return { ...sidebarDefaults }
+    if (!isObject(value)) return { ...sidebarDefaults }
     const read = (side: SidebarSide) => {
-      const width = Reflect.get(value, side)
+      const width = value[side]
       return typeof width === 'number' && Number.isFinite(width)
         ? clampSidebar(side, width)
         : sidebarDefaults[side]

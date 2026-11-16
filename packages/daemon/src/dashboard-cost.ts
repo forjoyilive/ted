@@ -199,7 +199,7 @@ function period(
     input: rows.reduce((sum, row) => sum + row.input, 0),
     output: rows.reduce((sum, row) => sum + row.output, 0),
     runs: new Set(rows.map((row) => row.runId)).size,
-    unpricedRuns: new Set(rows.filter((row) => row.cost === null).map((row) => row.runId)).size,
+    unpricedRuns: new Set(rows.flatMap((row) => (row.cost === null ? [row.runId] : []))).size,
     kinds: kindShares(rows),
     models: shares(rows, modelKey),
     tasks: taskSpend(rows),

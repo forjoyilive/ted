@@ -7373,7 +7373,7 @@ export function createTasks(options: {
     const commits = await git.ownCommits(head.worktree, range)
     if (commits === undefined) return undefined
     const tips = [
-      ...found.filter((c) => c.repo === head.name).map((c) => c.tip),
+      ...found.flatMap((c) => (c.repo === head.name ? [c.tip] : [])),
       ...[baseTips.get(baseTipKey(task.id, head.name))].flatMap((tip) => tip ?? []),
     ]
     const merges: MergedBase[] = []
@@ -8503,12 +8503,11 @@ export function createTasks(options: {
     )
     const stillUsed = store.filesInUse()
     await Promise.all(
-      files
-        .filter((a) => !stillUsed.has(a.hash))
-        .map((a) => {
-          const file = attachmentFile(a)
-          return gone(path.dirname(file), path.basename(file))
-        }),
+      files.flatMap((a) => {
+        if (stillUsed.has(a.hash)) return []
+        const file = attachmentFile(a)
+        return [gone(path.dirname(file), path.basename(file))]
+      }),
     )
   }
 
@@ -12739,9 +12738,11 @@ function designFiles(design: DesignSubmission): Attachment[] {
     ...(design.video ? [design.video] : []),
     ...(design.prototype ? [design.prototype] : []),
   ]
-  return files
-    .filter((f, i) => files.findIndex((g) => g.hash === f.hash && g.name === f.name) === i)
-    .map(({ hash, name, size, mediaType }) => ({ hash, name, size, mediaType }))
+  return files.flatMap(({ hash, name, size, mediaType }, i) =>
+    files.findIndex((g) => g.hash === hash && g.name === name) === i
+      ? [{ hash, name, size, mediaType }]
+      : [],
+  )
 }
 
 function designNote(design: DesignSubmission, goal: string | undefined): string {

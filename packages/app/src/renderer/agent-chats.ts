@@ -78,9 +78,10 @@ export function agentChatRows(
 export function groupedRows(
   rows: readonly AgentChatRow[],
 ): { agent: AgentName; rows: AgentChatRow[] }[] {
-  return agentNames
-    .map((agent) => ({ agent, rows: rows.filter((r) => r.agent === agent) }))
-    .filter((group) => group.rows.length > 0)
+  return agentNames.flatMap((agent) => {
+    const matching = rows.filter((r) => r.agent === agent)
+    return matching.length > 0 ? [{ agent, rows: matching }] : []
+  })
 }
 
 export function sameChat(a: AgentChatRef | undefined, b: AgentChatRef | undefined): boolean {

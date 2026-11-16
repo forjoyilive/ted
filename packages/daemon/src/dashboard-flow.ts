@@ -237,11 +237,11 @@ export function dashboardFlow(
     ...(previous?.incomplete.map((s) => s.taskId) ?? []),
   ])
   return {
-    tasks: facts
-      .filter((t) => selected.has(t.id))
-      .map(({ id, factoryId, displayId, title, archived }) => {
-        const timing = timings.get(id)
-        return {
+    tasks: facts.flatMap(({ id, factoryId, displayId, title, archived }) => {
+      if (!selected.has(id)) return []
+      const timing = timings.get(id)
+      return [
+        {
           id,
           factoryId,
           displayId,
@@ -249,8 +249,9 @@ export function dashboardFlow(
           archived,
           endedAt: timing?.endedAt ?? null,
           endReason: timing?.endReason ?? 'unknown',
-        }
-      }),
+        },
+      ]
+    }),
     current,
     previous,
     stageNames: recordedNames(facts),

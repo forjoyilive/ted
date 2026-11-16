@@ -237,7 +237,7 @@ describe('TED app', () => {
     const globals = await window.evaluate(() => ({
       require: typeof (globalThis as { require?: unknown }).require,
       process: typeof (globalThis as { process?: unknown }).process,
-      bridge: Object.keys((globalThis as unknown as { ted: object }).ted).sort(),
+      bridge: Object.keys(globalThis.window.ted).sort(),
     }))
 
     expect(globals).toEqual({

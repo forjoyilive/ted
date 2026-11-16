@@ -1435,7 +1435,7 @@ export async function openStore({
       .map((entry) => entry.revision)
     return {
       draft: row?.draft ? (JSON.parse(row.draft) as NewTaskDraft) : null,
-      ...(row?.clearedRevision ? { clearedRevision: row.clearedRevision } : {}),
+      ...(row?.clearedRevision && { clearedRevision: row.clearedRevision }),
       ...(clearedRevisions.length > 0 && { clearedRevisions }),
     }
   }

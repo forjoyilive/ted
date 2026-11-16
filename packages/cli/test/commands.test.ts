@@ -139,16 +139,16 @@ describe('command definitions', () => {
 })
 
 function preambleCommands(markdown: string): string[][] {
-  return [...markdown.matchAll(/`([^`]+)`/g)]
-    .map((match) => match[1] ?? '')
-    .filter((example) => example.startsWith('ted '))
-    .map((example) => {
-      const command = (example.split('<<')[0] ?? '').replace(/[[\]]/g, '')
-      return (command.match(/"[^"]*"|'[^']*'|\S+/g) ?? [])
+  return [...markdown.matchAll(/`([^`]+)`/g)].flatMap((match) => {
+    const example = match[1] ?? ''
+    if (!example.startsWith('ted ')) return []
+    const command = (example.split('<<')[0] ?? '').replace(/[[\]]/g, '')
+    return [
+      (command.match(/"[^"]*"|'[^']*'|\S+/g) ?? [])
         .slice(1)
-        .filter((word) => word !== '…')
-        .map((word) => word.replace(/^["']|["']$/g, ''))
-    })
+        .flatMap((word) => (word === '…' ? [] : [word.replace(/^["']|["']$/g, '')])),
+    ]
+  })
 }
 
 function validatePreamble(markdown: string): void {

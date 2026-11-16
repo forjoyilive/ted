@@ -36,12 +36,19 @@ export type TestFiles = Record<string, readonly string[]>
 
 export function groupsFor(load: number | undefined, files?: TestFiles): TestGroup[] {
   const shared = files !== undefined && fileCount(files) < smallRunFiles
-  return idleGroups
-    .filter((group) => files === undefined || (files[group.project]?.length ?? 0) > 0)
-    .map((group) => ({
-      ...group,
-      maxWorkers: scaledWorkers(shared ? Math.min(group.maxWorkers, 3) : group.maxWorkers, load),
-    }))
+  return idleGroups.flatMap((group) =>
+    files === undefined || (files[group.project]?.length ?? 0) > 0
+      ? [
+          {
+            ...group,
+            maxWorkers: scaledWorkers(
+              shared ? Math.min(group.maxWorkers, 3) : group.maxWorkers,
+              load,
+            ),
+          },
+        ]
+      : [],
+  )
 }
 
 function fileCount(files: TestFiles): number {

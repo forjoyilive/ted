@@ -12,6 +12,8 @@ let releaseViewer: () => void
 
 setUpAppTests()
 
+type HeldCreation = typeof globalThis & { creationHeld: boolean; releaseCreation: () => void }
+
 beforeEach(async () => {
   const viewerReady = new Promise<void>((resolve) => {
     releaseViewer = resolve
@@ -55,7 +57,11 @@ test.each(['Create', 'Create more', 'failed creation'])(
       'the pending key save',
     )
     await app.evaluate(({ ipcMain }, fail) => {
-      const handlers = Reflect.get(ipcMain, '_invokeHandlers')
+      const handlers = (
+        ipcMain as typeof ipcMain & {
+          _invokeHandlers: { get(channel: string): Parameters<typeof ipcMain.handle>[1] }
+        }
+      )._invokeHandlers
       const original = handlers.get('ted:request')
       const held = new Promise<void>((resolve) => {
         Reflect.set(globalThis, 'releaseCreation', resolve)
@@ -77,7 +83,7 @@ test.each(['Create', 'Create more', 'failed creation'])(
         .getByRole('button', { name: action === 'Create more' ? action : 'Create', exact: true })
         .click()
       await waitUntil(
-        () => app.evaluate(() => Reflect.get(globalThis, 'creationHeld')),
+        () => app.evaluate(() => (globalThis as HeldCreation).creationHeld),
         'the held Task creation',
       )
       const submitted = (await daemon.taskDraft(factory.id)).draft
@@ -93,7 +99,7 @@ test.each(['Create', 'Create more', 'failed creation'])(
         )
       })
       expect((await daemon.taskDraft(factory.id)).draft?.revision).toBe(submitted?.revision)
-      await app.evaluate(() => Reflect.get(globalThis, 'releaseCreation')())
+      await app.evaluate(() => (globalThis as HeldCreation).releaseCreation())
       if (action === 'failed creation') {
         await form.getByText(/Simulated creation failure/).waitFor()
         await form.getByText('NOTE-212 · Search ignores accents').waitFor()
@@ -116,7 +122,7 @@ test.each(['Create', 'Create more', 'failed creation'])(
       }
     } finally {
       releaseViewer()
-      await app.evaluate(() => Reflect.get(globalThis, 'releaseCreation')())
+      await app.evaluate(() => (globalThis as HeldCreation).releaseCreation())
     }
   },
 )

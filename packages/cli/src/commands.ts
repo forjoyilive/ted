@@ -1350,7 +1350,7 @@ export interface Invocation {
 export function helpText(table: readonly CommandDefinition[] = commands): string {
   return [
     'Usage:',
-    ...table.map((entry) => entry.help).filter(Boolean),
+    ...table.flatMap((entry) => (entry.help ? [entry.help] : [])),
     '',
     'Inside a Run, commands act on the Run’s own Task (TED_TASK).',
   ].join('\n')

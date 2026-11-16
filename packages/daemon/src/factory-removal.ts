@@ -179,9 +179,11 @@ export function openTasksUsing(
   repo: string,
   tasks: readonly Task[] = store.listTasks(),
 ): TaskRef[] {
-  return tasks
-    .filter((t) => t.factoryId === factory.id && isOpen(t) && uses(t, repo))
-    .map((t) => ({ id: t.id, displayId: t.displayId, title: t.title }))
+  return tasks.flatMap((t) =>
+    t.factoryId === factory.id && isOpen(t) && uses(t, repo)
+      ? [{ id: t.id, displayId: t.displayId, title: t.title }]
+      : [],
+  )
 }
 
 function isOpen(task: Task): boolean {

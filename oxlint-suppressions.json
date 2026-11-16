@@ -109,11 +109,6 @@
       "count": 7
     }
   },
-  "packages/app/src/notifications.ts": {
-    "anti-slop/no-object-parameters": {
-      "count": 1
-    }
-  },
   "packages/app/src/remote-page.ts": {
     "anti-slop/no-runtime-typeof": {
       "count": 12
@@ -166,9 +161,6 @@
     }
   },
   "packages/app/src/renderer/agent-chats.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 4
     },
@@ -184,11 +176,6 @@
   "packages/app/src/renderer/automations.ts": {
     "anti-slop/no-known-value-widening": {
       "count": 13
-    }
-  },
-  "packages/app/src/renderer/banners.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
     }
   },
   "packages/app/src/renderer/commands.ts": {
@@ -572,9 +559,6 @@
     }
   },
   "packages/app/src/renderer/dashboard.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 2
-    },
     "anti-slop/no-known-value-widening": {
       "count": 6
     },
@@ -642,17 +626,11 @@
     }
   },
   "packages/app/src/renderer/inbox.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-known-value-widening": {
       "count": 1
     }
   },
   "packages/app/src/renderer/list-collapse.ts": {
-    "anti-slop/no-object-parameters": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 3
     }
@@ -715,16 +693,8 @@
     }
   },
   "packages/app/src/renderer/plans.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-known-value-widening": {
       "count": 11
-    }
-  },
-  "packages/app/src/renderer/requests.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
     }
   },
   "packages/app/src/renderer/settings-search.ts": {
@@ -825,11 +795,8 @@
     }
   },
   "packages/app/src/renderer/sidebar-widths.ts": {
-    "anti-slop/no-reflect-get": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
-      "count": 2
+      "count": 1
     }
   },
   "packages/app/src/renderer/slots.ts": {
@@ -838,20 +805,14 @@
     }
   },
   "packages/app/src/renderer/task-draft.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
-      "count": 16
+      "count": 15
     },
     "anti-slop/no-unknown-parameters": {
       "count": 3
     },
-    "anti-slop/no-unsafe-dictionary-type": {
-      "count": 1
-    },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 3
+      "count": 1
     }
   },
   "packages/app/src/renderer/task-fields.ts": {
@@ -923,12 +884,6 @@
     }
   },
   "packages/app/src/renderer/views/Dashboard.tsx": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
-    "anti-slop/no-conditional-empty-object-spread": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 1
     }
@@ -947,9 +902,6 @@
     }
   },
   "packages/app/src/renderer/views/FactorySettings.tsx": {
-    "anti-slop/no-conditional-empty-object-spread": {
-      "count": 1
-    },
     "anti-slop/no-unknown-parameters": {
       "count": 1
     },
@@ -1094,16 +1046,6 @@
       "count": 2
     }
   },
-  "packages/app/test/app-background.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    }
-  },
-  "packages/app/test/app-crashes.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 2
-    }
-  },
   "packages/app/test/app-harness.ts": {
     "anti-slop/no-known-value-widening": {
       "count": 1
@@ -1115,23 +1057,12 @@
       "count": 2
     }
   },
-  "packages/app/test/app-settings.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    }
-  },
   "packages/app/test/app-task.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 2
     }
   },
   "packages/app/test/app.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 1
     }
@@ -1147,25 +1078,7 @@
       "count": 1
     }
   },
-  "packages/app/test/asana.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 3
-    }
-  },
-  "packages/app/test/background.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    }
-  },
-  "packages/app/test/board-component.test.tsx": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    }
-  },
   "packages/app/test/browser-controller.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 2
-    },
     "anti-slop/no-unknown-parameters": {
       "count": 4
     },
@@ -1189,11 +1102,6 @@
   "packages/app/test/chat-component.test.tsx": {
     "anti-slop/no-known-value-widening": {
       "count": 1
-    }
-  },
-  "packages/app/test/coordinator-cleanup.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 2
     }
   },
   "packages/app/test/coordinator-component.test.tsx": {
@@ -1224,11 +1132,6 @@
       "count": 1
     }
   },
-  "packages/app/test/details.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    }
-  },
   "packages/app/test/dialogs-component.test.tsx": {
     "anti-slop/no-unknown-parameters": {
       "count": 3
@@ -1255,9 +1158,6 @@
     }
   },
   "packages/app/test/hierarchy-component.test.tsx": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    },
     "anti-slop/no-unknown-parameters": {
       "count": 1
     }
@@ -1265,16 +1165,6 @@
   "packages/app/test/inbox-events.test.ts": {
     "anti-slop/no-runtime-typeof": {
       "count": 1
-    }
-  },
-  "packages/app/test/inbox.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 3
-    }
-  },
-  "packages/app/test/integrations.test.ts": {
-    "anti-slop/no-reflect-get": {
-      "count": 2
     }
   },
   "packages/app/test/linear-intake-component.test.tsx": {
@@ -1295,32 +1185,9 @@
       "count": 3
     }
   },
-  "packages/app/test/middle-pane.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    }
-  },
-  "packages/app/test/new-task-submission.test.ts": {
-    "anti-slop/no-reflect-get": {
-      "count": 4
-    }
-  },
-  "packages/app/test/notifications.test.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    }
-  },
   "packages/app/test/plans-ui.test.ts": {
     "anti-slop/no-unknown-parameters": {
       "count": 1
-    }
-  },
-  "packages/app/test/preview.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 3
     }
   },
   "packages/app/test/requests-component.test.tsx": {
@@ -1330,11 +1197,6 @@
   },
   "packages/app/test/search-component.test.tsx": {
     "anti-slop/no-runtime-typeof": {
-      "count": 1
-    }
-  },
-  "packages/app/test/stage-waits.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
       "count": 1
     }
   },
@@ -1359,30 +1221,14 @@
       "count": 1
     }
   },
-  "packages/app/test/task-content-isolation.test.ts": {
-    "anti-slop/no-reflect-get": {
-      "count": 6
-    }
-  },
-  "packages/app/test/theme.test.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 2
-    }
-  },
   "packages/app/test/uncaught.test.ts": {
     "anti-slop/no-unknown-parameters": {
       "count": 1
     }
   },
   "packages/app/test/updates-app.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    },
     "anti-slop/no-known-value-widening": {
       "count": 3
-    },
-    "anti-slop/no-unknown-returns": {
-      "count": 1
     },
     "anti-slop/no-unsafe-dictionary-type": {
       "count": 1
@@ -1419,9 +1265,6 @@
     }
   },
   "packages/cli/src/commands.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 2
     }
@@ -1437,9 +1280,6 @@
     }
   },
   "packages/cli/test/commands.test.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 2
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 2
     }
@@ -1824,9 +1664,6 @@
     }
   },
   "packages/daemon/src/coordinators/coordinators.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-known-value-widening": {
       "count": 10
     },
@@ -1847,15 +1684,7 @@
       "count": 10
     }
   },
-  "packages/daemon/src/dashboard-cost.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    }
-  },
   "packages/daemon/src/dashboard-flow.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-known-value-widening": {
       "count": 1
     }
@@ -1874,9 +1703,6 @@
     }
   },
   "packages/daemon/src/data.ts": {
-    "anti-slop/no-conditional-empty-object-spread": {
-      "count": 1
-    },
     "anti-slop/no-unknown-parameters": {
       "count": 3
     }
@@ -1895,9 +1721,6 @@
     }
   },
   "packages/daemon/src/dev/scenarios.ts": {
-    "anti-slop/no-conditional-empty-object-spread": {
-      "count": 1
-    },
     "anti-slop/no-known-value-widening": {
       "count": 3
     },
@@ -1960,12 +1783,6 @@
     }
   },
   "packages/daemon/src/execution/controller.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
-    "anti-slop/no-conditional-empty-object-spread": {
-      "count": 1
-    },
     "anti-slop/no-unknown-parameters": {
       "count": 3
     },
@@ -1973,7 +1790,7 @@
       "count": 1
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 4
+      "count": 3
     }
   },
   "packages/daemon/src/execution/journal.ts": {
@@ -2014,9 +1831,6 @@
   "packages/daemon/src/execution/worker.ts": {
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 3
-    },
-    "oxc/no-accumulating-spread": {
-      "count": 1
     }
   },
   "packages/daemon/src/exit-with.ts": {
@@ -2044,17 +1858,11 @@
     }
   },
   "packages/daemon/src/factory-removal.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-unknown-parameters": {
       "count": 1
     }
   },
   "packages/daemon/src/factory-settings.ts": {
-    "anti-slop/no-conditional-empty-object-spread": {
-      "count": 2
-    },
     "anti-slop/no-known-value-widening": {
       "count": 3
     },
@@ -2080,9 +1888,6 @@
     }
   },
   "packages/daemon/src/git.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    },
     "anti-slop/no-known-value-widening": {
       "count": 2
     },
@@ -2093,7 +1898,7 @@
       "count": 1
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 15
+      "count": 12
     }
   },
   "packages/daemon/src/github/gh.ts": {
@@ -2212,9 +2017,6 @@
     }
   },
   "packages/daemon/src/linear/discussion.ts": {
-    "anti-slop/no-object-parameters": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 3
     }
@@ -2236,13 +2038,7 @@
     }
   },
   "packages/daemon/src/linear/linear.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-known-value-widening": {
-      "count": 3
-    },
-    "anti-slop/no-object-parameters": {
       "count": 3
     },
     "anti-slop/no-runtime-typeof": {
@@ -2426,9 +2222,6 @@
     }
   },
   "packages/daemon/src/server.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 1
     },
@@ -2436,7 +2229,7 @@
       "count": 2
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 6
+      "count": 4
     }
   },
   "packages/daemon/src/shells.ts": {
@@ -2474,14 +2267,11 @@
     }
   },
   "packages/daemon/src/store/blank-replaced.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 2
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 1
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 5
+      "count": 1
     }
   },
   "packages/daemon/src/store/compact.ts": {
@@ -2513,17 +2303,11 @@
     }
   },
   "packages/daemon/src/store/coordinators.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    },
-    "anti-slop/no-known-value-widening": {
-      "count": 1
-    },
     "anti-slop/no-unsafe-dictionary-type": {
-      "count": 2
+      "count": 1
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 4
+      "count": 2
     }
   },
   "packages/daemon/src/store/dashboard-timing.ts": {
@@ -2538,9 +2322,6 @@
     }
   },
   "packages/daemon/src/store/dashboard.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-known-value-widening": {
       "count": 1
     },
@@ -2555,9 +2336,6 @@
     }
   },
   "packages/daemon/src/store/drop-output.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 5
     },
@@ -2598,9 +2376,6 @@
     }
   },
   "packages/daemon/src/store/index.ts": {
-    "anti-slop/no-conditional-empty-object-spread": {
-      "count": 1
-    },
     "anti-slop/no-known-value-widening": {
       "count": 2
     },
@@ -2621,9 +2396,6 @@
     }
   },
   "packages/daemon/src/store/interval-schema.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 1
     },
@@ -2634,7 +2406,7 @@
       "count": 1
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 4
+      "count": 2
     }
   },
   "packages/daemon/src/store/plans.ts": {
@@ -2798,19 +2570,9 @@
       "count": 3
     }
   },
-  "packages/daemon/src/tasks/github-activity.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    }
-  },
   "packages/daemon/src/tasks/github-watch.ts": {
     "anti-slop/no-unknown-parameters": {
       "count": 1
-    }
-  },
-  "packages/daemon/src/tasks/held-requests.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 2
     }
   },
   "packages/daemon/src/tasks/in-flight.ts": {
@@ -2894,9 +2656,6 @@
     }
   },
   "packages/daemon/src/tasks/pull-requests.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 5
     },
@@ -2937,9 +2696,6 @@
     }
   },
   "packages/daemon/src/tasks/tasks.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 3
-    },
     "anti-slop/no-known-value-widening": {
       "count": 6
     },
@@ -2957,9 +2713,6 @@
     }
   },
   "packages/daemon/src/tasks/thread.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 3
-    },
     "anti-slop/no-known-value-widening": {
       "count": 2
     },
@@ -3033,12 +2786,6 @@
     }
   },
   "packages/daemon/src/workflow/edit.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 2
-    },
-    "anti-slop/no-chained-type-assertions": {
-      "count": 2
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 8
     },
@@ -3049,7 +2796,7 @@
       "count": 1
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 25
+      "count": 21
     }
   },
   "packages/daemon/src/workflow/fetches.ts": {
@@ -3154,18 +2901,7 @@
       "count": 1
     }
   },
-  "packages/daemon/test/banners.test.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    }
-  },
   "packages/daemon/test/blank-replaced.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    },
-    "anti-slop/no-object-parameters": {
-      "count": 1
-    },
     "anti-slop/no-unsafe-dictionary-type": {
       "count": 2
     }
@@ -3257,9 +2993,6 @@
     }
   },
   "packages/daemon/test/compact.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    },
     "anti-slop/no-unsafe-dictionary-type": {
       "count": 4
     }
@@ -3275,15 +3008,7 @@
       "count": 2
     }
   },
-  "packages/daemon/test/coordinator-store.test.ts": {
-    "oxc/no-accumulating-spread": {
-      "count": 1
-    }
-  },
   "packages/daemon/test/coordinators.test.ts": {
-    "anti-slop/no-object-parameters": {
-      "count": 1
-    },
     "anti-slop/no-unknown-parameters": {
       "count": 4
     },
@@ -3296,11 +3021,6 @@
       "count": 1
     },
     "anti-slop/no-unknown-parameters": {
-      "count": 2
-    }
-  },
-  "packages/daemon/test/device-slots.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
       "count": 2
     }
   },
@@ -3324,11 +3044,6 @@
       "count": 1
     },
     "anti-slop/no-unknown-parameters": {
-      "count": 1
-    }
-  },
-  "packages/daemon/test/emulators-unit.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
       "count": 1
     }
   },
@@ -3429,9 +3144,6 @@
     }
   },
   "packages/daemon/test/fixtures/stub-asana.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 3
     },
@@ -3461,9 +3173,6 @@
     }
   },
   "packages/daemon/test/fixtures/stub-linear.ts": {
-    "anti-slop/no-conditional-empty-object-spread": {
-      "count": 1
-    },
     "anti-slop/no-unknown-parameters": {
       "count": 1
     },
@@ -3533,9 +3242,6 @@
     }
   },
   "packages/daemon/test/integrations.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    },
     "anti-slop/no-unsafe-dictionary-type": {
       "count": 2
     }
@@ -3546,9 +3252,6 @@
     }
   },
   "packages/daemon/test/latest-base.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    },
     "anti-slop/no-unsafe-dictionary-type": {
       "count": 1
     }
@@ -3614,11 +3317,6 @@
       "count": 1
     }
   },
-  "packages/daemon/test/merge-cleanup.test.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    }
-  },
   "packages/daemon/test/merge-harness.ts": {
     "anti-slop/no-unknown-parameters": {
       "count": 1
@@ -3640,11 +3338,6 @@
       "count": 1
     }
   },
-  "packages/daemon/test/multi-repo-pull-requests.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    }
-  },
   "packages/daemon/test/multi-repo-tasks.test.ts": {
     "anti-slop/no-runtime-typeof": {
       "count": 1
@@ -3659,9 +3352,6 @@
     }
   },
   "packages/daemon/test/overnight-gates.test.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-unknown-parameters": {
       "count": 1
     },
@@ -3746,9 +3436,6 @@
     }
   },
   "packages/daemon/test/retention.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    },
     "anti-slop/no-unknown-parameters": {
       "count": 1
     }
@@ -3856,9 +3543,6 @@
     }
   },
   "packages/daemon/test/storage.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 1
-    },
     "anti-slop/no-unknown-parameters": {
       "count": 1
     }
@@ -3877,9 +3561,6 @@
     }
   },
   "packages/daemon/test/supervise.test.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-unknown-parameters": {
       "count": 1
     }
@@ -4031,11 +3712,6 @@
     },
     "anti-slop/no-unsafe-dictionary-type": {
       "count": 1
-    }
-  },
-  "packages/daemon/test/write-durability.test.ts": {
-    "anti-slop/no-chained-type-assertions": {
-      "count": 8
     }
   },
   "packages/protocol/src/agent-availability.ts": {
@@ -4410,19 +4086,11 @@
     }
   },
   "packages/protocol/src/schedule.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-known-value-widening": {
       "count": 2
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 2
-    }
-  },
-  "packages/protocol/src/search.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
     }
   },
   "packages/protocol/src/shell-parsers.ts": {
@@ -4466,11 +4134,6 @@
   "packages/protocol/src/stage-list.ts": {
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 2
-    }
-  },
-  "packages/protocol/src/stage-parts.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
     }
   },
   "packages/protocol/src/stage.ts": {
@@ -4527,9 +4190,6 @@
     }
   },
   "packages/protocol/src/time.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-known-value-widening": {
       "count": 1
     }
@@ -4598,9 +4258,6 @@
     }
   },
   "scripts/check.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-known-value-widening": {
       "count": 1
     },
@@ -4626,9 +4283,6 @@
     }
   },
   "scripts/execution-lab/host.ts": {
-    "anti-slop/no-conditional-empty-object-spread": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 1
     },
@@ -4664,9 +4318,6 @@
     }
   },
   "scripts/execution-lab/runner.ts": {
-    "anti-slop/no-conditional-empty-object-spread": {
-      "count": 2
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 1
     },
@@ -4681,9 +4332,6 @@
     }
   },
   "scripts/failure-log.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-known-value-widening": {
       "count": 1
     },
@@ -4710,25 +4358,16 @@
     }
   },
   "scripts/release.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 4
     }
   },
   "scripts/test-waits.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 2
     }
   },
   "scripts/validate-execution-lab.ts": {
-    "anti-slop/no-conditional-empty-object-spread": {
-      "count": 1
-    },
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 1
     }

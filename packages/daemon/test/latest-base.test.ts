@@ -69,7 +69,7 @@ describe('Moving a Task to the latest base branch', () => {
     const lines = threadEvents(
       't',
       [logged('v1.BaseBranchAdopted', { repo: 'widgets', base: 'main' })],
-      { comments: [] } as unknown as Parameters<typeof threadEvents>[2],
+      { comments: [], displayIdOf: (id) => id, waitingFor: [] },
     )
     expect(lines.map((l) => l.text)).toEqual(['TED moved widgets to the latest main'])
   })

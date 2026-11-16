@@ -401,12 +401,14 @@ function signedByApp(
 }
 
 function replay(req: http.IncomingMessage, body: Buffer): http.IncomingMessage {
-  return Object.assign(Readable.from(body.length === 0 ? [] : [body]), {
+  const copy = Object.assign(Readable.from(body.length === 0 ? [] : [body]), {
     headers: req.headers,
     method: req.method,
     url: req.url,
     socket: req.socket,
-  }) as unknown as http.IncomingMessage
+  })
+  // SAFETY: routes read a request's body stream, headers, method, url and socket, which the copy has.
+  return copy as http.IncomingMessage
 }
 
 function identify(authorization: string | undefined, options: BaseOptions): Caller | undefined {

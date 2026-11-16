@@ -99,7 +99,15 @@ export function snippetAround(terms: readonly string[], text: string, width = 12
   const flat = text.replace(/\s+/g, ' ').trim()
   if (flat.length <= width) return flat
   const folded = foldText(flat)
-  const at = Math.max(0, Math.min(...terms.map((t) => folded.indexOf(t)).filter((i) => i >= 0)))
+  const at = Math.max(
+    0,
+    Math.min(
+      ...terms.flatMap((t) => {
+        const i = folded.indexOf(t)
+        return i >= 0 ? [i] : []
+      }),
+    ),
+  )
   const start = Math.max(0, Math.min(at - Math.floor(width / 3), flat.length - width))
   const end = Math.min(flat.length, start + width)
   return `${start > 0 ? '…' : ''}${flat.slice(start, end).trim()}${end < flat.length ? '…' : ''}`

@@ -157,7 +157,9 @@ describe('running in the background', () => {
       await window.getByRole('button', { name: 'Open System Settings' }).click()
 
       await expect
-        .poll(() => ctx.app?.evaluate(() => (globalThis as unknown as { opened: string[] }).opened))
+        .poll(() =>
+          ctx.app?.evaluate(() => (globalThis as typeof globalThis & { opened: string[] }).opened),
+        )
         .toEqual(['x-apple.systempreferences:com.apple.LoginItems-Settings.extension'])
     },
   )

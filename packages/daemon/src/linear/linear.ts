@@ -13,6 +13,7 @@ import {
   parseLinearUrl,
   type SaveLinearKeyRequest,
 } from '@ted/protocol'
+import type { JsonObject } from '@ted/protocol/parse'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import { fetchDiscussion } from './discussion.ts'
@@ -317,7 +318,7 @@ export function createLinear(options: LinearOptions): Linear {
   async function query<T>(
     key: string,
     text: string,
-    variables?: object,
+    variables?: JsonObject,
     { partial = false, strict = false }: { partial?: boolean; strict?: boolean } = {},
   ): Promise<T> {
     let response: Response
@@ -400,7 +401,8 @@ export function createLinear(options: LinearOptions): Linear {
         ...(issue.description && { description: issue.description.slice(0, maxDescription) }),
       }
       const discussion = await fetchDiscussion(
-        <T>(text: string, variables: object) => query<T>(key, text, variables, { strict: true }),
+        <T>(text: string, variables: JsonObject) =>
+          query<T>(key, text, variables, { strict: true }),
         issue.id ?? link.identifier,
       )
       if (discussion.text) {
@@ -455,7 +457,7 @@ export function createLinear(options: LinearOptions): Linear {
     const { urlKey } = await viewerOf(key)
     if (urlKey === '') return found
     const identifiers = [
-      ...new Set(links.filter((l) => l.workspace === urlKey).map((l) => l.identifier)),
+      ...new Set(links.flatMap((l) => (l.workspace === urlKey ? [l.identifier] : []))),
     ]
     for (let from = 0; from < identifiers.length; from += issuesPerQuery) {
       const chunk = identifiers.slice(from, from + issuesPerQuery)
@@ -492,7 +494,7 @@ export function createLinear(options: LinearOptions): Linear {
     return states
   }
 
-  async function mutate(text: string, variables: object, field: string): Promise<void> {
+  async function mutate(text: string, variables: JsonObject, field: string): Promise<void> {
     const data = await query<Record<string, { success?: boolean } | null>>(
       await requireKey(),
       text,

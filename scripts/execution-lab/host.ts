@@ -742,7 +742,7 @@ export async function dispatch(request: HostRequest, identify = hostIdentity) {
             throw error
           }
         }
-        return { pid, token, port: beat.port, ...(transport ? { relayTargetConfirmed: true } : {}) }
+        return { pid, token, port: beat.port, ...(transport && { relayTargetConfirmed: true }) }
       }
       if (!(await owned(receipt))) break
       await delay(100)

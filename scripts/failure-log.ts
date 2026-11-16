@@ -221,9 +221,10 @@ interface WorkerLimit {
 }
 
 export function mostWorkers(vitest: WorkerLimit & { projects?: readonly WorkerLimit[] }) {
-  const counts = [vitest, ...(vitest.projects ?? [])]
-    .map((item) => item.config.maxWorkers)
-    .filter((count) => typeof count === 'number')
+  const counts = [vitest, ...(vitest.projects ?? [])].flatMap((item) => {
+    const count = item.config.maxWorkers
+    return typeof count === 'number' ? [count] : []
+  })
   return counts.length > 0 ? Math.max(...counts) : undefined
 }
 

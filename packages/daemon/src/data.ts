@@ -184,9 +184,8 @@ export function createData(options: DataOptions): Data {
       setStatus({
         state: 'needs-newer',
         version,
-        ...(meta && compareVersions(meta.lastOpenedBy, version) > 0
-          ? { lastOpenedBy: meta.lastOpenedBy }
-          : {}),
+        ...(meta &&
+          compareVersions(meta.lastOpenedBy, version) > 0 && { lastOpenedBy: meta.lastOpenedBy }),
         dataDir: displayPath(paths.home),
         ...(restore && { restore }),
       })

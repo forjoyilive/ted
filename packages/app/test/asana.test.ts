@@ -29,7 +29,7 @@ async function settings() {
   const window = await launchApp()
   await ctx.app?.evaluate(({ clipboard, shell }) => {
     Object.assign(globalThis, { asanaOpened: [], asanaCopied: [] })
-    const state = globalThis as unknown as { asanaOpened: string[]; asanaCopied: string[] }
+    const state = globalThis as typeof globalThis & { asanaOpened: string[]; asanaCopied: string[] }
     shell.openExternal = async (url: string) => {
       state.asanaOpened.push(url)
     }
@@ -51,7 +51,7 @@ async function saveApp(group: Awaited<ReturnType<typeof settings>>['group'], cli
 }
 async function opened() {
   return await ctx.app?.evaluate(() =>
-    (globalThis as unknown as { asanaOpened: string[] }).asanaOpened.at(-1),
+    (globalThis as typeof globalThis & { asanaOpened: string[] }).asanaOpened.at(-1),
   )
 }
 
@@ -260,7 +260,9 @@ test('setup steps link the console and copy the redirect URL; a bad client ID is
   await group.getByRole('button', { name: 'Copy', exact: true }).click()
   await expect
     .poll(() =>
-      ctx.app?.evaluate(() => (globalThis as unknown as { asanaCopied: string[] }).asanaCopied),
+      ctx.app?.evaluate(
+        () => (globalThis as typeof globalThis & { asanaCopied: string[] }).asanaCopied,
+      ),
     )
     .toEqual([`http://127.0.0.1:${ctx.extraEnv?.TED_ASANA_CALLBACK_PORT}/asana/callback`])
   await saveApp(group, 'not-a-number')

@@ -374,7 +374,9 @@ describe('TED app', () => {
     await figma.getByText('Onboarding v2').waitFor()
     await figma.getByRole('button', { name: 'Open ↗' }).click()
     await expect
-      .poll(() => ctx.app?.evaluate(() => (globalThis as unknown as { opened: string[] }).opened))
+      .poll(() =>
+        ctx.app?.evaluate(() => (globalThis as typeof globalThis & { opened: string[] }).opened),
+      )
       .toEqual(['https://www.figma.com/design/abc/Onboarding'])
 
     const worth = card.getByRole('region', { name: 'Worth your eye' })

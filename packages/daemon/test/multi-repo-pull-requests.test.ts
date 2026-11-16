@@ -6,7 +6,7 @@ import { promisify } from 'node:util'
 import type { TaskRepo } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import type { Gh } from '../src/github/gh.ts'
-import type { TedStore } from '../src/store/index.ts'
+import type { StoredTask, TedStore } from '../src/store/index.ts'
 import { createPullRequests, type PullRequestTarget } from '../src/tasks/pull-requests.ts'
 
 const run = promisify(execFile)
@@ -75,10 +75,19 @@ function fakeStore(names: string[], onReconciled?: () => void, onRead?: () => vo
     const repo = repos.get(name)
     if (repo) repos.set(name, { ...repo, ...fields })
   }
-  const store = {
+  const store: Pick<
+    TedStore,
+    | 'getTask'
+    | 'branchPushed'
+    | 'branchPushFailed'
+    | 'pushRecordReconciled'
+    | 'pullRequestOpened'
+    | 'pullRequestMarkedReady'
+    | 'pullRequestClosed'
+  > = {
     getTask: () => {
       onRead?.()
-      return { repos: [...repos.values()] }
+      return { repos: [...repos.values()] } as StoredTask
     },
     branchPushed: (_: string, name: string, push: Omit<NonNullable<TaskRepo['pushed']>, 'at'>) =>
       change(name, { pushed: { ...push, at: 'now' } }),
@@ -105,7 +114,7 @@ function fakeStore(names: string[], onReconciled?: () => void, onRead?: () => vo
     },
     pullRequestClosed: () => undefined,
   }
-  return { store: store as unknown as TedStore, repos, reconciled }
+  return { store: store as TedStore, repos, reconciled }
 }
 
 const branch = 'ted/nb-1-notes'

@@ -424,13 +424,7 @@ describe('in-app updates', () => {
       failedInstall: 'daemon recovered',
     })
     await expect
-      .poll(() =>
-        window.evaluate(() =>
-          (
-            globalThis as unknown as { ted: { request(name: string): Promise<unknown> } }
-          ).ted.request('connection'),
-        ),
-      )
+      .poll(() => window.evaluate(() => globalThis.window.ted.request('connection')))
       .toEqual({ state: 'connected' })
     const opened = app?.waitForEvent('window')
     await window.evaluate(() => globalThis.window.ted.request('openWorker'))

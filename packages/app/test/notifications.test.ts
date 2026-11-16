@@ -85,7 +85,7 @@ function harness(
     notifications,
     shown,
     opened,
-    visible: () => shown.filter((s) => !s.closed).map((s) => s.notice.body),
+    visible: () => shown.flatMap((s) => (s.closed ? [] : [s.notice.body])),
     settings,
     tick: (ms: number) => {
       clock += ms
@@ -294,7 +294,7 @@ describe('Task merged notifications', () => {
     factoryId: 'nb',
     stage: 'done',
     merged: { at: '2026-11-09T10:00:00.000Z', pullRequests: [12] },
-  } as unknown as Task
+  } as Task
 
   test('are off by default', () => {
     const { notifications, shown } = harness()

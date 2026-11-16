@@ -88,13 +88,16 @@ describe('daemon crashes', () => {
   test('three crashes in ten minutes stop restarts and raise the banner; its menu copies a report and restarts TED', async () => {
     const window = await launchApp({ TED_RESTART_DELAYS_MS: '0,0,0' })
     await ctx.app?.evaluate(({ clipboard }) => {
-      const record = globalThis as unknown as { copied: string[] }
+      const record = globalThis as typeof globalThis & { copied: string[] }
       record.copied = []
       clipboard.writeText = async (text: string) => {
         record.copied.push(text)
       }
     })
-    const recorded = () => ctx.app?.evaluate(() => globalThis as unknown as { copied: string[] })
+    const recorded = () =>
+      ctx.app?.evaluate(() => ({
+        copied: (globalThis as typeof globalThis & { copied: string[] }).copied,
+      }))
 
     await waitForNewDaemon(await killDaemon())
     await reconnecting(window).waitFor({ state: 'detached', timeout: 20_000 })

@@ -1,4 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite'
+import type { DatabaseSync, SQLOutputValue } from 'node:sqlite'
 import { Schema } from '@livestore/livestore'
 import { eventlogFile } from './files.ts'
 import { eventKey, nameList, rewriteEventlog, withDb } from './rewrite-eventlog.ts'
@@ -43,12 +43,12 @@ const request = events.subAgentRequested.name
 const requestEnds: string[] = [events.runStartedV4.name, events.subAgentRequestDropped.name]
 const blankable = Object.keys(kinds)
 
-interface Row {
+type Row = {
   g: number
   c: number
   r: number
   name: string
-  grp: unknown
+  grp: SQLOutputValue
   blank: number
 }
 
@@ -66,6 +66,7 @@ function planBlanks(db: DatabaseSync, schema = 'main'): Row[] {
         `WHEN ${quoted(name)} THEN json_extract(argsJson, '$.${kind.field}') = ${quoted(kind.blank)}`,
     )
     .join(' ')
+  // SAFETY: the SELECT returns exactly Row's columns: g, c, r and blank are integers, name is text.
   const rows = db
     .prepare(
       `SELECT seqNumGlobal AS g, seqNumClient AS c, seqNumRebaseGeneration AS r, name,
@@ -75,7 +76,7 @@ function planBlanks(db: DatabaseSync, schema = 'main'): Row[] {
        WHERE name IN ${nameList([...blankable, ...requestEnds])} AND json_valid(argsJson)
        ORDER BY seqNumGlobal DESC, seqNumClient DESC, seqNumRebaseGeneration DESC`,
     )
-    .all() as unknown as Row[]
+    .all() as Row[]
 
   const planned: Row[] = []
   const later = new Set<string>()
@@ -113,6 +114,7 @@ const keptValues = `CASE o.name ${Object.entries(kinds)
 
 function blankedOnlyReplaced(db: DatabaseSync): void {
   const planned = new Set(planBlanks(db, 'original').map(keyOf))
+  // SAFETY: the SELECT returns only g, c and r, the integer sequence columns of the eventlog.
   const changed = db
     .prepare(
       `SELECT o.seqNumGlobal AS g, o.seqNumClient AS c, o.seqNumRebaseGeneration AS r
@@ -120,7 +122,7 @@ function blankedOnlyReplaced(db: DatabaseSync): void {
          ON ${eventKey.map((column) => `o."${column}" = c."${column}"`).join(' AND ')}
        WHERE o.argsJson IS NOT c.argsJson`,
     )
-    .all() as unknown as Row[]
+    .all() as Pick<Row, 'g' | 'c' | 'r'>[]
   for (const row of changed) {
     if (!planned.has(keyOf(row))) {
       throw new Error(`event ${row.g} was blanked, but no later event replaces its text`)

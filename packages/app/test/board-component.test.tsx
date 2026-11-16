@@ -477,7 +477,7 @@ test('List and Board keep the user request beside purple running and neutral wai
     list.unmount()
   }
   const labels = (markers: TaskMarker[]) =>
-    markers.filter((m) => m.kind === 'test-activity').map((m) => m.label)
+    markers.flatMap((m) => (m.kind === 'test-activity' ? [m.label] : []))
   expect(labels(taskMarkers({ ...facts, checksWaiting: { place: 2 } }, current.status))).toEqual([
     'Waiting for Checks',
     'Running tests',

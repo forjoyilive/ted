@@ -158,9 +158,13 @@ describe('Settings → Storage', () => {
     let freeBytes = 5e9
     let diskGate: Promise<void> | undefined
     const minutes = (n: number) => n * 60_000
+    const store: Pick<TedStore, 'listFactories' | 'listTasks'> = {
+      listFactories: () => [],
+      listTasks: () => [],
+    }
     const storage = createStorage({
       home,
-      store: { listFactories: () => [], listTasks: () => [] } as unknown as TedStore,
+      store: store as TedStore,
       disk: {
         check: async () => {
           await diskGate

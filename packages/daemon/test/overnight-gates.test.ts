@@ -122,9 +122,9 @@ async function stageReads(client: Client) {
   const library = await client.ok<LibraryView>('GET', '/library')
   const board = await client.ok<FactoryBoard>('GET', `/factories/${factory?.id}/board`)
   const pick = (rows: { id: string; gate: boolean; overnight?: true }[]) =>
-    rows
-      .filter((r) => r.id === 'design' || r.id === 'work')
-      .map(({ id, gate, overnight }) => ({ id, gate, overnight }))
+    rows.flatMap(({ id, gate, overnight }) =>
+      id === 'design' || id === 'work' ? [{ id, gate, overnight }] : [],
+    )
   return [pick(settings.stages), pick(library.stages), pick(board.stages)]
 }
 

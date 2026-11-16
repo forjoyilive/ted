@@ -49,8 +49,10 @@ test('a chat saves only what changed, keeps the newest receipts, and rebuilds fr
   store.coordinators.save(chatIn('factory-1', 'chat-2', 'run-2'))
 
   let current = chat
+  const receipts = [...chat.receipts]
   for (let i = 0; i < 150; i++) {
-    current = { ...current, receipts: [...current.receipts, receipt(i)] }
+    receipts.push(receipt(i))
+    current = { ...chat, receipts: receipts.slice() }
     store.coordinators.save(current)
   }
   store.coordinators.save({ ...current, phase: 'working', error: 'Stopped' })
