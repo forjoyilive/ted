@@ -155,7 +155,7 @@ describe('TED app', () => {
 
     const banners = window.getByRole('region', { name: 'widgets problems' })
     await banners.getByText('Local folder for widgets not found').waitFor()
-    await banners.getByRole('button', { name: 'Locate' }).click()
+    await banners.getByRole('button', { name: 'Locate…' }).click()
 
     await window.getByText('Local folder for widgets not found').waitFor({ state: 'detached' })
     const [factory] = await (await daemonClient()).listFactories()

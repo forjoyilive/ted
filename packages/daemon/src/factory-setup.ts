@@ -467,7 +467,7 @@ export function createFactories(options: FactoriesOptions): Factories {
           ...ref,
           severity: 'warning',
           text: `Local folder for ${name} not found`,
-          action: { label: 'Locate', choose: 'folder' },
+          action: { label: 'Locate…', choose: 'folder' },
         })
       }
     }

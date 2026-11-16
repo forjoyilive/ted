@@ -160,7 +160,7 @@ describe('Follow up', () => {
     expect(await threadTexts(client, original)).toContain(
       `You followed up in ${followUp.displayId}`,
     )
-    expect(await threadTexts(client, followUp)).toContain(`Follow-up to ${done.displayId}`)
+    expect(await threadTexts(client, followUp)).toContain(`Follow-Up to ${done.displayId}`)
   })
 
   test('waits for a slot like any started Task', async () => {
@@ -184,7 +184,7 @@ describe('Follow up', () => {
 
     const followUp = await client.ok<Task>('POST', `/tasks/${done.id}/follow-up`, {})
 
-    expect(followUp.title).toBe(`Follow-up to ${done.displayId}`)
+    expect(followUp.title).toBe(`Follow-Up to ${done.displayId}`)
     expect(followUp.description).toBe('')
   })
 

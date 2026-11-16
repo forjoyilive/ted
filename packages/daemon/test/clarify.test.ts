@@ -438,7 +438,7 @@ describe('Clarify rounds', () => {
     await waitForStage(client, task, 'work')
     expect((await comments(client, task)).some((c) => c.kind === 'signoff')).toBe(false)
     expect(await threadLines(client, task)).toContain(
-      'Autopilot is on, so TED skipped the Clarify sign-off',
+      'Autopilot is on, so TED skipped the Clarify Sign-Off',
     )
   })
 

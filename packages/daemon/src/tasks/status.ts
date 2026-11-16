@@ -181,7 +181,7 @@ function testMarkers(facts: TaskFacts): TaskMarker[] {
       kind: 'test-activity',
       source,
       phase,
-      label: `${phase === 'running' ? 'Running' : 'Waiting for'} ${source === 'checks' ? 'checks' : 'tests'}`,
+      label: `${phase === 'running' ? 'Running' : 'Waiting for'} ${source === 'checks' ? 'Checks' : 'tests'}`,
       detail,
     })
   }
@@ -239,7 +239,7 @@ export function taskActivity(facts: TaskFacts): string | undefined {
   if (facts.waitingOnSimulator) return 'Waiting for a simulator slot'
   if (facts.waitingOnEmulator) return 'Waiting for an emulator slot'
   if (facts.waitingOnPermission === 'lead') return 'The Task Lead is waiting on your permission'
-  if (facts.waitingOnPermission === 'sub-agent') return 'A sub-agent is waiting on your permission'
+  if (facts.waitingOnPermission === 'sub-agent') return 'A Sub-Agent is waiting on your permission'
   if (facts.stopped) return stoppedActivity(facts.stopped)
   if (taskCanResume(facts)) return 'The Task Lead has stopped. Resume to carry on.'
   if (facts.autoMergeLeft) {
