@@ -26,10 +26,18 @@ export function slotsDetail(slots: RunSlots | undefined): string | undefined {
   return slots?.busy === undefined ? undefined : busyDetail(slots.busy)
 }
 
+function checksPart({ running, waiting }: RunSlots['checks']): string {
+  if (running > 0 && waiting > 0)
+    return ` · ${plural(running, 'Check')} running, ${waiting} waiting`
+  if (running > 0) return ` · ${plural(running, 'Check')} running`
+  if (waiting > 0) return ` · ${plural(waiting, 'Check')} waiting`
+  return ''
+}
+
 function counts(slots: RunSlots): string {
   const queued = slots.queued > 0 ? ` · ${slots.queued} queued` : ''
   const busy = slots.busy !== undefined ? ` · ${busyHold}` : ''
-  return `${plural(slots.working, 'slot')} in use · limit ${slots.limit}${queued}${busy}`
+  return `${plural(slots.working, 'agent')} working${checksPart(slots.checks)} · limit ${slots.limit}${queued}${busy}`
 }
 
 export function runsLine(slots: RunSlots): string {

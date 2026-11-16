@@ -113,7 +113,10 @@ export function WorkingRunsPopover({
     const own = cap(factoryId)
     return own ? `${name(factoryId)} ${own.working} of ${own.cap}` : name(factoryId)
   }
-  const empty = slots.holders.length === 0 && slots.queue.length === 0
+  const { checks } = slots
+  const scheduled = checks.scheduled.running + checks.scheduled.waiting
+  const checkRows = checks.tasks.length + (scheduled > 0 ? 1 : 0)
+  const empty = slots.holders.length === 0 && slots.queue.length === 0 && checkRows === 0
   const working = slots.holders.filter((h) => !isChat(h.kind))
   const chats = slots.holders.filter((h): h is Extract<SlotHolder, { kind: ChatKind }> =>
     isChat(h.kind),
@@ -141,7 +144,7 @@ export function WorkingRunsPopover({
         >{`${slots.working} of ${slots.limit} slots on ${machine}`}</span>
       </div>
       {empty ? (
-        <p className={styles.empty}>No Runs working. Nothing queued.</p>
+        <p className={styles.empty}>No Runs working. No Checks. Nothing queued.</p>
       ) : (
         <div className={styles.body}>
           {working.length > 0 && (
@@ -164,6 +167,44 @@ export function WorkingRunsPopover({
                     trailing={slotCount(holder.runs)}
                   />
                 ),
+              )}
+            </Group>
+          )}
+          {checkRows > 0 && (
+            <Group
+              label="Checks"
+              count={checkRows}
+              help="Checks run beside agent Runs and don’t use a slot. Settings → Limits sets how many run at once; the rest wait in line. A Task Lead waits while its Task’s Checks run."
+            >
+              {checks.tasks.map((task) =>
+                task.place === undefined ? (
+                  <Row
+                    key={task.taskId}
+                    lead={task.displayId}
+                    title={task.title}
+                    detail={`${name(task.factoryId)} · Running Checks`}
+                  />
+                ) : (
+                  <Row
+                    key={task.taskId}
+                    lead={ordinal(task.place)}
+                    place
+                    title={`${task.displayId} · ${task.title}`}
+                    detail={`${name(task.factoryId)} · Waiting to run Checks`}
+                  />
+                ),
+              )}
+              {scheduled > 0 && (
+                <Row
+                  lead="Auto"
+                  title="Scheduled Checks"
+                  detail={[
+                    checks.scheduled.running > 0 && `${checks.scheduled.running} running`,
+                    checks.scheduled.waiting > 0 && `${checks.scheduled.waiting} waiting`,
+                  ]
+                    .filter((part) => part !== false)
+                    .join(' · ')}
+                />
               )}
             </Group>
           )}

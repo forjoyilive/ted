@@ -323,6 +323,12 @@ export interface LeadMessage {
   waitForSlot?: true
 }
 
+export interface CheckWork {
+  running: string[]
+  waiting: ReadonlyMap<string, number>
+  scheduled: { running: number; waiting: number }
+}
+
 export interface QueueActivity {
   taskPlaces?: readonly { id: string; place: number }[]
   queuedTasks: readonly string[]
@@ -1216,6 +1222,7 @@ export interface TedStore extends TaskHistory {
   setQueueActivity(activity: QueueActivity): void
   setShellsRunning(count: number): void
   setScheduledChecks(counts: { running: number; waiting: number }): void
+  checkWork(): CheckWork
   setAsanaConnection(account: string | undefined): void
   asanaAccount(): string | undefined
   setAsanaOpenChildren(taskId: string, count: number | undefined): void
@@ -3464,7 +3471,18 @@ export async function openStore({
   }
   let shellsRunning = 0
   let scheduledChecks = { running: 0, waiting: 0 }
+  const checkWork = (): CheckWork => ({
+    running: [
+      ...new Set([
+        ...checkingTasks,
+        ...store.query(queryDb(checkRuns.where({ finishedAt: null }))).map((r) => r.taskId),
+      ]),
+    ].filter((taskId) => !checksWaiting.has(taskId)),
+    waiting: checksWaiting,
+    scheduled: scheduledChecks,
+  })
   const activity = (): Activity => {
+    const work = checkWork()
     const active = store.query(liveRuns)
     const runIds = new Set(active.map((run) => run.id))
     const taskIds = new Set(
@@ -3505,14 +3523,8 @@ export async function openStore({
         ).length,
       automationsOn: liveAutomations.filter((a) => a.on).length,
       factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
-      checksRunning:
-        [
-          ...new Set([
-            ...checkingTasks,
-            ...store.query(queryDb(checkRuns.where({ finishedAt: null }))).map((r) => r.taskId),
-          ]),
-        ].filter((taskId) => !checksWaiting.has(taskId)).length + scheduledChecks.running,
-      checksWaiting: checksWaiting.size + scheduledChecks.waiting,
+      checksRunning: work.running.length + work.scheduled.running,
+      checksWaiting: work.waiting.size + work.scheduled.waiting,
       shellsRunning,
     }
   }
@@ -7117,6 +7129,7 @@ export async function openStore({
       else asanaLeftOpen.delete(taskId)
       if (taskRow(taskId)) updatedTask(taskId)
     },
+    checkWork,
     setScheduledChecks(counts) {
       if (counts.running === scheduledChecks.running && counts.waiting === scheduledChecks.waiting)
         return

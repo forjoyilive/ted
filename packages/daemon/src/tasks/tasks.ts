@@ -30,6 +30,7 @@ import type {
   BrowserRequest,
   BrowserResult,
   BusyHold,
+  CheckingTask,
   CheckRun,
   CheckRunReport,
   ClarifyDepth,
@@ -93,6 +94,7 @@ import type {
   SignOffChanges,
   SimulatorSlots,
   SizeCheckInput,
+  SlotChecks,
   SlotHolder,
   SnoozedRequest,
   StageId,
@@ -2289,7 +2291,31 @@ export function createTasks(options: {
         const cap = use.caps[factoryId]
         return cap === undefined ? [] : [{ factoryId, cap, working: use.byFactory[factoryId] ?? 0 }]
       }),
+      checks: checksNow(),
       ...(heldBusy !== undefined && { busy: heldBusy }),
+    }
+  }
+
+  function checksNow(): SlotChecks {
+    const { running, waiting, scheduled } = store.checkWork()
+    const tasks = store.tasksIn(new Set([...running, ...waiting.keys()]))
+    const shown = tasks
+      .map((task): CheckingTask => {
+        const place = waiting.get(task.id)
+        return {
+          taskId: task.id,
+          displayId: task.displayId,
+          title: task.title,
+          factoryId: task.factoryId,
+          ...(place !== undefined && { place }),
+        }
+      })
+      .sort((a, b) => (a.place ?? 0) - (b.place ?? 0))
+    return {
+      running: running.length + scheduled.running,
+      waiting: waiting.size + scheduled.waiting,
+      tasks: shown,
+      scheduled: { ...scheduled },
     }
   }
 
@@ -10244,7 +10270,11 @@ export function createTasks(options: {
   const reportSetupSoon = coalesced((factoryId: string) => {
     if (!closed) reportSetup(factoryId)
   })
+  const publishSlotsSoon = coalesced(() => {
+    if (!closed) void publishSlots()
+  })
   const stopPumping = store.subscribe((event) => {
+    if (event.type === 'activity-changed') publishSlotsSoon()
     if (
       event.type === 'comment-updated' ||
       event.type === 'task-updated' ||

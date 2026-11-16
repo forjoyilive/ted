@@ -864,12 +864,14 @@ export {
 export type {
   BusyHold,
   ChatKind,
+  CheckingTask,
   FactorySlots,
   QueuedForSlot,
   RunSlots,
+  SlotChecks,
   SlotHolder,
 } from './slots.ts'
-export { busyHold, busyMarks, chatKinds, isChat } from './slots.ts'
+export { busyHold, busyMarks, chatKinds, isChat, noChecks } from './slots.ts'
 export {
   type ProfileRequest,
   type ProfileResult,
