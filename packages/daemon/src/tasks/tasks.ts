@@ -5796,7 +5796,7 @@ export function createTasks(options: {
       task.stopped ||
       task.waitsForBlockers ||
       !(validates(task.stage) || mergesHere(task.stage)) ||
-      !validation.pendingRepair(task)
+      (mode === 'lead-live' && !validation.pendingRepair(task))
     )
       return
     setChecking(taskId, true)
@@ -11956,7 +11956,7 @@ export function createTasks(options: {
             `${task.displayId} changed Stage while this outcome waited; read the Task again before reporting`,
           )
         }
-        refuseDuringRepairHandOff(task)
+        if (outcome.outcome === 'advance') refuseDuringRepairHandOff(task)
         if (task.stage === 'backlog' || task.stage === 'done') {
           throw new RequestError(409, `${task.displayId} isn’t in a Stage that has an outcome`)
         }
