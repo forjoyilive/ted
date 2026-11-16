@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { defaultMachineSettings } from '@ted/protocol/settings'
+import { noChecks } from '@ted/protocol/slots'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { AboutGroup, CommandLineGroup } from '../src/renderer/settings/CommandLineGroup.tsx'
@@ -102,13 +103,21 @@ test('quit choice, login and Stay Awake switches send machine settings', async (
 test('Limits changes how many Checks run at once and turns low priority off', async () => {
   const update = vi.fn()
   bridge({
-    getSlots: () => ({ limit: 6, working: 0, queued: 0, holders: [], queue: [], factories: [] }),
+    getSlots: () => ({
+      limit: 6,
+      working: 0,
+      queued: 0,
+      holders: [],
+      queue: [],
+      factories: [],
+      checks: noChecks,
+    }),
     simulators: () => ({ supported: false }),
     emulators: () => ({ supported: false }),
     updateSettings: update,
   })
   render(<LimitsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
-  await screen.findByText('Now: 0 slots in use · limit 6')
+  await screen.findByText('Now: 0 agents working · limit 6')
   const toggle = screen.getByRole('switch', { name: 'Run agents and Checks at low priority' })
   expect(toggle.getAttribute('aria-checked')).toBe('true')
   expect(screen.getByText(/Applies to work started after you change it/)).toBeTruthy()
@@ -701,7 +710,15 @@ test('an asynchronous settings switch acknowledges activation and blocks repeat 
   const update = vi.fn(() => completion.promise)
   bridge({
     updateSettings: update,
-    getSlots: () => ({ limit: 6, working: 0, queued: 0, holders: [], queue: [], factories: [] }),
+    getSlots: () => ({
+      limit: 6,
+      working: 0,
+      queued: 0,
+      holders: [],
+      queue: [],
+      factories: [],
+      checks: noChecks,
+    }),
     simulators: () => ({ supported: false }),
     emulators: () => ({ supported: false }),
   })

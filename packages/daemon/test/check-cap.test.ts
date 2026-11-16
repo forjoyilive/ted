@@ -7,6 +7,7 @@ import type {
   CheckTry,
   Factory,
   FactorySettingsView,
+  RunSlots,
   Task,
   UpdateWork,
 } from '@ted/protocol'
@@ -161,6 +162,14 @@ describe('Checks running at once', () => {
       checksWaiting: 1,
     })
     expect((await client.ok<UpdateWork>('GET', '/update/work')).checks).toBe(2)
+    expect((await client.ok<RunSlots>('GET', '/slots')).checks).toMatchObject({
+      running: 1,
+      waiting: 1,
+      tasks: [
+        { taskId: first.id, displayId: first.displayId },
+        { taskId: second.id, displayId: second.displayId, place: 1 },
+      ],
+    })
 
     await go(client, first)
     expect((await finished(client, first)).outcome).toBe('passed')
@@ -170,6 +179,11 @@ describe('Checks running at once', () => {
     await expect
       .poll(() => client.ok<Activity>('GET', '/activity'))
       .toMatchObject({ checksRunning: 1, checksWaiting: 0 })
+    expect((await client.ok<RunSlots>('GET', '/slots')).checks).toMatchObject({
+      running: 1,
+      waiting: 0,
+      tasks: [{ taskId: second.id }],
+    })
     await go(client, second)
     const measured = await finished(client, second)
     expect(measured.outcome).toBe('passed')

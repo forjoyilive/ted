@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type { AgentHealth, Automation, AutomationDetail, Run, RunSlots } from '@ted/protocol'
+import { noChecks } from '@ted/protocol/slots'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
@@ -107,6 +108,7 @@ function slots(automationId: string, place: number): RunSlots {
       },
     ],
     factories: [],
+    checks: noChecks,
   }
 }
 

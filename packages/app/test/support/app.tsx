@@ -7,6 +7,7 @@ import type {
   Task,
 } from '@ted/protocol'
 import { defaultMachineSettings } from '@ted/protocol/settings'
+import { noChecks } from '@ted/protocol/slots'
 import { act, render, screen, within } from '@testing-library/react'
 import { App, type AppStart } from '../../src/renderer/App.tsx'
 import { bridge, user } from './component.ts'
@@ -27,7 +28,15 @@ export function appState() {
     tasks: [],
     inbox: [],
     settings: { ...defaultMachineSettings, firstLaunchDone: true },
-    slots: { limit: 3, working: 0, queued: 0, holders: [], queue: [], factories: [] },
+    slots: {
+      limit: 3,
+      working: 0,
+      queued: 0,
+      holders: [],
+      queue: [],
+      factories: [],
+      checks: noChecks,
+    },
   }
   const api = bridge({
     dashboard: () => dashboardFixture(true),
