@@ -124,8 +124,7 @@ export function CoordinatorView({
   }
   const chip = coordinatorStatus[status]
   const continueConversation = async (id: string) => {
-    await ted.continueCoordinatorConversation(factory.id, id)
-    setShown(undefined)
+    if (await act(() => ted.continueCoordinatorConversation(factory.id, id))) setShown(undefined)
   }
   const list = (
     <section
@@ -270,10 +269,7 @@ export function CoordinatorView({
           error={error}
           onOpenTask={onOpenTask}
           onDelete={() => setDeleting(opened)}
-          onContinue={async () => {
-            if (await act(() => ted.continueCoordinatorConversation(factory.id, opened.id)))
-              setShown(undefined)
-          }}
+          onContinue={() => continueConversation(opened.id)}
         />
         {deleteDialog}
         {resetDialog}

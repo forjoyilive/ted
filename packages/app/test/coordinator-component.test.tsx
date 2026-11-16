@@ -336,7 +336,13 @@ test('right-clicking a Coordinator conversation offers New conversation on the c
     taskCount: 0,
   }
   shown.earlier = [summary]
-  const continued = vi.fn(() => shown.coordinator)
+  let finishContinue = () => {}
+  const continued = vi.fn(
+    () =>
+      new Promise((resolve) => {
+        finishContinue = () => resolve(shown.coordinator)
+      }),
+  )
   const deleted = vi.fn(() => null)
   a.handle('continueCoordinatorConversation', continued)
   a.handle('deleteCoordinatorConversation', deleted)
@@ -380,6 +386,16 @@ test('right-clicking a Coordinator conversation offers New conversation on the c
     ),
   )
   await vi.waitFor(() => expect(continued).toHaveBeenCalledWith('f1', 'c1'))
+  expect(
+    (within(list).getByRole('button', { name: 'New conversation' }) as HTMLButtonElement).disabled,
+  ).toBe(true)
+  await act(async () => finishContinue())
+  await vi.waitFor(() =>
+    expect(
+      (within(list).getByRole('button', { name: 'New conversation' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false),
+  )
 })
 
 test('leaving the Coordinator and coming back shows the same conversation', async () => {
