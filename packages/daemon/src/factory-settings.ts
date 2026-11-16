@@ -71,6 +71,7 @@ import { parsePullRequestUrl } from './tasks/pull-requests.ts'
 import { sameRepo } from './tasks/repos.ts'
 import type { CreateTaskInput } from './tasks/tasks.ts'
 import { resolveAgentChoices } from './workflow/agent-choices.ts'
+import { agentFileId } from './workflow/agent-files.ts'
 import {
   type CheckedLayer,
   checkLayer,
@@ -141,7 +142,11 @@ interface Base {
 }
 
 const knownFile = (file: string) =>
-  file === 'workflow.yaml' || file === 'notes.md' || stageFileId(file) !== undefined
+  file === 'workflow.yaml' ||
+  file === 'notes.md' ||
+  file === 'agents.yaml' ||
+  stageFileId(file) !== undefined ||
+  agentFileId(file) !== undefined
 
 function ignoredStageFiles(files: readonly string[], base: Base): string[] {
   const { order } = resolveWorkflow([...base.inherited, base.own])

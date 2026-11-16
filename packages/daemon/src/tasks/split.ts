@@ -96,6 +96,7 @@ const planEndings = {
   stopped: 'was stopped',
   failed: 'failed',
   deleted: 'was deleted',
+  archived: 'was archived',
 } as const
 
 export function planEndedLeadMessage(input: {

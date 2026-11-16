@@ -868,7 +868,7 @@ export interface TedStore extends TaskHistory {
   taskPlanEnded(
     taskId: string,
     planId: string,
-    outcome: 'approved' | 'stopped' | 'failed' | 'deleted',
+    outcome: 'approved' | 'stopped' | 'failed' | 'deleted' | 'archived',
   ): void
   rankTask(taskId: string, rank: number, priority: Priority): Task
   setPriority(taskId: string, priority: Priority): Task

@@ -182,13 +182,13 @@ describe('Planning chats', () => {
     await chat
       .getByText('Ted created 2 Tasks under NB-1: NB-2, NB-3. NB-1 waits for them to merge.')
       .waitFor()
-    await chat.getByText('This planning chat is finished. It stays as history.').waitFor()
+    await chat.getByText('This chat is archived. Unarchive it to write to it again.').waitFor()
     const pane = window.getByRole('complementary', { name: 'Planning chat details' })
     await pane.getByText('Created Tasks · 2').waitFor()
     await pane.getByText('Backlog · Blocked by NB-2').waitFor()
   })
 
-  test('Agents lists stopped and failed planning chats; from the chat, Retry clears the red dot, Mark finished ends one, Plan more from here builds on it, and Delete removes one', async () => {
+  test('Agents lists stopped and failed planning chats; from the chat, Retry clears the red dot, Archive moves one to Archived and Unarchive brings it back, Plan more from here builds on it, and Delete removes one', async () => {
     const origin = await makeOriginRepo(path.join(home, 'origin'))
     const client = await daemonAsApp(home, env())
     await client.addFactory({ repo: origin, key: 'NB' })
@@ -239,9 +239,19 @@ describe('Planning chats', () => {
     await row('Quick plan').click()
     await chat.getByRole('heading', { name: 'Quick plan' }).waitFor()
     await chat.getByRole('button', { name: 'Resume' }).waitFor()
-    await chat.getByRole('button', { name: 'Mark finished' }).click()
-    await row('Quick plan').getByText('Finished').waitFor()
-    await row('Quick plan').getByText('No Tasks').waitFor()
+    const archive = async () => {
+      await chat.getByRole('button', { name: 'More', exact: true }).click()
+      await chat.getByRole('menuitem', { name: 'Archive' }).click()
+    }
+    await archive()
+    await chat.getByText('This chat is archived. Unarchive it to write to it again.').waitFor()
+    const archived = list.getByRole('region', { name: 'Archived chats' })
+    await archived.getByRole('button').filter({ hasText: 'Quick plan' }).waitFor()
+    await chat.getByRole('button', { name: 'Unarchive' }).click()
+    await chat.getByRole('button', { name: 'Resume' }).waitFor()
+    await archived.waitFor({ state: 'detached' })
+    await archive()
+    await row('Quick plan').getByText('Archived', { exact: true }).waitFor()
 
     await writeFile(stubState, '{}')
     await row('Failing plan').click()

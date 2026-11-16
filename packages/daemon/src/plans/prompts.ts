@@ -46,33 +46,27 @@ export function taskDetachedNote(displayId: string, reason: string): string {
 }
 
 export function plannerInstructions(input: {
+  role: string
   factory: StoredFactory
   entries: readonly FactoryRepoEntry[]
   folder: string
   task?: PlanTaskContext
   earlier?: string
 }): string {
-  const { factory, entries, folder, task, earlier } = input
+  const { role, factory, entries, folder, task, earlier } = input
   const where =
     entries.length === 1
       ? `Your working folder is a fresh checkout of ${entries[0]?.repo ?? factory.repo} at the latest base branch.`
       : `Your working folder, ${folder}, holds a fresh checkout of each of the Factory’s repos at its latest base branch: ${entries.map((e) => `\`${e.name}/\` (${e.repo})`).join(', ')}.`
   return [
-    '# You are the planner in a Ted planning chat',
+    role.trim(),
     writingGuidance,
     `Use relevant general skills when they help with your work. Skip skills that require another host tool, such as Orca, Paseo or Superset; for example, don’t use \`orca-linear\` in Ted. Use Ted commands for Task workflow actions.`,
     [
-      `The human wants to work out a piece of work in the ${factory.name} Factory that is too big for one Task. Talk it through with them, settle what needs settling, and end by proposing Tasks, with which ones block which, for them to approve. You plan; you don’t build. ${where} Read it as much as you need. Anything you write there is never pushed and is thrown away when this chat ends.`,
+      `This chat is in the ${factory.name} Factory. ${where} Read it as much as you need. Anything you write there is never pushed and is thrown away when this chat ends.`,
       '',
-      '- Start with discovery: name the destination and explore the decisions needed to reach it before decomposing the work. Use `wayfinder`, `grill-with-docs` or `grilling` for guidance when available, adapting them to this planning chat and its Ted rounds. Keep the decisions here rather than creating external tracker issues. The process below applies even when those skills are unavailable.',
-      '- Investigate the repos for facts. Keep track of agreed decisions, scope exclusions and unresolved questions in the chat. First explore the breadth of the request, then follow each answer into the decisions it exposes. Put every question you can ask now in one round, up to 12; hold back only a question whose answer depends on one still open, and ask it in a later round. Give a recommendation and its tradeoff for each decision, then wait for the user’s answers.',
-      '- Let unresolved decisions determine the depth. Substantial plans need sustained grilling across several rounds; the number of rounds and questions has no target or minimum, but each round carries every question that is ready. Reuse answers already supplied in this or an earlier planning chat, and probe new uncertainty instead of repeating settled questions.',
-      '- Discovery is complete when the goal, scope and exclusions, user behavior (including edge cases), constraints, risks and acceptance criteria are settled, and every remaining implementation choice can safely be left to a Task Lead. Resolve contradictions and assumptions that could change the plan with the user. When an area does not apply, say why in the summary.',
-      '- Once discovery is complete, summarize the agreed plan, decisions and exclusions, and ask the user to confirm your understanding and whether to split it into Tasks. Use a Ted round and wait for their answer. If they identify gaps, continue discovery; if they confirm and want Tasks, proceed to the proposal. A confirmation already given for the current plan is sufficient.',
-      '- For research that takes a while, start sub-agents of your own and give each a narrow question.',
       `- Ask the human questions in rounds with \`ted ask --round <file>\`. ${roundFormat} Then end your turn; Ted sends you their answers. While a round is open the human may message you about it; answer them, and if your recommendation changes, replace the round with \`ted ask --supersedes <request-id> --round <file>\`.`,
       `- After the user confirms the plan and asks to split it, propose the fewest coherent Tasks with \`ted task propose --file <file>\`. ${proposalFormat} Each Task should deliver a verifiable result in one pull request per repo, with success criteria and dependencies. Keep the layers needed for that result together rather than making a Task for each implementation layer. Use \`to-spec\` or \`to-tickets\` if available to capture the agreed specification or split it. Then end your turn.`,
-      '- If the human asks for changes, settle any new decisions through discovery and confirm a changed plan before revising the proposal. A revision within the agreed plan can be posted directly; it replaces the old proposal.',
       '- When the human approves, Ted creates the Tasks in Backlog and ends this chat. If they message you instead, reply in the chat.',
     ].join('\n'),
     ...(task ? [fromTaskSection(task)] : []),

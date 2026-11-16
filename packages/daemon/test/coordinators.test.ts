@@ -171,9 +171,17 @@ test('one conversation per Factory; scoped reads include fresh briefs and Commen
   await rename(otherOrigin, renamed)
   await s.ok('POST', '/dev/factories', { repo: renamed, key: 'OTHER' })
   const other = await s.task('Other Task', 'OTHER')
+  await mkdir(path.join(home, 'library', 'agents'), { recursive: true })
+  await writeFile(
+    path.join(home, 'library', 'agents', 'coordinator.md'),
+    '# You are the Coordinator for one Ted Factory\nKeep answers to three lines.\n',
+  )
   const { c, run } = await s.start()
   const conversation = await s.ok<RunWithConversation>('GET', `/runs/${c.runId}`)
   expect(conversation.run.prompt).toContain('## Write clearly for the user')
+  expect(conversation.run.prompt).toContain('Keep answers to three lines.')
+  expect(conversation.run.prompt).not.toContain('Help the human compare Tasks')
+  expect(conversation.run.prompt).toContain('ted coordinator tasks [--stage <Stage>]')
   const list = unpack<{ tasks: Task[] }>((await run.call('GET', '/coordinator/tasks')).body)
   expect(list.tasks.map((t) => t.id)).toEqual([task.id])
   const badge = await s.task('Offline badge')
@@ -240,7 +248,8 @@ test('Coordinator tokens cannot use generic reads, mutations, or human-only acti
     ['POST', `/tasks/${task.id}/outcome`],
     ['POST', `${s.base}/messages`],
     ['POST', s.chats],
-    ['POST', `${s.base}/continue`],
+    ['POST', `${s.base}/archive`],
+    ['POST', `${s.base}/unarchive`],
     ['DELETE', s.base],
   ] as const) {
     expect(
@@ -261,6 +270,7 @@ test('Coordinator tokens cannot use generic reads, mutations, or human-only acti
   expect((await file.call('POST', `${s.base}/messages`, { text: 'bypass' })).status).toBe(403)
   expect((await file.call('POST', s.chats, { text: 'bypass' })).status).toBe(403)
   expect((await file.call('DELETE', s.base)).status).toBe(403)
+  expect((await file.call('POST', `${s.base}/archive`, {})).status).toBe(403)
   expect((await file.call('POST', `/coordinator/tasks/${task.id}/start`, {})).status).toBe(403)
 })
 
@@ -881,11 +891,28 @@ test('two open chats keep their own receipts and confirmations; deleting one lea
     { factoryId: s.factory.id, status: 'working' },
   ])
 
+  const archivedA = await s.ok<Coordinator>('POST', `${aPath}/archive`)
+  expect(archivedA.endedAt).toBeDefined()
+  expect(archivedA.confirmations[0]?.answer?.decision).toBe('cancel')
+  expect(await s.waitingIds()).not.toContain(cardA.id)
+  expect((await s.client.call('POST', `${aPath}/messages`, { text: 'more' })).status).toBe(409)
+  expect((await a.run.call('GET', '/coordinator/tasks')).status).toBe(403)
+  expect(
+    (await s.ok<CoordinatorChatSummary[]>('GET', s.chats)).find((c) => c.id === a.c.id),
+  ).toMatchObject({ waiting: false, endedAt: archivedA.endedAt })
+  await waitUntil(
+    async () =>
+      (await s.ok<RunWithConversation>('GET', `/runs/${a.c.runId}`)).run.state === 'finished' ||
+      undefined,
+    'chat A’s Run to stop',
+  )
+
   await s.ok('DELETE', aPath)
   expect((await s.client.call('GET', aPath)).status).toBe(404)
   expect((await a.run.call('GET', '/coordinator/tasks')).status).toBe(403)
   expect((await s.client.call('GET', `/runs/${a.c.runId}/chat`)).status).toBe(404)
   expect(existsSync(path.join(home, 'coordinators', a.c.runId))).toBe(false)
+  expect(existsSync(path.join(home, 'runs', a.c.runId))).toBe(true)
   expect(await s.waitingIds()).not.toContain(cardA.id)
   expect((await s.ok<Task[]>('GET', '/tasks')).map((t) => t.id)).toContain(one.id)
   expect((await read(bPath)).status).toBe('working')
@@ -895,7 +922,7 @@ test('two open chats keep their own receipts and confirmations; deleting one lea
   await waitUntil(async () => (await read(bPath)).status === 'ready', 'chat B to finish')
 }, 60_000)
 
-test('a conversation saved before chats is an ended chat that can be read, continued and deleted', async () => {
+test('a conversation saved before chats is an archived chat that can be read, unarchived, archived again and deleted', async () => {
   const s = await setup()
   const { c } = await s.start([{ say: 'Saved advice' }, { endTurn: true }])
   await waitUntil(async () => (await s.chat()).status === 'ready', 'the first reply')
@@ -958,9 +985,9 @@ test('a conversation saved before chats is an ended chat that can be read, conti
   expect(
     (await client.call('POST', '/coordinator-chats/saved-1/messages', { text: 'Too early' }))
       .status,
-  ).toBe(404)
+  ).toBe(409)
 
-  const continued = await ok<Coordinator>('POST', '/coordinator-chats/saved-1/continue')
+  const continued = await ok<Coordinator>('POST', '/coordinator-chats/saved-1/unarchive')
   expect(continued).toMatchObject({ id: 'saved-1', status: 'ready', runIds: [c.runId] })
   expect(continued.endedAt).toBeUndefined()
   await ok('POST', '/coordinator-chats/saved-1/messages', {
@@ -975,6 +1002,11 @@ test('a conversation saved before chats is an ended chat that can be read, conti
     async () => (await ok<Coordinator>('GET', '/coordinator-chats/saved-1')).status === 'ready',
     'the continued chat to settle',
   )
+  const again = await ok<Coordinator>('POST', '/coordinator-chats/saved-1/archive')
+  expect(again.endedAt).toBeDefined()
+  expect(
+    (await client.call('POST', '/coordinator-chats/saved-1/messages', { text: 'Archived' })).status,
+  ).toBe(409)
 
   await ok('DELETE', '/coordinator-chats/saved-1')
   expect(await ok('GET', s.chats)).toEqual([])

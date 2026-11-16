@@ -195,15 +195,15 @@ The one agent in charge of a Task; it carries the Task through its Stages and ma
 _Avoid_: Orchestrator, manager agent
 
 **Coordinator**:
-The conversational agent for one Factory. It compares current Tasks, briefs and Comments and carries out the human’s requests in its chat to create Tasks, start Backlog Tasks, reorder waiting Tasks, resume stopped Tasks, send a Task Lead a message, or answer a Task’s open requests, sign-offs included. It never answers a permission prompt, a simulator ask or the Linear team ask. It works only when messaged; each Task keeps its own Task Lead. A Factory can have any number of Coordinator chats running at once; an ended chat stays readable and can be continued.
+The conversational agent for one Factory. It compares current Tasks, briefs and Comments and carries out the human’s requests in its chat to create Tasks, start Backlog Tasks, reorder waiting Tasks, resume stopped Tasks, send a Task Lead a message, or answer a Task’s open requests, sign-offs included. It never answers a permission prompt, a simulator ask or the Linear team ask. It works only when messaged; each Task keeps its own Task Lead. A Factory can have any number of Coordinator chats running at once; an archived chat stays readable and can be unarchived.
 _Avoid_: Foreman, manager, supervisor
 
 **Agent**:
-A kind of helper for a Factory that works outside any one Task, with powers of its own: for now the Coordinator and the Planner, which runs planning chats. Each Factory’s Agents screen lists every chat with them. Lowercase “agent” still means a Run or its role (see Provider).
+A kind of helper for a Factory that works outside any one Task, with powers of its own: the built-in Coordinator and Planner, which runs planning chats, and Agents a layer defines. An Agent is defined by its Agent files: its settings in `agents.yaml` and its instructions in `agents/<id>.md`, in Ted’s defaults, the Library or `.ted/`. Its powers come from a fixed list: Ask the user, Manage Tasks, Propose Tasks and Read the code. Each Factory’s Agents screen lists every chat with them. Lowercase “agent” still means a Run or its role (see Provider).
 _Avoid_: Assistant, bot
 
 **Chat**:
-One conversation with an Agent, from its first message until it is deleted: a Coordinator chat or a planning chat. A Factory can have several at once, each with its own title, status, Run and requests; an ended chat stays in the list as history.
+One conversation with an Agent, from its first message until it is deleted: a Coordinator chat or a planning chat. A Factory can have several at once, each with its own title, status, Run and requests. A chat stays open until the user archives it; an archived chat is read only, listed under Archived, and can be unarchived or deleted.
 _Avoid_: Session, thread, conversation (a Run’s exchange with its Provider)
 
 **Sub-Agent**:

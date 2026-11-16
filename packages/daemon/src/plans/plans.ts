@@ -43,6 +43,7 @@ import type { Caller, PlanApproval, PlanEnd } from '../tasks/tasks.ts'
 import { copyFiles } from '../tasks/worktree.ts'
 import { messageOf } from '../text.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
+import { builtInAgentText } from '../workflow/layers.ts'
 import type { Workflows } from '../workflow/workflows.ts'
 import {
   earlierPlanContext,
@@ -84,7 +85,8 @@ export interface Plans {
   rename(id: string, title: string, caller: Caller): Promise<Plan>
   stop(id: string, caller: Caller): Promise<Plan>
   resume(id: string, caller: Caller, message?: string): Promise<Plan>
-  markFinished(id: string, caller: Caller): Promise<Plan>
+  archive(id: string, caller: Caller): Promise<Plan>
+  unarchive(id: string, caller: Caller): Promise<Plan>
   delete(id: string, caller: Caller): Promise<void>
   removeFactory(factoryId: string): Promise<void>
   inbox(): Promise<PlanInboxItem[]>
@@ -228,6 +230,14 @@ export function createPlans(options: PlansOptions): Plans {
     },
   })
 
+  async function plannerSetup(
+    factory: StoredFactory,
+  ): Promise<{ entries: FactoryRepoEntry[]; role: string }> {
+    const { workflow } = await workflows.resolve(factory, { fetch: false })
+    const role = workflow.agent('planner')?.instructions ?? (await builtInAgentText('planner'))
+    return { entries: factoryRepos(workflow, factory), role }
+  }
+
   async function entriesOf(factory: StoredFactory): Promise<FactoryRepoEntry[]> {
     const { workflow } = await workflows.resolve(factory, { fetch: false })
     return factoryRepos(workflow, factory)
@@ -298,11 +308,13 @@ export function createPlans(options: PlansOptions): Plans {
         return current?.state === 'started' && current.resume === 'queued'
       }
       try {
-        const entries = await entriesOf(factory)
+        const { entries, role } = await plannerSetup(factory)
         if (!stillOpen()) return
+        const fresh = store.getRun(id)?.sessionId === undefined
         await runs.revive(id, {
-          prompt: planResumePrompt,
+          prompt: fresh ? firstPrompt(plan, factory, entries, role) : planResumePrompt,
           env: envFor(plan, factory, entries),
+          fresh,
         })
         if (!stillOpen()) {
           await runs.stop(id).catch((error: unknown) => console.error(error))
@@ -320,7 +332,7 @@ export function createPlans(options: PlansOptions): Plans {
     if (plan.state !== 'queued') return
     let prepared: StoredPlan['checkout'] = []
     try {
-      const entries = await entriesOf(factory)
+      const { entries, role } = await plannerSetup(factory)
       const checkout = await checkOut(plan, factory, entries)
       prepared = checkout
       if (saved.get(id)?.state !== 'queued') {
@@ -332,13 +344,7 @@ export function createPlans(options: PlansOptions): Plans {
         id,
         agent: plan.agent,
         onStarting: () => saved.began(id, checkout),
-        prompt: `${plannerInstructions({
-          factory,
-          entries,
-          folder: folderOf(id),
-          ...withTask(plan),
-          ...(plan.from && { earlier: plan.from.context }),
-        })}\n\n${plan.message}`,
+        prompt: firstPrompt(plan, factory, entries, role),
         cwd: single ?? folderOf(id),
         name: 'Planner',
         permissions: 'auto',
@@ -361,6 +367,22 @@ export function createPlans(options: PlansOptions): Plans {
     }
   }
 
+  function firstPrompt(
+    plan: StoredPlan,
+    factory: StoredFactory,
+    entries: FactoryRepoEntry[],
+    role: string,
+  ): string {
+    return `${plannerInstructions({
+      role,
+      factory,
+      entries,
+      folder: folderOf(plan.id),
+      ...withTask(plan),
+      ...(plan.from && { earlier: plan.from.context }),
+    })}\n\n${plan.message}`
+  }
+
   function withTask(plan: StoredPlan): { task?: PlanTaskContext } {
     const task = taskContext(plan)
     return task ? { task } : {}
@@ -376,9 +398,7 @@ export function createPlans(options: PlansOptions): Plans {
   }
 
   function resumable(plan: StoredPlan): boolean {
-    if (plan.state !== 'ended' || plan.outcome === 'finished') return false
-    const run = store.getRun(plan.id)
-    return run ? run.sessionId !== undefined : plan.outcome === 'failed'
+    return plan.state === 'ended' && plan.archivedAt === undefined
   }
 
   function withdrawUnlessResumable(planId: string): void {
@@ -487,6 +507,7 @@ export function createPlans(options: PlansOptions): Plans {
       createdAt: plan.createdAt,
       ...(plan.startedAt !== undefined && { startedAt: plan.startedAt }),
       ...(plan.finishedAt !== undefined && { finishedAt: plan.finishedAt }),
+      ...(plan.archivedAt !== undefined && { archivedAt: plan.archivedAt }),
       lastAt:
         [
           plan.createdAt,
@@ -816,22 +837,7 @@ export function createPlans(options: PlansOptions): Plans {
       const plan = find(id)
       if (plan.state === 'ended')
         throw new RequestError(409, 'this planning chat has already ended')
-      withdrawUnlessResumable(plan.id)
-      saved.ended(plan.id, { outcome: 'stopped' })
-      endedWithout(plan, 'stopped')
-      const run = store.getRun(plan.id)
-      const done = (async () => {
-        if (run && run.state !== 'finished') {
-          await runs.stop(run.id).catch((error: unknown) => console.error(error))
-        }
-        cleanUp(plan.id)
-      })()
-      stopping.set(plan.id, done)
-      try {
-        await done
-      } finally {
-        if (stopping.get(plan.id) === done) stopping.delete(plan.id)
-      }
+      await halt(plan, 'stopped')
       pump()
       return describe(saved.get(plan.id) ?? plan, await slotsNow())
     },
@@ -839,23 +845,30 @@ export function createPlans(options: PlansOptions): Plans {
       refuseRun(caller)
       return resume(find(id), message)
     },
-    async markFinished(id, caller) {
+    async archive(id, caller) {
       refuseRun(caller)
       const plan = find(id)
-      if (plan.state !== 'ended' || plan.outcome === 'finished') {
-        throw new RequestError(409, 'only a stopped or failed planning chat can be marked finished')
-      }
+      if (plan.archivedAt !== undefined) return describe(plan, await slotsNow())
       if (retrying.has(plan.id)) throw new RequestError(409, 'this planning chat is resuming')
-      saved.markFinished(plan.id, openRequestIds(plan.id))
+      if (plan.state !== 'ended') await halt(plan, 'archived')
+      await stopping.get(plan.id)
+      saved.archive(plan.id, openRequestIds(plan.id))
+      pump()
+      return describe(saved.get(plan.id) ?? plan, await slotsNow())
+    },
+    async unarchive(id, caller) {
+      refuseRun(caller)
+      const plan = find(id)
+      if (plan.archivedAt !== undefined) saved.unarchive(plan.id)
       return describe(saved.get(plan.id) ?? plan, await slotsNow())
     },
     async delete(id, caller) {
       refuseRun(caller)
-      await remove(find(id))
+      await remove(find(id), 'keep')
     },
     async removeFactory(factoryId) {
       for (const plan of saved.list().filter((p) => p.factoryId === factoryId)) {
-        await remove(plan)
+        await remove(plan, 'remove')
       }
     },
     async inbox() {
@@ -947,6 +960,9 @@ export function createPlans(options: PlansOptions): Plans {
         throw new RequestError(409, 'this request was replaced by a newer one')
       }
       if (found.answer) throw new RequestError(409, 'this request has already been answered')
+      if (plan.archivedAt !== undefined) {
+        throw new RequestError(409, 'this planning chat is archived')
+      }
       if (plan.state !== 'started' && !resumable(plan)) {
         throw new RequestError(409, 'this planning chat has ended')
       }
@@ -988,6 +1004,25 @@ export function createPlans(options: PlansOptions): Plans {
     },
   }
 
+  async function halt(plan: StoredPlan, outcome: 'stopped' | 'archived'): Promise<void> {
+    if (outcome === 'stopped') withdrawUnlessResumable(plan.id)
+    saved.ended(plan.id, { outcome: 'stopped' })
+    endedWithout(plan, outcome)
+    const run = store.getRun(plan.id)
+    const done = (async () => {
+      if (run && run.state !== 'finished') {
+        await runs.stop(run.id).catch((error: unknown) => console.error(error))
+      }
+      cleanUp(plan.id)
+    })()
+    stopping.set(plan.id, done)
+    try {
+      await done
+    } finally {
+      if (stopping.get(plan.id) === done) stopping.delete(plan.id)
+    }
+  }
+
   async function resumeAfterAnswer(plan: StoredPlan): Promise<void> {
     if (plan.state !== 'ended' || retrying.has(plan.id)) return
     await resume(plan).catch((error: unknown) => {
@@ -1002,9 +1037,9 @@ export function createPlans(options: PlansOptions): Plans {
     if (!resumable(plan)) {
       throw new RequestError(
         409,
-        plan.state === 'ended' && plan.outcome !== 'finished'
-          ? 'The planner never started a session, so there’s nothing to resume. Plan more from here starts a new planning chat.'
-          : 'only a stopped or failed planning chat can be resumed',
+        plan.archivedAt !== undefined
+          ? 'this planning chat is archived; unarchive it first'
+          : 'only a planning chat whose Run ended can be resumed',
       )
     }
     const factory = factoryOf(plan)
@@ -1016,6 +1051,7 @@ export function createPlans(options: PlansOptions): Plans {
     }
     const run = store.getRun(plan.id)
     if (!run) {
+      if (text !== '') store.queueRunMessage({ runId: plan.id, text })
       saved.retried(plan.id, { fresh: true, checkout: [] })
     } else {
       if (retrying.has(plan.id)) throw new RequestError(409, 'this planning chat is resuming')
@@ -1031,7 +1067,7 @@ export function createPlans(options: PlansOptions): Plans {
         const current = saved.get(plan.id)
         if (!current || !resumable(current)) {
           await discard(checkout, folderOf(plan.id))
-          throw new RequestError(409, 'only a stopped or failed planning chat can be resumed')
+          throw new RequestError(409, 'only a planning chat whose Run ended can be resumed')
         }
         if (text !== '') store.queueRunMessage({ runId: run.id, text })
         saved.retried(plan.id, { fresh: false, checkout })
@@ -1043,7 +1079,7 @@ export function createPlans(options: PlansOptions): Plans {
     return describe(saved.get(plan.id) ?? plan, await slotsNow())
   }
 
-  async function remove(plan: StoredPlan): Promise<void> {
+  async function remove(plan: StoredPlan, output: 'keep' | 'remove'): Promise<void> {
     const run = store.getRun(plan.id)
     if (plan.state !== 'ended') {
       saved.ended(plan.id, { outcome: 'stopped' })
@@ -1054,9 +1090,11 @@ export function createPlans(options: PlansOptions): Plans {
     }
     saved.delete(plan.id)
     await discard(plan.checkout, folderOf(plan.id))
-    await removeInside(path.join(options.home, 'runs'), plan.id).catch((error: unknown) =>
-      console.error(`couldn’t remove the Run files of planning chat ${plan.id}:`, error),
-    )
+    if (output === 'remove') {
+      await removeInside(path.join(options.home, 'runs'), plan.id).catch((error: unknown) =>
+        console.error(`couldn’t remove the Run files of planning chat ${plan.id}:`, error),
+      )
+    }
     pump()
   }
 }

@@ -1,5 +1,4 @@
 import type {
-  CoordinatorChatSummary,
   CoordinatorConfirmation,
   CoordinatorReceipt,
   Factory,
@@ -11,8 +10,6 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { coordinatorStatus } from '../agent-chats.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AgentAbout } from '../components/AgentAbout.tsx'
-import dialogs from '../components/ArchiveDialogs.module.css'
-import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
 import { ConfirmationCard } from '../components/ConfirmationCard.tsx'
 import { EventLine } from '../components/EventLine.tsx'
@@ -31,50 +28,6 @@ import views from './views.module.css'
 
 const placeholder = 'Ask about Tasks, or say what to start next…'
 const help = 'Goes to this Coordinator chat. While it works, your message waits for its next step.'
-
-export function DeleteCoordinatorChat({
-  chat,
-  busy,
-  error,
-  onCancel,
-  onDelete,
-}: {
-  chat: Pick<CoordinatorChatSummary, 'title' | 'endedAt'>
-  busy: boolean
-  error: string | undefined
-  onCancel: () => void
-  onDelete: () => void
-}) {
-  return (
-    <Dialog onClose={() => !busy && onCancel()}>
-      {(headingId) => (
-        <>
-          <h2 id={headingId} className={dialogs.heading}>
-            Delete this chat?
-          </h2>
-          <p className={dialogs.body}>
-            {chat.endedAt === undefined
-              ? `The Coordinator stops this chat’s reply and its open confirmation cards are canceled. “${chat.title}” and its messages are then deleted for good. Tasks stay as they are, and so does everything the Coordinator already did to them. Your other chats aren’t affected.`
-              : `“${chat.title}” and its messages are deleted for good. Tasks stay as they are, and so does everything the Coordinator already did to them.`}
-          </p>
-          {error !== undefined && (
-            <p className={dialogs.error} role="alert">
-              {error}
-            </p>
-          )}
-          <div className={dialogs.buttons}>
-            <Button disabled={busy} onClick={onCancel}>
-              Cancel
-            </Button>
-            <Button variant="primary" disabled={busy} onClick={onDelete}>
-              Delete
-            </Button>
-          </div>
-        </>
-      )}
-    </Dialog>
-  )
-}
 
 export function CoordinatorStart({
   factory,
@@ -163,7 +116,8 @@ export function CoordinatorChat({
   busy,
   error,
   onOpenTask,
-  onContinue,
+  onArchive,
+  onUnarchive,
   onDelete,
 }: {
   chatId: string
@@ -171,7 +125,8 @@ export function CoordinatorChat({
   busy: boolean
   error: string | undefined
   onOpenTask: (id: string) => void
-  onContinue: () => void
+  onArchive: () => void
+  onUnarchive: () => void
   onDelete: () => void
 }) {
   const resource = useCoordinatorState(chatId)
@@ -219,6 +174,14 @@ export function CoordinatorChat({
                 Retry
               </Button>
             )}
+            {coordinator && !ended && (
+              <>
+                <span className={styles.spacer} />
+                <Button disabled={busy} onClick={onArchive}>
+                  Archive
+                </Button>
+              </>
+            )}
           </div>
           <p>
             {[
@@ -238,15 +201,13 @@ export function CoordinatorChat({
         {ended && (
           <>
             <div className={styles.banner}>
-              <span>
-                This chat has ended. Continue it to send a message; your other chats keep running.
-              </span>
+              <span>This chat is archived. Unarchive it to write to it again.</span>
               <span className={styles.spacer} />
               <Button disabled={busy} onClick={onDelete}>
                 Delete…
               </Button>
-              <Button variant="primary" disabled={busy} onClick={onContinue}>
-                Continue
+              <Button variant="primary" disabled={busy} onClick={onUnarchive}>
+                Unarchive
               </Button>
             </div>
             {error !== undefined && (
@@ -278,7 +239,7 @@ export function CoordinatorChat({
               ? {
                   readOnly: (
                     <p className={`${styles.muted} ${styles.readOnly}`}>
-                      Read only. Continue this chat to send a message.
+                      Read only. Unarchive this chat to send a message.
                     </p>
                   ),
                 }

@@ -66,6 +66,7 @@ export interface Plan {
   createdAt: string
   startedAt?: string
   finishedAt?: string
+  archivedAt?: string
   lastAt: string
   runId?: string
   proposedTasks?: number
@@ -75,6 +76,10 @@ export interface Plan {
   canResume?: boolean
   fromPlan?: { id: string; title: string; deleted?: boolean }
   fromTask?: PlanFromTask
+}
+
+export interface ChatArchiveExpiry {
+  due: number
 }
 
 export interface PlanDetail {

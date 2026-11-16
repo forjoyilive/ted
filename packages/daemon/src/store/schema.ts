@@ -1115,6 +1115,7 @@ export const plans = State.SQLite.table({
     fromTaskTitle: State.SQLite.text({ nullable: true }),
     sizeCheckId: State.SQLite.text({ nullable: true }),
     fromTaskGone: State.SQLite.text({ nullable: true }),
+    archivedAt: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -1319,6 +1320,10 @@ export const events = {
   coordinatorChatRenamed: Events.synced({
     name: 'v1.CoordinatorChatRenamed',
     schema: Schema.Struct({ id: Schema.String, title: Schema.String }),
+  }),
+  coordinatorChatArchived: Events.synced({
+    name: 'v1.CoordinatorChatArchived',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
   }),
   validationProgressed: Events.synced({
     name: 'v1.ValidationProgressed',
@@ -3827,6 +3832,18 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  planArchived: Events.synced({
+    name: 'v1.PlanArchived',
+    schema: Schema.Struct({
+      id: Schema.String,
+      withdraw: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  planUnarchived: Events.synced({
+    name: 'v1.PlanUnarchived',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
+  }),
   planRetried: Events.synced({
     name: 'v1.PlanRetried',
     schema: Schema.Struct({
@@ -5624,6 +5641,8 @@ const materializers = counted(
         coordinatorChats.update({ endedAt: null }).where({ id }),
       'v1.CoordinatorChatRenamed': ({ id, title }) =>
         coordinatorChats.update({ title }).where({ id }),
+      'v1.CoordinatorChatArchived': ({ id, at }) =>
+        coordinatorChats.update({ endedAt: at }).where({ id }),
       'v1.CoordinatorChatDeleted': ({ id, runIds }) => [
         coordinatorChats.delete().where({ id }),
         requestSnoozes.delete().where({ ownerId: id }),
@@ -5648,7 +5667,26 @@ const materializers = counted(
         plans.update({ resume: 'queued', error }).where({ id }),
       'v1.PlanRunRevived': ({ id }) => plans.update({ resume: 'done' }).where({ id }),
       'v1.PlanEnded': ({ id, outcome, error, at }) =>
-        plans.update({ state: 'ended', outcome, error, finishedAt: at }).where({ id }),
+        plans
+          .update({
+            state: 'ended',
+            outcome,
+            error,
+            finishedAt: at,
+            ...(outcome === 'finished' && { archivedAt: at }),
+          })
+          .where({ id }),
+      'v1.PlanArchived': ({ id, withdraw, at }) => [
+        plans.update({ archivedAt: at }).where({ id }),
+        ...withdraw.flatMap((requestId) => [
+          planRequests
+            .update({ answer: JSON.stringify({ kind: 'withdrawn', at, runStopped: true }) })
+            .where({ id: requestId, planId: id }),
+          requestSnoozes.delete().where({ requestId }),
+          messageDrafts.delete().where({ key: messageDraftKey('plan-request', requestId) }),
+        ]),
+      ],
+      'v1.PlanUnarchived': ({ id }) => plans.update({ archivedAt: null }).where({ id }),
       'v1.PlanRequestPosted': ({ at, ...request }) =>
         planRequests.insert({ ...request, createdAt: at }),
       'v1.PlanRequestAnswered': ({ id, answer }) => [

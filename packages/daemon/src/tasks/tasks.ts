@@ -307,7 +307,11 @@ import {
   baseCheckTimeoutMs,
   conflictChecked,
   conflictRefusal,
+  fileList,
+  HeldRepo,
+  heldText,
   noConflictFound,
+  repairConflictHandOff,
 } from './base-conflict.ts'
 import { createBrowserBroker } from './browser.ts'
 import { createCacheSeeds } from './cache-seeds.ts'
@@ -548,7 +552,7 @@ export interface PlanApproval {
 export interface PlanEnd {
   planId: string
   planTitle: string
-  outcome: 'stopped' | 'failed' | 'deleted'
+  outcome: 'stopped' | 'failed' | 'deleted' | 'archived'
 }
 
 export interface CreateTaskInput
@@ -2932,6 +2936,7 @@ export function createTasks(options: {
 
   const baseTips = new Map<string, string>()
   const baseNotes = new Map<string, string>()
+  const repairHandOffs = new Map<string, string>()
   const baseTipKey = (taskId: string, repo: string) => `${taskId}\n${repo}`
 
   function foundConflict(task: StoredTask, conflict: BaseConflict): FoundConflict {
@@ -4308,7 +4313,9 @@ export function createTasks(options: {
     stallAfterMs,
     local: (id) => execution.local(id),
     beforeLeadStart: async (id) =>
-      (await incorporateRepairs(find(id))) ? taskWorkflow(find(id), { fetch: false }) : undefined,
+      (await incorporateRepairs(find(id), 'lead-starting'))
+        ? taskWorkflow(find(id), { fetch: false })
+        : undefined,
     afterLeadStart: (id) => {
       baseNotes.delete(id)
       scheduleRepairChecks(id)
@@ -5785,22 +5792,26 @@ export function createTasks(options: {
     }
   }
 
-  function scheduleRepairChecks(taskId: string): void {
+  function scheduleRepairChecks(
+    taskId: string,
+    mode: 'lead-live' | 'after-hand-off' = 'lead-live',
+  ): void {
     const task = find(taskId)
     if (
+      (mode === 'lead-live' && repairHandOffs.has(taskId)) ||
       inFlight.is(taskId, 'checking') ||
       task.archived ||
       task.stopped ||
       task.waitsForBlockers ||
       !(validates(task.stage) || mergesHere(task.stage)) ||
-      !validation.pendingRepair(task)
+      (mode === 'lead-live' && !validation.pendingRepair(task))
     )
       return
     setChecking(taskId, true)
     inBackground(`revalidate ${task.displayId} after its repair`, async () => {
       try {
         await execution.local(taskId)
-        if (!(await incorporateRepairs(find(taskId)))) return
+        if (!(await incorporateRepairs(find(taskId), mode))) return
         const current = find(taskId)
         if (current.archived || current.stopped || current.waitsForBlockers) return
         if (validates(current.stage)) await validation.enter(taskId)
@@ -8223,7 +8234,12 @@ export function createTasks(options: {
     return publicTask(task.id)
   }
 
-  function repairNotice(taskId: string, blockerId: string, explanation: string): void {
+  function repairNotice(
+    taskId: string,
+    blockerId: string,
+    explanation: string,
+    forBrief = explanation,
+  ): void {
     const repair = store.failures
       .list(taskId)
       .flatMap((f) => f.resolutions)
@@ -8236,7 +8252,10 @@ export function createTasks(options: {
     if (brief)
       store.writeBrief({
         taskId,
-        text: brief.replace('## Current state', `## Current state\n\n${body}\n`),
+        text: brief.replace(
+          '## Current state',
+          `## Current state\n\n${body.replace(explanation, forBrief)}\n`,
+        ),
       })
   }
 
@@ -9892,6 +9911,24 @@ export function createTasks(options: {
     finished: leadLifecycle.finished,
   })
 
+  function retryAfterHandOff(run: Run, at: string | undefined): void {
+    if (run.taskId === undefined) return
+    const since = repairHandOffs.get(run.taskId)
+    const task = store.getTask(run.taskId)
+    if (since === undefined || task?.leadRunId !== run.id || (at !== undefined && at < since))
+      return
+    repairHandOffs.delete(task.id)
+    inBackground(`bring the repair into ${task.displayId} after its Task Lead’s turn`, async () => {
+      while (inFlight.is(task.id, 'checking')) await untilChecksIdle(task.id)
+      scheduleRepairChecks(task.id, 'after-hand-off')
+    })
+  }
+
+  runs.observe({
+    turnEnded: retryAfterHandOff,
+    finished: (run) => retryAfterHandOff(run, undefined),
+  })
+
   health.onReady((agent) => {
     leadLifecycle.ready(agent)
     for (const run of store.liveRuns()) {
@@ -10155,7 +10192,10 @@ export function createTasks(options: {
   }
   for (const task of store.listTasks()) {
     const lead = task.leadRunId && store.getRun(task.leadRunId)
-    if (lead && lead.state !== 'finished') scheduleRepairChecks(task.id)
+    if (!lead || lead.state === 'finished') continue
+    if (!awaitsIncorporation(task.id)) scheduleRepairChecks(task.id)
+    else if (lead.state === 'idle') scheduleRepairChecks(task.id, 'after-hand-off')
+    else repairHandOffs.set(task.id, new Date().toISOString())
   }
   for (const task of interruptedHandOffs) {
     if (handOffHalted(task, task.leadRunId)) {
@@ -10580,7 +10620,11 @@ export function createTasks(options: {
     return failures.get(find(task.id), id)
   }
 
-  async function incorporateRepairs(task: StoredTask): Promise<boolean> {
+  async function incorporateRepairs(
+    task: StoredTask,
+    mode: 'lead-starting' | 'lead-live' | 'after-hand-off',
+  ): Promise<boolean> {
+    if (mode === 'lead-starting') repairHandOffs.delete(task.id)
     let incorporated = false
     for (const value of store.failures.list(task.id)) {
       const decision = value.resolutions.at(-1)
@@ -10663,7 +10707,23 @@ export function createTasks(options: {
                 )
             }
           }
-          prepared.push({ repo, onto, ...(await git.prepareIncorporation(repo.worktree, onto)) })
+          try {
+            prepared.push({ repo, onto, ...(await git.prepareIncorporation(repo.worktree, onto)) })
+          } catch (error) {
+            if (
+              error instanceof git.IncorporationConflictError ||
+              error instanceof git.UncommittedChangesError
+            )
+              throw new HeldRepo({
+                name: repo.name,
+                base,
+                tip: onto,
+                worktree: repo.worktree,
+                files: error.files,
+                conflict: error instanceof git.IncorporationConflictError,
+              })
+            throw error
+          }
         }
         const current = store.getTask(task.id)
         if (!current || current.archived || current.stopped || stopping.signal.aborted) return false
@@ -10708,11 +10768,28 @@ export function createTasks(options: {
       } catch (error) {
         const current = store.getTask(task.id)
         if (!current || current.archived || stopping.signal.aborted) return false
-        repairNotice(
-          task.id,
-          repair.id,
-          `merged, but incorporation is held: ${redactSecrets(textOf(error))}. Resolve this before validation and use Resume to try again.`,
-        )
+        const multiRepo = task.repos.filter((r) => !r.removed).length > 1
+        if (error instanceof HeldRepo && error.held.conflict && mode === 'lead-starting') {
+          const where = multiRepo ? ` in ${error.held.name}` : ''
+          const asked = `Ted asked the Task Lead to merge ${error.held.base} into the Task’s branch${where}, resolve the conflict and commit; fresh validation runs after that.`
+          repairNotice(
+            task.id,
+            repair.id,
+            `merged, but it conflicts with this Task${where}${error.held.files.length > 0 ? ` in ${fileList(error.held.files)}` : ''}. ${asked}`,
+            `merged, but it conflicts with this Task${where}. ${asked}`,
+          )
+          store.holdLeadMessage(task.id, repairConflictHandOff(repair, error.held, multiRepo))
+          repairHandOffs.set(task.id, new Date().toISOString())
+          await store.persisted()
+          return false
+        }
+        const [explanation, forBrief] =
+          error instanceof HeldRepo
+            ? heldText(error.held, multiRepo, mode === 'after-hand-off')
+            : [
+                `merged, but incorporation is held: ${redactSecrets(textOf(error))}. Resolve this before validation and use Resume to try again.`,
+              ]
+        repairNotice(task.id, repair.id, explanation, forBrief)
         store.stopTask(task.id, { runs: find(task.id).runs.length, why: 'repair-incorporation' })
         await stopRepairLead(task.id)
         await store.persisted()
@@ -10721,6 +10798,27 @@ export function createTasks(options: {
     }
     await store.persisted()
     return incorporated
+  }
+
+  function awaitsIncorporation(taskId: string): boolean {
+    return store.failures.list(taskId).some((value) => {
+      const decision = value.resolutions.at(-1)
+      return (
+        decision?.resolution === 'repair' &&
+        decision.repairTask !== undefined &&
+        !value.verifications?.length &&
+        !value.repairProgress?.some((p) => p.requestId === decision.requestId) &&
+        store.isMerged(decision.repairTask.id)
+      )
+    })
+  }
+
+  function refuseDuringRepairHandOff(task: StoredTask): void {
+    if (repairHandOffs.has(task.id))
+      throw new RequestError(
+        409,
+        `Ted is waiting for you to merge the base branch into ${task.displayId}’s branch and commit. End your turn when the merge is committed; Ted then brings the repair in and runs the Checks itself.`,
+      )
   }
 
   async function stopRepairLead(taskId: string) {
@@ -11884,6 +11982,7 @@ export function createTasks(options: {
             `${task.displayId} changed Stage while this outcome waited; read the Task again before reporting`,
           )
         }
+        if (outcome.outcome === 'advance') refuseDuringRepairHandOff(task)
         if (task.stage === 'backlog' || task.stage === 'done') {
           throw new RequestError(409, `${task.displayId} isn’t in a Stage that has an outcome`)
         }
@@ -12491,6 +12590,7 @@ export function createTasks(options: {
 
     async runChecks(ref, caller, only) {
       const { task } = taskLead(ref, caller, 'runs Checks')
+      refuseDuringRepairHandOff(task)
       if (inFlight.is(task.id, 'transition'))
         throw new RequestError(
           409,

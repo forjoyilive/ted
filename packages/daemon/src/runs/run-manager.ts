@@ -128,6 +128,7 @@ export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
 export interface ReviveRunInput {
   flags?: RunFlags
   prompt: string
+  fresh?: boolean
   messageIds?: string[]
   env?: Record<string, string>
 }
@@ -970,13 +971,17 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         }
       })
     },
-    async revive(runId, { prompt, env = {}, messageIds, flags }) {
+    async revive(runId, { prompt, env = {}, messageIds, flags, fresh = false }) {
       refuseWhileShuttingDown()
       const run = store.getRun(runId)
       if (run?.state !== 'finished' || following.has(runId)) {
         throw new Error(`Run ${runId} isn't finished`)
       }
-      if (run.sessionId === undefined && store.sideChats.forRun(runId)?.contextSent !== false)
+      if (
+        run.sessionId === undefined &&
+        !fresh &&
+        store.sideChats.forRun(runId)?.contextSent !== false
+      )
         throw new Error(`Run ${runId} has no session to resume`)
       const sessionId = run.sessionId
       const release = await acquireRunPermissions(store, run)

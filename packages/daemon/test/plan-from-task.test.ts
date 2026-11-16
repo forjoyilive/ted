@@ -262,7 +262,7 @@ describe('Plan in chat from a Task', () => {
     expect((await getTask(client, task.id)).activity).not.toBe('Planning in chat')
   })
 
-  test('stopping the chat tells the Task Lead to ask its size question again', async () => {
+  test('archiving the chat tells the Task Lead to ask its size question again', async () => {
     const client = await start()
     const { task, sizeCheck } = await tooBigTask(client)
     const { planId } = await planInChat(
@@ -277,11 +277,11 @@ describe('Plan in chat from a Task', () => {
     })
     expect(again.status).toBe(409)
     await waitForPlan(client, planId, (d) => d.plan.status === 'idle', 'the planner to idle')
-    await client.ok('POST', `/plans/${planId}/stop`)
-    const told = await leadHears(client, task, 'without an approved plan')
+    await client.ok('POST', `/plans/${planId}/archive`)
+    const told = await leadHears(client, task, 'was archived without an approved plan')
     expect(told).toContain('ted clarify too-big')
     expect(await threadLines(client, task)).toContain(
-      'Planning chat stopped without approval. Ted told the Task Lead to ask its size question again.',
+      'Planning chat archived without approval. Ted told the Task Lead to ask its size question again.',
     )
     const after = await getTask(client, task.id)
     expect(after.stage).toBe('clarify')

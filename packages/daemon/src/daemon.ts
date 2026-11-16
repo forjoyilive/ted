@@ -17,6 +17,7 @@ import { createAttachments } from './attachments.ts'
 import { createAutomations } from './automations/automations.ts'
 import { createBanners } from './banners.ts'
 import { createBusyHold } from './busy.ts'
+import { createChatArchiveCleanup } from './chat-expiry.ts'
 import { createCheckTries } from './check-tries.ts'
 import type { Clock } from './clock.ts'
 import { createEnvironment, loginShell } from './command-env.ts'
@@ -673,6 +674,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         tasks,
         health,
         steering,
+        workflows,
         ...(options.mkdir !== undefined && { mkdir: options.mkdir }),
       })
       coordinators = options.wrap?.coordinators?.(createdCoordinators) ?? createdCoordinators
@@ -714,18 +716,29 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         tasks,
         ...(options.retention?.now && { now: options.retention.now }),
       })
+      const chatArchiveCleanup = createChatArchiveCleanup({
+        store,
+        plans,
+        coordinators,
+        ...(options.retention?.now && { now: options.retention.now }),
+      })
       const sweepArchived = () =>
-        archiveCleanup
-          .sweep()
-          .catch((error: unknown) => console.error('deleting archived Tasks failed:', error))
+        Promise.all([archiveCleanup.sweep(), chatArchiveCleanup.sweep()]).catch((error: unknown) =>
+          console.error('deleting archived Tasks or chats failed:', error),
+        )
       void prune()
       void sweepArchived()
       let keptDays = store.settings().runOutputDays
       let archivedDays = store.settings().deleteArchivedAfterDays
+      let archivedChatDays = store.settings().deleteArchivedChatsAfterDays
       const stopPruningOnChange = store.subscribe((event) => {
         if (event.type !== 'settings-changed') return
-        if (event.settings.deleteArchivedAfterDays !== archivedDays) {
+        if (
+          event.settings.deleteArchivedAfterDays !== archivedDays ||
+          event.settings.deleteArchivedChatsAfterDays !== archivedChatDays
+        ) {
           archivedDays = event.settings.deleteArchivedAfterDays
+          archivedChatDays = event.settings.deleteArchivedChatsAfterDays
           void sweepArchived()
         }
         if (event.settings.runOutputDays === keptDays) return
@@ -845,6 +858,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         shells,
         editors,
         archiveCleanup,
+        chatArchiveCleanup,
         async close() {
           await execution.close()
           const shellsClosed = shells.close()
@@ -862,6 +876,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           clearInterval(pruneTimer)
           stopPruningOnChange()
           await archiveCleanup.close()
+          await chatArchiveCleanup.close()
           stopWatchingWrites()
           online.close()
           health.close()

@@ -42,6 +42,10 @@ test('a setting is found by its name, group, page and description, with its page
   expect(find('diagnostics')[0]?.id).toBe('app.developer.diagnostics')
   expect(find('export format').map((hit) => hit.id)).toEqual(['app.storage.export.format'])
   expect(find('custom command')[0]?.id).toBe('app.general.editor.custom-command')
+  expect(find('archived chats')[0]).toMatchObject({
+    id: 'app.storage.archived-chats',
+    where: 'Settings › Storage',
+  })
   expect(find('STAY  awake')).toHaveLength(1)
   expect(find('   ')).toEqual([])
   expect(find('zzz')).toEqual([])

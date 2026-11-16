@@ -35,7 +35,7 @@ import {
   timeFormats,
   workingRunLimits,
 } from '@ted/protocol'
-import { isString } from '@ted/protocol/parse'
+import { isInteger, isString } from '@ted/protocol/parse'
 import { isReportEmail } from '@ted/protocol/problem-report'
 import { builtInStageOrder, isStageId } from '@ted/protocol/stage'
 import { parseEditorCommand } from '../editors.ts'
@@ -384,6 +384,17 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
       throw new HttpError(
         400,
         `deleteArchivedAfterDays must be null or a whole number from ${min} to ${max}`,
+      )
+    }
+    return value
+  },
+  deleteArchivedChatsAfterDays(value) {
+    if (value === null) return null
+    const { min, max } = archivedTaskDayLimits
+    if (!isInteger(value) || value < min || value > max) {
+      throw new HttpError(
+        400,
+        `deleteArchivedChatsAfterDays must be null or a whole number from ${min} to ${max}`,
       )
     }
     return value

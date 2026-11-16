@@ -226,6 +226,8 @@ describe('the setup Workflow', () => {
       {
         kind: 'library',
         files: {},
+        agentSettings: {},
+        agentFiles: {},
         valid: true,
         problems: [],
         settings: {

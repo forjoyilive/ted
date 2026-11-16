@@ -925,22 +925,39 @@ export async function headCommit(worktree: string): Promise<string> {
   return git(worktree, '--no-replace-objects', ...noHooks, 'rev-parse', '--verify', 'HEAD^{commit}')
 }
 
+export class UncommittedChangesError extends GitError {
+  readonly files: string[]
+  constructor(files: string[]) {
+    super('The worktree has uncommitted changes')
+    this.files = files
+  }
+}
+
+export class IncorporationConflictError extends GitError {
+  readonly files: string[]
+  readonly onto: string
+  constructor(files: string[], onto: string) {
+    super('The merged repair conflicts with this Task')
+    this.files = files
+    this.onto = onto
+  }
+}
+
 export async function prepareIncorporation(
   worktree: string,
   onto: string,
 ): Promise<{ head: string; commit: string }> {
   const changes = await workingChanges(worktree, 'HEAD')
-  if (changes.files.some((file) => file.uncommitted))
-    throw new GitError(
-      'Save or commit the worktree’s local changes before incorporating the repair',
-    )
+  const uncommitted = changes.files.filter((file) => file.uncommitted).map((file) => file.path)
+  if (uncommitted.length > 0) throw new UncommittedChangesError(uncommitted)
   const head = changes.head
   if (await isAncestor(worktree, onto, head)) return { head, commit: head }
   const base = await mergeBase(worktree, head, onto)
   const tree = await replayedTree(worktree, { from: base, to: head, onto })
   if (!tree)
-    throw new GitError(
-      'The merged repair conflicts with this Task; resolve the conflict before validation',
+    throw new IncorporationConflictError(
+      (await mergeConflicts(worktree, { ours: head, theirs: onto })) ?? [],
+      onto,
     )
   if (await isAncestor(worktree, head, onto)) return { head, commit: onto }
   const commit = await git(

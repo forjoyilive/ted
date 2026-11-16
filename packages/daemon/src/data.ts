@@ -11,6 +11,7 @@ import { tedPaths } from '@ted/protocol'
 import type { Automations } from './automations/automations.ts'
 import { type Backups, compareVersions, createBackups, displayPath } from './backups.ts'
 import type { Banners } from './banners.ts'
+import type { ChatArchiveCleanup } from './chat-expiry.ts'
 import type { CheckTries } from './check-tries.ts'
 import type { Coordinators } from './coordinators/coordinators.ts'
 import type { DiskWatch } from './disk.ts'
@@ -83,6 +84,7 @@ export interface Services {
   shells: Shells
   editors: Editors
   archiveCleanup: ArchiveCleanup
+  chatArchiveCleanup: ChatArchiveCleanup
 }
 
 export interface StartedServices extends Omit<Services, 'store'> {

@@ -929,6 +929,8 @@ const loopWorkflow = () =>
     {
       kind: 'ted',
       files: {},
+      agentSettings: {},
+      agentFiles: {},
       settings: {
         stages: {},
         order: ['intake', 'clarify', 'design', 'work', 'validate', 'review'],

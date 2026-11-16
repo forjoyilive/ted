@@ -143,6 +143,77 @@ function ArchivedTasksRow({ days }: { days: number | null }) {
   )
 }
 
+function ArchivedChatsRow({ days }: { days: number | null }) {
+  const [confirm, setConfirm] = useState<{ days: number; due: number }>()
+  const [error, setError] = useState<string>()
+  const latestChoice = useRef(0)
+
+  const save = async (next: number | null) => {
+    setConfirm(undefined)
+    try {
+      await ted.updateSettings({ deleteArchivedChatsAfterDays: next })
+      setError(undefined)
+    } catch (failure) {
+      setError(readableError(failure))
+    }
+  }
+
+  const choose = async (value: number) => {
+    const choice = ++latestChoice.current
+    const next = value === 0 ? null : value
+    if (next === null || (days !== null && next >= days)) return save(next)
+    try {
+      const { due } = await ted.chatArchiveExpiry(next)
+      if (choice !== latestChoice.current) return
+      if (due === 0) return save(next)
+      setConfirm({ days: next, due })
+    } catch (failure) {
+      if (choice === latestChoice.current) setError(readableError(failure))
+    }
+  }
+
+  return (
+    <>
+      <SettingRow setting="app.storage.archived-chats" labelFor="archived-chat-days">
+        <Select
+          id="archived-chat-days"
+          value={days ?? 0}
+          options={archivedOptions(days)}
+          width={110}
+          onChange={(value) => void choose(value)}
+        />
+      </SettingRow>
+      {error !== undefined && (
+        <p className={styles.archivedNote} role="alert">
+          {error}
+        </p>
+      )}
+      {confirm && (
+        <Dialog onClose={() => setConfirm(undefined)}>
+          {(headingId) => (
+            <>
+              <h2 id={headingId} className={dialogStyles.heading}>
+                {`Delete ${plural(confirm.due, 'archived chat')} now?`}
+              </h2>
+              <p className={dialogStyles.body}>
+                {confirm.due === 1
+                  ? `It was archived more than ${plural(confirm.days, 'day')} ago, so Ted deletes it with its conversation. Tasks it created stay. This can’t be undone.`
+                  : `They were archived more than ${plural(confirm.days, 'day')} ago, so Ted deletes them with their conversations. Tasks they created stay. This can’t be undone.`}
+              </p>
+              <div className={dialogStyles.buttons}>
+                <Button onClick={() => setConfirm(undefined)}>Cancel</Button>
+                <Button danger onClick={() => void save(confirm.days)}>
+                  {`Delete ${plural(confirm.due, 'chat')}`}
+                </Button>
+              </div>
+            </>
+          )}
+        </Dialog>
+      )}
+    </>
+  )
+}
+
 function backupTitle(backup: StoredBackup): string {
   const at = new Date(backup.takenAt)
   switch (backup.kind) {
@@ -336,6 +407,7 @@ export function StoragePage({ settings, dispatch }: SettingsPageProps) {
               />
             </SettingRow>
             <ArchivedTasksRow days={settings.deleteArchivedAfterDays} />
+            <ArchivedChatsRow days={settings.deleteArchivedChatsAfterDays} />
           </SettingsGroup>
 
           <ExportGroup />

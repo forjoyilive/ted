@@ -1,5 +1,7 @@
 # New conversation keeps the Coordinator conversation
 
+Status: changed by ADR 0171-each-coordinator-chat-has-its-own-id and ADR 0178-agent-chats-are-archived-like-tasks. Saved conversations are archived Coordinator chats; Continue is now Unarchive.
+
 **New conversation** used to stop the Coordinator and delete its conversation (ADR 0094). The user lost the chat, the receipts and the list of Tasks it had discussed, with no way back.
 
 **New conversation now saves the conversation, and the Coordinator screen lists every saved one.** `Coordinators.reset` (`POST /factories/:id/coordinator/reset`) still holds saves and launches, waits for launches and actions and stops the live Run, but then commits `v1.CoordinatorConversationSaved`, which moves the stored Coordinator into the `coordinatorConversations` table and removes the live row, without deleting Runs, Run messages or folders.

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Factory, RunSummary, Task } from '@ted/protocol'
+import type { Factory, Plan, PlanDetail, RunSummary, Task } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { pruneRunOutput, runOutputEnd } from '../src/retention.ts'
@@ -455,7 +455,7 @@ describe('Run output retention in the daemon', () => {
 
   const runFolders = () => readdir(path.join(home, 'runs'))
 
-  test('a Done Task’s Run chat stays for 7 days, then shows “Output no longer kept”; a shorter setting removes it sooner; an archived Task is deleted once deleteArchivedAfterDays pass', async () => {
+  test('a Done Task’s Run chat stays for 7 days, then shows “Output no longer kept”; a shorter setting removes it sooner; an archived Task is deleted once deleteArchivedAfterDays pass, and an archived chat once deleteArchivedChatsAfterDays pass', async () => {
     let client = await start()
     const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
       const res = await client.call(method, route, body)
@@ -568,5 +568,38 @@ describe('Run output retention in the daemon', () => {
       'the archived Task and the archived parent with its child to be deleted',
     )
     expect((await task(done.id)).stage).toBe('done')
-  })
+
+    const chatSteps = JSON.stringify({ steps: [{ say: 'Hi' }, { endTurn: true }] })
+    const oldPlan = await ok<Plan>('POST', '/plans', {
+      factory: 'NB',
+      message: `Old plan\n${chatSteps}`,
+    })
+    const openPlan = await ok<Plan>('POST', '/plans', {
+      factory: 'NB',
+      message: `Open plan\n${chatSteps}`,
+    })
+    for (const id of [oldPlan.id, openPlan.id]) {
+      await waitUntil(
+        async () =>
+          (await ok<PlanDetail>('GET', `/plans/${id}`)).plan.status === 'idle' || undefined,
+        'the planner to go idle',
+      )
+    }
+    await ok('POST', `/plans/${oldPlan.id}/archive`)
+    expect(await ok('GET', '/chat-archive-expiry?days=7')).toEqual({ due: 0 })
+    expect(await ok('GET', '/chat-archive-expiry?days=5')).toEqual({ due: 1 })
+    expect((await client.call('GET', '/chat-archive-expiry?days=0')).status).toBe(400)
+    await ok('PATCH', '/settings', { deleteArchivedChatsAfterDays: 5 })
+    await waitUntil(
+      async () => (await client.call('GET', `/plans/${oldPlan.id}`)).status === 404 || undefined,
+      'the archived chat to be deleted',
+    )
+    expect((await ok<Plan[]>('GET', '/plans')).map((p) => p.id)).toEqual([openPlan.id])
+    await waitUntil(
+      async () => !(await runFolders()).includes(oldPlan.id) || undefined,
+      'retention to remove the deleted chat’s Run output',
+    )
+    expect(await runFolders()).toContain(openPlan.id)
+    await ok('POST', `/plans/${openPlan.id}/stop`)
+  }, 90_000)
 })

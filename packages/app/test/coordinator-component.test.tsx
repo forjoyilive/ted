@@ -211,13 +211,15 @@ test('the Coordinator composer sends on Enter, queues while working and stops wi
   expect(stop).toHaveBeenCalledWith('k1')
 })
 
-test('a chat is renamed by clicking its title; New chat leaves the open chat running; an ended chat opens read only and can be continued or deleted', async () => {
+test('a chat is renamed by clicking its title; New chat leaves the open chat running; an archived chat opens read only and can be unarchived or deleted', async () => {
   const { a, shown, open } = withCoordinator()
   shown.chats = [summary(), ended]
-  const continued = vi.fn(() => coordinator({ id: ended.id }))
+  const unarchived = vi.fn(() => coordinator({ id: ended.id }))
+  const archived = vi.fn(() => coordinator({ endedAt: createdAt }))
   const deleted = vi.fn(() => null)
   const renamed = vi.fn(() => coordinator({ title: 'Release review' }))
-  a.handle('continueCoordinatorChat', continued)
+  a.handle('unarchiveCoordinatorChat', unarchived)
+  a.handle('archiveCoordinatorChat', archived)
   a.handle('deleteCoordinatorChat', deleted)
   a.handle('renameCoordinatorChat', renamed)
   a.mount()
@@ -229,6 +231,8 @@ test('a chat is renamed by clicking its title; New chat leaves the open chat run
   await user().clear(title)
   await user().type(title, 'Release review{Enter}')
   await vi.waitFor(() => expect(renamed).toHaveBeenCalledWith('k1', 'Release review'))
+  await user().click(within(chat).getByRole('button', { name: 'Archive' }))
+  await vi.waitFor(() => expect(archived).toHaveBeenCalledWith('k1'))
 
   const list = screen.getByRole('region', { name: 'Agent chats' })
   await user().click(within(list).getByRole('button', { name: 'New chat' }))
@@ -237,11 +241,13 @@ test('a chat is renamed by clicking its title; New chat leaves the open chat run
   expect(await within(start).findByText('What needs your attention in widgets?')).toBeTruthy()
   expect(a.request).not.toHaveBeenCalledWith('stopCoordinator', expect.anything())
 
+  expect(within(list).queryByRole('button', { name: /Archive what merged/ })).toBeNull()
+  await user().click(within(list).getByRole('button', { name: /Archived · 1/ }))
   await user().click(within(list).getByRole('button', { name: /Archive what merged/ }))
   const pane = await screen.findByRole('region', { name: 'Coordinator' })
   expect(await within(pane).findByText('Start with NB-1.')).toBeTruthy()
   expect(
-    await within(pane).findByText('Read only. Continue this chat to send a message.'),
+    await within(pane).findByText('Read only. Unarchive this chat to send a message.'),
   ).toBeTruthy()
   expect(within(pane).queryByRole('textbox')).toBeNull()
   const details = screen.getByRole('complementary', { name: 'Coordinator details' })
@@ -259,8 +265,8 @@ test('a chat is renamed by clicking its title; New chat leaves the open chat run
   await user().click(within(dialog).getByRole('button', { name: 'Cancel' }))
   expect(deleted).not.toHaveBeenCalled()
 
-  await user().click(within(pane).getByRole('button', { name: 'Continue' }))
-  await vi.waitFor(() => expect(continued).toHaveBeenCalledWith('k0'))
+  await user().click(within(pane).getByRole('button', { name: 'Unarchive' }))
+  await vi.waitFor(() => expect(unarchived).toHaveBeenCalledWith('k0'))
 
   await user().click(within(pane).getByRole('button', { name: 'Delete…' }))
   await user().click(
@@ -349,22 +355,30 @@ test('Agents lists two Coordinator chats and a planning chat in one list, newest
   expect(within(list).getByRole('heading', { name: 'Planner · 1' })).toBeTruthy()
 })
 
-test('the chat list names the Agent and status, marks a chat that waits for you, and its right-click menu offers Delete, plus Continue on an ended chat', async () => {
+test('the chat list names the Agent and status, marks a chat that waits for you, lists archived chats in their own section, and its right-click menu offers Archive or Unarchive and Delete', async () => {
   const { a, shown, open } = withCoordinator()
   shown.coordinator = coordinator({ status: 'working' })
   shown.chats = [summary({ status: 'working', waiting: true }), ended]
-  const continued = vi.fn(() => coordinator({ id: ended.id }))
+  const unarchived = vi.fn(() => coordinator({ id: ended.id }))
+  const archived = vi.fn(() => coordinator({ endedAt: createdAt }))
   const deleted = vi.fn(() => null)
-  a.handle('continueCoordinatorChat', continued)
+  a.handle('unarchiveCoordinatorChat', unarchived)
+  a.handle('archiveCoordinatorChat', archived)
   a.handle('deleteCoordinatorChat', deleted)
   a.mount()
   await open()
   const list = screen.getByRole('region', { name: 'Agent chats' })
   const row = (name: RegExp) => within(list).getByRole('button', { name })
   await within(list).findByRole('button', { name: /What should we work on next\?/ })
+  await user().click(within(list).getByRole('button', { name: /Archived · 1/ }))
   expect(within(row(/What should we work on next\?/)).getByText('Coordinator')).toBeTruthy()
   expect(within(row(/What should we work on next\?/)).getByText('Waiting on you')).toBeTruthy()
-  expect(within(row(/Archive what merged/)).getByText('Ended')).toBeTruthy()
+  expect(within(row(/Archive what merged/)).getAllByText(/Archived/).length).toBeGreaterThan(0)
+  expect(
+    within(screen.getByRole('region', { name: 'Archived chats' })).getByRole('button', {
+      name: /Archive what merged/,
+    }),
+  ).toBeTruthy()
   expect(
     within(row(/What should we work on next\?/)).getByRole('img', { name: 'Waiting for you' }),
   ).toBeTruthy()
@@ -378,22 +392,27 @@ test('the chat list names the Agent and status, marks a chat that waits for you,
     within(current)
       .getAllByRole('menuitem')
       .map((i) => i.textContent),
-  ).toEqual(['Delete…'])
-  await user().click(within(current).getByRole('menuitem', { name: 'Delete…' }))
+  ).toEqual(['Archive', 'Delete…'])
+  await user().click(within(current).getByRole('menuitem', { name: 'Archive' }))
+  await vi.waitFor(() => expect(archived).toHaveBeenCalledWith('k1'))
+
+  fireEvent.contextMenu(row(/What should we work on next\?/))
+  const again = await screen.findByRole('menu', { name: 'Chat' })
+  await user().click(within(again).getByRole('menuitem', { name: 'Delete…' }))
   const stop = await screen.findByRole('dialog')
   expect(stop.textContent).toContain('The Coordinator stops this chat’s reply')
   await user().click(within(stop).getByRole('button', { name: 'Delete' }))
   await vi.waitFor(() => expect(deleted).toHaveBeenCalledWith('k1'))
 
   fireEvent.contextMenu(row(/Archive what merged/))
-  const menu = await screen.findByRole('menu', { name: 'Ended chat' })
+  const menu = await screen.findByRole('menu', { name: 'Archived chat' })
   expect(
     within(menu)
       .getAllByRole('menuitem')
       .map((i) => i.textContent),
-  ).toEqual(['Continue', 'Delete…'])
-  await user().click(within(menu).getByRole('menuitem', { name: 'Continue' }))
-  await vi.waitFor(() => expect(continued).toHaveBeenCalledWith('k0'))
+  ).toEqual(['Unarchive', 'Delete…'])
+  await user().click(within(menu).getByRole('menuitem', { name: 'Unarchive' }))
+  await vi.waitFor(() => expect(unarchived).toHaveBeenCalledWith('k0'))
 })
 
 test('leaving the Coordinator and coming back shows the same conversation', async () => {
