@@ -7,6 +7,7 @@ import type {
   FlowStageSample,
   StageParts,
 } from '@ted/protocol'
+import { builtInStageOrder, isCleanup, isEntryStage, isHoldingStage } from '@ted/protocol/stage'
 import { addStageParts, noStageParts, splitStage } from '@ted/protocol/stage-parts'
 import type { DashboardTaskFacts } from './dashboard.ts'
 import { type FlowTimingFacts, summarizeReasons, timingSamples } from './dashboard-timing.ts'
@@ -36,7 +37,7 @@ export function stageTiming(task: DashboardTaskFacts, asOf: number) {
     index,
     ms: time(entry.at),
   }))
-  const start = entries.find((entry) => entry.stage === 'intake' && finite(entry.ms))
+  const start = entries.find((entry) => isEntryStage(entry.stage) && finite(entry.ms))
   const ends = [
     ...entries.filter((entry) => entry.stage === 'done').map((entry) => entry.ms),
     ...(task.archives ?? []).map(time),
@@ -78,9 +79,10 @@ export function stageTiming(task: DashboardTaskFacts, asOf: number) {
         continue
       const previous = intervals.at(-1)
       if (
-        entry.stage === 'intake' &&
-        entries[index - 1]?.stage === 'intake' &&
-        previous?.stage === 'intake' &&
+        isEntryStage(entry.stage) &&
+        isEntryStage(entries[index - 1]?.stage ?? '') &&
+        previous !== undefined &&
+        isEntryStage(previous.stage) &&
         previous.to === entry.ms
       )
         previous.to = to
@@ -131,7 +133,7 @@ function period(
     stages: [],
     reasons: [],
   }
-  const order = ['intake', 'clarify', 'design', 'work', 'validate', 'review', 'merge']
+  const order: string[] = builtInStageOrder.filter((id) => !isHoldingStage(id) && !isCleanup(id))
   const stages = new Map<string, FlowStage>(
     order.map((stage) => [
       stage,

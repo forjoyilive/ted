@@ -1,4 +1,5 @@
 import type { Comment, GitHubWait, SendBackCause, Task } from '@ted/protocol'
+import { mergesHere } from '@ted/protocol/stage'
 import type { Clock } from '../clock.ts'
 import { RequestError } from '../errors.ts'
 import * as git from '../git.ts'
@@ -394,7 +395,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     const open = task.repos.filter(
       (r) => !r.removed && r.pullRequest !== undefined && r.pullRequest.state !== 'merged',
     )
-    if (open.length === 0) return task.stage === 'merge' ? finishMerge(taskId) : 'done'
+    if (open.length === 0) return mergesHere(task.stage) ? finishMerge(taskId) : 'done'
     if (!read) return 'wait'
     const targets = open.flatMap((r) =>
       r.pullRequest
@@ -417,7 +418,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
       remote = remoteOf(taskId, targets, read)
     } catch (error) {
       if (needsSignIn(error)) {
-        if (task.stage === 'merge') {
+        if (mergesHere(task.stage)) {
           for (const target of targets) setWait(taskId, target.name, 'sign-in')
         }
       }
@@ -432,10 +433,10 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
         continue
       }
       left++
-      if (markWaiting && task.stage === 'merge') setWait(taskId, target.name, 'merge')
+      if (markWaiting && mergesHere(task.stage)) setWait(taskId, target.name, 'merge')
     }
     if (left > 0) return 'wait'
-    return task.stage === 'merge' ? finishMerge(taskId) : 'done'
+    return mergesHere(task.stage) ? finishMerge(taskId) : 'done'
   }
 
   async function mergeCycle(
@@ -447,7 +448,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     const task = find(taskId)
     if (port.busy(taskId)) return 'busy'
     if (task.stage === 'done') return watchOnlyCycle(taskId, read)
-    if (task.stage === 'merge' && !task.archived && (await mergedOutside(taskId, read)))
+    if (mergesHere(task.stage) && !task.archived && (await mergedOutside(taskId, read)))
       return finishMerge(taskId)
     if (onlyMergedOutside) return 'wait'
     const resolution = await port.resolve(task)
@@ -461,7 +462,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
       return 'wait'
     if (mode !== 'off' && read && port.ciFailures) {
       await port.ciFailures(taskId, read)
-      if (find(taskId).stage !== 'merge') return 'done'
+      if (!mergesHere(find(taskId).stage)) return 'done'
     }
     if (mode !== 'off') {
       if (read) recordPullRequests(task, read)
@@ -754,8 +755,8 @@ export function mergeMode(
   task: Task,
   workflow: ResolvedWorkflow,
 ): MergeMode | undefined {
-  if (task.stage !== 'merge' || task.archived) return undefined
-  if (!workflow.stages.includes('merge')) return 'off'
+  if (!mergesHere(task.stage) || task.archived) return undefined
+  if (!workflow.stages.some(mergesHere)) return 'off'
   const since = mergeVisit(store, task)
   if (
     store.mergeHistory(task.id).canceledAt !== undefined ||
@@ -764,7 +765,7 @@ export function mergeMode(
       .some(
         (c) =>
           c.gate &&
-          c.stage === 'merge' &&
+          mergesHere(c.stage ?? '') &&
           c.answer?.kind === 'changes-requested' &&
           c.answer.at >= since,
       )
@@ -776,7 +777,7 @@ export function mergeMode(
   if (
     !(
       workflow.settings.stages.merge?.gate === true ||
-      (workflow.overnightGates?.includes('merge') === true && mergeGateRequested(store, task))
+      (workflow.overnightGates?.some(mergesHere) === true && mergeGateRequested(store, task))
     )
   )
     return 'merge'
@@ -785,14 +786,18 @@ export function mergeMode(
   const approved = store
     .listComments(task.id)
     .some(
-      (c) => c.gate && c.stage === 'merge' && c.answer?.kind === 'approved' && c.createdAt >= since,
+      (c) =>
+        c.gate &&
+        mergesHere(c.stage ?? '') &&
+        c.answer?.kind === 'approved' &&
+        c.createdAt >= since,
     )
   return approved ? 'merge' : 'gate'
 }
 
 export function startMerging(store: TedStore, task: Task, workflow: ResolvedWorkflow): void {
   if (store.mergeHistory(task.id).started) return
-  if (workflow.overnightGates?.includes('merge') && !mergeGateRequested(store, task)) {
+  if (workflow.overnightGates?.some(mergesHere) && !mergeGateRequested(store, task)) {
     store.gateSkippedOvernight(task.id, 'merge')
   }
   store.mergeStarted(task.id)
@@ -809,7 +814,7 @@ export function leadPending(store: TedStore, taskId: string): boolean {
 const closedResolutions = ['accepted', 'fixed', 'no-longer-applicable']
 
 export function openMergeFailures(store: TedStore, taskId: string) {
-  const since = store.listStageEntries(taskId).findLast((e) => e.stage === 'merge')?.at ?? ''
+  const since = store.listStageEntries(taskId).findLast((e) => mergesHere(e.stage))?.at ?? ''
   return store.failures
     .list(taskId)
     .filter(

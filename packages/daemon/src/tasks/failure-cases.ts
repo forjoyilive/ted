@@ -12,6 +12,7 @@ import type {
 } from '@ted/protocol'
 import { ciFailureLabel, failureChoices, validateFailureChoices } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
+import { mergesHere, validates } from '@ted/protocol/stage'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import { resolveReference } from '../references.ts'
@@ -496,8 +497,8 @@ export function createFailureCases(options: {
       ...(originalCheck && { originalCheck }),
       ...(context && { contextId: context.id }),
       createdAt: new Date().toISOString(),
-      ...((task.stage === 'validate' ||
-        (task.stage === 'merge' &&
+      ...((validates(task.stage) ||
+        (mergesHere(task.stage) &&
           (source.kind === 'post-rebase-check' || (source.kind === 'github-ci' && generated)))) && {
         validation: true,
       }),
@@ -519,8 +520,8 @@ export function createFailureCases(options: {
       store.postComment({
         taskId: task.id,
         author: { kind: 'ted' },
-        title: task.stage === 'merge' ? mergeFailureNoticeTitle : 'Validate failure recorded',
-        body: `Failure ${shortReference(value.id)}\n\n${value.evidence}\n\nThe Task stays in ${task.stage === 'merge' ? 'Merge' : 'Validate'} for investigation. No send-back was recorded.${task.stage === 'merge' ? '\n\nInvestigate this failure, add evidence and assess regression, unrelated or uncertain. TED’s merge watcher sends supported regressions through Work, Validate and Review sign-off. Ask the user about unrelated or uncertain failures with `ted failure ask <id>`. Only the merge watcher can progress Merge; do not advance, merge or approve.' : ''}`,
+        title: mergesHere(task.stage) ? mergeFailureNoticeTitle : 'Validate failure recorded',
+        body: `Failure ${shortReference(value.id)}\n\n${value.evidence}\n\nThe Task stays in ${mergesHere(task.stage) ? 'Merge' : 'Validate'} for investigation. No send-back was recorded.${mergesHere(task.stage) ? '\n\nInvestigate this failure, add evidence and assess regression, unrelated or uncertain. TED’s merge watcher sends supported regressions through Work, Validate and Review sign-off. Ask the user about unrelated or uncertain failures with `ted failure ask <id>`. Only the merge watcher can progress Merge; do not advance, merge or approve.' : ''}`,
       })
     await store.persisted()
     await options.onHold(task)

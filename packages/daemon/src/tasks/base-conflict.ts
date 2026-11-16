@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { StageId } from '@ted/protocol'
+import { handsOff } from '@ted/protocol/stage'
 import { redactSecrets } from '../redact.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import { oneLine } from './review-rounds.ts'
@@ -37,7 +38,7 @@ export function conflictRefusal(
   multiRepo: boolean,
 ): string {
   const head = `${task.displayId}’s branch conflicts with ${conflict.base}, so TED kept it in ${stageTitle(task.stage)}. ${found(conflict, multiRepo)}`
-  if (task.stage === 'work') {
+  if (handsOff(task.stage)) {
     return `${head}\n\nMerge that commit into the branch here (\`git merge ${conflict.tip}\` in the worktree${multiRepo ? ` for ${conflict.name}` : ''}), resolve the conflicts, run the tests and Checks the conflict touches, commit, then report the outcome again.`
   }
   return `${head}\n\nSend the Task back to Work with \`ted outcome back --to work --cause base-conflict --findings <file>\`; the Findings only need to name the conflict. TED doesn’t count that send-back against the limit.`

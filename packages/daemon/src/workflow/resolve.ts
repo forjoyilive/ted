@@ -5,6 +5,7 @@ import {
   type LayerKind,
   type StageId,
 } from '@ted/protocol'
+import { builtInStageOrder, isCleanup, isEntryStage, isPast, stageWith } from '@ted/protocol/stage'
 import {
   type AgentChoice,
   type CheckedLayer,
@@ -39,7 +40,6 @@ export interface ResolvedWorkflow {
   next(current: StageId): StageId
 }
 
-const builtInOrder: readonly StageId[] = ['backlog', ...agentStageIds, 'done']
 const agentKeys = ['lead', 'reviewer', 'planner'] as const
 const lastWins = [
   'version',
@@ -91,8 +91,8 @@ function built(
 ): ResolvedWorkflow {
   const enabled = (id: StageId) => settings.stages[id]?.enabled !== false
   const order: AgentStageId[] = [
-    ...(settings.order ?? ['intake', 'work']).filter((id) => id !== 'cleanup'),
-    ...(cleanupOn(settings) ? (['cleanup'] as const) : []),
+    ...(settings.order ?? ['intake', 'work']).filter((id) => !isCleanup(id)),
+    ...(cleanupOn(settings) ? [stageWith('cleanup')] : []),
   ]
   const stages: StageId[] = ['backlog', ...order.filter(enabled), 'done']
 
@@ -106,8 +106,8 @@ function built(
       if (current === 'done') return 'done'
       const index = stages.indexOf(current)
       if (index !== -1) return stages[index + 1] ?? 'done'
-      const rank = builtInOrder.indexOf(current)
-      return stages.find((id) => id !== 'backlog' && builtInOrder.indexOf(id) > rank) ?? 'done'
+      const rank = builtInStageOrder.indexOf(current)
+      return stages.find((id) => id !== 'backlog' && builtInStageOrder.indexOf(id) > rank) ?? 'done'
     },
   }
 }
@@ -142,13 +142,13 @@ export function withForcedGates(
   forced: readonly AgentStageId[],
 ): ResolvedWorkflow {
   if (forced.length === 0) return workflow
-  const rank = (id: StageId) => builtInOrder.indexOf(id)
+  const rank = (id: StageId) => builtInStageOrder.indexOf(id)
   const stages = { ...workflow.settings.stages }
   const order = [...workflow.order]
   for (const id of forced) {
     stages[id] = { ...stages[id], enabled: true, gate: true }
     if (order.includes(id)) continue
-    const before = order.findIndex((other) => other !== 'intake' && rank(other) > rank(id))
+    const before = order.findIndex((other) => !isEntryStage(other) && isPast(other, id))
     if (before === -1) order.push(id)
     else order.splice(before, 0, id)
   }
@@ -191,8 +191,7 @@ export function setupWorkflow(
   const order = [...workflow.order]
   for (const id of Object.keys(setupForced) as AgentStageId[]) {
     if (order.includes(id)) continue
-    const rank = builtInOrder.indexOf(id)
-    const before = order.findIndex((other) => builtInOrder.indexOf(other) > rank)
+    const before = order.findIndex((other) => isPast(other, id))
     order.splice(before === -1 ? order.length : before, 0, id)
   }
   const stages = { ...workflow.settings.stages }

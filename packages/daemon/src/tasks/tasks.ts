@@ -159,6 +159,19 @@ import {
   sizeChoices,
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
+import {
+  bindsApproval,
+  handsOff,
+  hasClarifyRounds,
+  isCleanup,
+  maySkip,
+  mergesHere,
+  postsDesignReview,
+  setupGateStage,
+  signsOffCode,
+  stageWith,
+  validates,
+} from '@ted/protocol/stage'
 import { agentStartHold } from '../agent-eligibility.ts'
 import type { AutoModeSignal } from '../agents/agent.ts'
 import { diffTexts } from '../agents/diff.ts'
@@ -1359,8 +1372,8 @@ export function createTasks(options: {
         : { workflow: chosen, off: [] }
     const forced = withForcedGates(
       night.workflow,
-      kept !== undefined && !task.forcedGates.includes('review')
-        ? [...task.forcedGates, 'review']
+      kept !== undefined && !task.forcedGates.includes(stageWith('signsOffCode'))
+        ? [...task.forcedGates, stageWith('signsOffCode')]
         : task.forcedGates,
     )
     const based = task.changesSettings ? onDefaultBranch(forced) : forced
@@ -1372,7 +1385,7 @@ export function createTasks(options: {
           workflow.stages.includes(id) &&
           workflow.settings.stages[id]?.gate === true &&
           !task.forcedGates.includes(id) &&
-          !(task.setup && (id === 'design' || id === 'review')),
+          !(task.setup && setupGateStage(id)),
       )
       return { ...resolution, workflow: { ...workflow, overnightKept: { reason: kept, stages } } }
     }
@@ -1412,7 +1425,7 @@ export function createTasks(options: {
     const { repo, baseBranch, repos } = primaryRepo(task, workflow)
     if (!repo) return repos > 1 ? undefined : 'unreadable'
     try {
-      const atMerge = task.stage === 'merge'
+      const atMerge = mergesHere(task.stage)
       const signed = atMerge ? repo.pullRequest?.signedOff : undefined
       const head = atMerge ? await git.headCommit(repo.worktree) : ''
       const edits = atMerge ? await settingsFingerprint(repo.worktree) : ''
@@ -1461,7 +1474,7 @@ export function createTasks(options: {
     if (guard === undefined) return plain
     const kept = await taskWorkflow(task, { fetch: false, keepGates: guard })
     const { workflow } = kept
-    if (task.stage !== 'merge' || !workflow.overnightKept) return kept
+    if (!mergesHere(task.stage) || !workflow.overnightKept) return kept
     const unseen = !(await approvalBound(task, workflow))
     return {
       ...kept,
@@ -1473,17 +1486,15 @@ export function createTasks(options: {
     const { repo } = primaryRepo(task, workflow)
     const signed = repo?.pullRequest?.signedOff
     if (!repo || signed === undefined) return false
-    const since =
-      store.listStageEntries(task.id).findLast((e) => e.stage !== 'review' && e.stage !== 'merge')
-        ?.at ?? ''
+    const since = store.listStageEntries(task.id).findLast((e) => !bindsApproval(e.stage))?.at ?? ''
     const bound = new Set(store.approvalsBoundToCommit(task.id, signed))
     const approved = store
       .listComments(task.id)
       .filter(
         (c) => c.gate && c.answer?.kind === 'approved' && c.answer.at >= since && bound.has(c.id),
       )
-    if (approved.some((c) => c.stage === 'merge')) return true
-    if (!approved.some((c) => c.stage === 'review')) return false
+    if (approved.some((c) => mergesHere(c.stage ?? ''))) return true
+    if (!approved.some((c) => signsOffCode(c.stage ?? ''))) return false
     return git.headCommit(repo.worktree).then(
       (head) => head === signed,
       () => false,
@@ -1507,11 +1518,11 @@ export function createTasks(options: {
     comment: Comment,
     workflow: ResolvedWorkflow,
   ): Promise<void> {
-    if (comment.stage !== 'review' && comment.stage !== 'merge') return
+    if (!bindsApproval(comment.stage ?? '')) return
     const { repo, baseBranch } = primaryRepo(task, workflow)
     if (!repo) return
     let commit = repo.pullRequest?.signedOff
-    if (comment.stage === 'review') {
+    if (signsOffCode(comment.stage ?? '')) {
       const requested = store.gateRequestCommit(task.id, comment.id)
       commit = await (async () => {
         const base = `origin/${baseBranch ?? (await git.defaultBranch(repo.worktree))}`
@@ -1566,16 +1577,16 @@ export function createTasks(options: {
       .map((stage) => {
         const required = task.forcedGates.includes(stage)
           ? 'Required by TED for this Task'
-          : task.setup && ['design', 'review'].includes(stage)
+          : task.setup && setupGateStage(stage)
             ? 'Required for Factory setup'
-            : stage === 'review' && guard !== undefined
+            : signsOffCode(stage) && guard !== undefined
               ? `Required while Autopilot is on: ${overnightGuardTexts[guard]}`
               : undefined
         const posted = stage === task.stage && gateRequested(task)
         const locked = finished
           ? 'This Task has finished'
           : (required ??
-            (stage === 'merge' && task.stage === 'merge'
+            (mergesHere(stage) && mergesHere(task.stage)
               ? 'Merge has started'
               : workflow.order.indexOf(stage) < position
                 ? 'Stage already passed'
@@ -1584,7 +1595,7 @@ export function createTasks(options: {
                   : undefined))
         const inherited = required !== undefined || workflow.settings.stages[stage]?.gate === true
         const chosen = required !== undefined || (overrides[stage] ?? inherited)
-        const atMerge = stage === 'merge' && task.stage === 'merge'
+        const atMerge = mergesHere(stage) && mergesHere(task.stage)
         const overnight =
           chosen &&
           required === undefined &&
@@ -2327,7 +2338,7 @@ export function createTasks(options: {
       const started = await validation.begin(
         find(taskId),
         resolution,
-        task.stage === 'merge' ? 'merge' : 'agent',
+        mergesHere(task.stage) ? 'merge' : 'agent',
         undefined,
         reads,
       )
@@ -2441,7 +2452,11 @@ export function createTasks(options: {
     const proposal = store
       .listComments(task.id)
       .findLast(
-        (c) => c.gate && c.stage === 'design' && c.answer?.kind === 'approved' && c.design?.setup,
+        (c) =>
+          c.gate &&
+          postsDesignReview(c.stage ?? '') &&
+          c.answer?.kind === 'approved' &&
+          c.design?.setup,
       )?.design?.setup
     return proposal && { primary, settings: layer.settings, proposal }
   }
@@ -2536,7 +2551,7 @@ export function createTasks(options: {
         : (resolution.workflow.settings.stages.validate?.checks ?? []),
       repos,
       primary: entries[0]?.name ?? '',
-      ...(only !== undefined && task.stage !== 'validate' && { only }),
+      ...(only !== undefined && !validates(task.stage) && { only }),
       ...(reads !== undefined && { reads }),
     })
   }
@@ -2601,7 +2616,7 @@ export function createTasks(options: {
       store.sendBackAsks(task.id).some((ask) => !store.getComment(ask.commentId)?.answer)
     )
       return
-    if (task.stage === 'merge') {
+    if (mergesHere(task.stage)) {
       const current = find(task.id)
       const mode = mergeMode(current, (await taskWorkflow(current, { fetch: false })).workflow)
       if (current.stopped || mode === undefined || mode === 'off' || mode === 'canceled') return
@@ -2619,8 +2634,8 @@ export function createTasks(options: {
         await move(
           task,
           resolution,
-          'work',
-          backMessage(resolution.workflow, 'work', 'validate', sent),
+          stageWith('handOff'),
+          backMessage(resolution.workflow, stageWith('handOff'), stageWith('validates'), sent),
         )
       return
     }
@@ -2628,8 +2643,8 @@ export function createTasks(options: {
     await sendBack(
       task,
       resolution,
-      'validate',
-      { outcome: 'back', to: 'work', findings: failureCaseFindings(value) },
+      stageWith('validates'),
+      { outcome: 'back', to: stageWith('handOff'), findings: failureCaseFindings(value) },
       value.source.kind === 'factory-check' ? value.source.checkRunId : undefined,
     )
   }
@@ -2647,7 +2662,7 @@ export function createTasks(options: {
     const asks = new Set(
       store
         .sendBackAsks(taskId)
-        .filter((a) => a.from === 'work' && a.to === 'work')
+        .filter((a) => handsOff(a.from) && handsOff(a.to))
         .map((a) => a.commentId),
     )
     return store.listComments(taskId).filter((c) => asks.has(c.id))
@@ -2663,7 +2678,7 @@ export function createTasks(options: {
       .length
   }
 
-  const leftWork = (task: StoredTask) => task.stage !== 'work' || task.archived
+  const leftWork = (task: StoredTask) => !handsOff(task.stage) || task.archived
 
   const handOffHalted = (task: StoredTask, lead: string | undefined) =>
     task.stopped || task.status?.kind === 'failed' || task.leadRunId !== lead
@@ -2698,7 +2713,10 @@ export function createTasks(options: {
     const reads = worktreeReads()
     const resolution = await gateWorkflow(task, { reads })
     const { workflow } = resolution
-    if (workflow.next('work') !== 'validate' || gateOn(task, workflow, 'work')) {
+    if (
+      !validates(workflow.next(stageWith('handOff'))) ||
+      gateOn(task, workflow, stageWith('handOff'))
+    ) {
       throw new RequestError(
         409,
         `${task.displayId}’s Workflow no longer goes from Work straight to Validate; choose ${tryAgainChoice}`,
@@ -2715,8 +2733,8 @@ export function createTasks(options: {
     }
     refuseHalted(find(task.id))
     return (message) => {
-      if (workflow.overnightGates?.includes('work') && !gateSkipped(task)) {
-        store.gateSkippedOvernight(task.id, 'work')
+      if (workflow.overnightGates?.includes(stageWith('handOff')) && !gateSkipped(task)) {
+        store.gateSkippedOvernight(task.id, stageWith('handOff'))
       }
       return move(
         task,
@@ -2779,7 +2797,10 @@ export function createTasks(options: {
           const moving = worktreeReads()
           const resolution = await gateWorkflow(now, { fetch: false, reads: moving })
           const { workflow } = resolution
-          if (workflow.next('work') !== 'validate' || gateOn(now, workflow, 'work')) {
+          if (
+            !validates(workflow.next(stageWith('handOff'))) ||
+            gateOn(now, workflow, stageWith('handOff'))
+          ) {
             return 'the Workflow changed while the Checks ran'
           }
           const still = find(taskId)
@@ -2788,8 +2809,8 @@ export function createTasks(options: {
             halted = true
             return undefined
           }
-          if (workflow.overnightGates?.includes('work') && !gateSkipped(now)) {
-            store.gateSkippedOvernight(now.id, 'work')
+          if (workflow.overnightGates?.includes(stageWith('handOff')) && !gateSkipped(now)) {
+            store.gateSkippedOvernight(now.id, stageWith('handOff'))
           }
           await move(now, resolution, 'validate', nextStageMessage(workflow, 'validate'), {
             ...(checkRun !== undefined && { checked: { run: checkRun, coverage } }),
@@ -3067,7 +3088,7 @@ export function createTasks(options: {
 
   function watched(task: StoredTask | undefined): task is StoredTask {
     if (!task || task.archived) return false
-    if (task.stage === 'merge') return true
+    if (mergesHere(task.stage)) return true
     return task.stage === 'done' && openPullRequests(task).length > 0
   }
 
@@ -3235,7 +3256,7 @@ export function createTasks(options: {
     const lead = task.leadRunId === undefined ? undefined : store.getRun(task.leadRunId)
     return (
       canStartFresh(task) &&
-      (task.stage === 'merge' || !(lead?.state === 'finished' && lead.ended?.how === 'stopped'))
+      (mergesHere(task.stage) || !(lead?.state === 'finished' && lead.ended?.how === 'stopped'))
     )
   }
 
@@ -3244,10 +3265,9 @@ export function createTasks(options: {
     if (task.stage === 'backlog' || task.stage === 'done') return
     const run = liveLead(task)
     const deliverable = run !== undefined || canStartForGitHub(task)
-    const mode =
-      task.stage === 'merge'
-        ? mergeMode(task, (await taskWorkflow(find(task.id), { fetch: false })).workflow)
-        : undefined
+    const mode = mergesHere(task.stage)
+      ? mergeMode(task, (await taskWorkflow(find(task.id), { fetch: false })).workflow)
+      : undefined
     const both = mode === undefined || mode === 'off'
     const choice = { ci: both, conflict: both }
     const seen = store.gitHubSeen(taskId)
@@ -3317,7 +3337,7 @@ export function createTasks(options: {
     const fix = await holding(find(taskId), () => reconcileCiHeld(taskId, read))
     if (!fix) return
     await applyValidationFix(find(taskId), fix)
-    if (find(taskId).stage !== 'merge')
+    if (!mergesHere(find(taskId).stage))
       await holding(find(taskId), () => reconcileCiHeld(taskId, read))
   }
 
@@ -3328,7 +3348,7 @@ export function createTasks(options: {
     const task = find(taskId)
     const resolution = await gateWorkflow(task, { fetch: false })
     const mode = mergeMode(task, resolution.workflow)
-    const merging = task.stage === 'merge' && !task.archived
+    const merging = mergesHere(task.stage) && !task.archived
     const recording =
       merging && !task.stopped && (mode === 'merge' || mode === 'gate' || mode === 'lead')
     const accepted = acceptedCi(taskId)
@@ -3605,7 +3625,7 @@ export function createTasks(options: {
     options: { counted?: boolean; cause?: SendBackCause } = {},
   ): Promise<MergeCycle> {
     const task = find(taskId)
-    if (task.stage !== 'merge') return 'done'
+    if (!mergesHere(task.stage)) return 'done'
     const split = mergeSplit(task)
     if (split && !task.statuses.includes('partly-merged')) {
       store.mergeStoppedPartway(taskId, split)
@@ -3613,7 +3633,10 @@ export function createTasks(options: {
     const told = split ? `${findings}\n\n${partwayFindings(split)}` : findings
     const resolution = await taskWorkflow(find(task.id), { fetch: false })
     const { stages } = resolution.workflow
-    const to = toValidate && stages.includes('validate') ? 'validate' : 'work'
+    const to =
+      toValidate && stages.includes(stageWith('validates'))
+        ? stageWith('validates')
+        : stageWith('handOff')
     if (!stages.includes(to)) {
       console.error(`couldn’t send ${task.displayId} back to ${stageTitle(to)}: it’s off`)
       return 'wait'
@@ -3623,7 +3646,7 @@ export function createTasks(options: {
       sendBack(
         find(taskId),
         resolution,
-        'merge',
+        stageWith('merges'),
         { outcome: 'back', to, findings: told },
         checkRunId,
         options,
@@ -3641,12 +3664,12 @@ export function createTasks(options: {
 
   async function finishMerge(taskId: string): Promise<MergeCycle> {
     const task = find(taskId)
-    if (task.stage !== 'merge') return 'done'
+    if (!mergesHere(task.stage)) return 'done'
     if (inFlight.is(taskId, 'transition')) return 'busy'
     const resolution = await taskWorkflow(find(task.id), { fetch: false })
     await holding(task, async () => {
       const current = find(taskId)
-      if (current.stage === 'merge') await move(current, resolution, 'done', undefined)
+      if (mergesHere(current.stage)) await move(current, resolution, 'done', undefined)
     })
     return 'done'
   }
@@ -3661,7 +3684,7 @@ export function createTasks(options: {
         (c) =>
           c.kind === 'signoff' &&
           c.gate !== undefined &&
-          c.stage !== 'merge' &&
+          !mergesHere(c.stage ?? '') &&
           c.answer?.kind === 'approved',
       )
   }
@@ -3758,7 +3781,7 @@ export function createTasks(options: {
     }
     const { workflow } = await gateWorkflow(find(taskId), { fetch: false })
     const task = find(taskId)
-    if (task.stage !== 'merge') {
+    if (!mergesHere(task.stage)) {
       throw new RequestError(
         409,
         `${task.displayId} changed Stage while this outcome waited; read the Task again before reporting`,
@@ -3879,11 +3902,11 @@ export function createTasks(options: {
     const notAtMerge = (t: StoredTask) =>
       new RequestError(
         409,
-        t.stage === 'cleanup'
+        isCleanup(t.stage)
           ? cleanupDoneRefusal(t.displayId)
           : `${t.displayId} isn’t at Merge, so it can’t be marked done`,
       )
-    if (task.stage !== 'merge' || task.archived) throw notAtMerge(task)
+    if (!mergesHere(task.stage) || task.archived) throw notAtMerge(task)
     return holding(task, async () => {
       if (!watch) {
         throw new RequestError(
@@ -3893,7 +3916,7 @@ export function createTasks(options: {
       }
       const read = await watch.next({ now: true })
       const before = find(id)
-      if (before.stage !== 'merge' || before.archived) throw notAtMerge(before)
+      if (!mergesHere(before.stage) || before.archived) throw notAtMerge(before)
       if (!before.repos.some((r) => !r.removed && r.pullRequest !== undefined)) {
         throw new RequestError(409, `${before.displayId} has no pull request to check on GitHub`)
       }
@@ -3922,7 +3945,7 @@ export function createTasks(options: {
       await requireObligations(before, read, 'done', true)
       const resolution = await taskWorkflow(find(id), { fetch: false })
       const current = find(id)
-      if (current.stage !== 'merge' || current.archived) throw notAtMerge(current)
+      if (!mergesHere(current.stage) || current.archived) throw notAtMerge(current)
       const left = unmerged(current)
       const changed = left.find(({ name, where }) => !verified.has(`${name}:${where}`))
       if (changed) {
@@ -5463,9 +5486,9 @@ export function createTasks(options: {
     const pending = current.pendingLeadMessages
     const baseNote = baseNotes.get(task.id)
     const round =
-      resumeSession === undefined && current.stage === 'validate'
+      resumeSession === undefined && validates(current.stage)
         ? await validateRound(current, resolution.workflow)
-        : resumeSession === undefined && current.stage === 'cleanup'
+        : resumeSession === undefined && isCleanup(current.stage)
           ? cleanupProgress(cleanupSteps(resolution.workflow), store.cleanupReports(task.id))
           : undefined
     const hierarchyPrompt = hierarchyText(hierarchyView(task.id))
@@ -5516,7 +5539,7 @@ export function createTasks(options: {
       task.archived ||
       task.stopped ||
       task.waitsForBlockers ||
-      !['validate', 'merge'].includes(task.stage) ||
+      !(validates(task.stage) || mergesHere(task.stage)) ||
       !validation.pendingRepair(task)
     )
       return
@@ -5527,8 +5550,8 @@ export function createTasks(options: {
         if (!(await incorporateRepairs(find(taskId)))) return
         const current = find(taskId)
         if (current.archived || current.stopped || current.waitsForBlockers) return
-        if (current.stage === 'validate') await validation.enter(taskId)
-        else if (current.stage === 'merge') watchMerge(taskId)
+        if (validates(current.stage)) await validation.enter(taskId)
+        else if (mergesHere(current.stage)) watchMerge(taskId)
       } finally {
         setChecking(taskId, false)
       }
@@ -5653,7 +5676,7 @@ export function createTasks(options: {
     const since = visitStart(task)
     return store
       .listComments(task.id)
-      .filter((c) => c.kind === 'round' && c.stage === 'clarify' && c.createdAt >= since)
+      .filter((c) => c.kind === 'round' && hasClarifyRounds(c.stage ?? '') && c.createdAt >= since)
   }
 
   function openRound(task: Task): Comment | undefined {
@@ -5671,7 +5694,7 @@ export function createTasks(options: {
     supersedes: string | undefined,
   ): Promise<Comment> {
     if (task.leadRunId !== runId) throw new RequestError(403, 'only the Task Lead posts a round')
-    if (task.stage !== 'clarify') {
+    if (!hasClarifyRounds(task.stage)) {
       throw new RequestError(
         409,
         `rounds are for Clarify, and ${task.displayId} is in ${stageTitle(task.stage)}`,
@@ -5760,7 +5783,7 @@ export function createTasks(options: {
     input: SizeCheckInput,
     supersedes: string | undefined,
   ): Promise<Comment> {
-    if (task.stage !== 'clarify') {
+    if (!hasClarifyRounds(task.stage)) {
       throw new RequestError(
         409,
         `the size check is for Clarify, and ${task.displayId} is in ${stageTitle(task.stage)}`,
@@ -5794,7 +5817,7 @@ export function createTasks(options: {
     input: ProposalInput,
     supersedes: string | undefined,
   ): Promise<Comment> {
-    if (task.stage !== 'clarify') {
+    if (!hasClarifyRounds(task.stage)) {
       throw new RequestError(
         409,
         `a split is proposed at Clarify, and ${task.displayId} is in ${stageTitle(task.stage)}`,
@@ -6564,10 +6587,11 @@ export function createTasks(options: {
         : given
     if (task.preparation === 'preparing') {
       checkPreparationWorkflow(resolution.workflow)
-      if (next === 'work') return holdBeforeWork(task, resolution)
+      if (handsOff(next)) return holdBeforeWork(task, resolution)
       if (
         next === 'done' ||
-        resolution.workflow.order.indexOf(next) > resolution.workflow.order.indexOf('work')
+        resolution.workflow.order.indexOf(next) >
+          resolution.workflow.order.indexOf(stageWith('handOff'))
       )
         throw new RequestError(409, 'Preparation must stop before Work')
     }
@@ -6579,23 +6603,23 @@ export function createTasks(options: {
     const choice = effectiveLead(find(task.id))
     if (next !== 'done' && waitingLead && choice && !sameChoice(choice, waitingLead))
       store.setLeadRestartPending(task.id, true)
-    if (task.stage === 'merge' && next !== 'done' && next !== 'cleanup') {
+    if (mergesHere(task.stage) && next !== 'done' && !isCleanup(next)) {
       for (const repo of task.repos) {
         if (repo.pullRequest?.signedOff !== undefined) {
           store.pullRequestSignedOff(task.id, repo.name, undefined)
         }
       }
     }
-    if (next === 'validate') pullRequestWork(task.id, 'first')
-    if (next === 'merge' && !signedOff) {
+    if (validates(next)) pullRequestWork(task.id, 'first')
+    if (mergesHere(next) && !signedOff) {
       pullRequestWork(task.id, 'ready')
       pullRequestWork(task.id, 'signoff')
     }
     if (next === 'done') {
       inBackground(`finish ${task.displayId}`, () => finishing(task, resolution))
-    } else if (next === 'cleanup' && message !== undefined) {
+    } else if (isCleanup(next) && message !== undefined) {
       await cleanupThen(task.id, resolution.workflow, message)
-    } else if (next === 'validate' && message !== undefined) {
+    } else if (validates(next) && message !== undefined) {
       setChecking(task.id, true)
       inBackground(`run ${task.displayId}’s Checks`, () =>
         validation.enter(task.id, message, checked),
@@ -6608,7 +6632,7 @@ export function createTasks(options: {
       )
       if (!told && baseNote !== undefined) baseNotes.set(task.id, baseNote)
     } else if (baseNote !== undefined) baseNotes.set(task.id, baseNote)
-    if (next === 'merge') {
+    if (mergesHere(next)) {
       const { workflow } = await gateWorkflow(find(task.id), { fetch: false })
       if (tedMerges(moved, workflow)) startMerging(moved, workflow)
       watchMerge(task.id)
@@ -6708,7 +6732,7 @@ export function createTasks(options: {
 
   function resumedDuringCleanup(taskId: string, workflow: ResolvedWorkflow, message: string) {
     const task = store.getTask(taskId)
-    if (task?.stage !== 'cleanup' || task.archived || find(taskId).stopped) return
+    if (!task || !isCleanup(task.stage) || task.archived || find(taskId).stopped) return
     if (pendingCleanupCommands(taskId, workflow).length === 0) return
     inBackground(`run ${task.displayId}’s Cleanup commands again`, async () => {
       if (store.queue().some((q) => q.id === taskId)) store.dequeue(taskId)
@@ -6731,7 +6755,7 @@ export function createTasks(options: {
     ran: readonly CleanupCommandResult[],
   ): Promise<void> {
     const task = store.getTask(taskId)
-    if (task?.stage !== 'cleanup' || task.archived || task.stopped) return
+    if (!task || !isCleanup(task.stage) || task.archived || task.stopped) return
     const steps = cleanupSteps(workflow)
     const reports = new Set(store.cleanupReports(taskId).map((r) => r.step))
     const instructionsLeft = steps.filter(
@@ -6742,7 +6766,7 @@ export function createTasks(options: {
         await untilFree(taskId)
         await holding(find(taskId), async () => {
           const current = find(taskId)
-          if (current.stage !== 'cleanup' || current.stopped || current.archived) return
+          if (!isCleanup(current.stage) || current.stopped || current.archived) return
           await finishCleanup(current, await taskWorkflow(current, { fetch: false }))
         })
       })
@@ -6901,7 +6925,7 @@ export function createTasks(options: {
       const current = find(task.id)
       const open = store.getComment(comment.id)
       if (open?.answer) throw new RequestError(409, 'this request has already been answered')
-      if (current.stage !== 'cleanup')
+      if (!isCleanup(current.stage))
         throw new RequestError(409, `${current.displayId} isn’t in Cleanup any more`)
       const steps = comment.cleanupFailure?.steps ?? []
       const resolution = await taskWorkflow(current, { fetch: true })
@@ -6975,7 +6999,7 @@ export function createTasks(options: {
 
   function lastChangesRequested(task: Task): string {
     const since = visitStart(task)
-    const canceled = task.stage === 'merge' ? store.mergeHistory(task.id).canceledAt : undefined
+    const canceled = mergesHere(task.stage) ? store.mergeHistory(task.id).canceledAt : undefined
     return store
       .listComments(task.id)
       .flatMap((c) =>
@@ -7011,7 +7035,7 @@ export function createTasks(options: {
     const count = store.sendBackCount(task.id, from)
     if (counted && limit !== undefined && count >= limit) {
       const times = `${count} ${count === 1 ? 'time' : 'times'}`
-      if (from === 'validate') {
+      if (validates(from)) {
         if (
           workflow.settings.stages.validate?.loop_check !== false &&
           (await startLoopCheck(task, {
@@ -7066,7 +7090,7 @@ export function createTasks(options: {
         request,
       }
     }
-    const loopAt = from === 'validate' ? workflow.settings.stages.validate?.loop_check : undefined
+    const loopAt = validates(from) ? workflow.settings.stages.validate?.loop_check : undefined
     if (counted && typeof loopAt === 'number' && count + 1 === loopAt) {
       const started = await startLoopCheck(task, {
         to,
@@ -7085,13 +7109,13 @@ export function createTasks(options: {
     }
     const cause: SendBackCause | undefined =
       options.cause ??
-      (from === 'merge'
+      (mergesHere(from)
         ? undefined
         : checkRunId !== undefined
           ? 'check'
           : !counted
             ? 'human'
-            : from === 'validate'
+            : validates(from)
               ? 'review'
               : undefined)
     const sentBack = store.recordSendBack({
@@ -7106,7 +7130,7 @@ export function createTasks(options: {
       ...(cause !== undefined && { cause }),
       ...(options.conflict !== undefined && { conflict: options.conflict }),
     })
-    if (from === 'review') store.resetSendBacks(task.id, 'validate')
+    if (signsOffCode(from)) store.resetSendBacks(task.id, stageWith('validates'))
     const moved = await move(task, resolution, to, backMessage(workflow, to, from, sentBack))
     return { task: moved, message: `${task.displayId} moved back to ${stageTitle(to)}` }
   }
@@ -7150,7 +7174,7 @@ export function createTasks(options: {
     if (
       !conflictOnly &&
       (since.length === 0 ||
-        !since.every((b) => inSeries.has(b.id) && b.to === 'work') ||
+        !since.every((b) => inSeries.has(b.id) && handsOff(b.to)) ||
         since.every((b) => b.checkRunId !== undefined))
     ) {
       return full
@@ -7357,7 +7381,7 @@ export function createTasks(options: {
     runId: string,
     severity: FindingSeverity | undefined,
   ): Promise<void> {
-    const round = store.sendBackCount(task.id, 'validate') + 1
+    const round = store.sendBackCount(task.id, stageWith('validates')) + 1
     const from = p1OnlyAt(workflow, round)
     if (from !== undefined && lastChangesRequested(task) === '') {
       if (severity === undefined) {
@@ -7381,7 +7405,7 @@ export function createTasks(options: {
     sendBack: SendBack,
   ): string {
     const message = backStageMessage(workflow, to, from, sendBack.findings)
-    if (from !== 'validate' || to !== 'work' || sendBack.round === undefined) return message
+    if (!validates(from) || !handsOff(to) || sendBack.round === undefined) return message
     return [
       message,
       workRoundText({
@@ -7393,11 +7417,11 @@ export function createTasks(options: {
   }
 
   function countedValidateSendBacks(taskId: string) {
-    const count = store.sendBackCount(taskId, 'validate')
+    const count = store.sendBackCount(taskId, stageWith('validates'))
     if (count === 0) return []
     return store
       .listSendBacks(taskId)
-      .filter((b) => b.from === 'validate' && b.counted)
+      .filter((b) => validates(b.from) && b.counted)
       .slice(-count)
   }
 
@@ -7522,7 +7546,7 @@ export function createTasks(options: {
     const { workflow } = resolution
     store.finishLoopCheck(check.runId, verdict, reason)
     const task = find(check.taskId)
-    if (task.stage !== 'validate' || task.archived) return
+    if (!validates(task.stage) || task.archived) return
     const atLimit = check.limit !== undefined && check.round > check.limit
     if (verdict === 'converging' && !atLimit) {
       const sentBack = store.recordSendBack({
@@ -7541,7 +7565,7 @@ export function createTasks(options: {
         resolution,
         check.to,
         [
-          backMessage(workflow, check.to, 'validate', sentBack),
+          backMessage(workflow, check.to, stageWith('validates'), sentBack),
           `# Loop check\n\nTED checked Validate’s ${check.round} rounds of Findings and the changes between them. Verdict: converging. ${reason}`,
         ].join('\n\n'),
       )
@@ -7581,7 +7605,7 @@ export function createTasks(options: {
     const before = entries[entries.findLastIndex((e) => e.stage === task.stage) - 1]
     const checkRun =
       checkRuns.filter((r) => r.trigger === 'validate' && r.startedAt >= since).at(-1) ??
-      (before?.stage === 'work'
+      (before !== undefined && handsOff(before.stage)
         ? checkRuns.findLast(
             (r) =>
               r.trigger === 'hand-off' &&
@@ -8563,7 +8587,9 @@ export function createTasks(options: {
       const planned = find(task.id).markers.some((m) => m.kind === 'needs-planning')
       const stage = resolution.workflow.next('backlog')
       if (planned) {
-        const again = resolution.workflow.stages.includes('clarify') ? 'clarify' : stage
+        const again = resolution.workflow.stages.includes(stageWith('clarifyRounds'))
+          ? stageWith('clarifyRounds')
+          : stage
         store.startAfterPlanning(task.id, again, entryFor(resolution, again as AgentStageId), {
           prepare,
         })
@@ -8580,7 +8606,7 @@ export function createTasks(options: {
     await execution.local(taskId)
     const task = find(taskId)
     const factory = factoryOf(task)
-    if (task.stage === 'cleanup') {
+    if (isCleanup(task.stage)) {
       const { workflow } = await taskWorkflow(task, { fetch: false })
       if (pendingCleanupCommands(task.id, workflow).length > 0) {
         store.dequeue(task.id)
@@ -8590,7 +8616,7 @@ export function createTasks(options: {
       }
     }
     if (task.repos.some((r) => !r.removed)) {
-      if (task.stage === 'work' && store.heldBeforeWork(task.id)) {
+      if (handsOff(task.stage) && store.heldBeforeWork(task.id)) {
         const note = await adoptLatestBase(task)
         if (note !== undefined) baseNotes.set(task.id, note)
       }
@@ -9314,7 +9340,7 @@ export function createTasks(options: {
     const task = store.getTask(run.taskId)
     if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return undefined
     if (task.stage === 'backlog' || task.stage === 'done') return undefined
-    if (task.stage === 'merge' && !leadPending(store, task.id)) return undefined
+    if (mergesHere(task.stage) && !leadPending(store, task.id)) return undefined
     return task
   }
 
@@ -9411,7 +9437,7 @@ export function createTasks(options: {
     const task = store.getTask(run.taskId)
     if (!task || task.leadRunId !== run.id || task.archived || task.stopped) return
     if (task.stage === 'backlog' || task.stage === 'done') return
-    if (task.stage === 'merge' && !leadPending(store, task.id)) return
+    if (mergesHere(task.stage) && !leadPending(store, task.id)) return
     if (inFlight.is(task.id, 'transition')) return
     if (tedWorkingFor(task, run)) {
       watchIdle(run)
@@ -9542,7 +9568,7 @@ export function createTasks(options: {
                 !task.stopped &&
                 !task.archived &&
                 task.stage !== 'done' &&
-                task.stage !== 'merge' &&
+                !mergesHere(task.stage) &&
                 openRequests(task.id).length === 0)),
         )
         .map((comment) => ({
@@ -9756,7 +9782,7 @@ export function createTasks(options: {
     apps: startSetupApps,
     fix: applyValidationFix,
     checkFix: (resolution, task) =>
-      checkBack(resolution.workflow, task.stage as AgentStageId, 'work'),
+      checkBack(resolution.workflow, task.stage as AgentStageId, stageWith('handOff')),
     holding,
     background: inBackground,
   })
@@ -9846,7 +9872,7 @@ export function createTasks(options: {
     })
   validation.recover()
   for (const task of store.listTasks()) {
-    if (task.stage !== 'cleanup' || find(task.id).stopped || task.archived) continue
+    if (!isCleanup(task.stage) || find(task.id).stopped || task.archived) continue
     if (openCleanupFailure(task.id)) continue
     setChecking(task.id, true)
     inBackground(`run ${task.displayId}’s Cleanup commands again`, async () => {
@@ -10011,7 +10037,7 @@ export function createTasks(options: {
     }
     if (
       event.type === 'task-updated' &&
-      (event.task.stage === 'done' || event.task.stage === 'cleanup')
+      (event.task.stage === 'done' || isCleanup(event.task.stage))
     )
       wakeSoon()
     if (event.type === 'task-updated' && watch) {
@@ -10179,11 +10205,11 @@ export function createTasks(options: {
     let repair = false
     if (target && target !== 'done') {
       const workflow = (await taskWorkflow(find(task.id), { fetch: false })).workflow
-      const validate = workflow.order.indexOf('validate')
+      const validate = workflow.order.indexOf(stageWith('validates'))
       repair =
         validate >= 0 &&
         workflow.order.indexOf(target as AgentStageId) <= validate &&
-        task.stage !== 'validate'
+        !validates(task.stage)
     }
     if (repair) {
       if (store.failures.list(task.id).length > 0) reads.forget()
@@ -10228,7 +10254,7 @@ export function createTasks(options: {
       await finishRepairWait(task.id)
       return failures.get(find(task.id), id)
     }
-    if (!['validate', 'merge'].includes(task.stage) || task.archived || task.stopped)
+    if (!(validates(task.stage) || mergesHere(task.stage)) || task.archived || task.stopped)
       throw new RequestError(409, 'repair decisions require an active Validate or Merge Task')
     if (inFlight.is(task.id, 'checking'))
       throw new RequestError(409, 'wait for the running Checks before choosing a repair')
@@ -10833,7 +10859,7 @@ export function createTasks(options: {
       failureLead(ref, caller, async (task) => {
         const value = failures.get(task, id)
         const repairedMergeFailure =
-          task.stage === 'merge' &&
+          mergesHere(task.stage) &&
           ['finding', 'post-rebase-check'].includes(value.source.kind) &&
           value.resolutions.at(-1)?.resolution === 'repair' &&
           value.repairProgress?.some((p) => p.requestId === value.resolutions.at(-1)?.requestId)
@@ -10851,7 +10877,7 @@ export function createTasks(options: {
           !repairedMergeFailure &&
           (!value.validation ||
             !['finding', 'factory-check', 'post-rebase-check'].includes(value.source.kind) ||
-            task.stage !== 'validate')
+            !validates(task.stage))
         )
           throw new RequestError(
             409,
@@ -11465,7 +11491,7 @@ export function createTasks(options: {
         return set
       }
       const { task, runId } = taskLead(ref, caller, 'picks the Clarify depth')
-      if (task.stage !== 'clarify') {
+      if (!hasClarifyRounds(task.stage)) {
         throw new RequestError(
           409,
           `pick the Clarify depth at Clarify; ${task.displayId} is in ${stageTitle(task.stage)}`,
@@ -11600,7 +11626,7 @@ export function createTasks(options: {
         if (task.stage === 'backlog' || task.stage === 'done') {
           throw new RequestError(409, `${task.displayId} isn’t in a Stage that has an outcome`)
         }
-        if (outcome.outcome === 'advance' && task.stage === 'merge') {
+        if (outcome.outcome === 'advance' && mergesHere(task.stage)) {
           return advanceMerge(task.id, outcome.skip === true)
         }
         if (inFlight.is(task.id, 'checking')) {
@@ -11610,18 +11636,18 @@ export function createTasks(options: {
           )
         }
         if (outcome.outcome !== 'ask') {
-          if (outcome.judged !== undefined && task.stage !== 'validate') {
+          if (outcome.judged !== undefined && !validates(task.stage)) {
             throw new RequestError(400, 'only Validate reports the review and visual results')
           }
           if (
             outcome.outcome === 'back' &&
             outcome.severity !== undefined &&
-            task.stage !== 'validate'
+            !validates(task.stage)
           ) {
             throw new RequestError(400, 'only Validate declares a Finding’s severity')
           }
           if (outcome.outcome === 'advance' && outcome.design) {
-            if (task.stage !== 'design') {
+            if (!postsDesignReview(task.stage)) {
               throw new RequestError(400, 'only Design posts a design review')
             }
             checkOwnFiles(task, designFiles(outcome.design))
@@ -11631,7 +11657,7 @@ export function createTasks(options: {
           }
           if (
             task.setup &&
-            task.stage === 'design' &&
+            postsDesignReview(task.stage) &&
             outcome.outcome === 'advance' &&
             outcome.skip !== true &&
             !outcome.design?.setup
@@ -11678,7 +11704,7 @@ export function createTasks(options: {
               request,
             }
           }
-          if (stage === 'cleanup' && outcome.outcome === 'back')
+          if (isCleanup(stage) && outcome.outcome === 'back')
             throw new RequestError(409, cleanupNoBack)
           const reads = worktreeReads()
           const resolution =
@@ -11688,16 +11714,15 @@ export function createTasks(options: {
           const { workflow } = resolution
           if (outcome.outcome === 'advance')
             await requireObligations(current, undefined, workflow.next(stage), false, reads)
-          const changesAsked =
-            (stage === 'review' || stage === 'merge') && lastChangesRequested(current) !== ''
+          const changesAsked = bindsApproval(stage) && lastChangesRequested(current) !== ''
           if (outcome.outcome === 'back') {
-            if (stage === 'merge' && outcome.to !== 'work' && outcome.to !== 'design') {
+            if (mergesHere(stage) && !handsOff(outcome.to) && !postsDesignReview(outcome.to)) {
               throw new RequestError(
                 409,
                 'Merge sends a Task back only to Work or Design; the fix passes Validate again on its way back',
               )
             }
-            if (changesAsked && outcome.to !== 'work' && outcome.to !== 'design') {
+            if (changesAsked && !handsOff(outcome.to) && !postsDesignReview(outcome.to)) {
               throw new RequestError(
                 409,
                 `the human asked for changes at the ${stageTitle(stage)} sign-off; send the Task back to Work or Design`,
@@ -11706,12 +11731,12 @@ export function createTasks(options: {
             const declared =
               outcome.cause === 'base-conflict' &&
               !changesAsked &&
-              outcome.to === 'work' &&
-              (stage === 'validate' || stage === 'review')
+              handsOff(outcome.to) &&
+              (validates(stage) || signsOffCode(stage))
             if (declared) checkBack(workflow, stage, outcome.to)
             const conflict = declared ? await baseConflict(current) : undefined
             let failedCheck: string | undefined
-            if (stage === 'validate') {
+            if (validates(stage)) {
               const blockers = conflict ? [] : (await failures.obligations(current)).blockers
               for (const value of store.failures
                 .list(task.id)
@@ -11761,12 +11786,12 @@ export function createTasks(options: {
               `the human asked for changes at the ${stageTitle(stage)} sign-off; send the Task back to Work or Design with \`ted outcome back --to work|design --findings <file>\``,
             )
           }
-          if (stage === 'cleanup') return finishCleanup(current, resolution)
+          if (isCleanup(stage)) return finishCleanup(current, resolution)
           if (
-            stage === 'work' ||
-            ((stage === 'validate' || stage === 'review') &&
-              workflow.stages.includes('work') &&
-              workflow.order.indexOf('work') < workflow.order.indexOf(stage))
+            handsOff(stage) ||
+            ((validates(stage) || signsOffCode(stage)) &&
+              workflow.stages.includes(stageWith('handOff')) &&
+              workflow.order.indexOf(stageWith('handOff')) < workflow.order.indexOf(stage))
           ) {
             const conflict = await baseConflict(current)
             reads.forget()
@@ -11775,9 +11800,9 @@ export function createTasks(options: {
               throw new RequestError(409, conflictRefusal(current, conflict, manyRepos(current)))
             }
           }
-          const moved = stage === 'validate' ? await movedSinceReview(current) : undefined
+          const moved = validates(stage) ? await movedSinceReview(current) : undefined
           if (moved !== undefined) throw new RequestError(409, moved)
-          const waiting = stage === 'clarify' ? openRound(current) : undefined
+          const waiting = hasClarifyRounds(stage) ? openRound(current) : undefined
           if (waiting) {
             throw new RequestError(
               409,
@@ -11785,7 +11810,7 @@ export function createTasks(options: {
             )
           }
           if (outcome.skip === true) {
-            if (!skippableStages.includes(stage)) {
+            if (!maySkip(stage)) {
               throw new RequestError(
                 409,
                 `only Clarify and Design can skip themselves; ${stageTitle(stage)} can’t`,
@@ -11810,7 +11835,7 @@ export function createTasks(options: {
             })
           }
           const gate = gateOn(current, workflow, stage) && outcome.skip !== true
-          if (!gate && stage === 'work' && workflow.next(stage) === 'validate') {
+          if (!gate && handsOff(stage) && validates(workflow.next(stage))) {
             await execution.local(task.id)
             const heads = await liveHeads(current)
             const handOff = worktreeReads()
@@ -11850,7 +11875,7 @@ export function createTasks(options: {
               })
             }
             const next = workflow.next(stage) as AgentStageId | 'done'
-            if (stage === 'validate') {
+            if (validates(stage)) {
               judge(current, 'passed', outcome.judged)
               pullRequestWork(task.id, 'again')
             }
@@ -11863,7 +11888,9 @@ export function createTasks(options: {
             )
             return { task: moved, message: `${task.displayId} moved to ${stageTitle(next)}` }
           }
-          const name = stage === 'clarify' ? 'Clarify sign-off' : `${stageTitle(stage)} sign-off`
+          const name = hasClarifyRounds(stage)
+            ? 'Clarify sign-off'
+            : `${stageTitle(stage)} sign-off`
           if (openGateRequest(current)) {
             throw new RequestError(409, `${task.displayId} is already waiting at the ${name}`)
           }
@@ -11875,24 +11902,25 @@ export function createTasks(options: {
               `write the Task brief with \`ted brief write\` before passing the ${name}`,
             )
           }
-          if (stage === 'validate') judge(current, 'passed', outcome.judged)
+          if (validates(stage)) judge(current, 'passed', outcome.judged)
           const leadsToMerge =
-            stage !== 'design' &&
-            stage !== 'clarify' &&
-            (workflow.next(stage) === 'merge' || workflow.next(stage) === 'done')
+            !postsDesignReview(stage) &&
+            !hasClarifyRounds(stage) &&
+            (mergesHere(workflow.next(stage)) || workflow.next(stage) === 'done')
           const changes = leadsToMerge
             ? await signOffChanges(current, outcome.changes?.trim())
             : undefined
           const design = outcome.design
-          const requestedFor =
-            stage === 'review' ? await requestCommit(current, workflow) : undefined
+          const requestedFor = signsOffCode(stage)
+            ? await requestCommit(current, workflow)
+            : undefined
           const kept = workflow.overnightKept
           if (kept?.stages.includes(stage) && !gateKept(current)) {
             store.gateKeptOvernight(task.id, stage, kept.reason)
           }
           const request = store.postComment({
             taskId: task.id,
-            kind: stage === 'design' ? 'review' : 'signoff',
+            kind: postsDesignReview(stage) ? 'review' : 'signoff',
             title: design?.title ?? briefGoal(brief.text) ?? name,
             body: brief.text,
             author: { kind: 'run', runId },
@@ -11903,8 +11931,8 @@ export function createTasks(options: {
           if (requestedFor) {
             store.gateRequestedFor(task.id, request.id, requestedFor.name, requestedFor.commit)
           }
-          if (stage === 'validate') pullRequestWork(task.id, 'again')
-          if (stage === 'review' || workflow.next(stage) === 'merge') {
+          if (validates(stage)) pullRequestWork(task.id, 'again')
+          if (signsOffCode(stage) || mergesHere(workflow.next(stage))) {
             pullRequestWork(task.id, 'ready')
           }
           return {
@@ -11939,7 +11967,7 @@ export function createTasks(options: {
       const { task, runId } = taskLead(ref, caller, 'reports Cleanup steps')
       return holding(task, async () => {
         const current = find(task.id)
-        if (current.stage !== 'cleanup')
+        if (!isCleanup(current.stage))
           throw new RequestError(409, `${current.displayId} isn’t in Cleanup`)
         if (openCleanupFailure(current.id))
           throw new RequestError(
@@ -11964,7 +11992,7 @@ export function createTasks(options: {
     async setPullRequestTitle(ref, caller, input) {
       const does = 'titles its pull request'
       const { task } = taskLead(ref, caller, does)
-      if (task.stage !== 'merge') {
+      if (!mergesHere(task.stage)) {
         throw new RequestError(
           409,
           `${task.displayId} is in ${task.stage}; the pull request title is written at Merge`,
@@ -11991,7 +12019,7 @@ export function createTasks(options: {
         throw new RequestError(409, `${task.displayId} has no open pull request to title`)
       }
       const current = taskLead(ref, caller, does).task
-      if (current.stage !== 'merge' || !leadPending(store, current.id)) {
+      if (!mergesHere(current.stage) || !leadPending(store, current.id)) {
         throw new RequestError(
           409,
           `${current.displayId}’s Merge work is already reported; write the title before \`ted outcome advance\``,
@@ -12546,8 +12574,6 @@ export function createTasks(options: {
   }
 }
 
-const skippableStages: readonly StageId[] = ['clarify', 'design']
-
 const mergeOffMessage =
   'Merge is off for this Factory: the human merges the pull requests on GitHub, and TED moves the Task to Done when it sees the merge. Check that each pull request’s description still matches what the Task does, update the Task brief, then run `ted outcome advance`. Don’t commit, push or merge.'
 
@@ -12627,15 +12653,15 @@ function storedDesign({ title: _, ...design }: DesignSubmission): DesignReview {
 }
 
 function gateName(comment: Comment): string {
-  if (comment.stage === 'clarify') return 'Clarify sign-off'
+  if (hasClarifyRounds(comment.stage ?? '')) return 'Clarify sign-off'
   return `${stageTitle(comment.stage ?? '')} sign-off`
 }
 
 function gateButtons(workflow: ResolvedWorkflow, stage: StageId): NonNullable<Comment['gate']> {
-  if (stage === 'merge') return { approveLabel: 'Merge' }
-  if (stage === 'clarify') return { approveLabel: 'Approve', caption: clarifySignoffCaption }
-  if (stage !== 'review') return { approveLabel: 'Approve' }
-  if (!workflow.stages.includes('merge')) {
+  if (mergesHere(stage)) return { approveLabel: 'Merge' }
+  if (hasClarifyRounds(stage)) return { approveLabel: 'Approve', caption: clarifySignoffCaption }
+  if (!signsOffCode(stage)) return { approveLabel: 'Approve' }
+  if (!workflow.stages.includes(stageWith('merges'))) {
     return {
       approveLabel: 'Approve',
       caption: 'Merge is off for this Factory. You’ll merge on GitHub.',

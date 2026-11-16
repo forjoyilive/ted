@@ -1,16 +1,14 @@
-import type { AgentStageId } from '@ted/protocol'
+import { stageWith } from '@ted/protocol/stage'
 import { RequestError } from '../errors.ts'
 import type { ResolvedWorkflow } from '../workflow/resolve.ts'
 
 export function checkPreparationWorkflow(workflow: ResolvedWorkflow): void {
-  const work = workflow.order.indexOf('work')
+  const work = workflow.order.indexOf(stageWith('handOff'))
   if (
-    !workflow.stages.includes('work') ||
+    !workflow.stages.includes(stageWith('handOff')) ||
     work < 0 ||
-    ['clarify', 'design'].some(
-      (stage) =>
-        workflow.stages.includes(stage as AgentStageId) &&
-        workflow.order.indexOf(stage as AgentStageId) > work,
+    [stageWith('clarifyRounds'), stageWith('designReview')].some(
+      (stage) => workflow.stages.includes(stage) && workflow.order.indexOf(stage) > work,
     )
   )
     throw new RequestError(

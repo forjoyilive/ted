@@ -10,6 +10,7 @@ import type {
   ValidationSnapshot,
 } from '@ted/protocol'
 import { trackerName } from '@ted/protocol'
+import { validates } from '@ted/protocol/stage'
 import { diffTexts } from '../agents/diff.ts'
 import type { LoggedEvent, TedStore } from '../store/index.ts'
 import { type OvernightGuard, overnightGuardTexts } from '../workflow/resolve.ts'
@@ -586,7 +587,7 @@ export function threadEvents(
         break
       case 'v2.TaskSentBack': {
         sentBackTo = text(data.to)
-        const fromValidate = text(data.from) === 'validate'
+        const fromValidate = validates(text(data.from))
         const judgedNow = fromValidate ? judged : undefined
         judged = undefined
         const severity =

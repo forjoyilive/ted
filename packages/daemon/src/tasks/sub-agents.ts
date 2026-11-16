@@ -13,6 +13,7 @@ import type {
   TaskRepo,
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
+import { validates } from '@ted/protocol/stage'
 import { AgentDisabledError } from '../agent-eligibility.ts'
 import type { Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
@@ -301,7 +302,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       .reviewers(task.id)
       .find(
         (r) =>
-          r.purpose === 'review' && r.stage === 'validate' && r.at >= since && holdsReview(r.runId),
+          r.purpose === 'review' && validates(r.stage) && r.at >= since && holdsReview(r.runId),
       )?.runId
   }
 
@@ -460,11 +461,12 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
             'the reviewer’s Provider, model and effort come from the `reviewer` setting; leave them out',
           )
         }
-        if (task.stage === 'validate') await deps.prepareExecution(task)
-        const planned =
-          task.stage === 'validate' ? await deps.planReview(task, input.prompt) : undefined
+        if (validates(task.stage)) await deps.prepareExecution(task)
+        const planned = validates(task.stage)
+          ? await deps.planReview(task, input.prompt)
+          : undefined
         const choice = await deps.reviewerFor(task)
-        const earlier = task.stage === 'validate' ? validateReviewer(task) : undefined
+        const earlier = validates(task.stage) ? validateReviewer(task) : undefined
         if (earlier !== undefined) {
           throw new RequestError(
             409,
@@ -504,7 +506,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
         const started = store.getRun(request.id)
         return started ? describe(started) : describeRequest(request)
       }
-      if (task.stage === 'validate' && !(await deps.validateSubAgents(task))) {
+      if (validates(task.stage) && !(await deps.validateSubAgents(task))) {
         throw new RequestError(409, subAgentRefusal)
       }
       const fallback = await deps.leadFor(task)
@@ -585,7 +587,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       const run = store.getRun(runId)
       return run !== undefined && run.failure === undefined && finalMessage(run) !== undefined
     },
-    visitReviewer: (task) => (task.stage === 'validate' ? validateReviewer(task) : undefined),
+    visitReviewer: (task) => (validates(task.stage) ? validateReviewer(task) : undefined),
     requestForTed(task, { name, prompt, choice, purpose }) {
       const leadRunId = task.leadRunId
       const leadRun = leadRunId === undefined ? undefined : store.getRun(leadRunId)

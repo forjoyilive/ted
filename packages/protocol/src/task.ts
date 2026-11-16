@@ -7,22 +7,10 @@ import type { ValidationSnapshot } from './failures.ts'
 import type { LinearTeam } from './linear.ts'
 import type { AgentKind, RunState } from './run.ts'
 import type { BusyHold } from './slots.ts'
+import type { AgentStageId, StageId } from './stage.ts'
 import { RequestValidationError } from './validation.ts'
 
-export const agentStageIds = [
-  'intake',
-  'clarify',
-  'design',
-  'work',
-  'validate',
-  'review',
-  'merge',
-  'cleanup',
-] as const
-
-export type AgentStageId = (typeof agentStageIds)[number]
-
-export type StageId = 'backlog' | AgentStageId | 'done'
+export { type AgentStageId, agentStageIds, clarifyIsOver, type StageId } from './stage.ts'
 
 export const priorities = ['urgent', 'high', 'medium', 'low', 'none'] as const
 
@@ -33,10 +21,6 @@ export const clarifyDepths = ['auto', 'none', 'few', 'grilling'] as const
 export type ClarifyDepth = (typeof clarifyDepths)[number]
 
 export type ClarifyDepthChooser = 'human' | 'task-lead'
-
-export function clarifyIsOver(stage: StageId): boolean {
-  return stage !== 'backlog' && stage !== 'intake' && stage !== 'clarify'
-}
 
 export interface SetClarifyDepthRequest {
   depth: ClarifyDepth

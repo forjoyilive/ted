@@ -17,6 +17,14 @@ import {
   sizeChoices,
   validateFailureChoices,
 } from '@ted/protocol'
+import {
+  bindsApproval,
+  handsOff,
+  hasClarifyRounds,
+  mergesHere,
+  stageWith,
+  validates,
+} from '@ted/protocol/stage'
 import type { Simulators } from '../apps/simulators.ts'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
@@ -266,7 +274,7 @@ export function createRequestAnswers(
       const current = find(task.id)
       if (store.getComment(comment.id)?.answer)
         throw new RequestError(409, 'this request has already been answered')
-      if (current.stage !== 'merge' || !leadPending(store, task.id))
+      if (!mergesHere(current.stage) || !leadPending(store, task.id))
         throw new RequestError(
           409,
           `Merge anyway applies only while ${task.displayId} is at Merge and its Merge work isn’t done`,
@@ -385,7 +393,7 @@ export function createRequestAnswers(
     if (!planner) throw new RequestError(503, 'Planning chats aren’t ready yet. Try again.')
     return holding(task, async () => {
       unanswered(comment)
-      if (find(task.id).stage !== 'clarify') {
+      if (!hasClarifyRounds(find(task.id).stage)) {
         throw new RequestError(409, `${task.displayId} has left Clarify`)
       }
       const plan = await planner.fromTask({ taskId: task.id, sizeCheckId: comment.id, text })
@@ -410,7 +418,7 @@ export function createRequestAnswers(
   ): Promise<Comment | undefined> {
     const ask = store.sendBackAsk(comment.id)
     if (!ask) throw new RequestError(409, 'this send-back request has no recorded decision')
-    if (ask.from === 'work' && ask.to === 'work' && choice === diagnoseChoice) {
+    if (handsOff(ask.from) && handsOff(ask.to) && choice === diagnoseChoice) {
       const current = find(task.id)
       const enterValidate = await leaveWorkToDiagnose(current)
       const answered = answerRequest(task, comment, {
@@ -430,15 +438,16 @@ export function createRequestAnswers(
     }
     if (!ask.loop || choice === undefined) return undefined
     const current = find(task.id)
-    if (current.stage !== 'validate') return undefined
+    if (!validates(current.stage)) return undefined
     const reads = worktreeReads()
     const resolution = await gateWorkflow(current, { reads })
     const { workflow } = resolution
-    const next = workflow.next('validate') as AgentStageId | 'done'
+    const next = workflow.next(stageWith('validates')) as AgentStageId | 'done'
     const choices = loopChoices(workflow)
     if (!choices.includes(choice)) return undefined
-    if (choice === tryAgainChoice) checkBack(workflow, 'validate', ask.to)
-    if (choice === backToDesignChoice) checkBack(workflow, 'validate', 'design')
+    if (choice === tryAgainChoice) checkBack(workflow, stageWith('validates'), ask.to)
+    if (choice === backToDesignChoice)
+      checkBack(workflow, stageWith('validates'), stageWith('designReview'))
     if (choice !== tryAgainChoice && choice !== backToDesignChoice)
       await requireObligations(current, undefined, reads)
     const added = text === '' ? '' : `\n\nThe human added:\n\n${text}`
@@ -465,7 +474,7 @@ export function createRequestAnswers(
         current,
         resolution,
         ask.to,
-        `The human chose Try again, so Validate’s count of send-backs starts over.${added}\n\n${backMessage(workflow, ask.to, 'validate', sentBack)}`,
+        `The human chose Try again, so Validate’s count of send-backs starts over.${added}\n\n${backMessage(workflow, ask.to, stageWith('validates'), sentBack)}`,
       )
     } else if (choice === backToDesignChoice) {
       store.recordSendBack({
@@ -479,8 +488,8 @@ export function createRequestAnswers(
       await move(
         current,
         resolution,
-        'design',
-        `The human sent this Task back to Design from Validate.${added}\n\n${backStageMessage(workflow, 'design', 'validate', ask.findings)}`,
+        stageWith('designReview'),
+        `The human sent this Task back to Design from Validate.${added}\n\n${backStageMessage(workflow, stageWith('designReview'), stageWith('validates'), ask.findings)}`,
       )
     } else {
       pullRequestWork(task.id, 'again')
@@ -768,7 +777,7 @@ export function createRequestAnswers(
           { kind: 'changes-requested', at, text },
           sendDrafts ? drafts(task.id) : undefined,
         )
-        const picksStage = comment.stage === 'review' || comment.stage === 'merge'
+        const picksStage = bindsApproval(comment.stage ?? '')
         const lines = linesText(answered)
         await deliverAnswer(
           task,
@@ -779,7 +788,7 @@ export function createRequestAnswers(
             ...(lines !== undefined ? [lines] : []),
             picksStage
               ? `Decide whether the fix belongs in Work or in Design, write the human’s request into a Findings file, and send the Task back with \`ted outcome back --to work --findings <file>\` (or \`--to design\`). The fix passes Validate again and comes back with a new sign-off.`
-              : comment.stage === 'clarify'
+              : hasClarifyRounds(comment.stage ?? '')
                 ? 'The Task stays in Clarify. Ask another round about it with `ted ask --round <file>`. When it’s answered, write the Task brief again with `ted brief write`, then run `ted outcome advance` for a new sign-off.'
                 : `The Task stays in ${stageTitle(comment.stage ?? '')}. Make the changes, write the Task brief again with \`ted brief write\`, then run \`ted outcome advance\`.`,
           ].join('\n\n'),
@@ -810,7 +819,7 @@ export function createRequestAnswers(
           reads?: WorktreeReads,
         ) => {
           const to = using.workflow.next(from.stage) as AgentStageId | 'done'
-          if (from.stage === 'merge') {
+          if (mergesHere(from.stage)) {
             startMerging(find(task.id), using.workflow)
             watchMerge(task.id)
             await deliver(
@@ -819,7 +828,7 @@ export function createRequestAnswers(
             )
             return
           }
-          const signedOff = to === 'merge'
+          const signedOff = mergesHere(to)
           if (signedOff) pullRequestWork(task.id, 'signoff')
           await move(
             from,
@@ -982,10 +991,11 @@ export const backToDesignChoice = 'Back to Design'
 export const diagnoseChoice = 'Diagnose in Validate'
 
 export function loopChoices(workflow: ResolvedWorkflow): string[] {
-  const next = workflow.next('validate')
+  const next = workflow.next(stageWith('validates'))
   const design =
-    workflow.stages.includes('design') &&
-    workflow.order.indexOf('design') < workflow.order.indexOf('validate')
+    workflow.stages.includes(stageWith('designReview')) &&
+    workflow.order.indexOf(stageWith('designReview')) <
+      workflow.order.indexOf(stageWith('validates'))
   return [
     tryAgainChoice,
     ...(design ? [backToDesignChoice] : []),

@@ -1,5 +1,6 @@
 import type { AgentKind, Comment, Run, RunMessage, TaskLead, TaskRepo } from '@ted/protocol'
 import { agentShortNames } from '@ted/protocol'
+import { mergesHere } from '@ted/protocol/stage'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import type { Agents } from '../agents/index.ts'
 import type { Clock, Timer } from '../clock.ts'
@@ -576,7 +577,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       resumeFailed,
       ...(recovery === 'failed' && {
         ask: failedAsk(run.agent, history.sinceFirst, reason, ended, now),
-        ...(task.stage === 'merge' && leadPending(store, task.id) && { mergeAnyway: true }),
+        ...(mergesHere(task.stage) && leadPending(store, task.id) && { mergeAnyway: true }),
       }),
     })
     if (recovery === 'resume' && killedForMemory) {

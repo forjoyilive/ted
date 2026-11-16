@@ -1,10 +1,5 @@
-import {
-  type GitHubIssueUrl,
-  gitHubIssueKey,
-  parseGitHubIssueUrl,
-  type StageId,
-  type Task,
-} from '@ted/protocol'
+import { type GitHubIssueUrl, gitHubIssueKey, parseGitHubIssueUrl, type Task } from '@ted/protocol'
+import { stagePhase } from '@ted/protocol/stage'
 import type { Clock } from '../clock.ts'
 import {
   type GitHubIssueSyncApi,
@@ -40,8 +35,6 @@ export interface GitHubSyncOptions {
 export const githubTracker = 'github'
 export const githubSteps = ['started', 'fixed'] as const
 export const startedText = 'Work on this has started.'
-
-const beforeWork: ReadonlySet<StageId> = new Set(['backlog', 'intake', 'clarify', 'design'])
 
 export function fixedText(urls: readonly string[]): string {
   const list =
@@ -174,7 +167,8 @@ export function githubConnector(store: TedStore, github: GitHubIssueSyncApi): Gi
           partOfConfirmed.add(url)
         }
       }
-      if (step !== undefined || task.archived || beforeWork.has(task.stage)) return undefined
+      if (step !== undefined || task.archived || stagePhase(task.stage) === 'before')
+        return undefined
       if (task.stage === 'done' || item.closed || !item.handle.open) return undefined
       const stillOpen = () => {
         const now = current()

@@ -35,6 +35,14 @@ import {
   type WorkflowProblem,
 } from '@ted/protocol'
 import { fileChange } from '@ted/protocol/diff'
+import {
+  builtInStageOrder,
+  handsOff,
+  hasClarifyRounds,
+  isCleanup,
+  mergesHere,
+  validates,
+} from '@ted/protocol/stage'
 import type { CheckTries } from './check-tries.ts'
 import { RequestError } from './errors.ts'
 import { clonePath } from './factories.ts'
@@ -366,7 +374,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     const inherited = resolveWorkflow(base.inherited)
     const full = resolveWorkflow([...base.inherited, own])
     const drifts = findDrift(base.inherited, own)
-    const ids: StageId[] = ['backlog', ...agentStageIds.filter((id) => id !== 'cleanup'), 'done']
+    const ids: StageId[] = builtInStageOrder.filter((id) => !isCleanup(id))
     const { overnightMode } = store.settings()
     return ids.map((id) => {
       const stage = full.settings.stages[id]
@@ -395,13 +403,13 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         }),
         ...(agent && stage?.gate === true && overnightMode && { overnight: true as const }),
         ...(stage?.max_back !== undefined && agent && { maxBack: stage.max_back }),
-        ...(id === 'clarify' && { depth: (stage?.depth ?? 'auto') as ClarifyDepth }),
-        ...(id === 'validate' && {
+        ...(hasClarifyRounds(id) && { depth: (stage?.depth ?? 'auto') as ClarifyDepth }),
+        ...(validates(id) && {
           p1OnlyFrom: stage?.p1_only_from ?? false,
           subAgents: stage?.sub_agents === true,
         }),
-        ...(id === 'work' && { leadClosesFailures: stage?.lead_closes_failures === true }),
-        ...(id === 'merge' && { commitTitles: stage?.commit_titles !== false }),
+        ...(handsOff(id) && { leadClosesFailures: stage?.lead_closes_failures === true }),
+        ...(mergesHere(id) && { commitTitles: stage?.commit_titles !== false }),
         from: file?.layer ?? 'ted',
         ...(factoryFile !== undefined && { factoryFile }),
         ...(from &&

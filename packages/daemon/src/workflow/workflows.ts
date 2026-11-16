@@ -1,4 +1,5 @@
 import type { DriftCounts, LayerKind, LayerUse } from '@ted/protocol'
+import { stageWith } from '@ted/protocol/stage'
 import type { Banners } from '../banners.ts'
 import type { Clock } from '../clock.ts'
 import { clonePath } from '../factories.ts'
@@ -137,7 +138,7 @@ export function createWorkflows(options: {
   function reportChecks(factory: StoredFactory, workflow: ResolvedWorkflow): void {
     const ref = { problem: 'no-checks', factoryId: factory.id }
     const checks = workflow.settings.stages.validate?.checks ?? []
-    if (!workflow.stages.includes('validate') || checks.length > 0) {
+    if (!workflow.stages.includes(stageWith('validates')) || checks.length > 0) {
       banners.clear(ref)
       return
     }

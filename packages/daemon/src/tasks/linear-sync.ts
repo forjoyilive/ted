@@ -1,4 +1,5 @@
 import { type LinearUrl, parseLinearUrl, type Task } from '@ted/protocol'
+import { mergesHere } from '@ted/protocol/stage'
 import type { Clock } from '../clock.ts'
 import {
   type Linear,
@@ -72,7 +73,7 @@ function targetStep(
 ): LinearStep | undefined {
   if (merged) return 'done'
   if (task.archived || task.stage === 'done') return undefined
-  if (task.stage === 'merge') return 'review'
+  if (mergesHere(task.stage)) return 'review'
   if (task.stage !== 'backlog') return 'started'
   return undefined
 }

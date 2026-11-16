@@ -1,6 +1,5 @@
 import {
   agentKinds,
-  agentStageIds,
   appearances,
   archivedFilters,
   archivedTaskDayLimits,
@@ -34,6 +33,7 @@ import {
   timeFormats,
   workingRunLimits,
 } from '@ted/protocol'
+import { builtInStageOrder } from '@ted/protocol/stage'
 import { parseEditorCommand } from '../editors.ts'
 import { RequestError as HttpError } from '../errors.ts'
 import { readProfile } from '../profile.ts'
@@ -153,8 +153,6 @@ const maxPictureBytes = 512 * 1024
 
 const pictureUrl = /^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/
 
-const stageIds = ['backlog', ...agentStageIds, 'done'] as const
-
 const statusFilters: readonly StatusFilter[] = [...taskStatusKinds, 'none']
 
 function oneOfList<T extends string>(name: string, value: unknown, allowed: readonly T[]): T[] {
@@ -183,7 +181,7 @@ function listFilters(value: unknown): ListFilters {
         throw new HttpError(400, 'factoryGroups must list Factory group IDs')
       }
       filters.factoryGroups = item as string[]
-    } else if (name === 'stages') filters.stages = oneOfList(name, item, stageIds)
+    } else if (name === 'stages') filters.stages = oneOfList(name, item, builtInStageOrder)
     else if (name === 'statuses') filters.statuses = oneOfList(name, item, statusFilters)
     else if (name === 'priorities') filters.priorities = oneOfList(name, item, priorities)
     else if (name === 'createdBy') filters.createdBy = oneOfList(name, item, createdByKinds)
@@ -242,7 +240,7 @@ function boardView(value: unknown): BoardView {
   return {
     cardSize,
     fields: [...new Set(oneOfList('fields', view.fields, boardFields))],
-    hiddenStages: [...new Set(oneOfList('hiddenStages', view.hiddenStages, stageIds))],
+    hiddenStages: [...new Set(oneOfList('hiddenStages', view.hiddenStages, builtInStageOrder))],
     hideEmpty: view.hideEmpty,
   }
 }
