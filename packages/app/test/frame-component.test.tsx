@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import type { FactoryLayout } from '@ted/protocol'
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, createEvent, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { Sidebar } from '../src/renderer/components/Sidebar.tsx'
 import { initialNavigation } from '../src/renderer/navigation.ts'
@@ -530,8 +530,11 @@ test('a Factory dragged to the strip under its group or above its group’s head
   const dragOnto = (from: Element, to: Element, clientY = 0) => {
     to.getBoundingClientRect = () => new DOMRect(0, 0, 200, 40)
     fireEvent.dragStart(from, { dataTransfer })
-    fireEvent.dragOver(to, { dataTransfer, clientY })
-    fireEvent.drop(to, { dataTransfer, clientY })
+    for (const make of [createEvent.dragOver, createEvent.drop]) {
+      const event = make(to, { dataTransfer })
+      Object.defineProperty(event, 'clientY', { value: clientY })
+      fireEvent(to, event)
+    }
   }
   dragOnto(within(acme).getByRole('article', { name: 'site' }), required(acme.nextElementSibling))
   await vi.waitFor(() =>
