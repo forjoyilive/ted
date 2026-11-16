@@ -809,11 +809,14 @@ export function leadPending(store: TedStore, taskId: string): boolean {
 const closedResolutions = ['accepted', 'fixed', 'no-longer-applicable']
 
 export function openMergeFailures(store: TedStore, taskId: string) {
+  const since = store.listStageEntries(taskId).findLast((e) => e.stage === 'merge')?.at ?? ''
   return store.failures
     .list(taskId)
     .filter(
       (f) =>
         (f.source.kind === 'github-ci' || f.source.kind === 'post-rebase-check') &&
+        f.createdAt >= since &&
+        !f.verifications?.length &&
         !closedResolutions.includes(f.resolutions.at(-1)?.resolution ?? ''),
     )
 }

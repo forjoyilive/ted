@@ -170,7 +170,11 @@ describe('Merge sign-off', () => {
       const runToken = (await loadRunTokens(tedPaths(ctx.home).runTokenKey)).issue(lead)
       const runClient = api(ctx.daemon?.port ?? 0, runToken)
       await writeFile(gate, '')
-      const outcome = runClient.call('POST', `/tasks/${task.id}/outcome`, { outcome: 'advance' })
+      const outcome = runClient.call('POST', `/tasks/${task.id}/outcome`, {
+        outcome: 'back',
+        to: 'validate',
+        findings: 'Hold the Task while TED fetches.',
+      })
       try {
         await waitUntil(
           async () => (await stat(fetching).catch(() => undefined)) !== undefined,
