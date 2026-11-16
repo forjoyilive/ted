@@ -3,8 +3,9 @@ import { archiveChoice } from '@ted/protocol/task'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { useTaskRuns, useTasks } from '../data.ts'
 import { childrenOf, isMerged } from '../hierarchy.ts'
-import { stageName } from '../list-view.ts'
 import { useMessageDraft } from '../message-drafts.ts'
+import type { Stages } from '../stage-names.ts'
+import { useStages } from '../stages.tsx'
 import { readableError, ted } from '../ted.ts'
 import { ActionButton } from './ActionButton.tsx'
 import styles from './ArchiveDialogs.module.css'
@@ -58,11 +59,11 @@ function useHierarchyPreview(task: Task, wanted: boolean) {
   }
 }
 
-function stateText(task: Task | undefined): string {
+function stateText(task: Task | undefined, stages: Stages): string {
   if (!task) return ''
   if (isMerged(task)) return 'Merged'
   if (task.archived) return 'Archived'
-  return stageName(task.stage)
+  return stages.name(task.stage, task.factoryId)
 }
 
 function TasksUnder({
@@ -76,6 +77,7 @@ function TasksUnder({
   tasks: readonly Task[]
   children?: ReactNode
 }) {
+  const stages = useStages()
   return (
     <fieldset className={styles.blocked}>
       <legend className={styles.blockedHeading}>{legend}</legend>
@@ -87,7 +89,7 @@ function TasksUnder({
               <li key={id} className={styles.blockedRow}>
                 <span className={styles.blockedId}>{t?.displayId ?? 'A Task'}</span>
                 <span className={styles.blockedTitle}>{t?.title ?? ''}</span>
-                <span className={styles.blockedStage}>{stateText(t)}</span>
+                <span className={styles.blockedStage}>{stateText(t, stages)}</span>
               </li>
             )
           })}
@@ -210,6 +212,7 @@ function BlockedTasks({
   ending: 'archived' | 'deleted'
   onChoose: (choice: BlockedChoice) => void
 }) {
+  const stages = useStages()
   const name = useId()
   const one = blocked.length === 1
   const options: { value: BlockedChoice; label: string; help: string }[] = [
@@ -234,7 +237,7 @@ function BlockedTasks({
           <li key={t.id} className={styles.blockedRow}>
             <span className={styles.blockedId}>{t.displayId}</span>
             <span className={styles.blockedTitle}>{t.title}</span>
-            <span className={styles.blockedStage}>{stageName(t.stage)}</span>
+            <span className={styles.blockedStage}>{stages.name(t.stage, t.factoryId)}</span>
           </li>
         ))}
       </ul>

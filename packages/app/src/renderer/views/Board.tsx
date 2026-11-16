@@ -1,6 +1,5 @@
 import type {
   BoardField,
-  BoardStage,
   BoardView,
   Factory,
   ListFilters,
@@ -11,6 +10,7 @@ import type {
   Task,
 } from '@ted/protocol'
 import { boardCardSizes, boardFields } from '@ted/protocol/board-view'
+import { isCleanup } from '@ted/protocol/stage'
 import {
   type DragEvent,
   type KeyboardEvent,
@@ -29,7 +29,6 @@ import {
   boardDrop,
   boardLayout,
   boardViewFor,
-  builtInStages,
   canStart,
   cardActivity,
   doneCardLine,
@@ -38,6 +37,7 @@ import {
   startPlace,
   startStage,
   withoutBlockers,
+  withoutGoneStages,
 } from '../board.ts'
 import { ArchiveDoneDialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
@@ -50,20 +50,19 @@ import { SelectionBar } from '../components/SelectionBar.tsx'
 import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
 import { ordinal, RunIcons, TaskStatusChips } from '../components/TaskStatus.tsx'
-import { useConnection } from '../data.ts'
 import { boardEmpty } from '../empty-states.ts'
 import {
   activeFilterCount,
   columnSelection,
   filterChips,
   filterTasks,
-  stageName,
   toggled,
 } from '../list-view.ts'
 import { useNow } from '../requests.ts'
 import { selectionTarget, useSelection } from '../selection.ts'
 import { startTask } from '../setup-notice.ts'
 import { statusDetail } from '../slots.ts'
+import { useStages } from '../stages.tsx'
 import { ted } from '../ted.ts'
 import styles from './Board.module.css'
 import listStyles from './TaskList.module.css'
@@ -219,26 +218,6 @@ function DoneMenu({ count, onArchiveAll }: { count: number; onArchiveAll: () => 
   )
 }
 
-function useBoardStages(factoryId: string, stagesInUse: string): readonly BoardStage[] {
-  const [loaded, setLoaded] = useState<{ factoryId: string; stages: BoardStage[] }>()
-  const { epoch } = useConnection()
-  useEffect(() => {
-    void stagesInUse
-    void epoch
-    let live = true
-    ted
-      .factoryBoard(factoryId)
-      .then((board) => {
-        if (live) setLoaded({ factoryId, stages: board.stages })
-      })
-      .catch(report)
-    return () => {
-      live = false
-    }
-  }, [factoryId, stagesInUse, epoch])
-  return loaded?.factoryId === factoryId ? loaded.stages : builtInStages
-}
-
 export function Board({
   title,
   factoryId,
@@ -277,8 +256,9 @@ export function Board({
   onShowAllDone: () => void
 }) {
   const now = useNow()
-  const inUse = [...new Set(tasks.filter((t) => !t.archived).map((t) => t.stage))].sort().join()
-  const stages = useBoardStages(factoryId, inUse)
+  const allStages = useStages()
+  const stages = allStages.of(factoryId)
+  const stagesLoaded = allStages.loaded(factoryId)
   const start = startStage(stages)
   const [text, setText] = useState('')
   const shown = filterTasks(tasks, filters, text)
@@ -288,7 +268,7 @@ export function Board({
   const [dragging, setDragging] = useState<Dragging>()
   const [target, setTarget] = useState<Target>()
   const [refused, setRefused] = useState<{ x: number; y: number }>()
-  const chips = filterChips(filters, factories)
+  const chips = filterChips(filters, factories, undefined, allStages)
   const empty = boardEmpty(tasks, filters, text)
   const saved = boardViewFor(settings?.boardViews, factoryId)
   const [draft, setDraft] = useState<{ factoryId: string; view: BoardView }>()
@@ -325,6 +305,15 @@ export function Board({
     setDraft({ factoryId, view: next })
     ted.updateSettings({ boardViews: { ...settings?.boardViews, [factoryId]: next } }).catch(report)
   }
+  const gone = stagesLoaded && settings ? withoutGoneStages(saved, stages) : undefined
+  const goneKey = gone ? JSON.stringify(gone) : undefined
+  const latest = useRef({ settings, gone })
+  latest.current = { settings, gone }
+  useEffect(() => {
+    const { settings: current, gone: next } = latest.current
+    if (goneKey === undefined || next === undefined) return
+    ted.updateSettings({ boardViews: { ...current?.boardViews, [factoryId]: next } }).catch(report)
+  }, [goneKey, factoryId])
   const selectable = shown.filter((t) => !view.hiddenStages.includes(t.stage))
   const { selected, setSelected, anchor, setAnchor, toggle, clear } = useSelection(
     selectable,
@@ -592,6 +581,12 @@ export function Board({
     }
     if (target?.stage === column.stage && target.placement.index === at)
       items.push(dropSlot(column))
+    if (items.length === 0 && column.turnedOff && isCleanup(column.stage))
+      items.push(
+        <p key="off" className={styles.columnNote}>
+          Cleanup is off for this Factory.
+        </p>,
+      )
     return items
   }
 
@@ -655,7 +650,7 @@ export function Board({
               {columns.map((column) => (
                 <CheckItem
                   key={column.stage}
-                  label={stageName(column.stage)}
+                  label={column.name}
                   checked={!view.hiddenStages.includes(column.stage)}
                   count={column.tasks.length}
                   onChange={() =>
@@ -737,7 +732,7 @@ export function Board({
                   column.turnedOff ? styles.turnedOff : '',
                   state ? styles[state] : '',
                 ].join(' ')}
-                aria-label={stageName(column.stage)}
+                aria-label={column.name}
                 onDragOver={(event) => onDragOver(event, column)}
                 onDrop={(event) => {
                   event.preventDefault()
@@ -745,7 +740,7 @@ export function Board({
                 }}
               >
                 <h2 className={styles.columnTitle}>
-                  {stageName(column.stage)}
+                  {column.name}
                   <span className={styles.columnCount}>{column.tasks.length}</span>
                   {column.gate && (
                     <span className={styles.gate}>
@@ -753,7 +748,11 @@ export function Board({
                       Sign-Off
                     </span>
                   )}
-                  {column.turnedOff && <span className={styles.turnedOffTag}>Turned off</span>}
+                  {column.turnedOff && (
+                    <span className={styles.turnedOffTag}>
+                      {column.removed ? 'Not in Workflow' : 'Turned off'}
+                    </span>
+                  )}
                   {column.stage === 'done' && (
                     <DoneMenu count={allDone} onArchiveAll={() => setArchivingDone(true)} />
                   )}
@@ -765,18 +764,18 @@ export function Board({
           {layout.hidden.length > 0 && (
             <aside className={styles.hiddenColumns} aria-label="Hidden columns">
               <h2 className={styles.hiddenTitle}>Hidden columns</h2>
-              {layout.hidden.map(({ stage, count, needsYou }) => (
+              {layout.hidden.map(({ stage, name, count, needsYou }) => (
                 <button
                   key={stage}
                   type="button"
                   className={styles.hiddenRow}
                   data-nav-item
-                  title={`Show ${stageName(stage)}`}
+                  title={`Show ${name}`}
                   onClick={() =>
                     changeView({ ...view, hiddenStages: without(view.hiddenStages, stage) })
                   }
                 >
-                  <span>{stageName(stage)}</span>
+                  <span>{name}</span>
                   <span className={styles.columnCount}>{count}</span>
                   {needsYou > 0 && (
                     <span className={styles.needsYou}>

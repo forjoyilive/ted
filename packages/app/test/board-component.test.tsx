@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import type { ListFilters, TaskMarker } from '@ted/protocol'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { render as draw, fireEvent, screen, within } from '@testing-library/react'
+import type { ReactElement, ReactNode } from 'react'
 import { expect, test, vi } from 'vitest'
 import {
   type TaskFacts,
@@ -9,11 +10,17 @@ import {
   taskStatus,
 } from '../../daemon/src/tasks/status.ts'
 import { Help } from '../src/renderer/components/Help.tsx'
+import { affects, StagesProvider } from '../src/renderer/stages.tsx'
 import { Board } from '../src/renderer/views/Board.tsx'
 import { idColumnWidth, listGrid, TaskList } from '../src/renderer/views/TaskList.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, required, user } from './support/component.ts'
 import { factory, task } from './support/fixtures.ts'
+
+const Stages = ({ children }: { children: ReactNode }) => (
+  <StagesProvider factoryIds={['f1', 'f2']}>{children}</StagesProvider>
+)
+const render = (ui: ReactElement) => draw(ui, { wrapper: Stages })
 
 function props() {
   return {
@@ -178,7 +185,7 @@ test('Board filters matching nothing offer Clear filters', async () => {
 })
 
 test('Help shows its tooltip on hover and hides it when the pointer leaves', async () => {
-  render(<Help>Queued Tasks wait for a Run slot.</Help>)
+  draw(<Help>Queued Tasks wait for a Run slot.</Help>)
   expect(screen.queryByRole('tooltip')).toBeNull()
   const u = user()
   const help = screen.getByRole('button', { name: 'Help' })
@@ -638,4 +645,14 @@ test('folding a parent in one Stage group keeps its children in other groups and
   first.unmount()
   mount()
   expect(rows()).toEqual(['NB-1', '(NB-1)', 'NB-3'])
+})
+
+test('the Stage lists reload for a requested Factory, even before its first list has loaded', () => {
+  const stagesChanged = { type: 'factory-stages-changed', factoryId: 'f1' } as const
+  expect(affects(stagesChanged, ['f1'], {})).toBe(true)
+  expect(affects(stagesChanged, ['f2'], {})).toBe(false)
+  const moved = { type: 'task-updated', task: task({ stage: 'work' }) } as const
+  expect(affects(moved, ['f1'], {})).toBe(true)
+  const listed = { f1: [{ id: 'work', enabled: true, gate: false }] }
+  expect(affects(moved, ['f1'], listed)).toBe(false)
 })

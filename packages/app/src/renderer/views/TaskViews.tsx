@@ -1,11 +1,8 @@
 import type { Factory, RepoSetup } from '@ted/protocol'
 import { Button } from '../components/Button.tsx'
 import { Help } from '../components/Help.tsx'
-import { stageName, stageOrder } from '../list-view.ts'
 import { ted } from '../ted.ts'
 import setupStyles from './SetupPanel.module.css'
-
-export { stageName, stageOrder }
 
 export function factoryName(factories: readonly Factory[], factoryId: string): string {
   return factories.find((f) => f.id === factoryId)?.name ?? 'No Factory'

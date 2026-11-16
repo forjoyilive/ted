@@ -112,6 +112,7 @@ import { useProfile } from '../profile.tsx'
 import { ago, headline, requestLabel, useNow } from '../requests.ts'
 import { openShellEvent, takeShellRequest } from '../shell.ts'
 import { inStage } from '../stage-filter.ts'
+import { useStages } from '../stages.tsx'
 import { runStatusAction, statusAction } from '../task-actions.ts'
 import {
   clarifyDepthLabels,
@@ -126,7 +127,6 @@ import { formatDate } from '../time.ts'
 import { CheckRunLine } from './CheckEvents.tsx'
 import { ReposField, showsRepos } from './ReposField.tsx'
 import { TaskLeadField } from './TaskLeadField.tsx'
-import { stageName } from './TaskViews.tsx'
 import styles from './views.module.css'
 
 function leadAgent(task: Task, comment: Comment) {
@@ -618,6 +618,7 @@ export function TaskThread({
   onOpenApp?: ((app: ShownApp) => void) | undefined
   onCloseApp?: (() => void) | undefined
 }) {
+  const stages = useStages()
   const runList = useTaskRunsState(
     task.id,
     task.leadRunId !== undefined || task.runs.length > 0 || task.tabs.length > 0,
@@ -939,16 +940,19 @@ export function TaskThread({
             {task.setup && <span className={styles.setupTag}>Setup</span>}
             <StageTrack
               track={task.track}
+              factoryId={task.factoryId}
               selected={stage}
               onSelect={(chosen) => setFilter(chosen && { taskId: task.id, stage: chosen })}
             />
-            <span className={styles.stageName}>{stageName(task.stage)}</span>
+            <span className={styles.stageName}>{stages.name(task.stage, task.factoryId)}</span>
             {task.archived ? (
-              <span className={styles.activity}>· {archivedFrom(task.archived.ended)}</span>
+              <span className={styles.activity}>
+                · {archivedFrom(task.archived.ended, (id) => stages.name(id, task.factoryId))}
+              </span>
             ) : (
               activity !== undefined && (
                 <span className={styles.activity}>
-                  · {withoutStageName(activity, stageName(task.stage))}
+                  · {withoutStageName(activity, stages.name(task.stage, task.factoryId))}
                 </span>
               )
             )}
@@ -1018,7 +1022,7 @@ export function TaskThread({
             {drop.dragging && <DropOverlay caption="Files are added to your next Comment" />}
             {stage !== undefined && (
               <p className={styles.filterNote}>
-                Showing {stageName(stage)} only ·{' '}
+                Showing {stages.name(stage, task.factoryId)} only ·{' '}
                 <ActionButton
                   type="button"
                   className={styles.linkButton}
@@ -1119,7 +1123,7 @@ export function TaskThread({
   )
 }
 
-function archivedFrom(ended: TaskEnding): string {
+function archivedFrom(ended: TaskEnding, stageName: (stage: string) => string): string {
   if (ended.kind === 'never-started') return 'Archived before it started'
   if (ended.kind === 'merged') return 'Archived from Done'
   if (ended.kind === 'pull-request-closed') {
@@ -1188,6 +1192,7 @@ export function TaskDetails({
   onOpenApp?: ((app: ShownApp) => void) | undefined
   onOpenTask?: ((ref: string) => void) | undefined
 }) {
+  const stages = useStages()
   const [error, setError] = useState<string>()
   const change = (request: Promise<unknown>) => {
     setError(undefined)
@@ -1341,7 +1346,7 @@ export function TaskDetails({
                 <FactoryName factories={factories} factoryId={task.factoryId} />
               </dd>
               <dt>Stage</dt>
-              <dd>{stageName(task.stage)}</dd>
+              <dd>{stages.name(task.stage, task.factoryId)}</dd>
               {task.attachments.length > 0 && (
                 <>
                   <dt>Attachments</dt>

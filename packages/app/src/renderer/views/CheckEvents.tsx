@@ -4,9 +4,13 @@ import { ChecksRow } from '../components/ChecksRow.tsx'
 import { EventLine } from '../components/EventLine.tsx'
 import { acceptedPositions } from '../components/FailureDetails.tsx'
 import { useFailures } from '../data.ts'
-import { stageName } from './TaskViews.tsx'
+import { defaultStages } from '../stage-names.ts'
+import { useStages } from '../stages.tsx'
 
-export function checkRunHeadline(checkRun: CheckRun): [ThreadEventTone, string] {
+export function checkRunHeadline(
+  checkRun: CheckRun,
+  stageName: (stage: string) => string = (stage) => defaultStages.name(stage),
+): [ThreadEventTone, string] {
   const failed = checkRun.checks.find((c) => checkFailed(c.state))
   const stage = stageName(checkRun.stage)
   if (checkRun.trigger === 'agent') {
@@ -39,7 +43,8 @@ export function CheckRunLine({
 }) {
   const failures = useFailures(checkRun.taskId)
   const accepted = acceptedPositions(failures, checkRun.id)
-  const [tone, text] = checkRunHeadline(checkRun)
+  const stages = useStages()
+  const [tone, text] = checkRunHeadline(checkRun, (stage) => stages.name(stage))
   return (
     <EventLine tone={tone} text={text} at={checkRun.startedAt}>
       <ChecksRow

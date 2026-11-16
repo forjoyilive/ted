@@ -38,7 +38,7 @@ import {
 } from '../dashboard.ts'
 import { useDashboard, useSettings } from '../data.ts'
 import { emptyLayout, groups } from '../factory-layout.ts'
-import { stageName } from '../list-view.ts'
+import { useStages } from '../stages.tsx'
 import { formatDate } from '../time.ts'
 import styles from './Dashboard.module.css'
 import { apiEquivalent, Cost, costSample, money } from './DashboardCost.tsx'
@@ -878,6 +878,8 @@ function Waiting({
 }) {
   const heading = useId()
   const longestHeading = useId()
+  const stages = useStages()
+  const stageName = (id: string) => stages.name(id, undefined, data.flow.stageNames)
   const { current, previous, change } = data.waiting
   const top = current.stages[0]?.totalMs ?? 0
   const records = new Map(data.tasks.map((task) => [task.id, task]))
@@ -1016,6 +1018,8 @@ function Sample({
   const dialog = useRef<HTMLDialogElement>(null)
   const heading = useId()
   const equivalent = apiEquivalent(useSettings())
+  const stages = useStages()
+  const stageName = (id: string) => stages.name(id, undefined, data.flow.stageNames)
   useEffect(() => {
     const opener = document.activeElement
     dialog.current?.showModal()

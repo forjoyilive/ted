@@ -3,6 +3,7 @@ import { briefHeadings } from '@ted/protocol/task'
 import { useComments } from '../data.ts'
 import { briefLines, briefPart, briefUpdatedLine } from '../details.ts'
 import { useNow } from '../requests.ts'
+import { useStages } from '../stages.tsx'
 import styles from './FullBrief.module.css'
 import { LoadingError, Skeleton } from './Loading.tsx'
 
@@ -21,6 +22,7 @@ export function FullBrief({
 }) {
   const comments = useComments(task.id)
   const now = useNow()
+  const stages = useStages()
   return (
     <section className={styles.pane} aria-label="Full brief">
       <header className={styles.header}>
@@ -29,7 +31,13 @@ export function FullBrief({
         </button>
         <div className={styles.titleRow}>
           <h2 className={styles.title}>Task brief</h2>
-          {brief && <p className={styles.updated}>{briefUpdatedLine(brief, comments, now)}</p>}
+          {brief && (
+            <p className={styles.updated}>
+              {briefUpdatedLine(brief, comments, now, (stage) =>
+                stages.name(stage, task.factoryId),
+              )}
+            </p>
+          )}
         </div>
       </header>
       <div className={styles.body}>

@@ -1,7 +1,7 @@
 import type { Comment, RunSummary, Task, TaskBrief } from '@ted/protocol'
 import { useSyncExternalStore } from 'react'
-import { stageName } from './list-view.ts'
 import { ago, briefSections } from './requests.ts'
+import { defaultStages } from './stage-names.ts'
 import { activeSubAgentCount, activeSubAgentLabel } from './sub-agents.ts'
 
 export const detailsTabs = ['details', 'code', 'changes', 'files', 'runs', 'apps'] as const
@@ -53,6 +53,7 @@ export function briefUpdatedLine(
   brief: TaskBrief,
   comments: readonly Comment[],
   now: number,
+  stageName: (stage: string) => string = (stage) => defaultStages.name(stage),
 ): string {
   const atGate = comments.some(
     (c) => c.gate !== undefined && c.stage === brief.stage && c.createdAt >= brief.createdAt,

@@ -49,7 +49,7 @@ async function start(): Promise<DaemonClient> {
 }
 
 describe('a Factory’s Board stages', () => {
-  test('with the built-in Workflow, every Stage is on and Design and Review are Gated', async () => {
+  test('with the built-in Workflow, every Stage is on but Cleanup, and Design and Review are Gated', async () => {
     const client = await start()
     const factory = await client.addFactory({ repo: origin, key: 'NB' })
 
@@ -63,6 +63,7 @@ describe('a Factory’s Board stages', () => {
         { id: 'validate', name: 'Validate', enabled: true, gate: false },
         { id: 'review', name: 'Review', enabled: true, gate: true },
         { id: 'merge', name: 'Merge', enabled: true, gate: false },
+        { id: 'cleanup', name: 'Cleanup', enabled: false, gate: false },
         { id: 'done', name: 'Done', enabled: true, gate: false },
       ],
     })
@@ -83,6 +84,7 @@ describe('a Factory’s Board stages', () => {
       { id: 'design', name: 'Design', enabled: false, gate: true },
       { id: 'security', name: 'Security review', enabled: true, gate: false, custom: true },
       { id: 'work', name: 'Work', enabled: true, gate: true },
+      { id: 'cleanup', name: 'Cleanup', enabled: false, gate: false },
       { id: 'done', name: 'Done', enabled: true, gate: false },
     ])
   })
