@@ -12,6 +12,7 @@ import {
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { createAgents } from '../src/agents/index.ts'
+import { classifyProcesses } from '../src/diagnostics.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { runFiles } from '../src/runs/host-files.ts'
@@ -50,6 +51,54 @@ async function start() {
   return api(daemon.port, { appKey: daemon.appToken })
 }
 
+test('each process is classified by the nearest Run host, Check or App above it', () => {
+  const row = (pid: number, ppid: number, command = 'node') => ({
+    pid,
+    ppid,
+    cpuPercent: 0,
+    memoryBytes: 1,
+    command,
+  })
+  const lead = { runId: 'run-1', agent: 'claude', role: 'task-lead', task: 'TED-1' } as const
+  const classified = classifyProcesses(
+    [
+      row(1, 0, 'launchd'),
+      row(10, 1, 'TED'),
+      row(11, 10, 'TED'),
+      row(12, 11, 'claude'),
+      row(13, 12),
+      row(14, 13, 'java'),
+      row(20, 10, 'sandbox-exec'),
+      row(21, 20, 'vitest'),
+      row(30, 1, 'TED'),
+      row(31, 30, 'electron'),
+      row(40, 10, 'git'),
+      row(41, 10, 'ps'),
+      row(50, 1, 'Safari'),
+    ],
+    10,
+    new Map([[11, lead]]),
+    (pid) =>
+      pid === 20
+        ? { kind: 'check', task: 'TED-2' }
+        : pid === 30
+          ? { kind: 'app', task: 'TED-3', appName: 'Web' }
+          : undefined,
+  )
+  expect(classified.map((p) => [p.pid, p.kind, p.task ?? p.run?.task, p.appName])).toEqual([
+    [10, 'daemon', undefined, undefined],
+    [11, 'run-host', 'TED-1', undefined],
+    [12, 'agent', 'TED-1', undefined],
+    [13, 'agent-tool', 'TED-1', undefined],
+    [14, 'agent-tool', 'TED-1', undefined],
+    [20, 'check', 'TED-2', undefined],
+    [21, 'check', 'TED-2', undefined],
+    [30, 'app', 'TED-3', 'Web'],
+    [31, 'app', 'TED-3', 'Web'],
+    [40, 'other', undefined, undefined],
+  ])
+})
+
 describe('Diagnostics', () => {
   test('lists each Run with its processes, CPU, memory and token use', async (context) => {
     skipInsideTedSandbox(context, sandboxReasons.processes)
@@ -80,15 +129,24 @@ describe('Diagnostics', () => {
       (p) => typeof p.owner === 'object' && p.owner.runId === run.id,
     )
     expect(owned.length).toBeGreaterThanOrEqual(2)
-    expect(diagnostics.processes.some((p) => p.owner === 'daemon' && p.pid === process.pid)).toBe(
-      true,
-    )
+    expect(owned.map((p) => p.kind)).toEqual(expect.arrayContaining(['run-host', 'agent']))
+    expect(owned.find((p) => p.kind === 'agent')?.run).toMatchObject({
+      runId: run.id,
+      agent: 'claude',
+      role: 'run',
+    })
+    expect(
+      diagnostics.processes.some(
+        (p) => p.owner === 'daemon' && p.kind === 'daemon' && p.pid === process.pid,
+      ),
+    ).toBe(true)
     expect(diagnostics.memory.totalBytes).toBeGreaterThan(0)
     expect(diagnostics.memory.availableBytes).toBeGreaterThan(0)
     expect(diagnostics.memory.availableBytes).toBeLessThanOrEqual(diagnostics.memory.totalBytes)
 
     const usage = (await client.call('GET', '/diagnostics/usage')).body as ProcessUsage
-    expect(Object.keys(usage).sort()).toEqual(['cpuPercent', 'memoryBytes'])
+    expect(Object.keys(usage).sort()).toEqual(['cpuPercent', 'memory', 'memoryBytes'])
+    expect(usage.memory.agents.count).toBe(1)
     expect(usage.cpuPercent).toBeGreaterThanOrEqual(0)
     expect(usage.memoryBytes).toBeGreaterThan(owned.reduce((sum, p) => sum + p.memoryBytes, 0) / 2)
 

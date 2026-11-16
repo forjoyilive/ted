@@ -882,7 +882,7 @@ export function Sidebar({
           </footer>
         )}
         {usage}
-        {developerMode && <ResourceUsage />}
+        {developerMode && <ResourceUsage dispatch={dispatch} />}
       </nav>
     </ResizableSidebar>
   )

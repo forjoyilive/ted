@@ -30,6 +30,7 @@ import { holdsLock, isLockHeld } from '../lock.ts'
 import { nodeEntry } from '../node-entry.ts'
 import { withRunPermissions } from '../permissions.ts'
 import { workCommand } from '../priority.ts'
+import { markProcessRoot } from '../process-roots.ts'
 import { redactSecrets } from '../redact.ts'
 import { type LaunchAuthority, launchAuthority } from '../runs/launch-authority.ts'
 import { type Sandbox, type SandboxScope, SandboxUnavailable } from '../sandbox.ts'
@@ -942,6 +943,32 @@ export function createApps(options: AppsOptions): Apps {
   }
 
   async function follow(taskId: string, key: string, dir: string): Promise<void> {
+    let marked: { pid: number; unmark: () => void } | undefined
+    try {
+      await followHost(taskId, dir, key, (pid, name) => {
+        if (marked?.pid === pid) return
+        marked?.unmark()
+        const task = store.getTask(taskId)?.displayId
+        marked = {
+          pid,
+          unmark: markProcessRoot(pid, {
+            kind: 'app',
+            appName: name,
+            ...(task !== undefined && { task }),
+          }),
+        }
+      })
+    } finally {
+      marked?.unmark()
+    }
+  }
+
+  async function followHost(
+    taskId: string,
+    dir: string,
+    key: string,
+    onHost: (pid: number, name: string) => void,
+  ): Promise<void> {
     let launchedAt = Date.now()
     while (!closed) {
       const instance = await readInstance(dir)
@@ -957,6 +984,8 @@ export function createApps(options: AppsOptions): Apps {
         continue
       }
       const found = await records(dir)
+      const start = found.find((r) => r.t === 'start')
+      if (start?.t === 'start') onHost(start.hostPid, instance.name)
       const exit = found.find((r) => r.t === 'exit')
       if (exit?.t === 'exit') {
         await settle(taskId, dir, instance, exit, stopping.has(key))
