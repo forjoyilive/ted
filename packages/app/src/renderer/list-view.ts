@@ -547,8 +547,11 @@ export function nestedRows(
   group: readonly Task[],
   collapsed: ReadonlySet<string>,
   everyTask: readonly Task[] = group,
+  order?: (a: Task, b: Task) => number,
 ): NestedRow[] {
-  const { tasks, context } = withAncestors(group, everyTask)
+  const found = withAncestors(group, everyTask)
+  const tasks = order ? [...found.tasks].sort(order) : found.tasks
+  const context = found.context
   const inGroup = new Map(tasks.map((t) => [t.id, t]))
   const parentIn = (task: Task) =>
     task.parentId !== undefined && task.parentId !== task.id && inGroup.has(task.parentId)

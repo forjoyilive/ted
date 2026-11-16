@@ -11,6 +11,7 @@ import {
   filterTasks,
   groupTasks,
   isQueueMode,
+  manualOrder,
   nearestSlot,
   neighbours,
   nestedRows,
@@ -607,6 +608,28 @@ describe('nestedSlots', () => {
     expect(nestedSlots(context, 'NB-98')).toEqual([
       { row: 0, before: 'NB-96' },
       { row: 2, after: 'NB-96' },
+    ])
+  })
+
+  test('with a manual order, a context row shows at its own rank, so a drop on it holds', () => {
+    const root = task({ displayId: 'NB-99', rank: 30, stage: 'clarify' })
+    const child = task({ displayId: 'NB-100', parentId: 'NB-99', rank: 10 })
+    const loose = task({ displayId: 'NB-101', rank: 20 })
+    const every = [root, child, loose]
+    expect(nestedRows([child, loose], new Set(), every).map((r) => r.task.displayId)).toEqual([
+      'NB-99',
+      'NB-100',
+      'NB-101',
+    ])
+    const rows = nestedRows([child, loose], new Set(), every, manualOrder)
+    expect(rows.map((r) => [r.task.displayId, r.depth])).toEqual([
+      ['NB-101', 0],
+      ['NB-99', 0],
+      ['NB-100', 1],
+    ])
+    expect(nestedSlots(rows, 'NB-101')).toEqual([
+      { row: 1, before: 'NB-99' },
+      { row: 3, after: 'NB-99' },
     ])
   })
 

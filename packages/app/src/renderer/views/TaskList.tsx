@@ -53,6 +53,7 @@ import {
   groupTasks,
   isAllTasks,
   isQueueMode,
+  manualOrder,
   type NestedRow,
   type NestedSlot,
   nearestSlot,
@@ -589,7 +590,12 @@ export function TaskList({
   const isCollapsed = (group: TaskGroup) => collapse.collapsed(group.key, group.collapsed)
   const rowsOf = (group: TaskGroup): NestedRow[] =>
     nested
-      ? nestedRows(group.tasks, collapse.folded(group.key), inScope)
+      ? nestedRows(
+          group.tasks,
+          collapse.folded(group.key),
+          inScope,
+          view.sort === 'manual' ? manualOrder : undefined,
+        )
       : group.tasks.map((task) => ({ task, depth: 0, hasChildren: false }))
   const slotsOf = (group: TaskGroup): NestedSlot[] => {
     if (!dragging) return []
