@@ -557,7 +557,9 @@ test('App settings navigation selects real pages and Factory settings leaves the
   a.handle('library', () => ({
     path: '/test/library',
     version: 'v1',
-    stages: [{ id: 'backlog', inOrder: true, enabled: true, gate: false, from: 'ted' }],
+    stages: [
+      { id: 'backlog', name: 'Backlog', inOrder: true, enabled: true, gate: false, from: 'ted' },
+    ],
     agents: [],
     problems: [],
   }))

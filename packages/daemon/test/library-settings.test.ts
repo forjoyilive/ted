@@ -97,8 +97,10 @@ describe('Library settings', () => {
       'validate',
       'review',
       'merge',
+      'cleanup',
       'done',
     ])
+    expect(view.stages.find((s) => s.id === 'cleanup')).toMatchObject({ enabled: false })
     const design = view.stages.find((s) => s.id === 'design')
     expect(design).toMatchObject({ from: 'ted', gate: true, enabled: true })
     expect(design?.libraryFile).toBeUndefined()
@@ -182,6 +184,52 @@ describe('Library settings', () => {
     expect(await libraryFile('workflow.yaml')).toBe('version: 1\n')
     expect(reset.stages.find((s) => s.id === 'work')).toMatchObject({ from: 'ted' })
     expect(reset.stages.find((s) => s.id === 'work')?.basedOn).toBeUndefined()
+
+    const custom = [
+      'version: 1',
+      'order: [intake, work, design-qa, validate, review, merge]',
+      'stages:',
+      '  design-qa:',
+      '    name: Design QA # by hand',
+      '',
+    ].join('\n')
+    await mkdir(path.join(libraryDir(), 'stages'), { recursive: true })
+    await writeFile(path.join(libraryDir(), 'stages', 'design-qa.md'), '# QA\n')
+    await writeFile(path.join(libraryDir(), 'workflow.yaml'), custom)
+    const withCustom = await client.view()
+    expect(withCustom.stages.map((s) => s.id)).toEqual([
+      'backlog',
+      'intake',
+      'clarify',
+      'design',
+      'work',
+      'design-qa',
+      'validate',
+      'review',
+      'merge',
+      'cleanup',
+      'done',
+    ])
+    const qa = withCustom.stages.find((s) => s.id === 'design-qa')
+    expect(qa).toMatchObject({ name: 'Design QA', custom: true, libraryFile: '# QA\n' })
+    expect(qa?.defaultText).toBeUndefined()
+
+    const saved2 = await client.save(
+      {
+        stages: { 'design-qa': { gate: true, maxBack: 2 }, cleanup: { enabled: true } },
+        stageFiles: { 'design-qa': '# QA\n\nCompare with Figma.\n' },
+      },
+      withCustom.version,
+    )
+    const yaml = (await libraryFile('workflow.yaml')) ?? ''
+    expect(yaml).toContain('order: [intake, work, design-qa, validate, review, merge]')
+    expect(yaml).toContain('    name: Design QA # by hand')
+    expect(parse(yaml).stages).toEqual({
+      'design-qa': { name: 'Design QA', gate: true, max_back: 2 },
+      cleanup: { enabled: true },
+    })
+    expect(await libraryFile('stages/design-qa.md')).toBe('# QA\n\nCompare with Figma.\n')
+    expect(saved2.stages.find((s) => s.id === 'cleanup')).toMatchObject({ enabled: true })
   })
 
   test('a save that would leave an invalid Library writes nothing', async () => {

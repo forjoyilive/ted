@@ -16,6 +16,14 @@ import type {
   StageRowView,
 } from '@ted/protocol'
 import { cleanupStepProblem } from '@ted/protocol/factory-settings'
+import {
+  handsOff,
+  hasClarifyRounds,
+  isCleanup,
+  isEntryStage,
+  mergesHere,
+  validates,
+} from '@ted/protocol/stage'
 import { memo, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
@@ -69,10 +77,6 @@ const roleNames: Record<AgentRole, string> = {
   planner: 'Planner',
 }
 const efforts: Effort[] = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
-
-function title(id: string): string {
-  return id.charAt(0).toUpperCase() + id.slice(1)
-}
 
 export function Edited({ when }: { when: boolean }) {
   return when ? <span className={base.edited}>Edited</span> : null
@@ -295,11 +299,13 @@ function WorkflowSectionView({
   draft,
   loaded,
   onDraft,
+  onOpenCleanup,
 }: {
   view: FactorySettingsView
   draft: SettingsDraft
   loaded: SettingsDraft
   onDraft: Update
+  onOpenCleanup: () => void
 }) {
   const [editing, setEditing] = useState<StageId>()
   const setStage = (id: StageId, fields: Partial<SettingsDraft['stages'][StageId]>) =>
@@ -359,6 +365,16 @@ function WorkflowSectionView({
             onEdit={(open) => setEditing(open ? row.id : undefined)}
             onKeep={() => keep(row.id as AgentStageId)}
             factoryId={view.factoryId}
+            {...(isCleanup(row.id) && {
+              cleanup: {
+                enabled: draft.cleanup.enabled,
+                edited: draft.cleanup.enabled !== loaded.cleanup.enabled,
+                steps: draft.cleanup.steps.length,
+                onEnabled: (enabled: boolean) =>
+                  onDraft((d) => ({ ...d, cleanup: { ...d.cleanup, enabled } })),
+                onSteps: onOpenCleanup,
+              },
+            })}
           />
         ))}
       </div>
@@ -375,8 +391,8 @@ function WorkflowSectionView({
           <span className={styles.warnMark} aria-hidden>
             ▲
           </span>{' '}
-          {file} is ignored: v1 runs built-in Stages only. Put those steps in the built-in Stage
-          file they belong to.
+          {file} is ignored: no Stage in this Workflow’s order uses it. Add its Stage to `order` in
+          .ted/workflow.yaml, or put its steps in the Stage file they belong to.
         </p>
       ))}
     </section>
@@ -393,6 +409,7 @@ function StageRow({
   onEdit,
   onKeep,
   factoryId,
+  cleanup,
 }: {
   row: StageRowView
   draft: SettingsDraft
@@ -403,10 +420,12 @@ function StageRow({
   onEdit: (open: boolean) => void
   onKeep: () => void
   factoryId: string
+  cleanup?: CleanupRow
 }) {
   const stage = draft.stages[row.id]
-  const name = title(row.id)
+  const { name } = row
   const agent = row.id !== 'backlog' && row.id !== 'done'
+  const decides = agent && !isCleanup(row.id)
   const file = agent
     ? (draft.stageFiles[row.id as Exclude<StageId, 'backlog' | 'done'>] ?? null)
     : null
@@ -415,21 +434,25 @@ function StageRow({
     : file !== null
       ? 'factory'
       : (row.inherited?.layer ?? (row.from === 'factory' ? 'ted' : row.from))
-  const fixed = row.id === 'backlog' || row.id === 'intake' || row.id === 'work'
+  const fixed = row.id === 'backlog' || isEntryStage(row.id) || handsOff(row.id)
   const dash = <span className={styles.dash}>—</span>
   const drift =
     agent && file !== null && !draft.keepStageFiles.includes(row.id as AgentStageId)
       ? row.drift
       : undefined
   return (
-    <div className={drift ? styles.stageDrift : editing ? styles.stageOpen : styles.stageBlock}>
+    <div
+      className={drift ? styles.stageDrift : editing ? styles.stageOpen : styles.stageBlock}
+      data-setting={cleanup ? 'factory.workflow.cleanup' : undefined}
+    >
       <div className={styles.workflowRow}>
         <span className={styles.stageName}>
           {name}
+          {row.custom && <CustomTag />}
           {drift && (
             <span className={styles.driftDot} role="img" aria-label="Inherited version changed" />
           )}{' '}
-          <Edited when={edited.size > 0} />
+          <Edited when={edited.size > 0 || cleanup?.edited === true} />
         </span>
         <span>
           {row.id === 'done' ? (
@@ -438,6 +461,10 @@ function StageRow({
             <span className={styles.always} title={`${name} can’t be turned off`}>
               Always on
             </span>
+          ) : row.custom ? (
+            <InOrder name={name} />
+          ) : cleanup ? (
+            <Toggle label={`${name} on`} checked={cleanup.enabled} onChange={cleanup.onEnabled} />
           ) : (
             <Toggle
               label={`${name} on`}
@@ -449,7 +476,7 @@ function StageRow({
           )}
         </span>
         <span>
-          {agent ? (
+          {decides ? (
             <Toggle
               label={`${name} Sign-Off`}
               checked={stage?.gate ?? row.gate}
@@ -460,7 +487,7 @@ function StageRow({
           )}
         </span>
         <span>
-          {agent ? (
+          {decides ? (
             <input
               aria-label={`${name} send-backs`}
               className={styles.numberInput}
@@ -476,7 +503,7 @@ function StageRow({
           )}
         </span>
         <span>
-          {row.id === 'clarify' ? (
+          {hasClarifyRounds(row.id) ? (
             <Select
               fullWidth
               aria-label="Clarify depth"
@@ -513,6 +540,11 @@ function StageRow({
         <span className={styles.actions}>
           {row.id === 'backlog' && <span className={styles.always}>Always first</span>}
           {row.id === 'done' && <span className={styles.always}>Always last</span>}
+          {cleanup && (
+            <ActionButton type="button" className={base.link} onClick={cleanup.onSteps}>
+              {stepsLabel(cleanup.steps)}
+            </ActionButton>
+          )}
           {agent && file === null && row.inherited && (
             <ActionButton
               type="button"
@@ -546,12 +578,18 @@ function StageRow({
           )}
         </span>
       </div>
-      {row.id === 'validate' && <ValidateRounds stage={stage} onStage={onStage} />}
-      {row.id === 'work' && <WorkFailures stage={stage} onStage={onStage} />}
-      {row.id === 'merge' && <MergeCommitTitles stage={stage} onStage={onStage} />}
+      {validates(row.id) && <ValidateRounds stage={stage} onStage={onStage} />}
+      {handsOff(row.id) && <WorkFailures stage={stage} onStage={onStage} />}
+      {mergesHere(row.id) && <MergeCommitTitles stage={stage} onStage={onStage} />}
+      {cleanup?.enabled && cleanup.steps === 0 && (
+        <CleanupWithoutSteps>
+          Cleanup is on but has no steps, so it won’t run. Add a step under Cleanup.
+        </CleanupWithoutSteps>
+      )}
       {drift && (
         <DriftNotice
           stage={row.id as AgentStageId}
+          name={name}
           drift={drift}
           label="Inherited"
           useLabel="Use inherited"
@@ -583,8 +621,51 @@ function StageRow({
   )
 }
 
+interface CleanupRow {
+  enabled: boolean
+  edited: boolean
+  steps: number
+  onEnabled: (enabled: boolean) => void
+  onSteps: () => void
+}
+
+function stepsLabel(steps: number): string {
+  return steps === 0 ? 'Add steps →' : `Steps (${steps}) →`
+}
+
+export function CustomTag() {
+  return (
+    <span className={styles.customTag} title="A Stage written by hand in workflow.yaml">
+      Custom
+    </span>
+  )
+}
+
+export function InOrder({ name, where = 'this Factory’s' }: { name: string; where?: string }) {
+  return (
+    <span
+      className={styles.always}
+      title={`${name} is on because ${where} order lists it. Edit order in workflow.yaml to remove it.`}
+    >
+      In order
+    </span>
+  )
+}
+
+export function CleanupWithoutSteps({ children }: { children: string }) {
+  return (
+    <p className={`${styles.warning} ${styles.rowWarning}`}>
+      <span className={styles.warnMark} aria-hidden>
+        ▲
+      </span>{' '}
+      {children}
+    </p>
+  )
+}
+
 export function DriftNotice({
   stage,
+  name,
   drift,
   label,
   useLabel,
@@ -593,6 +674,7 @@ export function DriftNotice({
   factoryId,
 }: {
   stage: AgentStageId
+  name: string
   drift: StageDrift
   label: 'Inherited' | 'Default'
   useLabel: string
@@ -617,7 +699,7 @@ export function DriftNotice({
     }
   }
   return (
-    <section className={styles.driftBody} aria-label={`${title(stage)} drift`}>
+    <section className={styles.driftBody} aria-label={`${name} drift`}>
       <p className={styles.driftLine}>
         <span className={styles.warnMark} aria-hidden>
           ▲
@@ -1567,7 +1649,7 @@ function sameDraft<P extends { draft: SettingsDraft }>(...fields: (keyof Setting
 
 export const WorkflowSection = memo(
   WorkflowSectionView,
-  sameDraft('stages', 'stageFiles', 'keepStageFiles'),
+  sameDraft('stages', 'stageFiles', 'keepStageFiles', 'cleanup'),
 )
 export const ChecksSection = memo(ChecksSectionView, sameDraft('checks', 'repos'))
 export const CleanupSection = memo(CleanupSectionView, sameDraft('cleanup'))

@@ -4301,7 +4301,7 @@
       "count": 4
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 18
+      "count": 14
     }
   },
   "packages/protocol/src/github-intake.ts": {

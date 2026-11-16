@@ -50,7 +50,7 @@ import {
 } from '../factory-settings.ts'
 import type { NavigationAction } from '../navigation.ts'
 import { usePendingAction } from '../pending-action.ts'
-import { useShownSetting } from '../setting-focus.ts'
+import { openSetting, useShownSetting } from '../setting-focus.ts'
 import { type FactorySectionId, factorySections, type SettingId } from '../settings-search.ts'
 import { readableError, ted } from '../ted.ts'
 import { RepoRowView } from './AddFactoryDialog.tsx'
@@ -222,6 +222,19 @@ export function FactorySettings({
   const count = unsaved.count
   const stepProblem = draft !== undefined && cleanupHasProblem(draft.cleanup)
   shown.current = { clean: count === 0, version: base?.version }
+  const openCleanup = useCallback(
+    () =>
+      openSetting(
+        {
+          id: 'factory.cleanup',
+          name: 'Cleanup',
+          where: '',
+          target: { kind: 'factory', factoryId: factory.id, section: 'cleanup' },
+        },
+        dispatch,
+      ),
+    [factory.id, dispatch],
+  )
   const onDraft = useCallback((change: (current: SettingsDraft) => SettingsDraft) => {
     if (mergeBusy.current) return
     setDraft((current) => (current ? change(current) : current))
@@ -455,6 +468,7 @@ export function FactorySettings({
                       draft={draft}
                       loaded={base.draft}
                       onDraft={onDraft}
+                      onOpenCleanup={openCleanup}
                     />
                   )}
                   {section === 'checks' && (

@@ -163,9 +163,12 @@ describe('Factory settings: Workflow', () => {
       'validate',
       'review',
       'merge',
+      'cleanup',
       'done',
     ])
     const row = (id: string) => view.stages.find((s) => s.id === id)
+    expect(row('cleanup')).toMatchObject({ name: 'Cleanup', inOrder: true, enabled: false })
+    expect(row('cleanup')).not.toHaveProperty('maxBack')
     expect(row('design')).toMatchObject({ enabled: true, gate: true, maxBack: 3, from: 'ted' })
     expect(row('clarify')).toMatchObject({ depth: 'auto' })
     expect(row('validate')).toMatchObject({
@@ -289,6 +292,92 @@ describe('Factory settings: Workflow', () => {
     expect(await originFile('.ted/stages/review.md')).toBeUndefined()
     expect(await originFile('.ted/workflow.yaml')).not.toContain('based_on')
     expect((await client.settings()).stages.find((s) => s.id === 'review')?.from).toBe('ted')
+  })
+
+  test('a custom Stage is a row in its Workflow position and saves without touching order, names or other custom Stages', async () => {
+    const custom = [
+      'version: 1',
+      'order: [intake, clarify, work, security-audit, validate, review, release-notes, merge]',
+      'repos:',
+      '  - name: widgets',
+      'stages:',
+      '  security-audit:',
+      '    name: Security audit # kept by hand',
+      '  release-notes: { name: "Release notes", max_back: 1 }',
+      '',
+    ].join('\n')
+    const client = await start({
+      workflow: custom,
+      files: {
+        '.ted/stages/security-audit.md': '# Audit\n',
+        '.ted/stages/release-notes.md': '# Notes\n',
+      },
+    })
+    const view = await client.settings()
+    expect(view.stages.map((s) => s.id)).toEqual([
+      'backlog',
+      'intake',
+      'clarify',
+      'design',
+      'work',
+      'security-audit',
+      'validate',
+      'review',
+      'release-notes',
+      'merge',
+      'cleanup',
+      'done',
+    ])
+    expect(view.stages.find((s) => s.id === 'security-audit')).toMatchObject({
+      name: 'Security audit',
+      custom: true,
+      inOrder: true,
+      enabled: true,
+      gate: false,
+      maxBack: 3,
+      from: 'factory',
+      factoryFile: '# Audit\n',
+    })
+    expect(view.stages.find((s) => s.id === 'validate')).toMatchObject({ name: 'Validate' })
+    expect(view.stages.find((s) => s.id === 'validate')).not.toHaveProperty('custom')
+    expect(view.ignoredStageFiles).toEqual([])
+
+    const refused = await client.call('POST', `/factories/${client.factory.id}/settings/preview`, {
+      ...unchanged(view),
+      stages: { 'security-audit': { enabled: false } },
+    })
+    expect(refused.status).toBe(400)
+
+    await client.save(
+      {
+        ...unchanged(view),
+        stages: { 'security-audit': { gate: true, maxBack: 1, effort: 'high' } },
+        stageFiles: { 'security-audit': '# Audit\n\nCheck the tokens too.\n' },
+      },
+      view.version,
+    )
+    const yaml = (await originFile('.ted/workflow.yaml')) ?? ''
+    expect(yaml).toContain(
+      'order: [intake, clarify, work, security-audit, validate, review, release-notes, merge]',
+    )
+    expect(yaml).toContain('    name: Security audit # kept by hand')
+    expect(yaml).toContain('  release-notes: { name: "Release notes", max_back: 1 }')
+    expect(parse(yaml).stages['security-audit']).toEqual({
+      name: 'Security audit',
+      gate: true,
+      max_back: 1,
+      effort: 'high',
+    })
+    expect(await originFile('.ted/stages/security-audit.md')).toBe(
+      '# Audit\n\nCheck the tokens too.\n',
+    )
+    expect(await originFile('.ted/stages/release-notes.md')).toBe('# Notes\n')
+    const after = await client.settings()
+    expect(after.stages.find((s) => s.id === 'security-audit')).toMatchObject({
+      gate: true,
+      maxBack: 1,
+      effort: 'high',
+    })
   })
 
   test('an unknown Stage file shows as ignored', async () => {
