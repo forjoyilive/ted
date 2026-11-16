@@ -8,29 +8,15 @@ import type {
   ListSort,
   ListView,
   Priority,
-  StageId,
   StatusFilter,
   Task,
 } from '@ted/protocol'
 import { allTasksScope } from '@ted/protocol/list-view'
+import { stageWith } from '@ted/protocol/stage'
 import { priorities, taskStatusKinds } from '@ted/protocol/task'
 import { emptyLayout, groupSections, groups } from './factory-layout.ts'
+import { defaultStages, type Stages } from './stage-names.ts'
 import { priorityLabels } from './task-fields.ts'
-
-export const stageOrder: readonly StageId[] = [
-  'backlog',
-  'intake',
-  'clarify',
-  'design',
-  'work',
-  'validate',
-  'review',
-  'merge',
-  'cleanup',
-  'done',
-]
-
-export const stageName = (stage: string) => stage.charAt(0).toUpperCase() + stage.slice(1)
 
 export const statusFilterLabels: Record<StatusFilter, string> = {
   failed: 'Failed',
@@ -241,28 +227,27 @@ export function filterTasks(
 }
 
 const priorityIndex = (task: Task) => priorities.indexOf(task.priority)
-const stageIndex = (task: Task) => {
-  const i = stageOrder.indexOf(task.stage)
-  return i === -1 ? stageOrder.length : i
-}
-
 export function manualOrder(a: Task, b: Task): number {
   return (
     priorityIndex(a) - priorityIndex(b) || a.rank - b.rank || a.createdAt.localeCompare(b.createdAt)
   )
 }
 
-const sorts: Record<ListSort, (a: Task, b: Task) => number> = {
+const sorts = (stages: Stages): Record<ListSort, (a: Task, b: Task) => number> => ({
   manual: manualOrder,
   priority: manualOrder,
   updated: (a, b) => b.updatedAt.localeCompare(a.updatedAt) || manualOrder(a, b),
   created: (a, b) => b.createdAt.localeCompare(a.createdAt) || manualOrder(a, b),
-  stage: (a, b) => stageIndex(a) - stageIndex(b) || manualOrder(a, b),
+  stage: (a, b) => stages.index(a.stage) - stages.index(b.stage) || manualOrder(a, b),
   title: (a, b) => a.title.localeCompare(b.title) || manualOrder(a, b),
-}
+})
 
-export function sortTasks(tasks: readonly Task[], sort: ListSort): Task[] {
-  return [...tasks].sort(sorts[sort])
+export function sortTasks(
+  tasks: readonly Task[],
+  sort: ListSort,
+  stages: Stages = defaultStages,
+): Task[] {
+  return [...tasks].sort(sorts(stages)[sort])
 }
 
 export interface TaskGroup {
@@ -270,7 +255,7 @@ export interface TaskGroup {
   label: string
   tasks: Task[]
   collapsed: boolean
-  turnedOff?: boolean
+  removed?: boolean
 }
 
 export function groupTasks(
@@ -279,20 +264,30 @@ export function groupTasks(
   factories: readonly Factory[],
   keep: readonly string[] = [],
   layout: FactoryLayout = emptyLayout,
+  stages: Stages = defaultStages,
 ): TaskGroup[] {
-  const sorted = sortTasks(tasks, view.sort)
+  const sorted = sortTasks(tasks, view.sort, stages)
   const make = <K extends string>(
     keys: readonly K[],
     keyOf: (task: Task) => K,
     labelOf: (key: K) => string,
     collapsed: (key: K) => boolean = () => false,
+    removed: (key: K) => boolean = () => false,
   ): TaskGroup[] => {
     const extra = [...new Set(sorted.map(keyOf))].filter((k) => !keys.includes(k))
     return [...keys, ...extra].flatMap((key) => {
       const inGroup = sorted.filter((t) => keyOf(t) === key)
-      return inGroup.length === 0 && !view.showEmptyGroups && !keep.includes(key)
-        ? []
-        : [{ key, label: labelOf(key), tasks: inGroup, collapsed: collapsed(key) }]
+      if (inGroup.length === 0 && (removed(key) || (!view.showEmptyGroups && !keep.includes(key))))
+        return []
+      return [
+        {
+          key,
+          label: labelOf(key),
+          tasks: inGroup,
+          collapsed: collapsed(key),
+          ...(removed(key) && { removed: true }),
+        },
+      ]
     })
   }
   switch (view.group) {
@@ -300,13 +295,21 @@ export function groupTasks(
       return sorted.length === 0
         ? []
         : [{ key: 'all', label: 'All', tasks: sorted, collapsed: false }]
-    case 'stage':
-      return make(
-        stageOrder,
-        (t) => t.stage,
-        stageName,
-        (key) => key === 'done' && view.filters.archived !== 'only',
+    case 'stage': {
+      const listed = stages.merged.filter((s) => !s.removed || sorted.some((t) => t.stage === s.id))
+      const ordered = [...new Set(sorted.map((t) => t.stage))].filter(
+        (id) => !listed.some((s) => s.id === id),
       )
+      const removed = (id: string) =>
+        listed.find((s) => s.id === id)?.removed === true || ordered.includes(id)
+      return make(
+        listed.map((s) => s.id),
+        (t) => t.stage,
+        (id) => stages.name(id),
+        (key) => key === 'done' && view.filters.archived !== 'only',
+        removed,
+      )
+    }
     case 'factory':
       return make(
         factories.map((f) => f.id),
@@ -360,7 +363,7 @@ export function rankMove(
 }
 
 export function dropTargets(group: ListGroup): readonly string[] {
-  if (group === 'stage') return ['backlog', 'intake']
+  if (group === 'stage') return ['backlog', stageWith('entry')]
   if (group === 'status') return ['none', 'queued']
   if (group === 'priority') return priorities
   return []
@@ -381,7 +384,7 @@ export function dropAction(
   if (group === 'priority') return 'reorder'
   const startable = task.stage === 'backlog' && !task.statuses.includes('blocked')
   if (group === 'stage') {
-    if (from === 'backlog' && to === 'intake' && startable) return 'start'
+    if (from === 'backlog' && to === stageWith('entry') && startable) return 'start'
     if (to === 'backlog' && isQueued(task)) return 'unstart'
     return undefined
   }
@@ -422,6 +425,7 @@ export function filterChips(
   filters: ListFilters,
   factories: readonly Factory[],
   layout: FactoryLayout = emptyLayout,
+  stages: Stages = defaultStages,
 ): FilterChip[] {
   const without =
     (name: keyof ListFilters) =>
@@ -440,7 +444,8 @@ export function filterChips(
       `Factory is ${joined(filters.factories.map((id) => factories.find((f) => f.id === id)?.name ?? 'No Factory'))}`,
     )
   }
-  if (filters.stages?.length) add('stages', `Stage is ${joined(filters.stages.map(stageName))}`)
+  if (filters.stages?.length)
+    add('stages', `Stage is ${joined(filters.stages.map((id) => stages.name(id)))}`)
   if (filters.statuses?.length) {
     add('statuses', `Status is ${joined(filters.statuses.map((s) => statusFilterLabels[s]))}`)
   }

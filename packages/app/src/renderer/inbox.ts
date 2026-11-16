@@ -9,7 +9,7 @@ import type {
   StageId,
 } from '@ted/protocol'
 import { emptyLayout, groupSections, groups } from './factory-layout.ts'
-import { stageName, stageOrder } from './list-view.ts'
+import { defaultStages, type Stages } from './stage-names.ts'
 import { priorityLabels } from './task-fields.ts'
 
 export interface InboxChip {
@@ -166,12 +166,14 @@ export function groupInbox<T extends { grouped: Grouped }>(
   now: number,
   order: InboxOrder = defaultInboxOrder,
   layout: FactoryLayout = emptyLayout,
+  stages: Stages = defaultStages,
 ): InboxGroup<T>[] {
   const grouped = groupRows(
     order.oldestFirst ? [...newestFirst].reverse() : newestFirst,
     grouping,
     now,
     layout,
+    stages,
   )
   if (!order.groupsReversed) return grouped
   const last = grouped.at(-1)
@@ -183,6 +185,7 @@ function groupRows<T extends { grouped: Grouped }>(
   grouping: InboxGrouping,
   now: number,
   layout: FactoryLayout,
+  stages: Stages,
 ): InboxGroup<T>[] {
   if (grouping === 'none') return rows.length ? [{ key: 'all', label: '', rows: [...rows] }] : []
   const pick = (
@@ -204,13 +207,18 @@ function groupRows<T extends { grouped: Grouped }>(
   if (grouping === 'priority')
     return pick(priorityHeadings, (row) => row.grouped.priority ?? 'no-task')
   if (grouping === 'stage') {
-    const known = (row: T) => {
-      const stage = row.grouped.stage
-      return stage !== undefined && stageOrder.includes(stage) ? stage : 'none'
-    }
+    const listed = stages.merged.map((s) => s.id)
+    const extra = [
+      ...new Set(
+        rows.flatMap((row) => (row.grouped.stage === undefined ? [] : [row.grouped.stage])),
+      ),
+    ].filter((stage) => !listed.includes(stage))
     return pick(
-      [...stageOrder.map((stage) => [stage, stageName(stage)] as const), ['none', 'No Stage']],
-      known,
+      [
+        ...[...listed, ...extra].map((stage) => [stage, stages.name(stage)] as const),
+        ['none', 'No Stage'],
+      ],
+      (row) => row.grouped.stage ?? 'none',
     )
   }
   const day = new Date(now)

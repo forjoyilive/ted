@@ -9,7 +9,7 @@ import { stageParts } from '@ted/protocol/stage-parts'
 import { useEffect, useId, useRef, useState } from 'react'
 import { CloseIcon } from '../components/icons.tsx'
 import { rangeComparison, type StageSelection } from '../dashboard.ts'
-import { stageName as label } from '../list-view.ts'
+import { useStages } from '../stages.tsx'
 import { formatDate } from '../time.ts'
 import styles from './Dashboard.module.css'
 import { hours, StatisticsHelp, share, TimingChange } from './DashboardMeasures.tsx'
@@ -75,6 +75,7 @@ function StageTable({
   range,
   eligible,
   factories,
+  names,
   select,
 }: {
   period: FlowPeriod
@@ -82,8 +83,12 @@ function StageTable({
   range: DashboardRange
   eligible: number
   factories: readonly { id: string; name: string }[]
+  names: Readonly<Record<string, string>>
   select: (s: StageSelection) => void
 }) {
+  const stages = useStages().within(factories.map((f) => f.id))
+  const label = (id: string) => stages.name(id, undefined, names)
+  const rows = period.stages.toSorted((a, b) => stages.index(a.stage) - stages.index(b.stage))
   const [mode, setMode] = useState<'total' | 'share'>('total')
   const total = period.stages.reduce((sum, s) => sum + (totalValue(s) ?? 0), 0)
   const most = Math.max(0, ...period.stages.map((s) => totalValue(s) ?? 0))
@@ -124,7 +129,7 @@ function StageTable({
             <span>{previous && `vs ${rangeComparison(range).against}`}</span>
           </li>
         )}
-        {period.stages.map((s) => {
+        {rows.map((s) => {
           const prior = previous?.stages.find((p) => p.stage === s.stage)
           const choose = () => select({ kind: 'stage', stage: s.stage, period: 'current' })
           const covers = coverage(s, eligible, factories)
@@ -236,6 +241,8 @@ function StageSample({
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const heading = useId()
+  const stages = useStages()
+  const label = (id: string) => stages.name(id, undefined, data.stageNames)
   useEffect(() => {
     const opener = document.activeElement
     dialog.current?.showModal()
@@ -522,6 +529,7 @@ export function Stages({
             ).length
           }
           factories={factories}
+          names={data.stageNames}
           select={select}
         />
         <details className={styles.dataTable}>

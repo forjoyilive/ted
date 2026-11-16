@@ -43,10 +43,10 @@ import {
   when,
 } from '../plans.ts'
 import { ago, clockTime, useNow } from '../requests.ts'
+import { useStages } from '../stages.tsx'
 import { agentLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './PlanChat.module.css'
-import { stageName } from './TaskViews.tsx'
 import views from './views.module.css'
 
 export function PlanChatView({
@@ -959,6 +959,7 @@ function PlanPane({
 }) {
   const { plan, requests, tasks } = detail
   const proposal = requests.findLast((r) => r.kind === 'proposal')
+  const stages = useStages()
   return (
     <DetailsPane className={views.detailsPane} aria-label="Planning chat details">
       <Section title="Agent">
@@ -986,7 +987,7 @@ function PlanPane({
                 </ActionButton>
                 <span className={styles.paneMuted}>
                   {[
-                    task.stage.charAt(0).toUpperCase() + task.stage.slice(1),
+                    stages.name(task.stage, plan.factoryId),
                     ...(task.blockedBy.length > 0
                       ? [`Blocked by ${task.blockedBy.join(', ')}`]
                       : []),
@@ -1019,6 +1020,7 @@ function PlanPane({
 }
 
 function StartedFrom({ plan, onOpenTask }: { plan: Plan; onOpenTask: (ref: string) => void }) {
+  const stages = useStages()
   const from = plan.fromTask
   if (!from) return <p className={styles.paneText}>Plan, by you</p>
   const state =
@@ -1027,7 +1029,7 @@ function StartedFrom({ plan, onOpenTask }: { plan: Plan; onOpenTask: (ref: strin
       : from.gone === 'archived'
         ? ['Archived']
         : [
-            ...(from.stage !== undefined ? [stageName(from.stage)] : []),
+            ...(from.stage !== undefined ? [stages.name(from.stage, plan.factoryId)] : []),
             ...(from.status !== undefined
               ? [statusLabel(from.status)]
               : from.activity !== undefined

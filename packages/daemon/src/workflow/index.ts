@@ -17,4 +17,5 @@ export {
   type ResolvedStageFile,
   type ResolvedWorkflow,
   resolveWorkflow,
+  withStagesInUse,
 } from './resolve.ts'

@@ -12,10 +12,11 @@ import type {
 import { matchesTerms, searchTerms } from '@ted/protocol/search'
 import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { type Command, type CommandContext, paletteCommands } from '../commands.ts'
-import { stageName } from '../list-view.ts'
 import { ago } from '../requests.ts'
 import { openSetting } from '../setting-focus.ts'
 import { findSettings, platformOf, searchFactory } from '../settings-search.ts'
+import type { Stages } from '../stage-names.ts'
+import { useStages } from '../stages.tsx'
 import { readableError, ted } from '../ted.ts'
 import { ActionButton } from './ActionButton.tsx'
 import { ConversationSearchView } from './ConversationSearchView.tsx'
@@ -66,9 +67,9 @@ function StateChip({ state }: { state: TaskHit['state'] }) {
   return <span className={styles.chip}>{state === 'done' ? 'Done' : 'Archived'}</span>
 }
 
-function taskContent(hit: TaskHit, factories: readonly Factory[]) {
+function taskContent(hit: TaskHit, factories: readonly Factory[], stages: Stages) {
   const meta: string[] = []
-  if (hit.state === 'open') meta.push(stageName(hit.stage))
+  if (hit.state === 'open') meta.push(stages.name(hit.stage, hit.factoryId))
   const note = fieldNotes[hit.field]
   if (note !== undefined) meta.push(note)
   return (
@@ -179,6 +180,7 @@ export function SearchPalette({
   const dialog = useRef<HTMLDialogElement>(null)
   const input = useRef<HTMLInputElement>(null)
   const listId = useId()
+  const stages = useStages()
   const [query, setQuery] = useState('')
   const [conversation, setConversation] = useState<ConversationHit>()
   const [results, setResults] = useState<SearchResults>()
@@ -292,7 +294,7 @@ export function SearchPalette({
         key: `task:${hit.taskId}`,
         group: 'Tasks',
         label: `${hit.displayId} ${hit.title}`,
-        content: taskContent(hit, context.factories),
+        content: taskContent(hit, context.factories, stages),
         run: () => onOpenTask(hit.taskId, hit.factoryId),
       })
     }

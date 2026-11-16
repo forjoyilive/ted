@@ -9,6 +9,7 @@
     "./time": "./src/time.ts",
     "./task": "./src/task.ts",
     "./stage": "./src/stage.ts",
+    "./stage-list": "./src/stage-list.ts",
     "./task-intervals": "./src/task-intervals.ts",
     "./stage-parts": "./src/stage-parts.ts",
     "./app": "./src/app.ts",

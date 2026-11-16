@@ -262,6 +262,7 @@ import {
   withForcedGates,
   withoutGates,
   withRecorded,
+  withStagesInUse,
   withTaskGates,
 } from '../workflow/resolve.ts'
 import {
@@ -10971,7 +10972,14 @@ export function createTasks(options: {
       const factory = store.getFactory(factoryId)
       if (!factory) throw new RequestError(404, `no Factory ${factoryId}`)
       const resolution = await resolveWorkflow(factory, { fetch: false })
-      return { stages: boardStages(resolution.workflow, store.settings().overnightMode) }
+      const listed = boardStages(resolution.workflow, store.settings().overnightMode)
+      const inUse = store
+        .listTasks()
+        .filter(
+          (t) => t.factoryId === factoryId && !t.archived && !listed.some((s) => s.id === t.stage),
+        )
+        .map((t) => ({ stage: t.stage, recorded: store.recordedStages(t.id) }))
+      return { stages: withStagesInUse(listed, inUse) }
     },
 
     start,

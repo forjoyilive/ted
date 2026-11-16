@@ -39,9 +39,10 @@ import {
   summary,
   useNow,
 } from '../requests.ts'
+import type { Stages } from '../stage-names.ts'
+import { useStages } from '../stages.tsx'
 import { readableError, ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
-import { stageName } from '../views/TaskViews.tsx'
 import { ActionButton } from './ActionButton.tsx'
 import type { ShownApp } from './AppsSection.tsx'
 import dialogStyles from './ArchiveDialogs.module.css'
@@ -1265,6 +1266,7 @@ function answerLine(
   request: Comment,
   newer: Comment | undefined,
   task: Task,
+  stages: Stages,
 ): { mark: string; tone: string; text: string } | undefined {
   const { answer } = request
   if (!answer) return undefined
@@ -1383,8 +1385,11 @@ function answerLine(
         mark: '–',
         tone: 'neutral',
         text: `Withdrawn · the Task went ${
-          request.stage !== undefined && isBefore(answer.movedTo, request.stage) ? 'back' : 'on'
-        } to ${stageName(answer.movedTo)} before you answered`,
+          request.stage !== undefined &&
+          stages.index(answer.movedTo, task.factoryId) < stages.index(request.stage, task.factoryId)
+            ? 'back'
+            : 'on'
+        } to ${stages.name(answer.movedTo, task.factoryId)} before you answered`,
       }
     case 'superseded': {
       const by = newer ?? request
@@ -1404,23 +1409,6 @@ function runOwner(request: Comment, task: Task): string {
     : who === 'a Sub-Agent'
       ? 'the Sub-Agent’s'
       : 'its'
-}
-
-const stageOrder: readonly string[] = [
-  'backlog',
-  'intake',
-  'clarify',
-  'design',
-  'work',
-  'validate',
-  'review',
-  'merge',
-  'cleanup',
-  'done',
-]
-
-function isBefore(a: string, b: string): boolean {
-  return stageOrder.indexOf(a) < stageOrder.indexOf(b)
 }
 
 const outcomes: Partial<Record<CommentAnswer['kind'], string>> = {
@@ -1510,6 +1498,7 @@ export function AnsweredCard({
   onOpenTask?: ((id: string) => void) | undefined
 }) {
   const now = useNow()
+  const stages = useStages()
   const permission = request.kind === 'permission'
   const shown =
     request.permission && request.body.trim() === ''
@@ -1520,7 +1509,7 @@ export function AnsweredCard({
   useEffect(() => {
     if (expanded) card.current?.scrollIntoView({ block: 'nearest' })
   }, [expanded])
-  const line = answerLine(request, newer, task)
+  const line = answerLine(request, newer, task, stages)
   const quoted = request.answer && 'text' in request.answer ? request.answer.text : undefined
   const outcome = (request.answer && outcomes[request.answer.kind]) ?? 'answered'
   const talked = request.answer?.kind === 'answered' ? request.answer.talkedThrough : undefined

@@ -13,7 +13,8 @@ import {
   type TreeNode,
   waitingText,
 } from '../hierarchy.ts'
-import { stageName } from '../list-view.ts'
+import type { Stages } from '../stage-names.ts'
+import { useStages } from '../stages.tsx'
 import { readableError, ted } from '../ted.ts'
 import { ActionButton } from './ActionButton.tsx'
 import { Button } from './Button.tsx'
@@ -27,10 +28,10 @@ export async function changeParent(task: Task, parentId: string | null): Promise
   return ted.setTaskParent(task.id, { parentId, revision })
 }
 
-function stateLabel(task: Task): string {
+function stateLabel(task: Task, stages: Stages): string {
   if (isMerged(task)) return 'Merged'
   if (task.archived) return 'Archived, not merged'
-  return stageName(task.stage)
+  return stages.name(task.stage, task.factoryId)
 }
 
 function stateClass(task: Task): string {
@@ -147,6 +148,7 @@ function TreeRows({
   onToggle: (id: string) => void
   onOpenTask?: ((ref: string) => void) | undefined
 }) {
+  const stages = useStages()
   return (
     <ul className={styles.tree}>
       {nodes.map(({ task, children }) => {
@@ -182,7 +184,9 @@ function TreeRows({
                   <ProgressRing merged={progress.merged} total={progress.total} />
                 )}
               </ActionButton>
-              <span className={`${styles.state} ${stateClass(task)}`}>{stateLabel(task)}</span>
+              <span className={`${styles.state} ${stateClass(task)}`}>
+                {stateLabel(task, stages)}
+              </span>
             </div>
             {open && children.length > 0 && (
               <TreeRows
@@ -213,7 +217,8 @@ export function ChildrenField({
 }) {
   const tree = childTree(task, tasks)
   const progress = childProgress(task, tasks)
-  const waiting = waitingText(task, progress, (t) => stageName(t.stage))
+  const stages = useStages()
+  const waiting = waitingText(task, progress, (t) => stages.name(t.stage, t.factoryId))
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
   const [picking, setPicking] = usePickRequest(searchRequest)
   const [error, setError] = useState<string>()
