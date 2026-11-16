@@ -97,6 +97,7 @@ const testOptions = {
     TED_KEYRING_MODULE: here('./packages/daemon/test/fixtures/stub-keyring.ts'),
     TED_LINEAR_API: 'http://127.0.0.1:9/graphql',
     TED_STAY_AWAKE: 'off',
+    TED_SENTRY_DSN: 'http://test@127.0.0.1:9/1',
     TED_LOW_PRIORITY: 'off',
     TED_SKIP_FIRST_LAUNCH: '1',
     TED_TIME_MACHINE: 'off',
