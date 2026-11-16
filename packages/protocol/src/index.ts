@@ -775,6 +775,7 @@ export {
   type Appearance,
   appearances,
   archivedTaskDayLimits,
+  checkCpuLimits,
   checkLimits,
   defaultFactoryNotifications,
   defaultMachineSettings,

@@ -37,6 +37,8 @@ stages:
         timeout: 20m
 ```
 
+TED sets `TED_CHECK_CPUS` for every Check command: the number of logical cores the Check may use, which is a share of the computer’s cores (**CPU a Check may use** in Settings → Limits, half by default) divided by the Check runs running when it starts. A Scheduled Check gets it too unless **Limit the CPU Scheduled Checks use too** is turned off there. TED doesn’t enforce it. Pass it to the test runner so a Check leaves room for Runs, for example `vitest run --maxWorkers=$TED_CHECK_CPUS`, `jest --maxWorkers=$TED_CHECK_CPUS` or `make -j$TED_CHECK_CPUS`. A Check that fills the computer makes new Runs wait until it ends (ADR 0171-ted-tells-a-check-how-many-cpus-it-may-use).
+
 Choose the command that fits the project: a full suite, a focused suite or a script that selects tests. A Check runs in its selected repo’s Task worktree; omitting `repo` selects the primary repo. Checks for repos absent from the Task or unchanged from the base branch are skipped. Check configuration chooses commands, not a universal test-file budget.
 
 Use the Factory settings’ Workflow section to edit Validate’s Stage file, stored as `.ted/stages/validate.md`. Put project-specific instructions there: which extra tests the Task Lead should run, when to run them, how to try the change and what evidence to report. Instructions for Work belong in its Stage file. Repo rules in `AGENTS.md` still apply; changing a Stage file does not reconfigure a test runner’s own limits.

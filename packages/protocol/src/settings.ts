@@ -26,6 +26,8 @@ export function defaultWorkingRuns(totalMemoryBytes: number): number {
 
 export const checkLimits = { min: 1, max: 16 } as const
 
+export const checkCpuLimits = { min: 10, max: 100, step: 10 } as const
+
 export const textSizeLimits = { min: 80, max: 200, step: 5 } as const
 
 // 100% draws text at 110% of the CSS sizes; integer maths keeps the CSS value exact.
@@ -131,6 +133,8 @@ export interface MachineSettings {
   lowPriorityWork: boolean
   antigravityPlanAccepted: boolean
   maxChecksAtOnce: number
+  checkCpuPercent: number
+  limitScheduledCheckCpus: boolean
   startNewTasks: boolean
 }
 
@@ -186,6 +190,8 @@ export const defaultMachineSettings: MachineSettings = {
   lowPriorityWork: true,
   antigravityPlanAccepted: false,
   maxChecksAtOnce: 2,
+  checkCpuPercent: 50,
+  limitScheduledCheckCpus: true,
   startNewTasks: true,
 }
 

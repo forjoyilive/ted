@@ -183,6 +183,16 @@ const entries = {
     name: 'Checks running at once',
     help: 'A Task’s Checks run one after another and count as one. When this many Tasks are running Checks, the next waits its turn; a Check you try with Run now in Factory settings waits too. Lowering the limit doesn’t stop Checks that are running.',
   },
+  'app.limits.check-cpus': {
+    name: 'CPU a Check may use',
+    help: 'TED tells each Check how many of this computer’s cores it may use: this share of them, divided between the Checks running at once, and never fewer than 1. A lower share leaves more room for Runs and makes Checks slower.',
+    detail:
+      'TED doesn’t enforce it. A Check’s command has to pass the number, TED_CHECK_CPUS, to its test runner. Applies to Checks started after you change it.',
+  },
+  'app.limits.scheduled-check-cpus': {
+    name: 'Limit the CPU Scheduled Checks use too',
+    help: 'When this is off, a Scheduled Check isn’t told a number and may use the whole computer. It finishes sooner, but new Runs may wait until it ends.',
+  },
   'app.limits.low-priority': {
     name: 'Run agents and Checks at low priority',
     help: 'For agents, Checks, worktree setup and teardown, and Apps an agent starts. On macOS they run at the system’s “utility” priority, so they give way to your other apps and may run slower. On Linux they run at a lower scheduling priority. Apps you start with ▶ and Task shells keep normal priority.',

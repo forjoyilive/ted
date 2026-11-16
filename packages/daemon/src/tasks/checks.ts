@@ -8,6 +8,7 @@ import type { PlannedCheck } from '../store/index.ts'
 import { plural } from '../text.ts'
 import type { CheckSettings } from '../workflow/check.ts'
 import { checkWorkflowPath } from '../workflow/check-path.ts'
+import { checkCpusEnv } from './check-slots.ts'
 import { type CommandLaunch, runTaskCommand } from './command.ts'
 import { durationMs } from './worktree.ts'
 import { readChanges, type WorktreeReads } from './worktree-reads.ts'
@@ -116,6 +117,7 @@ export async function runChecks(input: {
   prepareLaunch: () => Promise<CommandLaunch>
   signal?: AbortSignal
   lowPriority: boolean
+  cpus?: () => number
   memory?: MemoryWatch
   from?: number
   onInterrupted?: (position: number) => void
@@ -146,7 +148,11 @@ export async function runChecks(input: {
             label: 'this Check',
             command: { run: check.command, timeoutMs: durationMs(check.timeout) },
             cwd,
-            env: { ...checkEnv(input.taskDisplayId, env ?? {}, input.env), ...reporting },
+            env: {
+              ...checkEnv(input.taskDisplayId, env ?? {}, input.env),
+              ...(input.cpus && checkCpusEnv(input.cpus())),
+              ...reporting,
+            },
             log,
             shell: [loginShell(input.env), '-lc'],
             lowPriority: input.lowPriority,

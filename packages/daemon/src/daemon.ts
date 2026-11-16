@@ -406,7 +406,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           console.error(`couldn’t update ${factory.name}’s repos:`, error)
         })
       }
-      const checkSlots = createCheckSlots({ limit: () => store.settings().maxChecksAtOnce })
+      const checkSlots = createCheckSlots({
+        limit: () => store.settings().maxChecksAtOnce,
+        cpuPercent: () => store.settings().checkCpuPercent,
+      })
       const checkTries = createCheckTries({
         store,
         checkSlots,

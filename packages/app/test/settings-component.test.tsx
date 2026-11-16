@@ -116,10 +116,20 @@ test('Limits changes how many Checks run at once and turns low priority off', as
   expect(screen.getByText('Checks running at once')).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'More Checks at once' }))
   await user().click(screen.getByRole('button', { name: 'Fewer Checks at once' }))
+  expect(screen.getByText('CPU a Check may use')).toBeTruthy()
+  expect(screen.getByText('50%')).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'More CPU for a Check' }))
+  await user().click(screen.getByRole('button', { name: 'Less CPU for a Check' }))
+  const scheduled = screen.getByRole('switch', { name: 'Limit the CPU Scheduled Checks use too' })
+  expect(scheduled.getAttribute('aria-checked')).toBe('true')
+  await user().click(scheduled)
   expect(update.mock.calls).toEqual([
     [{ lowPriorityWork: false }],
     [{ maxChecksAtOnce: 3 }],
     [{ maxChecksAtOnce: 1 }],
+    [{ checkCpuPercent: 60 }],
+    [{ checkCpuPercent: 40 }],
+    [{ limitScheduledCheckCpus: false }],
   ])
 })
 

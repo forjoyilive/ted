@@ -5,6 +5,8 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_APP_TOKEN: false,
   TED_AUTOMATION: 'Automation context for CLI task creation.',
   TED_BROWSER_PROFILE: 'Profile folder the daemon gives an Automation Run’s headless browser.',
+  TED_CHECK_CPUS:
+    'Logical cores TED tells a Check command it may use, so a Check leaves room for Runs.',
   TED_CLAUDE_BIN: false,
   TED_CODEX_BIN: false,
   TED_ANTIGRAVITY_BIN: false,

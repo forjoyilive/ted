@@ -8,6 +8,7 @@ import {
   billings,
   boardCardSizes,
   boardFields,
+  checkCpuLimits,
   checkLimits,
   createdByKinds,
   editorIds,
@@ -247,7 +248,9 @@ function boardView(value: unknown): BoardView {
   }
 }
 
-const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => MachineSettings[K] } = {
+export const settingParsers: {
+  [K in keyof MachineSettings]: (value: unknown) => MachineSettings[K]
+} = {
   enabledAgents() {
     throw new HttpError(
       400,
@@ -418,6 +421,23 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     }
     return value
   },
+  checkCpuPercent(value) {
+    const { min, max, step } = checkCpuLimits
+    if (
+      typeof value !== 'number' ||
+      !Number.isInteger(value) ||
+      value < min ||
+      value > max ||
+      value % step !== 0
+    ) {
+      throw new HttpError(
+        400,
+        `checkCpuPercent must be a multiple of ${step} from ${min} to ${max}`,
+      )
+    }
+    return value
+  },
+  limitScheduledCheckCpus: onOff('limitScheduledCheckCpus'),
   linearSyncTeams: (value) => teamsByFactory('linearSyncTeams', value),
   linearSyncDeclined: (value) => teamsByFactory('linearSyncDeclined', value),
   trackerSyncGroups: (value) => groupsByTracker('trackerSyncGroups', value),

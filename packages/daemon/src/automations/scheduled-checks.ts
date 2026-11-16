@@ -206,6 +206,9 @@ export function createScheduledChecks(options: {
           prepareLaunch: launcher(factory, firingId),
           signal,
           lowPriority: store.settings().lowPriorityWork,
+          ...(store.settings().limitScheduledCheckCpus && {
+            cpus: () => options.checkSlots.cpus(),
+          }),
           ...(options.memory && { memory: options.memory }),
           onStart: () => undefined,
           onFinish: (_, done) => {

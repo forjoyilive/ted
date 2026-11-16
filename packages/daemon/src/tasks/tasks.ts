@@ -9738,6 +9738,7 @@ export function createTasks(options: {
         checkWaits.delete(taskId)
       }
     },
+    checkCpus: () => options.checkSlots.cpus(),
     checkLog,
     checkDir,
     findings: failedFindings,

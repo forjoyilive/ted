@@ -1,5 +1,5 @@
 import { cp, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { availableParallelism, tmpdir } from 'node:os'
 import path from 'node:path'
 import type {
   Activity,
@@ -15,12 +15,13 @@ import type {
   ThreadEvent,
   WaitingRequest,
 } from '@ted/protocol'
-import { tedPaths } from '@ted/protocol'
+import { defaultMachineSettings, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { Clock } from '../src/clock.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { openStore } from '../src/store/index.ts'
+import { checkCpus } from '../src/tasks/check-slots.ts'
 import { stubKeyring, stubKeyringFile } from './fixtures/stub-keyring.ts'
 import { startStubLinear } from './fixtures/stub-linear.ts'
 import {
@@ -1054,7 +1055,7 @@ describe('Automations', () => {
     const kill = path.join(scratch, 'kill-check')
     const command = [
       `if [ -f '${kill}' ]; then kill -9 $$; fi`,
-      'echo "sandboxed=$TED_SANDBOX task=$TED_TASK."',
+      'echo "sandboxed=$TED_SANDBOX task=$TED_TASK. cpus=$TED_CHECK_CPUS."',
       'cat README.md',
       'echo "TED_SANDBOX_SKIPPED: the Electron app tests"',
       `if [ -f '${fail}' ]; then echo ' FAIL  |node| packages/x/test/a.test.ts > t'; echo ' FAIL  |node| packages/x/test/b.test.ts'; exit 1; fi`,
@@ -1096,7 +1097,9 @@ describe('Automations', () => {
       'GET',
       `/automation-runs/${passed?.id}/output`,
     )
-    expect(firstOutput.text).toContain('sandboxed=1 task=.')
+    expect(firstOutput.text).toContain(
+      `sandboxed=1 task=. cpus=${checkCpus(availableParallelism(), 1, defaultMachineSettings.checkCpuPercent)}.`,
+    )
     expect(firstOutput.text).toContain('# widgets')
     expect(firstOutput.log).toBe(path.join(checkLogs(), automation.id, `${passed?.id}.log`))
 
@@ -1302,10 +1305,21 @@ test('removing a Factory deletes its Automations, stops their Runs and removes s
     name: 'Nightly tests',
     prompt: undefined,
     schedule: { kind: 'daily', at: '03:00' },
-    check: { command: 'echo ok' },
+    check: { command: 'echo "cpus=$TED_CHECK_CPUS."' },
   })
+  await client.ok('PATCH', '/settings', { limitScheduledCheckCpus: false })
   await client.ok('POST', `/automations/${check.id}/run`)
-  await waitForHistory(client, check.id, (rows) => rows[0]?.result.kind === 'passed', 'the Check')
+  const [unlimited] = await waitForHistory(
+    client,
+    check.id,
+    (rows) => rows[0]?.result.kind === 'passed',
+    'the Check',
+  )
+  const output = await client.ok<{ text: string }>(
+    'GET',
+    `/automation-runs/${unlimited?.id}/output`,
+  )
+  expect(output.text).toContain('cpus=.')
   expect(await readdir(checkLogs())).toEqual([check.id])
   clock = Date.parse('2026-11-09T09:00:05Z')
   const [row] = await waitForHistory(

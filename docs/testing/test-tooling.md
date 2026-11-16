@@ -43,12 +43,12 @@ How much of it runs:
 - The limit is there because nearly every daemon test starts the daemon in-process and the app’s Electron tests import the daemon’s test helpers: a change to most files in `packages/daemon/src` reaches 270 or more test files, and a change to `packages/protocol/src` reaches all of them. Without the limit the Check would run for 20 to 30 minutes before a Task leaves Work and again at Validate entry.
 - When git can’t say what changed, it runs every test.
 - With nothing affected (docs only, for example) it says so and passes.
-- The Check’s timeout in `.ted/workflow.yaml` is 60 minutes. In the last full run the 60 slowest test files took 95 minutes of file time on the `node` project and 21 on `electron`. With half the usual workers (load per core 1.5: 3 and 2) that is 32 minutes, and a run of ten or more files can first wait about 25 minutes behind someone’s full `pnpm check`. An average 60 files take 22 minutes with one worker. The default of 10 minutes is too short for either.
+- The Check’s timeout in `.ted/workflow.yaml` is 60 minutes. In the last full run the 60 slowest test files took 95 minutes of file time on the `node` project and 21 on `electron`. With half the usual workers (load per core 1.5, or a Check allowed 6 CPUs: 3 and 2) that is 32 minutes, and a run of ten or more files can first wait about 25 minutes behind someone’s full `pnpm check`. An average 60 files take 22 minutes with one worker. The default of 10 minutes is too short for either.
 
 How it runs:
 
 - It runs the `electron` and `node` projects as `pnpm check` does, each only when it has files, and no typecheck or lint.
-- Ten or more files take the suite lock and get `pnpm check`’s worker counts. Fewer take one test slot and at most 3 workers per project, like any small run. Both scale down on a busy machine.
+- Ten or more files take the suite lock and get `pnpm check`’s worker counts. Fewer take one test slot and at most 3 workers per project, like any small run. Both keep to `TED_CHECK_CPUS` when TED runs them as a Check, and scale down on a busy machine (see [Machine load](#machine-load)).
 - It records no passing commit and doesn’t rewrite `ted-test-times.json`. Only a full `pnpm check` does.
 - Inside a sandbox where Electron can’t start (see [Inside a sandbox](#inside-a-sandbox)), it leaves the Electron files out, prints them, and writes `node_modules/.cache/ted-affected-left-out.txt`: the Electron files that were changed or picked by name, to run by hand, and how many others were left out. A run outside the sandbox deletes the file. TED runs Checks in its sandbox unless the Factory is in Bypass, so on macOS the Task Lead runs the listed files in Validate, 3 per command.
 
@@ -90,6 +90,7 @@ Test runs share the machine through `packages/daemon/test/support/suite-lock.ts`
 - A test run reads the 1-minute load per core when it starts (`scripts/machine-load.ts`). Above 0.75, `pnpm check` and plain Vitest runs multiply their worker counts by 0.75 ÷ load, never below 1, print one line saying so, and record `load` and `workers` in the run line of `~/.cache/ted/test-failures.jsonl`, which `pnpm test-failures` shows as a `busy` column.
 - `pnpm check --wait-for-quiet[=<minutes>]` (or `TED_CHECK_WAIT_FOR_QUIET`) instead waits, holding the test lock, until the load is 0.75 or below, for at most 30 minutes, then starts anyway.
 - `TED_TEST_LOAD=off` ignores the load and a number replaces it. `vitest.config.ts` sets `off` for every test file.
+- TED gives every Check command `TED_CHECK_CPUS`, the logical cores it may use: the share set in Settings → Limits (**CPU a Check may use**, half by default), divided by the Check runs running when it starts (ADR 0171-ted-tells-a-check-how-many-cpus-it-may-use). A Scheduled Check gets it unless **Limit the CPU Scheduled Checks use too** is off. `pnpm check` keeps to it before it looks at the load (`allowedCpus` and `workersWithin` in `scripts/machine-load.ts`): it allows one Vitest worker per 2 CPUs (`cpusPerWorker`), because a worker’s tests start daemons, Run hosts and `git` beside it, and shares them between the projects it runs at once in proportion, never below 1 each. With 6 CPUs that is `node ×3`, or `electron ×1, node ×2`. It prints one line when this lowers a count. A plain `pnpm vitest run` doesn’t read it, and outside a Check it isn’t set.
 
 ## Electron in tests and scripts
 

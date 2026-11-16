@@ -1,5 +1,5 @@
 import { emulatorSlotLimits, simulatorSlotLimits } from '@ted/protocol/app'
-import { checkLimits, workingRunLimits } from '@ted/protocol/settings'
+import { checkCpuLimits, checkLimits, workingRunLimits } from '@ted/protocol/settings'
 import { useEmulators, useSimulators, useSlots } from '../data.ts'
 import { nowLine, slotsDetail } from '../slots.ts'
 import { ted } from '../ted.ts'
@@ -66,6 +66,25 @@ export function LimitsPage({ settings }: SettingsPageProps) {
             lessLabel="Fewer Checks at once"
             moreLabel="More Checks at once"
             onChange={(maxChecksAtOnce) => ted.updateSettings({ maxChecksAtOnce })}
+          />
+        </SettingRow>
+        <SettingRow setting="app.limits.check-cpus">
+          <Stepper
+            value={settings.checkCpuPercent}
+            min={checkCpuLimits.min}
+            max={checkCpuLimits.max}
+            step={checkCpuLimits.step}
+            format={(percent) => `${percent}%`}
+            lessLabel="Less CPU for a Check"
+            moreLabel="More CPU for a Check"
+            onChange={(checkCpuPercent) => ted.updateSettings({ checkCpuPercent })}
+          />
+        </SettingRow>
+        <SettingRow setting="app.limits.scheduled-check-cpus">
+          <Switch
+            label="Limit the CPU Scheduled Checks use too"
+            checked={settings.limitScheduledCheckCpus}
+            onChange={(limitScheduledCheckCpus) => ted.updateSettings({ limitScheduledCheckCpus })}
           />
         </SettingRow>
         <SettingRow setting="app.limits.low-priority">
