@@ -316,6 +316,27 @@ test('the Merge Gate waits for CI, permits a missing review and never enables au
   expect(gh.run).not.toHaveBeenCalled()
 })
 
+test('a Task that enters Merge waits for the Task Lead’s advance: no merge, auto-merge or Merge Gate before it, the usual merge after it; a Task already at Merge merges as before', async () => {
+  expect(mergeMode(store, current(), resolution.workflow)).toBe('merge')
+  store.changeStage(id, 'merge', entry)
+  gate()
+  expect(mergeMode(store, current(), resolution.workflow)).toBe('lead')
+  const waiting = { autoMergeAllowed: true, mergeStateStatus: 'BLOCKED' }
+  expect(await watcher.cycle(id, read(remote({ ...waiting, checks: [pending] })))).toBe('wait')
+  expect(await watcher.cycle(id, read())).toBe('wait')
+  expect(port.postGate).not.toHaveBeenCalled()
+  expect(gh.run).not.toHaveBeenCalled()
+  expect(store.mergeHistory(id).started).toBe(false)
+
+  store.mergeLeadAdvanced(id, 'lead')
+  expect(mergeMode(store, current(), resolution.workflow)).toBe('gate')
+  await watcher.cycle(id, read())
+  expect(port.postGate).toHaveBeenCalledTimes(1)
+  resolution.workflow.settings.stages.merge = {}
+  expect(await watcher.cycle(id, read())).toBe('done')
+  expect(pr()).toMatchObject({ state: 'merged' })
+})
+
 test('an approved Merge Gate merges', async () => {
   gate()
   const comment = store.postComment({

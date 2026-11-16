@@ -11,7 +11,16 @@ import { tedPaths } from '@ted/protocol'
 import { expect, test } from 'vitest'
 import { loadRunTokens } from '../src/run-token.ts'
 import { api, waitUntil } from './helpers.ts'
-import { ctx, getTask, readGh, run, start, toSignoff, useMergeHarness } from './merge-harness.ts'
+import {
+  ctx,
+  getTask,
+  quietGuard,
+  readGh,
+  run,
+  start,
+  toSignoff,
+  useMergeHarness,
+} from './merge-harness.ts'
 
 useMergeHarness()
 test.each(['acceptance', 'obligations', 'gate', 'merge'])(
@@ -67,7 +76,7 @@ test.each(['acceptance', 'obligations', 'gate', 'merge'])(
         if (b.problem === 'repo-in-workflow')
           await client.ok('POST', `/banners/${encodeURIComponent(b.id)}/action`, {})
       const script = [
-        `[ -e '${client.mergingFile}' ] && exit 0`,
+        quietGuard(client),
         `(cd widgets && echo $$ >> work.txt && git add work.txt && git -c user.name=T -c user.email=t@example.com commit -qm work)`,
         `ted brief write --file '${client.briefFile}'`,
         'ted outcome advance',

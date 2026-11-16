@@ -11,6 +11,7 @@ import {
   getTask,
   ghCalls,
   lines,
+  quietGuard,
   setGh,
   start,
   toSignoff,
@@ -22,7 +23,7 @@ useMergeHarness()
 const quiet = (client: Client) => writeFile(client.mergingFile, '')
 
 function guardedSteps(client: Client): string {
-  const guard = `[ -e '${client.mergingFile}' ] && exit 0`
+  const guard = quietGuard(client)
   const outcome = `out=$(ted outcome advance 2>&1) || case "$out" in *"asked for changes"*) ted outcome back --to work --findings '${client.findingsFile}';; esac`
   const script = [guard, commitStep.run[2], `ted brief write --file '${client.briefFile}'`, outcome]
   const each = [{ run: ['sh', '-c', script.join('\n')] }, { endTurn: true }]

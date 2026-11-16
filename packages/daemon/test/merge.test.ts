@@ -1,7 +1,9 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import type { CheckRun, Comment, Task } from '@ted/protocol'
+import { tedPaths } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
-import { commitToOrigin, waitUntil } from './helpers.ts'
+import { loadRunTokens } from '../src/run-token.ts'
+import { api, commitToOrigin, waitUntil } from './helpers.ts'
 import {
   approve,
   branchHead,
@@ -73,7 +75,7 @@ describe('Approve and merge', () => {
     )
   })
 
-  test('with CI, TED waits for the checks, shows Waiting for CI, and the Task Lead can’t report an outcome', async () => {
+  test('with CI, TED waits for the checks, shows Waiting for CI, and merges once they pass', async () => {
     const client = await start({
       files: { '.github/workflows/ci.yml': 'on: pull_request\n' },
       merge: { checks: [{ name: 'test', status: 'IN_PROGRESS' }] },
@@ -98,6 +100,49 @@ describe('Approve and merge', () => {
     expect(done.repos[0]?.pullRequest?.merged).toMatchObject({ method: 'squash', noCi: false })
     expect(await merges()).toHaveLength(1)
     expect(await lines(client, task)).toContain(`Merged ${done.repos[0]?.name}`)
+  })
+
+  test('TED doesn’t merge until the Task Lead advances at Merge; before that a Comment steers the Task Lead, and the Task Lead can send back only to Work or Design or advance once', async () => {
+    const client = await start()
+    const script = [
+      `[ -e '${client.mergingFile}' ] && exit 0`,
+      commitStep.run[2],
+      `ted brief write --file '${client.briefFile}'`,
+      'ted outcome advance',
+    ].join('\n')
+    const each = [{ run: ['sh', '-c', script] }, { endTurn: true }]
+    const { task, signoff } = await toSignoff(client, {
+      title: JSON.stringify({ steps: [{ everyMessage: each }, ...each] }),
+    })
+    await approve(client, signoff)
+    await waitForStage(client, task, 'merge')
+    const reads = async () =>
+      (await ghCalls()).filter((c) => c.args[0] === 'api' && c.args[1] === 'graphql').length
+    const before = await reads()
+    await waitUntil(async () => (await reads()) >= before + 3, 'TED to read the pull request')
+    expect(await merges()).toEqual([])
+    const holding = await getTask(client, task.id)
+    expect(holding.status?.kind).not.toBe('waiting-for-github')
+    expect(
+      (await client.call('POST', `/tasks/${task.id}/cancel-merge`, { comment: 'Stop.' })).status,
+    ).toBe(409)
+    await client.ok('POST', `/tasks/${task.id}/comments`, { body: 'Looks good.' })
+
+    const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
+    const lead = api(ctx.daemon?.port ?? 0, tokens.issue(holding.leadRunId ?? ''))
+    const outcome = (body: unknown) => lead.call('POST', `/tasks/${task.id}/outcome`, body)
+    const back = await outcome({ outcome: 'back', to: 'validate', findings: 'Recheck it.' })
+    expect(back.status).toBe(409)
+    expect(JSON.stringify(back.body)).toContain('only to Work or Design')
+    const advanced = await outcome({ outcome: 'advance' })
+    expect(advanced.status).toBe(200)
+    expect(JSON.stringify(advanced.body)).toContain('merges')
+    const again = await outcome({ outcome: 'advance' })
+    expect(again.status).toBe(409)
+    expect(JSON.stringify(again.body)).toContain('already reported')
+
+    await waitForStage(client, task, 'done')
+    expect(await merges()).toHaveLength(1)
   })
 
   test('a Task waiting at Merge can be reset: TED closes the pull request and deletes the branch, and a branch GitHub won’t delete stops the reset', async () => {

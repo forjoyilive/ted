@@ -238,10 +238,16 @@ export const commitStep = {
   ],
 }
 
+export const mergeAdvance =
+  'ted task list | grep -q "^$TED_TASK  Merge  " && ted outcome advance >/dev/null 2>&1'
+
+export const quietGuard = (client: Client) =>
+  `[ -e '${client.mergingFile}' ] && { ${mergeAdvance}; exit 0; }`
+
 export function leadSteps(client: Client, commit = commitStep.run[2]) {
   const outcome = `out=$(ted outcome advance 2>&1) || case "$out" in *"asked for changes"*) ted outcome back --to work --findings '${client.findingsFile}';; esac`
   const script = [
-    `[ -e '${client.mergingFile}' ] && exit 0`,
+    quietGuard(client),
     commit,
     `ted brief write --file '${client.briefFile}'`,
     outcome,

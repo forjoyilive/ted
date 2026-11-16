@@ -808,9 +808,12 @@ export function leadPending(store: TedStore, taskId: string): boolean {
     .some(
       (f) =>
         f.createdAt > leadAdvanced.at &&
-        (f.source.kind === 'github-ci' || f.source.kind === 'post-rebase-check'),
+        (f.source.kind === 'github-ci' || f.source.kind === 'post-rebase-check') &&
+        !closedResolutions.includes(f.resolutions.at(-1)?.resolution ?? ''),
     )
 }
+
+const closedResolutions = ['accepted', 'fixed', 'no-longer-applicable']
 
 function mergeVisit(store: TedStore, task: Task): string {
   return store.listStageEntries(task.id).findLast((e) => e.stage === task.stage)?.at ?? ''
