@@ -1874,7 +1874,7 @@ describe('Factory GitHub intake enforcement', () => {
   })
 
   // Its own daemon: the per-run cap is lowered through startDaemon's github.intakeLimit.
-  test('ted github intake imports every labelled open issue in Backlog, skips tracked ones and sub-issues of tracked ones, stops at the cap, and refuses without a label or outside an Automation', async () => {
+  test('ted github intake imports every labelled open issue into Backlog, skips tracked ones and sub-issues of tracked ones, stops at the cap, and refuses without a label or outside an Automation', async () => {
     process.env.TED_STUB_GH = path.join(home, 'gh.json')
     const client = await startTed({ github: { intakeLimit: 3 } })
     const [factory] = await client.ok<Factory[]>('GET', '/factories')
@@ -1931,7 +1931,6 @@ describe('Factory GitHub intake enforcement', () => {
         ),
       }),
     )
-    await client.ok('PUT', `/factories/${factory.id}/auto-start-backlog`, { enabled: true })
     const intake = await create(client, {
       on: false,
       name: 'Import GitHub issues',
@@ -1950,9 +1949,7 @@ describe('Factory GitHub intake enforcement', () => {
     expect((await client.call('POST', '/github-intake', {})).status).toBe(403)
 
     await client.ok('PUT', `/factories/${factory.id}/github-intake`, { scope: { label: 'ready' } })
-    await client.ok('PUT', `/factories/${factory.id}/auto-start-backlog`, { enabled: false })
     const byHand = await client.ok<Task>('POST', '/tasks', { factory: 'NB', source: url(7) })
-    await client.ok('PUT', `/factories/${factory.id}/auto-start-backlog`, { enabled: true })
     await client.ok('POST', `/automations/${intake.id}/run`)
     const [row] = await waitForHistory(
       client,
