@@ -468,6 +468,7 @@ export interface NewTask {
   plan?: { planId: string; row: number }
   setup?: boolean
   coordinatorOperation?: string
+  taskLead?: { creatorId: string; runId: string; child: boolean }
   linearConsent?: boolean
   children?: readonly NewTreeTask[]
   notes?: readonly { task?: TreeRef; body: string }[]
@@ -673,6 +674,7 @@ export interface TedStore extends TaskHistory {
   listTasks(): Task[]
   getTask(ref: string): StoredTask | undefined
   coordinatorCreated(factoryId: string, operation: string): StoredTask | undefined
+  leadCreatedTasks(creatorId: string): readonly { taskId: string; runId: string }[]
   startTask(input: {
     taskId: string
     stage: StageId
@@ -2032,6 +2034,8 @@ export async function openStore({
       partlyMergedAt,
       setup,
       coordinatorOperation,
+      createdByTask,
+      createdByRun: _createdByRun,
       ...row
     }: typeof tasks.Type,
     observe = false,
@@ -2277,15 +2281,17 @@ export async function openStore({
       ? 'setup'
       : coordinatorOperation !== null
         ? 'coordinator'
-        : followUpOf !== null
-          ? 'follow-up'
-          : splitFrom !== null
-            ? 'split'
-            : reads.automationLinks(row.id).length > 0
-              ? 'automation'
-              : planLink || planParent(reads.log(row.id))
-                ? 'planning'
-                : 'human'
+        : createdByTask !== null
+          ? 'task-lead'
+          : followUpOf !== null
+            ? 'follow-up'
+            : splitFrom !== null
+              ? 'split'
+              : reads.automationLinks(row.id).length > 0
+                ? 'automation'
+                : planLink || planParent(reads.log(row.id))
+                  ? 'planning'
+                  : 'human'
     const linearSync = linearSyncOf(row, source, reads)
     const asanaSync = asanaSyncFor(
       { id: row.id, factoryId: row.factoryId, archived: archivedAt !== null },
@@ -4021,6 +4027,7 @@ export async function openStore({
       plan,
       setup = false,
       coordinatorOperation,
+      taskLead,
       children = [],
       notes = [],
     }) {
@@ -4069,6 +4076,7 @@ export async function openStore({
       const byUser =
         !setup &&
         coordinatorOperation === undefined &&
+        taskLead === undefined &&
         followUpOf === undefined &&
         splitFrom === undefined &&
         automation === undefined &&
@@ -4197,6 +4205,18 @@ export async function openStore({
               }),
             ]
           : []),
+        ...(taskLead
+          ? [
+              events.taskCreatedByTaskLead({ taskId: id, ...taskLead, at }),
+              events.taskLeadCreatedTask({
+                taskId: taskLead.creatorId,
+                createdId: id,
+                runId: taskLead.runId,
+                child: taskLead.child,
+                at,
+              }),
+            ]
+          : []),
         ...childEvents,
         ...notePosts.flatMap(({ event, attached }) => [event, ...attached]),
       )
@@ -4218,6 +4238,8 @@ export async function openStore({
       if (automation) emit({ type: 'automation-updated', automationId: automation.automationId })
       if (followUpOf !== undefined && taskRow(followUpOf)) updatedTask(followUpOf)
       if (parentId !== undefined && taskRow(parentId)) updatedTask(parentId)
+      if (taskLead && taskLead.creatorId !== parentId && taskRow(taskLead.creatorId))
+        updatedTask(taskLead.creatorId)
       if (guideEnd.length > 0) emitGuides()
       return task
     },
@@ -4321,6 +4343,11 @@ export async function openStore({
         .query(queryDb(tasks.where({ factoryId, coordinatorOperation: operation })))
         .at(0)
       return row && toTask(row)
+    },
+    leadCreatedTasks(creatorId) {
+      return store
+        .query(queryDb(tasks.select('id', 'createdByRun').where({ createdByTask: creatorId })))
+        .map((row) => ({ taskId: row.id, runId: row.createdByRun ?? '' }))
     },
     startTask({ taskId, stage, branch, worktree, entry, repo }) {
       const at = new Date().toISOString()

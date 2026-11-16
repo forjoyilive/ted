@@ -72,6 +72,7 @@ roundTrip(P.parseCreateTaskRequest, {
   lead,
   blockedBy: ['TED-1'],
   parent: 'TED-2',
+  child: true,
   attachments: [file],
   source: 'https://example.com/issue',
   sentryId: 'APP-1',
@@ -287,6 +288,7 @@ roundTrip(P.parseLocalDesignReviewInput, {
 })
 
 rejects(P.parseCreateTaskRequest, { start: 'yes' }, 'start must be true or false')
+rejects(P.parseCreateTaskRequest, { child: 'yes' }, 'child must be true or false')
 rejects(
   P.parseCreateTaskRequest,
   { startInBackground: 'yes' },

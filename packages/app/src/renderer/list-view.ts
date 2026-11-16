@@ -55,6 +55,7 @@ export const createdByLabels: Record<CreatedBy, string> = {
   'follow-up': 'A Follow-Up',
   setup: 'Factory setup',
   coordinator: 'The Coordinator',
+  'task-lead': 'A Task Lead',
 }
 
 export const sortLabels: Record<ListSort, string> = {

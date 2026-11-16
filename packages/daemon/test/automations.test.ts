@@ -12,6 +12,7 @@ import type {
   RunSlots,
   RunWithConversation,
   Task,
+  ThreadEvent,
   WaitingRequest,
 } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
@@ -110,6 +111,9 @@ async function startTed(
 type Client = Awaited<ReturnType<typeof startTed>>
 
 const steps = (...list: unknown[]) => JSON.stringify({ steps: list })
+
+const threadTexts = async (client: Client, task: Task) =>
+  (await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)).map((e) => e.text)
 const hold = () => ({ waitFor: path.join(scratch, 'release') })
 const release = () => writeFile(path.join(scratch, 'release'), '')
 
@@ -818,22 +822,71 @@ describe('Automations', () => {
     }
   })
 
-  test('a Task Lead can’t create Tasks with ted task create', async () => {
+  test('a Task Lead creates up to 3 Tasks in Backlog, and waits for a child it made', async () => {
     const client = await startTed()
+    const factory = (await client.ok<Factory[]>('GET', '/factories')).find((f) => f.key === 'NB')
+    await client.ok('PUT', `/factories/${factory?.id}/auto-start-backlog`, { enabled: true })
+    const make = (...args: string[]) => ({ run: ['ted', 'task', 'create', ...args] })
     const task = await client.ok<Task>('POST', '/tasks', {
       factory: 'NB',
       start: true,
-      title: steps({ run: ['ted', 'task', 'create', 'Sneaky'] }, { endTurn: true }),
+      title: steps(
+        make('--description', 'Found while working', 'Separate work'),
+        make('--start', 'Started at once'),
+        make('--factory', 'OTHER', 'Elsewhere'),
+        make('--child', 'Child work'),
+        make('Third'),
+        make('Fourth'),
+        { endTurn: true },
+        { everyMessage: [{ endTurn: true }] },
+      ),
     })
     const lead = await waitUntil(async () => {
       const found = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
       return found?.leadRunId
     }, 'the Task Lead to start')
-    const [result] = await waitUntil(async () => {
+    const results = await waitUntil(async () => {
       const found = await commandResults(client, lead)
-      return found.length > 0 ? found : undefined
-    }, 'the command to run')
-    expect(result?.stderr).toMatch(/^ted: Only an Automation Run creates Tasks/)
+      return found.length === 6 ? found : undefined
+    }, 'the commands to run')
+    expect(results.map((r) => r.code)).toEqual([0, 1, 1, 0, 0, 1])
+    expect(results[1]?.stderr).toMatch(/Backlog; the user starts them/)
+    expect(results[2]?.stderr).toMatch(/only in NB, its own Factory/)
+    expect(results[5]?.stderr).toMatch(/suggest a planning chat or Split it/)
+
+    const made = (await client.ok<Task[]>('GET', '/tasks')).filter(
+      (t) => t.createdBy === 'task-lead',
+    )
+    expect(made.map((t) => [t.title, t.stage, t.createdBy, t.parentId ?? null])).toEqual([
+      ['Separate work', 'backlog', 'task-lead', null],
+      ['Child work', 'backlog', 'task-lead', task.id],
+      ['Third', 'backlog', 'task-lead', null],
+    ])
+    const child = made[1]
+    expect(await threadTexts(client, made[0] as Task)).toContain(
+      `${task.displayId}’s Task Lead created this Task`,
+    )
+    expect(await threadTexts(client, child as Task)).toContain(
+      `${task.displayId}’s Task Lead created this Task as its child`,
+    )
+    expect(await threadTexts(client, task)).toEqual(
+      expect.arrayContaining([
+        `The Task Lead created ${made[0]?.displayId}`,
+        `The Task Lead created ${child?.displayId} as a child of this Task`,
+      ]),
+    )
+    await waitUntil(async () => {
+      const found = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
+      return found?.status?.kind === 'blocked' ? found : undefined
+    }, 'the creating Task to wait for its child')
+    const later = await client.ok<Task[]>('GET', '/tasks')
+    expect(
+      later.filter((t) => t.createdBy === 'task-lead').map((t) => [t.stage, t.runs.length]),
+    ).toEqual([
+      ['backlog', 0],
+      ['backlog', 0],
+      ['backlog', 0],
+    ])
   })
 
   test('a failed Run is resumed once, then fails with Retry; three failures in a row raise a banner', async () => {
