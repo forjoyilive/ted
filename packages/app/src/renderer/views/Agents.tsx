@@ -331,7 +331,7 @@ function AgentSwitch({
   const pick = (next: AgentChatRef['agent']) => {
     if (next === agent) return
     const [from, to] = agent === 'coordinator' ? [coordinator, planner] : [planner, coordinator]
-    if (from.text.trim() !== '' && to.text.trim() === '') {
+    if (from.text.trim() !== '') {
       to.setText(from.text)
       from.clear()
     }

@@ -55,10 +55,6 @@ test('Coordinator opens from the sidebar, sends, shows receipts and keeps its wh
   await window.keyboard.press('Meta+1')
   const entry = sidebar.getByRole('button', { name: /^Agents/ })
   await entry.click()
-  await window
-    .getByRole('region', { name: 'New chat' })
-    .getByRole('button', { name: /^Coordinator/ })
-    .click()
   const pane = window.getByRole('region', { name: 'Coordinator', exact: true })
   await pane.getByRole('heading', { name: /What needs your attention/ }).waitFor()
   const input = pane.getByRole('textbox', { name: 'Message to the Coordinator' })
@@ -156,10 +152,6 @@ test('Stop keeps unstarted messages visible as Not sent when the Coordinator is 
   const sidebar = window.getByRole('navigation', { name: 'Sidebar' })
   await window.keyboard.press('Meta+1')
   await sidebar.getByRole('button', { name: /^Agents/ }).click()
-  await window
-    .getByRole('region', { name: 'New chat' })
-    .getByRole('button', { name: /^Coordinator/ })
-    .click()
   const pane = window.getByRole('region', { name: 'Coordinator', exact: true })
   await pane
     .getByRole('textbox', { name: 'Message to the Coordinator' })

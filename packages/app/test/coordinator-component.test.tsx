@@ -3,6 +3,7 @@ import type {
   Coordinator,
   CoordinatorChatSummary,
   CoordinatorStatus,
+  MessageBox,
   Plan,
   RunChat,
 } from '@ted/protocol'
@@ -415,6 +416,10 @@ test('with no chats Agents opens New chat; switching the Agent keeps the message
   shown.chats = []
   const started = vi.fn(() => coordinator())
   a.handle('startCoordinatorChat', started)
+  a.handle('messageDraft', (box) => ({
+    draft:
+      (box as MessageBox).kind === 'new-plan' ? { text: 'An older plan', attachments: [] } : null,
+  }))
   a.mount()
   const pane = await open('Coordinator')
   await within(pane).findByRole('heading', { name: /What needs your attention/ })
