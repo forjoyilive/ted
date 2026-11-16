@@ -303,7 +303,8 @@ test('leaving the Coordinator and coming back shows the same conversation', asyn
   await user().click(within(nav()).getByRole('button', { name: /^Coordinator/ }))
   const back = await screen.findByRole('region', { name: 'Coordinator' })
   expect(await within(back).findByText('Start with NB-1.')).toBeTruthy()
-  expect(within(back).getByText('What should we work on next?')).toBeTruthy()
+  const chat = within(back).getByRole('region', { name: 'Run chat' })
+  expect(within(chat).getByText('What should we work on next?')).toBeTruthy()
 })
 
 test('with no chats the Coordinator opens the start page, and sending starts a chat', async () => {
@@ -323,11 +324,8 @@ test('with no chats the Coordinator opens the start page, and sending starts a c
       agent: 'claude',
     }),
   )
-  expect(
-    await within(await screen.findByRole('region', { name: 'Coordinator' })).findByText(
-      'Start with NB-1.',
-    ),
-  ).toBeTruthy()
+  expect(await screen.findByText('Start with NB-1.')).toBeTruthy()
+  expect(screen.queryByRole('heading', { name: 'New chat' })).toBeNull()
 })
 
 test('the sidebar lists Coordinator above Tasks and shows Working only while it works', async () => {

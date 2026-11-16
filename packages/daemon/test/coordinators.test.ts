@@ -239,7 +239,7 @@ test('Coordinator tokens cannot use generic reads, mutations, or human-only acti
     ['DELETE', s.base],
   ] as const) {
     expect(
-      (await run.call(method, route, method === 'GET' ? undefined : { text: 'bypass' })).status,
+      (await run.call(method, route, method === 'POST' ? { text: 'bypass' } : undefined)).status,
       route,
     ).toBe(403)
   }
@@ -805,7 +805,7 @@ test('two open chats keep their own receipts and confirmations; deleting one lea
   const a = await s.start([{ waitFor: path.join(scratch, 'finish-a') }])
   const aPath = s.base
   s.useChat(undefined)
-  const b = await s.start([{ waitFor: path.join(scratch, 'finish-b') }])
+  const b = await s.start([{ waitFor: path.join(scratch, 'finish-b') }, { endTurn: true }])
   const bPath = s.base
   expect(b.c.id).not.toBe(a.c.id)
   const read = (route: string) => s.ok<Coordinator>('GET', route)
