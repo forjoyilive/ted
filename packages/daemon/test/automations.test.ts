@@ -1874,9 +1874,9 @@ describe('Factory GitHub intake enforcement', () => {
   })
 
   // Its own daemon: the per-run cap is lowered through startDaemon's github.intakeLimit.
-  test('ted github intake imports every labelled open issue into Backlog, skips tracked ones and sub-issues of tracked ones, stops at the cap, and refuses without a label or outside an Automation', async () => {
+  test('ted github intake imports every labelled open issue into Backlog, skips tracked ones and sub-issues of tracked ones, imports past a tree too big for the cap, stops at the cap, and refuses without a label or outside an Automation', async () => {
     process.env.TED_STUB_GH = path.join(home, 'gh.json')
-    const client = await startTed({ github: { intakeLimit: 3 } })
+    const client = await startTed({ github: { intakeLimit: 2 } })
     const [factory] = await client.ok<Factory[]>('GET', '/factories')
     if (!factory) throw new Error('no Factory')
     const repo = factory.repo
@@ -1919,7 +1919,7 @@ describe('Factory GitHub intake enforcement', () => {
       JSON.stringify({
         issues: Object.fromEntries(
           [
-            answer(1, { labels: ready, sub: [5] }),
+            answer(1, { labels: ready, sub: [5, 11] }),
             answer(2),
             answer(3, { state: 'CLOSED', labels: ready }),
             answer(5, { labels: ready, parent: 1 }),
@@ -1927,6 +1927,8 @@ describe('Factory GitHub intake enforcement', () => {
             answer(8, { labels: ready, parent: 7 }),
             answer(9, { labels: ready }),
             answer(10, { labels: ready }),
+            answer(11, { labels: ready, parent: 1 }),
+            answer(12, { labels: ready }),
           ].map((issue) => [`${repo.toLowerCase()}#${issue.number}`, issue]),
         ),
       }),
@@ -1961,9 +1963,10 @@ describe('Factory GitHub intake enforcement', () => {
     const [imported] = await commandResults(client, row?.runId ?? '')
     expect(imported?.code).toBe(0)
     expect(imported?.stdout).toContain('Imported 2 GitHub issues labelled "ready"')
-    expect(imported?.stdout).toContain('(with 1 sub-issue)')
+    expect(imported?.stdout).toContain(`${repo}#9`)
+    expect(imported?.stdout).not.toContain('Issue 9')
     expect(imported?.stdout).toContain('2 issues are already tracked or under a tracked issue.')
-    expect(imported?.stdout).toContain('1 more issue waits for the next run')
+    expect(imported?.stdout).toContain('2 more issues wait for the next run')
     const tasks = await client.ok<Task[]>('GET', '/tasks')
     expect(
       tasks
@@ -1971,8 +1974,7 @@ describe('Factory GitHub intake enforcement', () => {
         .map((t) => [t.source?.github?.number, t.stage, t.createdBy])
         .sort(),
     ).toEqual([
-      [1, 'backlog', 'automation'],
-      [5, 'backlog', 'automation'],
+      [10, 'backlog', 'automation'],
       [9, 'backlog', 'automation'],
     ])
   })

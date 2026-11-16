@@ -12,7 +12,7 @@ export function githubIntakeText(result: GitHubIntakeResult): string {
     ),
     ...result.imported.map((item) =>
       printable(
-        `  ${item.root.displayId} ${item.title}${item.created.length > 1 ? ` (with ${item.created.length - 1} sub-${item.created.length === 2 ? 'issue' : 'issues'})` : ''}`,
+        `  ${item.root.displayId} ${item.issue}${item.created.length > 1 ? ` (with ${item.created.length - 1} sub-${item.created.length === 2 ? 'issue' : 'issues'})` : ''}`,
       ),
     ),
   ]
@@ -20,8 +20,7 @@ export function githubIntakeText(result: GitHubIntakeResult): string {
     lines.push(
       `${result.tracked} ${result.tracked === 1 ? 'issue is' : 'issues are'} already tracked or under a tracked issue.`,
     )
-  for (const item of result.skipped)
-    lines.push(printable(`Skipped ${item.title} (${item.url}): ${item.reason}`))
+  for (const item of result.skipped) lines.push(printable(`Skipped ${item.issue}: ${item.reason}`))
   for (const repo of result.unlisted)
     lines.push(printable(`Couldn’t list ${repo.repo}: ${repo.reason}.`))
   if (result.left > 0)

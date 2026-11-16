@@ -5040,29 +5040,28 @@ export function createTasks(options: {
         incomplete: `GitHub listed more than ${listedAtMost} open issues with the label in ${listing.incomplete.join(', ')}; TED checked the first ${listedAtMost} in each.`,
       }),
     }
-    let budget = githubAllowance(automation)
+    const allowance = () => githubAllowance(automation)
     for (const issue of plan.candidates) {
-      if (budget <= 0) {
+      const ref = `${issue.repo}#${issue.number}`
+      if (allowance() <= 0) {
         result.left++
         continue
       }
       try {
         unchanged()
-        const task = await createTask({ source: issue.url }, caller, { budget, unchanged })
+        const task = await createTask({ source: issue.url }, caller, { allowance, unchanged })
         const created = [task.id, ...descendants(task.id)].flatMap((id) => {
           const made = store.getTask(id)
           return made ? [{ taskId: made.id, displayId: made.displayId }] : []
         })
-        budget -= created.length
         result.imported.push({
           url: issue.url,
-          title: task.title,
+          issue: ref,
           root: { taskId: task.id, displayId: task.displayId },
           created,
         })
       } catch (error) {
         if (error instanceof IntakeBudgetError) {
-          budget = 0
           result.left++
           continue
         }
@@ -5073,7 +5072,7 @@ export function createTasks(options: {
           result.stopped = changed instanceof Error ? changed.message : reason
           break
         }
-        result.skipped.push({ url: issue.url, title: issue.title, reason })
+        result.skipped.push({ url: issue.url, issue: ref, reason })
       }
     }
     if (result.imported.length > 0 || result.stopped !== undefined) {
@@ -10635,7 +10634,7 @@ export function createTasks(options: {
       ...fields
     }: CreateTaskInput,
     caller: Caller = { kind: 'app' },
-    bulk?: IntakeImport,
+    bulk?: { allowance: () => number; unchanged: () => void },
   ): Promise<Task> {
     if (fields.draftRevision !== undefined && caller.kind !== 'app') {
       throw new RequestError(403, 'only the app can consume a New Task draft')
@@ -10843,7 +10842,7 @@ export function createTasks(options: {
       ...(automation && { automation: automation.link }),
     }))
     if (bulk) {
-      if (1 + children.length > bulk.budget) throw new IntakeBudgetError()
+      if (1 + children.length > bulk.allowance()) throw new IntakeBudgetError()
       bulk.unchanged()
     }
     const task = await store.createTask({

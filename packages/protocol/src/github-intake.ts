@@ -58,14 +58,14 @@ export interface GitHubIntakeTaskRef {
 
 export interface GitHubIntakeImported {
   url: string
-  title: string
+  issue: string
   root: GitHubIntakeTaskRef
   created: GitHubIntakeTaskRef[]
 }
 
 export interface GitHubIntakeSkipped {
   url: string
-  title: string
+  issue: string
   reason: string
 }
 
