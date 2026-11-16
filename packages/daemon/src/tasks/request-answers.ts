@@ -5,9 +5,12 @@ import type {
   Attachment,
   Comment,
   CommentAnswer,
+  PullRequestCiMode,
   Run,
+  SaveSettingsResult,
   SendBack,
   Task,
+  TaskRepo,
 } from '@ted/protocol'
 import {
   archiveChoice,
@@ -35,7 +38,7 @@ import { backStageMessage, nextStageMessage, stageTitle } from '../workflow/work
 import type { WorkflowResolution } from '../workflow/workflows.ts'
 import { answerMessage } from './answer-message.ts'
 import { type createFailureCases, failureText } from './failure-cases.ts'
-import { leadPending, mergeAnywayChoice, sendToLeadChoice } from './merge-watcher.ts'
+import { leadPending, mergeAnywayChoice, noCiAgainRepo, sendToLeadChoice } from './merge-watcher.ts'
 import { checkPreparationWorkflow } from './preparation.ts'
 import { approvedShape, createProposalTasks } from './proposal-tasks.ts'
 import { roundAnswerMessage, roundAnswers } from './rounds.ts'
@@ -146,6 +149,11 @@ export interface RequestAnswerPort {
     choice: string | undefined,
     text: string,
   ): Promise<Comment>
+  setPullRequestCi?(
+    factoryId: string,
+    repo: string,
+    mode: PullRequestCiMode,
+  ): Promise<SaveSettingsResult>
 }
 
 export function createRequestAnswers(
@@ -235,13 +243,16 @@ export function createRequestAnswers(
     choice: string | undefined,
     text: string,
   ): Promise<Comment> {
+    const noCiRepo = comment.choices?.includes(choice ?? '')
+      ? noCiAgainRepo(task.repos, choice)
+      : undefined
     const answered = await holding(task, async () => {
       const current = store.getComment(comment.id)
       if (current?.answer?.kind === 'withdrawn') {
         throw new RequestError(409, 'this request was withdrawn: CI reported before you answered')
       }
       if (current?.answer) throw new RequestError(409, 'this request has already been answered')
-      if (choice === mergeAnywayChoice) await requireObligations(find(task.id))
+      if (choice === mergeAnywayChoice || noCiRepo) await requireObligations(find(task.id))
       return store.answerComment(comment.id, {
         kind: 'answered',
         at: new Date().toISOString(),
@@ -259,10 +270,40 @@ export function createRequestAnswers(
           ...(text !== '' ? [`The human added: ${text}`] : []),
         ].join('\n\n'),
       )
+    } else if (noCiRepo) {
+      void saveNoPullRequestCi(task, noCiRepo)
     } else if (choice === undefined && text !== '') {
       await deliverAnswer(task, answered, `The human answered “${comment.title ?? ''}”:\n\n${text}`)
     }
     return store.getComment(comment.id) ?? answered
+  }
+
+  async function saveNoPullRequestCi(task: StoredTask, repo: TaskRepo): Promise<void> {
+    const setting = `“Pull request CI: None” for ${repo.name}`
+    const note = (body: string) => {
+      if (store.getTask(task.id))
+        store.postComment({ taskId: task.id, author: { kind: 'ted' }, body })
+    }
+    if (!port.setPullRequestCi) {
+      note(
+        `TED couldn’t save ${setting}: Factory settings aren’t available. This Task still merges without waiting for CI.`,
+      )
+      return
+    }
+    try {
+      const saved = await port.setPullRequestCi(task.factoryId, repo.repo, 'none')
+      const link = `[#${saved.pullRequest.number}](${saved.pullRequest.url})`
+      note(
+        saved.merged
+          ? `Saved ${setting} in the Factory settings through ${link}, which TED merged. TED won’t wait for CI on ${repo.name}’s pull requests from now on; change Pull request CI in Factory settings to undo it.`
+          : `TED opened ${link} to save ${setting}, but couldn’t merge it${saved.reason ? `: ${saved.reason}` : '.'} Merge it on GitHub to keep the setting. This Task still merges without waiting for CI.`,
+      )
+    } catch (error) {
+      const message = redactSecrets(error instanceof Error ? error.message : String(error))
+      note(
+        `TED couldn’t save ${setting}: ${message} This Task still merges without waiting for CI.`,
+      )
+    }
   }
 
   async function mergeAnywayAfterFailure(
@@ -749,6 +790,9 @@ export function createRequestAnswers(
       comment.answer === undefined &&
       request.action === 'answer'
     ) {
+      if (mark !== undefined && noCiAgainRepo(task.repos, request.choice)) {
+        throw new RequestError(403, 'only the human can change a repo’s Pull request CI setting')
+      }
       return answerCiStuck(task, comment, request.choice, text)
     }
     if (comment.purpose?.kind === 'failed-run' && comment.answer === undefined) {

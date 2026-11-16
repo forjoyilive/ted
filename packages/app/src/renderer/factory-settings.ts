@@ -22,6 +22,7 @@ export type RepoField =
   | 'name'
   | 'baseBranch'
   | 'mergeMethod'
+  | 'pullRequestCi'
   | 'setup'
   | 'teardown'
   | 'env'
@@ -32,6 +33,7 @@ const fields: RepoField[] = [
   'name',
   'baseBranch',
   'mergeMethod',
+  'pullRequestCi',
   'setup',
   'teardown',
   'env',
@@ -51,6 +53,8 @@ function value(repo: RepoSettingsInput, field: RepoField): unknown {
       return repo.baseBranch?.trim() || undefined
     case 'mergeMethod':
       return repo.mergeMethod ?? 'squash'
+    case 'pullRequestCi':
+      return repo.pullRequestCi ?? 'auto'
     case 'setup':
     case 'teardown': {
       const run = repo[field]?.run.trim() ?? ''

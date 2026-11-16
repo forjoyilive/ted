@@ -164,6 +164,7 @@ describe('Factory settings', () => {
     const changes = edit(view, ([primary]) => {
       if (!primary) return
       primary.mergeMethod = 'rebase'
+      primary.pullRequestCi = 'none'
       primary.env.push({ name: 'NODE_ENV', value: 'development' })
       primary.copy.push('.npmrc')
     })
@@ -177,7 +178,11 @@ describe('Factory settings', () => {
     expect(preview.files.map((f) => f.path)).toEqual(['.ted/workflow.yaml'])
     const added = preview.files[0]?.lines.filter((l) => l.kind === 'added').map((l) => l.text)
     expect(added?.map((t) => t.trim())).toEqual(
-      expect.arrayContaining(['merge_method: rebase', 'NODE_ENV: development']),
+      expect.arrayContaining([
+        'merge_method: rebase',
+        'pull_request_ci: none',
+        'NODE_ENV: development',
+      ]),
     )
 
     const result = await client.ok<SaveSettingsResult>(
@@ -206,6 +211,7 @@ describe('Factory settings', () => {
 
     const after = await client.settings()
     expect(after.repos[0]?.mergeMethod).toBe('rebase')
+    expect(after.repos[0]?.pullRequestCi).toBe('none')
     expect(after.repos[0]?.env).toContainEqual({ name: 'NODE_ENV', value: 'development' })
   })
 

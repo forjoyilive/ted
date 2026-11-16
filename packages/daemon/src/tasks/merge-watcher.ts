@@ -247,9 +247,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     const pushed = lastPushAt(task)
     return ciStuckQuestions(task).some(
       (c) =>
-        c.createdAt >= pushed &&
-        c.answer?.kind === 'answered' &&
-        c.answer.choice === mergeAnywayChoice,
+        c.createdAt >= pushed && c.answer?.kind === 'answered' && mergesWithoutCi(c.answer.choice),
     )
   }
 
@@ -282,6 +280,10 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     const pending = relevantChecks(pr).filter((c) => c.state === 'pending')
     const requiredPending = pr.checks.some((c) => c.required && c.state === 'pending')
     const where = `${target.repo}#${target.number}`
+    const required = task.repos
+      .find((r) => r.name === target.name)
+      ?.pushed?.ciSignals.includes('required-checks')
+    const offerNoCi = pr.checks.length === 0 && !requiredPending && required !== true
     const minutes = (ms: number) => `${Math.round(ms / 60_000)} minutes`
     const what =
       pr.checks.length === 0
@@ -299,12 +301,17 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
           requiredPending
             ? ' A required check is still pending, so TED can’t merge without it.'
             : ` **${mergeAnywayChoice}** merges without waiting for the checks.`
+        }${
+          offerNoCi
+            ? ` **${noCiAgainChoice(target.name)}** merges now and saves “Pull request CI: None” for ${target.name} in the Factory settings, through a settings pull request TED merges.`
+            : ''
         }`,
       ].join('\n\n'),
       choices: [
         sendToLeadChoice,
         keepWaitingChoice,
         ...(requiredPending ? [] : [mergeAnywayChoice]),
+        ...(offerNoCi ? [noCiAgainChoice(target.name)] : []),
       ],
     })
   }
@@ -749,6 +756,24 @@ export const sendToLeadChoice = 'Send to Task Lead'
 export const keepWaitingChoice = 'Keep waiting'
 
 export const mergeAnywayChoice = 'Merge anyway'
+
+export function noCiAgainChoice(repoName: string): string {
+  return `Merge, and don’t wait for CI on ${repoName} again`
+}
+
+export function noCiAgainRepo<R extends { name: string }>(
+  repos: readonly R[],
+  choice: string | undefined,
+): R | undefined {
+  return repos.find((r) => noCiAgainChoice(r.name) === choice)
+}
+
+function mergesWithoutCi(choice: string | undefined): boolean {
+  return (
+    choice === mergeAnywayChoice ||
+    (choice !== undefined && /^Merge, and don’t wait for CI on .+ again$/.test(choice))
+  )
+}
 
 export function mergeMode(
   store: TedStore,

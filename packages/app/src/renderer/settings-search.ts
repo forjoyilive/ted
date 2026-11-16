@@ -352,6 +352,11 @@ const entries = {
   'factory.repos': { name: 'Repos', heading: true },
   'factory.repos.base-branch': { name: 'Base branch' },
   'factory.repos.merge-method': { name: 'Merge method' },
+  'factory.repos.pull-request-ci': {
+    name: 'Pull request CI',
+    help: 'Whether TED waits for CI checks on this repo’s pull requests before it merges.',
+    keywords: 'ci checks wait merge github actions',
+  },
   'factory.repos.worktree': { name: 'Worktree', heading: true },
   'factory.repos.worktree.setup': {
     name: 'Setup command',
