@@ -91,9 +91,13 @@ export function startedDay(iso: string): string {
 }
 
 export function plansFailedByFactory(
-  plans: readonly Pick<Plan, 'factoryId' | 'status'>[],
+  plans: readonly Pick<Plan, 'factoryId' | 'status' | 'archivedAt'>[],
 ): Set<string> {
-  return new Set(plans.filter((p) => p.status === 'failed').map((p) => p.factoryId))
+  return new Set(
+    plans
+      .filter((p) => p.status === 'failed' && p.archivedAt === undefined)
+      .map((p) => p.factoryId),
+  )
 }
 
 export function requestHeading(request: PlanRequest): { kind: string; detail?: string } {

@@ -1,6 +1,6 @@
 import type { CoordinatorChatSummary, Plan } from '@ted/protocol'
 import { expect, test } from 'vitest'
-import { agentChatRows, groupedRows, pickChat } from '../src/renderer/agent-chats.ts'
+import { agentChatRows, groupedRows, pickChat, splitArchived } from '../src/renderer/agent-chats.ts'
 
 const coordinator = (fields: Partial<CoordinatorChatSummary>): CoordinatorChatSummary => ({
   id: 'c',
@@ -28,7 +28,7 @@ const plan = (fields: Partial<Plan>): Plan => ({
   ...fields,
 })
 
-test('Coordinator chats and planning chats make one list, newest activity first, ended ones included', () => {
+test('Coordinator chats and planning chats make one list, newest activity first, and archived ones split off newest archive first', () => {
   const rows = agentChatRows(
     [
       coordinator({ id: 'c1', title: 'Triage', lastAt: '2026-11-10T12:00:00.000Z', taskCount: 1 }),
@@ -51,6 +51,7 @@ test('Coordinator chats and planning chats make one list, newest activity first,
         id: 'p2',
         status: 'finished',
         lastAt: '2026-11-10T11:00:00.000Z',
+        archivedAt: '2026-11-10T11:00:00.000Z',
         fromTask: { id: 't1', displayId: 'NB-4', title: 'Big one' },
       }),
     ],
@@ -62,15 +63,28 @@ test('Coordinator chats and planning chats make one list, newest activity first,
     'Coordinator:c3',
     'Coordinator:c2',
   ])
-  expect(rows[0]).toMatchObject({ title: 'Offline notes', waiting: true, ended: false })
+  expect(rows[0]).toMatchObject({ title: 'Offline notes', waiting: true })
+  expect(rows[0]?.archivedAt).toBeUndefined()
   expect(rows[1]).toMatchObject({ meta: '1 Task', chip: { label: 'Ready' } })
-  expect(rows[2]).toMatchObject({ meta: 'From NB-4', ended: true, chip: { label: 'Finished' } })
+  expect(rows[2]).toMatchObject({
+    meta: 'From NB-4',
+    archivedAt: '2026-11-10T11:00:00.000Z',
+    chip: { label: 'Archived' },
+  })
   expect(rows[3]).toMatchObject({ waiting: true, chip: { label: 'Waiting on you' } })
   expect(rows[4]).toMatchObject({
     title: 'Coordinator chat',
-    ended: true,
-    chip: { label: 'Ended' },
+    archivedAt: '2026-11-09T12:00:00.000Z',
+    chip: { label: 'Archived' },
   })
+  const { open, archived } = splitArchived(rows)
+  expect(open.map((r) => r.ref.id)).toEqual(['p1', 'c1', 'c3'])
+  expect(archived.map((r) => r.ref.id)).toEqual(['p2', 'c2'])
+  const [waitingArchived] = agentChatRows(
+    [coordinator({ waiting: true, endedAt: '2026-11-09T12:00:00.000Z' })],
+    [],
+  )
+  expect(waitingArchived).toMatchObject({ waiting: false })
 
   expect(groupedRows(rows).map((g) => [g.agent, g.rows.map((r) => r.ref.id)])).toEqual([
     ['Coordinator', ['c1', 'c3', 'c2']],
@@ -101,4 +115,13 @@ test('Agents opens the chat last open in the Factory, else the newest, else noth
   })
   expect(pickChat(rows, { agent: 'planner', id: 'c1' })).toEqual({ agent: 'planner', id: 'p1' })
   expect(pickChat([], undefined)).toBeUndefined()
+  const onlyArchived = agentChatRows(
+    [coordinator({ id: 'c1', endedAt: '2026-11-10T12:00:00.000Z' })],
+    [],
+  )
+  expect(pickChat(onlyArchived, undefined)).toBeUndefined()
+  expect(pickChat(onlyArchived, { agent: 'coordinator', id: 'c1' })).toEqual({
+    agent: 'coordinator',
+    id: 'c1',
+  })
 })

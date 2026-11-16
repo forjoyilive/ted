@@ -97,6 +97,7 @@ export interface MachineSettings {
   maxRunningEmulators: number
   runOutputDays: number
   deleteArchivedAfterDays: number | null
+  deleteArchivedChatsAfterDays: number | null
   quitWithWorkRunning: QuitChoice
   showTrayIcon: boolean
   startAtLogin: boolean
@@ -153,6 +154,7 @@ export const defaultMachineSettings: MachineSettings = {
   maxRunningEmulators: 2,
   runOutputDays: 7,
   deleteArchivedAfterDays: null,
+  deleteArchivedChatsAfterDays: null,
   quitWithWorkRunning: 'ask',
   showTrayIcon: true,
   startAtLogin: true,

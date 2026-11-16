@@ -552,7 +552,7 @@ export interface PlanApproval {
 export interface PlanEnd {
   planId: string
   planTitle: string
-  outcome: 'stopped' | 'failed' | 'deleted'
+  outcome: 'stopped' | 'failed' | 'deleted' | 'archived'
 }
 
 export interface CreateTaskInput

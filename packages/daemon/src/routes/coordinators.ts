@@ -81,10 +81,18 @@ export const coordinatorRoutes: Route[] = [
   },
   {
     method: 'POST',
-    path: /^\/coordinator-chats\/([^/]+)\/continue$/,
+    path: /^\/coordinator-chats\/([^/]+)\/archive$/,
     handle: async ({ params: [id = ''] }, { coordinators }) => [
       200,
-      await coordinators.continueChat(id),
+      await coordinators.archiveChat(id),
+    ],
+  },
+  {
+    method: 'POST',
+    path: /^\/coordinator-chats\/([^/]+)\/unarchive$/,
+    handle: async ({ params: [id = ''] }, { coordinators }) => [
+      200,
+      await coordinators.unarchiveChat(id),
     ],
   },
   jsonRoute(parseRenameCoordinatorChatRequest, {
