@@ -12,7 +12,7 @@ import { Help } from '../src/renderer/components/Help.tsx'
 import { Board } from '../src/renderer/views/Board.tsx'
 import { idColumnWidth, listGrid, TaskList } from '../src/renderer/views/TaskList.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, user } from './support/component.ts'
+import { bridge, required, user } from './support/component.ts'
 import { factory, task } from './support/fixtures.ts'
 
 function props() {
@@ -594,4 +594,48 @@ test('List ID column fits the longest ID, and Status gives way before Title is u
       'minmax(120px, min(300px, calc(100% - 4px - 24px - max(56px, calc(7 * 0.65 * var(--text-14))) - 40ch - 56px - 4px - 6 * 16px))) 56px 4px',
   )
   expect(listGrid(['id', 'status'], [])).toContain('minmax(120px, 300px)')
+})
+
+test('folding a parent in one Stage group keeps its children in other groups and is remembered', async () => {
+  api()
+  const p = props()
+  const tasks = [
+    task({ id: 'NB-1', displayId: 'NB-1', title: 'Parent' }),
+    task({ id: 'NB-2', displayId: 'NB-2', title: 'Waiting child', parentId: 'NB-1', rank: 2 }),
+    task({
+      id: 'NB-3',
+      displayId: 'NB-3',
+      title: 'Working child',
+      parentId: 'NB-1',
+      stage: 'work',
+    }),
+  ]
+  const mount = () =>
+    render(
+      <TaskList
+        scope="f1"
+        title="Tasks"
+        tasks={tasks}
+        factories={[factory()]}
+        settings={undefined}
+        onOpen={p.onOpen}
+        onOpenTask={p.onOpenTask}
+        onNewTask={p.onNewTask}
+      />,
+    )
+  const rows = () =>
+    [...document.querySelectorAll('tbody tr[data-task], tbody tr[data-context-task]')].map(
+      (row) => row.getAttribute('data-task') ?? `(${row.getAttribute('data-context-task')})`,
+    )
+  const first = mount()
+  expect(rows()).toEqual(['NB-1', 'NB-2', '(NB-1)', 'NB-3'])
+  const [backlogCaret] = screen.getAllByRole('button', { name: 'Collapse children of NB-1' })
+  await user().click(required(backlogCaret))
+  expect(rows()).toEqual(['NB-1', '(NB-1)', 'NB-3'])
+  expect(
+    screen.getAllByRole('button', { name: /children of NB-1$/ }).map((b) => b.ariaExpanded),
+  ).toEqual(['false', 'true'])
+  first.unmount()
+  mount()
+  expect(rows()).toEqual(['NB-1', '(NB-1)', 'NB-3'])
 })
