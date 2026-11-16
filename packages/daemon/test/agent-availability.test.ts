@@ -106,7 +106,7 @@ test('only the app can toggle agents; generic settings cannot bypass the decisio
   expect((await client.changeAgentAvailability(input)).confirmationRequired).toBe(false)
   await client.changeAgentAvailability({ agent: 'antigravity', enabled: false })
   await expect(client.changeAgentAvailability({ agent: 'claude', enabled: false })).rejects.toThrow(
-    /another agent/,
+    /another Provider/,
   )
   await expect(
     client.startDevRun({ agent: 'codex', prompt: 'Do not start', cwd: scratch }),
