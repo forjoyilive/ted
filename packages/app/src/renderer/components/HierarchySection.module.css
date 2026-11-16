@@ -150,12 +150,6 @@
   background: var(--surface-hover);
 }
 
-.count {
-  flex-shrink: 0;
-  color: var(--text-caption);
-  font-size: var(--text-12);
-}
-
 .state {
   padding: 1px 6px;
   border-radius: 9px;

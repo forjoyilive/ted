@@ -19,6 +19,7 @@ import { ActionButton } from './ActionButton.tsx'
 import { Button } from './Button.tsx'
 import styles from './HierarchySection.module.css'
 import { ChevronIcon, PlusIcon } from './icons.tsx'
+import { ProgressRing } from './ProgressRing.tsx'
 import { TaskPicker } from './TaskPicker.tsx'
 
 export async function changeParent(task: Task, parentId: string | null): Promise<Task> {
@@ -150,6 +151,7 @@ function TreeRows({
     <ul className={styles.tree}>
       {nodes.map(({ task, children }) => {
         const open = !collapsed.has(task.id)
+        const progress = children.length > 0 ? childProgress(task, tasks) : undefined
         return (
           <li key={task.id}>
             <div className={styles.row}>
@@ -176,8 +178,8 @@ function TreeRows({
               >
                 <span className={styles.id}>{task.displayId}</span>
                 <span className={styles.title}>{task.title}</span>
-                {children.length > 0 && (
-                  <span className={styles.count}>{progressText(childProgress(task, tasks))}</span>
+                {progress && progress.total > 0 && (
+                  <ProgressRing merged={progress.merged} total={progress.total} />
                 )}
               </ActionButton>
               <span className={`${styles.state} ${stateClass(task)}`}>{stateLabel(task)}</span>

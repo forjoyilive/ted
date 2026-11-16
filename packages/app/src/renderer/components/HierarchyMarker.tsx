@@ -1,6 +1,7 @@
 import type { Task } from '@ted/protocol'
-import { childProgress, parentOf, progressText } from '../hierarchy.ts'
+import { childProgress, parentOf } from '../hierarchy.ts'
 import styles from './HierarchyMarker.module.css'
+import { ProgressRing } from './ProgressRing.tsx'
 
 export function HierarchyMarker({
   task,
@@ -22,11 +23,7 @@ export function HierarchyMarker({
           ↑ {parent.displayId}
         </span>
       )}
-      {counted && (
-        <span className={styles.marker} data-child-progress>
-          {progressText(counted)}
-        </span>
-      )}
+      {counted && <ProgressRing merged={counted.merged} total={counted.total} />}
     </span>
   )
 }
