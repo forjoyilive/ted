@@ -26,10 +26,8 @@ import {
   effectiveTimeZone,
   isCommitId,
   nextFirings,
-  type QueuedForSlot,
   type RunSlots,
   type SchedulePreview,
-  type SlotHolder,
   systemTimeZone,
 } from '@ted/protocol'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
@@ -52,7 +50,13 @@ import type {
 } from '../store/automations.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import type { CheckSlots } from '../tasks/check-slots.ts'
-import type { QueueEntry, QueueSource } from '../tasks/queue.ts'
+import {
+  afterProcessEnded,
+  queuedRunStatus,
+  queuedRuns,
+  type RunQueue,
+  runLimits,
+} from '../tasks/queued-runs.ts'
 import type { Caller, CheckFailureInput, Tasks } from '../tasks/tasks.ts'
 import { messageOf } from '../text.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
@@ -75,12 +79,6 @@ import {
 } from './scheduled-checks.ts'
 import { automationTemplates } from './templates.ts'
 
-export interface AutomationQueue {
-  addQueueSource(source: QueueSource): () => void
-  slots(): Promise<RunSlots>
-  publishedSlots?(): RunSlots | undefined
-}
-
 interface AutomationRecord {
   factoryKey: string
   firings: StoredFiring[]
@@ -95,7 +93,7 @@ export interface AutomationsOptions {
   health: AgentHealthMonitor
   banners: Banners
   workflows: Workflows
-  queue: AutomationQueue
+  queue: RunQueue
   apps: Pick<Tasks, 'setRunAppOwner' | 'stopRunApps'>
   reposDir: string
   sandbox: Sandbox
@@ -220,8 +218,6 @@ export function createAutomations(options: AutomationsOptions): Automations {
   const checkEveryMs = options.checkEveryMs ?? 60_000
   const graceMs = options.graceMs ?? 2 * 60_000
   const iso = (ms: number) => new Date(ms).toISOString()
-  const starting = new Set<string>()
-  const limited = new Set<string>()
   const busy = options.busy ?? (async () => false)
   const busyCheckEveryMs = options.busyCheckEveryMs ?? 15_000
   type CheckPhase = 'quiet' | 'slot' | 'running'
@@ -241,6 +237,14 @@ export function createAutomations(options: AutomationsOptions): Automations {
   let timer: Timer | undefined
   let releaseIdle: (() => void) | undefined
   let closed = false
+  const limits = runLimits({
+    store,
+    runs,
+    health,
+    owns: (runId) => runOf(runId) !== undefined,
+    isClosed: () => closed,
+    ready: () => pump(),
+  })
   const checkouts = createCheckouts({
     home: options.home,
     reposDir: options.reposDir,
@@ -409,11 +413,9 @@ export function createAutomations(options: AutomationsOptions): Automations {
     }
     if (firing.resume === 'queued') return 'queued'
     const run = store.getRun(firing.id)
-    if (!run) return 'queued'
-    if (run.state === 'finished') return 'ended'
-    if (run.state === 'waiting' || openQuestion(firing)) return 'waiting'
-    if (limited.has(run.id) || store.agentPauses()[run.agent] !== undefined) return 'paused'
-    return run.state
+    const shared = queuedRunStatus(run, { waiting: openQuestion(firing), limits })
+    if (shared !== undefined || !run) return shared ?? 'queued'
+    return run.state as Status
   }
 
   function previousRun(
@@ -441,20 +443,14 @@ export function createAutomations(options: AutomationsOptions): Automations {
     return saved.firings().filter((f) => automationIds.has(f.automationId) && inQueue(f))
   }
 
-  const source: QueueSource = {
-    starting: () => [...starting],
-    queued() {
-      return queuedFirings().flatMap((f): QueueEntry[] => {
+  const { pump, starting } = queuedRuns(options.queue, {
+    kind: 'automation',
+    what: 'Automation Run',
+    waiting() {
+      return queuedFirings().flatMap((f) => {
         const automation = saved.get(f.automationId)
         return automation
-          ? [
-              {
-                id: f.id,
-                kind: 'automation',
-                rank: Date.parse(f.at),
-                factoryId: automation.factoryId,
-              },
-            ]
+          ? [{ id: f.id, rank: Date.parse(f.at), factoryId: automation.factoryId }]
           : []
       })
     },
@@ -472,54 +468,35 @@ export function createAutomations(options: AutomationsOptions): Automations {
       }
       return hold === undefined
     },
-    begin(id) {
-      if (starting.has(id)) return
-      starting.add(id)
-      launch(id)
-        .catch((error: unknown) => console.error(`couldn’t start Automation Run ${id}:`, error))
-        .finally(() => {
-          starting.delete(id)
-          pump()
-        })
+    launch: (id) => launch(id),
+    candidates() {
+      const shown = new Set(live().map((a) => a.id))
+      return saved
+        .firings()
+        .filter((f) => shown.has(f.automationId))
+        .map((f) => f.id)
     },
-    holders() {
-      const shown = new Map(live().map((a) => [a.id, a]))
-      return saved.firings().flatMap((f): SlotHolder[] => {
-        if (!starting.has(f.id) && f.state !== 'started') return []
-        const automation = shown.get(f.automationId)
-        if (!automation) return []
-        const holds =
-          starting.has(f.id) ||
-          (store.getRun(f.id)?.state === 'working' && statusOf(f) === 'working')
-        if (!holds) return []
-        return [
-          {
-            kind: 'automation',
-            runId: f.id,
-            automationId: automation.id,
-            name: automation.name,
-            factoryId: automation.factoryId,
-            runs: 1,
-          },
-        ]
-      })
+    holds(id) {
+      const firing = saved.firing(id)
+      return (
+        firing?.state === 'started' &&
+        store.getRun(id)?.state === 'working' &&
+        statusOf(firing) === 'working'
+      )
     },
-    describe(id, place): QueuedForSlot | undefined {
+    slot(id) {
       const firing = saved.firing(id)
       const automation = firing && saved.get(firing.automationId)
-      if (!automation) return undefined
-      return {
-        kind: 'automation',
-        place,
-        runId: id,
-        automationId: automation.id,
-        name: automation.name,
-        factoryId: automation.factoryId,
-      }
+      return (
+        automation && {
+          runId: id,
+          automationId: automation.id,
+          name: automation.name,
+          factoryId: automation.factoryId,
+        }
+      )
     },
-  }
-
-  const pump = options.queue.addQueueSource(source)
+  })
 
   async function launch(id: string): Promise<void> {
     reconcileZones()
@@ -907,7 +884,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     if (own?.firing.state !== 'started') return
     const run = store.getRun(runId)
     if (run?.state !== 'idle') return
-    if (limited.has(runId) || store.agentPauses()[run.agent] !== undefined) return
+    if (limits.paused(run)) return
     if (openQuestion(own.firing)) return
     if ((unread.get(runId)?.length ?? 0) > 0) return
     if (own.automation.check) {
@@ -930,7 +907,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     unread.delete(runId)
     const own = runOf(runId)
     if (own?.firing.state !== 'started') return
-    limited.delete(runId)
+    limits.clear(runId)
     const message = finalMessage(runId)
     if (stopped && own.automation.check) {
       void endCheckAgent(runId, {
@@ -944,25 +921,19 @@ export function createAutomations(options: AutomationsOptions): Automations {
       release(runId)
       return
     }
-    const error =
-      lastLines.findLast((l) => l.trim() !== '') ??
-      'The agent’s process ended before it finished its turn.'
-    const run = store.getRun(runId)
-    if (own.firing.resume === undefined && run?.sessionId !== undefined) {
-      saved.resumeQueued(runId, firstLine(error, 500))
+    const next = afterProcessEnded({
+      stopped: false,
+      run: store.getRun(runId),
+      resumedBefore: own.firing.resume !== undefined,
+      lastLines,
+    })
+    if ('resume' in next) {
+      saved.resumeQueued(runId, firstLine(next.resume, 500))
       pump()
-      return
-    }
-    fail(own.firing, error)
+    } else if ('fail' in next) fail(own.firing, next.fail)
   }
 
   runs.observe({
-    usage(run, signal) {
-      if (!closed && signal.limited && runOf(run.id)) limited.add(run.id)
-    },
-    authFailed(run) {
-      if (!closed && runOf(run.id)) limited.add(run.id)
-    },
     accepted(run, texts) {
       const waiting = unread.get(run.id)
       if (!waiting) return
@@ -980,22 +951,12 @@ export function createAutomations(options: AutomationsOptions): Automations {
     },
   })
 
-  health.onReady(() => {
-    if (closed) return
-    for (const runId of [...limited]) {
-      const run = store.getRun(runId)
-      if (!run || store.agentPauses()[run.agent] === undefined) limited.delete(runId)
-    }
-    pump()
-  })
-
   const unsubscribe = store.subscribe((event) => {
     if (closed) return
     if (event.type === 'settings-changed') {
       reconcileZones()
       changed()
     }
-    if (event.type === 'run-updated' && event.run.state === 'working') limited.delete(event.run.id)
     if (event.type === 'run-updated' && event.run.state === 'idle' && saved.firing(event.run.id)) {
       const runId = event.run.id
       setImmediate(() => settle(runId))
@@ -1895,6 +1856,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       await Promise.all([...checkRuns.values()].map((entry) => entry.done))
       timer?.cancel()
       unsubscribe()
+      limits.close()
       releaseIdle?.()
       releaseIdle = undefined
     },
