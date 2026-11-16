@@ -151,7 +151,7 @@ export async function runWorktreeCommand(input: {
   signal?: AbortSignal
   shell?: [string, ...string[]]
   fds?: readonly number[]
-  onSpawn?: () => void
+  onSpawn?: (pid: number | undefined) => void
   lowPriority: boolean
 }): Promise<CommandResult> {
   await mkdir(path.dirname(input.log), { recursive: true, mode: 0o700 })
@@ -165,7 +165,7 @@ export async function runWorktreeCommand(input: {
       detached: true,
       stdio: ['ignore', log.fd, log.fd, ...(input.fds ?? [])],
     })
-    input.onSpawn?.()
+    input.onSpawn?.(child.pid)
     let reason: 'timed-out' | 'interrupted' | undefined
     const kill = (why: 'timed-out' | 'interrupted') => {
       reason ??= why

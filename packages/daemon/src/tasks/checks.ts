@@ -152,6 +152,10 @@ export async function runChecks(input: {
             lowPriority: input.lowPriority,
             ...(input.signal !== undefined && { signal: input.signal }),
             prepareLaunch: input.prepareLaunch,
+            root: {
+              kind: 'check',
+              ...(input.taskDisplayId !== undefined && { task: input.taskDisplayId }),
+            },
           })
     const result = await ran.finally(() => watching?.finish())
     const lowestMemory = await watching?.finish()

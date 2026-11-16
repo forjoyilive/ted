@@ -1,5 +1,5 @@
-import type { Diagnostics, LogText, ProcessInfo } from '@ted/protocol'
-import { memorySize, memorySummary } from '@ted/protocol/memory'
+import type { Diagnostics, LogText } from '@ted/protocol'
+import { memorySize, memorySummary, processName } from '@ted/protocol/memory'
 import { shortReference } from '@ted/protocol/reference'
 import { profileSeconds } from '@ted/protocol/slow'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -181,7 +181,7 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
 }
 
 function DeveloperTools({ onCopyReport }: { onCopyReport: () => void }) {
-  const resource = usePolled(ted.getDiagnostics, processRefreshMs)
+  const resource = usePolled(loadDiagnostics, processRefreshMs)
   const diagnostics = resource.value
   return (
     <>
@@ -196,8 +196,12 @@ function DeveloperTools({ onCopyReport }: { onCopyReport: () => void }) {
   )
 }
 
-function owner(process: ProcessInfo): string {
-  return process.owner === 'daemon' ? 'Daemon' : `Run ${shortReference(process.owner.runId)}`
+async function loadDiagnostics(): Promise<Diagnostics> {
+  const [diagnostics, own] = await Promise.all([ted.getDiagnostics(), ted.appProcesses()])
+  return {
+    ...diagnostics,
+    processes: [...diagnostics.processes, ...own].sort((a, b) => b.memoryBytes - a.memoryBytes),
+  }
 }
 
 function DiagnosticsView({
@@ -274,13 +278,15 @@ function DiagnosticsView({
           )}
         </div>
         <div className={styles.tableRow}>
-          <h3 className={styles.tableTitle}>Processes</h3>
+          <h3 className={styles.tableTitle} data-setting="app.developer.processes">
+            Processes
+          </h3>
           <table className={styles.table}>
             <thead>
               <tr>
                 <th className={styles.number}>PID</th>
                 <th>Command</th>
-                <th>Belongs to</th>
+                <th>What it is</th>
                 <th className={styles.number}>CPU</th>
                 <th className={styles.number}>Memory</th>
               </tr>
@@ -290,7 +296,7 @@ function DiagnosticsView({
                 <tr key={process.pid}>
                   <td className={`${styles.number} ${styles.mono}`}>{process.pid}</td>
                   <td className={styles.mono}>{process.command}</td>
-                  <td>{owner(process)}</td>
+                  <td>{processName(process)}</td>
                   <td className={styles.number}>{process.cpuPercent}%</td>
                   <td className={styles.number}>{memorySize(process.memoryBytes)}</td>
                 </tr>

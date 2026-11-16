@@ -280,7 +280,7 @@ const entries = {
   },
   'app.developer.memory': {
     name: 'TED’s memory use',
-    help: 'Memory used by TED’s background process (the daemon), the app, the Run hosts and the agents they run. Refreshes every two seconds while this page is open.',
+    help: 'Memory used by TED and everything it started: the app, the daemon and Run hosts, the agents and the tools and MCP servers they run, Checks and Apps. Refreshes every five seconds while this page is open.',
     keywords: 'RAM usage daemon app agents Run hosts',
   },
   'app.developer.folder': { name: 'TED’s folder' },
@@ -303,6 +303,10 @@ const entries = {
   'app.developer.diagnostics.memory': {
     name: 'System memory usage',
     help: 'Memory in use across this computer, including other apps. This is separate from the memory used by TED’s processes below.',
+  },
+  'app.developer.processes': {
+    name: 'Processes',
+    keywords: 'memory CPU PID Activity Monitor MCP servers agents Checks Apps',
   },
   'app.developer.logs': { name: 'Log', keywords: 'logs daemon log raw output', heading: true },
 

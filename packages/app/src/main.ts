@@ -268,7 +268,21 @@ const requests = {
     return {
       cpuPercent: usage.cpuPercent + own.cpuPercent,
       memoryBytes: usage.memoryBytes + own.memoryBytes,
+      memory: { ...usage.memory, app: { count: own.count, bytes: own.memoryBytes } },
     }
+  },
+  appProcesses: async () => {
+    const metrics = app.getAppMetrics()
+    const memory = await processMemory(metrics.map((metric) => metric.pid))
+    return metrics.map((metric) => ({
+      pid: metric.pid,
+      ppid: metric.pid === process.pid ? process.ppid : process.pid,
+      cpuPercent: Math.round(metric.cpu.percentCPUUsage * 10) / 10,
+      memoryBytes: memory.get(metric.pid) ?? 0,
+      command: metric.type === 'Browser' ? app.getName() : (metric.name ?? metric.type),
+      owner: 'app',
+      kind: 'ted-app',
+    }))
   },
   tedFolder: async () => {
     const folder = tedHome()
@@ -328,6 +342,7 @@ const requests = {
   | 'copyReport'
   | 'memoryUse'
   | 'resourceUsage'
+  | 'appProcesses'
   | 'tedFolder'
   | 'showBackupInFolder'
   | 'showTedFolder'
