@@ -257,7 +257,7 @@ describe('sort and group', () => {
       groupTasks(all, view, factories, [], layout).map((g) => [g.label, ids(g.tasks)]),
     ).toEqual([
       ['Clients', ['MS-10']],
-      ['No group', ['NB-11', 'NB-12', 'NB-10']],
+      ['No Factory group', ['NB-11', 'NB-12', 'NB-10']],
     ])
   })
 })

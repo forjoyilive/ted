@@ -226,7 +226,7 @@ describe('Group by', () => {
     expect(shape(groupInbox(rows, 'factory-group', now, undefined, layout))).toEqual([
       ['Internal', ['own']],
       ['Clients', ['client']],
-      ['No group', ['loose']],
+      ['No Factory group', ['loose']],
     ])
     expect(
       shape(
@@ -241,7 +241,7 @@ describe('Group by', () => {
     ).toEqual([
       ['Clients', ['client']],
       ['Internal', ['own']],
-      ['No group', ['loose']],
+      ['No Factory group', ['loose']],
     ])
   })
 
