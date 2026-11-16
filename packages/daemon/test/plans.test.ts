@@ -309,7 +309,7 @@ describe('Planning chats', () => {
     const asked = await waitForPlan(client, plan.id, (d) => d.plan.status === 'waiting', 'round')
     const roundId = asked.requests.find((r) => r.kind === 'round')?.id as string
     const stopped = await client.ok<Plan>('POST', `/plans/${plan.id}/stop`)
-    expect(stopped).toMatchObject({ status: 'stopped', canResume: true })
+    expect(stopped).toMatchObject({ status: 'stopped', canResume: true, openRequest: true })
     expect((await detail(client, plan.id)).requests[0]?.answer).toBeUndefined()
     expect(
       (await client.ok<PlanInboxItem[]>('GET', '/plan-requests')).map((i) => i.request.id),

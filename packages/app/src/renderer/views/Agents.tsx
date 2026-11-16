@@ -45,7 +45,7 @@ export function AgentsView({
   planId: string | undefined
   planFrom: string | undefined
   revealRequest: ScrollReveal | undefined
-  onOpenChat: (chat: AgentChatRef) => void
+  onOpenChat: (chat: AgentChatRef, options?: { replace: true }) => void
   onNewPlan: () => void
   onPlanMore: (planId: string) => void
   onOpenTask: (ref: string) => void
@@ -77,6 +77,13 @@ export function AgentsView({
                 ? (pickChat(rows, view.remembered) ?? 'start')
                 : undefined
   const openRef = typeof shown === 'object' ? shown : undefined
+  const picked = chatId === undefined && planId === undefined ? openRef : undefined
+  const pickedAgent = picked?.agent
+  const pickedId = picked?.id
+  useEffect(() => {
+    if (pickedAgent !== undefined && pickedId !== undefined)
+      onOpenChat({ agent: pickedAgent, id: pickedId }, { replace: true })
+  }, [pickedAgent, pickedId, onOpenChat])
   const { remember } = view
   const openAgent = openRef?.agent
   const openId = openRef?.id

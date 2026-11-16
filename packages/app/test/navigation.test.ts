@@ -289,6 +289,26 @@ describe('back and forward (⌘[ and ⌘])', () => {
     expect(history.now.planFrom).toBeUndefined()
   })
 
+  test('the chat Agents picks replaces the plain Agents place, so Back returns to that chat', () => {
+    const agents = { kind: 'factory', factoryId: 'nb', view: 'agents' } as const
+    let history = walk(
+      { type: 'open', screen: agents },
+      { type: 'open', screen: { ...agents, chatId: 'a' }, replace: true },
+    )
+    expect(history.back.map((p) => p.screen)).toEqual([{ kind: 'inbox' }])
+    history = withHistory(history, { type: 'open', screen: { ...agents, chatId: 'b' } })
+    history = withHistory(history, { type: 'back' })
+    expect(history.now.screen).toEqual({ ...agents, chatId: 'a' })
+    history = withHistory(history, {
+      type: 'open-plan',
+      factoryId: 'nb',
+      planId: 'p1',
+      replace: true,
+    })
+    expect(history.now).toMatchObject({ screen: agents, planId: 'p1' })
+    expect(history.forward).toHaveLength(1)
+  })
+
   test('back with nowhere to go, and actions that stay in place, change nothing', () => {
     const start = startHistory(initialNavigation)
     expect(withHistory(start, { type: 'back' })).toBe(start)

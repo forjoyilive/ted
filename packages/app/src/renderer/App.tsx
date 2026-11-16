@@ -1098,9 +1098,14 @@ export function App({ start }: { start?: AppStart | undefined }) {
               planId={navigation.planId}
               planFrom={navigation.planFrom}
               revealRequest={revealRequest}
-              onOpenChat={(chat) =>
+              onOpenChat={(chat, options) =>
                 chat.agent === 'planner'
-                  ? dispatch({ type: 'open-plan', factoryId: factory.id, planId: chat.id })
+                  ? dispatch({
+                      type: 'open-plan',
+                      factoryId: factory.id,
+                      planId: chat.id,
+                      ...options,
+                    })
                   : dispatch({
                       type: 'open',
                       screen: {
@@ -1109,6 +1114,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
                         view: 'agents',
                         chatId: chat.id,
                       },
+                      ...options,
                     })
               }
               onNewPlan={openPlans}

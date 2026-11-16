@@ -560,6 +560,7 @@ export function createPlans(options: PlansOptions): Plans {
       ...(latest?.proposal && { proposedTasks: latest.proposal.rows.length }),
       createdTasks: saved.createdTasks(plan.id).length,
       ...(status === 'waiting' && waitingOn && { waitingOn: planRequestLabel(waitingOn) }),
+      ...(waitingOn && { openRequest: true as const }),
       ...(resumable(plan) && { canResume: true }),
       ...(plan.from && {
         fromPlan: {

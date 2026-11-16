@@ -57,12 +57,19 @@ export interface Navigation {
 }
 
 export type NavigationAction =
-  | { type: 'open'; screen: Screen }
+  | { type: 'open'; screen: Screen; replace?: true }
   | { type: 'open-inbox-request'; taskId: string; factoryId: string; requestId: string }
   | { type: 'open-factory'; factoryId: string }
   | { type: 'open-tasks'; factoryId: string }
   | { type: 'open-task'; taskId: string; factoryId?: string; requestId?: string }
-  | { type: 'open-plan'; factoryId: string; planId?: string; from?: string; requestId?: string }
+  | {
+      type: 'open-plan'
+      factoryId: string
+      planId?: string
+      from?: string
+      requestId?: string
+      replace?: true
+    }
   | { type: 'close-task' }
   | {
       type: 'open-automation'
@@ -318,7 +325,9 @@ function recorded(
       : { now, back: [...history.back, here], forward: rest }
   }
   const now = settled(navigate(history.now, action), resolve)
-  if (samePlace(placeOf(now), here)) return { ...history, now }
+  if (samePlace(placeOf(now), here) || ('replace' in action && action.replace)) {
+    return { ...history, now }
+  }
   return { now, back: [...history.back, here].slice(-historyLimit), forward: [] }
 }
 

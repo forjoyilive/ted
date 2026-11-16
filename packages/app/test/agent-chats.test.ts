@@ -79,6 +79,11 @@ test('Coordinator chats and planning chats make one list, newest activity first,
   expect(groupedRows(rows.filter((r) => r.agent === 'Planner')).map((g) => g.agent)).toEqual([
     'Planner',
   ])
+
+  const [stopped] = agentChatRows([], [plan({ status: 'stopped', openRequest: true })])
+  expect(stopped).toMatchObject({ waiting: true, chip: { label: 'Stopped' } })
+  const [failed] = agentChatRows([], [plan({ status: 'failed' })])
+  expect(failed).toMatchObject({ waiting: false })
 })
 
 test('Agents opens the chat last open in the Factory, else the newest, else nothing', () => {

@@ -56,7 +56,7 @@ function planRow(plan: Plan): AgentChatRow {
     title: plan.title,
     chip: planStatusChip(plan),
     lastAt: plan.lastAt,
-    waiting: plan.status === 'waiting',
+    waiting: plan.status === 'waiting' || plan.openRequest === true,
     ended: planEnded(plan),
     meta: plan.fromTask
       ? `From ${plan.fromTask.displayId}`

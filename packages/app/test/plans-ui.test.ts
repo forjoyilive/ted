@@ -101,12 +101,15 @@ describe('Planning chats', () => {
     const window = await loadedWindow(app)
     await openFirstFactory(window)
     await sidebar(window)
-      .getByRole('button', { name: /^Plans/ })
+      .getByRole('button', { name: /^Agents/ })
       .click()
     await window
-      .getByRole('region', { name: /· Plans$/ })
-      .getByRole('button', { name: 'Plan', exact: true })
-      .first()
+      .getByRole('region', { name: 'Agent chats' })
+      .getByRole('button', { name: 'New chat' })
+      .click()
+    await window
+      .getByRole('region', { name: 'New chat' })
+      .getByRole('button', { name: /^Planner/ })
       .click()
     const fresh = window.getByRole('region', { name: 'New planning chat' })
     await fresh.waitFor()
@@ -248,7 +251,7 @@ describe('Planning chats', () => {
 
     await row('Quick plan').click()
     await chat.getByRole('heading', { name: 'Quick plan' }).waitFor()
-    await chat.getByRole('button', { name: 'More' }).click()
+    await chat.getByRole('button', { name: 'More', exact: true }).click()
     await chat.getByRole('menuitem', { name: 'Plan more from here…' }).click()
     const fresh = window.getByRole('region', { name: 'New planning chat' })
     await fresh.getByText('Builds on “Quick plan”', { exact: false }).waitFor()
@@ -269,7 +272,7 @@ describe('Planning chats', () => {
 
     await row('Quick plan').click()
     await chat.getByRole('heading', { name: 'Quick plan' }).waitFor()
-    await chat.getByRole('button', { name: 'More' }).click()
+    await chat.getByRole('button', { name: 'More', exact: true }).click()
     await chat.getByRole('menuitem', { name: 'Delete…' }).click()
     await chat
       .getByRole('alertdialog', { name: 'Delete this planning chat?' })

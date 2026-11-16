@@ -71,6 +71,7 @@ export interface Plan {
   proposedTasks?: number
   createdTasks: number
   waitingOn?: string
+  openRequest?: true
   canResume?: boolean
   fromPlan?: { id: string; title: string; deleted?: boolean }
   fromTask?: PlanFromTask
