@@ -605,11 +605,7 @@ function PlanHeader({
             Stop
           </Button>
         )}
-        {archived ? (
-          <Button disabled={stopping} onClick={() => act(() => ted.unarchivePlan(plan.id))}>
-            Unarchive
-          </Button>
-        ) : (
+        {!archived && (
           <Button disabled={stopping} onClick={() => act(() => ted.archivePlan(plan.id))}>
             Archive
           </Button>

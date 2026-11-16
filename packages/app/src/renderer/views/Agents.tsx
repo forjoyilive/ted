@@ -126,8 +126,11 @@ export function AgentsView({
     if (row) setDeleting(row)
   }
   const { open: openRows, archived: archivedRows } = splitArchived(rows)
-  const showArchived =
-    archivedOpen || archivedRows.some((r) => openRef !== undefined && sameChat(r.ref, openRef))
+  const openArchived = archivedRows.some((r) => sameChat(r.ref, openRef))
+  useEffect(() => {
+    if (openArchived) setArchivedOpen(true)
+  }, [openArchived])
+  const showArchived = archivedOpen || openArchived
 
   const rowFor = (row: AgentChatRow) => {
     const ref = row.ref

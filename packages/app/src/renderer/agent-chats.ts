@@ -106,7 +106,10 @@ export function pickChat(
   rows: readonly AgentChatRow[],
   remembered: AgentChatRef | undefined,
 ): AgentChatRef | undefined {
-  return rows.find((r) => sameChat(r.ref, remembered))?.ref ?? rows[0]?.ref
+  return (
+    rows.find((r) => sameChat(r.ref, remembered))?.ref ??
+    rows.find((r) => r.archivedAt === undefined)?.ref
+  )
 }
 
 const storageKey = 'ted.agents'
