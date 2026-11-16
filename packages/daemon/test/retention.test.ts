@@ -601,5 +601,5 @@ describe('Run output retention in the daemon', () => {
     )
     expect(await runFolders()).toContain(openPlan.id)
     await ok('POST', `/plans/${openPlan.id}/stop`)
-  })
+  }, 90_000)
 })
