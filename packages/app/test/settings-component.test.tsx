@@ -417,12 +417,36 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
     'descending',
   )
   await user().click(processTable.getByRole('button', { name: 'Memory' }))
-  expect(api.request).toHaveBeenCalledWith('updateSettings', {
-    diagnosticsSort: {
-      ...defaultMachineSettings.diagnosticsSort,
-      processes: { column: 'memory', direction: 'descending' },
-    },
-  })
+  await user().click(processTable.getByRole('button', { name: 'Memory' }))
+  await user().click(
+    within(screen.getByRole('table', { name: 'Runs' })).getByRole('button', { name: 'Tokens in' }),
+  )
+  const chosen = {
+    runs: { column: 'tokensIn', direction: 'descending' },
+    processes: { column: 'memory', direction: 'ascending' },
+  } as const
+  expect(api.request.mock.calls.filter(([name]) => name === 'updateSettings').slice(-3)).toEqual([
+    [
+      'updateSettings',
+      {
+        diagnosticsSort: {
+          ...defaultMachineSettings.diagnosticsSort,
+          processes: { column: 'memory', direction: 'descending' },
+        },
+      },
+    ],
+    [
+      'updateSettings',
+      {
+        diagnosticsSort: { ...defaultMachineSettings.diagnosticsSort, processes: chosen.processes },
+      },
+    ],
+    ['updateSettings', { diagnosticsSort: chosen }],
+  ])
+  expect(processRows()).toEqual([
+    '123nodeTool or MCP server of TED-487’s Task Lead2.4%64 MB',
+    '456TEDTED app1%200 MB',
+  ])
   view.rerender(
     <DeveloperPage
       settings={{
@@ -436,10 +460,12 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
       dispatch={vi.fn()}
     />,
   )
-  expect(processRows()).toEqual([
-    '456TEDTED app1%200 MB',
-    '123nodeTool or MCP server of TED-487’s Task Lead2.4%64 MB',
-  ])
+  await waitFor(() =>
+    expect(processRows()).toEqual([
+      '456TEDTED app1%200 MB',
+      '123nodeTool or MCP server of TED-487’s Task Lead2.4%64 MB',
+    ]),
+  )
   expect(
     within(screen.getByRole('table', { name: 'Processes' }))
       .getByRole('columnheader', { name: 'Memory' })

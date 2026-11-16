@@ -323,8 +323,19 @@ function DiagnosticsView({
   const memory = diagnostics?.memory
   const used = memory ? memory.totalBytes - memory.availableBytes : 0
   const usedPercent = memory ? Math.round((used / memory.totalBytes) * 100) : 0
-  const saveSort = (change: Partial<DiagnosticsSort>) =>
-    ted.updateSettings({ diagnosticsSort: { ...sort, ...change } })
+  const [chosen, setChosen] = useState(sort)
+  const saving = useRef(0)
+  useEffect(() => {
+    if (saving.current === 0) setChosen(sort)
+  }, [sort])
+  const saveSort = (change: Partial<DiagnosticsSort>) => {
+    const next = { ...chosen, ...change }
+    setChosen(next)
+    saving.current += 1
+    return ted.updateSettings({ diagnosticsSort: next }).finally(() => {
+      saving.current -= 1
+    })
+  }
 
   return (
     <section className={`${styles.group} ${styles.wideGroup}`} aria-label="Diagnostics">
@@ -351,10 +362,10 @@ function DiagnosticsView({
             <SortableTable
               label="Runs"
               columns={runColumns}
-              sort={sort.runs}
+              sort={chosen.runs}
               onSort={(runs) => saveSort({ runs })}
             >
-              {sortRuns(diagnostics?.runs ?? [], sort.runs).map((run) => {
+              {sortRuns(diagnostics?.runs ?? [], chosen.runs).map((run) => {
                 const live = run.state !== 'finished'
                 return (
                   <tr key={run.runId}>
@@ -378,10 +389,10 @@ function DiagnosticsView({
           <SortableTable
             label="Processes"
             columns={processColumns}
-            sort={sort.processes}
+            sort={chosen.processes}
             onSort={(processes) => saveSort({ processes })}
           >
-            {sortProcesses(diagnostics?.processes ?? [], sort.processes).map((process) => (
+            {sortProcesses(diagnostics?.processes ?? [], chosen.processes).map((process) => (
               <tr key={process.pid}>
                 <Cell text={String(process.pid)} number mono />
                 <Cell text={process.command} mono />
