@@ -2895,13 +2895,13 @@
       "count": 1
     },
     "anti-slop/no-runtime-typeof": {
-      "count": 5
+      "count": 2
     },
     "anti-slop/no-unknown-parameters": {
       "count": 3
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 5
+      "count": 3
     }
   },
   "packages/daemon/src/tasks/request-answers.ts": {
