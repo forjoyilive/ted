@@ -135,7 +135,7 @@ export function LeadSelects({
   return (
     <div className={styles.selects}>
       <Select
-        aria-label="Agent"
+        aria-label="Provider"
         value={lead.agent}
         onChange={(event) => set(event.target.value as AgentKind, '', lead.effort ?? '')}
       >
@@ -159,7 +159,7 @@ export function LeadSelects({
           </option>
         ))}
       </Select>
-      <Help>Agent, model and effort for this chat’s planner. They’re fixed once you send.</Help>
+      <Help>Provider, model and effort for this chat’s planner. They’re fixed once you send.</Help>
     </div>
   )
 }

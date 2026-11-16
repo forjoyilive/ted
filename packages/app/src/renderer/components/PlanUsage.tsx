@@ -21,7 +21,7 @@ interface UsageProps {
 }
 
 function freshness(health: AgentHealth | undefined, now: number): string {
-  if (!health) return 'Checking agent…'
+  if (!health) return 'Checking Provider…'
   const status =
     health.state === 'ready' ? undefined : (health.reason ?? health.state.replaceAll('-', ' '))
   const usage = health.planUsage
@@ -197,7 +197,7 @@ function UsagePopover({
           ×
         </button>
       </div>
-      {agents.length === 0 && <p className={styles.empty}>No agents are set up.</p>}
+      {agents.length === 0 && <p className={styles.empty}>No Providers are set up.</p>}
       {agents.map((agent) => {
         const known = health.find((h) => h.agent === agent)
         const top = fullestWindow(usageWindows(known, billing[agent]))
@@ -232,10 +232,10 @@ function UsagePopover({
       })}
       <div className={styles.footer}>
         <p>
-          Updates as Runs report usage. Percentages are for your agent accounts, across all apps.
+          Updates as Runs report usage. Percentages are for your Provider accounts, across all apps.
         </p>
         <button type="button" onClick={onSettings}>
-          Agent settings <span aria-hidden>→</span>
+          Provider settings <span aria-hidden>→</span>
         </button>
       </div>
     </div>

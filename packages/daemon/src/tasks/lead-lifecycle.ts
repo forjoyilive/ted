@@ -328,12 +328,12 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     if (lead.agent !== run.agent && !(await health.ready(lead.agent)))
       throw new RequestError(
         409,
-        `${agentShortNames[lead.agent]} isn’t ready. Check Settings → Agents.`,
+        `${agentShortNames[lead.agent]} isn’t ready. Check Settings → Providers.`,
       )
     if (lead.agent !== run.agent && store.newWorkHold() !== undefined)
       throw new RequestError(
         409,
-        'TED isn’t starting new work right now, so it can’t switch agents',
+        'TED isn’t starting new work right now, so it can’t switch Providers',
       )
     if (run.state === 'working') {
       if (lead.agent === run.agent) interruptedForRestart.add(run.id)

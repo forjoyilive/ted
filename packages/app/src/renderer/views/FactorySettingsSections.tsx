@@ -924,8 +924,8 @@ function AgentsSectionView({
       <SectionHeading
         id="agents"
         setting="factory.agents"
-        title="Agents"
-        help="Which agent, model and effort each role uses in this Factory. Rows marked Default or Library are inherited; Override sets them here."
+        title="Providers"
+        help="Which Provider, model and effort each role uses in this Factory. Rows marked Default or Library are inherited; Override sets them here."
       />
       <div className={`${styles.table} ${styles.scrollTable}`}>
         {view.agents.map((row) => (
@@ -971,7 +971,7 @@ function AgentRow({
       </span>
       <Select
         fullWidth
-        aria-label={`${name} agent`}
+        aria-label={`${name} Provider`}
         controlClassName={styles.cellSelect}
         disabled={locked}
         value={shown.agent ?? 'claude'}

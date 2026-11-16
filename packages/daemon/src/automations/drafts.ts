@@ -163,7 +163,7 @@ export function createAutomationDrafts(options: AutomationsOptions) {
       let draft = saved.get(id)
       if (closed || draft?.state !== 'queued' || paused(draft) || store.newWorkHold()) return
       const agent = draft.input.agent
-      if (!agent) throw new Error('No drafting agent selected')
+      if (!agent) throw new Error('No Provider is selected for drafting')
       await options.health.check([agent])
       draft = saved.get(id)
       if (closed || draft?.state !== 'queued' || paused(draft) || store.newWorkHold()) return

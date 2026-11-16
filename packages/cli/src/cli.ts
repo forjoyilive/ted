@@ -259,7 +259,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     if (file === undefined)
       throw new UsageError('give the sub-agent’s instructions with --prompt-file <file>')
     if (agent !== undefined && !agentKinds.includes(agent as AgentKind)) {
-      throw new UsageError('--agent must be claude, codex or antigravity')
+      throw new UsageError('--provider must be claude, codex or antigravity')
     }
     if (effort !== undefined && !efforts.includes(effort as Effort)) {
       throw new UsageError(`--effort must be one of ${efforts.join(', ')}`)
@@ -1750,7 +1750,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (options['stage-effort'] && effort !== undefined)
         throw new UsageError('choose --stage-effort or --effort')
       if (!agentKinds.includes(agent as AgentKind))
-        throw new UsageError('agent must be claude, codex or antigravity')
+        throw new UsageError('the Provider must be claude, codex or antigravity')
       if (effort !== undefined && !efforts.includes(effort as Effort)) {
         throw new UsageError(`--effort must be one of ${efforts.join(', ')}`)
       }
@@ -1920,7 +1920,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
             }
           : undefined
       if (lead === undefined && (options.model !== undefined || options.effort !== undefined))
-        throw new UsageError('--model and --effort need --agent')
+        throw new UsageError('--model and --effort need --provider')
       const input = {
         operation,
         title: args.join(' '),

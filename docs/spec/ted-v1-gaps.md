@@ -39,12 +39,12 @@ Most of the KRI-54 to KRI-66 resolutions, their follow-ups and the KRI-8 Figma c
 - **GAP-1** Model and effort per kind of Run. Resolved by KRI-53: `{agent, model, effort}` on `lead`, `reviewer`, `planner`; the Task Lead picks for sub-agents; unset means the CLI default. KRI-60 narrowed `planner` to Planning Runs.
 - **GAP-2** First launch. Resolved by KRI-57 and KRI-64: a full-window Set up TED screen with Claude Code, Codex, GitHub and Git rows; Continue needs Git and one agent.
 - **GAP-3** App Settings and the global/per-Factory split. Resolved by KRI-57 and KRI-64: eight sections; machine settings are global, Workflow settings follow the layers.
-- **GAP-4** API-key billing and showing the credential. Resolved by KRI-54: Subscription or API key per agent kind in Settings → Agents; each Run row shows the credential it reported; a mismatch pauses.
+- **GAP-4** API-key billing and showing the credential. Resolved by KRI-54: Subscription or API key per Provider in Settings → Providers; each Run row shows the credential it reported; a mismatch pauses.
 - **GAP-5** Editor. Resolved by KRI-57: Settings → General → Editor, picked on first use.
 - **GAP-6** Start at login. Resolved by KRI-57: on by default, offered on first launch, toggle in General; starts the app in the background.
 
-### 2. Agents and Runs
-- **GAP-7** Usage and rate limits. Resolved by KRI-54: Paused · reason for the whole agent kind until reset; CLIs retry 429s; banner, no Inbox item.
+### 2. Providers and Runs
+- **GAP-7** Usage and rate limits. Resolved by KRI-54: Paused · reason for the whole Provider until reset; CLIs retry 429s; banner, no Inbox item.
 - **GAP-8** CLI missing, signed out or outdated. Resolved by KRI-54: Paused with the reason; health checks before each Run and every 10 minutes; Fix opens the user’s terminal.
 - **GAP-9** `permissions`. Resolved by KRI-53: `auto` or `bypass`, Factory only, every Run.
 - **GAP-10** Cost and plan usage. Resolved by KRI-54 and KRI-63: tokens everywhere, dollars for API-key Runs only, plan-usage bars in Settings and a footer chip at 85%.

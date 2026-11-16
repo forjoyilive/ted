@@ -463,7 +463,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
       const agent = firing && agentOf(firing)
       const hold =
         agent === undefined
-          ? 'its agent is unknown'
+          ? 'its Provider is unknown'
           : (agentStartHold(store, agent, id) ?? store.agentPauses()[agent])
       if (hold !== undefined && firing?.agentPhase === 'queued' && !store.getRun(id)) {
         setImmediate(() => {

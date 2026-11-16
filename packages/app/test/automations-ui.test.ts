@@ -347,7 +347,7 @@ describe('Automations in the app', () => {
     await form.getByRole('button', { name: 'Generate draft', exact: true }).click()
     await form.getByText('Drafting…', { exact: true }).waitFor()
     expect(await form.getByRole('button', { name: 'Save', exact: true }).isDisabled()).toBe(true)
-    expect(await form.getByLabel('Agent', { exact: true }).isDisabled()).toBe(true)
+    expect(await form.getByLabel('Provider', { exact: true }).isDisabled()).toBe(true)
     await form.getByRole('button', { name: 'Cancel drafting', exact: true }).click()
     await expect
       .poll(() => form.getByRole('button', { name: 'Generate draft', exact: true }).isEnabled())

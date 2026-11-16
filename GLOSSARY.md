@@ -175,16 +175,16 @@ The status of a started Task, or of a new Automation Run, waiting for a free slo
 _Avoid_: Pending, ready
 
 **Paused**:
-The status of a Run, or of a Queued Task, whose agent can’t run right now because it hit a usage limit, is signed out, missing, outdated or using the wrong credential, or the machine is offline; it carries on by itself once the agent can run again. A status, not a Stage, and not a failure.
+The status of a Run, or of a Queued Task, whose Provider can’t run right now because it hit a usage limit, is signed out, missing, outdated or using the wrong credential, or the machine is offline; it carries on by itself once the Provider can run again. A status, not a Stage, and not a failure.
 _Avoid_: Blocked, limited, stalled
 
 **Failed**:
-The status of a Task whose Task Lead Run ended without finishing or waiting, twice in a short time, for a reason other than the agent being Paused; the human decides whether to retry.
+The status of a Task whose Task Lead Run ended without finishing or waiting, twice in a short time, for a reason other than its Provider being Paused; the human decides whether to retry.
 _Avoid_: Errored, crashed
 
 **Stopped**:
 The status of a Task whose Runs the human stopped; it stays in its Stage with its worktree until the human resumes it, which starts a fresh Task Lead Run from the Task brief. A status, not a Stage.
-_Avoid_: Paused (which is for agents that can’t run), canceled, on hold
+_Avoid_: Paused (which is for Providers that can’t run), canceled, on hold
 
 **Task Lead**:
 The one agent in charge of a Task; it carries the Task through its Stages and may start sub-agents.
@@ -199,14 +199,18 @@ A Run the Task Lead starts on its Task for one piece of work, such as exploring 
 _Avoid_: Worker, helper, child agent
 
 **Reviewer**:
-The sub-agent that reviews a Task’s diff at Validate with no Work context. TED picks its agent from the `reviewer` setting, by default the other agent kind from the Task Lead’s. Each Validate visit gets one. From the second round TED limits it to the earlier Findings and the changes since the last reviewed commit, and after a send-back for a conflict with the base branch to the conflict resolution.
+The sub-agent that reviews a Task’s diff at Validate with no Work context. TED picks its Provider from the `reviewer` setting, by default the other Provider from the Task Lead’s. Each Validate visit gets one. From the second round TED limits it to the earlier Findings and the changes since the last reviewed commit, and after a send-back for a conflict with the base branch to the conflict resolution.
 
 **Loop check**:
 A sub-agent TED starts itself at Validate’s third send-back to read the rounds of Findings and say whether they are converging or looping.
 
 **Run**:
-One agent conversation, on a Task (the Task Lead’s or a sub-agent’s), for an Automation, for planning, or for a Coordinator, from when TED starts it until it is stopped. TED may restart the agent underneath it, for example onto a new agent version, and it is still the same Run. A stopped Run is kept as history and never resumed; work continues in a fresh Run.
+One agent conversation, on a Task (the Task Lead’s or a sub-agent’s), for an Automation, for planning, or for a Coordinator, from when TED starts it until it is stopped. TED may restart the Provider underneath it, for example onto a new Provider version, and it is still the same Run. A stopped Run is kept as history and never resumed; work continues in a fresh Run.
 _Avoid_: Session, job
+
+**Provider**:
+The AI coding tool a Run uses: Claude Code, Codex or Antigravity. It is chosen for each Task Lead, Reviewer, Planning Run, Automation and Sub-Agent, and set up on Settings → Providers. “Agent” means a Run or its role (Task Lead, Sub-Agent, agent Run), never the tool.
+_Avoid_: Agent, agent kind
 
 **Planning Run**:
 A Run in a Factory, not on any Task, where the human and an agent work out a piece of work too big for one Task; it ends by proposing Tasks, with which ones block which, for the human to approve. The UI calls it a planning chat.

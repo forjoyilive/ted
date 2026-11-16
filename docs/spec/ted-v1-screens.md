@@ -105,7 +105,7 @@ Ticket: [KRI-64](https://linear.app/kriyadesign/issue/KRI-64).
 | No Factories yet | [27:5090](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-5090) |
 | Settings · General | [27:8573](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-8573) |
 | Settings · Notifications (off in macOS) | [27:8669](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-8669) |
-| Settings · Agents, plan usage at 87% / Claude signed out and Codex at its limit | [27:8859](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-8859) / [27:9065](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-9065) |
+| Settings · Providers, plan usage at 87% / Claude signed out and Codex at its limit | [27:8859](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-8859) / [27:9065](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-9065) |
 | Settings · Limits | [27:11280](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-11280) |
 | Settings · Integrations | [27:11402](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-11402) |
 | Settings · Library | [27:11659](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-11659) |
@@ -139,7 +139,7 @@ Ticket: [KRI-65](https://linear.app/kriyadesign/issue/KRI-65).
 | First Factory guide card · every setup state (TED-370) | [122:2538](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=122-2538) |
 | Factory settings · General and Repos | [27:10938](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-10938) |
 | Factory settings · Workflow, with drift on Review | [27:12011](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=27-12011) |
-| Factory settings · Checks, Agents, Permissions, with an invalid workflow.yaml | [28:904](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-904) |
+| Factory settings · Checks, Providers, Permissions, with an invalid workflow.yaml | [28:904](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-904) |
 | Factory settings · Factory notes | [28:2229](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-2229) |
 | Save dialog, while removing a repo | [28:2350](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=28-2350) |
 | Factory banners on the Board / every kind | [29:3](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=29-3) / [29:152](https://www.figma.com/design/SLTyztzQXHFdz4sk3TcePk/TED?node-id=29-152) |

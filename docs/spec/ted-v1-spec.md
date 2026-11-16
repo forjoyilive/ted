@@ -19,7 +19,7 @@ TED (“Totally Excellent Development”) is a desktop app for running software 
 - **Desktop only.** macOS and Linux. No Windows, no phone. (KRI-14, KRI-8)
 - **Multiplayer is not built, only not locked out.** The store is built for sync from day one. Each Task has a stable internal ID next to its display ID, so a sync backend can renumber clashing IDs later. (KRI-8, KRI-9, KRI-58)
 - **One machine.** Each machine has its own daemon, limit on working Runs and queue. Nothing in v1 may assume there is only one machine. (KRI-15)
-- **Agents:** Claude Code and Codex, run through the user’s own installed CLIs. (KRI-14, KRI-21, ADR 0004)
+- **Providers:** Claude Code and Codex, run through the user’s own installed CLIs. (KRI-14, KRI-21, ADR 0004)
 - **Code host:** GitHub only, through the user’s `gh` login. GitHub Enterprise works wherever `gh` is signed in to that host. (KRI-20, KRI-57, ADR 0007)
 - **Language:** English only. (KRI-20)
 - **Built standalone.** TED ports logic from agent-orchestrator (agent launch flags, PTY handling, worktree setup, sending CI failures and review comments to agents, the preview server manager, the chat host) and copies React UI code under Apache-2.0, preserving applicable upstream notices and marking changed files. (KRI-14, KRI-18, KRI-20, ADR 0003)
@@ -127,7 +127,7 @@ Figma: KRI-64 First launch and Settings (Reconnecting, data screens, banners, me
 - If the human doesn’t click, the update installs the next time every window is closed, or at the next launch. (KRI-59)
 - If an old host can’t talk to the new daemon, the daemon restarts that agent at its next idle point, resuming the same Run. (KRI-59, KRI-53)
 - A failed install, on any platform, is the warning banner “Update to 1.4 failed” with **Download**. (KRI-59)
-- Agent CLIs update separately and never silently (7.5). (KRI-54)
+- Provider CLIs update separately and never silently (7.5). (KRI-54)
 
 ### 3.5 Disk use and a full disk
 
@@ -171,8 +171,8 @@ Figma: KRI-64 First launch and Settings (Reconnecting, data screens, banners, me
 
 | Problem | Kind | Example text | Action |
 |---|---|---|---|
-| Agent signed out, not installed, below minimum version, or using the wrong credential | Stops work for that agent kind | “Claude Code is signed out · 3 Runs paused” | Fix |
-| Agent usage limit | Stops work for that agent kind | “Claude usage limit · resets 14:20 · 3 Runs paused” | Open (Settings → Agents) |
+| Provider signed out, not installed, below minimum version, or using the wrong credential | Stops work for that Provider | “Claude Code is signed out · 3 Runs paused” | Fix |
+| Provider usage limit | Stops work for that Provider | “Claude usage limit · resets 14:20 · 3 Runs paused” | Open (Settings → Providers) |
 | Offline | Stops work | “You’re offline · 5 Runs paused until the connection returns” | none |
 | GitHub CLI missing or signed out | Stops work (merges, pull request watching) | “GitHub CLI is signed out · 2 Tasks waiting to merge · Fix”, or “· needed to add a Factory” with no Task at Merge | Fix |
 | GitHub rate limit lasting over 15 minutes | Warning | “GitHub rate limit · checking again at 14:05” | none |
@@ -278,9 +278,9 @@ Rules:
 | Key | Where | Meaning | Source |
 |---|---|---|---|
 | `version` | any layer | Schema version, `1`. | KRI-12 |
-| `lead` | any layer, merged | The Task Lead’s agent: `claude` or `codex`, or `{agent, model, effort}`. One Task Lead Run spans all Stages. Default agent: Claude if installed, else Codex. | KRI-12, KRI-53 |
+| `lead` | any layer, merged | The Task Lead’s Provider: `claude` or `codex`, or `{agent, model, effort}`. One Task Lead Run spans all Stages. Default Provider: Claude if installed, else Codex. | KRI-12, KRI-53 |
 | `reviewer` | any layer, merged | `codex`, `claude` or `same`, or `{agent, model, effort}`. Validate’s reviewer and the loop check. Default: the other kind when both are installed, else `same`. | KRI-16, KRI-53 |
-| `planner` | any layer, merged | Agent for Planning Runs only, as `lead`. Default: Claude if installed, else Codex. | KRI-53, KRI-60 |
+| `planner` | any layer, merged | Provider for Planning Runs only, as `lead`. Default: Claude if installed, else Codex. | KRI-53, KRI-60 |
 | `model` (in `lead`, `reviewer`, `planner`) | any layer | The CLI’s alias where it has one (Claude: `opus`, `sonnet`, `haiku`, …), the exact name otherwise (Codex has no aliases). Unset: the CLI’s own default and any org admin default. | KRI-53 |
 | `effort` (same) | any layer | The CLI’s levels: `low`, `medium`, `high`, `xhigh`, `max`, plus `ultra` on some Codex models. An unsupported level drops to the highest the model allows. Unset: the CLI’s default. | KRI-53 |
 | `permissions` | Legacy Factory key | Advisory `auto` or `bypass`; never authorizes Bypass. The effective mode is chosen on each computer (7.8). | KRI-20, KRI-53, KRI-165 |
@@ -304,7 +304,7 @@ Rules:
 | `stages.work.lead_closes_failures` | any layer | `true` lets the Task Lead close a Failure case it recorded as a Finding outside Validate, with passing evidence through `ted failure verify`. Default `false`: only the human closes it. UI label: **Task Lead closes its own fixed failures**. | ADR 0118 |
 
 - **Defaults:** Sign-offs on Design and Review; Merge on with no Sign-off; every Stage has `max_back: 3` except Validate, which has 5. (KRI-12, KRI-16, KRI-52, KRI-58)
-- **Not in `workflow.yaml`:** the machine’s limit on working Runs, billing per agent kind, and every other machine setting (11.2). Sub-agents and Automations have no key: the Task Lead picks for each sub-agent, and each Automation stores its own. (KRI-15, KRI-53, KRI-54, KRI-57)
+- **Not in `workflow.yaml`:** the machine’s limit on working Runs, billing per Provider, and every other machine setting (11.2). Sub-agents and Automations have no key: the Task Lead picks for each sub-agent, and each Automation stores its own. (KRI-15, KRI-53, KRI-54, KRI-57)
 - An unknown key is a warning, not an error, so a newer file still loads. (KRI-58)
 
 A new Task follows Stage effort settings unless the human explicitly chooses its effort. Precedence is a fixed per-Task effort (including CLI default), then the effective Stage effort, then the Task’s saved lead effort, then the CLI default. Existing Tasks keep their saved effort fixed until the human selects **Follow Stage settings**. Stage effort is resolved at Stage entry; later Workflow edits apply at the next Stage. The Run and conversation stay the same: TED resumes with the new effort at idle, before delivering the new Stage’s instructions. Returning to an unconfigured Stage restores the saved lead effort. Library and Factory Workflow tables expose **Task Lead effort** with an **Inherit** option; removing a local override restores inheritance. `ted task lead <id> claude|codex --stage-effort` follows Stage settings; existing lead commands without this option keep fixed effort semantics. Reviewer, sub-agent, Planning and Automation settings are unchanged. (KRI-67)
@@ -409,7 +409,7 @@ For an explanation of Factory validation controls and TED’s own repo-specific 
 ### 4.9 Library
 
 - The user’s own Stage files and Workflow settings in `~/.ted/library/`. Library edits from app Settings write straight there, with no pull request. TED also watches the folder, so edits made in another editor apply after validation. (KRI-22, KRI-58)
-- The Library UI is in Settings → Library (11.3); its `lead`, `reviewer` and `planner` are in Settings → Agents. (KRI-57, KRI-58)
+- The Library UI is in Settings → Library (11.3); its `lead`, `reviewer` and `planner` are in Settings → Providers. (KRI-57, KRI-58)
 - Library sharing and versioning are later (KRI-49).
 
 ### 4.10 Factory notes
@@ -504,7 +504,7 @@ Factory setup is the Factory’s first Task, run through the inherited Workflow.
   2. **Repos** (repo, except Local folder): one card per repo, primary first. Name, Base branch (placeholder “main (GitHub default)”), Merge method, **Worktree** (Setup, Teardown, an environment variables table with “Committed to the repo, so no secrets. Put secrets in a file to copy.”, Files to copy), **Local folder** (this Mac: path, **Choose…**, **Clear**, “✓ .env found”; amber with **Locate…** when missing), and **Apps** with **+ Add App**. The primary card reads “Can’t be removed or moved”. Secondary cards have a drag handle and ⋯ with **Open on GitHub** and **Remove from Factory…**. **+ Add repo** uses the Add Factory row.
   3. **Workflow:** one table with Stage, On, Sign-off, Send-backs, Clarify depth, From (**Default**, **Library** or **Factory**), and actions (**Override**, or **Edit file** and **Reset to inherited**). Backlog, Intake and Work read “Always on” instead of a toggle; Backlog also reads “Always first” and Done “Always last”. Ignored unknown Stage files show as a warning line. Drift sits on its Stage’s row (5.5).
   4. **Checks:** Name, Command, Repo (multi-repo only), Timeout (placeholder 10m), Last run, **Run now** (or **Stop**) and ×. The built-in TED settings Check is a read-only last row.
-  5. **Agents:** Task Lead (`lead`), Reviewer (`reviewer`), Planner (`planner`), each with agent, model (placeholder “default model”), effort, a From chip and **Reset to inherited**. Inherited rows are read-only until **Override** is clicked.
+  5. **Providers:** Task Lead (`lead`), Reviewer (`reviewer`), Planner (`planner`), each with Provider, model (placeholder “default model”), effort, a From chip and **Reset to inherited**. Inherited rows are read-only until **Override** is clicked.
   6. **Permissions and limits:** **Auto** and **Bypass** radios. Bypass reads “Only for Factories whose Runs happen in an isolated machine or VM. Can’t be set in the Library.” Then **Limit on working Runs**: “of this Mac’s 6. Leave empty to use only the Mac’s limit.”
   7. **Factory notes:** Markdown editor with Edit and Preview.
 - **Override for this Factory** copies the inherited file into `.ted/` and writes `based_on`; **Reset to inherited** deletes the Factory copy. Both collect until Save like other repo edits. (KRI-12, KRI-22)
@@ -534,22 +534,22 @@ Factory setup is the Factory’s first Task, run through the inherited Workflow.
 
 ### 5.7 Coordinator
 
-Each Factory has one saved Coordinator conversation, opened between List and Plans in the Factory sidebar. It compares current Tasks, briefs and Comments and recommends next work. Each Task retains its Task Lead. The Coordinator works only when messaged; there is no background monitoring. Before the first message, agent, model and effort default to the Factory’s planner settings and can be changed with the existing planning controls.
+Each Factory has one saved Coordinator conversation, opened between List and Plans in the Factory sidebar. It compares current Tasks, briefs and Comments and recommends next work. Each Task retains its Task Lead. The Coordinator works only when messaged; there is no background monitoring. Before the first message, Provider, model and effort default to the Factory’s planner settings and can be changed with the existing planning controls.
 
 Human requests in the conversation can start Backlog Tasks, reorder Backlog Tasks among Backlog neighbours and Queued Tasks among Queued neighbours, resume stopped or failed Tasks, send a Task Lead a message, and answer a Task’s open requests: questions, Clarify rounds, proposals, size checks, failure decisions, sign-offs. The request names the kind of action and the Tasks, by name or as a group, and may leave each answer to the Coordinator’s judgement. Permission prompts, simulator asks and the Linear team ask stay with the human (ADR 0094). Advice alone authorizes no change; ambiguous requests and recommendations require a chat reply before acting. Starts use the ordinary Intake queue, blockers and slot limits. Reordering uses neighbour IDs and existing Priority rules. Daemon-authored receipts give the actual result and preserve before/after facts. Multi-Task requests execute individually, with partial results reported individually. Stale facts are refused and operation IDs deduplicate actions.
 
 A Coordinator Run is a deliberate exception to the ordinary own-Task authority in §2.3. Stored Run association identifies its Factory; only Factory-scoped Coordinator reads, its start, move, tell, answer, resume and done tools, caller discovery and its own tool-call boundary are available. Human messages, Stop and Retry are app-only. Generic Run routes cannot grant it broader authority, and other Runs cannot use Coordinator tools. Task text is untrusted context. Task edits, settings and credentials remain unavailable, and a Stage changes only as the effect of an answer, or of done once every pull request merged (ADR 0140).
 
-Every idle-to-working turn enters the common queue at the Planning tier, counts against machine and Factory limits, and observes disk and agent health holds. An idle conversation holds no working slot. Messages during a response wait for a tool boundary. Stop cancels undispatched messages and interrupts the response while retaining history. Retry resumes through the queue; if the agent cannot resume its session, a replacement Run receives saved history and action receipts as context. The header shows Ready, Queued, Working, Paused or Failed. The context pane links to Tasks read or changed, with their current status. The context pane lists the Tasks most recently added first. **New conversation** saves the conversation and the next message starts a fresh one with nothing carried over; it asks first only while the Coordinator is working, because it stops the response and drops messages it hasn’t read. A list on the left shows the current conversation and the earlier ones, named by their first message and date. An earlier conversation opens read only, with **Continue**, which makes it the current one and saves the one that was, and **Delete**, which asks first and deletes its history and managed files. TED never deletes a saved conversation on its own. Removing a Factory removes its Coordinator and its saved conversations.
+Every idle-to-working turn enters the common queue at the Planning tier, counts against machine and Factory limits, and observes disk and Provider health holds. An idle conversation holds no working slot. Messages during a response wait for a tool boundary. Stop cancels undispatched messages and interrupts the response while retaining history. Retry resumes through the queue; if the agent cannot resume its session, a replacement Run receives saved history and action receipts as context. The header shows Ready, Queued, Working, Paused or Failed. The context pane links to Tasks read or changed, with their current status. The context pane lists the Tasks most recently added first. **New conversation** saves the conversation and the next message starts a fresh one with nothing carried over; it asks first only while the Coordinator is working, because it stops the response and drops messages it hasn’t read. A list on the left shows the current conversation and the earlier ones, named by their first message and date. An earlier conversation opens read only, with **Continue**, which makes it the current one and saves the one that was, and **Delete**, which asks first and deletes its history and managed files. TED never deletes a saved conversation on its own. Removing a Factory removes its Coordinator and its saved conversations.
 
 ## 6. Tasks and Stages
 
 ### 6.1 Task basics
 
 - A Task is a unit of work moving through a Workflow. Once code exists, it has one pull request in each repo it changes. (glossary, KRI-13, KRI-58)
-- **Fields:** title; description (versioned, the first version kept as **Original request**, never editable); Priority (Urgent, High, Medium, Low, None); hand-set rank; Clarify depth (Auto, None, Few, Grill); **Task Lead** (agent, model, effort); **Repos** (multi-repo Factories only); source URL; Blocked by and Blocks; Task brief (versioned); Stage history; branch. (KRI-15, KRI-19, KRI-20, KRI-53, KRI-55, KRI-58)
+- **Fields:** title; description (versioned, the first version kept as **Original request**, never editable); Priority (Urgent, High, Medium, Low, None); hand-set rank; Clarify depth (Auto, None, Few, Grill); **Task Lead** (Provider, model, effort); **Repos** (multi-repo Factories only); source URL; Blocked by and Blocks; Task brief (versioned); Stage history; branch. (KRI-15, KRI-19, KRI-20, KRI-53, KRI-55, KRI-58)
 - **Ways Tasks are created:** by hand in the New Task dialog (typing, or pasting a Linear URL), which is the main way; by an Automation; by Split it; by a planning chat; as a Follow-up. Created-by is shown and filterable. (KRI-20, KRI-19, KRI-52, KRI-56)
-- **Task Lead field:** filled from `lead`; changeable any time. A model or effort change applies at the Run’s next idle point (waiting at a sign-off or between turns) by resuming with new flags; it never interrupts a turn. An agent change starts a fresh Run from the brief. Sub-agents can’t be changed by hand. (KRI-53)
+- **Task Lead field:** filled from `lead`; changeable any time. A model or effort change applies at the Run’s next idle point (waiting at a sign-off or between turns) by resuming with new flags; it never interrupts a turn. A Provider change starts a fresh Run from the brief. Sub-agents can’t be changed by hand. (KRI-53)
 - **Repos field:** Intake sets it (`ted task repos set app api`); the Task Lead changes it any time (`ted task repos add|remove <name>`); the human edits it in Task details. Hidden in single-repo Factories. Removing a repo from a Task is refused while that repo has an open pull request; if its worktree has commits, TED asks first. (KRI-58)
 
 ### 6.2 New Task dialog
@@ -562,7 +562,7 @@ Figma: KRI-63 Task details (New Task dialog frames).
 - **Description:** required, focused on open. Pasting a Linear URL shows a removable source card (“Linear · NOTE-212 · Search ignores accents”) and fills Title, Priority and the branch (6.3). (KRI-55, KRI-63, KRI-60)
 - **Attachments:** drag and drop. (KRI-55)
 - **Priority** (default None) and **Blocked by** (a search over every Factory on this machine) share a row. (KRI-55, KRI-63)
-- **More**, closed by default with a one-line summary: **Clarify depth** (Auto, None, Few, Grill) and **Task Lead** (agent, model, effort, filled from the Factory’s `lead`). (KRI-55, KRI-63)
+- **More**, closed by default with a one-line summary: **Clarify depth** (Auto, None, Few, Grill) and **Task Lead** (Provider, model, effort, filled from the Factory’s `lead`). (KRI-55, KRI-63)
 - **Start now:** checked by default. Unchecked, the footer line says “Waits in Backlog until you start it”; with a blocker, “Waits as Blocked until NB-35 merges”. Checked with no blocker, there is no line. (KRI-55, KRI-63)
 - No repo picker. **Create** (⌘↵) closes the dialog; **Create more** keeps it open. (KRI-55, KRI-58)
 
@@ -607,7 +607,7 @@ Figma: KRI-63 Task details (New Task dialog frames).
   4. Automation Runs
   5. Tasks, by Priority (Urgent first), then hand-set rank.
 - The queue is shared across all Factories on the machine. A new Task goes to the bottom of its Priority group. Priority is set by hand, copied from Linear, or passed with `--priority`. (KRI-15)
-- Queued Tasks whose agent kind is Paused show Paused (with their queue place in the activity line, “Queued · 3rd · resets 15:40”), and Tasks of the other kind move ahead. (KRI-54, KRI-62)
+- Queued Tasks whose Provider is Paused show Paused (with their queue place in the activity line, “Queued · 3rd · resets 15:40”), and Tasks of the other kind move ahead. (KRI-54, KRI-62)
 - The human orders the queue on a Board (one Factory) or in the List sorted Manual (any Factory, including All Tasks). The Working Runs popover is read-only (10.3). (KRI-56)
 
 ### 6.6 Statuses
@@ -619,7 +619,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 | 1 | Failed | red | ! in a red disc | A resume and a fresh Run both failed (7.6). Has a FAILED ask with Retry. | KRI-54, KRI-55 |
 | 2 | Partly merged | red | half-filled ring | A multi-repo merge stopped partway. | KRI-52 |
 | 3 | Waiting on you | amber | dot | An Inbox item on the Task is unanswered. The only amber status. | KRI-55 |
-| 4 | Paused · reason | grey | ‖ | The agent can’t run: usage limit, signed out, not installed, below the minimum version, using an API key instead of the subscription, or offline. | KRI-54, KRI-59 |
+| 4 | Paused · reason | grey | ‖ | The Provider can’t run: usage limit, signed out, not installed, below the minimum version, using an API key instead of the subscription, or offline. | KRI-54, KRI-59 |
 | 5 | Working | blue | spinner arc | Some Run on the Task is working, including a Task Lead waiting only on its sub-agents, `setup` running in a new worktree (“Setting up app · npm ci”), and Checks running. | KRI-55, KRI-58, KRI-60 |
 | 6 | Stopped | grey | ■ | The human stopped the Task. | KRI-55 |
 | 7 | Blocked | grey | ⊘ | No Run; waiting for another Task to merge. Shown as one “Blocked by NB-44” chip with the ID as a link. | KRI-55, KRI-62 |
@@ -665,8 +665,8 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 - **Rounds.** A round is one Comment (kind `round`) holding all its questions, answered in one go. Agents post rounds with `ted ask --round <file>`; TED renders them. In the Inbox a round is one row, kind “Clarify round”. Card details are in 10.5. (KRI-19, KRI-55, KRI-56, KRI-61)
 - **Few:** one round. The Task Lead reports the outcome after reading the answers and may switch to grilling (event line) if answers raise something bigger. The effective Clarify sign-off setting decides whether advancing requests approval. (KRI-19, KRI-362)
 - **Grilling** asks rounds until nothing is left open. Decisions go under the brief’s Decisions so far. The effective Clarify sign-off setting applies at this depth too: On posts a sign-off Comment; Approve moves on and Request changes starts another round. Off advances without sign-off once the rounds are answered. (KRI-19, KRI-362)
-- **Talk it through** on an unanswered round opens the Task Lead’s own Run chat in the middle pane, with its context and its agent, model and effort. The round sits collapsed above the input; the header reads “Talking through Round 2” with **Done talking**. TED sends the Run one line saying the human wants to talk it through. **Done talking**, or the Task Lead deciding it’s done, makes the Task Lead post a summary `note` with `ted ask --close --summary <file>`, which closes the round as “Answered in Talk it through”. Anything still open goes into a new round. (KRI-60, KRI-61)
-  - If the Task Lead isn’t running, TED starts it through the normal queue. When the user stopped the Task, TED first asks “Resume Task to talk?” with **Cancel** and **Resume and talk**. While it waits for a slot or agent availability, the round shows “Waiting for Task Lead…” and still allows **Submit answers**. The chat opens when ready only if the user is still viewing this round; a later visit offers **Open chat**. Edited answers survive opening the chat. Answering the round or stopping, archiving or deleting the Task cancels the pending talk. A Failed Task keeps its normal Retry decision. (KRI-342)
+- **Talk it through** on an unanswered round opens the Task Lead’s own Run chat in the middle pane, with its context and its Provider, model and effort. The round sits collapsed above the input; the header reads “Talking through Round 2” with **Done talking**. TED sends the Run one line saying the human wants to talk it through. **Done talking**, or the Task Lead deciding it’s done, makes the Task Lead post a summary `note` with `ted ask --close --summary <file>`, which closes the round as “Answered in Talk it through”. Anything still open goes into a new round. (KRI-60, KRI-61)
+  - If the Task Lead isn’t running, TED starts it through the normal queue. When the user stopped the Task, TED first asks “Resume Task to talk?” with **Cancel** and **Resume and talk**. While it waits for a slot or Provider availability, the round shows “Waiting for Task Lead…” and still allows **Submit answers**. The chat opens when ready only if the user is still viewing this round; a later visit offers **Open chat**. Edited answers survive opening the chat. Answering the round or stopping, archiving or deleting the Task cancels the pending talk. A Failed Task keeps its normal Retry decision. (KRI-342)
 - Wayfinder is not part of Clarify in v1 (KRI-48). (KRI-19)
 - **Plan in chat** opens a planning chat from this Task (13.5). (KRI-19, KRI-60)
 - **Plan it outside TED:** the Task returns to Backlog with a **Needs planning** marker. The Task Lead posts why it judged the Task too big and what a plan needs to settle, then its Run stops. On restart, Clarify runs as usual and reads whatever the plan left in the description. The marker clears on start. (KRI-19)
@@ -731,7 +731,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 
 ### 6.18 Stop, Resume, Retry and the idle Task Lead
 
-- **Stop** (Task actions menu or palette; no shortcut) stops every Run on the Task (kept as history), frees its slots, keeps the worktree and Apps, and leaves the Task in its Stage as **Stopped**. Stopping the Task Lead’s Run is the same action. There’s no human Pause; Paused is only for agents that can’t run. (KRI-55, KRI-56)
+- **Stop** (Task actions menu or palette; no shortcut) stops every Run on the Task (kept as history), frees its slots, keeps the worktree and Apps, and leaves the Task in its Stage as **Stopped**. Stopping the Task Lead’s Run is the same action. There’s no human Pause; Paused is only for Providers that can’t run. (KRI-55, KRI-56)
 - **Resume** (`S`, the header button, or **Send and resume** in the comment box) starts a fresh Task Lead Run from the brief plus Comments since, through the queue. (KRI-55, KRI-61, KRI-63)
 - **Retry** on a Failed Task is Send and resume. It is on the FAILED ask, on hover and in the menu of a Failed card or List row, and on `S`. (KRI-61, KRI-8 coordinator decision 14, KRI-56)
 - **Task Lead goes idle without asking:** after the Run has been idle for 60 seconds with no unanswered request, TED sends one nudge into the Run: “Continue. If you need the human to decide or do something, ask with `ted outcome ask "<question>"`; a plain `ted comment` doesn’t wait for them, so TED will ask them why you stopped.” There is no nudge at Merge once the Task Lead has advanced, or while TED is working for the Task (a sub-agent working or queued, Checks running, a loop check open). The delay is fixed, with no user-facing setting. It measures time in the idle state; thinking or running a tool while the Run is working does not count. If it goes idle again with nothing open, TED posts a `question`, “The Task Lead stopped without saying why”, with the agent’s last message and **Nudge again**. (KRI-55, KRI-177)
@@ -756,36 +756,36 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 ### 7.1 Task Lead
 
 - One Task Lead per Task. It carries the Task through its Stages, may start sub-agents, and writes the Task brief at each sign-off. (glossary, KRI-8)
-- Its agent, model and effort come from `lead`, or from the Task Lead field on one Task (6.1). (KRI-12, KRI-53)
-- **One long Run** is the default; no fresh agent per Stage. Context-heavy work (exploration, implementation, review) goes to sub-agents, and the Task Lead keeps only their final messages. The agents’ own compaction handles long context; there is no handoff command. Revisiting this with Diagnostics is later (KRI-43). (KRI-17)
+- Its Provider, model and effort come from `lead`, or from the Task Lead field on one Task (6.1). (KRI-12, KRI-53)
+- **One long Run** is the default; no fresh agent per Stage. Context-heavy work (exploration, implementation, review) goes to sub-agents, and the Task Lead keeps only their final messages. The Providers’ own compaction handles long context; there is no handoff command. Revisiting this with Diagnostics is later (KRI-43). (KRI-17)
 - The Run stays open and idle while it waits for the human. (KRI-11)
 - Only the Task Lead reports outcomes, posts questions, rounds, reviews, sign-offs and proposals, and writes the brief. Sub-agents may post plain Comments. (KRI-11)
 
 ### 7.2 Sub-agents
 
-- Started by the Task Lead with `ted run start --agent <kind> [--model <m>] [--effort <level>] --prompt-file <file> [--name <name>] [--own-worktree]`. Anything left out falls back to `lead`. The name defaults to the prompt file’s first heading and labels the Runs list and tabs. (KRI-11, KRI-53, KRI-8 coordinator decision 1)
-- The Task Lead picks agent, model and effort for each, guided by Stage files. No per-Task cap; the limits on working Runs cover it. (KRI-53)
+- Started by the Task Lead with `ted run start --provider <kind> [--model <m>] [--effort <level>] --prompt-file <file> [--name <name>] [--own-worktree]`. Anything left out falls back to `lead`. The name defaults to the prompt file’s first heading and labels the Runs list and tabs. (KRI-11, KRI-53, KRI-8 coordinator decision 1)
+- The Task Lead picks Provider, model and effort for each, guided by Stage files. No per-Task cap; the limits on working Runs cover it. (KRI-53)
 - Share the Task’s worktree by default; `--own-worktree` separates. (KRI-11)
 - `ted run wait <id>` returns the final message; `ted run send <id>` sends follow-ups. (KRI-11)
 - Don’t receive the human’s Comments. The human can open a sub-agent’s chat, message it and Stop it. (KRI-11, KRI-8 steering)
 - A failed sub-agent is reported to the Task Lead, which decides what to do, with no Inbox item. (KRI-54)
 - The reviewer Run is named “Reviewer · Validate”. (KRI-63)
 - In Validate the only sub-agent is the reviewer, one per visit. TED refuses a second reviewer while the first is queued, working or has reported, and refuses any other sub-agent. A reviewer that failed or never started doesn’t count. TED refuses `advance` in Validate while a repo’s `HEAD` isn’t the commit that reviewer was given: the Task Lead sends the Task back to Work, where the next round reviews the later commits, or puts the branch back at the reviewed commit. (ADR 0108, ADR 0107)
-- `stages.validate.sub_agents: true` lets the Task Lead start other sub-agents in Validate as in other Stages. The one-reviewer rule stays, and the reviewer’s agent, model and effort still come only from `reviewer`. The refusal names the setting. (ADR 0117)
+- `stages.validate.sub_agents: true` lets the Task Lead start other sub-agents in Validate as in other Stages. The one-reviewer rule stays, and the reviewer’s Provider, model and effort still come only from `reviewer`. The refusal names the setting. (ADR 0117)
 
 ### 7.3 Runs
 
 - A Run is one agent conversation: on a Task (Task Lead or sub-agent), for an Automation, or for planning. (glossary)
 - **Live chat** is the only view of a Run in v1: streaming messages, collapsible tool-call rows, edits expandable to diffs, and the composer (10.6). Port agent-orchestrator’s chat host (`adapters/chatdriver/`) and React chat components. No TUI; switching is later (KRI-24). (KRI-20)
-- **Side chat** opens beside a Task Lead Run’s chat, with a switch between the two in narrow panes. On the Task page it opens from **Side chat** in the Task’s ⋯ menu, for the Task Lead conversation shown; the same menu’s **History** submenu lists earlier conversations and finished sub-agents (KRI-370). One persistent side chat belongs to each Task Lead Run, including historical Runs while their output is kept. It uses a fixed Conversation snapshot, the source Run’s agent/model/effort, and answers only from supplied text, with no tools or Task authority. Closing the panel keeps the exchange. Each turn queues under normal Run limits; Stop reply affects only the side chat. Snapshot omissions are shown; a missing snapshot makes the chat read-only. (KRI-29)
+- **Side chat** opens beside a Task Lead Run’s chat, with a switch between the two in narrow panes. On the Task page it opens from **Side chat** in the Task’s ⋯ menu, for the Task Lead conversation shown; the same menu’s **History** submenu lists earlier conversations and finished sub-agents (KRI-370). One persistent side chat belongs to each Task Lead Run, including historical Runs while their output is kept. It uses a fixed Conversation snapshot, the source Run’s Provider/model/effort, and answers only from supplied text, with no tools or Task authority. Closing the panel keeps the exchange. Each turn queues under normal Run limits; Stop reply affects only the side chat. Snapshot omissions are shown; a missing snapshot makes the chat read-only. (KRI-29)
 - **Transport:** Codex through `codex app-server`. Claude Code with a subscription through the CLI (an interactive PTY or `claude -p --output-format stream-json`); the Agent SDK only with an API key. (KRI-21, ADR 0004)
 - Agent hooks for Claude Code and Codex tell TED whether a Run is working, idle, waiting or finished. They are set through per-Run flags. (KRI-20, KRI-53)
 - **Per-Run flags only.** TED passes everything as flags on each Run (`--settings`, `--mcp-config`, `-c key=value`, …) and never writes to `~/.claude` or `~/.codex`. The `ted mcp` server is passed the same way. (KRI-53, KRI-59)
 - **Comments into Runs:** the human’s Comments on a Task go straight into the Task Lead’s live Run, queued if it is mid-turn. A Comment counts as read once the agent has started a turn with it. Agents’ Comments count as read when the human opens them. A message typed into a Run chat goes only to that Run and is not a Comment. (KRI-11, KRI-20)
 - **Stop** a Run: it becomes read-only history and is never resumed; work continues in a fresh Run. (KRI-11, glossary)
-- **Restart:** TED restarts idle Runs onto a new Claude Code or Codex version by itself (Settings → Agents, on by default). There is no manual Restart for a Run; the human stops the Task and starts it again. (KRI-20, KRI-63, KRI-375)
-- **Resume, not replace.** TED records each Run’s agent session ID. On a restart (new agent version, a model or effort change, a daemon restart or update) it resumes that session in the same worktree (`claude --resume`, `codex resume` / `thread/resume`) and passes the per-Run flags again. It stays the same Run. If the resume fails (session file gone, incompatible format, crash loop), TED starts a fresh Run from the brief and shows it as a new Run. (KRI-53)
-- **Fresh Task Lead Run from the brief** plus Comments since, when there is no live session to continue: after a failed resume, on Resume or Retry, on unarchive, when a blocker merges for a Task blocked mid-flow, on restart after Plan it outside TED, when GitHub events arrive with no open Run, and when the Task Lead’s agent changes. (KRI-17, KRI-15, KRI-19, KRI-20, KRI-53, KRI-55)
+- **Restart:** TED restarts idle Runs onto a new Claude Code or Codex version by itself (Settings → Providers, on by default). There is no manual Restart for a Run; the human stops the Task and starts it again. (KRI-20, KRI-63, KRI-375)
+- **Resume, not replace.** TED records each Run’s agent session ID. On a restart (new Provider version, a model or effort change, a daemon restart or update) it resumes that session in the same worktree (`claude --resume`, `codex resume` / `thread/resume`) and passes the per-Run flags again. It stays the same Run. If the resume fails (session file gone, incompatible format, crash loop), TED starts a fresh Run from the brief and shows it as a new Run. (KRI-53)
+- **Fresh Task Lead Run from the brief** plus Comments since, when there is no live session to continue: after a failed resume, on Resume or Retry, on unarchive, when a blocker merges for a Task blocked mid-flow, on restart after Plan it outside TED, when GitHub events arrive with no open Run, and when the Task Lead’s Provider changes. (KRI-17, KRI-15, KRI-19, KRI-20, KRI-53, KRI-55)
 
 ### 7.4 Run start
 
@@ -798,15 +798,15 @@ At Run start TED gives the agent: (KRI-11, KRI-19, KRI-22, KRI-60)
 - for a fresh Run, the Task brief and Comments since
 - for an Automation Run, the open Tasks this Automation has created, with their sources (12.4)
 
-### 7.5 When an agent can’t run
+### 7.5 When a Provider can’t run
 
-- **Paused** (a status, not a failure) covers: a usage limit; a CLI that is signed out, not installed, below TED’s minimum supported version, or using the wrong credential; and the machine being offline. The reason shows after the status: “Paused · Claude usage limit, resets 14:20”. Paused Runs stay open and don’t count toward the limit. Queued Tasks of that agent kind show the same reason, and Tasks of the other kind move ahead. When the agent can run again, TED continues the Runs by itself. (KRI-54, KRI-59)
-- **Usage limit:** the whole agent kind pauses until the reset time the CLI reports (Claude’s `rate_limit_event` `resetsAt`; Codex app-server’s `usageLimitExceeded` with `resetsAt`). With no reset time, TED tries one Run every 15 minutes. (KRI-54)
-- **No switching to the other agent**, automatic or one-click. The human changes the Task Lead field if they want to. (KRI-54)
+- **Paused** (a status, not a failure) covers: a usage limit; a CLI that is signed out, not installed, below TED’s minimum supported version, or using the wrong credential; and the machine being offline. The reason shows after the status: “Paused · Claude usage limit, resets 14:20”. Paused Runs stay open and don’t count toward the limit. Queued Tasks of that Provider show the same reason, and Tasks of other Providers move ahead. When the Provider can run again, TED continues the Runs by itself. (KRI-54, KRI-59)
+- **Usage limit:** the whole Provider pauses until the reset time the CLI reports (Claude’s `rate_limit_event` `resetsAt`; Codex app-server’s `usageLimitExceeded` with `resetsAt`). With no reset time, TED tries one Run every 15 minutes. (KRI-54)
+- **No switching to another Provider**, automatic or one-click. The human changes the Task Lead field if they want to. (KRI-54)
 - **Short rate limits and overload (429, 529):** the CLI retries them; TED doesn’t retry on top. The activity line shows “Retrying (rate limited)”, from Claude’s `system/api_retry` and Codex’s `willRetry`. (KRI-54)
-- **Offline:** every agent kind pauses with the reason “offline”, and the 30-minute no-output clock stops. (KRI-59)
-- **Health checks** run before each Run, every 10 minutes, and on auth errors. Fix opens `claude auth login` / `codex login`, shows the install command, or runs `claude update` / `codex update` in the user’s terminal. TED keeps a minimum supported version for each agent kind and never updates a CLI silently. An agent named in `lead`, `reviewer` or `planner` that isn’t installed means Paused (“Codex not installed”), not a config error. (KRI-54, KRI-57)
-- **Where it shows:** the app-wide banner (3.7), a red border and status on the agent’s card in Settings → Agents, “3 Runs paused” in the sidebar footer, and one notification when it starts. No Inbox item. (KRI-54, KRI-64)
+- **Offline:** every Provider pauses with the reason “offline”, and the 30-minute no-output clock stops. (KRI-59)
+- **Health checks** run before each Run, every 10 minutes, and on auth errors. Fix opens `claude auth login` / `codex login`, shows the install command, or runs `claude update` / `codex update` in the user’s terminal. TED keeps a minimum supported version for each Provider and never updates a CLI silently. A Provider named in `lead`, `reviewer` or `planner` that isn’t installed means Paused (“Codex not installed”), not a config error. (KRI-54, KRI-57)
+- **Where it shows:** the app-wide banner (3.7), a red border and status on the Provider’s card in Settings → Providers, “3 Runs paused” in the sidebar footer, and one notification when it starts. No Inbox item. (KRI-54, KRI-64)
 
 ### 7.6 Failed
 
@@ -817,12 +817,12 @@ At Run start TED gives the agent: (KRI-11, KRI-19, KRI-22, KRI-60)
 
 ### 7.7 Billing, credentials and cost
 
-- **Billing per agent kind**, in Settings → Agents, stored on this machine: **Subscription** (default) or **API key**. TED never asks for or stores a key. Choosing API key only means TED stops removing the key variables; the CLI’s own setup does the rest. (KRI-54, ADR 0004)
+- **Billing per Provider**, in Settings → Providers, stored on this machine: **Subscription** (default) or **API key**. TED never asks for or stores a key. Choosing API key only means TED stops removing the key variables; the CLI’s own setup does the rest. (KRI-54, ADR 0004)
 - Under Subscription TED removes `ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` and `CODEX_API_KEY` from the agents’ environment. Codex reads `CODEX_API_KEY`, not `OPENAI_API_KEY`. (KRI-54, ADR 0004)
-- Settings → Agents shows what each CLI reports (`claude auth status` `authMethod`; Codex app-server `account/read` `authMode`/`planType`), for example “Claude Max · subscription”. (KRI-54)
-- **Credential check.** Each Run row shows “Subscription” or “API key” as the Run reported it at start. If that doesn’t match the billing choice (a stored key, an `apiKeyHelper`, a stray variable), TED pauses that agent kind with “Using an API key, not your subscription”, and Fix explains where the key comes from. (KRI-54)
+- Settings → Providers shows what each CLI reports (`claude auth status` `authMethod`; Codex app-server `account/read` `authMode`/`planType`), for example “Claude Max · subscription”. (KRI-54)
+- **Credential check.** Each Run row shows “Subscription” or “API key” as the Run reported it at start. If that doesn’t match the billing choice (a stored key, an `apiKeyHelper`, a stray variable), TED pauses that Provider with “Using an API key, not your subscription”, and Fix explains where the key comes from. (KRI-54)
 - **Tokens** show for every Run (“Subscription · 820k tokens”) and in the Runs summary line. **Estimated dollars** show only for API-key Runs: Claude’s `total_cost_usd`, or TED’s price list for Codex. The summary gives dollars only when there are API-key Runs (“4 Runs · 2.1M tokens · $1.12 on API key”) and never says “included in plan”. No budgets or spend warnings in v1. (KRI-54, KRI-63, KRI-64)
-- **Plan usage:** Settings → Agents shows bars for the 5-hour and weekly windows with reset times and freshness (“From the last Run · 2 min ago”), from Claude’s `rate_limits` once a Run has made a request and Codex app-server `account/rateLimits/read`. Bars are indigo below 85%, amber at 85%, red at 100%. At 85% in any window, an amber chip appears in the sidebar footer (“Claude 87% · resets 15:40”) that opens Settings → Agents; it hides while that kind is at its limit. No banner or notification. (KRI-54, KRI-64)
+- **Plan usage:** Settings → Providers shows bars for the 5-hour and weekly windows with reset times and freshness (“From the last Run · 2 min ago”), from Claude’s `rate_limits` once a Run has made a request and Codex app-server `account/rateLimits/read`. Bars are indigo below 85%, amber at 85%, red at 100%. At 85% in any window, an amber chip appears in the sidebar footer (“Claude 87% · resets 15:40”) that opens Settings → Providers; it hides while that kind is at its limit. No banner or notification. (KRI-54, KRI-64)
 
 ### 7.8 Permission modes
 
@@ -858,7 +858,7 @@ The MCP server mirrors every command. Commands sent with a Run token are limited
 | `ted ask --close --summary <file>` | Close a round after Talk it through, posting the summary note. | KRI-60 |
 | `ted brief write` | Write a new version of the Task brief. | KRI-11 |
 | `ted status "…"` | Set the activity line. | KRI-11 |
-| `ted run start --agent <kind> [--model] [--effort] --prompt-file <file> [--name] [--own-worktree]` | Start a sub-agent. | KRI-11, KRI-53, KRI-63 |
+| `ted run start --provider <kind> [--model] [--effort] --prompt-file <file> [--name] [--own-worktree]` | Start a sub-agent. | KRI-11, KRI-53, KRI-63 |
 | `ted run wait <id>` / `ted run send <id>` | Wait for a sub-agent’s final message / send it a follow-up. | KRI-11 |
 | `ted task create [--start] [--priority <p>] [--source <url>] [--blocked-by <id>] [--description "<text>"]` | Create a Task. `--source` returns the existing Task instead of a duplicate; `--follow-up <id>` revisits a Done Task (12.4). | KRI-15, KRI-20, KRI-55, KRI-60 |
 | `ted task start <id>` | Start a Task from Backlog. | KRI-15 |
@@ -888,7 +888,7 @@ The daemon also serves `/healthz`. (KRI-20, KRI-59)
 - With a Claude subscription, use the CLI, not the Agent SDK. (ADR 0004)
 - Never pass `--bare`; opt out if it becomes the default for `-p` (KRI-45). Check Claude Code release notes when updating, following the [subscription compatibility checklist](../research/kri-45-claude-bare.md). (ADR 0004)
 - Keep the limit on working Runs on, and show usage limits (7.5). (ADR 0004)
-- Keep each agent kind’s sign-in and start code behind one replaceable module. (ADR 0004)
+- Keep each Provider’s sign-in and start code behind one replaceable module. (ADR 0004)
 - Before shipping to others: recheck Anthropic’s “third-party harness” rule and the Codex app-server line “App-server authentication has never been permitted for commercial or hosted services”, read OpenAI’s Terms of Use by hand (KRI-44), say “runs Claude Code” in plain text only, never resell usage. (ADR 0004, KRI-21, KRI-54)
 
 ---
@@ -931,11 +931,11 @@ The daemon also serves `/healthz`. (KRI-20, KRI-59)
 - When every send-back since the last finished review was for a conflict with the base branch, the reviewer checks only the conflict resolution: TED names the base commit merged in and the files that conflicted, and gives it `git show --remerge-diff <merge>`, or a first-parent log of the Task’s own commits with each merge’s resolution when there are other commits. It checks that the resolution keeps both sides’ behaviour and broke nothing in the lines it touched. A merge TED can’t place on the base branch, or a rewritten branch, makes the round a full review. A `fixes` round uses the same first-parent log when Work merged the base in between rounds, so the reviewer doesn’t read what the base brought in. (ADR 0112)
 - At each Validate entry after a send-back, and at each send-back to Work, TED tells the Task Lead the round number, the limit and the rule for that round. (ADR 0107)
 - With `stages.validate.p1_only_from: N`, in Validate rounds numbered N or later a new Finding sends the Task back only if it is P1. An earlier round’s Finding that is still not fixed stays blocking, whatever its severity. TED says so in the Validate entry text and adds a Severity section to the reviewer’s prompt, in every kind of round: fixes, conflict resolution and full. In a round that follows a base conflict, a resolution that drops or breaks what the base branch changed counts as P1. `ted outcome back` from Validate then needs `--severity p1`, the Task Lead’s declaration that at least one Finding is P1, or `--severity unfixed`, its declaration that an earlier Finding is still not fixed; without one TED refuses and tells the Task Lead to list the Findings as notes and advance. TED can’t verify either, so it records the declaration (`v1.SendBackSeverityDeclared`), shows it on the send-back as `severity` and ends the thread line “· P1 declared” or “· earlier Finding unfixed declared”. A failed Check, a verified base conflict and a send-back the human asked for are not affected, and the Checks failing before a Task leaves Work are not a send-back; send-backs that happen still count toward `max_back` and the loop check. `ted workflow check` warns when one file sets `p1_only_from` above `max_back` + 1, a round Validate reaches only if the human sends the Task back past the limit. It is not a sign-off, so Autopilot and forced sign-offs leave it alone. Off by default: with it on, new Findings that aren’t P1 reach Review unfixed, as notes. (ADR 0116)
-- An explicit `reviewer` pauses like any other Run and never falls back. An unset `reviewer` picks from the agent kinds that are installed, signed in and not limited when Validate starts. The Validate event names the reviewer, for example “Reviewed by Claude (Codex unavailable)”. (KRI-54)
+- An explicit `reviewer` pauses like any other Run and never falls back. An unset `reviewer` picks from the Providers that are installed, signed in and not limited when Validate starts. The Validate event names the reviewer, for example “Reviewed by Claude (Codex unavailable)”. (KRI-54)
 
 ### 8.5 Loop limit
 
-- Validate `max_back: 5`. At the third send-back (`loop_check: 3`; `false` turns it off), TED itself starts a sub-agent with the `reviewer` agent, model and effort. It reads the three rounds of Findings and the diffs between them and says **converging** or **looping**. (KRI-16, KRI-53)
+- Validate `max_back: 5`. At the third send-back (`loop_check: 3`; `false` turns it off), TED itself starts a sub-agent with the `reviewer` Provider, model and effort. It reads the three rounds of Findings and the diffs between them and says **converging** or **looping**. (KRI-16, KRI-53)
 - Converging: back to Work with the verdict added. Looping: ask the human now. (KRI-16)
 - At the send-back limit, TED runs a fresh Loop check before asking, unless `loop_check` is `false`. This assessment includes the pending Findings as well as the earlier rounds; even a converging verdict waits for the human’s decision. A failed or unavailable assessment is shown as unknown. (KRI-269)
 - The ask (a `question`, at a looping verdict or over 5) gives a short progress assessment and recommends an existing next step. It offers **Try again** (resets the count), **Back to Design**, **Move to Review anyway** (open Findings go in the Review brief), plus the text box. Moving on explicitly leaves the Findings open. Full Findings stay in the Task’s history, including the pending send-back; asking does not count as sending back. (KRI-16, KRI-55, KRI-269)
@@ -1153,7 +1153,7 @@ Figma: KRI-61 Task thread (every request card, answered states, event lines, hea
 
 Figma: KRI-63 Task details (Run chat in a Conversation tab; “Steering · message while working” 44:5104; “Steering · after redirect” 45:1181).
 
-- A **Run bar** above the chat: Run name, agent · model · effort · credential · tokens · start time, and **Stop Task** for the Task Lead or **Stop Run** for a sub-agent. (KRI-63, KRI-375)
+- A **Run bar** above the chat: Run name, Provider · model · effort · credential · tokens · start time, and **Stop Task** for the Task Lead or **Stop Run** for a sub-agent. (KRI-63, KRI-375)
 - **Chat content:** TED’s instructions as a collapsed first row, then the prompt (collapsed); agent messages; tool calls as collapsible rows, Edit rows expanding to a diff; the human’s messages in a tinted bubble labelled “to this Run only”; permission rows inline (“You approved · 9m ago”, or Approve and Deny); a running command with its elapsed time; the streaming message marked “writing…”. (KRI-63, KRI-53)
 - **Steering a working Run** (the Task Lead’s or a sub-agent’s): (KRI-8 consistency pass, steering)
   - **Send ↵** queues the message for the agent’s next step. It shows at once, marked “Queued”.
@@ -1177,7 +1177,7 @@ Figma: KRI-63 Task details; Page 1 (Apps section 13:3, Full brief 14:204).
   2. **Code:** per repo, **Shell** and **Open in editor** (9.8), then the pull request, branch and worktree path, each label above its value.
   3. **Changes** (9.5).
   4. **Files.**
-  5. **Runs:** a summary line (7.7); live Runs first, the Task Lead with its sub-agents indented under it; stopped Runs under a collapsible “3 stopped Runs” line, newest first. Each row, flush left: Run icon, Run name, state; agent · model · effort as the CLI reported at Run start (an unset model shows the real name; unreported effort shows “default effort”); Subscription or API key · tokens, plus dollars for API-key Runs. Hover shows Stop on a sub-agent’s row; the Task Lead is stopped with Stop Task. Clicking opens the Conversation tab. Run state words are lower case.
+  5. **Runs:** a summary line (7.7); live Runs first, the Task Lead with its sub-agents indented under it; stopped Runs under a collapsible “3 stopped Runs” line, newest first. Each row, flush left: Run icon, Run name, state; Provider · model · effort as the CLI reported at Run start (an unset model shows the real name; unreported effort shows “default effort”); Subscription or API key · tokens, plus dollars for API-key Runs. Hover shows Stop on a sub-agent’s row; the Task Lead is stopped with Stop Task. Clicking opens the Conversation tab. Run state words are lower case.
   6. **Apps** (9.6), including a hosted preview row.
 - The Task brief opens from **Brief** after the Task ID in the Task header.
 - **Task actions menu** (⋯ in the header, or right-click a Board card, List row or Task header): the first item by status (Backlog **Start**, Queued **Move to Backlog**, Stopped **Resume**, Failed **Retry**, Done **Follow up…**, Working **Stop Task** with “Stops all 3 Runs. Worktree and Apps stay.”), then Settings ▸ (one submenu with Priority, Task Lead and Clarify depth sections; Clarify depth shows a greyed “Clarify is over” after Clarify), Blocked by…, Parent and children ▸ (Create child…, Add existing Task as child…, Set or Change parent…, Detach), Edit title and description…, Open source in Linear, Archive… (⌘⌫) and Delete… in red. An archived Task has **Unarchive** and Delete. Opening or using the menu does not trigger the enclosing Task’s navigation. (KRI-63, KRI-284)
@@ -1261,18 +1261,18 @@ Figma: KRI-64 First launch and Settings.
   2. **Codex:** the same states.
   3. **GitHub:** Ready (“Signed in as forjoyilive · github.com”); GitHub CLI not installed (`brew install gh`, or the apt or dnf command); Signed out (**Sign in**); Missing `workflow` scope (amber, **Add permission**). While not ready, the row says “Needed to add a Factory”. First launch checks only `github.com`.
   4. **Git:** Ready (“2.47 · Nabha Cosley <email>”); Not installed (`xcode-select --install` on macOS, the package command on Linux); No name or email set (amber, with the two `git config --global` commands to copy).
-- **Next** is enabled when Git (including name and email) and at least one agent are ready. A grey line explains: “Next needs Git and at least one agent ready. Skip lets you in; Runs stay Paused until an agent is ready.” GitHub isn’t required here. **Skip** is always there. (KRI-57, KRI-64)
-- An agent signed in with an API key doesn’t block Next. If the user goes on without choosing, billing stays on Subscription and that kind’s first Run pauses with “Using an API key, not your subscription”. (KRI-64)
+- **Next** is enabled when Git (including name and email) and at least one Provider are ready. A grey line explains: “Next needs Git and at least one Provider ready. Skip lets you in; Runs stay Paused until a Provider is ready.” GitHub isn’t required here. **Skip** is always there. (KRI-57, KRI-64)
+- A Provider signed in with an API key doesn’t block Next. If the user goes on without choosing, billing stays on Subscription and that kind’s first Run pauses with “Using an API key, not your subscription”. (KRI-64)
 - Below the rows: **Start TED in the background when you log in**, unticked on a new machine. Its value is saved when onboarding ends, Skip included, and applied only then. (KRI-57)
 - **Next** opens the Add Factory form. Closing it leads to the No Factories state (10.12). (KRI-57)
 - With Developer mode on, Settings → Developer has **Show onboarding again** with **Show on next open**. It changes nothing in the running app, except that the next Factory added gets the guide card (5.3); the row then says “Onboarding will show the next time TED opens.” with **Undo**. The next time the app starts, every step runs from the first, with Factories, Tasks and settings kept. When a Factory exists there are three steps and Set up TED’s button reads **Finish**, and the checkbox starts at the current setting.
-- First launch doesn’t ask for the Linear key, notification permission, the editor, the `ted` command, or `lead`, `reviewer` and `planner` (TED’s defaults choose from the installed agents). (KRI-57)
-- After first launch, the same rows live in Settings → Agents and Settings → Integrations. (KRI-57)
+- First launch doesn’t ask for the Linear key, notification permission, the editor, the `ted` command, or `lead`, `reviewer` and `planner` (TED’s defaults choose from the installed Providers). (KRI-57)
+- After first launch, the same rows live in Settings → Providers and Settings → Integrations. (KRI-57)
 
 ### 11.2 Machine settings and Workflow settings
 
-- **Machine settings** are about this computer: limits, Stay Awake, login, editor, appearance, notifications, billing per agent kind, credentials, storage. Global, stored in `~/.ted/`, never synced, never committed. No Factory overrides them. (KRI-57)
-- **Workflow settings** follow the three layers: TED defaults → Library (Settings → Library and Agents, written straight to `~/.ted/library/`) → Factory (Factory settings, saved as a pull request). (KRI-57)
+- **Machine settings** are about this computer: limits, Stay Awake, login, editor, appearance, notifications, billing per Provider, credentials, storage. Global, stored in `~/.ted/`, never synced, never committed. No Factory overrides them. (KRI-57)
+- **Workflow settings** follow the three layers: TED defaults → Library (Settings → Library and Providers, written straight to `~/.ted/library/`) → Factory (Factory settings, saved as a pull request). (KRI-57)
 
 ### 11.3 App Settings
 
@@ -1287,13 +1287,13 @@ Figma: KRI-64 First launch and Settings.
    - **Editor** (9.8). **Command line:** **Install the `ted` command**. On macOS a symlink at `/usr/local/bin/ted` into the app bundle, asking for the admin password only if that folder isn’t writable. For AppImage a small `~/.local/bin/ted` script, rewritten after each update; if `~/.local/bin` isn’t on the login shell’s `PATH`, the row shows the line to add. deb and rpm show “Installed by your package”.
    - **About and updates:** version, “Update ready: TED 1.4.0. Restarting doesn’t stop Runs.”, **Check for updates**, **Restart to update**, Third-party licenses (including TED’s agent-orchestrator attribution).
 2. **Notifications:** the switches and the By Factory table in 3.8. When the OS has notifications off for TED, a red row at the top with **Open System Settings**. (KRI-59, KRI-64)
-3. **Agents:** one card per agent kind with Health (chip, version against the minimum, path, account and plan, **Check again**, and **Copy command** / **Sign in** / **Update** when needed), **Billing** (Subscription / API key, naming the variables TED removes), and **Plan usage** bars (7.7). A card with a stops-work problem gets a red border and a chip such as “Signed out · 3 Runs paused”. Below the cards: **Restart idle Runs onto new agent versions** (on), and **Defaults for all Factories**: Task Lead (`lead`), Reviewer (`reviewer`), Planner (`planner`), each with agent, model, effort, a Default or Library tag, and **Reset to TED default**. (KRI-54, KRI-57, KRI-64, KRI-53)
+3. **Providers:** one card per Provider with Health (chip, version against the minimum, path, account and plan, **Check again**, and **Copy command** / **Sign in** / **Update** when needed), **Billing** (Subscription / API key, naming the variables TED removes), and **Plan usage** bars (7.7). A card with a stops-work problem gets a red border and a chip such as “Signed out · 3 Runs paused”. Below the cards: **Restart idle Runs onto new Provider versions** (on), and **Defaults for all Factories**: Task Lead (`lead`), Reviewer (`reviewer`), Planner (`planner`), each with Provider, model, effort, a Default or Library tag, and **Reset to TED default**. (KRI-54, KRI-57, KRI-64, KRI-53)
 4. **Limits:** **Max working Runs on this machine** (one per 4 GB of memory, from 2 to 8), **Wait to start new work when this computer is busy** (on), **Simulators booted at once** (3), **Checks running at once** (2, from 1 to 16; a Task’s Checks count as one, the rest wait in line and the Task reads “Waiting to run Checks · 2nd”; ADR 0103) and **Run agents and Checks at low priority** (on: agents, Checks, worktree setup and teardown, and Apps an agent starts run at the system’s utility priority on macOS and at niceness 10 on Linux; work already running keeps its priority; ADR 0102), with a live line “Now: 4 of 6 Runs working · 2 queued · 1 of 3 simulators booted”. (KRI-57, KRI-64)
 5. **Integrations:** (KRI-57, KRI-64)
    - **GitHub** (through the GitHub CLI): one row per host the Factories use, with login, token source (keyring, config file, or `GH_TOKEN`), git protocol, scopes, `gh` version and path, **Fix** and **Check again**. TED checks `gh auth status --json hosts` (state `success`) at start, every 10 minutes and on any auth error; the minimum `gh` version is 2.81.0 (14). With the HTTPS protocol and no `workflow` scope, an amber row “Can’t push changes to GitHub Actions workflows” with **Add permission**; it blocks nothing else.
    - **Git:** version, name and email.
    - **Linear:** masked key (last 4), where it is stored, “Connected as Nabha · Kriya Design” (checked on Save by asking Linear who the key belongs to), **Test**, **Remove**, **Create a key ↗**.
-6. **Library:** the effective Workflow table (Stage, On, Sign-off, Send-backs, Clarify depth, a Default or Library tag, **Override in Library** / **Reset to default**; Backlog and Done shown as holding), then Stage files. Each Stage has **Edit in Library**, which copies TED’s default to `~/.ted/library/stages/<id>.md` and opens a Markdown editor with preview and **Compare with default**; **Reset to default** deletes the copy. Edits collect until **Save**, which writes straight to `~/.ted/library/`, under the line “Applies to every Factory that doesn’t override it, from each Task’s next Stage.” Drift for Library copies is in 5.5. Not shown here: `permissions`, Checks, Apps, repos (Factory only), and the agent settings (under Agents, with a link). (KRI-57, KRI-58, KRI-64)
+6. **Library:** the effective Workflow table (Stage, On, Sign-off, Send-backs, Clarify depth, a Default or Library tag, **Override in Library** / **Reset to default**; Backlog and Done shown as holding), then Stage files. Each Stage has **Edit in Library**, which copies TED’s default to `~/.ted/library/stages/<id>.md` and opens a Markdown editor with preview and **Compare with default**; **Reset to default** deletes the copy. Edits collect until **Save**, which writes straight to `~/.ted/library/`, under the line “Applies to every Factory that doesn’t override it, from each Task’s next Stage.” Drift for Library copies is in 5.5. Not shown here: `permissions`, Checks, Apps, repos (Factory only), and the Provider settings (under Providers, with a link). (KRI-57, KRI-58, KRI-64)
 7. **Storage:** “62.4 GB used under ~/.ted/ · 8.2 GB free on Macintosh HD”; space by category (worktrees, clones, simulators, store, Conversations and logs, attachments, backups, Scratch worktrees); the 10 largest worktrees with **Open Task**; **Remove clones of removed Factories**; **Erase simulators not used by a running Task**; Export a Factory with Factory and format choices and a native save dialog; Backups with date, size, **Show in folder** and the `ted backup restore` hint. (KRI-59, KRI-64, KRI-71, KRI-8 coordinator decision 13)
 8. **Developer:** **Developer mode** (shows Diagnostics and the log viewer here), **Show TED’s folder** (`~/.ted/`), **Copy report**. (KRI-57, KRI-64)
 
@@ -1312,15 +1312,15 @@ Figma: KRI-66 Automations and Plans.
 
 - A schedule in a Factory that starts a Run each time it fires, outside any Task, usually to bring new work in as Tasks. Time triggers only; event triggers are later (KRI-25). (glossary, KRI-20)
 - Stored in TED’s store, per machine, never committed. Sharing through the repo is later (KRI-70). An Automation belongs to one Factory and is deleted with it. (KRI-60)
-- Trade-off accepted: each firing costs tokens, an agent is less reliable than a connector, and nothing syncs Linear status back. In return, any source with an MCP server or CLI works, and filters are prompts. Automations that read Linear use the agent’s own MCP or CLI login, not TED’s Linear key. (KRI-20, KRI-57)
+- Trade-off accepted: each firing costs tokens, an agent is less reliable than a connector, and nothing syncs Linear status back. In return, any source with an MCP server or CLI works, and filters are prompts. Automations that read Linear use the Provider’s own MCP or CLI login, not TED’s Linear key. (KRI-20, KRI-57)
 - Templates: “Pull new Linear issues assigned to me”, “Turn new Sentry issues into Tasks”, “Daily GitHub issue triage”, “Review codebase architecture” and “Audit the Apps”. (KRI-20)
 - “Audit the Apps” has a checkout: its Run starts the Factory’s web Apps from the default branch, uses them in the headless browser at the default size and 390×844, in light and dark mode, and files each problem as a Backlog Task with a screenshot, at most 5 per Run. It follows the key flows in `.ted/notes.md` when there are any. Each Task’s source is `http://localhost/audit/<App>/<page>/<problem>`, so TED refuses the same problem from a later Audit. Android emulator and iOS simulator Apps are audited through `ted app screen`, `tap`, `type`, `key`, `swipe`, `appearance`, `size` and `screenshot`, which work only on devices the Run itself started; iOS input needs Meta’s `idb`, and without it the App is listed as skipped. Apps of a kind with no Audit driver yet (`command`) are named as skipped in the final message, not failed. Audits never block a merge. (KRI-241)
 
 ### 12.2 Automations page and view
 
-- **Page** (the Factory’s Automations entry): header “Notebook / Automations 7” with **New Automation**. Columns: on/off toggle; name with the schedule in words under it (clock-time schedules always show the zone: “Weekdays at 09:00 · Europe/London”); Next firing (“in 3h”, or “Off”); Last result, which is the last finished Run (“Created NB-51, NB-52 · 2h ago”, “No new Tasks”, “Failed · 5h ago” with **Retry**, “Skipped”); Now, the open Run’s state (Working, Waiting on you, Queued · 1st, Paused · reason); Agent · model. An Automation that is off is dimmed. (KRI-60, KRI-66)
+- **Page** (the Factory’s Automations entry): header “Notebook / Automations 7” with **New Automation**. Columns: on/off toggle; name with the schedule in words under it (clock-time schedules always show the zone: “Weekdays at 09:00 · Europe/London”); Next firing (“in 3h”, or “Off”); Last result, which is the last finished Run (“Created NB-51, NB-52 · 2h ago”, “No new Tasks”, “Failed · 5h ago” with **Retry**, “Skipped”); Now, the open Run’s state (Working, Waiting on you, Queued · 1st, Paused · reason); Provider · model. An Automation that is off is dimmed. (KRI-60, KRI-66)
 - A failed last result puts a red dot on the Factory’s Automations sidebar entry, not on the Factory row. Three failures in a row raise the Factory banner. No notification of its own. (KRI-60, KRI-66, KRI-59)
-- **Automation view:** header “← Automations”, toggle, name, **Run now**, **Edit**, ⋯ (Open Automation, Edit, Run now, Turn on/off, Duplicate, Delete; also available by right-clicking the Automation row or header), and one line with schedule · next firing · agent · model · effort. **History** columns: Started, Trigger (Scheduled; Made up, with “for Wed 5 Nov 09:00” under it; Run now; Retry, with “of 09:00”), Duration, Result (Tasks created, linked; “No new Tasks”; “Failed: <last error line>”; “Skipped: previous Run still working”; “Stopped by you”), each with the first line of the Run’s final message under it. **Retry** shows only on the newest failed row that hasn’t been retried; the retried row reads “Retried at 09:21”. Right pane: schedule, the next three firings, agent with billing kind, the prompt (collapsed), totals, created. Clicking a history row opens that Run’s view with “← Automation”. (KRI-60, KRI-66)
+- **Automation view:** header “← Automations”, toggle, name, **Run now**, **Edit**, ⋯ (Open Automation, Edit, Run now, Turn on/off, Duplicate, Delete; also available by right-clicking the Automation row or header), and one line with schedule · next firing · Provider · model · effort. **History** columns: Started, Trigger (Scheduled; Made up, with “for Wed 5 Nov 09:00” under it; Run now; Retry, with “of 09:00”), Duration, Result (Tasks created, linked; “No new Tasks”; “Failed: <last error line>”; “Skipped: previous Run still working”; “Stopped by you”), each with the first line of the Run’s final message under it. **Retry** shows only on the newest failed row that hasn’t been retried; the retried row reads “Retried at 09:21”. Right pane: schedule, the next three firings, Provider with billing kind, the prompt (collapsed), totals, created. Clicking a history row opens that Run’s view with “← Automation”. (KRI-60, KRI-66)
 - **Duplicate** creates the copy turned off. **Delete** asks to confirm; history goes with it; Tasks it created stay. (KRI-60, KRI-8 coordinator decision 8)
 
 ### 12.3 Automation form and commands
@@ -1330,14 +1330,14 @@ Figma: KRI-66 Automations and Plans.
   - **Name** (required). **Prompt** (required, Markdown, monospace), with “Whether new Tasks start is up to the prompt (--start).”
   - **Schedule:** Every N minutes or hours, Daily at, Weekdays at, Weekly on (day chips) at, or Custom (a 5-field cron or an RRULE, repeated in words). The next three firings show under it. Shortest interval 15 minutes. Errors show inline (“The shortest interval is 15 minutes.”; “Not a valid cron or RRULE: …”).
   - **Time zone:** read-only app-wide zone from Settings → General. The schedule uses the app-wide 12-hour or 24-hour format, with AM/PM when needed; canonical clock values remain `HH:mm`. (KRI-222)
-  - **Agent · model · effort**, filled from `lead`.
+  - **Provider · model · effort**, filled from `lead`.
   - **On:** checked, “Fires on schedule once saved”.
   - **Cancel**, **Save and run now**, **Save ⌘↵**.
-- **`ted automation`:** `list`, `show <id>`, `history <id>`, `create --name <n> --schedule "<cron|RRULE>" --prompt-file <file> [--template <name>] [--agent] [--model] [--effort] [--off]`, `edit <id>` (same flags), `enable <id>`, `disable <id>`, `run <id>`, `delete <id>`. Every subcommand takes `--factory`, defaulting to the current Run’s Factory. Inside a Run only `list`, `show` and `history` work; the rest are refused with “Ask the human to change Automations”. (KRI-60)
+- **`ted automation`:** `list`, `show <id>`, `history <id>`, `create --name <n> --schedule "<cron|RRULE>" --prompt-file <file> [--template <name>] [--provider] [--model] [--effort] [--off]`, `edit <id>` (same flags), `enable <id>`, `disable <id>`, `run <id>`, `delete <id>`. Every subcommand takes `--factory`, defaulting to the current Run’s Factory. Inside a Run only `list`, `show` and `history` work; the rest are refused with “Ask the human to change Automations”. (KRI-60)
 
 ### 12.4 Firing, overlap and duplicates
 
-- Each firing starts one Run with the stored prompt, agent, model and effort. A full limit makes it wait as Queued, after Planning Runs and before Tasks (6.5). A Paused agent pauses it like any Run. (KRI-20, KRI-60)
+- Each firing starts one Run with the stored prompt, Provider, model and effort. A full limit makes it wait as Queued, after Planning Runs and before Tasks (6.5). A Paused Provider pauses it like any Run. (KRI-20, KRI-60)
 - **Overlap:** a firing is skipped only while the previous Run is Working, Queued or Paused, and logged as “Skipped”. While the previous Run is **Waiting on you**, the new firing starts its own Run, and the open question stays in the Inbox. Skipped firings aren’t made up. (KRI-60 change from Nabha’s review)
 - **Missed firings** (TED not running) are made up once on start, however many slots were missed, shown as “Made up”. (KRI-59, KRI-60, KRI-66)
 - **No duplicate Tasks.** Every Task an Automation creates takes the URL of the item it came from (Sentry issue, Linear issue, GitHub issue) as its source. What `ted task create --source <url>` does depends on the Task in the Factory that already has that source (deleted Tasks don’t count): (KRI-60, KRI-55, Nabha’s review)
@@ -1358,7 +1358,7 @@ Figma: KRI-66 Automations and Plans.
 
 - **Lifetime:** the Run stays open while it works or waits on a Comment. When it goes idle with nothing open, it is finished: TED stops it and keeps it as history; its final message is the first line of the history row. The idle nudge is only for Task Leads. (KRI-60)
 - **Replies:** the human’s answer goes into the Run’s live input. Its Comments show in the Inbox under the Automation’s name. (KRI-60, KRI-20)
-- **Run view:** header “← Sentry crash intake”, “Sentry crash intake · Run of 12:20”, its status pill and **Stop**, and one line with trigger · start · agent · model · effort. The chat shows TED’s instructions collapsed, tool calls collapsed with their result on the right (“NB-51”), messages authored by the Automation’s name. A Comment from the Run shows as a one-line card in the chat and as the full card pinned at the bottom, with a “Message this Run…” box under it. Right pane: Tasks created (with Stage and status), the Run (agent, full model name, effort, billing, tokens, trigger), and the Automation. (KRI-60, KRI-66)
+- **Run view:** header “← Sentry crash intake”, “Sentry crash intake · Run of 12:20”, its status pill and **Stop**, and one line with trigger · start · Provider · model · effort. The chat shows TED’s instructions collapsed, tool calls collapsed with their result on the right (“NB-51”), messages authored by the Automation’s name. A Comment from the Run shows as a one-line card in the chat and as the full card pinned at the bottom, with a “Message this Run…” box under it. Right pane: Tasks created (with Stage and status), the Run (Provider, full model name, effort, billing, tokens, trigger), and the Automation. (KRI-60, KRI-66)
 
 ---
 
@@ -1370,7 +1370,7 @@ Figma: KRI-66 Automations and Plans.
 
 - A Run in a Factory, not on any Task, where the human and an agent work out a piece of work too big for one Task. The UI calls it a **planning chat**. It ends by proposing Tasks, with which block which, for the human to approve. (glossary, KRI-19)
 - Started from **Plan** (the Factory header, the Plans list, the Factory row menu, the palette) or **Plan in chat** on a too-big Task in Clarify. (KRI-19, KRI-56, KRI-58)
-- Agent, model and effort come from `planner`, changeable in the header until the first message is sent. (KRI-53, KRI-60)
+- Provider, model and effort come from `planner`, changeable in the header until the first message is sent. (KRI-53, KRI-60)
 - The agent can read the repos, start research sub-agents, and ask questions in the round format. (KRI-19)
 - An active Planning Run counts as one working Run; waiting on the human, it uses no slot and stays open with no time limit. When the limit is full, the first message is kept and the chat shows “Queued · 2nd”. (KRI-19, KRI-60)
 
@@ -1398,11 +1398,11 @@ Figma: KRI-66 Automations and Plans.
 
 ### 13.5 Plans list and planning chat
 
-- **Plans list** (the Factory’s Plans entry), header with **Plan**. Columns: Title (with “from NB-41” when started from a Task), Status, Started, Tasks (“5 proposed”, “Created 2 Tasks”, “No Tasks”, “—”), Agent, ⋯. Status is a pill plus a detail: Waiting on you (“Round 2”, “Proposal · 5 Tasks”), Working (the activity line), Idle (“Your turn to write”), Queued · 2nd, Paused · reason, Failed (with **Retry**), Finished, Stopped. Groups: **Open**, then **Past** (Finished, Stopped), collapsed, with a count. No filter in v1; ⌘K finds plans. (KRI-60, KRI-66, KRI-8 coordinator decision 10)
-- **Planning chat** in the middle pane: the Run’s live chat, not a Task-thread layout. Header: “← Plans”, the title (click to rename) with its status pill, Run icons (the planner, then research sub-agents smaller and grey), agent · model · effort, **Stop** and ⋯ (Rename, Delete), and a line “Planning chat · started by you Mon 10 Nov 10:05” or “started from NB-41 …”. (KRI-60, KRI-66)
+- **Plans list** (the Factory’s Plans entry), header with **Plan**. Columns: Title (with “from NB-41” when started from a Task), Status, Started, Tasks (“5 proposed”, “Created 2 Tasks”, “No Tasks”, “—”), Provider, ⋯. Status is a pill plus a detail: Waiting on you (“Round 2”, “Proposal · 5 Tasks”), Working (the activity line), Idle (“Your turn to write”), Queued · 2nd, Paused · reason, Failed (with **Retry**), Finished, Stopped. Groups: **Open**, then **Past** (Finished, Stopped), collapsed, with a count. No filter in v1; ⌘K finds plans. (KRI-60, KRI-66, KRI-8 coordinator decision 10)
+- **Planning chat** in the middle pane: the Run’s live chat, not a Task-thread layout. Header: “← Plans”, the title (click to rename) with its status pill, Run icons (the planner, then research sub-agents smaller and grey), Provider · model · effort, **Stop** and ⋯ (Rename, Delete), and a line “Planning chat · started by you Mon 10 Nov 10:05” or “started from NB-41 …”. (KRI-60, KRI-66)
 - Answered rounds and superseded proposals collapse to one-line grey cards. The open round or proposal shows as a one-line amber card in the chat (“pinned below”) and as the full card pinned between the chat and the message box. Typing in the chat while a round is open is talking it through; planning chats have no Talk it through button. A round card shows each question’s choices as chips, the recommended one pre-selected and tagged, with an “Or your own answer…” field, “Typing below talks it through with the planner.”, and **Submit answers**. (KRI-60, KRI-66, KRI-270)
 - **Right pane:** Started from (the Task with Stage and status, or “Plan, by you”); Proposed Tasks (latest proposal), becoming Created Tasks after approval; Runs; tokens. (KRI-60, KRI-66)
-- **New chat:** greyed title placeholder “New planning chat”; agent, model and effort as three selects in the header; two lines on what the planner does; input focused with “What do you want to plan?”. (KRI-60, KRI-66)
+- **New chat:** greyed title placeholder “New planning chat”; Provider, model and effort as three selects in the header; two lines on what the planner does; input focused with “What do you want to plan?”. (KRI-60, KRI-66)
 - **Name:** the first line of the human’s first message (cut at 60 characters), or “Plan: <Task title>” from a Task. The human renames it; agents don’t. (KRI-60)
 - **Delete** (⋯) asks to confirm, stops the Run if active, and removes the chat and its Conversation. Tasks it created stay, linked as “From a deleted planning chat”. (KRI-60)
 - **Inbox rows:** “Plan · Round 1”, “Plan · Proposal · 5 Tasks”, under the chat’s title. (KRI-60)
@@ -1427,7 +1427,7 @@ Build tasks with no product decision left open, or with the decision recorded he
 - **Linux packages:** AppImage, deb and rpm, for x64 and arm64. All three update through TED’s own updater (electron-updater). AppImage replaces itself with no password; deb and rpm install with `dpkg`/`rpm` and the restart chip reads “Restart to update (asks for your password)”. Hosted apt and dnf repositories are later (KRI-74). (KRI-59, KRI-64)
 - Bundled fonts: Geist Variable and Geist Mono Variable, built into the window by Vite from `@fontsource-variable`. (KRI-14)
 - Preserve applicable upstream notices for adapted agent-orchestrator code and mark changed files. (ADR 0003) `packages/app/third-party/agent-orchestrator/` holds an explicitly TED-authored attribution and the complete upstream Apache-2.0 license; these appear in **Third-party licenses**, which lists every shipped package with its license text. (KRI-122, KRI-167)
-- **Minimum supported versions:** `claude` 2.1.111 (`--permission-mode auto` without the hidden `--enable-auto-mode` flag), `codex` 0.128.0 (`codex update`), `gh` 2.81.0 (`gh auth status --json`). Below these, the agent pauses with “Too old” and the GitHub row shows as needing an update. Sources in `docs/research/kri-81-min-versions.md`. (KRI-54, KRI-57, KRI-81)
+- **Minimum supported versions:** `claude` 2.1.111 (`--permission-mode auto` without the hidden `--enable-auto-mode` flag), `codex` 0.128.0 (`codex update`), `gh` 2.81.0 (`gh auth status --json`). Below these, the Provider pauses with “Too old” and the GitHub row shows as needing an update. Sources in `docs/research/kri-81-min-versions.md`. (KRI-54, KRI-57, KRI-81)
 - Before shipping to other people: KRI-44 (OpenAI terms), the Anthropic “third-party harness” recheck and the Codex app-server line (7.11). (ADR 0004)
 
 ---
@@ -1440,16 +1440,16 @@ From the map (KRI-8) and every issue labelled `later`:
 - Phone access to the Inbox: [KRI-38](https://linear.app/kriyadesign/issue/KRI-38)
 - Windows: [KRI-39](https://linear.app/kriyadesign/issue/KRI-39)
 - Several machines: [KRI-40](https://linear.app/kriyadesign/issue/KRI-40)
-- More agents than Claude Code and Codex: [KRI-41](https://linear.app/kriyadesign/issue/KRI-41)
+- More Providers than Claude Code and Codex: [KRI-41](https://linear.app/kriyadesign/issue/KRI-41)
 - Wayfinder inside TED: [KRI-48](https://linear.app/kriyadesign/issue/KRI-48)
 - Library sharing and versioning: [KRI-49](https://linear.app/kriyadesign/issue/KRI-49)
 - Custom Stages beyond the built-in set: [KRI-50](https://linear.app/kriyadesign/issue/KRI-50)
 - Text-size setting: [KRI-51](https://linear.app/kriyadesign/issue/KRI-51)
-- Switching a Run between chat and the agent’s TUI: [KRI-24](https://linear.app/kriyadesign/issue/KRI-24)
+- Switching a Run between chat and the Provider’s TUI: [KRI-24](https://linear.app/kriyadesign/issue/KRI-24)
 - Event triggers for Automations: [KRI-25](https://linear.app/kriyadesign/issue/KRI-25)
 - Built-in Linear connector with two-way sync: [KRI-26](https://linear.app/kriyadesign/issue/KRI-26)
 - Auto-delete archived Tasks: [KRI-27](https://linear.app/kriyadesign/issue/KRI-27)
-- Several subscription accounts per agent: [KRI-28](https://linear.app/kriyadesign/issue/KRI-28)
+- Several subscription accounts per Provider: [KRI-28](https://linear.app/kriyadesign/issue/KRI-28)
 - Side chats for other Run types, multiple side chats per Run and a CLI entry point (the Task Lead Run version is in 7.3): [KRI-29](https://linear.app/kriyadesign/issue/KRI-29)
 - Cues: [KRI-30](https://linear.app/kriyadesign/issue/KRI-30)
 - GitLab: [KRI-31](https://linear.app/kriyadesign/issue/KRI-31)

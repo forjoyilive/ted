@@ -945,7 +945,7 @@ test('the Cost tab shows cost per merged pull request, spend by kind of work and
   const chart = screen.getByRole('region', { name: 'Spend over time' })
   expect(within(chart).getByText('Task Leads $9.00')).toBeTruthy()
   expect(within(chart).getByText('Coordinator $1.00')).toBeTruthy()
-  await user().click(within(chart).getByRole('button', { name: 'By agent and model' }))
+  await user().click(within(chart).getByRole('button', { name: 'By Provider and model' }))
   expect(within(chart).getByText('Claude · opus $9.00')).toBeTruthy()
   expect(within(chart).getByText('Codex · gpt-5.5 $3.00')).toBeTruthy()
   await user().click(

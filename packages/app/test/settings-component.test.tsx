@@ -534,7 +534,7 @@ test('Settings shell lists all sections and opens a Factory’s settings', async
   for (const [id, name] of [
     ['general', 'General'],
     ['notifications', 'Notifications'],
-    ['agents', 'Agents'],
+    ['agents', 'Providers'],
     ['limits', 'Limits'],
     ['integrations', 'Integrations'],
     ['library', 'Library'],
