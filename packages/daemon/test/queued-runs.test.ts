@@ -8,6 +8,7 @@ import {
   queuedRunStatus,
   queuedRuns,
   runLimits,
+  startGuard,
 } from '../src/tasks/queued-runs.ts'
 
 const run = (id: string, fields: Partial<Run> = {}) =>
@@ -88,6 +89,29 @@ describe('queuedRuns', () => {
     finish()
     await expect.poll(() => pumps).toBe(1)
     expect(source.holders()).toEqual([])
+  })
+
+  test('an owner whose waiting reads its start guard can register, because the queue pumps at once', () => {
+    const queue = {
+      addQueueSource(s: QueueSource) {
+        s.starting?.()
+        s.queued()
+        return () => {}
+      },
+    }
+    const starting = startGuard('Automation Run')
+    const { starting: returned } = queuedRuns(queue, {
+      kind: 'automation',
+      what: 'Automation Run',
+      starting,
+      waiting: () => (starting.has('a1') ? [] : [{ id: 'a1', rank: 1 }]),
+      runnable: () => true,
+      launch: () => Promise.resolve(),
+      candidates: () => [],
+      holds: () => false,
+      slot: () => undefined,
+    })
+    expect(returned).toBe(starting)
   })
 })
 

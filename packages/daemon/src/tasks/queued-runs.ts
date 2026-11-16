@@ -14,7 +14,7 @@ export interface StartGuard {
   begin(
     key: string,
     launch: () => Promise<void>,
-    after: { failed?: (error: unknown) => void; done: () => void },
+    after: { failed?: (cause: unknown) => void; done: () => void },
   ): void
   has(key: string): boolean
   keys(): string[]
@@ -30,9 +30,7 @@ export function startGuard(what: string): StartGuard {
       if (starts.has(key)) return
       starts.set(key, Promise.resolve())
       const work = launch()
-        .catch(
-          failed ?? ((error: unknown) => console.error(`couldn’t start ${what} ${key}:`, error)),
-        )
+        .catch(failed ?? ((cause) => console.error(`couldn’t start ${what} ${key}:`, cause)))
         .finally(() => {
           starts.delete(key)
           done()
@@ -63,6 +61,7 @@ export interface QueuedRunsSpec<K extends OwnKind> {
   slot(id: string): Slot<K> | undefined
   isClosed?(): boolean
   done?(id: string): void
+  starting?: StartGuard
 }
 
 export interface QueuedRuns {
@@ -74,7 +73,7 @@ export function queuedRuns<K extends OwnKind>(
   queue: Pick<RunQueue, 'addQueueSource'>,
   spec: QueuedRunsSpec<K>,
 ): QueuedRuns {
-  const starting = startGuard(spec.what)
+  const starting = spec.starting ?? startGuard(spec.what)
   const source: QueueSource = {
     starting: () => starting.keys(),
     queued: () =>
@@ -93,10 +92,12 @@ export function queuedRuns<K extends OwnKind>(
       spec.candidates().flatMap((id): SlotHolder[] => {
         if (!starting.has(id) && !spec.holds(id)) return []
         const slot = spec.slot(id)
+        // SAFETY: Slot<K> is the K member of SlotHolder without kind and runs, so adding both back gives that member.
         return slot ? [{ kind: spec.kind, ...slot, runs: 1 } as SlotHolder] : []
       }),
     describe(id, place) {
       const slot = spec.slot(id)
+      // SAFETY: Slot<K> is the K member of QueuedForSlot without kind and place, so adding both back gives that member.
       return slot && ({ kind: spec.kind, place, ...slot } as QueuedForSlot)
     },
   }

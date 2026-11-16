@@ -57,6 +57,7 @@ import {
   queuedRuns,
   type RunQueue,
   runLimits,
+  startGuard,
 } from '../tasks/queued-runs.ts'
 import type { Caller, CheckFailureInput, Tasks } from '../tasks/tasks.ts'
 import { messageOf } from '../text.ts'
@@ -415,8 +416,8 @@ export function createAutomations(options: AutomationsOptions): Automations {
     if (firing.resume === 'queued') return 'queued'
     const run = store.getRun(firing.id)
     const shared = queuedRunStatus(run, { waiting: openQuestion(firing), limits })
-    if (shared !== undefined || !run) return shared ?? 'queued'
-    return run.state as Status
+    if (shared !== undefined) return shared
+    return run?.state === 'working' ? 'working' : 'idle'
   }
 
   function previousRun(
@@ -444,8 +445,10 @@ export function createAutomations(options: AutomationsOptions): Automations {
     return saved.firings().filter((f) => automationIds.has(f.automationId) && inQueue(f))
   }
 
-  const { pump, starting } = queuedRuns(options.queue, {
+  const starting = startGuard('Automation Run')
+  const { pump } = queuedRuns(options.queue, {
     kind: 'automation',
+    starting,
     what: 'Automation Run',
     waiting() {
       return queuedFirings().flatMap((f) => {

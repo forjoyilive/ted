@@ -1791,7 +1791,7 @@
       "count": 3
     },
     "anti-slop/no-unknown-parameters": {
-      "count": 7
+      "count": 6
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 1
@@ -2294,7 +2294,7 @@
       "count": 2
     },
     "anti-slop/no-unknown-parameters": {
-      "count": 14
+      "count": 13
     },
     "anti-slop/no-unknown-returns": {
       "count": 1

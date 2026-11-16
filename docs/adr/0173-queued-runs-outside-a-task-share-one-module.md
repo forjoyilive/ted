@@ -5,7 +5,7 @@ Planning chats (ADR 0083), Automation Runs and Automation drafts (ADR 0070), Coo
 **The rules live in `packages/daemon/src/tasks/queued-runs.ts`**, as four pieces an owner uses as it needs:
 
 - `startGuard` starts an item once per key, logs or hands on a failure, and calls the owner’s `done` when it ends. Its key is whatever the owner queues by, so the queue ID need not be a Run ID. All five owners use it.
-- `queuedRuns` builds and registers the `QueueSource` from what the owner lists as waiting, how it launches one, which items hold a slot and how a slot is shown. Plans, Automations and drafts use it. Coordinators and Side chats keep their own `QueueSource`, pause checks, launch and settle code.
+- `queuedRuns` builds and registers the `QueueSource` from what the owner lists as waiting, how it launches one, which items hold a slot and how a slot is shown. Registering pumps the queue at once, so an owner whose `waiting` reads its start guard (Automations) creates the guard first and passes it in. Plans, Automations and drafts use it. Coordinators and Side chats keep their own `QueueSource`, pause checks, launch and settle code.
 - `runLimits` keeps the Runs that hit a usage limit or failed to sign in, clears one when it works again, and, when any Provider becomes ready, clears every Run whose own Provider is no longer paused. It marks nothing once its owner has closed. Plans, Automations and drafts use it.
 - `afterProcessEnded` decides between stopped, resume once (the Run has a session and wasn’t resumed before) and fail, with the shared fallback sentence. `queuedRunStatus` gives the status lines Plans and Automations share. Drafts don’t resume.
 
