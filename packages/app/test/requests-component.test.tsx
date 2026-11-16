@@ -1135,8 +1135,10 @@ test('Inbox interleaves request types newest first, filters without reordering, 
   view.rerender(<Inbox {...all} factoryId="f1" selected="recent" />)
   expect(headlines()).toEqual(['Recent request', 'Plan request', 'Old urgent request'])
   onOpenPlan.mockClear()
+  props.onClear.mockClear()
   view.rerender(<Inbox {...all} factoryId="f1" items={[old]} selected="recent" />)
-  expect(onOpenPlan).toHaveBeenCalledWith(plan)
+  expect(onOpenPlan).not.toHaveBeenCalled()
+  expect(props.onClear).toHaveBeenCalledOnce()
 
   const newest = {
     ...recent,
