@@ -625,7 +625,7 @@ describe('checking a layer', () => {
     expect(
       problems({
         'workflow.yaml':
-          'order: [intake, security, work]\nstages:\n  security:\n    name: "Sec\\u202Eurity"\n',
+          'order: [intake, security, work]\nstages:\n  security:\n    name: "Sec\\u2067urity"\n',
         'stages/security.md': '# Security\n',
       }),
     ).toEqual([

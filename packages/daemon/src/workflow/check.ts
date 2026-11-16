@@ -970,10 +970,7 @@ export function isSocketEntry(entry: string): boolean {
 }
 
 function hasControlCharacters(text: string): boolean {
-  return [...text].some((c) => {
-    const code = c.codePointAt(0) ?? 0
-    return code < 0x20 || (code >= 0x7f && code < 0xa0) || (code >= 0x202a && code <= 0x202e)
-  })
+  return /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(text)
 }
 
 function customIdProblem(id: unknown): string {
