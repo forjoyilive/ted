@@ -364,7 +364,7 @@ describe('Planning chats', () => {
     expect(unarchived).toMatchObject({ status: 'stopped', canResume: true })
   })
 
-  test('Stop while the checkout is still being made keeps the chat stopped', async () => {
+  test('Stop while the checkout is still being made keeps the chat stopped; after archive and unarchive, writing to it starts the planner with the message', async () => {
     const client = await startTed()
     const plan = await start(client, `Plan sharing\n${steps({ say: 'Hi' }, { endTurn: true })}`)
     const stopped = await client.ok<Plan>('POST', `/plans/${plan.id}/stop`)
@@ -375,14 +375,25 @@ describe('Planning chats', () => {
     const run = await client.call('GET', `/runs/${plan.id}`)
     if (run.status === 200) {
       expect((run.body as RunWithConversation).run.state).toBe('finished')
-    } else {
-      expect(after.plan.canResume).toBeUndefined()
-      expect((await client.call('POST', `/plans/${plan.id}/resume`, {})).status).toBe(409)
     }
+    expect(after.plan.canResume).toBe(true)
     await waitUntil(
       async () => !existsSync(path.join(home, 'plans', plan.id)) || undefined,
       'the checkout to go',
     )
+    await client.ok('POST', `/plans/${plan.id}/archive`)
+    const unarchived = await client.ok<Plan>('POST', `/plans/${plan.id}/unarchive`)
+    expect(unarchived).toMatchObject({ status: 'stopped', canResume: true })
+    const resumed = await client.ok<Plan>('POST', `/plans/${plan.id}/resume`, {
+      message: 'Also think about teams',
+    })
+    expect(resumed.status).not.toBe('stopped')
+    await waitUntil(async () => {
+      const sent = await client.call('GET', `/runs/${plan.id}`)
+      if (sent.status !== 200) return undefined
+      return JSON.stringify(sent.body.conversation).includes('Also think about teams') || undefined
+    }, 'the message to reach the planner')
+    await client.ok('POST', `/plans/${plan.id}/stop`)
   })
 
   test('with the limit full a chat starts at once and takes no slot', async () => {

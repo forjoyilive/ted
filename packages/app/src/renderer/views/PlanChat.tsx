@@ -429,11 +429,13 @@ export function TitleEditor({
 function MoreMenu({
   plan,
   onRename,
+  onArchive,
   onPlanMore,
   onDeleted,
 }: {
   plan: Plan
   onRename: () => void
+  onArchive?: () => void
   onPlanMore: (planId: string) => void
   onDeleted: () => void
 }) {
@@ -479,6 +481,19 @@ function MoreMenu({
               }}
             >
               Plan more from here…
+            </ActionButton>
+          )}
+          {onArchive && (
+            <ActionButton
+              type="button"
+              role="menuitem"
+              className={styles.menuItem}
+              onClick={() => {
+                setOpen(false)
+                onArchive()
+              }}
+            >
+              Archive
             </ActionButton>
           )}
           <ActionButton
@@ -605,14 +620,10 @@ function PlanHeader({
             Stop
           </Button>
         )}
-        {!archived && (
-          <Button disabled={stopping} onClick={() => act(() => ted.archivePlan(plan.id))}>
-            Archive
-          </Button>
-        )}
         <MoreMenu
           plan={plan}
           onRename={() => setRenameSignal((n) => n + 1)}
+          {...(!archived && { onArchive: () => act(() => ted.archivePlan(plan.id)) })}
           onPlanMore={onPlanMore}
           onDeleted={onDeleted}
         />
@@ -832,16 +843,10 @@ function EndedBar({ plan, onPlanMore }: { plan: Plan; onPlanMore: (planId: strin
   const line = archived
     ? 'This chat is archived. Unarchive it to write to it again.'
     : failed
-      ? plan.canResume
-        ? 'This planning chat failed. Retry resumes the planner where it stopped.'
-        : 'This planning chat failed before the planner started a session, so it can’t resume. Plan more from here starts a new chat from it.'
+      ? 'This planning chat failed. Retry resumes the planner where it stopped.'
       : plan.status === 'stopped'
-        ? plan.canResume
-          ? 'This planning chat stopped. Resume carries on where it left off.'
-          : 'The planner stopped before it started a session, so this chat can’t resume. Plan more from here starts a new chat from it.'
-        : plan.canResume
-          ? 'This planning chat finished. Write to it to carry on, or archive it.'
-          : 'This planning chat finished. Plan more from here starts a new chat from it.'
+        ? 'This planning chat stopped. Resume carries on where it left off.'
+        : 'This planning chat finished. Write to it to carry on, or archive it.'
   return (
     <div className={`${styles.endedBar} ${styles.endedRow}`}>
       <span className={styles.spacer}>{line}</span>
@@ -861,7 +866,7 @@ function EndedBar({ plan, onPlanMore }: { plan: Plan; onPlanMore: (planId: strin
             Unarchive
           </Button>
         </>
-      ) : plan.canResume ? (
+      ) : (
         plan.status !== 'finished' && (
           <Button
             variant="primary"
@@ -871,10 +876,6 @@ function EndedBar({ plan, onPlanMore }: { plan: Plan; onPlanMore: (planId: strin
             {failed ? 'Retry' : 'Resume'}
           </Button>
         )
-      ) : (
-        <Button variant="primary" onClick={() => onPlanMore(plan.id)}>
-          Plan more from here…
-        </Button>
       )}
     </div>
   )

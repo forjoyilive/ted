@@ -301,9 +301,11 @@ export function createPlans(options: PlansOptions): Plans {
       try {
         const entries = await entriesOf(factory)
         if (!stillOpen()) return
+        const fresh = store.getRun(id)?.sessionId === undefined
         await runs.revive(id, {
-          prompt: planResumePrompt,
+          prompt: fresh ? firstPrompt(plan, factory, entries) : planResumePrompt,
           env: envFor(plan, factory, entries),
+          fresh,
         })
         if (!stillOpen()) {
           await runs.stop(id).catch((error: unknown) => console.error(error))
@@ -333,13 +335,7 @@ export function createPlans(options: PlansOptions): Plans {
         id,
         agent: plan.agent,
         onStarting: () => saved.began(id, checkout),
-        prompt: `${plannerInstructions({
-          factory,
-          entries,
-          folder: folderOf(id),
-          ...withTask(plan),
-          ...(plan.from && { earlier: plan.from.context }),
-        })}\n\n${plan.message}`,
+        prompt: firstPrompt(plan, factory, entries),
         cwd: single ?? folderOf(id),
         name: 'Planner',
         permissions: 'auto',
@@ -362,6 +358,20 @@ export function createPlans(options: PlansOptions): Plans {
     }
   }
 
+  function firstPrompt(
+    plan: StoredPlan,
+    factory: StoredFactory,
+    entries: FactoryRepoEntry[],
+  ): string {
+    return `${plannerInstructions({
+      factory,
+      entries,
+      folder: folderOf(plan.id),
+      ...withTask(plan),
+      ...(plan.from && { earlier: plan.from.context }),
+    })}\n\n${plan.message}`
+  }
+
   function withTask(plan: StoredPlan): { task?: PlanTaskContext } {
     const task = taskContext(plan)
     return task ? { task } : {}
@@ -377,9 +387,7 @@ export function createPlans(options: PlansOptions): Plans {
   }
 
   function resumable(plan: StoredPlan): boolean {
-    if (plan.state !== 'ended' || plan.archivedAt !== undefined) return false
-    const run = store.getRun(plan.id)
-    return run ? run.sessionId !== undefined : plan.outcome === 'failed'
+    return plan.state === 'ended' && plan.archivedAt === undefined
   }
 
   function withdrawUnlessResumable(planId: string): void {
@@ -1020,9 +1028,7 @@ export function createPlans(options: PlansOptions): Plans {
         409,
         plan.archivedAt !== undefined
           ? 'this planning chat is archived; unarchive it first'
-          : plan.state === 'ended'
-            ? 'The planner never started a session, so there’s nothing to resume. Plan more from here starts a new planning chat.'
-            : 'only a planning chat whose Run ended can be resumed',
+          : 'only a planning chat whose Run ended can be resumed',
       )
     }
     const factory = factoryOf(plan)
@@ -1034,6 +1040,7 @@ export function createPlans(options: PlansOptions): Plans {
     }
     const run = store.getRun(plan.id)
     if (!run) {
+      if (text !== '') store.queueRunMessage({ runId: plan.id, text })
       saved.retried(plan.id, { fresh: true, checkout: [] })
     } else {
       if (retrying.has(plan.id)) throw new RequestError(409, 'this planning chat is resuming')

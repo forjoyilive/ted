@@ -239,16 +239,19 @@ describe('Planning chats', () => {
     await row('Quick plan').click()
     await chat.getByRole('heading', { name: 'Quick plan' }).waitFor()
     await chat.getByRole('button', { name: 'Resume' }).waitFor()
-    await chat.getByRole('button', { name: 'Archive', exact: true }).click()
+    const archive = async () => {
+      await chat.getByRole('button', { name: 'More', exact: true }).click()
+      await chat.getByRole('menuitem', { name: 'Archive' }).click()
+    }
+    await archive()
     await chat.getByText('This chat is archived. Unarchive it to write to it again.').waitFor()
     const archived = list.getByRole('region', { name: 'Archived chats' })
     await archived.getByRole('button').filter({ hasText: 'Quick plan' }).waitFor()
     await chat.getByRole('button', { name: 'Unarchive' }).click()
     await chat.getByRole('button', { name: 'Resume' }).waitFor()
     await archived.waitFor({ state: 'detached' })
-    await chat.getByRole('button', { name: 'Archive', exact: true }).click()
-    await archived.getByRole('button').filter({ hasText: 'Quick plan' }).waitFor()
-    await row('Quick plan').getByText('No Tasks').waitFor()
+    await archive()
+    await row('Quick plan').getByText('Archived', { exact: true }).waitFor()
 
     await writeFile(stubState, '{}')
     await row('Failing plan').click()
