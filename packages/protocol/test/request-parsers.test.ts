@@ -179,7 +179,7 @@ test('parseAsanaChoicesQuery keeps the offset and refuses anything else', () => 
   expect(() => P.parseAsanaChoicesQuery('?limit=5')).toThrow('unknown query parameter limit')
 })
 const taskQueryRejections: [string, string][] = [
-  ['stage=queued', 'unknown Stage queued'],
+  ['stage=Queued', 'unknown Stage Queued'],
   ['status=idle', 'unknown status idle'],
   ['offset=-1', 'offset must be a whole number'],
   ['all=yes', 'all takes no value'],
