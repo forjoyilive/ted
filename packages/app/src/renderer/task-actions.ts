@@ -21,7 +21,7 @@ export function statusAction(task: Task): StatusAction | undefined {
   if (task.stage === 'done') {
     return {
       kind: 'follow-up',
-      label: 'Follow up…',
+      label: 'Follow-Up…',
       help: 'Creates a new Task linked to this one, starting from its brief. This Task stays Done.',
     }
   }

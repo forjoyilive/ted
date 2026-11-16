@@ -90,7 +90,7 @@ function taskContent(hit: TaskHit, factories: readonly Factory[]) {
 function commentAuthor(hit: CommentHit): string {
   if (hit.author.kind === 'human') return 'You'
   if (hit.author.kind === 'ted') return 'TED'
-  return hit.leadAuthor ? 'Task Lead' : 'Sub-agent'
+  return hit.leadAuthor ? 'Task Lead' : 'Sub-Agent'
 }
 
 function commentContent(hit: CommentHit, now: number) {

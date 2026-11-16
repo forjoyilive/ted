@@ -29,7 +29,7 @@ function SubAgentCount({ count }: { count: number }) {
       className={styles.count}
       title={`${activeSubAgentLabel(count)}. Started sub-agent Runs that haven’t finished, including idle, waiting and paused Runs.`}
     >
-      {count} {count === 1 ? 'sub-agent' : 'sub-agents'}
+      {count} {count === 1 ? 'Sub-Agent' : 'Sub-Agents'}
     </span>
   )
 }

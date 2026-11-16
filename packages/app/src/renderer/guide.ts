@@ -81,7 +81,7 @@ export function guideCard(
   const approval = signOff('review')
   if (approval) {
     return card('Approve the settings to merge them.', {
-      label: 'Open the sign-off',
+      label: 'Open the Sign-Off',
       open: 'request',
       requestId: approval.id,
     })

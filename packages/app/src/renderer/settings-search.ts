@@ -372,7 +372,7 @@ const entries = {
     help: 'Off: every blocking Finding sends the Task back to Work. From a round: in that round of Validate and every later one, a new Finding sends it back only if it is P1. P1 means lost or corrupted data, a security hole, or broken behaviour the Task asks for. A Finding from an earlier round that is still not fixed sends it back too. Every other new Finding stays unfixed and is listed as a note for you at Review. You get fewer rounds, and problems Validate found can merge if you approve without reading the notes.',
   },
   'factory.workflow.validate-sub-agents': {
-    name: 'Other sub-agents in Validate',
+    name: 'Other Sub-Agents in Validate',
     help: 'Off: in Validate the Task Lead can start only TED’s reviewer, one per visit. On: it can also start other sub-agents, for example to run slow tests. Each one takes a working Run, and a sub-agent that reviews the diff adds Findings that can cost another round. The one-reviewer rule stays either way.',
   },
   'factory.workflow.lead-closes-failures': {

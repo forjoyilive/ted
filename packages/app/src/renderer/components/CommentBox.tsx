@@ -17,7 +17,7 @@ const notes: Partial<Record<BoxState, string>> = {
   paused: 'The Task Lead reads this when it continues.',
   'no-run': 'The Task Lead gets this with the brief when the Task starts.',
   stopped: 'Send keeps the Task stopped; the next Task Lead Run gets your Comment with the brief.',
-  done: 'This Task is done and nothing runs on it. Comment only keeps this in the thread; Follow up creates a new Task from its brief with this text.',
+  done: 'This Task is Done and nothing runs on it. Comment only keeps this in the thread; Follow-Up creates a new Task from its brief with this text.',
 }
 
 const placeholders: Partial<Record<BoxState, string>> = {
@@ -270,7 +270,7 @@ export function CommentBox({
             pending={sending && submission === 'follow-up'}
             onClick={() => send('follow-up')}
           >
-            Follow up
+            Follow-Up
           </Button>
         )}
       </div>

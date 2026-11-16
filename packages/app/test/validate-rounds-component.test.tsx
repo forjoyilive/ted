@@ -33,7 +33,7 @@ const select = () =>
   screen.getByRole('combobox', {
     name: 'Validate sends back only for P1 Findings',
   }) as HTMLSelectElement
-const toggle = () => screen.getByRole('switch', { name: 'Other sub-agents in Validate' })
+const toggle = () => screen.getByRole('switch', { name: 'Other Sub-Agents in Validate' })
 
 test('both Validate round settings start off and send what the human picks', async () => {
   const onStage = vi.fn()

@@ -150,7 +150,7 @@ const priorityHeadings: readonly (readonly [string, string])[] = [
 const kindHeadings: readonly (readonly [InboxKind, string])[] = [
   ['blocking', 'Blocking a Run'],
   ['question', 'Questions'],
-  ['signoff', 'Sign-offs'],
+  ['signoff', 'Sign-Offs'],
 ]
 
 export interface InboxOrder {

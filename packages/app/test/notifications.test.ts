@@ -108,7 +108,7 @@ describe('Inbox item notifications', () => {
     notifications.waiting([request('old'), request('new', { kind: 'signoff', headline: 'Ready' })])
 
     expect(shown.map((s) => s.notice)).toEqual([
-      { title: 'NB-3 Add dark mode', body: 'Sign-off: Ready', silent: true },
+      { title: 'NB-3 Add dark mode', body: 'Sign-Off: Ready', silent: true },
     ])
     shown[0]?.open()
     expect(opened).toEqual([

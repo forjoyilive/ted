@@ -158,9 +158,9 @@ export function ValidateRounds({
         </Help>
       </span>
       <span className={styles.roundSetting} data-setting="factory.workflow.validate-sub-agents">
-        Other sub-agents in Validate
+        Other Sub-Agents in Validate
         <Toggle
-          label="Other sub-agents in Validate"
+          label="Other Sub-Agents in Validate"
           checked={stage?.subAgents === true}
           onChange={(subAgents) => onStage({ subAgents })}
         />
@@ -307,7 +307,7 @@ function WorkflowSectionView({
           <span>Stage</span>
           <span>On</span>
           <span className={styles.gateHeading}>
-            Sign-off
+            Sign-Off
             <Help>
               When on, the Task waits for your approval at the end of this Stage before moving on.
               If the Stage skips itself, its sign-off is skipped too.
@@ -423,7 +423,7 @@ function StageRow({
         <span>
           {agent ? (
             <Toggle
-              label={`${name} sign-off`}
+              label={`${name} Sign-Off`}
               checked={stage?.gate ?? row.gate}
               onChange={(gate) => onStage({ gate })}
             />

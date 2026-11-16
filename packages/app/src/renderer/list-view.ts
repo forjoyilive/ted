@@ -52,7 +52,7 @@ export const createdByLabels: Record<CreatedBy, string> = {
   automation: 'An Automation',
   planning: 'A planning chat',
   split: 'A split',
-  'follow-up': 'A Follow-up',
+  'follow-up': 'A Follow-Up',
   setup: 'Factory setup',
   coordinator: 'The Coordinator',
 }

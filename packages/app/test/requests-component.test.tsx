@@ -1613,7 +1613,7 @@ test('previous review resolves the referenced approval rather than the first sig
     />,
   )
   await user().click(screen.getByRole('button', { name: 'View previously approved review' }))
-  const old = await screen.findByRole('region', { name: 'Sign-off, read-only' })
+  const old = await screen.findByRole('region', { name: 'Sign-Off, read-only' })
   expect(within(old).getByText('The latest approved evidence.')).toBeTruthy()
   expect(within(old).queryByRole('textbox')).toBeNull()
   expect(screen.queryByText('The obsolete evidence.')).toBeNull()
@@ -1711,7 +1711,7 @@ test('previous Review keeps its own Check execution after a second Validate visi
     />,
   )
   await user().click(screen.getByRole('button', { name: 'View previously approved review' }))
-  const history = await screen.findByRole('region', { name: 'Sign-off, read-only' })
+  const history = await screen.findByRole('region', { name: 'Sign-Off, read-only' })
   await waitFor(() => expect(history.textContent).toMatch(/Old Check|New Check/))
   const text = history.textContent ?? ''
   expect({
@@ -1881,7 +1881,7 @@ test('previous Review retains its recorded Check plan and acceptance after later
   )
   expect(await screen.findByText('New Check', { exact: false })).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'View previously approved review' }))
-  const history = await screen.findByRole('region', { name: 'Sign-off, read-only' })
+  const history = await screen.findByRole('region', { name: 'Sign-Off, read-only' })
   await within(history).findByText('Original recommendation')
   expect(history.textContent).toContain('failed, accepted by you')
   expect(history.textContent).toContain('Original decision')

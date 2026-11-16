@@ -180,7 +180,7 @@ function HistoryItem({ history, close }: { history: TaskHistory; close: () => vo
         role="menuitem"
         className={styles.item}
         aria-disabled
-        title="No earlier conversations or finished sub-agents yet."
+        title="No earlier Conversations or finished Sub-Agents yet."
       >
         <span className={styles.label}>History</span>
         <span className={styles.hint}>Nothing yet</span>
@@ -218,7 +218,7 @@ function HistoryItem({ history, close }: { history: TaskHistory; close: () => vo
       )}
       {history.finished.length > 0 && (
         <>
-          <div className={styles.group}>Finished sub-agents</div>
+          <div className={styles.group}>Finished Sub-Agents</div>
           {rows(history.finished)}
         </>
       )}

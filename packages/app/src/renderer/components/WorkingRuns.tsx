@@ -70,7 +70,7 @@ function holderRuns(holder: SlotHolder): string {
   if (holder.runs === 0 && holder.settingUp) return 'Setting up the worktree'
   const subs = holder.subAgents
   if (subs === 0) return 'Task Lead'
-  const named = subs === 1 ? '1 sub-agent' : `${subs} sub-agents`
+  const named = subs === 1 ? '1 Sub-Agent' : `${subs} Sub-Agents`
   return holder.runs > subs ? `Task Lead and ${named}` : named
 }
 
@@ -197,7 +197,7 @@ export function WorkingRunsPopover({
                     lead={ordinal(entry.place)}
                     place
                     title={`${entry.displayId} · ${entry.name}`}
-                    detail={`${name(entry.factoryId)} · Sub-agent`}
+                    detail={`${name(entry.factoryId)} · Sub-Agent`}
                   />
                 ) : entry.kind !== 'task' ? (
                   <Row

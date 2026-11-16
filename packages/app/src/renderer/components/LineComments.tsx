@@ -288,7 +288,7 @@ export function DraftBar({
         {mode === 'request'
           ? 'Drafts go with Request changes or the next Comment you send. Approve never sends them.'
           : mode === 'done'
-            ? 'This Task is done. Drafts go with Follow up.'
+            ? 'This Task is Done. Drafts go with Follow-Up.'
             : 'Drafts go with the next Comment you send. Send to Task Lead sends them now as one Comment.'}
       </Help>
       {error !== undefined && (
@@ -302,7 +302,7 @@ export function DraftBar({
       </Button>
       {mode === 'request' ? (
         <Button variant="primary" onClick={onBack}>
-          Back to sign-off
+          Back to Sign-Off
         </Button>
       ) : mode === 'none' ? (
         <Button

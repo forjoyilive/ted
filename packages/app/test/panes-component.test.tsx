@@ -428,7 +428,7 @@ test('Review opens repo-specific file and full diffs, then returns with the answ
   )
   await screen.findByRole('region', { name: 'Diff' })
   expect(a.request).toHaveBeenCalledWith('fileDiffs', 'NB-1', 'api', 'src/sync.ts')
-  await u.click(screen.getByRole('button', { name: '← Back to sign-off' }))
+  await u.click(screen.getByRole('button', { name: '← Back to Sign-Off' }))
   expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe(
     'Check the retry.',
   )
@@ -436,7 +436,7 @@ test('Review opens repo-specific file and full diffs, then returns with the answ
   await screen.findByRole('region', { name: 'All changes' })
   expect(a.request).toHaveBeenCalledWith('fileDiffs', 'NB-1', 'widgets', undefined)
   expect(a.request).toHaveBeenCalledWith('fileDiffs', 'NB-1', 'api', undefined)
-  await u.click(screen.getByRole('button', { name: '← Back to sign-off' }))
+  await u.click(screen.getByRole('button', { name: '← Back to Sign-Off' }))
   expect((screen.getByLabelText('Your answer') as HTMLTextAreaElement).value).toBe(
     'Check the retry.',
   )

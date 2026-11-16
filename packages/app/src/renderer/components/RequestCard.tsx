@@ -191,7 +191,7 @@ function ChangesBlock({
 
 function PreviouslyApprovedSignOff({ id, task }: { id: string; task: Task }) {
   const previous = useComments(task.id).find((c) => c.id === id)
-  if (!previous) return <p className={styles.summary}>Loading previously approved sign-off…</p>
+  if (!previous) return <p className={styles.summary}>Loading previously approved Sign-Off…</p>
   return (
     <>
       {previous.answer?.kind === 'approved' && (
@@ -1101,7 +1101,7 @@ export function RequestCard({
             aria-expanded={showingPrevious}
             onClick={() => setShowingPrevious(!showingPrevious)}
           >
-            {`${showingPrevious ? 'Hide' : 'View'} previously approved ${request.stage === 'review' ? 'review' : 'sign-off'}`}
+            {`${showingPrevious ? 'Hide' : 'View'} previously approved ${request.stage === 'review' ? 'review' : 'Sign-Off'}`}
           </ActionButton>
         )}
       </div>
@@ -1408,8 +1408,8 @@ function runOwner(request: Comment, task: Task): string {
   const who = poster(request, task)
   return who === 'the Task Lead'
     ? 'the Task Lead’s'
-    : who === 'a sub-agent'
-      ? 'the sub-agent’s'
+    : who === 'a Sub-Agent'
+      ? 'the Sub-Agent’s'
       : 'its'
 }
 
@@ -1464,7 +1464,7 @@ function ReplyProgress({
         ? `Task Lead paused · ${task.status.reason}`
         : lead?.state === 'working'
           ? lead.onSubAgents
-            ? 'Task Lead waiting for sub-agents'
+            ? 'Task Lead waiting for Sub-Agents'
             : 'Task Lead working'
           : lead?.state === 'waiting'
             ? 'Task Lead waiting'

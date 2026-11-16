@@ -149,7 +149,7 @@ test('Runs nests sub-agents, opens their chat, stops the sub-agent and collapses
   expect(within(required(rows[1])).queryByRole('button', { name: 'Restart' })).toBeNull()
   await user().click(within(required(rows[1])).getByRole('button', { name: 'Stop Run' }))
   expect(api.request).toHaveBeenCalledWith('stopRun', 'r2')
-  expect(screen.getByText('on sub-agents')).toBeTruthy()
+  expect(screen.getByText('on Sub-Agents')).toBeTruthy()
   expect(screen.getByText('Codex · gpt-6-mini · default effort')).toBeTruthy()
   view.rerender(
     <RunsSection

@@ -135,10 +135,10 @@ describe('Inbox and Gates', () => {
     await sidebar(window)
       .getByRole('button', { name: /^Inbox/ })
       .click()
-    const signoff = inbox.getByRole('button').filter({ hasText: 'Sign-off' })
+    const signoff = inbox.getByRole('button').filter({ hasText: 'Sign-Off' })
     await signoff.waitFor()
     await signoff.click()
-    await thread.getByRole('region', { name: 'Sign-off', exact: true }).waitFor()
+    await thread.getByRole('region', { name: 'Sign-Off', exact: true }).waitFor()
     await answer.getByRole('button', { name: 'Approve and merge' }).waitFor()
   })
 
