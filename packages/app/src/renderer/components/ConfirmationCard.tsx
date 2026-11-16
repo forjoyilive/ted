@@ -202,10 +202,10 @@ export function confirmationCount(
 }
 
 export function ConfirmationCard({
-  factoryId,
+  chatId,
   confirmation,
 }: {
-  factoryId: string
+  chatId: string
   confirmation: CoordinatorConfirmation
 }) {
   const [choices, setChoices] = useState<Record<string, ConfirmationChoices>>(() =>
@@ -230,7 +230,7 @@ export function ConfirmationCard({
     setBusy(true)
     setError(undefined)
     try {
-      await ted.answerCoordinatorConfirmation(factoryId, confirmation.id, {
+      await ted.answerCoordinatorConfirmation(chatId, confirmation.id, {
         decision,
         ...(decision === 'confirm' && { choices }),
       })

@@ -178,7 +178,7 @@ import {
   commentAttachments,
   comments,
   conversationTabs,
-  coordinators as coordinatorRows,
+  coordinatorChats as coordinatorRows,
   deletedTasks,
   events,
   factories,
@@ -3577,7 +3577,7 @@ export async function openStore({
         ]
       })
     const fromCoordinators = store
-      .query(queryDb(coordinatorRows))
+      .query(queryDb(coordinatorRows.where({ endedAt: null })))
       .flatMap((row): WaitingRequest[] => {
         if (!factoryIds.has(row.factoryId)) return []
         const chat = JSON.parse(row.data) as StoredCoordinator
@@ -3586,6 +3586,7 @@ export async function openStore({
           .map((c) => ({
             source: 'coordinator',
             id: c.id,
+            chatId: row.id,
             factoryId: row.factoryId,
             createdAt: c.askedAt,
             headline: confirmationHeadline(c),
@@ -3739,8 +3740,8 @@ export async function openStore({
   const coordinatorStore = createCoordinatorStore({
     store,
     commit,
-    changed(factoryId) {
-      emit({ type: 'coordinator-changed', factoryId })
+    changed(factoryId, chatId) {
+      emit({ type: 'coordinator-changed', factoryId, chatId })
       noteActivity()
     },
   })
@@ -7021,7 +7022,7 @@ export async function openStore({
           : request.source === 'plan'
             ? request.planId
             : request.source === 'coordinator'
-              ? request.factoryId
+              ? request.chatId
               : request.automationId
       commit(
         until === null

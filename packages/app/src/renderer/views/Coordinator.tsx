@@ -1,7 +1,7 @@
 import type {
   Coordinator,
+  CoordinatorChatSummary,
   CoordinatorConfirmation,
-  CoordinatorConversationSummary,
   CoordinatorReceipt,
   Factory,
   MessageBox,
@@ -20,13 +20,7 @@ import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { ChatSection, Composer, runMeta } from '../components/RunChat.tsx'
 import { StatusChip, type StatusGlyph, type StatusTone } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
-import {
-  useCoordinatorChatState,
-  useCoordinatorConversationChatState,
-  useCoordinatorConversationState,
-  useCoordinatorConversations,
-  useCoordinatorState,
-} from '../data.ts'
+import { useCoordinatorChatState, useCoordinatorChats, useCoordinatorState } from '../data.ts'
 import { useMessageDraft } from '../message-drafts.ts'
 import { when } from '../plans.ts'
 import { readableError, ted } from '../ted.ts'
@@ -51,51 +45,24 @@ const help =
 
 export function CoordinatorView({
   factory,
+  chatId,
   onOpenTask,
 }: {
   factory: Factory
+  chatId?: string | undefined
   onOpenTask: (id: string) => void
 }) {
-  const resource = useCoordinatorState(factory.id)
-  const coordinator = resource.value
-  const chatResource = useCoordinatorChatState(factory.id, coordinator?.runIds ?? [])
-  const chat = chatResource.value
-  const box: MessageBox = { kind: 'coordinator', id: factory.id }
-  const { setText } = useMessageDraft(box)
-  const [lead, setLead] = useState<TaskLead>()
+  const chats = useCoordinatorChats(factory.id)
+  const [shown, setShown] = useState<string | null | undefined>(chatId)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
-  const [resetting, setResetting] = useState(false)
-  const [shown, setShown] = useState<string>()
-  const [deleting, setDeleting] = useState<CoordinatorConversationSummary>()
-  const earlier = useCoordinatorConversations(factory.id)
-  const opened = earlier.value?.find((c) => c.id === shown)
-  const rowMenu = useActionMenu('coordinator-conversations')
+  const [deleting, setDeleting] = useState<CoordinatorChatSummary>()
+  const rowMenu = useActionMenu('coordinator-chats')
   useEffect(() => {
-    let active = true
-    void ted.taskDefaults(factory.id).then(
-      (defaults) => {
-        if (active) setLead(defaults.planner)
-      },
-      () => {
-        if (active) setLead({ agent: 'claude' })
-      },
-    )
-    return () => {
-      active = false
-    }
-  }, [factory.id])
-  const retry = async () => {
-    setBusy(true)
-    setError(undefined)
-    try {
-      await ted.retryCoordinator(factory.id)
-    } catch (failed) {
-      setError(readableError(failed))
-    } finally {
-      setBusy(false)
-    }
-  }
+    if (chatId !== undefined) setShown(chatId)
+  }, [chatId])
+  const newest = chats.value?.find((c) => c.endedAt === undefined)
+  const openId = shown === null ? undefined : (shown ?? newest?.id)
   const act = async (work: () => Promise<unknown>) => {
     setBusy(true)
     setError(undefined)
@@ -109,126 +76,59 @@ export function CoordinatorView({
       setBusy(false)
     }
   }
-  const reset = async () => {
-    if (await act(() => ted.resetCoordinator(factory.id))) {
-      setResetting(false)
-      setShown(undefined)
-    }
-  }
-  const status = coordinator?.status ?? 'ready'
-  const busyNow = status === 'working' || status === 'queued' || status === 'paused'
-  const startNew = () => {
-    if (!coordinator) setShown(undefined)
-    else if (busyNow) setResetting(true)
-    else void reset()
-  }
-  const chip = coordinatorStatus[status]
-  const continueConversation = async (id: string) => {
-    if (await act(() => ted.continueCoordinatorConversation(factory.id, id))) setShown(undefined)
+  const continueChat = async (id: string) => {
+    if (await act(() => ted.continueCoordinatorChat(id))) setShown(id)
   }
   const list = (
     <section
       className={`${views.pane} ${views.listPane}`}
-      aria-label="Coordinator conversations"
+      aria-label="Coordinator chats"
       data-fixed-pane
     >
       <header className={styles.listHeader}>
         <h1 className={views.listTitle}>Coordinator</h1>
         <span className={styles.spacer} />
-        <Button
-          variant="primary"
-          disabled={busy || (!coordinator && shown === undefined)}
-          onClick={startNew}
-        >
-          New conversation
+        <Button variant="primary" disabled={busy} onClick={() => setShown(null)}>
+          New chat
         </Button>
       </header>
       {rowMenu.menu}
       <div className={styles.rows}>
-        {coordinator && (
-          <>
-            <h2 className={styles.group}>Current</h2>
-            <ConversationRow
-              title={coordinator.opening}
-              at={coordinator.startedAt}
-              taskCount={coordinator.tasks.length}
-              current={shown === undefined}
-              chip={chip}
-              onOpen={() => setShown(undefined)}
-              onMenu={(at) =>
-                rowMenu.open(at, 'Current conversation', [
-                  { label: 'New conversation', disabled: busy, action: startNew },
-                ])
-              }
-            />
-          </>
-        )}
-        {(earlier.value?.length ?? 0) > 0 && <h2 className={styles.group}>Earlier</h2>}
-        {earlier.value?.map((c) => (
-          <ConversationRow
+        {chats.value?.map((c) => (
+          <ChatRow
             key={c.id}
-            title={c.title}
-            at={c.startedAt}
-            taskCount={c.taskCount}
-            current={shown === c.id}
+            chat={c}
+            current={openId === c.id}
             onOpen={() => setShown(c.id)}
             onMenu={(at) =>
-              rowMenu.open(at, 'Earlier conversation', [
-                {
-                  label: 'Continue',
-                  disabled: busy,
-                  action: () => continueConversation(c.id),
-                },
-                { label: 'Delete', danger: true, disabled: busy, action: () => setDeleting(c) },
+              rowMenu.open(at, c.endedAt === undefined ? 'Chat' : 'Ended chat', [
+                ...(c.endedAt !== undefined
+                  ? [{ label: 'Continue', disabled: busy, action: () => continueChat(c.id) }]
+                  : []),
+                { label: 'Delete…', danger: true, disabled: busy, action: () => setDeleting(c) },
               ])
             }
           />
         ))}
-        {!coordinator && earlier.value?.length === 0 && (
+        {chats.value?.length === 0 && (
           <p className={`${styles.muted} ${styles.empty}`}>
-            Conversations appear here once you send a message.
+            Chats appear here once you send a message.
           </p>
         )}
       </div>
     </section>
-  )
-  const resetDialog = resetting && (
-    <Dialog onClose={() => !busy && setResetting(false)}>
-      {(headingId) => (
-        <>
-          <h2 id={headingId} className={dialogs.heading}>
-            Stop the Coordinator and start a new conversation?
-          </h2>
-          <p className={dialogs.body}>
-            The Coordinator stops its current reply, and messages it hasn’t read are dropped. This
-            conversation is saved under Earlier, so you can open or continue it later.
-          </p>
-          {error !== undefined && (
-            <p className={dialogs.error} role="alert">
-              {error}
-            </p>
-          )}
-          <div className={dialogs.buttons}>
-            <Button disabled={busy} onClick={() => setResetting(false)}>
-              Cancel
-            </Button>
-            <Button variant="primary" disabled={busy} onClick={() => reset()}>
-              Stop and start new
-            </Button>
-          </div>
-        </>
-      )}
-    </Dialog>
   )
   const deleteDialog = deleting && (
     <Dialog onClose={() => !busy && setDeleting(undefined)}>
       {(headingId) => (
         <>
           <h2 id={headingId} className={dialogs.heading}>
-            Delete this conversation?
+            Delete this chat?
           </h2>
           <p className={dialogs.body}>
-            {`“${deleting.title}” and its messages are deleted for good. Tasks stay as they are, and so does everything the Coordinator already did to them.`}
+            {deleting.endedAt === undefined
+              ? `The Coordinator stops this chat’s reply and its open confirmation cards are canceled. “${deleting.title}” and its messages are then deleted for good. Tasks stay as they are, and so does everything the Coordinator already did to them. Your other chats aren’t affected.`
+              : `“${deleting.title}” and its messages are deleted for good. Tasks stay as they are, and so does everything the Coordinator already did to them.`}
           </p>
           {error !== undefined && (
             <p className={dialogs.error} role="alert">
@@ -243,8 +143,8 @@ export function CoordinatorView({
               variant="primary"
               disabled={busy}
               onClick={async () => {
-                if (await act(() => ted.deleteCoordinatorConversation(factory.id, deleting.id))) {
-                  if (shown === deleting.id) setShown(undefined)
+                if (await act(() => ted.deleteCoordinatorChat(deleting.id))) {
+                  if (openId === deleting.id) setShown(undefined)
                   setDeleting(undefined)
                 }
               }}
@@ -256,131 +156,249 @@ export function CoordinatorView({
       )}
     </Dialog>
   )
-  if (opened)
-    return (
-      <>
-        {list}
-        <EarlierConversation
-          key={opened.id}
-          factoryId={factory.id}
-          factoryName={factory.name}
-          summary={opened}
-          busy={busy}
-          error={error}
-          onOpenTask={onOpenTask}
-          onDelete={() => setDeleting(opened)}
-          onContinue={() => continueConversation(opened.id)}
-        />
-        {deleteDialog}
-        {resetDialog}
-      </>
-    )
   return (
     <>
       {list}
       {deleteDialog}
-      {resetDialog}
+      {openId === undefined ? (
+        chats.value === undefined && shown !== null ? (
+          <section className={views.pane} aria-label="Coordinator" />
+        ) : (
+          <NewChat factory={factory} onStarted={setShown} onOpenTask={onOpenTask} />
+        )
+      ) : (
+        <ChatPane
+          key={openId}
+          chatId={openId}
+          factoryName={factory.name}
+          busy={busy}
+          error={error}
+          onOpenTask={onOpenTask}
+          onContinue={() => continueChat(openId)}
+          onDelete={() => {
+            const summary = chats.value?.find((c) => c.id === openId)
+            if (summary) setDeleting(summary)
+          }}
+        />
+      )}
+    </>
+  )
+}
+
+function NewChat({
+  factory,
+  onStarted,
+  onOpenTask,
+}: {
+  factory: Factory
+  onStarted: (id: string) => void
+  onOpenTask: (id: string) => void
+}) {
+  const box: MessageBox = { kind: 'coordinator-new', id: factory.id }
+  const { setText } = useMessageDraft(box)
+  const [lead, setLead] = useState<TaskLead>()
+  useEffect(() => {
+    let active = true
+    void ted.taskDefaults(factory.id).then(
+      (defaults) => {
+        if (active) setLead(defaults.planner)
+      },
+      () => {
+        if (active) setLead({ agent: 'claude' })
+      },
+    )
+    return () => {
+      active = false
+    }
+  }, [factory.id])
+  return (
+    <>
       <section className={views.pane} aria-label="Coordinator">
         <header className={styles.header}>
           <div className={styles.titleRow}>
-            <h1>{coordinator ? 'Current conversation' : 'New conversation'}</h1>
-            {coordinator === null && lead && <LeadSelects lead={lead} onChange={setLead} />}
-            {coordinator && (
+            <h1>New chat</h1>
+            {lead && <LeadSelects lead={lead} onChange={setLead} />}
+          </div>
+          <p>{factory.name}</p>
+        </header>
+        <div className={styles.intro}>
+          <h2>What needs your attention in {factory.name}?</h2>
+          <p>
+            I can compare Tasks, recommend next work, and start or reorder Tasks when you ask. Your
+            other chats keep running.
+          </p>
+          <Button onClick={() => setText('What should we work on next?')}>
+            What should we work on next?
+          </Button>
+        </div>
+        <Composer
+          live
+          working={false}
+          label="Message to the Coordinator"
+          placeholder={placeholder}
+          endedPlaceholder={placeholder}
+          help={help}
+          interrupt={false}
+          box={box}
+          send={async (message) => {
+            const started = await ted.startCoordinatorChat(factory.id, { text: message, ...lead })
+            onStarted(started.id)
+            return started
+          }}
+          stopTurn={async () => null}
+        />
+      </section>
+      <CoordinatorDetails tasks={[]} onOpenTask={onOpenTask} />
+    </>
+  )
+}
+
+function ChatPane({
+  chatId,
+  factoryName,
+  busy,
+  error,
+  onOpenTask,
+  onContinue,
+  onDelete,
+}: {
+  chatId: string
+  factoryName: string
+  busy: boolean
+  error: string | undefined
+  onOpenTask: (id: string) => void
+  onContinue: () => void
+  onDelete: () => void
+}) {
+  const resource = useCoordinatorState(chatId)
+  const coordinator = resource.value
+  const chatResource = useCoordinatorChatState(chatId, coordinator?.runIds ?? [])
+  const chat = chatResource.value
+  const box: MessageBox = { kind: 'coordinator', id: chatId }
+  const [retrying, setRetrying] = useState(false)
+  const [retryError, setRetryError] = useState<string>()
+  const ended = coordinator?.endedAt !== undefined
+  const status = coordinator?.status ?? 'ready'
+  const chip = coordinatorStatus[status]
+  const retry = async () => {
+    setRetrying(true)
+    setRetryError(undefined)
+    try {
+      await ted.retryCoordinator(chatId)
+    } catch (failed) {
+      setRetryError(readableError(failed))
+    } finally {
+      setRetrying(false)
+    }
+  }
+  const shownError = error ?? retryError ?? coordinator?.error
+  return (
+    <>
+      <section className={views.pane} aria-label="Coordinator">
+        <header className={styles.header}>
+          <div className={styles.titleRow}>
+            <h1 className={styles.chatTitle}>{coordinator?.opening || 'Coordinator chat'}</h1>
+            {coordinator && !ended && (
               <StatusChip tone={chip.tone} {...(chip.glyph && { glyph: chip.glyph })}>
                 {chip.label}
               </StatusChip>
             )}
-            {status === 'failed' && (
-              <Button disabled={busy} onClick={() => retry()}>
+            {!ended && status === 'failed' && (
+              <Button disabled={retrying} onClick={() => retry()}>
                 Retry
               </Button>
             )}
           </div>
           <p>
             {[
-              factory.name,
-              ...(coordinator?.startedAt ? [`Started ${when(coordinator.startedAt)}`] : []),
+              factoryName,
+              ...(coordinator?.startedAt
+                ? [
+                    ended && coordinator.endedAt
+                      ? `${when(coordinator.startedAt)} to ${when(coordinator.endedAt)}`
+                      : `Started ${when(coordinator.startedAt)}`,
+                  ]
+                : []),
               ...(coordinator && chat ? [runMeta(chat.run)] : []),
             ].join(' · ')}
           </p>
-          {(error ?? coordinator?.error) && <p role="alert">{error ?? coordinator?.error}</p>}
+          {!ended && shownError && <p role="alert">{shownError}</p>}
         </header>
-        {coordinator === null ? (
+        {ended && (
           <>
-            <div className={styles.intro}>
-              <h2>What needs your attention in {factory.name}?</h2>
-              <p>
-                I can compare Tasks, recommend next work, and start or reorder Tasks when you ask.
-              </p>
-              <Button onClick={() => setText('What should we work on next?')}>
-                What should we work on next?
+            <div className={styles.banner}>
+              <span>
+                This chat has ended. Continue it to send a message; your other chats keep running.
+              </span>
+              <span className={styles.spacer} />
+              <Button disabled={busy} onClick={onDelete}>
+                Delete…
+              </Button>
+              <Button variant="primary" disabled={busy} onClick={onContinue}>
+                Continue
               </Button>
             </div>
-            <Composer
-              live
-              working={false}
-              label="Message to the Coordinator"
-              placeholder={placeholder}
-              endedPlaceholder={placeholder}
-              help={help}
-              interrupt={false}
-              box={box}
-              send={(message) => ted.messageCoordinator(factory.id, { text: message, ...lead })}
-              stopTurn={() => ted.stopCoordinator(factory.id)}
-            />
+            {error !== undefined && (
+              <p className={styles.bannerError} role="alert">
+                {error}
+              </p>
+            )}
           </>
-        ) : (
-          <ChatSection
-            chat={coordinator === undefined ? undefined : (chat ?? undefined)}
-            loading="Loading the Coordinator…"
-            error={resource.error ?? chatResource.error}
-            retry={resource.error ? resource.retry : chatResource.retry}
-            options={{
-              bar: false,
-              extra: chatExtras(
-                factory.id,
-                coordinator?.confirmations ?? [],
-                coordinator?.receipts ?? [],
-                coordinator?.tasks ?? [],
-                onOpenTask,
-              ),
-              spot: `coordinator:${factory.id}`,
-              audience: 'to the Coordinator',
-              humanAs: 'comment',
-              tedAs: 'line',
-              label: 'Message to the Coordinator',
-              placeholder,
-              endedPlaceholder: 'Retry the Coordinator to send a message.',
-              help,
-              live: status !== 'failed',
-              working: status === 'working' || status === 'queued' || status === 'paused',
-              interrupt: false,
-              box,
-              send: (message) => ted.messageCoordinator(factory.id, { text: message }),
-              stopTurn: () => ted.stopCoordinator(factory.id),
-            }}
-          />
         )}
+        <ChatSection
+          chat={coordinator === undefined ? undefined : (chat ?? undefined)}
+          loading="Loading the Coordinator…"
+          error={resource.error ?? chatResource.error}
+          retry={resource.error ? resource.retry : chatResource.retry}
+          options={{
+            bar: false,
+            extra: chatExtras(
+              chatId,
+              coordinator?.confirmations ?? [],
+              coordinator?.receipts ?? [],
+              coordinator?.tasks ?? [],
+              onOpenTask,
+            ),
+            spot: `coordinator:${chatId}`,
+            audience: 'to the Coordinator',
+            humanAs: 'comment',
+            tedAs: 'line',
+            ...(ended
+              ? {
+                  readOnly: (
+                    <p className={`${styles.muted} ${styles.readOnly}`}>
+                      Read only. Continue this chat to send a message.
+                    </p>
+                  ),
+                }
+              : {
+                  label: 'Message to the Coordinator',
+                  placeholder,
+                  endedPlaceholder: 'Retry the Coordinator to send a message.',
+                  help,
+                  live: status !== 'failed',
+                  working: status === 'working' || status === 'queued' || status === 'paused',
+                  interrupt: false,
+                  box,
+                  send: (message: string) => ted.messageCoordinator(chatId, { text: message }),
+                  stopTurn: () => ted.stopCoordinator(chatId),
+                }),
+          }}
+        />
       </section>
       <CoordinatorDetails tasks={coordinator?.tasks ?? []} onOpenTask={onOpenTask} />
     </>
   )
 }
 
-function ConversationRow({
-  title,
-  at,
-  taskCount,
+function ChatRow({
+  chat,
   current,
-  chip,
   onOpen,
   onMenu,
 }: {
-  title: string
-  at: string
-  taskCount: number
+  chat: CoordinatorChatSummary
   current: boolean
-  chip?: { label: string; tone: StatusTone; glyph?: StatusGlyph }
   onOpen: () => void
   onMenu: (at: MenuPosition) => void
 }) {
@@ -394,106 +412,21 @@ function ConversationRow({
       onClick={onOpen}
     >
       <span className={styles.rowTop}>
-        {chip && (
-          <StatusChip tone={chip.tone} {...(chip.glyph && { glyph: chip.glyph })}>
-            {chip.label}
-          </StatusChip>
+        {chat.waiting && (
+          <span className={styles.waiting} role="img" aria-label="Waiting for you" />
         )}
-        {at && <span>{when(at)}</span>}
+        {chat.lastAt && <span>{when(chat.lastAt)}</span>}
       </span>
-      <span className={styles.rowTitle}>{title}</span>
-      <span className={styles.rowMeta}>{taskCount === 1 ? '1 Task' : `${taskCount} Tasks`}</span>
+      <span className={styles.rowTitle}>{chat.title || 'Coordinator chat'}</span>
+      <span className={styles.rowMeta}>
+        {chat.taskCount === 1 ? '1 Task' : `${chat.taskCount} Tasks`}
+      </span>
     </ActionButton>
   )
 }
 
-function EarlierConversation({
-  factoryId,
-  factoryName,
-  summary,
-  busy,
-  error,
-  onOpenTask,
-  onDelete,
-  onContinue,
-}: {
-  factoryId: string
-  factoryName: string
-  summary: CoordinatorConversationSummary
-  busy: boolean
-  error: string | undefined
-  onOpenTask: (id: string) => void
-  onDelete: () => void
-  onContinue: () => void
-}) {
-  const conversation = useCoordinatorConversationState(factoryId, summary.id)
-  const chat = useCoordinatorConversationChatState(factoryId, summary.id)
-  return (
-    <>
-      <section className={views.pane} aria-label="Earlier Coordinator conversation">
-        <header className={styles.header}>
-          <div className={styles.titleRow}>
-            <h1 className={styles.earlierTitle}>{summary.title}</h1>
-          </div>
-          <p>
-            {[
-              factoryName,
-              `${when(summary.startedAt || summary.endedAt)} to ${when(summary.endedAt)}`,
-              ...(chat.value ? [runMeta(chat.value.run)] : []),
-            ].join(' · ')}
-          </p>
-        </header>
-        <div className={styles.banner}>
-          <span>
-            This is an earlier conversation. Continue it to talk to the Coordinator here again; the
-            current one is saved.
-          </span>
-          <span className={styles.spacer} />
-          <Button disabled={busy} onClick={onDelete}>
-            Delete…
-          </Button>
-          <Button variant="primary" disabled={busy} onClick={onContinue}>
-            Continue
-          </Button>
-        </div>
-        {error !== undefined && (
-          <p className={styles.bannerError} role="alert">
-            {error}
-          </p>
-        )}
-        <ChatSection
-          chat={chat.value}
-          loading="Loading the conversation…"
-          error={chat.error ?? conversation.error}
-          retry={chat.error ? chat.retry : conversation.retry}
-          options={{
-            bar: false,
-            extra: chatExtras(
-              factoryId,
-              conversation.value?.confirmations ?? [],
-              conversation.value?.receipts ?? [],
-              conversation.value?.tasks ?? [],
-              onOpenTask,
-            ),
-            spot: `coordinator-conversation:${summary.id}`,
-            audience: 'to the Coordinator',
-            humanAs: 'comment',
-            tedAs: 'line',
-            readOnly: (
-              <p className={`${styles.muted} ${styles.readOnly}`}>
-                Read only. Continue this conversation to send a message.
-              </p>
-            ),
-          }}
-        />
-      </section>
-      <CoordinatorDetails tasks={conversation.value?.tasks ?? []} onOpenTask={onOpenTask} />
-    </>
-  )
-}
-
 function chatExtras(
-  factoryId: string,
+  chatId: string,
   confirmations: readonly CoordinatorConfirmation[],
   receipts: readonly CoordinatorReceipt[],
   tasks: readonly Task[],
@@ -506,7 +439,7 @@ function chatExtras(
       node: (
         <ConfirmationCard
           key={`${confirmation.id}:${confirmation.answer?.decision ?? 'open'}`}
-          factoryId={factoryId}
+          chatId={chatId}
           confirmation={confirmation}
         />
       ),
@@ -551,7 +484,7 @@ function CoordinatorDetails({
   return (
     <DetailsPane className={views.detailsPane} aria-label="Coordinator details">
       <section className={styles.section}>
-        <h2>Tasks in this conversation</h2>
+        <h2>Tasks in this chat</h2>
         {tasks.length ? (
           tasks.map((task) => (
             <ActionButton
@@ -579,8 +512,8 @@ function CoordinatorDetails({
         </p>
         <p className={styles.muted}>Starts enter Intake as Queued and wait for a free Run slot.</p>
         <p className={styles.muted}>
-          New conversation saves the current one under Earlier. Earlier conversations stay until you
-          delete them.
+          Each chat runs on its own, so New chat leaves your other chats running. Chats stay until
+          you delete them.
         </p>
       </section>
     </DetailsPane>

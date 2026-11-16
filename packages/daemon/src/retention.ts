@@ -104,7 +104,7 @@ export function runOutputEnd(store: EndStore, runId: string): RunOutputEnd {
   }
   if (
     store.coordinators.forRun(runId) ||
-    store.coordinators.savedForRun(runId) ||
+    store.coordinators.endedForRun(runId) ||
     store.automationDrafts.get(runId)
   )
     return 'keep'

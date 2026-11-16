@@ -13,8 +13,7 @@ import { intervalBoundaries } from './interval-schema.ts'
 import {
   automationFirings,
   automations,
-  coordinatorConversations,
-  coordinators,
+  coordinatorChats,
   factories,
   plans,
   pullRequests,
@@ -107,11 +106,14 @@ export function readCostInput(
     ))
       if (reviewer.purpose === 'review') owners.reviewers.add(reviewer.runId)
   }
-  const coordinatorChats = [
-    ...store.query(queryDb(coordinators)).map((row) => JSON.parse(row.data)),
-    ...store.query(queryDb(coordinatorConversations)).map((row) => JSON.parse(row.data).chat),
-  ] as { factoryId: string; runId?: string; runIds?: string[] }[]
-  for (const chat of coordinatorChats)
+  const chats = store
+    .query(queryDb(coordinatorChats))
+    .map((row) => ({ ...JSON.parse(row.data), factoryId: row.factoryId })) as {
+    factoryId: string
+    runId?: string
+    runIds?: string[]
+  }[]
+  for (const chat of chats)
     for (const runId of [chat.runId, ...(chat.runIds ?? [])])
       if (runId && !owners.coordinators.has(runId)) owners.coordinators.set(runId, chat.factoryId)
   for (const row of store.query(queryDb(sideChats))) {

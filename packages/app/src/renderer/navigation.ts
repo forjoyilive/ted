@@ -47,6 +47,7 @@ export type Screen =
       factoryId: string
       view: FactoryView
       section?: FactorySectionId
+      chatId?: string
     }
 
 export interface Navigation {

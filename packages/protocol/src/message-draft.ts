@@ -9,6 +9,7 @@ export const messageBoxKinds = [
   'plan-request',
   'run',
   'coordinator',
+  'coordinator-new',
   'new-plan',
 ] as const
 

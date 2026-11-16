@@ -45,6 +45,10 @@ test('Coordinator opens from the sidebar, sends, shows receipts and keeps its wh
   const origin = await makeOriginRepo(path.join(home, 'origin'))
   const factory = await client.addFactory({ repo: origin, key: 'NB' })
   const task = await client.createTask({ factory: 'NB', title: 'Discuss priorities' })
+  const current = async () => {
+    const [chat] = await client.coordinatorChats(factory.id)
+    return chat && client.coordinator(chat.id)
+  }
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env })
   const window = await loadedWindow(app)
   const sidebar = window.getByRole('navigation', { name: 'Sidebar' })
@@ -65,7 +69,7 @@ test('Coordinator opens from the sidebar, sends, shows receipts and keeps its wh
   await pane.getByRole('button', { name: 'Send', exact: true }).click()
   await pane.getByText('Here is what needs attention.', { exact: true }).waitFor()
   const c = await waitUntil(async () => {
-    const c = await client.coordinator(factory.id)
+    const c = await current()
     return c?.status === 'working' ? c : undefined
   }, 'working Coordinator')
   await entry.getByRole('img', { name: 'Working' }).waitFor()
@@ -96,11 +100,11 @@ test('Coordinator opens from the sidebar, sends, shows receipts and keeps its wh
   await entry.click()
   await pane.getByText('Here is what needs attention.', { exact: true }).waitFor()
   await pane.getByText(/Started NB-/).waitFor()
-  expect(((await client.coordinator(factory.id)) as Coordinator).runId).toBe(c.runId)
+  expect(((await current()) as Coordinator).runId).toBe(c.runId)
   await pane.getByRole('button', { name: 'Stop the turn', exact: true }).click()
   await waitUntil(
     async () =>
-      (await client.coordinator(factory.id))?.status === 'ready' &&
+      (await current())?.status === 'ready' &&
       (await client.getRunChat(c.runId)).run.state === 'finished',
     'stopped Coordinator',
   )
@@ -115,7 +119,7 @@ test('Coordinator opens from the sidebar, sends, shows receipts and keeps its wh
     .fill(JSON.stringify({ steps: [{ say: 'Picking up where we were.' }, { endTurn: true }] }))
   await pane.getByRole('button', { name: 'Send', exact: true }).click()
   await pane.getByText('Picking up where we were.', { exact: true }).waitFor()
-  expect(((await client.coordinator(factory.id)) as Coordinator).runId).not.toBe(c.runId)
+  expect(((await current()) as Coordinator).runId).not.toBe(c.runId)
   await sidebar.getByRole('button', { name: 'List', exact: true }).click()
   await entry.click()
   await pane.getByText('Picking up where we were.', { exact: true }).waitFor({ state: 'attached' })
@@ -138,6 +142,10 @@ test('Stop keeps unstarted messages visible as Not sent when the Coordinator is 
   const client = await daemonAsApp(home, env)
   const origin = await makeOriginRepo(path.join(home, 'origin'))
   const factory = await client.addFactory({ repo: origin, key: 'NB' })
+  const current = async () => {
+    const [chat] = await client.coordinatorChats(factory.id)
+    return chat && client.coordinator(chat.id)
+  }
   await client.checkAgentHealth()
   app = await electron.launch({ executablePath: electronPath, args: [appDir], env })
   const window = await loadedWindow(app)
@@ -154,7 +162,7 @@ test('Stop keeps unstarted messages visible as Not sent when the Coordinator is 
   await pane
     .getByText('Compare the release Tasks before starting anything.', { exact: true })
     .waitFor()
-  expect((await client.coordinator(factory.id))?.started).toBe(false)
+  expect((await current())?.started).toBe(false)
   await sidebar.getByRole('button', { name: 'Task views' }).click()
   await sidebar.getByRole('button', { name: 'List', exact: true }).click()
   await sidebar.getByRole('button', { name: /^Coordinator/ }).click()

@@ -1,5 +1,5 @@
 import { Events, makeSchema, Schema, State } from '@livestore/livestore'
-import { applyCoordinatorChange } from './coordinator-change.ts'
+import { applyCoordinatorChange, type CoordinatorChange } from './coordinator-change.ts'
 import { intervalBoundaries, withIntervalBoundaries } from './interval-schema.ts'
 import { counted } from './progress.ts'
 
@@ -1076,21 +1076,13 @@ export const sideChats = State.SQLite.table({
   columns: { sourceRunId: State.SQLite.text({ primaryKey: true }), data: State.SQLite.text() },
 })
 
-export const coordinators = State.SQLite.table({
-  name: 'coordinators',
-  columns: {
-    factoryId: State.SQLite.text({ primaryKey: true }),
-    data: State.SQLite.text(),
-  },
-})
-
-export const coordinatorConversations = State.SQLite.table({
-  name: 'coordinatorConversations',
-  indexes: [{ name: 'idx_coordinatorConversations_factoryId', columns: ['factoryId'] }],
+export const coordinatorChats = State.SQLite.table({
+  name: 'coordinatorChats',
+  indexes: [{ name: 'idx_coordinatorChats_factoryId', columns: ['factoryId'] }],
   columns: {
     id: State.SQLite.text({ primaryKey: true }),
     factoryId: State.SQLite.text(),
-    endedAt: State.SQLite.text(),
+    endedAt: State.SQLite.text({ nullable: true }),
     data: State.SQLite.text(),
   },
 })
@@ -1293,6 +1285,24 @@ export const events = {
   }),
   coordinatorConversationDeleted: Events.synced({
     name: 'v1.CoordinatorConversationDeleted',
+    schema: Schema.Struct({ id: Schema.String, runIds: Schema.Array(Schema.String) }),
+  }),
+  coordinatorChatChanged: Events.synced({
+    name: 'v1.CoordinatorChatChanged',
+    schema: Schema.Struct({
+      id: Schema.String,
+      factoryId: Schema.String,
+      set: Schema.String,
+      unset: Schema.Array(Schema.String),
+      lists: Schema.NullOr(Schema.String),
+    }),
+  }),
+  coordinatorChatContinued: Events.synced({
+    name: 'v1.CoordinatorChatContinued',
+    schema: Schema.Struct({ id: Schema.String }),
+  }),
+  coordinatorChatDeleted: Events.synced({
+    name: 'v1.CoordinatorChatDeleted',
     schema: Schema.Struct({ id: Schema.String, runIds: Schema.Array(Schema.String) }),
   }),
   validationProgressed: Events.synced({
@@ -4151,6 +4161,31 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
 export const messageDraftKey = (kind: string, id: string): string => `${kind}:${id}`
 const runDraftKey = (id: string): string => messageDraftKey('run', id)
 
+const coordinatorRunsDeleted = (runIds: readonly string[]) =>
+  runIds.flatMap((id) => [
+    messageDrafts.delete().where({ key: runDraftKey(id) }),
+    runs.delete().where({ id }),
+    runMessages.delete().where({ runId: id }),
+    runInterrupts.delete().where({ runId: id }),
+  ])
+
+function patchCoordinatorChat(
+  row: { data: string; endedAt: string | null } | undefined,
+  id: string,
+  factoryId: string,
+  change: CoordinatorChange,
+) {
+  const before = row ? (JSON.parse(row.data) as Record<string, unknown>) : undefined
+  return coordinatorChats
+    .insert({
+      id,
+      factoryId,
+      endedAt: row?.endedAt ?? null,
+      data: JSON.stringify(applyCoordinatorChange(before, change)),
+    })
+    .onConflict('id', 'replace')
+}
+
 function withTaskLog<T extends Record<string, (...args: never[]) => unknown>>(handlers: T): T {
   return Object.fromEntries(
     Object.entries(withIntervalBoundaries(handlers)).map(([name, handler]) => {
@@ -5520,39 +5555,48 @@ const materializers = counted(
         runMessages.delete().where({ runId }),
         runInterrupts.delete().where({ runId }),
       ],
-      'v1.CoordinatorChanged': (row) => coordinators.insert(row).onConflict('factoryId', 'replace'),
-      'v2.CoordinatorChanged': ({ factoryId, ...change }, { query }) => {
-        const row = query(coordinators.where({ factoryId }).first())
-        const before = row ? (JSON.parse(row.data) as Record<string, unknown>) : undefined
-        return coordinators
-          .insert({ factoryId, data: JSON.stringify(applyCoordinatorChange(before, change)) })
-          .onConflict('factoryId', 'replace')
-      },
+      'v1.CoordinatorChanged': ({ factoryId, data }) =>
+        coordinatorChats
+          .insert({ id: factoryId, factoryId, endedAt: null, data })
+          .onConflict('id', 'replace'),
+      'v2.CoordinatorChanged': ({ factoryId, ...change }, { query }) =>
+        patchCoordinatorChat(
+          query(coordinatorChats.where({ id: factoryId }).first()),
+          factoryId,
+          factoryId,
+          change,
+        ),
       'v1.CoordinatorRemoved': ({ factoryId, runIds }) => [
-        coordinators.delete().where({ factoryId }),
-        ...runIds.flatMap((id) => [
-          messageDrafts.delete().where({ key: runDraftKey(id) }),
-          runs.delete().where({ id }),
-          runMessages.delete().where({ runId: id }),
-          runInterrupts.delete().where({ runId: id }),
-        ]),
+        coordinatorChats.delete().where({ id: factoryId }),
+        ...coordinatorRunsDeleted(runIds),
       ],
       'v1.CoordinatorConversationSaved': ({ id, factoryId, endedAt, data }) => [
-        coordinators.delete().where({ factoryId }),
-        coordinatorConversations
-          .insert({ id, factoryId, endedAt, data })
+        coordinatorChats.delete().where({ id: factoryId }),
+        coordinatorChats
+          .insert({
+            id,
+            factoryId,
+            endedAt,
+            data: JSON.stringify(
+              (JSON.parse(data) as { chat: Record<string, unknown>; startedAt: string }).chat,
+            ),
+          })
           .onConflict('id', 'replace'),
       ],
-      'v1.CoordinatorConversationContinued': ({ id }) =>
-        coordinatorConversations.delete().where({ id }),
+      'v1.CoordinatorConversationContinued': ({ id }) => coordinatorChats.delete().where({ id }),
       'v1.CoordinatorConversationDeleted': ({ id, runIds }) => [
-        coordinatorConversations.delete().where({ id }),
-        ...runIds.flatMap((runId) => [
-          messageDrafts.delete().where({ key: runDraftKey(runId) }),
-          runs.delete().where({ id: runId }),
-          runMessages.delete().where({ runId }),
-          runInterrupts.delete().where({ runId }),
-        ]),
+        coordinatorChats.delete().where({ id }),
+        ...coordinatorRunsDeleted(runIds),
+      ],
+      'v1.CoordinatorChatChanged': ({ id, factoryId, ...change }, { query }) =>
+        patchCoordinatorChat(query(coordinatorChats.where({ id }).first()), id, factoryId, change),
+      'v1.CoordinatorChatContinued': ({ id }) =>
+        coordinatorChats.update({ endedAt: null }).where({ id }),
+      'v1.CoordinatorChatDeleted': ({ id, runIds }) => [
+        coordinatorChats.delete().where({ id }),
+        requestSnoozes.delete().where({ ownerId: id }),
+        messageDrafts.delete().where({ key: messageDraftKey('coordinator', id) }),
+        ...coordinatorRunsDeleted(runIds),
       ],
       'v1.PlanStarted': ({ at, ...plan }) =>
         plans.insert({ ...plan, state: 'queued', createdAt: at }),
@@ -5688,8 +5732,7 @@ const state = State.SQLite.makeState({
     plans,
     planRequests,
     planTasks,
-    coordinators,
-    coordinatorConversations,
+    coordinatorChats,
     sideChats,
     requestSnoozes,
   },

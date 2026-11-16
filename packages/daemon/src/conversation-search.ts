@@ -42,7 +42,7 @@ export async function searchConversations(
   )
   const firings = new Map(store.automations.firings().map((firing) => [firing.id, firing]))
   const coordinators = new Map(
-    store.coordinators.list().flatMap((c) => c.runIds.map((id) => [id, c.factoryId] as const)),
+    store.coordinators.list().flatMap((c) => c.runIds.map((id) => [id, c] as const)),
   )
   const hits: ConversationHit[] = []
   const compare = (a: ConversationHit, b: ConversationHit) =>
@@ -78,9 +78,10 @@ export async function searchConversations(
             : coordinator !== undefined
               ? {
                   source: 'coordinator' as const,
-                  factoryId: coordinator,
+                  factoryId: coordinator.factoryId,
+                  chatId: coordinator.id,
                   ref: 'Coordinator',
-                  title: 'Coordinator',
+                  title: coordinator.opening || 'Coordinator',
                 }
               : undefined
     if (!owner || !factories.has(owner.factoryId)) continue
