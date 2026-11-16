@@ -6,6 +6,7 @@ import type {
   FindingSeverity,
   TaskStatusKind,
 } from '@ted/protocol'
+import { isEntryStage, stageWith, validates } from '@ted/protocol/stage'
 import { type DashboardTaskFacts, dashboardReport, rangeWindows } from '../dashboard.ts'
 import { type CostOwners, type CostUsage, costUsage } from '../dashboard-cost.ts'
 import { readDashboardTiming } from './dashboard-timing.ts'
@@ -53,7 +54,7 @@ export function sendBackSeverities(
   return backs.map((sendBack) => {
     const since = after
     after = sendBack.at
-    if (sendBack.from !== 'validate' || !sendBack.counted || sendBack.checkRunId) return undefined
+    if (!validates(sendBack.from) || !sendBack.counted || sendBack.checkRunId) return undefined
     const found = declared.findLast((d) => d.at > since && d.at <= sendBack.at)
     return found ? (found.severity as FindingSeverity) : 'none'
   })
@@ -231,8 +232,12 @@ export function readDashboard(
       if (row.name.endsWith('TaskStageEntered')) {
         task.entries.push({ stage: String(data.stage), at: row.at, sequence: sequence(row.id) })
       } else if (row.name === 'v1.TaskQueued') {
-        if (data.stage === 'intake')
-          task.transitions.push({ stage: 'intake', at: row.at, sequence: sequence(row.id) })
+        if (isEntryStage(String(data.stage)))
+          task.transitions.push({
+            stage: stageWith('entry'),
+            at: row.at,
+            sequence: sequence(row.id),
+          })
       } else if (row.name.endsWith('TaskMovedToBacklog') || row.name === 'v1.TaskNeedsPlanning') {
         task.transitions.push({ stage: 'backlog', at: row.at, sequence: sequence(row.id) })
       } else {
@@ -280,7 +285,7 @@ export function readDashboard(
   const selected = rows.filter((row) => {
     const task = facts.get(row.id)
     if (!task) return false
-    const start = task.transitions.find((e) => e.stage === 'intake')
+    const start = task.transitions.find((e) => isEntryStage(e.stage))
     if (!start || !(Date.parse(start.at) < asOf)) return false
     const ends = [
       ...task.entries.filter((e) => e.stage === 'done').map((e) => e.at),

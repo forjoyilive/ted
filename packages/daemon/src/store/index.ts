@@ -125,6 +125,13 @@ import {
   type WaitingRequest,
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
+import {
+  builtInStageOrder,
+  hasClarifyRounds,
+  isCleanup,
+  mergesHere,
+  validates,
+} from '@ted/protocol/stage'
 import { Effect } from 'effect'
 import { totalMemory } from '../busy.ts'
 import { isDiskFullError } from '../disk.ts'
@@ -1515,7 +1522,7 @@ export async function openStore({
       .some(
         (row) =>
           row.stage === 'done' ||
-          row.stage === 'cleanup' ||
+          isCleanup(row.stage) ||
           (row.stage === 'backlog' &&
             !row.startRequested &&
             !queued.has(row.id) &&
@@ -1706,7 +1713,7 @@ export async function openStore({
 
   const history = createTaskHistory(
     readTaskLog,
-    (taskId) => entryRows(taskId).findLast((e) => e.stage === 'merge')?.at ?? '',
+    (taskId) => entryRows(taskId).findLast((e) => mergesHere(e.stage))?.at ?? '',
   )
 
   const mergePendingFor = (taskId: string, repos: readonly TaskRepo[]): boolean =>
@@ -2067,18 +2074,16 @@ export async function openStore({
     )
     const waitingOn = unmerged.map((b) => b.displayId)
     const firstEnded = unmerged[0]?.ended
-    const visit = stage === 'merge' ? history.mergeHistory(row.id) : undefined
+    const visit = mergesHere(stage) ? history.mergeHistory(row.id) : undefined
     const leadWorks = visit?.awaitsLead === true && visit.leadAdvanced === undefined
-    const waitingFor =
-      stage === 'merge'
-        ? repos.find((r) => !r.removed && r.pullRequest?.waiting !== undefined)?.pullRequest
-            ?.waiting
-        : undefined
+    const waitingFor = mergesHere(stage)
+      ? repos.find((r) => !r.removed && r.pullRequest?.waiting !== undefined)?.pullRequest?.waiting
+      : undefined
     const github = leadWorks && waitingFor !== 'sign-in' ? undefined : waitingFor
     const openPullRequest = repos.some(
       (r) => !r.removed && r.pullRequest && r.pullRequest.state !== 'merged',
     )
-    const merging = stage === 'merge' && openPullRequest ? history.mergeHistory(row.id) : undefined
+    const merging = mergesHere(stage) && openPullRequest ? history.mergeHistory(row.id) : undefined
     const mergeWaits = merging?.latest === 'started'
     const autoMergeLeft =
       merging !== undefined &&
@@ -2142,9 +2147,9 @@ export async function openStore({
       ...(snoozedUntil !== null && { snoozedUntil }),
       ...(archivedAt !== null && { archived: true }),
       ...(failedAt !== null && { failed: true }),
-      ...(stage === 'cleanup' &&
+      ...(isCleanup(stage) &&
         requests.some((row) => row.cleanupFailure !== null) && { cleanupFailed: true }),
-      ...(stage === 'cleanup' && checkingTasks.has(row.id) && { cleanupCommandsRunning: true }),
+      ...(isCleanup(stage) && checkingTasks.has(row.id) && { cleanupCommandsRunning: true }),
       ...(partlyMerged && { partlyMerged }),
       ...(stoppedAt !== null && {
         stopped: {
@@ -2219,7 +2224,7 @@ export async function openStore({
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
       ...(live.some((r) => r.retrying) && { retrying: true }),
       ...(needsPlanningAt !== null && { needsPlanning: true }),
-      ...(stage === 'clarify' && planningFrom(row.id) && { planningInChat: true }),
+      ...(hasClarifyRounds(stage) && planningFrom(row.id) && { planningInChat: true }),
     }
     if (observe) noteTaskWait(row.id, facts)
     const status = taskStatus(facts)
@@ -2273,10 +2278,10 @@ export async function openStore({
     const planLink = reads.planLinks(row.id).at(0)
     const planTitle = planLink && reads.plan(planLink.planId).at(0)?.title
     const merged =
-      stage === 'done' || stage === 'cleanup'
+      stage === 'done' || isCleanup(stage)
         ? {
             at:
-              entries.findLast((e) => e.stage === 'cleanup')?.at ??
+              entries.findLast((e) => isCleanup(e.stage))?.at ??
               entries.findLast((e) => e.stage === 'done')?.at ??
               row.createdAt,
             pullRequests: repos.flatMap((r) =>
@@ -3928,7 +3933,8 @@ export async function openStore({
             (choice) =>
               (canAccept || choice !== failureChoices.accepted) &&
               (choice !== 'Wait for a repair Task' ||
-                ['validate', 'merge'].includes(taskRow(value.taskId)?.stage ?? '')),
+                validates(taskRow(value.taskId)?.stage ?? '') ||
+                mergesHere(taskRow(value.taskId)?.stage ?? '')),
           ),
           purpose: { kind: 'failure' },
           author: { kind: 'ted' },
@@ -5471,7 +5477,7 @@ export async function openStore({
     },
     mergePending(taskId) {
       const task = taskRow(taskId)
-      return task?.stage === 'merge' && mergePendingFor(taskId, reposOf(taskId))
+      return mergesHere(task?.stage ?? '') && mergePendingFor(taskId, reposOf(taskId))
     },
     pullRequestSignedOff(taskId, name, signedOff) {
       commit(
@@ -5553,7 +5559,7 @@ export async function openStore({
             ]
           : []),
         ...(entry ? [stageEntered(taskId, stage, entry, at)] : []),
-        ...(stage === 'merge' ? [events.mergeAwaitsLead({ taskId, at })] : []),
+        ...(mergesHere(stage) ? [events.mergeAwaitsLead({ taskId, at })] : []),
         ...withdrawn.map(({ id }) =>
           events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
         ),
@@ -5561,7 +5567,7 @@ export async function openStore({
       for (const { id } of withdrawn) emitComment(id)
       const task = updatedTask(taskId)
       if (options?.prepare) updatedQueue(taskId)
-      if (stage === 'done' || stage === 'cleanup') updatedDependents(taskId)
+      if (stage === 'done' || isCleanup(stage)) updatedDependents(taskId)
       return task
     },
     dashboard(factoryIds, range, asOf = Date.now()) {
@@ -7316,11 +7322,11 @@ function track(stage: StageId, entries: readonly (typeof stageEntries.Type)[]): 
   const saved = entries.findLast((e) => e.order !== null)?.order
   const plan: PlannedStage[] = saved
     ? (JSON.parse(saved) as PlannedStage[])
-    : agentStageIds.filter((id) => id !== 'cleanup').map((id) => ({ stage: id, enabled: true }))
+    : agentStageIds.filter((id) => !isCleanup(id)).map((id) => ({ stage: id, enabled: true }))
   const order: StageId[] = plan.map((p) => p.stage)
   const entered = new Set(entries.map((e) => e.stage))
   const inOrder = order.includes(stage)
-  const rank = (id: StageId) => (inOrder ? order.indexOf(id) : builtInRank(id))
+  const rank = (id: StageId) => (inOrder ? order.indexOf(id) : builtInStageOrder.indexOf(id))
   return plan.map(({ stage: id, enabled }) => {
     if (id === stage) return { stage: id, state: 'current' }
     if (!enabled) return { stage: id, state: 'skipped' }
@@ -7330,10 +7336,6 @@ function track(stage: StageId, entries: readonly (typeof stageEntries.Type)[]): 
     }
     return { stage: id, state: 'future' }
   })
-}
-
-function builtInRank(id: StageId): number {
-  return id === 'backlog' ? -1 : id === 'done' ? agentStageIds.length : agentStageIds.indexOf(id)
 }
 
 function realPath(dir: string): string {

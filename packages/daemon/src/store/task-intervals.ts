@@ -8,6 +8,7 @@ import type {
   TaskIntervalHistory,
   TaskIntervalReason,
 } from '@ted/protocol'
+import { mergesHere } from '@ted/protocol/stage'
 import { type TaskWaitReason, taskIsMerged, taskPauses, taskWaitReasons } from '../tasks/status.ts'
 import type { LoggedEvent } from './index.ts'
 import { type intervalBoundaries, isSubAgentRequested } from './interval-schema.ts'
@@ -515,7 +516,7 @@ function durableWaits(input: {
         stage,
         archived,
         runs: [],
-        ...(stage === 'merge' && { github: on as GitHubWait }),
+        ...(mergesHere(stage) && { github: on as GitHubWait }),
       }))
         selected.push({ ...reason, id: repo })
     const durablePauses = taskPauses({
