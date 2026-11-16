@@ -1,6 +1,11 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
-import { type DaemonClient, parseAsanaConfiguration, readDaemonInfo } from '@ted/protocol'
+import {
+  asanaScopes,
+  type DaemonClient,
+  parseAsanaConfiguration,
+  readDaemonInfo,
+} from '@ted/protocol'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/daemon.ts'
 import { type Keyring, KeyringUnavailableError } from '../src/linear/keyring.ts'
@@ -253,26 +258,36 @@ test('failed fallback commit preserves the previous keyring connection and crede
 test('authorization and refresh fail closed for missing, incomplete, inactive and wrong-client grants', async () => {
   const client = await start()
   await client.configureAsana(configuration)
-  for (const grant of [
-    { scope: undefined },
-    { scope: 'users:read' },
-    { active: false },
-    { client_id: 'another-app' },
-  ]) {
+  for (const [grant, problem] of [
+    [{ scope: undefined }, 'Asana sent no scope list'],
+    [{ scope: 'users:read' }, 'these scopes are missing: attachments:read, projects:read,'],
+    [{ active: false }, 'the token isn’t active'],
+    [{ client_id: 'another-app' }, 'the token belongs to a different client ID'],
+  ] as const) {
     stub.setGrant(grant)
     const { url } = await client.connectAsana()
     expect((await fetch(stub.callback(url))).status).toBe(200)
     const status = await client.getAsana()
     expect(status).toMatchObject({
       state: 'error',
-      error: expect.stringContaining('permission grant'),
+      error: expect.stringContaining(problem),
     })
+    expect(status.error).toContain('permission grant')
     expect(status).not.toHaveProperty('user')
     expect(secret).not.toContain('access-secret-opaque')
   }
-  stub.setGrant(undefined)
+  stub.setGrant({
+    client_id: undefined,
+    token_type: 'Bearer',
+    scope: `${asanaScopes.join(' ')} projects:write openid email profile`,
+  })
   await authorize(client)
-  expect(JSON.parse(secret ?? '{}').tokens.scopes).toHaveLength(8)
+  expect(await client.getAsana()).toMatchObject({
+    state: 'connected',
+    user: { gid: '100' },
+    extraScopes: ['projects:write'],
+  })
+  expect(JSON.parse(secret ?? '{}').tokens.scopes).toHaveLength(12)
   const unverified = JSON.parse(secret ?? '{}')
   delete unverified.tokens.scopes
   secret = JSON.stringify(unverified)

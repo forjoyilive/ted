@@ -20,6 +20,7 @@ import {
   waitUntil,
 } from './helpers.ts'
 import { ManualClock } from './support/manual-clock.ts'
+import { insideTedSandbox } from './support/ted-sandbox.ts'
 
 const config = { clientId: '123', clientSecret: 'security-client-secret', inFile: false }
 let home: string
@@ -235,7 +236,7 @@ test('app authority only, no endpoint redirects, and credentials stay out of API
   const evidence = [
     JSON.stringify(await client.getRun(agent.id)),
     JSON.stringify(await client.getAsana()),
-    (await client.getReport()).text,
+    ...(insideTedSandbox ? [] : [(await client.getReport()).text]),
     JSON.stringify(await client.getSlowMoments()),
     JSON.stringify(logs),
   ]

@@ -23,6 +23,7 @@ export interface AsanaStatus {
   redirectUri: string
   storedIn?: 'keyring' | 'file'
   user?: { gid: string; name: string; email: string }
+  extraScopes?: string[]
   error?: string
   storageProblem?: 'locked' | 'no-keyring'
 }
