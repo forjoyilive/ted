@@ -301,6 +301,7 @@ export type {
   CoordinatorTaskList,
   CoordinatorTaskQuery,
   CoordinatorTaskSummary,
+  RenameCoordinatorChatRequest,
 } from './coordinator.ts'
 export {
   coordinatorTaskSearch,
@@ -310,6 +311,7 @@ export {
   parseCoordinatorMessage,
   parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
+  parseRenameCoordinatorChatRequest,
 } from './coordinator-parsers.ts'
 export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export type {
@@ -730,12 +732,18 @@ export {
   parseStartPlanRequest,
 } from './plan-parsers.ts'
 export {
+  isReportEmail,
+  type ProblemReportRequest,
+  type ProblemReportResult,
+  parseProblemReportRequest,
+} from './problem-report.ts'
+export {
   type ProposalPlan,
   type ProposalPlanRow,
   planProposal,
   proposalCycle,
 } from './proposal.ts'
-export { downloadUrl, newIssueUrl, releaseRepo, releasesUrl } from './release.ts'
+export { downloadUrl, newIssueUrl, releaseRepo, releasesUrl, sentryDsn } from './release.ts'
 export {
   type AgentKind,
   agentKinds,

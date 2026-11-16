@@ -30,10 +30,13 @@ import {
   type MachineSettings,
   newIssueUrl,
   noActivity,
+  type ProblemReportResult,
   parseAsanaTaskUrl,
   parseGitHubIssueUrl,
   parseLinearUrl,
+  parseProblemReportRequest,
   remoteExecutionOn,
+  sentryDsn,
   tedEnv,
   tedHome,
   tedPaths,
@@ -41,6 +44,7 @@ import {
   type WaitingRequest,
 } from '@ted/protocol'
 import { factoryIconEmojiOf } from '@ted/protocol/factory-icon'
+import type { Untyped } from '@ted/protocol/parse'
 import {
   app,
   BrowserWindow,
@@ -52,6 +56,7 @@ import {
   Notification,
   nativeImage,
   nativeTheme,
+  net,
   type OpenDialogOptions,
   session,
   shell,
@@ -102,6 +107,7 @@ import {
   recordingNotifier,
   silentNotifier,
 } from './notifications.ts'
+import { type ReportSources, reportText, sendProblemReport } from './problem-report.ts'
 import {
   isFigmaLink,
   keepFramesInPlace,
@@ -649,15 +655,45 @@ const notificationsPane =
 function run(command: MenuCommand): void {
   if (command.kind === 'quit') return void requestQuit()
   if (command.kind === 'restart-to-update') return void restartToUpdate()
-  if (command.kind === 'report-problem') return void reportProblem()
   showWindow()
   if (command.kind !== 'open-ted') sendToRenderer({ type: 'menu-command', command })
 }
 
-async function reportProblem(): Promise<void> {
-  const report = await client?.getReport().catch(() => undefined)
-  if (report) clipboard.writeText(report.text)
-  await shell.openExternal(newIssueUrl(report !== undefined))
+async function openGitHubIssue(): Promise<void> {
+  const report = await problemReportText(true)
+  clipboard.writeText(report.text)
+  await shell.openExternal(newIssueUrl(report.daemon))
+}
+
+const testSentryDsn = app.isPackaged ? undefined : tedEnv('TED_SENTRY_DSN')
+
+function reportSources(): ReportSources {
+  return {
+    version: tedVersion,
+    edition,
+    report: async (includeLog) =>
+      client && supervisor?.connection.state === 'connected'
+        ? (await client.getReport({ log: includeLog })).text
+        : undefined,
+  }
+}
+
+function problemReportText(includeLog: boolean): Promise<{ text: string; daemon: boolean }> {
+  return reportText(reportSources(), includeLog)
+}
+
+async function sendReport(input: Untyped): Promise<ProblemReportResult> {
+  const request = parseProblemReportRequest(input)
+  const result = await sendProblemReport(request, {
+    ...reportSources(),
+    dsn: testSentryDsn ?? sentryDsn,
+    allowLoopbackHttp: testSentryDsn !== undefined,
+    post: (url, init) => net.fetch(url, init),
+  })
+  if (result.sent && request.email !== settings.reportEmail && client) {
+    await client.updateSettings({ reportEmail: request.email }).catch(() => undefined)
+  }
+  return result
 }
 
 function toElectron(entries: MenuEntry[]): MenuItemConstructorOptions[] {
@@ -1138,6 +1174,8 @@ async function start(): Promise<void> {
       return updateStatus
     },
     restartToUpdate,
+    problemReport: () => problemReportText(true),
+    openGitHubIssue,
     async copyCrashReport() {
       const { connection } = supervised
       await clipboard.writeText(
@@ -1163,6 +1201,8 @@ async function start(): Promise<void> {
     | 'checkForUpdates'
     | 'copyCrashReport'
     | 'restartToUpdate'
+    | 'problemReport'
+    | 'openGitHubIssue'
   >
 
   ipcMain.handle('ted:request', (event, name: unknown, ...args: unknown[]) => {
@@ -1174,6 +1214,7 @@ async function start(): Promise<void> {
       ? appRequests[name as keyof typeof appRequests]
       : undefined
     if (appRequest) return appRequest()
+    if (name === 'sendProblemReport') return sendReport(args[0])
     const request = Object.hasOwn(requests, name)
       ? requests[name as keyof typeof requests]
       : undefined

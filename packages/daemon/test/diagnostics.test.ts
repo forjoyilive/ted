@@ -187,6 +187,13 @@ describe('Diagnostics', () => {
     expect(text).toContain('fatal: https://[redacted]@github.com/k/n.git')
     expect(text).not.toContain('ghp_')
     expect(text).not.toContain('lin_api_')
+
+    const withoutLog = await client.call('GET', '/diagnostics/report?log=0')
+    const { text: short } = withoutLog.body as { text: string }
+    expect(short).toContain(run.id)
+    expect(short).toContain('Daemon log and process command lines left out')
+    expect(short).not.toContain('opened <Ted home>/store')
+    expect(short).not.toMatch(/^\d+ \(parent \d+\) (?!·)/m)
   })
 
   test('Runs can’t read Diagnostics, logs or the report', async () => {
@@ -203,6 +210,7 @@ describe('Diagnostics', () => {
       '/diagnostics/usage',
       '/diagnostics/memory',
       '/diagnostics/report',
+      '/diagnostics/report?log=0',
       '/logs/daemon',
       '/runs/run-1/raw',
     ]) {

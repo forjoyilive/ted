@@ -1,3 +1,5 @@
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { readDaemonInfo } from '@ted/protocol'
@@ -106,7 +108,8 @@ describe('running in the background', () => {
         steps: [{ permission: { tool: 'Bash', input: { command: 'ls' } } }, never()],
       }),
     )
-    const window = await launchApp()
+    const sentry = await sentryStub()
+    const window = await launchApp({ TED_SENTRY_DSN: sentry.dsn })
     await ted('task', 'start', 'NB-1')
 
     await expect
@@ -134,7 +137,72 @@ describe('running in the background', () => {
 
     await clickMenuItem('Keyboard shortcuts')
     await window.getByRole('dialog', { name: 'Keyboard shortcuts' }).waitFor()
+    await window.keyboard.press('Escape')
+
+    try {
+      await clickMenuItem('Report a problem')
+      const report = window.getByRole('dialog', { name: 'Report a problem' })
+      await expect.poll(() => report.locator('pre').textContent()).toContain('Daemon log')
+      const send = report.getByRole('button', { name: 'Send' })
+      expect(await send.isDisabled()).toBe(true)
+      await report.getByLabel('What happened').fill('The Board froze.')
+      await report.getByLabel('Email (optional)').fill('me@example.com')
+      await report.getByLabel(/^Include the log/).uncheck()
+      expect(sentry.envelopes).toEqual([])
+      await send.click()
+      const sent = window.getByRole('dialog', { name: 'Report sent. Thank you.' })
+      const eventId = await sent.locator('[data-event-id]').textContent()
+      expect(sentry.envelopes).toHaveLength(1)
+      const [header, item, event, attachment, text] = (sentry.envelopes[0] ?? '').split('\n')
+      expect(JSON.parse(header ?? '')).toMatchObject({ event_id: eventId })
+      expect(JSON.parse(item ?? '')).toEqual({ type: 'feedback' })
+      expect(JSON.parse(event ?? '')).toMatchObject({
+        event_id: eventId,
+        environment: 'dev',
+        contexts: { feedback: { message: 'The Board froze.', contact_email: 'me@example.com' } },
+      })
+      expect(JSON.parse(attachment ?? '')).toMatchObject({
+        type: 'attachment',
+        filename: 'report.txt',
+      })
+      expect(text).toMatch(/^Ted /)
+      expect(sentry.envelopes[0]).toContain('Daemon log and process command lines left out')
+      const client = await daemonClient()
+      await expect.poll(async () => (await client.getSettings()).reportEmail).toBe('me@example.com')
+      await sent.getByRole('button', { name: 'Done' }).click()
+
+      sentry.status = 500
+      await clickMenuItem('Report a problem')
+      const again = window.getByRole('dialog', { name: 'Report a problem' })
+      await expect
+        .poll(() => again.getByLabel('Email (optional)').inputValue())
+        .toBe('me@example.com')
+      await again.getByLabel('What happened').fill('It froze again.')
+      await again.getByRole('button', { name: 'Send' }).click()
+      await again.getByRole('alert').getByText('The report wasn’t sent.').waitFor()
+      await again.getByRole('button', { name: 'Copy report' }).waitFor()
+      expect(sentry.envelopes).toHaveLength(2)
+    } finally {
+      sentry.server.close()
+    }
   })
+
+  async function sentryStub() {
+    const stub = { envelopes: [] as string[], status: 200 }
+    const server = http.createServer((req, res) => {
+      const chunks: Buffer[] = []
+      req.on('data', (chunk: Buffer) => chunks.push(chunk))
+      req.on('end', () => {
+        if (req.method === 'POST' && req.url === '/api/7/envelope/') {
+          stub.envelopes.push(Buffer.concat(chunks).toString('utf8'))
+        }
+        res.writeHead(stub.status, { 'Content-Type': 'application/json' }).end('{}')
+      })
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    return Object.assign(stub, { server, dsn: `http://public@127.0.0.1:${port}/7` })
+  }
 
   const loginLog = () => path.join(ctx.home, 'login-item.log')
   test.skipIf(process.platform !== 'darwin')(

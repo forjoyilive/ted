@@ -7,7 +7,7 @@ import type {
   Task,
   TaskLead,
 } from '@ted/protocol'
-import { useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { coordinatorStatus } from '../agent-chats.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AgentAbout } from '../components/AgentAbout.tsx'
@@ -26,7 +26,7 @@ import { useMessageDraft } from '../message-drafts.ts'
 import { when } from '../plans.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './Coordinator.module.css'
-import { LeadSelects } from './PlanChat.tsx'
+import { LeadSelects, TitleEditor } from './PlanChat.tsx'
 import views from './views.module.css'
 
 const placeholder = 'Ask about Tasks, or say what to start next…'
@@ -78,10 +78,12 @@ export function DeleteCoordinatorChat({
 
 export function CoordinatorStart({
   factory,
+  switcher,
   onStarted,
   onOpenTask,
 }: {
   factory: Factory
+  switcher?: ReactNode
   onStarted: (id: string) => void
   onOpenTask: (id: string) => void
 }) {
@@ -115,6 +117,7 @@ export function CoordinatorStart({
         <header className={styles.header}>
           <div className={styles.titleRow}>
             <h1>New chat</h1>
+            {switcher}
             {lead && <LeadSelects lead={lead} onChange={setLead} />}
           </div>
           <p>{factory.name}</p>
@@ -198,7 +201,14 @@ export function CoordinatorChat({
       <section className={views.pane} aria-label="Coordinator">
         <header className={styles.header}>
           <div className={styles.titleRow}>
-            <h1 className={styles.chatTitle}>{coordinator?.opening || 'Coordinator chat'}</h1>
+            {coordinator ? (
+              <TitleEditor
+                current={coordinator.title || 'Coordinator chat'}
+                onRename={(title) => ted.renameCoordinatorChat(chatId, title)}
+              />
+            ) : (
+              <h1 className={styles.chatTitle}>Coordinator chat</h1>
+            )}
             {coordinator && !ended && (
               <StatusChip tone={chip.tone} {...(chip.glyph && { glyph: chip.glyph })}>
                 {chip.label}

@@ -158,6 +158,10 @@ export const ted = {
   checkForUpdates: () => request('checkForUpdates'),
   restartToUpdate: () => request('restartToUpdate'),
   copyCrashReport: () => request('copyCrashReport'),
+  problemReport: () => request('problemReport'),
+  sendProblemReport: (input: import('@ted/protocol').ProblemReportRequest) =>
+    request('sendProblemReport', input),
+  openGitHubIssue: () => request('openGitHubIssue'),
   runFix: (input: RunFixRequest) => request('runFix', input),
   authorizeAsana: () => request('authorizeAsana'),
   openAsanaSetup: () => request('openAsanaSetup'),

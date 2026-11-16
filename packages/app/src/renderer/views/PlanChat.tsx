@@ -1,6 +1,7 @@
 import type {
   AgentKind,
   AnswerRequest,
+  Coordinator,
   Effort,
   Factory,
   Plan,
@@ -54,6 +55,7 @@ export function PlanChatView({
   planId,
   revealRequest,
   from,
+  switcher,
   onBack,
   backLabel,
   onOpenPlan,
@@ -65,6 +67,7 @@ export function PlanChatView({
   planId: string | undefined
   revealRequest?: ScrollReveal | undefined
   from?: string
+  switcher?: ReactNode
   onBack?: (() => void) | undefined
   backLabel?: string
   onOpenPlan: (planId: string) => void
@@ -77,6 +80,7 @@ export function PlanChatView({
       <NewPlanChat
         factory={factory}
         {...(from !== undefined && { from })}
+        switcher={switcher}
         onBack={onBack}
         backLabel={backLabel}
         onStarted={onOpenPlan}
@@ -182,6 +186,7 @@ function Back({ onBack, label }: { onBack: (() => void) | undefined; label?: str
 function NewPlanChat({
   factory,
   from,
+  switcher,
   onBack,
   backLabel,
   onStarted,
@@ -189,6 +194,7 @@ function NewPlanChat({
 }: {
   factory: Factory
   from?: string
+  switcher?: ReactNode
   onBack?: (() => void) | undefined
   backLabel?: string | undefined
   onStarted: (planId: string) => void
@@ -249,7 +255,10 @@ function NewPlanChat({
         <header className={styles.header}>
           <Back onBack={onBack} label={backLabel} />
           <div className={styles.titleRow}>
-            <h1 className={`${styles.title} ${styles.placeholderTitle}`}>New planning chat</h1>
+            <h1 className={`${styles.title} ${styles.placeholderTitle}`}>
+              {switcher ? 'New chat' : 'New planning chat'}
+            </h1>
+            {switcher}
             <span className={styles.spacer} />
             {lead && <LeadSelects lead={lead} onChange={setLead} />}
           </div>
@@ -331,13 +340,21 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   )
 }
 
-function TitleEditor({ plan, renameSignal }: { plan: Plan; renameSignal: number }) {
+export function TitleEditor({
+  current,
+  renameSignal = 0,
+  onRename,
+}: {
+  current: string
+  renameSignal?: number
+  onRename: (title: string) => Promise<Coordinator | Plan>
+}) {
   const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState(plan.title)
+  const [value, setValue] = useState(current)
   const [error, setError] = useState<string>()
   const input = useRef<HTMLInputElement>(null)
-  const title = useRef(plan.title)
-  title.current = plan.title
+  const title = useRef(current)
+  title.current = current
 
   useEffect(() => {
     if (renameSignal === 0) return
@@ -351,13 +368,13 @@ function TitleEditor({ plan, renameSignal }: { plan: Plan; renameSignal: number 
 
   async function save() {
     const title = value.trim()
-    if (title === '' || title === plan.title) {
+    if (title === '' || title === current) {
       setEditing(false)
-      setValue(plan.title)
+      setValue(current)
       return
     }
     try {
-      await ted.renamePlan(plan.id, title)
+      await onRename(title)
       setEditing(false)
       setError(undefined)
     } catch (failed) {
@@ -373,11 +390,11 @@ function TitleEditor({ plan, renameSignal }: { plan: Plan; renameSignal: number 
           className={styles.titleButton}
           title="Rename"
           onClick={() => {
-            setValue(plan.title)
+            setValue(current)
             setEditing(true)
           }}
         >
-          {plan.title}
+          {current}
         </ActionButton>
       </h1>
     )
@@ -396,7 +413,7 @@ function TitleEditor({ plan, renameSignal }: { plan: Plan; renameSignal: number 
           if (event.key === 'Enter') save()
           if (event.key === 'Escape') {
             setEditing(false)
-            setValue(plan.title)
+            setValue(current)
           }
         }}
       />
@@ -560,7 +577,11 @@ function PlanHeader({
     <header className={styles.header}>
       <Back onBack={onBack} {...(backLabel !== undefined && { label: backLabel })} />
       <div className={styles.titleRow}>
-        <TitleEditor plan={plan} renameSignal={renameSignal} />
+        <TitleEditor
+          current={plan.title}
+          renameSignal={renameSignal}
+          onRename={(title) => ted.renamePlan(plan.id, title)}
+        />
         <StatusChip tone={chip.tone} {...(chip.glyph && { glyph: chip.glyph })}>
           {chip.label}
         </StatusChip>

@@ -944,6 +944,15 @@ test('a conversation saved before chats is an ended chat that can be read, conti
     endedAt,
     runIds: [c.runId],
   })
+  expect((await client.call('PATCH', '/coordinator-chats/saved-1', { title: '   ' })).status).toBe(
+    400,
+  )
+  expect(
+    await ok<Coordinator>('PATCH', '/coordinator-chats/saved-1', { title: '  Saved   review ' }),
+  ).toMatchObject({ title: 'Saved review', endedAt })
+  expect(await ok<CoordinatorChatSummary[]>('GET', s.chats)).toMatchObject([
+    { id: 'saved-1', title: 'Saved review' },
+  ])
   const kept = await ok<RunChat>('GET', '/coordinator-chats/saved-1/chat')
   expect(kept.items.some((i) => i.kind === 'agent' && i.text === 'Saved advice')).toBe(true)
   expect(

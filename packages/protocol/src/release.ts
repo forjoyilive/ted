@@ -1,5 +1,8 @@
 export const releaseRepo = { owner: 'forjoyilive', repo: 'ted' } as const
 
+export const sentryDsn =
+  'https://fe2fe6e33dfeee119bcbdef552cbfd9c@o4511454216388608.ingest.us.sentry.io/4512443295727616'
+
 export const releasesUrl = `https://github.com/${releaseRepo.owner}/${releaseRepo.repo}/releases`
 
 export const downloadUrl = `${releasesUrl}/latest`

@@ -1083,6 +1083,7 @@ export const coordinatorChats = State.SQLite.table({
     id: State.SQLite.text({ primaryKey: true }),
     factoryId: State.SQLite.text(),
     endedAt: State.SQLite.text({ nullable: true }),
+    title: State.SQLite.text({ nullable: true }),
     data: State.SQLite.text(),
   },
 })
@@ -1314,6 +1315,10 @@ export const events = {
   coordinatorChatDeleted: Events.synced({
     name: 'v1.CoordinatorChatDeleted',
     schema: Schema.Struct({ id: Schema.String, runIds: Schema.Array(Schema.String) }),
+  }),
+  coordinatorChatRenamed: Events.synced({
+    name: 'v1.CoordinatorChatRenamed',
+    schema: Schema.Struct({ id: Schema.String, title: Schema.String }),
   }),
   validationProgressed: Events.synced({
     name: 'v1.ValidationProgressed',
@@ -4190,7 +4195,7 @@ const coordinatorRunsDeleted = (runIds: readonly string[]) =>
   ])
 
 function patchCoordinatorChat(
-  row: { data: string; endedAt: string | null } | undefined,
+  row: { data: string; endedAt: string | null; title: string | null } | undefined,
   id: string,
   factoryId: string,
   change: CoordinatorChange,
@@ -4201,6 +4206,7 @@ function patchCoordinatorChat(
       id,
       factoryId,
       endedAt: row?.endedAt ?? null,
+      title: row?.title ?? null,
       data: JSON.stringify(applyCoordinatorChange(before, change)),
     })
     .onConflict('id', 'replace')
@@ -5616,6 +5622,8 @@ const materializers = counted(
         patchCoordinatorChat(query(coordinatorChats.where({ id }).first()), id, factoryId, change),
       'v1.CoordinatorChatContinued': ({ id }) =>
         coordinatorChats.update({ endedAt: null }).where({ id }),
+      'v1.CoordinatorChatRenamed': ({ id, title }) =>
+        coordinatorChats.update({ title }).where({ id }),
       'v1.CoordinatorChatDeleted': ({ id, runIds }) => [
         coordinatorChats.delete().where({ id }),
         requestSnoozes.delete().where({ ownerId: id }),
