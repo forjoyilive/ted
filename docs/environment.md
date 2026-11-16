@@ -22,6 +22,7 @@ The authoritative reasons for individual inputs are beside their entries in `ted
 | `TED_ASANA_API`, `TED_ASANA_CALLBACK_PORT` | Redirect Asana token/API requests to a loopback stub and isolate its temporary callback port. Ignored in release. |
 | `TED_LINEAR_API` | Redirect Linear requests to a stub. |
 | `TED_UPDATE_FEED`, `TED_UPDATE_LOG` | Use a loopback update server and record update installation. |
+| `TED_SENTRY_DSN` | Send Report a problem to a loopback Sentry stub instead of TED’s Sentry project. `vitest.config.ts` points every test at a closed loopback port, so no test reaches Sentry. Ignored in release. |
 | `TED_APP_TOKEN` | Supply a known app key in tests. Release generates its app key in memory and passes it to the daemon on stdin. |
 | `TED_HIDDEN_WINDOW`, `TED_SKIP_FIRST_LAUNCH` | Hide the test app and bypass first-launch setup. |
 | `TED_EXIT_WITH_PID`, `TED_TEST_RUN`, `TED_TEST_FILE` | Track and clean up test processes. |
@@ -47,7 +48,7 @@ The regression tests exercise both editions, including starting a release-editio
 
 New Codex sessions use `TED_HOME/codex` for `CODEX_HOME` and `CODEX_SQLITE_HOME`. TED also overrides Codex’s `sqlite_home` for those launches, so an inherited database location does not put their history back in the personal Codex index. TED Dev and release use their own homes. The daemon’s agent health and subscription-usage checks use the same Codex home as new sessions.
 
-Use **Sign in** under App Settings → Agents to sign in with the existing paid ChatGPT account. This is another local login, not a new account or subscription, and does not require API billing. TED does not copy personal credentials or global Codex configuration, skills or plugins into this folder. Repository instructions and configuration still follow Codex’s normal discovery rules.
+Use **Sign in** under App Settings → Providers to sign in with the existing paid ChatGPT account. This is another local login, not a new account or subscription, and does not require API billing. TED does not copy personal credentials or global Codex configuration, skills or plugins into this folder. Repository instructions and configuration still follow Codex’s normal discovery rules.
 
 Each new Run records its storage choice in `runs/<id>/codex-home`. Before its first turn, the Codex driver also records the thread ID under `codex/ted-sessions/`, so another Run resuming that session finds the same home. These files contain no credentials. Runs and sessions without these records keep using their original configured or default Codex home; their existing conversations are not moved or cleaned up. An already running host keeps its environment until its normal replacement.
 

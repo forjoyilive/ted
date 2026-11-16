@@ -135,11 +135,12 @@ export const globalCommands: readonly Command[] = [
     run: goToView('map'),
   },
   {
-    id: 'go-to-plans',
-    label: 'Go to Plans',
+    id: 'go-to-agents',
+    label: 'Go to Agents',
     scope: 'global',
-    shortcuts: keysFor('go-to-plans'),
-    run: goToView('plans'),
+    keywords: 'coordinator planner plans chats',
+    shortcuts: keysFor('go-to-agents'),
+    run: goToView('agents'),
   },
   {
     id: 'plan',

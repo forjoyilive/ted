@@ -3,7 +3,7 @@ import { fireEvent, screen, within } from '@testing-library/react'
 import { expect, test } from 'vitest'
 import { blockerMap, linkRefusal } from '../src/renderer/blocker-map.ts'
 import { appState } from './support/app.tsx'
-import { user } from './support/component.ts'
+import { expandFactory, user } from './support/component.ts'
 import { factory, task } from './support/fixtures.ts'
 
 const nb = (number: number, fields: Parameters<typeof task>[0] = {}) =>
@@ -96,7 +96,7 @@ test('Map sits under Tasks, removes a blocker from its line and adds one by drag
   const calls = (name: string) =>
     a.request.mock.calls.filter((call) => call[0] === name).map((call) => call.slice(1))
   const u = user()
-  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await expandFactory()
   const nav = within(screen.getByRole('navigation', { name: 'Sidebar' }))
   await u.click(nav.getByRole('button', { name: 'Task views' }))
   await u.click(nav.getByRole('button', { name: 'List' }))

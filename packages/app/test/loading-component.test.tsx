@@ -376,9 +376,9 @@ test('an empty successful agent read ends the initial loading state', async () =
     library: () => ({ agents: [], version: 'v1' }),
   })
   render(<AgentsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
-  expect(screen.getByRole('status', { name: 'Checking your agents…' })).toBeTruthy()
+  expect(screen.getByRole('status', { name: 'Checking your Providers…' })).toBeTruthy()
   await act(async () => pending.resolve([]))
-  expect(screen.queryByRole('status', { name: 'Checking your agents…' })).toBeNull()
+  expect(screen.queryByRole('status', { name: 'Checking your Providers…' })).toBeNull()
 })
 
 test('Full brief preserves loaded sections through a failed refresh and pending retry', async () => {

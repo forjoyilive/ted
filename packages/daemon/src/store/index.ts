@@ -125,6 +125,14 @@ import {
   type WaitingRequest,
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
+import { planTitle as titleFromMessage } from '@ted/protocol/plan'
+import {
+  compareStages,
+  hasClarifyRounds,
+  isCleanup,
+  mergesHere,
+  validates,
+} from '@ted/protocol/stage'
 import { Effect } from 'effect'
 import { totalMemory } from '../busy.ts'
 import { isDiskFullError } from '../disk.ts'
@@ -178,7 +186,7 @@ import {
   commentAttachments,
   comments,
   conversationTabs,
-  coordinators as coordinatorRows,
+  coordinatorChats as coordinatorRows,
   deletedTasks,
   events,
   factories,
@@ -478,6 +486,7 @@ export interface NewTask {
 export interface PlannedStage {
   stage: AgentStageId
   enabled: boolean
+  name?: string
 }
 
 export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'> & {
@@ -859,7 +868,7 @@ export interface TedStore extends TaskHistory {
   taskPlanEnded(
     taskId: string,
     planId: string,
-    outcome: 'approved' | 'stopped' | 'failed' | 'deleted',
+    outcome: 'approved' | 'stopped' | 'failed' | 'deleted' | 'archived',
   ): void
   rankTask(taskId: string, rank: number, priority: Priority): Task
   setPriority(taskId: string, priority: Priority): Task
@@ -955,6 +964,7 @@ export interface TedStore extends TaskHistory {
   ): Task
   dashboard(factoryIds: readonly string[], range: DashboardRange, asOf?: number): DashboardReport
   listStageEntries(taskId: string): StageEntry[]
+  recordedStages(taskId: string): PlannedStage[] | undefined
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
   rememberStageFileText(seen: SeenStageFile): void
@@ -1517,7 +1527,7 @@ export async function openStore({
       .some(
         (row) =>
           row.stage === 'done' ||
-          row.stage === 'cleanup' ||
+          isCleanup(row.stage) ||
           (row.stage === 'backlog' &&
             !row.startRequested &&
             !queued.has(row.id) &&
@@ -1708,7 +1718,7 @@ export async function openStore({
 
   const history = createTaskHistory(
     readTaskLog,
-    (taskId) => entryRows(taskId).findLast((e) => e.stage === 'merge')?.at ?? '',
+    (taskId) => entryRows(taskId).findLast((e) => mergesHere(e.stage))?.at ?? '',
   )
 
   const mergePendingFor = (taskId: string, repos: readonly TaskRepo[]): boolean =>
@@ -2069,18 +2079,16 @@ export async function openStore({
     )
     const waitingOn = unmerged.map((b) => b.displayId)
     const firstEnded = unmerged[0]?.ended
-    const visit = stage === 'merge' ? history.mergeHistory(row.id) : undefined
+    const visit = mergesHere(stage) ? history.mergeHistory(row.id) : undefined
     const leadWorks = visit?.awaitsLead === true && visit.leadAdvanced === undefined
-    const waitingFor =
-      stage === 'merge'
-        ? repos.find((r) => !r.removed && r.pullRequest?.waiting !== undefined)?.pullRequest
-            ?.waiting
-        : undefined
+    const waitingFor = mergesHere(stage)
+      ? repos.find((r) => !r.removed && r.pullRequest?.waiting !== undefined)?.pullRequest?.waiting
+      : undefined
     const github = leadWorks && waitingFor !== 'sign-in' ? undefined : waitingFor
     const openPullRequest = repos.some(
       (r) => !r.removed && r.pullRequest && r.pullRequest.state !== 'merged',
     )
-    const merging = stage === 'merge' && openPullRequest ? history.mergeHistory(row.id) : undefined
+    const merging = mergesHere(stage) && openPullRequest ? history.mergeHistory(row.id) : undefined
     const mergeWaits = merging?.latest === 'started'
     const autoMergeLeft =
       merging !== undefined &&
@@ -2144,9 +2152,9 @@ export async function openStore({
       ...(snoozedUntil !== null && { snoozedUntil }),
       ...(archivedAt !== null && { archived: true }),
       ...(failedAt !== null && { failed: true }),
-      ...(stage === 'cleanup' &&
+      ...(isCleanup(stage) &&
         requests.some((row) => row.cleanupFailure !== null) && { cleanupFailed: true }),
-      ...(stage === 'cleanup' && checkingTasks.has(row.id) && { cleanupCommandsRunning: true }),
+      ...(isCleanup(stage) && checkingTasks.has(row.id) && { cleanupCommandsRunning: true }),
       ...(partlyMerged && { partlyMerged }),
       ...(stoppedAt !== null && {
         stopped: {
@@ -2173,12 +2181,12 @@ export async function openStore({
           (leadAgent ?? held?.agent) &&
           !reads.settings().enabledAgents.includes((leadAgent ?? held?.agent) as AgentKind) &&
           (!leadLive || lead?.agent !== (leadAgent ?? held?.agent))
-            ? { hold: `${leadAgent ?? held?.agent} is off. Enable it in Settings → Agents.` }
+            ? { hold: `${leadAgent ?? held?.agent} is off. Enable it in Settings → Providers.` }
             : place > 0
               ? newWorkHeld === undefined
                 ? { place }
                 : { hold: newWorkHeld }
-              : { hold: 'Waiting for the agent' },
+              : { hold: 'Waiting for a Provider' },
       }),
       ...(place > 0 && heldBusy && { busy: heldBusy }),
       queuedSubAgents: reads.subAgentRequests(row.id).map((r) => ({
@@ -2187,7 +2195,7 @@ export async function openStore({
           paused: paused[r.agent as AgentKind],
         }),
         ...(!reads.settings().enabledAgents.includes(r.agent as AgentKind)
-          ? { hold: `${r.agent} is off. Enable it in Settings → Agents.` }
+          ? { hold: `${r.agent} is off. Enable it in Settings → Providers.` }
           : newWorkHeld !== undefined
             ? { hold: newWorkHeld }
             : heldBusy
@@ -2221,7 +2229,7 @@ export async function openStore({
       ...(activity !== null && activityEntries === entries.length && { agentActivity: activity }),
       ...(live.some((r) => r.retrying) && { retrying: true }),
       ...(needsPlanningAt !== null && { needsPlanning: true }),
-      ...(stage === 'clarify' && planningFrom(row.id) && { planningInChat: true }),
+      ...(hasClarifyRounds(stage) && planningFrom(row.id) && { planningInChat: true }),
     }
     if (observe) noteTaskWait(row.id, facts)
     const status = taskStatus(facts)
@@ -2275,10 +2283,10 @@ export async function openStore({
     const planLink = reads.planLinks(row.id).at(0)
     const planTitle = planLink && reads.plan(planLink.planId).at(0)?.title
     const merged =
-      stage === 'done' || stage === 'cleanup'
+      stage === 'done' || isCleanup(stage)
         ? {
             at:
-              entries.findLast((e) => e.stage === 'cleanup')?.at ??
+              entries.findLast((e) => isCleanup(e.stage))?.at ??
               entries.findLast((e) => e.stage === 'done')?.at ??
               row.createdAt,
             pullRequests: repos.flatMap((r) =>
@@ -2731,7 +2739,7 @@ export async function openStore({
     store.query(queryDb(taskBriefs.where({ taskId }).orderBy('version', 'asc')))
 
   const stageEntered = (taskId: string, stage: StageId, entry: NewStageEntry, at: string) =>
-    events.taskStageEnteredV3({
+    events.taskStageEnteredV4({
       id: randomUUID(),
       taskId,
       stage,
@@ -2739,7 +2747,12 @@ export async function openStore({
       stageFileLayer: entry.stageFile?.layer ?? null,
       stageFilePath: entry.stageFile?.path ?? null,
       layers: JSON.stringify(entry.layers),
-      order: JSON.stringify(entry.order),
+      order: JSON.stringify(entry.order.map(({ stage, enabled }) => ({ stage, enabled }))),
+      names: JSON.stringify(
+        Object.fromEntries(
+          entry.order.flatMap((p) => (p.name === undefined ? [] : [[p.stage, p.name]])),
+        ),
+      ),
       at,
     })
 
@@ -3580,7 +3593,7 @@ export async function openStore({
         ]
       })
     const fromCoordinators = store
-      .query(queryDb(coordinatorRows))
+      .query(queryDb(coordinatorRows.where({ endedAt: null })))
       .flatMap((row): WaitingRequest[] => {
         if (!factoryIds.has(row.factoryId)) return []
         const chat = JSON.parse(row.data) as StoredCoordinator
@@ -3589,6 +3602,8 @@ export async function openStore({
           .map((c) => ({
             source: 'coordinator',
             id: c.id,
+            chatId: row.id,
+            chatTitle: row.title ?? titleFromMessage(chat.opening),
             factoryId: row.factoryId,
             createdAt: c.askedAt,
             headline: confirmationHeadline(c),
@@ -3742,8 +3757,8 @@ export async function openStore({
   const coordinatorStore = createCoordinatorStore({
     store,
     commit,
-    changed(factoryId) {
-      emit({ type: 'coordinator-changed', factoryId })
+    changed(factoryId, chatId) {
+      emit({ type: 'coordinator-changed', factoryId, chatId })
       noteActivity()
     },
   })
@@ -3931,7 +3946,8 @@ export async function openStore({
             (choice) =>
               (canAccept || choice !== failureChoices.accepted) &&
               (choice !== 'Wait for a repair Task' ||
-                ['validate', 'merge'].includes(taskRow(value.taskId)?.stage ?? '')),
+                validates(taskRow(value.taskId)?.stage ?? '') ||
+                mergesHere(taskRow(value.taskId)?.stage ?? '')),
           ),
           purpose: { kind: 'failure' },
           author: { kind: 'ted' },
@@ -5474,7 +5490,7 @@ export async function openStore({
     },
     mergePending(taskId) {
       const task = taskRow(taskId)
-      return task?.stage === 'merge' && mergePendingFor(taskId, reposOf(taskId))
+      return mergesHere(task?.stage ?? '') && mergePendingFor(taskId, reposOf(taskId))
     },
     pullRequestSignedOff(taskId, name, signedOff) {
       commit(
@@ -5556,7 +5572,7 @@ export async function openStore({
             ]
           : []),
         ...(entry ? [stageEntered(taskId, stage, entry, at)] : []),
-        ...(stage === 'merge' ? [events.mergeAwaitsLead({ taskId, at })] : []),
+        ...(mergesHere(stage) ? [events.mergeAwaitsLead({ taskId, at })] : []),
         ...withdrawn.map(({ id }) =>
           events.commentAnswered({ id, answer: JSON.stringify(answer), at }),
         ),
@@ -5564,7 +5580,7 @@ export async function openStore({
       for (const { id } of withdrawn) emitComment(id)
       const task = updatedTask(taskId)
       if (options?.prepare) updatedQueue(taskId)
-      if (stage === 'done' || stage === 'cleanup') updatedDependents(taskId)
+      if (stage === 'done' || isCleanup(stage)) updatedDependents(taskId)
       return task
     },
     dashboard(factoryIds, range, asOf = Date.now()) {
@@ -5586,6 +5602,12 @@ export async function openStore({
     },
     listStageEntries: (taskId) =>
       store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc'))).map(toStageEntry),
+    recordedStages(taskId) {
+      const saved = store
+        .query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc')))
+        .findLast((e) => e.order !== null)?.order
+      return saved ? (JSON.parse(saved) as PlannedStage[]) : undefined
+    },
     acceptWorkflowLayer(layer, { files, version }) {
       commit(
         events.workflowLayerAccepted({
@@ -7031,7 +7053,7 @@ export async function openStore({
           : request.source === 'plan'
             ? request.planId
             : request.source === 'coordinator'
-              ? request.factoryId
+              ? request.chatId
               : request.automationId
       commit(
         until === null
@@ -7326,24 +7348,24 @@ function track(stage: StageId, entries: readonly (typeof stageEntries.Type)[]): 
   const saved = entries.findLast((e) => e.order !== null)?.order
   const plan: PlannedStage[] = saved
     ? (JSON.parse(saved) as PlannedStage[])
-    : agentStageIds.filter((id) => id !== 'cleanup').map((id) => ({ stage: id, enabled: true }))
+    : agentStageIds.filter((id) => !isCleanup(id)).map((id) => ({ stage: id, enabled: true }))
   const order: StageId[] = plan.map((p) => p.stage)
   const entered = new Set(entries.map((e) => e.stage))
   const inOrder = order.includes(stage)
-  const rank = (id: StageId) => (inOrder ? order.indexOf(id) : builtInRank(id))
-  return plan.map(({ stage: id, enabled }) => {
-    if (id === stage) return { stage: id, state: 'current' }
-    if (!enabled) return { stage: id, state: 'skipped' }
-    if (stage === 'backlog') return { stage: id, state: 'future' }
-    if (stage === 'done' || rank(id) < rank(stage)) {
-      return { stage: id, state: entered.has(id) ? 'past' : 'skipped' }
-    }
-    return { stage: id, state: 'future' }
-  })
-}
-
-function builtInRank(id: StageId): number {
-  return id === 'backlog' ? -1 : id === 'done' ? agentStageIds.length : agentStageIds.indexOf(id)
+  const rank = (id: StageId) =>
+    inOrder ? order.indexOf(id) : compareStages(id, stage, order) < 0 ? -1 : 1
+  const state = (id: StageId, enabled: boolean): TrackStage['state'] => {
+    if (id === stage) return 'current'
+    if (!enabled) return 'skipped'
+    if (stage === 'backlog') return 'future'
+    if (stage === 'done' || rank(id) < rank(stage)) return entered.has(id) ? 'past' : 'skipped'
+    return 'future'
+  }
+  return plan.map(({ stage: id, enabled, name }) => ({
+    stage: id,
+    ...(name !== undefined && { name }),
+    state: state(id, enabled),
+  }))
 }
 
 function realPath(dir: string): string {

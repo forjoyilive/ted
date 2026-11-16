@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -7,7 +7,8 @@ import {
   readDaemonInfo,
   tedPaths,
 } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test } from 'vitest'
+import type { MakeDirectory } from '../src/files.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { resolveAgentChoices } from '../src/workflow/agent-choices.ts'
@@ -23,17 +24,11 @@ import {
   waitUntil,
 } from './helpers.ts'
 
-const pauses = vi.hoisted(() => ({ folder: undefined as (() => Promise<void>) | undefined }))
-vi.mock('node:fs/promises', async (original) => {
-  const fs = await original<typeof import('node:fs/promises')>()
-  return {
-    ...fs,
-    mkdir: async (...args: Parameters<typeof fs.mkdir>) => {
-      if (/\/coordinators\/[a-f0-9-]{36}$/.test(String(args[0]))) await pauses.folder?.()
-      return fs.mkdir(...args)
-    },
-  }
-})
+const pauses = { folder: undefined as (() => Promise<void>) | undefined }
+const pausingMkdir: MakeDirectory = async (dir, options) => {
+  if (/\/coordinators\/[a-f0-9-]{36}$/.test(dir)) await pauses.folder?.()
+  return mkdir(dir, options)
+}
 
 let home: string
 let cleanup: () => Promise<void>
@@ -66,6 +61,7 @@ async function start() {
     version: '9.9.9',
     claudeBin: stubClaudePath,
     codexBin: stubCodexPath,
+    mkdir: pausingMkdir,
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('Missing daemon info')
@@ -110,7 +106,7 @@ test('only the app can toggle agents; generic settings cannot bypass the decisio
   expect((await client.changeAgentAvailability(input)).confirmationRequired).toBe(false)
   await client.changeAgentAvailability({ agent: 'antigravity', enabled: false })
   await expect(client.changeAgentAvailability({ agent: 'claude', enabled: false })).rejects.toThrow(
-    /another agent/,
+    /another Provider/,
   )
   await expect(
     client.startDevRun({ agent: 'codex', prompt: 'Do not start', cwd: scratch }),
@@ -221,12 +217,15 @@ test('disabled Task, Planning and Coordinator choices wait without blocking enab
     kind: 'paused',
     reason: expect.stringContaining('off'),
   })
-  await client.messageCoordinator(factory.id, { text: 'Saved Coordinator choice', agent: 'claude' })
+  const saved = await client.startCoordinatorChat(factory.id, {
+    text: 'Saved Coordinator choice',
+    agent: 'claude',
+  })
   const queued = await taskOf(client, task.id)
   expect(queued.lead?.agent).toBe('claude')
   expect(queued.status).toMatchObject({ kind: 'queued', hold: expect.stringContaining('off') })
   expect((await client.getPlan(plan.id)).plan.paused).toContain('off')
-  expect((await client.coordinator(factory.id))?.error).toContain('off')
+  expect((await client.coordinator(saved.id)).error).toContain('off')
   const enabled = await client.createTask({
     factory: 'NB',
     title: 'Enabled Codex work',
@@ -405,7 +404,7 @@ test('a Coordinator refused after queue admission releases its slot and retries 
     await release.promise
   }
   try {
-    const coordinator = await client.messageCoordinator(factory.id, {
+    const coordinator = await client.startCoordinatorChat(factory.id, {
       agent: 'claude',
       text: 'Keep this request for after re-enable',
     })
@@ -413,10 +412,10 @@ test('a Coordinator refused after queue admission releases its slot and retries 
     await client.changeAgentAvailability({ agent: 'claude', enabled: false })
     release.resolve()
     await waitUntil(async () => {
-      const current = await client.coordinator(factory.id)
-      return current?.status === 'queued' && current.error?.includes('off')
+      const current = await client.coordinator(coordinator.id)
+      return current.status === 'queued' && current.error?.includes('off')
     }, 'Coordinator to return to the queue')
-    expect((await client.coordinator(factory.id))?.started).toBe(false)
+    expect((await client.coordinator(coordinator.id)).started).toBe(false)
     const task = await client.createTask({
       factory: 'NB',
       title: JSON.stringify({ steps: [{ endTurn: true }] }),
@@ -434,7 +433,7 @@ test('a Coordinator refused after queue admission releases its slot and retries 
     pauses.folder = undefined
     await client.changeAgentAvailability({ agent: 'claude', enabled: true })
     await waitUntil(
-      async () => (await client.coordinator(factory.id))?.started,
+      async () => (await client.coordinator(coordinator.id)).started,
       'Coordinator to retry',
     )
     expect((await client.getRun(coordinator.runId)).run.prompt).toContain(

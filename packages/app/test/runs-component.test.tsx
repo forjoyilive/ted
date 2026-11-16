@@ -2,7 +2,7 @@
 import { act, fireEvent, screen, within } from '@testing-library/react'
 import { expect, test } from 'vitest'
 import { appState } from './support/app.tsx'
-import { user } from './support/component.ts'
+import { expandFactory, user } from './support/component.ts'
 
 function working(a: ReturnType<typeof appState>) {
   a.state.slots = {
@@ -77,7 +77,7 @@ test('empty Working Runs explains no work and Escape closes it', async () => {
 test('Factory caps appear in Board and List headers only when working', async () => {
   const a = appState()
   a.mount()
-  await user().click(await screen.findByRole('button', { name: 'widgets' }))
+  await expandFactory()
   await user().click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Task views',

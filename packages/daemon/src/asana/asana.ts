@@ -10,7 +10,13 @@ import {
 import { type Clock, systemClock, type Timer } from '../clock.ts'
 import { RequestError } from '../errors.ts'
 import { type Keyring, KeyringUnavailableError } from '../linear/keyring.ts'
-import { CredentialCleanupError, type Credentials, credentialStore } from './credentials.ts'
+import { redactSecrets } from '../redact.ts'
+import {
+  type CommitFile,
+  CredentialCleanupError,
+  type Credentials,
+  credentialStore,
+} from './credentials.ts'
 
 export interface AsanaOptions {
   home: string
@@ -23,6 +29,7 @@ export interface AsanaOptions {
   timeoutMs?: number
   hold?: () => () => void
   clock?: Clock
+  commitFile?: CommitFile
 }
 
 class ConnectionError extends Error {
@@ -68,7 +75,7 @@ export function createAsana(options: AsanaOptions) {
   const port = options.callbackPort ?? (edition === 'release' ? 49174 : 49175)
   const redirectUri = `http://127.0.0.1:${port}/asana/callback`
   const now = options.now ?? options.clock?.now ?? Date.now
-  const store = credentialStore(options.home, options.keyring)
+  const store = credentialStore(options.home, options.keyring, options.commitFile)
   let generation = 0
   let tail: Promise<unknown> = Promise.resolve()
   let notice: string | undefined
@@ -102,7 +109,8 @@ export function createAsana(options: AsanaOptions) {
   async function status(): Promise<AsanaStatus> {
     try {
       const { record, place } = await store.read()
-      const verified = completeScopes(record?.tokens?.scopes)
+      const verified = hasRequiredScopes(record?.tokens?.scopes)
+      const extras = verified ? extraScopes(record?.tokens?.scopes ?? []) : []
       return {
         state: session
           ? 'authorizing'
@@ -119,6 +127,7 @@ export function createAsana(options: AsanaOptions) {
         redirectUri,
         ...(place && { storedIn: place }),
         ...(record?.tokens && verified && { user: record.tokens.user }),
+        ...(extras.length > 0 && { extraScopes: extras }),
         ...(notice
           ? { error: notice }
           : record?.tokens && !verified
@@ -235,19 +244,14 @@ export function createAsana(options: AsanaOptions) {
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ token: access }),
     })
-    const scopes =
-      typeof info.scope === 'string' ? [...new Set(info.scope.split(/\s+/).filter(Boolean))] : []
-    if (
-      info.active !== true ||
-      info.client_id !== record.clientId ||
-      info.token_type !== 'bearer' ||
-      !completeScopes(scopes)
-    ) {
+    const problem = grantProblem(info, record.clientId)
+    if (problem) {
+      console.warn(redactSecrets(`Asana token check failed: ${problem}`))
       throw new RevokedError(
-        'Asana did not confirm this app’s complete permission grant. Check the registered scopes and reconnect.',
+        `Asana didn’t confirm this app’s permission grant: ${problem}. Check the app’s permission scopes in the Asana developer console and reconnect.`,
       )
     }
-    return scopes
+    return scopeList(info.scope)
   }
   async function exchange(record: Credentials, fields: Record<string, string>) {
     const result = await request(`${oauth}/-/oauth_token`, form(record, fields))
@@ -676,10 +680,33 @@ function sameState(actual: string | null, expected: string) {
   return left.length === right.length && timingSafeEqual(left, right)
 }
 
-function completeScopes(scopes: readonly string[] | undefined) {
-  return (
-    scopes !== undefined &&
-    asanaScopes.every((scope) => scopes.includes(scope)) &&
-    scopes.every((scope) => asanaScopes.includes(scope))
-  )
+const identityScopes = ['openid', 'email', 'profile']
+
+function scopeList(value: unknown) {
+  if (typeof value !== 'string') return []
+  return [...new Set(value.split(/\s+/))]
+    .filter((scope) => /^[a-z][a-z0-9_.:-]{0,63}$/i.test(scope))
+    .slice(0, 100)
+}
+
+function grantProblem(info: Record<string, unknown>, clientId: string) {
+  if (info.active !== true) return 'the token isn’t active'
+  if (typeof info.token_type !== 'string' || info.token_type.toLowerCase() !== 'bearer')
+    return 'the token isn’t an access token'
+  if (info.client_id !== undefined && info.client_id !== clientId)
+    return 'the token belongs to a different client ID'
+  if (typeof info.scope !== 'string') return 'Asana sent no scope list'
+  const granted = scopeList(info.scope)
+  const missing = asanaScopes.filter((scope) => !granted.includes(scope))
+  if (missing.length > 0)
+    return `${missing.length === 1 ? 'this scope is' : 'these scopes are'} missing: ${missing.join(', ')}`
+  return undefined
+}
+
+function hasRequiredScopes(scopes: readonly string[] | undefined) {
+  return scopes !== undefined && asanaScopes.every((scope) => scopes.includes(scope))
+}
+
+function extraScopes(scopes: readonly string[]) {
+  return scopes.filter((scope) => !asanaScopes.includes(scope) && !identityScopes.includes(scope))
 }

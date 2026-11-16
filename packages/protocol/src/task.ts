@@ -7,22 +7,19 @@ import type { ValidationSnapshot } from './failures.ts'
 import type { LinearTeam } from './linear.ts'
 import type { AgentKind, RunState } from './run.ts'
 import type { BusyHold } from './slots.ts'
+import type { AgentStageId, StageId } from './stage.ts'
 import { RequestValidationError } from './validation.ts'
 
-export const agentStageIds = [
-  'intake',
-  'clarify',
-  'design',
-  'work',
-  'validate',
-  'review',
-  'merge',
-  'cleanup',
-] as const
-
-export type AgentStageId = (typeof agentStageIds)[number]
-
-export type StageId = 'backlog' | AgentStageId | 'done'
+export {
+  type AgentStageId,
+  agentStageIds,
+  type BuiltInAgentStageId,
+  type BuiltInStageId,
+  clarifyIsOver,
+  isCustomStageId,
+  type StageId,
+  stageDisplayName,
+} from './stage.ts'
 
 export const priorities = ['urgent', 'high', 'medium', 'low', 'none'] as const
 
@@ -33,10 +30,6 @@ export const clarifyDepths = ['auto', 'none', 'few', 'grilling'] as const
 export type ClarifyDepth = (typeof clarifyDepths)[number]
 
 export type ClarifyDepthChooser = 'human' | 'task-lead'
-
-export function clarifyIsOver(stage: StageId): boolean {
-  return stage !== 'backlog' && stage !== 'intake' && stage !== 'clarify'
-}
 
 export interface SetClarifyDepthRequest {
   depth: ClarifyDepth
@@ -147,6 +140,7 @@ export type TrackState = 'past' | 'current' | 'skipped' | 'future'
 
 export interface TrackStage {
   stage: AgentStageId
+  name?: string
   state: TrackState
 }
 
@@ -400,9 +394,18 @@ export interface TaskRepo {
   pullRequest?: TaskPullRequest
 }
 
-export const ciSignals = ['workflow-files', 'required-checks', 'recent-checks'] as const
+export const ciSignals = [
+  'workflow-files',
+  'required-checks',
+  'recent-pull-requests',
+  'recent-checks',
+] as const
 
 export type CiSignal = (typeof ciSignals)[number]
+
+export const pullRequestCiModes = ['auto', 'none', 'required'] as const
+
+export type PullRequestCiMode = (typeof pullRequestCiModes)[number]
 
 export interface TaskPush {
   commit: string
@@ -568,7 +571,10 @@ export interface RoundQuestion {
   recommendedChoices?: string[]
 }
 
-export const joinChoices = (choices: readonly string[]): string => choices.join('; ')
+export const noChoicesPicked = 'None of these'
+
+export const joinChoices = (choices: readonly string[]): string =>
+  choices.length === 0 ? noChoicesPicked : choices.join('; ')
 
 export const sameChoices = (a: readonly string[], b: readonly string[]): boolean =>
   a.length === b.length && a.every((c) => b.includes(c))

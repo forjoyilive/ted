@@ -89,7 +89,7 @@ export function sleepIdleRuns(options: IdleSleepOptions): IdleSleep {
       if (!rests) continue
       runs
         .sleep(run.id, at - afterMs)
-        .catch((error: unknown) => console.error(`couldn’t put Run ${run.id} to sleep:`, error))
+        .catch((error: Error) => console.error(`couldn’t put Run ${run.id} to sleep:`, error))
     }
   }
 

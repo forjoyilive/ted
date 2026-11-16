@@ -563,7 +563,7 @@ test('a delayed earlier response keeps the Inbox empty without an answer recap',
 })
 
 test.each(['response-first', 'event-first'] as const)(
-  'automatically opening and answering a Planning request shows no recap (%s)',
+  'answering a Task request stops before a Planning request, which opens on the Agents screen (%s)',
   async (order) => {
     const a = appState()
     a.state.tasks = [task()]
@@ -581,6 +581,7 @@ test.each(['response-first', 'event-first'] as const)(
         agent: 'claude',
         status: 'waiting',
         createdAt,
+        lastAt: createdAt,
         createdTasks: 0,
         runId: 'planner',
       },
@@ -644,19 +645,18 @@ test.each(['response-first', 'event-first'] as const)(
     }
     if (order === 'response-first') await act(async () => reply.resolve(answered))
     else await act(async () => a.emit({ type: 'comment-updated', comment: answered }))
-    const planning = await screen.findByRole('region', { name: 'Planning chat' })
-    await within(planning).findByRole('button', { name: 'Submit answers' })
-    expect(screen.getByRole('region', { name: 'Inbox' })).toBe(inbox)
-    expect(within(planning).getByRole('button', { name: '← Inbox' })).toBeTruthy()
-    expect(screen.queryByRole('region', { name: 'Task thread' })).toBeNull()
+    await screen.findByRole('region', { name: 'Nothing open' })
+    expect(screen.queryByRole('region', { name: 'Planning chat' })).toBeNull()
     if (order === 'response-first')
       await act(async () => a.emit({ type: 'comment-updated', comment: answered }))
     else await act(async () => reply.resolve(answered))
     expect(within(inbox).queryByRole('status')).toBeNull()
-    await user().click(within(planning).getByRole('button', { name: 'Submit answers' }))
-    await screen.findByText('Nothing waiting on you')
-    expect(within(inbox).queryByRole('status')).toBeNull()
-    expect(screen.queryByRole('region', { name: 'Planning chat' })).toBeNull()
+    expect(within(inbox).getByText(/Planner · Plan the settings update/)).toBeTruthy()
+    await user().click(within(inbox).getByText('Next settings change'))
+    const planning = await screen.findByRole('region', { name: 'Planning chat' })
+    await within(planning).findByRole('button', { name: 'Submit answers' })
+    expect(screen.queryByRole('region', { name: 'Inbox' })).toBeNull()
+    expect(within(planning).queryByRole('button', { name: '← Inbox' })).toBeNull()
     await act(async () => refresh.resolve([]))
   },
 )

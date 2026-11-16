@@ -8,7 +8,6 @@ import {
   type AgentRowView,
   type AgentStageId,
   agentRoles,
-  agentStageIds,
   type CheckView,
   type ClarifyDepth,
   type CleanupSettingsInput,
@@ -22,6 +21,8 @@ import {
   type InvalidSettings,
   type LayerKind,
   type MergeSettingsRequest,
+  type PullRequestCiFound,
+  type PullRequestCiMode,
   type RepoSettingsInput,
   type RepoSettingsView,
   type SaveSettingsRequest,
@@ -29,12 +30,24 @@ import {
   type SettingsPreview,
   type SettingsSource,
   type StageDrift,
-  type StageId,
   type StageRowView,
+  settingsInput,
   type Task,
+  type TaskRepo,
   type WorkflowProblem,
 } from '@ted/protocol'
 import { fileChange } from '@ted/protocol/diff'
+import {
+  handsOff,
+  hasClarifyRounds,
+  isBuiltInStage,
+  isCleanup,
+  mergesHere,
+  settingsStageOrder,
+  stageEnabled,
+  stageFileId,
+  validates,
+} from '@ted/protocol/stage'
 import type { CheckTries } from './check-tries.ts'
 import { RequestError } from './errors.ts'
 import { clonePath } from './factories.ts'
@@ -55,12 +68,15 @@ import {
   readPullRequests,
 } from './tasks/merge.ts'
 import { parsePullRequestUrl } from './tasks/pull-requests.ts'
+import { sameRepo } from './tasks/repos.ts'
 import type { CreateTaskInput } from './tasks/tasks.ts'
 import { resolveAgentChoices } from './workflow/agent-choices.ts'
+import { agentFileId } from './workflow/agent-files.ts'
 import {
   type CheckedLayer,
   checkLayer,
   githubRepoOf,
+  inheritedFrom,
   isCommandStep,
   type LayerFiles,
   maxFactoryRepos,
@@ -86,6 +102,11 @@ export interface FactorySettings {
   preview(factoryId: string, changes: FactorySettingsChanges): Promise<SettingsPreview>
   save(factoryId: string, request: SaveSettingsRequest): Promise<SaveSettingsResult>
   merge(factoryId: string, request: MergeSettingsRequest): Promise<SaveSettingsResult>
+  setPullRequestCi(
+    factoryId: string,
+    repo: string,
+    mode: PullRequestCiMode,
+  ): Promise<SaveSettingsResult>
   forget(factoryId: string): void
   mergeInherited(factoryId: string, stage: AgentStageId): Promise<Task>
   close(): Promise<void>
@@ -123,9 +144,35 @@ interface Base {
 const knownFile = (file: string) =>
   file === 'workflow.yaml' ||
   file === 'notes.md' ||
-  agentStageIds.some((id) => file === `stages/${id}.md`)
+  file === 'agents.yaml' ||
+  stageFileId(file) !== undefined ||
+  agentFileId(file) !== undefined
+
+function ignoredStageFiles(files: readonly string[], base: Base): string[] {
+  const { order } = resolveWorkflow([...base.inherited, base.own])
+  return files.filter((name) => {
+    if (!name.startsWith('stages/')) return false
+    const id = stageFileId(name)
+    return id === undefined || (!isBuiltInStage(id) && !order.includes(id))
+  })
+}
 
 export const settingsTitle = 'Update TED settings'
+
+export function lastCiFound(
+  tasks: readonly { displayId: string; repos: readonly Pick<TaskRepo, 'repo' | 'pushed'>[] }[],
+  repo: string,
+): PullRequestCiFound | undefined {
+  let found: PullRequestCiFound | undefined
+  for (const task of tasks) {
+    for (const r of task.repos) {
+      if (!r.pushed || !sameRepo(r.repo, repo)) continue
+      if (found && found.at >= r.pushed.at) continue
+      found = { signals: r.pushed.ciSignals, task: task.displayId, at: r.pushed.at }
+    }
+  }
+  return found
+}
 const closeWaitMs = 2000
 
 export function createFactorySettings(options: FactorySettingsOptions): FactorySettings {
@@ -153,18 +200,24 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
   const checkedFiles = new WeakMap<LayerFiles, Map<string, CheckedLayer>>()
   const refreshing = new Map<string, Promise<void>>()
 
-  function check(files: LayerFiles, primaryRepo?: string): CheckedLayer {
+  function check(
+    files: LayerFiles,
+    inherited: readonly CheckedLayer[],
+    primaryRepo?: string,
+  ): CheckedLayer {
     let known = checkedFiles.get(files)
     if (!known) {
       known = new Map()
       checkedFiles.set(files, known)
     }
-    const key = primaryRepo === undefined ? '' : `\0${primaryRepo}`
+    const below = inheritedFrom(inherited)
+    const key = `${primaryRepo ?? ''}\0${JSON.stringify(below)}`
     let layer = known.get(key)
     if (!layer) {
       layer = checkLayer({
         kind: 'factory',
         files,
+        inherited: below,
         ...(primaryRepo !== undefined && { primaryRepo }),
       })
       known.set(key, layer)
@@ -198,7 +251,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     from: { fetch: boolean; resolve: boolean },
   ): Promise<Base> {
     const { commit, files: current, inherited } = await workflows.source(factory, from)
-    const checked = check(current, factory.repo)
+    const checked = check(current, inherited, factory.repo)
     let files: LayerFiles
     let source: SettingsSource
     if (checked.valid) {
@@ -209,7 +262,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
       files = last?.files ?? {}
       source = typeof files['workflow.yaml'] === 'string' ? 'last-valid' : 'none'
     }
-    const shown = check(files, factory.repo)
+    const shown = check(files, inherited, factory.repo)
     const workflowText = files['workflow.yaml']
     const text = typeof workflowText === 'string' ? workflowText : undefined
     const settings = text === undefined ? undefined : shown.settings
@@ -228,7 +281,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
       problems: checked.problems,
       repos: repoSettingsFrom(settings, factory.repos),
       inherited,
-      own: check(files),
+      own: check(files, inherited),
     }
   }
 
@@ -317,7 +370,12 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
       else after['notes.md'] = changes.notes
     }
     after['workflow.yaml'] = applyChanges(base.text, changes, base.repos, basedOn)
-    const checked = checkLayer({ kind: 'factory', files: after, primaryRepo: factory.repo })
+    const checked = checkLayer({
+      kind: 'factory',
+      files: after,
+      primaryRepo: factory.repo,
+      inherited: inheritedFrom(base.inherited),
+    })
     const errors = checked.problems.filter((p) => p.severity === 'error')
     if (errors.length > 0) return { problems: errors, files: {} }
     const writes: Record<string, string | null> = {}
@@ -366,12 +424,12 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     const inherited = resolveWorkflow(base.inherited)
     const full = resolveWorkflow([...base.inherited, own])
     const drifts = findDrift(base.inherited, own)
-    const ids: StageId[] = ['backlog', ...agentStageIds.filter((id) => id !== 'cleanup'), 'done']
+    const ids = settingsStageOrder(full.order)
     const { overnightMode } = store.settings()
     return ids.map((id) => {
       const stage = full.settings.stages[id]
       const agent = id !== 'backlog' && id !== 'done' ? id : undefined
-      const inOrder = agent === undefined || full.order.includes(agent)
+      const inOrder = agent === undefined || isCleanup(id) || full.order.includes(agent)
       const drift = drifts.find((d) => d.stage === id)
       const file = agent ? full.stageFile(agent) : undefined
       const from = agent ? inherited.stageFile(agent) : undefined
@@ -379,8 +437,10 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
       const basedOn = own.settings.stages[id]?.based_on
       return {
         id,
+        name: full.name(id),
+        ...(!isBuiltInStage(id) && { custom: true as const }),
         inOrder,
-        enabled: inOrder && (id === 'backlog' || id === 'done' || stage?.enabled !== false),
+        enabled: stageEnabled(id, inOrder, stage?.enabled),
         gate: stage?.gate === true,
         ...(agent && {
           effort: (own.settings.stages[id]?.effort ?? null) as Effort | null,
@@ -395,13 +455,13 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         }),
         ...(agent && stage?.gate === true && overnightMode && { overnight: true as const }),
         ...(stage?.max_back !== undefined && agent && { maxBack: stage.max_back }),
-        ...(id === 'clarify' && { depth: (stage?.depth ?? 'auto') as ClarifyDepth }),
-        ...(id === 'validate' && {
+        ...(hasClarifyRounds(id) && { depth: (stage?.depth ?? 'auto') as ClarifyDepth }),
+        ...(validates(id) && {
           p1OnlyFrom: stage?.p1_only_from ?? false,
           subAgents: stage?.sub_agents === true,
         }),
-        ...(id === 'work' && { leadClosesFailures: stage?.lead_closes_failures === true }),
-        ...(id === 'merge' && { commitTitles: stage?.commit_titles !== false }),
+        ...(handsOff(id) && { leadClosesFailures: stage?.lead_closes_failures === true }),
+        ...(mergesHere(id) && { commitTitles: stage?.commit_titles !== false }),
         from: file?.layer ?? 'ted',
         ...(factoryFile !== undefined && { factoryFile }),
         ...(from &&
@@ -565,19 +625,22 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     }
   }
 
-  return {
+  const api: FactorySettings = {
     async view(factoryId, { refresh = 'background' } = {}) {
       const factory = find(factoryId)
       const base = await load(factory, { fetch: refresh === 'first', resolve: true })
       if (refresh === 'background') refreshLater(factory, base.commit)
+      const pushes = store.listTasks().filter((t) => t.factoryId === factoryId)
       const repos: RepoSettingsView[] = await Promise.all(
         base.repos.map(async (repo, i) => {
           const folder = await localFolder(repo)
+          const found = lastCiFound(pushes, repo.repo)
           return {
             ...repo,
             was: repo.was ?? repo.name,
             primary: i === 0,
             ...(folder && { localFolder: folder }),
+            ...(found && { ciFound: found }),
           }
         }),
       )
@@ -613,9 +676,9 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         problems: base.problems,
         github: await github(),
         stages: stageRows(base),
-        ignoredStageFiles: Object.keys(base.current)
-          .filter((name) => name.startsWith('stages/') && !knownFile(name))
-          .map((name) => `.ted/${name}`),
+        ignoredStageFiles: ignoredStageFiles(Object.keys(base.current), base).map(
+          (name) => `.ted/${name}`,
+        ),
         checks,
         cleanup,
         tries: await options.checkTries.list(factory.id),
@@ -804,7 +867,18 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         sleep(closeWaitMs, undefined, { ref: false }),
       ])
     },
+    async setPullRequestCi(factoryId, repo, mode) {
+      const view = await api.view(factoryId, { refresh: 'first' })
+      if (!view.repos.some((r) => sameRepo(r.repo, repo))) {
+        throw new RequestError(404, `${repo} isn’t one of this Factory’s repos`)
+      }
+      const repos = view.repos.map((r) =>
+        sameRepo(r.repo, repo) ? { ...settingsInput(r), pullRequestCi: mode } : settingsInput(r),
+      )
+      return api.save(factoryId, { changes: { repos }, mode: 'merge', version: view.version })
+    },
   }
+  return api
 }
 
 export function storedRepos(

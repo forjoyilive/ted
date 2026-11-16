@@ -10,10 +10,10 @@ import type {
   ValidationSnapshot,
 } from '@ted/protocol'
 import { trackerName } from '@ted/protocol'
+import { stageDisplayName, validates } from '@ted/protocol/stage'
 import { diffTexts } from '../agents/diff.ts'
 import type { LoggedEvent, TedStore } from '../store/index.ts'
 import { type OvernightGuard, overnightGuardTexts } from '../workflow/resolve.ts'
-import { stageTitle } from '../workflow/workflow.ts'
 import { summary } from './github-activity.ts'
 import { depthNames } from './rounds.ts'
 
@@ -34,6 +34,8 @@ const planEndLines: Record<string, string> = {
     'Planning chat failed without approval. TED told the Task Lead to ask its size question again.',
   deleted:
     'Planning chat deleted without approval. TED told the Task Lead to ask its size question again.',
+  archived:
+    'Planning chat archived without approval. TED told the Task Lead to ask its size question again.',
 }
 
 export const nudgeMessage =
@@ -177,6 +179,13 @@ export function threadEvents(
       : [],
   )
   const usedApprovals = new Set<number>()
+  const names: Record<string, string> = {}
+  const learnNames = (entry: LoggedEvent) => {
+    if (entry.name === 'v4.TaskStageEntered' && typeof entry.data.names === 'string') {
+      Object.assign(names, JSON.parse(entry.data.names) as Record<string, string>)
+    }
+  }
+  const stageTitle = (id: string) => stageDisplayName(id, names)
   const lines: ThreadEvent[] = []
   let sentBackTo: string | undefined
   let held = false
@@ -227,7 +236,9 @@ export function threadEvents(
   const setup = log.some((entry) => entry.name === 'v1.SetupTaskCreated')
   const byLead = log.find((entry) => entry.name === 'v1.TaskCreatedByTaskLead')
   const reset = log.findLastIndex((entry) => entry.name === 'v1.TaskReset')
+  for (const entry of log.slice(0, Math.max(reset, 0))) learnNames(entry)
   for (const entry of reset < 0 ? log : log.slice(reset)) {
+    learnNames(entry)
     const { data } = entry
     const who = data.runId ? 'Task Lead' : 'You'
     switch (entry.name) {
@@ -586,7 +597,7 @@ export function threadEvents(
         break
       case 'v2.TaskSentBack': {
         sentBackTo = text(data.to)
-        const fromValidate = text(data.from) === 'validate'
+        const fromValidate = validates(text(data.from))
         const judgedNow = fromValidate ? judged : undefined
         judged = undefined
         const severity =
@@ -714,7 +725,8 @@ export function threadEvents(
       }
       case 'v1.TaskStageEntered':
       case 'v2.TaskStageEntered':
-      case 'v3.TaskStageEntered': {
+      case 'v3.TaskStageEntered':
+      case 'v4.TaskStageEntered': {
         const stage = text(data.stage)
         judged = undefined
         declared = undefined

@@ -7,8 +7,16 @@ import {
   readDefaultLayer,
   resolveAgentChoices,
   resolveWorkflow,
+  withStagesInUse,
 } from '../src/workflow/index.ts'
 import { sameFiles, sharedDefaultLayer } from '../src/workflow/layers.ts'
+import {
+  setupWorkflow,
+  withForcedGates,
+  withoutGates,
+  withRecorded,
+  withTaskGates,
+} from '../src/workflow/resolve.ts'
 import { nextStageMessage, subAgentPrompt, tedSubAgentPrompt } from '../src/workflow/workflow.ts'
 
 const defaults = () => readDefaultLayer()
@@ -242,6 +250,10 @@ describe('layers', () => {
       gate: false,
     })
     expect(nextStageMessage(on, 'cleanup')).toContain('1. **Post note**\n\n   Post the link.')
+    expect(
+      boardStages(resolveWorkflow([await defaults()])).map((s) => [s.id, s.enabled]),
+    ).toContainEqual(['cleanup', false])
+    expect(boardStages(resolveWorkflow([await defaults()])).at(-2)?.id).toBe('cleanup')
     for (const off of [
       '    enabled: true\n    steps: []\n',
       '    steps:\n      - { name: Post note, instruction: Post the link. }\n',
@@ -339,7 +351,170 @@ describe('next Stage', () => {
     expect(workflow.next('clarify')).toBe('work')
     expect(workflow.next('validate')).toBe('merge')
   })
+  test('from a custom Stage the Workflow no longer has, goes to the next Stage of the recorded order that it still has', async () => {
+    const workflow = resolveWorkflow([
+      await defaults(),
+      factory({ 'workflow.yaml': 'version: 1\norder: [intake, work, validate, merge]\n' }),
+    ])
+    const recorded = ['intake', 'security', 'work', 'validate', 'release-notes', 'review', 'merge']
+
+    expect(workflow.next('security', recorded)).toBe('work')
+    expect(workflow.next('release-notes', recorded)).toBe('merge')
+    expect(
+      withRecorded(
+        workflow,
+        recorded.map((stage) => ({ stage })),
+      ).next('release-notes'),
+    ).toBe('merge')
+  })
 })
+
+const customYaml = [
+  'version: 1',
+  'order: [intake, security, work, validate, release-notes, review, merge]',
+  'stages:',
+  '  release-notes:',
+  '    name: Release notes',
+  '    gate: true',
+  '',
+].join('\n')
+
+const customFiles = {
+  'workflow.yaml': customYaml,
+  'stages/security.md': '# Security\n\nCheck the change for secrets.\n',
+  'stages/release-notes.md': '# Release notes\n\nWrite them.\n',
+}
+
+describe('custom Stages', () => {
+  test('run where order puts them, with their own Stage file, display name and send-back limit 3', async () => {
+    const workflow = resolveWorkflow([await defaults(), factory(customFiles)])
+
+    expect(workflow.stages).toEqual([
+      'backlog',
+      'intake',
+      'security',
+      'work',
+      'validate',
+      'release-notes',
+      'review',
+      'merge',
+      'done',
+    ])
+    expect(workflow.next('validate')).toBe('release-notes')
+    expect(workflow.stageFile('security')).toMatchObject({
+      layer: 'factory',
+      path: '.ted/stages/security.md',
+    })
+    expect(workflow.name('release-notes')).toBe('Release notes')
+    expect(workflow.name('security')).toBe('Security')
+    expect(workflow.settings.stages.security).toMatchObject({ max_back: 3 })
+    expect(workflow.settings.stages['release-notes']).toMatchObject({ gate: true, max_back: 3 })
+    expect(nextStageMessage(workflow, 'release-notes')).toContain(
+      'TED moved this Task to Release notes.',
+    )
+    expect(boardStages(workflow).filter((stage) => stage.custom)).toEqual([
+      { id: 'security', name: 'Security', enabled: true, gate: false, custom: true },
+      { id: 'release-notes', name: 'Release notes', enabled: true, gate: true, custom: true },
+    ])
+
+    const recorded = ['intake', 'work', 'validate', 'audit', 'review', 'merge'].map((stage) => ({
+      stage,
+      ...(stage === 'audit' && { name: 'Audit pass' }),
+    }))
+    const listed = withStagesInUse(boardStages(workflow), [
+      { stage: 'audit', recorded },
+      { stage: 'clarify', recorded: undefined },
+    ])
+    expect(listed.map((s) => s.id)).toEqual([
+      'backlog',
+      'intake',
+      'security',
+      'clarify',
+      'work',
+      'validate',
+      'release-notes',
+      'audit',
+      'review',
+      'merge',
+      'cleanup',
+      'done',
+    ])
+    expect(listed.find((s) => s.id === 'audit')).toEqual({
+      id: 'audit',
+      name: 'Audit pass',
+      custom: true,
+      removed: true,
+      enabled: false,
+      gate: false,
+    })
+    expect(listed.find((s) => s.id === 'clarify')).toEqual({
+      id: 'clarify',
+      name: 'Clarify',
+      removed: true,
+      enabled: false,
+      gate: false,
+    })
+  })
+
+  test('a custom Stage whose file a lower layer no longer has is left out', async () => {
+    const stored = checkLayer({
+      kind: 'factory',
+      files: { 'workflow.yaml': customYaml, 'stages/security.md': '# Security\n' },
+      inherited: { files: ['release-notes'] },
+    })
+    const workflow = resolveWorkflow([await defaults(), stored])
+
+    expect(workflow.missing).toEqual(['release-notes'])
+    expect(workflow.stages).not.toContain('release-notes')
+    expect(workflow.next('validate')).toBe('review')
+  })
+
+  test('forced and setup Gates keep custom Stages where order puts them', async () => {
+    const workflow = resolveWorkflow([
+      await defaults(),
+      factory({
+        ...customFiles,
+        'workflow.yaml': customYaml.replace(
+          'order: [intake, security, work, validate, release-notes, review, merge]',
+          'order: [intake, security, work, validate, release-notes, merge]',
+        ),
+      }),
+    ])
+
+    expect(withForcedGates(workflow, ['review', 'security']).stages).toEqual([
+      'backlog',
+      'intake',
+      'security',
+      'work',
+      'validate',
+      'release-notes',
+      'review',
+      'merge',
+      'done',
+    ])
+    expect(withForcedGates(workflow, ['security']).settings.stages.security).toMatchObject({
+      gate: true,
+    })
+    expect(setupWorkflow(workflow).order).toEqual([
+      'intake',
+      'security',
+      'clarify',
+      'design',
+      'work',
+      'validate',
+      'release-notes',
+      'review',
+      'merge',
+    ])
+    expect(withoutGates(workflow).off).toEqual(['release-notes'])
+    expect(withTaskGates(workflow, { security: true }).settings.stages.security).toMatchObject({
+      gate: true,
+    })
+  })
+})
+
+const badId =
+  'a custom Stage id is lowercase letters, digits and hyphens, up to 40 characters, and not a built-in id'
 
 const problems = (files: LayerFiles, kind: 'library' | 'factory' = 'factory') =>
   checkLayer({ kind, files }).problems.map((p) =>
@@ -431,14 +606,81 @@ describe('checking a layer', () => {
     ])
   })
 
-  test('an unknown Stage id in order or stages is an error', () => {
+  test('a bad Stage id in order or stages is an error at its line', () => {
     expect(
       problems({
-        'workflow.yaml': 'version: 1\norder: [intake, security, work]\nstages:\n  deploy: {}\n',
+        'workflow.yaml': 'version: 1\norder: [intake, Security, work]\nstages:\n  deploy_now: {}\n',
       }),
     ).toEqual([
-      'error .ted/workflow.yaml 2 17 unknown Stage `security`',
-      'error .ted/workflow.yaml 4 3 unknown Stage `deploy`',
+      `error .ted/workflow.yaml 2 17 unknown Stage \`Security\`; ${badId}`,
+      `error .ted/workflow.yaml 4 3 unknown Stage \`deploy_now\`; ${badId}`,
+    ])
+    expect(problems({ 'workflow.yaml': `order: [intake, ${'a'.repeat(41)}, work]\n` })).toEqual([
+      `error .ted/workflow.yaml 1 17 unknown Stage \`${'a'.repeat(41)}\`; ${badId}`,
+    ])
+  })
+
+  test('a custom Stage in order needs a Stage file in this layer or one below it', () => {
+    const yaml = 'version: 1\norder: [intake, security, work, release-notes, merge]\n'
+    expect(problems({ 'workflow.yaml': yaml, 'stages/security.md': '# Security\n' })).toEqual([
+      'error .ted/workflow.yaml 2 33 `release-notes` has no Stage file; add stages/release-notes.md',
+    ])
+    const inherited = { files: ['release-notes'] }
+    const layer = checkLayer({
+      kind: 'factory',
+      files: { 'workflow.yaml': yaml, 'stages/security.md': '# Security\n' },
+      inherited,
+    })
+    expect(layer.problems).toEqual([])
+    expect(layer.valid).toBe(true)
+  })
+
+  test('a custom Stage takes only name, gate, max_back, effort, enabled and based_on; a built-in Stage takes no name', () => {
+    expect(
+      problems({
+        'workflow.yaml': [
+          'order: [intake, security, work]',
+          'stages:',
+          '  security:',
+          '    name: Security review',
+          '    gate: true',
+          '    max_back: 2',
+          '    effort: high',
+          '    depth: few',
+          '  work:',
+          '    name: Build',
+          '',
+        ].join('\n'),
+        'stages/security.md': '# Security\n',
+      }),
+    ).toEqual([
+      'error .ted/workflow.yaml 8 5 a custom Stage takes only `name`, `gate`, `max_back`, `effort`, `enabled`, `based_on`',
+      'error .ted/workflow.yaml 10 5 only a custom Stage takes `name`',
+    ])
+    expect(
+      problems({
+        'workflow.yaml': `order: [intake, security, work]\nstages:\n  security:\n    name: "${'x'.repeat(61)}"\n`,
+        'stages/security.md': '# Security\n',
+      }),
+    ).toEqual([
+      'error .ted/workflow.yaml 4 11 `stages.security.name` must be one line of text, up to 60 characters',
+    ])
+    expect(
+      problems({
+        'workflow.yaml':
+          'order: [intake, security, work]\nstages:\n  security:\n    name: "Sec\\u2067urity"\n',
+        'stages/security.md': '# Security\n',
+      }),
+    ).toEqual([
+      'error .ted/workflow.yaml 4 11 `stages.security.name` must be one line of text, up to 60 characters',
+    ])
+  })
+
+  test('a custom Stage file that no order lists is ignored with a warning', () => {
+    expect(
+      problems({ 'workflow.yaml': 'version: 1\n', 'stages/security.md': '# Security\n' }),
+    ).toEqual([
+      'warning .ted/stages/security.md 1 1 No `order` lists `security`, so TED ignores this file. Add `security` to `order` in workflow.yaml to run it as a Stage.',
     ])
   })
 
@@ -520,7 +762,7 @@ describe('checking a layer', () => {
   test('an empty or unreadable Stage file is an error; an unknown one is ignored with a warning', () => {
     const layer = checkLayer({
       kind: 'library',
-      files: { 'stages/work.md': '  \n', 'stages/design.md': null, 'stages/security.md': '# S\n' },
+      files: { 'stages/work.md': '  \n', 'stages/design.md': null, 'stages/Notes.md': '# S\n' },
     })
 
     expect(layer.problems.map((p) => [p.severity, p.file, p.message])).toEqual([
@@ -528,8 +770,8 @@ describe('checking a layer', () => {
       ['error', 'stages/design.md', 'TED couldn’t read the Stage file'],
       [
         'warning',
-        'stages/security.md',
-        'TED has no Stage `security`, so it ignores this file. To add a step, edit the built-in Stage file it belongs to.',
+        'stages/Notes.md',
+        '`Notes` isn’t a Stage id, so TED ignores this file. A custom Stage id is lowercase letters, digits and hyphens, up to 40 characters.',
       ],
     ])
     expect(layer.valid).toBe(false)
@@ -712,13 +954,14 @@ describe('repos', () => {
     ])
   })
 
-  test('a name must be lowercase letters, digits and dashes; merge_method and timeouts are checked', () => {
+  test('a name must be lowercase letters, digits and dashes; merge_method, pull_request_ci and timeouts are checked', () => {
     expect(
       repoProblems(
         [
           'repos:',
           '  - name: My App',
           '    merge_method: fast-forward',
+          '    pull_request_ci: sometimes',
           '    worktree:',
           '      setup: { run: "x", timeout: soon }',
           '',
@@ -727,7 +970,8 @@ describe('repos', () => {
     ).toEqual([
       '2:11 a repo `name` uses only lowercase letters, digits and dashes',
       '3:19 `merge_method` must be squash, merge or rebase',
-      '5:35 `timeout` must be a duration such as 30s, 15m or 1h',
+      '4:22 `pull_request_ci` must be auto, none or required',
+      '6:35 `timeout` must be a duration such as 30s, 15m or 1h',
     ])
   })
 

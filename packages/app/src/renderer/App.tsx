@@ -49,6 +49,7 @@ import { NotificationOfferBanner } from './components/NotificationOffer.tsx'
 import { PlanUsage } from './components/PlanUsage.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
+import { ReportProblemDialog } from './components/ReportProblemDialog.tsx'
 import { RequestSnoozeHost } from './components/RequestSnooze.tsx'
 import { resizeSidebarFromKey, SidebarLayout } from './components/ResizableSidebar.tsx'
 import { RestartStoppedDialog } from './components/RestartStoppedDialog.tsx'
@@ -108,7 +109,6 @@ import {
   currentFactoryId,
   historyReducer,
   initialNavigation,
-  newPlan,
   type SettingsSectionId,
   shownSettingsSectionIds,
   startHistory,
@@ -129,28 +129,26 @@ import {
 } from './setup-notice.ts'
 import { keySequences } from './shortcuts.ts'
 import { factoryCapLine, runsLine } from './slots.ts'
+import { StagesProvider } from './stages.tsx'
 import { ted } from './ted.ts'
 import { AddFactoryDialog } from './views/AddFactoryDialog.tsx'
+import { AgentsView } from './views/Agents.tsx'
 import { AutomationDialog, type TemplateChoice } from './views/AutomationDialog.tsx'
 import { AutomationRunView, AutomationsPage, AutomationView } from './views/Automations.tsx'
 import { Board } from './views/Board.tsx'
-import { CoordinatorView } from './views/Coordinator.tsx'
 import { Dashboard } from './views/Dashboard.tsx'
 import { FactorySettings } from './views/FactorySettings.tsx'
 import { Inbox } from './views/Inbox.tsx'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
 import { NoFactories } from './views/NoFactories.tsx'
 import { Stub } from './views/OtherViews.tsx'
-import { PlanChatView } from './views/PlanChat.tsx'
-import { PlansList } from './views/PlansList.tsx'
 import { saveListView, TaskList } from './views/TaskList.tsx'
 import { TaskMap } from './views/TaskMap.tsx'
 import { TaskPanes } from './views/TaskThread.tsx'
 import { factoryName } from './views/TaskViews.tsx'
 
 const factoryViewTitles = {
-  coordinator: 'Coordinator',
-  plans: 'Plans',
+  agents: 'Agents',
   settings: 'Factory settings',
 } as const
 
@@ -220,7 +218,7 @@ const allowedInSettings = new Set([
   'go-to-board',
   'go-to-list',
   'go-to-map',
-  'go-to-plans',
+  'go-to-agents',
 ])
 
 const cardDialogs: Partial<Record<string, TaskDialogKind>> = {
@@ -316,6 +314,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [paletteChoose, setPaletteChoose] = useState<Command>()
   const [sheetOpen, setSheetOpen] = useState(false)
+  const [reportOpen, setReportOpen] = useState(false)
   const [armed, setArmed] = useState<HTMLButtonElement>()
   const [cardDialog, setCardDialog] = useState<{ taskId: string; kind: TaskDialogKind }>()
   const [pendingPick, setPendingPick] = useState<{ taskId: string; event: string }>()
@@ -340,6 +339,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
     addFactoryOpen ||
     paletteOpen ||
     sheetOpen ||
+    reportOpen ||
     cardDialog !== undefined ||
     removing !== undefined ||
     automationDialog !== undefined
@@ -622,7 +622,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
       const factory = factories[Number(factoryNumber) - 1]
       if (!factory || anyDialog) return
       event.preventDefault()
-      dispatch({ type: 'open-factory', factoryId: factory.id })
+      dispatch({ type: 'open', screen: { kind: 'inbox', factoryId: factory.id } })
       return
     }
     const focused = focusedTaskRef()
@@ -728,6 +728,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
 
   onMenuCommand.current = (command) => {
     if (command.kind === 'shortcuts') return setSheetOpen(true)
+    if (command.kind === 'report-problem') return setReportOpen(true)
     if (offline) return
     if (command.kind === 'open-inbox') dispatch({ type: 'open', screen: { kind: 'inbox' } })
     if (command.kind === 'open-all-tasks') {
@@ -845,27 +846,6 @@ export function App({ start }: { start?: AppStart | undefined }) {
           },
         })
       }
-      const planFactory =
-        navigation.planId === undefined
-          ? undefined
-          : factories.find((factory) => factory.id === navigation.lastFactoryId)
-      const planned =
-        planFactory && navigation.planId ? (
-          <PlanChatView
-            key={navigation.planId}
-            factory={planFactory}
-            planId={navigation.planId}
-            revealRequest={revealRequest}
-            backLabel="← Inbox"
-            onBack={() => dispatch({ type: 'open', screen })}
-            onDeleted={() => dispatch({ type: 'open', screen })}
-            onOpenTask={openTaskByRef}
-            onOpenPlan={(planId) =>
-              dispatch({ type: 'open-plan', factoryId: planFactory.id, planId })
-            }
-            onPlanMore={(from) => dispatch({ type: 'open-plan', factoryId: planFactory.id, from })}
-          />
-        ) : undefined
       return (
         <Inbox
           items={inbox}
@@ -911,7 +891,12 @@ export function App({ start }: { start?: AppStart | undefined }) {
           onOpenConfirmation={(confirmation) =>
             dispatch({
               type: 'open',
-              screen: { kind: 'factory', factoryId: confirmation.factoryId, view: 'coordinator' },
+              screen: {
+                kind: 'factory',
+                factoryId: confirmation.factoryId,
+                view: 'agents',
+                chatId: confirmation.chatId,
+              },
             })
           }
           onFilter={(scope) => openInbox({ scope })}
@@ -920,7 +905,6 @@ export function App({ start }: { start?: AppStart | undefined }) {
           onNewTask={() => openNewTask()}
         >
           {opened ??
-            planned ??
             (navigation.automation?.runId === undefined
               ? undefined
               : automationRun(navigation.automation.id, navigation.automation.runId))}
@@ -1036,7 +1020,6 @@ export function App({ start }: { start?: AppStart | undefined }) {
               onOpen={openTask}
               onOpenTask={openTaskByRef}
               onNewTask={() => openNewTask()}
-              onPlan={openPlans}
             />
           )
         }
@@ -1088,47 +1071,39 @@ export function App({ start }: { start?: AppStart | undefined }) {
             />
           )
         }
-        if (screen.view === 'coordinator' && factory)
-          return <CoordinatorView key={factory.id} factory={factory} onOpenTask={openTaskByRef} />
-        if (screen.view === 'plans' && factory) {
-          const backToPlans = () =>
-            dispatch({
-              type: 'open',
-              screen: { kind: 'factory', factoryId: factory.id, view: 'plans' },
-            })
-          const planMore = (from: string) =>
-            dispatch({ type: 'open-plan', factoryId: factory.id, from })
-          if (navigation.planId !== undefined) {
-            return (
-              <PlanChatView
-                key={navigation.planId}
-                factory={factory}
-                planId={navigation.planId === newPlan ? undefined : navigation.planId}
-                revealRequest={revealRequest}
-                onBack={backToPlans}
-                {...(navigation.planFrom !== undefined && { from: navigation.planFrom })}
-                onOpenPlan={(planId) =>
-                  dispatch({ type: 'open-plan', factoryId: factory.id, planId })
-                }
-                onPlanMore={planMore}
-                onOpenTask={openTaskByRef}
-                onDeleted={backToPlans}
-              />
-            )
-          }
+        if (screen.view === 'agents' && factory)
           return (
-            <PlansList
+            <AgentsView
+              key={factory.id}
               factory={factory}
-              banners={view.banners}
-              onPlan={openPlans}
-              onOpenPlan={(planId) =>
-                dispatch({ type: 'open-plan', factoryId: factory.id, planId })
+              chatId={screen.chatId}
+              planId={navigation.planId}
+              planFrom={navigation.planFrom}
+              revealRequest={revealRequest}
+              onOpenChat={(chat, options) =>
+                chat.agent === 'planner'
+                  ? dispatch({
+                      type: 'open-plan',
+                      factoryId: factory.id,
+                      planId: chat.id,
+                      ...options,
+                    })
+                  : dispatch({
+                      type: 'open',
+                      screen: {
+                        kind: 'factory',
+                        factoryId: factory.id,
+                        view: 'agents',
+                        chatId: chat.id,
+                      },
+                      ...options,
+                    })
               }
-              onPlanMore={planMore}
+              onNewPlan={openPlans}
+              onPlanMore={(from) => dispatch({ type: 'open-plan', factoryId: factory.id, from })}
               onOpenTask={openTaskByRef}
             />
           )
-        }
         return <Stub title={`${name} · ${factoryViewTitles[screen.view]}`} banners={view.banners} />
       }
     }
@@ -1174,6 +1149,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
         }}
       />
       {sheetOpen && <ShortcutSheet onClose={() => setSheetOpen(false)} />}
+      {reportOpen && <ReportProblemDialog onClose={() => setReportOpen(false)} />}
       {cardDialog && cardDialogTask && (
         <TaskDialog
           task={cardDialogTask}
@@ -1273,14 +1249,16 @@ export function App({ start }: { start?: AppStart | undefined }) {
     <div className={styles.window} data-loaded={factoriesLoaded}>
       {connection.state === 'reconnecting' && <ReconnectingBar />}
       <ProfileProvider settings={settings}>
-        <OvernightContext value={overnight}>
-          <ArmedContext value={armed}>
-            <SnoozedContext value={snoozed}>
-              <SidebarLayout className={styles.app}>{content}</SidebarLayout>
-              <RequestSnoozeHost />
-            </SnoozedContext>
-          </ArmedContext>
-        </OvernightContext>
+        <StagesProvider factoryIds={factories.map((f) => f.id)}>
+          <OvernightContext value={overnight}>
+            <ArmedContext value={armed}>
+              <SnoozedContext value={snoozed}>
+                <SidebarLayout className={styles.app}>{content}</SidebarLayout>
+                <RequestSnoozeHost />
+              </SnoozedContext>
+            </ArmedContext>
+          </OvernightContext>
+        </StagesProvider>
       </ProfileProvider>
     </div>
   )
@@ -1403,6 +1381,11 @@ export function App({ start }: { start?: AppStart | undefined }) {
       </Offline>
       <main className={styles.main}>
         {problems}
+        {inboxScreen?.factoryId !== undefined &&
+          bannerStack(
+            `${factoryName(factories, inboxScreen.factoryId)} problems`,
+            factoryBanners(banners, inboxScreen.factoryId),
+          )}
         <Offline when={offline}>
           <div ref={panes} className={styles.panes}>
             {find}

@@ -5,6 +5,7 @@ import { Button } from '../components/Button.tsx'
 import { ChatBody } from '../components/RunChat.tsx'
 import grow from '../components/TextGrow.module.css'
 import { useConnection } from '../data.ts'
+import { agentLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './AutomationDialog.module.css'
 
@@ -130,7 +131,7 @@ export function AutomationPromptDraft({
   const status = pending
     ? 'Starting…'
     : job?.paused
-      ? `Agent paused · ${job.paused}`
+      ? `${lead ? agentLabels[lead.agent] : 'Provider'} paused · ${job.paused}`
       : job?.state === 'queued'
         ? 'Waiting for a free Run slot…'
         : job?.state === 'working'
@@ -163,7 +164,7 @@ export function AutomationPromptDraft({
             onChange={(event) => setRequest(event.target.value)}
           />
           <span className={styles.note}>
-            Uses the agent selected below. Includes your current Prompt when drafting a revision.
+            Uses the Provider selected below. Includes your current Prompt when drafting a revision.
           </span>
           <div className={styles.draftActions}>
             <Button disabled={busy || !request.trim() || !factory} onClick={() => generate()}>

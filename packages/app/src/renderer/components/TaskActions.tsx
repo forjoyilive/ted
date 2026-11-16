@@ -1,12 +1,21 @@
 import type { RunSummary, Task } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, clarifyIsOver, priorities, resetRefusal } from '@ted/protocol/task'
-import { type ReactNode, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import {
+  type ReactNode,
+  useContext,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { useSettings, useTasks } from '../data.ts'
 import { newChildTask, pickChildEvent, pickParentEvent } from '../hierarchy.ts'
 import { keysFor } from '../keymap.ts'
 import { besideMenu } from '../menu-tooltip.ts'
+import { OvernightContext } from '../overnight.tsx'
 import { usePendingAction } from '../pending-action.ts'
 import { clockTime } from '../requests.ts'
 import { runStatusAction, type StatusAction, statusAction } from '../task-actions.ts'
@@ -30,6 +39,7 @@ import {
   UnarchiveDialog,
   unarchiveTaskEvent,
 } from './ArchiveDialogs.tsx'
+import { autopilotChoiceLabel, autopilotChoices } from './Autopilot.tsx'
 import menuStyles from './ContextMenu.module.css'
 import { buttonPosition, ContextMenu, type MenuPosition, MenuSubmenu } from './ContextMenu.tsx'
 import { Tooltip } from './Help.tsx'
@@ -126,7 +136,9 @@ function Submenu({ label, hint, children }: { label: string; hint: string; child
 function settingsHint(task: Task): string {
   const priority = priorityLabels[task.priority]
   if (task.stage === 'done') return priority
-  return `${priority} · ${task.lead ? agentLabels[task.lead.agent] : 'Default'}`
+  const lead = `${priority} · ${task.lead ? agentLabels[task.lead.agent] : 'Default'}`
+  const autopilot = task.archived ? 'inherit' : (task.autopilot?.choice ?? 'inherit')
+  return autopilot === 'inherit' ? lead : `${lead} · ${autopilotChoiceLabel(autopilot, false)}`
 }
 
 function Choice({
@@ -284,6 +296,7 @@ export function TaskActionsMenu({
   sideChat?: TaskSideChat | undefined
 }) {
   const enabledAgents = useEnabledAgents()
+  const { on: autopilotOn } = useContext(OvernightContext)
   const [position, setPosition] = useState<MenuPosition>()
   const open = position !== undefined
   const close = () => {
@@ -649,6 +662,20 @@ export function TaskActionsMenu({
                       onChoose={() => act(() => ted.setClarifyDepth(task.id, { depth: depth }))}
                     />
                   ))
+                )}
+                {!task.archived && (
+                  <>
+                    <hr className={styles.separator} />
+                    <div className={styles.group}>Autopilot</div>
+                    {autopilotChoices.map((choice) => (
+                      <Choice
+                        key={choice}
+                        label={autopilotChoiceLabel(choice, autopilotOn)}
+                        checked={(task.autopilot?.choice ?? 'inherit') === choice}
+                        onChoose={() => act(() => ted.setTaskAutopilot(task.id, { choice }))}
+                      />
+                    ))}
+                  </>
                 )}
               </>
             )}

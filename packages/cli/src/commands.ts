@@ -46,6 +46,7 @@ const flags = {
   multiple: { type: 'boolean' },
   attach: { type: 'string', multiple: true },
   agent: { type: 'string' },
+  provider: { type: 'string' },
   'default-model': { type: 'boolean' },
   design: { type: 'string' },
   effort: { type: 'string' },
@@ -114,7 +115,15 @@ interface CommandDefinition<H extends string = string> {
 }
 
 function options(...names: (keyof Options)[]): ParseArgsOptionsConfig {
-  return Object.fromEntries(names.map((name) => [name, flags[name]]))
+  const all = names.includes('agent') ? [...names, 'provider' as const] : names
+  return Object.fromEntries(all.map((name) => [name, flags[name]]))
+}
+
+function withProvider(values: Options): Options {
+  const { provider, ...rest } = values
+  if (provider === undefined) return values
+  if (rest.agent !== undefined) throw new UsageError('give --provider only once')
+  return { ...rest, agent: provider }
 }
 
 export const commands = [
@@ -505,7 +514,7 @@ export const commands = [
     handler: 'startSubAgent',
     min: 0,
     max: 0,
-    help: '  ted run start [--agent claude|codex|antigravity] [--model <name>] [--effort <level>] --prompt-file <file>\n                [--name <name>] [--own-worktree]\n                                             Start a sub-agent on this Task (Task Lead only);\n                                             prints its Run ID\n  ted run start --reviewer --prompt-file <file>\n                                             Start the reviewer: TED picks its agent, model and\n                                             effort from the reviewer setting',
+    help: '  ted run start [--provider claude|codex|antigravity] [--model <name>] [--effort <level>] --prompt-file <file>\n                [--name <name>] [--own-worktree]\n                                             Start a sub-agent on this Task (Task Lead only);\n                                             prints its Run ID\n  ted run start --reviewer --prompt-file <file>\n                                             Start the reviewer: TED picks its Provider, model and\n                                             effort from the reviewer setting',
     callers: 'Task Lead',
     options: options(
       'task',
@@ -899,7 +908,7 @@ export const commands = [
     ),
     min: 1,
     max: null,
-    help: '  ted coordinator create --operation <id> [--description "<text>" | --description -]\n                [--parent <id>] [--blocked-by <id>]… [--source <url>] [--priority <p>]\n                [--clarify-depth <d>] [--agent <a> [--model <m>] [--effort <e>]]\n                [--after <id>] [--before <id>] [--neighbours <json>] [--start] "<title>"\n                                             Create a Task in this Factory on the human’s\n                                             instruction; --description - reads stdin\n                                             (Coordinator only)',
+    help: '  ted coordinator create --operation <id> [--description "<text>" | --description -]\n                [--parent <id>] [--blocked-by <id>]… [--source <url>] [--priority <p>]\n                [--clarify-depth <d>] [--provider <p> [--model <m>] [--effort <e>]]\n                [--after <id>] [--before <id>] [--neighbours <json>] [--start] "<title>"\n                                             Create a Task in this Factory on the human’s\n                                             instruction; --description - reads stdin\n                                             (Coordinator only)',
     callers: 'Coordinator Run',
   },
   {
@@ -958,6 +967,24 @@ export const commands = [
     min: 0,
     max: 0,
     help: '  ted asana intake [--factory <key>]         Import your unfinished Asana work from the Factory’s\n                                             chosen Asana project or section into Backlog',
+    callers: 'Terminal or Automation Run',
+    options: options('factory'),
+  },
+  {
+    name: 'github intake',
+    handler: 'githubIntake',
+    min: 0,
+    max: 0,
+    help: '  ted github intake                          Import the open issues in the Factory’s repos that\n                                             carry its GitHub intake label into Backlog',
+    callers: 'Automation Run',
+    options: options(),
+  },
+  {
+    name: 'linear intake',
+    handler: 'linearIntake',
+    min: 0,
+    max: 0,
+    help: '  ted linear intake [--factory <key>]        Import the not-started Linear issues assigned to\n                                             you from the Factory’s Linear intake Team or\n                                             Project into Backlog',
     callers: 'Terminal or Automation Run',
     options: options('factory'),
   },
@@ -1116,7 +1143,7 @@ export const commands = [
     handler: 'lead',
     min: 2,
     max: 2,
-    help: '  ted task lead <id> claude|codex|antigravity [--model <name>] [--effort <level> | --stage-effort]\n                                             Set the Task Lead’s agent, model and effort',
+    help: '  ted task lead <id> claude|codex|antigravity [--model <name>] [--effort <level> | --stage-effort]\n                                             Set the Task Lead’s Provider, model and effort',
     callers: 'Terminal or Task Lead',
     excludes: ['default-model'],
     options: options('model', 'effort', 'stage-effort'),
@@ -1252,7 +1279,7 @@ export const commands = [
     handler: 'automationCreate',
     min: 0,
     max: 0,
-    help: '  ted automation create --name <name> --schedule "<cron|RRULE>" --prompt-file <file>\n                [--template linear|asana|sentry|github|architecture|audit]\n                [--agent claude|codex|antigravity] [--model <name>] [--effort <level>] [--off]\n                                             Create an Automation (a template fills in what you\n                                             leave out)',
+    help: '  ted automation create --name <name> --schedule "<cron|RRULE>" --prompt-file <file>\n                [--template linear|asana|sentry|github|architecture|audit]\n                [--provider claude|codex|antigravity] [--model <name>] [--effort <level>] [--off]\n                                             Create an Automation (a template fills in what you\n                                             leave out)',
     callers: 'TED app only',
     options: options(
       'factory',
@@ -1271,7 +1298,7 @@ export const commands = [
     handler: 'automationEdit',
     min: 1,
     max: 1,
-    help: '  ted automation edit <id> [--name <name>] [--schedule "<cron|RRULE>"]\n                [--prompt-file <file>] [--agent claude|codex|antigravity] [--model <name>]\n                [--effort <level>] [--off]\n                                             Change an Automation',
+    help: '  ted automation edit <id> [--name <name>] [--schedule "<cron|RRULE>"]\n                [--prompt-file <file>] [--provider claude|codex|antigravity] [--model <name>]\n                [--effort <level>] [--off]\n                                             Change an Automation',
     callers: 'TED app only',
     options: options(
       'factory',
@@ -1354,7 +1381,7 @@ export function parseInvocation(
       strict: true,
       options: vocabulary,
     })
-    const values = parsed.values as Options
+    const values = withProvider(parsed.values as Options)
     const names = table.filter((entry) =>
       entry.name.split(' ').every((word, index) => parsed.positionals[index] === word),
     )

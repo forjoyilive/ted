@@ -143,6 +143,26 @@ describe('event lines', () => {
   })
 })
 
+test('each line names a custom Stage by the name recorded when it was written', () => {
+  const entered = (minute: number, stage: string, name: string) =>
+    entry('v4.TaskStageEntered', minute, {
+      stage,
+      layers: JSON.stringify([]),
+      names: JSON.stringify({ security: name }),
+    })
+  expect(
+    lines([
+      entered(1, 'security', 'Security review'),
+      entered(2, 'work', 'Release approval'),
+      entered(3, 'security', 'Release approval'),
+    ]).map(({ text }) => text),
+  ).toEqual([
+    'Task moved to Security review',
+    'Task moved to Work',
+    'Task moved to Release approval',
+  ])
+})
+
 test('snooze changes are recorded without embedding an unformatted time in the thread', () => {
   expect(
     lines([

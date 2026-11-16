@@ -2,6 +2,7 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Factory, Run, Task } from '@ted/protocol'
+import type { JsonObject } from '@ted/protocol/parse'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { maySleep, type SleepFacts } from '../src/runs/idle-sleep.ts'
@@ -57,7 +58,7 @@ async function start() {
     },
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
-  const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
+  const ok = async <T>(method: string, route: string, body?: JsonObject): Promise<T> => {
     const res = await client.call(method, route, body)
     if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
     return res.body as T

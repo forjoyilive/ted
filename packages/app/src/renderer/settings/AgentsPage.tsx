@@ -169,8 +169,8 @@ function BillingChoice({
             {billingNames[choice]}
             {choice === 'subscription' && (
               <Help>
-                TED removes {keyVariables[agent]} from this agent’s Runs, and pauses it if a Run
-                reports an API key. TED never asks for or stores a key.
+                TED removes {keyVariables[agent]} from {agentDisplayNames[agent]}’s Runs, and pauses
+                it if a Run reports an API key. TED never asks for or stores a key.
               </Help>
             )}
           </label>
@@ -294,8 +294,8 @@ function ApiCostSection({
         </h3>
         <Help>
           {billing === 'subscription'
-            ? 'What this agent’s finished Runs would have cost on an API key, at API prices.'
-            : 'What this agent’s finished Runs cost on your API key.'}
+            ? `What ${agentDisplayNames[agent]}’s finished Runs would have cost on an API key, at API prices.`
+            : `What ${agentDisplayNames[agent]}’s finished Runs cost on your API key.`}
         </Help>
       </div>
       <p className={styles.line}>{lines.figure}</p>
@@ -373,7 +373,7 @@ function AgentCard({
             {enabled ? chip : 'Off'}
           </StatusChip>
           <span
-            title={lastEnabled ? 'Enable another agent before turning this one off.' : undefined}
+            title={lastEnabled ? 'Enable another Provider before turning this one off.' : undefined}
           >
             <Switch
               label={`Use ${name}`}
@@ -404,7 +404,7 @@ function AgentCard({
           </p>
         )}
         {lastEnabled && (
-          <p className={styles.line}>Enable another agent before turning this one off.</p>
+          <p className={styles.line}>Enable another Provider before turning this one off.</p>
         )}
         {enabled && (
           <div className={styles.lines}>
@@ -429,8 +429,8 @@ function AgentCard({
               <p className={styles.line}>
                 {limitLine(health)}{' '}
                 <Help>
-                  Runs stay open and carry on by themselves. TED never switches them to the other
-                  agent; change the Task Lead field if you want to.
+                  Runs stay open and carry on by themselves. TED never switches them to another
+                  Provider; change the Task Lead field if you want to.
                 </Help>
               </p>
             )}
@@ -564,7 +564,7 @@ export function AgentsPage({ settings }: SettingsPageProps) {
       .catch((error: unknown) => console.error(error))
 
   return (
-    <SettingsPage title="Agents">
+    <SettingsPage title="Providers">
       {toggleError && (
         <p role="alert" className={styles.error}>
           {toggleError}
@@ -585,8 +585,8 @@ export function AgentsPage({ settings }: SettingsPageProps) {
                 Turn off {agentDisplayNames[confirmation.agent]}?
               </h2>
               <p className={dialogStyles.text}>
-                {confirmation.runs.length} existing Runs use this agent. Queued work will wait until
-                it is enabled again.
+                {confirmation.runs.length} existing Runs use {agentDisplayNames[confirmation.agent]}
+                . Queued work will wait until it is enabled again.
               </p>
               {confirmation.additionalRuns.length > 0 && (
                 <>
@@ -603,7 +603,7 @@ export function AgentsPage({ settings }: SettingsPageProps) {
                 </>
               )}
               <p className={dialogStyles.text}>
-                Stopped Tasks need Resume. Re-enabling an agent does not resume stopped work.
+                Stopped Tasks need Resume. Re-enabling a Provider does not resume stopped work.
               </p>
               {toggleError && (
                 <p role="alert" className={styles.error}>
@@ -636,7 +636,7 @@ export function AgentsPage({ settings }: SettingsPageProps) {
       <div className={styles.cards}>
         {resource.error && <LoadingError error={resource.error} retry={resource.retry} />}
         {!resource.loaded && health.length === 0 && !resource.error && (
-          <Skeleton shape="settings" label="Checking your agents…" />
+          <Skeleton shape="settings" label="Checking your Providers…" />
         )}
         {health.map((h) => (
           <AgentCard
@@ -671,7 +671,7 @@ export function AgentsPage({ settings }: SettingsPageProps) {
       <SettingsGroup>
         <SettingRow setting="app.agents.restart-idle-runs">
           <Switch
-            label="Restart idle Runs onto new agent versions"
+            label="Restart idle Runs onto new Provider versions"
             checked={settings.restartIdleRuns}
             onChange={(restartIdleRuns) => ted.updateSettings({ restartIdleRuns })}
           />

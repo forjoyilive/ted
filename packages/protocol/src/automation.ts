@@ -5,9 +5,11 @@ import type { Attachment, Effort, StageId } from './task.ts'
 
 export const automationTemplateIds = [
   'linear',
+  'linear-intake',
   'asana',
   'sentry',
   'github',
+  'github-intake',
   'architecture',
   'audit',
 ] as const

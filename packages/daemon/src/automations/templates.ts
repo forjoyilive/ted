@@ -9,6 +9,14 @@ const linear = `Bring the Linear issues assigned to me into TED as Tasks.
 
 End with one line naming the Tasks you created, or “No new Tasks”.`
 
+const linearIntake = `Bring my not-started Linear work into TED as Backlog Tasks.
+
+1. Run \`ted linear intake\` once. TED reads this Factory’s Linear intake Team or Project with my Linear connection, creates a Task for each issue assigned to me that hasn’t started (Triage, Backlog, Todo), and leaves alone what it already tracks.
+2. Don’t use your own Linear tools, don’t create Tasks from Linear issues any other way, and don’t change anything in Linear.
+3. If TED refuses, for example because no Linear intake Team or Project is chosen or Linear isn’t connected, don’t try again or work around it.
+
+End with one line: the Tasks TED created, or that it created nothing new, plus anything else TED reports: how many issues were already tracked or left for the next run, which issues it skipped and why, and why it stopped early. Or TED’s refusal.`
+
 const asana = `Bring my unfinished Asana work into TED as Backlog Tasks.
 
 1. Run \`ted asana intake\` once. TED reads this Factory’s chosen Asana project or section with my Asana connection, imports each unfinished task assigned to me with the tasks under it, and leaves alone what it already tracks.
@@ -38,6 +46,14 @@ const github = `Triage this Factory’s new GitHub issues.
 4. Don’t pass \`--start\` or \`--follow-up\`, and don’t comment on, label or close anything on GitHub. When TED refuses an issue, leave it and name it with TED’s reason in your final message.
 
 End with one line naming the Tasks you created, or “No new Tasks”, then the issues you skipped.`
+
+const githubIntake = `Bring this Factory’s labelled GitHub issues into TED as Backlog Tasks.
+
+1. Run \`ted github intake\` once. TED lists the open issues in this Factory’s repos that carry its GitHub intake label, imports each one with its open sub-issues, and leaves alone what it already tracks.
+2. Don’t list or read GitHub issues yourself, don’t create Tasks from GitHub issues any other way, and don’t comment on, label or close anything on GitHub.
+3. If TED refuses, for example because no GitHub intake label is chosen, don’t try again or work around it.
+
+End with one line: the Tasks TED imported, or that it imported nothing new, plus anything else TED reports: how many issues were already tracked or left for the next run, which issues it skipped, which repos it couldn’t list, and why it stopped early. Or TED’s refusal.`
 
 const architecture = `Review this Factory’s codebase architecture and create worthwhile improvements as Backlog Tasks for the human to choose from. This is an unattended adaptation of improve-codebase-architecture; all the instructions you need are here.
 
@@ -76,6 +92,14 @@ export const automationTemplates: readonly AutomationTemplate[] = [
     schedule: { kind: 'every', every: 30, unit: 'minutes' },
   },
   {
+    id: 'linear-intake',
+    name: 'Import my Linear work',
+    summary:
+      'Imports your not-started Linear issues from the Factory’s Linear intake Team or Project into Backlog.',
+    prompt: linearIntake,
+    schedule: { kind: 'every', every: 30, unit: 'minutes' },
+  },
+  {
     id: 'asana',
     name: 'Import my Asana work',
     summary:
@@ -97,6 +121,13 @@ export const automationTemplates: readonly AutomationTemplate[] = [
     summary: 'Reads new GitHub issues and makes Tasks for the ones worth doing.',
     prompt: github,
     schedule: { kind: 'daily', at: '09:00' },
+  },
+  {
+    id: 'github-intake',
+    name: 'Import GitHub issues',
+    summary: 'Imports the open issues that carry the Factory’s GitHub intake label into Backlog.',
+    prompt: githubIntake,
+    schedule: { kind: 'every', every: 30, unit: 'minutes' },
   },
   {
     id: 'architecture',

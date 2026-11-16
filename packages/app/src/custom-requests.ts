@@ -6,6 +6,9 @@ import type {
   ExportFormat,
   MachineSettings,
   MemoryUse,
+  ProblemReportRequest,
+  ProblemReportResult,
+  ProcessInfo,
   ProcessUsage,
   RunFixRequest,
   RunFixResult,
@@ -60,6 +63,7 @@ export interface CustomRequests {
   copyReport: () => Promise<void>
   memoryUse: () => Promise<MemoryUse>
   resourceUsage: () => Promise<ProcessUsage>
+  appProcesses: () => Promise<ProcessInfo[]>
   tedFolder: () => Promise<{ path: string; platform: string }>
   showTedFolder: () => Promise<void>
   showBackupInFolder: (name: string) => Promise<void>
@@ -77,6 +81,9 @@ export interface CustomRequests {
   checkForUpdates: () => Promise<UpdateStatus>
   restartToUpdate: () => Promise<void>
   copyCrashReport: () => Promise<void>
+  problemReport: () => Promise<{ text: string; daemon: boolean }>
+  sendProblemReport: (request: ProblemReportRequest) => Promise<ProblemReportResult>
+  openGitHubIssue: () => Promise<void>
   runFix: (request: RunFixRequest) => Promise<RunFixResult>
   openLinearKeyPage: () => Promise<void>
 }

@@ -1,10 +1,12 @@
 import {
+  archivedTaskDayLimits,
   parseAnswerRequest,
   parsePostPlanRequest,
   parseRenamePlanRequest,
   parseResumePlanRequest,
   parseStartPlanRequest,
 } from '@ted/protocol'
+import { RequestError } from '../errors.ts'
 import { jsonRoute, type Route } from './route.ts'
 
 const ref = '([^/?]+)'
@@ -13,6 +15,18 @@ const factoryQuery = '(?:\\?factory=([^&]*))?'
 const path = (pattern: string) => new RegExp(`^${pattern}$`)
 
 export const planRoutes: Route[] = [
+  {
+    method: 'GET',
+    path: /^\/chat-archive-expiry(?:\?.*)?$/,
+    handle: async ({ req }, { chatArchiveCleanup }) => {
+      const days = Number(new URL(req.url ?? '/', 'http://localhost').searchParams.get('days'))
+      const { min, max } = archivedTaskDayLimits
+      if (!Number.isInteger(days) || days < min || days > max) {
+        throw new RequestError(400, `days must be a whole number from ${min} to ${max}`)
+      }
+      return [200, chatArchiveCleanup.preview(days)]
+    },
+  },
   {
     method: 'GET',
     path: path(`/plans${factoryQuery}`),
@@ -59,10 +73,18 @@ export const planRoutes: Route[] = [
   }),
   {
     method: 'POST',
-    path: path(`/plans/${ref}/finish`),
+    path: path(`/plans/${ref}/archive`),
     handle: async ({ caller, params: [id = ''] }, { plans }) => [
       200,
-      await plans.markFinished(id, caller),
+      await plans.archive(id, caller),
+    ],
+  },
+  {
+    method: 'POST',
+    path: path(`/plans/${ref}/unarchive`),
+    handle: async ({ caller, params: [id = ''] }, { plans }) => [
+      200,
+      await plans.unarchive(id, caller),
     ],
   },
   {

@@ -19,6 +19,8 @@ export const listColumns = [
   'priority',
   'id',
   'title',
+  'children',
+  'parent',
   'stage',
   'status',
   'updated',
@@ -31,6 +33,10 @@ export const listColumns = [
 ] as const
 
 export type ListColumn = (typeof listColumns)[number]
+
+export const listColumnsVersions = [2, 3] as const
+
+export type ListColumnsVersion = (typeof listColumnsVersions)[number]
 
 export const archivedFilters = ['hidden', 'included', 'only'] as const
 
@@ -55,7 +61,7 @@ export interface ListView {
   showEmptyGroups?: boolean
   nested?: boolean
   columns: ListColumn[]
-  columnsVersion?: 2
+  columnsVersion?: ListColumnsVersion
   filters: ListFilters
 }
 

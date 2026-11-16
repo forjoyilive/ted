@@ -47,7 +47,11 @@ test('the shared App shortcuts navigate only the top sample dialog and preserve 
   localStorage.setItem('ted.dashboard', JSON.stringify({ range: '7d', panel: 'flow' }))
   a.mount()
   const u = user()
-  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await u.click(
+    within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
+      name: 'Dashboard',
+    }),
+  )
   const completed = await screen.findByRole('region', { name: 'Tasks completed' })
   expect(screen.getByRole('tab', { name: 'Overview' }).getAttribute('aria-selected')).toBe('true')
   const opener = within(completed).getByRole('button', { name: '2 tasks' })
@@ -945,7 +949,7 @@ test('the Cost tab shows cost per merged pull request, spend by kind of work and
   const chart = screen.getByRole('region', { name: 'Spend over time' })
   expect(within(chart).getByText('Task Leads $9.00')).toBeTruthy()
   expect(within(chart).getByText('Coordinator $1.00')).toBeTruthy()
-  await user().click(within(chart).getByRole('button', { name: 'By agent and model' }))
+  await user().click(within(chart).getByRole('button', { name: 'By Provider and model' }))
   expect(within(chart).getByText('Claude · opus $9.00')).toBeTruthy()
   expect(within(chart).getByText('Codex · gpt-5.5 $3.00')).toBeTruthy()
   await user().click(

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -12,7 +12,9 @@ import {
   type Task,
   tedPaths,
 } from '@ted/protocol'
-import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test } from 'vitest'
+import type { DaemonWrappers } from '../src/daemon.ts'
+import type { MakeDirectory } from '../src/files.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { openStore } from '../src/store/index.ts'
@@ -26,7 +28,7 @@ import {
   waitUntil,
 } from './helpers.ts'
 
-const pauses = vi.hoisted(() => ({
+const pauses = {
   closing: undefined as (() => void) | undefined,
   runFolder: undefined as (() => Promise<void>) | undefined,
   folder: undefined as (() => Promise<void>) | undefined,
@@ -39,116 +41,69 @@ const pauses = vi.hoisted(() => ({
   dispatched: undefined as (() => Promise<void>) | undefined,
   persisted: undefined as (() => Promise<void>) | undefined,
   dispatchPhase: undefined as string | undefined,
-}))
-vi.mock('node:fs/promises', async (original) => {
-  const fs = await original<typeof import('node:fs/promises')>()
-  return {
-    ...fs,
-    mkdir: async (...args: Parameters<typeof fs.mkdir>) => {
-      if (/\/coordinators\/[a-f0-9-]{36}$/.test(String(args[0]))) await pauses.folder?.()
-      const result = await fs.mkdir(...args)
-      if (/\/runs\/[a-f0-9-]{36}$/.test(String(args[0]))) await pauses.runFolder?.()
+}
+
+const pausingMkdir: MakeDirectory = async (dir, options) => {
+  if (/\/coordinators\/[a-f0-9-]{36}$/.test(dir)) await pauses.folder?.()
+  const result = await mkdir(dir, options)
+  if (/\/runs\/[a-f0-9-]{36}$/.test(dir)) await pauses.runFolder?.()
+  return result
+}
+
+const pausing: DaemonWrappers = {
+  coordinators: (coordinators) => ({
+    ...coordinators,
+    close: () => {
+      const result = coordinators.close()
+      pauses.closing?.()
       return result
     },
-  }
-})
-vi.mock('../src/coordinators/coordinators.ts', async (original) => {
-  const module = await original<typeof import('../src/coordinators/coordinators.ts')>()
-  return {
-    ...module,
-    createCoordinators: (...args: Parameters<typeof module.createCoordinators>) => {
-      const coordinators = module.createCoordinators(...args)
-      return {
-        ...coordinators,
-        close: () => {
-          const result = coordinators.close()
-          pauses.closing?.()
-          return result
-        },
-      }
+  }),
+  workflows: (workflows) => ({
+    ...workflows,
+    resolve: async (...input) => {
+      const result = await workflows.resolve(...input)
+      await pauses.defaults?.()
+      return result
     },
-  }
-})
-vi.mock('../src/workflow/workflows.ts', async (original) => {
-  const module = await original<typeof import('../src/workflow/workflows.ts')>()
-  return {
-    ...module,
-    createWorkflows: (...args: Parameters<typeof module.createWorkflows>) => {
-      const workflows = module.createWorkflows(...args)
-      return {
-        ...workflows,
-        resolve: async (...input: Parameters<typeof workflows.resolve>) => {
-          const result = await workflows.resolve(...input)
-          await pauses.defaults?.()
-          return result
-        },
-      }
+  }),
+  plans: (plans) => ({
+    ...plans,
+    removeFactory: async (...input) => {
+      await plans.removeFactory(...input)
+      await pauses.removal?.()
     },
-  }
-})
-vi.mock('../src/plans/plans.ts', async (original) => {
-  const module = await original<typeof import('../src/plans/plans.ts')>()
-  return {
-    ...module,
-    createPlans: (...args: Parameters<typeof module.createPlans>) => {
-      const plans = module.createPlans(...args)
-      return {
-        ...plans,
-        removeFactory: async (...input: Parameters<typeof plans.removeFactory>) => {
-          await plans.removeFactory(...input)
-          await pauses.removal?.()
-        },
-      }
+  }),
+  runs: (runs, store) => ({
+    ...runs,
+    start: async (...input) => {
+      const result = await runs.start(...input)
+      await pauses.started?.()
+      return result
     },
-  }
-})
-
-vi.mock('../src/runs/run-manager.ts', async (original) => {
-  const module = await original<typeof import('../src/runs/run-manager.ts')>()
-  return {
-    ...module,
-    startRunManager: async (...args: Parameters<typeof module.startRunManager>) => {
-      const runs = await module.startRunManager(...args)
-      return {
-        ...runs,
-        start: async (...input: Parameters<typeof runs.start>) => {
-          const result = await runs.start(...input)
-          await pauses.started?.()
-          return result
-        },
-        revive: async (...input: Parameters<typeof runs.revive>) => {
-          await pauses.resume?.()
-          const result = await runs.revive(...input)
-          await pauses.resumed?.()
-          return result
-        },
-        dispatch: async (...input: Parameters<typeof runs.dispatch>) => {
-          await pauses.dispatch?.()
-          pauses.dispatchPhase = args[0].store.coordinators.forRun(input[0])?.phase
-          const result = await runs.dispatch(...input)
-          await pauses.dispatched?.()
-          return result
-        },
-      }
+    revive: async (...input) => {
+      await pauses.resume?.()
+      const result = await runs.revive(...input)
+      await pauses.resumed?.()
+      return result
     },
-  }
-})
-
-vi.mock('../src/store/index.ts', async (original) => {
-  const module = await original<typeof import('../src/store/index.ts')>()
-  return {
-    ...module,
-    openStore: async (...args: Parameters<typeof module.openStore>) => {
-      const store = await module.openStore(...args)
-      const persisted = store.persisted
-      store.persisted = async () => {
-        await persisted()
-        if (new Error().stack?.includes('/runs/steering.ts:')) await pauses.persisted?.()
-      }
-      return store
+    dispatch: async (...input) => {
+      await pauses.dispatch?.()
+      pauses.dispatchPhase = store.coordinators.forRun(input[0])?.phase
+      const result = await runs.dispatch(...input)
+      await pauses.dispatched?.()
+      return result
     },
-  }
-})
+  }),
+  store: (store) => {
+    const persisted = store.persisted
+    store.persisted = async () => {
+      await persisted()
+      if (new Error().stack?.includes('/runs/steering.ts:')) await pauses.persisted?.()
+    }
+    return store
+  },
+}
 
 let home: string, scratch: string, cleanup: () => Promise<void>, daemon: RunningDaemon | undefined
 const releases: (() => void)[] = []
@@ -200,6 +155,8 @@ async function setup(runs?: { inputAckMs: number }) {
     claudeBin: stubClaudePath,
     codexBin: stubCodexPath,
     ...(runs && { runs }),
+    wrap: pausing,
+    mkdir: pausingMkdir,
   })
   let client = api(daemon.port, { appKey: daemon.appToken })
   async function call<T>(method: string, route: string, body?: unknown): Promise<T> {
@@ -208,18 +165,38 @@ async function setup(runs?: { inputAckMs: number }) {
     return result.body as T
   }
   const factory = await call<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
-  const base = `/factories/${factory.id}/coordinator`
+  const chats = `/factories/${factory.id}/coordinator-chats`
+  let chatId: string | undefined
+  const chatPath = () => {
+    if (chatId === undefined) throw new Error('no Coordinator chat yet')
+    return `/coordinator-chats/${chatId}`
+  }
+  const sendRaw = async (body: Record<string, unknown>) => {
+    const result = await client.call(
+      'POST',
+      chatId === undefined ? chats : `${chatPath()}/messages`,
+      body,
+    )
+    const id = (result.body as { id?: unknown } | undefined)?.id
+    if (result.status < 300 && typeof id === 'string') chatId = id
+    return result
+  }
+  const send = async <T = Coordinator>(body: Record<string, unknown>): Promise<T> => {
+    const result = await sendRaw(body)
+    if (result.status >= 300) throw new Error(`send: ${JSON.stringify(result)}`)
+    return result.body as T
+  }
   return {
     factory,
-    base,
+    get base() {
+      return chatPath()
+    },
     call,
     request: (method: string, route: string, body?: unknown) => client.call(method, route, body),
-    chat: () => call<Coordinator>('GET', base),
-    message: (steps: unknown[]) =>
-      call<Coordinator>('POST', `${base}/messages`, {
-        agent: 'claude',
-        text: JSON.stringify({ steps }),
-      }),
+    chat: () => call<Coordinator>('GET', chatPath()),
+    send,
+    sendRaw,
+    message: (steps: unknown[]) => send({ agent: 'claude', text: JSON.stringify({ steps }) }),
     async restart() {
       await daemon?.stop()
       daemon = await startDaemon({
@@ -228,6 +205,8 @@ async function setup(runs?: { inputAckMs: number }) {
         claudeBin: stubClaudePath,
         codexBin: stubCodexPath,
         ...(runs && { runs }),
+        wrap: pausing,
+        mkdir: pausingMkdir,
       })
       client = api(daemon.port, { appKey: daemon.appToken })
       return daemon
@@ -249,7 +228,7 @@ test('working Claude steering is restored at its next tool boundary after daemon
     const chat = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`).catch(() => undefined)
     return chat?.items.some((i) => i.kind === 'agent' && i.text === 'Before restart')
   }, 'working response')
-  await s.call('POST', `${s.base}/messages`, { text: 'Read fresh facts after restart' })
+  await s.send({ text: 'Read fresh facts after restart' })
   const flag = path.join(home, 'runs', c.runId, 'queued')
   expect(existsSync(flag)).toBe(true)
   await s.restart()
@@ -282,7 +261,7 @@ test('shutdown drains a suspended initial launch without starting a host after c
     (await readdir(path.join(home, 'runs')).catch(() => [])).some((id) => id === c.runId),
   ).toBe(false)
   const store = await openStore({ directory: path.join(home, 'store') })
-  expect(store.coordinators.get(s.factory.id)?.runId).toBe(c.runId)
+  expect(store.coordinators.list().find((c) => c.factoryId === s.factory.id)?.runId).toBe(c.runId)
   expect(store.getRun(c.runId)).toBeUndefined()
   await store.close()
 })
@@ -339,7 +318,7 @@ test('replacement checkpoint survives shutdown before host creation and keeps in
   await closing
   daemon = undefined
   const store = await openStore({ directory: path.join(home, 'store') })
-  const saved = store.coordinators.get(s.factory.id)
+  const saved = store.coordinators.list().find((c) => c.factoryId === s.factory.id)
   expect(saved?.launch?.prompt).toContain('Recovered requested answer')
   expect(saved?.launch?.messages).toHaveLength(1)
   expect(store.getRun(checkpoint.runId)).toBeUndefined()
@@ -371,7 +350,7 @@ test('replacement checkpoint survives shutdown before host creation and keeps in
 test('Factory removal blocks new chats throughout cleanup and rejects an in-flight first message', async () => {
   const s = await setup(),
     defaults = pause('defaults')
-  const first = s.request('POST', `${s.base}/messages`, { agent: 'claude', text: 'First message' })
+  const first = s.sendRaw({ agent: 'claude', text: 'First message' })
   await defaults.entered
   const removal = pause('removal')
   const deleting = s.call('POST', `/factories/${s.factory.id}/remove`, {
@@ -379,9 +358,7 @@ test('Factory removal blocks new chats throughout cleanup and rejects an in-flig
     closePullRequests: false,
   })
   await removal.entered
-  expect(
-    (await s.request('POST', `${s.base}/messages`, { text: 'Recreate during cleanup' })).status,
-  ).toBe(404)
+  expect((await s.sendRaw({ text: 'Recreate during cleanup' })).status).toBe(404)
   defaults.release()
   expect((await first).status).toBe(404)
   removal.release()
@@ -401,7 +378,7 @@ test('Stop preserves all unstarted human messages across restart without dispatc
   await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: false }))
   await s.call('POST', '/agents/health/check')
   const c = await s.message([{ say: 'Canceled original' }, { endTurn: true }])
-  await s.call('POST', `${s.base}/messages`, { text: 'Another canceled instruction' })
+  await s.send({ text: 'Another canceled instruction' })
   expect(c.started).toBe(false)
   await s.call('POST', `${s.base}/stop`)
   expect((await s.chat()).unsentMessages).toHaveLength(2)
@@ -437,7 +414,7 @@ test('failed session launch keeps pending input available for a successful retry
   await daemon?.stop()
   daemon = undefined
   const store = await openStore({ directory: path.join(home, 'store') })
-  const current = store.coordinators.get(s.factory.id)
+  const current = store.coordinators.list().find((c) => c.factoryId === s.factory.id)
   if (!current) throw new Error('missing saved Coordinator')
   const input = JSON.stringify({ steps: [{ say: 'Resumed pending request' }, { endTurn: true }] })
   store.queueRunMessage({ runId: c.runId, text: input })
@@ -472,7 +449,7 @@ test('failed admitted input write preserves the human request for Retry', async 
     throw new Error('simulated input append failure')
   }
   const input = JSON.stringify({ steps: [{ say: 'Recovered human request' }, { endTurn: true }] })
-  await s.call('POST', `${s.base}/messages`, { text: input })
+  await s.send({ text: input })
   await waitUntil(async () => (await s.chat()).status === 'failed', 'delivery failure')
   const before = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
   expect(before.items.find((i) => i.kind === 'human' && i.text === input)).toMatchObject({
@@ -540,7 +517,7 @@ test('restart after input acceptance recovers the delivery without replaying an 
       { endTurn: true },
     ],
   })
-  await s.call('POST', `${s.base}/messages`, { text: input })
+  await s.send({ text: input })
   await waitUntil(async () => (await s.chat()).status === 'failed', 'interrupted checkpoint')
   const pending = (await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)).items.find(
     (i) => i.kind === 'human' && i.text === input,
@@ -584,7 +561,7 @@ test('boundary delivery survives settlement, and a Task starts while the Coordin
       { endTurn: true },
     ],
   })
-  await s.call('POST', `${s.base}/messages`, { text: input })
+  await s.send({ text: input })
   const gate = pause('persisted')
   if (!daemon) throw new Error('missing daemon')
   const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
@@ -664,7 +641,7 @@ test.each(['claude', 'codex'] as const)(
   '%s acknowledges identical queued requests separately',
   async (agent) => {
     const s = await setup()
-    const c = await s.call<Coordinator>('POST', `${s.base}/messages`, {
+    const c = await s.send<Coordinator>({
       agent,
       text: JSON.stringify({ steps: [{ say: 'Initial answer' }, { endTurn: true }] }),
     })
@@ -675,10 +652,7 @@ test.each(['claude', 'codex'] as const)(
     const text = JSON.stringify({
       steps: [{ say: 'Repeated request answered' }, { endTurn: true }],
     })
-    await Promise.all([
-      s.call('POST', `${s.base}/messages`, { text }),
-      s.call('POST', `${s.base}/messages`, { text }),
-    ])
+    await Promise.all([s.send({ text }), s.send({ text })])
     expect((await s.chat()).status).toBe('paused')
     await writeFile(health, JSON.stringify({ signedIn: true }))
     await s.call('POST', '/agents/health/check')
@@ -700,7 +674,7 @@ test('cancel refuses a queued-looking message whose input has already dispatched
   await waitUntil(async () => (await s.chat()).status === 'ready', 'initial answer')
   const gate = pause('dispatched')
   const text = JSON.stringify({ steps: [{ say: 'Dispatched action ran' }, { endTurn: true }] })
-  await s.call('POST', `${s.base}/messages`, { text })
+  await s.send({ text })
   await gate.entered
   const chat = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
   const message = chat.items.find((i) => i.kind === 'human' && i.text === text)
@@ -782,7 +756,7 @@ test('revival prompt checkpoint does not replay accepted input after interrupted
   await daemon?.stop()
   daemon = undefined
   const store = await openStore({ directory: path.join(home, 'store') })
-  const saved = store.coordinators.get(s.factory.id)
+  const saved = store.coordinators.list().find((c) => c.factoryId === s.factory.id)
   if (!saved) throw Error('missing chat')
   store.queueRunMessage({
     runId: c.runId,
@@ -817,7 +791,7 @@ test('cancellation before input write prevents dispatch of a previously selected
   const s = await setup()
   const c = await s.message([{ waitFor: path.join(scratch, 'original-end') }, { endTurn: true }])
   await waitUntil(async () => (await s.chat()).started, 'initial Run')
-  await s.call('POST', `${s.base}/messages`, { text: 'Canceled before write' })
+  await s.send({ text: 'Canceled before write' })
   const chat = await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)
   const message = chat.items.find((i) => i.kind === 'human' && i.text === 'Canceled before write')
   if (!message || !daemon) throw Error('missing message or daemon')
@@ -896,7 +870,7 @@ test('Queued Work and Intake Tasks share the same Coordinator waiting group', as
   await store.close()
   await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ signedIn: false }))
   const restarted = await s.restart()
-  const c = await s.call<Coordinator>('POST', `${s.base}/messages`, {
+  const c = await s.send<Coordinator>({
     agent: 'codex',
     text: JSON.stringify({
       steps: [{ waitFor: path.join(scratch, 'coordinator-end') }, { endTurn: true }],
@@ -926,7 +900,7 @@ test('Queued Work and Intake Tasks share the same Coordinator waiting group', as
 
 test('admitted Codex follow-ups wait without failing a slow healthy response', async () => {
   const s = await setup({ inputAckMs: 3_000 })
-  const c = await s.call<Coordinator>('POST', `${s.base}/messages`, {
+  const c = await s.send<Coordinator>({
     agent: 'codex',
     text: JSON.stringify({ steps: [{ endTurn: true }] }),
   })
@@ -941,8 +915,8 @@ test('admitted Codex follow-ups wait without failing a slow healthy response', a
   const second = JSON.stringify({
     steps: [{ say: 'Second admitted follow-up' }, { endTurn: true }],
   })
-  await s.call('POST', `${s.base}/messages`, { text: first })
-  await s.call('POST', `${s.base}/messages`, { text: second })
+  await s.send({ text: first })
+  await s.send({ text: second })
   await waitUntil(
     async () =>
       (await s.call<RunChat>('GET', `/runs/${c.runId}/chat`)).items.some(

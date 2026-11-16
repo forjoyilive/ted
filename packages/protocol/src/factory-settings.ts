@@ -1,5 +1,12 @@
 import type { PermissionMode } from './run.ts'
-import type { AgentStageId, ClarifyDepth, Effort, StageId } from './task.ts'
+import type {
+  AgentStageId,
+  CiSignal,
+  ClarifyDepth,
+  Effort,
+  PullRequestCiMode,
+  StageId,
+} from './task.ts'
 import type { LayerKind, WorkflowProblem } from './workflow.ts'
 
 export const appKinds = ['web', 'command', 'ios-simulator', 'android-emulator'] as const
@@ -34,6 +41,7 @@ export interface RepoSettingsInput {
   name: string
   baseBranch?: string
   mergeMethod?: SettingsMergeMethod
+  pullRequestCi?: PullRequestCiMode
   setup?: WorktreeCommandInput
   teardown?: WorktreeCommandInput
   env: EnvVariable[]
@@ -90,6 +98,8 @@ export interface StageRowView {
   inheritedEffortFrom?: LayerKind
 
   id: StageId
+  name: string
+  custom?: true
   inOrder: boolean
   enabled: boolean
   gate: boolean
@@ -231,6 +241,13 @@ export interface RepoSettingsView extends RepoSettingsInput {
   was: string
   primary: boolean
   localFolder?: RepoLocalFolder
+  ciFound?: PullRequestCiFound
+}
+
+export interface PullRequestCiFound {
+  signals: CiSignal[]
+  task: string
+  at: string
 }
 
 export type SettingsSource = 'file' | 'last-valid' | 'none'
@@ -305,7 +322,7 @@ export interface RenameFactoryRequest {
 }
 
 export function settingsInput(view: RepoSettingsView): RepoSettingsInput {
-  const { primary: _, localFolder: __, ...input } = view
+  const { primary: _, localFolder: __, ciFound: ___, ...input } = view
   return input
 }
 
@@ -320,6 +337,7 @@ function normalized(repo: RepoSettingsInput) {
     name: repo.name.trim(),
     baseBranch: repo.baseBranch?.trim() || undefined,
     mergeMethod: repo.mergeMethod,
+    pullRequestCi: repo.pullRequestCi === 'auto' ? undefined : repo.pullRequestCi,
     setup: command(repo.setup),
     teardown: command(repo.teardown),
     env: repo.env.filter((v) => v.name.trim() !== '' || v.value !== ''),
@@ -347,6 +365,8 @@ export interface LibraryStageRow {
   inheritedEffortFrom?: LayerKind
 
   id: StageId
+  name: string
+  custom?: true
   inOrder: boolean
   enabled: boolean
   gate: boolean

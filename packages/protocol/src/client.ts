@@ -73,9 +73,8 @@ import type { CommandLineStatus } from './command-line.ts'
 import type {
   Coordinator,
   CoordinatorAction,
+  CoordinatorChatSummary,
   CoordinatorConfirmationAnswer,
-  CoordinatorConversation,
-  CoordinatorConversationSummary,
   CoordinatorCreate,
   CoordinatorMessage,
   CoordinatorOperation,
@@ -146,7 +145,7 @@ import type {
   ResolveFailureRequest,
   ValidationObligations,
 } from './failures.ts'
-import type { GitHubIntakeScope } from './github-intake.ts'
+import type { GitHubIntakeRequest, GitHubIntakeResult, GitHubIntakeScope } from './github-intake.ts'
 import type {
   GitHubNameCheck,
   GitHubNameRequest,
@@ -165,10 +164,12 @@ import type {
   LinearStatus,
   SaveLinearKeyRequest,
 } from './linear.ts'
+import type { LinearIntakeRequest, LinearIntakeResult } from './linear-intake.ts'
 import type { MemoryUse } from './memory.ts'
 import type { MessageBox, MessageDraftState, SaveMessageDraftRequest } from './message-draft.ts'
 import type { PeerDetail, PeerInbox, PeerMessage, PeerPage, SendPeerMessage } from './peers.ts'
 import type {
+  ChatArchiveExpiry,
   Plan,
   PlanDetail,
   PlanInboxItem,
@@ -443,74 +444,56 @@ export class DaemonClient {
     return this.#request('GET', `/plans${factoryQuery(factory)}`)
   }
 
-  coordinator(factoryId: string): Promise<Coordinator | null> {
-    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/coordinator`)
+  coordinatorChats(factoryId: string): Promise<CoordinatorChatSummary[]> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/coordinator-chats`)
   }
 
-  coordinatorChat(factoryId: string): Promise<RunChat | null> {
-    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/coordinator/chat`)
+  startCoordinatorChat(factoryId: string, input: CoordinatorMessage): Promise<Coordinator> {
+    return this.#request(
+      'POST',
+      `/factories/${encodeURIComponent(factoryId)}/coordinator-chats`,
+      input,
+    )
+  }
+
+  coordinator(chatId: string): Promise<Coordinator> {
+    return this.#request('GET', `/coordinator-chats/${encodeURIComponent(chatId)}`)
+  }
+
+  coordinatorChat(chatId: string): Promise<RunChat> {
+    return this.#request('GET', `/coordinator-chats/${encodeURIComponent(chatId)}/chat`)
   }
 
   coordinatorStatuses(): Promise<CoordinatorStatus[]> {
     return this.#request('GET', '/coordinators')
   }
 
-  messageCoordinator(factoryId: string, input: CoordinatorMessage): Promise<Coordinator> {
-    return this.#request(
-      'POST',
-      `/factories/${encodeURIComponent(factoryId)}/coordinator/messages`,
-      input,
-    )
+  messageCoordinator(chatId: string, input: CoordinatorMessage): Promise<Coordinator> {
+    return this.#request('POST', `/coordinator-chats/${encodeURIComponent(chatId)}/messages`, input)
   }
 
-  stopCoordinator(factoryId: string): Promise<Coordinator> {
-    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/coordinator/stop`)
+  stopCoordinator(chatId: string): Promise<Coordinator> {
+    return this.#request('POST', `/coordinator-chats/${encodeURIComponent(chatId)}/stop`)
   }
 
-  retryCoordinator(factoryId: string): Promise<Coordinator> {
-    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/coordinator/retry`)
+  retryCoordinator(chatId: string): Promise<Coordinator> {
+    return this.#request('POST', `/coordinator-chats/${encodeURIComponent(chatId)}/retry`)
   }
 
-  resetCoordinator(factoryId: string): Promise<null> {
-    return this.#request('POST', `/factories/${encodeURIComponent(factoryId)}/coordinator/reset`)
+  renameCoordinatorChat(chatId: string, title: string): Promise<Coordinator> {
+    return this.#request('PATCH', `/coordinator-chats/${encodeURIComponent(chatId)}`, { title })
   }
 
-  coordinatorConversations(factoryId: string): Promise<CoordinatorConversationSummary[]> {
-    return this.#request(
-      'GET',
-      `/factories/${encodeURIComponent(factoryId)}/coordinator/conversations`,
-    )
+  archiveCoordinatorChat(chatId: string): Promise<Coordinator> {
+    return this.#request('POST', `/coordinator-chats/${encodeURIComponent(chatId)}/archive`, {})
   }
 
-  coordinatorConversation(
-    factoryId: string,
-    conversationId: string,
-  ): Promise<CoordinatorConversation> {
-    return this.#request(
-      'GET',
-      `/factories/${encodeURIComponent(factoryId)}/coordinator/conversations/${encodeURIComponent(conversationId)}`,
-    )
+  unarchiveCoordinatorChat(chatId: string): Promise<Coordinator> {
+    return this.#request('POST', `/coordinator-chats/${encodeURIComponent(chatId)}/unarchive`, {})
   }
 
-  coordinatorConversationChat(factoryId: string, conversationId: string): Promise<RunChat> {
-    return this.#request(
-      'GET',
-      `/factories/${encodeURIComponent(factoryId)}/coordinator/conversations/${encodeURIComponent(conversationId)}/chat`,
-    )
-  }
-
-  continueCoordinatorConversation(factoryId: string, conversationId: string): Promise<Coordinator> {
-    return this.#request(
-      'POST',
-      `/factories/${encodeURIComponent(factoryId)}/coordinator/conversations/${encodeURIComponent(conversationId)}/continue`,
-    )
-  }
-
-  deleteCoordinatorConversation(factoryId: string, conversationId: string): Promise<null> {
-    return this.#request(
-      'DELETE',
-      `/factories/${encodeURIComponent(factoryId)}/coordinator/conversations/${encodeURIComponent(conversationId)}`,
-    )
+  deleteCoordinatorChat(chatId: string): Promise<null> {
+    return this.#request('DELETE', `/coordinator-chats/${encodeURIComponent(chatId)}`)
   }
 
   coordinatorTasks(query: CoordinatorTaskQuery = {}): Promise<{ context: string }> {
@@ -541,13 +524,13 @@ export class DaemonClient {
   }
 
   answerCoordinatorConfirmation(
-    factoryId: string,
+    chatId: string,
     confirmationId: string,
     answer: CoordinatorConfirmationAnswer,
   ): Promise<Coordinator> {
     return this.#request(
       'POST',
-      `/factories/${encodeURIComponent(factoryId)}/coordinator/confirmations/${encodeURIComponent(confirmationId)}`,
+      `/coordinator-chats/${encodeURIComponent(chatId)}/confirmations/${encodeURIComponent(confirmationId)}`,
       answer,
     )
   }
@@ -572,8 +555,12 @@ export class DaemonClient {
     return this.#request('POST', `/plans/${encodeURIComponent(id)}/resume`, input)
   }
 
-  markPlanFinished(id: string): Promise<Plan> {
-    return this.#request('POST', `/plans/${encodeURIComponent(id)}/finish`, {})
+  archivePlan(id: string): Promise<Plan> {
+    return this.#request('POST', `/plans/${encodeURIComponent(id)}/archive`, {})
+  }
+
+  unarchivePlan(id: string): Promise<Plan> {
+    return this.#request('POST', `/plans/${encodeURIComponent(id)}/unarchive`, {})
   }
 
   deletePlan(id: string): Promise<{ deleted: true }> {
@@ -649,6 +636,14 @@ export class DaemonClient {
 
   runAsanaIntake(input: AsanaIntakeRequest = {}): Promise<AsanaIntakeResult> {
     return this.#request('POST', '/asana-intake', input)
+  }
+
+  runGitHubIntake(input: GitHubIntakeRequest = {}): Promise<GitHubIntakeResult> {
+    return this.#request('POST', '/github-intake', input)
+  }
+
+  runLinearIntake(input: LinearIntakeRequest = {}): Promise<LinearIntakeResult> {
+    return this.#request('POST', '/linear-intake', input)
   }
 
   setTaskSnooze(ref: string, snoozedUntil: string | null): Promise<Task> {
@@ -1367,6 +1362,10 @@ export class DaemonClient {
     return this.#request('GET', `/archive-expiry?days=${encodeURIComponent(String(days))}`)
   }
 
+  chatArchiveExpiry(days: number): Promise<ChatArchiveExpiry> {
+    return this.#request('GET', `/chat-archive-expiry?days=${encodeURIComponent(String(days))}`)
+  }
+
   getSettings(): Promise<MachineSettings> {
     return this.#request('GET', '/settings')
   }
@@ -1391,8 +1390,8 @@ export class DaemonClient {
     return this.#request('GET', '/diagnostics/memory')
   }
 
-  getReport(): Promise<{ text: string }> {
-    return this.#request('GET', '/diagnostics/report')
+  getReport(options: { log?: boolean } = {}): Promise<{ text: string }> {
+    return this.#request('GET', `/diagnostics/report${options.log === false ? '?log=0' : ''}`)
   }
 
   getSlowMoments(): Promise<SlowMoments> {

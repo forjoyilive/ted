@@ -1,0 +1,32 @@
+.progress {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.progress svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+.track,
+.arc {
+  fill: none;
+}
+
+.track {
+  stroke: var(--border-default);
+}
+
+.arc {
+  stroke: currentColor;
+}
+
+.done {
+  color: var(--status-success-fg);
+}

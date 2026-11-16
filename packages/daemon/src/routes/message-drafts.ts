@@ -60,7 +60,13 @@ export function messageDraftOwner(store: TedStore, box: MessageBox): Owner {
         ...(factoryId !== undefined && { factoryId }),
       }
     }
-    case 'coordinator':
+    case 'coordinator': {
+      const chat = store.coordinators.find(box.id)
+      if (!chat || !store.getFactory(chat.factoryId))
+        throw new HttpError(404, 'no such Coordinator chat')
+      return { box, factoryId: chat.factoryId }
+    }
+    case 'coordinator-new':
     case 'new-plan':
       if (!store.getFactory(box.id)) throw new HttpError(404, 'no such Factory')
       return { box, factoryId: box.id }

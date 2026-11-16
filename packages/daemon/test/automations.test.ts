@@ -75,6 +75,7 @@ async function startTed(
     resetSettings?: boolean
     systemTimeZone?: () => string
     linear?: Parameters<typeof startDaemon>[0]['linear']
+    github?: Parameters<typeof startDaemon>[0]['github']
   } = {},
 ) {
   daemon = await startDaemon({
@@ -91,6 +92,7 @@ async function startTed(
     disk: { freeBytes: async () => free, checkEveryMs: 50 },
     load: { ratio: () => load, memoryAvailable: () => memory, checkEveryMs: 30 },
     ...(options.linear && { linear: options.linear }),
+    ...(options.github && { github: options.github }),
   })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
@@ -1707,6 +1709,137 @@ describe('Factory Linear intake enforcement', () => {
     }
   })
 
+  test('ted linear intake creates Backlog Tasks for the not-started issues assigned to the user in the scope, skips tracked ones and refuses without a scope or a connection', async () => {
+    const key = 'lin_api_abcdefghijklmnopqrstuvwxyz0123456789ABCD'
+    const linear = await startStubLinear({
+      [key]: {
+        name: 'Nabha',
+        workspace: { name: 'Acme', urlKey: 'acme' },
+        teams: [{ id: 'team-NB', name: 'Widgets', key: 'NB' }],
+        issues: [
+          { identifier: 'NB-1', title: 'Todo for me', assignedToMe: true },
+          { identifier: 'NB-2', title: 'Backlog for me', state: 'Backlog', assignedToMe: true },
+          { identifier: 'NB-3', title: 'Triage for me', state: 'Triage', assignedToMe: true },
+          { identifier: 'NB-4', title: 'Tracked already', state: 'Backlog', assignedToMe: true },
+          { identifier: 'NB-5', title: 'Started', state: 'In Progress', assignedToMe: true },
+          { identifier: 'NB-6', title: 'Not mine' },
+          { identifier: 'OT-7', title: 'Other team', assignedToMe: true },
+        ],
+      },
+    })
+    try {
+      await writeFile(stubKeyringFile(home), JSON.stringify({ secret: key }))
+      const client = await startTed({
+        linear: {
+          apiUrl: linear.url,
+          keyring: stubKeyring(stubKeyringFile(home)),
+          intakeLimit: 2,
+        },
+      })
+      const [factory] = await client.ok<Factory[]>('GET', '/factories')
+      if (!factory) throw new Error('no Factory')
+      const unscoped = await client.call('POST', '/linear-intake', { factory: 'NB' })
+      expect(unscoped.status).toBe(403)
+      expect(JSON.stringify(unscoped.body)).toContain('Choose a Linear Team or Project')
+      await client.ok('PUT', `/factories/${factory.id}/linear-intake`, {
+        scope: {
+          kind: 'team',
+          id: 'team-NB',
+          name: 'Widgets',
+          workspaceId: 'workspace-acme',
+          workspace: 'acme',
+        },
+      })
+      await client.ok<Task>('POST', '/tasks', {
+        factory: 'NB',
+        source: 'https://linear.app/acme/issue/NB-4',
+        title: 'Tracked already',
+      })
+      const automation = await create(client, {
+        on: false,
+        name: 'Import my Linear work',
+        prompt: steps({ run: ['ted', 'linear', 'intake'] }, { endTurn: true }),
+      })
+      const outputs: string[] = []
+      const seen = new Set<string>()
+      for (const firings of [1, 2]) {
+        await client.ok('POST', `/automations/${automation.id}/run`)
+        const rows = await waitForHistory(
+          client,
+          automation.id,
+          (rows) => rows.length === firings && rows.every((row) => row.result.kind === 'created'),
+          `Linear intake firing ${firings}`,
+        )
+        const runId = rows.find((row) => row.runId && !seen.has(row.runId))?.runId ?? ''
+        seen.add(runId)
+        const [result] = await commandResults(client, runId)
+        expect(result?.code, result?.stderr).toBe(0)
+        outputs.push(result?.stdout ?? '')
+      }
+      expect(outputs[0]).toContain('Imported 2 Linear issues from the Linear team Widgets')
+      expect(outputs[0]).toContain('1 issue is already tracked')
+      expect(outputs[0]).toContain('1 more issue waits for the next run')
+      expect(outputs[1]).toContain('Imported 1 Linear issue from the Linear team Widgets')
+      expect(outputs[1]).toContain('3 issues are already tracked')
+      const imported = (await client.ok<Task[]>('GET', '/tasks'))
+        .filter((task) => task.createdBy === 'automation')
+        .map((task) => ({ id: task.source?.linear?.identifier, stage: task.stage }))
+        .sort((a, b) => (a.id ?? '').localeCompare(b.id ?? ''))
+      expect(imported).toEqual([
+        { id: 'NB-1', stage: 'backlog' },
+        { id: 'NB-2', stage: 'backlog' },
+        { id: 'NB-3', stage: 'backlog' },
+      ])
+      const account = linear.accounts.get(key)
+      if (!account?.issues) throw new Error('no stub account')
+      account.issues.push({ identifier: 'NB-8', title: 'Scope cleared', assignedToMe: true })
+      let release = () => {}
+      account.lookupReady = new Promise((resolve) => {
+        release = resolve
+      })
+      const looking = new Promise<void>((resolve) => {
+        account.onLookup = (id) => {
+          if (id === 'NB-8') resolve()
+        }
+      })
+      await client.ok('POST', `/automations/${automation.id}/run`)
+      await looking
+      await client.ok('PUT', `/factories/${factory.id}/linear-intake`, { scope: null })
+      release()
+      const rows = await waitForHistory(
+        client,
+        automation.id,
+        (rows) => rows.length === 3 && rows.every((row) => row.result.kind !== 'running'),
+        'Linear intake firing 3',
+      )
+      const runId = rows.find((row) => row.runId && !seen.has(row.runId))?.runId ?? ''
+      const [stopped] = await commandResults(client, runId)
+      expect(stopped?.stdout).toContain(
+        'Linear intake scope changed during the import. TED stopped; the next run uses the new scope.',
+      )
+      expect(
+        (await client.ok<Task[]>('GET', '/tasks')).some(
+          (task) => task.source?.linear?.identifier === 'NB-8',
+        ),
+      ).toBe(false)
+      await client.ok('PUT', `/factories/${factory.id}/linear-intake`, {
+        scope: {
+          kind: 'team',
+          id: 'team-NB',
+          name: 'Widgets',
+          workspaceId: 'workspace-acme',
+          workspace: 'acme',
+        },
+      })
+      await client.ok('DELETE', '/integrations/linear/key')
+      const disconnected = await client.call('POST', '/linear-intake', { factory: 'NB' })
+      expect(disconnected.status).toBe(409)
+      expect(JSON.stringify(disconnected.body)).toContain('Linear isn’t connected')
+    } finally {
+      await linear.close()
+    }
+  })
+
   test('a scoped Automation cannot import unverifiable issues, but a human can', async () => {
     const client = await startTed()
     const [factory] = await client.ok<Factory[]>('GET', '/factories')
@@ -1882,6 +2015,112 @@ describe('Factory GitHub intake enforcement', () => {
     ).toEqual([
       [1, 'backlog'],
       [2, 'backlog'],
+    ])
+  })
+
+  // Its own daemon: the per-run cap is lowered through startDaemon's github.intakeLimit.
+  test('ted github intake imports every labelled open issue into Backlog, skips tracked ones and sub-issues of tracked ones, imports past a tree too big for the cap, stops at the cap, and refuses without a label or outside an Automation', async () => {
+    process.env.TED_STUB_GH = path.join(home, 'gh.json')
+    const client = await startTed({ github: { intakeLimit: 2 } })
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    if (!factory) throw new Error('no Factory')
+    const repo = factory.repo
+    const url = (n: number) => `https://github.com/${repo}/issues/${n}`
+    const answer = (
+      n: number,
+      extra: { state?: string; labels?: string[]; parent?: number; sub?: number[] } = {},
+    ) => ({
+      number: n,
+      title: `Issue ${n}`,
+      state: extra.state ?? 'OPEN',
+      locked: false,
+      url: url(n),
+      body: 'Details',
+      bodyHTML: '',
+      createdAt: '2026-11-01T10:00:00Z',
+      authorAssociation: 'OWNER',
+      author: { login: 'owner' },
+      repository: { nameWithOwner: repo },
+      labels: {
+        totalCount: extra.labels?.length ?? 0,
+        nodes: (extra.labels ?? []).map((name) => ({ name })),
+      },
+      ...(extra.parent !== undefined && { parent: { url: url(extra.parent) } }),
+      comments: { totalCount: 0, nodes: [] },
+      ...(extra.sub && {
+        subIssues: {
+          totalCount: extra.sub.length,
+          nodes: extra.sub.map((number) => ({
+            number,
+            state: 'OPEN',
+            repository: { nameWithOwner: repo },
+          })),
+        },
+      }),
+    })
+    const ready = ['Ready']
+    await writeFile(
+      path.join(home, 'gh.json'),
+      JSON.stringify({
+        issues: Object.fromEntries(
+          [
+            answer(1, { labels: ready, sub: [5, 11] }),
+            answer(2),
+            answer(3, { state: 'CLOSED', labels: ready }),
+            answer(5, { labels: ready, parent: 1 }),
+            answer(7, { labels: ready }),
+            answer(8, { labels: ready, parent: 7 }),
+            answer(9, { labels: ready }),
+            answer(10, { labels: ready }),
+            answer(11, { labels: ready, parent: 1 }),
+            answer(12, { labels: ready }),
+          ].map((issue) => [`${repo.toLowerCase()}#${issue.number}`, issue]),
+        ),
+      }),
+    )
+    const intake = await create(client, {
+      on: false,
+      name: 'Import GitHub issues',
+      prompt: steps({ run: ['ted', 'github', 'intake'] }, { endTurn: true }),
+    })
+    await client.ok('POST', `/automations/${intake.id}/run`)
+    const [refused] = await waitForHistory(
+      client,
+      intake.id,
+      (rows) => rows[0]?.result.kind === 'no-new-tasks',
+      'the import without a label to finish',
+    )
+    const [noLabel] = await commandResults(client, refused?.runId ?? '')
+    expect(noLabel?.code).toBe(1)
+    expect(noLabel?.stderr).toContain('Choose a label in')
+    expect((await client.call('POST', '/github-intake', {})).status).toBe(403)
+
+    await client.ok('PUT', `/factories/${factory.id}/github-intake`, { scope: { label: 'ready' } })
+    const byHand = await client.ok<Task>('POST', '/tasks', { factory: 'NB', source: url(7) })
+    await client.ok('POST', `/automations/${intake.id}/run`)
+    const rows = await waitForHistory(
+      client,
+      intake.id,
+      (rows) => rows.some((r) => r.result.kind === 'created'),
+      'the labelled bulk import to finish',
+    )
+    const row = rows.find((r) => r.result.kind === 'created')
+    const [imported] = await commandResults(client, row?.runId ?? '')
+    expect(imported?.code).toBe(0)
+    expect(imported?.stdout).toContain('Imported 2 GitHub issues labelled "ready"')
+    expect(imported?.stdout).toContain(`${repo}#9`)
+    expect(imported?.stdout).not.toContain('Issue 9')
+    expect(imported?.stdout).toContain('2 issues are already tracked or under a tracked issue.')
+    expect(imported?.stdout).toContain('2 more issues wait for the next run')
+    const tasks = await client.ok<Task[]>('GET', '/tasks')
+    expect(
+      tasks
+        .filter((t) => t.id !== byHand.id)
+        .map((t) => [t.source?.github?.number, t.stage, t.createdBy])
+        .sort(),
+    ).toEqual([
+      [10, 'backlog', 'automation'],
+      [9, 'backlog', 'automation'],
     ])
   })
 })

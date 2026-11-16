@@ -284,11 +284,10 @@ export type {
   ConfirmationTaskRef,
   Coordinator,
   CoordinatorAction,
+  CoordinatorChatSummary,
   CoordinatorConfirmation,
   CoordinatorConfirmationAnswer,
   CoordinatorConfirmationTask,
-  CoordinatorConversation,
-  CoordinatorConversationSummary,
   CoordinatorCreate,
   CoordinatorMessage,
   CoordinatorOperation,
@@ -302,6 +301,7 @@ export type {
   CoordinatorTaskList,
   CoordinatorTaskQuery,
   CoordinatorTaskSummary,
+  RenameCoordinatorChatRequest,
 } from './coordinator.ts'
 export {
   coordinatorTaskSearch,
@@ -311,6 +311,7 @@ export {
   parseCoordinatorMessage,
   parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
+  parseRenameCoordinatorChatRequest,
 } from './coordinator-parsers.ts'
 export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export type {
@@ -381,6 +382,9 @@ export type {
   Diagnostics,
   LogText,
   ProcessInfo,
+  ProcessKind,
+  ProcessRun,
+  ProcessRunRole,
   ProcessUsage,
   RunDiagnostics,
   TokenUse,
@@ -523,6 +527,7 @@ export {
   type LibraryView,
   type MergeSettingsRequest,
   maxCleanupStepName,
+  type PullRequestCiFound,
   type RenameFactoryRequest,
   type RepoLocalFolder,
   type RepoSettingsInput,
@@ -557,10 +562,18 @@ export {
   validationExecution,
 } from './failures.ts'
 export {
+  type GitHubIntakeImported,
+  type GitHubIntakeRequest,
+  type GitHubIntakeResult,
   type GitHubIntakeScope,
+  type GitHubIntakeSkipped,
+  type GitHubIntakeTaskRef,
+  type GitHubIntakeUnlisted,
   isGitHubIntakeScope,
   isGitHubLabel,
+  maxGitHubIntakeTasks,
   maxGitHubLabelLength,
+  parseGitHubIntakeRequest,
   parseSetFactoryGitHubIntakeRequest,
   type SetFactoryGitHubIntakeRequest,
   sameGitHubLabel,
@@ -645,6 +658,15 @@ export {
   type SetFactoryLinearIntakeRequest,
 } from './linear.ts'
 export {
+  type LinearIntakeImported,
+  type LinearIntakeRequest,
+  type LinearIntakeResult,
+  type LinearIntakeSkipped,
+  linearIntakeStateTypes,
+  maxLinearIntakeTasks,
+  parseLinearIntakeRequest,
+} from './linear-intake.ts'
+export {
   parseAllowLinearTeamRequest,
   parseLinearLookupRequest,
   parseSaveLinearKeyRequest,
@@ -655,11 +677,13 @@ export {
   allTasksScope,
   archivedFilters,
   type ListColumn,
+  type ListColumnsVersion,
   type ListFilters,
   type ListGroup,
   type ListSort,
   type ListView,
   listColumns,
+  listColumnsVersions,
   listGroups,
   listSorts,
   type StatusFilter,
@@ -690,6 +714,7 @@ export type {
 } from './peers.ts'
 export type { PostPlanRequest, RenamePlanRequest, ResumePlanRequest } from './plan.ts'
 export {
+  type ChatArchiveExpiry,
   openPlanRequest,
   type Plan,
   type PlanDetail,
@@ -712,12 +737,18 @@ export {
   parseStartPlanRequest,
 } from './plan-parsers.ts'
 export {
+  isReportEmail,
+  type ProblemReportRequest,
+  type ProblemReportResult,
+  parseProblemReportRequest,
+} from './problem-report.ts'
+export {
   type ProposalPlan,
   type ProposalPlanRow,
   planProposal,
   proposalCycle,
 } from './proposal.ts'
-export { downloadUrl, newIssueUrl, releaseRepo, releasesUrl } from './release.ts'
+export { downloadUrl, newIssueUrl, releaseRepo, releasesUrl, sentryDsn } from './release.ts'
 export {
   type AgentKind,
   agentKinds,
@@ -882,6 +913,8 @@ export {
   type BlockedChoice,
   type BlockerEnded,
   type BlockTaskRequest,
+  type BuiltInAgentStageId,
+  type BuiltInStageId,
   blockedChoices,
   briefHeadings,
   type CancelMergeRequest,
@@ -922,6 +955,7 @@ export {
   type FollowUpRequest,
   type GitHubWait,
   type InboxItem,
+  isCustomStageId,
   isModelName,
   isTrackerClosedQuestion,
   isTrackerGroupAsk,
@@ -938,6 +972,7 @@ export {
   memoryRetryChoice,
   mergeMethods,
   type NewTaskDraft,
+  noChoicesPicked,
   type Outcome,
   type OutcomeResult,
   type PermissionAsk,
@@ -950,10 +985,12 @@ export {
   type ProposalRow,
   type ProposalRowInput,
   type PullRequestAdvice,
+  type PullRequestCiMode,
   type PullRequestPreview,
   parseSetTaskSnoozeRequest,
   parseSnoozeRequestRequest,
   priorities,
+  pullRequestCiModes,
   type ReportCleanupStepRequest,
   type ReportOutcomeRequest,
   type RepoSetupReport,
@@ -990,6 +1027,7 @@ export {
   type StartTaskRequest,
   sameChoices,
   sizeChoices,
+  stageDisplayName,
   type TalkedThrough,
   type TalkThroughRequest,
   type TalkThroughResult,

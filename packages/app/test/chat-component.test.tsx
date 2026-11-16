@@ -333,6 +333,7 @@ test('Planning requests stay inline and keep drafts while the chat updates', asy
       status: 'waiting',
       runId: 'p1',
       createdAt,
+      lastAt: createdAt,
       createdTasks: 0,
     },
     requests: [

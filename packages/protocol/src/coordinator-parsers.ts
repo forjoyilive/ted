@@ -8,9 +8,11 @@ import type {
   CoordinatorRemoval,
   CoordinatorRemovalKind,
   CoordinatorTaskQuery,
+  RenameCoordinatorChatRequest,
 } from './coordinator.ts'
+import { isString, type Untyped } from './parse.ts'
+import { isStageId } from './stage.ts'
 import {
-  agentStageIds,
   blockedChoices,
   type RoundAnswerInput,
   type StageId,
@@ -303,7 +305,12 @@ export function parseCoordinatorMessage(value: unknown): CoordinatorMessage {
   return { text: body.text, ...agentChoice(body) }
 }
 
-const queryStages: readonly string[] = ['backlog', ...agentStageIds, 'done']
+export function parseRenameCoordinatorChatRequest(value: Untyped): RenameCoordinatorChatRequest {
+  const { title } = bodyObject(value)
+  if (!isString(title)) throw new HttpError(400, 'title must be text')
+  return { title }
+}
+
 const queryStatuses: readonly string[] = taskStatusKinds
 const queryKeys = new Set(['offset', 'all', 'stage', 'status', 'waiting', 'search'])
 const maxSearchLength = 200
@@ -328,8 +335,11 @@ export function parseCoordinatorTaskQuery(search: string): CoordinatorTaskQuery 
   }
   const stages = [...new Set(params.getAll('stage'))]
   for (const stage of stages)
-    if (!queryStages.includes(stage))
-      throw new HttpError(400, `unknown Stage ${stage}; use one of ${queryStages.join(', ')}`)
+    if (!isStageId(stage))
+      throw new HttpError(
+        400,
+        `unknown Stage ${stage}; a Stage id is lowercase letters, digits and hyphens`,
+      )
   if (stages.length > 0) query.stages = stages as StageId[]
   const statuses = [...new Set(params.getAll('status'))]
   for (const status of statuses)

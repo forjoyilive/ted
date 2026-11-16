@@ -6,6 +6,7 @@ import type {
   FindingSeverity,
   TaskStatusKind,
 } from '@ted/protocol'
+import { isEntryStage, stageWith, validates } from '@ted/protocol/stage'
 import { type DashboardTaskFacts, dashboardReport, rangeWindows } from '../dashboard.ts'
 import { type CostOwners, type CostUsage, costUsage } from '../dashboard-cost.ts'
 import { readDashboardTiming } from './dashboard-timing.ts'
@@ -13,8 +14,7 @@ import { intervalBoundaries } from './interval-schema.ts'
 import {
   automationFirings,
   automations,
-  coordinatorConversations,
-  coordinators,
+  coordinatorChats,
   factories,
   plans,
   pullRequests,
@@ -32,6 +32,7 @@ const historyNames = [
   'v1.TaskStageEntered',
   'v2.TaskStageEntered',
   'v3.TaskStageEntered',
+  'v4.TaskStageEntered',
   'v1.TaskArchived',
   'v2.TaskArchived',
   'v3.TaskArchived',
@@ -53,7 +54,7 @@ export function sendBackSeverities(
   return backs.map((sendBack) => {
     const since = after
     after = sendBack.at
-    if (sendBack.from !== 'validate' || !sendBack.counted || sendBack.checkRunId) return undefined
+    if (!validates(sendBack.from) || !sendBack.counted || sendBack.checkRunId) return undefined
     const found = declared.findLast((d) => d.at > since && d.at <= sendBack.at)
     return found ? (found.severity as FindingSeverity) : 'none'
   })
@@ -107,11 +108,14 @@ export function readCostInput(
     ))
       if (reviewer.purpose === 'review') owners.reviewers.add(reviewer.runId)
   }
-  const coordinatorChats = [
-    ...store.query(queryDb(coordinators)).map((row) => JSON.parse(row.data)),
-    ...store.query(queryDb(coordinatorConversations)).map((row) => JSON.parse(row.data).chat),
-  ] as { factoryId: string; runId?: string; runIds?: string[] }[]
-  for (const chat of coordinatorChats)
+  const chats = store
+    .query(queryDb(coordinatorChats))
+    .map((row) => ({ ...JSON.parse(row.data), factoryId: row.factoryId })) as {
+    factoryId: string
+    runId?: string
+    runIds?: string[]
+  }[]
+  for (const chat of chats)
     for (const runId of [chat.runId, ...(chat.runIds ?? [])])
       if (runId && !owners.coordinators.has(runId)) owners.coordinators.set(runId, chat.factoryId)
   for (const row of store.query(queryDb(sideChats))) {
@@ -186,7 +190,7 @@ export function readDashboard(
   const facts = new Map<
     string,
     DashboardTaskFacts & {
-      entries: { stage: string; at: string; sequence: number }[]
+      entries: { stage: string; at: string; sequence: number; name?: string }[]
       merges: string[]
       transitions: { stage: string; at: string; sequence: number }[]
       archives: string[]
@@ -229,10 +233,20 @@ export function readDashboard(
       if (!task) continue
       const data = JSON.parse(row.data) as Record<string, unknown>
       if (row.name.endsWith('TaskStageEntered')) {
-        task.entries.push({ stage: String(data.stage), at: row.at, sequence: sequence(row.id) })
+        const name = recordedName(data)
+        task.entries.push({
+          stage: String(data.stage),
+          at: row.at,
+          sequence: sequence(row.id),
+          ...(name !== undefined && { name }),
+        })
       } else if (row.name === 'v1.TaskQueued') {
-        if (data.stage === 'intake')
-          task.transitions.push({ stage: 'intake', at: row.at, sequence: sequence(row.id) })
+        if (isEntryStage(String(data.stage)))
+          task.transitions.push({
+            stage: stageWith('entry'),
+            at: row.at,
+            sequence: sequence(row.id),
+          })
       } else if (row.name.endsWith('TaskMovedToBacklog') || row.name === 'v1.TaskNeedsPlanning') {
         task.transitions.push({ stage: 'backlog', at: row.at, sequence: sequence(row.id) })
       } else {
@@ -280,7 +294,7 @@ export function readDashboard(
   const selected = rows.filter((row) => {
     const task = facts.get(row.id)
     if (!task) return false
-    const start = task.transitions.find((e) => e.stage === 'intake')
+    const start = task.transitions.find((e) => isEntryStage(e.stage))
     if (!start || !(Date.parse(start.at) < asOf)) return false
     const ends = [
       ...task.entries.filter((e) => e.stage === 'done').map((e) => e.at),
@@ -303,4 +317,15 @@ export function readDashboard(
     asOf,
     readCostInput(store, factoryIds, asOf),
   )
+}
+
+function recordedName(data: Record<string, unknown>): string | undefined {
+  if (typeof data.names !== 'string') return undefined
+  try {
+    const names = JSON.parse(data.names) as Record<string, unknown>
+    const name = Object.hasOwn(names, String(data.stage)) ? names[String(data.stage)] : undefined
+    return typeof name === 'string' ? name : undefined
+  } catch {
+    return undefined
+  }
 }

@@ -14,6 +14,7 @@ import {
   archiveChoice,
   isTrackerGroupAsk,
   keepArchiveChoice,
+  noChoicesPicked,
   trackerName,
 } from '@ted/protocol/task'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
@@ -39,9 +40,10 @@ import {
   summary,
   useNow,
 } from '../requests.ts'
+import type { Stages } from '../stage-names.ts'
+import { useStages } from '../stages.tsx'
 import { readableError, ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
-import { stageName } from '../views/TaskViews.tsx'
 import { ActionButton } from './ActionButton.tsx'
 import type { ShownApp } from './AppsSection.tsx'
 import dialogStyles from './ArchiveDialogs.module.css'
@@ -728,7 +730,7 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
   const ready = questionChoices
     ? !repairing &&
       (several
-        ? picks.length > 0 || (other && typed)
+        ? !other || typed
         : selectedChoice !== undefined
           ? !needsReason || typed
           : other && typed)
@@ -758,7 +760,7 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
         : {
             action: 'answer',
             ...(questionChoices && selectedChoice !== undefined && { choice: selectedChoice }),
-            ...(several && picks.length > 0 && { choices: picks }),
+            ...(several && (picks.length > 0 || !other) && { choices: picks }),
             ...(typed && { text }),
           },
     )
@@ -1032,8 +1034,8 @@ export function RequestCard({
     ? (waitingLead.paused ??
       (request.talk?.runId === waitingLead.id
         ? 'Waiting for the Task Lead to receive this request.'
-        : 'Waiting for the Task Lead’s agent or model to be available.'))
-    : task.activity || 'Waiting for a free slot or for the agent to be available.'
+        : 'Waiting for the Task Lead’s Provider or model to be available.'))
+    : task.activity || 'Waiting for a free slot or for the Provider to be available.'
   const now = useNow()
   const { send, sending, setSending, sendingRef, setSubmission, error, setError } = useSending(
     request,
@@ -1265,6 +1267,7 @@ function answerLine(
   request: Comment,
   newer: Comment | undefined,
   task: Task,
+  stages: Stages,
 ): { mark: string; tone: string; text: string } | undefined {
   const { answer } = request
   if (!answer) return undefined
@@ -1310,8 +1313,9 @@ function answerLine(
       if (answer.answers) {
         return { mark: '✓', tone: 'good', text: `You answered · ${roundTally(answer.answers)}` }
       }
-      if (answer.choices?.length) {
-        return { mark: '✓', tone: 'good', text: `You answered: ${answer.choices.join(', ')}` }
+      if (answer.choices !== undefined) {
+        const picked = answer.choices.length > 0 ? answer.choices.join(', ') : noChoicesPicked
+        return { mark: '✓', tone: 'good', text: `You answered: ${picked}` }
       }
       return answer.choice !== undefined
         ? { mark: '✓', tone: 'good', text: `You answered: ${answer.choice}` }
@@ -1383,8 +1387,11 @@ function answerLine(
         mark: '–',
         tone: 'neutral',
         text: `Withdrawn · the Task went ${
-          request.stage !== undefined && isBefore(answer.movedTo, request.stage) ? 'back' : 'on'
-        } to ${stageName(answer.movedTo)} before you answered`,
+          request.stage !== undefined &&
+          stages.index(answer.movedTo, task.factoryId) < stages.index(request.stage, task.factoryId)
+            ? 'back'
+            : 'on'
+        } to ${stages.name(answer.movedTo, task.factoryId)} before you answered`,
       }
     case 'superseded': {
       const by = newer ?? request
@@ -1404,23 +1411,6 @@ function runOwner(request: Comment, task: Task): string {
     : who === 'a Sub-Agent'
       ? 'the Sub-Agent’s'
       : 'its'
-}
-
-const stageOrder: readonly string[] = [
-  'backlog',
-  'intake',
-  'clarify',
-  'design',
-  'work',
-  'validate',
-  'review',
-  'merge',
-  'cleanup',
-  'done',
-]
-
-function isBefore(a: string, b: string): boolean {
-  return stageOrder.indexOf(a) < stageOrder.indexOf(b)
 }
 
 const outcomes: Partial<Record<CommentAnswer['kind'], string>> = {
@@ -1510,6 +1500,7 @@ export function AnsweredCard({
   onOpenTask?: ((id: string) => void) | undefined
 }) {
   const now = useNow()
+  const stages = useStages()
   const permission = request.kind === 'permission'
   const shown =
     request.permission && request.body.trim() === ''
@@ -1520,7 +1511,7 @@ export function AnsweredCard({
   useEffect(() => {
     if (expanded) card.current?.scrollIntoView({ block: 'nearest' })
   }, [expanded])
-  const line = answerLine(request, newer, task)
+  const line = answerLine(request, newer, task, stages)
   const quoted = request.answer && 'text' in request.answer ? request.answer.text : undefined
   const outcome = (request.answer && outcomes[request.answer.kind]) ?? 'answered'
   const talked = request.answer?.kind === 'answered' ? request.answer.talkedThrough : undefined

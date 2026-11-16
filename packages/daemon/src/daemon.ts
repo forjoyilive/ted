@@ -11,11 +11,13 @@ import {
 } from '@ted/protocol'
 import { createAgentAvailability } from './agent-availability.ts'
 import { createAgents } from './agents/index.ts'
+import type { Apps } from './apps/apps.ts'
 import { type AsanaOptions, createAsana } from './asana/asana.ts'
 import { createAttachments } from './attachments.ts'
 import { createAutomations } from './automations/automations.ts'
 import { createBanners } from './banners.ts'
 import { createBusyHold } from './busy.ts'
+import { createChatArchiveCleanup } from './chat-expiry.ts'
 import { createCheckTries } from './check-tries.ts'
 import type { Clock } from './clock.ts'
 import { createEnvironment, loginShell } from './command-env.ts'
@@ -32,6 +34,7 @@ import { ensureClone } from './factories.ts'
 import { createFactoryRemovals } from './factory-removal.ts'
 import { createFactorySettings, storedRepos } from './factory-settings.ts'
 import { cloneFailedProblem, createFactories } from './factory-setup.ts'
+import type { MakeDirectory } from './files.ts'
 import { createAgentHealth } from './health/agent-health.ts'
 import { agentHostsReachable, onlineFromFile, watchOnline } from './health/online.ts'
 import { startIdleTimer } from './idle.ts'
@@ -48,7 +51,7 @@ import { pruneRunOutput, runOutputEnd } from './retention.ts'
 import { loadRunTokens } from './run-token.ts'
 import { createConversations } from './runs/conversations.ts'
 import { sleepIdleRuns } from './runs/idle-sleep.ts'
-import { startRunManager } from './runs/run-manager.ts'
+import { type RunManager, startRunManager } from './runs/run-manager.ts'
 import { createSteering } from './runs/steering.ts'
 import { restartOnNewVersions } from './runs/version-restarts.ts'
 import { createSandbox } from './sandbox.ts'
@@ -65,7 +68,7 @@ import { factoryRepos } from './tasks/repos.ts'
 import { createTasks, type Tasks } from './tasks/tasks.ts'
 import { createTerminalOpener, type OpenTerminal } from './terminal.ts'
 import type { WorkflowSettings } from './workflow/check.ts'
-import { createWorkflows } from './workflow/workflows.ts'
+import { createWorkflows, type Workflows } from './workflow/workflows.ts'
 
 export interface DaemonOptions {
   home: string
@@ -90,8 +93,8 @@ export interface DaemonOptions {
   fixPollMs?: number
   integrations?: DaemonIntegrationsOptions
   asana?: Omit<AsanaOptions, 'home' | 'keyring'> & { keyring?: Keyring; intakeLimit?: number }
-  github?: { uploadOrigins?: string[] }
-  linear?: { apiUrl?: string; keyring?: Keyring }
+  github?: { uploadOrigins?: string[]; intakeLimit?: number }
+  linear?: { apiUrl?: string; keyring?: Keyring; intakeLimit?: number }
   snoozes?: { now?: () => Date; checkEveryMs?: number }
   heldRequests?: { maxMs?: number }
   linearSyncMs?: number
@@ -128,6 +131,17 @@ export interface DaemonOptions {
   outputDrop?: DataOptions['outputDrop']
   changesetTrim?: DataOptions['changesetTrim']
   slow?: { requestMs?: number; stallMs?: number }
+  wrap?: DaemonWrappers
+  mkdir?: MakeDirectory
+}
+
+export interface DaemonWrappers {
+  store?: (store: TedStore) => TedStore
+  runs?: (runs: RunManager, store: TedStore) => RunManager
+  workflows?: (workflows: Workflows) => Workflows
+  plans?: (plans: Plans) => Plans
+  coordinators?: (coordinators: Coordinators) => Coordinators
+  apps?: (apps: Apps) => Apps
 }
 
 export interface DaemonEditorsOptions {
@@ -275,7 +289,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     ...(options.compaction && { compaction: options.compaction }),
     ...(options.outputDrop && { outputDrop: options.outputDrop }),
     ...(options.changesetTrim && { changesetTrim: options.changesetTrim }),
-    async startServices(store, emit) {
+    async startServices(opened, emit) {
+      const store = options.wrap?.store?.(opened) ?? opened
       await environmentRead
       const busy = createBusyHold({
         on: () => store.settings().waitWhenBusy,
@@ -288,7 +303,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         read: () => busy.memory(),
         ...(options.load?.checkEveryMs !== undefined && { everyMs: options.load.checkEveryMs }),
       })
-      const runs = await startRunManager({
+      const startedRuns = await startRunManager({
         home: paths.home,
         store,
         agents,
@@ -298,7 +313,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(idle && { idle }),
         ...(options.oldestHost !== undefined && { oldestHost: options.oldestHost }),
         ...options.runs,
+        ...(options.mkdir !== undefined && { mkdir: options.mkdir }),
       })
+      const runs = options.wrap?.runs?.(startedRuns, store) ?? startedRuns
       const banners = createBanners({ store, emit })
       const diskOptions = options.disk ?? {}
       const fakeFree = tedEnv('TED_FREE_BYTES_FILE')
@@ -365,15 +382,17 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       let syncRepos:
         | ((factory: StoredFactory, settings?: WorkflowSettings) => Promise<void>)
         | undefined
-      const workflows = createWorkflows({
+      const createdWorkflows = createWorkflows({
         store,
         banners,
         libraryDir: paths.library,
         reposDir: paths.repos,
         tedVersion: options.version,
         onDrift: (drift) => emit({ type: 'drift-changed', drift }),
+        onStages: (factoryId) => emit({ type: 'factory-stages-changed', factoryId }),
         onFactorySettings: async (factory, settings) => syncRepos?.(factory, settings),
       })
+      const workflows = options.wrap?.workflows?.(createdWorkflows) ?? createdWorkflows
       let started: Tasks | undefined
       let storage: Storage | undefined
       const factories = createFactories({
@@ -502,6 +521,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.clock && { clock: options.clock }),
         steering,
         planning: () => plans,
+        setPullRequestCi: (factoryId, repo, mode) =>
+          factorySettings.setPullRequestCi(factoryId, repo, mode),
         store,
         runs,
         workflows,
@@ -530,6 +551,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         },
         ...(options.snoozes !== undefined && { snoozes: options.snoozes }),
         ...(options.heldRequests !== undefined && { heldRequests: options.heldRequests }),
+        ...(options.linear?.intakeLimit !== undefined && {
+          linearIntakeLimit: options.linear.intakeLimit,
+        }),
         ...(options.linearSyncMs !== undefined && { linearSyncMs: options.linearSyncMs }),
         ...(options.asanaSyncMs !== undefined && { asanaSyncMs: options.asanaSyncMs }),
         ...(options.githubSyncMs !== undefined && { githubSyncMs: options.githubSyncMs }),
@@ -545,6 +569,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           },
           ...(options.github?.uploadOrigins !== undefined && {
             uploads: { origins: new Set(options.github.uploadOrigins) },
+          }),
+          ...(options.github?.intakeLimit !== undefined && {
+            intakeLimit: options.github.intakeLimit,
           }),
         },
         env: environment.current,
@@ -564,6 +591,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         }),
         appsDir: paths.apps,
         ...(options.apps !== undefined && { apps: options.apps }),
+        ...(options.wrap?.apps !== undefined && { wrapApps: options.wrap.apps }),
         simulators: {
           dir: paths.simulators,
           ...(xcrun && { xcrun }),
@@ -627,7 +655,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.clock && { clock: options.clock }),
         ...automationOptions,
       })
-      plans = createPlans({
+      const createdPlans = createPlans({
         home: paths.home,
         store,
         runs,
@@ -643,7 +671,18 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         stopLeadForChildren: (taskId) => tasks.stopLeadForChildren(taskId),
         planEnded: (taskId, input) => tasks.planEnded(taskId, input),
       })
-      coordinators = createCoordinators({ home: paths.home, store, runs, tasks, health, steering })
+      plans = options.wrap?.plans?.(createdPlans) ?? createdPlans
+      const createdCoordinators = createCoordinators({
+        home: paths.home,
+        store,
+        runs,
+        tasks,
+        health,
+        steering,
+        workflows,
+        ...(options.mkdir !== undefined && { mkdir: options.mkdir }),
+      })
+      coordinators = options.wrap?.coordinators?.(createdCoordinators) ?? createdCoordinators
       for (const run of store.listRuns()) {
         if (store.coordinators.forRun(run.id) && run.state !== 'finished')
           steering.syncQueuedFlag(run.id)
@@ -682,18 +721,29 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         tasks,
         ...(options.retention?.now && { now: options.retention.now }),
       })
+      const chatArchiveCleanup = createChatArchiveCleanup({
+        store,
+        plans,
+        coordinators,
+        ...(options.retention?.now && { now: options.retention.now }),
+      })
       const sweepArchived = () =>
-        archiveCleanup
-          .sweep()
-          .catch((error: unknown) => console.error('deleting archived Tasks failed:', error))
+        Promise.all([archiveCleanup.sweep(), chatArchiveCleanup.sweep()]).catch((error: unknown) =>
+          console.error('deleting archived Tasks or chats failed:', error),
+        )
       void prune()
       void sweepArchived()
       let keptDays = store.settings().runOutputDays
       let archivedDays = store.settings().deleteArchivedAfterDays
+      let archivedChatDays = store.settings().deleteArchivedChatsAfterDays
       const stopPruningOnChange = store.subscribe((event) => {
         if (event.type !== 'settings-changed') return
-        if (event.settings.deleteArchivedAfterDays !== archivedDays) {
+        if (
+          event.settings.deleteArchivedAfterDays !== archivedDays ||
+          event.settings.deleteArchivedChatsAfterDays !== archivedChatDays
+        ) {
           archivedDays = event.settings.deleteArchivedAfterDays
+          archivedChatDays = event.settings.deleteArchivedChatsAfterDays
           void sweepArchived()
         }
         if (event.settings.runOutputDays === keptDays) return
@@ -819,6 +869,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         shells,
         editors,
         archiveCleanup,
+        chatArchiveCleanup,
         async close() {
           await execution.close()
           const shellsClosed = shells.close()
@@ -837,6 +888,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           clearInterval(pruneTimer)
           stopPruningOnChange()
           await archiveCleanup.close()
+          await chatArchiveCleanup.close()
           stopWatchingWrites()
           online.close()
           health.close()

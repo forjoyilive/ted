@@ -63,7 +63,7 @@ export function AgentDefaults() {
   return (
     <SettingsGroup setting="app.agents.defaults">
       {!view && !error && (
-        <Skeleton shape="settings" framed={false} label="Loading agent defaults…" />
+        <Skeleton shape="settings" framed={false} label="Loading role defaults…" />
       )}
       {view?.agents.map((row) => (
         <AgentDefault
@@ -108,7 +108,7 @@ function AgentDefault({
       }
     >
       <Select
-        aria-label={`${name} agent`}
+        aria-label={`${name} Provider`}
         className={`${styles.defaultSelect} ${styles.agentSelect}`}
         disabled={busy}
         value={shown.agent ?? 'claude'}

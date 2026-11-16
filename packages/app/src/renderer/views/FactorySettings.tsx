@@ -14,6 +14,7 @@ import type {
   Task,
 } from '@ted/protocol'
 import { appKinds } from '@ted/protocol/factory-settings'
+import { pullRequestCiModes } from '@ted/protocol/task'
 import {
   memo,
   type ReactNode,
@@ -50,7 +51,9 @@ import {
 } from '../factory-settings.ts'
 import type { NavigationAction } from '../navigation.ts'
 import { usePendingAction } from '../pending-action.ts'
-import { useShownSetting } from '../setting-focus.ts'
+import { ciFoundText, pullRequestCiLabels } from '../pull-request-ci.ts'
+import { ago, useNow } from '../requests.ts'
+import { openSetting, useShownSetting } from '../setting-focus.ts'
 import { type FactorySectionId, factorySections, type SettingId } from '../settings-search.ts'
 import { readableError, ted } from '../ted.ts'
 import { RepoRowView } from './AddFactoryDialog.tsx'
@@ -222,6 +225,19 @@ export function FactorySettings({
   const count = unsaved.count
   const stepProblem = draft !== undefined && cleanupHasProblem(draft.cleanup)
   shown.current = { clean: count === 0, version: base?.version }
+  const openCleanup = useCallback(
+    () =>
+      openSetting(
+        {
+          id: 'factory.cleanup',
+          name: 'Cleanup',
+          where: '',
+          target: { kind: 'factory', factoryId: factory.id, section: 'cleanup' },
+        },
+        dispatch,
+      ),
+    [factory.id, dispatch],
+  )
   const onDraft = useCallback((change: (current: SettingsDraft) => SettingsDraft) => {
     if (mergeBusy.current) return
     setDraft((current) => (current ? change(current) : current))
@@ -455,6 +471,7 @@ export function FactorySettings({
                       draft={draft}
                       loaded={base.draft}
                       onDraft={onDraft}
+                      onOpenCleanup={openCleanup}
                     />
                   )}
                   {section === 'checks' && (
@@ -963,6 +980,7 @@ function RepoCard({
   const isNew = repo.was === undefined
   const canDrop = !disabled && !primary && dragging !== undefined && dragging !== index
   const set = (fields: Partial<RepoSettingsInput>) => onChange((r) => ({ ...r, ...fields }))
+  const now = useNow()
 
   return (
     <article
@@ -1068,6 +1086,41 @@ function RepoCard({
             ))}
           </Select>
         </div>
+      </div>
+
+      <div className={styles.twoColumns} data-setting="factory.repos.pull-request-ci">
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor={`${id}-ci`}>
+            Pull request CI{' '}
+            <Help>
+              Whether TED waits for CI checks on this repo’s pull requests before it merges. Detect
+              decides from the repo when a Task pushes.
+            </Help>{' '}
+            <Edited when={edited.has('pullRequestCi')} />
+          </label>
+          <Select
+            fullWidth
+            id={`${id}-ci`}
+            controlClassName={styles.select}
+            value={repo.pullRequestCi ?? 'auto'}
+            onChange={(event) => {
+              const chosen = pullRequestCiModes.find((m) => m === event.target.value) ?? 'auto'
+              onChange((r) => {
+                const { pullRequestCi: _, ...rest } = r
+                return chosen === 'auto' ? rest : { ...rest, pullRequestCi: chosen }
+              })
+            }}
+          >
+            {pullRequestCiModes.map((mode) => (
+              <option key={mode} value={mode}>
+                {pullRequestCiLabels[mode]}
+              </option>
+            ))}
+          </Select>
+        </div>
+        <p className={`${styles.caption} ${styles.ciFound}`} data-testid="pull-request-ci-found">
+          {ciFoundText(shown?.ciFound, repo.pullRequestCi ?? 'auto', (at) => ago(at, now))}
+        </p>
       </div>
 
       <h3 className={styles.groupLabel} data-setting="factory.repos.worktree">

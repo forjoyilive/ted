@@ -61,12 +61,12 @@ import {
 } from '../data.ts'
 import { usePendingAction } from '../pending-action.ts'
 import { useNow } from '../requests.ts'
+import { useStages } from '../stages.tsx'
 import { agentLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { formatDate } from '../time.ts'
 import type { TemplateChoice } from './AutomationDialog.tsx'
 import styles from './Automations.module.css'
-import { stageName } from './TaskViews.tsx'
 import views from './views.module.css'
 
 function act(request: () => Promise<unknown>, onError: (message: string) => void) {
@@ -181,7 +181,7 @@ function AutomationColumns() {
         <th>Next firing</th>
         <th>Last result</th>
         <th>Now</th>
-        <th>Agent · model</th>
+        <th>Provider · model</th>
       </tr>
     </thead>
   )
@@ -922,7 +922,7 @@ export function AutomationView({
         )}
         {automation.check ? null : (
           <>
-            <Details title="Agent">
+            <Details title="Provider">
               <p className={styles.detailText}>
                 {[agentLabels[automation.agent], automation.model, automation.effort]
                   .filter(Boolean)
@@ -1198,6 +1198,7 @@ export function AutomationRunView({
   const resource = useAutomationState(automationId)
   const detail = resource.value
   const chatResource = useRunChatState(runId)
+  const stages = useStages()
   const chat = chatResource.value
   const loadError = resource.error ?? chatResource.error
   const retry = () => {
@@ -1332,7 +1333,7 @@ export function AutomationRunView({
                   </p>
                   <p className={styles.detailNote}>
                     {[
-                      stageName(task?.stage ?? link.stage),
+                      stages.name(task?.stage ?? link.stage, task?.factoryId),
                       task?.status && statusLabel(task.status),
                     ]
                       .filter(Boolean)

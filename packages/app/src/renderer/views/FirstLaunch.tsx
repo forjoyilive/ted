@@ -221,7 +221,7 @@ function AgentRow({
         name={name}
         tone="stop"
         chip="Not installed"
-        help="Continue needs only one agent. Install this one too if you want TED to use it."
+        help="Continue needs only one Provider. Install this one too if you want TED to use it."
         below={
           fix && (
             <CommandLine command={fix.command} onCopy={() => actions.copy(fix.command)}>

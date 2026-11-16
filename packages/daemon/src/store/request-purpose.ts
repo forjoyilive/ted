@@ -1,4 +1,5 @@
 import type { Comment, RequestPurpose } from '@ted/protocol'
+import { mergesHere } from '@ted/protocol/stage'
 
 export function structuralPurpose(
   comment: Pick<
@@ -38,7 +39,7 @@ export function legacyPurpose(
 ): RequestPurpose | undefined {
   const structural = structuralPurpose(comment)
   if (structural?.kind !== 'question' || comment.author.kind !== 'ted') return structural
-  if (comment.stage === 'merge' && comment.choices?.includes('Keep waiting'))
+  if (mergesHere(comment.stage ?? '') && comment.choices?.includes('Keep waiting'))
     return { kind: 'ci-stuck' }
   if (
     comment.title?.endsWith(' in Linear') &&

@@ -33,8 +33,7 @@ import type { Steering } from './steering.ts'
 
 export interface Conversations {
   chat(runId: string): Promise<RunChat>
-  coordinatorChat(factoryId: string): Promise<RunChat | null>
-  savedCoordinatorChat(conversationId: string): Promise<RunChat>
+  coordinatorChat(chatId: string): Promise<RunChat>
   taskRuns(ref: string): RunSummary[]
   send(runId: string, text: string, options?: { interrupt?: boolean }): Promise<RunMessage>
   stopTurn(runId: string): Promise<RunSummary>
@@ -514,7 +513,7 @@ export function createConversations(options: {
       const entries = parsedOutput(runs.output, agents, run).chat.entries()
       preamble ??= preambleText().catch(() => '')
       subPreamble ??= subAgentPreamble().catch(() => '')
-      const owner = store.coordinators.forRun(runId) ?? store.coordinators.savedForRun(runId)?.chat
+      const owner = store.coordinators.forRun(runId) ?? store.coordinators.endedForRun(runId)
       const coordinated = owner !== undefined
       const planned = store.plans.get(runId) !== undefined
       const openingText = coordinated ? coordinatorOpening : planOpening
@@ -552,15 +551,10 @@ export function createConversations(options: {
         ),
       }
     },
-    async coordinatorChat(factoryId) {
-      const c = store.coordinators.get(factoryId)
-      if (!c) return null
+    async coordinatorChat(chatId) {
+      const c = store.coordinators.find(chatId)
+      if (!c) throw new RequestError(404, 'no such Coordinator chat')
       return storedChat(c, this.chat)
-    },
-    async savedCoordinatorChat(conversationId) {
-      const saved = store.coordinators.conversation(conversationId)
-      if (!saved) throw new RequestError(404, 'no such Coordinator conversation')
-      return storedChat(saved.chat, this.chat)
     },
     taskRuns(ref) {
       const task = requireTask(ref)
@@ -585,7 +579,7 @@ export function createConversations(options: {
         throw new RequestError(409, 'Use the side-chat controls to queue or stop its reply')
       const c = store.coordinators.forRun(runId)
       if (c && options.coordinators) {
-        await options.coordinators.stop(c.factoryId)
+        await options.coordinators.stop(c.id)
         return summary(requireRun(runId))
       }
       requireRun(runId)
@@ -651,7 +645,7 @@ export function createConversations(options: {
         throw new RequestError(409, 'Use the side-chat controls to queue or stop its reply')
       const c = store.coordinators.forRun(runId)
       if (c && options.coordinators) {
-        await options.coordinators.stop(c.factoryId)
+        await options.coordinators.stop(c.id)
         return summary(requireRun(runId))
       }
       const run = requireRun(runId)

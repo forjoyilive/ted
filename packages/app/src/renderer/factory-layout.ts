@@ -6,7 +6,16 @@ export type SidebarEntry =
 
 export type LayoutKey = { factoryId: string } | { groupId: string }
 
-export type DropTarget = { before: LayoutKey } | { after: LayoutKey } | { into: string }
+export type DropTarget =
+  | { before: LayoutKey }
+  | { after: LayoutKey }
+  | { into: string; first?: boolean }
+
+export type DropSpot =
+  | { row: LayoutKey; half: 'top' | 'bottom' }
+  | { afterGroup: string }
+  | { into: string }
+  | { end: true }
 
 export const emptyLayout: FactoryLayout = { items: [] }
 
@@ -105,7 +114,8 @@ export function moveTo(
   if ('into' in target) {
     const group = items.find((item) => isKey(item, { groupId: target.into }))
     if (!group || !('group' in group) || !('factoryId' in moved)) return undefined
-    group.group.factoryIds.push(moved.factoryId)
+    if (target.first) group.group.factoryIds.unshift(moved.factoryId)
+    else group.group.factoryIds.push(moved.factoryId)
     return changed(layout, items)
   }
   const after = 'after' in target
@@ -127,6 +137,33 @@ export function moveTo(
   if (at < 0) return undefined
   items.splice(at + (after ? 1 : 0), 0, moved)
   return changed(layout, items)
+}
+
+export function dropTarget(
+  layout: FactoryLayout,
+  dragging: LayoutKey,
+  spot: DropSpot,
+): DropTarget | undefined {
+  const draggedGroup = 'groupId' in dragging ? dragging.groupId : undefined
+  if ('end' in spot) {
+    const last = layout.items.at(-1)
+    if (!last) return undefined
+    return { after: 'group' in last ? { groupId: last.group.id } : { factoryId: last.factoryId } }
+  }
+  if ('into' in spot) return draggedGroup === undefined ? { into: spot.into } : undefined
+  if ('afterGroup' in spot) {
+    return spot.afterGroup === draggedGroup ? undefined : { after: { groupId: spot.afterGroup } }
+  }
+  const { row, half } = spot
+  if (JSON.stringify(row) === JSON.stringify(dragging)) return undefined
+  if ('factoryId' in row) {
+    if (draggedGroup !== undefined && groupOf(layout, row.factoryId)?.id === draggedGroup) {
+      return undefined
+    }
+    return half === 'top' ? { before: row } : { after: row }
+  }
+  if (half === 'top') return { before: row }
+  return draggedGroup === undefined ? { into: row.groupId, first: true } : { after: row }
 }
 
 export function moveStep(

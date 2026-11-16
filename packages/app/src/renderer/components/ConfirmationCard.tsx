@@ -7,8 +7,8 @@ import type {
 } from '@ted/protocol'
 import { useState } from 'react'
 import { clockTime } from '../requests.ts'
+import { useStages } from '../stages.tsx'
 import { readableError, ted } from '../ted.ts'
-import { stageName } from '../views/TaskViews.tsx'
 import dialogs from './ArchiveDialogs.module.css'
 import { Button } from './Button.tsx'
 import styles from './ConfirmationCard.module.css'
@@ -78,6 +78,7 @@ function CardTask({
   disabled: boolean
   onChange: (choices: ConfirmationChoices) => void
 }) {
+  const stages = useStages()
   const id = task.displayId
   const ending = kind === 'archive' ? 'archived' : 'deleted'
   const under = task.descendants.length
@@ -92,7 +93,7 @@ function CardTask({
       <div className={styles.taskRow}>
         <span className={styles.taskId}>{id}</span>
         <span className={styles.taskTitle}>{task.title}</span>
-        <span className={styles.taskStage}>{stageName(task.stage)}</span>
+        <span className={styles.taskStage}>{stages.name(task.stage)}</span>
       </div>
       {task.result ? (
         <p className={task.result.done ? styles.result : styles.refused}>{task.result.text}</p>
@@ -202,10 +203,10 @@ export function confirmationCount(
 }
 
 export function ConfirmationCard({
-  factoryId,
+  chatId,
   confirmation,
 }: {
-  factoryId: string
+  chatId: string
   confirmation: CoordinatorConfirmation
 }) {
   const [choices, setChoices] = useState<Record<string, ConfirmationChoices>>(() =>
@@ -230,7 +231,7 @@ export function ConfirmationCard({
     setBusy(true)
     setError(undefined)
     try {
-      await ted.answerCoordinatorConfirmation(factoryId, confirmation.id, {
+      await ted.answerCoordinatorConfirmation(chatId, confirmation.id, {
         decision,
         ...(decision === 'confirm' && { choices }),
       })

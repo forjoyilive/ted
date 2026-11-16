@@ -111,7 +111,7 @@ test('More retains Clarify and Task Lead choices when collapsed and submits them
   expect(more.getAttribute('aria-expanded')).toBe('false')
   await u.click(more)
   await u.click(screen.getByText('Grill', { exact: true }))
-  await u.selectOptions(screen.getByLabelText('Agent'), 'codex')
+  await u.selectOptions(screen.getByLabelText('Provider'), 'codex')
   await u.selectOptions(screen.getByLabelText('Effort'), 'high')
   await u.click(more)
   expect(screen.getByText('Clarify depth Grill · Task Lead Codex · high')).toBeTruthy()
@@ -177,7 +177,7 @@ test('Task Lead saves each pick without a Save button and follows external updat
     agent: 'claude',
     model: 'opus',
   })
-  await u.selectOptions(screen.getByLabelText('Agent'), 'codex')
+  await u.selectOptions(screen.getByLabelText('Provider'), 'codex')
   expect(api.request).toHaveBeenLastCalledWith('setTaskLead', 'NB-1', { agent: 'codex' })
   expect(model().value).toBe('')
   expect(listed()).toEqual([
@@ -221,7 +221,7 @@ test('Task Lead saves each pick without a Save button and follows external updat
   expect(screen.getByText('Codex · gpt-6-mini · low')).toBeTruthy()
   view.rerender(<TaskLeadField task={task({ lead: { agent: 'claude', model: 'opus' } })} />)
   expect(model().value).toBe('opus')
-  expect((screen.getByLabelText('Agent') as HTMLSelectElement).value).toBe('claude')
+  expect((screen.getByLabelText('Provider') as HTMLSelectElement).value).toBe('claude')
   expect((screen.getByLabelText('Effort') as HTMLSelectElement).value).toBe('')
 })
 
@@ -497,7 +497,7 @@ test.each(['stage', 'high', ''] as const)(
     await formReady()
     await u.click(screen.getByRole('button', { name: /^More/ }))
     await waitFor(() =>
-      expect((screen.getByLabelText('Agent') as HTMLSelectElement).value).toBe('codex'),
+      expect((screen.getByLabelText('Provider') as HTMLSelectElement).value).toBe('codex'),
     )
     if (effort === 'stage')
       expect((screen.getByLabelText('Effort') as HTMLSelectElement).value).toBe('stage')

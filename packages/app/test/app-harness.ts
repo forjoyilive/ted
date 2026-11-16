@@ -97,19 +97,13 @@ export async function openSettings(window: Page): Promise<void> {
 export async function openFactoryView(
   window: Page,
   factory: string,
-  view: 'Dashboard' | 'Coordinator' | 'Board' | 'List' | 'Plans' | 'Automations',
+  view: 'Inbox' | 'Agents' | 'Board' | 'List' | 'Automations',
 ): Promise<void> {
   const row = sidebar(window).getByRole('article', { name: factory, exact: true })
   const group = row.locator('..')
-  const expanded =
-    (await row.getByRole('button', { name: 'Views' }).getAttribute('aria-expanded')) === 'true'
-  if (view === 'Dashboard') {
-    const name = row.getByRole('button', { name: factory, exact: true })
-    if (expanded) await name.click()
-    await name.click()
-    return
-  }
-  if (!expanded) await row.getByRole('button', { name: factory, exact: true }).click()
+  if (view === 'Inbox') return row.getByRole('button', { name: factory, exact: true }).click()
+  const views = row.getByRole('button', { name: 'Views' })
+  if ((await views.getAttribute('aria-expanded')) !== 'true') await views.click()
   if (view === 'Board' || view === 'List') {
     const taskViews = group.getByRole('button', { name: 'Task views' })
     if ((await taskViews.getAttribute('aria-expanded')) === 'false') await taskViews.click()

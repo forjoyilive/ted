@@ -132,7 +132,7 @@ export function TaskLeadField({ task }: { task: Task }) {
       )}
       <div className={styles.form}>
         <label className={styles.label} htmlFor={`${id}-agent`}>
-          Agent
+          Provider
           <Select
             fullWidth
             id={`${id}-agent`}

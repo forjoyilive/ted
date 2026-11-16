@@ -131,12 +131,10 @@
 
 .section {
   margin: 0;
-  color: var(--text-muted);
-  font-size: var(--text-11-5);
-  font-weight: var(--weight-medium);
+  color: var(--text-primary);
+  font-size: var(--text-13);
+  font-weight: var(--weight-semibold);
   line-height: 1.45;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
 }
 
 .factory {
@@ -514,42 +512,47 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  margin: 6px 0;
-  border: 1px solid var(--border-subtle);
-  border-radius: 9px;
-  background: var(--surface-card);
+  margin-top: 14px;
 }
 
-.groupClosed {
-  background: var(--surface-sidebar);
+.sectionHeading + .group {
+  margin-top: 0;
+}
+
+.afterGroup {
+  flex-shrink: 0;
+  height: 8px;
 }
 
 .groupRow {
   position: relative;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
 }
 
 .groupName {
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   width: 100%;
-  min-height: 36px;
-  padding: 6px 76px 6px 10px;
+  min-height: 26px;
+  padding: 4px 60px 4px 10px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-control);
   background: none;
-  color: var(--text-primary);
+  color: var(--text-muted);
   font: inherit;
-  font-size: var(--text-15);
-  font-weight: var(--weight-semibold);
-  line-height: 1.4;
+  font-size: var(--text-11-5);
+  font-weight: var(--weight-medium);
+  line-height: 1.45;
+  letter-spacing: 0.03em;
   text-align: left;
+  text-transform: uppercase;
 }
 
 .groupName:hover {
   background: var(--surface-hover);
+  color: var(--text-secondary);
 }
 
 .groupName:focus-visible {
@@ -557,10 +560,12 @@
   outline-offset: -2px;
 }
 
-.groupIcon {
-  display: inline-flex;
+.groupCount {
   flex-shrink: 0;
-  color: var(--text-secondary);
+  color: var(--text-muted);
+  font-size: var(--text-12);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
 }
 
 .groupEnd {
@@ -586,8 +591,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 4px;
-  border-top: 1px solid var(--border-subtle);
+  padding: 2px 0 0 12px;
 }
 
 .groupEmpty {

@@ -1,6 +1,5 @@
 import {
   agentKinds,
-  agentStageIds,
   appearances,
   archivedFilters,
   archivedTaskDayLimits,
@@ -20,6 +19,7 @@ import {
   type ListFilters,
   type ListView,
   listColumns,
+  listColumnsVersions,
   listGroups,
   listSorts,
   type MachineSettings,
@@ -28,6 +28,7 @@ import {
   priorities,
   quitChoices,
   runOutputDayLimits,
+  type StageId,
   type StatusFilter,
   simulatorSlotLimits,
   taskStatusKinds,
@@ -36,6 +37,9 @@ import {
   timeFormats,
   workingRunLimits,
 } from '@ted/protocol'
+import { isInteger, isString } from '@ted/protocol/parse'
+import { isReportEmail } from '@ted/protocol/problem-report'
+import { builtInStageOrder, isStageId } from '@ted/protocol/stage'
 import { parseEditorCommand } from '../editors.ts'
 import { RequestError as HttpError } from '../errors.ts'
 import { readProfile } from '../profile.ts'
@@ -47,7 +51,7 @@ export const machineRoutes: Route[] = [
     path: /^\/agents\/availability$/,
     handle: async ({ caller }, { agentAvailability }) => {
       if (caller.kind !== 'app')
-        throw new HttpError(403, 'Only the app can inspect agent availability')
+        throw new HttpError(403, 'Only the app can inspect Provider availability')
       return [200, agentAvailability.list()]
     },
   },
@@ -155,8 +159,6 @@ const maxPictureBytes = 512 * 1024
 
 const pictureUrl = /^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/
 
-const stageIds = ['backlog', ...agentStageIds, 'done'] as const
-
 const statusFilters: readonly StatusFilter[] = [...taskStatusKinds, 'none']
 
 function oneOfList<T extends string>(name: string, value: unknown, allowed: readonly T[]): T[] {
@@ -165,6 +167,19 @@ function oneOfList<T extends string>(name: string, value: unknown, allowed: read
     const found = allowed.find((a) => a === item)
     if (!found) throw new HttpError(400, `${name} must list only ${allowed.join(', ')}`)
     return found
+  })
+}
+
+function stageList(name: string, value: unknown): StageId[] {
+  if (!Array.isArray(value)) throw new HttpError(400, `${name} must be a list`)
+  return value.map((item) => {
+    if (!isStageId(item)) {
+      throw new HttpError(
+        400,
+        `${name} must list only Stage ids, such as ${builtInStageOrder.join(', ')}`,
+      )
+    }
+    return item
   })
 }
 
@@ -185,7 +200,7 @@ function listFilters(value: unknown): ListFilters {
         throw new HttpError(400, 'factoryGroups must list Factory group IDs')
       }
       filters.factoryGroups = item as string[]
-    } else if (name === 'stages') filters.stages = oneOfList(name, item, stageIds)
+    } else if (name === 'stages') filters.stages = stageList(name, item)
     else if (name === 'statuses') filters.statuses = oneOfList(name, item, statusFilters)
     else if (name === 'priorities') filters.priorities = oneOfList(name, item, priorities)
     else if (name === 'createdBy') filters.createdBy = oneOfList(name, item, createdByKinds)
@@ -217,13 +232,14 @@ function listView(value: unknown): ListView {
     throw new HttpError(400, 'nested must be true or false')
   }
   const columns = oneOfList('columns', view.columns, listColumns)
-  if (view.columnsVersion !== undefined && view.columnsVersion !== 2) {
-    throw new HttpError(400, 'columnsVersion must be 2')
+  const columnsVersion = listColumnsVersions.find((v) => v === view.columnsVersion)
+  if (view.columnsVersion !== undefined && columnsVersion === undefined) {
+    throw new HttpError(400, `columnsVersion must be ${listColumnsVersions.join(' or ')}`)
   }
   return {
     sort,
     group,
-    ...(view.columnsVersion === 2 && { columnsVersion: 2 }),
+    ...(columnsVersion !== undefined && { columnsVersion }),
     columns: columns.includes('title') ? columns : ['title', ...columns],
     filters: listFilters(view.filters ?? {}),
     ...(view.showEmptyGroups !== undefined && { showEmptyGroups: view.showEmptyGroups }),
@@ -244,7 +260,7 @@ function boardView(value: unknown): BoardView {
   return {
     cardSize,
     fields: [...new Set(oneOfList('fields', view.fields, boardFields))],
-    hiddenStages: [...new Set(oneOfList('hiddenStages', view.hiddenStages, stageIds))],
+    hiddenStages: [...new Set(stageList('hiddenStages', view.hiddenStages))],
     hideEmpty: view.hideEmpty,
   }
 }
@@ -255,7 +271,7 @@ export const settingParsers: {
   enabledAgents() {
     throw new HttpError(
       400,
-      'Change agents through Settings → Agents so existing Runs are accounted for.',
+      'Change Providers through Settings → Providers so existing Runs are accounted for.',
     )
   },
   timeFormat(value) {
@@ -326,6 +342,13 @@ export const settingParsers: {
     }
     return value
   },
+  reportEmail(value) {
+    const email = isString(value) ? value.trim() : undefined
+    if (email === undefined || !isReportEmail(email)) {
+      throw new HttpError(400, 'reportEmail must be an email address or empty')
+    }
+    return email
+  },
   developerMode(value) {
     if (typeof value !== 'boolean') throw new HttpError(400, 'developerMode must be true or false')
     return value
@@ -369,6 +392,17 @@ export const settingParsers: {
     }
     return value
   },
+  deleteArchivedChatsAfterDays(value) {
+    if (value === null) return null
+    const { min, max } = archivedTaskDayLimits
+    if (!isInteger(value) || value < min || value > max) {
+      throw new HttpError(
+        400,
+        `deleteArchivedChatsAfterDays must be null or a whole number from ${min} to ${max}`,
+      )
+    }
+    return value
+  },
   quitWithWorkRunning(value) {
     const choice = quitChoices.find((c) => c === value)
     if (!choice) throw new HttpError(400, `quitWithWorkRunning must be ${quitChoices.join(', ')}`)
@@ -385,7 +419,7 @@ export const settingParsers: {
   sleepIdleRunsAfterMinutes(value) {
     if (value === null) return null
     const { min, max } = idleRunSleepLimits
-    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+    if (!isInteger(value) || value < min || value > max) {
       throw new HttpError(
         400,
         `sleepIdleRunsAfterMinutes must be null or a whole number from ${min} to ${max}`,
@@ -435,13 +469,7 @@ export const settingParsers: {
   },
   checkCpuPercent(value) {
     const { min, max, step } = checkCpuLimits
-    if (
-      typeof value !== 'number' ||
-      !Number.isInteger(value) ||
-      value < min ||
-      value > max ||
-      value % step !== 0
-    ) {
+    if (!isInteger(value) || value < min || value > max || value % step !== 0) {
       throw new HttpError(
         400,
         `checkCpuPercent must be a multiple of ${step} from ${min} to ${max}`,
@@ -479,11 +507,11 @@ export const settingParsers: {
   },
   billing(value) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-      throw new HttpError(400, 'billing must be an object of billing by agent')
+      throw new HttpError(400, 'billing must be an object of billing by Provider')
     }
     const given = value as Record<string, unknown>
     for (const name of Object.keys(given)) {
-      if (!agentKinds.some((k) => k === name)) throw new HttpError(400, `unknown agent ${name}`)
+      if (!agentKinds.some((k) => k === name)) throw new HttpError(400, `unknown Provider ${name}`)
     }
     const choose = (agent: (typeof agentKinds)[number]) => {
       const billing = billings.find((b) => b === given[agent])

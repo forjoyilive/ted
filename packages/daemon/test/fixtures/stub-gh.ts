@@ -12,6 +12,7 @@ import {
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { isArray, isObject, isString, type Json } from '@ted/protocol/parse'
 
 interface StubState {
   healthGate?: { entered: string; release: string }
@@ -407,6 +408,37 @@ if (args[0] === '--version') {
   const head = rebaseBranch()
   process.stdout.write(
     `${JSON.stringify({ data: { updatePullRequestBranch: { pullRequest: { headRefOid: head } } } })}\n`,
+  )
+} else if (graphql && stdin.includes('TedGitHubIntake')) {
+  const { variables } = JSON.parse(stdin) as {
+    variables: { owner: string; name: string; label: string }
+  }
+  const repo = `${variables.owner}/${variables.name}`
+  const text = (value: Json | undefined) => (isString(value) ? value : '')
+  const nodes = Object.values(state.issues ?? {})
+    .filter(isObject)
+    .filter((issue) => {
+      const repository = isObject(issue.repository) ? issue.repository : {}
+      const labels = isObject(issue.labels) && isArray(issue.labels.nodes) ? issue.labels.nodes : []
+      return (
+        text(repository.nameWithOwner).toLowerCase() === repo.toLowerCase() &&
+        issue.state !== 'CLOSED' &&
+        labels.some(
+          (label) =>
+            isObject(label) && text(label.name).toLowerCase() === variables.label.toLowerCase(),
+        )
+      )
+    })
+    .map(({ number, title, url, parent }) => ({ number, title, url, parent: parent ?? null }))
+  process.stdout.write(
+    `${JSON.stringify({
+      data: {
+        repository: {
+          nameWithOwner: repo,
+          issues: { pageInfo: { hasNextPage: false, endCursor: null }, nodes },
+        },
+      },
+    })}\n`,
   )
 } else if (graphql && stdin.includes('TedGitHubIssue')) {
   const { variables } = JSON.parse(stdin) as {

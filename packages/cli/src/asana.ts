@@ -7,7 +7,7 @@ import {
   maxAsanaIntakeTasks,
 } from '@ted/protocol'
 
-function printable(text: string): string {
+export function printable(text: string): string {
   return [...stripVTControlCharacters(text)]
     .filter((c) => {
       const code = c.codePointAt(0) ?? 0

@@ -543,12 +543,15 @@ describe('ted automation', () => {
     const templates = await (await client()).automationTemplates()
     expect(templates.map((t) => t.name)).toEqual([
       'Pull new Linear issues assigned to me',
+      'Import my Linear work',
       'Import my Asana work',
       'Turn new Sentry issues into Tasks',
       'Daily GitHub issue triage',
+      'Import GitHub issues',
       'Review codebase architecture',
       'Audit the Apps',
     ])
+    expect(templates.find((t) => t.id === 'linear-intake')?.prompt).toContain('ted linear intake')
     const sentry = templates.find((t) => t.id === 'sentry')?.prompt ?? ''
     expect(sentry).toContain('events from a release that contains that commit')
     expect(sentry).toContain('--sentry-id')
@@ -762,9 +765,9 @@ describe('ted workflow check', () => {
     await writeLayer({
       'workflow.yaml': [
         'version: 1',
-        'order: [clarify, intake, work]',
+        'order: [intake, security, work]',
         'stages:',
-        '  deploy: {}',
+        '  Deploy: {}',
         '  work: { gate: maybe }',
         'repos:',
         '  - name: app',
@@ -782,8 +785,8 @@ describe('ted workflow check', () => {
 
     expect(failure?.code).toBe(1)
     expect(failure?.stdout.split('\n')).toEqual([
-      '.ted/workflow.yaml:2:8: error: `order` must start with `intake`',
-      '.ted/workflow.yaml:4:3: error: unknown Stage `deploy`',
+      '.ted/workflow.yaml:2:17: error: `security` has no Stage file; add stages/security.md',
+      '.ted/workflow.yaml:4:3: error: unknown Stage `Deploy`; a custom Stage id is lowercase letters, digits and hyphens, up to 40 characters, and not a built-in id',
       '.ted/workflow.yaml:5:17: error: `stages.work.gate` must be true or false',
       '.ted/workflow.yaml:8:11: error: two repos are named `app`',
       '.ted/workflow.yaml:9:13: error: `remote` must be a GitHub repo',
@@ -791,6 +794,38 @@ describe('ted workflow check', () => {
       '6 errors',
       '',
     ])
+  })
+
+  test('reports a bad agents.yaml and an Agent with no instructions file', async () => {
+    await writeLayer({
+      'agents.yaml': [
+        'scout:',
+        '  name: Scout',
+        '  powers: [read_code, deploy]',
+        'helper:',
+        '  role: helps',
+        '',
+      ].join('\n'),
+      'agents/helper.md': 'Help.\n',
+    })
+
+    const failure = await ted(['workflow', 'check']).then(
+      () => undefined,
+      (error: { code: number; stdout: string }) => error,
+    )
+
+    expect(failure?.code).toBe(1)
+    expect(failure?.stdout.split('\n')).toEqual([
+      '.ted/agents.yaml:1:1: error: `scout` has no instructions file; add agents/scout.md',
+      '.ted/agents.yaml:3:23: error: unknown power `deploy` in `scout.powers`; the powers are ask, manage_tasks, propose_tasks, read_code',
+      '.ted/agents.yaml:4:1: error: `helper` needs a `name`',
+      '.ted/agents.yaml:5:3: error: unknown key `helper.role`; an Agent has name, agent, model, powers, based_on',
+      '4 errors',
+      '',
+    ])
+    expect((await ted(['workflow', 'check', '.ted/agents/helper.md'])).stdout.trim()).toBe(
+      'No problems in .ted/agents/helper.md',
+    )
   })
 
   test('accepts the Validate round settings and rejects a P1-only round below 2', async () => {

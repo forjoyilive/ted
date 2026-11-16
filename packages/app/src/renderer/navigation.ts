@@ -23,14 +23,7 @@ export const shownSettingsSectionIds: readonly SettingsSectionId[] = settingsSec
   (id) => id !== 'machines' || remoteExecution,
 )
 
-export type FactoryView =
-  | 'coordinator'
-  | 'board'
-  | 'list'
-  | 'map'
-  | 'plans'
-  | 'automations'
-  | 'settings'
+export type FactoryView = 'agents' | 'board' | 'list' | 'map' | 'automations' | 'settings'
 
 export const taskViews = ['board', 'list', 'map'] as const satisfies readonly FactoryView[]
 
@@ -47,6 +40,7 @@ export type Screen =
       factoryId: string
       view: FactoryView
       section?: FactorySectionId
+      chatId?: string
     }
 
 export interface Navigation {
@@ -63,12 +57,19 @@ export interface Navigation {
 }
 
 export type NavigationAction =
-  | { type: 'open'; screen: Screen }
+  | { type: 'open'; screen: Screen; replace?: true }
   | { type: 'open-inbox-request'; taskId: string; factoryId: string; requestId: string }
   | { type: 'open-factory'; factoryId: string }
   | { type: 'open-tasks'; factoryId: string }
   | { type: 'open-task'; taskId: string; factoryId?: string; requestId?: string }
-  | { type: 'open-plan'; factoryId: string; planId?: string; from?: string; requestId?: string }
+  | {
+      type: 'open-plan'
+      factoryId: string
+      planId?: string
+      from?: string
+      requestId?: string
+      replace?: true
+    }
   | { type: 'close-task' }
   | {
       type: 'open-automation'
@@ -101,6 +102,8 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
         planFrom: ______,
         ...rest
       } = state
+      if (action.screen.kind === 'inbox' && action.screen.factoryId !== undefined)
+        return { ...rest, screen: action.screen, lastFactoryId: action.screen.factoryId }
       if (action.screen.kind !== 'factory') return { ...rest, screen: action.screen }
       const { factoryId, view } = action.screen
       return {
@@ -136,21 +139,9 @@ export function navigate(state: Navigation, action: NavigationAction): Navigatio
       })
     }
     case 'open-plan': {
-      if (
-        state.screen.kind === 'inbox' &&
-        action.planId !== undefined &&
-        action.requestId !== undefined
-      ) {
-        return {
-          ...navigate(state, { type: 'open', screen: state.screen }),
-          planId: action.planId,
-          requestId: action.requestId,
-          lastFactoryId: action.factoryId,
-        }
-      }
       const opened = navigate(state, {
         type: 'open',
-        screen: { kind: 'factory', factoryId: action.factoryId, view: 'plans' },
+        screen: { kind: 'factory', factoryId: action.factoryId, view: 'agents' },
       })
       return {
         ...opened,
@@ -279,6 +270,8 @@ function goTo(state: Navigation, place: Place): Navigation {
   return {
     ...rest,
     ...place,
+    ...(screen.kind === 'inbox' &&
+      screen.factoryId !== undefined && { lastFactoryId: screen.factoryId }),
     ...(screen.kind === 'factory' && {
       lastFactoryId: screen.factoryId,
       lastViews: { ...state.lastViews, [screen.factoryId]: screen.view },
@@ -324,7 +317,9 @@ function recorded(
       : { now, back: [...history.back, here], forward: rest }
   }
   const now = settled(navigate(history.now, action), resolve)
-  if (samePlace(placeOf(now), here)) return { ...history, now }
+  if (samePlace(placeOf(now), here) || ('replace' in action && action.replace)) {
+    return { ...history, now }
+  }
   return { now, back: [...history.back, here].slice(-historyLimit), forward: [] }
 }
 
@@ -336,6 +331,6 @@ export function backLink(state: Navigation): string | undefined {
   if (screen.kind === 'factory' && screen.view === 'board') return '← Board'
   if (screen.kind === 'factory' && screen.view === 'list') return '← List'
   if (screen.kind === 'factory' && screen.view === 'map') return '← Map'
-  if (screen.kind === 'factory' && screen.view === 'coordinator') return '← Coordinator'
+  if (screen.kind === 'factory' && screen.view === 'agents') return '← Agents'
   return undefined
 }

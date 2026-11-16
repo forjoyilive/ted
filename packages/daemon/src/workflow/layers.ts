@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { readdir, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { BuiltInAgentId } from '@ted/protocol/agent-files'
 import * as git from '../git.ts'
 import { type CheckedLayer, checkLayer, type LayerFiles } from './check.ts'
 
@@ -22,6 +23,12 @@ export function sharedDefaultLayer(): Promise<CheckedLayer> {
   return defaultLayer
 }
 
+export async function builtInAgentText(id: BuiltInAgentId): Promise<string> {
+  const text = (await sharedDefaultLayer()).agentFiles[id]
+  if (text === undefined) throw new Error(`TED’s built-in ${id} instructions are missing`)
+  return text
+}
+
 export async function readDefaultLayer(): Promise<CheckedLayer> {
   return copyLayer(await sharedDefaultLayer())
 }
@@ -32,6 +39,8 @@ export function copyLayer(layer: CheckedLayer): CheckedLayer {
     files: { ...layer.files },
     settings: structuredClone(layer.settings),
     stageFiles: { ...layer.stageFiles },
+    agentSettings: structuredClone(layer.agentSettings),
+    agentFiles: { ...layer.agentFiles },
     problems: layer.problems.map((problem) => ({ ...problem })),
   }
 }
@@ -51,17 +60,22 @@ export async function readLayerDirectory(dir: string): Promise<LayerFiles | unde
     throw error
   })
   if (!top) return undefined
-  const named = ['workflow.yaml', 'notes.md'].filter((name) => top.includes(name))
-  const stages = top.includes('stages')
-    ? await readdir(path.join(dir, 'stages')).catch(() => undefined)
-    : undefined
-  const staged = (stages ?? []).sort().map((name) => `stages/${name}`)
-  const names = [...named, ...staged]
+  const named = ['workflow.yaml', 'notes.md', 'agents.yaml'].filter((name) => top.includes(name))
+  const folders = ['stages', 'agents'] as const
+  const listed = await Promise.all(
+    folders.map((folder) =>
+      top.includes(folder) ? readdir(path.join(dir, folder)).catch(() => null) : undefined,
+    ),
+  )
+  const inFolders = folders.flatMap((folder, i) =>
+    (listed[i] ?? []).sort().map((name) => `${folder}/${name}`),
+  )
+  const names = [...named, ...inFolders]
   const texts = await Promise.all(names.map((name) => readOrNull(path.join(dir, name))))
   const files: LayerFiles = {}
   for (const [i, name] of named.entries()) files[name] = texts[i] ?? null
-  if (top.includes('stages') && !stages) files.stages = null
-  for (const [i, name] of staged.entries()) files[name] = texts[named.length + i] ?? null
+  for (const [i, folder] of folders.entries()) if (listed[i] === null) files[folder] = null
+  for (const [i, name] of inFolders.entries()) files[name] = texts[named.length + i] ?? null
   return files
 }
 
@@ -81,7 +95,11 @@ export async function readGitLayerAt(
 ): Promise<{ files: LayerFiles; version: string } | undefined> {
   const paths = await git.listFiles(repo, commit, '.ted')
   const wanted = paths.filter(
-    (p) => p === '.ted/workflow.yaml' || p === '.ted/notes.md' || /^\.ted\/stages\/[^/]+$/.test(p),
+    (p) =>
+      p === '.ted/workflow.yaml' ||
+      p === '.ted/notes.md' ||
+      p === '.ted/agents.yaml' ||
+      /^\.ted\/(stages|agents)\/[^/]+$/.test(p),
   )
   if (paths.length === 0) return undefined
   const texts: (string | null)[] = new Array(wanted.length).fill(null)

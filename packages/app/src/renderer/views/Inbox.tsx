@@ -45,10 +45,11 @@ import { InboxRequestsContext } from '../inbox-requests.ts'
 import { inboxLabel, planEnded } from '../plans.ts'
 import { openSnoozeMenu, SnoozedContext, snoozeTime } from '../request-snooze.ts'
 import { age, headline, requestLabel, useNow } from '../requests.ts'
+import { useStages } from '../stages.tsx'
 import { onRequestAnswered, readableError, ted } from '../ted.ts'
 import styles from './Inbox.module.css'
 import { FilterIcon, MenuButton } from './TaskList.tsx'
-import { factoryName, stageName } from './TaskViews.tsx'
+import { factoryName } from './TaskViews.tsx'
 import views from './views.module.css'
 
 export interface InboxScope {
@@ -303,7 +304,8 @@ export function Inbox({
               : row.item.factoryId,
         )
         .filter(quiet)
-  const groups = groupInbox(rows, view.grouping, now, view.order, layout)
+  const stages = useStages()
+  const groups = groupInbox(rows, view.grouping, now, view.order, layout, stages)
   const ordered = groups.flatMap((group) => group.rows)
   const visible = groups.flatMap((group) => (view.collapsed(group.key) ? [] : group.rows))
   const shownSnoozed = showSnoozed ? snoozedRows : []
@@ -317,7 +319,7 @@ export function Inbox({
   useLayoutEffect(() => {
     if (showAnswered) return
     before.current = all
-    if (next === null) onClear()
+    if (next === null || next?.kind === 'plan' || next?.kind === 'coordinator') onClear()
     else next?.open()
   })
 
@@ -332,7 +334,7 @@ export function Inbox({
     if (row.kind === 'plan') {
       const item = row.item
       const { request, plan } = item
-      const where = [plan.title, ...factoryPart(plan.factoryId)]
+      const where = ['Planner', plan.title, ...factoryPart(plan.factoryId)]
       return (
         <button
           type="button"
@@ -368,7 +370,7 @@ export function Inbox({
       const where = [
         task.displayId,
         task.title,
-        stageName(request.stage ?? task.stage),
+        stages.name(request.stage ?? task.stage, task.factoryId),
         ...factoryPart(task.factoryId),
       ]
       const unread = !showAnswered && request.readAt === undefined
@@ -408,7 +410,7 @@ export function Inbox({
     }
     if (row.kind === 'coordinator') {
       const confirmation = row.item
-      const where = ['Coordinator', ...factoryPart(confirmation.factoryId)]
+      const where = ['Coordinator', confirmation.chatTitle, ...factoryPart(confirmation.factoryId)]
       return (
         <button
           type="button"

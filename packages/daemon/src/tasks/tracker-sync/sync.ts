@@ -1,4 +1,5 @@
 import type { Comment, Task } from '@ted/protocol'
+import { mergesHere } from '@ted/protocol/stage'
 import { type Clock, systemClock, type Timer } from '../../clock.ts'
 import { redactSecrets } from '../../redact.ts'
 import type { TedStore } from '../../store/index.ts'
@@ -163,7 +164,7 @@ export function createTrackerSync<Source, Handle>(
     const task = store.getTask(taskId)
     if (!task || task.archived || task.stage === 'done' || actions.gone(taskId)) return
     const marked = connector.texts.closedTitle(label, state)
-    const pastSignOff = task.stage === 'merge'
+    const pastSignOff = mergesHere(task.stage)
     const under = actions.under(taskId)
     if (!pastSignOff && !actions.liveRun(task) && under.length === 0) {
       actions.archive(task, marked)

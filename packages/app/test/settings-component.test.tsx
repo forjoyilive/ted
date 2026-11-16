@@ -8,7 +8,7 @@ import { LimitsPage } from '../src/renderer/settings/LimitsPage.tsx'
 import { NotificationsPage } from '../src/renderer/settings/NotificationsPage.tsx'
 import { StoragePage } from '../src/renderer/settings/StoragePage.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, deferred, user } from './support/component.ts'
+import { bridge, deferred, required, user } from './support/component.ts'
 
 const _nav = () => screen.getByRole('navigation', { name: 'Settings' })
 
@@ -381,19 +381,30 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
           pid: 123,
           ppid: 1,
           command: 'node',
-          owner: 'daemon',
+          owner: { runId: 'run-123456' },
+          kind: 'agent-tool',
+          run: { runId: 'run-123456', agent: 'claude', role: 'task-lead', task: 'TED-487' },
           cpuPercent: 2.4,
           memoryBytes: 64 * 1024 * 1024,
         },
       ],
     }),
+    appProcesses: () => [
+      {
+        pid: 456,
+        ppid: 1,
+        command: 'TED',
+        owner: 'app',
+        kind: 'ted-app',
+        cpuPercent: 1,
+        memoryBytes: 200 * 1024 * 1024,
+      },
+    ],
     readDaemonLog: () => ({ text: 'TED daemon 123 listening', truncated: false }),
     readRunOutput: () => ({ text: 'from the stub', truncated: false }),
   })
   const view = render(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
-  await screen.findByText(
-    '2.3 GB · Daemon 900 MB · App 590 MB · 2 Run hosts 150 MB · 2 agents 700 MB',
-  )
+  await screen.findByText('2.3 GB · Agents 700 MB · Daemon and Run hosts 1.0 GB · TED app 590 MB')
   expect(screen.queryByRole('region', { name: 'Diagnostics' })).toBeNull()
   expect(screen.queryByRole('region', { name: 'Logs' })).toBeNull()
   expect(screen.queryByText('Show onboarding again')).toBeNull()
@@ -407,6 +418,15 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
     />,
   )
   await screen.findByText('TED daemon 123 listening')
+  await waitFor(() => {
+    const processes = within(required(screen.getByText('Processes').closest('div'))).getAllByRole(
+      'row',
+    )
+    expect(processes.slice(1).map((row) => row.textContent)).toEqual([
+      '456TEDTED app1%200 MB',
+      '123nodeTool or MCP server of TED-487’s Task Lead2.4%64 MB',
+    ])
+  })
   await user().click(screen.getByRole('button', { name: 'Show on next open' }))
   expect(api.request).toHaveBeenCalledWith('updateSettings', {
     onboardingOnNextOpen: true,
@@ -551,7 +571,7 @@ test('Settings shell lists all sections and opens a Factory’s settings', async
   for (const [id, name] of [
     ['general', 'General'],
     ['notifications', 'Notifications'],
-    ['agents', 'Agents'],
+    ['agents', 'Providers'],
     ['limits', 'Limits'],
     ['integrations', 'Integrations'],
     ['library', 'Library'],
@@ -574,7 +594,9 @@ test('App settings navigation selects real pages and Factory settings leaves the
   a.handle('library', () => ({
     path: '/test/library',
     version: 'v1',
-    stages: [{ id: 'backlog', inOrder: true, enabled: true, gate: false, from: 'ted' }],
+    stages: [
+      { id: 'backlog', name: 'Backlog', inOrder: true, enabled: true, gate: false, from: 'ted' },
+    ],
     agents: [],
     problems: [],
   }))

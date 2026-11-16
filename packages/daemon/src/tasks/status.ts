@@ -11,6 +11,7 @@ import {
   type TaskStatus,
   type TaskStatusKind,
 } from '@ted/protocol'
+import { isCleanup, mergesHere } from '@ted/protocol/stage'
 
 export interface TaskFacts {
   preparing?: boolean
@@ -67,7 +68,7 @@ export function taskCanResume(facts: TaskFacts): boolean {
     !facts.paused &&
     facts.stage !== 'backlog' &&
     facts.stage !== 'done' &&
-    (facts.stage !== 'merge' || facts.mergeLeadWorks === true) &&
+    (!mergesHere(facts.stage) || facts.mergeLeadWorks === true) &&
     facts.runs.length === 0 &&
     !facts.leadLive &&
     (facts.openRequests ?? 0) === 0 &&
@@ -90,7 +91,7 @@ export function leadAskedAtMerge(facts: {
   openRequests: number
 }): boolean {
   return (
-    facts.stage === 'merge' &&
+    mergesHere(facts.stage) &&
     facts.askedBy !== undefined &&
     facts.askedBy === facts.leadRunId &&
     facts.leadEnded === 'stopped' &&
@@ -182,7 +183,7 @@ function testMarkers(facts: TaskFacts): TaskMarker[] {
       kind: 'test-activity',
       source,
       phase,
-      label: `${phase === 'running' ? 'Running' : 'Waiting for'} ${source === 'checks' ? 'Checks' : 'tests'}`,
+      label: `${phase === 'running' ? 'Running' : 'Waiting for'} ${source}`,
       detail,
     })
   }
@@ -378,7 +379,7 @@ export function taskIsMerged(
   pullRequests: readonly { number: number | null; state: string | null }[],
 ): boolean {
   return (
-    (stage === 'done' || stage === 'cleanup') &&
+    (stage === 'done' || isCleanup(stage)) &&
     pullRequests.every((request) => request.number === null || request.state === 'merged')
   )
 }

@@ -16,7 +16,7 @@ import type { SnoozedRequest, WaitingRequest } from './waiting.ts'
 
 export type DaemonEvent =
   | { type: 'side-chat-changed'; sourceRunId: string }
-  | { type: 'coordinator-changed'; factoryId: string }
+  | { type: 'coordinator-changed'; factoryId: string; chatId: string }
   | { type: 'task-created'; task: Task }
   | { type: 'task-updated'; task: Task }
   | { type: 'task-deleted'; taskId: string }
@@ -32,6 +32,7 @@ export type DaemonEvent =
   | { type: 'factory-removed'; factoryId: string }
   | { type: 'factory-layout-changed'; layout: FactoryLayout }
   | { type: 'factory-settings-changed'; factoryId: string }
+  | { type: 'factory-stages-changed'; factoryId: string }
   | { type: 'guides-changed'; guides: FactoryGuide[] }
   | { type: 'settings-changed'; settings: MachineSettings }
   | { type: 'banner-raised'; banner: Banner }

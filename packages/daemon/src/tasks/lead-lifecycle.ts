@@ -1,5 +1,6 @@
 import type { AgentKind, Comment, Run, RunMessage, TaskLead, TaskRepo } from '@ted/protocol'
 import { agentShortNames } from '@ted/protocol'
+import { mergesHere } from '@ted/protocol/stage'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import type { Agents } from '../agents/index.ts'
 import type { Clock, Timer } from '../clock.ts'
@@ -328,12 +329,12 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     if (lead.agent !== run.agent && !(await health.ready(lead.agent)))
       throw new RequestError(
         409,
-        `${agentShortNames[lead.agent]} isn’t ready. Check Settings → Agents.`,
+        `${agentShortNames[lead.agent]} isn’t ready. Check Settings → Providers.`,
       )
     if (lead.agent !== run.agent && store.newWorkHold() !== undefined)
       throw new RequestError(
         409,
-        'TED isn’t starting new work right now, so it can’t switch agents',
+        'TED isn’t starting new work right now, so it can’t switch Providers',
       )
     if (run.state === 'working') {
       if (lead.agent === run.agent) interruptedForRestart.add(run.id)
@@ -576,7 +577,7 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
       resumeFailed,
       ...(recovery === 'failed' && {
         ask: failedAsk(run.agent, history.sinceFirst, reason, ended, now),
-        ...(task.stage === 'merge' && leadPending(store, task.id) && { mergeAnyway: true }),
+        ...(mergesHere(task.stage) && leadPending(store, task.id) && { mergeAnyway: true }),
       }),
     })
     if (recovery === 'resume' && killedForMemory) {

@@ -10,7 +10,8 @@
     "./launch": "./src/launch.ts",
     "./workflow": "./src/workflow/index.ts",
     "./execution": "./src/execution/service.ts",
-    "./process-memory": "./src/process-memory.ts"
+    "./process-memory": "./src/process-memory.ts",
+    "./redact": "./src/redact.ts"
   },
   "dependencies": {
     "@livestore/adapter-node": "0.5.0",

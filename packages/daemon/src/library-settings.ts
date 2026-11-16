@@ -6,7 +6,6 @@ import {
   type AgentKind,
   type AgentStageId,
   agentRoles,
-  agentStageIds,
   type ClarifyDepth,
   type DaemonEvent,
   type Effort,
@@ -17,10 +16,20 @@ import {
   type LibraryStageRow,
   type LibraryView,
   type SaveLibraryRequest,
-  type StageId,
   type WorkflowProblem,
 } from '@ted/protocol'
 import { fileChange } from '@ted/protocol/diff'
+import {
+  handsOff,
+  hasClarifyRounds,
+  isBuiltInStage,
+  isCleanup,
+  mergesHere,
+  settingsStageOrder,
+  stageEnabled,
+  stageFileId,
+  validates,
+} from '@ted/protocol/stage'
 import { RequestError } from './errors.ts'
 import type { TedStore } from './store/index.ts'
 import { resolveAgentChoices } from './workflow/agent-choices.ts'
@@ -62,8 +71,7 @@ interface Base {
   own: CheckedLayer
 }
 
-const knownFile = (file: string) =>
-  file === 'workflow.yaml' || agentStageIds.some((id) => file === `stages/${id}.md`)
+const knownFile = (file: string) => file === 'workflow.yaml' || stageFileId(file) !== undefined
 
 const library = (files: LayerFiles) => checkLayer({ kind: 'library', files })
 
@@ -150,20 +158,22 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
     const defaults = resolveWorkflow([base.defaults])
     const full = resolveWorkflow([base.defaults, own])
     const drifts = findDrift([base.defaults], own)
-    const ids: StageId[] = ['backlog', ...agentStageIds.filter((id) => id !== 'cleanup'), 'done']
+    const ids = settingsStageOrder(full.order)
     const { overnightMode } = store.settings()
     return ids.map((id) => {
       const stage = full.settings.stages[id]
       const agent = id !== 'backlog' && id !== 'done' ? id : undefined
-      const inOrder = agent === undefined || full.order.includes(agent)
+      const inOrder = agent === undefined || isCleanup(id) || full.order.includes(agent)
       const libraryFile = agent ? own.stageFiles[agent] : undefined
       const defaultText = agent ? defaults.stageFile(agent)?.text : undefined
       const basedOn = own.settings.stages[id]?.based_on
       const drift = drifts.find((d) => d.stage === id)
       return {
         id,
+        name: full.name(id),
+        ...(!isBuiltInStage(id) && { custom: true as const }),
         inOrder,
-        enabled: inOrder && (id === 'backlog' || id === 'done' || stage?.enabled !== false),
+        enabled: stageEnabled(id, inOrder, stage?.enabled),
         gate: stage?.gate === true,
         ...(agent && {
           effort: (own.settings.stages[id]?.effort ?? null) as Effort | null,
@@ -174,13 +184,13 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
         }),
         ...(agent && stage?.gate === true && overnightMode && { overnight: true as const }),
         ...(stage?.max_back !== undefined && agent && { maxBack: stage.max_back }),
-        ...(id === 'clarify' && { depth: (stage?.depth ?? 'auto') as ClarifyDepth }),
-        ...(id === 'validate' && {
+        ...(hasClarifyRounds(id) && { depth: (stage?.depth ?? 'auto') as ClarifyDepth }),
+        ...(validates(id) && {
           p1OnlyFrom: stage?.p1_only_from ?? false,
           subAgents: stage?.sub_agents === true,
         }),
-        ...(id === 'work' && { leadClosesFailures: stage?.lead_closes_failures === true }),
-        ...(id === 'merge' && { commitTitles: stage?.commit_titles !== false }),
+        ...(handsOff(id) && { leadClosesFailures: stage?.lead_closes_failures === true }),
+        ...(mergesHere(id) && { commitTitles: stage?.commit_titles !== false }),
         from: libraryFile !== undefined ? 'library' : 'ted',
         ...(libraryFile !== undefined && { libraryFile }),
         ...(defaultText !== undefined && { defaultText }),

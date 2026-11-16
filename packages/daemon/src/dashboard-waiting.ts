@@ -1,4 +1,5 @@
 import type { DashboardWait, DashboardWaiting, DashboardWaitStage } from '@ted/protocol'
+import { builtInStageOrder, isHoldingStage } from '@ted/protocol/stage'
 import type { DashboardTaskFacts } from './dashboard.ts'
 import { stageTiming } from './dashboard-flow.ts'
 import type { WaitRequest } from './dashboard-timing.ts'
@@ -35,7 +36,7 @@ export function waitKind(request: Pick<WaitRequest, 'kind' | 'purpose'>, stage: 
   return questionKinds[request.purpose ?? ''] ?? 'Question'
 }
 
-const order = ['intake', 'clarify', 'design', 'work', 'validate', 'review', 'merge', 'cleanup']
+const order: readonly string[] = builtInStageOrder.filter((id) => !isHoldingStage(id))
 const rank = (stage: string) => {
   const index = order.indexOf(stage)
   return index < 0 ? order.length : index

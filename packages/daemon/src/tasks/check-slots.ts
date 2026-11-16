@@ -4,7 +4,7 @@ export function checkCpus(cores: number, running: number, percent: number): numb
   return Math.max(1, Math.floor((cores * percent) / 100 / Math.max(1, running)))
 }
 
-export function checkCpusEnv(cpus: number): Record<string, string> {
+export function checkCpusEnv(cpus: number) {
   return { TED_CHECK_CPUS: String(cpus) }
 }
 

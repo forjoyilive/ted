@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import type { AgentStageId, Attachment, Task } from '@ted/protocol'
+import { isCleanup, stageDisplayName } from '@ted/protocol/stage'
 import { writingGuidance } from '../writing.ts'
 import { type CleanupInstructionStep, type CleanupStep, isCommandStep } from './check.ts'
 import type { ResolvedWorkflow } from './resolve.ts'
@@ -15,7 +16,7 @@ const depthNames: Record<Task['clarifyDepth'], string> = {
 }
 
 export function stageTitle(id: string): string {
-  return id.charAt(0).toUpperCase() + id.slice(1)
+  return stageDisplayName(id)
 }
 
 function stageFileText(workflow: ResolvedWorkflow, stage: AgentStageId): string {
@@ -24,11 +25,10 @@ function stageFileText(workflow: ResolvedWorkflow, stage: AgentStageId): string 
   const gate =
     workflow.settings.stages[stage]?.gate === true
       ? [
-          `${stageTitle(stage)} has a sign-off. When its work is done, write the Task brief with \`ted brief write\`, then run \`ted outcome advance\`. TED posts your brief to the human as a request and sends you their answer.`,
+          `${workflow.name(stage)} has a sign-off. When its work is done, write the Task brief with \`ted brief write\`, then run \`ted outcome advance\`. TED posts your brief to the human as a request and sends you their answer.`,
         ]
       : []
-  const steps =
-    stage === 'cleanup' ? [cleanupStepsText(workflow.settings.stages.cleanup?.steps)] : []
+  const steps = isCleanup(stage) ? [cleanupStepsText(workflow.settings.stages.cleanup?.steps)] : []
   return [file.text.trim(), ...gate, ...steps].join('\n\n')
 }
 
@@ -196,7 +196,7 @@ function reposText({ factory, task, folder }: PromptRepos): string {
 
 export function nextStageMessage(workflow: ResolvedWorkflow, stage: AgentStageId): string {
   return [
-    `TED moved this Task to ${stageTitle(stage)}. These are your instructions for this Stage.`,
+    `TED moved this Task to ${workflow.name(stage)}. These are your instructions for this Stage.`,
     stageFileText(workflow, stage),
   ].join('\n\n')
 }
@@ -261,8 +261,8 @@ export function backStageMessage(
   findings: string,
 ): string {
   return [
-    `TED moved this Task back to ${stageTitle(stage)}. These are your instructions for this Stage.`,
+    `TED moved this Task back to ${workflow.name(stage)}. These are your instructions for this Stage.`,
     stageFileText(workflow, stage),
-    `# Findings from ${stageTitle(from)}\n\n${findings.trim()}`,
+    `# Findings from ${workflow.name(from)}\n\n${findings.trim()}`,
   ].join('\n\n')
 }

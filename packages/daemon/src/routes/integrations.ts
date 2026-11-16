@@ -106,7 +106,7 @@ export const integrationRoutes: Route[] = [
     path: /^\/agents\/([^/]+)\/fix$/,
     async handle({ params: [agent = ''] }, { health }) {
       const kind = agentKinds.find((k) => k === agent)
-      if (!kind) throw new HttpError(404, 'no such agent')
+      if (!kind) throw new HttpError(404, 'no such Provider')
       return [200, await health.fix(kind)]
     },
   },

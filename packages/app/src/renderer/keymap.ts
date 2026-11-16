@@ -21,7 +21,7 @@ const sections: readonly SheetSection[] = [
       { id: 'go-to-board', label: 'Go to Board', keys: ['G B'] },
       { id: 'go-to-list', label: 'Go to List', keys: ['G L'] },
       { id: 'go-to-map', label: 'Go to Map', keys: ['G M'] },
-      { id: 'go-to-plans', label: 'Go to Plans', keys: ['G P'] },
+      { id: 'go-to-agents', label: 'Go to Agents', keys: ['G P'] },
       { id: 'open-factory', label: 'Open Factory 1 to 9', keys: ['⌘1–⌘9'] },
       { id: 'back', label: 'Back', keys: ['⌘['] },
       { id: 'forward', label: 'Forward', keys: ['⌘]'] },

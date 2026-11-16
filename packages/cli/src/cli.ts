@@ -75,6 +75,7 @@ import {
 } from '@ted/protocol'
 import { executionCapacity, parseWorkerPairRequest } from '@ted/protocol/execution-pairing'
 import { matchReference, shortReference } from '@ted/protocol/reference'
+import { isCleanup } from '@ted/protocol/stage'
 import { asanaImportedText, asanaIntakeText, asanaTreeText } from './asana.ts'
 import { AutomationUsageError, automationCommand } from './automation.ts'
 import {
@@ -85,6 +86,8 @@ import {
   UsageError,
 } from './commands.ts'
 import { exportCommand } from './export.ts'
+import { githubIntakeText } from './github-intake.ts'
+import { linearIntakeText } from './linear.ts'
 import { formatMemoryUse } from './memory.ts'
 import { formatSlowMoments } from './slow.ts'
 
@@ -259,7 +262,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     if (file === undefined)
       throw new UsageError('give the sub-agent’s instructions with --prompt-file <file>')
     if (agent !== undefined && !agentKinds.includes(agent as AgentKind)) {
-      throw new UsageError('--agent must be claude, codex or antigravity')
+      throw new UsageError('--provider must be claude, codex or antigravity')
     }
     if (effort !== undefined && !efforts.includes(effort as Effort)) {
       throw new UsageError(`--effort must be one of ${efforts.join(', ')}`)
@@ -1561,6 +1564,17 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       )
       write(`${asanaIntakeText(result)}\n`)
     },
+    githubIntake: async () => {
+      const result = await withDaemon(home, (client) => client.runGitHubIntake())
+      write(`${githubIntakeText(result)}\n`)
+    },
+    linearIntake: async () => {
+      const { factory } = options
+      const result = await withDaemon(home, (client) =>
+        client.runLinearIntake(factory === undefined ? {} : { factory }),
+      )
+      write(`${linearIntakeText(result)}\n`)
+    },
     createTask: async () => {
       const title = args.join(' ')
       const { factory, source, start, description } = options
@@ -1695,7 +1709,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (!ref) throw new UsageError('ted task done works only inside a Task Lead’s Run')
       const task = await withDaemon(home, (client) => client.leadDone(ref))
       console.log(
-        task.stage === 'cleanup'
+        isCleanup(task.stage)
           ? `${task.displayId}’s pull requests have merged; it moved to Cleanup`
           : `${task.displayId} is Done`,
       )
@@ -1750,7 +1764,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (options['stage-effort'] && effort !== undefined)
         throw new UsageError('choose --stage-effort or --effort')
       if (!agentKinds.includes(agent as AgentKind))
-        throw new UsageError('agent must be claude, codex or antigravity')
+        throw new UsageError('the Provider must be claude, codex or antigravity')
       if (effort !== undefined && !efforts.includes(effort as Effort)) {
         throw new UsageError(`--effort must be one of ${efforts.join(', ')}`)
       }
@@ -1920,7 +1934,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
             }
           : undefined
       if (lead === undefined && (options.model !== undefined || options.effort !== undefined))
-        throw new UsageError('--model and --effort need --agent')
+        throw new UsageError('--model and --effort need --provider')
       const input = {
         operation,
         title: args.join(' '),

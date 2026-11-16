@@ -1,19 +1,18 @@
 import type { ChildProcess } from 'node:child_process'
 import type { ElectronApplication } from 'playwright'
 import { afterEach, expect, test, vi } from 'vitest'
-import { killRunHosts, removeHome, stopDaemonIn } from '../../daemon/test/helpers.ts'
 import { cleanupCoordinator } from './support/coordinator-cleanup.ts'
 
-vi.mock('./failure-capture.ts', () => ({ captureFailure: vi.fn(async () => {}) }))
-vi.mock('../../daemon/test/helpers.ts', () => ({
-  stopDaemonIn: vi.fn(async () => {}),
-  killRunHosts: vi.fn(async () => {}),
-  removeHome: vi.fn(async () => {}),
-}))
+function fakeHelpers() {
+  return {
+    stopDaemonIn: vi.fn(async (_home: string) => {}),
+    killRunHosts: vi.fn(async (_home: string) => {}),
+    removeHome: vi.fn(async (_home: string) => {}),
+  }
+}
 
 afterEach(() => {
   vi.restoreAllMocks()
-  vi.clearAllMocks()
 })
 
 test('a stalled app close is forced before the hook deadline and the captured home is cleaned', async () => {
@@ -25,8 +24,9 @@ test('a stalled app close is forced before the hook deadline and the captured ho
   } as unknown as ElectronApplication
   const kill = vi.spyOn(process, 'kill').mockReturnValue(true)
   const report = vi.fn()
+  const { stopDaemonIn, killRunHosts, removeHome } = fakeHelpers()
   let home = 'first-attempt'
-  const cleanup = cleanupCoordinator(home, app, report)
+  const cleanup = cleanupCoordinator(home, app, report, { stopDaemonIn, killRunHosts, removeHome })
   home = 'next-attempt'
   await cleanup
   expect(app.close).toHaveBeenCalledOnce()
@@ -57,9 +57,12 @@ test('an already exited app is not killed and a daemon cleanup error remains vis
   } as unknown as ElectronApplication
   const kill = vi.spyOn(process, 'kill').mockReturnValue(true)
   const error = new Error('daemon stop failed')
-  vi.mocked(stopDaemonIn).mockRejectedValueOnce(error)
+  const { stopDaemonIn, killRunHosts, removeHome } = fakeHelpers()
+  stopDaemonIn.mockRejectedValueOnce(error)
   const report = vi.fn()
-  await expect(cleanupCoordinator('failed-attempt', app, report)).rejects.toBe(error)
+  await expect(
+    cleanupCoordinator('failed-attempt', app, report, { stopDaemonIn, killRunHosts, removeHome }),
+  ).rejects.toBe(error)
   expect(kill).not.toHaveBeenCalled()
   expect(killRunHosts).not.toHaveBeenCalled()
   expect(removeHome).not.toHaveBeenCalled()

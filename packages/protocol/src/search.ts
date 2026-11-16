@@ -52,6 +52,7 @@ export interface ConversationHit {
   itemId: string
   factoryId: string
   source: 'task' | 'plan' | 'automation' | 'coordinator'
+  chatId?: string
   ref: string
   title: string
   runName: string

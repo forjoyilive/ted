@@ -16,7 +16,7 @@ import { CloseIcon, PlusIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
-import { stageName } from '../list-view.ts'
+import { useStages } from '../stages.tsx'
 import { readableError, ted } from '../ted.ts'
 import boardStyles from './Board.module.css'
 import styles from './TaskMap.module.css'
@@ -58,7 +58,6 @@ export function TaskMap({
   onOpen,
   onOpenTask,
   onNewTask,
-  onPlan,
 }: {
   title: string
   factoryId: string
@@ -68,8 +67,8 @@ export function TaskMap({
   onOpen: (task: Task) => void
   onOpenTask: (ref: string) => void
   onNewTask: () => void
-  onPlan: () => void
 }) {
+  const stages = useStages()
   const map = useMemo(() => blockerMap(tasks, factoryId), [tasks, factoryId])
   const [sideOpen, setSideOpen] = useState(false)
   const [hot, setHot] = useState<string>()
@@ -195,7 +194,7 @@ export function TaskMap({
           {other && (
             <span className={styles.factory}>{factoryName(factories, task.factoryId)}</span>
           )}
-          <span className={styles.stage}>{stageName(task.stage)}</span>
+          <span className={styles.stage}>{stages.name(task.stage, task.factoryId)}</span>
         </span>
         <button
           type="button"
@@ -283,9 +282,6 @@ export function TaskMap({
         <span className={views.headerSpacer} />
         <Button size="small" aria-pressed={sideOpen} onClick={() => setSideOpen((open) => !open)}>
           Tasks with no blockers
-        </Button>
-        <Button size="small" onClick={onPlan}>
-          Plan…
         </Button>
         <Button size="small" variant="primary" onClick={onNewTask}>
           <PlusIcon />

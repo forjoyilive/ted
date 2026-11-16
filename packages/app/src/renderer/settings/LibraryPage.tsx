@@ -6,6 +6,14 @@ import type {
   StageId,
 } from '@ted/protocol'
 import { fileChange } from '@ted/protocol/diff'
+import {
+  handsOff,
+  hasClarifyRounds,
+  isCleanup,
+  isEntryStage,
+  mergesHere,
+  validates,
+} from '@ted/protocol/stage'
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { Button } from '../components/Button.tsx'
@@ -28,9 +36,12 @@ import { readableError, ted } from '../ted.ts'
 import base from '../views/FactorySettings.module.css'
 import sections from '../views/FactorySettingsSections.module.css'
 import {
+  CleanupWithoutSteps,
+  CustomTag,
   DriftNotice,
   Edited,
   FromChip,
+  InOrder,
   InvalidNotice,
   Markdown,
   MergeCommitTitles,
@@ -51,10 +62,6 @@ const depthNames: Record<ClarifyDepth, string> = {
 }
 
 type EditorTab = 'edit' | 'preview' | 'compare'
-
-function title(id: string): string {
-  return id.charAt(0).toUpperCase() + id.slice(1)
-}
 
 const isAgentStage = (id: StageId): id is AgentStageId => id !== 'backlog' && id !== 'done'
 
@@ -259,7 +266,7 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
               className={base.link}
               onClick={() => dispatch({ type: 'open-settings', section: 'agents' })}
             >
-              Task Lead, Reviewer and Planner are under Agents →
+              Task Lead, Reviewer and Planner are under Providers →
             </ActionButton>
             <Help>
               Permissions, Checks, Apps and repos belong to each Factory, so they aren’t in the
@@ -319,21 +326,27 @@ function StageLine({
   onKeep: () => void
 }) {
   const stage = draft.stages[row.id]
-  const name = title(row.id)
+  const { name } = row
   const agent = isAgentStage(row.id)
+  const decides = agent && !isCleanup(row.id)
+  const cleanupOn = isCleanup(row.id) && (stage?.enabled ?? row.enabled)
   const file = agent ? (draft.stageFiles[row.id as AgentStageId] ?? null) : null
   const holding = <span className={styles.holding}>holding</span>
   const dash = <span className={sections.dash}>—</span>
-  const fixed = row.id === 'backlog' || row.id === 'intake' || row.id === 'work'
+  const fixed = row.id === 'backlog' || isEntryStage(row.id) || handsOff(row.id)
   const drift =
     agent && file !== null && !draft.keepStageFiles.includes(row.id as AgentStageId)
       ? row.drift
       : undefined
   return (
-    <div className={drift ? sections.stageDrift : undefined}>
+    <div
+      className={drift ? sections.stageDrift : undefined}
+      data-setting={isCleanup(row.id) ? 'app.library.workflow.cleanup' : undefined}
+    >
       <div className={`${styles.row} ${styles.line}`}>
         <span className={sections.stageName}>
           {name}
+          {row.custom && <CustomTag />}
           {drift && (
             <span className={sections.driftDot} role="img" aria-label="Default version changed" />
           )}{' '}
@@ -346,6 +359,8 @@ function StageLine({
             <span className={sections.always} title={`${name} can’t be turned off`}>
               Always on
             </span>
+          ) : row.custom ? (
+            <InOrder name={name} where="the Library’s" />
           ) : (
             <Toggle
               label={`${name} on`}
@@ -357,7 +372,7 @@ function StageLine({
           )}
         </span>
         <span>
-          {agent ? (
+          {decides ? (
             <Toggle
               label={`${name} Sign-Off`}
               checked={stage?.gate ?? row.gate}
@@ -368,7 +383,7 @@ function StageLine({
           )}
         </span>
         <span>
-          {agent ? (
+          {decides ? (
             <input
               aria-label={`${name} send-backs`}
               className={sections.numberInput}
@@ -385,7 +400,7 @@ function StageLine({
           )}
         </span>
         <span>
-          {row.id === 'clarify' ? (
+          {hasClarifyRounds(row.id) ? (
             <Select
               fullWidth
               aria-label="Clarify depth"
@@ -420,16 +435,27 @@ function StageLine({
         <span className={sections.actions}>
           {row.id === 'backlog' && <span className={sections.always}>Always first</span>}
           {row.id === 'done' && <span className={sections.always}>Always last</span>}
-          {agent && file === null && <Button onClick={onOverride}>Override in Library</Button>}
-          {agent && file !== null && <Button onClick={onReset}>Reset to default</Button>}
+          {agent && file === null && row.defaultText !== undefined && (
+            <Button onClick={onOverride}>Override in Library</Button>
+          )}
+          {agent && file !== null && row.defaultText !== undefined && (
+            <Button onClick={onReset}>Reset to default</Button>
+          )}
         </span>
       </div>
-      {row.id === 'validate' && <ValidateRounds stage={stage} onStage={onStage} />}
-      {row.id === 'work' && <WorkFailures stage={stage} onStage={onStage} />}
-      {row.id === 'merge' && <MergeCommitTitles stage={stage} onStage={onStage} />}
+      {validates(row.id) && <ValidateRounds stage={stage} onStage={onStage} />}
+      {handsOff(row.id) && <WorkFailures stage={stage} onStage={onStage} />}
+      {mergesHere(row.id) && <MergeCommitTitles stage={stage} onStage={onStage} />}
+      {cleanupOn && (
+        <CleanupWithoutSteps>
+          Cleanup is on, but a Factory runs it only once it has a step. Add steps in each Factory’s
+          settings, under Cleanup.
+        </CleanupWithoutSteps>
+      )}
       {drift && (
         <DriftNotice
           stage={row.id as AgentStageId}
+          name={name}
           drift={drift}
           label="Default"
           useLabel="Use default"
@@ -463,10 +489,12 @@ function StageFile({
   const [tab, setTab] = useState<EditorTab>('edit')
   const name = `${id}.md`
   const shownPath = `${path.replace(/^\/(?:Users|home)\/[^/]+/, '~')}/stages/${name}`
+  const hasDefault = row.defaultText !== undefined
+  const compare: [EditorTab, string] = ['compare', 'Compare with default']
   const tabs: [EditorTab, string][] = [
     ['edit', 'Edit'],
     ['preview', 'Preview'],
-    ['compare', 'Compare with default'],
+    ...(hasDefault ? [compare] : []),
   ]
   const defaultText = row.defaultText ?? ''
   const compared = useMemo(
@@ -503,15 +531,17 @@ function StageFile({
             <Button size="small" onClick={() => onOpen(!open)}>
               {open ? 'Close' : 'Edit'}
             </Button>
-            <Button
-              size="small"
-              onClick={() => {
-                onText(null)
-                return onOpen(false)
-              }}
-            >
-              Reset to default
-            </Button>
+            {hasDefault && (
+              <Button
+                size="small"
+                onClick={() => {
+                  onText(null)
+                  return onOpen(false)
+                }}
+              >
+                Reset to default
+              </Button>
+            )}
           </>
         )}
       </div>
@@ -533,7 +563,7 @@ function StageFile({
           </div>
           {tab === 'edit' && (
             <textarea
-              aria-label={`${title(id)} Stage file`}
+              aria-label={`${row.name} Stage file`}
               className={`${sections.fileText} ${grow.text}`}
               value={text}
               spellCheck={false}

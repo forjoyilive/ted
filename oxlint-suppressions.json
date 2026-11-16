@@ -1,0 +1,4741 @@
+{
+  "packages/app/scripts/package.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/scripts/stage.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/app/src/attachment-preview.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/browser-page.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 4
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/app/src/browser.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 5
+    }
+  },
+  "packages/app/src/custom-requests.ts": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/daemon-adapters.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/daemon-requests.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 4
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/app/src/export.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/app/src/headless-browser.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/login-item.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/app/src/logo.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/app/src/main.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 19
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 7
+    }
+  },
+  "packages/app/src/notifications.ts": {
+    "anti-slop/no-object-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/remote-page.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 12
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 6
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 8
+    }
+  },
+  "packages/app/src/renderer/App.tsx": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 9
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/CodeSection.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/ConnectionNotice.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/WorkerWindow.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/add-factory.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/agent-chats.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 4
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/attachment-bytes.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/automations.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 13
+    }
+  },
+  "packages/app/src/renderer/banners.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/commands.ts": {
+    "anti-slop/no-unknown-returns": {
+      "count": 3
+    }
+  },
+  "packages/app/src/renderer/components/ActionButton.tsx": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/AppLogView.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/AppsSection.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/ArchiveDialogs.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/AsanaImportPreview.tsx": {
+    "anti-slop/no-known-value-widening": {
+      "count": 19
+    }
+  },
+  "packages/app/src/renderer/components/Autopilot.tsx": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/BannerStack.tsx": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/BlockerPicker.tsx": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/CheckOutputDialog.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/ChoiceText.tsx": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/components/CommentBox.tsx": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/CommentFiles.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/ContextMenu.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/components/DesignReview.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/DiffViews.tsx": {
+    "anti-slop/no-known-value-widening": {
+      "count": 5
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/EditorPicker.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/FactoryIconPicker.tsx": {
+    "anti-slop/no-unknown-returns": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/FactoryMenu.tsx": {
+    "anti-slop/no-unknown-returns": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/FactoryPicker.tsx": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/FailureRepairForm.tsx": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/components/FileView.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/components/FindBar.tsx": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/Help.tsx": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/HierarchySection.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/components/LineComments.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/Markdown.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/components/OutsideSandboxDialog.tsx": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 5
+    }
+  },
+  "packages/app/src/renderer/components/PlanUsage.tsx": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/components/PreviewRow.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/ProposalCard.tsx": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/components/RemoveFactoryDialog.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/RequestCard.tsx": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 4
+    }
+  },
+  "packages/app/src/renderer/components/RequestSnooze.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/RestartStoppedDialog.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/RoundCard.tsx": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 6
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/RunApps.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/RunChat.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 6
+    }
+  },
+  "packages/app/src/renderer/components/RunsSection.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/ScrollMemory.tsx": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/components/SearchPalette.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/SelectionBar.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/SetupNoticeDialog.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/Sidebar.tsx": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/TalkThrough.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/TaskActions.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/TaskBrowserView.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 5
+    }
+  },
+  "packages/app/src/renderer/components/TaskContextMenu.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/TaskConversationTabs.tsx": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/TaskDiscussion.tsx": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/components/TaskPicker.tsx": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/TaskShell.tsx": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    }
+  },
+  "packages/app/src/renderer/components/TaskShellPane.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/components/TaskStatus.tsx": {
+    "anti-slop/no-known-value-widening": {
+      "count": 9
+    }
+  },
+  "packages/app/src/renderer/components/WorkingRuns.tsx": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/dashboard.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 2
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 6
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/data.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    }
+  },
+  "packages/app/src/renderer/event-value.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/factory-layout.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/factory-settings.ts": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/app/src/renderer/file-drop.ts": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/files.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/inbox-grouping.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/inbox.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/list-collapse.ts": {
+    "anti-slop/no-object-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 3
+    }
+  },
+  "packages/app/src/renderer/list-view.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/main.tsx": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/message-draft-session.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 9
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 4
+    }
+  },
+  "packages/app/src/renderer/message-drafts.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/navigation.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/pending-action.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 3
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/plans.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 11
+    }
+  },
+  "packages/app/src/renderer/requests.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/settings-search.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 5
+    }
+  },
+  "packages/app/src/renderer/settings/AgentsPage.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/settings/AsanaGroup.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/settings/AsanaProjectsRow.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/settings/CommandLineGroup.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 6
+    }
+  },
+  "packages/app/src/renderer/settings/DeveloperPage.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 5
+    }
+  },
+  "packages/app/src/renderer/settings/EditorRow.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/settings/ExportGroup.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/settings/GeneralPage.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/settings/IntegrationsPage.tsx": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/settings/LibraryPage.tsx": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 6
+    }
+  },
+  "packages/app/src/renderer/settings/LinearGroup.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 5
+    }
+  },
+  "packages/app/src/renderer/settings/MachinesPage.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/settings/TrackerGroupsRow.tsx": {
+    "anti-slop/no-unknown-returns": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/settings/controls.tsx": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/shared-value.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/shortcuts.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/sidebar-widths.ts": {
+    "anti-slop/no-reflect-get": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/slots.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/task-draft.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 16
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/app/src/renderer/task-fields.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/ted.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/time.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/tool-groups.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/views/AddFactoryDialog.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/views/Agents.tsx": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/views/AsanaIntakeSection.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/views/AutomationDialog.tsx": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 3
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 6
+    }
+  },
+  "packages/app/src/renderer/views/Automations.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/views/Board.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/views/Dashboard.tsx": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-conditional-empty-object-spread": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/views/DashboardCost.tsx": {
+    "anti-slop/no-known-value-widening": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/app/src/renderer/views/DashboardStages.tsx": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/views/FactorySettings.tsx": {
+    "anti-slop/no-conditional-empty-object-spread": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/views/FactorySettingsSections.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 7
+    }
+  },
+  "packages/app/src/renderer/views/FirstLaunch.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/views/GitHubSetupForm.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/views/LinearIntakeSection.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/views/NewTaskDialog.tsx": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/app/src/renderer/views/PlanChat.tsx": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/views/SaveSettingsDialog.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/views/TaskLeadField.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/views/TaskList.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/app/src/renderer/views/TaskMap.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/src/renderer/views/TaskThread.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 7
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/app/src/renderer/views/stage-waits.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/app/src/third-party.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/uncaught.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/update-source.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/src/updates.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 4
+    }
+  },
+  "packages/app/src/web-link.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/app/src/worker-window.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/app/test/action-feedback-component.test.tsx": {
+    "anti-slop/no-unknown-returns": {
+      "count": 2
+    }
+  },
+  "packages/app/test/app-background.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    }
+  },
+  "packages/app/test/app-crashes.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 2
+    }
+  },
+  "packages/app/test/app-harness.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    }
+  },
+  "packages/app/test/app-settings.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    }
+  },
+  "packages/app/test/app-task.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    }
+  },
+  "packages/app/test/app.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/app/test/asana-intake-component.test.tsx": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 11
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/test/asana.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 3
+    }
+  },
+  "packages/app/test/background.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    }
+  },
+  "packages/app/test/board-component.test.tsx": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    }
+  },
+  "packages/app/test/browser-controller.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/app/test/browser-probes.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/app/test/browser.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/test/chat-component.test.tsx": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/app/test/coordinator-cleanup.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 2
+    }
+  },
+  "packages/app/test/coordinator-component.test.tsx": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/test/daemon-client-transport.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/app/test/daemon-requests.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    }
+  },
+  "packages/app/test/data-screens.test.ts": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/test/details-component.test.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/test/details.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    }
+  },
+  "packages/app/test/dialogs-component.test.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    }
+  },
+  "packages/app/test/factory-component.test.tsx": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/test/first-launch.test.ts": {
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/app/test/fixtures/reset-client.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/test/fixtures/reset-server.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/app/test/hierarchy-component.test.tsx": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/test/inbox-events.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/app/test/inbox.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 3
+    }
+  },
+  "packages/app/test/integrations.test.ts": {
+    "anti-slop/no-reflect-get": {
+      "count": 2
+    }
+  },
+  "packages/app/test/linear-intake-component.test.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/test/list-collapse.test.tsx": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/app/test/list-component.test.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    }
+  },
+  "packages/app/test/middle-pane.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    }
+  },
+  "packages/app/test/new-task-submission.test.ts": {
+    "anti-slop/no-reflect-get": {
+      "count": 4
+    }
+  },
+  "packages/app/test/notifications.test.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    }
+  },
+  "packages/app/test/plans-ui.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/test/preview.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 3
+    }
+  },
+  "packages/app/test/requests-component.test.tsx": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/app/test/search-component.test.tsx": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/app/test/stage-waits.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    }
+  },
+  "packages/app/test/support/app.tsx": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/app/test/support/cleanup-evidence.ts": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/test/support/component.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/app/test/task-content-isolation.test.ts": {
+    "anti-slop/no-reflect-get": {
+      "count": 6
+    }
+  },
+  "packages/app/test/theme.test.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 2
+    }
+  },
+  "packages/app/test/uncaught.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/app/test/updates-app.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 3
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/app/test/updates.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/cli/src/automation.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 5
+    }
+  },
+  "packages/cli/src/cli.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 4
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 7
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 23
+    }
+  },
+  "packages/cli/src/commands.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/cli/test/browser-commands.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    }
+  },
+  "packages/cli/test/cli.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/cli/test/commands.test.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 2
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/agents/agent.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/agents/antigravity-chat.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 3
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/agents/antigravity-driver.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 8
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/agents/antigravity-health.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/agents/antigravity-rpc.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/agents/antigravity.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 4
+    }
+  },
+  "packages/daemon/src/agents/chat-entries.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 3
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 4
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/agents/claude-chat.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/agents/claude.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 4
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 27
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 5
+    }
+  },
+  "packages/daemon/src/agents/codex-chat.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 4
+    }
+  },
+  "packages/daemon/src/agents/codex-driver.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 7
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 5
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 4
+    }
+  },
+  "packages/daemon/src/agents/codex-home.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/agents/codex-usage.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 6
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/agents/codex.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 38
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 8
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 6
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 21
+    }
+  },
+  "packages/daemon/src/apps/android-screen.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/apps/apps.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 4
+    }
+  },
+  "packages/daemon/src/apps/declared.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 10
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/apps/device-slots.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 5
+    }
+  },
+  "packages/daemon/src/apps/emulators.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 4
+    }
+  },
+  "packages/daemon/src/apps/host-files.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/apps/host.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/apps/ios-screen.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 4
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 7
+    }
+  },
+  "packages/daemon/src/apps/run-browser.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/apps/simulators.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 4
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 6
+    }
+  },
+  "packages/daemon/src/asana/asana.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 10
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 6
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 6
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/asana/credentials.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 7
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/asana/intake.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 5
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/asana/projects.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/asana/tree.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 19
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 6
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 9
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 6
+    }
+  },
+  "packages/daemon/src/automations/automations.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 3
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 6
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/automations/checkout.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/automations/drafts.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/backups.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/busy.ts": {
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/check-tries.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/coordinators/coordinators.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 10
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/cpu-profile.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/daemon.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 10
+    }
+  },
+  "packages/daemon/src/dashboard-cost.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/dashboard-flow.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/dashboard-waiting.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/dashboard.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/data.ts": {
+    "anti-slop/no-conditional-empty-object-spread": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/dev/demo.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/dev/home.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/dev/scenarios.ts": {
+    "anti-slop/no-conditional-empty-object-spread": {
+      "count": 1
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 3
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/diagnostics.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/disk.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/downloads.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/editors.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/execution/certificates.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/execution/commands.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/execution/controller.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-conditional-empty-object-spread": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 4
+    }
+  },
+  "packages/daemon/src/execution/journal.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/execution/operations.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/execution/service.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 6
+    }
+  },
+  "packages/daemon/src/execution/transport.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/execution/worker.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    },
+    "oxc/no-accumulating-spread": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/exit-with.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/export.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/factories.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/factory-removal.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/factory-settings.ts": {
+    "anti-slop/no-conditional-empty-object-spread": {
+      "count": 2
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 3
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 7
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 5
+    }
+  },
+  "packages/daemon/src/factory-setup.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 7
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/git.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 15
+    }
+  },
+  "packages/daemon/src/github/gh.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/github/issue-sync.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 8
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/github/issues.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 16
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/github/repo-setup.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 5
+    }
+  },
+  "packages/daemon/src/health/agent-health.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 9
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/health/cli.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/integrations.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/launch.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/leftover-processes.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/library-settings.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 4
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 6
+    }
+  },
+  "packages/daemon/src/library-watch.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/linear/discussion.ts": {
+    "anti-slop/no-object-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/linear/files.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/linear/keyring.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/linear/linear.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 3
+    },
+    "anti-slop/no-object-parameters": {
+      "count": 3
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 13
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 5
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 4
+    }
+  },
+  "packages/daemon/src/lock.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/logs.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/main.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/memory-kills.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/plans/plans.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 13
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/priority.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/process-memory.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 5
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/routes/coordinators.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 4
+    }
+  },
+  "packages/daemon/src/routes/machine.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 33
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 10
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 9
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 12
+    }
+  },
+  "packages/daemon/src/routes/route.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/routes/shells.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/routes/tasks.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/run-token.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/runs/conversations.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/runs/host-files.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 6
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/runs/host/main.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 5
+    }
+  },
+  "packages/daemon/src/runs/input-permits.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/runs/run-manager.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 4
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 7
+    }
+  },
+  "packages/daemon/src/runs/run-output.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 5
+    }
+  },
+  "packages/daemon/src/runs/steering.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/runs/version-restarts.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/sandbox.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/server.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 6
+    }
+  },
+  "packages/daemon/src/shells.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/side-chats/context.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/signal.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/store/automation-drafts.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/store/automations.ts": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 17
+    }
+  },
+  "packages/daemon/src/store/blank-replaced.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 2
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 5
+    }
+  },
+  "packages/daemon/src/store/compact.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 5
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/store/coordinator-change.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 3
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 5
+    }
+  },
+  "packages/daemon/src/store/coordinators.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 4
+    }
+  },
+  "packages/daemon/src/store/dashboard-timing.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 3
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 9
+    }
+  },
+  "packages/daemon/src/store/dashboard.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 6
+    }
+  },
+  "packages/daemon/src/store/drop-output.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 5
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 6
+    }
+  },
+  "packages/daemon/src/store/execution-operations.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/store/execution-pairing.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/store/failures.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 5
+    }
+  },
+  "packages/daemon/src/store/files.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 6
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 4
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 10
+    }
+  },
+  "packages/daemon/src/store/index.ts": {
+    "anti-slop/no-conditional-empty-object-spread": {
+      "count": 1
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 9
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 5
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 8
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 145
+    }
+  },
+  "packages/daemon/src/store/interval-schema.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 4
+    }
+  },
+  "packages/daemon/src/store/plans.ts": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 12
+    }
+  },
+  "packages/daemon/src/store/progress.ts": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/store/rewrite-eventlog.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 5
+    }
+  },
+  "packages/daemon/src/store/schema.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 6
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 8
+    }
+  },
+  "packages/daemon/src/store/side-chats.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/store/sync-head.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/store/task-history.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 5
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 5
+    }
+  },
+  "packages/daemon/src/store/task-intervals.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 6
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 8
+    }
+  },
+  "packages/daemon/src/store/test-invocations.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/store/trim-changesets.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/tasks/asana-sync.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 6
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 7
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 4
+    }
+  },
+  "packages/daemon/src/tasks/asana-unfinished.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/tasks/cache-seeds.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/tasks/carry-over.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/tasks/ci-failures.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/tasks/cleanup.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/tasks/command.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/tasks/failure-cases.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/tasks/failures.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/tasks/github-activity.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/tasks/github-watch.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/tasks/held-requests.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/tasks/in-flight.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/tasks/intake.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/tasks/lead-lifecycle.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/tasks/leftovers.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/tasks/local-lifecycle.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/tasks/merge-watcher.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    }
+  },
+  "packages/daemon/src/tasks/merge.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 10
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/tasks/peers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/tasks/proposal-tasks.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/tasks/pull-request-changes.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 5
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 5
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/tasks/pull-requests.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/daemon/src/tasks/request-answers.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 7
+    }
+  },
+  "packages/daemon/src/tasks/status.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/tasks/sub-agents.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/tasks/task-title.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/tasks/tasks.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 3
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 6
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 32
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 20
+    }
+  },
+  "packages/daemon/src/tasks/thread.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 3
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 23
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 8
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 8
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 10
+    }
+  },
+  "packages/daemon/src/tasks/tracker-sync/sync.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/tasks/validate-settings.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/tasks/validation.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/text.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/workflow/agent-choices.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/workflow/check.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 20
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 56
+    }
+  },
+  "packages/daemon/src/workflow/drift.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/workflow/edit.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 2
+    },
+    "anti-slop/no-chained-type-assertions": {
+      "count": 2
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 8
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 25
+    }
+  },
+  "packages/daemon/src/workflow/fetches.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/daemon/src/workflow/layers.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/workflow/resolve.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 6
+    }
+  },
+  "packages/daemon/src/workflow/workflow.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/daemon/src/workflow/workflows.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 4
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    }
+  },
+  "packages/daemon/test/add-factory.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 3
+    }
+  },
+  "packages/daemon/test/agent-health.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/agents.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 4
+    }
+  },
+  "packages/daemon/test/apps.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/archive.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/asana-import.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/asana-intake.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/auto-start-backlog.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/automation-drafts.test.ts": {
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/automations.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/banners.test.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/blank-replaced.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    },
+    "anti-slop/no-object-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/blockers.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/board.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/busy-hold.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/changes.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/chat-reload.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/check-cap.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/checks.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/ci-detection.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/clarify.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/codex-driver.test.ts": {
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/codex-usage.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/codex.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/comment-attachments.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/compact.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 4
+    }
+  },
+  "packages/daemon/test/coordinator-recovery.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/coordinator-store.test.ts": {
+    "oxc/no-accumulating-spread": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/coordinators.test.ts": {
+    "anti-slop/no-object-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 7
+    }
+  },
+  "packages/daemon/test/design-review.test.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/device-slots.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/diagnostics.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/disk.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/drift.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/edit-task.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/emulators-unit.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/emulators.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/factory-removal.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/factory-settings-sections.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/factory-settings.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/failure-base-moved.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/failure-cases-service.test.ts": {
+    "anti-slop/no-unknown-returns": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/failure-cases.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    }
+  },
+  "packages/daemon/test/failure-merge.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/failure-observations.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/failure-repairs.test.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    }
+  },
+  "packages/daemon/test/failure-repos.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/failure-snapshot-api.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/failures.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/fixtures/execution-machine.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/fixtures/stub-antigravity.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/fixtures/stub-asana.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 3
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 3
+    }
+  },
+  "packages/daemon/test/fixtures/stub-claude.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 4
+    }
+  },
+  "packages/daemon/test/fixtures/stub-codex.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 8
+    }
+  },
+  "packages/daemon/test/fixtures/stub-gh.ts": {
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 4
+    }
+  },
+  "packages/daemon/test/fixtures/stub-linear.ts": {
+    "anti-slop/no-conditional-empty-object-spread": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/follow-up.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/gates.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/github-activity.test.ts": {
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 4
+    }
+  },
+  "packages/daemon/test/github-issue.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/github-sync.test.ts": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/github-watch.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 3
+    }
+  },
+  "packages/daemon/test/helpers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/hot-reads.test.ts": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/integrations.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/ios-screen.test.ts": {
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/latest-base.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/library-settings.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/lifecycle-sandbox.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/line-comments.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/linear.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/list.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/low-priority.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/merge-check-decisions.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/merge-ci-decisions.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/merge-cleanup.test.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/merge-harness.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/merge.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/multi-repo-merge.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/multi-repo-pull-requests.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/multi-repo-tasks.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/new-task.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/overnight-gates.test.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/overnight.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/peers-http.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/permission-decisions.test.ts": {
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/permissions.test.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/plan-from-task.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/plans.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/preparation.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/pull-requests.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/queue-limits.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    }
+  },
+  "packages/daemon/test/request-answers.test.ts": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/requests.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/retention.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/review-rounds.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/reviewer.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/run-browser.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/run-chat.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/runs.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/settings.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/setup-task.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/side-chats.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/signal.test.ts": {
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/simulators.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/slow-moments.test.ts": {
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/snoozes.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/split.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/steering.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/stop-resume.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/storage.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/store.test.ts": {
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/sub-agents.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/supervise.test.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/support/execution-fixture.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/support/execution-gh.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/support/execution-manifest.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/support/execution-observations.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/support/execution-pairing.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/support/execution-relay.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/support/execution-report.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 7
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/talk-it-through.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/task-files.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/task-interval-recovery.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/task-lead.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/task-shell.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/task-sources.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/tasks.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/test-lock-reporting.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/thread-lines.test.ts": {
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/thread.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/usage-limits.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/validate-diagnosis.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/validate-settings.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/vitest-config.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    }
+  },
+  "packages/daemon/test/worktrees.test.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "packages/daemon/test/write-durability.test.ts": {
+    "anti-slop/no-chained-type-assertions": {
+      "count": 8
+    }
+  },
+  "packages/protocol/src/agent-availability.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 3
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/protocol/src/app-auth.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/app-parsers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 10
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/protocol/src/asana-import.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 5
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 8
+    }
+  },
+  "packages/protocol/src/asana-intake.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 5
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/protocol/src/asana-sync.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    }
+  },
+  "packages/protocol/src/asana.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 3
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/automation-parsers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 16
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 11
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 7
+    }
+  },
+  "packages/protocol/src/autopilot.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/banner-parsers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/browser-parsers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/protocol/src/changes-parsers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 5
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/protocol/src/client.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 3
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 4
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 10
+    }
+  },
+  "packages/protocol/src/coordinator-parsers.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 24
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 8
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 8
+    }
+  },
+  "packages/protocol/src/daemon-info.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/protocol/src/dashboard.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/data-parsers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/protocol/src/device-parsers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 4
+    }
+  },
+  "packages/protocol/src/edition.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/env.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/execution-commands.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 5
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 18
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 9
+    }
+  },
+  "packages/protocol/src/execution-pairing.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 6
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 19
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/execution.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/export.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    }
+  },
+  "packages/protocol/src/factory-parsers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 35
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 37
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 4
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 14
+    }
+  },
+  "packages/protocol/src/github-intake.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 3
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/protocol/src/github-setup-parsers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 6
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 6
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/protocol/src/integration-parsers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/linear-parsers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 5
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 3
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "packages/protocol/src/linear.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 4
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/message-draft.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/peer-parsers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/plan-parsers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 9
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    }
+  },
+  "packages/protocol/src/run-parsers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 10
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 9
+    }
+  },
+  "packages/protocol/src/schedule.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/protocol/src/search.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/shell-parsers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 9
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 8
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 4
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 4
+    }
+  },
+  "packages/protocol/src/side-chat.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/slots.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/slow-parsers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/stage-list.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/protocol/src/stage-parts.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/stage.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/task-parsers.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 111
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 65
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 34
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 64
+    }
+  },
+  "packages/protocol/src/task.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 5
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "packages/protocol/src/test-invocations.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 6
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 3
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/time.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    }
+  },
+  "packages/protocol/src/validation.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 3
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 4
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 5
+    }
+  },
+  "packages/protocol/test/parser-cases.ts": {
+    "anti-slop/no-unknown-parameters": {
+      "count": 5
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "packages/protocol/test/unreachable-message.test.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    }
+  },
+  "scripts/affected.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 4
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "scripts/check-history.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 4
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "scripts/check.test.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 5
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "scripts/check.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 11
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    }
+  },
+  "scripts/execution-lab/config.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "scripts/execution-lab/host.ts": {
+    "anti-slop/no-conditional-empty-object-spread": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 12
+    }
+  },
+  "scripts/execution-lab/product-commands.ts": {
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  },
+  "scripts/execution-lab/product-pairing.ts": {
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "scripts/execution-lab/product-worker.ts": {
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "scripts/execution-lab/runner.ts": {
+    "anti-slop/no-conditional-empty-object-spread": {
+      "count": 2
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/no-unsafe-dictionary-type": {
+      "count": 2
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 9
+    }
+  },
+  "scripts/failure-log.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-known-value-widening": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 6
+    }
+  },
+  "scripts/flaky.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    }
+  },
+  "scripts/machine-load.ts": {
+    "anti-slop/no-unknown-returns": {
+      "count": 1
+    }
+  },
+  "scripts/measure-check.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 3
+    }
+  },
+  "scripts/release.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 4
+    }
+  },
+  "scripts/test-waits.ts": {
+    "anti-slop/no-array-filter-map": {
+      "count": 1
+    },
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    }
+  },
+  "scripts/validate-execution-lab.ts": {
+    "anti-slop/no-conditional-empty-object-spread": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 1
+    }
+  },
+  "scripts/validate-execution.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 1
+    },
+    "anti-slop/no-unknown-parameters": {
+      "count": 1
+    },
+    "anti-slop/require-safety-comment-for-type-assertion": {
+      "count": 2
+    }
+  }
+}

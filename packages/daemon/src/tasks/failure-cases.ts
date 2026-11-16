@@ -12,6 +12,7 @@ import type {
 } from '@ted/protocol'
 import { ciFailureLabel, failureChoices, validateFailureChoices } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
+import { mergesHere, validates } from '@ted/protocol/stage'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import { resolveReference } from '../references.ts'
@@ -108,6 +109,13 @@ const freshContextSteps = (id: string) =>
 
 const newCaseSteps =
   'A newly captured context can’t be attached to this failure, because TED can’t tie a later capture to the execution that failed. Run the verification again after `ted failure context` (`ted checks` for a Factory Check); a failure that happens again is a new case to record, assess and ask about.'
+
+export const checkAskRefusal = (changedSince?: string) =>
+  `${
+    changedSince
+      ? `The Task’s code or Checks changed since tested context ${shortReference(changedSince)}, which this assessment is bound to`
+      : 'The tested context this assessment is bound to didn’t test the same code and Checks as the Check run that failed'
+  }, so the human couldn’t accept this failure and TED didn’t ask. Run the Checks again with \`ted checks\`. If the failure happens again, TED records it as a new case: assess it and ask about that one.`
 
 export function leadClosesFailures(workflow: ResolvedWorkflow): boolean {
   return workflow.settings.stages.work?.lead_closes_failures === true
@@ -250,6 +258,15 @@ export function createFailureCases(options: {
     const run = store.getCheckRun(source.checkRunId)
     return !!run && context.capturedAt <= run.startedAt
   }
+  const tiedContext = (task: Task, value: FailureCase, context?: FailureContext) => {
+    const own = tested(task, value.contextId)
+    return (
+      !!own &&
+      !!context &&
+      sourceContext(value.source, own) &&
+      (sourceContext(value.source, context) || sameTestedFor(value.source, own, context))
+    )
+  }
   const decisionComment = (value: FailureCase) => {
     const decision = value.decisions.at(-1)
     return decision ? store.getComment(decision.commentId) : undefined
@@ -326,9 +343,7 @@ export function createFailureCases(options: {
       const context = tested(task, resolution?.contextId ?? value.contextId)
       const state = completed
         ? 'historical'
-        : !context ||
-            !sourceContext(value.source, tested(task, value.contextId)) ||
-            !sourceContext(value.source, context)
+        : !context || !tiedContext(task, value, context)
           ? 'unknown'
           : observedCi
             ? observedCi.value === null
@@ -496,8 +511,8 @@ export function createFailureCases(options: {
       ...(originalCheck && { originalCheck }),
       ...(context && { contextId: context.id }),
       createdAt: new Date().toISOString(),
-      ...((task.stage === 'validate' ||
-        (task.stage === 'merge' &&
+      ...((validates(task.stage) ||
+        (mergesHere(task.stage) &&
           (source.kind === 'post-rebase-check' || (source.kind === 'github-ci' && generated)))) && {
         validation: true,
       }),
@@ -519,8 +534,8 @@ export function createFailureCases(options: {
       store.postComment({
         taskId: task.id,
         author: { kind: 'ted' },
-        title: task.stage === 'merge' ? mergeFailureNoticeTitle : 'Validate failure recorded',
-        body: `Failure ${shortReference(value.id)}\n\n${value.evidence}\n\nThe Task stays in ${task.stage === 'merge' ? 'Merge' : 'Validate'} for investigation. No send-back was recorded.${task.stage === 'merge' ? '\n\nInvestigate this failure, add evidence and assess regression, unrelated or uncertain. TED’s merge watcher sends supported regressions through Work, Validate and Review sign-off. Ask the user about unrelated or uncertain failures with `ted failure ask <id>`. Only the merge watcher can progress Merge; do not advance, merge or approve.' : ''}`,
+        title: mergesHere(task.stage) ? mergeFailureNoticeTitle : 'Validate failure recorded',
+        body: `Failure ${shortReference(value.id)}\n\n${value.evidence}\n\nThe Task stays in ${mergesHere(task.stage) ? 'Merge' : 'Validate'} for investigation. No send-back was recorded.${mergesHere(task.stage) ? '\n\nInvestigate this failure, add evidence and assess regression, unrelated or uncertain. TED’s merge watcher sends supported regressions through Work, Validate and Review sign-off. Ask the user about unrelated or uncertain failures with `ted failure ask <id>`. Only the merge watcher can progress Merge; do not advance, merge or approve.' : ''}`,
       })
     await store.persisted()
     await options.onHold(task)
@@ -676,15 +691,16 @@ export function createFailureCases(options: {
       const bound = tested(task, assessment.contextId)
       const current = verifiedContext(task, observed)
       const stale = !!bound && !!current && !sameTestedFor(value.source, bound, current)
+      const unknown = !bound || !tiedContext(task, value, bound)
+      const checkFailure =
+        value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check'
+      if (checkFailure && (unknown || stale))
+        throw new RequestError(409, checkAskRefusal(unknown ? undefined : bound?.id))
       if (stale && attachable(task, value, current))
         throw new RequestError(
           409,
           `The Task’s code, Checks or CI changed since tested context ${shortReference(bound.id)}, which this assessment is bound to, so the human could not accept this failure. ${freshContextSteps(value.id)}`,
         )
-      const unknown =
-        !bound ||
-        !sourceContext(value.source, tested(task, value.contextId)) ||
-        !sourceContext(value.source, bound)
       const why = unknown ? cantAccept.unknown : stale ? cantAccept.changed : undefined
       return store.postFailureDecision(
         value,
@@ -740,11 +756,7 @@ export function createFailureCases(options: {
         const { value, decision, assessment } = pendingDecision(task, id, request.requestId)
         const context = tested(task, decision.contextId)
         if (request.resolution === 'accepted') {
-          if (
-            !sourceContext(value.source, tested(task, value.contextId)) ||
-            !sourceContext(value.source, context) ||
-            !context
-          ) {
+          if (!context || !tiedContext(task, value, context)) {
             refused = {
               value,
               why: 'TED can’t verify what was tested for the context this decision is bound to.',

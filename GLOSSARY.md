@@ -50,6 +50,10 @@ _Avoid_: Process, flow
 One step of a Workflow (for example Clarify or Validate), defined by a Stage file and settings such as whether it needs a human. A holding Stage, such as Backlog, has no Stage file: no agent works on a Task while it sits there.
 _Avoid_: Step, phase, column
 
+**Custom Stage**:
+A Stage a Factory or the Library adds by hand: an id in `order`, a Stage file with that id and optional settings, including a display name. The Task Lead follows its Stage file and ends it with an advance or a send-back like any working Stage; TED gives it no special work of its own.
+_Avoid_: Plugin Stage, extra step
+
 **Backlog**:
 The holding Stage at the start of a Workflow where Tasks wait to be started by the human, an Automation, or the Factory’s automatic Backlog starting option. Nothing runs on a Task in Backlog.
 _Avoid_: Icebox, queue
@@ -175,42 +179,54 @@ The status of a started Task, or of a new Automation Run, waiting for a free slo
 _Avoid_: Pending, ready
 
 **Paused**:
-The status of a Run, or of a Queued Task, whose agent can’t run right now because it hit a usage limit, is signed out, missing, outdated or using the wrong credential, or the machine is offline; it carries on by itself once the agent can run again. A status, not a Stage, and not a failure.
+The status of a Run, or of a Queued Task, whose Provider can’t run right now because it hit a usage limit, is signed out, missing, outdated or using the wrong credential, or the machine is offline; it carries on by itself once the Provider can run again. A status, not a Stage, and not a failure.
 _Avoid_: Blocked, limited, stalled
 
 **Failed**:
-The status of a Task whose Task Lead Run ended without finishing or waiting, twice in a short time, for a reason other than the agent being Paused; the human decides whether to retry.
+The status of a Task whose Task Lead Run ended without finishing or waiting, twice in a short time, for a reason other than its Provider being Paused; the human decides whether to retry.
 _Avoid_: Errored, crashed
 
 **Stopped**:
 The status of a Task whose Runs the human stopped; it stays in its Stage with its worktree until the human resumes it, which starts a fresh Task Lead Run from the Task brief. A status, not a Stage.
-_Avoid_: Paused (which is for agents that can’t run), canceled, on hold
+_Avoid_: Paused (which is for Providers that can’t run), canceled, on hold
 
 **Task Lead**:
 The one agent in charge of a Task; it carries the Task through its Stages and may start sub-agents.
 _Avoid_: Orchestrator, manager agent
 
 **Coordinator**:
-The conversational agent for one Factory. It compares current Tasks, briefs and Comments and carries out the human’s requests in its chat to create Tasks, start Backlog Tasks, reorder waiting Tasks, resume stopped Tasks, send a Task Lead a message, or answer a Task’s open requests, sign-offs included. It never answers a permission prompt, a simulator ask or the Linear team ask. It works only when messaged; each Task keeps its own Task Lead. A Factory has one current Coordinator conversation; New conversation saves it, and an earlier one can be continued.
+The conversational agent for one Factory. It compares current Tasks, briefs and Comments and carries out the human’s requests in its chat to create Tasks, start Backlog Tasks, reorder waiting Tasks, resume stopped Tasks, send a Task Lead a message, or answer a Task’s open requests, sign-offs included. It never answers a permission prompt, a simulator ask or the Linear team ask. It works only when messaged; each Task keeps its own Task Lead. A Factory can have any number of Coordinator chats running at once; an archived chat stays readable and can be unarchived.
 _Avoid_: Foreman, manager, supervisor
+
+**Agent**:
+A kind of helper for a Factory that works outside any one Task, with powers of its own: the built-in Coordinator and Planner, which runs planning chats, and Agents a layer defines. An Agent is defined by its Agent files: its settings in `agents.yaml` and its instructions in `agents/<id>.md`, in TED’s defaults, the Library or `.ted/`. Its powers come from a fixed list: Ask the user, Manage Tasks, Propose Tasks and Read the code. Each Factory’s Agents screen lists every chat with them. Lowercase “agent” still means a Run or its role (see Provider).
+_Avoid_: Assistant, bot
+
+**Chat**:
+One conversation with an Agent, from its first message until it is deleted: a Coordinator chat or a planning chat. A Factory can have several at once, each with its own title, status, Run and requests. A chat stays open until the user archives it; an archived chat is read only, listed under Archived, and can be unarchived or deleted.
+_Avoid_: Session, thread, conversation (a Run’s exchange with its Provider)
 
 **Sub-Agent**:
 A Run the Task Lead starts on its Task for one piece of work, such as exploring or reviewing; it reports back to the Task Lead with its final message and may post only plain Comments.
 _Avoid_: Worker, helper, child agent
 
 **Reviewer**:
-The sub-agent that reviews a Task’s diff at Validate with no Work context. TED picks its agent from the `reviewer` setting, by default the other agent kind from the Task Lead’s. Each Validate visit gets one. From the second round TED limits it to the earlier Findings and the changes since the last reviewed commit, and after a send-back for a conflict with the base branch to the conflict resolution.
+The sub-agent that reviews a Task’s diff at Validate with no Work context. TED picks its Provider from the `reviewer` setting, by default the other Provider from the Task Lead’s. Each Validate visit gets one. From the second round TED limits it to the earlier Findings and the changes since the last reviewed commit, and after a send-back for a conflict with the base branch to the conflict resolution.
 
 **Loop check**:
 A sub-agent TED starts itself at Validate’s third send-back to read the rounds of Findings and say whether they are converging or looping.
 
 **Run**:
-One agent conversation, on a Task (the Task Lead’s or a sub-agent’s), for an Automation, for planning, or for a Coordinator, from when TED starts it until it is stopped. TED may restart the agent underneath it, for example onto a new agent version, and it is still the same Run. A stopped Run is kept as history and never resumed; work continues in a fresh Run.
+One agent conversation, on a Task (the Task Lead’s or a sub-agent’s), for an Automation, for planning, or for a Coordinator, from when TED starts it until it is stopped. TED may restart the Provider underneath it, for example onto a new Provider version, and it is still the same Run. A stopped Run is kept as history and never resumed; work continues in a fresh Run.
 _Avoid_: Session, job
 
 **Asleep**:
-Said of an idle Task Lead Run whose agent process TED has ended to free memory. The Run, its Conversation and its place on the Task stay as they are, and TED starts the agent again in the same session when there is a message for it.
-_Avoid_: Suspended, hibernated, paused (a paused agent kind is something else)
+Said of an idle Task Lead Run whose Provider process TED has ended to free memory. The Run, its Conversation and its place on the Task stay as they are, and TED starts the Provider again in the same session when there is a message for it.
+_Avoid_: Suspended, hibernated, paused (a paused Provider is something else)
+
+**Provider**:
+The AI coding tool a Run uses: Claude Code, Codex or Antigravity. It is chosen for each Task Lead, Reviewer, Planning Run, Automation and Sub-Agent, and set up on Settings → Providers. “Agent” means a Run or its role (Task Lead, Sub-Agent, agent Run), never the tool.
+_Avoid_: Agent, agent kind
 
 **Planning Run**:
 A Run in a Factory, not on any Task, where the human and an agent work out a piece of work too big for one Task; it ends by proposing Tasks, with which ones block which, for the human to approve. The UI calls it a planning chat.

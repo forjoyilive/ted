@@ -13,6 +13,7 @@ import type {
   DashboardTask,
   TaskStatusKind,
 } from '@ted/protocol'
+import { isEntryStage } from '@ted/protocol/stage'
 import { type CostInput, type CostWindow, dashboardCost } from './dashboard-cost.ts'
 import { dashboardFlow, type FlowFacts } from './dashboard-flow.ts'
 import { dashboardWaiting } from './dashboard-waiting.ts'
@@ -26,7 +27,7 @@ export interface DashboardTaskFacts extends FlowFacts {
   archived: boolean
   setup: boolean
   stage: string
-  entries: readonly { stage: string; at: string; sequence?: number }[]
+  entries: readonly { stage: string; at: string; sequence?: number; name?: string }[]
   merges?: readonly string[]
   status?: TaskStatusKind
 }
@@ -340,7 +341,7 @@ export function dashboardReport(
     }
     if (done >= asOf) continue
     const starts = task.entries
-      .filter((entry) => entry.stage === 'intake')
+      .filter((entry) => isEntryStage(entry.stage))
       .map((entry) => Date.parse(entry.at))
       .filter(Number.isFinite)
     const first = starts.length === 0 ? null : Math.min(...starts)

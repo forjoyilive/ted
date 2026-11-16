@@ -19,6 +19,8 @@ import {
   parseEditLineCommentRequest,
   parseEditTaskRequest,
   parseFollowUpRequest,
+  parseGitHubIntakeRequest,
+  parseLinearIntakeRequest,
   parseMarkDoneRequest,
   parseMoveTaskRequest,
   parsePostCommentRequest,
@@ -252,6 +254,23 @@ export const taskRoutes: Route[] = [
     runToken: true,
     async handle({ body, caller }, { tasks }) {
       return [200, await tasks.asanaIntake(body, caller)]
+    },
+  }),
+  jsonRoute(parseGitHubIntakeRequest, {
+    method: 'POST',
+    path: /^\/github-intake$/,
+    runToken: true,
+    async handle({ body, caller }, { tasks }) {
+      return [200, await tasks.githubIntake(body, caller)]
+    },
+  }),
+  jsonRoute(parseLinearIntakeRequest, {
+    method: 'POST',
+    path: /^\/linear-intake$/,
+    fileToken: true,
+    runToken: true,
+    async handle({ body, caller }, { tasks }) {
+      return [200, await tasks.linearIntake(body, caller)]
     },
   }),
   {

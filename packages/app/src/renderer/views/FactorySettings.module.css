@@ -1039,3 +1039,9 @@
     flex-wrap: wrap;
   }
 }
+
+.ciFound {
+  margin: 0;
+  align-self: end;
+  min-height: var(--button-height);
+}

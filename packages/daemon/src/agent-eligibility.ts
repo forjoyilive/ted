@@ -4,7 +4,7 @@ import type { TedStore } from './store/index.ts'
 
 export class AgentDisabledError extends RequestError {
   constructor(agent: AgentKind) {
-    super(409, `${agent} is off. Enable it in Settings → Agents to start new Runs.`)
+    super(409, `${agent} is off. Enable it in Settings → Providers to start new Runs.`)
   }
 }
 
@@ -15,5 +15,5 @@ export function agentStartHold(
 ): string | undefined {
   if (store.settings().enabledAgents.includes(agent) || (runId && store.getRun(runId)))
     return undefined
-  return `${agent} is off. Enable it in Settings → Agents.`
+  return `${agent} is off. Enable it in Settings → Providers.`
 }

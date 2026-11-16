@@ -4,6 +4,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type BrowserCommand, DaemonClient, readDaemonInfo, tedPaths } from '@ted/protocol'
 import { afterEach, expect, test, vi } from 'vitest'
+import type { Apps } from '../src/apps/apps.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import {
@@ -17,33 +18,27 @@ import {
   waitUntil,
 } from './helpers.ts'
 
-const validation = vi.hoisted(() => ({
+const validation = {
   after: 0,
   release: undefined as ((error?: Error) => void) | undefined,
-}))
+}
 function releaseValidation(error?: Error) {
   validation.release?.(error)
 }
-vi.mock('../src/apps/apps.ts', async (importOriginal) => {
-  const original = await importOriginal<typeof import('../src/apps/apps.ts')>()
+function pauseValidation(apps: Apps): Apps {
   return {
-    ...original,
-    createApps(...args: Parameters<typeof original.createApps>) {
-      const apps = original.createApps(...args)
-      const list = apps.list
-      apps.list = async (...args) => {
-        const result = await list(...args)
-        if (validation.after > 0 && --validation.after === 0) {
-          await new Promise<void>((resolve, reject) => {
-            validation.release = (error) => (error ? reject(error) : resolve())
-          })
-        }
-        return result
+    ...apps,
+    list: async (...args) => {
+      const result = await apps.list(...args)
+      if (validation.after > 0 && --validation.after === 0) {
+        await new Promise<void>((resolve, reject) => {
+          validation.release = (error) => (error ? reject(error) : resolve())
+        })
       }
-      return apps
+      return result
     },
   }
-})
+}
 
 let daemon: RunningDaemon | undefined
 let cleanup: (() => Promise<void>) | undefined
@@ -83,6 +78,7 @@ test('only its Task can command the browser; the app bridge completes commands o
     version: '9.9.9',
     claudeBin: stubClaudePath,
     apps: { pollMs: 50 },
+    wrap: { apps: pauseValidation },
   })
   const info = await readDaemonInfo(home)
   if (!info) throw new Error('Daemon info missing')
@@ -248,6 +244,7 @@ test('only its Task can command the browser; the app bridge completes commands o
     version: '9.9.9',
     claudeBin: stubClaudePath,
     apps: { pollMs: 50 },
+    wrap: { apps: pauseValidation },
   })
   const restartedInfo = await readDaemonInfo(home)
   if (!restartedInfo) throw new Error('Missing restarted daemon')

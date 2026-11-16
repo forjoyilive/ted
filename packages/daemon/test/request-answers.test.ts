@@ -495,7 +495,7 @@ test('a question that allows several answers records the ticked choices in their
   await expect(answer(comment, { action: 'answer', choices: ['Board', 'Grid'] })).rejects.toThrow(
     '“Grid” isn’t one of the question’s choices',
   )
-  await expect(answer(comment, { action: 'answer', choices: [] })).rejects.toThrow(
+  await expect(answer(comment, { action: 'answer' })).rejects.toThrow(
     'pick a choice or write an answer',
   )
   const answered = await answer(comment, {
@@ -505,6 +505,12 @@ test('a question that allows several answers records the ticked choices in their
   })
   expect(answered.answer).toMatchObject({ kind: 'answered', choices: ['Board', 'Map'] })
   expect(answerMessage(answered)).toContain('Board; Map\n\nMap first')
+  const none = await answer(
+    post({ kind: 'question' }, { choices: ['Board', 'List'], multiple: true, body: 'Which?' }),
+    { action: 'answer', choices: [] },
+  )
+  expect(none.answer).toMatchObject({ kind: 'answered', choices: [] })
+  expect(answerMessage(none)).toContain('None of these')
   const single = post({ kind: 'question' }, { choices: ['Yes', 'No'] })
   expect(single.multiple).toBeUndefined()
   await expect(answer(single, { action: 'answer', choices: ['Yes', 'No'] })).rejects.toThrow(
@@ -529,12 +535,6 @@ test('a round question that allows several answers is changed only when the tick
       },
     )
   const first = round(1)
-  await expect(
-    answer(first, {
-      action: 'answer-round',
-      answers: [{ answer: '', choices: [] }, { answer: 'A' }],
-    }),
-  ).rejects.toThrow('question 1 needs at least one answer')
   await expect(
     answer(first, {
       action: 'answer-round',
@@ -567,6 +567,13 @@ test('a round question that allows several answers is changed only when the tick
   const accepted = await answer(round(3), { action: 'accept-recommended' })
   expect(accepted.answer).toMatchObject({
     answers: [{ answer: 'Board; Map', choices: ['Board', 'Map'], changed: false }, {}],
+  })
+  const none = await answer(round(4), {
+    action: 'answer-round',
+    answers: [{ answer: '', choices: [] }, { answer: 'A' }],
+  })
+  expect(none.answer).toMatchObject({
+    answers: [{ answer: 'None of these', choices: [], changed: true }, {}],
   })
 })
 
@@ -764,6 +771,50 @@ test.each([
   expect(store.getComment(comment.id)?.answer).toMatchObject({ kind: 'answered', choice })
 })
 
+test('Merge and don’t wait again is the human’s, merges like Merge anyway and saves the setting', async () => {
+  store.startTask({
+    taskId,
+    stage: 'merge',
+    branch: 'task',
+    worktree: directory,
+    entry: { stageFile: { layer: 'ted', path: 'merge.md' }, layers: [], order: [] },
+    repo: { name: 'widgets', repo: 'acme/widgets', copied: [], skipped: [] },
+  })
+  const noCi = 'Merge, and don’t wait for CI on widgets again'
+  const saved: string[] = []
+  port.setPullRequestCi = async (factoryId, repo, mode) => {
+    saved.push(`${factoryId}:${repo}:${mode}`)
+    return {
+      pullRequest: { number: 9, url: 'https://github.com/acme/widgets/pull/9' },
+      merged: true,
+    }
+  }
+  const question = () =>
+    post(
+      { kind: 'ci-stuck' },
+      { choices: ['Send to Task Lead', 'Keep waiting', 'Merge anyway', noCi] },
+    )
+  const byAutopilot = question()
+  await expect(
+    createRequestAnswers(port)(
+      byAutopilot.id,
+      { action: 'answer', choice: noCi },
+      true,
+      'Autopilot',
+    ),
+  ).rejects.toThrow('only the human')
+  expect(store.getComment(byAutopilot.id)?.answer).toBeUndefined()
+
+  await answer(byAutopilot, { action: 'answer', choice: noCi })
+  expect(effects).toEqual(['obligations'])
+  expect(store.getComment(byAutopilot.id)?.answer).toMatchObject({ kind: 'answered', choice: noCi })
+  await vi.waitUntil(() => saved.length > 0)
+  expect(saved).toEqual([`${store.getTask(taskId)?.factoryId}:acme/widgets:none`])
+  await vi.waitUntil(() => store.listComments(taskId).some((c) => c.body.includes('#9')))
+  const note = store.listComments(taskId).find((c) => c.body.includes('#9'))
+  expect(note?.body).toContain('“Pull request CI: None” for widgets')
+})
+
 test('CI Merge anyway leaves its request open when obligations fail', async () => {
   port.requireObligations = async () => {
     throw new Error('unresolved failures')
@@ -878,6 +929,8 @@ const loopWorkflow = () =>
     {
       kind: 'ted',
       files: {},
+      agentSettings: {},
+      agentFiles: {},
       settings: {
         stages: {},
         order: ['intake', 'clarify', 'design', 'work', 'validate', 'review'],

@@ -5,7 +5,7 @@ export const settingsPageNames: Record<SettingsSectionId, string> = {
   general: 'General',
   notifications: 'Notifications',
   machines: 'Machines',
-  agents: 'Agents',
+  agents: 'Providers',
   limits: 'Limits',
   integrations: 'Integrations',
   library: 'Library',
@@ -20,12 +20,14 @@ export const factorySections = [
   ['workflow', 'Workflow'],
   ['checks', 'Checks'],
   ['cleanup', 'Cleanup'],
-  ['agents', 'Agents'],
+  ['agents', 'Providers'],
   ['permissions', 'Permissions'],
   ['notifications', 'Notifications'],
   ['notes', 'Factory notes'],
   ['danger-zone', 'Danger zone'],
 ] as const
+
+const settingsPageAliases: Partial<Record<SettingsSectionId, string>> = { agents: 'agent' }
 
 export type FactorySectionId = (typeof factorySections)[number][0]
 
@@ -110,7 +112,7 @@ const entries = {
   'app.general.editor.custom-command': { name: 'Custom command' },
   'app.general.editor.ted-command': {
     name: 'The ted command',
-    help: 'Lets you use ted in any terminal. Agents always have it in their Runs.',
+    help: 'Lets you use ted in any terminal. Runs always have it.',
   },
   'app.general.editor.path': {
     name: 'Add ~/.local/bin to your PATH',
@@ -153,13 +155,14 @@ const entries = {
   'app.machines.execution': { name: 'Execution Macs', heading: true },
 
   'app.agents.defaults': {
-    name: 'Defaults for all Factories',
+    name: 'Defaults for each role',
+    keywords: 'Task Lead Reviewer Planner Provider model effort',
     help: 'Saved in your Library’s workflow.yaml. A Factory can override each one in its own settings.',
     heading: true,
   },
   'app.agents.restart-idle-runs': {
-    name: 'Restart idle Runs onto new agent versions',
-    help: 'When an agent updates, TED restarts each idle Run on the new version and resumes its conversation. Working Runs restart once they go idle.',
+    name: 'Restart idle Runs onto new Provider versions',
+    help: 'When a Provider updates, TED restarts each idle Run on the new version and resumes its conversation. Working Runs restart once they go idle.',
   },
 
   'app.limits.working-runs': {
@@ -245,6 +248,11 @@ const entries = {
   },
 
   'app.library.workflow': { name: 'Workflow', heading: true },
+  'app.library.workflow.cleanup': {
+    name: 'Cleanup',
+    keywords: 'after merge stage',
+    help: 'Turns Cleanup on for every Factory that doesn’t say otherwise. A Factory runs it only once it has at least one step, set in that Factory’s settings under Cleanup.',
+  },
   'app.library.stage-files': { name: 'Stage files', heading: true },
 
   'app.storage.space': { name: 'Space used', heading: true },
@@ -273,6 +281,10 @@ const entries = {
     name: 'Delete archived Tasks',
     help: 'The whole Task goes, with its Comments, Task brief and chats. Counted from when it was archived. Done Tasks that aren’t archived stay. This can’t be undone.',
   },
+  'app.storage.archived-chats': {
+    name: 'Delete archived Agent chats',
+    help: 'Archived Coordinator and planning chats go with their conversations. Tasks they created stay. Counted from when the chat was archived. This can’t be undone.',
+  },
   'app.storage.export': { name: 'Export a Factory', heading: true },
   'app.storage.export.factory': { name: 'Factory' },
   'app.storage.export.format': { name: 'Format' },
@@ -288,7 +300,7 @@ const entries = {
   },
   'app.developer.memory': {
     name: 'TED’s memory use',
-    help: 'Memory used by TED’s background process (the daemon), the app, the Run hosts and the agents they run. Refreshes every two seconds while this page is open.',
+    help: 'Memory used by TED and everything it started: the app, the daemon and Run hosts, the agents and the tools and MCP servers they run, Checks and Apps. Refreshes every five seconds while this page is open.',
     keywords: 'RAM usage daemon app agents Run hosts',
   },
   'app.developer.folder': { name: 'TED’s folder' },
@@ -311,6 +323,10 @@ const entries = {
   'app.developer.diagnostics.memory': {
     name: 'System memory usage',
     help: 'Memory in use across this computer, including other apps. This is separate from the memory used by TED’s processes below.',
+  },
+  'app.developer.processes': {
+    name: 'Processes',
+    keywords: 'memory CPU PID Activity Monitor MCP servers agents Checks Apps',
   },
   'app.developer.logs': { name: 'Log', keywords: 'logs daemon log raw output', heading: true },
 
@@ -364,6 +380,11 @@ const entries = {
   'factory.repos': { name: 'Repos', heading: true },
   'factory.repos.base-branch': { name: 'Base branch' },
   'factory.repos.merge-method': { name: 'Merge method' },
+  'factory.repos.pull-request-ci': {
+    name: 'Pull request CI',
+    help: 'Whether TED waits for CI checks on this repo’s pull requests before it merges.',
+    keywords: 'ci checks wait merge github actions',
+  },
   'factory.repos.worktree': { name: 'Worktree', heading: true },
   'factory.repos.worktree.setup': {
     name: 'Setup command',
@@ -387,6 +408,11 @@ const entries = {
     help: 'The Stages a Task moves through, saved in .ted/workflow.yaml. Stage files hold each Stage’s instructions; Override copies one into .ted/stages/ for this Factory. Task Lead effort applies at Stage entry unless the Task has its own effort.',
     heading: true,
   },
+  'factory.workflow.cleanup': {
+    name: 'Cleanup',
+    keywords: 'after merge stage steps',
+    help: 'The Stage between Merge and Done. Turn it on here; its steps are under Cleanup. It runs only once it has at least one step.',
+  },
   'factory.workflow.p1-only': {
     name: 'Send back only for P1 Findings',
     help: 'Off: every blocking Finding sends the Task back to Work. From a round: in that round of Validate and every later one, a new Finding sends it back only if it is P1. P1 means lost or corrupted data, a security hole, or broken behaviour the Task asks for. A Finding from an earlier round that is still not fixed sends it back too. Every other new Finding stays unfixed and is listed as a note for you at Review. You get fewer rounds, and problems Validate found can merge if you approve without reading the notes.',
@@ -409,8 +435,8 @@ const entries = {
     heading: true,
   },
   'factory.agents': {
-    name: 'Agents',
-    help: 'Which agent, model and effort each role uses in this Factory. Rows marked Default or Library are inherited; Override sets them here.',
+    name: 'Providers',
+    help: 'Which Provider, model and effort each role uses in this Factory. Rows marked Default or Library are inherited; Override sets them here.',
     heading: true,
   },
   'factory.permissions': {
@@ -539,6 +565,7 @@ export function findSettings(
       entry.keywords,
       place.group,
       place.page,
+      place.kind === 'app' ? settingsPageAliases[place.section as SettingsSectionId] : undefined,
       entry.help,
       entry.detail,
     ].join(' ')

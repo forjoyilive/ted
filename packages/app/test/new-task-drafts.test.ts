@@ -121,7 +121,7 @@ describe('New Task drafts', () => {
       .getByRole('radiogroup', { name: 'Clarify depth' })
       .getByText('Few', { exact: true })
       .click()
-    await form(window).getByLabel('Agent', { exact: true }).selectOption('codex')
+    await form(window).getByLabel('Provider', { exact: true }).selectOption('codex')
     await form(window).getByLabel('Effort', { exact: true }).selectOption('high')
     await description(window).fill(
       `Remember this description.\nAnd this second line.${'\nMore detail.'.repeat(6)}`,
@@ -138,7 +138,7 @@ describe('New Task drafts', () => {
     await closeApp(ctx.app)
     ctx.app = undefined
     window = await launchApp()
-    await openFactoryView(window, 'notebook', 'Dashboard')
+    await openFactoryView(window, 'notebook', 'Inbox')
     await open(window)
     expect(await form(window).getByLabel('Title', { exact: true }).inputValue()).toBe(
       'Keep my unfinished Task',
@@ -146,7 +146,7 @@ describe('New Task drafts', () => {
     expect(await description(window).inputValue()).toContain('And this second line.')
     expect(await boxHeight(window)).toBeCloseTo(saved, 0)
     expect(await form(window).getByLabel('Priority', { exact: true }).inputValue()).toBe('high')
-    expect(await form(window).getByLabel('Agent', { exact: true }).inputValue()).toBe('codex')
+    expect(await form(window).getByLabel('Provider', { exact: true }).inputValue()).toBe('codex')
     expect(await form(window).getByLabel('Effort', { exact: true }).inputValue()).toBe('high')
     expect(await form(window).getByRole('radio', { name: 'Few', exact: true }).isChecked()).toBe(
       true,
@@ -213,7 +213,7 @@ describe('New Task drafts', () => {
       first.id,
     )
 
-    await openFactoryView(window, 'notebook', 'Dashboard')
+    await openFactoryView(window, 'notebook', 'Inbox')
     await open(window)
     await form(window)
       .getByLabel('Description', { exact: true })
@@ -249,7 +249,7 @@ describe('New Task drafts', () => {
       .fill('Keep my Task when the installed agents change')
     await form(window).getByLabel('Start now', { exact: true }).uncheck()
     await form(window).getByRole('button', { name: /^More/ }).click()
-    await form(window).getByLabel('Agent', { exact: true }).selectOption('claude')
+    await form(window).getByLabel('Provider', { exact: true }).selectOption('claude')
     await window.keyboard.press('Escape')
     await form(window).waitFor({ state: 'detached' })
     await closeApp(ctx.app)
@@ -270,7 +270,7 @@ await import(${JSON.stringify(pathToFileURL(stubCodexPath).href)})
     )
     ctx.extraEnv.TED_CODEX_BIN = delayedCodex
     window = await launchApp()
-    await openFactoryView(window, 'widgets', 'Dashboard')
+    await openFactoryView(window, 'widgets', 'Inbox')
     const restarted = await daemonClient()
     await waitUntil(async () => {
       const health = await restarted.agentHealth()
@@ -289,12 +289,12 @@ await import(${JSON.stringify(pathToFileURL(stubCodexPath).href)})
       .getByRole('status')
       .filter({ hasText: 'Task Lead changed to Codex' })
       .waitFor()
-    expect(await form(window).getByLabel('Agent', { exact: true }).inputValue()).toBe('codex')
+    expect(await form(window).getByLabel('Provider', { exact: true }).inputValue()).toBe('codex')
     expect(await form(window).getByLabel('Effort', { exact: true }).inputValue()).toBe('stage')
     await window.keyboard.press('Escape')
     await form(window).waitFor({ state: 'detached' })
     await open(window)
-    expect(await form(window).getByLabel('Agent', { exact: true }).inputValue()).toBe('codex')
+    expect(await form(window).getByLabel('Provider', { exact: true }).inputValue()).toBe('codex')
     expect(await form(window).getByLabel('Effort', { exact: true }).inputValue()).toBe('stage')
     expect(await form(window).getByRole('status').count()).toBe(0)
     await form(window).getByRole('button', { name: 'Create more', exact: true }).click()
@@ -307,7 +307,7 @@ await import(${JSON.stringify(pathToFileURL(stubCodexPath).href)})
       .fill('Another Task after Create more')
     await form(window).getByLabel('Start now', { exact: true }).uncheck()
     await form(window).getByRole('button', { name: /^More/ }).click()
-    expect(await form(window).getByLabel('Agent', { exact: true }).inputValue()).toBe('codex')
+    expect(await form(window).getByLabel('Provider', { exact: true }).inputValue()).toBe('codex')
     expect(await form(window).getByLabel('Effort', { exact: true }).inputValue()).toBe('stage')
     expect(
       await form(window).getByRole('button', { name: 'Create', exact: true }).isEnabled(),

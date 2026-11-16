@@ -42,10 +42,26 @@ test('a setting is found by its name, group, page and description, with its page
   expect(find('diagnostics')[0]?.id).toBe('app.developer.diagnostics')
   expect(find('export format').map((hit) => hit.id)).toEqual(['app.storage.export.format'])
   expect(find('custom command')[0]?.id).toBe('app.general.editor.custom-command')
+  expect(find('archived chats')[0]).toMatchObject({
+    id: 'app.storage.archived-chats',
+    where: 'Settings › Storage',
+  })
   expect(find('STAY  awake')).toHaveLength(1)
   expect(find('   ')).toEqual([])
   expect(find('zzz')).toEqual([])
   expect(find('connect another mac')).toEqual([])
+})
+
+test('the Providers page is found by its name and by “agent”', () => {
+  for (const query of ['Providers', 'agent']) {
+    expect(find(query)).toContainEqual(
+      expect.objectContaining({
+        id: 'app.agents.restart-idle-runs',
+        where: 'Settings › Providers',
+        target: { kind: 'app', section: 'agents' },
+      }),
+    )
+  }
 })
 
 test('a name match comes first, a setting before a heading with the same words', () => {

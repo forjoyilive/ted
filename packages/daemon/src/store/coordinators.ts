@@ -6,7 +6,7 @@ import type {
   TaskLead,
 } from '@ted/protocol'
 import { coordinatorChange, receiptsKept } from './coordinator-change.ts'
-import { coordinatorConversations, coordinators, events, type schema } from './schema.ts'
+import { coordinatorChats, events, type schema } from './schema.ts'
 
 export interface PromptPart {
   id: string
@@ -17,13 +17,16 @@ export interface PromptPart {
 }
 
 export interface StoredCoordinator {
+  id: string
   factoryId: string
   runId: string
   runIds: string[]
   lead: TaskLead
   phase: 'ready' | 'queued' | 'working' | 'failed'
   opening: string
+  title?: string
   startedAt?: string
+  endedAt?: string
   error?: string | undefined
   receipts: CoordinatorReceipt[]
   confirmations?: CoordinatorConfirmation[]
@@ -35,108 +38,108 @@ export interface StoredCoordinator {
   prompts?: Record<string, PromptPart[]>
 }
 
-export interface SavedCoordinatorConversation {
-  id: string
-  startedAt: string
-  endedAt: string
-  chat: StoredCoordinator
-}
-
 export interface CoordinatorStore {
   list(): StoredCoordinator[]
-  get(factoryId: string): StoredCoordinator | undefined
+  get(id: string): StoredCoordinator | undefined
+  find(id: string): StoredCoordinator | undefined
+  chats(factoryId: string): StoredCoordinator[]
   forRun(runId: string): StoredCoordinator | undefined
+  endedForRun(runId: string): StoredCoordinator | undefined
   save(value: StoredCoordinator, canceled?: readonly RunMessage[]): void
-  remove(factoryId: string): void
-  conversations(factoryId: string): SavedCoordinatorConversation[]
-  conversation(id: string): SavedCoordinatorConversation | undefined
-  savedForRun(runId: string): SavedCoordinatorConversation | undefined
-  keep(
-    saved: SavedCoordinatorConversation,
-    canceled: readonly RunMessage[],
-    restore?: SavedCoordinatorConversation,
-  ): void
-  restore(saved: SavedCoordinatorConversation): void
-  forget(id: string): void
+  archive(id: string, at: string): void
+  reopen(id: string): void
+  rename(id: string, title: string): void
+  delete(id: string): void
+}
+
+type Row = {
+  id: string
+  factoryId: string
+  endedAt: string | null
+  title: string | null
+  data: string
+}
+
+const chatOf = (row: Row): StoredCoordinator => {
+  const { endedAt: _ended, title: _title, ...data } = JSON.parse(row.data) as StoredCoordinator
+  return {
+    ...data,
+    id: row.id,
+    ...(row.endedAt !== null && { endedAt: row.endedAt }),
+    ...(row.title !== null && { title: row.title }),
+  }
 }
 
 export function createCoordinatorStore(options: {
   store: Store<typeof schema>
   commit: Store<typeof schema>['commit']
-  changed: (factoryId: string) => void
+  changed: (factoryId: string, chatId: string) => void
 }): CoordinatorStore {
-  const list = () =>
+  const all = (where?: { factoryId: string } | { id: string }) =>
     options.store
-      .query(queryDb(coordinators))
-      .map((row) => JSON.parse(row.data) as StoredCoordinator)
-  const saved = (factoryId?: string) =>
-    options.store
-      .query(
-        queryDb(
-          factoryId === undefined
-            ? coordinatorConversations
-            : coordinatorConversations.where({ factoryId }),
-        ),
-      )
-      .map((row) => JSON.parse(row.data) as SavedCoordinatorConversation)
-      .sort((a, b) => b.endedAt.localeCompare(a.endedAt))
-  const continued = ({ id, chat }: SavedCoordinatorConversation) => [
-    events.coordinatorConversationContinued({ id, factoryId: chat.factoryId }),
-    events.coordinatorChanged({ factoryId: chat.factoryId, data: JSON.stringify(chat) }),
-  ]
+      .query(queryDb(where ? coordinatorChats.where(where) : coordinatorChats))
+      .map(chatOf)
+  const list = () => all().filter((c) => c.endedAt === undefined)
+  const find = (id: string) => all({ id })[0]
   return {
     list,
-    get: (id) => list().find((c) => c.factoryId === id),
+    get: (id) => {
+      const c = find(id)
+      return c?.endedAt === undefined ? c : undefined
+    },
+    find,
+    chats: (factoryId) => all({ factoryId }),
     forRun: (id) => list().find((c) => c.runIds.includes(id)),
+    endedForRun: (id) => all().find((c) => c.endedAt !== undefined && c.runIds.includes(id)),
     save(value, canceled = []) {
-      const trimmed: StoredCoordinator = { ...value, receipts: value.receipts.slice(-receiptsKept) }
-      const before = list().find((c) => c.factoryId === value.factoryId)
+      const { endedAt: _ended, title: _title, ...kept } = value
+      const trimmed = { ...kept, receipts: value.receipts.slice(-receiptsKept) }
+      const before = find(value.id)
+      const { endedAt: _before, title: _oldTitle, ...old } = before ?? {}
       const change = coordinatorChange(
-        before as Record<string, unknown> | undefined,
+        before && (old as Record<string, unknown>),
         trimmed as unknown as Record<string, unknown>,
       )
       const writes = [
-        ...(change ? [events.coordinatorPatched({ factoryId: value.factoryId, ...change })] : []),
+        ...(change
+          ? [
+              events.coordinatorChatChanged({
+                id: value.id,
+                factoryId: value.factoryId,
+                ...change,
+              }),
+            ]
+          : []),
         ...canceled.map(({ id, runId }) =>
           events.runMessageDeleted({ id, runId, at: new Date().toISOString() }),
         ),
       ]
       if (writes.length > 0) options.commit(...writes)
-      options.changed(value.factoryId)
+      options.changed(value.factoryId, value.id)
     },
-    remove(factoryId) {
-      const current = list().find((c) => c.factoryId === factoryId)
-      options.commit(events.coordinatorRemoved({ factoryId, runIds: current?.runIds ?? [] }))
-      options.changed(factoryId)
+    archive(id, at) {
+      const c = find(id)
+      if (!c || c.endedAt !== undefined) return
+      options.commit(events.coordinatorChatArchived({ id, at }))
+      options.changed(c.factoryId, id)
     },
-    conversations: (factoryId) => saved(factoryId),
-    conversation: (id) => saved().find((c) => c.id === id),
-    savedForRun: (runId) => saved().find((c) => c.chat.runIds.includes(runId)),
-    keep(value, canceled, restore) {
-      const { factoryId } = value.chat
-      options.commit(
-        ...canceled.map(({ id, runId }) =>
-          events.runMessageDeleted({ id, runId, at: new Date().toISOString() }),
-        ),
-        events.coordinatorConversationSaved({
-          id: value.id,
-          factoryId,
-          endedAt: value.endedAt,
-          data: JSON.stringify(value),
-        }),
-        ...(restore ? continued(restore) : []),
-      )
-      options.changed(factoryId)
+    reopen(id) {
+      const c = find(id)
+      if (!c) return
+      options.commit(events.coordinatorChatContinued({ id }))
+      options.changed(c.factoryId, id)
     },
-    restore(value) {
-      options.commit(...continued(value))
-      options.changed(value.chat.factoryId)
+    rename(id, title) {
+      const c = find(id)
+      if (!c || c.title === title) return
+      options.commit(events.coordinatorChatRenamed({ id, title }))
+      options.changed(c.factoryId, id)
     },
-    forget(id) {
-      const value = saved().find((c) => c.id === id)
-      if (!value) return
-      options.commit(events.coordinatorConversationDeleted({ id, runIds: value.chat.runIds }))
-      options.changed(value.chat.factoryId)
+    delete(id) {
+      const c = find(id)
+      if (!c) return
+      options.commit(events.coordinatorChatDeleted({ id, runIds: c.runIds }))
+      options.changed(c.factoryId, id)
     },
   }
 }

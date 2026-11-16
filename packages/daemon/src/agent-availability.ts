@@ -54,7 +54,7 @@ export function createAgentAvailability(services: Omit<Services, 'agentAvailabil
           continue
         const coordinator = store.coordinators.forRun(run.id)
         const side = store.sideChats.forRun(run.id)
-        if (coordinator?.runId === run.id) pending.push(coordinators.stop(coordinator.factoryId))
+        if (coordinator?.runId === run.id) pending.push(coordinators.stop(coordinator.id))
         else if (side) pending.push(sideChats.stop(side.sourceRunId))
         else if (store.plans.get(run.id)?.state === 'started')
           pending.push(plans.stop(run.id, { kind: 'app' }))
@@ -69,7 +69,7 @@ export function createAgentAvailability(services: Omit<Services, 'agentAvailabil
         return { availability, confirmationRequired: false }
       const enabled = store.settings().enabledAgents
       if (!input.enabled && availability.enabled && enabled.length === 1)
-        throw new RequestError(409, 'Enable another agent before turning this one off.')
+        throw new RequestError(409, 'Enable another Provider before turning this one off.')
       const affected = [...availability.runs, ...availability.additionalRuns]
       if (
         !input.enabled &&

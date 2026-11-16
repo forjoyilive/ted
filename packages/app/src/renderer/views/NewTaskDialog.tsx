@@ -1112,7 +1112,7 @@ export function LeadFields({
   onChange,
   stageEffort = false,
   label = 'Task Lead',
-  help = 'The agent that carries this Task through its Stages. Filled from the Factory’s lead.',
+  help = 'The Provider, model and effort for the Task Lead that carries this Task through its Stages. Filled from the Factory’s lead.',
 }: {
   id: string
   lead: TaskLead
@@ -1144,7 +1144,7 @@ export function LeadFields({
       </span>
       <div className={styles.leadRow}>
         <Select
-          aria-label="Agent"
+          aria-label="Provider"
           value={lead.agent}
           onChange={(event) => {
             const agent = event.target.value as AgentKind

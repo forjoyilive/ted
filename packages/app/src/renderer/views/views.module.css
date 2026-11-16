@@ -157,6 +157,10 @@
   font-size: var(--text-13);
 }
 
+.back + .archivedBar {
+  margin-top: 12px;
+}
+
 .archivedAction {
   padding: 0;
   border: none;

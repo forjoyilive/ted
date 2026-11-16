@@ -57,7 +57,7 @@ export function createExecutionReadiness(home: string, env: NodeJS.ProcessEnv) {
             ? await version(executable)
             : { version: null, versionReason: 'Executable not detected' }),
           modelAccess: 'unknown' as const,
-          reason: 'Model access is unverified; agent sign-ins stay on this Mac.',
+          reason: 'Model access is unverified; Provider sign-ins stay on this Mac.',
         }
       }),
     )

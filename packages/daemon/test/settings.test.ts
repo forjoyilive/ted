@@ -332,6 +332,15 @@ describe('settings and Factories over the daemon API', () => {
     )
     await ted.updateSettings({ sleepIdleRunsAfterMinutes: null })
     expect((await ted.getSettings()).sleepIdleRunsAfterMinutes).toBeNull()
+
+    expect((await ted.getSettings()).deleteArchivedChatsAfterDays).toBeNull()
+    await ted.updateSettings({ deleteArchivedChatsAfterDays: 30 })
+    expect((await ted.getSettings()).deleteArchivedChatsAfterDays).toBe(30)
+    await expect(ted.updateSettings({ deleteArchivedChatsAfterDays: 0.5 })).rejects.toThrow(
+      'deleteArchivedChatsAfterDays',
+    )
+    await ted.updateSettings({ deleteArchivedChatsAfterDays: null })
+    expect((await ted.getSettings()).deleteArchivedChatsAfterDays).toBeNull()
   })
 
   test('a client turns Start at login and Stay Awake off and on', async () => {

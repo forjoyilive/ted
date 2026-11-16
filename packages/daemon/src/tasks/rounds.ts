@@ -71,9 +71,6 @@ function severalAnswerTo(
   }
   const other = given?.answer.trim() ?? ''
   const note = given?.note?.trim() ?? ''
-  if (picks.length === 0 && other === '') {
-    throw new RequestError(400, `question ${number} needs at least one answer`)
-  }
   return {
     answer: joinChoices([...picks, ...(other !== '' ? [other] : [])]),
     choices: picks,

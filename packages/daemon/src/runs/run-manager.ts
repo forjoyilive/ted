@@ -30,6 +30,7 @@ import type {
   RunState,
 } from '@ted/protocol'
 import { antigravityPlanNotice, filterTedEnv, runTokenEnv } from '@ted/protocol'
+import { isInteger, isObject, parseJson } from '@ted/protocol/parse'
 import { chatToolPolicy } from '@ted/protocol/run'
 import { AgentDisabledError } from '../agent-eligibility.ts'
 import {
@@ -42,6 +43,7 @@ import {
 } from '../agents/agent.ts'
 import type { AgentLaunch, Agents } from '../agents/index.ts'
 import { RequestError } from '../errors.ts'
+import type { MakeDirectory } from '../files.ts'
 import type { IdleTimer } from '../idle.ts'
 import { holdsLock, isLockHeld } from '../lock.ts'
 import { type MemoryWatch, type MemoryWatching, runKilledForMemory } from '../memory-kills.ts'
@@ -90,6 +92,7 @@ export interface RunManagerOptions {
   stopGraceMs?: number
   inputAckMs?: number
   memory?: MemoryWatch
+  mkdir?: MakeDirectory
 }
 
 export interface RunObserver {
@@ -126,6 +129,7 @@ export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
 export interface ReviveRunInput {
   flags?: RunFlags
   prompt: string
+  fresh?: boolean
   messageIds?: string[]
   env?: Record<string, string>
 }
@@ -179,6 +183,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   const { home, store, agents, tokens } = options
   const stopGraceMs = options.stopGraceMs ?? 10_000
   const inputAckMs = options.inputAckMs ?? 10_000
+  const makeDirectory = options.mkdir ?? mkdir
   const runsDir = path.join(home, 'runs')
   const binDir = path.join(home, 'bin')
   await mkdir(runsDir, { recursive: true, mode: 0o700 })
@@ -446,7 +451,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
                 spawned = undefined
                 resting.failures += 1
                 resting.retryAt = Date.now() + Math.min(60_000, stopGraceMs * resting.failures)
-                for (const waiter of resting.waiters) waiter.reject(error)
+                const failure = error instanceof Error ? error : new Error(String(error))
+                for (const waiter of resting.waiters) waiter.reject(failure)
                 resting.waiters.clear()
               }
             }
@@ -1178,7 +1184,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         let handedOff = false
         try {
           const runDir = path.join(runsDir, id)
-          await mkdir(runDir, { mode: 0o700, recursive: store.sideChats.forRun(id) !== undefined })
+          await makeDirectory(runDir, {
+            mode: 0o700,
+            recursive: store.sideChats.forRun(id) !== undefined,
+          })
           permissions = runPermissions(store, { taskId })
           const launch = agent.launch({
             prompt,
@@ -1236,13 +1245,17 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         }
       })
     },
-    async revive(runId, { prompt, env = {}, messageIds, flags }) {
+    async revive(runId, { prompt, env = {}, messageIds, flags, fresh = false }) {
       refuseWhileShuttingDown()
       const run = store.getRun(runId)
       if (run?.state !== 'finished' || following.has(runId)) {
         throw new Error(`Run ${runId} isn't finished`)
       }
-      if (run.sessionId === undefined && store.sideChats.forRun(runId)?.contextSent !== false)
+      if (
+        run.sessionId === undefined &&
+        !fresh &&
+        store.sideChats.forRun(runId)?.contextSent !== false
+      )
         throw new Error(`Run ${runId} has no session to resume`)
       const sessionId = run.sessionId
       const release = await acquireRunPermissions(store, run)
@@ -1390,7 +1403,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         if (!(await holdsLock(files.lock, pid))) return
         signal((await lastStartRecord(runDir))?.agentPid ?? null, 'SIGKILL')
         signal(pid, 'SIGKILL')
-      })().catch((error: unknown) => console.error(`couldn’t end Run ${runId}’s host:`, error))
+      })().catch((error: Error) => console.error(`couldn’t end Run ${runId}’s host:`, error))
       return true
     },
     asleep: (runId) => asleep.has(runId),
@@ -1628,7 +1641,7 @@ interface Resting {
   wake: boolean
   failures: number
   retryAt: number
-  waiters: Set<{ resolve: () => void; reject: (error: unknown) => void }>
+  waiters: Set<{ resolve: () => void; reject: (error: Error) => void }>
   hostGone: Promise<void>
   markHostGone: () => void
 }
@@ -1641,10 +1654,9 @@ function restingFrom(files: ReturnType<typeof runFiles>): { inputFrom: number } 
     if (!info.isFile() || info.size > 1024) return undefined
     const bytes = Buffer.alloc(info.size)
     readSync(fd, bytes, 0, info.size, 0)
-    const { inputFrom } = JSON.parse(bytes.toString('utf8')) as Record<string, unknown>
-    return typeof inputFrom === 'number' && Number.isSafeInteger(inputFrom) && inputFrom >= 0
-      ? { inputFrom }
-      : undefined
+    const marker = parseJson(bytes.toString('utf8'))
+    const inputFrom = isObject(marker) ? marker.inputFrom : undefined
+    return isInteger(inputFrom) && inputFrom >= 0 ? { inputFrom } : undefined
   } catch {
     return undefined
   } finally {

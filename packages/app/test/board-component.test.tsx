@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import type { ListFilters, TaskMarker } from '@ted/protocol'
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { render as draw, fireEvent, screen, within } from '@testing-library/react'
+import type { ReactElement, ReactNode } from 'react'
 import { expect, test, vi } from 'vitest'
 import {
   type TaskFacts,
@@ -9,11 +10,17 @@ import {
   taskStatus,
 } from '../../daemon/src/tasks/status.ts'
 import { Help } from '../src/renderer/components/Help.tsx'
+import { affects, StagesProvider } from '../src/renderer/stages.tsx'
 import { Board } from '../src/renderer/views/Board.tsx'
 import { idColumnWidth, listGrid, TaskList } from '../src/renderer/views/TaskList.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, user } from './support/component.ts'
+import { bridge, expandFactory, required, user } from './support/component.ts'
 import { factory, task } from './support/fixtures.ts'
+
+const Stages = ({ children }: { children: ReactNode }) => (
+  <StagesProvider factoryIds={['f1', 'f2']}>{children}</StagesProvider>
+)
+const render = (ui: ReactElement) => draw(ui, { wrapper: Stages })
 
 function props() {
   return {
@@ -130,10 +137,10 @@ test('Display sets card size, card fields and columns, and saves them for the Fa
   const item = (name: string) => screen.getByRole('menuitemcheckbox', { name: new RegExp(name) })
 
   expect(card('NB-2').getByText('↑ NB-1')).toBeTruthy()
-  expect(card('NB-1').getByText('0 of 1 merged')).toBeTruthy()
+  expect(card('NB-1').getByRole('img', { name: '0 of 1 child merged' }).textContent).toBe('0/1')
   await u.click(item('Parent and children'))
   expect(card('NB-2').queryByText('↑ NB-1')).toBeNull()
-  expect(card('NB-1').queryByText('0 of 1 merged')).toBeNull()
+  expect(card('NB-1').queryByRole('img', { name: '0 of 1 child merged' })).toBeNull()
 
   await u.click(item('Activity line'))
   expect(screen.queryByText('Asked a question')).toBeNull()
@@ -178,7 +185,7 @@ test('Board filters matching nothing offer Clear filters', async () => {
 })
 
 test('Help shows its tooltip on hover and hides it when the pointer leaves', async () => {
-  render(<Help>Queued Tasks wait for a Run slot.</Help>)
+  draw(<Help>Queued Tasks wait for a Run slot.</Help>)
   expect(screen.queryByRole('tooltip')).toBeNull()
   const u = user()
   const help = screen.getByRole('button', { name: 'Help' })
@@ -290,7 +297,7 @@ test('Board Show all opens its Factory’s Done-filtered List and saves that vie
   }))
   a.mount()
   const u = user()
-  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await expandFactory()
   await u.click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Task views',
@@ -313,9 +320,9 @@ test('Board Show all opens its Factory’s Done-filtered List and saves that vie
       f1: {
         sort: 'updated',
         group: 'none',
-        columns: ['id', 'title', 'stage', 'started'],
+        columns: ['id', 'title', 'stage', 'started', 'children', 'parent'],
         filters: { stages: ['done'] },
-        columnsVersion: 2,
+        columnsVersion: 3,
       },
     },
   })
@@ -420,13 +427,13 @@ test('List and Board keep the user request beside purple running and neutral wai
   await screen.findByRole('region', { name: 'Work' })
   const verify = () => {
     expect(screen.getByText('Waiting on you')).toBeTruthy()
-    for (const label of ['Running Checks', 'Running tests']) {
+    for (const label of ['Running checks', 'Running tests']) {
       const chip = screen.getByText(label)
       expect(chip.className).toContain('testing')
       expect(chip.querySelector('svg')?.className.baseVal).toContain('spinning')
     }
     expect(screen.getByText('Waiting for tests').className).toContain('neutral')
-    expect(screen.getByText('Running Checks').title).toBe('Typecheck · 1 of 2 Checks')
+    expect(screen.getByText('Running checks').title).toBe('Typecheck · 1 of 2 Checks')
     expect(screen.getByText('Running tests').title).toBe('2 supported test commands running')
     expect(
       screen.getByText('Waiting for tests').querySelector('svg')?.className.baseVal,
@@ -472,7 +479,7 @@ test('List and Board keep the user request beside purple running and neutral wai
   const labels = (markers: TaskMarker[]) =>
     markers.filter((m) => m.kind === 'test-activity').map((m) => m.label)
   expect(labels(taskMarkers({ ...facts, checksWaiting: { place: 2 } }, current.status))).toEqual([
-    'Waiting for Checks',
+    'Waiting for checks',
     'Running tests',
     'Waiting for tests',
   ])
@@ -483,7 +490,7 @@ test('List and Board keep the user request beside purple running and neutral wai
         current.status,
       ),
     ),
-  ).toEqual(['Waiting for Checks'])
+  ).toEqual(['Waiting for checks'])
   expect(
     taskActivity({ ...facts, testActivity: { running: 0, waiting: 0, checksWaiting: true } }),
   ).toContain('shared test slot')
@@ -514,7 +521,7 @@ test('Board cards select with ⌘-click, ⇧-click and X, and share the List’s
   a.handle('startTask', vi.fn())
   a.mount()
   const u = user()
-  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await expandFactory()
   await u.click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Task views',
@@ -594,4 +601,74 @@ test('List ID column fits the longest ID, and Status gives way before Title is u
       'minmax(120px, min(300px, calc(100% - 4px - 24px - max(56px, calc(7 * 0.65 * var(--text-14))) - 40ch - 56px - 4px - 6 * 16px))) 56px 4px',
   )
   expect(listGrid(['id', 'status'], [])).toContain('minmax(120px, 300px)')
+  expect(listGrid(['children', 'parent'], [{ displayId: 'TED-1000' }])).toBe(
+    '4px 24px 108px max(80px, calc(max(56px, calc(10 * 0.65 * var(--text-14))) + 8px)) 4px',
+  )
+})
+
+test('folding a parent in one Stage group keeps its children in other groups and is remembered', async () => {
+  api()
+  const p = props()
+  const tasks = [
+    task({ id: 'NB-1', displayId: 'NB-1', title: 'Parent', childIds: ['NB-2', 'NB-3'] }),
+    task({ id: 'NB-2', displayId: 'NB-2', title: 'Waiting child', parentId: 'NB-1', rank: 2 }),
+    task({
+      id: 'NB-3',
+      displayId: 'NB-3',
+      title: 'Working child',
+      parentId: 'NB-1',
+      stage: 'work',
+    }),
+  ]
+  const mount = () =>
+    render(
+      <TaskList
+        scope="f1"
+        title="Tasks"
+        tasks={tasks}
+        factories={[factory()]}
+        settings={undefined}
+        onOpen={p.onOpen}
+        onOpenTask={p.onOpenTask}
+        onNewTask={p.onNewTask}
+      />,
+    )
+  const rows = () =>
+    [...document.querySelectorAll('tbody tr[data-task], tbody tr[data-context-task]')].map(
+      (row) => row.getAttribute('data-task') ?? `(${row.getAttribute('data-context-task')})`,
+    )
+  const first = mount()
+  expect(rows()).toEqual(['NB-1', 'NB-2', '(NB-1)', 'NB-3'])
+  const heads = [...document.querySelectorAll('thead th')].map((th) => th.textContent)
+  expect(heads.slice(heads.indexOf('Title'), heads.indexOf('Title') + 3)).toEqual([
+    'Title',
+    'Children',
+    'Parent',
+  ])
+  const cells = (id: string) =>
+    [...(document.querySelector(`tbody tr[data-task="${id}"]`)?.children ?? [])].map(
+      (cell) => cell.textContent,
+    )
+  const at = heads.indexOf('Title')
+  expect(cells('NB-1').slice(at, at + 3)).toEqual(['Parent', '0 of 2 merged', '—'])
+  expect(cells('NB-2').slice(at, at + 3)).toEqual(['Waiting child', '—', '↑ NB-1'])
+  const [backlogCaret] = screen.getAllByRole('button', { name: 'Collapse children of NB-1' })
+  await user().click(required(backlogCaret))
+  expect(rows()).toEqual(['NB-1', '(NB-1)', 'NB-3'])
+  expect(
+    screen.getAllByRole('button', { name: /children of NB-1$/ }).map((b) => b.ariaExpanded),
+  ).toEqual(['false', 'true'])
+  first.unmount()
+  mount()
+  expect(rows()).toEqual(['NB-1', '(NB-1)', 'NB-3'])
+})
+
+test('the Stage lists reload for a requested Factory, even before its first list has loaded', () => {
+  const stagesChanged = { type: 'factory-stages-changed', factoryId: 'f1' } as const
+  expect(affects(stagesChanged, ['f1'], {})).toBe(true)
+  expect(affects(stagesChanged, ['f2'], {})).toBe(false)
+  const moved = { type: 'task-updated', task: task({ stage: 'work' }) } as const
+  expect(affects(moved, ['f1'], {})).toBe(true)
+  const listed = { f1: [{ id: 'work', enabled: true, gate: false }] }
+  expect(affects(moved, ['f1'], listed)).toBe(false)
 })

@@ -40,7 +40,7 @@ describe('navigation', () => {
     expect(targeted).toMatchObject({
       planId: 'p1',
       requestId: 'round2',
-      screen: { kind: 'factory', factoryId: 'nb', view: 'plans' },
+      screen: { kind: 'factory', factoryId: 'nb', view: 'agents' },
     })
     expect(
       navigate(targeted, { type: 'open-plan', factoryId: 'nb', planId: 'p1' }).requestId,
@@ -50,6 +50,18 @@ describe('navigation', () => {
   test('starts on the Inbox with no current Factory', () => {
     expect(initialNavigation.screen).toEqual({ kind: 'inbox' })
     expect(currentFactoryId(initialNavigation, tasks)).toBeUndefined()
+  })
+
+  test('a Factory’s Inbox makes it the current Factory; the unfiltered Inbox keeps the last one', () => {
+    const inbox = after(
+      { type: 'open', screen: { kind: 'factory', factoryId: 'ms', view: 'board' } },
+      { type: 'open', screen: { kind: 'inbox', factoryId: 'nb' } },
+    )
+    expect(inbox.screen).toEqual({ kind: 'inbox', factoryId: 'nb' })
+    expect(currentFactoryId(inbox, tasks)).toBe('nb')
+    expect(
+      currentFactoryId(navigate(inbox, { type: 'open', screen: { kind: 'inbox' } }), tasks),
+    ).toBe('nb')
   })
 
   test('opening a Factory shows the Dashboard narrowed to it the first time and its last-used View after', () => {
@@ -104,6 +116,14 @@ describe('navigation', () => {
         after({ type: 'open', screen: { kind: 'all-tasks' } }, { type: 'open-task', taskId: 't1' }),
       ),
     ).toBe('← All Tasks')
+    expect(
+      backLink(
+        after(
+          { type: 'open-plan', factoryId: 'nb', planId: 'p1' },
+          { type: 'open-task', taskId: 't1' },
+        ),
+      ),
+    ).toBe('← Agents')
     expect(backLink(after({ type: 'open', screen: { kind: 'all-tasks' } }))).toBeUndefined()
   })
 
@@ -245,6 +265,18 @@ describe('back and forward (⌘[ and ⌘])', () => {
     expect(again.now.taskId).toBe('t1')
   })
 
+  test('back and forward between two Factories’ Inboxes restore which Factory is current', () => {
+    const state = walk(
+      { type: 'open', screen: { kind: 'inbox', factoryId: 'nb' } },
+      { type: 'open', screen: { kind: 'inbox', factoryId: 'ms' } },
+      { type: 'back' },
+    )
+    expect(state.now.screen).toEqual({ kind: 'inbox', factoryId: 'nb' })
+    expect(currentFactoryId(state.now, tasks)).toBe('nb')
+    const forward = withHistory(state, { type: 'forward' })
+    expect(currentFactoryId(forward.now, tasks)).toBe('ms')
+  })
+
   test('going somewhere new after going back drops the forward places', () => {
     const state = walk(
       { type: 'open', screen: { kind: 'all-tasks' } },
@@ -262,7 +294,7 @@ describe('back and forward (⌘[ and ⌘])', () => {
 
     history = withHistory(history, { type: 'back' })
     expect(history.now).toMatchObject({
-      screen: { kind: 'factory', factoryId: 'nb', view: 'plans' },
+      screen: { kind: 'factory', factoryId: 'nb', view: 'agents' },
       planId: newPlan,
       planFrom: 'p1',
     })
@@ -279,6 +311,26 @@ describe('back and forward (⌘[ and ⌘])', () => {
     history = withHistory(history, { type: 'forward' })
     expect(history.now.planId).toBe(newPlan)
     expect(history.now.planFrom).toBeUndefined()
+  })
+
+  test('the chat Agents picks replaces the plain Agents place, so Back returns to that chat', () => {
+    const agents = { kind: 'factory', factoryId: 'nb', view: 'agents' } as const
+    let history = walk(
+      { type: 'open', screen: agents },
+      { type: 'open', screen: { ...agents, chatId: 'a' }, replace: true },
+    )
+    expect(history.back.map((p) => p.screen)).toEqual([{ kind: 'inbox' }])
+    history = withHistory(history, { type: 'open', screen: { ...agents, chatId: 'b' } })
+    history = withHistory(history, { type: 'back' })
+    expect(history.now.screen).toEqual({ ...agents, chatId: 'a' })
+    history = withHistory(history, {
+      type: 'open-plan',
+      factoryId: 'nb',
+      planId: 'p1',
+      replace: true,
+    })
+    expect(history.now).toMatchObject({ screen: agents, planId: 'p1' })
+    expect(history.forward).toHaveLength(1)
   })
 
   test('back with nowhere to go, and actions that stay in place, change nothing', () => {
@@ -298,12 +350,12 @@ test('Tasks opens the last-used of Board, List and Map, and a Task opened from M
     navigate(state, { type: 'open-tasks', factoryId: 'nb' }).screen
   expect(tasksView(initialNavigation)).toEqual({ kind: 'factory', factoryId: 'nb', view: 'board' })
   const map = { kind: 'factory', factoryId: 'nb', view: 'map' } as const
-  const onPlans = [
+  const onAgents = [
     { type: 'open', screen: map } as const,
-    { type: 'open', screen: { kind: 'factory', factoryId: 'nb', view: 'plans' } } as const,
+    { type: 'open', screen: { kind: 'factory', factoryId: 'nb', view: 'agents' } } as const,
   ].reduce(navigate, initialNavigation)
-  expect(tasksView(onPlans)).toEqual(map)
-  expect(navigate(onPlans, { type: 'open-tasks', factoryId: 'ms' }).screen).toMatchObject({
+  expect(tasksView(onAgents)).toEqual(map)
+  expect(navigate(onAgents, { type: 'open-tasks', factoryId: 'ms' }).screen).toMatchObject({
     factoryId: 'ms',
     view: 'board',
   })
@@ -402,41 +454,7 @@ test('picking Dashboard Factories narrows from all, toggles after and falls back
   expect(pickFactories(['a', 'b', 'c'], ['d'], factories)).toBeUndefined()
 })
 
-test('Inbox Planning requests preserve Inbox navigation, then yield to Tasks and Automations', () => {
-  const opened = after(
-    { type: 'open-task', taskId: 't1', factoryId: 'nb', requestId: 'c1' },
-    { type: 'open-plan', factoryId: 'nb', planId: 'p1', requestId: 'round1' },
-  )
-  expect(opened).toMatchObject({
-    screen: { kind: 'inbox' },
-    planId: 'p1',
-    requestId: 'round1',
-    lastFactoryId: 'nb',
-  })
-  expect(opened.taskId).toBeUndefined()
-  const taskOpen = navigate(opened, {
-    type: 'open-task',
-    taskId: 't2',
-    factoryId: 'ms',
-    requestId: 'c2',
-  })
-  expect(taskOpen.planId).toBeUndefined()
-  expect(taskOpen.requestId).toBe('c2')
-  const automationOpen = navigate(opened, {
-    type: 'open-automation',
-    automationId: 'a1',
-    factoryId: 'ms',
-    runId: 'r1',
-    requestId: 'q1',
-  })
-  expect(automationOpen.planId).toBeUndefined()
-  expect(automationOpen.requestId).toBe('q1')
-  const left = navigate(opened, { type: 'open', screen: { kind: 'all-tasks' } })
-  expect(left.planId).toBeUndefined()
-  expect(left.requestId).toBeUndefined()
-})
-
-test('history restores an Inbox Planning request and its Factory after opening another Task', () => {
+test('an Inbox Planning request opens its chat on the Agents screen, and back returns to the Inbox', () => {
   let history = startHistory(initialNavigation)
   history = withHistory(history, {
     type: 'open-plan',
@@ -444,21 +462,12 @@ test('history restores an Inbox Planning request and its Factory after opening a
     planId: 'p1',
     requestId: 'round1',
   })
-  history = withHistory(history, {
-    type: 'open-task',
-    taskId: 't2',
-    factoryId: 'ms',
-    requestId: 'c2',
-  })
-  history = withHistory(history, { type: 'back' })
   expect(history.now).toMatchObject({
-    screen: { kind: 'inbox' },
+    screen: { kind: 'factory', factoryId: 'nb', view: 'agents' },
     planId: 'p1',
     requestId: 'round1',
-    lastFactoryId: 'nb',
   })
-  expect(history.now.taskId).toBeUndefined()
-  history = withHistory(history, { type: 'forward' })
-  expect(history.now).toMatchObject({ taskId: 't2', requestId: 'c2' })
+  history = withHistory(history, { type: 'back' })
+  expect(history.now.screen).toEqual({ kind: 'inbox' })
   expect(history.now.planId).toBeUndefined()
 })

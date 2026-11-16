@@ -5,9 +5,12 @@ import type {
   Attachment,
   Comment,
   CommentAnswer,
+  PullRequestCiMode,
   Run,
+  SaveSettingsResult,
   SendBack,
   Task,
+  TaskRepo,
 } from '@ted/protocol'
 import {
   archiveChoice,
@@ -17,17 +20,25 @@ import {
   sizeChoices,
   validateFailureChoices,
 } from '@ted/protocol'
+import {
+  bindsApproval,
+  handsOff,
+  hasClarifyRounds,
+  mergesHere,
+  stageWith,
+  validates,
+} from '@ted/protocol/stage'
 import type { Simulators } from '../apps/simulators.ts'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import type { RunManager } from '../runs/run-manager.ts'
 import type { StoredTask, TedStore } from '../store/index.ts'
-import type { ResolvedWorkflow } from '../workflow/resolve.ts'
+import { isEarlierStage, type ResolvedWorkflow } from '../workflow/resolve.ts'
 import { backStageMessage, nextStageMessage, stageTitle } from '../workflow/workflow.ts'
 import type { WorkflowResolution } from '../workflow/workflows.ts'
 import { answerMessage } from './answer-message.ts'
 import { type createFailureCases, failureText } from './failure-cases.ts'
-import { leadPending, mergeAnywayChoice, sendToLeadChoice } from './merge-watcher.ts'
+import { leadPending, mergeAnywayChoice, noCiAgainRepo, sendToLeadChoice } from './merge-watcher.ts'
 import { checkPreparationWorkflow } from './preparation.ts'
 import { approvedShape, createProposalTasks } from './proposal-tasks.ts'
 import { roundAnswerMessage, roundAnswers } from './rounds.ts'
@@ -138,6 +149,11 @@ export interface RequestAnswerPort {
     choice: string | undefined,
     text: string,
   ): Promise<Comment>
+  setPullRequestCi?(
+    factoryId: string,
+    repo: string,
+    mode: PullRequestCiMode,
+  ): Promise<SaveSettingsResult>
 }
 
 export function createRequestAnswers(
@@ -227,13 +243,16 @@ export function createRequestAnswers(
     choice: string | undefined,
     text: string,
   ): Promise<Comment> {
+    const noCiRepo = comment.choices?.includes(choice ?? '')
+      ? noCiAgainRepo(task.repos, choice)
+      : undefined
     const answered = await holding(task, async () => {
       const current = store.getComment(comment.id)
       if (current?.answer?.kind === 'withdrawn') {
         throw new RequestError(409, 'this request was withdrawn: CI reported before you answered')
       }
       if (current?.answer) throw new RequestError(409, 'this request has already been answered')
-      if (choice === mergeAnywayChoice) await requireObligations(find(task.id))
+      if (choice === mergeAnywayChoice || noCiRepo) await requireObligations(find(task.id))
       return store.answerComment(comment.id, {
         kind: 'answered',
         at: new Date().toISOString(),
@@ -251,10 +270,40 @@ export function createRequestAnswers(
           ...(text !== '' ? [`The human added: ${text}`] : []),
         ].join('\n\n'),
       )
+    } else if (noCiRepo) {
+      void saveNoPullRequestCi(task, noCiRepo)
     } else if (choice === undefined && text !== '') {
       await deliverAnswer(task, answered, `The human answered “${comment.title ?? ''}”:\n\n${text}`)
     }
     return store.getComment(comment.id) ?? answered
+  }
+
+  async function saveNoPullRequestCi(task: StoredTask, repo: TaskRepo): Promise<void> {
+    const setting = `“Pull request CI: None” for ${repo.name}`
+    const note = (body: string) => {
+      if (store.getTask(task.id))
+        store.postComment({ taskId: task.id, author: { kind: 'ted' }, body })
+    }
+    if (!port.setPullRequestCi) {
+      note(
+        `TED couldn’t save ${setting}: Factory settings aren’t available. This Task still merges without waiting for CI.`,
+      )
+      return
+    }
+    try {
+      const saved = await port.setPullRequestCi(task.factoryId, repo.repo, 'none')
+      const link = `[#${saved.pullRequest.number}](${saved.pullRequest.url})`
+      note(
+        saved.merged
+          ? `Saved ${setting} in the Factory settings through ${link}, which TED merged. TED won’t wait for CI on ${repo.name}’s pull requests from now on; change Pull request CI in Factory settings to undo it.`
+          : `TED opened ${link} to save ${setting}, but couldn’t merge it${saved.reason ? `: ${saved.reason}` : '.'} Merge it on GitHub to keep the setting. This Task still merges without waiting for CI.`,
+      )
+    } catch (error) {
+      const message = redactSecrets(error instanceof Error ? error.message : String(error))
+      note(
+        `TED couldn’t save ${setting}: ${message} This Task still merges without waiting for CI.`,
+      )
+    }
   }
 
   async function mergeAnywayAfterFailure(
@@ -266,7 +315,7 @@ export function createRequestAnswers(
       const current = find(task.id)
       if (store.getComment(comment.id)?.answer)
         throw new RequestError(409, 'this request has already been answered')
-      if (current.stage !== 'merge' || !leadPending(store, task.id))
+      if (!mergesHere(current.stage) || !leadPending(store, task.id))
         throw new RequestError(
           409,
           `Merge anyway applies only while ${task.displayId} is at Merge and its Merge work isn’t done`,
@@ -385,7 +434,7 @@ export function createRequestAnswers(
     if (!planner) throw new RequestError(503, 'Planning chats aren’t ready yet. Try again.')
     return holding(task, async () => {
       unanswered(comment)
-      if (find(task.id).stage !== 'clarify') {
+      if (!hasClarifyRounds(find(task.id).stage)) {
         throw new RequestError(409, `${task.displayId} has left Clarify`)
       }
       const plan = await planner.fromTask({ taskId: task.id, sizeCheckId: comment.id, text })
@@ -410,7 +459,7 @@ export function createRequestAnswers(
   ): Promise<Comment | undefined> {
     const ask = store.sendBackAsk(comment.id)
     if (!ask) throw new RequestError(409, 'this send-back request has no recorded decision')
-    if (ask.from === 'work' && ask.to === 'work' && choice === diagnoseChoice) {
+    if (handsOff(ask.from) && handsOff(ask.to) && choice === diagnoseChoice) {
       const current = find(task.id)
       const enterValidate = await leaveWorkToDiagnose(current)
       const answered = answerRequest(task, comment, {
@@ -430,15 +479,16 @@ export function createRequestAnswers(
     }
     if (!ask.loop || choice === undefined) return undefined
     const current = find(task.id)
-    if (current.stage !== 'validate') return undefined
+    if (!validates(current.stage)) return undefined
     const reads = worktreeReads()
     const resolution = await gateWorkflow(current, { reads })
     const { workflow } = resolution
-    const next = workflow.next('validate') as AgentStageId | 'done'
+    const next = workflow.next(stageWith('validates')) as AgentStageId | 'done'
     const choices = loopChoices(workflow)
     if (!choices.includes(choice)) return undefined
-    if (choice === tryAgainChoice) checkBack(workflow, 'validate', ask.to)
-    if (choice === backToDesignChoice) checkBack(workflow, 'validate', 'design')
+    if (choice === tryAgainChoice) checkBack(workflow, stageWith('validates'), ask.to)
+    if (choice === backToDesignChoice)
+      checkBack(workflow, stageWith('validates'), stageWith('designReview'))
     if (choice !== tryAgainChoice && choice !== backToDesignChoice)
       await requireObligations(current, undefined, reads)
     const added = text === '' ? '' : `\n\nThe human added:\n\n${text}`
@@ -465,7 +515,7 @@ export function createRequestAnswers(
         current,
         resolution,
         ask.to,
-        `The human chose Try again, so Validate’s count of send-backs starts over.${added}\n\n${backMessage(workflow, ask.to, 'validate', sentBack)}`,
+        `The human chose Try again, so Validate’s count of send-backs starts over.${added}\n\n${backMessage(workflow, ask.to, stageWith('validates'), sentBack)}`,
       )
     } else if (choice === backToDesignChoice) {
       store.recordSendBack({
@@ -479,8 +529,8 @@ export function createRequestAnswers(
       await move(
         current,
         resolution,
-        'design',
-        `The human sent this Task back to Design from Validate.${added}\n\n${backStageMessage(workflow, 'design', 'validate', ask.findings)}`,
+        stageWith('designReview'),
+        `The human sent this Task back to Design from Validate.${added}\n\n${backStageMessage(workflow, stageWith('designReview'), stageWith('validates'), ask.findings)}`,
       )
     } else {
       pullRequestWork(task.id, 'again')
@@ -697,7 +747,12 @@ export function createRequestAnswers(
     } else if (request.choices?.some((c) => !comment.choices?.includes(c))) {
       const outside = request.choices.find((c) => !comment.choices?.includes(c))
       throw new RequestError(400, `“${outside}” isn’t one of the question’s choices`)
-    } else if (request.choice === undefined && !request.choices?.length && text === '') {
+    } else if (
+      request.choice === undefined &&
+      !request.choices?.length &&
+      text === '' &&
+      !(comment.multiple && request.choices !== undefined)
+    ) {
       throw new RequestError(400, 'pick a choice or write an answer')
     }
     if (
@@ -735,6 +790,9 @@ export function createRequestAnswers(
       comment.answer === undefined &&
       request.action === 'answer'
     ) {
+      if (mark !== undefined && noCiAgainRepo(task.repos, request.choice)) {
+        throw new RequestError(403, 'only the human can change a repo’s Pull request CI setting')
+      }
       return answerCiStuck(task, comment, request.choice, text)
     }
     if (comment.purpose?.kind === 'failed-run' && comment.answer === undefined) {
@@ -768,7 +826,7 @@ export function createRequestAnswers(
           { kind: 'changes-requested', at, text },
           sendDrafts ? drafts(task.id) : undefined,
         )
-        const picksStage = comment.stage === 'review' || comment.stage === 'merge'
+        const picksStage = bindsApproval(comment.stage ?? '')
         const lines = linesText(answered)
         await deliverAnswer(
           task,
@@ -779,7 +837,7 @@ export function createRequestAnswers(
             ...(lines !== undefined ? [lines] : []),
             picksStage
               ? `Decide whether the fix belongs in Work or in Design, write the human’s request into a Findings file, and send the Task back with \`ted outcome back --to work --findings <file>\` (or \`--to design\`). The fix passes Validate again and comes back with a new sign-off.`
-              : comment.stage === 'clarify'
+              : hasClarifyRounds(comment.stage ?? '')
                 ? 'The Task stays in Clarify. Ask another round about it with `ted ask --round <file>`. When it’s answered, write the Task brief again with `ted brief write`, then run `ted outcome advance` for a new sign-off.'
                 : `The Task stays in ${stageTitle(comment.stage ?? '')}. Make the changes, write the Task brief again with \`ted brief write\`, then run \`ted outcome advance\`.`,
           ].join('\n\n'),
@@ -810,7 +868,7 @@ export function createRequestAnswers(
           reads?: WorktreeReads,
         ) => {
           const to = using.workflow.next(from.stage) as AgentStageId | 'done'
-          if (from.stage === 'merge') {
+          if (mergesHere(from.stage)) {
             startMerging(find(task.id), using.workflow)
             watchMerge(task.id)
             await deliver(
@@ -819,7 +877,7 @@ export function createRequestAnswers(
             )
             return
           }
-          const signedOff = to === 'merge'
+          const signedOff = mergesHere(to)
           if (signedOff) pullRequestWork(task.id, 'signoff')
           await move(
             from,
@@ -929,7 +987,12 @@ export function createRequestAnswers(
         {
           kind: 'answered',
           at,
-          ...(picks ? picks.length > 0 && { choices: picks } : choice !== undefined && { choice }),
+          ...(picks
+            ? (picks.length > 0 ||
+                (request.action === 'answer' && request.choices !== undefined)) && {
+                choices: picks,
+              }
+            : choice !== undefined && { choice }),
           ...(text !== '' && { text }),
         },
         text !== '' && !aboutModel && sendDrafts ? drafts(task.id) : undefined,
@@ -982,10 +1045,11 @@ export const backToDesignChoice = 'Back to Design'
 export const diagnoseChoice = 'Diagnose in Validate'
 
 export function loopChoices(workflow: ResolvedWorkflow): string[] {
-  const next = workflow.next('validate')
+  const next = workflow.next(stageWith('validates'))
   const design =
-    workflow.stages.includes('design') &&
-    workflow.order.indexOf('design') < workflow.order.indexOf('validate')
+    workflow.stages.includes(stageWith('designReview')) &&
+    workflow.order.indexOf(stageWith('designReview')) <
+      workflow.order.indexOf(stageWith('validates'))
   return [
     tryAgainChoice,
     ...(design ? [backToDesignChoice] : []),
@@ -995,12 +1059,12 @@ export function loopChoices(workflow: ResolvedWorkflow): string[] {
 
 export function checkBack(workflow: ResolvedWorkflow, from: AgentStageId, to: AgentStageId): void {
   if (!workflow.stages.includes(to)) {
-    throw new RequestError(409, `${stageTitle(to)} isn’t on in this Factory’s Workflow`)
+    throw new RequestError(409, `${workflow.name(to)} isn’t on in this Factory’s Workflow`)
   }
-  if (workflow.order.indexOf(to) >= workflow.order.indexOf(from)) {
+  if (!isEarlierStage(workflow, to, from)) {
     throw new RequestError(
       409,
-      `\`back\` goes only to an earlier Stage; ${stageTitle(to)} isn’t before ${stageTitle(from)}`,
+      `\`back\` goes only to an earlier Stage; ${workflow.name(to)} isn’t before ${workflow.name(from)}`,
     )
   }
 }

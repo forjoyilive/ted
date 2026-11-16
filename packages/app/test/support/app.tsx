@@ -41,6 +41,7 @@ export function appState() {
     listBanners: () => [],
     listPlans: () => [],
     coordinatorStatuses: () => [],
+    coordinatorChats: () => [],
     planInbox: () => [],
     automationRequests: () => [],
     listAutomations: () => [],

@@ -2,7 +2,7 @@
 import { act, fireEvent, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { appState } from './support/app.tsx'
-import { required, user } from './support/component.ts'
+import { expandFactory, required, user } from './support/component.ts'
 import { createdAt, factory, task } from './support/fixtures.ts'
 
 afterEach(() => vi.useRealTimers())
@@ -43,7 +43,7 @@ test('Started is the last column in both Lists and updates elapsed time', async 
   } finally {
     vi.mocked(Date.now).mockRestore()
   }
-  await user().click(screen.getByRole('button', { name: 'widgets' }))
+  await expandFactory()
   await user().click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Task views',
@@ -85,7 +85,7 @@ test('List display, grouping and filters update persisted settings per scope', a
     group: 'none',
     filters: { priorities: ['high'] },
   })
-  await u.click(screen.getByRole('button', { name: 'widgets' }))
+  await expandFactory()
   await u.click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Task views',
@@ -258,7 +258,7 @@ test('Show empty groups is saved per List and includes groups emptied by search'
   await u.click(await screen.findByRole('button', { name: 'All Tasks' }))
   main = within(screen.getByRole('main'))
   expect(main.getByRole('button', { name: /^Intake/ })).toBeTruthy()
-  await u.click(screen.getByRole('button', { name: 'widgets' }))
+  await expandFactory()
   await u.click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Task views',
@@ -314,6 +314,7 @@ test('right-click uses all selected Tasks; an unselected row and the Priority ic
   const a = await list()
   a.handle('setPriority', vi.fn())
   a.handle('setTaskLead', vi.fn())
+  a.handle('setTaskAutopilot', vi.fn())
   await a.emitTask(
     task({ title: 'Export notes', priority: 'low', lead: { agent: 'codex', model: 'custom' } }),
   )
@@ -352,6 +353,18 @@ test('right-click uses all selected Tasks; an unselected row and the Priority ic
     expect(a.request).toHaveBeenCalledWith('setTaskLead', 'MS-1', { agent: 'codex' }),
   )
   expect(a.request).not.toHaveBeenCalledWith('setTaskLead', 'NB-1', expect.anything())
+  fireEvent.contextMenu(required(document.querySelector('[data-task="NB-1"]')))
+  menu = await screen.findByRole('menu', { name: '2 selected Tasks' })
+  await u.click(within(menu).getByRole('menuitem', { name: 'Autopilot' }))
+  await u.click(
+    within(screen.getByRole('menu', { name: 'Autopilot' })).getByRole('menuitem', {
+      name: 'Autopilot off',
+    }),
+  )
+  await vi.waitFor(() => {
+    expect(a.request).toHaveBeenCalledWith('setTaskAutopilot', 'NB-1', { choice: 'off' })
+    expect(a.request).toHaveBeenCalledWith('setTaskAutopilot', 'MS-1', { choice: 'off' })
+  })
   fireEvent.contextMenu(required(document.querySelector('[data-task="NB-2"]')))
   menu = await screen.findByRole('menu', { name: 'Task actions · NB-2' })
   expect(within(menu).getByRole('menuitem', { name: /^Edit title/ })).toBeTruthy()
@@ -608,4 +621,54 @@ test('bulk Autopilot keeps successful changes and selects only failed Tasks for 
   await u.selectOptions(screen.getByLabelText('Autopilot for selected Tasks'), 'on')
   await screen.findByText(/Updated 1 Tasks/)
   expect(set.mock.calls.map(([id]) => id)).toEqual(['NB-2'])
+})
+
+test('with Nest child Tasks on, a child reorders among its siblings and a top-level row among top-level rows', async () => {
+  const a = appState()
+  const at = (id: string, rank: number, fields: Parameters<typeof task>[0] = {}) =>
+    task({ id, displayId: id, title: `Task ${id}`, rank, ...fields })
+  a.state.tasks = [
+    at('NB-1', 1, { childIds: ['NB-2', 'NB-3'] }),
+    at('NB-2', 2, { parentId: 'NB-1' }),
+    at('NB-3', 3, { parentId: 'NB-1' }),
+    at('NB-4', 4),
+  ]
+  a.handle('moveTask', vi.fn())
+  a.mount()
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'All Tasks' }))
+  const main = within(screen.getByRole('main'))
+  await u.click(main.getByRole('button', { name: 'Display' }))
+  await u.click(main.getByRole('menuitemcheckbox', { name: 'Nest child Tasks' }))
+  fireEvent.keyDown(window, { key: 'Escape' })
+  expect(ids()).toEqual(['NB-1', 'NB-2', 'NB-3', 'NB-4'])
+
+  const row = (id: string) => required(document.querySelector<HTMLElement>(`[data-task="${id}"]`))
+  expect(row('NB-3').getAttribute('draggable')).toBe('true')
+  expect(row('NB-3').title).toBe('')
+  const dataTransfer = { setData: vi.fn(), effectAllowed: '', dropEffect: '' }
+  // jsdom has no DragEvent, and its rows measure zero high, so clientY 0 is the top half.
+  const drag = (element: HTMLElement, type: string) => {
+    const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientY: 0 })
+    Object.defineProperty(event, 'dataTransfer', { value: dataTransfer })
+    fireEvent(element, event)
+  }
+  const dragOnto = (moving: string, target: string) => {
+    drag(row(moving), 'dragstart')
+    drag(row(target), 'dragover')
+    drag(row(target), 'drop')
+  }
+
+  dragOnto('NB-3', 'NB-2')
+  await vi.waitFor(() =>
+    expect(a.request).toHaveBeenCalledWith('moveTask', 'NB-3', { before: 'NB-2' }),
+  )
+  dragOnto('NB-2', 'NB-4')
+  await vi.waitFor(() =>
+    expect(a.request).toHaveBeenCalledWith('moveTask', 'NB-2', { after: 'NB-3' }),
+  )
+  dragOnto('NB-4', 'NB-1')
+  await vi.waitFor(() =>
+    expect(a.request).toHaveBeenCalledWith('moveTask', 'NB-4', { before: 'NB-1' }),
+  )
 })

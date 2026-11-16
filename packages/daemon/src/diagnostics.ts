@@ -9,16 +9,19 @@ import {
   type MemoryGroup,
   type MemoryUse,
   type ProcessInfo,
+  type ProcessRun,
+  type ProcessRunRole,
   type ProcessUsage,
   type Run,
   type RunDiagnostics,
   type TokenUse,
   tedPaths,
 } from '@ted/protocol'
-import { shortReference } from '@ted/protocol/reference'
+import { memoryTotal, processName } from '@ted/protocol/memory'
 import type { Agents } from './agents/index.ts'
 import { availableMemory, totalMemory } from './busy.ts'
 import { processMemory } from './process-memory.ts'
+import { type ProcessRoot, processRoot } from './process-roots.ts'
 import { redactSecrets } from './redact.ts'
 import { runFiles } from './runs/host-files.ts'
 import { parsedOutput } from './runs/parsed-output.ts'
@@ -40,7 +43,7 @@ export interface DiagnosticsSources {
   runs: Pick<RunManager, 'output'>
 }
 
-interface PsRow {
+export interface PsRow {
   pid: number
   ppid: number
   cpuPercent: number
@@ -101,35 +104,87 @@ function tokenUse(sources: DiagnosticsSources, runs: Run[]): Map<string, TokenUs
   return tokens
 }
 
-const hostPids = (home: string, live: Run[]) =>
-  Promise.all(
-    live.map((run) => (run.asleep ? undefined : currentHostPid(path.join(home, 'runs', run.id)))),
-  )
+type Describe = (run: Run) => ProcessRun
 
-async function ownedProcesses(home: string, live: Run[]): Promise<ProcessInfo[]> {
-  const [pids, rows] = await Promise.all([hostPids(home, live), processes()])
-  const hosts = new Map<number, string>()
-  pids.forEach((pid, index) => {
-    const run = live[index]
-    if (pid !== undefined && run) hosts.set(pid, run.id)
-  })
+export function describeRun(store: TedStore): Describe {
+  return (run) => {
+    const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)?.displayId
+    const role: ProcessRunRole =
+      store.sideChats.forRun(run.id) !== undefined
+        ? 'side-chat'
+        : run.parentRunId !== undefined
+          ? 'sub-agent'
+          : store.coordinators.forRun(run.id) !== undefined ||
+              store.coordinators.endedForRun(run.id) !== undefined
+            ? 'coordinator'
+            : store.plans.get(run.id) !== undefined
+              ? 'planning'
+              : store.automations.firing(run.id) !== undefined
+                ? 'automation'
+                : run.taskId !== undefined
+                  ? 'task-lead'
+                  : 'run'
+    return { runId: run.id, agent: run.agent, role, ...(task !== undefined && { task }) }
+  }
+}
+
+export function classifyProcesses(
+  rows: readonly PsRow[],
+  daemonPid: number,
+  hosts: ReadonlyMap<number, ProcessRun>,
+  roots: (pid: number) => ProcessRoot | undefined,
+): ProcessInfo[] {
   const byPid = new Map(rows.map((row) => [row.pid, row]))
-  const ownerOf = (pid: number): ProcessInfo['owner'] | undefined => {
+  const classify = (pid: number): Omit<ProcessInfo, keyof PsRow> | undefined => {
     const seen = new Set<number>()
-    for (let current = byPid.get(pid); current && !seen.has(current.pid); ) {
+    let depth = 0
+    for (let current = byPid.get(pid); current && !seen.has(current.pid); depth += 1) {
       seen.add(current.pid)
-      const runId = hosts.get(current.pid)
-      if (runId !== undefined) return { runId }
-      if (current.pid === process.pid) return 'daemon'
+      const run = hosts.get(current.pid)
+      if (run !== undefined) {
+        const kind = depth === 0 ? 'run-host' : depth === 1 ? 'agent' : 'agent-tool'
+        return { owner: { runId: run.runId }, kind, run }
+      }
+      const root = roots(current.pid)
+      if (root !== undefined) {
+        return {
+          owner: 'daemon',
+          kind: root.kind,
+          ...(root.task !== undefined && { task: root.task }),
+          ...(root.appName !== undefined && { appName: root.appName }),
+        }
+      }
+      if (current.pid === daemonPid) {
+        return { owner: 'daemon', kind: depth === 0 ? 'daemon' : 'other' }
+      }
       current = byPid.get(current.ppid)
     }
     return undefined
   }
-  const owned = rows.flatMap((row) => {
-    if (row.ppid === process.pid && (row.command === 'ps' || row.command === 'footprint')) return []
-    const owner = ownerOf(row.pid)
-    return owner === undefined ? [] : [{ ...row, owner }]
+  return rows.flatMap((row) => {
+    if (row.ppid === daemonPid && (row.command === 'ps' || row.command === 'footprint')) return []
+    const found = classify(row.pid)
+    return found === undefined ? [] : [{ ...row, ...found }]
   })
+}
+
+async function ownedProcesses(
+  home: string,
+  live: Run[],
+  describe: Describe,
+): Promise<ProcessInfo[]> {
+  const [pids, rows] = await Promise.all([
+    Promise.all(
+      live.map((run) => (run.asleep ? undefined : currentHostPid(path.join(home, 'runs', run.id)))),
+    ),
+    processes(),
+  ])
+  const hosts = new Map<number, ProcessRun>()
+  pids.forEach((pid, index) => {
+    const run = live[index]
+    if (pid !== undefined && run) hosts.set(pid, describe(run))
+  })
+  const owned = classifyProcesses(rows, process.pid, hosts, processRoot)
   const memory = await processMemory(
     owned.map((row) => row.pid),
     { resident: new Map(owned.map((row) => [row.pid, row.memoryBytes])) },
@@ -137,45 +192,58 @@ async function ownedProcesses(home: string, live: Run[]): Promise<ProcessInfo[]>
   return owned.map((row) => ({ ...row, memoryBytes: memory.get(row.pid) ?? row.memoryBytes }))
 }
 
+const kindGroups = {
+  'run-host': 'hosts',
+  agent: 'agents',
+  'agent-tool': 'agentTools',
+  check: 'checks',
+  app: 'apps',
+  other: 'other',
+} as const
+
+function memoryOf(owned: readonly ProcessInfo[], store: MemoryUse['store']): MemoryUse {
+  const usage = process.memoryUsage()
+  const group = (kind: keyof typeof kindGroups): MemoryGroup => {
+    const rows = owned.filter((row) => row.kind === kind)
+    return { count: rows.length, bytes: rows.reduce((sum, row) => sum + row.memoryBytes, 0) }
+  }
+  return {
+    daemon: {
+      bytes: owned.find((row) => row.kind === 'daemon')?.memoryBytes ?? usage.rss,
+      heapBytes: usage.heapUsed,
+      externalBytes: usage.external,
+    },
+    hosts: group('run-host'),
+    agents: group('agent'),
+    agentTools: group('agent-tool'),
+    checks: group('check'),
+    apps: group('app'),
+    other: group('other'),
+    store,
+  }
+}
+
 export async function processUsage(
   sources: Pick<DiagnosticsSources, 'home' | 'store'>,
 ): Promise<ProcessUsage> {
-  const owned = await ownedProcesses(sources.home, sources.store.liveRuns())
+  const live = sources.store.liveRuns()
+  const [owned, store] = await Promise.all([
+    ownedProcesses(sources.home, live, describeRun(sources.store)),
+    storeFileSizes(tedPaths(sources.home).store),
+  ])
+  const asleep = live.filter((run) => run.asleep).length
+  const memory = { ...memoryOf(owned, store), ...(asleep > 0 && { asleepRuns: asleep }) }
   return {
     cpuPercent: owned.reduce((sum, p) => sum + p.cpuPercent, 0),
-    memoryBytes: owned.reduce((sum, p) => sum + p.memoryBytes, 0),
+    memoryBytes: memoryTotal(memory),
+    memory,
   }
 }
 
 export async function memoryUse(
   sources: Pick<DiagnosticsSources, 'home' | 'store'>,
 ): Promise<MemoryUse> {
-  const live = sources.store.liveRuns()
-  const [owned, pids, store] = await Promise.all([
-    ownedProcesses(sources.home, live),
-    hostPids(sources.home, live),
-    storeFileSizes(tedPaths(sources.home).store),
-  ])
-  const hosts = new Set(pids.flatMap((pid) => (pid === undefined ? [] : [pid])))
-  const asleep = live.filter((run) => run.asleep).length
-  const group = (rows: ProcessInfo[], count = rows.length): MemoryGroup => ({
-    count,
-    bytes: rows.reduce((sum, row) => sum + row.memoryBytes, 0),
-  })
-  const agents = owned.filter((row) => row.owner !== 'daemon' && !hosts.has(row.pid))
-  const usage = process.memoryUsage()
-  const daemonBytes = owned.find((row) => row.pid === process.pid)?.memoryBytes ?? usage.rss
-  return {
-    daemon: { bytes: daemonBytes, heapBytes: usage.heapUsed, externalBytes: usage.external },
-    hosts: group(owned.filter((row) => hosts.has(row.pid))),
-    agents: group(
-      agents,
-      new Set(agents.map((row) => (row.owner === 'daemon' ? '' : row.owner.runId))).size,
-    ),
-    other: group(owned.filter((row) => row.owner === 'daemon' && row.pid !== process.pid)),
-    store,
-    ...(asleep > 0 && { asleepRuns: asleep }),
-  }
+  return (await processUsage(sources)).memory
 }
 
 export async function collectDiagnostics(sources: DiagnosticsSources): Promise<Diagnostics> {
@@ -186,6 +254,7 @@ export async function collectDiagnostics(sources: DiagnosticsSources): Promise<D
     ownedProcesses(
       sources.home,
       runs.filter((run) => run.state !== 'finished'),
+      describeRun(sources.store),
     ),
     availableMemory(),
   ])
@@ -241,10 +310,13 @@ export function readRunOutput(home: string, runId: string): Promise<LogText> {
 
 const megabytes = (bytes: number) => `${Math.round(bytes / (1024 * 1024))} MB`
 
-export async function report(sources: DiagnosticsSources): Promise<string> {
+export async function report(
+  sources: DiagnosticsSources,
+  { includeLog = true }: { includeLog?: boolean } = {},
+): Promise<string> {
   const diagnostics = await collectDiagnostics(sources)
   const settings = sources.store.settings()
-  const log = await tail(tedPaths(sources.home).daemonLog, reportLogBytes)
+  const log = includeLog ? await tail(tedPaths(sources.home).daemonLog, reportLogBytes) : undefined
   const { totalBytes, availableBytes } = diagnostics.memory
   const lines = [
     `TED ${sources.version}`,
@@ -262,11 +334,11 @@ export async function report(sources: DiagnosticsSources): Promise<string> {
     'Processes',
     ...diagnostics.processes.map(
       (p) =>
-        `${p.pid} (parent ${p.ppid}) ${p.command} · ${p.owner === 'daemon' ? 'daemon' : `Run ${shortReference(p.owner.runId)}`} · CPU ${p.cpuPercent}% · ${megabytes(p.memoryBytes)}`,
+        `${p.pid} (parent ${p.ppid})${includeLog ? ` ${p.command}` : ''} · ${processName(p)} · CPU ${p.cpuPercent}% · ${megabytes(p.memoryBytes)}`,
     ),
-    '',
-    `Daemon log${log.truncated ? ' (last 64 KB)' : ''}`,
-    log.text,
+    ...(log
+      ? ['', `Daemon log${log.truncated ? ' (last 64 KB)' : ''}`, log.text]
+      : ['', 'Daemon log and process command lines left out']),
   ]
   return redactSecrets(hideHome(lines.join('\n'), sources.home))
 }

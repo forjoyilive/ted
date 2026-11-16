@@ -102,9 +102,6 @@ describe('Plan in chat from a Task', () => {
     const question = inbox.getByRole('button').filter({ hasText: 'Too big for one pull request' })
     await question.waitFor({ timeout: 30_000 })
     await question.click()
-    const ask = window
-      .getByRole('region', { name: 'Task thread' })
-      .getByRole('region', { name: 'Question', exact: true })
     const answer = window
       .getByRole('region', { name: 'Task thread' })
       .getByRole('region', { name: 'Answer', exact: true })
