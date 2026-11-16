@@ -265,6 +265,7 @@ test('sidebar expansion survives a component remount', async () => {
   const u = user()
   const views = (name: string) =>
     within(screen.getByRole('article', { name })).getByRole('button', { name: 'Views' })
+  await screen.findByRole('article', { name: 'widgets' })
   await u.click(views('widgets'))
   expect(views('widgets').getAttribute('aria-expanded')).toBe('true')
   await u.click(views('widgets'))
