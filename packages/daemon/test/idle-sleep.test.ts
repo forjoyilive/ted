@@ -5,6 +5,7 @@ import type { Factory, Run, Task } from '@ted/protocol'
 import type { JsonObject } from '@ted/protocol/parse'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { tryLock } from '../src/lock.ts'
 import { maySleep, type SleepFacts } from '../src/runs/idle-sleep.ts'
 import {
   api,
@@ -42,8 +43,9 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function start() {
+async function start(runs?: { stopGraceMs: number }) {
   daemon = await startDaemon({
+    ...(runs && { runs }),
     home,
     version: '9.9.9',
     claudeBin: stubClaudePath,
@@ -146,6 +148,7 @@ test('an idle Task Lead’s agent is ended after the idle time and starts again 
       ...JSON.parse(await readFile(envFile, 'utf8')),
       NODE_OPTIONS: '--title=forged',
       CLAUDE_CONFIG_DIR: '/forged',
+      FORGED: 'yes',
     }),
   )
   client = await start()
@@ -165,6 +168,7 @@ test('an idle Task Lead’s agent is ended after the idle time and starts again 
   expect(wokenEnv.TED_TASK).toBe('NB-1')
   expect(wokenEnv.NODE_OPTIONS).not.toBe('--title=forged')
   expect(wokenEnv.CLAUDE_CONFIG_DIR).not.toBe('/forged')
+  expect(wokenEnv.FORGED).toBeUndefined()
   expect(second[1]?.argv[(second[1]?.argv.indexOf('--resume') ?? -1) + 1]).toBe(run.sessionId)
 
   await waitUntil(async () => {
@@ -217,6 +221,64 @@ test('an idle Task Lead’s agent is ended after the idle time and starts again 
   expect(await agentStarts()).toHaveLength(4)
   await expect(readFile(path.join(home, 'runs', run.id, 'asleep.json'), 'utf8')).rejects.toThrow()
 }, 120_000)
+
+// Its own daemon: a wake fails only after the stop grace, so this one needs a short grace.
+test('a wake that keeps failing shows a banner until the agent starts', async () => {
+  const client = await start({ stopGraceMs: 3_000 })
+  await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+  const task = await client.ok<Task>('POST', '/tasks', {
+    title: JSON.stringify({ steps: [{ say: 'ready' }, { endTurn: true }] }),
+    factory: 'NB',
+    start: true,
+  })
+  const run = await waitUntil(async () => {
+    const leadRunId = (await client.ok<Task[]>('GET', '/tasks')).find(
+      (t) => t.id === task.id,
+    )?.leadRunId
+    if (!leadRunId) return undefined
+    const found = (await client.getRun(leadRunId)).run
+    return found.state === 'idle' ? found : undefined
+  }, 'an idle Task Lead Run')
+  await writeFile(
+    path.join(home, 'stub-claude.json'),
+    JSON.stringify({ resumeSteps: [{ say: 'awake' }, { endTurn: true }] }),
+  )
+  ahead = 31 * 60_000
+  await waitUntil(
+    async () => (await client.getRun(run.id)).run.asleep || undefined,
+    'the idle Run to be put to sleep',
+  )
+  const lockPath = path.join(home, 'runs', run.id, 'host.lock')
+  const lock = await waitUntil(() => tryLock(lockPath), 'the old host to let go of its lock')
+  const wakeBanners = async () =>
+    (await client.ok<{ problem: string; text: string }[]>('GET', '/banners')).filter(
+      (banner) => banner.problem === 'run-wake-failed',
+    )
+
+  await client.call('POST', `/runs/${run.id}/messages`, { text: 'Are you there?' })
+  const [banner] = await waitUntil(
+    async () => {
+      const found = await wakeBanners()
+      return found.length > 0 ? found : undefined
+    },
+    'a banner about the agent that can’t start',
+    60_000,
+  )
+  expect(banner?.text).toContain('NB-1’s Task Lead couldn’t be started again')
+  expect((await client.getRun(run.id)).run).toMatchObject({ asleep: true, state: 'idle' })
+
+  lock.release()
+  await waitUntil(
+    async () =>
+      assistantTexts((await client.getRun(run.id)).conversation).includes('awake') || undefined,
+    'the agent to start and answer once the host can start',
+    60_000,
+  )
+  await waitUntil(
+    async () => ((await wakeBanners()).length === 0 ? true : undefined),
+    'the banner to go',
+  )
+}, 150_000)
 
 test('only a quiet, idle Task Lead with nothing queued may sleep', () => {
   const now = Date.parse('2026-11-16T12:00:00Z')

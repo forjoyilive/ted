@@ -47,6 +47,7 @@ import { acquireLock } from './lock.ts'
 import { createMemoryWatch } from './memory-kills.ts'
 import { createPlans, type Plans } from './plans/plans.ts'
 import { QuitMarkedError, quitMarkedSync } from './quit-mark.ts'
+import { redactSecrets } from './redact.ts'
 import { pruneRunOutput, runOutputEnd } from './retention.ts'
 import { loadRunTokens } from './run-token.ts'
 import { createConversations } from './runs/conversations.ts'
@@ -836,6 +837,31 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health,
         conversations,
         versionsFile: path.join(paths.home, 'agent-versions.json'),
+      })
+      runs.envSource((run) => tasks.leadRunEnv(run))
+      const wakeBanners = new Map<string, string>()
+      runs.observe({
+        wakeFailed(run, failures, reason) {
+          const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
+          if (!task || failures < 2) return
+          wakeBanners.set(run.id, task.factoryId)
+          banners.raiseUnsaved({
+            problem: 'run-wake-failed',
+            subject: run.id,
+            factoryId: task.factoryId,
+            severity: 'warning',
+            text: redactSecrets(
+              `${task.displayId}’s Task Lead couldn’t be started again after it was idle, and TED keeps trying: ${reason.split('\n')[0] ?? ''}`,
+            ),
+            action: { label: 'Open Task', opens: { kind: 'task', taskId: task.id } },
+          })
+        },
+        woke(run) {
+          const factoryId = wakeBanners.get(run.id)
+          if (factoryId === undefined) return
+          wakeBanners.delete(run.id)
+          banners.clear({ problem: 'run-wake-failed', subject: run.id, factoryId })
+        },
       })
       const idleSleep = sleepIdleRuns({
         store,

@@ -795,6 +795,13 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
     restartWaiting: (taskId: string) => restartAsked.has(taskId),
     failed: leadFailed,
     recovering: (runId: string) => recovering.has(runId),
+    async runEnv(run: Run): Promise<Record<string, string> | undefined> {
+      if (run.taskId === undefined || run.parentRunId !== undefined) return undefined
+      const task = store.getTask(run.taskId)
+      if (task?.leadRunId !== run.id) return undefined
+      const env = leadEnv(task, entries(task, await workflow(task)))
+      return { ...env, ...(await appEnv(task.id)), TED_TASK: task.displayId }
+    },
     async resume(taskId: string): Promise<void> {
       const release = hold(taskId)
       try {

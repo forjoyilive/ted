@@ -109,7 +109,11 @@ export interface RunObserver {
   planUsage?(run: Run, windows: PlanWindow[]): void
   retrying?(run: Run): void
   autoMode?(run: Run, signal: AutoModeSignal): void
+  wakeFailed?(run: Run, failures: number, reason: string): void
+  woke?(run: Run): void
 }
+
+export type RunEnvSource = (run: Run) => Promise<Record<string, string> | undefined>
 
 export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
   agent: AgentKind
@@ -162,6 +166,7 @@ export interface RunManager {
   answerPermission(runId: string, generation: number, reply: PermissionReply): Promise<void>
   stop(runId: string): Promise<void>
   observe(observer: RunObserver): void
+  envSource(source: RunEnvSource): void
   environment(): NodeJS.ProcessEnv
   stopAll(): Promise<number>
   close(): Promise<void>
@@ -204,6 +209,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   const replacing = new Set<string>()
   const asleep = new Map<string, Resting>()
   const launchEnvs = new Map<string, Record<string, string>>()
+  let envSource: RunEnvSource | undefined
   const dispatching = new Map<string, number>()
   const stirred = new Set<string>()
   const oldestHost = options.oldestHost ?? oldestHostProtocol
@@ -331,6 +337,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     if (!resting) return
     asleep.delete(runId)
     resting.markHostGone()
+    tellObservers(runId, (observer, ended) => observer.woke?.(ended))
     const stopped = new RequestError(409, 'The Run stopped before its agent started again')
     for (const waiter of resting.waiters) waiter.reject(stopped)
     if (store.getRun(runId)?.state === 'finished') {
@@ -340,7 +347,14 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   }
 
   async function wakeAsked(resting: Resting, signal: AbortSignal): Promise<void> {
-    while (!(resting.wake && Date.now() >= resting.retryAt && store.newWorkHold() === undefined)) {
+    while (
+      !(
+        resting.wake &&
+        envSource !== undefined &&
+        Date.now() >= resting.retryAt &&
+        store.newWorkHold() === undefined
+      )
+    ) {
       signal.throwIfAborted()
       await sleep(pollMs)
     }
@@ -460,6 +474,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
                 const failure = error instanceof Error ? error : new Error(String(error))
                 for (const waiter of resting.waiters) waiter.reject(failure)
                 resting.waiters.clear()
+                const failures = resting.failures
+                tellObservers(runId, (observer, failed) =>
+                  observer.wakeFailed?.(failed, failures, failure.message),
+                )
               }
             }
             if (resting) {
@@ -469,6 +487,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
               outdated.delete(runId)
               store.setRunAsleep(runId, false)
               for (const waiter of resting.waiters) waiter.resolve()
+              tellObservers(runId, (observer, awake) => observer.woke?.(awake))
             }
           } catch (error) {
             if (!signal.aborted) throw error
@@ -786,7 +805,12 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const runDir = path.join(runsDir, runId)
     const files = runFiles(runDir)
     const permissions = runPermissions(store, run)
-    const env = launchEnvs.get(runId) ?? rememberEnv(runId, await readRunEnv(files.env))
+    const env =
+      launchEnvs.get(runId) ??
+      rememberEnv(
+        runId,
+        restingFrom === undefined ? await readRunEnv(files.env) : ((await envSource?.(run)) ?? {}),
+      )
     signal.throwIfAborted()
     const launch = agents.get(run.agent).launch({
       prompt: '',
@@ -1541,6 +1565,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         }
         await done
       }
+    },
+    envSource(source) {
+      envSource = source
     },
     observe(observer) {
       observers.add(observer)
