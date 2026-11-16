@@ -45,5 +45,15 @@ export default defineConfig({
         'anti-slop/require-safety-comment-for-type-assertion': 'off',
       },
     },
+    {
+      files: ['packages/protocol/src/parse.ts'],
+      rules: {
+        'anti-slop/no-runtime-typeof': 'off',
+        'anti-slop/no-unknown-parameters': 'off',
+        'anti-slop/no-unknown-returns': 'off',
+        'anti-slop/no-unknown-type-aliases': 'off',
+        'anti-slop/no-unsafe-dictionary-type': 'off',
+      },
+    },
   ],
 })

@@ -7,43 +7,48 @@ import type {
   ResolveFailureRequest,
   VerifyFailureRequest,
 } from './failures.ts'
+import { type Json, type JsonObject, reader, type Untyped } from './parse.ts'
 import { RequestValidationError as HttpError } from './validation.ts'
 
-function failureObject(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value))
-    throw new HttpError(400, 'failure request must be an object')
-  return value as Record<string, unknown>
+function fail(message: string): never {
+  throw new HttpError(400, message)
 }
-function failureString(body: Record<string, unknown>, name: string): string {
-  const value = body[name]
-  if (typeof value !== 'string' || !value.trim() || value.length > 16_000)
-    throw new HttpError(400, `${name} must be nonempty text up to 16000 characters`)
+const read = reader(fail)
+
+function failureObject(value: Untyped): JsonObject {
+  return read.object(value, 'failure request', 'failure request must be an object')
+}
+function failureString(body: JsonObject, name: string): string {
+  const problem = `${name} must be nonempty text up to 16000 characters`
+  const value = read.string(body, name, problem)
+  if (!value.trim() || value.length > 16_000) fail(problem)
   return value.trim()
 }
-function failureContextId(body: Record<string, unknown>): string | undefined {
-  return body.contextId === undefined ? undefined : failureString(body, 'contextId')
+function failureContextId(body: JsonObject): string | undefined {
+  return read.optional(body, 'contextId', failureString)
 }
-function failureSource(value: unknown): FailureSource {
+function failureSource(value: Json | undefined): FailureSource {
   const body = failureObject(value)
   const kind = body.kind
   if (kind === 'factory-check' || kind === 'post-rebase-check') {
-    if (!Number.isSafeInteger(body.position) || (body.position as number) < 0)
-      throw new HttpError(400, 'position must be a nonnegative integer')
+    const problem = 'position must be a nonnegative integer'
+    const position = read.integer(body, 'position', problem)
+    if (position < 0) fail(problem)
     return {
       kind,
       checkRunId: failureString(body, 'checkRunId'),
-      position: body.position as number,
+      position,
     }
   }
   if (kind === 'finding') {
-    const category = body.category
-    if (
-      category !== undefined &&
-      category !== 'test' &&
-      category !== 'review' &&
-      category !== 'visual'
+    const category = read.optional(body, 'category', (object, field) =>
+      read.oneOf(
+        object,
+        field,
+        ['test', 'review', 'visual'],
+        'category must be test, review or visual',
+      ),
     )
-      throw new HttpError(400, 'category must be test, review or visual')
     return {
       kind,
       runId: failureString(body, 'runId'),
@@ -52,22 +57,23 @@ function failureSource(value: unknown): FailureSource {
     }
   }
   if (kind === 'github-ci') {
-    if (!Number.isSafeInteger(body.number) || (body.number as number) < 1)
-      throw new HttpError(400, 'number must be a positive PR number')
+    const problem = 'number must be a positive PR number'
+    const number = read.integer(body, 'number', problem)
+    if (number < 1) fail(problem)
     const head = failureString(body, 'head')
-    if (!/^[a-f0-9]{40,64}$/.test(head)) throw new HttpError(400, 'head must be a commit ID')
+    if (!/^[a-f0-9]{40,64}$/.test(head)) fail('head must be a commit ID')
     return {
       kind,
       repo: failureString(body, 'repo'),
-      number: body.number as number,
+      number,
       head,
       attempt: failureString(body, 'attempt'),
     }
   }
-  throw new HttpError(400, 'unknown failure source')
+  return fail('unknown failure source')
 }
 
-export function parseRecordFailureRequest(value: unknown): RecordFailureRequest {
+export function parseRecordFailureRequest(value: Untyped): RecordFailureRequest {
   const body = failureObject(value)
   const contextId = failureContextId(body)
   return {
@@ -76,7 +82,7 @@ export function parseRecordFailureRequest(value: unknown): RecordFailureRequest 
     ...(contextId && { contextId }),
   }
 }
-export function parseAddFailureEvidenceRequest(value: unknown): AddFailureEvidenceRequest {
+export function parseAddFailureEvidenceRequest(value: Untyped): AddFailureEvidenceRequest {
   const body = failureObject(value)
   const contextId = failureContextId(body)
   return {
@@ -84,45 +90,43 @@ export function parseAddFailureEvidenceRequest(value: unknown): AddFailureEviden
     ...(contextId !== undefined && { contextId }),
   }
 }
-export function parseAssessFailureRequest(value: unknown): AssessFailureRequest {
+export function parseAssessFailureRequest(value: Untyped): AssessFailureRequest {
   const body = failureObject(value)
-  const assessment = body.assessment
-  if (assessment !== 'regression' && assessment !== 'unrelated' && assessment !== 'uncertain')
-    throw new HttpError(400, 'unknown failure assessment')
+  const assessment = read.oneOf(
+    body,
+    'assessment',
+    ['regression', 'unrelated', 'uncertain'],
+    'unknown failure assessment',
+  )
   const input: AssessFailureRequest = {
     assessment,
     recommendation: failureString(body, 'recommendation'),
   }
   return input
 }
-export function parseResolveFailureRequest(value: unknown): ResolveFailureRequest {
+export function parseResolveFailureRequest(value: Untyped): ResolveFailureRequest {
   const body = failureObject(value)
-  const resolution = body.resolution
-  if (
-    resolution !== 'accepted' &&
-    resolution !== 'fixed' &&
-    resolution !== 'no-longer-applicable' &&
-    resolution !== 'retry' &&
-    resolution !== 'fix' &&
-    resolution !== 'repair'
+  const resolution = read.oneOf(
+    body,
+    'resolution',
+    ['accepted', 'fixed', 'no-longer-applicable', 'retry', 'fix', 'repair'],
+    'unknown failure resolution',
   )
-    throw new HttpError(400, 'unknown failure resolution')
   let repair: RepairSelection | undefined
   if (resolution === 'repair') {
     const selected = failureObject(body.repair)
     if (selected.kind === 'existing') {
       repair = { kind: 'existing', taskId: failureString(selected, 'taskId') }
     } else if (selected.kind === 'new') {
-      if (typeof selected.start !== 'boolean') throw new HttpError(400, 'start must be a boolean')
+      const start = read.boolean(selected, 'start', 'start must be a boolean')
       repair = {
         kind: 'new',
         title: failureString(selected, 'title'),
         description: failureString(selected, 'description'),
-        start: selected.start,
+        start,
       }
-    } else throw new HttpError(400, 'choose an existing or new repair Task')
-  } else if (body.repair !== undefined)
-    throw new HttpError(400, 'repair selection needs repair resolution')
+    } else fail('choose an existing or new repair Task')
+  } else if (body.repair !== undefined) fail('repair selection needs repair resolution')
   const input: ResolveFailureRequest = {
     requestId: failureString(body, 'requestId'),
     resolution,
@@ -132,6 +136,6 @@ export function parseResolveFailureRequest(value: unknown): ResolveFailureReques
   return input
 }
 
-export function parseVerifyFailureRequest(value: unknown): VerifyFailureRequest {
+export function parseVerifyFailureRequest(value: Untyped): VerifyFailureRequest {
   return { evidence: failureString(failureObject(value), 'evidence') }
 }
