@@ -1036,7 +1036,6 @@ export function App({ start }: { start?: AppStart | undefined }) {
               onOpen={openTask}
               onOpenTask={openTaskByRef}
               onNewTask={() => openNewTask()}
-              onPlan={openPlans}
             />
           )
         }

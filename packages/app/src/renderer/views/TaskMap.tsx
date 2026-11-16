@@ -58,7 +58,6 @@ export function TaskMap({
   onOpen,
   onOpenTask,
   onNewTask,
-  onPlan,
 }: {
   title: string
   factoryId: string
@@ -68,7 +67,6 @@ export function TaskMap({
   onOpen: (task: Task) => void
   onOpenTask: (ref: string) => void
   onNewTask: () => void
-  onPlan: () => void
 }) {
   const map = useMemo(() => blockerMap(tasks, factoryId), [tasks, factoryId])
   const [sideOpen, setSideOpen] = useState(false)
@@ -283,9 +281,6 @@ export function TaskMap({
         <span className={views.headerSpacer} />
         <Button size="small" aria-pressed={sideOpen} onClick={() => setSideOpen((open) => !open)}>
           Tasks with no blockers
-        </Button>
-        <Button size="small" onClick={onPlan}>
-          Plan…
         </Button>
         <Button size="small" variant="primary" onClick={onNewTask}>
           <PlusIcon />

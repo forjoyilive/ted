@@ -973,7 +973,6 @@ export function TaskList({
         <MenuButton label="Display" icon={<DisplayIcon />}>
           {() => <DisplayMenu view={view} onChange={change} />}
         </MenuButton>
-        {onPlan && <Button onClick={onPlan}>Plan…</Button>}
         <Button variant="primary" onClick={onNewTask}>
           <PlusIcon />
           New Task…
