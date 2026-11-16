@@ -176,6 +176,11 @@ describe('workflow triggers', () => {
     expect(runsOnChanges('on:\n  push:\n    paths: [src/**]\n', pushed)).toBe(true)
     expect(runsOnChanges('on:\n  push:\n    branches: ["**", "!ted/**"]\n', pushed)).toBe(false)
     expect(runsOnChanges('on:\n  push:\n    branches: 7\n', pushed)).toBe(true)
+    const crafted = `"${'*a'.repeat(20)}"`
+    expect(runsOnChanges(`on:\n  push:\n    branches-ignore: [${crafted}]\n`, pushed)).toBe(true)
+    expect(
+      runsOnChanges(`on:\n  push:\n    branches: ["**", "!${'*a'.repeat(20)}"]\n`, pushed),
+    ).toBe(true)
   })
 
   test('branch patterns follow GitHub’s filter syntax', () => {
@@ -184,8 +189,8 @@ describe('workflow triggers', () => {
     expect(filterMatches('**', 'ted/nb-1')).toBe(true)
     expect(filterMatches('release/v[0-9].x', 'release/v2.x')).toBe(true)
     expect(filterMatches('feature.x', 'featureAx')).toBe(false)
-    expect(filterMatches(`${'*a'.repeat(20)}b`, 'a'.repeat(60))).toBe(true)
-    expect(filterMatches('x'.repeat(201), 'ted/nb-1')).toBe(true)
+    expect(filterMatches(`${'*a'.repeat(20)}b`, 'a'.repeat(60))).toBeUndefined()
+    expect(filterMatches('x'.repeat(201), 'ted/nb-1')).toBeUndefined()
   })
 })
 

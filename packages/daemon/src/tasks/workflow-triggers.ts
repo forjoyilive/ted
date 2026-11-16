@@ -48,8 +48,11 @@ function branchesMatch(filters: Json | undefined, branch: string): boolean {
   const branches = patterns(filters.branches)
   const ignored = patterns(filters['branches-ignore'])
   if (branches === null || ignored === null) return true
+  const all = [...(branches ?? []), ...(ignored ?? [])]
+  if (all.some((pattern) => patternRegex(pattern.replace(/^!/, '')) === undefined)) return true
   if (branches !== undefined) return included(branches, branch)
-  if (ignored !== undefined) return !ignored.some((pattern) => filterMatches(pattern, branch))
+  if (ignored !== undefined)
+    return !ignored.some((pattern) => filterMatches(pattern, branch) === true)
   return true
 }
 
@@ -64,8 +67,8 @@ function included(list: readonly string[], branch: string): boolean {
   let matched = false
   for (const pattern of list) {
     if (pattern.startsWith('!')) {
-      if (filterMatches(pattern.slice(1), branch)) matched = false
-    } else if (filterMatches(pattern, branch)) matched = true
+      if (filterMatches(pattern.slice(1), branch) === true) matched = false
+    } else if (filterMatches(pattern, branch) === true) matched = true
   }
   return matched
 }
@@ -73,14 +76,18 @@ function included(list: readonly string[], branch: string): boolean {
 const maxPatternLength = 200
 const maxWildcards = 3
 
-export function filterMatches(pattern: string, branch: string): boolean {
+export function filterMatches(pattern: string, branch: string): boolean | undefined {
+  return patternRegex(pattern)?.test(branch)
+}
+
+function patternRegex(pattern: string): RegExp | undefined {
   const compact = pattern.replace(/\*{3,}/g, '**')
   const wildcards = compact.match(/\*\*|[*?+]/g)?.length ?? 0
-  if (compact.length > maxPatternLength || wildcards > maxWildcards) return true
+  if (compact.length > maxPatternLength || wildcards > maxWildcards) return undefined
   try {
-    return new RegExp(`^${patternSource(compact)}$`).test(branch)
+    return new RegExp(`^${patternSource(compact)}$`)
   } catch {
-    return true
+    return undefined
   }
 }
 
