@@ -16,12 +16,14 @@ export type StageId = 'backlog' | AgentStageId | 'done'
 export interface StageTraits {
   holding: boolean
   working: boolean
+  entry: boolean
   clarifyRounds: boolean
   skippable: boolean
   designReview: boolean
   setupGate: boolean
   handOff: boolean
   validates: boolean
+  signsOffCode: boolean
   bindsApproval: boolean
   merges: boolean
   cleanup: boolean
@@ -34,12 +36,14 @@ export type StagePhase = 'before' | 'at' | 'after'
 const none: StageTraits = {
   holding: false,
   working: true,
+  entry: false,
   clarifyRounds: false,
   skippable: false,
   designReview: false,
   setupGate: false,
   handOff: false,
   validates: false,
+  signsOffCode: false,
   bindsApproval: false,
   merges: false,
   cleanup: false,
@@ -49,12 +53,12 @@ const holding: StageTraits = { ...none, holding: true, working: false }
 
 const builtIn: Record<StageId, StageTraits> = {
   backlog: holding,
-  intake: none,
+  intake: { ...none, entry: true },
   clarify: { ...none, clarifyRounds: true, skippable: true },
   design: { ...none, skippable: true, designReview: true, setupGate: true },
   work: { ...none, handOff: true },
   validate: { ...none, validates: true },
-  review: { ...none, setupGate: true, bindsApproval: true },
+  review: { ...none, setupGate: true, signsOffCode: true, bindsApproval: true },
   merge: { ...none, bindsApproval: true, merges: true },
   cleanup: { ...none, cleanup: true },
   done: holding,
@@ -70,20 +74,22 @@ export function stageTraits(id: string): StageTraits {
   return isBuiltInStage(id) ? builtIn[id] : none
 }
 
-export function stageWith(trait: StageTrait): StageId {
-  const found = builtInStageOrder.find((id) => builtIn[id][trait])
+export function stageWith(trait: StageTrait): AgentStageId {
+  const found = agentStageIds.find((id) => builtIn[id][trait])
   if (found === undefined) throw new Error(`no Stage has ${trait}`)
   return found
 }
 
 export const isHoldingStage = (id: string): boolean => stageTraits(id).holding
 export const isWorkingStage = (id: string): boolean => stageTraits(id).working
+export const isEntryStage = (id: string): boolean => stageTraits(id).entry
 export const hasClarifyRounds = (id: string): boolean => stageTraits(id).clarifyRounds
 export const maySkip = (id: string): boolean => stageTraits(id).skippable
 export const postsDesignReview = (id: string): boolean => stageTraits(id).designReview
 export const setupGateStage = (id: string): boolean => stageTraits(id).setupGate
 export const handsOff = (id: string): boolean => stageTraits(id).handOff
 export const validates = (id: string): boolean => stageTraits(id).validates
+export const signsOffCode = (id: string): boolean => stageTraits(id).signsOffCode
 export const bindsApproval = (id: string): boolean => stageTraits(id).bindsApproval
 export const mergesHere = (id: string): boolean => stageTraits(id).merges
 export const isCleanup = (id: string): boolean => stageTraits(id).cleanup

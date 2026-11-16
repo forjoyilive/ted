@@ -11,12 +11,14 @@ import {
 } from '../src/stage.ts'
 
 const traitStages: Record<StageTrait, string[]> = {
+  entry: ['intake'],
   clarifyRounds: ['clarify'],
   skippable: ['clarify', 'design'],
   designReview: ['design'],
   setupGate: ['design', 'review'],
   handOff: ['work'],
   validates: ['validate'],
+  signsOffCode: ['review'],
   bindsApproval: ['review', 'merge'],
   merges: ['merge'],
   cleanup: ['cleanup'],
@@ -36,6 +38,8 @@ test('stageWith names the first built-in Stage with a trait', () => {
   expect(stageWith('merges')).toBe('merge')
   expect(stageWith('clarifyRounds')).toBe('clarify')
   expect(stageWith('cleanup')).toBe('cleanup')
+  expect(stageWith('entry')).toBe('intake')
+  expect(stageWith('signsOffCode')).toBe('review')
 })
 
 test('an unknown Stage is an ordinary working Stage with no special work', () => {
@@ -43,12 +47,14 @@ test('an unknown Stage is an ordinary working Stage with no special work', () =>
     expect(stageTraits(id)).toEqual({
       holding: false,
       working: true,
+      entry: false,
       clarifyRounds: false,
       skippable: false,
       designReview: false,
       setupGate: false,
       handOff: false,
       validates: false,
+      signsOffCode: false,
       bindsApproval: false,
       merges: false,
       cleanup: false,
