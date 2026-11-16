@@ -9,6 +9,7 @@ import {
 import { maxCommitBody } from './commit-title.ts'
 import { proposalCycle } from './proposal.ts'
 import { agentKindList } from './run.ts'
+import { isHoldingStage, isStageId } from './stage.ts'
 import type {
   ArchiveTaskRequest,
   AttachmentRef,
@@ -496,8 +497,8 @@ export function parseReportOutcomeRequest(body: unknown): ReportOutcomeRequest {
   }
   if (request.outcome === 'back') {
     const to = request.to
-    if (typeof to !== 'string' || !agentStageIds.includes(to as AgentStageId)) {
-      throw new HttpError(400, `to must be one of ${agentStageIds.join(', ')}`)
+    if (!isStageId(to) || isHoldingStage(to)) {
+      throw new HttpError(400, `to must be a Stage id, such as ${agentStageIds.join(', ')}`)
     }
     const findings = typeof request.findings === 'string' ? request.findings.trim() : ''
     if (findings === '') throw new HttpError(400, '`back` needs Findings')
@@ -1165,7 +1166,7 @@ export function parseSetTaskGatesRequest(input: unknown): SetTaskGatesRequest {
   }
   const overrides: TaskGateOverrides = {}
   for (const [key, gate] of Object.entries(value)) {
-    const stage = agentStageIds.find((id) => id === key)
+    const stage = isStageId(key) && !isHoldingStage(key) ? key : undefined
     if (!stage || typeof gate !== 'boolean')
       throw new HttpError(400, 'Sign-off overrides must name Stages with boolean values')
     overrides[stage] = gate

@@ -185,7 +185,9 @@ function keepStageFiles(given: unknown): AgentStageId[] {
 function stageFiles(given: unknown): Partial<Record<AgentStageId, string | null>> {
   const files: Partial<Record<AgentStageId, string | null>> = {}
   for (const [id, value] of Object.entries(record(given))) {
-    if (!agentStageIds.includes(id as AgentStageId)) throw new HttpError(400, `unknown Stage ${id}`)
+    if (!(agentStageIds as readonly string[]).includes(id)) {
+      throw new HttpError(400, `unknown Stage ${id}`)
+    }
     files[id as AgentStageId] = value === null ? null : fileText(value, `${id} Stage file`)
   }
   return files

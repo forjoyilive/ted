@@ -370,6 +370,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         reposDir: paths.repos,
         tedVersion: options.version,
         onDrift: (drift) => emit({ type: 'drift-changed', drift }),
+        onStages: (factoryId) => emit({ type: 'factory-stages-changed', factoryId }),
         onFactorySettings: async (factory, settings) => syncRepos?.(factory, settings),
       })
       let started: Tasks | undefined

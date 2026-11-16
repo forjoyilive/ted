@@ -68,8 +68,11 @@ Build it.
 
 async function start(
   workflow: string | null = 'version: 1\norder: [intake, design, work, merge]\n',
+  stageFiles: Record<string, string> = {},
 ) {
-  if (workflow !== null) await commitToOrigin(scratch, { '.ted/workflow.yaml': workflow })
+  if (workflow !== null) {
+    await commitToOrigin(scratch, { '.ted/workflow.yaml': workflow, ...stageFiles })
+  }
   daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const fileToken = api(daemon.port, await tokenFor(home))
@@ -676,4 +679,150 @@ test('Task Sign-off overrides keep Stage work, enforce new Sign-offs and cannot 
     'Sign-off commands',
   )
   expect((await commandResults(client, task))[0]?.stdout.trim()).toBe('403')
+})
+
+describe('custom Stages', () => {
+  const passStage = (briefFile: string) => ({
+    run: [
+      'sh',
+      '-c',
+      `ted outcome advance --skip 2>/dev/null || { ted brief write --file '${briefFile}' && ted outcome advance; }`,
+    ],
+  })
+
+  test('a custom Stage’s file reaches the Task Lead; it sends back within its limit, holds at its Sign-off and walks to Done', async () => {
+    const findings = path.join(scratch, 'findings.md')
+    const client = await start(
+      [
+        'version: 1',
+        'order: [intake, security, work, validate, release-notes, merge]',
+        'stages:',
+        '  release-notes: { name: Release notes, gate: true, max_back: 1 }',
+        '',
+      ].join('\n'),
+      {
+        '.ted/stages/security.md': '# Security\n\nLook for secrets in the change.\n',
+        '.ted/stages/release-notes.md': `# Release notes\n\n${steps(
+          { run: ['ted', 'outcome', 'back', '--to', 'work', '--findings', findings] },
+          { endTurn: true },
+        )}\n`,
+      },
+    )
+    const pass = passStage(client.briefFile)
+    const task = await startTask(client, { everyMessage: [pass, { endTurn: true }] }, pass, {
+      endTurn: true,
+    })
+
+    const { request } = await waitForRequest(client)
+    expect(request).toMatchObject({
+      kind: 'question',
+      stage: 'release-notes',
+      title: 'Release notes wants to send this Task back to Work again',
+      choices: ['Send it back to Work', 'Keep it in Release notes'],
+    })
+    await client.ok('POST', `/comments/${request.id}/answer`, {
+      action: 'answer',
+      choice: 'Keep it in Release notes',
+      text: steps(pass, { endTurn: true }),
+    })
+    const signoff = await waitUntil(
+      async () => (await comments(client, task)).find((c) => c.gate && !c.answer),
+      'the Release notes Sign-off',
+    )
+    expect(signoff.stage).toBe('release-notes')
+    expect((await getTask(client, task.id)).stage).toBe('release-notes')
+    await client.ok('POST', `/comments/${signoff.id}/answer`, { action: 'approve' })
+    await waitForStage(client, task, 'done')
+
+    const entries = await client.ok<{ stage: string; stageFile?: unknown }[]>(
+      'GET',
+      `/tasks/${task.id}/stage-entries`,
+    )
+    expect(entries.map((e) => e.stage)).toEqual([
+      'intake',
+      'security',
+      'work',
+      'validate',
+      'release-notes',
+      'work',
+      'validate',
+      'release-notes',
+      'merge',
+      'done',
+    ])
+    expect(entries[1]?.stageFile).toEqual({ layer: 'factory', path: '.ted/stages/security.md' })
+    const messages = await userMessages(client, task)
+    expect(messages.find((m) => m.startsWith('TED moved this Task to Security.'))).toContain(
+      'Look for secrets in the change.',
+    )
+    expect(messages.some((m) => m.startsWith('TED moved this Task to Release notes.'))).toBe(true)
+    const history = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
+    expect(history.some((e) => e.text.startsWith('Release notes sent this back to Work'))).toBe(
+      true,
+    )
+  }, 120_000)
+
+  test('a Task whose custom Stage leaves order finishes it and goes on to the next Stage that still exists; Autopilot skips a custom Sign-off', async () => {
+    const go = path.join(scratch, 'go')
+    const files = {
+      '.ted/stages/security.md': `# Security\n\n${steps(
+        { waitFor: go },
+        { run: ['ted', 'outcome', 'advance'] },
+        { endTurn: true },
+      )}\n`,
+      '.ted/stages/checklist.md': '# Checklist\n\nTick the boxes.\n',
+    }
+    const client = await start(
+      [
+        'version: 1',
+        'order: [intake, security, work, checklist, merge]',
+        'stages:',
+        '  checklist: { name: Release checklist, gate: true }',
+        '',
+      ].join('\n'),
+      files,
+    )
+    const pass = passStage(client.briefFile)
+    const task = await client.ok<Task>('POST', '/tasks', {
+      title: steps({ everyMessage: [pass, { endTurn: true }] }, pass, { endTurn: true }),
+      factory: 'NB',
+    })
+    await client.ok('PUT', `/tasks/${task.id}/autopilot`, { choice: 'on' })
+    const { revision } = await client.ok<TaskGates>('GET', `/tasks/${task.id}/gates`)
+    await client.ok('PUT', `/tasks/${task.id}/gates`, { revision, overrides: { security: true } })
+    const gates = await client.ok<TaskGates>('GET', `/tasks/${task.id}/gates`)
+    expect(gates.overrides).toEqual({ security: true })
+    expect(gates.rows.find((row) => row.stage === 'security')).toMatchObject({
+      inherited: false,
+      override: true,
+    })
+    await client.ok('POST', `/tasks/${task.id}/start`)
+    await waitForStage(client, task, 'security')
+
+    await commitToOrigin(scratch, {
+      '.ted/workflow.yaml': [
+        'version: 1',
+        'order: [intake, work, checklist, merge]',
+        'stages:',
+        '  checklist: { name: Release checklist, gate: true }',
+        '',
+      ].join('\n'),
+    })
+    await writeFile(go, '')
+    await waitForStage(client, task, 'merge')
+
+    const entries = await client.ok<{ stage: string }[]>('GET', `/tasks/${task.id}/stage-entries`)
+    expect(entries.map((e) => e.stage)).toEqual([
+      'intake',
+      'security',
+      'work',
+      'checklist',
+      'merge',
+    ])
+    expect((await comments(client, task)).filter((c) => c.gate)).toEqual([])
+    const history = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
+    expect(history.map((e) => e.text)).toContain(
+      'Autopilot is on, so TED skipped the Release checklist Sign-Off',
+    )
+  }, 120_000)
 })

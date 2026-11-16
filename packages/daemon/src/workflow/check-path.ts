@@ -2,8 +2,14 @@ import { readFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import type { LayerKind, WorkflowProblem } from '@ted/protocol'
 import * as git from '../git.ts'
-import { checkLayer, githubRepoOf, type LayerFiles } from './check.ts'
-import { readLayerDirectory } from './layers.ts'
+import {
+  type CheckedLayer,
+  checkLayer,
+  githubRepoOf,
+  inheritedFrom,
+  type LayerFiles,
+} from './check.ts'
+import { readDefaultLayer, readLayerDirectory } from './layers.ts'
 
 export interface PathProblem extends WorkflowProblem {
   path: string
@@ -37,9 +43,16 @@ export async function checkWorkflowPath(
 
   const kind: LayerKind = (await sameDir(layerDir, options.libraryDir)) ? 'library' : 'factory'
   const primaryRepo = kind === 'factory' ? await originRepo(path.dirname(layerDir)) : undefined
+  const below: CheckedLayer[] = [await readDefaultLayer()]
+  if (kind === 'factory') {
+    const libraryFiles = await readLayerDirectory(options.libraryDir).catch(() => undefined)
+    const library = libraryFiles && checkLayer({ kind: 'library', files: libraryFiles })
+    if (library?.valid) below.push(library)
+  }
   const { problems } = checkLayer({
     kind,
     files,
+    inherited: inheritedFrom(below),
     ...(primaryRepo !== undefined && { primaryRepo }),
   })
   return problems.map((problem) => ({

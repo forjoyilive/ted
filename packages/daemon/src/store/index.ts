@@ -126,7 +126,7 @@ import {
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
 import {
-  builtInStageOrder,
+  compareStages,
   hasClarifyRounds,
   isCleanup,
   mergesHere,
@@ -485,6 +485,7 @@ export interface NewTask {
 export interface PlannedStage {
   stage: AgentStageId
   enabled: boolean
+  name?: string
 }
 
 export type NewStageEntry = Pick<StageEntry, 'stageFile' | 'layers'> & {
@@ -962,6 +963,7 @@ export interface TedStore extends TaskHistory {
   ): Task
   dashboard(factoryIds: readonly string[], range: DashboardRange, asOf?: number): DashboardReport
   listStageEntries(taskId: string): StageEntry[]
+  recordedStages(taskId: string): PlannedStage[] | undefined
   acceptWorkflowLayer(layer: string, accepted: Omit<AcceptedLayer, 'acceptedAt'>): void
   lastValidWorkflowLayer(layer: string): AcceptedLayer | undefined
   rememberStageFileText(seen: SeenStageFile): void
@@ -2733,7 +2735,7 @@ export async function openStore({
     store.query(queryDb(taskBriefs.where({ taskId }).orderBy('version', 'asc')))
 
   const stageEntered = (taskId: string, stage: StageId, entry: NewStageEntry, at: string) =>
-    events.taskStageEnteredV3({
+    events.taskStageEnteredV4({
       id: randomUUID(),
       taskId,
       stage,
@@ -2741,7 +2743,12 @@ export async function openStore({
       stageFileLayer: entry.stageFile?.layer ?? null,
       stageFilePath: entry.stageFile?.path ?? null,
       layers: JSON.stringify(entry.layers),
-      order: JSON.stringify(entry.order),
+      order: JSON.stringify(entry.order.map(({ stage, enabled }) => ({ stage, enabled }))),
+      names: JSON.stringify(
+        Object.fromEntries(
+          entry.order.flatMap((p) => (p.name === undefined ? [] : [[p.stage, p.name]])),
+        ),
+      ),
       at,
     })
 
@@ -5590,6 +5597,12 @@ export async function openStore({
     },
     listStageEntries: (taskId) =>
       store.query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc'))).map(toStageEntry),
+    recordedStages(taskId) {
+      const saved = store
+        .query(queryDb(stageEntries.where({ taskId }).orderBy('at', 'asc')))
+        .findLast((e) => e.order !== null)?.order
+      return saved ? (JSON.parse(saved) as PlannedStage[]) : undefined
+    },
     acceptWorkflowLayer(layer, { files, version }) {
       commit(
         events.workflowLayerAccepted({
@@ -7327,16 +7340,20 @@ function track(stage: StageId, entries: readonly (typeof stageEntries.Type)[]): 
   const order: StageId[] = plan.map((p) => p.stage)
   const entered = new Set(entries.map((e) => e.stage))
   const inOrder = order.includes(stage)
-  const rank = (id: StageId) => (inOrder ? order.indexOf(id) : builtInStageOrder.indexOf(id))
-  return plan.map(({ stage: id, enabled }) => {
-    if (id === stage) return { stage: id, state: 'current' }
-    if (!enabled) return { stage: id, state: 'skipped' }
-    if (stage === 'backlog') return { stage: id, state: 'future' }
-    if (stage === 'done' || rank(id) < rank(stage)) {
-      return { stage: id, state: entered.has(id) ? 'past' : 'skipped' }
-    }
-    return { stage: id, state: 'future' }
-  })
+  const rank = (id: StageId) =>
+    inOrder ? order.indexOf(id) : compareStages(id, stage, order) < 0 ? -1 : 1
+  const state = (id: StageId, enabled: boolean): TrackStage['state'] => {
+    if (id === stage) return 'current'
+    if (!enabled) return 'skipped'
+    if (stage === 'backlog') return 'future'
+    if (stage === 'done' || rank(id) < rank(stage)) return entered.has(id) ? 'past' : 'skipped'
+    return 'future'
+  }
+  return plan.map(({ stage: id, enabled, name }) => ({
+    stage: id,
+    ...(name !== undefined && { name }),
+    state: state(id, enabled),
+  }))
 }
 
 function realPath(dir: string): string {

@@ -1144,6 +1144,16 @@ export const planTasks = State.SQLite.table({
   },
 })
 
+function namedOrder(order: string, names: string): string {
+  const named = JSON.parse(names) as Record<string, string>
+  const stages = JSON.parse(order) as { stage: string; enabled: boolean }[]
+  return JSON.stringify(
+    stages.map((planned) =>
+      Object.hasOwn(named, planned.stage) ? { ...planned, name: named[planned.stage] } : planned,
+    ),
+  )
+}
+
 const stageEnteredFields = {
   id: Schema.String,
   taskId: Schema.String,
@@ -2641,6 +2651,15 @@ export const events = {
       effort: Schema.NullOr(Schema.String),
     }),
   }),
+  taskStageEnteredV4: Events.synced({
+    name: 'v4.TaskStageEntered',
+    schema: Schema.Struct({
+      ...stageEnteredFields,
+      order: Schema.String,
+      names: Schema.String,
+      effort: Schema.NullOr(Schema.String),
+    }),
+  }),
   taskLeadEffortModeSet: Events.synced({
     name: 'v1.TaskLeadEffortModeSet',
     schema: Schema.Struct({
@@ -3999,6 +4018,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v2.TaskStageEntered': (args) => task(args, { stage: args.stage }),
   'v3.TaskStageEntered': (args) => task(args, { stage: args.stage }),
+  'v4.TaskStageEntered': (args) => task(args, { stage: args.stage, names: args.names }),
   'v1.TaskSentBack': (args) =>
     task(args, { from: args.from, to: args.to, findings: args.findings }),
   'v2.TaskSentBack': (args) =>
@@ -5157,6 +5177,10 @@ const materializers = counted(
       'v2.TaskStageEntered': (entry) => stageEntries.insert(entry),
       'v3.TaskStageEntered': ({ effort, ...entry }) => [
         stageEntries.insert(entry),
+        tasks.update({ stageEffort: effort }).where({ id: entry.taskId }),
+      ],
+      'v4.TaskStageEntered': ({ effort, names, order, ...entry }) => [
+        stageEntries.insert({ ...entry, order: namedOrder(order, names) }),
         tasks.update({ stageEffort: effort }).where({ id: entry.taskId }),
       ],
       'v1.TaskLeadEffortModeSet': ({ taskId, mode }) =>

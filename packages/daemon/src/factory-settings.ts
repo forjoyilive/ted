@@ -69,6 +69,7 @@ import {
   type CheckedLayer,
   checkLayer,
   githubRepoOf,
+  inheritedFrom,
   isCommandStep,
   type LayerFiles,
   maxFactoryRepos,
@@ -161,18 +162,24 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
   const checkedFiles = new WeakMap<LayerFiles, Map<string, CheckedLayer>>()
   const refreshing = new Map<string, Promise<void>>()
 
-  function check(files: LayerFiles, primaryRepo?: string): CheckedLayer {
+  function check(
+    files: LayerFiles,
+    inherited: readonly CheckedLayer[],
+    primaryRepo?: string,
+  ): CheckedLayer {
     let known = checkedFiles.get(files)
     if (!known) {
       known = new Map()
       checkedFiles.set(files, known)
     }
-    const key = primaryRepo === undefined ? '' : `\0${primaryRepo}`
+    const below = inheritedFrom(inherited)
+    const key = `${primaryRepo ?? ''}\0${JSON.stringify(below)}`
     let layer = known.get(key)
     if (!layer) {
       layer = checkLayer({
         kind: 'factory',
         files,
+        inherited: below,
         ...(primaryRepo !== undefined && { primaryRepo }),
       })
       known.set(key, layer)
@@ -206,7 +213,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     from: { fetch: boolean; resolve: boolean },
   ): Promise<Base> {
     const { commit, files: current, inherited } = await workflows.source(factory, from)
-    const checked = check(current, factory.repo)
+    const checked = check(current, inherited, factory.repo)
     let files: LayerFiles
     let source: SettingsSource
     if (checked.valid) {
@@ -217,7 +224,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
       files = last?.files ?? {}
       source = typeof files['workflow.yaml'] === 'string' ? 'last-valid' : 'none'
     }
-    const shown = check(files, factory.repo)
+    const shown = check(files, inherited, factory.repo)
     const workflowText = files['workflow.yaml']
     const text = typeof workflowText === 'string' ? workflowText : undefined
     const settings = text === undefined ? undefined : shown.settings
@@ -236,7 +243,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
       problems: checked.problems,
       repos: repoSettingsFrom(settings, factory.repos),
       inherited,
-      own: check(files),
+      own: check(files, inherited),
     }
   }
 
@@ -325,7 +332,12 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
       else after['notes.md'] = changes.notes
     }
     after['workflow.yaml'] = applyChanges(base.text, changes, base.repos, basedOn)
-    const checked = checkLayer({ kind: 'factory', files: after, primaryRepo: factory.repo })
+    const checked = checkLayer({
+      kind: 'factory',
+      files: after,
+      primaryRepo: factory.repo,
+      inherited: inheritedFrom(base.inherited),
+    })
     const errors = checked.problems.filter((p) => p.severity === 'error')
     if (errors.length > 0) return { problems: errors, files: {} }
     const writes: Record<string, string | null> = {}

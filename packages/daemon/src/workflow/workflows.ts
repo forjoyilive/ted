@@ -7,7 +7,14 @@ import { exists } from '../files.ts'
 import * as git from '../git.ts'
 import { factoryPermissions, reportRepoPermissions } from '../permissions.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
-import { type CheckedLayer, checkLayer, type LayerFiles, type WorkflowSettings } from './check.ts'
+import {
+  type CheckedLayer,
+  checkLayer,
+  type InheritedStages,
+  inheritedFrom,
+  type LayerFiles,
+  type WorkflowSettings,
+} from './check.ts'
 import { findDrift, rememberLayer } from './drift.ts'
 import { createFetches } from './fetches.ts'
 import {
@@ -18,7 +25,7 @@ import {
   sameFiles,
   sharedDefaultLayer,
 } from './layers.ts'
-import { type ResolvedWorkflow, resolveWorkflow } from './resolve.ts'
+import { boardStages, type ResolvedWorkflow, resolveWorkflow } from './resolve.ts'
 
 export interface WorkflowResolution {
   workflow: ResolvedWorkflow
@@ -53,6 +60,7 @@ export function createWorkflows(options: {
   reposDir: string
   tedVersion?: string
   onDrift?: (drift: DriftCounts) => void
+  onStages?: (factoryId: string) => void
   onFactorySettings?: (
     factory: StoredFactory,
     settings: WorkflowSettings | undefined,
@@ -77,7 +85,12 @@ export function createWorkflows(options: {
   const counts = new Map<string, number>()
   const checkedLayers = new Map<
     string,
-    { files: LayerFiles; primaryRepo: string | undefined; layer: CheckedLayer }
+    {
+      files: LayerFiles
+      primaryRepo: string | undefined
+      inherited: string
+      layer: CheckedLayer
+    }
   >()
   const accepted = new Map<string, string>()
   const remembered = new WeakSet<CheckedLayer>()
@@ -85,6 +98,15 @@ export function createWorkflows(options: {
   let counted: { defaults: CheckedLayer; library: CheckedLayer | undefined } | undefined
   let layersChanged = true
   let libraryCount = 0
+  const stageLists = new Map<string, string>()
+
+  function noteStages(factoryId: string, workflow: ResolvedWorkflow): void {
+    const list = JSON.stringify(boardStages(workflow))
+    const before = stageLists.get(factoryId)
+    if (before === list) return
+    stageLists.set(factoryId, list)
+    if (before !== undefined) options.onStages?.(factoryId)
+  }
 
   function remember(layers: readonly CheckedLayer[]): void {
     for (const layer of layers) {
@@ -99,11 +121,25 @@ export function createWorkflows(options: {
     kind: LayerKind,
     files: LayerFiles,
     primaryRepo: string | undefined,
+    inherited: InheritedStages | undefined,
   ): CheckedLayer {
     const hit = checkedLayers.get(slot)
-    if (hit && hit.primaryRepo === primaryRepo && sameFiles(hit.files, files)) return hit.layer
-    const layer = checkLayer({ kind, files, ...(primaryRepo !== undefined && { primaryRepo }) })
-    checkedLayers.set(slot, { files, primaryRepo, layer })
+    const below = JSON.stringify(inherited ?? null)
+    if (
+      hit &&
+      hit.primaryRepo === primaryRepo &&
+      hit.inherited === below &&
+      sameFiles(hit.files, files)
+    ) {
+      return hit.layer
+    }
+    const layer = checkLayer({
+      kind,
+      files,
+      ...(primaryRepo !== undefined && { primaryRepo }),
+      ...(inherited && { inherited }),
+    })
+    checkedLayers.set(slot, { files, primaryRepo, inherited: below, layer })
     return layer
   }
 
@@ -158,9 +194,10 @@ export function createWorkflows(options: {
     key: string,
     found: { files: LayerFiles; version: string } | undefined,
     primaryRepo?: string,
+    inherited?: InheritedStages,
   ): { layer?: CheckedLayer; use: LayerUse } {
     if (!found) return { use: { layer: kind, status: 'absent', problems: [] } }
-    const current = checked(key, kind, found.files, primaryRepo)
+    const current = checked(key, kind, found.files, primaryRepo, inherited)
     if (current.valid) {
       if (accepted.get(key) !== found.version) {
         const last = store.lastValidWorkflowLayer(key)
@@ -177,7 +214,7 @@ export function createWorkflows(options: {
     const last = store.lastValidWorkflowLayer(key)
     if (!last) return { use: { layer: kind, status: 'skipped', problems: current.problems } }
     return {
-      layer: checked(`${key}\0last`, kind, last.files, primaryRepo),
+      layer: checked(`${key}\0last`, kind, last.files, primaryRepo, inherited),
       use: { layer: kind, status: 'last-valid', version: last.version, problems: current.problems },
     }
   }
@@ -271,7 +308,13 @@ export function createWorkflows(options: {
 
   async function apply(factory: StoredFactory, found: Read): Promise<WorkflowResolution> {
     const { defaults, library } = found
-    const factoryLayer = choose('factory', `factory:${factory.id}`, found.at?.layer, factory.repo)
+    const factoryLayer = choose(
+      'factory',
+      `factory:${factory.id}`,
+      found.at?.layer,
+      factory.repo,
+      inheritedFrom([defaults, ...(library.layer ? [library.layer] : [])]),
+    )
     remember([defaults, ...(library.layer ? [library.layer] : [])])
     setFactoryLayer(factory.id, factoryLayer.layer)
     countDrift(defaults, library.layer)
@@ -288,6 +331,7 @@ export function createWorkflows(options: {
     workflow.settings.permissions = factoryPermissions(store, factory.id)
     reportChecks(factory, workflow)
     reportInvalid(factory, factoryLayer.use)
+    noteStages(factory.id, workflow)
     return {
       workflow,
       layers: [
@@ -317,6 +361,7 @@ export function createWorkflows(options: {
       accepted.delete(`factory:${factoryId}`)
       checkedLayers.delete(`factory:${factoryId}`)
       checkedLayers.delete(`factory:${factoryId}\0last`)
+      stageLists.delete(factoryId)
     },
     resolve,
     async source(factory, { fetch = false, resolve: full = true } = {}) {

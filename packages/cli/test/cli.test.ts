@@ -762,9 +762,9 @@ describe('ted workflow check', () => {
     await writeLayer({
       'workflow.yaml': [
         'version: 1',
-        'order: [clarify, intake, work]',
+        'order: [intake, security, work]',
         'stages:',
-        '  deploy: {}',
+        '  Deploy: {}',
         '  work: { gate: maybe }',
         'repos:',
         '  - name: app',
@@ -782,8 +782,8 @@ describe('ted workflow check', () => {
 
     expect(failure?.code).toBe(1)
     expect(failure?.stdout.split('\n')).toEqual([
-      '.ted/workflow.yaml:2:8: error: `order` must start with `intake`',
-      '.ted/workflow.yaml:4:3: error: unknown Stage `deploy`',
+      '.ted/workflow.yaml:2:17: error: `security` has no Stage file; add stages/security.md',
+      '.ted/workflow.yaml:4:3: error: unknown Stage `Deploy`; a custom Stage id is lowercase letters, digits and hyphens, up to 40 characters, and not a built-in id',
       '.ted/workflow.yaml:5:17: error: `stages.work.gate` must be true or false',
       '.ted/workflow.yaml:8:11: error: two repos are named `app`',
       '.ted/workflow.yaml:9:13: error: `remote` must be a GitHub repo',

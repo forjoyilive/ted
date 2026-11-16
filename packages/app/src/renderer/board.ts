@@ -1,5 +1,6 @@
 import type { BoardStage, BoardView, QueuedForSlot, StageId, Task } from '@ted/protocol'
 import { defaultBoardView } from '@ted/protocol/board-view'
+import { compareStages } from '@ted/protocol/stage'
 import { priorities } from '@ted/protocol/task'
 import { createdByLabels, manualOrder, stageOrder } from './list-view.ts'
 import { ago } from './requests.ts'
@@ -57,11 +58,11 @@ export function boardColumns(
 ): BoardColumn[] {
   const live = tasks.filter((t) => !t.archived)
   const start = startStage(stages)
-  const builtIn = (id: StageId) => stageOrder.indexOf(id)
+  const order = stages.map((s) => s.id)
   const listed: BoardStage[] = [...stages]
   for (const id of new Set(live.map((t) => t.stage))) {
     if (listed.some((s) => s.id === id)) continue
-    const at = listed.findIndex((s) => builtIn(s.id) > builtIn(id))
+    const at = listed.findIndex((s) => compareStages(s.id, id, order) > 0)
     listed.splice(at === -1 ? listed.length : at, 0, { id, enabled: false, gate: false })
   }
   return listed.flatMap(({ id, enabled, gate }): BoardColumn[] => {
