@@ -881,14 +881,6 @@ export function App({ start }: { start?: AppStart | undefined }) {
           layout={factoryLayout}
           factoryId={screen.factoryId}
           groupId={screen.groupId}
-          banners={
-            screen.factoryId === undefined
-              ? undefined
-              : bannerStack(
-                  `${factoryName(factories, screen.factoryId)} problems`,
-                  factoryBanners(banners, screen.factoryId),
-                )
-          }
           showAnswered={screen.answered === true}
           anyTasks={tasks.length > 0}
           settings={settings}
@@ -1407,6 +1399,11 @@ export function App({ start }: { start?: AppStart | undefined }) {
       </Offline>
       <main className={styles.main}>
         {problems}
+        {inboxScreen?.factoryId !== undefined &&
+          bannerStack(
+            `${factoryName(factories, inboxScreen.factoryId)} problems`,
+            factoryBanners(banners, inboxScreen.factoryId),
+          )}
         <Offline when={offline}>
           <div ref={panes} className={styles.panes}>
             {find}
