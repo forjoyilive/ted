@@ -13,7 +13,7 @@ import { OvernightContext } from '../src/renderer/overnight.tsx'
 import { LibraryPage } from '../src/renderer/settings/LibraryPage.tsx'
 import { FactorySettings } from '../src/renderer/views/FactorySettings.tsx'
 import { appState } from './support/app.tsx'
-import { bridge, deferred, user } from './support/component.ts'
+import { bridge, deferred, expandFactory, user } from './support/component.ts'
 import { createdAt, factory, settingsView, task } from './support/fixtures.ts'
 
 const nav = () => screen.getByRole('navigation', { name: 'Sidebar' })
@@ -133,7 +133,7 @@ function withCoordinator() {
   a.handle('taskDefaults', () => ({ lead: { agent: 'claude' }, planner: { agent: 'claude' } }))
   a.handle('tedStops', () => [])
   const open = async (region = 'Coordinator') => {
-    await user().click(await screen.findByRole('button', { name: 'widgets' }))
+    await expandFactory()
     await user().click(within(nav()).getByRole('button', { name: /^Agents/ }))
     return screen.findByRole('region', { name: region })
   }
@@ -458,7 +458,7 @@ test('a start that answers after New chat was clicked leaves the new start page 
 test('the sidebar lists Agents above Tasks, with no Coordinator or Plans row, and shows Working only while a Coordinator works', async () => {
   const { a, shown, changed } = withCoordinator()
   a.mount()
-  await user().click(await screen.findByRole('button', { name: 'widgets' }))
+  await expandFactory()
   const names = within(nav())
     .getAllByRole('button')
     .map((button) => button.textContent)

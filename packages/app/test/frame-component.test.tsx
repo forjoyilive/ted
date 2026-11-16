@@ -6,7 +6,7 @@ import { expect, test, vi } from 'vitest'
 import { Sidebar } from '../src/renderer/components/Sidebar.tsx'
 import { initialNavigation } from '../src/renderer/navigation.ts'
 import { appState } from './support/app.tsx'
-import { bridge, deferred, required, user } from './support/component.ts'
+import { bridge, deferred, expandFactory, required, user } from './support/component.ts'
 import { factory } from './support/fixtures.ts'
 
 const nav = () => screen.getByRole('navigation', { name: 'Sidebar' })
@@ -265,7 +265,8 @@ test('sidebar expansion survives a component remount', async () => {
   const u = user()
   const views = (name: string) =>
     within(screen.getByRole('article', { name })).getByRole('button', { name: 'Views' })
-  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await u.click(views('widgets'))
+  expect(views('widgets').getAttribute('aria-expanded')).toBe('true')
   await u.click(views('widgets'))
   expect(views('widgets').getAttribute('aria-expanded')).toBe('false')
   views('site').focus()
@@ -280,7 +281,7 @@ test('sidebar expansion survives a component remount', async () => {
   await u.keyboard(' ')
   expect(views('site').getAttribute('aria-expanded')).toBe('false')
   await u.click(screen.getByRole('button', { name: 'widgets' }))
-  expect(views('widgets').getAttribute('aria-expanded')).toBe('true')
+  expect(views('widgets').getAttribute('aria-expanded')).toBe('false')
 })
 
 test('Settings shortcut and Back restore the previous screen', async () => {
@@ -301,7 +302,7 @@ test('view headers open New Task without a duplicate sidebar button', async () =
   const a = appState()
   a.mount()
   const u = user()
-  await u.click(await screen.findByRole('button', { name: 'widgets' }))
+  await expandFactory()
   expect(within(nav()).queryByRole('button', { name: 'New Task…' })).toBeNull()
   await u.click(within(nav()).getByRole('button', { name: 'Tasks' }))
   for (const view of ['Board', 'List']) {

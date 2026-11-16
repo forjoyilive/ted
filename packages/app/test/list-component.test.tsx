@@ -2,7 +2,7 @@
 import { act, fireEvent, screen, within } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { appState } from './support/app.tsx'
-import { required, user } from './support/component.ts'
+import { expandFactory, required, user } from './support/component.ts'
 import { createdAt, factory, task } from './support/fixtures.ts'
 
 afterEach(() => vi.useRealTimers())
@@ -43,7 +43,7 @@ test('Started is the last column in both Lists and updates elapsed time', async 
   } finally {
     vi.mocked(Date.now).mockRestore()
   }
-  await user().click(screen.getByRole('button', { name: 'widgets' }))
+  await expandFactory()
   await user().click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Task views',
@@ -85,7 +85,7 @@ test('List display, grouping and filters update persisted settings per scope', a
     group: 'none',
     filters: { priorities: ['high'] },
   })
-  await u.click(screen.getByRole('button', { name: 'widgets' }))
+  await expandFactory()
   await u.click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Task views',
@@ -258,7 +258,7 @@ test('Show empty groups is saved per List and includes groups emptied by search'
   await u.click(await screen.findByRole('button', { name: 'All Tasks' }))
   main = within(screen.getByRole('main'))
   expect(main.getByRole('button', { name: /^Intake/ })).toBeTruthy()
-  await u.click(screen.getByRole('button', { name: 'widgets' }))
+  await expandFactory()
   await u.click(
     within(screen.getByRole('navigation', { name: 'Sidebar' })).getByRole('button', {
       name: 'Task views',
