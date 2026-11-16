@@ -225,6 +225,7 @@ export function threadEvents(
 
   const leadFailures = log.filter((entry) => entry.name === 'v1.TaskLeadFailed')
   const setup = log.some((entry) => entry.name === 'v1.SetupTaskCreated')
+  const byLead = log.find((entry) => entry.name === 'v1.TaskCreatedByTaskLead')
   const reset = log.findLastIndex((entry) => entry.name === 'v1.TaskReset')
   for (const entry of reset < 0 ? log : log.slice(reset)) {
     const { data } = entry
@@ -238,7 +239,18 @@ export function threadEvents(
         add(
           entry,
           'done',
-          setup ? 'TED created this Task to set up this Factory' : 'You created this Task',
+          setup
+            ? 'TED created this Task to set up this Factory'
+            : byLead
+              ? `${context.displayIdOf(text(byLead.data.creatorId))}’s Task Lead created this Task${byLead.data.child === true ? ' as its child' : ''}`
+              : 'You created this Task',
+        )
+        break
+      case 'v1.TaskLeadCreatedTask':
+        add(
+          entry,
+          'done',
+          `The Task Lead created ${context.displayIdOf(text(data.createdId))}${data.child === true ? ' as a child of this Task' : ''}`,
         )
         break
       case 'v1.TaskStartedByAutomation':

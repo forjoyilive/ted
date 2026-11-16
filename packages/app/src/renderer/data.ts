@@ -1017,7 +1017,8 @@ function automationWatch<T>(shown: (value: T) => AutomationsShown) {
           task.createdBy === 'human' ||
           task.createdBy === 'planning' ||
           task.createdBy === 'setup' ||
-          task.createdBy === 'coordinator'
+          task.createdBy === 'coordinator' ||
+          task.createdBy === 'task-lead'
         ) {
           return false
         }

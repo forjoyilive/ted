@@ -131,6 +131,8 @@ export const tasks = State.SQLite.table({
     partlyMergedAt: State.SQLite.text({ nullable: true }),
     setup: State.SQLite.boolean({ default: false }),
     coordinatorOperation: State.SQLite.text({ nullable: true }),
+    createdByTask: State.SQLite.text({ nullable: true }),
+    createdByRun: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
 })
@@ -3508,6 +3510,26 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskCreatedByTaskLead: Events.synced({
+    name: 'v1.TaskCreatedByTaskLead',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      creatorId: Schema.String,
+      runId: Schema.String,
+      child: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
+  taskLeadCreatedTask: Events.synced({
+    name: 'v1.TaskLeadCreatedTask',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      createdId: Schema.String,
+      runId: Schema.String,
+      child: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
   commentMarkedTutorial: Events.synced({
     name: 'v1.CommentMarkedTutorial',
     schema: Schema.Struct({ commentId: Schema.String }),
@@ -3927,6 +3949,10 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskStartedByAutomation': (args) =>
     task(args, { automationId: args.automationId, firingId: args.firingId, name: args.name }),
   'v1.TaskFollowedUp': (args) => task(args, { followUpId: args.followUpId }),
+  'v1.TaskCreatedByTaskLead': (args) =>
+    task(args, { creatorId: args.creatorId, runId: args.runId, child: args.child }),
+  'v1.TaskLeadCreatedTask': (args) =>
+    task(args, { createdId: args.createdId, runId: args.runId, child: args.child }),
   'v1.TaskSplitFrom': (args) => task(args, { originalId: args.originalId }),
   'v1.TaskSplit': (args) => task(args, { pieceIds: args.pieceIds, narrowedTo: args.narrowedTo }),
   'v1.ChildTasksCreated': (args) => task(args, { childIds: args.childIds, from: args.from }),
@@ -4361,6 +4387,10 @@ const materializers = counted(
       'v1.SetupTaskCreated': ({ taskId }) => tasks.update({ setup: true }).where({ id: taskId }),
       'v1.TaskCreatedByCoordinator': ({ taskId, operation }) =>
         tasks.update({ coordinatorOperation: operation }).where({ id: taskId }),
+      'v1.TaskCreatedByTaskLead': ({ taskId, creatorId, runId }) =>
+        tasks.update({ createdByTask: creatorId, createdByRun: runId }).where({ id: taskId }),
+      'v1.TaskLeadCreatedTask': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.CommentMarkedTutorial': ({ commentId }) =>
         comments.update({ tutorial: true }).where({ id: commentId }),
       'v1.CommentLinearTeamAsked': ({ commentId, key, name }) =>

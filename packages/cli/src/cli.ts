@@ -1567,10 +1567,18 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       const followUp = options['follow-up']
       const sentryId = options['sentry-id']
       const files = options.attach ?? []
-      if (files.length > 0 && (followUp !== undefined || (source && parseAsanaTaskUrl(source)))) {
+      const child = options.child === true
+      const asanaImport =
+        source !== undefined &&
+        parseAsanaTaskUrl(source) !== undefined &&
+        !(runTokenFrom(env) && tedEnv('TED_TASK', env))
+      if (files.length > 0 && (followUp !== undefined || asanaImport)) {
         throw new UsageError('files can’t be attached to a Follow-up or an Asana import')
       }
-      if (source !== undefined && parseAsanaTaskUrl(source) && followUp === undefined) {
+      if (child && followUp !== undefined) {
+        throw new UsageError('a Follow-up Task can’t be created as a child')
+      }
+      if (asanaImport && followUp === undefined) {
         const request = {
           url: source,
           ...(factory !== undefined && { factory }),
@@ -1614,6 +1622,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
           ...(description !== undefined && { description }),
           ...(followUp !== undefined && { followUp }),
           ...(start !== undefined && { start }),
+          ...(child && { child }),
           ...(attachments.length > 0 && { attachments }),
         })
       })

@@ -529,8 +529,10 @@ export interface CreateTaskInput
     | 'splitFrom'
     | 'automation'
     | 'parentId'
+    | 'taskLead'
   > {
   title?: string
+  child?: boolean
   source?: string
   sentryId?: string
   followUp?: string
@@ -772,6 +774,7 @@ export interface Tasks {
 const slugLength = 40
 const recordedConflictFiles = 50
 const handOffCheckLimit = 3
+export const maxTasksPerLead = 3
 
 function withoutRepeats(files: readonly Attachment[]): Attachment[] {
   const seen = new Map<string, Attachment>()
@@ -8690,6 +8693,54 @@ export function createTasks(options: {
     }
   }
 
+  function leadCreator(caller: Caller) {
+    if (caller.kind !== 'run' || store.automations.firing(caller.runId)) return undefined
+    const taskId = store.getRun(caller.runId)?.taskId
+    if (taskId === undefined) return undefined
+    const { task, runId } = taskLead(taskId, caller, 'creates Tasks with `ted task create`')
+    if (task.archived || task.stage === 'done') {
+      throw new RequestError(409, `${task.displayId} is closed; it can’t create Tasks`)
+    }
+    const factory = store.getFactory(task.factoryId)
+    if (!factory) throw new RequestError(409, `${task.displayId}’s Factory is gone`)
+    return { task, runId, factory }
+  }
+
+  function refuseLeadCreate(
+    creator: { task: StoredTask; factory: StoredFactory },
+    given: {
+      startNow: boolean | undefined
+      startInBackground: boolean | undefined
+      givenKey: string | undefined
+      blockedBy: readonly string[]
+    },
+  ): void {
+    if (given.startNow === true || given.startInBackground === true) {
+      throw new RequestError(
+        403,
+        'A Task Lead creates Tasks in Backlog; the user starts them. Leave out --start.',
+      )
+    }
+    if (given.givenKey !== undefined && given.givenKey !== creator.factory.key) {
+      throw new RequestError(
+        403,
+        `A Task Lead creates Tasks only in ${creator.factory.key}, its own Factory`,
+      )
+    }
+    if (given.blockedBy.length > 0) {
+      throw new RequestError(403, 'A Task Lead can’t set blockers on the Task it creates')
+    }
+    refuseLeadLimit(creator.task)
+  }
+
+  function refuseLeadLimit(task: StoredTask): void {
+    if (store.leadCreatedTasks(task.id).length < maxTasksPerLead) return
+    throw new RequestError(
+      409,
+      `${task.displayId} has already created ${maxTasksPerLead} Tasks, the most one Task creates. If more work is needed, suggest a planning chat or Split it to the user instead.`,
+    )
+  }
+
   function checkAgentCaller(caller: Caller, action: string) {
     const automation = caller.kind === 'run' ? automationCaller(caller) : undefined
     if (!automation?.check) {
@@ -8852,6 +8903,7 @@ export function createTasks(options: {
       sourceUrl?: string
       factoryId?: string
       automation?: { name: string; link: { automationId: string; firingId: string } }
+      taskLead?: { creatorId: string; runId: string; child: boolean }
       linearConsent: boolean
     },
   ): Promise<Task> {
@@ -8909,8 +8961,10 @@ export function createTasks(options: {
         : url !== undefined && { source: taskSource(url, undefined) }),
       followUpOf: original.id,
       ...(input.automation && { automation: input.automation.link }),
+      ...(input.taskLead && { taskLead: input.taskLead }),
       linearConsent: input.linearConsent,
     })
+    if (input.taskLead) return publicTask(task.id)
     const issue = input.automation && url !== undefined ? await linearIssue(url) : undefined
     if (input.automation && issue)
       linearConsent.askGroup(task.id, input.automation.name, issue.team)
@@ -8968,11 +9022,19 @@ export function createTasks(options: {
   }
 
   function shouldStopForBlockers(task: StoredTask, run: Run): boolean {
+    const madeByRun = new Set(
+      store
+        .leadCreatedTasks(task.id)
+        .filter((made) => made.runId === run.id)
+        .map((made) => made.taskId),
+    )
     return (
       run.state === 'idle' &&
       task.stage !== 'backlog' &&
       task.stage !== 'done' &&
-      unmergedBlockers(task.id).some((b) => b.setByRunId === run.id)
+      unmergedBlockers(task.id).some(
+        (b) => b.setByRunId === run.id || (b.kind === 'child' && madeByRun.has(b.blockerId)),
+      )
     )
   }
 
@@ -10321,6 +10383,7 @@ export function createTasks(options: {
       sentryId,
       followUp,
       parent: parentRef,
+      child = false,
       ...fields
     }: CreateTaskInput,
     caller: Caller = { kind: 'app' },
@@ -10334,12 +10397,22 @@ export function createTasks(options: {
     if (parentRef !== undefined && followUp !== undefined) {
       throw new RequestError(400, 'a follow-up Task can’t be created under a parent')
     }
-    const automation = automationCaller(caller)
+    const creator = leadCreator(caller)
+    const automation = creator ? undefined : automationCaller(caller)
+    if (child && !creator) {
+      throw new RequestError(403, 'only a Task Lead creates a child of its own Task this way')
+    }
+    if (creator) refuseLeadCreate(creator, { startNow, startInBackground, givenKey, blockedBy })
+    if (child && followUp !== undefined) {
+      throw new RequestError(400, 'a Follow-up Task can’t be created as a child')
+    }
+    const asanaImport = !creator && isAsanaSource(sourceUrl, parentRef)
     const files = fields.attachments ?? []
-    if (files.length > 0 && (followUp !== undefined || isAsanaSource(sourceUrl, parentRef))) {
+    if (files.length > 0 && (followUp !== undefined || asanaImport)) {
       throw new RequestError(400, 'files can’t be attached to a Follow-up or an Asana import')
     }
-    if (caller.kind === 'run') {
+    if (creator) checkOwnFiles(creator.task, files)
+    else if (caller.kind === 'run') {
       const foreign = files.find((a) => !automationUploads.has(`${caller.runId}:${a.hash}`))
       if (foreign) {
         throw new RequestError(
@@ -10348,7 +10421,7 @@ export function createTasks(options: {
         )
       }
     }
-    const key = automation?.factoryKey ?? givenKey
+    const key = creator?.factory.key ?? automation?.factoryKey ?? givenKey
     if (automation && givenKey !== undefined && givenKey !== automation.factoryKey) {
       throw new RequestError(
         403,
@@ -10406,6 +10479,11 @@ export function createTasks(options: {
         )
       }
     }
+    const taskLeadLink = creator && {
+      creatorId: creator.task.id,
+      runId: creator.runId,
+      child,
+    }
     if (followUp !== undefined) {
       return createFollowUp(followUp, {
         ...(title !== undefined && { title }),
@@ -10413,10 +10491,11 @@ export function createTasks(options: {
         ...(sourceUrl !== undefined && { sourceUrl }),
         ...(factory && { factoryId: factory.id }),
         ...(automation && { automation: { name: automation.name, link: automation.link } }),
+        ...(taskLeadLink && { taskLead: taskLeadLink }),
         linearConsent: caller.kind === 'app',
       })
     }
-    if (isAsanaSource(sourceUrl, parentRef)) {
+    if (asanaImport) {
       const imported = await importAsana(
         {
           url: sourceUrl,
@@ -10440,7 +10519,12 @@ export function createTasks(options: {
     const linearFiles = await storedFiles(issue?.files ?? [])
     const github =
       issue === undefined && sourceUrl !== undefined && factory
-        ? await githubIssue(sourceUrl, factory, automation?.check === undefined, githubScope)
+        ? await githubIssue(
+            sourceUrl,
+            factory,
+            automation?.check === undefined && !creator,
+            githubScope,
+          )
         : undefined
     const importedFiles = [...linearFiles, ...(github?.files ?? [])]
     const given = title?.trim() || issue?.title || github?.title
@@ -10491,7 +10575,11 @@ export function createTasks(options: {
     if (parentIssue && parentClash && issueLink) {
       throw new RequestError(409, trackedParentRefusal(issueLink, parentIssue, parentClash))
     }
-    const parent = parentFor()
+    if (creator) {
+      requireHierarchyIdle([creator.task.id])
+      refuseLeadLimit(find(creator.task.id))
+    }
+    const parent = child ? creator?.task : parentFor()
     const leadNow = lead ?? {
       ...leadFrom(resolution?.workflow.settings),
       effortMode: 'stage' as const,
@@ -10546,6 +10634,7 @@ export function createTasks(options: {
       startRequested: startNow === true && !held,
       ...(factory && { factoryId: factory.id }),
       ...(automation && { automation: automation.link }),
+      ...(taskLeadLink && { taskLead: taskLeadLink }),
       linearConsent: caller.kind === 'app',
       ...(children.length > 0 && { children }),
       ...(github && {
@@ -11077,6 +11166,12 @@ export function createTasks(options: {
 
     async uploadForCreate(caller, save) {
       if (caller.kind !== 'run') return save()
+      const creator = leadCreator(caller)
+      if (creator) {
+        const saved = await save()
+        runUploads.add(`${creator.task.id}:${saved.hash}`)
+        return saved
+      }
       automationCaller(caller)
       const saved = await save()
       automationUploads.add(`${caller.runId}:${saved.hash}`)

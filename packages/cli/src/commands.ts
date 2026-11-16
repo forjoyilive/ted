@@ -74,6 +74,7 @@ const flags = {
   'sentry-id': { type: 'string' },
   by: { type: 'string' },
   start: { type: 'boolean' },
+  child: { type: 'boolean' },
   'dry-run': { type: 'boolean' },
   stop: { type: 'boolean' },
   reason: { type: 'string' },
@@ -965,8 +966,8 @@ export const commands = [
     argumentOrOption: 'source',
     min: 0,
     max: null,
-    help: '  ted task create [--factory <key>] [--start] [--source <url>] [--description "<text>"]\n                [--sentry-id <SHORT-ID>] [--follow-up <id>] [--dry-run]\n                [--attach <path> …] "<title>"\n                                             Create a Task (--start starts it); a Linear URL\n                                             as the source fills it in from Linear. An Asana\n                                             task URL imports it and every unfinished task\n                                             under it as parent and child Tasks; --dry-run\n                                             prints that tree without creating it. TED refuses\n                                             a source it already tracks; --follow-up revisits\n                                             a Done Task. --sentry-id puts Fixes <SHORT-ID> in\n                                             the pull request. --attach adds files; images show\n                                             in the thread',
-    callers: 'Terminal or Automation Run',
+    help: '  ted task create [--factory <key>] [--start] [--source <url>] [--description "<text>"]\n                [--sentry-id <SHORT-ID>] [--follow-up <id>] [--dry-run]\n                [--attach <path> …] [--child] "<title>"\n                                             Create a Task (--start starts it); a Linear URL\n                                             as the source fills it in from Linear. An Asana\n                                             task URL imports it and every unfinished task\n                                             under it as parent and child Tasks; --dry-run\n                                             prints that tree without creating it. TED refuses\n                                             a source it already tracks; --follow-up revisits\n                                             a Done Task. --sentry-id puts Fixes <SHORT-ID> in\n                                             the pull request. --attach adds files; images show\n                                             in the thread. A Task Lead creates up to 3\n                                             Tasks in its own Factory, in Backlog; --child\n                                             makes one a child its Task waits for, and an\n                                             Asana URL makes one Task with a link',
+    callers: 'Terminal, Automation Run or Task Lead',
     options: options(
       'factory',
       'start',
@@ -976,6 +977,7 @@ export const commands = [
       'follow-up',
       'dry-run',
       'attach',
+      'child',
     ),
   },
   {

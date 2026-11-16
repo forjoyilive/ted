@@ -95,6 +95,7 @@ export const createdByKinds = [
   'follow-up',
   'setup',
   'coordinator',
+  'task-lead',
 ] as const
 
 export type CreatedBy = (typeof createdByKinds)[number]
@@ -511,6 +512,7 @@ export interface CreateTaskRequest {
   lead?: TaskLead
   blockedBy?: string[]
   parent?: string
+  child?: boolean
   attachments?: AttachmentRef[]
   source?: string
   sentryId?: string
