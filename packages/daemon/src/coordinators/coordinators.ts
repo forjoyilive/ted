@@ -165,7 +165,8 @@ export interface Coordinators {
   messageRemoved(runId: string): void
   holdFactoryRemoval(factoryId: string): () => void
   removeFactory(factoryId: string): Promise<void>
-  continueChat(chatId: string): Promise<Coordinator>
+  archiveChat(chatId: string): Promise<Coordinator>
+  unarchiveChat(chatId: string): Promise<Coordinator>
   renameChat(chatId: string, title: string): Promise<Coordinator>
   deleteChat(chatId: string): Promise<void>
   close(): Promise<void>
@@ -225,6 +226,8 @@ export function createCoordinators(options: {
   }
   const requireChat = (id: string) => {
     const c = saved.get(id)
+    if (!c && saved.find(id) && !deleting.has(id))
+      throw new RequestError(409, 'This Coordinator chat is archived; unarchive it first')
     if (!c || deleting.has(id)) throw new RequestError(404, 'no such Coordinator chat')
     requireFactory(c.factoryId)
     return c
@@ -1034,10 +1037,13 @@ export function createCoordinators(options: {
       if (run && run.state !== 'finished') await runs.stop(runId)
     }
   }
-  async function removeFolders(runIds: readonly string[]): Promise<void> {
+  async function removeFolders(
+    runIds: readonly string[],
+    bases: readonly string[] = ['coordinators', 'runs'],
+  ): Promise<void> {
     for (const runId of runIds) {
       if (!/^[a-f0-9-]{36}$/.test(runId)) throw new Error('invalid Coordinator Run ID')
-      for (const base of ['coordinators', 'runs']) {
+      for (const base of bases) {
         const parent = path.join(home, base),
           dir = path.join(parent, runId)
         const stat = await lstat(dir).catch(() => undefined)
@@ -1079,7 +1085,7 @@ export function createCoordinators(options: {
       await settle(c)
       const latest = saved.find(c.id) ?? c
       clearSnoozes(latest)
-      await removeFolders(latest.runIds)
+      await removeFolders(latest.runIds, ['coordinators'])
       gone.add(c.id)
       saved.delete(c.id)
       await store.persisted()
@@ -1981,7 +1987,31 @@ export function createCoordinators(options: {
         if (!closed) pump()
       }
     },
-    async continueChat(id) {
+    async archiveChat(id) {
+      if (requireAnyChat(id).endedAt !== undefined) return publicChat(requireAnyChat(id))
+      await service.stop(id)
+      await exclusive(id, async () => {
+        const c = requireAnyChat(id)
+        if (c.endedAt !== undefined) return
+        await settle(c)
+        const latest = requireChat(id)
+        clearSnoozes(latest)
+        const at = new Date().toISOString()
+        save({
+          ...latest,
+          phase: 'ready',
+          error: undefined,
+          confirmations: (latest.confirmations ?? []).map((x) =>
+            x.answer ? x : { ...x, answer: { decision: 'cancel', at } },
+          ),
+        })
+        saved.archive(id, at)
+        await store.persisted()
+      })
+      pump()
+      return publicChat(requireAnyChat(id))
+    },
+    async unarchiveChat(id) {
       const c = requireAnyChat(id)
       if (c.endedAt === undefined) return publicChat(c)
       await exclusive(id, async () => {

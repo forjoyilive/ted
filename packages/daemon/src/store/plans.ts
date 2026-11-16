@@ -47,6 +47,7 @@ export interface StoredPlan {
   createdAt: string
   startedAt?: string
   finishedAt?: string
+  archivedAt?: string
   from?: { planId: string; title: string; context: string }
   fromTask?: PlanTaskLink
 }
@@ -86,7 +87,8 @@ export interface PlanStore {
   resumeQueued(id: string, error: string): void
   revived(id: string): void
   ended(id: string, end: { outcome: PlanOutcome; error?: string }): void
-  markFinished(id: string, withdraw: readonly string[]): void
+  archive(id: string, withdraw: readonly string[]): void
+  unarchive(id: string): void
   postRequest(input: NewPlanRequest): PlanRequest
   answerRequest(id: string, answer: CommentAnswer): PlanRequest
   requests(planId?: string): PlanRequest[]
@@ -125,6 +127,7 @@ export function createPlanStore({
     createdAt: row.createdAt,
     ...(row.startedAt !== null && { startedAt: row.startedAt }),
     ...(row.finishedAt !== null && { finishedAt: row.finishedAt }),
+    ...(row.archivedAt !== null && { archivedAt: row.archivedAt }),
     ...(row.fromPlanId !== null && {
       from: {
         planId: row.fromPlanId,
@@ -243,21 +246,9 @@ export function createPlanStore({
     revived: (id) => planEvent(id, (at) => events.planRunRevived({ id, at })),
     ended: (id, { outcome, error }) =>
       planEvent(id, (at) => events.planEnded({ id, outcome, error: error ?? null, at })),
-    markFinished(id, withdraw) {
-      if (!get(id)) return
-      const at = now()
-      commit(
-        events.planEnded({ id, outcome: 'finished', error: null, at }),
-        ...withdraw.map((requestId) =>
-          events.planRequestAnswered({
-            id: requestId,
-            answer: JSON.stringify({ kind: 'withdrawn', at, runStopped: true }),
-            at,
-          }),
-        ),
-      )
-      updated(id)
-    },
+    archive: (id, withdraw) =>
+      planEvent(id, (at) => events.planArchived({ id, withdraw: [...withdraw], at })),
+    unarchive: (id) => planEvent(id, (at) => events.planUnarchived({ id, at })),
     postRequest({ title, round, proposal, ...input }) {
       const id = randomUUID()
       commit(

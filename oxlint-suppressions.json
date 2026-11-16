@@ -995,9 +995,6 @@
     }
   },
   "packages/app/src/renderer/views/PlanChat.tsx": {
-    "anti-slop/no-unknown-returns": {
-      "count": 1
-    },
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 2
     }

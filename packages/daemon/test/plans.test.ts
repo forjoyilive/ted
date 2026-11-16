@@ -14,6 +14,7 @@ import type {
   RunWithConversation,
   Task,
 } from '@ted/protocol'
+import { readDaemonInfo } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -118,7 +119,7 @@ const start = (client: Client, message: string, extra: Record<string, unknown> =
   client.ok<Plan>('POST', '/plans', { factory: 'NB', message, ...extra })
 
 describe('Planning chats', () => {
-  test('the first message starts a Planning Run in a detached checkout, and Create Tasks finishes it', async () => {
+  test('the first message starts a Planning Run in a detached checkout, and Create Tasks finishes and archives it', async () => {
     const client = await startTed()
     const roundFile = await file('round.json', round)
     const proposalFile = await file('proposal.json', proposal)
@@ -220,6 +221,7 @@ describe('Planning chats', () => {
       body: 'Created 2 Tasks under NB-1: NB-2, NB-3. NB-1 waits for them to merge.',
     })
     expect(done.plan.createdTasks).toBe(2)
+    expect(done.plan.archivedAt).toBeDefined()
     const answeredAt = done.requests.flatMap((r) => (r.answer ? [r.answer.at] : [])).sort()
     expect(done.plan.lastAt >= (answeredAt.at(-1) ?? '')).toBe(true)
     expect(done.plan.lastAt > done.plan.createdAt).toBe(true)
@@ -295,7 +297,7 @@ describe('Planning chats', () => {
     expect(stale.status).toBe(409)
   })
 
-  test('Stop keeps the open round; answering it resumes the same chat, and Mark finished ends it', async () => {
+  test('Stop keeps the open round; answering it resumes the same chat; an archived chat can’t resume until it is unarchived', async () => {
     const client = await startTed()
     await writeFile(
       path.join(home, 'stub-claude.json'),
@@ -346,15 +348,23 @@ describe('Planning chats', () => {
     expect(existsSync(revived.run.cwd)).toBe(true)
 
     await waitForPlan(client, plan.id, (d) => d.plan.status === 'idle', 'the planner to go idle')
-    expect((await client.call('POST', `/plans/${plan.id}/finish`, {})).status).toBe(409)
+    expect((await client.call('POST', `/plans/${plan.id}/finish`, {})).status).toBe(404)
     await client.ok('POST', `/plans/${plan.id}/stop`)
-    const finished = await client.ok<Plan>('POST', `/plans/${plan.id}/finish`, {})
-    expect(finished).toMatchObject({ status: 'finished' })
-    expect(finished.canResume).toBeUndefined()
-    expect((await client.call('POST', `/plans/${plan.id}/resume`, {})).status).toBe(409)
+    const archived = await client.ok<Plan>('POST', `/plans/${plan.id}/archive`)
+    expect(archived).toMatchObject({ status: 'stopped' })
+    expect(archived.archivedAt).toBeDefined()
+    expect(archived.canResume).toBeUndefined()
+    const refused = await client.call('POST', `/plans/${plan.id}/resume`, {})
+    expect(refused).toMatchObject({
+      status: 409,
+      body: { error: expect.stringContaining('archived') },
+    })
+    const unarchived = await client.ok<Plan>('POST', `/plans/${plan.id}/unarchive`)
+    expect(unarchived.archivedAt).toBeUndefined()
+    expect(unarchived).toMatchObject({ status: 'stopped', canResume: true })
   })
 
-  test('Stop while the checkout is still being made keeps the chat stopped', async () => {
+  test('Stop while the checkout is still being made keeps the chat stopped; after archive and unarchive, writing to it starts the planner with the message', async () => {
     const client = await startTed()
     const plan = await start(client, `Plan sharing\n${steps({ say: 'Hi' }, { endTurn: true })}`)
     const stopped = await client.ok<Plan>('POST', `/plans/${plan.id}/stop`)
@@ -365,14 +375,25 @@ describe('Planning chats', () => {
     const run = await client.call('GET', `/runs/${plan.id}`)
     if (run.status === 200) {
       expect((run.body as RunWithConversation).run.state).toBe('finished')
-    } else {
-      expect(after.plan.canResume).toBeUndefined()
-      expect((await client.call('POST', `/plans/${plan.id}/resume`, {})).status).toBe(409)
     }
+    expect(after.plan.canResume).toBe(true)
     await waitUntil(
       async () => !existsSync(path.join(home, 'plans', plan.id)) || undefined,
       'the checkout to go',
     )
+    await client.ok('POST', `/plans/${plan.id}/archive`)
+    const unarchived = await client.ok<Plan>('POST', `/plans/${plan.id}/unarchive`)
+    expect(unarchived).toMatchObject({ status: 'stopped', canResume: true })
+    const resumed = await client.ok<Plan>('POST', `/plans/${plan.id}/resume`, {
+      message: 'Also think about teams',
+    })
+    expect(resumed.status).not.toBe('stopped')
+    await waitUntil(async () => {
+      const sent = await client.call('GET', `/runs/${plan.id}`)
+      if (sent.status !== 200) return undefined
+      return JSON.stringify(sent.body.conversation).includes('Also think about teams') || undefined
+    }, 'the message to reach the planner')
+    await client.ok('POST', `/plans/${plan.id}/stop`)
   })
 
   test('with the limit full a chat starts at once and takes no slot', async () => {
@@ -401,6 +422,11 @@ describe('Planning chats', () => {
         expect.objectContaining({ kind: 'planning', runId: plan.id }),
       ]),
     })
+    const archived = await client.ok<Plan>('POST', `/plans/${plan.id}/archive`)
+    expect(archived).toMatchObject({ status: 'stopped' })
+    expect(archived.archivedAt).toBeDefined()
+    const run = await client.ok<RunWithConversation>('GET', `/runs/${plan.id}`)
+    expect(run.run.state).toBe('finished')
     await open('go')
     await open('done')
   })
@@ -430,7 +456,7 @@ describe('Planning chats', () => {
     ])
     await client.ok('DELETE', `/plans/${next.id}`)
     expect((await client.call('GET', `/runs/${next.id}/chat`)).status).toBe(404)
-    expect(existsSync(path.join(home, 'runs', next.id))).toBe(false)
+    expect(existsSync(path.join(home, 'runs', next.id))).toBe(true)
     await client.ok('DELETE', `/plans/${plan.id}`)
     expect((await client.call('GET', `/plans/${plan.id}`)).status).toBe(404)
     expect(await client.ok<Plan[]>('GET', '/plans')).toEqual([])
@@ -438,7 +464,7 @@ describe('Planning chats', () => {
 })
 
 describe('Plans list', () => {
-  test('a chat waiting on the human says what it waits on', async () => {
+  test('a chat waiting on the human says what it waits on; archiving it withdraws the round and only the app archives', async () => {
     const client = await startTed()
     const roundFile = await file('round.json', round)
     const plan = await start(
@@ -449,7 +475,35 @@ describe('Plans list', () => {
     expect(waiting.plan.waitingOn).toBe('Round 1')
     const [listed] = await client.ok<Plan[]>('GET', '/plans?factory=NB')
     expect(listed).toMatchObject({ status: 'waiting', waitingOn: 'Round 1' })
-    await client.ok('POST', `/plans/${plan.id}/stop`)
+    const roundId = waiting.requests.find((r) => r.kind === 'round')?.id as string
+    expect((await client.ok<{ id: string }[]>('GET', '/inbox/waiting')).map((w) => w.id)).toContain(
+      roundId,
+    )
+    const info = await readDaemonInfo(home)
+    if (!info || !daemon) throw new Error('missing daemon connection')
+    const withFileToken = api(daemon.port, info.token)
+    expect((await withFileToken.call('POST', `/plans/${plan.id}/archive`, {})).status).toBe(403)
+    expect((await withFileToken.call('POST', `/plans/${plan.id}/unarchive`, {})).status).toBe(403)
+
+    await client.ok<Plan>('POST', `/plans/${plan.id}/archive`)
+    const archived = await detail(client, plan.id)
+    expect(archived.plan.archivedAt).toBeDefined()
+    expect(archived.requests.find((r) => r.id === roundId)?.answer).toMatchObject({
+      kind: 'withdrawn',
+    })
+    expect(await client.ok<PlanInboxItem[]>('GET', '/plan-requests')).toEqual([])
+    expect(
+      (await client.ok<{ id: string }[]>('GET', '/inbox/waiting')).map((w) => w.id),
+    ).not.toContain(roundId)
+    const answer = await client.call('POST', `/plan-requests/${roundId}/answer`, {
+      action: 'accept-recommended',
+    })
+    expect(answer.status).toBe(409)
+    await waitUntil(
+      async () => !existsSync(path.join(home, 'plans', plan.id)) || undefined,
+      'the checkout to go',
+    )
+    expect(existsSync(path.join(home, 'runs', plan.id))).toBe(true)
   })
 
   test('Resume carries on a failed chat in a fresh checkout', async () => {

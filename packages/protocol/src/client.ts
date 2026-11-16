@@ -169,6 +169,7 @@ import type { MemoryUse } from './memory.ts'
 import type { MessageBox, MessageDraftState, SaveMessageDraftRequest } from './message-draft.ts'
 import type { PeerDetail, PeerInbox, PeerMessage, PeerPage, SendPeerMessage } from './peers.ts'
 import type {
+  ChatArchiveExpiry,
   Plan,
   PlanDetail,
   PlanInboxItem,
@@ -483,8 +484,12 @@ export class DaemonClient {
     return this.#request('PATCH', `/coordinator-chats/${encodeURIComponent(chatId)}`, { title })
   }
 
-  continueCoordinatorChat(chatId: string): Promise<Coordinator> {
-    return this.#request('POST', `/coordinator-chats/${encodeURIComponent(chatId)}/continue`)
+  archiveCoordinatorChat(chatId: string): Promise<Coordinator> {
+    return this.#request('POST', `/coordinator-chats/${encodeURIComponent(chatId)}/archive`, {})
+  }
+
+  unarchiveCoordinatorChat(chatId: string): Promise<Coordinator> {
+    return this.#request('POST', `/coordinator-chats/${encodeURIComponent(chatId)}/unarchive`, {})
   }
 
   deleteCoordinatorChat(chatId: string): Promise<null> {
@@ -550,8 +555,12 @@ export class DaemonClient {
     return this.#request('POST', `/plans/${encodeURIComponent(id)}/resume`, input)
   }
 
-  markPlanFinished(id: string): Promise<Plan> {
-    return this.#request('POST', `/plans/${encodeURIComponent(id)}/finish`, {})
+  archivePlan(id: string): Promise<Plan> {
+    return this.#request('POST', `/plans/${encodeURIComponent(id)}/archive`, {})
+  }
+
+  unarchivePlan(id: string): Promise<Plan> {
+    return this.#request('POST', `/plans/${encodeURIComponent(id)}/unarchive`, {})
   }
 
   deletePlan(id: string): Promise<{ deleted: true }> {
@@ -1351,6 +1360,10 @@ export class DaemonClient {
 
   archiveExpiry(days: number): Promise<ArchiveExpiry> {
     return this.#request('GET', `/archive-expiry?days=${encodeURIComponent(String(days))}`)
+  }
+
+  chatArchiveExpiry(days: number): Promise<ChatArchiveExpiry> {
+    return this.#request('GET', `/chat-archive-expiry?days=${encodeURIComponent(String(days))}`)
   }
 
   getSettings(): Promise<MachineSettings> {

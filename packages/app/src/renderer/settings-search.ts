@@ -261,6 +261,10 @@ const entries = {
     name: 'Delete archived Tasks',
     help: 'The whole Task goes, with its Comments, Task brief and chats. Counted from when it was archived. Done Tasks that aren’t archived stay. This can’t be undone.',
   },
+  'app.storage.archived-chats': {
+    name: 'Delete archived Agent chats',
+    help: 'Archived Coordinator and planning chats go with their conversations. Tasks they created stay. Counted from when the chat was archived. This can’t be undone.',
+  },
   'app.storage.export': { name: 'Export a Factory', heading: true },
   'app.storage.export.factory': { name: 'Factory' },
   'app.storage.export.format': { name: 'Format' },

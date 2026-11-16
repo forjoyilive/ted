@@ -46,6 +46,7 @@ export interface CoordinatorStore {
   forRun(runId: string): StoredCoordinator | undefined
   endedForRun(runId: string): StoredCoordinator | undefined
   save(value: StoredCoordinator, canceled?: readonly RunMessage[]): void
+  archive(id: string, at: string): void
   reopen(id: string): void
   rename(id: string, title: string): void
   delete(id: string): void
@@ -115,6 +116,12 @@ export function createCoordinatorStore(options: {
       ]
       if (writes.length > 0) options.commit(...writes)
       options.changed(value.factoryId, value.id)
+    },
+    archive(id, at) {
+      const c = find(id)
+      if (!c || c.endedAt !== undefined) return
+      options.commit(events.coordinatorChatArchived({ id, at }))
+      options.changed(c.factoryId, id)
     },
     reopen(id) {
       const c = find(id)
