@@ -240,7 +240,7 @@ test('New conversation saves the conversation under Earlier, where it opens read
     titles.findIndex((t) => t?.includes('Added first')),
   )
 
-  await user().click(within(earlier).getByRole('button', { name: 'Delete' }))
+  await user().click(within(earlier).getByRole('button', { name: 'Delete…' }))
   const dialog = await screen.findByRole('dialog')
   expect(dialog.textContent).toContain('Delete this conversation?')
   await user().click(within(dialog).getByRole('button', { name: 'Cancel' }))
@@ -277,7 +277,7 @@ test('New conversation saves the conversation under Earlier, where it opens read
   await user().click(
     within(
       await screen.findByRole('region', { name: 'Earlier Coordinator conversation' }),
-    ).getByRole('button', { name: 'Delete' }),
+    ).getByRole('button', { name: 'Delete…' }),
   )
   await user().click(
     within(await screen.findByRole('dialog')).getByRole('button', { name: 'Delete' }),

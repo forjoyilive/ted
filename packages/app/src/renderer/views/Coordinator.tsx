@@ -429,7 +429,7 @@ function EarlierConversation({
           </span>
           <span className={styles.spacer} />
           <Button disabled={busy} onClick={onDelete}>
-            Delete
+            Delete…
           </Button>
           <Button variant="primary" disabled={busy} onClick={onContinue}>
             Continue

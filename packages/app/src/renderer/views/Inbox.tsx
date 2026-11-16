@@ -759,7 +759,7 @@ function InboxEmptyState({
   const button = {
     'new-task': (
       <Button variant="primary" onClick={onNewTask}>
-        New Task
+        New Task…
       </Button>
     ),
     'show-answered': <Button onClick={onShowAnswered}>Show answered</Button>,

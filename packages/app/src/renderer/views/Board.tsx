@@ -211,7 +211,7 @@ function DoneMenu({ count, onArchiveAll }: { count: number; onArchiveAll: () => 
               onArchiveAll()
             }}
           >
-            Archive all in Done
+            Archive all in Done…
           </button>
         </div>
       )}
@@ -677,7 +677,7 @@ export function Board({
         </MenuButton>
         <Button variant="primary" onClick={onNewTask}>
           <PlusIcon />
-          New Task
+          New Task…
         </Button>
       </header>
       {banners}
@@ -804,9 +804,9 @@ export function Board({
               help="A Task is one piece of work that agents carry through this Factory’s Stages, from request to merge. Plan helps split a piece of work too big for one Task."
             >
               <Button variant="primary" onClick={onNewTask}>
-                New Task
+                New Task…
               </Button>
-              <Button onClick={onPlan}>Plan</Button>
+              <Button onClick={onPlan}>Plan…</Button>
             </EmptyState>
           </div>
         )}

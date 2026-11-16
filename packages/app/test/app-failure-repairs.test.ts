@@ -106,7 +106,7 @@ test.each(['new', 'existing'] as const)(
         .fill('Restore test execution.')
       await form.getByRole('checkbox').uncheck()
     } else if (existing) {
-      await form.getByRole('button', { name: 'Choose repair', exact: true }).click()
+      await form.getByRole('button', { name: 'Choose repair…', exact: true }).click()
       await form.getByRole('combobox', { name: 'Find a Task' }).fill(existing.displayId)
       await form.getByRole('option').filter({ hasText: existing.displayId }).click()
       await form.getByRole('button', { name: 'Send', exact: true }).click()

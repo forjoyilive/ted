@@ -263,7 +263,7 @@ describe('Board', () => {
     await backlog.locator('[data-task="NB-1"] [data-card-title]').click()
     const details = window.getByLabel('Task details')
     const children = details.getByRole('region', { name: 'Children' })
-    await children.getByRole('button', { name: 'Create child' }).click()
+    await children.getByRole('button', { name: 'Create child…' }).click()
     const dialog = window.getByRole('dialog')
     await dialog
       .getByText('NB-1 waits for this Task to merge before it does its own remaining work.')
@@ -273,7 +273,7 @@ describe('Board', () => {
     await dialog.getByLabel('Start now').uncheck()
     await dialog.getByRole('button', { name: 'Create', exact: true }).click()
     await children.locator('[data-task="NB-4"]').waitFor()
-    await children.getByRole('button', { name: 'Add existing Task' }).click()
+    await children.getByRole('button', { name: 'Add existing Task…' }).click()
     await children.getByLabel('Find a Task to add').fill('Note history')
     await children.getByLabel('Find a Task to add').press('Enter')
     await children.locator('[data-task="NB-3"]').waitFor()

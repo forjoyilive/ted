@@ -60,8 +60,8 @@ test('empty Board keeps Workflow columns and New Task and Plan actions', async (
   const u = user()
   const empty = screen.getByRole('region', { name: 'No Tasks yet' })
   if (!empty) throw new Error('Missing empty Board')
-  await u.click(within(empty).getByRole('button', { name: 'New Task' }))
-  await u.click(within(empty).getByRole('button', { name: 'Plan' }))
+  await u.click(within(empty).getByRole('button', { name: 'New Task…' }))
+  await u.click(within(empty).getByRole('button', { name: 'Plan…' }))
   expect(p.onNewTask).toHaveBeenCalledOnce()
   expect(p.onPlan).toHaveBeenCalledOnce()
 })
@@ -117,7 +117,7 @@ test('Display sets card size, card fields and columns, and saves them for the Fa
     />,
   )
   await screen.findByRole('region', { name: 'Review' })
-  expect(screen.queryByRole('button', { name: 'Plan' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Plan…' })).toBeNull()
   const stagesShown = () =>
     [...document.querySelectorAll('[data-stage]')].map((e) => e.getAttribute('aria-label'))
   const card = (id: string) => {
@@ -210,7 +210,7 @@ test('Done cards show merged metadata, request the Done List and confirm Archive
   await user().click(screen.getByRole('button', { name: 'Show all 2 →' }))
   expect(p.onShowAllDone).toHaveBeenCalledOnce()
   await user().click(screen.getByRole('button', { name: 'Done column actions' }))
-  await user().click(screen.getByRole('menuitem', { name: 'Archive all in Done' }))
+  await user().click(screen.getByRole('menuitem', { name: 'Archive all in Done…' }))
   const dialog = screen.getByRole('dialog', { name: 'Archive 2 Done Tasks?' })
   await user().click(within(dialog).getByRole('button', { name: 'Archive 2' }))
   expect(a.request).toHaveBeenCalledWith('archiveDone', 'f1')

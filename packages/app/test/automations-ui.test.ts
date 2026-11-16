@@ -218,7 +218,7 @@ describe('Automations in the app', () => {
     expect((await ted.getAutomation(saved?.id ?? '')).history).toEqual([])
 
     await openAutomations(window)
-    await window.getByRole('button', { name: 'New Automation', exact: true }).click()
+    await window.getByRole('button', { name: 'New Automation…', exact: true }).click()
     const asana = dialog(window)
     await asana.getByRole('radio', { name: /Import my Asana work/ }).check()
     await expect.poll(() => asana.getByLabel('Name').inputValue()).toBe('Import my Asana work')
@@ -247,7 +247,7 @@ describe('Automations in the app', () => {
   test('drafts a new Automation Prompt, lets the human edit it and saves only on request', async () => {
     const { window, ted } = await launch()
     await openAutomations(window)
-    await window.getByRole('button', { name: 'New Automation', exact: true }).click()
+    await window.getByRole('button', { name: 'New Automation…', exact: true }).click()
     const form = dialog(window)
     await form.getByLabel('Name').fill('Bug intake')
     await form.getByRole('button', { name: 'Draft with AI', exact: true }).click()
@@ -299,7 +299,7 @@ describe('Automations in the app', () => {
     await window.getByRole('button', { name: 'Existing intake', exact: true }).click()
     await window
       .getByRole('region', { name: 'Automation', exact: true })
-      .getByRole('button', { name: 'Edit', exact: true })
+      .getByRole('button', { name: 'Edit…', exact: true })
       .click()
     const form = dialog(window)
     const prompt = form.getByRole('textbox', { name: 'Prompt', exact: true })
@@ -330,7 +330,7 @@ describe('Automations in the app', () => {
   test('cancel and closing the editor stop drafting and ignore a delayed start response', async () => {
     const { window, ted } = await launch()
     await openAutomations(window)
-    await window.getByRole('button', { name: 'New Automation', exact: true }).click()
+    await window.getByRole('button', { name: 'New Automation…', exact: true }).click()
     let form = dialog(window)
     await form.getByLabel('Name').fill('Canceled draft')
     await form.getByRole('textbox', { name: 'Prompt', exact: true }).fill('Keep these instructions')
@@ -367,7 +367,7 @@ describe('Automations in the app', () => {
         return result
       }
     })
-    await window.getByRole('button', { name: 'New Automation', exact: true }).click()
+    await window.getByRole('button', { name: 'New Automation…', exact: true }).click()
     form = dialog(window)
     await form.getByRole('button', { name: 'Draft with AI', exact: true }).click()
     await form

@@ -86,7 +86,7 @@ const goToView = (view: FactoryView) => (context: CommandContext) => {
 export const globalCommands: readonly Command[] = [
   {
     id: 'new-task',
-    label: 'New Task',
+    label: 'New Task…',
     scope: 'global',
     shortcuts: keysFor('new-task'),
     run: ({ newTask }) => newTask(),
@@ -190,7 +190,7 @@ export const globalCommands: readonly Command[] = [
   },
   {
     id: 'new-automation',
-    label: 'New Automation',
+    label: 'New Automation…',
     scope: 'global',
     keywords: 'schedule automation',
     run: ({ newAutomation }) => newAutomation(),
@@ -205,7 +205,7 @@ export const globalCommands: readonly Command[] = [
   },
   {
     id: 'add-factory',
-    label: 'Add Factory',
+    label: 'Add Factory…',
     scope: 'global',
     run: ({ addFactory }) => addFactory(),
   },

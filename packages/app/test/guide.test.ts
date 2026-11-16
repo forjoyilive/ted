@@ -80,7 +80,7 @@ describe('the guide card follows the setup Task', () => {
     expect(card(guided(), setup('merge'), [])).toEqual({
       text: 'TED is merging the pull request.',
     })
-    const newTask = { label: 'New Task', open: 'new-task' }
+    const newTask = { label: 'New Task…', open: 'new-task' }
     expect(card(guided(true), setup('done'), [])).toEqual({
       text: 'Your Factory is set up. Create your first Task.',
       button: newTask,

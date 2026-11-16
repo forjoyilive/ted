@@ -62,7 +62,7 @@ export function BlockerPicker({
       ) : (
         <Button onClick={() => setSearching(true)}>
           <PlusIcon />
-          {addLabel ?? (blockers.length === 0 ? 'Add blocker' : 'Add')}
+          {addLabel ?? (blockers.length === 0 ? 'Add blocker…' : 'Add…')}
         </Button>
       )}
     </div>

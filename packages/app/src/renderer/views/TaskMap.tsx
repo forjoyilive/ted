@@ -285,11 +285,11 @@ export function TaskMap({
           Tasks with no blockers
         </Button>
         <Button size="small" onClick={onPlan}>
-          Plan
+          Plan…
         </Button>
         <Button size="small" variant="primary" onClick={onNewTask}>
           <PlusIcon />
-          New Task
+          New Task…
         </Button>
       </header>
       {banners}

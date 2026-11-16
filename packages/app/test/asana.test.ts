@@ -234,7 +234,7 @@ test('pasted app credentials reach the daemon; browser authorization, identity, 
   expect(
     await readFile(path.join(ctx.home, 'stub-keyring.json.asana-oauth'), 'utf8'),
   ).not.toContain('refresh-secret-opaque')
-  await group.getByRole('button', { name: 'Remove configuration' }).click()
+  await group.getByRole('button', { name: 'Remove configuration…' }).click()
   await window.getByRole('dialog').getByRole('button', { name: 'Continue', exact: true }).click()
   await expect
     .poll(() => group.textContent())

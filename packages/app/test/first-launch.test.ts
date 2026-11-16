@@ -240,7 +240,7 @@ describe('first launch', () => {
     await window
       .getByText('A Factory carries Tasks from request to merge for one product.')
       .waitFor()
-    await window.getByRole('main').getByRole('button', { name: 'Add Factory' }).click()
+    await window.getByRole('main').getByRole('button', { name: 'Add Factory…' }).click()
     await window.getByRole('dialog', { name: 'Add your first Factory' }).waitFor()
   })
 })

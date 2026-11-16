@@ -52,7 +52,7 @@ export function guideCard(
   }
   if (guide.setUp) {
     return card('Your Factory is set up. Create your first Task.', {
-      label: 'New Task',
+      label: 'New Task…',
       open: 'new-task',
     })
   }

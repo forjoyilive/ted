@@ -164,7 +164,7 @@ function Breadcrumb({
       </h1>
       <span className={views.headerSpacer} />
       <Button variant="primary" onClick={onNew}>
-        New Automation
+        New Automation…
       </Button>
     </header>
   )
@@ -701,7 +701,7 @@ export function AutomationView({
               Run now
             </Button>
             <Button disabled={activity.pending} onClick={() => onEdit(automation)}>
-              Edit
+              Edit…
             </Button>
             <Button
               aria-label="Automation actions"

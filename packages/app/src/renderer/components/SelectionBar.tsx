@@ -251,7 +251,7 @@ export function SelectionBar({
               </>
             ) : (
               archivable.length > 0 && (
-                <Button onClick={() => setConfirmArchive(true)}>Archive</Button>
+                <Button onClick={() => setConfirmArchive(true)}>Archive…</Button>
               )
             )}
             <Button

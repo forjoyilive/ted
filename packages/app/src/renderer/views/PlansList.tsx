@@ -355,12 +355,12 @@ function RowMenu({
       </ActionButton>
       {open && !confirming && (
         <div className={styles.menu} role="menu">
-          {item('Rename', () => {
+          {item('Rename…', () => {
             setOpen(false)
             onRename()
           })}
           {ended &&
-            item('Plan more from here', () => {
+            item('Plan more from here…', () => {
               setOpen(false)
               actions.onPlanMore(plan.id)
             })}

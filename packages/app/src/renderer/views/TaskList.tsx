@@ -914,9 +914,9 @@ export function TaskList({
       return (
         <EmptyState title="No Tasks yet">
           <Button variant="primary" onClick={onNewTask}>
-            New Task
+            New Task…
           </Button>
-          {onPlan && <Button onClick={onPlan}>Plan</Button>}
+          {onPlan && <Button onClick={onPlan}>Plan…</Button>}
         </EmptyState>
       )
     }
@@ -973,10 +973,10 @@ export function TaskList({
         <MenuButton label="Display" icon={<DisplayIcon />}>
           {() => <DisplayMenu view={view} onChange={change} />}
         </MenuButton>
-        {onPlan && <Button onClick={onPlan}>Plan</Button>}
+        {onPlan && <Button onClick={onPlan}>Plan…</Button>}
         <Button variant="primary" onClick={onNewTask}>
           <PlusIcon />
-          New Task
+          New Task…
         </Button>
       </header>
       {banners}

@@ -134,8 +134,8 @@ export function FactoryMenu({
       : []),
   ]
   const mainItems: MenuItem[] = [
-    { label: 'New Task', act: actions.onNewTask },
-    { label: 'Plan', act: actions.onPlan, disabled: !factory.cloned },
+    { label: 'New Task…', act: actions.onNewTask },
+    { label: 'Plan…', act: actions.onPlan, disabled: !factory.cloned },
     { label: 'Rename…', act: actions.onRename },
     { label: 'Move up', act: actions.onMoveUp, disabled: first },
     { label: 'Move down', act: actions.onMoveDown, disabled: last },
