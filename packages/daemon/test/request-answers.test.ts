@@ -1087,7 +1087,7 @@ test.each([
     })
 })
 
-test('the limit question’s Keep going returns the Task to Work counted as round 1, and Stop the Task stops it in Validate', async () => {
+test('the limit question’s Keep going returns the Task to Work counted as round 1, and Stop the Task records that return and stops the Task in Work', async () => {
   stage('validate')
   port.gateWorkflow = async () => ({ workflow: loopWorkflow(), layers: [] })
   port.move = async (task, _resolution, to) => {
@@ -1100,6 +1100,7 @@ test('the limit question’s Keep going returns the Task to Work counted as roun
   }
   port.stop = async (id) => {
     effects.push(`stop:${store.getComment(stopped.id)?.answer?.kind}`)
+    store.stopTask(id, { runs: 0, why: 'human' })
     return port.find(id)
   }
   const limitQuestion = () => {
@@ -1117,11 +1118,18 @@ test('the limit question’s Keep going returns the Task to Work counted as roun
   }
   const stopped = limitQuestion()
   await answer(stopped, { action: 'answer', choice: 'Stop the Task' })
-  expect(effects).toEqual(['stop:answered'])
-  expect(store.getTask(taskId)?.stage).toBe('validate')
-  expect(store.listSendBacks(taskId)).toEqual([])
+  expect(effects).toEqual(['stop:answered', 'move:work'])
+  expect(store.getTask(taskId)).toMatchObject({ stage: 'work', stopped: true })
+  expect(store.listSendBacks(taskId)).toMatchObject([
+    { to: 'work', counted: true, round: 1, checkRunId: 'check-run', cause: 'check' },
+  ])
+  expect(store.getTask(taskId)?.pendingLeadMessages.map((m) => m.text)).toEqual([
+    expect.stringContaining('Typecheck failed'),
+  ])
 
   effects = []
+  store.resumeTask(taskId, { waitForBlockers: false })
+  stage('validate')
   const again = limitQuestion()
   await answer(again, { action: 'answer', choice: 'Keep going' })
   expect(effects).toEqual(['move:work'])

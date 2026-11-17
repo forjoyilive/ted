@@ -127,6 +127,7 @@ import type {
   UnarchiveTaskRequest,
   ValidateJudgments,
   ValidationObligations,
+  ValidationProgress,
   WaitingRequest,
   WorktreeCommandOutcome,
 } from '@ted/protocol'
@@ -2863,6 +2864,14 @@ export function createTasks(options: {
   async function leaveWorkToDiagnose(
     task: StoredTask,
   ): Promise<(message: string) => Promise<Task>> {
+    return leaveWork(task, 'diagnose')
+  }
+
+  async function leaveWork(
+    task: StoredTask,
+    why: 'diagnose' | 'accept',
+  ): Promise<(message: string, carried?: ValidationProgress) => Promise<Task>> {
+    const accepting = why === 'accept'
     const refuseHalted = (now: StoredTask) => {
       if (leftWork(now)) throw new RequestError(409, `${task.displayId} has left Work`)
       if (now.stopped || now.status?.kind === 'failed') {
@@ -2885,11 +2894,11 @@ export function createTasks(options: {
     const { workflow } = resolution
     if (
       !validates(workflow.next(stageWith('handOff'))) ||
-      gateOn(task, workflow, stageWith('handOff'))
+      (!accepting && gateOn(task, workflow, stageWith('handOff')))
     ) {
       throw new RequestError(
         409,
-        `${task.displayId}’s Workflow no longer goes from Work straight to Validate; choose ${tryAgainChoice}`,
+        `${task.displayId}’s Workflow no longer goes from Work straight to Validate; ${accepting ? 'the Task Lead reports the outcome again instead' : `choose ${tryAgainChoice}`}`,
       )
     }
     await requireObligations(task, undefined, 'validate', false, reads)
@@ -2898,12 +2907,16 @@ export function createTasks(options: {
       store.recordBaseConflict(task.id, foundConflict(task, conflict))
       throw new RequestError(
         409,
-        `${task.displayId}’s branch conflicts with ${clean(conflict.base, 200)}, so it can’t leave Work yet. Choose ${tryAgainChoice} and the Task Lead resolves the conflict in Work.`,
+        `${task.displayId}’s branch conflicts with ${clean(conflict.base, 200)}, so it can’t leave Work yet. ${accepting ? 'The Task Lead resolves the conflict in Work, and TED runs the checks again on the new code.' : `Choose ${tryAgainChoice} and the Task Lead resolves the conflict in Work.`}`,
       )
     }
     refuseHalted(find(task.id))
-    return (message) => {
-      if (workflow.overnightGates?.includes(stageWith('handOff')) && !gateSkipped(task)) {
+    return (message, carried) => {
+      if (
+        !accepting &&
+        workflow.overnightGates?.includes(stageWith('handOff')) &&
+        !gateSkipped(task)
+      ) {
         store.gateSkippedOvernight(task.id, stageWith('handOff'))
       }
       return move(
@@ -2911,6 +2924,7 @@ export function createTasks(options: {
         resolution,
         'validate',
         `${message}\n\n${nextStageMessage(workflow, 'validate')}`,
+        { ...(carried !== undefined && { carried }) },
       )
     }
   }
@@ -6873,10 +6887,12 @@ export function createTasks(options: {
       signedOff = false,
       waitForSlot = false,
       reads,
+      carried,
     }: {
       signedOff?: boolean
       waitForSlot?: boolean | QueuedAfter
       reads?: WorktreeReads
+      carried?: ValidationProgress
     } = {},
   ): Promise<Task> {
     if (
@@ -6908,6 +6924,7 @@ export function createTasks(options: {
       ? await adoptLatestBase(task)
       : undefined
     const moved = store.changeStage(task.id, next, entryFor(resolution, next))
+    if (carried) validation.carryOver(find(task.id), carried)
     const waitingLead = liveLead(find(task.id))
     const choice = effectiveLead(find(task.id))
     if (next !== 'done' && waitingLead && choice && !sameChoice(choice, waitingLead))
@@ -7802,7 +7819,7 @@ export function createTasks(options: {
         ...(input.intro === '' ? [] : [input.intro]),
         `${returnsText(task.id, limit)} This time ${held}, and the Task is waiting in Validate for your decision. The findings are in the Task’s history.`,
         `**${keepGoingChoice}** sends the Task back to Work with these findings and starts the count again.`,
-        `**${stopTaskChoice}** stops the Task, as the Stop button does. When you resume it, the count starts again.`,
+        `**${stopTaskChoice}** sends the Task back to Work with these findings and stops it, as the Stop button does. When you resume it, the Task Lead starts on the findings and the count starts again.`,
         'To give the Task Lead guidance instead, reply in your own words. The Task stays in Validate.',
       ].join('\n\n'),
       choices: [keepGoingChoice, stopTaskChoice],
@@ -10664,6 +10681,7 @@ export function createTasks(options: {
       ].join('\n\n')
     },
     returnToWork: checkReturn,
+    leaveWork: (task) => leaveWork(task, 'accept'),
     apps: startSetupApps,
     fix: applyValidationFix,
     checkFix: (resolution, task) =>

@@ -43,7 +43,7 @@ function boot(checks = usual, order = usualOrder, loopCheck: false | number = fa
       'stages:',
       ...(order.indexOf('work') < order.indexOf('validate') ? workGate : []),
       '  validate:',
-      '    max_back: 1',
+      '    max_back: 2',
       `    loop_check: ${loopCheck}`,
       '    checks:',
       ...checks,
@@ -101,6 +101,12 @@ async function walk(
       return values.length >= count ? values.at(-1) : undefined
     }, 'failure case')
   const one = await failure()
+  if (order.indexOf('work') < order.indexOf('validate'))
+    await waitUntil(
+      async () => (await getTask(client, task.id)).stage === 'work',
+      'the failed Check to return the Task to Work',
+      40_000,
+    )
   const assess = (value: FailureCase, assessment = 'unrelated') =>
     post<FailureCase>(`/failures/${value.id}/assessments`, {
       assessment,
@@ -119,6 +125,14 @@ async function walk(
     client.ok<ValidationObligations>('GET', `${root}/validation-obligations`)
   const runs = () => client.ok<CheckRun[]>('GET', `${root}/check-runs`)
   const backs = () => client.ok<SendBack[]>('GET', `${root}/send-backs`)
+  const accept = async (value = one, assessment = 'unrelated') => {
+    const decision = await ask(value, assessment)
+    const response = await answer(decision, 'Accept this failure')
+    expect(response.status, JSON.stringify(response.body)).toBe(200)
+    return decision
+  }
+  const validated = () =>
+    waitUntil(async () => (await obligations()).satisfied, 'Validate’s Checks to finish')
   return {
     client,
     task,
@@ -134,6 +148,8 @@ async function walk(
     obligations,
     runs,
     backs,
+    accept,
+    validated,
   }
 }
 
@@ -156,247 +172,157 @@ const setup = async (
   endMessages = false,
 ) => walk(await boot(checks, order, loopCheck), order, loopCheck, endMessages)
 
-function together(title: string, scenes: Record<string, (s: Scene) => Promise<void>>) {
+function together(
+  title: string,
+  scenes: Record<string, (s: Scene) => Promise<void>>,
+  checks = usual,
+) {
   test(
     title,
     async () => {
-      const client = await boot()
+      const client = await boot(checks)
       await all(Object.keys(scenes), async (name) => scenes[name]?.(await walk(client)))
     },
     long,
   )
 }
 
-together('accepting or retrying a failed Check, each on its own Task', {
-  'a failed Check stays in Validate with evidence and no send-back; acceptance continues remaining Checks':
-    async (s) => {
-      expect((await getTask(s.client, s.task.id)).stage).toBe('validate')
-      expect(await s.backs()).toEqual([])
-      expect(s.one.evidence).toContain('broken')
-      expect(s.one.contextId).toBeTruthy()
-      expect((await s.runs())[0]?.checks.map((c) => c.state)).toEqual(['failed', 'not-run'])
-      expect((await s.lead.call('POST', `${s.root}/outcome`, { outcome: 'advance' })).status).toBe(
-        409,
-      )
+const passFailPass = [
+  '      - { name: Prefix, run: "echo prefix" }',
+  '      - { name: Tests, run: "echo broken; exit 1" }',
+  '      - { name: Lint, run: "echo linted" }',
+]
+
+const states = (runs: CheckRun[]) => runs.map((r) => r.checks.map((c) => `${c.name} ${c.state}`))
+
+together(
+  'a failed Check returns the Task to Work, where only its acceptance is offered, each on its own Task',
+  {
+    'the return is counted, and Accept on the same code skips the passed and accepted Checks':
+      async (s) => {
+        const [back, ...others] = await s.backs()
+        expect(others).toEqual([])
+        expect(back).toMatchObject({
+          from: 'validate',
+          to: 'work',
+          counted: true,
+          round: 1,
+          cause: 'check',
+        })
+        expect(s.one.source).toMatchObject({ kind: 'factory-check', checkRunId: back?.checkRunId })
+        expect(s.one.evidence).toContain('broken')
+        expect(s.one.contextId).toBeTruthy()
+        expect(states(await s.runs())).toEqual([['Prefix passed', 'Tests failed', 'Lint not-run']])
+        const decision = await s.ask(s.one)
+        const comment = (await s.client.ok<Comment[]>('GET', `${s.root}/comments`)).find(
+          (c) => c.id === decision.decisions.at(-1)?.commentId,
+        )
+        expect(comment?.choices).toEqual(['Accept this failure'])
+        expect(comment?.body).toContain('already in Work')
+        expect((await s.answer(decision, 'Accept this failure')).status).toBe(200)
+        expect((await getTask(s.client, s.task.id)).stage).toBe('validate')
+        await s.validated()
+        expect(states(await s.runs())).toEqual([
+          ['Prefix passed', 'Tests failed', 'Lint not-run'],
+          ['Lint passed'],
+        ])
+        expect((await s.obligations()).progress?.checks.map((c) => c.state)).toEqual([
+          'passed',
+          'failed',
+          'passed',
+        ])
+        expect(await s.backs()).toEqual([back])
+        expect(
+          (await s.cases()).find((c) => c.id === s.one.id)?.resolutions.at(-1)?.resolution,
+        ).toBe('accepted')
+        expect((await s.answer(decision, 'Accept this failure')).status).toBe(409)
+      },
+    'Accept after a new commit is refused and the Task stays in Work': async (s) => {
       const decision = await s.ask(s.one)
+      const { worktree } = required((await getTask(s.client, s.task.id)).repos[0])
+      await writeFile(path.join(worktree, 'later.txt'), 'later\n')
+      git(worktree, 'add', 'later.txt')
+      git(worktree, 'commit', '-qm', 'Later change')
+      const refused = await s.answer(decision, 'Accept this failure')
+      expect(refused.status).toBe(409)
+      expect(JSON.stringify(refused.body)).toContain('changed since this check ran')
+      expect((await getTask(s.client, s.task.id)).stage).toBe('work')
+      expect((await s.cases()).find((c) => c.id === s.one.id)?.resolutions).toEqual([])
       const comment = (await s.client.ok<Comment[]>('GET', `${s.root}/comments`)).find(
         (c) => c.id === decision.decisions.at(-1)?.commentId,
       )
-      expect(comment?.choices).toEqual([
-        'Retry',
-        'Fix in this Task',
-        'Accept this failure',
-        'Wait for a repair Task',
-      ])
-      expect((await s.answer(decision, 'Accept this failure')).status).toBe(200)
-      await waitUntil(async () => (await s.obligations()).satisfied, 'remaining Checks completed')
-      const runs = await s.runs()
-      expect(runs.map((r) => r.checks.map((c) => c.state))).toEqual([
-        ['failed', 'not-run'],
-        ['passed'],
-      ])
-      expect((await s.obligations()).progress?.checks.map((c) => c.state)).toEqual([
-        'failed',
-        'passed',
-      ])
-      expect(await s.backs()).toEqual([])
+      expect(comment?.answer).toBeUndefined()
+      expect(await s.backs()).toHaveLength(1)
+      expect((await s.runs()).length).toBe(1)
+    },
+    'Retry, Fix and closing the failure are refused from Work': async (s) => {
+      const decision = await s.ask(s.one)
+      const requestId = decision.decisions.at(-1)?.commentId
+      for (const resolution of ['retry', 'fix', 'fixed', 'no-longer-applicable']) {
+        const response = await s.client.call('POST', `${s.root}/failures/${s.one.id}/resolve`, {
+          requestId,
+          resolution,
+          reason: 'The later change rewrote the failing test.',
+        })
+        expect(response.status, resolution).toBe(409)
+      }
+      expect((await s.answer(decision, 'Retry')).status).toBe(400)
+      expect((await s.cases()).find((c) => c.id === s.one.id)?.resolutions).toEqual([])
+      expect((await getTask(s.client, s.task.id)).stage).toBe('work')
+      expect((await s.runs()).length).toBe(1)
+    },
+    'Accept is refused while the Task is stopped': async (s) => {
+      const decision = await s.ask(s.one)
+      await s.client.ok('POST', `${s.root}/stop`)
       expect((await s.answer(decision, 'Accept this failure')).status).toBe(409)
+      expect((await getTask(s.client, s.task.id)).stage).toBe('work')
+      expect((await s.cases()).find((c) => c.id === s.one.id)?.resolutions).toEqual([])
     },
-  'Retry failing creates a new independent failure requiring reassessment': async (s) => {
-    expect((await s.answer(await s.ask(s.one), 'Retry')).status).toBe(200)
-    const next = await s.failure(2)
-    expect(next.assessments).toEqual([])
-    expect((await s.obligations()).satisfied).toBe(false)
-    expect((await s.answer(await s.ask(next), 'Accept this failure')).status).toBe(200)
-    await waitUntil(
-      async () => (await s.obligations()).satisfied,
-      'new failure accepted and remaining Check passed',
-    )
-    expect(await s.backs()).toEqual([])
-  },
-  'extra Findings stay blocking after Retry until fresh verification evidence is recorded': async (
-    s,
-  ) => {
-    await s.answer(await s.ask(s.one), 'Accept this failure')
-    await waitUntil(async () => (await s.obligations()).satisfied, 'Factory Checks complete')
-    const context = await s.post<{ id: string }>('/failure-contexts')
-    const current = await getTask(s.client, s.task.id)
-    const value = await s.post<FailureCase>('/failures', {
-      source: {
-        kind: 'finding',
-        runId: current.leadRunId,
-        finding: 'Extra visual verification failed',
-      },
-      contextId: context.id,
-      evidence: 'Screenshot shows a missing label.',
-    })
-    expect((await s.obligations()).satisfied).toBe(false)
-    expect((await s.answer(await s.ask(value, 'uncertain'), 'Retry')).status).toBe(200)
-    expect((await s.obligations()).satisfied).toBe(false)
-    await s.post(`/failures/${value.id}/verification`, {
-      evidence:
-        'Repeated visual verification with the service available: the expected label appears.',
-    })
-    expect((await s.obligations()).satisfied).toBe(true)
-    expect(await s.backs()).toEqual([])
-  },
-  'a Check failure no longer tied to the code can be closed as Fixed from its card': async (s) => {
-    const { worktree } = required((await getTask(s.client, s.task.id)).repos[0])
-    await writeFile(path.join(worktree, 'later.txt'), 'later\n')
-    git(worktree, 'add', 'later.txt')
-    git(worktree, 'commit', '-qm', 'Later change')
-    const decision = await s.ask(s.one)
-    const commentId = decision.decisions.at(-1)?.commentId
-    const comment = (await s.client.ok<Comment[]>('GET', `${s.root}/comments`)).find(
-      (c) => c.id === commentId,
-    )
-    expect(comment?.choices).toEqual([
-      'Retry',
-      'Fix in this Task',
-      'Wait for a repair Task',
-      'Fixed',
-      'No longer applicable',
-    ])
-    const answered = await s.client.call('POST', `/comments/${commentId}/answer`, {
-      action: 'answer',
-      choice: 'Fixed',
-      text: 'The later change rewrote the failing test.',
-    })
-    expect(answered.status, JSON.stringify(answered.body)).toBe(200)
-    const closed = (await s.cases()).find((c) => c.id === s.one.id)
-    expect(closed?.resolutions.at(-1)?.resolution).toBe('fixed')
-    const next = await s.failure(2)
-    await waitUntil(async () => {
-      const { blockers } = await s.obligations()
-      return blockers.length === 1 && blockers[0] === next.id
-    }, 'only the new failure holds the Task')
-  },
-  'a new execution cannot inherit an earlier failure’s acceptance': async (s) => {
-    await s.answer(await s.ask(s.one), 'Accept this failure')
-    await waitUntil(async () => (await s.obligations()).satisfied, 'initial validation completed')
-    await s.post('/checks')
-    const next = await s.failure(2)
-    expect(next.decisions).toEqual([])
-    expect(next.resolutions).toEqual([])
-    expect((await s.obligations()).blockers).toEqual([next.id])
-    const progress = (await s.obligations()).progress
-    expect(progress?.checks.map((c) => c.state)).toEqual(['failed', 'not-run'])
-    const source = next.source
-    expect(
-      source.kind === 'factory-check' && progress?.executions.at(-1)?.runId === source.checkRunId,
-    ).toBe(true)
-  },
-})
-
-test('each later failing Check needs its own decision, including the final Check', async () => {
-  const s = await setup([
-    '      - { name: Tests, run: "exit 1" }',
-    '      - { name: Lint, run: "exit 2" }',
-  ])
-  expect((await s.answer(await s.ask(s.one), 'Accept this failure')).status).toBe(200)
-  const second = await s.failure(2)
-  expect((await s.obligations()).satisfied).toBe(false)
-  expect(second.originalCheck?.name).toBe('Lint')
-  expect((await s.answer(await s.ask(second, 'uncertain'), 'Accept this failure')).status).toBe(200)
-  await waitUntil(async () => (await s.obligations()).satisfied, 'both decisions completed')
-  expect((await s.runs()).map((r) => r.outcome)).toEqual(['failed', 'failed'])
-  expect(await s.backs()).toEqual([])
-})
-
-test('Retry passing records a new execution and resolves only its verified failure', async () => {
-  const s = await setup([
-    '      - { name: Tests, run: "if [ -e stub-retried ]; then exit 0; else touch stub-retried; exit 1; fi" }',
-    '      - { name: Lint, run: "echo linted" }',
-  ])
-  expect((await s.answer(await s.ask(s.one, 'uncertain'), 'Retry')).status).toBe(200)
-  await waitUntil(async () => (await s.obligations()).satisfied, 'retry and remaining Check pass')
-  expect((await s.runs()).map((r) => r.outcome)).toEqual(['failed', 'passed'])
-  expect((await s.cases())[0]?.verifications?.length).toBe(1)
-  expect(await s.backs()).toEqual([])
-})
-
-together('sending a failed Check back or refusing to, each on its own Task', {
-  'human Fix uses the counted send-back path with assessment and evidence': async (s) => {
-    expect((await s.answer(await s.ask(s.one), 'Fix in this Task')).status).toBe(200)
-    expect((await getTask(s.client, s.task.id)).stage).toBe('work')
-    expect(await s.backs()).toMatchObject([
-      { counted: true, round: 1, from: 'validate', to: 'work' },
-    ])
-    expect((await s.backs())[0]?.findings).toContain('Assessment: unrelated')
-  },
-  'changed context refuses stale acceptance without answering the request': async (s) => {
-    const decision = await s.ask(s.one)
-    const task = await getTask(s.client, s.task.id)
-    const repo = task.repos[0]
-    if (!repo) throw new Error('missing worktree')
-    await writeFile(path.join(repo.worktree, 'work.txt'), 'changed again\n')
-    expect((await s.answer(decision, 'Accept this failure')).status).toBe(409)
-    expect((await s.obligations()).satisfied).toBe(false)
-    expect(await s.backs()).toEqual([])
-  },
-  'a regression assessment uses the existing send-back path and preserves max_back': async (s) => {
-    expect(
-      (
-        await s.lead.call('POST', `${s.root}/outcome`, {
-          outcome: 'back',
-          to: 'work',
-          findings: 'Tests regressed',
+    'extra Findings stay blocking after Retry until fresh verification evidence is recorded':
+      async (s) => {
+        await s.accept()
+        await s.validated()
+        const context = await s.post<{ id: string }>('/failure-contexts')
+        const current = await getTask(s.client, s.task.id)
+        const value = await s.post<FailureCase>('/failures', {
+          source: {
+            kind: 'finding',
+            runId: current.leadRunId,
+            finding: 'Extra visual verification failed',
+          },
+          contextId: context.id,
+          evidence: 'Screenshot shows a missing label.',
         })
-      ).status,
-    ).toBe(409)
-    await s.assess(s.one, 'regression')
-    await s.post('/outcome', { outcome: 'back', to: 'work', findings: s.one.evidence })
-    expect((await s.backs())[0]).toMatchObject({ round: 1, counted: true })
-    await s.post('/outcome', { outcome: 'advance' })
-    const second = await s.failure(2)
-    expect((await s.answer(await s.ask(second), 'Fix in this Task')).status).toBe(200)
-    expect((await getTask(s.client, s.task.id)).stage).toBe('validate')
-    expect(await s.backs()).toHaveLength(1)
-    const question = await waitUntil(
-      async () => {
-        const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
-        return comments.find((c) => !c.answer && c.title?.includes('its limit'))
-      },
-      'the limit assessment to ask the human',
-      40_000,
-    )
-    expect(question.kind).toBe('question')
-    expect(await s.backs()).toHaveLength(1)
-  },
-  'Task Lead verification cannot bypass a current failed Check or incomplete repair coverage':
-    async (s) => {
-      await s.assess(s.one, 'regression')
-      const verify = () =>
-        s.lead.call('POST', `${s.root}/failures/${s.one.id}/verification`, {
-          evidence: 'Claimed repair without complete current verification.',
+        expect((await s.obligations()).satisfied).toBe(false)
+        expect((await s.answer(await s.ask(value, 'uncertain'), 'Retry')).status).toBe(200)
+        expect((await s.obligations()).satisfied).toBe(false)
+        await s.post(`/failures/${value.id}/verification`, {
+          evidence:
+            'Repeated visual verification with the service available: the expected label appears.',
         })
-      expect((await verify()).status).toBe(409)
-      await s.post('/outcome', {
-        outcome: 'back',
-        to: 'work',
-        findings: 'Repair the failed Check.',
-      })
-      await s.post('/outcome', { outcome: 'advance' })
-      const second = await s.failure(2)
-      const before = await s.cases()
-      expect((await verify()).status).toBe(409)
-      await s.assess(second, 'regression')
+        expect((await s.obligations()).satisfied).toBe(true)
+        expect(await s.backs()).toHaveLength(1)
+      },
+    'a new execution cannot inherit an earlier failure’s acceptance': async (s) => {
+      await s.accept()
+      await s.validated()
+      await s.post('/checks')
+      const next = await s.failure(2)
+      expect(next.decisions).toEqual([])
+      expect(next.resolutions).toEqual([])
+      expect((await s.obligations()).blockers).toEqual([next.id])
+      const progress = (await s.obligations()).progress
+      expect(progress?.checks.map((c) => c.state)).toEqual(['passed', 'failed', 'not-run'])
+      const source = next.source
       expect(
-        (
-          await s.lead.call('POST', `${s.root}/failures/${second.id}/verification`, {
-            evidence: 'Claimed repair despite the current failure.',
-          })
-        ).status,
-      ).toBe(409)
-      expect((await s.cases()).find((c) => c.id === s.one.id)?.verifications).toEqual(
-        before.find((c) => c.id === s.one.id)?.verifications,
-      )
-      expect((await s.cases()).find((c) => c.id === second.id)?.verifications).toBeUndefined()
-      expect((await s.obligations()).satisfied).toBe(false)
+        source.kind === 'factory-check' && progress?.executions.at(-1)?.runId === source.checkRunId,
+      ).toBe(true)
     },
-})
+  },
+  passFailPass,
+)
 
-test('a pending question survives restart, then acceptance resumes the remaining Checks', async () => {
+test('a question asked from Work survives restart, then acceptance resumes the remaining Checks in Validate', async () => {
   const s = await setup()
   const decision = await s.ask(s.one, 'uncertain')
   await ctx.daemon?.stop()
@@ -419,6 +345,8 @@ test('a pending question survives restart, then acceptance resumes the remaining
   )
   const runs = await read<CheckRun[]>(`${s.root}/check-runs`)
   expect(runs.map((r) => r.checks.map((c) => c.state))).toEqual([['failed', 'not-run'], ['passed']])
+  expect(await read<SendBack[]>(`${s.root}/send-backs`)).toHaveLength(1)
+  expect((await read<Task[]>('/tasks')).find((t) => t.id === s.task.id)?.stage).toBe('validate')
 })
 
 test('a Workflow without earlier Work refuses Fix and retains the decision', async () => {
@@ -432,6 +360,12 @@ test('a Workflow without earlier Work refuses Fix and retains the decision', asy
   expect((await s.answer(decision, 'Accept this failure')).status).toBe(200)
   await waitUntil(async () => (await s.obligations()).satisfied, 'custom Workflow continuation')
 })
+
+function backInValidate(store: Awaited<ReturnType<typeof openStore>>, taskId: string) {
+  store.changeStage(taskId, 'validate')
+  const visit = required(store.listStageEntries(taskId).at(-1)?.at)
+  store.failures.saveProgress({ ...required(store.failures.progress(taskId)), visit })
+}
 
 async function restart(mergePollMs?: number) {
   await ctx.daemon?.stop()
@@ -485,6 +419,7 @@ test.each(
   ctx.daemon = undefined
   const store = await openStore({ directory: tedPaths(ctx.home).store })
   if (stage === 'merge') store.changeStage(task.id, 'merge')
+  else backInValidate(store, task.id)
   const originalFailure = store.failures.get(s.one.id)
   if (!originalFailure) throw new Error('missing original failure')
   let saved: FailureCase = originalFailure
@@ -832,6 +767,7 @@ test(
     const store = await openStore({ directory: tedPaths(ctx.home).store })
     const saved: { run: CheckRun; finished: CheckRun; recoveredLog: string }[] = []
     for (const [i, s] of scenes.entries()) {
+      backInValidate(store, s.task.id)
       const progress = store.failures.progress(s.task.id)
       expect(progress).toBeDefined()
       if (!progress) throw new Error('Validate progress missing')
@@ -896,7 +832,7 @@ test(
       expect(obligations.progress?.failureId).toBe(recovered.id)
       expect(obligations.progress?.checks.map((c) => c.state)).toEqual(['failed', 'not-run'])
       expect(obligations.satisfied).toBe(false)
-      expect(await client.read<SendBack[]>(`${s.root}/send-backs`)).toEqual([])
+      expect(await client.read<SendBack[]>(`${s.root}/send-backs`)).toHaveLength(1)
       expect((await client.read<CheckRun[]>(`${s.root}/check-runs`)).at(-1)).toEqual(finished)
     })
   },
@@ -911,8 +847,8 @@ test(
     const scenes = await Promise.all(
       recorded.map(async () => {
         const s = await walk(live)
-        await s.answer(await s.ask(s.one), 'Accept this failure')
-        await waitUntil(async () => (await s.obligations()).satisfied, 'Checks complete')
+        await s.accept()
+        await s.validated()
         const context = await s.post<{ id: string }>('/failure-contexts')
         const current = await getTask(s.client, s.task.id)
         const value = await s.post<FailureCase>('/failures', {
@@ -950,8 +886,8 @@ test(
           from: 'validate',
           to: 'work',
           counted: true,
-          round: 1,
-          limit: 1,
+          round: 2,
+          limit: 2,
           findings: `Failure ${saved.id} · Fix request ${requestId}\n\nAuthorization missing\n\nA guest can reproduce the protected action.`,
         })
       }
@@ -969,10 +905,10 @@ test(
         'recovered Fix send-back',
       )
       const backs = await client.read<SendBack[]>(`${s.root}/send-backs`)
-      expect(backs).toHaveLength(1)
-      expect(backs[0]).toMatchObject({ counted: true, round: 1 })
-      expect(backs[0]?.findings).toContain('Authorization missing')
-      expect(backs[0]?.findings).toContain('A guest can reproduce the protected action.')
+      expect(backs).toHaveLength(2)
+      expect(backs.at(-1)).toMatchObject({ counted: true, round: 2 })
+      expect(backs.at(-1)?.findings).toContain('Authorization missing')
+      expect(backs.at(-1)?.findings).toContain('A guest can reproduce the protected action.')
       first[i] = backs
     })
     client = await restart()
@@ -988,124 +924,13 @@ test(
   long,
 )
 
-test(
-  'restart preserves a handled Fix escalation, answered or not',
-  async () => {
-    const answered = [false, true]
-    const live = await boot()
-    const scenes = await Promise.all(
-      answered.map(async (answer) => {
-        const s = await walk(live)
-        await s.assess(s.one, 'regression')
-        await s.post('/outcome', { outcome: 'back', to: 'work', findings: s.one.evidence })
-        await s.post('/outcome', { outcome: 'advance' })
-        const second = await s.failure(2)
-        await s.answer(await s.ask(second), 'Fix in this Task')
-        const question = await waitUntil(
-          async () => {
-            const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
-            return comments.find((c) => !c.answer && c.title?.includes('its limit'))
-          },
-          'the limit assessment to ask the human',
-          40_000,
-        )
-        if (answer) {
-          expect(
-            (
-              await s.client.call('POST', `/comments/${question.id}/answer`, {
-                action: 'answer',
-                text: 'Keep this Task in Validate while I investigate.',
-              })
-            ).status,
-          ).toBe(200)
-        }
-        return { s, before: await s.client.ok<Comment[]>('GET', `${s.root}/comments`) }
-      }),
-    )
-    const client = await restart()
-    await all(scenes, async ({ s, before }) => {
-      await waitUntil(
-        async () =>
-          !(await client.read<Task[]>('/tasks'))
-            .find((t) => t.id === s.task.id)
-            ?.activity?.startsWith('Running checks'),
-        'Validate recovery to settle',
-      )
-      const after = await client.read<Comment[]>(`${s.root}/comments`)
-      expect(after.filter((c) => c.title?.includes('its limit'))).toEqual(
-        before.filter((c) => c.title?.includes('its limit')),
-      )
-      expect(await client.read<SendBack[]>(`${s.root}/send-backs`)).toHaveLength(1)
-      expect((await client.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)?.stage).toBe(
-        'validate',
-      )
-    })
-  },
-  long,
-)
-
-test(
-  'legacy closures fixed and no-longer-applicable cannot silently close a modern Validate request',
-  async () => {
-    const resolutions = ['fixed', 'no-longer-applicable']
-    const live = await boot([
-      '      - { name: Tests, run: "if [ -e stub-repaired ]; then exit 0; else exit 1; fi" }',
-      '      - { name: Lint, run: "echo linted" }',
-    ])
-    const scenes = await Promise.all(
-      resolutions.map(async (resolution) => {
-        const s = await walk(live)
-        const decision = await s.ask(s.one)
-        const requestId = decision.decisions.at(-1)?.commentId
-        const result = await s.client.call('POST', `${s.root}/failures/${s.one.id}/resolve`, {
-          requestId,
-          resolution,
-          reason: 'Repeat verification after repair.',
-        })
-        expect(result.status).toBe(409)
-        expect((await s.cases())[0]?.resolutions).toEqual([])
-        expect((await s.obligations()).satisfied).toBe(false)
-        return { s, requestId }
-      }),
-    )
-    const client = await restart()
-    await all(scenes, async ({ s, requestId }) => {
-      const comments = await client.read<Comment[]>(`${s.root}/comments`)
-      expect(comments.find((c) => c.id === requestId)?.answer).toBeUndefined()
-      const current = (await client.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)
-      const repo = current?.repos[0]
-      if (!repo) throw new Error('Worktree missing')
-      await writeFile(path.join(repo.worktree, 'stub-repaired'), 'repaired')
-      expect(
-        (
-          await client.call('POST', `/comments/${requestId}/answer`, {
-            action: 'answer',
-            choice: 'Retry',
-          })
-        ).status,
-      ).toBe(200)
-      await waitUntil(
-        async () =>
-          (await client.read<ValidationObligations>(`${s.root}/validation-obligations`)).satisfied,
-        'fresh verification after rejected closure',
-      )
-      const runs = await client.read<CheckRun[]>(`${s.root}/check-runs`)
-      expect(runs.map((r) => r.checks.map((c) => c.state))).toEqual([
-        ['failed', 'not-run'],
-        ['passed', 'passed'],
-      ])
-    })
-  },
-  long,
-)
-
 test('fresh passing Checks resolve invalidated old acceptance', async () => {
   const s = await setup([
     '      - { name: Tests, run: "grep -q repaired work.txt" }',
     '      - { name: Lint, run: "echo linted" }',
   ])
-  expect((await s.answer(await s.ask(s.one), 'Accept this failure')).status).toBe(200)
-  await waitUntil(async () => (await s.obligations()).satisfied, 'accepted failure and suffix')
+  await s.accept()
+  await s.validated()
   const current = await getTask(s.client, s.task.id)
   const repo = current.repos[0]
   if (!repo) throw new Error('missing worktree')
@@ -1130,6 +955,7 @@ test('restart reconciles durable passing retry before interrupted suffix', async
   await ctx.daemon?.stop()
   ctx.daemon = undefined
   const store = await openStore({ directory: tedPaths(ctx.home).store })
+  backInValidate(store, s.task.id)
   const saved = store.failures.get(s.one.id)
   const progress = store.failures.progress(s.task.id)
   const requestId = decision.decisions.at(-1)?.commentId
@@ -1187,11 +1013,6 @@ test.each(['revert', 'remove', 'replace', 'accepted'])(
     const s = await setup(['      - { name: Tests, run: "test ! -f work.txt" }'])
     const before = await s.obligations()
     await s.assess(s.one, 'regression')
-    await s.post('/outcome', {
-      outcome: 'back',
-      to: 'work',
-      findings: 'The work.txt change causes this Check failure.',
-    })
     const current = await getTask(s.client, s.task.id)
     const repo = current.repos[0]
     if (!repo) throw Error('missing fixture worktree')
@@ -1232,7 +1053,11 @@ test.each(['revert', 'remove', 'replace', 'accepted'])(
     const original = (await s.runs())[0]
     if (kind === 'accepted') {
       const later = await s.failure(2)
-      expect((await s.answer(await s.ask(later), 'Accept this failure')).status).toBe(200)
+      await waitUntil(
+        async () => (await getTask(s.client, s.task.id)).stage === 'work',
+        'the failed Later Check to return the Task to Work',
+      )
+      await s.accept(later)
       await waitUntil(async () => {
         const progress = (await s.obligations()).progress
         return progress && !progress.pending && progress.next === progress.checks.length
@@ -1293,10 +1118,10 @@ test('generated Check evidence survives unsafe links', async () => {
   expect(s.one.source.kind).toBe('factory-check')
   expect((await s.obligations()).progress?.pending).toBe(false)
   expect((await s.runs())[0]?.checks.map((c) => c.state)).toEqual(['failed', 'not-run'])
-  expect(await s.backs()).toEqual([])
+  expect(await s.backs()).toMatchObject([{ cause: 'check', counted: true }])
 })
 
-test('sanitized Check metadata retains retry identity and manual evidence remains strict', async () => {
+test('sanitized Check metadata keeps the source Check’s identity for a later run, and manual evidence remains strict', async () => {
   const s = await setup([
     `      - { name: Tests, run: "if [ -f stub-retry ]; then exit 0; else touch stub-retry; echo https://example.test/api?token=fixture; exit 1; fi" }`,
     '      - { name: Lint, run: "echo linted" }',
@@ -1308,10 +1133,10 @@ test('sanitized Check metadata retains retry identity and manual evidence remain
   })
   expect(unsafe.status).toBe(400)
   expect((await s.cases())[0]?.additions).toEqual([])
-  expect((await s.answer(await s.ask(s.one, 'uncertain'), 'Retry')).status).toBe(200)
+  await s.post('/outcome', { outcome: 'advance' })
   await waitUntil(
     async () => (await s.obligations()).satisfied,
-    'retry verifies the authoritative source Check',
+    'the next Validate run verifies the authoritative source Check',
   )
   expect((await s.cases())[0]?.verifications).toHaveLength(1)
   expect((await s.runs()).map((r) => r.outcome)).toEqual(['failed', 'passed'])
@@ -1323,8 +1148,8 @@ together(
     ['omitted', 'explicit failure', 'explicit pass'].map((judgment) => [
       judgment,
       async (s: Scene) => {
-        await s.answer(await s.ask(s.one), 'Accept this failure')
-        await waitUntil(async () => (await s.obligations()).satisfied, 'initial Checks resolved')
+        await s.accept()
+        await s.validated()
         const repo = (await getTask(s.client, s.task.id)).repos[0]
         if (!repo) throw Error('Missing worktree')
         const doneFile = path.join(repo.worktree, 'stub-review-done')
@@ -1398,47 +1223,47 @@ test(
     const scenes = await Promise.all(
       ['answer', 'resolve'].map(async (route) => {
         const s = await walk(live)
-        const current = await getTask(s.client, s.task.id)
-        const repo = current.repos[0]
+        const repo = (await getTask(s.client, s.task.id)).repos[0]
         if (!repo) throw new Error('missing worktree')
-        const context = await s.post<{ id: string }>('/failure-contexts')
-        const finding = await s.post<FailureCase>('/failures', {
-          source: {
-            kind: 'finding',
-            runId: current.leadRunId,
-            finding: 'Extra verification failed',
-          },
-          contextId: context.id,
-          evidence: 'The fixture service is unavailable.',
-        })
-        const decision = await s.ask(finding, 'uncertain')
-        const requestId = decision.decisions.at(-1)?.commentId
-        const endpoint =
-          route === 'answer'
-            ? `/comments/${requestId}/answer`
-            : `${s.root}/failures/${finding.id}/resolve`
-        const body =
-          route === 'answer'
-            ? { action: 'answer', choice: 'Fix in this Task' }
-            : { requestId, resolution: 'fix' }
-        await s.answer(await s.ask(s.one), 'Accept this failure')
+        await s.accept()
         await waitUntil(
           async () => (await s.runs()).at(-1)?.checks.some((c) => c.state === 'running'),
           'remaining Check running',
         )
         const release = () => writeFile(path.join(repo.worktree, 'stub-release'), 'continue')
         try {
+          const current = await getTask(s.client, s.task.id)
+          const context = await s.post<{ id: string }>('/failure-contexts')
+          const finding = await s.post<FailureCase>('/failures', {
+            source: {
+              kind: 'finding',
+              runId: current.leadRunId,
+              finding: 'Extra verification failed',
+            },
+            contextId: context.id,
+            evidence: 'The fixture service is unavailable.',
+          })
+          const decision = await s.ask(finding, 'uncertain')
+          const requestId = decision.decisions.at(-1)?.commentId
+          const endpoint =
+            route === 'answer'
+              ? `/comments/${requestId}/answer`
+              : `${s.root}/failures/${finding.id}/resolve`
+          const body =
+            route === 'answer'
+              ? { action: 'answer', choice: 'Fix in this Task' }
+              : { requestId, resolution: 'fix' }
           expect((await s.client.call('POST', endpoint, body)).status).toBe(409)
           expect((await getTask(s.client, s.task.id)).stage).toBe('validate')
-          expect(await s.backs()).toEqual([])
+          expect(await s.backs()).toHaveLength(1)
           expect((await s.cases()).find((c) => c.id === finding.id)?.resolutions).toEqual([])
           const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
           expect(comments.find((c) => c.id === requestId)?.answer).toBeUndefined()
+          return { s, finding, endpoint, body, release }
         } catch (error) {
           await release()
           throw error
         }
-        return { s, finding, endpoint, body, release }
       }),
     )
     for (const scene of scenes) await scene.release()
@@ -1462,7 +1287,8 @@ test(
         'work',
       )
       expect(await client.read<SendBack[]>(`${s.root}/send-backs`)).toMatchObject([
-        { counted: true, round: 1 },
+        { counted: true, round: 1, cause: 'check' },
+        { counted: true, round: 2 },
       ])
     })
   },
@@ -1472,8 +1298,6 @@ test(
 test('restart starts a fresh Validate visit rather than reusing the previous failed visit', async () => {
   const s = await setup()
   const before = await s.runs()
-  await s.assess(s.one, 'regression')
-  await s.post('/outcome', { outcome: 'back', to: 'work', findings: 'Repair the failed Check.' })
   await ctx.daemon?.stop()
   ctx.daemon = undefined
   const store = await openStore({ directory: tedPaths(ctx.home).store })
@@ -1498,80 +1322,12 @@ test('restart starts a fresh Validate visit rather than reusing the previous fai
   expect(runs).toHaveLength(2)
   expect(runs[0]).toEqual(before[0])
   expect(runs[1]?.checks.map((c) => c.state)).toEqual(['failed', 'not-run'])
-  expect(await client.read<SendBack[]>(`${s.root}/send-backs`)).toHaveLength(1)
+  const backs = await waitUntil(async () => {
+    const backs = await client.read<SendBack[]>(`${s.root}/send-backs`)
+    return backs.length === 2 ? backs : undefined
+  }, 'the fresh visit’s failed Check to return the Task to Work')
+  expect(backs.map((b) => b.checkRunId)).toEqual(runs.map((r) => r.id))
 })
-
-test(
-  'busy Retry/Accept through answer and through resolve retain every execution and decision',
-  async () => {
-    const live = await boot([
-      '      - { name: Tests, run: "if [ -e stub-started ]; then while [ ! -e stub-release ]; do sleep 0.05; done; fi; touch stub-started; exit 1" }',
-      '      - { name: Later, run: "echo later" }',
-    ])
-    const scenes = await Promise.all(
-      ['answer', 'resolve'].map(async (route) => {
-        const s = await walk(live)
-        const decision = await s.ask(s.one, 'uncertain')
-        const requestId = decision.decisions.at(-1)?.commentId
-        const repo = (await getTask(s.client, s.task.id)).repos[0]
-        if (!repo) throw new Error('missing worktree')
-        await s.post('/checks')
-        await waitUntil(
-          async () => (await s.runs()).at(-1)?.checks.some((c) => c.state === 'running'),
-          'manual rerun running',
-        )
-        try {
-          for (const [choice, resolution] of [
-            ['Retry', 'retry'],
-            ['Accept this failure', 'accepted'],
-          ]) {
-            const response =
-              route === 'answer'
-                ? await s.answer(decision, choice ?? '')
-                : await s.client.call('POST', `${s.root}/failures/${s.one.id}/resolve`, {
-                    requestId,
-                    resolution,
-                  })
-            expect(response.status).toBe(409)
-            expect((await s.runs()).filter((r) => !r.finishedAt)).toHaveLength(1)
-            expect(await s.runs()).toHaveLength(2)
-            expect((await s.cases()).find((c) => c.id === s.one.id)?.resolutions).toEqual([])
-            const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
-            expect(comments.find((c) => c.id === requestId)?.answer).toBeUndefined()
-          }
-        } finally {
-          await writeFile(path.join(repo.worktree, 'stub-release'), 'continue')
-        }
-        const second = await s.failure(2)
-        await waitUntil(
-          async () => (await s.obligations()).progress?.pending === false,
-          'manual rerun recorded',
-        )
-        expect((await s.runs()).map((r) => r.checks.map((c) => c.state))).toEqual([
-          ['failed', 'not-run'],
-          ['failed', 'not-run'],
-        ])
-        expect((await s.obligations()).satisfied).toBe(false)
-        await s.answer(await s.ask(second, 'uncertain'), 'Accept this failure')
-        await waitUntil(async () => (await s.obligations()).satisfied, 'remaining Check completes')
-        return s
-      }),
-    )
-    const client = await restart()
-    await all(scenes, async (s) => {
-      await waitUntil(
-        async () =>
-          (await client.read<ValidationObligations>(`${s.root}/validation-obligations`)).satisfied,
-        'recovered accepted suffix',
-      )
-      expect((await client.read<CheckRun[]>(`${s.root}/check-runs`)).map((r) => r.outcome)).toEqual(
-        ['failed', 'failed', 'passed'],
-      )
-      expect(await client.read<SendBack[]>(`${s.root}/send-backs`)).toEqual([])
-    })
-  },
-  long,
-)
 
 together(
   'accepted visual Finding keeps its failed judgment, whatever the Task Lead reports',
@@ -1579,8 +1335,8 @@ together(
     ['omitted', 'explicit failure', 'explicit pass'].map((judgment) => [
       judgment,
       async (s: Scene) => {
-        await s.answer(await s.ask(s.one), 'Accept this failure')
-        await waitUntil(async () => (await s.obligations()).satisfied, 'Checks resolved')
+        await s.accept()
+        await s.validated()
         const task = await getTask(s.client, s.task.id)
         const context = await s.post<{ id: string }>('/failure-contexts')
         const finding = await s.post<FailureCase>('/failures', {
@@ -1657,7 +1413,7 @@ test('accepted continuation waits for the machine Check slot and keeps its failu
     await waitUntil(async () => (await s.runs()).at(-1)?.waiting, 'accepted suffix waits for slot')
     expect((await s.runs()).at(-1)?.checks.map((c) => c.state)).toEqual(['waiting'])
     expect((await s.obligations()).satisfied).toBe(false)
-    expect(await s.backs()).toEqual([])
+    expect(await s.backs()).toHaveLength(1)
   } finally {
     await writeFile(path.join(repo.worktree, 'stub-release'), 'continue')
   }
@@ -1666,16 +1422,9 @@ test('accepted continuation waits for the machine Check slot and keeps its failu
   expect((await s.runs())[0]?.checks.map((c) => c.state)).toEqual(['failed', 'not-run'])
 })
 
-test('an assessed regression uses the loop check before recording its counted send-back', async () => {
+test('a failed Check’s return to Work goes through the loop check before it is recorded', async () => {
   const s = await setup(undefined, undefined, 1)
-  await s.assess(s.one, 'regression')
-  await s.post('/outcome', { outcome: 'back', to: 'work', findings: s.one.evidence })
-  await waitUntil(
-    async () => (await getTask(s.client, s.task.id)).stage === 'work',
-    'converging loop send-back',
-    40_000,
-  )
-  expect(await s.backs()).toMatchObject([{ round: 1, counted: true }])
+  expect(await s.backs()).toMatchObject([{ round: 1, counted: true, cause: 'check' }])
   const runs = await s.client.ok<RunSummary[]>('GET', `${s.root}/runs`)
   expect(runs.filter((run) => run.name === 'Loop check · Validate')).toHaveLength(1)
   const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)

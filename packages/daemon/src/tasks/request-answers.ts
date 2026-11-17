@@ -518,10 +518,11 @@ export function createRequestAnswers(
     const resolution = await gateWorkflow(current, { reads })
     const { workflow } = resolution
     const next = workflow.next(stageWith('validates')) as AgentStageId | 'done'
+    const stopping = choice === stopTaskChoice
     const keepGoing = choice === keepGoingChoice || choice === tryAgainChoice
-    const legacy = !keepGoing && choice !== stopTaskChoice
+    const legacy = !keepGoing && !stopping
     if (legacy && !legacyLoopChoices(workflow).includes(choice)) return undefined
-    if (keepGoing) checkBack(workflow, stageWith('validates'), ask.to)
+    if (keepGoing || stopping) checkBack(workflow, stageWith('validates'), ask.to)
     if (choice === backToDesignChoice)
       checkBack(workflow, stageWith('validates'), stageWith('designReview'))
     if (legacy && choice !== backToDesignChoice) await requireObligations(current, undefined, reads)
@@ -532,11 +533,8 @@ export function createRequestAnswers(
       choice,
       ...(text !== '' && { text }),
     })
-    if (choice === stopTaskChoice) {
-      if (!find(task.id).stopped) await stop(task.id)
-      return answered
-    }
-    if (keepGoing) {
+    if (stopping && !find(task.id).stopped) await stop(task.id)
+    if (keepGoing || stopping) {
       const limit = workflow.settings.stages.validate?.max_back
       const sentBack = store.recordSendBack({
         taskId: task.id,
@@ -549,11 +547,21 @@ export function createRequestAnswers(
         ...(ask.checkRunId !== undefined && { checkRunId: ask.checkRunId }),
         cause: ask.checkRunId !== undefined ? 'check' : 'review',
       })
+      const back = backMessage(workflow, ask.to, stageWith('validates'), sentBack)
+      if (stopping) {
+        await move(find(task.id), resolution, ask.to, undefined)
+        store.holdLeadMessage(
+          task.id,
+          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${stopTaskChoice}, so TED moved the Task back to Work and stopped it there. Validate’s count of returns to Work starts over.${added}\n\n${back}`,
+        )
+        await store.persisted()
+        return answered
+      }
       await move(
         current,
         resolution,
         ask.to,
-        `The human chose ${choice}, so Validate’s count of returns to Work starts over.${added}\n\n${backMessage(workflow, ask.to, stageWith('validates'), sentBack)}`,
+        `The human chose ${choice}, so Validate’s count of returns to Work starts over.${added}\n\n${back}`,
       )
     } else if (choice === backToDesignChoice) {
       store.recordSendBack({

@@ -132,6 +132,7 @@ import { isOneOf } from '@ted/protocol/parse'
 import { planTitle as titleFromMessage } from '@ted/protocol/plan'
 import {
   compareStages,
+  handsOff,
   hasClarifyRounds,
   isCleanup,
   mergesHere,
@@ -4112,6 +4113,9 @@ export async function openStore({
           ].filter(
             (choice) =>
               (canAccept || choice !== failureChoices.accepted) &&
+              (!value.validation ||
+                !handsOff(taskRow(value.taskId)?.stage ?? '') ||
+                choice === failureChoices.accepted) &&
               (choice !== 'Wait for a repair Task' ||
                 validates(taskRow(value.taskId)?.stage ?? '') ||
                 mergesHere(taskRow(value.taskId)?.stage ?? '')),

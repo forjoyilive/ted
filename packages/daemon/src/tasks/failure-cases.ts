@@ -12,7 +12,7 @@ import type {
 } from '@ted/protocol'
 import { ciFailureLabel, failureChoices, validateFailureChoices } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
-import { mergesHere, validates } from '@ted/protocol/stage'
+import { handsOff, mergesHere, validates } from '@ted/protocol/stage'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import { resolveReference } from '../references.ts'
@@ -283,6 +283,20 @@ export function createFailureCases(options: {
     }
     if (!current) return 'unknown'
     return sameTestedFor(value.source, current, context) ? 'current' : 'changed'
+  }
+  function latestCheckReturn(task: Task, value: FailureCase): boolean {
+    if (value.source.kind !== 'factory-check') return false
+    const back = store.listSendBacks(task.id).at(-1)
+    const entry = store.listStageEntries(task.id).at(-1)
+    return (
+      back !== undefined &&
+      validates(back.from) &&
+      handsOff(back.to) &&
+      back.checkRunId === value.source.checkRunId &&
+      entry !== undefined &&
+      handsOff(entry.stage) &&
+      entry.at >= back.at
+    )
   }
   const checkCase = (value: FailureCase) =>
     value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check'
@@ -646,6 +660,7 @@ export function createFailureCases(options: {
       }
     },
     sourceCheck,
+    latestCheckReturn,
     abandonedRepair,
     fixingTask(task: Task, value: FailureCase, ref: string) {
       if (!abandonedRepair(value))
@@ -803,6 +818,17 @@ export function createFailureCases(options: {
           `The Task’s code, checks or CI changed since tested context ${shortReference(bound.id)}, which this assessment is bound to, so the human could not accept this failure. ${freshContextSteps(value.id)}`,
         )
       const why = unknown ? cantAccept.unknown : stale || moved ? cantAccept.changed : undefined
+      const fromWork = value.validation === true && handsOff(task.stage)
+      if (fromWork && !latestCheckReturn(task, value))
+        throw new RequestError(
+          409,
+          'In Work, ask only about the failure case of the check that last sent the Task back to Work',
+        )
+      if (fromWork && why)
+        throw new RequestError(
+          409,
+          `${why} Report \`ted outcome advance\` again: TED runs the checks on the current code when the Task enters Validate.`,
+        )
       const closable = untied && value.validation === true
       return store.postFailureDecision(
         value,
@@ -810,19 +836,25 @@ export function createFailureCases(options: {
           whatFailed(value),
           `The Task Lead’s assessment: ${assessmentWords[assessment.assessment]}.`,
           `Recommendation: ${assessment.recommendation}`,
-          why
-            ? closable
-              ? `Retry runs the checks again. Fix in this Task sends it back to Work. Fixed and No longer applicable close it and need a reason. ${why}`
-              : value.validation
-                ? `${value.source.kind === 'github-ci' ? 'Retry waits for the check to be rerun on GitHub; TED never starts it.' : 'Retry runs the failed step again.'} Fix in this Task sends it back to Work. ${why}`
-                : `Close it as fixed or no longer applicable, with a reason. ${why} If it still happens, write to the Task Lead instead: a failure that happens again is recorded as a new one.`
-            : value.validation && value.source.kind === 'github-ci'
-              ? 'Retry waits for the check to be rerun on GitHub; TED never starts it. Fix in this Task sends it back to Work. Accept this failure lets the Task go on with it, for this commit and this attempt of the check; it doesn’t count as passed, approve a merge or override a check GitHub requires.'
-              : value.validation
-                ? 'Retry runs the failed step again. Fix in this Task sends it back to Work. Accept this failure lets the Task go on with it, for the code as tested; it doesn’t count as passed or approve a merge.'
-                : 'Accept this failure lets the Task go on with it, for the code as tested; it doesn’t count as passed. Fixed and No longer applicable close it and need a reason.',
+          fromWork
+            ? 'The Task is already in Work. Accept this failure moves it to Validate, where the checks go on after this one; the checks that passed on this code don’t run again. It applies only to the code as tested, and it doesn’t count as passed or approve a merge. To have it fixed in this Task instead, write to the Task Lead.'
+            : why
+              ? closable
+                ? `Retry runs the checks again. Fix in this Task sends it back to Work. Fixed and No longer applicable close it and need a reason. ${why}`
+                : value.validation
+                  ? `${value.source.kind === 'github-ci' ? 'Retry waits for the check to be rerun on GitHub; TED never starts it.' : 'Retry runs the failed step again.'} Fix in this Task sends it back to Work. ${why}`
+                  : `Close it as fixed or no longer applicable, with a reason. ${why} If it still happens, write to the Task Lead instead: a failure that happens again is recorded as a new one.`
+              : value.validation && value.source.kind === 'github-ci'
+                ? 'Retry waits for the check to be rerun on GitHub; TED never starts it. Fix in this Task sends it back to Work. Accept this failure lets the Task go on with it, for this commit and this attempt of the check; it doesn’t count as passed, approve a merge or override a check GitHub requires.'
+                : value.validation
+                  ? 'Retry runs the failed step again. Fix in this Task sends it back to Work. Accept this failure lets the Task go on with it, for the code as tested; it doesn’t count as passed or approve a merge.'
+                  : 'Accept this failure lets the Task go on with it, for the code as tested; it doesn’t count as passed. Fixed and No longer applicable close it and need a reason.',
           `Failure ${shortReference(value.id)}`,
-          'Wait for a repair Task is available at Validate and Merge. Select existing work or edit and approve an ordinary new repair before waiting; this never accepts the original failure.',
+          ...(fromWork
+            ? []
+            : [
+                'Wait for a repair Task is available at Validate and Merge. Select existing work or edit and approve an ordinary new repair before waiting; this never accepts the original failure.',
+              ]),
         ].join('\n\n'),
         !why,
         runId,

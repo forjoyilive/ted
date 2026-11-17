@@ -10,6 +10,7 @@ import type {
   QueuedAfter,
   ResolveFailureRequest,
   Task,
+  ValidationProgress,
 } from '@ted/protocol'
 import { failureChoices, validationExecution } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
@@ -21,7 +22,7 @@ import type { StoredTask, TedStore } from '../store/index.ts'
 import type { WorkflowResolution } from '../workflow/workflows.ts'
 import { type CheckRunnerResult, type RunnableCheck, runChecks, summary } from './checks.ts'
 import type { CommandLaunch } from './command.ts'
-import { type createFailureCases, generatedFailureText } from './failure-cases.ts'
+import { type createFailureCases, generatedFailureText, sameTested } from './failure-cases.ts'
 import { sameCheckPlan, validationReport } from './validation-report.ts'
 import { type WorktreeReads, worktreeReads } from './worktree-reads.ts'
 
@@ -67,6 +68,9 @@ interface ValidationOptions {
   notify(task: StoredTask): Promise<void>
   instructions(task: StoredTask, resolution: WorkflowResolution, message?: string): Promise<string>
   returnToWork(taskId: string, findings: string, checkRunId: string): Promise<void>
+  leaveWork(
+    task: StoredTask,
+  ): Promise<(message: string, carried: ValidationProgress) => Promise<Task>>
   apps(task: StoredTask): Promise<string | undefined>
   fix(task: StoredTask, value: FailureCase): Promise<void>
   checkFix(resolution: WorkflowResolution, task: StoredTask): void
@@ -544,6 +548,17 @@ export function createValidation(options: ValidationOptions) {
     return true
   }
 
+  function carryOver(task: StoredTask, carried: ValidationProgress): void {
+    const saved = store.failures.progress(task.id)
+    if (
+      !validates(task.stage) ||
+      saved?.visit !== carried.visit ||
+      saved.executions.at(-1)?.runId !== carried.executions.at(-1)?.runId
+    )
+      return
+    store.failures.saveProgress({ ...saved, visit: visitStart(task) })
+  }
+
   async function validateChecks(taskId: string, message?: string): Promise<void> {
     options.setChecking(taskId, true)
     try {
@@ -708,6 +723,54 @@ export function createValidation(options: ValidationOptions) {
     }
   }
 
+  async function acceptFromWork(
+    task: StoredTask,
+    value: FailureCase,
+    input: ResolveFailureRequest,
+    sendDrafts: boolean,
+  ) {
+    if (input.resolution !== 'accepted')
+      throw new RequestError(
+        409,
+        'The Task is already in Work, so Accept this failure is the only decision TED takes here',
+      )
+    if (!failures.latestCheckReturn(task, value))
+      throw new RequestError(
+        409,
+        'Only the failure of the check that last sent the Task back to Work can be accepted from Work',
+      )
+    if (options.isChecking(task.id))
+      throw new RequestError(
+        409,
+        'Checks are still running; wait for their results before deciding this failure',
+      )
+    const enter = await options.leaveWork(task)
+    const tested = value.contextId ? store.failures.context(value.contextId) : undefined
+    const current = tested && (await failures.snapshot(find(task.id)).catch(() => undefined))
+    const progress = store.failures.progress(task.id)
+    if (!tested || !current || !sameTested(tested, current) || progress?.failureId !== value.id)
+      throw new RequestError(
+        409,
+        'The Task’s code changed since this check ran, so TED can’t accept the failure. Ask the Task Lead to report the outcome again: TED runs the checks on the new code when the Task enters Validate.',
+      )
+    options.setChecking(task.id, true)
+    let entered = false
+    try {
+      const result = await failures.resolve(task, value.id, input, sendDrafts)
+      const carried = { ...progress, next: progress.next + 1, pending: true }
+      store.failures.saveProgress(carried)
+      await store.persisted()
+      await enter(
+        `The human accepted failure case ${shortReference(value.id)} from Work, so TED moved the Task to Validate on the same code. The checks go on after the accepted one; the ones that passed on this code don’t run again.`,
+        carried,
+      )
+      entered = true
+      return result
+    } finally {
+      if (!entered) options.setChecking(task.id, false)
+    }
+  }
+
   async function resolveValidationFailure(
     task: StoredTask,
     id: string,
@@ -721,6 +784,7 @@ export function createValidation(options: ValidationOptions) {
         throw new RequestError(400, 'this failure does not support Validate actions')
       return failures.resolve(task, id, input, sendDrafts)
     }
+    if (handsOff(task.stage)) return acceptFromWork(task, value, input, sendDrafts)
     const merging =
       mergesHere(task.stage) &&
       (value.source.kind === 'post-rebase-check' || value.source.kind === 'github-ci')
@@ -1020,6 +1084,7 @@ export function createValidation(options: ValidationOptions) {
     begin: beginChecks,
     coverage,
     enter: validateChecks,
+    carryOver,
     resume: resumeValidation,
     fixes: validationFixes,
     resolve: resolveValidationFailure,
