@@ -25,7 +25,7 @@ async function setup() {
   })
   const task = await store.createTask({ title: 'Failure cases' })
   store.startRun({ id: lead, taskId: task.id, agent: 'codex', prompt: '', cwd: directory })
-  const worktree = { fingerprint: 'A', readable: true, base: 'base-1', head: 'head-1' }
+  const worktree = { fingerprint: 'A', readable: true, base: 'base-1', head: 'head-1', ci: '' }
   let reads = 0
   const service = createFailureCases({
     store,
@@ -47,6 +47,7 @@ async function setup() {
           },
         ],
         checks: worktree.fingerprint,
+        ...(worktree.ci && { ci: worktree.ci }),
       }
     },
     assertLead: () => {},
@@ -416,6 +417,24 @@ test('a Check failure stays acceptable with later evidence on the same code, and
     (await s.resolve(asked3, 'no-longer-applicable', 'The Check changed.')).resolutions.at(-1)
       ?.resolution,
   ).toBe('no-longer-applicable')
+})
+
+test('a Check failure asked about after only the CI reading changed gets a card without Accept, not a refusal', async () => {
+  const s = await setup()
+  vi.useFakeTimers({ toFake: ['Date'] })
+  cleanups.push(async () => {
+    vi.useRealTimers()
+  })
+  const start = Date.parse('2026-11-16T12:00:00Z')
+  vi.setSystemTime(start)
+  const value = await s.recordCheck((await s.capture()).id)
+  vi.setSystemTime(start + 1000)
+  s.worktree.ci = 'pull-request-ci'
+  const asked = await s.request(value)
+  expect(s.comment(asked.decisions.at(-1)?.commentId)).toMatchObject({
+    choices: ['Fixed', 'No longer applicable'],
+    body: expect.stringContaining('TED can’t tie a later test run to it'),
+  })
 })
 
 test('accepting a failure with no tested context says so and tells the Task Lead to record it again', async () => {
