@@ -6,15 +6,17 @@ import { DatabaseSync } from 'node:sqlite'
 import {
   type Comment,
   type Factory,
+  movePlanKey,
   type Run,
   readDaemonInfo,
   type Task,
-  type TaskMoved,
   type TaskMovePlan,
   type ThreadEvent,
+  tedPaths,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { loadRunTokens } from '../src/run-token.ts'
 import {
   api,
   commitToOrigin,
@@ -547,11 +549,46 @@ describe('move to another Factory', () => {
       const body = { factoryId: web.id }
       expect((await file.call('POST', `/tasks/${task.id}/move-to-factory`, body)).status).toBe(403)
 
-      const result = await client.ok<TaskMoved>('POST', `/tasks/${task.id}/move-to-factory`, body)
-
-      expect(result.moved).toEqual([
-        { id: task.id, from: task.displayId, to: plan.tasks[0]?.newDisplayId },
-      ])
+      const lead = api(
+        daemon?.port ?? 0,
+        (await loadRunTokens(tedPaths(home).runTokenKey)).issue(runId),
+      )
+      expect(await lead.call('GET', '/factories/others')).toMatchObject({
+        status: 200,
+        body: [{ id: web.id, key: 'WEB', name: web.name }],
+      })
+      expect((await client.call('GET', '/factories/others')).status).toBe(403)
+      const askPath = `/tasks/${task.id}/move-request`
+      const reason = 'Its code is in acme/gadgets'
+      expect((await client.call('POST', askPath, { factory: 'WEB', reason })).status).toBe(403)
+      expect((await lead.call('POST', askPath, { factory: 'NOPE', reason })).status).toBe(404)
+      expect((await lead.call('POST', askPath, { factory: own.factoryId, reason })).status).toBe(
+        409,
+      )
+      expect((await lead.call('POST', askPath, { factory: 'web', reason })).status).toBe(201)
+      expect((await lead.call('POST', askPath, { factory: 'WEB', reason })).status).toBe(409)
+      const asked = await waitUntil(
+        async () =>
+          (await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)).find(
+            (c) => c.move !== undefined,
+          ),
+        'the move request',
+      )
+      expect(asked).toMatchObject({
+        title: `Move ${task.displayId} to ${web.name}?`,
+        choices: ['Move', 'Keep it'],
+        move: { factoryId: web.id, reason, askedBy: 'task-lead' },
+      })
+      const shown = await client.ok<TaskMovePlan>(
+        'GET',
+        `/tasks/${task.id}/move-plan?factory=${web.id}&request=${asked.id}`,
+      )
+      expect(movePlanKey(shown)).toBe(movePlanKey(plan))
+      await client.ok('POST', `/comments/${asked.id}/answer`, {
+        action: 'answer',
+        choice: 'Move',
+        move: { factoryId: web.id, planKey: movePlanKey(shown) },
+      })
       const moved = await waitFor(
         client,
         task,
@@ -575,6 +612,9 @@ describe('move to another Factory', () => {
       expect(byOldId.map((e) => e.text)).toContain(line)
       const { run: fresh } = await client.ok<{ run: Run }>('GET', `/runs/${moved.leadRunId}`)
       expect(fresh.prompt).toContain('Picking up after a move to another Factory')
+      expect(fresh.prompt).toContain(
+        `The previous Task Lead asked for the move and the user approved it. The reason given: “${reason}”`,
+      )
       expect(fresh.prompt).toContain('## The conversation so far')
       await writeFile(gate, '')
     } finally {

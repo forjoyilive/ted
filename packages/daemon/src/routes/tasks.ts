@@ -29,6 +29,7 @@ import {
   parseReportCleanupStepRequest,
   parseReportOutcomeRequest,
   parseRequestArchiveRequest,
+  parseRequestMoveRequest,
   parseResolveFailureRequest,
   parseResumeTaskRequest,
   parseRunChecksRequest,
@@ -400,6 +401,14 @@ export const taskRoutes: Route[] = [
       return [201, await tasks.requestArchive(ref, caller, body)]
     },
   }),
+  jsonRoute(parseRequestMoveRequest, {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/move-request$/,
+    runToken: true,
+    async handle({ body, params: [ref = ''], caller }, { tasks }) {
+      return [201, await tasks.requestMove(ref, caller, body)]
+    },
+  }),
   jsonRoute(parseFollowUpRequest, {
     optionalBody: true,
     method: 'POST',
@@ -461,9 +470,10 @@ export const taskRoutes: Route[] = [
     method: 'GET',
     path: /^\/tasks\/([^/?]+)\/move-plan(?:\?.*)?$/,
     async handle({ req, params: [ref = ''] }, { tasks }) {
-      const factory = new URL(req.url ?? '/', 'http://localhost').searchParams.get('factory') ?? ''
+      const query = new URL(req.url ?? '/', 'http://localhost').searchParams
+      const factory = query.get('factory') ?? ''
       if (factory === '') throw new HttpError(400, 'give the Factory to move to as ?factory=')
-      return [200, await tasks.movePlan(ref, factory)]
+      return [200, await tasks.movePlan(ref, factory, query.get('request') ?? undefined)]
     },
   },
   jsonRoute(parseMoveToFactoryRequest, {

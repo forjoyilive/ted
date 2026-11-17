@@ -833,19 +833,29 @@ export function MovePlanDetails({
   )
 }
 
-export function MoveToFactoryDialog({ task, onClose }: { task: Task; onClose: () => void }) {
-  const factories = useFactories().filter((f) => f.id !== task.factoryId)
-  const [factoryId, setFactoryId] = useState<string>()
+export interface MovePlanLoad {
+  plan?: TaskMovePlan
+  planError?: string
+}
+
+export function useMovePlan(
+  taskId: string,
+  factoryId: string | undefined,
+  version?: string,
+  requestId?: string,
+): MovePlanLoad {
   const [loaded, setLoaded] = useState<TaskMovePlan>()
   const [planError, setPlanError] = useState<string>()
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string>()
-  const moving = useRef(false)
   useEffect(() => {
     if (factoryId === undefined) return
     let current = true
+    void version
     setPlanError(undefined)
-    ted.taskMovePlan(task.id, factoryId).then(
+    const loading =
+      requestId === undefined
+        ? ted.taskMovePlan(taskId, factoryId)
+        : ted.taskMovePlan(taskId, factoryId, requestId)
+    loading.then(
       (next) => {
         if (current) setLoaded(next)
       },
@@ -856,8 +866,18 @@ export function MoveToFactoryDialog({ task, onClose }: { task: Task; onClose: ()
     return () => {
       current = false
     }
-  }, [task.id, factoryId])
+  }, [taskId, factoryId, version, requestId])
   const plan = loaded?.factoryId === factoryId ? loaded : undefined
+  return { ...(plan && { plan }), ...(planError !== undefined && { planError }) }
+}
+
+export function MoveToFactoryDialog({ task, onClose }: { task: Task; onClose: () => void }) {
+  const factories = useFactories().filter((f) => f.id !== task.factoryId)
+  const [factoryId, setFactoryId] = useState<string>()
+  const { plan, planError } = useMovePlan(task.id, factoryId)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const moving = useRef(false)
   const chosen = factories.find((f) => f.id === factoryId)
 
   async function move() {

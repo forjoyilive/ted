@@ -350,6 +350,7 @@ test('Task Autopilot answers recommended rounds, lets only its current Lead answ
     'linear-team',
     'model',
     'ci-stuck',
+    'move',
   ] as const) {
     const purpose = kind === 'model' ? { kind, runId: 'test' } : { kind }
     expect(ordinaryAutopilotRequest({ ...question, purpose })).toBe(false)

@@ -12,6 +12,7 @@ export function structuralPurpose(
     | 'asanaMissing'
     | 'asanaUnfinished'
     | 'archive'
+    | 'move'
     | 'cleanupFailure'
     | 'memoryKill'
     | 'failed'
@@ -26,6 +27,7 @@ export function structuralPurpose(
   if (comment.asanaMissing) return { kind: 'asana-missing' }
   if (comment.asanaUnfinished) return { kind: 'asana-unfinished' }
   if (comment.archive) return { kind: 'archive' }
+  if (comment.move) return { kind: 'move' }
   if (comment.cleanupFailure) return { kind: 'cleanup-failure' }
   if (comment.memoryKill) return { kind: 'memory-kill' }
   if (comment.failed) return { kind: 'failed-run' }

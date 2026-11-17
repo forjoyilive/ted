@@ -183,6 +183,12 @@ export const factoryRoutes: Route[] = [
     path: /^\/factories$/,
     handle: async (_, { factories }) => [200, await factories.list()],
   },
+  {
+    method: 'GET',
+    path: /^\/factories\/others$/,
+    runToken: true,
+    handle: async ({ caller }, { tasks }) => [200, await tasks.otherFactories(caller)],
+  },
   jsonRoute(parseCreateFactoryRequest, {
     method: 'POST',
     path: /^\/factories$/,

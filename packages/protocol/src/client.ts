@@ -278,7 +278,13 @@ import type {
 } from './task.ts'
 import type { TaskFileContent, TaskFiles } from './task-files.ts'
 import type { SetTaskGatesRequest, TaskGates } from './task-gates.ts'
-import type { MoveToFactoryRequest, TaskMoved, TaskMovePlan } from './task-move.ts'
+import type {
+  MoveToFactoryRequest,
+  OtherFactory,
+  RequestMoveRequest,
+  TaskMoved,
+  TaskMovePlan,
+} from './task-move.ts'
 import type {
   RegisterTestInvocation,
   TestInvocationRegistration,
@@ -957,15 +963,24 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/reset`, {})
   }
 
-  taskMovePlan(ref: string, factoryId: string): Promise<TaskMovePlan> {
+  taskMovePlan(ref: string, factoryId: string, requestId?: string): Promise<TaskMovePlan> {
+    const request = requestId === undefined ? '' : `&request=${encodeURIComponent(requestId)}`
     return this.#request(
       'GET',
-      `/tasks/${encodeURIComponent(ref)}/move-plan?factory=${encodeURIComponent(factoryId)}`,
+      `/tasks/${encodeURIComponent(ref)}/move-plan?factory=${encodeURIComponent(factoryId)}${request}`,
     )
   }
 
   moveTaskToFactory(ref: string, request: MoveToFactoryRequest): Promise<TaskMoved> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/move-to-factory`, request)
+  }
+
+  requestMove(ref: string, request: RequestMoveRequest): Promise<Comment> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/move-request`, request)
+  }
+
+  otherFactories(): Promise<OtherFactory[]> {
+    return this.#request('GET', '/factories/others')
   }
 
   async deleteTask(ref: string, options: DeleteTaskRequest = {}): Promise<void> {

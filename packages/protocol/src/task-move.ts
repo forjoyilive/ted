@@ -1,4 +1,12 @@
-import { reader, type Untyped } from './parse.ts'
+import {
+  isObject,
+  isOneOf,
+  isString,
+  type JsonObject,
+  parseJson,
+  reader,
+  type Untyped,
+} from './parse.ts'
 import type { StageId } from './stage.ts'
 import type { Task } from './task.ts'
 import { RequestValidationError as HttpError } from './validation.ts'
@@ -111,4 +119,70 @@ export function movePlanKey(plan: TaskMovePlan): string {
       sorted(t.unlinked.map((u) => `${u.id}:${u.blocks}`)),
     ]),
   })
+}
+
+export const moveChoice = 'Move'
+export const keepMoveChoice = 'Keep it'
+
+export const moveAskers = ['task-lead', 'coordinator'] as const
+
+export type MoveAsker = (typeof moveAskers)[number]
+
+export interface MoveAsk {
+  factoryId: string
+  reason: string
+  askedBy: MoveAsker
+  chatId?: string
+}
+
+export interface RequestMoveRequest {
+  factory: string
+  reason: string
+}
+
+export interface MoveAnswer {
+  factoryId: string
+  planKey: string
+}
+
+export interface OtherFactory {
+  id: string
+  key: string
+  name: string
+  repos?: string
+}
+
+export const maxMoveReason = 300
+
+export function readMoveReason(object: JsonObject, field: string): string {
+  const line = read.string(object, field, `${field} must be text`).replace(/\s+/g, ' ').trim()
+  if (line === '') throw new HttpError(400, `give a ${field}`)
+  if (line.length > maxMoveReason)
+    throw new HttpError(400, `the ${field} must be at most ${maxMoveReason} characters`)
+  return line
+}
+
+export function parseRequestMoveRequest(value: Untyped): RequestMoveRequest {
+  const body = read.object(value, 'move request')
+  const factory = read.string(body, 'factory', 'factory must be a Factory key or ID').trim()
+  if (factory === '') throw new HttpError(400, 'factory must be a Factory key or ID')
+  return { factory, reason: readMoveReason(body, 'reason') }
+}
+
+export function parseMoveAnswer(value: Untyped): MoveAnswer {
+  const body = read.object(value, 'move')
+  const factoryId = read.string(body, 'factoryId', 'move.factoryId must be a Factory ID').trim()
+  if (factoryId === '') throw new HttpError(400, 'move.factoryId must be a Factory ID')
+  const planKey = read.string(body, 'planKey', 'move.planKey must be the key of a move plan')
+  if (planKey === '' || planKey.length > maxPlanKey)
+    throw new HttpError(400, 'move.planKey must be the key of a move plan')
+  return { factoryId, planKey }
+}
+
+export function readMoveAsk(text: string): MoveAsk | undefined {
+  const value = parseJson(text)
+  if (!isObject(value)) return undefined
+  const { factoryId, reason, askedBy, chatId } = value
+  if (!isString(factoryId) || !isString(reason) || !isOneOf(askedBy, moveAskers)) return undefined
+  return { factoryId, reason, askedBy, ...(isString(chatId) && { chatId }) }
 }

@@ -750,6 +750,7 @@ export type RequestPurpose =
         | 'cleanup-failure'
         | 'memory-kill'
         | 'archive'
+        | 'move'
         | 'idle-run'
         | 'ci-stuck'
     }
@@ -807,6 +808,7 @@ export interface Comment {
   asanaMissing?: import('./asana-import.ts').AsanaMissing
   asanaUnfinished?: import('./asana-import.ts').AsanaUnfinished
   archive?: ArchiveAsk
+  move?: import('./task-move.ts').MoveAsk
   cleanupFailure?: CleanupFailureAsk
   memoryKill?: MemoryKillAsk
 }
@@ -1022,6 +1024,7 @@ export type AnswerRequest =
       choices?: string[]
       text?: string
       archive?: ArchiveTaskRequest
+      move?: import('./task-move.ts').MoveAnswer
     }
   | { action: 'answer-round'; answers: RoundAnswerInput[] }
   | { action: 'accept-recommended' }

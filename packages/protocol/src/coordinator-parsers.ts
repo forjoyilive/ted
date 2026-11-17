@@ -20,6 +20,7 @@ import {
   type TaskStatusKind,
   taskStatusKinds,
 } from './task.ts'
+import { readMoveReason } from './task-move.ts'
 import { parseCreateTaskRequest, parseSetTaskParentRequest } from './task-parsers.ts'
 import { agentChoice, bodyObject, RequestValidationError as HttpError } from './validation.ts'
 
@@ -293,7 +294,7 @@ export function parseCoordinatorTransfer(value: Untyped): CoordinatorTransfer {
   const factoryProblem = 'factory must be a Factory key or ID'
   const factory = read.string(body, 'factory', factoryProblem).trim()
   if (factory === '' || factory.length > 100) throw new HttpError(400, factoryProblem)
-  return { operation, task: { id, version }, factory }
+  return { operation, task: { id, version }, factory, reason: readMoveReason(body, 'reason') }
 }
 export function parseCoordinatorConfirmationAnswer(value: unknown): CoordinatorConfirmationAnswer {
   const body = bodyObject(value)
