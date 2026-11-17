@@ -159,7 +159,7 @@ function parseDraftFields(body: JsonObject, where: string): AgentDraftFields {
     )
   return {
     name,
-    instructions: instructions.endsWith('\n') ? instructions : `${instructions}\n`,
+    instructions,
     powers: agentPowers.filter((power) => listed.includes(power)),
   }
 }

@@ -1212,6 +1212,7 @@ export function createCoordinators(options: {
 
   async function settle(c: StoredCoordinator): Promise<void> {
     await launching.wait(c.id)?.catch(() => {})
+    await requestChains.get(c.id)?.catch(() => {})
     await chains.get(c.factoryId)?.catch(() => {})
     await steering.drain(c.runId)
     for (const runId of (saved.get(c.id) ?? c).runIds) {
@@ -2428,8 +2429,12 @@ export function createCoordinators(options: {
           store.chats.answer(asked.id, { kind: 'denied', at })
         } else {
           const chosen = chosenDraft(draft, answer)
-          if (!current) throw new RequestError(409, 'TED couldn’t read this Factory’s Agent files')
-          draftStillFits(draft, current)
+          const fresh =
+            answer.where === 'factory'
+              ? (await workflows.resolve(factory, { fetch: true })).workflow.agents
+              : current
+          if (!fresh) throw new RequestError(409, 'TED couldn’t read this Factory’s Agent files')
+          draftStillFits(draft, fresh)
           const result = await saveDraft(options.agentTargets, {
             where: answer.where,
             factoryId: factory.id,

@@ -100,7 +100,7 @@ test('an Agent draft refuses an outside power and caps its text, and keeps the p
   )
   expect(
     P.parseAgentDraftInput({ ...draft, powers: ['manage_agents', 'ask', 'ask'], change: false }),
-  ).toEqual({ ...draft, instructions: 'Help.\n', powers: ['ask', 'manage_agents'] })
+  ).toEqual({ ...draft, powers: ['ask', 'manage_agents'] })
   expect(() => P.parseAgentDraftAnswer({ action: 'create', where: 'elsewhere', ...draft })).toThrow(
     'where is library or factory',
   )

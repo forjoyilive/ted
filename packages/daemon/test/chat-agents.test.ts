@@ -254,6 +254,10 @@ test('a Coordinator drafts Agents that only the app creates, in the Library or a
   const ghState = path.join(scratch, 'gh.json')
   await writeFile(ghState, JSON.stringify({ merge: { origin, updateBase: true } }))
   process.env.TED_STUB_GH = ghState
+  await commitToOrigin(scratch, {
+    '.ted/agents.yaml': scoutYaml,
+    '.ted/agents/scout.md': 'You scout releases.\n',
+  })
   daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
   const port = daemon.port
   const app = api(port, { appKey: daemon.appToken })
@@ -374,6 +378,26 @@ test('a Coordinator drafts Agents that only the app creates, in the Library or a
     (await ok<Coordinator>('GET', chatPath)).requests?.find((r) => r.id === change.body.id)?.answer,
   ).toMatchObject({ kind: 'denied' })
 
+  const scout = await post({
+    id: 'scout',
+    name: 'Scout',
+    instructions: 'You scout releases and tags.\n',
+    powers: ['ask', 'read_code'],
+    change: true,
+  })
+  expect(scout.body.agentDraft.current).toMatchObject({ source: 'factory' })
+  const toLibrary = await app.call('POST', `${chatPath}/requests/${scout.body.id}/agent`, {
+    action: 'create',
+    where: 'library',
+    name: 'Scout',
+    instructions: 'You scout releases and tags.\n',
+    powers: ['ask', 'read_code'],
+  })
+  expect(toLibrary.status).toBe(409)
+  expect(JSON.stringify(toLibrary.body)).toContain('This Factory defines `scout`')
+  expect(existsSync(path.join(home, 'library', 'agents', 'scout.md'))).toBe(false)
+  await ok('POST', `${chatPath}/requests/${scout.body.id}/agent`, { action: 'dismiss' })
+
   const second = await post({
     id: 'release-notes',
     name: 'Release notes',
@@ -402,5 +426,8 @@ test('a Coordinator drafts Agents that only the app creates, in the Library or a
     (await exec('git', ['show', `${branch}:${file}`], { cwd: origin })).stdout
   expect(await show('.ted/agents.yaml')).toContain('release-notes:')
   expect(await show('.ted/agents/release-notes.md')).toBe('# Release notes\n\nWrite the notes.\n')
-  expect((await exec('git', ['ls-tree', 'main', '.ted/'], { cwd: origin })).stdout).toBe('')
+  expect(await show('.ted/agents.yaml')).toContain('scout:')
+  expect(
+    (await exec('git', ['ls-tree', '-r', '--name-only', 'main', '.ted/'], { cwd: origin })).stdout,
+  ).not.toContain('release-notes')
 }, 120_000)

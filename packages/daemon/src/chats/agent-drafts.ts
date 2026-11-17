@@ -69,7 +69,15 @@ export function planDraft(input: AgentDraftInput, agents: readonly ResolvedAgent
   return draft
 }
 
-export function chosenDraft(draft: AgentDraft, answer: AgentDraftFields): AgentDraftFields {
+export function chosenDraft(
+  draft: AgentDraft,
+  answer: AgentDraftFields & { where: AgentDraftPlace },
+): AgentDraftFields {
+  if (answer.where === 'library' && draft.current?.source === 'factory')
+    throw new RequestError(
+      409,
+      `This Factory defines \`${draft.id}\`, so save the change to This Factory; the Library’s copy, if any, isn’t what this draft changes`,
+    )
   const added = answer.powers.find((power) => !draft.powers.includes(power))
   if (added !== undefined)
     throw new RequestError(
@@ -108,7 +116,9 @@ function change(id: string, row: AgentFileRow | undefined, chosen: AgentDraftFie
     {
       id,
       settings: { ...row?.own?.settings, name: chosen.name, powers: chosen.powers },
-      instructions: chosen.instructions,
+      instructions: chosen.instructions.endsWith('\n')
+        ? chosen.instructions
+        : `${chosen.instructions}\n`,
     },
   ]
   return { agentFiles }
@@ -129,8 +139,7 @@ export async function saveDraft(
     const view = await targets.library.view()
     const row = view.agentFiles.find((agent) => agent.id === draft.id)
     await targets.library.save({ changes: change(draft.id, row, chosen), version: view.version })
-    const shadowed = draft.current?.source === 'factory'
-    return `${draft.current ? 'Saved the change to' : 'Created'} ${name} in the Library.${shadowed ? ' This Factory’s own copy of the Agent still applies here.' : ''}`
+    return `${draft.current ? 'Saved the change to' : 'Created'} ${name} in the Library.`
   }
   const view = await targets.factory.view(factoryId, { refresh: 'first' })
   const row = view.agentFiles.find((agent) => agent.id === draft.id)

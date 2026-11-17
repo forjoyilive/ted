@@ -50,7 +50,8 @@ export function AgentDraftCard({
   const [name, setName] = useState(draft?.name ?? '')
   const [instructions, setInstructions] = useState(draft?.instructions ?? '')
   const [powers, setPowers] = useState<readonly AgentPower[]>(draft?.powers ?? [])
-  const [where, setWhere] = useState<AgentDraftPlace>('library')
+  const factoryOnly = draft?.current?.source === 'factory'
+  const [where, setWhere] = useState<AgentDraftPlace>(factoryOnly ? 'factory' : 'library')
   const [showFull, setShowFull] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string>()
@@ -198,7 +199,7 @@ export function AgentDraftCard({
                 name={`${request.id}-where`}
                 value={place.value}
                 checked={where === place.value}
-                disabled={sending}
+                disabled={sending || (factoryOnly && place.value === 'library')}
                 onChange={() => setWhere(place.value)}
               />
               <span>
@@ -208,6 +209,11 @@ export function AgentDraftCard({
             </label>
           ))}
         </div>
+        {factoryOnly && (
+          <p className={styles.hint}>
+            This Factory defines this Agent, so the change goes to This Factory.
+          </p>
+        )}
       </fieldset>
       {error !== undefined && (
         <p className={chat.error} role="alert">
