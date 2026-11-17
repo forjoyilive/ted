@@ -283,9 +283,10 @@ test('a Coordinator drafts Agents that only the app creates, in the Library or a
   }
   const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
   const factory = await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+  const firstTurnEnds = path.join(scratch, 'first-turn-ends')
   const started = await ok<Coordinator>('POST', `/factories/${factory.id}/coordinator-chats`, {
     agent: 'claude',
-    text: JSON.stringify({ steps: [] }),
+    text: JSON.stringify({ steps: [{ waitFor: firstTurnEnds }, { endTurn: true }] }),
   })
   expect(started.chatAgent.powers).toEqual([
     'ask',
@@ -363,6 +364,11 @@ test('a Coordinator drafts Agents that only the app creates, in the Library or a
   expect(widened.status).toBe(400)
   expect(JSON.stringify(widened.body)).toContain('The draft doesn’t give Manage Tasks')
 
+  await writeFile(firstTurnEnds, '')
+  await waitUntil(
+    async () => (await ok<Coordinator>('GET', chatPath)).status === 'ready' || undefined,
+    'the Coordinator to end its first turn',
+  )
   const answered = await ok<Coordinator>('POST', answerPath, create)
   expect(answered.requests?.find((r) => r.id === posted.body.id)?.answer).toMatchObject({
     kind: 'approved',
