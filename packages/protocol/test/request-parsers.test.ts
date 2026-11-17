@@ -592,6 +592,10 @@ test('Validate failure requests preserve all category, action and verification f
   expect(P.parseVerifyFailureRequest({ evidence: ' Fresh reproduction passed ' })).toEqual({
     evidence: 'Fresh reproduction passed',
   })
+  expect(P.parseVerifyFailureRequest({ evidence: 'Checks passed', fixedBy: ' TED-492 ' })).toEqual({
+    evidence: 'Checks passed',
+    fixedBy: 'TED-492',
+  })
 })
 
 test('Validate failure parsers reject unknown categories and empty verification evidence', () => {
@@ -602,6 +606,9 @@ test('Validate failure parsers reject unknown categories and empty verification 
     }),
   ).toThrow('category must be test, review or visual')
   expect(() => P.parseVerifyFailureRequest({ evidence: '' })).toThrow('nonempty text')
+  expect(() => P.parseVerifyFailureRequest({ evidence: 'Passed', fixedBy: '' })).toThrow(
+    'fixedBy must be nonempty text',
+  )
 })
 
 test('Coordinator parent edits retain all fields and require an explicit parent and hierarchy revision', () => {

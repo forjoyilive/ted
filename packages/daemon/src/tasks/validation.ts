@@ -868,7 +868,12 @@ export function createValidation(options: ValidationOptions) {
     return plan.length === 0
   }
 
-  async function verifyRepair(task: StoredTask, value: FailureCase, evidence: string) {
+  async function verifyRepair(
+    task: StoredTask,
+    value: FailureCase,
+    evidence: string,
+    fixedBy?: { id: string; displayId: string; title: string },
+  ) {
     if (value.source.kind !== 'factory-check' && value.source.kind !== 'post-rebase-check')
       throw new RequestError(409, 'only a Check repair can use current Check coverage')
     const source = store.getCheckRun(value.source.checkRunId)
@@ -879,7 +884,8 @@ export function createValidation(options: ValidationOptions) {
     const decision = value.resolutions.at(-1)
     const incorporation =
       decision?.resolution === 'repair'
-        ? value.repairProgress?.findLast((p) => p.requestId === decision.requestId)
+        ? (value.repairProgress?.findLast((p) => p.requestId === decision.requestId) ??
+          (failures.abandonedRepair(value) ? decision : undefined))
         : undefined
     const freshRepair =
       incorporation &&
@@ -945,6 +951,9 @@ export function createValidation(options: ValidationOptions) {
       task,
       value.id,
       `${evidence}\n\nTask Lead reported repair against Validate visit ${progress.visit}. Current Checks: ${generatedFailureText(summary(progress.checks)) || '(empty plan)'}. Original execution remains failed.`,
+      undefined,
+      undefined,
+      fixedBy,
     )
   }
 

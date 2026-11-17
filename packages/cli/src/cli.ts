@@ -1162,7 +1162,9 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         'failure verification',
         parseVerifyFailureRequest,
       )
-      await failureResult((client) => client.verifyFailure(ref, args[0] ?? '', input.evidence))
+      await failureResult((client) =>
+        client.verifyFailure(ref, args[0] ?? '', input.evidence, input.fixedBy),
+      )
     },
     failureAsk: () =>
       failureResult((client, ref) => client.requestFailureDecision(ref, args[0] ?? '')),
@@ -1673,6 +1675,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         })
       })
       console.log(`Created ${task.displayId}  ${printable(task.title)}`)
+      if (task.reminder !== undefined) console.log(printable(task.reminder))
     },
     listTasks: async () => {
       const tasks = await withDaemon(home, (client) => client.listTasks())

@@ -163,6 +163,10 @@ function RepairDetails({
   const current = tasks.find((t) => t.id === repair.id)
   const affected = tasks.find((t) => t.id === failure.taskId)
   const incorporated = failure.repairProgress?.some((p) => p.requestId === decision.requestId)
+  const waiting = affected?.blockedBy.includes(repair.id)
+  const closes =
+    'Fresh passing Checks close this failure. If this Task is stopped, use Resume in Task details first.'
+  const fixedBy = failure.verifications?.findLast((v) => v.fixedBy)?.fixedBy
   const message = !affected
     ? 'Loading repair status…'
     : incorporated
@@ -171,13 +175,17 @@ function RepairDetails({
         : 'Merged repair incorporated. Fresh validation is required; the original execution remains failed.'
       : current?.stage === 'done'
         ? 'Repair merged. Continuation waits for a working-Run slot and repair incorporation before fresh validation.'
-        : !current
-          ? 'Repair deleted. The failure remains unresolved unless fresh verification resolves it.'
-          : current.archived
-            ? 'Repair archived without merging. Check the blocker in Task details; this does not pass validation.'
-            : affected.blockedBy.includes(repair.id)
-              ? 'Waiting for the repair to merge. This Task keeps its Stage and worktree without a working-Run slot.'
-              : 'Repair blocker removed without merging. Use Resume in Task details to reassess the unresolved failure.'
+        : failure.verifications?.length
+          ? 'Repair dropped without merging. Later verification closed this failure; the original execution remains failed.'
+          : current && !current.archived && waiting
+            ? 'Waiting for the repair to merge. This Task keeps its Stage and worktree without a working-Run slot.'
+            : waiting
+              ? `Repair ${current ? 'archived' : 'deleted'} without merging, and this Task still waits on it. Remove the blocker in Task details to stop waiting.`
+              : !current
+                ? `Repair deleted without merging. ${closes}`
+                : current.archived
+                  ? `Repair archived without merging. ${closes}`
+                  : `Repair blocker removed without merging. ${closes}`
 
   return (
     <>
@@ -196,6 +204,22 @@ function RepairDetails({
         )}
       </p>
       <p className={styles.sectionBody}>{message}</p>
+      {fixedBy && (
+        <p className={styles.sectionBody}>
+          Fixed by{' '}
+          {onOpenTask && tasks.some((t) => t.id === fixedBy.id) ? (
+            <button
+              type="button"
+              className={styles.showRequest}
+              onClick={() => onOpenTask(fixedBy.id)}
+            >
+              {fixedBy.displayId} · {fixedBy.title}
+            </button>
+          ) : (
+            `${fixedBy.displayId} · ${fixedBy.title}`
+          )}
+        </p>
+      )}
     </>
   )
 }

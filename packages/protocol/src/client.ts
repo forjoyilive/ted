@@ -237,6 +237,7 @@ import type {
   CleanupStepReport,
   CloseRoundRequest,
   Comment,
+  CreatedTask,
   CreateTaskRequest,
   DeleteTaskRequest,
   DescriptionVersion,
@@ -749,7 +750,7 @@ export class DaemonClient {
     return this.#request('PUT', messageDraftPath(box), draft)
   }
 
-  createTask(input: CreateTaskRequest): Promise<Task> {
+  createTask(input: CreateTaskRequest): Promise<CreatedTask> {
     return this.#request('POST', '/tasks', input)
   }
 
@@ -1001,11 +1002,11 @@ export class DaemonClient {
       input,
     )
   }
-  verifyFailure(ref: string, id: string, evidence: string): Promise<FailureCase> {
+  verifyFailure(ref: string, id: string, evidence: string, fixedBy?: string): Promise<FailureCase> {
     return this.#request(
       'POST',
       `/tasks/${encodeURIComponent(ref)}/failures/${encodeURIComponent(id)}/verification`,
-      { evidence },
+      { evidence, ...(fixedBy !== undefined && { fixedBy }) },
     )
   }
   requestFailureDecision(ref: string, id: string): Promise<FailureCase> {

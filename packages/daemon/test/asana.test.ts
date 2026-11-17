@@ -263,7 +263,8 @@ test('authorization and refresh fail closed for missing, incomplete, inactive an
     [{ scope: undefined }, 'Asana sent no scope list'],
     [{ scope: 'users:read' }, 'these scopes are missing: attachments:read, projects:read,'],
     [{ active: false }, 'the token isn’t active'],
-    [{ client_id: 'another-app' }, 'the token belongs to a different client ID'],
+    [{ client_id: 'another-app' }, 'the token belongs to client ID another-app, not 12345'],
+    [{ client_id: 54321 }, 'the token belongs to client ID 54321, not 12345'],
   ] as const) {
     stub.setGrant(grant)
     const { url } = await client.connectAsana()
@@ -276,6 +277,19 @@ test('authorization and refresh fail closed for missing, incomplete, inactive an
     expect(status.error).toContain('permission grant')
     expect(status).not.toHaveProperty('user')
     expect(secret).not.toContain('access-secret-opaque')
+  }
+  stub.setGrant(undefined)
+  stub.setTokenError(401)
+  const rejected = await client.connectAsana()
+  expect((await fetch(stub.callback(rejected.url))).status).toBe(200)
+  expect(await client.getAsana()).toMatchObject({
+    state: 'error',
+    error: expect.stringContaining('didn’t accept this app’s client ID and secret'),
+  })
+  stub.setTokenError(false)
+  for (const sent of [12345, ' 12345 ']) {
+    stub.setGrant({ client_id: sent })
+    await authorize(client)
   }
   stub.setGrant({
     client_id: undefined,

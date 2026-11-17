@@ -203,7 +203,7 @@ export const taskRoutes: Route[] = [
     path: /^\/tasks\/([^/]+)\/failures\/([^/]+)\/verification$/,
     runToken: true,
     async handle({ body, params: [ref = '', id = ''], caller }, { tasks }) {
-      return [200, await tasks.verifyFailure(ref, caller, id, body.evidence)]
+      return [200, await tasks.verifyFailure(ref, caller, id, body.evidence, body.fixedBy)]
     },
   }),
   jsonRoute(parseResolveFailureRequest, {

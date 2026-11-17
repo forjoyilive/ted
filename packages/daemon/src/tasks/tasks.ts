@@ -37,6 +37,7 @@ import type {
   Comment,
   CommentAnswer,
   CommitChanges,
+  CreatedTask,
   DaemonEvent,
   DeleteTaskRequest,
   DescriptionVersion,
@@ -654,10 +655,16 @@ export interface Tasks {
     id: string,
     input: AssessFailureRequest,
   ): Promise<FailureCase>
-  verifyFailure(ref: string, caller: Caller, id: string, evidence: string): Promise<FailureCase>
+  verifyFailure(
+    ref: string,
+    caller: Caller,
+    id: string,
+    evidence: string,
+    fixedBy?: string,
+  ): Promise<FailureCase>
   requestFailureDecision(ref: string, caller: Caller, id: string): Promise<FailureCase>
   resolveFailure(ref: string, id: string, input: ResolveFailureRequest): Promise<FailureCase>
-  create(input: CreateTaskInput, caller?: Caller): Promise<Task>
+  create(input: CreateTaskInput, caller?: Caller): Promise<CreatedTask>
   asanaPreview(input: AsanaImportRequest, caller?: Caller): Promise<AsanaImportPreview>
   importAsana(input: AsanaImportRequest, caller?: Caller): Promise<AsanaImportResult>
   asanaIntake(input: AsanaIntakeRequest, caller?: Caller): Promise<AsanaIntakeResult>
@@ -834,7 +841,8 @@ export interface Tasks {
 const slugLength = 40
 const recordedConflictFiles = 50
 const handOffCheckLimit = 3
-export const maxTasksPerLead = 3
+export const suggestedTasksPerLead = 3
+export const maxTasksPerLead = 10
 
 function withoutRepeats(files: readonly Attachment[]): Attachment[] {
   const seen = new Map<string, Attachment>()
@@ -9222,6 +9230,17 @@ export function createTasks(options: {
     }
   }
 
+  function withLeadReminder(task: Task, creatorId: string | undefined): CreatedTask {
+    const creator = creatorId === undefined ? undefined : store.getTask(creatorId)
+    if (!creator || task.createdBy !== 'task-lead') return task
+    const count = store.leadCreatedTasks(creator.id).length
+    if (count <= suggestedTasksPerLead) return task
+    return {
+      ...task,
+      reminder: `${creator.displayId} has now created ${count} Tasks, past the suggested ${suggestedTasksPerLead}. Next time, suggest a planning chat or Split it to the user instead.`,
+    }
+  }
+
   function refuseLeadLimit(task: StoredTask): void {
     if (store.leadCreatedTasks(task.id).length < maxTasksPerLead) return
     throw new RequestError(
@@ -11321,9 +11340,10 @@ export function createTasks(options: {
       ),
     assessFailure: (ref, caller, id, input) =>
       failureLead(ref, caller, (task, runId) => failures.assess(task, id, runId, input)),
-    verifyFailure: (ref, caller, id, evidence) =>
+    verifyFailure: (ref, caller, id, evidence, fixedBy) =>
       failureLead(ref, caller, async (task) => {
         const value = failures.get(task, id)
+        const abandoned = failures.abandonedRepair(value)
         const repairedMergeFailure =
           mergesHere(task.stage) &&
           ['finding', 'post-rebase-check'].includes(value.source.kind) &&
@@ -11357,9 +11377,8 @@ export function createTasks(options: {
           ![
             'retry',
             'fix',
-            ...(value.repairProgress?.some(
-              (p) => p.requestId === value.resolutions.at(-1)?.requestId,
-            )
+            ...(abandoned ||
+            value.repairProgress?.some((p) => p.requestId === value.resolutions.at(-1)?.requestId)
               ? ['repair']
               : []),
           ].includes(value.resolutions.at(-1)?.resolution ?? '') &&
@@ -11372,15 +11391,16 @@ export function createTasks(options: {
         const safeEvidence = failureText(evidence)
         if (value.verifications?.length)
           throw new RequestError(409, 'this failure already has verification evidence')
+        const fix = fixedBy === undefined ? undefined : failures.fixingTask(task, value, fixedBy)
         const result =
           value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check'
-            ? await validation.verifyRepair(task, value, safeEvidence)
-            : failures.verifyResult(task, id, safeEvidence)
+            ? await validation.verifyRepair(task, value, safeEvidence, fix)
+            : failures.verifyResult(task, id, safeEvidence, undefined, undefined, fix)
         store.postComment({
           taskId: task.id,
           author: { kind: 'run', runId: task.leadRunId ?? '' },
           title: 'Failure repair verified',
-          body: `Failure ${shortReference(result.id)}\n\n${result.verifications?.at(-1)?.evidence}`,
+          body: `Failure ${shortReference(result.id)}${fix ? ` · Fixed by ${fix.displayId}` : ''}\n\n${result.verifications?.at(-1)?.evidence}`,
         })
         return result
       }),
@@ -11413,8 +11433,8 @@ export function createTasks(options: {
         caller.kind === 'run' && !firing ? store.getRun(caller.runId)?.taskId : undefined
       const key = leadTask ?? (firing && store.automations.check(firing.automationId) && firing.id)
       if (!key) return createTask(input, caller)
-      const next = (checkCreates.get(key) ?? Promise.resolve()).then(() =>
-        createTask(input, caller),
+      const next = (checkCreates.get(key) ?? Promise.resolve()).then(async () =>
+        withLeadReminder(await createTask(input, caller), leadTask),
       )
       const settled = next.then(
         () => undefined,

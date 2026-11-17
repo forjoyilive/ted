@@ -44,7 +44,7 @@ export async function startStubAsana() {
   let expiresIn = 3600
   let revoked = false
   let offline = false
-  let tokenError = false
+  let tokenError: boolean | 401 = false
   let redirect = false
   let grantClientId = ''
   let grant: Record<string, unknown> | undefined
@@ -93,7 +93,7 @@ export async function startStubAsana() {
               .update(fields.code_verifier ?? '')
               .digest('base64url'))
       ) {
-        res.writeHead(400)
+        res.writeHead(tokenError === 401 ? 401 : 400)
         res.end(JSON.stringify({ error: 'invalid_grant', error_description: fields.client_secret }))
         return
       }
@@ -413,7 +413,7 @@ export async function startStubAsana() {
     setOffline(value: boolean) {
       offline = value
     },
-    setTokenError(value: boolean) {
+    setTokenError(value: boolean | 401) {
       tokenError = value
     },
     setRedirect(value: boolean) {

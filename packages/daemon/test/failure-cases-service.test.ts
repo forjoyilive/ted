@@ -25,7 +25,7 @@ async function setup() {
   })
   const task = await store.createTask({ title: 'Failure cases' })
   store.startRun({ id: lead, taskId: task.id, agent: 'codex', prompt: '', cwd: directory })
-  const worktree = { fingerprint: 'A', readable: true, base: 'base-1', head: 'head-1' }
+  const worktree = { fingerprint: 'A', readable: true, base: 'base-1', head: 'head-1', ci: '' }
   let reads = 0
   const service = createFailureCases({
     store,
@@ -47,6 +47,7 @@ async function setup() {
           },
         ],
         checks: worktree.fingerprint,
+        ...(worktree.ci && { ci: worktree.ci }),
       }
     },
     assertLead: () => {},
@@ -418,6 +419,24 @@ test('a Check failure stays acceptable with later evidence on the same code, and
   ).toBe('no-longer-applicable')
 })
 
+test('a Check failure asked about after only the CI reading changed gets a card without Accept, not a refusal', async () => {
+  const s = await setup()
+  vi.useFakeTimers({ toFake: ['Date'] })
+  cleanups.push(async () => {
+    vi.useRealTimers()
+  })
+  const start = Date.parse('2026-11-16T12:00:00Z')
+  vi.setSystemTime(start)
+  const value = await s.recordCheck((await s.capture()).id)
+  vi.setSystemTime(start + 1000)
+  s.worktree.ci = 'pull-request-ci'
+  const asked = await s.request(value)
+  expect(s.comment(asked.decisions.at(-1)?.commentId)).toMatchObject({
+    choices: ['Fixed', 'No longer applicable'],
+    body: expect.stringContaining('Ted can’t tie a later test run to it'),
+  })
+})
+
 test('accepting a failure with no tested context says so and tells the Task Lead to record it again', async () => {
   const s = await setup()
   const asked = await s.request(await s.record())
@@ -681,4 +700,26 @@ test('a repair that merged keeps its case out of replacement after its blocker l
   s.worktree.fingerprint = 'B'
   await s.fail('pnpm check --changed')
   expect(await s.disposition(first)).toBe('unresolved')
+})
+
+test('a case whose repair was dropped can name the merged Task that brought the fix', async () => {
+  const s = await checkCases()
+  const { value: first } = await s.fail('pnpm check')
+  const repair = await s.waitForRepair(first)
+  const fixer = await s.store.createTask({ title: 'Fix the demo reset test elsewhere' })
+  const current = () => s.store.failures.get(first.id) as FailureCase
+  expect(() => s.service.fixingTask(s.task, current(), fixer.id)).toThrow(
+    'only for a failure whose repair Task was archived',
+  )
+  s.store.archiveTask(repair.id)
+  s.store.removeBlocker(s.task.id, repair.id)
+  expect(() => s.service.fixingTask(s.task, current(), fixer.id)).toThrow('hasn’t merged')
+  expect(() => s.service.fixingTask(s.task, current(), s.task.id)).toThrow(
+    'merged Task in this Factory',
+  )
+  s.store.changeStage(fixer.id, 'done')
+  const fix = s.service.fixingTask(s.task, current(), fixer.displayId)
+  expect(fix).toEqual({ id: fixer.id, displayId: fixer.displayId, title: fixer.title })
+  s.service.verifyResult(s.validating, first.id, 'Checks passed', undefined, undefined, fix)
+  expect(current().verifications?.at(-1)?.fixedBy).toEqual(fix)
 })

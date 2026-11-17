@@ -710,7 +710,7 @@ export function Inbox({
                   aria-expanded={showSnoozed}
                   onClick={() => setShowSnoozed(!showSnoozed)}
                 >
-                  <span aria-hidden>{showSnoozed ? '▾' : '▸'}</span> Snoozed{' '}
+                  <ChevronIcon open={showSnoozed} /> Snoozed{' '}
                   <span className={styles.chipCount}>{snoozedRows.length}</span>
                 </button>
               </li>
