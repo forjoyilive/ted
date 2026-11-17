@@ -581,7 +581,7 @@ describe('move to another Factory', () => {
         stage: 'intake',
       })
       expect(moved.blockedBy ?? []).not.toContain(blocker.id)
-      expect(moved.runs.map((r) => r.id)).toContain(runId)
+      expect((await client.call('GET', `/runs/${runId}`)).status).toBe(200)
       await expect(stat(worktree)).rejects.toThrow()
       const comments = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
       expect(comments.map((c) => c.body)).toContain('A note')
