@@ -47,7 +47,7 @@ export function planStatusChip(plan: Pick<Plan, 'status' | 'queuePlace' | 'pause
     case 'finished':
       return { tone: 'success', label: 'Finished' }
     case 'stopped':
-      return { tone: 'neutral', glyph: 'stopped', label: 'Stopped' }
+      return { tone: 'stopped', glyph: 'stopped', label: 'Stopped' }
   }
 }
 

@@ -63,13 +63,13 @@ function look(status: TaskStatus): { tone: StatusTone; glyph: StatusGlyph } {
     case 'partly-merged':
       return { tone: 'failed', glyph: 'partly' }
     case 'waiting-on-you':
-      return { tone: status.snoozedUntil === undefined ? 'waiting' : 'neutral', glyph: 'waiting' }
+      return { tone: status.snoozedUntil === undefined ? 'waiting' : 'snoozed', glyph: 'waiting' }
     case 'paused':
       return { tone: 'neutral', glyph: 'paused' }
     case 'working':
       return { tone: 'working', glyph: 'working' }
     case 'stopped':
-      return { tone: status.prepared ? 'success' : 'neutral', glyph: 'stopped' }
+      return { tone: status.prepared ? 'success' : 'stopped', glyph: 'stopped' }
     case 'blocked':
       return { tone: 'neutral', glyph: 'blocked' }
     case 'queued':
