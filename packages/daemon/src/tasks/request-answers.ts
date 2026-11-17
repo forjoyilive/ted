@@ -29,6 +29,7 @@ import {
   stageWith,
   validates,
 } from '@ted/protocol/stage'
+import { keepMoveChoice, moveChoice, type TaskMoved } from '@ted/protocol/task-move'
 import type { Simulators } from '../apps/simulators.ts'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
@@ -120,6 +121,9 @@ export interface RequestAnswerPort {
   beforeArchive?(task: StoredTask): void
   archiveNow(task: StoredTask, close: boolean): Task
   archiveAsked(task: StoredTask, options: ArchiveTaskRequest): () => Task
+  movePlanKey(taskId: string, factoryId: string): Promise<{ key: string; refusal?: string }>
+  moveTask(taskId: string, factoryId: string, planKey: string): Promise<TaskMoved>
+  tellChat(chatId: string, text: string): Promise<void>
   wake(): void
   sendNudge(task: StoredTask, run: Run): Promise<void>
   useDefaultModel(id: string): Promise<Task>
@@ -198,6 +202,9 @@ export function createRequestAnswers(
     settleDependents,
     archiveNow,
     archiveAsked,
+    movePlanKey,
+    moveTask,
+    tellChat,
     wake,
     sendNudge,
     useDefaultModel,
@@ -662,6 +669,95 @@ export function createRequestAnswers(
     })
   }
 
+  async function answerMove(
+    task: StoredTask,
+    comment: Comment,
+    request: AnswerRequest,
+    sendDrafts: boolean,
+  ): Promise<Comment> {
+    const ask = comment.move
+    if (
+      !ask ||
+      request.action !== 'answer' ||
+      (request.choice !== moveChoice && request.choice !== keepMoveChoice)
+    )
+      throw new RequestError(400, `answer with ${moveChoice} or ${keepMoveChoice}`)
+    const choice = request.choice
+    const text = request.text?.trim() ?? ''
+    const record = () =>
+      holding(task, async () => {
+        unanswered(comment)
+        return answerRequest(
+          task,
+          comment,
+          { kind: 'answered', at: new Date().toISOString(), choice, ...(text !== '' && { text }) },
+          text !== '' && sendDrafts ? drafts(task.id) : undefined,
+        )
+      })
+    const added = text === '' ? [] : [`They added:\n\n${text}`]
+    if (choice === keepMoveChoice) {
+      const answered = await record()
+      const now = find(task.id)
+      const where = store.getFactory(now.factoryId)?.name ?? 'this Factory'
+      if (ask.askedBy === 'coordinator') {
+        if (ask.chatId !== undefined)
+          await tellChat(
+            ask.chatId,
+            [
+              `The user chose ${keepMoveChoice} on your request to move ${now.displayId}, so it stays in ${where}.`,
+              ...added,
+            ].join('\n\n'),
+          )
+      } else {
+        await deliverAnswer(
+          now,
+          answered,
+          [
+            `The user chose ${keepMoveChoice} on your request to move ${now.displayId}, so it stays in ${where}.`,
+            ...added,
+            `Carry on with ${stageTitle(now.stage)}’s work here. Ask to move it again only if something new comes up.`,
+          ].join('\n\n'),
+        )
+      }
+      return store.getComment(comment.id) ?? answered
+    }
+    const chosen = request.move
+    if (!chosen) throw new RequestError(400, 'choose the Factory to move the Task to')
+    const planned = await movePlanKey(task.id, chosen.factoryId)
+    if (planned.refusal !== undefined) throw new RequestError(409, planned.refusal)
+    if (planned.key !== chosen.planKey)
+      throw new RequestError(
+        409,
+        `${task.displayId} or a Task under it changed since the move was shown, so nothing was moved. Look at the move again.`,
+      )
+    const answered = await record()
+    let result: string
+    try {
+      const { moved } = await moveTask(task.id, chosen.factoryId, chosen.planKey)
+      const where = store.getFactory(chosen.factoryId)?.name ?? 'the other Factory'
+      const to = moved.find((m) => m.id === task.id)?.to ?? task.displayId
+      result = `The user approved your request: ${task.displayId} moved to ${where} as ${to}.`
+    } catch (error) {
+      const why = redactSecrets(error instanceof Error ? error.message : String(error))
+      store.postComment({
+        taskId: task.id,
+        kind: 'note',
+        author: { kind: 'ted' },
+        body: `TED couldn’t move ${task.displayId}: ${why} Use Move to Factory… in the Task’s menu to try again.`,
+      })
+      await store.persisted()
+      if (ask.askedBy === 'coordinator' && ask.chatId !== undefined)
+        await tellChat(
+          ask.chatId,
+          `The user approved moving ${task.displayId}, but TED couldn’t move it: ${why}`,
+        )
+      throw error
+    }
+    if (ask.askedBy === 'coordinator' && ask.chatId !== undefined)
+      await tellChat(ask.chatId, [result, ...added].join('\n\n'))
+    return store.getComment(comment.id) ?? answered
+  }
+
   async function answerAs(
     id: string,
     request: AnswerRequest,
@@ -710,6 +806,11 @@ export function createRequestAnswers(
         )
         return store.getComment(id) as Comment
       })
+    }
+    if (comment.purpose?.kind === 'move') {
+      if (mark !== undefined || automatic)
+        throw new RequestError(403, 'only the user answers a move request')
+      return answerMove(task, comment, request, sendDrafts)
     }
     if (comment.purpose?.kind === 'round') return answerRound(task, comment, request, mark)
     if (comment.purpose?.kind === 'proposal') {

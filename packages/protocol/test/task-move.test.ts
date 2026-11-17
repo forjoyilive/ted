@@ -1,9 +1,16 @@
 import { expect, test } from 'vitest'
 import type { Task } from '../src/task.ts'
 import {
+  type MoveAnswer,
+  type MoveAsk,
+  maxMoveReason,
   movePlanKey,
   moveRefusal,
+  parseMoveAnswer,
   parseMoveToFactoryRequest,
+  parseRequestMoveRequest,
+  type RequestMoveRequest,
+  readMoveAsk,
   type TaskMovePlan,
   type TaskMovePlanTask,
 } from '../src/task-move.ts'
@@ -93,4 +100,40 @@ test('a move plan’s key ignores the new number but not what the move discards'
   expect(() => parseMoveToFactoryRequest({ factoryId: 'web', planKey: 3 })).toThrow(
     'planKey must be text',
   )
+})
+
+test('an agent’s move request names a Factory and gives one reason line', () => {
+  const all: Required<RequestMoveRequest> = { factory: 'WEB', reason: 'It changes the site' }
+  expect(parseRequestMoveRequest(all)).toEqual(all)
+  expect(parseRequestMoveRequest({ factory: ' WEB ', reason: ' Two\n lines ' })).toEqual({
+    factory: 'WEB',
+    reason: 'Two lines',
+  })
+  expect(() => parseRequestMoveRequest({ reason: 'Why' })).toThrow('factory must be a Factory')
+  expect(() => parseRequestMoveRequest({ factory: 'WEB', reason: ' ' })).toThrow('give a reason')
+  expect(() =>
+    parseRequestMoveRequest({ factory: 'WEB', reason: 'x'.repeat(maxMoveReason + 1) }),
+  ).toThrow(`at most ${maxMoveReason} characters`)
+})
+
+test('a Move answer names the chosen Factory and the plan the user saw', () => {
+  const all: Required<MoveAnswer> = { factoryId: 'f-2', planKey: '{"factoryId":"f-2"}' }
+  expect(parseMoveAnswer(all)).toEqual(all)
+  expect(() => parseMoveAnswer({ factoryId: 'f-2' })).toThrow('move.planKey')
+  expect(() => parseMoveAnswer({ factoryId: ' ', planKey: 'k' })).toThrow('move.factoryId')
+})
+
+test('a stored move ask reads back, and a damaged one is left out', () => {
+  const all: Required<MoveAsk> = {
+    factoryId: 'f-2',
+    reason: 'Wrong Factory',
+    askedBy: 'coordinator',
+    chatId: 'chat-1',
+  }
+  expect(readMoveAsk(JSON.stringify(all))).toEqual(all)
+  expect(
+    readMoveAsk(JSON.stringify({ factoryId: 'f-2', reason: 'Why', askedBy: 'task-lead' })),
+  ).toEqual({ factoryId: 'f-2', reason: 'Why', askedBy: 'task-lead' })
+  expect(readMoveAsk(JSON.stringify({ ...all, askedBy: 'someone' }))).toBeUndefined()
+  expect(readMoveAsk('not json')).toBeUndefined()
 })

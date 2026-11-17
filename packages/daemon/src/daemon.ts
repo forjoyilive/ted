@@ -527,6 +527,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.clock && { clock: options.clock }),
         steering,
         planning: () => plans,
+        chats: () => coordinators,
         setPullRequestCi: (factoryId, repo, mode) =>
           factorySettings.setPullRequestCi(factoryId, repo, mode),
         store,

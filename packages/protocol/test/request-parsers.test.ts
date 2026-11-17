@@ -205,12 +205,14 @@ test('parseCoordinatorTransfer keeps every field', () => {
     operation: 'transfer-1',
     task: { id: 'TED-1', version },
     factory: 'WEB',
+    reason: 'The user asked to move it',
   }
   expect(P.parseCoordinatorTransfer(body)).toEqual(body)
   expect(P.parseCoordinatorTransfer({ ...body, factory: ' WEB ' })).toEqual(body)
   expect(() => P.parseCoordinatorTransfer({ ...body, factory: ' ' })).toThrow('factory must be')
   expect(() => P.parseCoordinatorTransfer({ ...body, task: { id: 'TED-1' } })).toThrow('version')
   expect(() => P.parseCoordinatorTransfer({ ...body, operation: 'a b' })).toThrow('operation')
+  expect(() => P.parseCoordinatorTransfer({ ...body, reason: ' ' })).toThrow('give a reason')
 })
 test('parseCoordinatorConfirmationAnswer keeps every field', () => {
   const body: Required<P.CoordinatorConfirmationAnswer> = {

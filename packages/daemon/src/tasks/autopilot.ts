@@ -10,6 +10,7 @@ export function ordinaryAutopilotRequest(comment: Comment): boolean {
     comment.sizeCheck ||
     comment.asanaMissing ||
     comment.asanaUnfinished ||
+    comment.move ||
     comment.failed
   )
     return false

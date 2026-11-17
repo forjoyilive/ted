@@ -110,6 +110,19 @@ beforeEach(async () => {
         return port.find(taskId)
       }
     },
+    movePlanKey: async (_taskId, factoryId) => {
+      effects.push(`move-checked:${factoryId}`)
+      return factoryId === 'refused'
+        ? { key: 'k', refusal: 'TED-1 is Done, so it can’t move' }
+        : { key: `plan:${factoryId}` }
+    },
+    moveTask: async (id, factoryId, planKey) => {
+      effects.push(`moved:${factoryId}:${planKey}:${store.getComment(archiveId)?.answer?.kind}`)
+      return { task: port.find(id), moved: [{ id, from: 'TED-1', to: 'WEB-4' }] }
+    },
+    tellChat: async (chatId, text) => {
+      effects.push(`chat:${chatId}:${text}`)
+    },
     wake: () => {},
     sendNudge: async () => {
       effects.push('nudged')
@@ -190,6 +203,100 @@ test('an archive request needs a choice, records the answer before archiving and
     archive: { reason: 'Duplicate of TED-255' },
   })
   expect(effects).toEqual([`archive-checked:${JSON.stringify(options)}`, 'archived:answered'])
+})
+
+test('a move request moves only on Move with the plan the user saw, after recording the answer', async () => {
+  const ask = (askedBy: 'task-lead' | 'coordinator') =>
+    post(
+      { kind: 'move' },
+      {
+        choices: ['Move', 'Keep it'],
+        move: {
+          factoryId: 'web',
+          reason: 'It changes the site',
+          askedBy,
+          ...(askedBy === 'coordinator' && { chatId: 'chat-1' }),
+        },
+      },
+    )
+  const lead = ask('task-lead')
+  archiveId = lead.id
+  await expect(answer(lead, { action: 'answer', text: 'Hmm' })).rejects.toThrow(
+    'answer with Move or Keep it',
+  )
+  await expect(answer(lead, { action: 'answer', choice: 'Move' })).rejects.toThrow(
+    'choose the Factory',
+  )
+  await expect(
+    answer(lead, { action: 'answer', choice: 'Move', move: { factoryId: 'web', planKey: 'old' } }),
+  ).rejects.toThrow('changed since the move was shown')
+  await expect(
+    answer(lead, {
+      action: 'answer',
+      choice: 'Move',
+      move: { factoryId: 'refused', planKey: 'k' },
+    }),
+  ).rejects.toThrow('can’t move')
+  expect(store.getComment(lead.id)?.answer).toBeUndefined()
+  effects = []
+  expect(
+    await answer(lead, {
+      action: 'answer',
+      choice: 'Move',
+      move: { factoryId: 'mobile', planKey: 'plan:mobile' },
+    }),
+  ).toMatchObject({ answer: { kind: 'answered', choice: 'Move' } })
+  expect(effects).toEqual(['move-checked:mobile', 'moved:mobile:plan:mobile:answered'])
+
+  effects = []
+  const coordinator = ask('coordinator')
+  archiveId = coordinator.id
+  await answer(coordinator, {
+    action: 'answer',
+    choice: 'Move',
+    move: { factoryId: 'web', planKey: 'plan:web' },
+  })
+  expect(effects).toEqual([
+    'move-checked:web',
+    'moved:web:plan:web:answered',
+    expect.stringMatching(
+      /^chat:chat-1:The user approved your request: \S+ moved to the other Factory as WEB-4\.$/,
+    ),
+  ])
+})
+
+test('Keep it on a move request tells whoever asked', async () => {
+  const ask = (askedBy: 'task-lead' | 'coordinator') =>
+    post(
+      { kind: 'move' },
+      {
+        choices: ['Move', 'Keep it'],
+        move: {
+          factoryId: 'web',
+          reason: 'It changes the site',
+          askedBy,
+          ...(askedBy === 'coordinator' && { chatId: 'chat-1' }),
+        },
+      },
+    )
+  const lead = ask('task-lead')
+  expect(
+    await answer(lead, { action: 'answer', choice: 'Keep it', text: 'It belongs here' }),
+  ).toMatchObject({ answer: { kind: 'answered', choice: 'Keep it', text: 'It belongs here' } })
+  expect(effects).toEqual(['delivered'])
+  effects = []
+  await answer(ask('coordinator'), { action: 'answer', choice: 'Keep it' })
+  expect(effects).toEqual([
+    expect.stringMatching(/^chat:chat-1:The user chose Keep it on your request to move /),
+  ])
+  await expect(
+    createRequestAnswers(port)(
+      ask('task-lead').id,
+      { action: 'answer', choice: 'Move' },
+      false,
+      'Coordinator',
+    ),
+  ).rejects.toThrow('only the user answers a move request')
 })
 
 test('an ordinary answer leaves the Inbox once and is delivered, while repeat answers are rejected', async () => {

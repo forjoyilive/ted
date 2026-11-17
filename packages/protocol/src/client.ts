@@ -278,7 +278,13 @@ import type {
 } from './task.ts'
 import type { TaskFileContent, TaskFiles } from './task-files.ts'
 import type { SetTaskGatesRequest, TaskGates } from './task-gates.ts'
-import type { MoveToFactoryRequest, TaskMoved, TaskMovePlan } from './task-move.ts'
+import type {
+  MoveToFactoryRequest,
+  OtherFactory,
+  RequestMoveRequest,
+  TaskMoved,
+  TaskMovePlan,
+} from './task-move.ts'
 import type {
   RegisterTestInvocation,
   TestInvocationRegistration,
@@ -966,6 +972,14 @@ export class DaemonClient {
 
   moveTaskToFactory(ref: string, request: MoveToFactoryRequest): Promise<TaskMoved> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/move-to-factory`, request)
+  }
+
+  requestMove(ref: string, request: RequestMoveRequest): Promise<Comment> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/move-request`, request)
+  }
+
+  otherFactories(): Promise<OtherFactory[]> {
+    return this.#request('GET', '/factories/others')
   }
 
   async deleteTask(ref: string, options: DeleteTaskRequest = {}): Promise<void> {

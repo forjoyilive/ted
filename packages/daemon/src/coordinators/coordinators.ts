@@ -132,7 +132,7 @@ const manageTasksCommands = `- ted coordinator tasks [--stage <Stage>]… [--sta
 - ted coordinator parent <child-id> <parent-id|none> --operation <unique-id> --version <child-version> --hierarchy-revision <revision>: link, reparent or unlink a Task. Read the child first; use its hierarchy.revision. The same-Factory and safe-parent rules apply.
 - ted coordinator resume <id> --operation <unique-id> --version <version> [--message "<text>"]: resume a stopped or failed Task. It goes through the queue, so it starts when a slot is free.
 - ted coordinator archive|unarchive|delete <id>… --operation <unique-id> --versions <JSON mapping each Task ID to its version> [--children archive|detach (archive) or delete|unparent (delete)] [--close-pull-requests]: archive, unarchive or delete Tasks of this Factory, all named in one command. Use delete only when the human said “delete” and named the Tasks or a clear group; for anything else, archive, which can be undone. Unarchive and an archive with nothing to warn about happen at once and return receipts. Archiving or deleting a Task removes it from the Blocked by of the Tasks it blocks. A delete, or an archive of a Task with an open pull request, Tasks under it or a working Task Lead, returns a confirmation instead: TED shows the human a card in this chat and in their Inbox, and nothing changes until the human clicks Confirm. You cannot confirm it. Pick --children as the human asked, or as you’d recommend; the human can change them on the card. Add --close-pull-requests only when the human asked to close them. Tell the human what the card covers and end your turn; the receipts show the result, and you read the Tasks again before your next action.
-- ted coordinator transfer <id> --factory <Factory key or ID> --operation <unique-id> --version <version>: move a Task of this Factory, with the Tasks under it, to another Factory. Use it only when the human asked to move that Task there. It never happens at once: TED always shows the human a confirmation card in this chat and in their Inbox, with what the move will discard and restart, and nothing changes until the human clicks Confirm. You cannot confirm it. Tell the human what the card covers and end your turn; afterwards the Task has a new ID in the other Factory and you can no longer read or act on it.
+- ted coordinator transfer <id> --factory <Factory key or ID> --reason "<why>" --operation <unique-id> --version <version>: ask the human to move a Task of this Factory, with the Tasks under it, to another Factory. Use it only when the human asked to move that Task there. It never happens at once: TED posts a move request on the Task and in the human’s Inbox, with your reason and what the move will discard and restart, and nothing changes until the human chooses Move. You cannot answer it. Tell the human the request is waiting and end your turn; TED tells you their answer. After a move the Task has a new ID in the other Factory and you can no longer read or act on it.
 - ted coordinator done <id> --operation <unique-id> --version <version>: move a Task at Merge to Done once GitHub shows every pull request merged. TED reads GitHub itself and refuses while any pull request is not merged; it never merges anything.
 - ted coordinator create --operation <unique-id> [--description "<text>" | --description -] [--parent <id>] [--blocked-by <id>]… [--source <url>] [--priority <priority>] [--clarify-depth <none|few|grilling>] [--provider <provider> [--model <model>] [--effort <effort>]] [--after <id>] [--before <id>] [--neighbours <JSON mapping neighbour IDs to versions>] [--start] "<title>": create a Task in this Factory. It lands in Backlog; add --start only when the human asked for it to start. --description - reads the description from stdin. Parent, blockers and neighbours must be Tasks of this Factory, and a source TED already tracks is refused. The receipt names the new Task; one create makes one Task, so for several Tasks run it once per Task.`
 
@@ -299,6 +299,7 @@ export interface Coordinators {
     input: CoordinatorRemoval,
   ): Promise<CoordinatorRemovalResult>
   transfer(caller: Caller, input: CoordinatorTransfer): Promise<CoordinatorRemovalResult>
+  tellChat(chatId: string, text: string): Promise<void>
   answerConfirmation(
     chatId: string,
     confirmationId: string,
@@ -334,7 +335,8 @@ export function coordinatorNeverAnswers(comment: Comment): boolean {
       comment.asanaMissing ||
       comment.asanaUnfinished ||
       comment.cleanupFailure ||
-      comment.memoryKill,
+      comment.memoryKill ||
+      comment.move,
   )
 }
 
@@ -2352,12 +2354,13 @@ export function createCoordinators(options: {
         return { receipts }
       })
     },
+    tellChat,
     transfer(caller, input) {
       const c = admit(caller)
       return serial(c.factoryId, async () => {
         const current = actor(caller)
         const fingerprint = createHash('sha256')
-          .update(JSON.stringify(['transfer', input.task, input.factory]))
+          .update(JSON.stringify(['transfer', input.task, input.factory, input.reason]))
           .digest('hex')
         const prefix = `${input.operation}:`
         const earlier = current.receipts.filter((r) => r.id.startsWith(prefix))
@@ -2379,34 +2382,28 @@ export function createCoordinators(options: {
             409,
             `${task.displayId} changed; read its current state before deciding again`,
           )
-        const factory =
-          store.getFactory(input.factory) ??
-          store.listFactories().find((f) => f.key === input.factory)
-        if (!factory) throw new RequestError(404, `no Factory ${input.factory}`)
-        if (factory.id === task.factoryId)
-          throw new RequestError(409, `${task.displayId} is already in ${factory.name}`)
-        const plan = await tasks.movePlan(task.id, factory.id)
-        if (plan.refusal !== undefined) throw new RequestError(409, plan.refusal)
-        const confirmation: CoordinatorConfirmation = {
-          id: randomUUID(),
-          kind: 'transfer',
-          transfer: plan,
-          operation: input.operation,
+        const { factory } = await tasks.coordinatorAskMove(task.id, {
+          factory: input.factory,
+          reason: input.reason,
+          chatId: current.id,
+        })
+        const receipt: CoordinatorReceipt = {
+          id: `${input.operation}:${task.id}`,
+          operation: 'transfer',
+          taskId: task.id,
+          text: `Asked the user to move ${task.displayId} to ${factory}. The request is on ${task.displayId} and in their Inbox; TED tells you their answer.`,
+          at: new Date().toISOString(),
           fingerprint,
-          askedAt: new Date().toISOString(),
-          tasks: [{ ...ref(task), ...confirmationFacts(task, 'transfer') }],
+          before: snapshot(task),
         }
-        const kept = (current.confirmations ?? []).filter((x) => x.answer === undefined)
-        const answered = (current.confirmations ?? [])
-          .filter((x) => x.answer !== undefined)
-          .slice(-50)
+        const latest = requireChat(current.id)
         save({
-          ...current,
-          confirmations: [...answered, ...kept, confirmation],
-          taskIds: [...new Set([...current.taskIds, task.id])].slice(-100),
+          ...latest,
+          receipts: [...latest.receipts, receipt],
+          taskIds: [...new Set([...latest.taskIds, task.id])].slice(-100),
         })
         await store.persisted()
-        return { receipts: [], confirmation: { id: confirmation.id, waiting: true } }
+        return { receipts: [receipt] }
       })
     },
     answerConfirmation(chatId, id, answer) {

@@ -137,6 +137,7 @@ import {
   mergesHere,
   validates,
 } from '@ted/protocol/stage'
+import { type MoveAsk, readMoveAsk } from '@ted/protocol/task-move'
 import { Effect } from 'effect'
 import { totalMemory } from '../busy.ts'
 import { isDiskFullError } from '../disk.ts'
@@ -255,6 +256,11 @@ import { markEventsSynced } from './sync-head.ts'
 import { createTaskHistory, type TaskHistory } from './task-history.ts'
 import { blockerTransitions, taskIntervalHistory } from './task-intervals.ts'
 import { createTestInvocationStore, type TestInvocationStore } from './test-invocations.ts'
+
+function movedAsk(text: string | null): { move?: MoveAsk } {
+  const move = text === null ? undefined : readMoveAsk(text)
+  return move ? { move } : {}
+}
 
 export const placeholderFactory = { id: 'dev', key: 'DEV' }
 
@@ -638,6 +644,7 @@ export interface NewComment {
   asanaMissing?: AsanaMissing
   asanaUnfinished?: AsanaUnfinished
   archive?: ArchiveAsk
+  move?: MoveAsk
   cleanupFailure?: CleanupFailureAsk
   memoryKill?: MemoryKillAsk
 }
@@ -2594,6 +2601,7 @@ export async function openStore({
     asanaMissing,
     asanaUnfinished,
     archive,
+    move,
     cleanupFailure,
     memoryKill,
     multiple,
@@ -2650,6 +2658,7 @@ export async function openStore({
           asanaUnfinished: JSON.parse(asanaUnfinished) as AsanaUnfinished,
         }),
         ...(archive !== null && { archive: JSON.parse(archive) as ArchiveAsk }),
+        ...movedAsk(move),
         ...(cleanupFailure !== null && {
           cleanupFailure: JSON.parse(cleanupFailure) as CleanupFailureAsk,
         }),
@@ -3134,6 +3143,7 @@ export async function openStore({
       asanaMissing,
       asanaUnfinished,
       archive,
+      move,
       cleanupFailure,
       memoryKill,
       purpose,
@@ -3187,6 +3197,7 @@ export async function openStore({
         ...(asanaMissing && { asanaMissing }),
         ...(asanaUnfinished && { asanaUnfinished }),
         ...(archive && { archive }),
+        ...(move && { move }),
         ...(cleanupFailure && { cleanupFailure }),
         ...(memoryKill && { memoryKill }),
       })
@@ -3231,6 +3242,7 @@ export async function openStore({
       ...(archive
         ? [events.commentArchiveAsked({ commentId: id, archive: JSON.stringify(archive) })]
         : []),
+      ...(move ? [events.commentMoveAsked({ commentId: id, move: JSON.stringify(move) })] : []),
       ...(multiple && choices?.length
         ? [events.commentMultipleChoiceAsked({ commentId: id })]
         : []),

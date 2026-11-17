@@ -41,6 +41,7 @@ export interface CoordinatorTransfer {
   operation: string
   task: { id: string; version: string }
   factory: string
+  reason: string
 }
 
 export interface CoordinatorReceipt {

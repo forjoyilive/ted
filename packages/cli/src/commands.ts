@@ -326,10 +326,10 @@ export const commands = [
   {
     name: 'coordinator transfer',
     handler: 'coordinatorTransfer',
-    options: options('operation', 'version', 'factory'),
+    options: options('operation', 'version', 'factory', 'reason'),
     min: 1,
     max: 1,
-    help: '  ted coordinator transfer <id> --factory <key or ID> --operation <id> --version <version>\n                                             Ask the human to confirm moving a Task to another\n                                             Factory (Coordinator only)',
+    help: '  ted coordinator transfer <id> --factory <key or ID> --reason "<why>" --operation <id>\n                         --version <version>\n                                             Ask the human to move a Task to another Factory\n                                             (Coordinator only)',
     callers: 'Coordinator Run',
   },
   {
@@ -1157,6 +1157,25 @@ export const commands = [
     callers: 'Task Lead',
     options: options('reason', 'close-pull-requests', 'keep-pull-requests', 'pull-request-reason'),
     requires: ['reason'],
+  },
+  {
+    name: 'task move',
+    handler: 'taskMove',
+    min: 0,
+    max: 0,
+    help: '  ted task move --factory <key> --reason "<why>"\n                                             Ask the human to move this Task to another Factory',
+    callers: 'Task Lead',
+    options: options('factory', 'reason'),
+    requires: ['factory', 'reason'],
+  },
+  {
+    name: 'factories',
+    handler: 'factories',
+    min: 0,
+    max: 0,
+    help: '  ted factories                              List the other Factories: key, name and repos',
+    callers: 'Task Lead',
+    options: options(),
   },
   {
     name: 'cleanup report',

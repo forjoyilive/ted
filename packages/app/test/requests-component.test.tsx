@@ -5,7 +5,9 @@ import {
   type FailureCase,
   type PlanInboxItem,
   type Round,
+  type TaskMovePlan,
 } from '@ted/protocol'
+import { movePlanKey } from '@ted/protocol/task-move'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { FailureDetails } from '../src/renderer/components/FailureDetails.tsx'
@@ -2552,4 +2554,76 @@ test('a dropped repair says fresh Checks close the failure, and a closed case na
   await user().click(await screen.findByRole('button', { name: 'NB-3 · Fix the export elsewhere' }))
   expect(open).toHaveBeenCalledWith('NB-3')
   expect(screen.getByText(/Later verification closed this failure/)).toBeTruthy()
+})
+
+test('a move request preselects the suggested Factory, shows its plan and sends Move with that plan', async () => {
+  const { answer, handle } = requestApi()
+  const website = factory({ id: 'web', key: 'WEB', name: 'Website', position: 1 })
+  const mobile = factory({ id: 'mob', key: 'MOB', name: 'Mobile', position: 2 })
+  const started = task({ stage: 'work' })
+  const plan = (factoryId: string, name: string, refusal?: string): TaskMovePlan => ({
+    factoryId,
+    factoryName: name,
+    repos: [name.toLowerCase()],
+    tasks: [
+      {
+        id: 'NB-1',
+        displayId: 'NB-1',
+        title: started.title,
+        newDisplayId: `${name.slice(0, 3).toUpperCase()}-7`,
+        stage: 'work',
+        lands: 'intake',
+        startsLead: true,
+        worktrees: 1,
+        branches: ['ted/nb-1-sync-notes'],
+        pullRequests: [],
+        openRequests: 0,
+        unlinked: [],
+      },
+    ],
+    ...(refusal !== undefined && { refusal }),
+  })
+  handle('listTasks', () => [started])
+  handle('listFactories', () => [factory(), website, mobile])
+  handle('taskMovePlan', (...args) =>
+    args[1] === 'mob'
+      ? plan('mob', 'Mobile', 'NB-1 has a merged pull request, so it can’t move')
+      : plan('web', 'Website'),
+  )
+  const request = comment({
+    title: 'Move NB-1 to Website?',
+    body: 'The pricing page is in Website’s repo',
+    author: { kind: 'run', runId: 'r1' },
+    choices: ['Move', 'Keep it'],
+    purpose: { kind: 'move' },
+    move: {
+      factoryId: 'web',
+      reason: 'The pricing page is in Website’s repo',
+      askedBy: 'task-lead',
+    },
+  })
+  render(<RequestCard task={started} request={request} />)
+  const u = user()
+  expect((await screen.findByText(/^NB-1 becomes/)).textContent).toBe(
+    'NB-1 becomes WEB-7 in Intake. A new Task Lead starts there at once, with a copy of the conversation so far.',
+  )
+  expect(screen.getByRole('region', { name: 'What is lost' })).toBeTruthy()
+  await u.type(screen.getByLabelText('Message to the Task Lead'), 'Go ahead')
+  await u.click(screen.getByRole('button', { name: 'Move to Website' }))
+  expect(answer).toHaveBeenLastCalledWith('c1', {
+    action: 'answer',
+    choice: 'Move',
+    text: 'Go ahead',
+    move: { factoryId: 'web', planKey: movePlanKey(plan('web', 'Website')) },
+  })
+
+  await u.click(screen.getByRole('combobox', { name: 'Factory' }))
+  await u.click(screen.getByRole('option', { name: 'Mobile' }))
+  expect((await screen.findByRole('alert')).textContent).toBe(
+    'NB-1 has a merged pull request, so it can’t move',
+  )
+  expect(screen.getByText('Suggested by the Task Lead: Website.')).toBeTruthy()
+  expect(screen.getByRole('button', { name: 'Move to Mobile' }).hasAttribute('disabled')).toBe(true)
+  await u.click(screen.getByRole('button', { name: 'Keep it' }))
+  expect(answer).toHaveBeenLastCalledWith('c1', { action: 'answer', choice: 'Keep it' })
 })

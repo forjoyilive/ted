@@ -17,6 +17,7 @@ import {
   draftBody,
   type Factory,
   type LineComment,
+  movePlanKey,
   parseAutomationDraftRequest,
   type RunChat,
   type RunMessage,
@@ -25,6 +26,7 @@ import {
   readDaemonInfo,
   sizeChoices,
   type Task,
+  type TaskMovePlan,
   tedPaths,
   type WaitingRequest,
 } from '@ted/protocol'
@@ -750,54 +752,65 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
       operation,
       task: { id: t.id, version: (await read(t.id)).version },
       factory,
+      reason: 'The user asked to move it',
     })
   expect((await transfer('transfer-own', 'NB')).status).toBe(409)
   expect((await transfer('transfer-nowhere', 'NOPE')).status).toBe(404)
-  const toCancel = (await transfer('transfer-t-cancel')).body as {
-    confirmation: { id: string; waiting: boolean }
-  }
-  expect(toCancel.confirmation.waiting).toBe(true)
-  expect(await taskById(t.id)).toMatchObject({ factoryId: t.factoryId, displayId: t.displayId })
-  await s.ok('POST', answer(toCancel.confirmation.id), { decision: 'cancel' })
-  expect(await taskById(t.id)).toMatchObject({ factoryId: t.factoryId, displayId: t.displayId })
-  const stale = (await transfer('transfer-t-stale')).body as { confirmation: { id: string } }
-  const earlier = await s.task('Earlier')
-  await s.ok('POST', `/tasks/${t.id}/blockers`, { by: earlier.id })
-  const refusedStale = await s.ok<Coordinator>('POST', answer(stale.confirmation.id), {
-    decision: 'confirm',
+  const moveAsked = async () =>
+    (await s.comments(t.id)).find((c) => c.move !== undefined && c.answer === undefined)
+  expect((await transfer('transfer-t-keep')).body).toMatchObject({
+    receipts: [
+      {
+        operation: 'transfer',
+        taskId: t.id,
+        text: expect.stringContaining('Asked the user to move'),
+      },
+    ],
   })
+  const kept = await waitUntil(moveAsked, 'the move request')
+  expect(kept).toMatchObject({
+    author: { kind: 'ted' },
+    choices: ['Move', 'Keep it'],
+    move: {
+      askedBy: 'coordinator',
+      chatId: (await s.chat()).id,
+      reason: 'The user asked to move it',
+    },
+  })
+  expect(await s.waitingIds()).toContain(kept.id)
+  expect((await transfer('transfer-t-again')).status).toBe(409)
   expect(
-    refusedStale.confirmations.find((c) => c.id === stale.confirmation.id)?.tasks,
-  ).toMatchObject([
-    {
-      id: t.id,
-      result: { done: false, text: expect.stringMatching(/changed/) },
-    },
-  ])
+    (
+      await run.call('POST', `/coordinator/tasks/${t.id}/answer`, {
+        operation: 'answer-move',
+        version: (await read(t.id)).version,
+        request: kept.id,
+        choice: 'Move',
+      })
+    ).status,
+  ).toBe(403)
+  await s.ok('POST', `/comments/${kept.id}/answer`, { action: 'answer', choice: 'Keep it' })
   expect(await taskById(t.id)).toMatchObject({ factoryId: t.factoryId, displayId: t.displayId })
-  await s.ok('DELETE', `/tasks/${t.id}/blockers/${earlier.id}`)
-  const toMove = (await transfer('transfer-t')).body as { confirmation: { id: string } }
-  const askedT = toMove.confirmation
-  expect((await s.chat()).confirmations.find((c) => c.id === askedT.id)).toMatchObject({
-    kind: 'transfer',
-    transfer: {
-      factoryId: foreign.factoryId,
-      tasks: [{ id: t.id, newDisplayId: expect.stringMatching(/^OTHER-\d+$/) }],
-    },
-    tasks: [{ id: t.id, displayId: t.displayId }],
+
+  await transfer('transfer-t')
+  const asked = await waitUntil(moveAsked, 'the second move request')
+  const plan = await s.ok<TaskMovePlan>(
+    'GET',
+    `/tasks/${t.id}/move-plan?factory=${foreign.factoryId}`,
+  )
+  expect(plan.tasks).toMatchObject([{ id: t.id, openRequests: 0 }])
+  await s.ok('POST', `/comments/${asked.id}/answer`, {
+    action: 'answer',
+    choice: 'Move',
+    move: { factoryId: foreign.factoryId, planKey: movePlanKey(plan) },
   })
-  expect(await s.waitingIds()).toContain(askedT.id)
-  expect((await run.call('POST', answer(askedT.id), { decision: 'confirm' })).status).toBe(403)
-  const transferred = await s.ok<Coordinator>('POST', answer(askedT.id), { decision: 'confirm' })
-  expect(transferred.confirmations.find((c) => c.id === askedT.id)?.tasks).toMatchObject([
-    {
-      id: t.id,
-      result: { done: true, text: expect.stringMatching(/^Moved to .+ as OTHER-\d+\.$/) },
-    },
-  ])
   expect(await taskById(t.id)).toMatchObject({
     factoryId: foreign.factoryId,
     displayId: expect.stringMatching(/^OTHER-\d+$/),
+  })
+  expect((await s.comments(t.id)).find((c) => c.id === asked.id)?.answer).toMatchObject({
+    kind: 'answered',
+    choice: 'Move',
   })
 
   if (!receipt) throw new Error('missing move receipt')

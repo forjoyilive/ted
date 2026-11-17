@@ -152,17 +152,22 @@ import {
   isTrackerGroupAsk,
   joinChoices,
   keepArchiveChoice,
+  keepMoveChoice,
+  type MoveAsk,
   maxAsanaIntakeTasks,
   maxGitHubIntakeTasks,
   maxLinearIntakeTasks,
   memoryFailedChoice,
   memoryRetryChoice,
+  moveChoice,
   movePlanKey,
   moveRefusal,
   moveRefusals,
+  type OtherFactory,
   parseAsanaTaskUrl,
   parseGitHubIssueUrl,
   parseLinearUrl,
+  type RequestMoveRequest,
   type ResetRefusal,
   resetRefusal,
   runOnlyBrowserActions,
@@ -462,6 +467,7 @@ import {
   startMerging as startMergingFor,
 } from './merge-watcher.ts'
 import { placeBetween } from './order.ts'
+import { reposSection } from './other-factories.ts'
 import { overnightGuidance } from './overnight.ts'
 import { createPeers, type Peers } from './peers.ts'
 import { checkPreparationWorkflow } from './preparation.ts'
@@ -715,6 +721,12 @@ export interface Tasks {
   descriptions(ref: string): DescriptionVersion[]
   archive(ref: string, options?: ArchiveTaskRequest): Task
   requestArchive(ref: string, caller: Caller, request: RequestArchiveRequest): Promise<Comment>
+  requestMove(ref: string, caller: Caller, request: RequestMoveRequest): Promise<Comment>
+  coordinatorAskMove(
+    ref: string,
+    request: RequestMoveRequest & { chatId: string },
+  ): Promise<{ comment: Comment; factory: string }>
+  otherFactories(caller: Caller): Promise<OtherFactory[]>
   allowLinearSync(ref: string): Task
   allowAsanaSync(ref: string): Promise<Task>
   asanaStatusSeen(status: AsanaStatus): void
@@ -928,6 +940,7 @@ export function createTasks(options: {
   emulators?: Omit<EmulatorOptions, 'dir' | 'banners'> & { dir?: string }
   saveAttachment?: (file: string, name: string, mediaType: string) => Promise<Attachment>
   planning?: () => TaskPlanning | undefined
+  chats?: () => { tellChat(chatId: string, text: string): Promise<void> } | undefined
   setPullRequestCi?: (
     factoryId: string,
     repo: string,
@@ -6386,6 +6399,18 @@ export function createTasks(options: {
           archivePlan(task.id, chosen.hierarchyRevision, chosen.children === 'detach')
           return () => archiveHierarchy(task.id, chosen)
         },
+        movePlanKey: async (taskId, factoryId) => {
+          const { plan } = await planMove(taskId, factoryId)
+          return {
+            key: movePlanKey(plan),
+            ...(plan.refusal !== undefined && { refusal: plan.refusal }),
+          }
+        },
+        moveTask: (taskId, factoryId, planKey) =>
+          moveToFactory(taskId, factoryId, 'human', planKey),
+        tellChat: async (chatId, text) => {
+          await options.chats?.()?.tellChat(chatId, text)
+        },
         wake,
         sendNudge,
         useDefaultModel,
@@ -8167,6 +8192,97 @@ export function createTasks(options: {
     })
   }
 
+  function factoryNamed(name: string): StoredFactory {
+    const factory =
+      store.getFactory(name) ??
+      store.listFactories().find((f) => f.key.toUpperCase() === name.toUpperCase())
+    if (!factory)
+      throw new RequestError(
+        404,
+        `No Factory with the key ${name}. Run \`ted factories\` to see them.`,
+      )
+    return factory
+  }
+
+  async function postMoveRequest(
+    task: StoredTask,
+    factoryName: string,
+    reason: string,
+    asker: { kind: 'task-lead'; runId: string } | { kind: 'coordinator'; chatId: string },
+  ): Promise<{ comment: Comment; factory: string }> {
+    const factory = factoryNamed(factoryName)
+    return holding(task, async () => {
+      const now = find(task.id)
+      if (openRequests(now.id).some((c) => c.move))
+        throw new RequestError(409, `${now.displayId} already has an open move request`)
+      const { plan } = await planMove(now.id, factory.id)
+      if (plan.refusal !== undefined) throw new RequestError(409, plan.refusal)
+      const move: MoveAsk = {
+        factoryId: factory.id,
+        reason: redactSecrets(reason),
+        askedBy: asker.kind,
+        ...(asker.kind === 'coordinator' && { chatId: asker.chatId }),
+      }
+      const comment = store.postComment({
+        taskId: now.id,
+        kind: 'question',
+        author: asker.kind === 'task-lead' ? { kind: 'run', runId: asker.runId } : { kind: 'ted' },
+        title: `Move ${now.displayId} to ${factory.name}?`,
+        body: move.reason,
+        choices: [moveChoice, keepMoveChoice],
+        move,
+      })
+      await store.persisted()
+      return { comment, factory: factory.name }
+    })
+  }
+
+  async function requestMove(
+    ref: string,
+    caller: Caller,
+    request: RequestMoveRequest,
+  ): Promise<Comment> {
+    const { task, runId } = taskLead(ref, caller, 'asks to move its Task')
+    const { comment } = await postMoveRequest(task, request.factory, request.reason, {
+      kind: 'task-lead',
+      runId,
+    })
+    return comment
+  }
+
+  function coordinatorAskMove(
+    ref: string,
+    request: RequestMoveRequest & { chatId: string },
+  ): Promise<{ comment: Comment; factory: string }> {
+    return postMoveRequest(find(ref), request.factory, request.reason, {
+      kind: 'coordinator',
+      chatId: request.chatId,
+    })
+  }
+
+  async function otherFactories(caller: Caller): Promise<OtherFactory[]> {
+    const taskId = caller.kind === 'run' ? store.getRun(caller.runId)?.taskId : undefined
+    if (taskId === undefined) throw new RequestError(403, 'only a Task Lead lists other Factories')
+    const { task } = taskLead(taskId, caller, 'lists other Factories')
+    const others = store.listFactories().filter((f) => f.id !== task.factoryId)
+    return Promise.all(
+      others.map(async (factory): Promise<OtherFactory> => {
+        const resolution = await resolveWorkflow(factory, { fetch: false }).catch(() => undefined)
+        const section = reposSection(resolution?.workflow.notes)
+        const names = resolution
+          ? factoryRepos(resolution.workflow, factory).map((entry) => entry.name)
+          : []
+        const repos = section ?? (names.length > 0 ? names.join(', ') : undefined)
+        return {
+          id: factory.id,
+          key: factory.key,
+          name: factory.name,
+          ...(repos !== undefined && { repos }),
+        }
+      }),
+    )
+  }
+
   function underToArchive(taskId: string): string[] {
     return descendants(taskId).filter((id) => !find(id).archived)
   }
@@ -8803,7 +8919,7 @@ export function createTasks(options: {
         pullRequests: openPullRequestsOf(member),
         openRequests: store
           .listComments(member.id)
-          .filter((c) => c.kind !== 'note' && c.answer === undefined).length,
+          .filter((c) => c.kind !== 'note' && c.answer === undefined && !c.move).length,
         unlinked: [
           ...blockers.map((b) => ({ ...moveRef(find(b.blockerId)), blocks: true })),
           ...blocked.map((id) => ({ ...moveRef(find(id)), blocks: false })),
@@ -9422,9 +9538,22 @@ export function createTasks(options: {
   }
 
   function movedReason(task: StoredTask, from: string) {
+    const asked = store
+      .listComments(task.id)
+      .findLast(
+        (c) =>
+          c.move &&
+          c.title?.startsWith(`Move ${from} to `) &&
+          c.answer?.kind === 'answered' &&
+          c.answer.choice === moveChoice,
+      )
+    const who = asked?.move?.askedBy === 'coordinator' ? 'A Coordinator' : 'The previous Task Lead'
+    const approved = asked?.move
+      ? ` ${who} asked for the move and the user approved it. The reason given: “${asked.move.reason}”`
+      : ''
     return {
       heading: 'Picking up after a move to another Factory',
-      why: `This Task moved from ${from} to ${task.displayId}, in the ${factoryOf(task).name} Factory. TED removed the old worktree, branch and pull requests, so the work starts again from this Factory’s repos. Anything the brief or the conversation says about files, commits or pull requests refers to the old Factory.`,
+      why: `This Task moved from ${from} to ${task.displayId}, in the ${factoryOf(task).name} Factory.${approved} TED removed the old worktree, branch and pull requests, so the work starts again from this Factory’s repos. Anything the brief or the conversation says about files, commits or pull requests refers to the old Factory.`,
     }
   }
 
@@ -12032,6 +12161,9 @@ export function createTasks(options: {
     setParent,
     archive: archiveHierarchy,
     requestArchive,
+    requestMove,
+    coordinatorAskMove,
+    otherFactories,
 
     unarchive,
     delete: remove,
@@ -12242,6 +12374,7 @@ export function createTasks(options: {
       }
       if (old.gate) throw new RequestError(409, 'a sign-off request can’t be superseded')
       if (old.archive) throw new RequestError(409, 'an archive request can’t be superseded')
+      if (old.move) throw new RequestError(409, 'a move request can’t be superseded')
       if (!postedBy(old, task, runId)) {
         throw new RequestError(403, 'a Run can supersede only its own requests')
       }
@@ -12282,6 +12415,7 @@ export function createTasks(options: {
         comment.taskId !== task.id ||
         comment.kind !== 'question' ||
         comment.archive !== undefined ||
+        comment.move !== undefined ||
         !ordinaryAutopilotRequest(comment) ||
         request.action !== 'answer'
       )
