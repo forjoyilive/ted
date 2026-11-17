@@ -322,16 +322,38 @@ describe('the archived Task', () => {
 })
 
 describe('blocking others', () => {
-  test('archiving unblocks the Tasks it blocks, whatever an older client asks', async () => {
+  test('archiving unblocks the Tasks it blocks, whatever an older client asks, and unarchiving puts the blocks back unless the user changed them since', async () => {
     const client = await startTed()
     const blocker = await create(client, 'Blocker')
     const waiting = await create(client, 'Waiting', { blockedBy: [blocker.id] })
+    const alsoWaiting = await create(client, 'Also waiting', { blockedBy: [blocker.id] })
+    const archivedSince = await create(client, 'Archived since', { blockedBy: [blocker.id] })
+    const changedByHand = await create(client, 'Changed by hand', { blockedBy: [blocker.id] })
 
     await client.ok('POST', `/tasks/${blocker.id}/archive`, { blocked: 'keep' })
 
     const now = await getTask(client, waiting.id)
     expect(now.blockedBy).toEqual([])
     expect(now.markers).toEqual([])
+
+    await client.ok('POST', `/tasks/${archivedSince.id}/archive`)
+    await client.ok('POST', `/tasks/${changedByHand.id}/blockers`, { by: blocker.displayId })
+    await client.ok('DELETE', `/tasks/${changedByHand.id}/blockers/${blocker.displayId}`)
+
+    await client.ok('POST', `/tasks/${blocker.id}/unarchive`)
+
+    const restored = `You unarchived this Task · ${waiting.displayId} and ${alsoWaiting.displayId} are blocked by it again`
+    expect((await getTask(client, waiting.id)).blockedBy).toEqual([blocker.id])
+    expect((await getTask(client, alsoWaiting.id)).blockedBy).toEqual([blocker.id])
+    expect((await getTask(client, archivedSince.id)).blockedBy).toEqual([])
+    expect((await getTask(client, changedByHand.id)).blockedBy).toEqual([])
+    expect((await threadTexts(client, blocker)).at(-1)).toBe(restored)
+
+    await client.ok('POST', `/tasks/${archivedSince.id}/unarchive`)
+    await client.ok('POST', `/tasks/${blocker.id}/archive`)
+    await client.ok('POST', `/tasks/${blocker.id}/unarchive`)
+    expect((await getTask(client, archivedSince.id)).blockedBy).toEqual([])
+    expect((await threadTexts(client, blocker)).at(-1)).toBe(restored)
   })
 
   test('deleting unblocks them, whatever an older client asks', async () => {

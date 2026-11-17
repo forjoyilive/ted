@@ -51,6 +51,7 @@ export const sortLabels: Record<ListSort, string> = {
   created: 'Created',
   stage: 'Stage',
   title: 'Title',
+  tokens: 'Tokens',
 }
 
 export const groupLabels: Record<ListGroup, string> = {
@@ -250,6 +251,7 @@ const sorts = (stages: Stages): Record<ListSort, (a: Task, b: Task) => number> =
   created: (a, b) => b.createdAt.localeCompare(a.createdAt) || manualOrder(a, b),
   stage: (a, b) => stages.index(a.stage) - stages.index(b.stage) || manualOrder(a, b),
   title: (a, b) => a.title.localeCompare(b.title) || manualOrder(a, b),
+  tokens: (a, b) => (b.tokens ?? -1) - (a.tokens ?? -1) || manualOrder(a, b),
 })
 
 export function sortTasks(

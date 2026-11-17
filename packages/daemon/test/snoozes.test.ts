@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { type Factory, type Task, tedPaths } from '@ted/protocol'
+import { type Factory, type Task, type ThreadEvent, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -86,6 +86,12 @@ describe('Backlog snoozes', () => {
     clock.advance(1)
     await lead(client, task)
     expect((await get(client, task)).snoozedUntil).toBeUndefined()
+    const thread = (await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)).map(
+      (e) => e.text,
+    )
+    expect(thread).toContain('Started because its snooze ended')
+    expect(thread).not.toContain('Task started')
+    expect(thread).not.toContain('Snooze cleared')
     await daemon?.stop()
     daemon = undefined
     expect(clock.pending).toEqual([])

@@ -222,6 +222,20 @@ export const taskTreeArchives = State.SQLite.table({
   },
 })
 
+export const archiveUnblocks = State.SQLite.table({
+  name: 'archiveUnblocks',
+  indexes: [
+    { name: 'idx_archiveUnblocks_blockerId', columns: ['blockerId'] },
+    { name: 'idx_archiveUnblocks_taskId', columns: ['taskId'] },
+  ],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    blockerId: State.SQLite.text(),
+    taskId: State.SQLite.text(),
+    at: State.SQLite.text(),
+  },
+})
+
 export const deletedTasks = State.SQLite.table({
   name: 'deletedTasks',
   columns: {
@@ -1698,6 +1712,14 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  archiveUnblocked: Events.synced({
+    name: 'v1.ArchiveUnblocked',
+    schema: Schema.Struct({
+      blockerId: Schema.String,
+      taskIds: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   taskBlockerAdded: Events.synced({
     name: 'v1.TaskBlockerAdded',
     schema: Schema.Struct({ taskId: Schema.String, blockerId: Schema.String, at: Schema.String }),
@@ -2015,6 +2037,15 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskStartCause: Events.synced({
+    name: 'v1.TaskStartCause',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      cause: Schema.String,
+      blockers: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   taskDequeued: Events.synced({
     name: 'v1.TaskDequeued',
     schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
@@ -2181,6 +2212,15 @@ export const events = {
     schema: Schema.Struct({
       taskId: Schema.String,
       rank: Schema.NullOr(Schema.Number),
+      at: Schema.String,
+    }),
+  }),
+  taskUnarchivedV2: Events.synced({
+    name: 'v2.TaskUnarchived',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      rank: Schema.NullOr(Schema.Number),
+      reblocked: Schema.Array(Schema.String),
       at: Schema.String,
     }),
   }),
@@ -4129,6 +4169,27 @@ const task = (args: Args, data?: Record<string, unknown>): Logged => ({
   ...(data && { data }),
 })
 
+function unarchivedRows(taskId: string, rank: number | null, at: string) {
+  return [
+    taskTreeArchives.delete().where({ taskId }),
+    taskTreeArchives.delete().where({ rootId: taskId }),
+    ...(rank === null
+      ? []
+      : [taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace')]),
+    tasks
+      .update({
+        archivedAt: null,
+        failedAt: null,
+        stoppedAt: null,
+        stoppedRuns: null,
+        stoppedWhy: null,
+        waitsForBlockers: false,
+        changedAt: at,
+      })
+      .where({ id: taskId }),
+  ]
+}
+
 const runStarted = (args: Args): Logged => ({
   taskId: str(args.taskId),
   at: String(args.startedAt),
@@ -4201,6 +4262,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskRetried': (args) => task(args),
   'v1.RunRevived': (args) => task(args, { runId: args.runId }),
   'v1.TaskQueued': (args) => task(args, { stage: args.stage }),
+  'v1.TaskStartCause': (args) => task(args, { cause: args.cause, blockers: args.blockers }),
   'v1.TaskMovedToBacklog': (args) => task(args),
   'v1.TaskArchived': (args) => task(args),
   'v2.TaskArchived': (args) => task(args, { closing: args.closing, branches: args.branches }),
@@ -4245,6 +4307,8 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TrackerPullRequestsLinked': (args) =>
     task(args, { tracker: args.tracker, item: args.item, urls: args.urls }),
   'v1.TaskUnarchived': (args) => task(args, { queued: args.rank !== null }),
+  'v2.TaskUnarchived': (args) =>
+    task(args, { queued: args.rank !== null, reblocked: args.reblocked }),
   'v1.TaskReset': (args) => task(args, { clarifyDepth: args.clarifyDepth }),
   'v1.TaskMovedToFactory': (args) =>
     task(args, {
@@ -4607,16 +4671,28 @@ const materializers = counted(
           taskTreeArchives.insert({ taskId, rootId, at }).onConflict('taskId', 'replace'),
         ),
       ],
-      'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) =>
+      'v1.ArchiveUnblocked': ({ blockerId, taskIds, at }) =>
+        taskIds.map((taskId) =>
+          archiveUnblocks
+            .insert({ id: `${blockerId}:${taskId}`, blockerId, taskId, at })
+            .onConflict('id', 'replace'),
+        ),
+      'v1.TaskBlockerAdded': ({ taskId, blockerId, at }) => [
         taskBlockers
           .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, at })
           .onConflict('id', 'ignore'),
-      'v2.TaskBlockerAdded': ({ taskId, blockerId, runId, at }) =>
+        archiveUnblocks.delete().where({ id: `${blockerId}:${taskId}` }),
+      ],
+      'v2.TaskBlockerAdded': ({ taskId, blockerId, runId, at }) => [
         taskBlockers
           .insert({ id: `${taskId}:${blockerId}`, taskId, blockerId, setByRunId: runId, at })
           .onConflict('id', 'replace'),
-      'v1.TaskBlockerRemoved': ({ taskId, blockerId }) =>
+        archiveUnblocks.delete().where({ id: `${blockerId}:${taskId}` }),
+      ],
+      'v1.TaskBlockerRemoved': ({ taskId, blockerId }) => [
         taskBlockers.delete().where({ id: `${taskId}:${blockerId}` }),
+        archiveUnblocks.delete().where({ id: `${blockerId}:${taskId}` }),
+      ],
       'v1.TaskSnoozed': ({ taskId, until }) =>
         tasks.update({ snoozedUntil: until, startRequested: false }).where({ id: taskId }),
       'v1.TaskSnoozeCleared': ({ taskId }) =>
@@ -4818,6 +4894,7 @@ const materializers = counted(
         taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
         tasks.update({ stage }).where({ id: taskId }),
       ],
+      'v1.TaskStartCause': () => [],
       'v1.TaskDequeued': ({ taskId }) => taskQueue.delete().where({ taskId }),
       'v1.TaskMovedToBacklog': ({ taskId }) => [
         taskQueue.delete().where({ taskId }),
@@ -4885,23 +4962,10 @@ const materializers = counted(
         messageDrafts.delete().where({ taskId }),
         tasks.update({ archivedAt: at, changedAt: at }).where({ id: taskId }),
       ],
-      'v1.TaskUnarchived': ({ taskId, rank, at }) => [
-        taskTreeArchives.delete().where({ taskId }),
-        taskTreeArchives.delete().where({ rootId: taskId }),
-        ...(rank === null
-          ? []
-          : [taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace')]),
-        tasks
-          .update({
-            archivedAt: null,
-            failedAt: null,
-            stoppedAt: null,
-            stoppedRuns: null,
-            stoppedWhy: null,
-            waitsForBlockers: false,
-            changedAt: at,
-          })
-          .where({ id: taskId }),
+      'v1.TaskUnarchived': ({ taskId, rank, at }) => unarchivedRows(taskId, rank, at),
+      'v2.TaskUnarchived': ({ taskId, rank, at }) => [
+        ...unarchivedRows(taskId, rank, at),
+        archiveUnblocks.delete().where({ blockerId: taskId }),
       ],
       'v1.TaskDeleted': ({ taskId, factoryId, number, runIds, checkRunIds, at }) => [
         deletedTasks.insert({ id: taskId, factoryId, number, at }).onConflict('id', 'ignore'),
@@ -4910,6 +4974,8 @@ const materializers = counted(
         taskBlockers.delete().where({ taskId }),
         taskTreeArchives.delete().where({ taskId }),
         taskTreeArchives.delete().where({ rootId: taskId }),
+        archiveUnblocks.delete().where({ taskId }),
+        archiveUnblocks.delete().where({ blockerId: taskId }),
         taskAttachments.delete().where({ taskId }),
         taskBrowserCaptures.delete().where({ taskId }),
         commentAttachments.delete().where({ taskId }),
@@ -5111,6 +5177,8 @@ const materializers = counted(
         reviewScopes.delete().where({ taskId }),
         taskTreeArchives.delete().where({ rootId: taskId }),
         taskTreeArchives.delete().where({ taskId }),
+        archiveUnblocks.delete().where({ taskId }),
+        archiveUnblocks.delete().where({ blockerId: taskId }),
         baseConflicts.delete().where({ taskId }),
         cleanupReports.delete().where({ taskId }),
         p1OnlyReviews.delete().where({ taskId }),
@@ -6124,6 +6192,7 @@ const state = State.SQLite.makeState({
     taskBlockers,
     taskParents,
     taskTreeArchives,
+    archiveUnblocks,
     deletedTasks,
     taskMoves,
     taskAttachments,

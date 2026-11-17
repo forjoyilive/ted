@@ -273,6 +273,7 @@ export interface Task {
   wakesOnComment?: true
   checksActive?: true
   runs: TaskRun[]
+  tokens?: number
   tabs: ConversationTab[]
   repos: TaskRepo[]
   chosenRepos: string[]

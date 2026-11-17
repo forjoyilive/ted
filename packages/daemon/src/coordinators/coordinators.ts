@@ -2050,7 +2050,9 @@ export function createCoordinators(options: {
               receipt.text = `Resumed ${result.displayId} · ${result.status?.kind === 'queued' ? 'Queued for a free slot' : (result.status?.kind ?? result.stage)}`
             } else {
               const result =
-                kind === 'start' ? await tasks.start(task.id) : tasks.move(task.id, input)
+                kind === 'start'
+                  ? await tasks.start(task.id, {}, { cause: 'coordinator' })
+                  : tasks.move(task.id, input)
               receipt.text =
                 kind === 'start'
                   ? result.stage === 'backlog'

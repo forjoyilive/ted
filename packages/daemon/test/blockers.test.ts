@@ -13,6 +13,7 @@ import {
   type Factory,
   readDaemonInfo,
   type Task,
+  type ThreadEvent,
   tedPaths,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
@@ -124,6 +125,11 @@ async function blockerQuestion(client: Client, task: Task, blocker: Task) {
   return question
 }
 
+const startLines = async (client: Client, task: Task) =>
+  (await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`))
+    .map((e) => e.text)
+    .filter((text) => text.startsWith('Task started') || text.startsWith('Started'))
+
 const waitFor = (client: Client, task: Task, check: (t: Task) => boolean, what: string) =>
   waitUntil(async () => {
     const current = await getTask(client, task.id)
@@ -164,7 +170,7 @@ describe('adding a blocker', () => {
       stage: 'backlog',
       blockedBy: [d.id],
       markers: [{ kind: 'blocked-by', by: d.displayId }],
-      activity: `Starts when ${d.displayId} merges`,
+      activity: `Blocked by ${d.displayId}`,
     })
 
     const blocker = await create(client, 'Blocker')
@@ -211,6 +217,11 @@ describe('adding a blocker', () => {
     await client.ok('POST', `/tasks/${queued.id}/start`)
     const started = await waitFor(client, queued, (t) => t.leadRunId !== undefined, 'to start')
     expect(started.markers).toEqual([])
+    expect(await startLines(client, queued)).toEqual([
+      'Task started',
+      `Started because ${blocker.displayId} merged`,
+      'Task started',
+    ])
   })
 
   test('a running Task asks the human before stopping to wait, then resumes from its brief', async () => {
@@ -374,6 +385,7 @@ describe('starting when the blocker merges', () => {
     await client.ok('POST', `/tasks/${blocker.id}/start`)
     await writeFile(gate, '')
     await waitFor(client, task, (t) => t.leadRunId !== undefined, 'to start')
+    expect(await startLines(client, task)).toEqual([`Started because ${blocker.displayId} merged`])
   })
 
   test('removing remaining blockers mid-flow waits for Resume and keeps context', async () => {
@@ -586,7 +598,13 @@ describe('blockers while the agent can’t run', () => {
     await block(client, running, blocker)
     await waitFor(client, running, (t) => t.status?.kind === 'blocked', 'to be Blocked')
     await client.ok('POST', `/tasks/${blocker.id}/start`)
-    await waitFor(client, blocker, (t) => t.leadRunId !== undefined, 'to start')
+    const started = await waitFor(client, blocker, (t) => t.leadRunId !== undefined, 'to start')
+    // Moving Date.now ahead before the Run host writes its start record expires the
+    // daemon's start deadline (stopGraceMs in run-manager.ts) and drops NB-1's Run.
+    await waitUntil(
+      async () => (await client.getRun(started.leadRunId ?? '')).conversation.length > 0,
+      `${blocker.displayId}’s Run to print its first line`,
+    )
 
     await signedIn(false)
     const realNow = Date.now
@@ -883,6 +901,37 @@ test('hierarchy API persists nested links, refuses stale and cyclic edits, and c
   const restoredLoner = await getTask(client, loner.id)
   expect(restoredLoner.archived).toBeUndefined()
   expect(restoredLoner.parentId).toBeUndefined()
+
+  const siblings = await create(client, 'Siblings')
+  const first = await create(client, 'First sibling')
+  const second = await create(client, 'Second sibling')
+  const waitsForFirst = await create(client, 'Waits for the first', { blockedBy: [first.id] })
+  const waitsForSecond = await create(client, 'Waits for the second', { blockedBy: [second.id] })
+  await parentOf(app, first, siblings)
+  await parentOf(app, second, siblings)
+  await app.archiveTask(siblings.id, { hierarchyRevision: await confirm(siblings) })
+  expect((await block(client, second, waitsForFirst)).status).toBe(200)
+  expect((await block(client, first, waitsForSecond)).status).toBe(200)
+  await app.unarchiveTask(siblings.id, { children: 'restore' })
+  const restoredTo = async (task: Task) => {
+    const events = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
+    return events.findLast((e) => e.text.startsWith('You unarchived this Task'))?.text
+  }
+  const pairs = [
+    [first, waitsForFirst],
+    [second, waitsForSecond],
+  ] as const
+  const restored = []
+  for (const [sibling, waiting] of pairs) {
+    const back = (await getTask(client, waiting.id)).blockedBy.includes(sibling.id)
+    if (back) restored.push(sibling)
+    expect(await restoredTo(sibling)).toBe(
+      back
+        ? `You unarchived this Task · ${waiting.displayId} is blocked by it again`
+        : 'You unarchived this Task',
+    )
+  }
+  expect(restored).toHaveLength(1)
 
   const made = await app.createTask({
     title: 'Made under Kid',
