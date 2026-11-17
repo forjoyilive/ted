@@ -14,6 +14,7 @@ import type {
   ValidationObligations,
 } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
+import { isString } from '@ted/protocol/parse'
 import { expect, test } from 'vitest'
 import { startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -56,12 +57,13 @@ async function walk(
   order = usualOrder,
   loopCheck: false | number = false,
   endMessages = false,
+  verdict = 'converging',
 ) {
   const task = await client.ok<Task>('POST', '/tasks', {
     title: JSON.stringify({
       steps: [
         ...(endMessages ? [{ everyMessage: [{ endTurn: true }] }] : []),
-        ...(loopCheck === false ? [] : [{ say: 'Verdict: converging' }]),
+        ...(loopCheck === false ? [] : [{ say: `Verdict: ${verdict}` }]),
         { endTurn: true },
       ],
     }),
@@ -105,7 +107,7 @@ async function walk(
       60_000,
     )
   const one = await failure()
-  if (order.indexOf('work') < order.indexOf('validate'))
+  if (order.indexOf('work') < order.indexOf('validate') && verdict === 'converging')
     await waitUntil(
       async () => (await getTask(client, task.id)).stage === 'work',
       'the failed Check to return the Task to Work',
@@ -1472,3 +1474,49 @@ test('a failed Check’s return to Work goes through the loop check before it is
   const comments = await s.client.ok<Comment[]>('GET', `${s.root}/comments`)
   expect(comments.some((comment) => !comment.answer && comment.kind === 'question')).toBe(false)
 })
+
+test(
+  'a failed Check’s looping verdict asks the human without waking the Task Lead in Validate, and Keep going returns the Check’s output to Work',
+  async () => {
+    const client = await boot(undefined, undefined, 1)
+    const s = await walk(client, undefined, 1, true, 'looping')
+    const ask = await waitUntil(
+      async () =>
+        (await s.client.ok<Comment[]>('GET', `${s.root}/comments`)).find(
+          (c) => c.kind === 'question' && c.author.kind === 'ted' && c.answer === undefined,
+        ),
+      'Ted to ask about the looping rounds',
+      60_000,
+    )
+    expect(ask).toMatchObject({ stage: 'validate', choices: ['Keep going', 'Stop the Task'] })
+    expect((await getTask(s.client, s.task.id)).stage).toBe('validate')
+    await s.client.ok('POST', `/comments/${ask.id}/answer`, {
+      action: 'answer',
+      choice: 'Keep going',
+    })
+    await waitUntil(
+      async () => (await getTask(s.client, s.task.id)).stage === 'work',
+      'Keep going to return the Task to Work',
+      60_000,
+    )
+    const back = (await s.backs()).at(-1)
+    expect(back).toMatchObject({ from: 'validate', to: 'work', counted: true, cause: 'check' })
+    expect(back?.findings).toContain('broken')
+    const leadRunId = required((await getTask(s.client, s.task.id)).leadRunId)
+    const heard = await waitUntil(
+      async () => {
+        const said = (await s.client.getRun(leadRunId)).conversation.flatMap((e) => {
+          const line = JSON.parse(e.line) as { type: string; message?: { content?: unknown } }
+          return line.type === 'user' && isString(line.message?.content)
+            ? [line.message.content]
+            : []
+        })
+        return said.some((m) => m.includes('The human chose Keep going')) ? said : undefined
+      },
+      'the Task Lead to hear about Keep going',
+      60_000,
+    )
+    expect(heard.filter((m) => m.includes('Ted’s loop check'))).toEqual([])
+  },
+  long,
+)

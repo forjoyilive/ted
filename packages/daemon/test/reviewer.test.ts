@@ -6,7 +6,6 @@ import type {
   Factory,
   RunSummary,
   RunWithConversation,
-  SendBack,
   Task,
   ThreadEvent,
 } from '@ted/protocol'
@@ -573,52 +572,6 @@ describe('the Validate loop check', () => {
         return current.status?.kind === 'stopped' ? current : undefined
       }, 'the Task to stop')
       expect(stopped.stage).toBe('work')
-    },
-    slow,
-  )
-
-  test(
-    'a failed Check’s looping verdict asks the human without waking the Task Lead in Validate, and Keep going returns the Check’s output to Work',
-    async () => {
-      const client = await start(
-        `${validateFlow}stages:\n  validate:\n    max_back: 5\n    loop_check: 1\n    checks:\n      - { name: Tests, run: "echo the export test broke; echo '${steps({ say: 'Verdict: looping' }, { endTurn: true }).replaceAll('"', '\\"')}'; exit 1" }\n`,
-      )
-      const task = await startTask(
-        client,
-        { everyMessage: [{ endTurn: true }] },
-        { run: ['ted', 'outcome', 'advance'] },
-        { endTurn: true },
-      )
-      const ask = await waitForAsk(client, task)
-      expect(ask).toMatchObject({
-        stage: 'validate',
-        choices: ['Keep going', 'Stop the Task'],
-      })
-      expect((await getTask(client, task.id)).stage).toBe('validate')
-      await client.ok('POST', `/comments/${ask.id}/answer`, {
-        action: 'answer',
-        choice: 'Keep going',
-      })
-      await waitForStage(client, task, 'work')
-      const backs = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
-      expect(backs.at(-1)).toMatchObject({
-        from: 'validate',
-        to: 'work',
-        counted: true,
-        cause: 'check',
-      })
-      expect(backs.at(-1)?.findings).toContain('the export test broke')
-      const heard = await waitUntil(
-        async () => {
-          const messages = await userMessages(client, task)
-          return messages.some((m) => m.startsWith('The human chose Keep going'))
-            ? messages
-            : undefined
-        },
-        'the Task Lead to hear about Keep going',
-        20_000,
-      )
-      expect(heard.filter((m) => m.startsWith('Ted’s loop check'))).toEqual([])
     },
     slow,
   )
