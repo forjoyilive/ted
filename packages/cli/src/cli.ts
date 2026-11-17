@@ -74,6 +74,7 @@ import {
   type SetTaskReposRequest,
   type StartAppRequest,
   type TaskLead,
+  taskOnlyBrowserActions,
   tedEnv,
   tedHome,
   tedPaths,
@@ -943,6 +944,12 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     if (action === 'fill') request.value = args[1] ?? (await readStdin())
     if (['press', 'navigate', 'resize', 'color-scheme'].includes(action))
       request.value = args[0] ?? ''
+    if (action === 'size') {
+      const given = args[0] ?? ''
+      if (options.landscape && !['tablet', 'mobile'].includes(given))
+        throw new UsageError('--landscape works only with tablet or mobile')
+      request.value = options.landscape ? `${given}-landscape` : given
+    }
     const owner = browserOwner()
     let parsed: BrowserRequest
     try {
@@ -953,6 +960,8 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     }
     if (!owner.run && runOnlyBrowserActions.includes(action))
       throw new UsageError(`ted browser ${action} works only in an Automation Run`)
+    if (owner.run && taskOnlyBrowserActions.includes(action))
+      throw new UsageError(`ted browser ${action} works only in a Task; use ted browser resize`)
     const browserClient = await withDaemon(home, async (client) => {
       await owner.check(client)
       return client
@@ -1200,6 +1209,9 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     },
     browserColorScheme: async () => {
       await browser('color-scheme')
+    },
+    browserSize: async () => {
+      await browser('size')
     },
     browserScreenshot: async () => {
       await browser('screenshot')

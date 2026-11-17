@@ -3,9 +3,15 @@ import {
   type BrowserCommand,
   type DaemonClient,
   DaemonRequestError,
+  type PreviewSize,
+  previewSize,
+  previewSizeLabel,
+  previewSizeOf,
+  previewSizeValue,
   type TaskApp,
 } from '@ted/protocol'
 import { isLoopbackUrl } from '@ted/protocol/app'
+import { isString } from '@ted/protocol/parse'
 import type { BrowserWindow, Session, WebContentsView } from 'electron'
 import {
   closeGuest,
@@ -14,8 +20,21 @@ import {
   type PageResult,
   runOnPage,
 } from './browser-page.ts'
+import { applyEmulation, type PreviewEmulation, previewEmulation } from './preview-emulation.ts'
 
-type Page = GuestPage & { app: TaskApp; view: WebContentsView }
+type Page = GuestPage & {
+  app: TaskApp
+  view: WebContentsView
+  emulation?: PreviewEmulation
+  originalAgent?: string
+  frameHeight?: number
+  zoom?: number
+}
+
+interface ChosenSize {
+  size: PreviewSize
+  byAgent: boolean
+}
 
 export interface BrowserBounds {
   x: number
@@ -63,6 +82,31 @@ export function createTaskBrowsers(
   const pages = new Map<string, Page>()
   const sessions = new Map<string, { session: Session; apps: Map<string, TaskApp> }>()
   const appKey = (app: TaskApp) => JSON.stringify([app.repo, app.name])
+  const sizes = new Map<string, Map<string, ChosenSize>>()
+  const sizeFor = (taskId: string, app: TaskApp): ChosenSize =>
+    sizes.get(taskId)?.get(appKey(app)) ?? { size: previewSizeOf(app.preview), byAgent: false }
+  const emulate = async (page: Page, taskId: string) => {
+    const contents = page.view.webContents
+    if (contents.isDestroyed()) return
+    const next = previewEmulation(
+      sizeFor(taskId, page.app).size,
+      page.frameHeight ?? 720,
+      page.zoom ?? 1,
+    )
+    page.originalAgent ??= contents.getUserAgent()
+    await applyEmulation(
+      {
+        send: (method, params) => contents.debugger.sendCommand(method, params),
+        reload: () => contents.reload(),
+        loaded: () => !['', 'about:blank'].includes(contents.getURL()),
+      },
+      page.emulation,
+      next,
+      page.originalAgent,
+    )
+    page.emulation = next
+    page.inputScale = next.metrics?.scale ?? 1
+  }
   let activeTask: string | undefined
   let shown: string | undefined
   let presentation = 0
@@ -209,8 +253,29 @@ export function createTaskBrowsers(
           }
         },
         created: (guest) => {
-          opened = Object.assign(guest, { app, view: view as WebContentsView })
+          const page: Page = Object.assign(guest, { app, view: view as WebContentsView })
+          const plain = page.driver.capture
+          page.driver = {
+            ...page.driver,
+            capture: async () => {
+              if (!page.emulation?.metrics) return plain()
+              // A view that isn’t on screen may never draw a frame for the debugger’s capture.
+              const data = await Promise.race([
+                page.view.webContents.debugger
+                  .sendCommand('Page.captureScreenshot', { format: 'png' })
+                  .then(({ data }) => (isString(data) ? data : undefined)),
+                new Promise<undefined>((resolve) =>
+                  AbortSignal.timeout(5_000).addEventListener('abort', () => resolve(undefined)),
+                ),
+              ])
+              return data === undefined ? plain() : new Uint8Array(Buffer.from(data, 'base64'))
+            },
+          }
+          opened = page
           pages.set(taskId, opened)
+        },
+        beforeLoad: async () => {
+          if (opened) await emulate(opened, taskId)
         },
         gone: () => {
           if (opened && pages.get(taskId) === opened) close(taskId)
@@ -229,6 +294,18 @@ export function createTaskBrowsers(
       throw new Error('This Run has ended')
     const page = await ensure(command.taskId, command.app, check)
     check()
+    if (command.request.action === 'size') {
+      const size = previewSize(command.request.value ?? '')
+      if (isString(size)) throw new Error(size)
+      const chosen = sizes.get(command.taskId) ?? new Map<string, ChosenSize>()
+      chosen.set(appKey(page.app), { size, byAgent: command.runId !== undefined })
+      sizes.set(command.taskId, chosen)
+      await emulate(page, command.taskId)
+      return {
+        url: page.view.webContents.getURL(),
+        text: `Preview size: ${previewSizeLabel(size)}`,
+      }
+    }
     return runOnPage(
       page,
       { request: command.request, expiresAt: command.expiresAt, url: command.app.url as string },
@@ -327,7 +404,7 @@ export function createTaskBrowsers(
       const taskId = runTasks.get(runId)
       if (taskId) running.get(taskId)?.abort()
     },
-    async present(taskId: string, bounds: BrowserBounds) {
+    async present(taskId: string, bounds: BrowserBounds, zoom: number) {
       const version = ++presentation
       const page = pages.get(taskId)
       if (!page?.ready) return
@@ -344,6 +421,10 @@ export function createTaskBrowsers(
         width: Math.max(0, Math.min(size.width - x, Math.round(bounds.width))),
         height: Math.max(0, Math.min(size.height - y, Math.round(bounds.height))),
       })
+      page.frameHeight = Math.max(1, Math.round(bounds.height))
+      page.zoom = zoom
+      await emulate(page, taskId).catch(() => undefined)
+      if (version !== presentation) return
       if (shown !== taskId) {
         for (const view of attached) win.contentView.removeChildView(view)
         attached.clear()
@@ -360,9 +441,12 @@ export function createTaskBrowsers(
         return { url: '', text: 'Opening…', opening: true as const }
       if (!page) return { url: '', text: 'Open a running web App' }
       await valid(taskId, page.app)
+      const chosen = sizeFor(taskId, page.app)
       return {
         url: page.view.webContents.getURL(),
         text: page.ready ? (page.error ?? 'Ready') : 'Opening…',
+        size: previewSizeValue(chosen.size),
+        ...(chosen.byAgent && { sizeByAgent: true as const }),
       }
     },
     async external(taskId: string) {

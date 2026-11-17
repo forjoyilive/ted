@@ -10,6 +10,7 @@ import {
   cleanupStepProblem,
   type FactorySettingsChanges,
   isCleanupCommand,
+  previewPresets,
   type RepoSettingsInput,
   type WorkflowProblem,
   type WorktreeCommandInput,
@@ -76,6 +77,7 @@ function appsFrom(entry: RepoSettings): AppInput[] {
     if (typeof app !== 'object' || app === null) return []
     const fields = app as Record<string, unknown>
     const kind = appKinds.find((k) => k === fields.kind) ?? 'web'
+    const preview = kind === 'web' ? previewPresets.find((p) => p === fields.preview) : undefined
     return [
       {
         was,
@@ -84,6 +86,7 @@ function appsFrom(entry: RepoSettings): AppInput[] {
         run: typeof fields.run === 'string' ? fields.run : '',
         ...(typeof fields.url === 'string' && { url: fields.url }),
         ...(typeof fields.device === 'string' && { device: fields.device }),
+        ...(preview !== undefined && { preview }),
       },
     ]
   })
@@ -525,6 +528,7 @@ function writeRepo(doc: Document, map: YAMLMap, repo: RepoSettingsInput, primary
           ? app.device?.trim() || undefined
           : undefined,
       )
+      setOrDelete(appMap, 'preview', app.kind === 'web' ? app.preview : undefined)
       apps.items.push(appMap)
     }
     if (isSeq(appsNode)) appsNode.items = apps.items
@@ -577,6 +581,7 @@ const keyOrder = [
   'run',
   'url',
   'device',
+  'preview',
   'repo',
   'timeout',
   'agent',

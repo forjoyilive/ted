@@ -41,6 +41,8 @@ function makeContents() {
     }),
     setWindowOpenHandler: vi.fn(),
     getURL: () => 'http://localhost:3000/',
+    getUserAgent: () => 'Electron desktop',
+    reload: vi.fn(),
     executeJavaScriptInIsolatedWorld: vi.fn(
       async (_world: number, scripts: { code: string }[]): Promise<unknown> => {
         const prefix = /const ref = "([^"]+)"/.exec(scripts[0]?.code ?? '')?.[1]
@@ -792,4 +794,65 @@ test('lifecycle teardown stops retained workers even after the guest was cancele
   expect(control?.debugger.sendCommand).toHaveBeenCalledWith('ServiceWorker.stopAllWorkers')
   expect(control?.close).toHaveBeenCalledOnce()
   expect(ses.closeAllConnections).toHaveBeenCalledOnce()
+})
+
+test('a size command emulates a phone, scales clicks with the zoom and captures the full page', async () => {
+  const transport = bridge()
+  const upload = vi.fn(async (_owner: string, _id: string, _bytes: Uint8Array) => {})
+  Object.assign(transport.client, { uploadBrowserCapture: upload })
+  const window = {
+    isDestroyed: () => false,
+    getContentBounds: () => ({ x: 0, y: 0, width: 2000, height: 2000 }),
+    contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
+  }
+  const controller = createTaskBrowsers(
+    () => window as never,
+    () => transport.client,
+    vi.fn(),
+    electron,
+  )
+  controllers.push(controller)
+  await transport.send('open', 'one', 'open')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  const contents = mocks.views[0]?.webContents
+  if (!contents) throw new Error('Missing browser contents')
+  const sent = (method: string) =>
+    contents.debugger.sendCommand.mock.calls.filter(([name]) => name === method).map(([, p]) => p)
+
+  await transport.send('size', 'one', 'size', { value: 'mobile' }, 1_000, 'run-1')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
+  expect(transport.replies[1]?.result?.text).toBe('Preview size: Mobile · 390 × 844')
+  expect(sent('Emulation.setDeviceMetricsOverride')).toEqual([
+    { width: 390, height: 844, deviceScaleFactor: 0, mobile: true, scale: 1 },
+  ])
+  expect(sent('Emulation.setTouchEmulationEnabled')).toEqual([{ enabled: true, maxTouchPoints: 5 }])
+  expect(sent('Emulation.setUserAgentOverride')[0]).toMatchObject({ platform: 'iPhone' })
+  expect(contents.reload).toHaveBeenCalledOnce()
+  expect(await controller.state('one')).toMatchObject({ size: 'mobile', sizeByAgent: true })
+
+  await controller.present('one', { x: 0, y: 0, width: 195, height: 422 }, 0.5)
+  expect(sent('Emulation.setDeviceMetricsOverride').at(-1)).toMatchObject({ scale: 0.5 })
+  await transport.send('snapshot', 'one', 'snapshot')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(3))
+  const ref = (transport.replies[2]?.result?.text ?? '').split(' ')[0]
+  await transport.send('click', 'one', 'click', { ref })
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(4))
+  expect(sent('Input.dispatchMouseEvent')[0]).toMatchObject({ x: 5, y: 5 })
+
+  contents.debugger.sendCommand.mockImplementation(async (method: string) =>
+    method === 'Page.captureScreenshot' ? { data: Buffer.from('phone').toString('base64') } : {},
+  )
+  await transport.send('shot', 'one', 'screenshot')
+  await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce())
+  expect(Buffer.from(upload.mock.calls[0]?.[2] ?? []).toString()).toBe('phone')
+
+  await transport.send('desktop', 'one', 'size', { value: 'desktop' })
+  await vi.waitFor(() => expect(transport.replies.some((r) => r.id === 'desktop')).toBe(true))
+  expect(sent('Emulation.clearDeviceMetricsOverride')).toHaveLength(1)
+  expect(sent('Emulation.setTouchEmulationEnabled').at(-1)).toEqual({ enabled: false })
+  expect(sent('Emulation.setUserAgentOverride').at(-1)).toEqual({ userAgent: 'Electron desktop' })
+  expect(contents.reload).toHaveBeenCalledTimes(2)
+  const state = await controller.state('one')
+  expect(state).toMatchObject({ size: 'desktop' })
+  expect(state).not.toHaveProperty('sizeByAgent')
 })

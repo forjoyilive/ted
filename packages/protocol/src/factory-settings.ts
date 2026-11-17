@@ -1,4 +1,5 @@
 import type { AgentFileChange, AgentFileRow } from './agent-files.ts'
+import type { PreviewPreset } from './preview-size.ts'
 import type { PermissionMode } from './run.ts'
 import type {
   AgentStageId,
@@ -33,6 +34,7 @@ export interface AppInput {
   run: string
   url?: string
   device?: string
+  preview?: PreviewPreset
 }
 
 export interface RepoSettingsInput {
