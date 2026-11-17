@@ -165,6 +165,9 @@ describe('taskStatus', () => {
       kind: 'queued',
       hold: 'disk full',
     })
+    expect(
+      taskStatus(at({ stage: 'validate', queue: { place: 3, after: 'checks-passed' }, busy })),
+    ).toEqual({ kind: 'queued', place: 3, after: 'checks-passed' })
     expect(taskStatus(at({ runs: ['working'], busy }))).toEqual({ kind: 'working' })
     expect(taskStatus(at({ stage: 'merge', github: 'review' }))).toEqual({
       kind: 'waiting-for-github',

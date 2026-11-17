@@ -19,6 +19,7 @@ import type {
   MessageDraft,
   NewTaskDraft,
   PeerMessage,
+  QueuedAfter,
   TaskDraftState,
   TaskGateOverrides,
   TaskIntervalHistory,
@@ -37,6 +38,7 @@ import {
   type AutopilotChoice,
   agentStageIds,
   asanaSyncOf,
+  automationCardHeadline,
   autopilotEnabled,
   type Banner,
   type BannerAction,
@@ -65,6 +67,7 @@ import {
   type ConversationTab,
   type CopySkip,
   type CreatedBy,
+  chatRequestKinds,
   checkLabel,
   type DaemonEvent,
   type DescriptionVersion,
@@ -125,6 +128,7 @@ import {
   type WaitingRequest,
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
+import { isOneOf } from '@ted/protocol/parse'
 import { planTitle as titleFromMessage } from '@ted/protocol/plan'
 import {
   compareStages,
@@ -154,6 +158,7 @@ import {
 import type { OvernightGuard } from '../workflow/resolve.ts'
 import { type AutomationDraftStore, createAutomationDraftStore } from './automation-drafts.ts'
 import { type AutomationStore, createAutomationStore } from './automations.ts'
+import { type ChatStore, createChatStore } from './chats.ts'
 import { checkRunTiming } from './check-timing.ts'
 import {
   type CoordinatorStore,
@@ -179,6 +184,7 @@ import {
   automationTasks,
   banners,
   baseConflicts,
+  chatRequests as chatRequestRows,
   checkBoundaries,
   checkResults,
   checkRuns,
@@ -321,6 +327,14 @@ export interface LeadMessage {
   id: string
   text: string
   waitForSlot?: true
+  after?: QueuedAfter
+  heldAt?: string
+}
+
+export interface CheckWork {
+  running: string[]
+  waiting: ReadonlyMap<string, number>
+  scheduled: { running: number; waiting: number }
 }
 
 export interface QueueActivity {
@@ -861,7 +875,7 @@ export interface TedStore extends TaskHistory {
   childTasksCreated(
     taskId: string,
     childIds: readonly string[],
-    from: 'split' | 'plan' | 'plan-task',
+    from: 'split' | 'plan' | 'plan-task' | 'chat',
   ): void
   madeParent(taskId: string): boolean
   parentFinishedWithChildren(taskId: string): void
@@ -972,7 +986,7 @@ export interface TedStore extends TaskHistory {
   setTaskLead(taskId: string, lead: TaskLead): Task
   setLeadRestartPending(taskId: string, pending: boolean): void
   tasksWithQueuedContinuations(): string[]
-  holdLeadMessage(taskId: string, text: string, waitForSlot?: boolean): void
+  holdLeadMessage(taskId: string, text: string, waitForSlot?: boolean, after?: QueuedAfter): void
   deliveredLeadMessages(taskId: string, ids: readonly string[]): void
   setTaskAutopilot(taskId: string, choice: AutopilotChoice): Task
   setTaskGates(taskId: string, overrides: TaskGateOverrides): Task
@@ -1155,6 +1169,7 @@ export interface TedStore extends TaskHistory {
   permissionTarget(commentId: string): PermissionTarget | undefined
   answerPermission(commentId: string, answer: CommentAnswer): Comment
   setRunPermissions(runId: string, permissions: PermissionMode): void
+  setRunAsleep(runId: string, asleep: boolean): void
   restartRun(runId: string, flags: RunFlags): Run
   reviveRun(runId: string, flags?: RunFlags): Run
   lastOutputAt(runId: string): string | undefined
@@ -1215,6 +1230,7 @@ export interface TedStore extends TaskHistory {
   setQueueActivity(activity: QueueActivity): void
   setShellsRunning(count: number): void
   setScheduledChecks(counts: { running: number; waiting: number }): void
+  checkWork(): CheckWork
   setAsanaConnection(account: string | undefined): void
   asanaAccount(): string | undefined
   setAsanaOpenChildren(taskId: string, count: number | undefined): void
@@ -1250,6 +1266,7 @@ export interface TedStore extends TaskHistory {
   ): PeerMessage
   sideChats: SideChatStore
   coordinators: CoordinatorStore
+  chats: ChatStore
   testInvocations: TestInvocationStore
   failures: FailureStore
   invalidateFailure(value: FailureCase, note: { title: string; body: string }): void
@@ -1359,6 +1376,7 @@ export async function openStore({
   let newWorkHeld: string | undefined
   let heldBusy: BusyHold | undefined
   const waitingOnSubAgents = new Set<string>()
+  const asleepRuns = new Set<string>()
   const checkingTasks = new Set<string>()
   const movingAfterChecks = new Set<string>()
   let checksWaiting: ReadonlyMap<string, number> = new Map()
@@ -2102,9 +2120,13 @@ export async function openStore({
     const paused = reads.pauses()
     const held = reads.held(row.id).at(0)
     const taskComments = reads.comments(row.id)
-    const queuedContinuation =
-      pendingMessages.some((message) => message.waitForSlot) ||
-      taskComments.some((comment) => comment.answerHeld && comment.answerQueuedAt !== null)
+    const heldAnswer = taskComments.some(
+      (comment) => comment.answerHeld && comment.answerQueuedAt !== null,
+    )
+    const queuedContinuation = pendingMessages.some((message) => message.waitForSlot) || heldAnswer
+    const queuedAfter =
+      pendingMessages.find((message) => message.waitForSlot && message.after !== undefined)
+        ?.after ?? (heldAnswer ? 'answer' : undefined)
     const place =
       queued || queuedContinuation
         ? (queueActivity.taskPlaces?.find((entry) => entry.id === row.id)?.place ??
@@ -2182,7 +2204,7 @@ export async function openStore({
             ? { hold: `${leadAgent ?? held?.agent} is off. Enable it in Settings → Providers.` }
             : place > 0
               ? newWorkHeld === undefined
-                ? { place }
+                ? { place, ...(queuedAfter !== undefined && { after: queuedAfter }) }
                 : { hold: newWorkHeld }
               : { hold: 'Waiting for a Provider' },
       }),
@@ -2483,6 +2505,7 @@ export async function openStore({
     ...(taskId !== null && { taskId }),
     ...(revivedAt !== null && { revivedAt }),
     ...(ended !== null && { ended: JSON.parse(ended) as RunEnding }),
+    ...(asleepRuns.has(row.id) && { asleep: true as const }),
   })
 
   const withPurpose = (comment: Comment, stored: string | null): Comment => {
@@ -3461,7 +3484,18 @@ export async function openStore({
   }
   let shellsRunning = 0
   let scheduledChecks = { running: 0, waiting: 0 }
+  const checkWork = (): CheckWork => ({
+    running: [
+      ...new Set([
+        ...checkingTasks,
+        ...store.query(queryDb(checkRuns.where({ finishedAt: null }))).map((r) => r.taskId),
+      ]),
+    ].filter((taskId) => !checksWaiting.has(taskId)),
+    waiting: checksWaiting,
+    scheduled: scheduledChecks,
+  })
   const activity = (): Activity => {
+    const work = checkWork()
     const active = store.query(liveRuns)
     const runIds = new Set(active.map((run) => run.id))
     const taskIds = new Set(
@@ -3502,14 +3536,8 @@ export async function openStore({
         ).length,
       automationsOn: liveAutomations.filter((a) => a.on).length,
       factoriesSettingUp: store.query(allFactories).filter((f) => f.clonedAt === null).length,
-      checksRunning:
-        [
-          ...new Set([
-            ...checkingTasks,
-            ...store.query(queryDb(checkRuns.where({ finishedAt: null }))).map((r) => r.taskId),
-          ]),
-        ].filter((taskId) => !checksWaiting.has(taskId)).length + scheduledChecks.running,
-      checksWaiting: checksWaiting.size + scheduledChecks.waiting,
+      checksRunning: work.running.length + work.scheduled.running,
+      checksWaiting: work.waiting.size + work.scheduled.waiting,
       shellsRunning,
     }
   }
@@ -3589,23 +3617,59 @@ export async function openStore({
           },
         ]
       })
+    const chatRows = store.query(queryDb(chatRequestRows.where({ answer: null })))
+    const askedIn = Map.groupBy(chatRows, (row) => row.chatId)
     const fromCoordinators = store
       .query(queryDb(coordinatorRows.where({ endedAt: null })))
       .flatMap((row): WaitingRequest[] => {
         if (!factoryIds.has(row.factoryId)) return []
         const chat = JSON.parse(row.data) as StoredCoordinator
-        return (chat.confirmations ?? [])
+        const chatTitle = row.title ?? titleFromMessage(chat.opening)
+        const agentName = chatStore.agent(row.id)?.name ?? 'Coordinator'
+        const confirmations = (chat.confirmations ?? [])
           .filter((c) => c.answer === undefined)
-          .map((c) => ({
+          .map(
+            (c): WaitingRequest => ({
+              source: 'coordinator',
+              id: c.id,
+              chatId: row.id,
+              chatTitle,
+              agentName,
+              factoryId: row.factoryId,
+              createdAt: c.askedAt,
+              headline: confirmationHeadline(c),
+              confirmationKind: c.kind,
+            }),
+          )
+        const asked = (askedIn.get(row.id) ?? []).map(
+          (r): WaitingRequest => ({
             source: 'coordinator',
-            id: c.id,
+            id: r.id,
             chatId: row.id,
-            chatTitle: row.title ?? titleFromMessage(chat.opening),
+            chatTitle,
+            agentName,
             factoryId: row.factoryId,
-            createdAt: c.askedAt,
-            headline: confirmationHeadline(c),
-            confirmationKind: c.kind,
-          }))
+            createdAt: r.createdAt,
+            headline: headlineOf(r.title, r.body),
+            requestKind: isOneOf(r.kind, chatRequestKinds) ? r.kind : 'question',
+          }),
+        )
+        const cards = (chat.automationCards ?? [])
+          .filter((c) => c.answer === undefined)
+          .map(
+            (c): WaitingRequest => ({
+              source: 'coordinator',
+              id: c.id,
+              chatId: row.id,
+              chatTitle,
+              agentName,
+              factoryId: row.factoryId,
+              createdAt: c.askedAt,
+              headline: automationCardHeadline(c),
+              automationCard: c.kind,
+            }),
+          )
+        return [...confirmations, ...cards, ...asked]
       })
     const current = settings()
     return [...fromTasks, ...fromAutomations, ...fromPlans, ...fromCoordinators]
@@ -3663,7 +3727,6 @@ export async function openStore({
       emit({ type: 'inbox-changed', ...next })
     })
   }
-  lastWaiting = inbox()
 
   let lastActivity = activity()
   const noteActivity = () => {
@@ -3759,6 +3822,20 @@ export async function openStore({
       noteActivity()
     },
   })
+
+  const chatStore = createChatStore({
+    store,
+    commit,
+    changed(chatId) {
+      const chat = coordinatorStore.find(chatId)
+      if (chat) emit({ type: 'coordinator-changed', factoryId: chat.factoryId, chatId })
+      noteActivity()
+    },
+    runChanged(runId) {
+      emit({ type: 'run-output', runId })
+    },
+  })
+  lastWaiting = inbox()
 
   const execution = createExecutionStore({
     store,
@@ -3901,6 +3978,7 @@ export async function openStore({
       return row
     },
     coordinators: coordinatorStore,
+    chats: chatStore,
     automations: automationStore,
     plans: planStore,
     testInvocations: testInvocationStore,
@@ -5680,16 +5758,22 @@ export async function openStore({
           .map((comment) => comment.taskId),
       ]),
     ],
-    holdLeadMessage(taskId, text, waitForSlot = false) {
+    holdLeadMessage(taskId, text, waitForSlot = false, after) {
       const pending = toTask(requireTaskRow(taskId)).pendingLeadMessages
+      const at = new Date().toISOString()
       commit(
         events.taskLeadMessagesHeld({
           taskId,
           messages: JSON.stringify([
             ...pending,
-            { id: randomUUID(), text, ...(waitForSlot && { waitForSlot: true }) },
+            {
+              id: randomUUID(),
+              text,
+              ...(waitForSlot && { waitForSlot: true }),
+              ...(waitForSlot && after !== undefined && { after, heldAt: at }),
+            },
           ]),
-          at: new Date().toISOString(),
+          at,
         }),
       )
     },
@@ -6759,6 +6843,13 @@ export async function openStore({
       const taskId = taskIdOfRun(runId)
       if (taskId !== undefined) updatedTask(taskId)
     },
+    setRunAsleep(runId, asleep) {
+      if (asleepRuns.has(runId) === asleep) return
+      if (asleep) asleepRuns.add(runId)
+      else asleepRuns.delete(runId)
+      const row = runRow(runId)
+      if (row) emit({ type: 'run-updated', run: toRun(row) })
+    },
     restartRun(runId, { model, effort, usesDefaultModel = false }) {
       const at = new Date().toISOString()
       const withdrawn = openPermissionRows(runId)
@@ -7107,6 +7198,7 @@ export async function openStore({
       else asanaLeftOpen.delete(taskId)
       if (taskRow(taskId)) updatedTask(taskId)
     },
+    checkWork,
     setScheduledChecks(counts) {
       if (counts.running === scheduledChecks.running && counts.waiting === scheduledChecks.waiting)
         return

@@ -226,6 +226,63 @@ function ToolRow({
   )
 }
 
+export function commandMeta(item: Extract<ChatItem, { kind: 'command' }>, now: number): string {
+  const took = elapsed(item.at, item.endedAt === undefined ? now : Date.parse(item.endedAt))
+  if (item.status === 'running') return `running · ${took}`
+  if (item.status === 'stopped') return `Stopped · ${took}`
+  if (item.status === 'passed') return `Passed · ${took}`
+  return item.exitCode === undefined ? `Failed · ${took}` : `Exit code ${item.exitCode} · ${took}`
+}
+
+export function outsideMeta(item: Extract<ChatItem, { kind: 'command' }>, now: number): string {
+  const base = commandMeta(item, now)
+  if (!item.outside) return base
+  return `${base} · Outside the sandbox${item.outside.always ? ' · Always allowed' : ''}`
+}
+
+function CommandRow({
+  item,
+  now,
+  stopOutside,
+}: {
+  item: Extract<ChatItem, { kind: 'command' }>
+  now: number
+  stopOutside?: (() => void) | undefined
+}) {
+  const { outside } = item
+  const running = item.status === 'running'
+  return (
+    <Collapsible
+      label={running ? 'TED is running' : 'TED ran'}
+      mono={item.name}
+      meta={outsideMeta(item, now)}
+      open={outside !== undefined && running}
+      tone={item.status === 'failed' ? 'failed' : undefined}
+    >
+      {outside && (
+        <p className={styles.outsideLine} data-outside-command={item.name}>
+          <code>{outside.command}</code>
+          {` in ${outside.folder}`}
+        </p>
+      )}
+      {(!running || outside) && (
+        <pre className={styles.output}>
+          {item.output.trim() === ''
+            ? running
+              ? 'Waiting for output…'
+              : 'No output'
+            : item.output}
+        </pre>
+      )}
+      {outside && running && stopOutside && (
+        <Button size="small" onClick={stopOutside}>
+          Stop
+        </Button>
+      )}
+    </Collapsible>
+  )
+}
+
 function AgentMessage({
   item,
   run,
@@ -480,6 +537,7 @@ function sameRow(before: ChatRowProps, after: ChatRowProps): boolean {
     before.options.audience === after.options.audience &&
     before.options.humanAs === after.options.humanAs &&
     before.options.tedAs === after.options.tedAs &&
+    (before.options.stopOutside === undefined) === (after.options.stopOutside === undefined) &&
     (before.options.matchItemId === before.item.id) ===
       (after.options.matchItemId === after.item.id) &&
     (before.item === after.item || JSON.stringify(before.item) === JSON.stringify(after.item))
@@ -537,6 +595,8 @@ const ChatRow = memo(function ChatRow({ item, run, now, options }: ChatRowProps)
       return <ToolRow item={item} now={now} open={options.matchItemId === item.id} />
     case 'permission':
       return <PermissionRow item={item} now={now} inspect={options.inspect} />
+    case 'command':
+      return <CommandRow item={item} now={now} stopOutside={options.stopOutside} />
   }
 }, sameRow)
 
@@ -573,6 +633,7 @@ export interface ChatOptions {
   interrupt?: false
   send?: (text: string) => Promise<unknown>
   stopTurn?: () => Promise<unknown>
+  stopOutside?: () => void
   box?: MessageBox
 }
 
@@ -770,7 +831,9 @@ export function ChatTimeline({
   const run = chat?.run
   const rows = toolGroups(conversationRows(items, options.extra ?? [], run?.startedAt ?? ''))
   const ticking = useTicking(
-    items.some((item) => item.kind === 'tool' && item.status === 'running'),
+    items.some(
+      (item) => (item.kind === 'tool' || item.kind === 'command') && item.status === 'running',
+    ),
   )
   const now = useNow()
   const [chosen, setChosen] = useState<ReadonlyMap<string, boolean>>(new Map())
@@ -785,7 +848,11 @@ export function ChatTimeline({
       <ChatRow
         item={item}
         run={run}
-        now={item.kind === 'tool' && item.status === 'running' ? ticking : now}
+        now={
+          (item.kind === 'tool' || item.kind === 'command') && item.status === 'running'
+            ? ticking
+            : now
+        }
         options={options}
       />
     </div>

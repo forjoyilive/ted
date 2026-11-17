@@ -1,3 +1,4 @@
+import { parseAgentFileChanges, parseKeepAgentFiles } from './agent-file-parsers.ts'
 import type {
   AddFactoryRequest,
   AutoStartBacklogRequest,
@@ -301,6 +302,10 @@ export function parseFactorySettingsChanges(given: unknown): FactorySettingsChan
       if (given[role] !== undefined) changes.agents[role] = roleChoice(given[role], role)
     }
   }
+  if (body.agentFiles !== undefined) changes.agentFiles = parseAgentFileChanges(body.agentFiles)
+  if (body.keepAgentFiles !== undefined) {
+    changes.keepAgentFiles = parseKeepAgentFiles(body.keepAgentFiles)
+  }
   if (body.permissions !== undefined) {
     const mode = permissionModes.find((m) => m === body.permissions)
     if (mode === undefined) throw new HttpError(400, 'permissions must be auto or bypass')
@@ -565,6 +570,10 @@ export function parseLibraryChanges(given: unknown): LibraryChanges {
     for (const role of agentRoles) {
       if (agents[role] !== undefined) changes.agents[role] = roleChoice(agents[role], role)
     }
+  }
+  if (body.agentFiles !== undefined) changes.agentFiles = parseAgentFileChanges(body.agentFiles)
+  if (body.keepAgentFiles !== undefined) {
+    changes.keepAgentFiles = parseKeepAgentFiles(body.keepAgentFiles)
   }
   return changes
 }

@@ -1,6 +1,13 @@
 import type { CommentAuthor, StageId } from './task.ts'
 
-export type SearchField = 'id' | 'title' | 'description' | 'original-request' | 'brief'
+export type SearchField = 'id' | 'tracker' | 'title' | 'description' | 'original-request' | 'brief'
+
+export type TrackerKind = 'linear' | 'github' | 'sentry'
+
+export interface TrackerMatch {
+  kind: TrackerKind
+  id: string
+}
 
 export type SearchTaskState = 'open' | 'done' | 'archived'
 
@@ -13,6 +20,7 @@ export interface TaskHit {
   state: SearchTaskState
   field: SearchField
   snippet?: string
+  tracker?: TrackerMatch
 }
 
 export interface CommentHit {
@@ -87,6 +95,12 @@ export function foldText(text: string): string {
 
 export function searchTerms(query: string): string[] {
   return foldText(query).split(/\s+/).filter(Boolean)
+}
+
+export function compactId(text: string): string {
+  return foldText(text.trim())
+    .replace(/^#/, '')
+    .replace(/[\s-]+/g, '')
 }
 
 export function matchesTerms(terms: readonly string[], text: string): boolean {

@@ -15,7 +15,7 @@ import {
   type LayerFiles,
   type WorkflowSettings,
 } from './check.ts'
-import { findDrift, rememberLayer } from './drift.ts'
+import { driftCount, rememberLayer } from './drift.ts'
 import { createFetches } from './fetches.ts'
 import {
   contentVersion,
@@ -163,9 +163,9 @@ export function createWorkflows(options: {
     layersChanged = false
     const before = JSON.stringify(drift())
     const inherited = [defaults, ...(library ? [library] : [])]
-    libraryCount = library ? findDrift([defaults], library).length : 0
+    libraryCount = library ? driftCount([defaults], library) : 0
     for (const [id, layer] of factoryLayers) {
-      counts.set(id, layer ? findDrift(inherited, layer).length : 0)
+      counts.set(id, layer ? driftCount(inherited, layer) : 0)
     }
     const after = drift()
     if (JSON.stringify(after) !== before) options.onDrift?.(after)

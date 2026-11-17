@@ -49,6 +49,7 @@ import { NotificationOfferBanner } from './components/NotificationOffer.tsx'
 import { PlanUsage } from './components/PlanUsage.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
+import { ReportingDialog } from './components/ReportingDialog.tsx'
 import { ReportProblemDialog } from './components/ReportProblemDialog.tsx'
 import { RequestSnoozeHost } from './components/RequestSnooze.tsx'
 import { resizeSidebarFromKey, SidebarLayout } from './components/ResizableSidebar.tsx'
@@ -1102,6 +1103,9 @@ export function App({ start }: { start?: AppStart | undefined }) {
               onNewPlan={openPlans}
               onPlanMore={(from) => dispatch({ type: 'open-plan', factoryId: factory.id, from })}
               onOpenTask={openTaskByRef}
+              onOpenAutomation={(automationId) =>
+                dispatch({ type: 'open-automation', automationId, factoryId: factory.id })
+              }
             />
           )
         return <Stub title={`${name} · ${factoryViewTitles[screen.view]}`} banners={view.banners} />
@@ -1200,6 +1204,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
         />
       )}
       <RestartStoppedDialog />
+      <ReportingDialog />
       {asking && (
         <SetupNoticeDialog
           task={asking.request.task}

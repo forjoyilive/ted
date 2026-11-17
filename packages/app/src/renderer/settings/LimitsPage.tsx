@@ -1,11 +1,19 @@
 import { emulatorSlotLimits, simulatorSlotLimits } from '@ted/protocol/app'
-import { checkLimits, workingRunLimits } from '@ted/protocol/settings'
+import {
+  checkCpuLimits,
+  checkLimits,
+  defaultMachineSettings,
+  idleRunSleepLimits,
+  workingRunLimits,
+} from '@ted/protocol/settings'
 import { useEmulators, useSimulators, useSlots } from '../data.ts'
 import { nowLine, slotsDetail } from '../slots.ts'
 import { ted } from '../ted.ts'
 import { SettingRow, SettingsGroup, SettingsPage, Stepper, Switch } from './controls.tsx'
 import type { SettingsPageProps } from './sections.tsx'
 import styles from './settings.module.css'
+
+const sleepStep = 5
 
 export function LimitsPage({ settings }: SettingsPageProps) {
   const slots = useSlots()
@@ -68,6 +76,54 @@ export function LimitsPage({ settings }: SettingsPageProps) {
             onChange={(maxChecksAtOnce) => ted.updateSettings({ maxChecksAtOnce })}
           />
         </SettingRow>
+        <SettingRow setting="app.limits.check-cpus">
+          <Stepper
+            value={settings.checkCpuPercent}
+            min={checkCpuLimits.min}
+            max={checkCpuLimits.max}
+            step={checkCpuLimits.step}
+            format={(percent) => `${percent}%`}
+            lessLabel="Less CPU for a Check"
+            moreLabel="More CPU for a Check"
+            onChange={(checkCpuPercent) => ted.updateSettings({ checkCpuPercent })}
+          />
+        </SettingRow>
+        <SettingRow setting="app.limits.scheduled-check-cpus">
+          <Switch
+            label="Limit the CPU Scheduled Checks use too"
+            checked={settings.limitScheduledCheckCpus}
+            onChange={(limitScheduledCheckCpus) => ted.updateSettings({ limitScheduledCheckCpus })}
+          />
+        </SettingRow>
+        <SettingRow setting="app.limits.sleep-idle">
+          <Switch
+            label="End idle Task Lead agents to free memory"
+            checked={settings.sleepIdleRunsAfterMinutes !== null}
+            onChange={(on) =>
+              ted.updateSettings({
+                sleepIdleRunsAfterMinutes: on
+                  ? defaultMachineSettings.sleepIdleRunsAfterMinutes
+                  : null,
+              })
+            }
+          />
+        </SettingRow>
+        {settings.sleepIdleRunsAfterMinutes !== null && (
+          <SettingRow setting="app.limits.sleep-idle-after">
+            <Stepper
+              value={settings.sleepIdleRunsAfterMinutes}
+              min={sleepStep}
+              max={idleRunSleepLimits.max}
+              step={sleepStep}
+              format={(minutes) => `${minutes} min`}
+              lessLabel="End idle agents sooner"
+              moreLabel="End idle agents later"
+              onChange={(sleepIdleRunsAfterMinutes) =>
+                ted.updateSettings({ sleepIdleRunsAfterMinutes })
+              }
+            />
+          </SettingRow>
+        )}
         <SettingRow setting="app.limits.low-priority">
           <Switch
             label="Run agents and Checks at low priority"

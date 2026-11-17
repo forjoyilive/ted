@@ -15,7 +15,7 @@ import { QuestionCard } from '../src/renderer/views/Automations.tsx'
 import { Inbox } from '../src/renderer/views/Inbox.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, deferred, user } from './support/component.ts'
-import { comment, createdAt, factory, task } from './support/fixtures.ts'
+import { comment, createdAt, factory, plannerAgent, task } from './support/fixtures.ts'
 
 const round: Round = {
   number: 1,
@@ -361,10 +361,10 @@ test('a round question that allows several answers sends every ticked choice', a
     questions: [
       {
         question: 'Which views?',
-        choices: ['Board', 'List', 'Map'],
+        choices: ['Board', 'List', 'Map\nPins Tasks on a map.'],
         recommended: 'Board; Map',
         multiple: true,
-        recommendedChoices: ['Board', 'Map'],
+        recommendedChoices: ['Board', 'Map\nPins Tasks on a map.'],
       },
     ],
   }
@@ -379,7 +379,10 @@ test('a round question that allows several answers sends every ticked choice', a
   const f = within(screen.getByRole('group', { name: /Which views/ }))
   expect(f.getByText('Pick any that apply.')).toBeTruthy()
   expect(f.queryAllByRole('radio')).toHaveLength(0)
-  expect(f.getAllByText('Recommended')).toHaveLength(2)
+  expect(f.getAllByText('Recommended').map((tag) => tag.parentElement?.textContent)).toEqual([
+    'Board Recommended',
+    'Map Recommended',
+  ])
   const submit = screen.getByRole('button', { name: 'Submit answers' }) as HTMLButtonElement
   expect(submit.disabled).toBe(false)
   await u.click(f.getByRole('checkbox', { name: /^Map/ }))
@@ -1087,6 +1090,7 @@ test('Inbox interleaves request types newest first, filters without reordering, 
       createdTasks: 0,
       createdAt,
       lastAt: createdAt,
+      chatAgent: plannerAgent,
     },
     request: {
       id: 'plan',
@@ -1135,8 +1139,10 @@ test('Inbox interleaves request types newest first, filters without reordering, 
   view.rerender(<Inbox {...all} factoryId="f1" selected="recent" />)
   expect(headlines()).toEqual(['Recent request', 'Plan request', 'Old urgent request'])
   onOpenPlan.mockClear()
+  props.onClear.mockClear()
   view.rerender(<Inbox {...all} factoryId="f1" items={[old]} selected="recent" />)
-  expect(onOpenPlan).toHaveBeenCalledWith(plan)
+  expect(onOpenPlan).not.toHaveBeenCalled()
+  expect(props.onClear).toHaveBeenCalledOnce()
 
   const newest = {
     ...recent,
@@ -2129,6 +2135,7 @@ test('Inbox right-click offers request actions, then Task or plan actions, and n
       createdAt,
       lastAt: createdAt,
       createdTasks: 0,
+      chatAgent: plannerAgent,
     },
     request: {
       id: 'pr1',

@@ -166,9 +166,6 @@
     }
   },
   "packages/app/src/renderer/agent-chats.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 4
     },
@@ -719,7 +716,7 @@
       "count": 1
     },
     "anti-slop/no-known-value-widening": {
-      "count": 11
+      "count": 9
     }
   },
   "packages/app/src/renderer/requests.ts": {
@@ -2280,7 +2277,7 @@
       "count": 2
     },
     "anti-slop/no-unknown-parameters": {
-      "count": 13
+      "count": 12
     },
     "anti-slop/no-unknown-returns": {
       "count": 1
@@ -2506,7 +2503,7 @@
       "count": 1
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 5
+      "count": 4
     }
   },
   "packages/daemon/src/store/coordinators.ts": {
@@ -3370,9 +3367,9 @@
       "count": 3
     }
   },
-  "packages/daemon/test/failure-merge.test.ts": {
+  "packages/daemon/test/failure-merge-invalidation.test.ts": {
     "anti-slop/no-unknown-parameters": {
-      "count": 2
+      "count": 1
     },
     "anti-slop/no-unsafe-dictionary-type": {
       "count": 1
@@ -3381,14 +3378,6 @@
   "packages/daemon/test/failure-observations.test.ts": {
     "anti-slop/no-unknown-parameters": {
       "count": 1
-    }
-  },
-  "packages/daemon/test/failure-repairs.test.ts": {
-    "anti-slop/no-known-value-widening": {
-      "count": 1
-    },
-    "anti-slop/no-unknown-parameters": {
-      "count": 3
     }
   },
   "packages/daemon/test/failure-repos.test.ts": {
@@ -3595,11 +3584,6 @@
       "count": 2
     }
   },
-  "packages/daemon/test/merge-check-decisions.test.ts": {
-    "anti-slop/no-unknown-parameters": {
-      "count": 1
-    }
-  },
   "packages/daemon/test/merge-ci-decisions.test.ts": {
     "anti-slop/no-unknown-parameters": {
       "count": 1
@@ -3654,12 +3638,6 @@
   },
   "packages/daemon/test/overnight-gates.test.ts": {
     "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
-    "anti-slop/no-unknown-parameters": {
-      "count": 1
-    },
-    "anti-slop/no-unsafe-dictionary-type": {
       "count": 1
     }
   },
@@ -3934,17 +3912,6 @@
   },
   "packages/daemon/test/task-interval-recovery.test.ts": {
     "anti-slop/no-unknown-parameters": {
-      "count": 1
-    }
-  },
-  "packages/daemon/test/task-lead.test.ts": {
-    "anti-slop/no-runtime-typeof": {
-      "count": 1
-    },
-    "anti-slop/no-unknown-parameters": {
-      "count": 1
-    },
-    "anti-slop/no-unsafe-dictionary-type": {
       "count": 1
     }
   },

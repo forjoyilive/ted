@@ -82,6 +82,7 @@ beforeEach(async () => {
     bindApproval: async () => {
       effects.push('approval')
     },
+    requireSetupAgents: async () => {},
     liveLead: () => undefined,
     startMerging: () => {
       effects.push('merge')
@@ -929,6 +930,8 @@ const loopWorkflow = () =>
     {
       kind: 'ted',
       files: {},
+      agentSettings: {},
+      agentFiles: {},
       settings: {
         stages: {},
         order: ['intake', 'clarify', 'design', 'work', 'validate', 'review'],

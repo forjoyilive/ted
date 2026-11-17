@@ -119,6 +119,7 @@
 
 .command {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   margin-top: 6px;
@@ -132,6 +133,9 @@
   font-family: var(--font-mono);
   font-size: var(--text-12-5);
   white-space: pre;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .login {
@@ -140,6 +144,26 @@
   gap: 8px;
   margin-top: 20px;
   font-size: var(--text-14);
+}
+
+.reporting {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: var(--text-14);
+}
+
+.reporting .checkbox {
+  margin-top: 2px;
+}
+
+.reportingNote {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-secondary);
+  font-size: var(--text-12-5);
+  line-height: var(--leading-snug);
 }
 
 .permissions {

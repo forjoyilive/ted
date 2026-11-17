@@ -124,6 +124,13 @@ export function withPermissions(items: ChatItem[], requests: readonly Comment[])
   )
 }
 
+export function withCommands(
+  items: ChatItem[],
+  commands: readonly Extract<ChatItem, { kind: 'command' }>[],
+): ChatItem[] {
+  return mergeByTime(items, commands)
+}
+
 function withOutputNote(kept: OutputKept, items: ChatItem[]): ChatItem[] {
   if (kept === 'all') return items
   const after = items.findIndex((item) => item.kind !== 'instructions' && item.kind !== 'prompt')
@@ -493,7 +500,7 @@ export function createConversations(options: {
     return {
       run: run ?? {
         id: c.runId,
-        name: 'Coordinator',
+        name: store.chats.agent(c.id)?.name ?? 'Coordinator',
         role: 'run',
         agent: c.lead.agent,
         ...(c.lead.model !== undefined && { model: c.lead.model }),
@@ -527,27 +534,30 @@ export function createConversations(options: {
       const kept = runs.output.kept(runId)
       return {
         run: summary(run),
-        items: withPermissions(
-          withOutputNote(
-            kept,
-            chatItems({
-              run,
-              prompt,
-              entries,
-              messages: store.runMessages(runId),
-              interrupts: store.runInterrupts(runId),
-              preamble:
-                planPreamble ??
-                (run.parentRunId !== undefined ? await subPreamble : await preamble),
-              promptFromHuman: planPreamble !== undefined,
-              ...(coordinated && {
-                tedHeading: coordinatorFromTed,
-                promptParts: owner?.prompts?.[runId],
-                bundle: coordinatorTurn,
+        items: withCommands(
+          withPermissions(
+            withOutputNote(
+              kept,
+              chatItems({
+                run,
+                prompt,
+                entries,
+                messages: store.runMessages(runId),
+                interrupts: store.runInterrupts(runId),
+                preamble:
+                  planPreamble ??
+                  (run.parentRunId !== undefined ? await subPreamble : await preamble),
+                promptFromHuman: planPreamble !== undefined,
+                ...(coordinated && {
+                  tedHeading: coordinatorFromTed,
+                  promptParts: owner?.prompts?.[runId],
+                  bundle: coordinatorTurn,
+                }),
               }),
-            }),
+            ),
+            store.permissionComments(run.id),
           ),
-          store.permissionComments(run.id),
+          store.chats.commands(run.id),
         ),
       }
     },

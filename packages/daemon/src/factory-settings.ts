@@ -71,6 +71,8 @@ import { parsePullRequestUrl } from './tasks/pull-requests.ts'
 import { sameRepo } from './tasks/repos.ts'
 import type { CreateTaskInput } from './tasks/tasks.ts'
 import { resolveAgentChoices } from './workflow/agent-choices.ts'
+import { agentFileRows, applyAgentChanges } from './workflow/agent-edit.ts'
+import { agentFileId, resolveAgents } from './workflow/agent-files.ts'
 import {
   type CheckedLayer,
   checkLayer,
@@ -141,7 +143,11 @@ interface Base {
 }
 
 const knownFile = (file: string) =>
-  file === 'workflow.yaml' || file === 'notes.md' || stageFileId(file) !== undefined
+  file === 'workflow.yaml' ||
+  file === 'notes.md' ||
+  file === 'agents.yaml' ||
+  stageFileId(file) !== undefined ||
+  agentFileId(file) !== undefined
 
 function ignoredStageFiles(files: readonly string[], base: Base): string[] {
   const { order } = resolveWorkflow([...base.inherited, base.own])
@@ -365,6 +371,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
       else after['notes.md'] = changes.notes
     }
     after['workflow.yaml'] = applyChanges(base.text, changes, base.repos, basedOn)
+    applyAgentChanges(after, changes, resolveAgents(base.inherited))
     const checked = checkLayer({
       kind: 'factory',
       files: after,
@@ -678,6 +685,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         cleanup,
         tries: await options.checkTries.list(factory.id),
         agents: agentRows(base),
+        agentFiles: agentFileRows(base.inherited, base.own),
         permissions: factoryPermissions(store, factory.id),
         repoPermissions: base.settings?.permissions === 'bypass' ? 'bypass' : 'auto',
         ...(base.settings?.max_working_runs !== undefined && {
@@ -962,7 +970,9 @@ function fenced(language: string, text: string): string {
 }
 
 function fileOrder(a: string, b: string): number {
-  const rank = (name: string) => (name === 'workflow.yaml' ? 0 : name === 'notes.md' ? 2 : 1)
+  const ranks = ['workflow.yaml', 'agents.yaml']
+  const rank = (name: string) =>
+    ranks.includes(name) ? ranks.indexOf(name) : name === 'notes.md' ? 3 : 2
   return rank(a) - rank(b) || a.localeCompare(b)
 }
 

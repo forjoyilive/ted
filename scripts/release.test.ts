@@ -10,7 +10,7 @@ import {
   discardPlan,
   draftNotes,
   isNewer,
-  majorWritten,
+  majorEmpty,
   notaryCredentials,
   notesPrompt,
   type PublishFacts,
@@ -18,12 +18,26 @@ import {
   pickSigningIdentity,
   publishRefusal,
   type ReleaseRecord,
+  releaseAction,
   releaseFiles,
   signingRefusal,
   websiteRelease,
 } from './release.ts'
 
 describe('release versions', () => {
+  test('a build takes only a version, so its argument can never pick publish or discard', () => {
+    expect(releaseAction(['build', '1.2.3'])).toEqual({ action: 'build', version: '1.2.3' })
+    expect(releaseAction(['1.2.3', '--skip-checks'])).toEqual({ action: 'build', version: '1.2.3' })
+    expect(releaseAction(['build', 'publish'])).toEqual({
+      refusal: '“publish” isn’t a version like 1.2.3',
+    })
+    expect(releaseAction(['build', 'discard'])).toMatchObject({ refusal: expect.any(String) })
+    expect(releaseAction(['build'])).toMatchObject({ refusal: expect.any(String) })
+    expect(releaseAction(['publish'])).toEqual({ action: 'publish' })
+    expect(releaseAction(['discard'])).toEqual({ action: 'discard' })
+    expect(releaseAction(['--install'])).toBeUndefined()
+  })
+
   test('reads plain versions only', () => {
     expect(parseVersion('1.4.0')).toEqual([1, 4, 0])
     expect(parseVersion('v1.4.0')).toBeUndefined()
@@ -202,7 +216,6 @@ describe('publishing a release', () => {
     expect(refused({ remoteTag: 'other' })).toMatch(/already on GitHub at another commit/)
     expect(refused({ visibility: 'PRIVATE' })).toMatch(/is private/)
     expect(refused({ notes: 'missing' })).toMatch(/no release notes/)
-    expect(refused({ notes: 'no-major' })).toMatch(/Major section/)
   })
 })
 
@@ -269,7 +282,7 @@ describe('release notes', () => {
     ).toBe('other')
   })
 
-  test('drafts an empty Major section, the groups and a changelog link', () => {
+  test('drafts the groups and a changelog link, with no Major section', () => {
     const notes = draftNotes(
       [
         change('Show Factory groups', ['packages/app/src/a.ts'], { pullRequest: 431 }),
@@ -278,20 +291,17 @@ describe('release notes', () => {
       '1.2.0',
       'v1.1.0',
     )
-    expect(notes).toContain('## Major')
+    expect(notes).not.toContain('## Major')
     expect(notes).toContain('## Features\n\n- Show Factory groups (#431)\n')
     expect(notes).toContain('## Fixes\n\n- Fix the Inbox count\n')
     expect(notes).not.toContain('## Other')
     expect(notes).toContain('compare/v1.1.0...v1.2.0')
-    expect(majorWritten(notes)).toBe(false)
   })
 
-  test('the Major section counts as written once it has text outside comments', () => {
-    const draft = draftNotes([], '1.2.0', undefined)
-    expect(majorWritten(draft)).toBe(false)
-    expect(majorWritten(draft.replace('## Major\n', '## Major\n\nFactory groups.\n'))).toBe(true)
-    expect(majorWritten('## Features\n\n- a\n')).toBe(false)
-    expect(majorWritten('## Major\n\nOnly this.')).toBe(true)
+  test('a Major section is empty until it has text outside comments', () => {
+    expect(majorEmpty('## Major\n\n<!-- x -->\n\n## Fixes\n\n- a\n')).toBe(true)
+    expect(majorEmpty('## Major\n\nOnly this.')).toBe(false)
+    expect(majorEmpty('## Features\n\n- a\n')).toBe(false)
   })
 })
 
@@ -313,13 +323,55 @@ describe('Claude’s release notes', () => {
     )
   })
 
-  test('keeps the notes from “## Major” on, drops its own changelog line, and needs a Major section', () => {
+  test('keeps the notes from the first section on, drops its own changelog line, and refuses an empty Major section', () => {
     expect(
       cleanClaudeNotes(
         'Here you go:\n\n## Major\n\n- Groups.\n\n## Fixes\n\n- A fix.\n**Full changelog**: x\n```',
       ),
     ).toBe('## Major\n\n- Groups.\n\n## Fixes\n\n- A fix.')
-    expect(cleanClaudeNotes('## Features\n\n- a')).toBeUndefined()
+    expect(cleanClaudeNotes('Sure.\n\n## Features\n\n- a')).toBe('## Features\n\n- a')
+    expect(cleanClaudeNotes('No headings here.')).toBeUndefined()
     expect(cleanClaudeNotes('## Major\n\n<!-- nothing -->\n\n## Fixes\n\n- a')).toBeUndefined()
+  })
+
+  test('drops lines whose pull requests are all under Major, and sections left empty', () => {
+    expect(
+      cleanClaudeNotes(
+        [
+          '## Major',
+          '',
+          '- Factory groups in the sidebar (#431, #435).',
+          '',
+          '## Features',
+          '',
+          '- Show Factory groups (#431)',
+          '- Search the List (#440)',
+          '- Drag a Factory into a group',
+          '  (#431)',
+          '',
+          '## Fixes',
+          '',
+          '- Fix group drag (#435)',
+          '',
+          '## Other',
+          '',
+          '- Tests for groups and the List (#431, #440)',
+        ].join('\n'),
+      ),
+    ).toBe(
+      [
+        '## Major',
+        '',
+        '- Factory groups in the sidebar (#431, #435).',
+        '',
+        '## Features',
+        '',
+        '- Search the List (#440)',
+        '',
+        '## Other',
+        '',
+        '- Tests for groups and the List (#431, #440)',
+      ].join('\n'),
+    )
   })
 })

@@ -7,6 +7,7 @@ import type {
   CheckState,
   FailureCase,
   FailureContext,
+  QueuedAfter,
   ResolveFailureRequest,
   Task,
 } from '@ted/protocol'
@@ -55,13 +56,14 @@ interface ValidationOptions {
     killed: NonNullable<CheckRunnerResult['killed']>,
   ): Promise<'retry' | 'failed' | 'interrupted'>
   takeCheckSlot(taskId: string, checkRunId: string): Promise<(() => void) | undefined>
+  checkCpus(): number
   checkLog(task: Task, id: string, position: number): string
   checkDir(task: Task, id: string): string
   findings(task: Task, run: CheckRun): Promise<string | undefined>
   reportNotFound(task: Task, result: CheckRunnerResult): void
   setChecking(id: string, on: boolean): void
   isChecking(id: string): boolean
-  deliver(task: StoredTask, message: string): Promise<unknown>
+  deliver(task: StoredTask, message: string, after: QueuedAfter): Promise<unknown>
   notify(task: StoredTask): Promise<void>
   instructions(task: StoredTask, resolution: WorkflowResolution, message?: string): Promise<string>
   apps(task: StoredTask): Promise<string | undefined>
@@ -357,6 +359,7 @@ export function createValidation(options: ValidationOptions) {
           prepareLaunch: () => options.prepareLaunch(find(task.id)),
           signal: options.signal,
           lowPriority: options.lowPriority(),
+          cpus: options.checkCpus,
           ...(options.memory && { memory: options.memory }),
           onInterrupted: (position) => store.checkInterrupted(checkRun.id, position),
           ...(reportingEnv && {
@@ -572,6 +575,7 @@ export function createValidation(options: ValidationOptions) {
           await options.deliver(
             task,
             `Validate failure ${shortReference(value.id)} still needs diagnosis or a human decision. Original evidence:\n\n${value.evidence}`,
+            'checks-done',
           )
         if (mergesHere(task.stage)) await options.notify(task)
         return false
@@ -633,6 +637,7 @@ export function createValidation(options: ValidationOptions) {
           await withApps(
             `${instructions}\n\n# Checks\n\nTED ran the Factory’s Checks before moving the Task out of Work. None failed:\n\n${summary(checked.run.checks)}`,
           ),
+          'checks-passed',
         )
         return
       }
@@ -642,7 +647,7 @@ export function createValidation(options: ValidationOptions) {
         const report = progress
           ? `\n\n# Validation results\n\n${validationReport(progress, store.failures.list(taskId))}`
           : ''
-        await options.deliver(task, await withApps(instructions + report))
+        await options.deliver(task, await withApps(instructions + report), 'checks-done')
         return
       }
       const result = await started.done
@@ -661,6 +666,7 @@ export function createValidation(options: ValidationOptions) {
         await options.deliver(
           current,
           await withApps(`${instructions}\n\n# Checks\n\n${checksReport}`),
+          previousFailures ? 'checks-done' : 'checks-passed',
         )
         return
       }
@@ -674,6 +680,7 @@ export function createValidation(options: ValidationOptions) {
       await options.deliver(
         current,
         `${instructions}\n\n# A Check failed\n\nThe Task stays in Validate. Investigate failure case ${failureId ? shortReference(failureId) : '(see ted failure list)'}, add evidence and assess regression, unrelated or uncertain. A supported regression goes back through \`ted outcome back\`; unrelated or uncertain causes require a human decision. Investigation and retry do not count as send-backs.\n\n${findings}`,
+        'checks-done',
       )
     } finally {
       options.setChecking(taskId, false)

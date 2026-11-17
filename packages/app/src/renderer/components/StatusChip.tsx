@@ -1,7 +1,15 @@
 import type { ReactNode } from 'react'
 import styles from './StatusChip.module.css'
 
-export type StatusTone = 'working' | 'waiting' | 'failed' | 'neutral' | 'success' | 'testing'
+export type StatusTone =
+  | 'working'
+  | 'waiting'
+  | 'snoozed'
+  | 'failed'
+  | 'stopped'
+  | 'neutral'
+  | 'success'
+  | 'testing'
 
 export type StatusGlyph =
   | 'failed'

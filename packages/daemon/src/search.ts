@@ -1,8 +1,8 @@
 import {
   type AutomationHit,
   type CommentHit,
+  compactId,
   type FactoryHit,
-  foldText,
   matchesTerms,
   type PlanHit,
   type SearchField,
@@ -13,6 +13,7 @@ import {
   snippetAround,
   type Task,
   type TaskHit,
+  type TrackerMatch,
 } from '@ted/protocol'
 import type { TedStore } from './store/index.ts'
 
@@ -24,10 +25,47 @@ export interface SearchRequest {
 const stateOrder: Record<SearchTaskState, number> = { open: 0, done: 1, archived: 2 }
 const fieldOrder: Record<SearchField, number> = {
   id: 0,
-  title: 1,
-  description: 2,
-  'original-request': 3,
-  brief: 4,
+  tracker: 1,
+  title: 2,
+  description: 3,
+  'original-request': 4,
+  brief: 5,
+}
+
+type Exactness = 'id' | 'tracker' | 'none'
+
+const exactOrder: Record<Exactness, number> = { id: 0, tracker: 1, none: 2 }
+
+function trackerIds(task: Task): TrackerMatch[] {
+  const ids: TrackerMatch[] = []
+  const source = task.source
+  if (source?.linear) ids.push({ kind: 'linear', id: source.linear.identifier })
+  if (source?.github) ids.push({ kind: 'github', id: `#${source.github.number}` })
+  if (source?.sentry) ids.push({ kind: 'sentry', id: source.sentry.shortId })
+  return ids
+}
+
+function exactTracker(task: Task, query: string): TrackerMatch | undefined {
+  if (query === '') return undefined
+  return trackerIds(task).find((tracker) => compactId(tracker.id) === query)
+}
+
+function exactness(task: Task, query: string): Exactness {
+  if (query === '') return 'none'
+  if (compactId(task.displayId) === query || String(task.number) === query) return 'id'
+  return exactTracker(task, query) ? 'tracker' : 'none'
+}
+
+function partialTracker(
+  task: Task,
+  terms: readonly string[],
+  query: string,
+): TrackerMatch | undefined {
+  return trackerIds(task).find(
+    (tracker) =>
+      tracker.kind !== 'github' &&
+      (matchesTerms(terms, tracker.id) || (query !== '' && compactId(tracker.id).includes(query))),
+  )
 }
 
 function stateOf(task: Task): SearchTaskState {
@@ -39,8 +77,16 @@ function taskField(
   store: TedStore,
   task: Task,
   terms: readonly string[],
-): { field: SearchField; snippet?: string } | undefined {
+  query: string,
+  exact: Exactness,
+): { field: SearchField; snippet?: string; tracker?: TrackerMatch } | undefined {
+  if (exact === 'id') return { field: 'id' }
+  const tracker = exact === 'tracker' ? exactTracker(task, query) : undefined
+  if (tracker) return { field: 'tracker', tracker }
   if (matchesTerms(terms, task.displayId)) return { field: 'id' }
+  if (query !== '' && compactId(task.displayId).includes(query)) return { field: 'id' }
+  const partial = partialTracker(task, terms, query)
+  if (partial) return { field: 'tracker', tracker: partial }
   if (matchesTerms(terms, `${task.displayId} ${task.title}`)) return { field: 'title' }
   const snippet = (text: string) => snippetAround(terms, text)
   if (matchesTerms(terms, task.description)) {
@@ -78,14 +124,17 @@ export function search(
       automations: [],
     }
   }
-  const exact = foldText(query.trim())
+  const compact = compactId(query)
   const tasks = everyTask ?? store.listTasks()
   const here = (id: string) => (id === factoryId ? 0 : 1)
 
   const taskHits: TaskHit[] = []
+  const exactOf = new Map<string, Exactness>()
   for (const task of tasks) {
-    const found = taskField(store, task, terms)
+    const exact = exactness(task, compact)
+    const found = taskField(store, task, terms, compact, exact)
     if (!found) continue
+    exactOf.set(task.id, exact)
     taskHits.push({
       taskId: task.id,
       displayId: task.displayId,
@@ -99,7 +148,7 @@ export function search(
   const updated = new Map(tasks.map((t) => [t.id, t.updatedAt]))
   taskHits.sort(
     (a, b) =>
-      Number(foldText(b.displayId) === exact) - Number(foldText(a.displayId) === exact) ||
+      exactOrder[exactOf.get(a.taskId) ?? 'none'] - exactOrder[exactOf.get(b.taskId) ?? 'none'] ||
       stateOrder[a.state] - stateOrder[b.state] ||
       here(a.factoryId) - here(b.factoryId) ||
       fieldOrder[a.field] - fieldOrder[b.field] ||

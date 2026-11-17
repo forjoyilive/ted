@@ -1,5 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { markProcessRoot, type ProcessRoot } from '../process-roots.ts'
 import { redactSecrets } from '../redact.ts'
 import type { Sandbox, SandboxScope } from '../sandbox.ts'
 import { type CommandResult, runWorktreeCommand } from './worktree.ts'
@@ -20,10 +21,12 @@ export async function runTaskCommand(
     label: string
     sandbox?: CommandSandbox
     prepareLaunch?: () => Promise<CommandLaunch>
+    root?: ProcessRoot
   },
 ): Promise<CommandResult> {
-  const { sandbox: givenSandbox, prepareLaunch, label, ...base } = input
+  const { sandbox: givenSandbox, prepareLaunch, label, root, ...base } = input
   let release = () => {}
+  let unmark = () => {}
   let closeFds = async () => {}
   let tmp: string | undefined
   try {
@@ -32,8 +35,9 @@ export async function runTaskCommand(
     release = prepared?.release ?? (() => {})
     const command = {
       ...base,
-      onSpawn: () => {
-        base.onSpawn?.()
+      onSpawn: (pid: number | undefined) => {
+        if (root !== undefined && pid !== undefined) unmark = markProcessRoot(pid, root)
+        base.onSpawn?.(pid)
         release()
       },
     }
@@ -50,8 +54,8 @@ export async function runTaskCommand(
       shell: wrapped.argv,
       fds: wrapped.fds,
       env: { ...command.env, ...wrapped.env },
-      onSpawn: () => {
-        command.onSpawn()
+      onSpawn: (pid) => {
+        command.onSpawn(pid)
         void wrapped.close()
       },
     })
@@ -66,6 +70,7 @@ export async function runTaskCommand(
     }
     return { outcome: 'failed', problem }
   } finally {
+    unmark()
     release()
     await closeFds()
     if (tmp !== undefined) {

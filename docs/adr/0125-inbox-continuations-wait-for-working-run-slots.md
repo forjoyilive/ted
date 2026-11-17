@@ -7,3 +7,5 @@ The Tasks module adds continuations to its existing queue, ahead of new Tasks an
 A pending Task Lead message carries `waitForSlot` inside the existing `v1.TaskLeadMessagesHeld` event’s JSON messages. The queue holds a slot while the lifecycle applies the selected agent settings and dispatches that saved message. The lifecycle checks admission before dispatch, and clears the message only after the host acknowledges it. Pending continuations survive a daemon restart. Queue positions, Task status and the Run count use the same ordered entries.
 
 Reserving capacity between rounds would avoid repeated queue waits but leave less capacity for other Tasks. The user chose to release it instead. Existing working Runs continue; this change does not stop them to enforce a lower limit.
+
+A continuation after Checks or an answer skips the load hold and recent ones go first: ADR 0184-work-in-progress-skips-the-busy-hold.

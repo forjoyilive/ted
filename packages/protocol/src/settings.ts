@@ -1,5 +1,6 @@
 import type { AsanaIntakeScope } from './asana-intake.ts'
 import type { BoardView } from './board-view.ts'
+import { type DiagnosticsSort, defaultDiagnosticsSort } from './diagnostics-sort.ts'
 import type { GitHubIntakeScope } from './github-intake.ts'
 import type { Billing } from './health.ts'
 import type { LinearIntakeScope } from './linear.ts'
@@ -26,6 +27,8 @@ export function defaultWorkingRuns(totalMemoryBytes: number): number {
 
 export const checkLimits = { min: 1, max: 16 } as const
 
+export const checkCpuLimits = { min: 10, max: 100, step: 10 } as const
+
 export const textSizeLimits = { min: 80, max: 200, step: 5 } as const
 
 // 100% draws text at 110% of the CSS sizes; integer maths keeps the CSS value exact.
@@ -38,6 +41,8 @@ export const terminalFontSizes = { min: 10, max: 20 } as const
 export const runOutputDayLimits = { min: 1, max: 365 } as const
 
 export const archivedTaskDayLimits = { min: 1, max: 365 } as const
+
+export const idleRunSleepLimits = { min: 1, max: 1440 } as const
 
 export const quitChoices = ['ask', 'keep-running', 'stop'] as const
 
@@ -103,6 +108,7 @@ export interface MachineSettings {
   startAtLogin: boolean
   stayAwake: boolean
   restartIdleRuns: boolean
+  sleepIdleRunsAfterMinutes: number | null
   notifyInboxItems: boolean
   notifyProblems: boolean
   notifyTaskMerged: boolean
@@ -110,9 +116,12 @@ export interface MachineSettings {
   factoryNotifications: Readonly<Record<string, FactoryNotifications>>
   listViews: Readonly<Record<string, ListView>>
   boardViews: Readonly<Record<string, BoardView>>
+  diagnosticsSort: DiagnosticsSort
   firstLaunchDone: boolean
   onboardingOnNextOpen: boolean
   guideNextFactory: boolean
+  reporting: boolean
+  reportingAsked: boolean
   enabledAgents: readonly AgentKind[]
   billing: Readonly<Record<AgentKind, Billing>>
   editor: EditorChoice | null
@@ -133,6 +142,8 @@ export interface MachineSettings {
   lowPriorityWork: boolean
   antigravityPlanAccepted: boolean
   maxChecksAtOnce: number
+  checkCpuPercent: number
+  limitScheduledCheckCpus: boolean
   startNewTasks: boolean
 }
 
@@ -160,6 +171,7 @@ export const defaultMachineSettings: MachineSettings = {
   startAtLogin: true,
   stayAwake: true,
   restartIdleRuns: true,
+  sleepIdleRunsAfterMinutes: 10,
   notifyInboxItems: true,
   notifyProblems: true,
   notifyTaskMerged: false,
@@ -167,9 +179,12 @@ export const defaultMachineSettings: MachineSettings = {
   factoryNotifications: {},
   listViews: {},
   boardViews: {},
+  diagnosticsSort: defaultDiagnosticsSort,
   firstLaunchDone: false,
   onboardingOnNextOpen: false,
   guideNextFactory: false,
+  reporting: false,
+  reportingAsked: false,
   enabledAgents: [...agentKinds],
   billing: { claude: 'subscription', codex: 'subscription', antigravity: 'subscription' },
   editor: null,
@@ -190,6 +205,8 @@ export const defaultMachineSettings: MachineSettings = {
   lowPriorityWork: true,
   antigravityPlanAccepted: false,
   maxChecksAtOnce: 2,
+  checkCpuPercent: 50,
+  limitScheduledCheckCpus: true,
   startNewTasks: true,
 }
 

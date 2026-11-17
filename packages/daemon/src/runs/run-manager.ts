@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import {
   appendFileSync,
@@ -30,6 +30,7 @@ import type {
   RunState,
 } from '@ted/protocol'
 import { antigravityPlanNotice, filterTedEnv, runTokenEnv } from '@ted/protocol'
+import { isInteger, isObject, parseJson } from '@ted/protocol/parse'
 import { chatToolPolicy } from '@ted/protocol/run'
 import { AgentDisabledError } from '../agent-eligibility.ts'
 import {
@@ -54,6 +55,7 @@ import type { RunTokens } from '../run-token.ts'
 import { sideFolder } from '../side-chats/context.ts'
 import { signalGroup, signalProcess } from '../signal.ts'
 import type { RunFlags, TedStore } from '../store/index.ts'
+import { isReservedEnvName } from '../workflow/check.ts'
 import { fixedPromptTexts } from '../workflow/workflow.ts'
 import {
   forGeneration,
@@ -107,7 +109,11 @@ export interface RunObserver {
   planUsage?(run: Run, windows: PlanWindow[]): void
   retrying?(run: Run): void
   autoMode?(run: Run, signal: AutoModeSignal): void
+  wakeFailed?(run: Run, failures: number, reason: string): void
+  woke?(run: Run): void
 }
+
+export type RunEnvSource = (run: Run) => Promise<Record<string, string> | undefined>
 
 export interface StartRunInput extends Omit<RunFlags, 'usesDefaultModel'> {
   agent: AgentKind
@@ -139,6 +145,8 @@ export interface RunManager {
   start(input: StartRunInput): Promise<Run>
   revive(runId: string, input: ReviveRunInput): Promise<Run>
   restart(runId: string, flags: RunFlags): Promise<Run>
+  sleep(runId: string, quietSince: number): Promise<boolean>
+  asleep(runId: string): boolean
   send(runId: string, text: string): Promise<void>
   steer(runId: string, texts: readonly string[]): Promise<void>
   dispatch(
@@ -158,6 +166,7 @@ export interface RunManager {
   answerPermission(runId: string, generation: number, reply: PermissionReply): Promise<void>
   stop(runId: string): Promise<void>
   observe(observer: RunObserver): void
+  envSource(source: RunEnvSource): void
   environment(): NodeJS.ProcessEnv
   stopAll(): Promise<number>
   close(): Promise<void>
@@ -198,6 +207,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   const stoppedOutsideUntold: { runId: string; at: string | undefined }[] = []
   const outdated = new Set<string>()
   const replacing = new Set<string>()
+  const asleep = new Map<string, Resting>()
+  const launchEnvs = new Map<string, Record<string, string>>()
+  let envSource: RunEnvSource | undefined
+  const dispatching = new Map<string, number>()
+  const stirred = new Set<string>()
   const oldestHost = options.oldestHost ?? oldestHostProtocol
   let closed = false
   let shuttingDown = false
@@ -275,9 +289,91 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         stopRequested.delete(runId)
         if (watching && memoryWatches.get(runId) === watching) memoryWatches.delete(runId)
         void watching?.finish()
+        endRest(runId)
+        stirred.delete(runId)
         release?.()
       })
     following.set(runId, done)
+  }
+
+  function rest(runId: string, inputFrom: number, hostGone = false): void {
+    const gone = Promise.withResolvers<void>()
+    if (hostGone) gone.resolve()
+    asleep.set(runId, {
+      inputFrom,
+      wake: false,
+      failures: 0,
+      retryAt: 0,
+      waiters: new Set(),
+      hostGone: gone.promise,
+      markHostGone: gone.resolve,
+    })
+    replacing.add(runId)
+    store.setRunAsleep(runId, true)
+  }
+
+  function restFromMarker(runId: string, inputFrom: number): void {
+    const run = store.getRun(runId)
+    if (
+      run?.state !== 'idle' ||
+      run.sessionId === undefined ||
+      run.parentRunId !== undefined ||
+      run.taskId === undefined
+    ) {
+      rmSync(runFiles(path.join(runsDir, runId)).asleep, { force: true })
+      return
+    }
+    rest(runId, inputFrom, true)
+    let size = 0
+    try {
+      size = statSync(runFiles(path.join(runsDir, runId)).input).size
+    } catch {}
+    const resting = asleep.get(runId)
+    if (resting && size > inputFrom) resting.wake = true
+  }
+
+  function endRest(runId: string): void {
+    const resting = asleep.get(runId)
+    if (!resting) return
+    asleep.delete(runId)
+    resting.markHostGone()
+    tellObservers(runId, (observer, ended) => observer.woke?.(ended))
+    const stopped = new RequestError(409, 'The Run stopped before its agent started again')
+    for (const waiter of resting.waiters) waiter.reject(stopped)
+    if (store.getRun(runId)?.state === 'finished') {
+      rmSync(runFiles(path.join(runsDir, runId)).asleep, { force: true })
+      store.setRunAsleep(runId, false)
+    }
+  }
+
+  async function wakeAsked(resting: Resting, signal: AbortSignal): Promise<void> {
+    while (
+      !(
+        resting.wake &&
+        envSource !== undefined &&
+        Date.now() >= resting.retryAt &&
+        store.newWorkHold() === undefined
+      )
+    ) {
+      signal.throwIfAborted()
+      await sleep(pollMs)
+    }
+    signal.throwIfAborted()
+  }
+
+  function refuseWake(): void {
+    refuseWhileShuttingDown()
+    const hold = store.newWorkHold()
+    if (hold !== undefined)
+      throw new RequestError(409, `TED isn’t starting agents right now: ${hold}`)
+  }
+
+  function wake(runId: string): Promise<void> {
+    const resting = asleep.get(runId)
+    if (!resting) return Promise.resolve()
+    refuseWake()
+    resting.wake = true
+    return new Promise((resolve, reject) => resting.waiters.add({ resolve, reject }))
   }
 
   async function followHostLog(
@@ -286,6 +382,8 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     signal: AbortSignal,
   ): Promise<void> {
     const files = runFiles(path.join(runsDir, runId))
+    const marker = revived ? undefined : restingFrom(files)
+    if (marker && !isLockHeld(files.lock)) restFromMarker(runId, marker.inputFrom)
     const held = heldRead(files)
     if (held !== undefined) store.holdRunOutput(runId, held)
     let offset = store.runReadOffset(runId)
@@ -299,7 +397,14 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     let reconciled = false
     const last = await lastStartRecord(path.join(runsDir, runId))
     if (last?.permissions !== undefined) store.setRunPermissions(runId, last.permissions)
-    if (last !== undefined && !(last.v >= oldestHost)) {
+    if (marker && !asleep.has(runId)) {
+      for (let waited = 0; isLockHeld(files.lock) && waited < stopGraceMs; waited += pollMs) {
+        await sleep(pollMs)
+      }
+      if (isLockHeld(files.lock)) rmSync(files.asleep, { force: true })
+      else restFromMarker(runId, marker.inputFrom)
+    }
+    if (last !== undefined && !(last.v >= oldestHost) && !asleep.has(runId)) {
       outdated.add(runId)
       if (store.getRun(runId)?.state === 'idle') void replaceWhenIdle(runId)
     }
@@ -339,20 +444,51 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           const run = store.getRun(runId)
           if (!run) return
           let spawned: ReturnType<typeof spawnHost> | undefined
+          const resting = asleep.get(runId)
+          if (resting && run.state !== 'idle') resting.wake = true
+          resting?.markHostGone()
           try {
-            await untilCanceled(
-              withRunPermissions(store, run, async () => {
-                signal.throwIfAborted()
-                const before = await startRecordCount(path.join(runsDir, runId))
-                signal.throwIfAborted()
-                const env = await prepareReplacement(runId, signal)
-                signal.throwIfAborted()
-                spawned = spawnHost(path.join(runsDir, runId), env)
-                const host = spawned
-                await waitForStart(runId, before, () => killSpawnedHostGroup(host), signal)
-              }),
-              signal,
-            )
+            for (;;) {
+              if (resting) await wakeAsked(resting, signal)
+              try {
+                await untilCanceled(
+                  withRunPermissions(store, run, async () => {
+                    signal.throwIfAborted()
+                    const before = await startRecordCount(path.join(runsDir, runId))
+                    signal.throwIfAborted()
+                    const env = await prepareReplacement(runId, signal, resting?.inputFrom)
+                    signal.throwIfAborted()
+                    spawned = spawnHost(path.join(runsDir, runId), env)
+                    const host = spawned
+                    await waitForStart(runId, before, () => killSpawnedHostGroup(host), signal)
+                  }),
+                  signal,
+                )
+                break
+              } catch (error) {
+                if (!resting || signal.aborted) throw error
+                console.error(`couldn’t start Run ${runId}’s agent again; trying later:`, error)
+                spawned = undefined
+                resting.failures += 1
+                resting.retryAt = Date.now() + Math.min(60_000, stopGraceMs * resting.failures)
+                const failure = error instanceof Error ? error : new Error(String(error))
+                for (const waiter of resting.waiters) waiter.reject(failure)
+                resting.waiters.clear()
+                const failures = resting.failures
+                tellObservers(runId, (observer, failed) =>
+                  observer.wakeFailed?.(failed, failures, failure.message),
+                )
+              }
+            }
+            if (resting) {
+              rmSync(files.asleep, { force: true })
+              stirred.add(runId)
+              asleep.delete(runId)
+              outdated.delete(runId)
+              store.setRunAsleep(runId, false)
+              for (const waiter of resting.waiters) waiter.resolve()
+              tellObservers(runId, (observer, awake) => observer.woke?.(awake))
+            }
           } catch (error) {
             if (!signal.aborted) throw error
             if (!stopRequested.has(runId)) return
@@ -469,6 +605,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     generation.readTo = batch.toOffset
     if (batch.records.some(({ record }) => record.t === 'out' || record.t === 'err')) {
       heard.set(runId, Date.now())
+      stirred.delete(runId)
       options.idle?.heard()
     }
     for (const { record } of batch.records) {
@@ -660,6 +797,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
   async function prepareReplacement(
     runId: string,
     signal: AbortSignal,
+    restingFrom?: number,
   ): Promise<NodeJS.ProcessEnv> {
     signal.throwIfAborted()
     const run = store.getRun(runId)
@@ -667,7 +805,12 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     const runDir = path.join(runsDir, runId)
     const files = runFiles(runDir)
     const permissions = runPermissions(store, run)
-    const env = await readRunEnv(files.env)
+    const env =
+      launchEnvs.get(runId) ??
+      rememberEnv(
+        runId,
+        restingFrom === undefined ? await readRunEnv(files.env) : ((await envSource?.(run)) ?? {}),
+      )
     signal.throwIfAborted()
     const launch = agents.get(run.agent).launch({
       prompt: '',
@@ -682,10 +825,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       }),
       billing: launchBilling(run.agent),
     })
-    const inputFrom = await stat(files.input).then(
+    const inputSize = await stat(files.input).then(
       (info) => info.size,
       () => 0,
     )
+    const inputFrom = Math.min(restingFrom ?? inputSize, inputSize)
     signal.throwIfAborted()
     await writeLaunch(runDir, run.cwd, launch, permissions, inputFrom)
     signal.throwIfAborted()
@@ -739,6 +883,11 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       if (signal?.aborted && !closed) await kill()
       throw error
     }
+  }
+
+  function rememberEnv(id: string, env: Record<string, string>): Record<string, string> {
+    launchEnvs.set(id, env)
+    return env
   }
 
   function runEnv(id: string, env: Record<string, string>): NodeJS.ProcessEnv {
@@ -880,6 +1029,166 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     return next
   }
 
+  async function dispatchInput(
+    runId: string,
+    messages: readonly { id: string; text: string }[],
+    steer: boolean,
+    canDispatch: (messageId?: string) => boolean,
+    options?: { revocable: boolean; signal?: AbortSignal },
+  ): Promise<boolean> {
+    if (options?.signal?.aborted) return false
+    const runDir = path.join(runsDir, runId)
+    const run = store.getRun(runId)
+    if (!run || run.state === 'finished') throw new Error(`no live Run ${runId}`)
+    if (asleep.has(runId)) {
+      if (!canDispatch()) return false
+      await wake(runId)
+    }
+    stirred.add(runId)
+    const agent = agents.get(run.agent)
+    const files = runFiles(path.join(runsDir, runId))
+    let generation = 0
+    for (let waited = 0; generation === 0; waited += pollMs) {
+      try {
+        const read = generations.get(runId)
+        generation = (read?.count ?? 0) + startsFrom(files.log, read?.readTo ?? 0)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+      if (generation > 0) break
+      if (waited >= stopGraceMs || store.getRun(runId)?.state === 'finished')
+        throw new Error('The Run host did not start')
+      if (!canDispatch()) return false
+      await sleep(pollMs)
+    }
+    if (!canDispatch()) return false
+    const inputBytes = readInput(files.input)
+    const input = inputBytes.toString('utf8')
+    const records = inputRecords(runId, inputBytes)
+    const accepted = (record: QueuedInput) => inputAccepted(runId, record, records)
+    const usable = records.filter(
+      (record) =>
+        accepted(record) ||
+        (record.forGeneration === generation &&
+          (!record.permit ||
+            inputPending(runDir, record.permit) ||
+            inputConsumed(runDir, record.permit))),
+    )
+    const missing = messages.filter(
+      (message) =>
+        canDispatch(message.id) &&
+        !usable.some((record) => record.deliveryIds.includes(message.id)),
+    )
+    if (missing.length > 0) {
+      const outputFrom = statSync(files.log).size
+      const additions = missing.map((message) => {
+        const permit = options?.revocable ? randomUUID() : undefined
+        if (permit) grantInput(runDir, permit)
+        return {
+          forGeneration: generation,
+          ...(permit && { permit }),
+          deliveryIds: [message.id],
+          text: message.text,
+          outputFrom,
+          line: steer ? agent.steer(message.text) : agent.message(message.text),
+        }
+      })
+      const buffer = Buffer.from(
+        `${additions.map((record) => JSON.stringify(record)).join('\n')}\n`,
+      )
+      const fd = openSync(files.input, 'a', 0o600)
+      try {
+        if (input !== '' && !input.endsWith('\n')) ftruncateSync(fd, inputBytes.lastIndexOf(10) + 1)
+        for (let offset = 0; offset < buffer.length; )
+          offset += writeSync(fd, buffer, offset, buffer.length - offset)
+        fsyncSync(fd)
+      } finally {
+        closeSync(fd)
+      }
+      records.push(...additions)
+      usable.push(...additions)
+    }
+    const relevant = usable.filter((record) =>
+      record.deliveryIds.some((id) => messages.some((message) => message.id === id)),
+    )
+    if (relevant.length === 0) return false
+    for (let waited = 0; !relevant.every(accepted); waited += pollMs) {
+      if (options?.revocable) {
+        for (const record of relevant) {
+          if (record.permit && !record.deliveryIds.every((id) => canDispatch(id)))
+            revokeInput(runDir, record.permit)
+        }
+        if (
+          relevant.some(
+            (record) =>
+              record.permit &&
+              !accepted(record) &&
+              !inputPending(runDir, record.permit) &&
+              !inputConsumed(runDir, record.permit),
+          )
+        )
+          return false
+      }
+      if (closed || options?.signal?.aborted) return false
+      const currentGeneration = generations.get(runId)
+      if (
+        options?.revocable &&
+        currentGeneration &&
+        currentGeneration.count + startsFrom(files.log, currentGeneration.readTo) > generation
+      )
+        return dispatchInput(runId, messages, steer, canDispatch, options)
+      const consumed = () =>
+        relevant.some((record) => record.permit && inputConsumed(runDir, record.permit))
+      if (waited >= inputAckMs && options?.revocable && !consumed())
+        for (const record of relevant) if (record.permit) revokeInput(runDir, record.permit)
+      if ((!consumed() && waited >= inputAckMs) || store.getRun(runId)?.state === 'finished') {
+        throw new Error(
+          'The agent did not acknowledge its queued input; Retry will check the saved delivery before sending again',
+        )
+      }
+      await sleep(pollMs)
+    }
+    return true
+  }
+
+  async function wakeForInput(runId: string): Promise<void> {
+    stirred.add(runId)
+    const resting = asleep.get(runId)
+    if (!resting) return
+    resting.wake = true
+    await resting.hostGone
+  }
+
+  function inputQuiet(runId: string, since: number): boolean {
+    try {
+      return statSync(runFiles(path.join(runsDir, runId)).input).mtimeMs <= since
+    } catch {
+      return true
+    }
+  }
+
+  function maySleep(runId: string, quietSince: number): boolean {
+    const run = store.getRun(runId)
+    const signal = launchStops.get(runId)?.signal
+    return (
+      !closed &&
+      !shuttingDown &&
+      run?.state === 'idle' &&
+      run.sessionId !== undefined &&
+      signal !== undefined &&
+      !signal.aborted &&
+      following.has(runId) &&
+      !replacing.has(runId) &&
+      !outdated.has(runId) &&
+      !asleep.has(runId) &&
+      !dispatching.has(runId) &&
+      !stirred.has(runId) &&
+      !stopRequested.has(runId) &&
+      store.newWorkHold() === undefined &&
+      inputQuiet(runId, quietSince)
+    )
+  }
+
   const manager: RunManager = {
     serializeStarts,
     output,
@@ -918,7 +1227,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
           const launch = agent.launch({
             prompt,
             runDir,
-            env: runEnv(id, env),
+            env: runEnv(id, rememberEnv(id, env)),
             ...(resume !== undefined && { resume }),
             ...(model !== undefined && { model }),
             ...(effort !== undefined && { effort }),
@@ -998,7 +1307,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         const launch = agents.get(run.agent).launch({
           prompt,
           runDir,
-          env: runEnv(runId, env),
+          env: runEnv(runId, rememberEnv(runId, env)),
           ...(sessionId !== undefined && { resume: sessionId }),
           ...(choice.model !== undefined && !choice.usesDefaultModel && { model: choice.model }),
           ...(choice.effort !== undefined && { effort: choice.effort }),
@@ -1050,6 +1359,12 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       const signal = launchStops.get(runId)?.signal
       if (!signal) throw new Error(`Run ${runId} has no live launch controller`)
       signal.throwIfAborted()
+      if (asleep.has(runId)) {
+        refuseWake()
+        const restarted = store.restartRun(runId, flags)
+        await wake(runId)
+        return store.getRun(runId) ?? restarted
+      }
       const runDir = path.join(runsDir, runId)
       const start = await lastStartRecord(runDir)
       if (!start) throw new Error(`Run ${runId}'s host never started`)
@@ -1099,117 +1414,48 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         signal,
       )
     },
+    async sleep(runId, quietSince) {
+      if (!maySleep(runId, quietSince)) return false
+      const runDir = path.join(runsDir, runId)
+      const files = runFiles(runDir)
+      const start = await startRecord(runDir)
+      if (!start) return false
+      const pid = await hostPid(runDir, start)
+      if (!(await holdsLock(files.lock, pid)) || !maySleep(runId, quietSince)) return false
+      let inputFrom = 0
+      try {
+        inputFrom = statSync(files.input).size
+      } catch {}
+      const temporary = `${files.asleep}.tmp`
+      rmSync(temporary, { force: true })
+      writeFileSync(temporary, JSON.stringify({ inputFrom }), { mode: 0o600, flag: 'wx' })
+      renameSync(temporary, files.asleep)
+      rest(runId, inputFrom)
+      const agentPid = (await lastStartRecord(runDir))?.agentPid ?? undefined
+      const agent =
+        agentPid !== undefined && (await parentOf(agentPid)) === pid ? agentPid : undefined
+      await signalHost(runDir, pid, 'SIGTERM')
+      void (async () => {
+        for (let waited = 0; waited < stopGraceMs && isLockHeld(files.lock); waited += pollMs) {
+          await sleep(pollMs)
+        }
+        if (!(await holdsLock(files.lock, pid))) return
+        if (agent !== undefined && (await parentOf(agent)) === pid) signal(agent, 'SIGKILL')
+        signal(pid, 'SIGKILL')
+      })().catch((error: Error) => console.error(`couldn’t end Run ${runId}’s host:`, error))
+      return true
+    },
+    asleep: (runId) => asleep.has(runId),
     lastHeard: (runId) => heard.get(runId),
     async dispatch(runId, messages, steer, canDispatch, options) {
-      if (options?.signal?.aborted) return false
-      const runDir = path.join(runsDir, runId)
-      const run = store.getRun(runId)
-      if (!run || run.state === 'finished') throw new Error(`no live Run ${runId}`)
-      const agent = agents.get(run.agent)
-      const files = runFiles(path.join(runsDir, runId))
-      let generation = 0
-      for (let waited = 0; generation === 0; waited += pollMs) {
-        try {
-          const read = generations.get(runId)
-          generation = (read?.count ?? 0) + startsFrom(files.log, read?.readTo ?? 0)
-        } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-        }
-        if (generation > 0) break
-        if (waited >= stopGraceMs || store.getRun(runId)?.state === 'finished')
-          throw new Error('The Run host did not start')
-        if (!canDispatch()) return false
-        await sleep(pollMs)
+      dispatching.set(runId, (dispatching.get(runId) ?? 0) + 1)
+      try {
+        return await dispatchInput(runId, messages, steer, canDispatch, options)
+      } finally {
+        const left = (dispatching.get(runId) ?? 1) - 1
+        if (left > 0) dispatching.set(runId, left)
+        else dispatching.delete(runId)
       }
-      if (!canDispatch()) return false
-      const inputBytes = readInput(files.input)
-      const input = inputBytes.toString('utf8')
-      const records = inputRecords(runId, inputBytes)
-      const accepted = (record: QueuedInput) => inputAccepted(runId, record, records)
-      const usable = records.filter(
-        (record) =>
-          accepted(record) ||
-          (record.forGeneration === generation &&
-            (!record.permit ||
-              inputPending(runDir, record.permit) ||
-              inputConsumed(runDir, record.permit))),
-      )
-      const missing = messages.filter(
-        (message) =>
-          canDispatch(message.id) &&
-          !usable.some((record) => record.deliveryIds.includes(message.id)),
-      )
-      if (missing.length > 0) {
-        const outputFrom = statSync(files.log).size
-        const additions = missing.map((message) => {
-          const permit = options?.revocable ? randomUUID() : undefined
-          if (permit) grantInput(runDir, permit)
-          return {
-            forGeneration: generation,
-            ...(permit && { permit }),
-            deliveryIds: [message.id],
-            text: message.text,
-            outputFrom,
-            line: steer ? agent.steer(message.text) : agent.message(message.text),
-          }
-        })
-        const buffer = Buffer.from(
-          `${additions.map((record) => JSON.stringify(record)).join('\n')}\n`,
-        )
-        const fd = openSync(files.input, 'a', 0o600)
-        try {
-          if (input !== '' && !input.endsWith('\n'))
-            ftruncateSync(fd, inputBytes.lastIndexOf(10) + 1)
-          for (let offset = 0; offset < buffer.length; )
-            offset += writeSync(fd, buffer, offset, buffer.length - offset)
-          fsyncSync(fd)
-        } finally {
-          closeSync(fd)
-        }
-        records.push(...additions)
-        usable.push(...additions)
-      }
-      const relevant = usable.filter((record) =>
-        record.deliveryIds.some((id) => messages.some((message) => message.id === id)),
-      )
-      if (relevant.length === 0) return false
-      for (let waited = 0; !relevant.every(accepted); waited += pollMs) {
-        if (options?.revocable) {
-          for (const record of relevant) {
-            if (record.permit && !record.deliveryIds.every((id) => canDispatch(id)))
-              revokeInput(runDir, record.permit)
-          }
-          if (
-            relevant.some(
-              (record) =>
-                record.permit &&
-                !accepted(record) &&
-                !inputPending(runDir, record.permit) &&
-                !inputConsumed(runDir, record.permit),
-            )
-          )
-            return false
-        }
-        if (closed || options?.signal?.aborted) return false
-        const currentGeneration = generations.get(runId)
-        if (
-          options?.revocable &&
-          currentGeneration &&
-          currentGeneration.count + startsFrom(files.log, currentGeneration.readTo) > generation
-        )
-          return manager.dispatch(runId, messages, steer, canDispatch, options)
-        const consumed = () =>
-          relevant.some((record) => record.permit && inputConsumed(runDir, record.permit))
-        if (waited >= inputAckMs && options?.revocable && !consumed())
-          for (const record of relevant) if (record.permit) revokeInput(runDir, record.permit)
-        if ((!consumed() && waited >= inputAckMs) || store.getRun(runId)?.state === 'finished') {
-          throw new Error(
-            'The agent did not acknowledge its queued input; Retry will check the saved delivery before sending again',
-          )
-        }
-        await sleep(pollMs)
-      }
-      return true
     },
     retainRevocableInputs(runId, ids) {
       const allowed = new Set(ids)
@@ -1243,12 +1489,14 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       const input = runFiles(path.join(runsDir, runId)).input
       const run = store.getRun(runId)
       if (!run) throw new Error(`no Run ${runId}`)
+      await wakeForInput(runId)
       await appendFile(input, `${agents.get(run.agent).message(text)}\n`, { mode: 0o600 })
     },
     async steer(runId, texts) {
       const run = store.getRun(runId)
       if (!run) throw new Error(`no Run ${runId}`)
       const agent = agents.get(run.agent)
+      await wakeForInput(runId)
       await appendFile(
         runFiles(path.join(runsDir, runId)).input,
         texts.map((text) => `${agent.steer(text)}\n`).join(''),
@@ -1258,6 +1506,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
     async interrupt(runId) {
       const run = store.getRun(runId)
       if (!run) throw new Error(`no Run ${runId}`)
+      if (asleep.has(runId)) return
       await appendFile(
         runFiles(path.join(runsDir, runId)).input,
         agents
@@ -1316,6 +1565,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
         }
         await done
       }
+    },
+    envSource(source) {
+      envSource = source
     },
     observe(observer) {
       observers.add(observer)
@@ -1426,6 +1678,39 @@ async function hostPid(
   return Number.isInteger(written) && written > 0 ? written : first.hostPid
 }
 
+interface Resting {
+  inputFrom: number
+  wake: boolean
+  failures: number
+  retryAt: number
+  waiters: Set<{ resolve: () => void; reject: (error: Error) => void }>
+  hostGone: Promise<void>
+  markHostGone: () => void
+}
+
+function restingFrom(files: ReturnType<typeof runFiles>): { inputFrom: number } | undefined {
+  let fd: number | undefined
+  try {
+    fd = openSync(files.asleep, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+    const info = fstatSync(fd)
+    if (!info.isFile() || info.size > 1024) return undefined
+    const bytes = Buffer.alloc(info.size)
+    readSync(fd, bytes, 0, info.size, 0)
+    const marker = parseJson(bytes.toString('utf8'))
+    const inputFrom = isObject(marker) ? marker.inputFrom : undefined
+    return isInteger(inputFrom) && inputFrom >= 0 ? { inputFrom } : undefined
+  } catch {
+    return undefined
+  } finally {
+    if (fd !== undefined) closeSync(fd)
+  }
+}
+
+export async function currentHostPid(runDir: string): Promise<number | undefined> {
+  const first = await startRecord(runDir)
+  return first && hostPid(runDir, first)
+}
+
 interface Generation {
   count: number
   sessionSeen: boolean
@@ -1467,7 +1752,9 @@ async function readRunEnv(file: string): Promise<Record<string, string>> {
     if (typeof parsed !== 'object' || parsed === null) return {}
     return Object.fromEntries(
       Object.entries(parsed).filter(
-        (entry): entry is [string, string] => typeof entry[1] === 'string',
+        (entry): entry is [string, string] =>
+          typeof entry[1] === 'string' &&
+          (entry[0].toUpperCase().startsWith('TED_') || !isReservedEnvName(entry[0])),
       ),
     )
   } catch {
@@ -1493,6 +1780,15 @@ function killGroup(pid: number | undefined): void {
   try {
     signalGroup(pid, 'SIGKILL')
   } catch {}
+}
+
+function parentOf(pid: number): Promise<number | undefined> {
+  return new Promise((resolve) => {
+    execFile('ps', ['-o', 'ppid=', '-p', String(pid)], (error, stdout) => {
+      const parent = Number(stdout.trim())
+      resolve(error || !Number.isSafeInteger(parent) || parent <= 0 ? undefined : parent)
+    })
+  })
 }
 
 function signal(pid: number | null, name: NodeJS.Signals): void {

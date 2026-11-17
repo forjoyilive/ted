@@ -12,6 +12,7 @@ import {
   requestState,
   startedDay,
 } from '../src/renderer/plans.ts'
+import { plannerAgent } from './support/fixtures.ts'
 
 const round: PlanRequest = {
   id: 'r1',
@@ -83,6 +84,7 @@ const plan = (fields: Partial<Plan>): Plan => ({
   createdAt: '2026-11-10T10:05:00.000Z',
   lastAt: '2026-11-10T10:05:00.000Z',
   createdTasks: 0,
+  chatAgent: plannerAgent,
   ...fields,
 })
 
@@ -139,4 +141,8 @@ describe('Plans list', () => {
       ]),
     ).toEqual(new Set(['f1']))
   })
+})
+
+test('a stopped planning chat’s chip is red', () => {
+  expect(planStatusChip({ status: 'stopped' }).tone).toBe('stopped')
 })

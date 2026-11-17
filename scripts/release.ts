@@ -213,7 +213,7 @@ function remoteTagCommit(tag: string): string | undefined {
 
 export interface PublishFacts {
   record: ReleaseRecord | undefined
-  notes: 'missing' | 'no-major' | 'ready'
+  notes: 'missing' | 'ready'
   head: string
   localTag: string | undefined
   remoteTag: string | undefined
@@ -242,9 +242,6 @@ export function publishRefusal(facts: PublishFacts): string | undefined {
   }
   if (facts.notes === 'missing') {
     return `there are no release notes at ${notesFile}; run pnpm release discard, then build again`
-  }
-  if (facts.notes === 'no-major') {
-    return `write the Major section of the release notes in ${notesFile} first`
   }
   if (facts.visibility !== 'PUBLIC') {
     return `${repo} is private, so the updater and other people can’t read its releases; make it public first`
@@ -285,11 +282,7 @@ function publish(): void {
   ).trim()
   const facts: PublishFacts = {
     record,
-    notes: !existsSync(notesFile)
-      ? 'missing'
-      : majorWritten(readFileSync(notesFile, 'utf8'))
-        ? 'ready'
-        : 'no-major',
+    notes: existsSync(notesFile) ? 'ready' : 'missing',
     head: git('rev-parse', 'HEAD'),
     localTag: record === undefined ? undefined : gitMaybe('rev-parse', `${tag}^{commit}`),
     remoteTag: record === undefined ? undefined : remoteTagCommit(tag),
@@ -362,9 +355,6 @@ export function changeKind(change: Change): ChangeKind {
   return 'feature'
 }
 
-const majorHint =
-  '<!-- The changes people will notice most, in a sentence or two each. pnpm release publish refuses while this section is empty. -->'
-
 export function draftNotes(
   changes: Change[],
   version: string,
@@ -377,10 +367,6 @@ export function draftNotes(
     return lines.length === 0 ? [] : [`## ${heading}`, '', ...lines, '']
   }
   return [
-    '## Major',
-    '',
-    majorHint,
-    '',
     ...section('Features', 'feature'),
     ...section('Fixes', 'fix'),
     ...section('Other', 'other'),
@@ -390,10 +376,41 @@ export function draftNotes(
   ].join('\n')
 }
 
-export function majorWritten(notes: string): boolean {
+export function majorEmpty(notes: string): boolean {
   const match = /^## Major[ \t]*\n([\s\S]*?)(?=^## |^\*\*Full changelog|(?![\s\S]))/m.exec(notes)
-  if (match === null) return false
-  return (match[1] ?? '').replace(/<!--[\s\S]*?-->/g, '').trim() !== ''
+  return match !== null && (match[1] ?? '').replace(/<!--[\s\S]*?-->/g, '').trim() === ''
+}
+
+const pullRequests = (text: string) => [...text.matchAll(/#(\d+)/g)].map((match) => match[1])
+
+export function withoutMajorRepeats(notes: string): string {
+  const parts = notes.split(/^(?=## )/m)
+  const major = parts.find((part) => /^## Major\b/.test(part))
+  const inMajor = new Set(major === undefined ? [] : pullRequests(major))
+  if (inMajor.size === 0) return notes
+  return parts
+    .map((part) => {
+      if (part === major || !part.startsWith('## ')) return part
+      const blocks: string[][] = []
+      for (const line of part.split('\n')) {
+        const last = blocks.at(-1)
+        const continues =
+          last?.[0]?.startsWith('- ') && line.trim() !== '' && !line.startsWith('- ')
+        if (last !== undefined && continues) last.push(line)
+        else blocks.push([line])
+      }
+      const kept = blocks.filter((block) => {
+        const numbers = pullRequests(block.join('\n'))
+        return !(
+          block[0]?.startsWith('- ') &&
+          numbers.length > 0 &&
+          numbers.every((number) => inMajor.has(number))
+        )
+      })
+      return kept.some((block) => block[0]?.startsWith('- ')) ? kept.flat().join('\n') : ''
+    })
+    .join('')
+    .trim()
 }
 
 export function notesPrompt(changes: Change[], version: string): string {
@@ -408,12 +425,12 @@ export function notesPrompt(changes: Change[], version: string): string {
     '',
     'Below is every change merged since the last release, one per line, with a guessed kind and the folders it touched. Use only these changes; never invent one.',
     '',
-    'Answer with Markdown only, starting with the line “## Major”, in exactly these sections:',
-    '- ## Major: two to four bullets on the changes a user will notice most, a sentence each.',
+    'Answer with Markdown only, starting with the first section heading you use, in these sections and this order:',
+    '- ## Major: only when some changes stand out as the ones a user will notice most; leave the section out when none do. At most four bullets, a sentence or two each. One bullet may sum up a series of changes that together make one larger change, with all their pull request numbers, like (#431, #435, #440).',
     '- ## Features: new or changed behaviour a user can see.',
     '- ## Fixes: things that were broken and now work.',
     '- ## Other: tests, docs, release tooling and internal changes, briefly; group related ones into one line.',
-    'Leave out a section with nothing in it, except Major. Keep pull request numbers like (#431) on the lines they belong to. Merge lines that describe the same change.',
+    'Every change goes in exactly one section: a change covered under Major never appears again in Features, Fixes or Other. Leave out a section with nothing in it. Keep pull request numbers like (#431) on the lines they belong to. Merge lines that describe the same change.',
     '',
     'Style: plain, direct language; name the concrete thing; no marketing words; curly quotes and apostrophes (’ “ ”). Write for someone who uses TED, not someone who builds it.',
     '',
@@ -423,7 +440,7 @@ export function notesPrompt(changes: Change[], version: string): string {
 }
 
 export function cleanClaudeNotes(answer: string): string | undefined {
-  const start = answer.indexOf('## Major')
+  const start = answer.search(/^## (Major|Features|Fixes|Other)[ \t]*$/m)
   if (start === -1) return undefined
   const notes = answer
     .slice(start)
@@ -432,7 +449,7 @@ export function cleanClaudeNotes(answer: string): string | undefined {
     .join('\n')
     .replace(/\n*```\s*$/, '')
     .trim()
-  return majorWritten(notes) ? notes : undefined
+  return majorEmpty(notes) ? undefined : withoutMajorRepeats(notes)
 }
 
 function claudeNotes(changes: Change[], version: string, previous: string | undefined) {
@@ -636,7 +653,7 @@ async function build(version: string, skipChecks: boolean): Promise<void> {
   writeFileSync(notesFile, drafted ?? draftNotes(changes, version, previous))
   console.log(
     drafted === undefined
-      ? `Claude couldn’t draft them, so ${notesFile} lists the changes; write the Major section before you publish.`
+      ? `Claude couldn’t draft them, so ${notesFile} lists the changes by kind; read them before you publish.`
       : `Claude drafted them in ${notesFile}; read and correct them before you publish.`,
   )
   install()
@@ -804,25 +821,43 @@ function pullMain(): void {
   if (pull.status !== 0) console.log('Couldn’t fast-forward main here; run git pull yourself.')
 }
 
+export type ReleaseAction =
+  | { action: 'publish' }
+  | { action: 'discard' }
+  | { action: 'build'; version: string }
+  | { refusal: string }
+
+export function releaseAction(args: readonly string[]): ReleaseAction | undefined {
+  const [command, version] = args.filter((arg) => !arg.startsWith('--'))
+  if (command === undefined) return undefined
+  if (command === 'publish') return { action: 'publish' }
+  if (command === 'discard') return { action: 'discard' }
+  const named = command === 'build' ? version : command
+  if (named === undefined) return { refusal: 'pnpm release build needs a version like 1.2.3' }
+  if (parseVersion(named) === undefined) return { refusal: `“${named}” isn’t a version like 1.2.3` }
+  return { action: 'build', version: named }
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2)
-  const named = args.find((arg) => !arg.startsWith('--'))
-  if (!inReleaseCheckout() && (named !== undefined || args.includes('--install'))) {
-    const fresh =
-      named !== undefined && !['publish', 'discard'].includes(named) && !args.includes('--install')
-    if (fresh && parseVersion(named) === undefined) fail(`“${named}” isn’t a version like 1.2.3`)
-    forward(args, fresh)
-  }
-  if (args.includes('--install')) return install()
-  const command = args.find((arg) => !arg.startsWith('--'))
-  if (command === 'publish') return publish()
-  if (command === 'discard') return discard()
-  if (command === undefined) {
-    fail(
-      `usage: pnpm release <version> [--skip-checks] | publish | discard | --install (now ${currentVersion()})`,
+  const installing = args.includes('--install')
+  const chosen = releaseAction(args)
+  if (!installing && chosen !== undefined && 'refusal' in chosen) fail(chosen.refusal)
+  if (!inReleaseCheckout() && (chosen !== undefined || installing)) {
+    forward(
+      args,
+      !installing && chosen !== undefined && 'action' in chosen && chosen.action === 'build',
     )
   }
-  await build(command, args.includes('--skip-checks'))
+  if (installing) return install()
+  if (chosen === undefined || 'refusal' in chosen) {
+    return fail(
+      `usage: pnpm release [build] <version> [--skip-checks] | publish | discard | --install (now ${currentVersion()})`,
+    )
+  }
+  if (chosen.action === 'publish') return publish()
+  if (chosen.action === 'discard') return discard()
+  await build(chosen.version, args.includes('--skip-checks'))
 }
 
 if (import.meta.main) await main()

@@ -141,6 +141,7 @@ export const ted = {
   copyReport: () => request('copyReport'),
   memoryUse: () => request('memoryUse'),
   resourceUsage: () => request('resourceUsage'),
+  appProcesses: () => request('appProcesses'),
   tedFolder: () => request('tedFolder'),
   showTedFolder: () => request('showTedFolder'),
   showBackupInFolder: (name: string) => request('showBackupInFolder', name),

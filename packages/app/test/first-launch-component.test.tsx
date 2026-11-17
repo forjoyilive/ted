@@ -77,7 +77,7 @@ async function open(agents?: AgentHealth[]) {
   return a
 }
 
-test('the steps run in order, Back returns, and Skip saves Start at login off', async () => {
+test('the steps run in order, Back returns, and Skip saves Start at login and reporting', async () => {
   const a = start()
   await screen.findByRole('heading', { name: 'Get ready to build faster' })
   expect(screen.getByText('Step 1 of 4')).toBeTruthy()
@@ -95,16 +95,23 @@ test('the steps run in order, Back returns, and Skip saves Start at login off', 
     name: 'Start TED in the background when you log in',
   }) as HTMLInputElement
   expect(login.checked).toBe(false)
+  const reporting = screen.getByRole('checkbox', {
+    name: /^Send error reporting and usage data to the TED team/,
+  }) as HTMLInputElement
+  expect(reporting.checked).toBe(true)
+  await user().click(reporting)
   await user().click(button('Skip'))
   expect(a.request).toHaveBeenCalledWith('updateSettings', {
     firstLaunchDone: true,
     startAtLogin: false,
     onboardingOnNextOpen: false,
+    reporting: false,
+    reportingAsked: true,
   })
   expect(a.finish).toHaveBeenCalledWith(undefined)
 })
 
-test('Skip on the first step ends onboarding', async () => {
+test('Skip on the first step ends onboarding without answering reporting', async () => {
   const a = start()
   await screen.findByRole('heading', { name: 'Get ready to build faster' })
   await user().click(button('Skip'))
@@ -115,10 +122,15 @@ test('Skip on the first step ends onboarding', async () => {
   })
 })
 
-test('after a reset with a Factory, Set up TED is the last step and keeps Start at login', async () => {
+test('after a reset with a Factory, Set up TED is the last step and keeps Start at login and reporting', async () => {
   const a = start(undefined, {
     factories: [factory()],
-    settings: { ...defaultMachineSettings, startAtLogin: true, onboardingOnNextOpen: true },
+    settings: {
+      ...defaultMachineSettings,
+      startAtLogin: true,
+      onboardingOnNextOpen: true,
+      reportingAsked: true,
+    },
   })
   await toSetUp()
   expect(screen.getByText('Step 3 of 3')).toBeTruthy()
@@ -129,11 +141,20 @@ test('after a reset with a Factory, Set up TED is the last step and keeps Start 
       }) as HTMLInputElement
     ).checked,
   ).toBe(true)
+  expect(
+    (
+      screen.getByRole('checkbox', {
+        name: /^Send error reporting and usage data to the TED team/,
+      }) as HTMLInputElement
+    ).checked,
+  ).toBe(false)
   await user().click(button('Finish'))
   expect(a.request).toHaveBeenCalledWith('updateSettings', {
     firstLaunchDone: true,
     startAtLogin: true,
     onboardingOnNextOpen: false,
+    reporting: false,
+    reportingAsked: true,
   })
   expect(a.finish).toHaveBeenCalledWith(undefined)
   expect(screen.queryByRole('dialog')).toBeNull()
@@ -200,6 +221,8 @@ test('Next waits for Git and an agent, then Add Factory is step 4 with Back and 
     firstLaunchDone: true,
     startAtLogin: true,
     onboardingOnNextOpen: false,
+    reporting: true,
+    reportingAsked: true,
   })
 })
 

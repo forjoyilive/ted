@@ -1,7 +1,12 @@
 import { busyMarks, defaultWorkingRuns, type Priority } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { nextBusy } from '../src/busy.ts'
-import { queueOrder, startsNow } from '../src/tasks/queue.ts'
+import {
+  continuationFlags,
+  queueOrder,
+  recentContinuationMs,
+  startsNow,
+} from '../src/tasks/queue.ts'
 
 const task = (id: string, priority: Priority, rank: number, factoryId = 'nb') =>
   ({ id, kind: 'task', priority, rank, factoryId }) as const
@@ -326,5 +331,52 @@ describe('startsNow while this computer is busy', () => {
   test('without the hold the same queue starts', () => {
     const use = { limit: 6, working: 1, byFactory: {}, caps: {}, busy: false }
     expect(startsNow(queue, use).map((e) => e.id)).toEqual(['a', 'b'])
+  })
+
+  test('a continuation after Checks or an answer starts, but not past the limit or a cap', () => {
+    const after = {
+      id: 'checked',
+      kind: 'continuation',
+      rank: 3,
+      factoryId: 'nb',
+      skipsBusy: true,
+    } as const
+    const ordered = queueOrder([...queue, after])
+    expect(
+      startsNow(ordered, { limit: 6, working: 1, byFactory: {}, caps: {}, busy: true }).map(
+        (e) => e.id,
+      ),
+    ).toEqual(['checked'])
+    expect(
+      startsNow(ordered, { limit: 1, working: 1, byFactory: {}, caps: {}, busy: true }),
+    ).toEqual([])
+    expect(
+      startsNow(ordered, {
+        limit: 6,
+        working: 1,
+        byFactory: { nb: 1 },
+        caps: { nb: 1 },
+        busy: true,
+      }),
+    ).toEqual([])
+  })
+})
+
+describe('continuations after Checks or an answer', () => {
+  const now = Date.parse('2026-11-16T12:00:00Z')
+  const ago = (ms: number) => new Date(now - ms).toISOString()
+
+  test('skip the busy hold, and count as recent for 10 minutes', () => {
+    expect(continuationFlags(ago(60_000), now)).toEqual({ skipsBusy: true, recent: true })
+    expect(continuationFlags(ago(recentContinuationMs), now)).toEqual({ skipsBusy: true })
+  })
+
+  test('a recent one goes ahead of other continuations, whatever their Priority', () => {
+    const order = queueOrder([
+      task('new', 'urgent', 0),
+      { id: 'old', kind: 'continuation', priority: 'urgent', rank: 1 },
+      { id: 'recent', kind: 'continuation', priority: 'low', rank: 2, recent: true },
+    ])
+    expect(order.map((e) => e.id)).toEqual(['recent', 'old', 'new'])
   })
 })

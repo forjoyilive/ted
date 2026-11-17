@@ -1,17 +1,21 @@
-import type { Coordinator, CoordinatorChatSummary, Plan } from '@ted/protocol'
+import type { ChatRequestKind, Coordinator, CoordinatorChatSummary, Plan } from '@ted/protocol'
 import { useCallback, useState } from 'react'
 import type { StatusGlyph, StatusTone } from './components/StatusChip.tsx'
 import { planStatusChip, planTasksLabel } from './plans.ts'
 
-export type AgentName = 'Coordinator' | 'Planner'
-
-export const agentNames: readonly AgentName[] = ['Coordinator', 'Planner']
+export const chatRequestLabels: Readonly<Record<ChatRequestKind, string>> = {
+  question: 'Question',
+  round: 'Round',
+  proposal: 'Proposal',
+  agent: 'Agent draft',
+  'outside-command': 'Outside command',
+}
 
 export type AgentChatRef = { agent: 'coordinator'; id: string } | { agent: 'planner'; id: string }
 
 export interface AgentChatRow {
   ref: AgentChatRef
-  agent: AgentName
+  agent: string
   title: string
   chip: { label: string; tone: StatusTone; glyph?: StatusGlyph }
   lastAt: string
@@ -37,8 +41,8 @@ function coordinatorRow(chat: CoordinatorChatSummary): AgentChatRow {
   const archived = chat.endedAt !== undefined
   return {
     ref: { agent: 'coordinator', id: chat.id },
-    agent: 'Coordinator',
-    title: chat.title || 'Coordinator chat',
+    agent: chat.chatAgent.name,
+    title: chat.title || `${chat.chatAgent.name} chat`,
     chip: archived ? archivedChip : chat.waiting ? waitingChip : coordinatorStatus[chat.status],
     lastAt: chat.lastAt,
     waiting: !archived && chat.waiting,
@@ -53,7 +57,7 @@ function planRow(plan: Plan): AgentChatRow {
   const archived = plan.archivedAt !== undefined
   return {
     ref: { agent: 'planner', id: plan.id },
-    agent: 'Planner',
+    agent: plan.chatAgent.name,
     title: plan.title,
     chip: archived ? archivedChip : planStatusChip(plan),
     lastAt: plan.lastAt,
@@ -90,12 +94,17 @@ export function splitArchived(rows: readonly AgentChatRow[]): ArchiveSplit {
   }
 }
 
+const builtInNames = ['Coordinator', 'Planner']
+
 export function groupedRows(
   rows: readonly AgentChatRow[],
-): { agent: AgentName; rows: AgentChatRow[] }[] {
-  return agentNames
-    .map((agent) => ({ agent, rows: rows.filter((r) => r.agent === agent) }))
-    .filter((group) => group.rows.length > 0)
+): { agent: string; rows: AgentChatRow[] }[] {
+  const names = [...new Set(rows.map((r) => r.agent))].sort((a, b) => {
+    const [x, y] = [builtInNames.indexOf(a), builtInNames.indexOf(b)]
+    if (x !== y) return (x === -1 ? builtInNames.length : x) - (y === -1 ? builtInNames.length : y)
+    return a.localeCompare(b)
+  })
+  return names.map((agent) => ({ agent, rows: rows.filter((r) => r.agent === agent) }))
 }
 
 export function sameChat(a: AgentChatRef | undefined, b: AgentChatRef | undefined): boolean {

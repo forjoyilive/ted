@@ -1088,6 +1088,87 @@ export const coordinatorChats = State.SQLite.table({
   },
 })
 
+export const chatAgents = State.SQLite.table({
+  name: 'chatAgents',
+  indexes: [{ name: 'idx_chatAgents_factoryId', columns: ['factoryId'] }],
+  columns: {
+    chatId: State.SQLite.text({ primaryKey: true }),
+    kind: State.SQLite.text(),
+    factoryId: State.SQLite.text(),
+    agentId: State.SQLite.text(),
+    name: State.SQLite.text(),
+    source: State.SQLite.text(),
+    agent: State.SQLite.text({ nullable: true }),
+    model: State.SQLite.text({ nullable: true }),
+    powers: State.SQLite.text(),
+    instructions: State.SQLite.text(),
+    commands: State.SQLite.text({ nullable: true }),
+    outsideCommands: State.SQLite.text({ nullable: true }),
+  },
+})
+
+export const chatCommands = State.SQLite.table({
+  name: 'chatCommands',
+  indexes: [
+    { name: 'idx_chatCommands_chatId', columns: ['chatId'] },
+    { name: 'idx_chatCommands_runId', columns: ['runId'] },
+    { name: 'idx_chatCommands_factoryId', columns: ['factoryId'] },
+  ],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    chatId: State.SQLite.text(),
+    factoryId: State.SQLite.text(),
+    runId: State.SQLite.text(),
+    name: State.SQLite.text(),
+    outcome: State.SQLite.text(),
+    exitCode: State.SQLite.integer({ nullable: true }),
+    startedAt: State.SQLite.text(),
+    endedAt: State.SQLite.text(),
+    tail: State.SQLite.text(),
+    outside: State.SQLite.text({ nullable: true }),
+  },
+})
+
+export const outsideCommandAllowances = State.SQLite.table({
+  name: 'outsideCommandAllowances',
+  indexes: [{ name: 'idx_outsideCommandAllowances_factoryId', columns: ['factoryId'] }],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    factoryId: State.SQLite.text(),
+    agentId: State.SQLite.text(),
+    name: State.SQLite.text(),
+    command: State.SQLite.text(),
+    repo: State.SQLite.text(),
+    folder: State.SQLite.text(),
+    allowedAt: State.SQLite.text(),
+  },
+})
+
+export const chatRequests = State.SQLite.table({
+  name: 'chatRequests',
+  indexes: [
+    { name: 'idx_chatRequests_chatId', columns: ['chatId'] },
+    { name: 'idx_chatRequests_factoryId', columns: ['factoryId'] },
+  ],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    chatId: State.SQLite.text(),
+    factoryId: State.SQLite.text(),
+    runId: State.SQLite.text(),
+    kind: State.SQLite.text(),
+    title: State.SQLite.text({ nullable: true }),
+    body: State.SQLite.text(),
+    choices: State.SQLite.text({ nullable: true }),
+    multiple: State.SQLite.boolean({ default: false }),
+    round: State.SQLite.text({ nullable: true }),
+    proposal: State.SQLite.text({ nullable: true }),
+    agentDraft: State.SQLite.text({ nullable: true }),
+    outsideCommand: State.SQLite.text({ nullable: true }),
+    answer: State.SQLite.text({ nullable: true }),
+    createdAt: State.SQLite.text(),
+  },
+})
+
 export const plans = State.SQLite.table({
   name: 'plans',
   indexes: [{ name: 'idx_plans_fromTaskId', columns: ['fromTaskId'] }],
@@ -1324,6 +1405,115 @@ export const events = {
   coordinatorChatArchived: Events.synced({
     name: 'v1.CoordinatorChatArchived',
     schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
+  }),
+  chatAgentRecorded: Events.synced({
+    name: 'v1.ChatAgentRecorded',
+    schema: Schema.Struct({
+      chatId: Schema.String,
+      kind: Schema.String,
+      factoryId: Schema.String,
+      agent: Schema.Struct({
+        id: Schema.String,
+        name: Schema.String,
+        source: Schema.String,
+        agent: Schema.NullOr(Schema.String),
+        model: Schema.NullOr(Schema.String),
+        powers: Schema.Array(Schema.String),
+        instructions: Schema.String,
+      }),
+      at: Schema.String,
+    }),
+  }),
+  chatAgentCommandsRecorded: Events.synced({
+    name: 'v1.ChatAgentCommandsRecorded',
+    schema: Schema.Struct({
+      chatId: Schema.String,
+      commands: Schema.Array(
+        Schema.Struct({
+          name: Schema.String,
+          command: Schema.String,
+          repo: Schema.NullOr(Schema.String),
+        }),
+      ),
+    }),
+  }),
+  chatCommandRan: Events.synced({
+    name: 'v1.ChatCommandRan',
+    schema: Schema.Struct({
+      id: Schema.String,
+      chatId: Schema.String,
+      factoryId: Schema.String,
+      runId: Schema.String,
+      name: Schema.String,
+      outcome: Schema.String,
+      exitCode: Schema.NullOr(Schema.Number),
+      startedAt: Schema.String,
+      endedAt: Schema.String,
+      tail: Schema.String,
+    }),
+  }),
+  chatRequestPosted: Events.synced({
+    name: 'v1.ChatRequestPosted',
+    schema: Schema.Struct({
+      id: Schema.String,
+      chatId: Schema.String,
+      factoryId: Schema.String,
+      runId: Schema.String,
+      kind: Schema.String,
+      title: Schema.NullOr(Schema.String),
+      body: Schema.String,
+      choices: Schema.NullOr(Schema.Array(Schema.String)),
+      multiple: Schema.Boolean,
+      round: Schema.NullOr(Schema.String),
+      proposal: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  chatAgentDraftPosted: Events.synced({
+    name: 'v1.ChatAgentDraftPosted',
+    schema: Schema.Struct({ id: Schema.String, draft: Schema.String }),
+  }),
+  chatAgentOutsideCommandsRecorded: Events.synced({
+    name: 'v1.ChatAgentOutsideCommandsRecorded',
+    schema: Schema.Struct({
+      chatId: Schema.String,
+      commands: Schema.Array(
+        Schema.Struct({
+          name: Schema.String,
+          command: Schema.String,
+          repo: Schema.NullOr(Schema.String),
+        }),
+      ),
+    }),
+  }),
+  chatOutsideCommandAsked: Events.synced({
+    name: 'v1.ChatOutsideCommandAsked',
+    schema: Schema.Struct({ id: Schema.String, ask: Schema.String }),
+  }),
+  chatOutsideCommandRan: Events.synced({
+    name: 'v1.ChatOutsideCommandRan',
+    schema: Schema.Struct({ id: Schema.String, outside: Schema.String }),
+  }),
+  outsideCommandAllowed: Events.synced({
+    name: 'v1.OutsideCommandAllowed',
+    schema: Schema.Struct({
+      id: Schema.String,
+      factoryId: Schema.String,
+      agentId: Schema.String,
+      name: Schema.String,
+      command: Schema.String,
+      repo: Schema.String,
+      folder: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  outsideCommandAllowanceRemoved: Events.synced({
+    name: 'v1.OutsideCommandAllowanceRemoved',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
+  }),
+  chatRequestAnswered: Events.synced({
+    name: 'v1.ChatRequestAnswered',
+    schema: Schema.Struct({ id: Schema.String, answer: Schema.String, at: Schema.String }),
   }),
   validationProgressed: Events.synced({
     name: 'v1.ValidationProgressed',
@@ -4211,6 +4401,17 @@ const coordinatorRunsDeleted = (runIds: readonly string[]) =>
     runInterrupts.delete().where({ runId: id }),
   ])
 
+function chatRowsDeleted(chatId: string, requests: readonly { id: string }[]) {
+  return [
+    chatAgents.delete().where({ chatId }),
+    chatCommands.delete().where({ chatId }),
+    chatRequests.delete().where({ chatId }),
+    ...requests.map(({ id }) =>
+      messageDrafts.delete().where({ key: messageDraftKey('coordinator-request', id) }),
+    ),
+  ]
+}
+
 function patchCoordinatorChat(
   row: { data: string; endedAt: string | null; title: string | null } | undefined,
   id: string,
@@ -5415,6 +5616,10 @@ const materializers = counted(
         workflowLayers.delete().where({ layer: `factory:${factoryId}` }),
         requestSnoozes.delete().where({ factoryId }),
         messageDrafts.delete().where({ factoryId }),
+        chatAgents.delete().where({ factoryId }),
+        chatCommands.delete().where({ factoryId }),
+        chatRequests.delete().where({ factoryId }),
+        outsideCommandAllowances.delete().where({ factoryId }),
       ],
       'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
         workflowLayers
@@ -5613,8 +5818,9 @@ const materializers = counted(
           factoryId,
           change,
         ),
-      'v1.CoordinatorRemoved': ({ factoryId, runIds }) => [
+      'v1.CoordinatorRemoved': ({ factoryId, runIds }, { query }) => [
         coordinatorChats.delete().where({ id: factoryId }),
+        ...chatRowsDeleted(factoryId, query(chatRequests.where({ chatId: factoryId }))),
         ...coordinatorRunsDeleted(runIds),
       ],
       'v1.CoordinatorConversationSaved': ({ id, factoryId, endedAt, data }) => [
@@ -5643,16 +5849,62 @@ const materializers = counted(
         coordinatorChats.update({ title }).where({ id }),
       'v1.CoordinatorChatArchived': ({ id, at }) =>
         coordinatorChats.update({ endedAt: at }).where({ id }),
-      'v1.CoordinatorChatDeleted': ({ id, runIds }) => [
+      'v1.CoordinatorChatDeleted': ({ id, runIds }, { query }) => [
         coordinatorChats.delete().where({ id }),
+        ...chatRowsDeleted(id, query(chatRequests.where({ chatId: id }))),
         requestSnoozes.delete().where({ ownerId: id }),
         messageDrafts.delete().where({ key: messageDraftKey('coordinator', id) }),
         ...coordinatorRunsDeleted(runIds),
+      ],
+      'v1.ChatAgentRecorded': ({ chatId, kind, factoryId, agent }) =>
+        chatAgents
+          .insert({
+            chatId,
+            kind,
+            factoryId,
+            agentId: agent.id,
+            name: agent.name,
+            source: agent.source,
+            agent: agent.agent,
+            model: agent.model,
+            powers: JSON.stringify(agent.powers),
+            instructions: agent.instructions,
+          })
+          .onConflict('chatId', 'replace'),
+      'v1.ChatAgentCommandsRecorded': ({ chatId, commands }) =>
+        chatAgents.update({ commands: JSON.stringify(commands) }).where({ chatId }),
+      'v1.ChatCommandRan': (ran) => chatCommands.insert(ran).onConflict('id', 'ignore'),
+      'v1.ChatRequestPosted': ({ at, choices, ...request }) =>
+        chatRequests.insert({
+          ...request,
+          choices: choices === null ? null : JSON.stringify(choices),
+          createdAt: at,
+        }),
+      'v1.ChatAgentDraftPosted': ({ id, draft }) =>
+        chatRequests.update({ agentDraft: draft }).where({ id }),
+      'v1.ChatAgentOutsideCommandsRecorded': ({ chatId, commands }) =>
+        chatAgents.update({ outsideCommands: JSON.stringify(commands) }).where({ chatId }),
+      'v1.ChatOutsideCommandAsked': ({ id, ask }) =>
+        chatRequests.update({ outsideCommand: ask }).where({ id }),
+      'v1.ChatOutsideCommandRan': ({ id, outside }) =>
+        chatCommands.update({ outside }).where({ id }),
+      'v1.OutsideCommandAllowed': ({ at, ...allowance }) =>
+        outsideCommandAllowances
+          .insert({ ...allowance, allowedAt: at })
+          .onConflict('id', 'replace'),
+      'v1.OutsideCommandAllowanceRemoved': ({ id }) =>
+        outsideCommandAllowances.delete().where({ id }),
+      'v1.ChatRequestAnswered': ({ id, answer }) => [
+        chatRequests.update({ answer }).where({ id }),
+        requestSnoozes.delete().where({ requestId: id }),
+        messageDrafts.delete().where({ key: messageDraftKey('coordinator-request', id) }),
       ],
       'v1.PlanStarted': ({ at, ...plan }) =>
         plans.insert({ ...plan, state: 'queued', createdAt: at }),
       'v1.PlanRenamed': ({ id, title }) => plans.update({ title }).where({ id }),
       'v1.PlanDeleted': ({ id }) => [
+        chatAgents.delete().where({ chatId: id }),
+        chatCommands.delete().where({ chatId: id }),
         messageDrafts.delete().where({ planId: id }),
         plans.delete().where({ id }),
         planRequests.delete().where({ planId: id }),
@@ -5803,6 +6055,10 @@ const state = State.SQLite.makeState({
     planRequests,
     planTasks,
     coordinatorChats,
+    chatAgents,
+    chatCommands,
+    outsideCommandAllowances,
+    chatRequests,
     sideChats,
     requestSnoozes,
   },

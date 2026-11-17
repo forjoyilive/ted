@@ -303,7 +303,11 @@ describe('the queue', () => {
     await expect.poll(queuedIds).toEqual([high.id, low.id, fresh.id])
     expect(await client.ok<RunSlots>('GET', '/slots')).toMatchObject({ working: 1, queued: 3 })
     expect((await getTask(client, high.id)).stage).toBe('clarify')
-    expect((await getTask(client, high.id)).status).toEqual({ kind: 'queued', place: 1 })
+    expect((await getTask(client, high.id)).status).toEqual({
+      kind: 'queued',
+      place: 1,
+      after: 'answer',
+    })
     await expect
       .poll(() => client.ok<Activity>('GET', '/activity'))
       .toMatchObject({ runs: { working: 1, queued: 3 } })

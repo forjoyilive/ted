@@ -5,6 +5,7 @@ import * as git from '../git.ts'
 import {
   type CheckedLayer,
   checkLayer,
+  displayPath,
   githubRepoOf,
   inheritedFrom,
   type LayerFiles,
@@ -26,19 +27,32 @@ export async function checkWorkflowPath(
 
   let layerDir: string
   let files: LayerFiles
+  let only: string | undefined
   if (info.isDirectory()) {
     const nested = path.join(target, '.ted')
     layerDir = (await stat(nested).catch(() => undefined))?.isDirectory() ? nested : target
     files = (await readLayerDirectory(layerDir)) ?? {}
   } else {
     const name = path.basename(target)
-    const inStages = path.basename(path.dirname(target)) === 'stages'
-    layerDir = inStages ? path.dirname(path.dirname(target)) : path.dirname(target)
-    const key = inStages ? `stages/${name}` : name
-    if (key !== 'workflow.yaml' && !key.startsWith('stages/')) {
-      throw new NothingToCheckError(`${target} isn’t a workflow.yaml or a Stage file`)
+    const folder = path.basename(path.dirname(target))
+    const inFolder = folder === 'stages' || folder === 'agents'
+    layerDir = inFolder ? path.dirname(path.dirname(target)) : path.dirname(target)
+    const key = inFolder ? `${folder}/${name}` : name
+    if (key === 'agents.yaml' || key.startsWith('agents/')) {
+      const layer = (await readLayerDirectory(layerDir)) ?? {}
+      files = Object.fromEntries(
+        Object.entries(layer).filter(
+          ([file]) => file === 'agents.yaml' || file.startsWith('agents'),
+        ),
+      )
+      only = key
+    } else if (key === 'workflow.yaml' || key.startsWith('stages/')) {
+      files = { [key]: await readFile(target, 'utf8').catch(() => null) }
+    } else {
+      throw new NothingToCheckError(
+        `${target} isn’t a workflow.yaml, agents.yaml, a Stage file or an Agent’s instructions file`,
+      )
     }
-    files = { [key]: await readFile(target, 'utf8').catch(() => null) }
   }
 
   const kind: LayerKind = (await sameDir(layerDir, options.libraryDir)) ? 'library' : 'factory'
@@ -55,7 +69,9 @@ export async function checkWorkflowPath(
     inherited: inheritedFrom(below),
     ...(primaryRepo !== undefined && { primaryRepo }),
   })
-  return problems.map((problem) => ({
+  const shown =
+    only === undefined ? problems : problems.filter((p) => p.file === displayPath(kind, only))
+  return shown.map((problem) => ({
     ...problem,
     path: path.join(
       layerDir,

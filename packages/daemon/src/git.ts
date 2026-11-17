@@ -109,7 +109,22 @@ export async function folderRemotes(
   return { root, remotes }
 }
 
-export async function fetch(repo: string, timeoutMs?: number): Promise<void> {
+const fetching = new Map<string, Promise<void>>()
+
+// Two fetches of one clone at once race on refs/remotes/origin/*: the loser fails with
+// "cannot lock ref" although the ref is already up to date. Each waits for the one before.
+export function fetch(repo: string, timeoutMs?: number): Promise<void> {
+  const key = path.resolve(repo)
+  const turn = (fetching.get(key) ?? Promise.resolve()).then(() => fetchNow(repo, timeoutMs))
+  const settled = turn.catch(() => undefined)
+  fetching.set(key, settled)
+  void settled.then(() => {
+    if (fetching.get(key) === settled) fetching.delete(key)
+  })
+  return turn
+}
+
+async function fetchNow(repo: string, timeoutMs?: number): Promise<void> {
   if (timeoutMs === undefined) {
     await git(repo, 'fetch', '--prune', 'origin')
     return

@@ -48,6 +48,11 @@ import type {
   EditAutomationRequest,
   SchedulePreview,
 } from './automation.ts'
+import type {
+  AutomationCardAnswer,
+  AutomationDraftBody,
+  AutomationDraftResult,
+} from './automation-card.ts'
 import type { SetTaskAutopilotRequest } from './autopilot.ts'
 import type { Banner, BannerActionInput } from './banner.ts'
 import type { BrowserCommand, BrowserReply, BrowserRequest, BrowserResult } from './browser.ts'
@@ -61,6 +66,14 @@ import type {
   TaskCommit,
 } from './changes.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
+import type {
+  AgentDraftAnswer,
+  AgentSummary,
+  ChatCommandResult,
+  ChatRequest,
+  PostChatRequest,
+  RunChatCommandRequest,
+} from './chat-agent.ts'
 import type {
   BaseConflictFound,
   CheckOutput,
@@ -167,6 +180,12 @@ import type {
 import type { LinearIntakeRequest, LinearIntakeResult } from './linear-intake.ts'
 import type { MemoryUse } from './memory.ts'
 import type { MessageBox, MessageDraftState, SaveMessageDraftRequest } from './message-draft.ts'
+import type {
+  OutsideCommandAllowance,
+  OutsideCommandAnswer,
+  RunOutsideCommandRequest,
+  RunOutsideCommandResult,
+} from './outside-command.ts'
 import type { PeerDetail, PeerInbox, PeerMessage, PeerPage, SendPeerMessage } from './peers.ts'
 import type {
   ChatArchiveExpiry,
@@ -531,6 +550,114 @@ export class DaemonClient {
     return this.#request(
       'POST',
       `/coordinator-chats/${encodeURIComponent(chatId)}/confirmations/${encodeURIComponent(confirmationId)}`,
+      answer,
+    )
+  }
+
+  coordinatorAutomations(): Promise<{ context: string }> {
+    return this.#request('GET', '/coordinator/automations')
+  }
+
+  coordinatorAutomation(ref: string): Promise<{ context: string }> {
+    return this.#request('GET', `/coordinator/automations/${encodeURIComponent(ref)}`)
+  }
+
+  draftAutomation(input: AutomationDraftBody): Promise<AutomationDraftResult> {
+    return this.#request('POST', '/coordinator/automation-drafts', input)
+  }
+
+  answerAutomationCard(
+    chatId: string,
+    cardId: string,
+    answer: AutomationCardAnswer,
+  ): Promise<Coordinator> {
+    return this.#request(
+      'POST',
+      `/coordinator-chats/${encodeURIComponent(chatId)}/automation-cards/${encodeURIComponent(cardId)}`,
+      answer,
+    )
+  }
+
+  factoryAgents(factoryId: string): Promise<AgentSummary[]> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/agents`)
+  }
+
+  coordinatorAgents(): Promise<{ context: string }> {
+    return this.#request('GET', '/coordinator/agents')
+  }
+
+  answerAgentDraft(
+    chatId: string,
+    requestId: string,
+    answer: AgentDraftAnswer,
+  ): Promise<Coordinator> {
+    return this.#request(
+      'POST',
+      `/coordinator-chats/${encodeURIComponent(chatId)}/requests/${encodeURIComponent(requestId)}/agent`,
+      answer,
+    )
+  }
+
+  postChatRequest(input: PostChatRequest): Promise<ChatRequest> {
+    return this.#request('POST', '/coordinator/requests', input)
+  }
+
+  runChatCommand(input: RunChatCommandRequest): Promise<ChatCommandResult> {
+    return this.#request('POST', '/chat-commands', input)
+  }
+
+  waitForChatCommand(id: string): Promise<ChatCommandResult> {
+    return this.#request('GET', `/chat-commands/${encodeURIComponent(id)}`)
+  }
+
+  runOutsideCommand(input: RunOutsideCommandRequest): Promise<RunOutsideCommandResult> {
+    return this.#request('POST', '/chat-outside-commands', input)
+  }
+
+  answerOutsideCommand(
+    chatId: string,
+    requestId: string,
+    answer: OutsideCommandAnswer,
+  ): Promise<Coordinator> {
+    return this.#request(
+      'POST',
+      `/coordinator-chats/${encodeURIComponent(chatId)}/requests/${encodeURIComponent(requestId)}/outside-command`,
+      answer,
+    )
+  }
+
+  stopOutsideCommand(chatId: string): Promise<Coordinator> {
+    return this.#request(
+      'POST',
+      `/coordinator-chats/${encodeURIComponent(chatId)}/outside-command/stop`,
+    )
+  }
+
+  outsideCommandAllowances(factoryId: string): Promise<OutsideCommandAllowance[]> {
+    return this.#request(
+      'GET',
+      `/factories/${encodeURIComponent(factoryId)}/outside-command-allowances`,
+    )
+  }
+
+  removeOutsideCommandAllowance(
+    factoryId: string,
+    allowanceId: string,
+  ): Promise<OutsideCommandAllowance[]> {
+    return this.#request(
+      'DELETE',
+      `/factories/${encodeURIComponent(factoryId)}/outside-command-allowances/${encodeURIComponent(allowanceId)}`,
+    )
+  }
+
+  answerChatRequest(
+    chatId: string,
+    requestId: string,
+    answer: AnswerRequest,
+  ): Promise<Coordinator> {
+    return this.#request(
+      'POST',
+      `/coordinator-chats/${encodeURIComponent(chatId)}/requests/${encodeURIComponent(requestId)}/answer`,
       answer,
     )
   }
