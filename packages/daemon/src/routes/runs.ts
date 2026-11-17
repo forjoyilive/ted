@@ -8,8 +8,8 @@ import {
 import { matchReference } from '@ted/protocol/reference'
 import {
   collectDiagnostics,
+  currentUsage,
   memoryUse,
-  processUsage,
   readDaemonLog,
   readRunOutput,
   report,
@@ -93,7 +93,7 @@ const routes: Route[] = [
   {
     method: 'GET',
     path: /^\/diagnostics\/usage$/,
-    handle: async (_, options) => [200, await processUsage(options)],
+    handle: async (_, options) => [200, await currentUsage(options)],
   },
   {
     method: 'GET',

@@ -262,10 +262,43 @@ export async function processUsage(
   }
 }
 
-export async function memoryUse(
-  sources: Pick<DiagnosticsSources, 'home' | 'store'>,
-): Promise<MemoryUse> {
-  return (await processUsage(sources)).memory
+type UsageSources = Pick<DiagnosticsSources, 'home' | 'store'>
+
+export interface SharedUsageOptions {
+  read?: (sources: UsageSources) => Promise<ProcessUsage>
+  now?: () => number
+  keepMs?: number
+}
+
+export function sharedUsage({
+  read = processUsage,
+  now = Date.now,
+  keepMs = 10_000,
+}: SharedUsageOptions = {}): (sources: UsageSources) => Promise<ProcessUsage> {
+  const readings = new WeakMap<
+    TedStore,
+    { pending: Promise<ProcessUsage> } | { usage: ProcessUsage; at: number }
+  >()
+  return (sources) => {
+    const held = readings.get(sources.store)
+    if (held !== undefined) {
+      if ('pending' in held) return held.pending
+      if (now() - held.at < keepMs) return Promise.resolve(held.usage)
+    }
+    const pending = read(sources)
+    readings.set(sources.store, { pending })
+    pending.then(
+      (usage) => readings.set(sources.store, { usage, at: now() }),
+      () => readings.delete(sources.store),
+    )
+    return pending
+  }
+}
+
+export const currentUsage = sharedUsage()
+
+export async function memoryUse(sources: UsageSources): Promise<MemoryUse> {
+  return (await currentUsage(sources)).memory
 }
 
 export async function collectDiagnostics(sources: DiagnosticsSources): Promise<Diagnostics> {
