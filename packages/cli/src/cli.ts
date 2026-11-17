@@ -1675,6 +1675,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         })
       })
       console.log(`Created ${task.displayId}  ${printable(task.title)}`)
+      if (task.reminder !== undefined) console.log(printable(task.reminder))
     },
     listTasks: async () => {
       const tasks = await withDaemon(home, (client) => client.listTasks())

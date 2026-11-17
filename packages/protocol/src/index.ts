@@ -1009,6 +1009,7 @@ export {
   type CommentKind,
   type CopySkip,
   type CreatedBy,
+  type CreatedTask,
   type CreateTaskRequest,
   ciSignals,
   clarifyDepths,

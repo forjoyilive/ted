@@ -237,6 +237,7 @@ import type {
   CleanupStepReport,
   CloseRoundRequest,
   Comment,
+  CreatedTask,
   CreateTaskRequest,
   DeleteTaskRequest,
   DescriptionVersion,
@@ -749,7 +750,7 @@ export class DaemonClient {
     return this.#request('PUT', messageDraftPath(box), draft)
   }
 
-  createTask(input: CreateTaskRequest): Promise<Task> {
+  createTask(input: CreateTaskRequest): Promise<CreatedTask> {
     return this.#request('POST', '/tasks', input)
   }
 
