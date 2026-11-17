@@ -62,6 +62,17 @@ test('parseAutomationDraftRequest keeps every field of a change and a delete', (
   ).toEqual({ operation: 'op-4', kind: 'delete', automation: 'a1' })
 })
 
+test('draftBody turns a parsed draft back into the body the route reads', () => {
+  for (const body of [
+    { operation: 'op-1', kind: 'create', fields: create },
+    { operation: 'op-3', kind: 'edit', automation: 'a1', fields: { name: 'Renamed' } },
+    { operation: 'op-4', kind: 'delete', automation: 'a1' },
+  ]) {
+    const parsed = P.parseAutomationDraftRequest(body)
+    expect(P.parseAutomationDraftRequest(P.draftBody(parsed))).toEqual(parsed)
+  }
+})
+
 const draft = (fields: JsonObject, kind = 'create') => ({
   operation: 'op',
   kind,

@@ -13,8 +13,11 @@ import {
   type CoordinatorTask,
   type CoordinatorTaskList,
   coordinatorTaskSearch,
+  DaemonClient,
+  draftBody,
   type Factory,
   type LineComment,
+  parseAutomationDraftRequest,
   type RunChat,
   type RunMessage,
   type RunSlots,
@@ -306,9 +309,11 @@ test('the Coordinator drafts Automations as cards that only the app carries out'
     schedule: weekdays,
     on: false,
   }
-  const drafted = await draft('op-create', 'create', { fields })
-  expect(drafted.status).toBe(201)
-  const cardId = (drafted.body as { card: { id: string } }).card.id
+  const runClient = new DaemonClient(info, s.tokens.issue(c.runId))
+  const drafted = await runClient.draftAutomation(
+    draftBody(parseAutomationDraftRequest({ operation: 'op-create', kind: 'create', fields })),
+  )
+  const cardId = drafted.card.id
   expect((await draft('op-create', 'create', { fields })).body).toEqual({
     card: { id: cardId, waiting: true },
   })
@@ -399,12 +404,23 @@ test('the Coordinator drafts Automations as cards that only the app carries out'
   await answer((again.body as { card: { id: string } }).card.id, { decision: 'confirm' })
   expect((await automations()).some((a) => a.id === id)).toBe(false)
 
-  const open = await draft('op-open', 'create', { fields: { ...fields, name: 'Left open' } })
-  const openCard = (open.body as { card: { id: string } }).card.id
+  const secretModel = await draft('op-model', 'create', {
+    fields: { ...fields, model: `sk-${'a'.repeat(24)}` },
+  })
+  expect(secretModel.status).toBe(400)
+  expect(JSON.stringify(secretModel.body)).toContain('model looks like a secret')
+  const open: string[] = []
+  for (let n = 0; n < 20; n++) {
+    const made = await draft(`op-open-${n}`, 'create', { fields: { ...fields, name: `Open ${n}` } })
+    open.push((made.body as { card: { id: string } }).card.id)
+  }
+  expect((await draft('op-open-20', 'create', { fields })).status).toBe(409)
   await s.ok('POST', `${s.base}/archive`, {})
-  expect((await cards()).find((x) => x.id === openCard)?.answer?.decision).toBe('cancel')
-  expect(await s.waitingIds()).not.toContain(openCard)
-  expect((await automations()).some((a) => a.name === 'Left open')).toBe(false)
+  const after = await cards()
+  for (const id of open) expect(after.find((x) => x.id === id)?.answer?.decision).toBe('cancel')
+  const waiting = await s.waitingIds()
+  expect(open.some((id) => waiting.includes(id))).toBe(false)
+  expect((await automations()).some((a) => a.name.startsWith('Open '))).toBe(false)
 }, 90_000)
 
 test('actions reject stale state and cross-Factory neighbours; moves and creates retry receipts after a restart', async () => {

@@ -151,11 +151,14 @@ export {
   type AutomationCardKind,
   type AutomationCardResult,
   type AutomationCardRow,
+  type AutomationDraftBody,
   type AutomationDraftRequest,
   type AutomationDraftResult,
   automationCardHeadline,
   automationCardKinds,
   automationDraftLimits,
+  draftBody,
+  maxOpenAutomationCards,
 } from './automation-card.ts'
 export {
   parseAutomationCardAnswer,

@@ -41,6 +41,7 @@ import type {
 import {
   archiveChoice,
   isTrackerGroupAsk,
+  maxOpenAutomationCards,
   planTitle,
   planTitleLength,
   priorities,
@@ -2289,6 +2290,11 @@ export function createCoordinators(options: {
             throw new RequestError(409, 'operation ID already used for another draft')
           return { card: { id: earlier.id, waiting: earlier.answer === undefined } }
         }
+        if (cards.filter((x) => x.answer === undefined).length >= maxOpenAutomationCards)
+          throw new RequestError(
+            409,
+            `${maxOpenAutomationCards} Automation cards are waiting for the human; wait for them to answer before drafting more`,
+          )
         const card = {
           ...(await buildAutomationCard(
             automations,

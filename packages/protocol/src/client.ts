@@ -50,7 +50,7 @@ import type {
 } from './automation.ts'
 import type {
   AutomationCardAnswer,
-  AutomationDraftRequest,
+  AutomationDraftBody,
   AutomationDraftResult,
 } from './automation-card.ts'
 import type { SetTaskAutopilotRequest } from './autopilot.ts'
@@ -549,7 +549,7 @@ export class DaemonClient {
     return this.#request('GET', `/coordinator/automations/${encodeURIComponent(ref)}`)
   }
 
-  draftAutomation(input: AutomationDraftRequest): Promise<AutomationDraftResult> {
+  draftAutomation(input: AutomationDraftBody): Promise<AutomationDraftResult> {
     return this.#request('POST', '/coordinator/automation-drafts', input)
   }
 

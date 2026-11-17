@@ -30,6 +30,7 @@ import {
   type DeviceRequest,
   declaredSendBackCauses,
   devicePoint,
+  draftBody,
   type Effort,
   efforts,
   type Factory,
@@ -827,7 +828,9 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (error instanceof RequestValidationError) throw new UsageError(error.message)
       throw error
     }
-    console.log(JSON.stringify(await withDaemon(home, (client) => client.draftAutomation(input))))
+    console.log(
+      JSON.stringify(await withDaemon(home, (client) => client.draftAutomation(draftBody(input)))),
+    )
   }
 
   async function coordinatorAct(command: 'start' | 'move'): Promise<void> {

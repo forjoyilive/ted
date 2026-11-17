@@ -248,6 +248,9 @@ export async function buildAutomationCard(
   input: AutomationDraftRequest,
   askedAt: string,
 ): Promise<Omit<AutomationCard, 'requestHash'>> {
+  const model = input.create?.model ?? input.edit?.model
+  if (model && redactSecrets(model) !== model)
+    throw new RequestError(400, 'model looks like a secret; name a model instead')
   const base = { id: randomUUID(), kind: input.kind, operation: input.operation, askedAt }
   if (input.kind === 'create' && input.create)
     return { ...base, ...createCard(automations, input.create) }

@@ -14,6 +14,25 @@ export interface AutomationDraftRequest {
   edit?: EditAutomationRequest
 }
 
+export interface AutomationDraftBody {
+  operation: string
+  kind: AutomationCardKind
+  automation?: string
+  fields?: AutomationInput | EditAutomationRequest
+}
+
+export function draftBody(input: AutomationDraftRequest): AutomationDraftBody {
+  const fields = input.create ?? input.edit
+  return {
+    operation: input.operation,
+    kind: input.kind,
+    ...(input.automation !== undefined && { automation: input.automation }),
+    ...(fields !== undefined && { fields }),
+  }
+}
+
+export const maxOpenAutomationCards = 20
+
 export interface AutomationCardRow {
   label: string
   value: string
