@@ -567,7 +567,7 @@ describe('Checks at Validate', () => {
     expect(banners.some((b) => b.problem === 'no-checks')).toBe(true)
   })
 
-  test('while Checks run the Task is Working and says which Check, without a working slot', async () => {
+  test('while Checks run the Task says which Check, without Working or a working slot', async () => {
     const go = path.join(scratch, 'go')
     await workflow(
       [
@@ -589,8 +589,11 @@ describe('Checks at Validate', () => {
 
     const running = await waitUntil(async () => {
       const current = await getTask(client, task.id)
-      return current?.activity?.includes('Tests') ? current : undefined
-    }, 'the Checks to start')
+      return current?.activity?.includes('Tests') &&
+        current.runs.every((r) => r.state !== 'working')
+        ? current
+        : undefined
+    }, 'the Checks to start and the Task Lead to end its turn')
     expect(running.activity).toBe('Running Checks · Tests (2 of 3)')
     expect(running.status).toBeUndefined()
     expect(running.checksActive).toBe(true)
@@ -694,7 +697,8 @@ describe('Checks across restarts', () => {
       expect((await client.call('POST', `/tasks/${task.id}/resume`, {})).status).toBe(409)
       expect(during).not.toHaveProperty('canResume', true)
       expect(during?.leadRunId).toBe(lead)
-      expect(during?.status?.kind).toBe('working')
+      expect(during?.status).toBeUndefined()
+      expect(during?.checksActive).toBe(true)
       expect((await client.ok<Activity>('GET', '/activity')).checksRunning).toBe(1)
       await writeFile(release, '')
       await waitUntil(
