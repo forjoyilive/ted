@@ -8254,7 +8254,7 @@ export function createTasks(options: {
     ) {
       throw new RequestError(
         409,
-        `${task.displayId} cannot change its children now. ${task.stage === 'done' ? 'Done parents stay closed; use Unlink and restore for an archived child.' : task.archived ? 'Restore the parent first.' : 'Stop the parent and wait for its Runs, Checks and transitions to finish, then try again.'}`,
+        `${task.displayId} cannot change its children now. ${task.stage === 'done' ? 'Done parents stay closed; use Unlink and restore for an archived child.' : task.archived ? 'Restore the parent first.' : 'Stop the parent and wait for its Runs, checks and transitions to finish, then try again.'}`,
       )
     }
   }

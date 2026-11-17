@@ -292,7 +292,7 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
               className={base.link}
               onClick={() => dispatch({ type: 'open-settings', section: 'agents' })}
             >
-              Task Lead, Reviewer and Planner are under Providers →
+              Task Lead, reviewer and Planner are under Providers →
             </ActionButton>
             <Help>
               Permissions, checks, Apps and repos belong to each Factory, so they aren’t in the

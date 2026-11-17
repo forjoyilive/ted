@@ -666,7 +666,7 @@ function setupProposal(value: unknown): SetupProposal {
     const setting = shortText(line.setting, `${stage}’s setting`, 200)
     return { stage, ...(setting !== undefined && { setting }) }
   })
-  const checks = setupList(input.checks, 'Checks').map((check) => {
+  const checks = setupList(input.checks, 'checks').map((check) => {
     const name = needed(check.name, 'each check’s name', 80)
     const passed = passedFlag(check.passed, `the check ${name}`)
     const reason = shortText(check.reason, `${name}’s reason`, 200)
