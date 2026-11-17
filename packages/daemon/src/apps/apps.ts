@@ -1469,7 +1469,7 @@ function answers(url: string): Promise<Answer> {
     request.once('error', (error) =>
       resolve(
         certificateErrorCode(error)
-          ? { kind: 'untrusted', reason: error.message }
+          ? { kind: 'untrusted', reason: error.message.split(';')[0] ?? error.message }
           : { kind: 'waiting' },
       ),
     )
