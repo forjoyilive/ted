@@ -105,7 +105,7 @@ function NewTaskForm({
   onFactory: (id: string, draft: NewTaskDraft) => void
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
-  const descriptionField = useRef<HTMLTextAreaElement>(null)
+  const titleField = useRef<HTMLInputElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const drop = useFileDrop(() => attach)
   const headingId = useId()
@@ -273,7 +273,7 @@ function NewTaskForm({
 
   useEffect(() => {
     dialog.current?.showModal()
-    descriptionField.current?.focus()
+    titleField.current?.focus()
   }, [])
 
   useEffect(() => {
@@ -343,7 +343,7 @@ function NewTaskForm({
   }, [factory, ready, session])
 
   useEffect(() => {
-    if (ready && !busy) descriptionField.current?.focus()
+    if (ready && !busy) titleField.current?.focus()
   }, [ready, busy])
 
   const chosenFactory = factories.find((f) => f.id === factory)
@@ -381,7 +381,7 @@ function NewTaskForm({
     agentKinds.every((agent) => health.some((entry) => entry.agent === agent)) &&
     !health.some((entry) => entry.agent === lead?.agent && entry.state === 'not-installed') &&
     chosenFactory !== undefined &&
-    description.trim() !== '' &&
+    (asana !== undefined || title.trim() !== '') &&
     uploading === 0 &&
     !busy &&
     !moving &&
@@ -440,7 +440,7 @@ function NewTaskForm({
     setAsana(undefined)
     setSource(undefined)
     setError(undefined)
-    descriptionField.current?.focus()
+    titleField.current?.focus()
   }
 
   async function close(next = onClose) {
@@ -650,19 +650,19 @@ function NewTaskForm({
       <fieldset disabled={busy || moving} className={styles.fields}>
         <fieldset disabled={!ready} className={styles.fields}>
           <input
+            ref={titleField}
             className={styles.title}
             aria-label="Title"
             data-arrows
-            placeholder="Title (optional). Blank uses the first line of the description."
+            placeholder="Title"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
           />
           <div className={styles.descriptionBox}>
             <textarea
-              ref={descriptionField}
               className={`${styles.description} ${grow.text}`}
               aria-label="Description"
-              placeholder="Describe what you want done, or paste a Linear issue or Asana task URL."
+              placeholder="Description (optional). Describe what you want done, or paste a Linear issue or Asana task URL."
               value={description}
               onChange={(event) => changeDescription(event.target.value)}
             />

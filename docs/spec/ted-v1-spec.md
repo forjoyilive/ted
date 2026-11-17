@@ -565,8 +565,8 @@ Figma: KRI-63 Task details (New Task dialog frames).
 
 - Opened with **+** in the sidebar, **New Task** in a View header, the menu-bar menu, or ⌘N / `C`. (KRI-55, KRI-56)
 - Header “New Task in [Notebook ▾]”; the Factory defaults to the current one. (KRI-55, KRI-63)
-- **Title:** optional. If blank, TED uses the first line of the description, and the Task Lead may rename it. (KRI-55)
-- **Description:** required, focused on open. Pasting a Linear URL shows a removable source card (“Linear · NOTE-212 · Search ignores accents”) and fills Title, Priority and the branch (6.3). (KRI-55, KRI-63, KRI-60)
+- **Title:** required, focused on open. **Create** stays off until Title has text; a title filled from Linear counts. The Task Lead may rename it. (KRI-55, TED-522)
+- **Description:** optional. Pasting a Linear URL shows a removable source card (“Linear · NOTE-212 · Search ignores accents”) and fills Title, Priority and the branch (6.3). The cursor stays where it is when the lookup finishes. (KRI-55, KRI-63, KRI-60)
 - **Attachments:** drag and drop. (KRI-55)
 - **Priority** (default None) and **Blocked by** (a search over every Factory on this machine) share a row. (KRI-55, KRI-63)
 - **More**, closed by default with a one-line summary: **Clarify depth** (Auto, None, Few, Grill) and **Task Lead** (Provider, model, effort, filled from the Factory’s `lead`). (KRI-55, KRI-63)
@@ -577,7 +577,7 @@ Figma: KRI-63 Task details (New Task dialog frames).
 
 - Pasting a Linear URL fetches the issue there and then with the Linear API key: title → Task title, description → context for the Task Lead, Priority copied, Linear’s suggested branch name → branch. (KRI-20, KRI-15, KRI-60)
 - **No key:** a note under Description reads “Add a Linear API key to fill in the title, Priority and branch from Linear.”, with an inline key field, **Save** (stores it where Settings does, then fetches at once) and **Create a key ↗**. (KRI-57, KRI-60)
-- **Create** without a key still works: the URL is the source, the description is as typed, the first line is the title, and the branch is slugged from the title. (KRI-60)
+- **Create** without a key still works once Title is typed: the URL is the source, the description is as typed, and the branch is slugged from the title. (KRI-60, TED-522)
 - An invalid key, a missing issue or no access shows “Couldn’t fetch from Linear: <reason>. The Task will be created with the link only.” A URL from a workspace the key can’t read fails with “This Linear key can’t read issues in <workspace>”. One Linear workspace per machine; several are later (KRI-77). (KRI-60, KRI-57)
 - `ted task create --source <Linear URL>` without a key falls back the same way. (KRI-60)
 - No built-in Linear connector; two-way sync is later (KRI-26). (KRI-20)
