@@ -4,6 +4,8 @@ import {
   type CoordinatorAction,
   type CoordinatorCreate,
   parseAnswerRequest,
+  parseAutomationCardAnswer,
+  parseAutomationDraftRequest,
   parseCoordinatorAction,
   parseCoordinatorConfirmationAnswer,
   parseCoordinatorCreate,
@@ -18,6 +20,13 @@ import { redactSecrets } from '../redact.ts'
 import { jsonRoute, type Route } from './route.ts'
 
 const offset = (raw: string | undefined) => Number(raw ?? 0)
+const automationRef = (raw: string) => {
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    throw new RequestError(400, 'name the Automation by its ID')
+  }
+}
 const context = (value: unknown) => {
   const nonce = randomUUID()
   return {
@@ -130,6 +139,39 @@ export const coordinatorRoutes: Route[] = [
     runToken: true,
     async handle({ caller, body }, { coordinators }) {
       return [201, await coordinators.ask(caller, body)]
+    },
+  }),
+  {
+    method: 'GET',
+    path: /^\/coordinator\/automations$/,
+    runToken: true,
+    handle: async ({ caller }, { coordinators }) => [
+      200,
+      context({ automations: await coordinators.listAutomations(caller) }),
+    ],
+  },
+  {
+    method: 'GET',
+    path: /^\/coordinator\/automations\/([^/?]+)$/,
+    runToken: true,
+    handle: async ({ caller, params: [ref = ''] }, { coordinators }) => [
+      200,
+      context({ automation: await coordinators.showAutomation(caller, automationRef(ref)) }),
+    ],
+  },
+  jsonRoute(parseAutomationDraftRequest, {
+    method: 'POST',
+    path: /^\/coordinator\/automation-drafts$/,
+    runToken: true,
+    async handle({ caller, body }, { coordinators }) {
+      return [201, await coordinators.draftAutomation(caller, body)]
+    },
+  }),
+  jsonRoute(parseAutomationCardAnswer, {
+    method: 'POST',
+    path: /^\/coordinator-chats\/([^/]+)\/automation-cards\/([^/]+)$/,
+    async handle({ params: [id = '', card = ''], body }, { coordinators }) {
+      return [200, await coordinators.answerAutomationCard(id, card, body)]
     },
   }),
   jsonRoute(parseCoordinatorConfirmationAnswer, {

@@ -37,6 +37,7 @@ import {
   type AutopilotChoice,
   agentStageIds,
   asanaSyncOf,
+  automationCardHeadline,
   autopilotEnabled,
   type Banner,
   type BannerAction,
@@ -3646,7 +3647,22 @@ export async function openStore({
             requestKind: isOneOf(r.kind, chatRequestKinds) ? r.kind : 'question',
           }),
         )
-        return [...confirmations, ...asked]
+        const cards = (chat.automationCards ?? [])
+          .filter((c) => c.answer === undefined)
+          .map(
+            (c): WaitingRequest => ({
+              source: 'coordinator',
+              id: c.id,
+              chatId: row.id,
+              chatTitle,
+              agentName,
+              factoryId: row.factoryId,
+              createdAt: c.askedAt,
+              headline: automationCardHeadline(c),
+              automationCard: c.kind,
+            }),
+          )
+        return [...confirmations, ...cards, ...asked]
       })
     const current = settings()
     return [...fromTasks, ...fromAutomations, ...fromPlans, ...fromCoordinators]

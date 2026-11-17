@@ -1102,6 +1102,9 @@ export function App({ start }: { start?: AppStart | undefined }) {
               onNewPlan={openPlans}
               onPlanMore={(from) => dispatch({ type: 'open-plan', factoryId: factory.id, from })}
               onOpenTask={openTaskByRef}
+              onOpenAutomation={(automationId) =>
+                dispatch({ type: 'open-automation', automationId, factoryId: factory.id })
+              }
             />
           )
         return <Stub title={`${name} · ${factoryViewTitles[screen.view]}`} banners={view.banners} />

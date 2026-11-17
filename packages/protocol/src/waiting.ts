@@ -1,3 +1,4 @@
+import type { AutomationCardKind } from './automation-card.ts'
 import type { ChatRequestKind } from './chat-agent.ts'
 import type { CommentKind } from './task.ts'
 
@@ -30,6 +31,7 @@ export type WaitingRequest =
       chatTitle: string
       agentName: string
       confirmationKind?: 'archive' | 'delete'
+      automationCard?: AutomationCardKind
       requestKind?: ChatRequestKind
     })
 

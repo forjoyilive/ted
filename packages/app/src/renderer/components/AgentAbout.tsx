@@ -18,7 +18,7 @@ export const builtInCoordinator: AgentSummary = {
   id: 'coordinator',
   name: 'Coordinator',
   source: 'ted',
-  powers: ['ask', 'manage_tasks'],
+  powers: ['ask', 'manage_tasks', 'manage_automations'],
 }
 
 export const builtInPlanner: AgentSummary = {

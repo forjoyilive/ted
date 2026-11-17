@@ -679,6 +679,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       const createdCoordinators = createCoordinators({
         home: paths.home,
         builtInAgents: chatBuiltIns,
+        automations,
         banners,
         reposDir: paths.repos,
         store,

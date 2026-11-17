@@ -160,10 +160,19 @@ test('a chat runs a repo Agent with the powers it had when the chat started', as
     await run.call('POST', '/coordinator/requests', {
       proposal: { title: 'Pieces', tasks: [{ title: 'One', scope: 'One thing' }] },
     }),
+    await run.call('GET', '/coordinator/automations'),
+    await run.call('GET', '/coordinator/automations/a1'),
+    await run.call('POST', '/coordinator/automation-drafts', {
+      operation: 'op-draft',
+      kind: 'create',
+      fields: { name: 'Daily', prompt: 'Go', schedule: { kind: 'daily', at: '09:00' } },
+    }),
   ]
   for (const res of refused) {
     expect(res.status).toBe(403)
-    expect(JSON.stringify(res.body)).toMatch(/Scout doesn’t have the (Manage|Propose) Tasks power/)
+    expect(JSON.stringify(res.body)).toMatch(
+      /Scout doesn’t have the (Manage Tasks|Propose Tasks|Manage Automations) power/,
+    )
   }
 
   await writeFile(path.join(scratch, 'finish'), '')

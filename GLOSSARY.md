@@ -199,11 +199,11 @@ The conversational agent for one Factory. It compares current Tasks, briefs and 
 _Avoid_: Foreman, manager, supervisor
 
 **Agent**:
-A kind of helper for a Factory that works outside any one Task, with powers of its own: the built-in Coordinator and Planner, which runs planning chats, and Agents a layer defines. An Agent is defined by its Agent files: its settings in `agents.yaml` and its instructions in `agents/<id>.md`, in TED’s defaults, the Library or `.ted/`. Its powers come from a fixed list: Ask the user, Manage Tasks, Propose Tasks and Read the code. The Planner runs in planning chats and every other Agent in Coordinator chats. A chat keeps the Agent as it was when the chat started, so editing or removing an Agent changes only later chats. Each Factory’s Agents screen lists every chat with them. Lowercase “agent” still means a Run or its role (see Provider).
+A kind of helper for a Factory that works outside any one Task, with powers of its own: the built-in Coordinator and Planner, which runs planning chats, and Agents a layer defines. An Agent is defined by its Agent files: its settings in `agents.yaml` and its instructions in `agents/<id>.md`, in TED’s defaults, the Library or `.ted/`. Its powers come from a fixed list: Ask the user, Manage Tasks, Manage Automations, Propose Tasks and Read the code. The Planner runs in planning chats and every other Agent in Coordinator chats. A chat keeps the Agent as it was when the chat started, so editing or removing an Agent changes only later chats. Each Factory’s Agents screen lists every chat with them. Lowercase “agent” still means a Run or its role (see Provider).
 _Avoid_: Assistant, bot
 
 **Power**:
-One thing an Agent’s chat may do through TED: Ask the user (questions and rounds in the Inbox), Manage Tasks (the Coordinator’s Task actions), Propose Tasks (a proposal that creates Tasks when approved) or Read the code (a fresh checkout of the Factory’s repos). TED checks the first three on every request; Read the code only decides whether the chat gets a checkout.
+One thing an Agent’s chat may do through TED: Ask the user (questions and rounds in the Inbox), Manage Tasks (the Coordinator’s Task actions), Manage Automations (reading the Factory’s Automations and drafting new ones, changes and deletes that the user carries out from a card), Propose Tasks (a proposal that creates Tasks when approved) or Read the code (a fresh checkout of the Factory’s repos). TED checks the first four on every request; Read the code only decides whether the chat gets a checkout.
 _Avoid_: Permission, capability, tool
 
 **Chat**:
