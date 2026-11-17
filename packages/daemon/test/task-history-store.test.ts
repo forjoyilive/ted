@@ -74,7 +74,7 @@ test('merge history shares pending/canceled facts and isolates Stage visits', ()
     base: 'main',
   })
   expect(store.mergePending(id)).toBe(false)
-  expect(store.mergeHistory(id)).toEqual({ started: false })
+  expect(store.mergeHistory(id)).toEqual({ started: false, awaitsLead: false })
   store.mergeStarted(id)
   expect(store.mergePending(id)).toBe(true)
   store.mergeCanceled(id, 'comment')
@@ -84,11 +84,12 @@ test('merge history shares pending/canceled facts and isolates Stage visits', ()
     started: true,
     latest: 'started',
     canceledAt: new Date().toISOString(),
+    awaitsLead: false,
   })
   store.changeStage(id, 'work', entry)
   vi.setSystemTime(initial + 1000)
   store.changeStage(id, 'merge', entry)
-  expect(store.mergeHistory(id)).toEqual({ started: false })
+  expect(store.mergeHistory(id)).toEqual({ started: false, awaitsLead: true })
 })
 
 test('rebases and edits respect inclusive timestamp boundaries and Task identity', async () => {
