@@ -43,7 +43,7 @@ const defaultCheckTimeout = '2h'
 const timeoutPattern = /^[1-9]\d{0,4}[smh]$/
 
 const agentStepLabels: Record<CheckAgentStep, string> = {
-  'on-failure': 'When the Check fails',
+  'on-failure': 'When the check fails',
   always: 'After every run',
   never: 'Never',
 }
@@ -352,7 +352,7 @@ export function AutomationDialog({
                 onPick={() => pick('blank', templates)}
               />
               <TemplateCard
-                name="Scheduled Check"
+                name="Scheduled check"
                 note="Run a command; an agent looks into failures"
                 checked={template === 'check'}
                 group={id}
@@ -395,7 +395,7 @@ export function AutomationDialog({
               </label>
               <span className={styles.hint}>required</span>
               <Help>
-                Runs in a fresh worktree on the tip of the default branch, as a Check in TED’s
+                Runs in a fresh worktree on the tip of the default branch, as a check in TED’s
                 sandbox, after the repo’s setup.
               </Help>
             </span>

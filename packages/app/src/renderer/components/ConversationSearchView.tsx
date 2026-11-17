@@ -33,7 +33,7 @@ export function ConversationSearchView({
           <strong className={styles.title}>
             {hit.ref} · {hit.title}
           </strong>
-          <span className={styles.byline}>{hit.runName} · Read-only Conversation</span>
+          <span className={styles.byline}>{hit.runName} · Read-only conversation</span>
         </span>
       </div>
       {error !== undefined && (
@@ -43,7 +43,7 @@ export function ConversationSearchView({
       )}
       {missing && (
         <p className={styles.none}>
-          The matching item is no longer available. The remaining Conversation is shown below.
+          The matching item is no longer available. The remaining conversation is shown below.
         </p>
       )}
       {error === undefined && (

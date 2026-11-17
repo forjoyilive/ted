@@ -193,7 +193,7 @@ function ChangesBlock({
 
 function PreviouslyApprovedSignOff({ id, task }: { id: string; task: Task }) {
   const previous = useComments(task.id).find((c) => c.id === id)
-  if (!previous) return <p className={styles.summary}>Loading previously approved Sign-Off…</p>
+  if (!previous) return <p className={styles.summary}>Loading previously approved sign-off…</p>
   return (
     <>
       {previous.answer?.kind === 'approved' && (
@@ -942,7 +942,7 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
             {request.failed && (
               <Help>
                 Choose Retry to start a fresh Task Lead Run from the brief, or Other answer to leave
-                a Comment for the next Run. Send confirms your choice.
+                a comment for the next Run. Send confirms your choice.
               </Help>
             )}
             <Button
@@ -1098,7 +1098,7 @@ export function RequestCard({
             aria-expanded={showingPrevious}
             onClick={() => setShowingPrevious(!showingPrevious)}
           >
-            {`${showingPrevious ? 'Hide' : 'View'} previously approved ${request.stage === 'review' ? 'review' : 'Sign-Off'}`}
+            {`${showingPrevious ? 'Hide' : 'View'} previously approved ${request.stage === 'review' ? 'review' : 'sign-off'}`}
           </ActionButton>
         )}
       </div>
@@ -1414,8 +1414,8 @@ function runOwner(request: Comment, task: Task): string {
   const who = poster(request, task)
   return who === 'the Task Lead'
     ? 'the Task Lead’s'
-    : who === 'a Sub-Agent'
-      ? 'the Sub-Agent’s'
+    : who === 'a sub-agent'
+      ? 'the sub-agent’s'
       : 'its'
 }
 
@@ -1453,7 +1453,7 @@ function ReplyProgress({
         ? `Task Lead paused · ${task.status.reason}`
         : lead?.state === 'working'
           ? lead.onSubAgents
-            ? 'Task Lead waiting for Sub-Agents'
+            ? 'Task Lead waiting for sub-agents'
             : 'Task Lead working'
           : lead?.state === 'waiting'
             ? 'Task Lead waiting'
@@ -1482,7 +1482,7 @@ function ReplyProgress({
         <span>{activity}</span>
         {onOpenRun && (
           <Button variant="quiet" size="small" onClick={() => onOpenRun(runId)}>
-            Open Conversation
+            Open conversation
           </Button>
         )}
       </div>

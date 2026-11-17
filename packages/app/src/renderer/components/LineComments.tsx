@@ -120,7 +120,7 @@ export function useDiffComments(taskId: string, comments: readonly LineComment[]
             {editor && (
               <LineCommentEditor
                 label={rangeLabel(picked.rows)}
-                saveLabel="Add Line comment"
+                saveLabel="Add line comment"
                 onSave={async (body) => {
                   const first = picked.rows[0]
                   const last = picked.rows.at(-1)
@@ -282,14 +282,14 @@ export function DraftBar({
     }
   }
   return (
-    <section className={styles.bar} aria-label="Draft Line comments">
+    <section className={styles.bar} aria-label="Draft line comments">
       <span className={styles.count}>{draftCount(drafts)}</span>
       <Help>
         {mode === 'request'
-          ? 'Drafts go with Request changes or the next Comment you send. Approve never sends them.'
+          ? 'Drafts go with Request changes or the next comment you send. Approve never sends them.'
           : mode === 'done'
-            ? 'This Task is Done. Drafts go with Follow-Up.'
-            : 'Drafts go with the next Comment you send. Send to Task Lead sends them now as one Comment.'}
+            ? 'This Task is Done. Drafts go with Follow-up.'
+            : 'Drafts go with the next comment you send. Send to Task Lead sends them now as one comment.'}
       </Help>
       {error !== undefined && (
         <span className={styles.error} role="alert">
@@ -302,7 +302,7 @@ export function DraftBar({
       </Button>
       {mode === 'request' ? (
         <Button variant="primary" onClick={onBack}>
-          Back to Sign-Off
+          Back to sign-off
         </Button>
       ) : mode === 'none' ? (
         <Button
@@ -337,7 +337,7 @@ export function UnsentChip({
         {drafts.length} unsent line {drafts.length === 1 ? 'comment' : 'comments'}
       </ActionButton>
       {open && (
-        <ul className={styles.chipList} aria-label="Unsent Line comments">
+        <ul className={styles.chipList} aria-label="Unsent line comments">
           {drafts.map((c) => (
             <li key={c.id}>
               <ActionButton type="button" className={styles.lineLink} onClick={() => onOpen(c)}>

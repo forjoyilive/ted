@@ -21,7 +21,7 @@ export function statusAction(task: Task): StatusAction | undefined {
   if (task.stage === 'done') {
     return {
       kind: 'follow-up',
-      label: 'Follow-Up…',
+      label: 'Follow-up…',
       help: 'Creates a new Task linked to this one, starting from its brief. This Task stays Done.',
     }
   }
@@ -29,14 +29,14 @@ export function statusAction(task: Task): StatusAction | undefined {
     return {
       kind: 'retry',
       label: 'Retry',
-      help: 'Starts a fresh Task Lead Run from the brief plus the Comments since.',
+      help: 'Starts a fresh Task Lead Run from the brief plus the comments since.',
     }
   }
   if (task.statuses.includes('stopped') || task.canResume) {
     return {
       kind: 'resume',
       label: 'Resume',
-      help: 'Starts a fresh Task Lead Run from the brief plus the Comments since, when a slot is free.',
+      help: 'Starts a fresh Task Lead Run from the brief plus the comments since, when a slot is free.',
     }
   }
   if (task.stage === 'backlog') {

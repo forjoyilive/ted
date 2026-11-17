@@ -134,9 +134,9 @@ export function ValidateRounds({
   return (
     <div className={styles.validateRounds}>
       <span className={styles.roundSetting} data-setting="factory.workflow.p1-only">
-        Send back only for P1 Findings
+        Send back only for P1 findings
         <Select
-          aria-label="Validate sends back only for P1 Findings"
+          aria-label="Validate sends back only for P1 findings"
           controlClassName={styles.cellSelect}
           value={from === false ? 'off' : String(from)}
           onChange={(event) =>
@@ -153,25 +153,25 @@ export function ValidateRounds({
           ))}
         </Select>
         <Help>
-          Off: every blocking Finding sends the Task back to Work. From a round: in that round of
-          Validate and every later one, a new Finding sends it back only if it is P1. P1 means lost
+          Off: every blocking finding sends the Task back to Work. From a round: in that round of
+          Validate and every later one, a new finding sends it back only if it is P1. P1 means lost
           or corrupted data, a security hole, or broken behaviour the Task asks for. A Finding from
-          an earlier round that is still not fixed sends it back too. Every other new Finding stays
+          an earlier round that is still not fixed sends it back too. Every other new finding stays
           unfixed and is listed as a note for you at Review. You get fewer rounds, and problems
           Validate found can merge if you approve without reading the notes.
         </Help>
       </span>
       <span className={styles.roundSetting} data-setting="factory.workflow.validate-sub-agents">
-        Other Sub-Agents in Validate
+        Other sub-agents in Validate
         <Toggle
-          label="Other Sub-Agents in Validate"
+          label="Other sub-agents in Validate"
           checked={stage?.subAgents === true}
           onChange={(subAgents) => onStage({ subAgents })}
         />
         <Help>
           Off: in Validate the Task Lead can start only TED’s reviewer, one per visit. On: it can
           also start other sub-agents, for example to run slow tests. Each one takes a working Run,
-          and a sub-agent that reviews the diff adds Findings that can cost another round. The
+          and a sub-agent that reviews the diff adds findings that can cost another round. The
           one-reviewer rule stays either way.
         </Help>
       </span>
@@ -200,7 +200,7 @@ export function WorkFailures({
           failure, only you can close it, from a question in your Inbox. On: once the Task Lead runs
           the test again and it passes, it closes the failure itself with that evidence, and you get
           a line in the thread and no question. TED doesn’t run the test, so you are trusting the
-          Task Lead’s report. Failed Checks and failures found in Validate still need your decision,
+          Task Lead’s report. Failed checks and failures found in Validate still need your decision,
           and only you can accept a failure that still happens.
         </Help>
       </span>
@@ -341,7 +341,7 @@ function WorkflowSectionView({
           <span>Stage</span>
           <span>On</span>
           <span className={styles.gateHeading}>
-            Sign-Off
+            Sign-off
             <Help>
               When on, the Task waits for your approval at the end of this Stage before moving on.
               If the Stage skips itself, its sign-off is skipped too.
@@ -478,7 +478,7 @@ function StageRow({
         <span>
           {decides ? (
             <Toggle
-              label={`${name} Sign-Off`}
+              label={`${name} sign-off`}
               checked={stage?.gate ?? row.gate}
               onChange={(gate) => onStage({ gate })}
             />
@@ -896,7 +896,7 @@ function ChecksSectionView({
                     <Button
                       size="small"
                       disabled={!ready || running || starting.pending}
-                      title={running ? 'Another Check is running.' : undefined}
+                      title={running ? 'Another check is running.' : undefined}
                       onClick={() => runNow(check)}
                     >
                       Run now
@@ -905,7 +905,7 @@ function ChecksSectionView({
                   <ActionButton
                     type="button"
                     className={base.iconButton}
-                    aria-label={`Remove ${check.name || 'this Check'}`}
+                    aria-label={`Remove ${check.name || 'this check'}`}
                     onClick={() => {
                       keys.current.splice(index, 1)
                       return onDraft((d) => ({
@@ -937,7 +937,7 @@ function ChecksSectionView({
           className={base.link}
           onClick={() => onDraft((d) => ({ ...d, checks: [...d.checks, { name: '', run: '' }] }))}
         >
-          + Add Check
+          + Add check
         </ActionButton>
       </div>
       {error !== undefined && (
@@ -1174,7 +1174,7 @@ function PermissionsSectionView({
         />
         <p className={base.caption}>
           Saved here immediately. Applies to new and restarted Task Leads, sub-agents and reviewers,
-          and new Checks and agent-started Apps. Running processes keep their current permissions;
+          and new checks and agent-started Apps. Running processes keep their current permissions;
           stop them to end existing access. Planning, Automation and Coordinator Runs always use
           Auto.
         </p>
@@ -1190,7 +1190,7 @@ function PermissionsSectionView({
           <>
             <p className={styles.bypass}>
               Agents act without asking: they can run any command, change any file and use the
-              network on {machine}. Agent-started Checks and Apps run outside TED’s sandbox.
+              network on {machine}. Agent-started checks and Apps run outside TED’s sandbox.
             </p>
             <Button disabled={busy} onClick={() => save('auto')}>
               Use Auto
@@ -1234,7 +1234,7 @@ function PermissionsSectionView({
               </h2>
               <p className={styles.bypass}>
                 Agents can run any command, change any file and use the network without asking.
-                Agent-started Checks and Apps also run outside TED’s sandbox. Use only on an
+                Agent-started checks and Apps also run outside TED’s sandbox. Use only on an
                 isolated machine or VM. This choice applies only to this Factory on {machine}.
               </p>
               <label>

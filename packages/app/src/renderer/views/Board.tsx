@@ -95,7 +95,7 @@ const cardSizeLabels: Record<BoardView['cardSize'], string> = { full: 'Full', co
 const fieldLabels: Record<BoardField, string> = {
   priority: 'Priority',
   activity: 'Activity line',
-  'sub-agents': 'Sub-Agent count',
+  'sub-agents': 'Sub-agent count',
   blockers: 'Blockers',
   hierarchy: 'Parent and children',
 }
@@ -745,7 +745,7 @@ export function Board({
                   {column.gate && (
                     <span className={styles.gate}>
                       <LockIcon />
-                      Sign-Off
+                      Sign-off
                     </span>
                   )}
                   {column.turnedOff && (

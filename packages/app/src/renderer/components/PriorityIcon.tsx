@@ -6,7 +6,7 @@ const labels: Record<Priority, string> = {
   high: 'High',
   medium: 'Medium',
   low: 'Low',
-  none: 'No Priority',
+  none: 'No priority',
 }
 
 const bars = [

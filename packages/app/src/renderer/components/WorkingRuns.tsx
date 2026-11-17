@@ -70,7 +70,7 @@ function holderRuns(holder: SlotHolder): string {
   if (holder.runs === 0 && holder.settingUp) return 'Setting up the worktree'
   const subs = holder.subAgents
   if (subs === 0) return 'Task Lead'
-  const named = subs === 1 ? '1 Sub-Agent' : `${subs} Sub-Agents`
+  const named = subs === 1 ? '1 sub-agent' : `${subs} sub-agents`
   return holder.runs > subs ? `Task Lead and ${named}` : named
 }
 
@@ -144,7 +144,7 @@ export function WorkingRunsPopover({
         >{`${slots.working} of ${slots.limit} slots on ${machine}`}</span>
       </div>
       {empty ? (
-        <p className={styles.empty}>No Runs working. No Checks. Nothing queued.</p>
+        <p className={styles.empty}>No Runs working. No checks. Nothing queued.</p>
       ) : (
         <div className={styles.body}>
           {working.length > 0 && (
@@ -174,7 +174,7 @@ export function WorkingRunsPopover({
             <Group
               label="Checks"
               count={checkRows}
-              help="Checks run beside agent Runs and don’t use a slot. Settings → Limits sets how many run at once; the rest wait in line. A Task Lead waits while its Task’s Checks run."
+              help="Checks run beside agent Runs and don’t use a slot. Settings → Limits sets how many run at once; the rest wait in line. A Task Lead waits while its Task’s checks run."
             >
               {checks.tasks.map((task) =>
                 task.place === undefined ? (
@@ -182,7 +182,7 @@ export function WorkingRunsPopover({
                     key={task.taskId}
                     lead={task.displayId}
                     title={task.title}
-                    detail={`${name(task.factoryId)} · Running Checks`}
+                    detail={`${name(task.factoryId)} · Running checks`}
                   />
                 ) : (
                   <Row
@@ -190,14 +190,14 @@ export function WorkingRunsPopover({
                     lead={ordinal(task.place)}
                     place
                     title={`${task.displayId} · ${task.title}`}
-                    detail={`${name(task.factoryId)} · Waiting to run Checks`}
+                    detail={`${name(task.factoryId)} · Waiting to run checks`}
                   />
                 ),
               )}
               {scheduled > 0 && (
                 <Row
                   lead="Auto"
-                  title="Scheduled Checks"
+                  title="Scheduled checks"
                   detail={[
                     checks.scheduled.running > 0 && `${checks.scheduled.running} running`,
                     checks.scheduled.waiting > 0 && `${checks.scheduled.waiting} waiting`,
@@ -229,7 +229,7 @@ export function WorkingRunsPopover({
             <Group
               label="Queued"
               count={slots.queue.length}
-              help="The next free slot goes to the first in line: the setup Task, sub-agent requests, Automation drafts, Automation Runs, then Tasks by Priority and rank. A chat waits here only while the disk is full or its Provider can’t run."
+              help="The next free slot goes to the first in line: the setup Task, sub-agent requests, Automation drafts, Automation Runs, then Tasks by priority and rank. A chat waits here only while the disk is full or its Provider can’t run."
             >
               {slots.queue.map((entry) =>
                 entry.kind === 'sub-agent' ? (
@@ -238,7 +238,7 @@ export function WorkingRunsPopover({
                     lead={ordinal(entry.place)}
                     place
                     title={`${entry.displayId} · ${entry.name}`}
-                    detail={`${name(entry.factoryId)} · Sub-Agent`}
+                    detail={`${name(entry.factoryId)} · Sub-agent`}
                   />
                 ) : entry.kind !== 'task' ? (
                   <Row

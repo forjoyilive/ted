@@ -38,7 +38,7 @@ export const createdByLabels: Record<CreatedBy, string> = {
   automation: 'An Automation',
   planning: 'A planning chat',
   split: 'A split',
-  'follow-up': 'A Follow-Up',
+  'follow-up': 'A follow-up',
   setup: 'Factory setup',
   coordinator: 'The Coordinator',
   'task-lead': 'A Task Lead',
@@ -334,7 +334,7 @@ export function groupTasks(
       return make(
         priorities,
         (t) => t.priority,
-        (p: Priority) => (p === 'none' ? 'No Priority' : priorityLabels[p]),
+        (p: Priority) => (p === 'none' ? 'No priority' : priorityLabels[p]),
       )
     case 'status':
       return make(

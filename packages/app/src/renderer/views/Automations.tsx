@@ -671,7 +671,7 @@ export function AutomationView({
       ? `next ${firingDate(automation.nextFirings[0])}`
       : 'Off',
     ...(automation.check
-      ? ['Scheduled Check']
+      ? ['Scheduled check']
       : [agentLabels[automation.agent], automation.model, automation.effort]),
   ]
     .filter(Boolean)
@@ -871,7 +871,7 @@ export function AutomationView({
               {automation.check.command}
             </pre>
             <p className={styles.detailNote}>
-              Runs as a Check on the tip of the default branch, in TED’s sandbox · times out after{' '}
+              Runs as a check on the tip of the default branch, in TED’s sandbox · times out after{' '}
               {automation.check.timeout}
             </p>
             <p className={styles.detailNote}>
@@ -889,7 +889,7 @@ export function AutomationView({
                 : [
                     automation.check.agentStep === 'always'
                       ? 'After every run'
-                      : 'When the Check fails',
+                      : 'When the check fails',
                     agentLabels[automation.agent],
                     automation.model,
                     automation.effort,
@@ -1024,7 +1024,7 @@ function AutomationOutputDialog({
           className={`${outputStyles.output} ${output === undefined ? outputStyles.pending : ''}`}
         >
           {output === undefined ? (
-            <Loading terminal label="Loading Check output…" />
+            <Loading terminal label="Loading check output…" />
           ) : output.text === '' ? (
             'No output.'
           ) : (

@@ -158,12 +158,12 @@ function OnboardingSteps({
             </article>
           </HowRow>
           <HowRow
-            heading="Approve the work at each Sign-Off"
+            heading="Approve the work at each sign-off"
             text="Each Task moves through Stages: Intake, Clarify, Design, Work, Validate, Review and Merge. At a sign-off the Task stops until you approve it or ask for changes, so nothing merges that you haven’t seen."
           >
             <div className={`${requestStyles.card} ${styles.sampleRequest}`}>
               <div className={requestStyles.head}>
-                <span className={requestStyles.kind}>Review Sign-Off</span>
+                <span className={requestStyles.kind}>Review sign-off</span>
                 <span> · WEB-12 · from Task Lead · 2m ago</span>
               </div>
               <p className={requestStyles.title}>Ready to merge: dark mode switch in Settings.</p>

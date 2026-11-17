@@ -165,7 +165,7 @@ function RepairDetails({
   const incorporated = failure.repairProgress?.some((p) => p.requestId === decision.requestId)
   const waiting = affected?.blockedBy.includes(repair.id)
   const closes =
-    'Fresh passing Checks close this failure. If this Task is stopped, use Resume in Task details first.'
+    'Fresh passing checks close this failure. If this Task is stopped, use Resume in Task details first.'
   const fixedBy = failure.verifications?.findLast((v) => v.fixedBy)?.fixedBy
   const message = !affected
     ? 'Loading repair status…'

@@ -33,7 +33,7 @@ const totalValue = (measure: FlowPeriod['stages'][number] | undefined) =>
 
 export const partNames: Record<StagePart, string> = {
   working: 'Agent working',
-  checks: 'Running Checks',
+  checks: 'Running checks',
   you: 'Waiting on you',
   slot: 'Waiting for a slot',
   github: 'Waiting on GitHub',
@@ -202,9 +202,9 @@ function StageTable({
       </ul>
       {used.length > 0 && (
         <p className={styles.caption}>
-          Reasons can overlap, for example a Run waiting for a slot while Checks run. Each hour
+          Reasons can overlap, for example a Run waiting for a slot while checks run. Each hour
           counts once, under the first reason that applies, in the legend’s order: Agent working,
-          Running Checks, Waiting on you, Waiting for a slot, Waiting on GitHub, then Blocked or
+          Running checks, Waiting on you, Waiting for a slot, Waiting on GitHub, then Blocked or
           paused. Other is time no recorded reason covers, including history TED didn’t record.
           Hover a segment for its hours; click it for the Tasks.
         </p>

@@ -262,8 +262,8 @@ export function ConfirmationCard({
       {!answered && (
         <p className={styles.body}>
           {deleting
-            ? 'Deleting removes each Task with its Comments, brief, Conversations and worktree. This can’t be undone.'
-            : 'Comments, the brief, Conversations and the branches are kept. You can unarchive later.'}
+            ? 'Deleting removes each Task with its comments, brief, conversations and worktree. This can’t be undone.'
+            : 'Comments, the brief, conversations and the branches are kept. You can unarchive later.'}
         </p>
       )}
       <ul className={styles.tasks}>

@@ -7,7 +7,7 @@ import styles from './PriorityMenu.module.css'
 export const priorityMenuOrder: readonly Priority[] = ['none', 'urgent', 'high', 'medium', 'low']
 
 const names: Record<Priority, string> = {
-  none: 'No Priority',
+  none: 'No priority',
   urgent: 'Urgent',
   high: 'High',
   medium: 'Medium',
@@ -34,8 +34,8 @@ export function PriorityButton({ task }: { task: Task }) {
         className={styles.button}
         aria-haspopup="menu"
         aria-expanded={actions.isOpen}
-        aria-label={`Priority: ${names[task.priority]}. Change Priority of ${task.displayId}`}
-        title="Change Priority"
+        aria-label={`Priority: ${names[task.priority]}. Change priority of ${task.displayId}`}
+        title="Change priority"
         draggable={false}
         onClick={(event) => {
           event.stopPropagation()
