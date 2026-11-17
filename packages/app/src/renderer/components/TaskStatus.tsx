@@ -52,9 +52,7 @@ export function statusLabel(status: TaskStatus): string {
     case 'partly-merged':
       return 'Partly merged'
     case 'waiting-on-you':
-      return status.snoozedUntil === undefined
-        ? 'Waiting on you'
-        : `Snoozed until ${snoozeTime(status.snoozedUntil)}`
+      return status.snoozedUntil === undefined ? 'Waiting on you' : 'Snoozed'
     case 'paused':
       return `Paused · ${status.reason}`
     case 'working':
@@ -177,6 +175,8 @@ function Marker({
 function statusTitle(status: TaskStatus): string | undefined {
   if (status.kind === 'queued' && 'place' in status && status.after !== undefined)
     return `${ordinal(status.place)} in the queue`
+  if (status.kind === 'waiting-on-you' && status.snoozedUntil !== undefined)
+    return `Snoozed until ${snoozeTime(status.snoozedUntil)}`
   return statusDetail(status)
 }
 
