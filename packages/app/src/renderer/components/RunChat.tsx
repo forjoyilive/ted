@@ -363,28 +363,25 @@ function HumanMessage({
   item: Extract<ChatItem, { kind: 'human' }>
   run?: Pick<RunSummary, 'id' | 'state' | 'role'>
   now: number
-  options?: Pick<ChatOptions, 'live' | 'interrupt' | 'inspect' | 'audience' | 'humanAs'>
+  options?: Pick<ChatOptions, 'live' | 'interrupt' | 'inspect' | 'audience'>
 }) {
-  const profile = useProfile()
   const unsent = item.unsent === true
   const queued = item.queued === true || unsent
   const live = !unsent && run !== undefined && (options.live ?? run.state !== 'finished')
   const audience =
     options.audience ?? (run && (run.role === 'lead' ? 'to the Task Lead' : 'to this Run only'))
-  const comment = options.humanAs === 'comment'
-  const head = (
-    <div className={styles.messageHead}>
-      <span className={styles.author}>{profile.name}</span>
-      <span className={styles.when}>
-        {[
-          ...(comment ? [] : ['']),
-          audience,
-          !queued ? ago(item.at, now) : undefined,
-          !item.sent && !queued ? 'sending' : undefined,
-        ]
-          .filter((part) => part !== undefined)
-          .join(' · ')}
-      </span>
+  return (
+    <PersonMessage
+      when={[
+        audience,
+        !queued ? ago(item.at, now) : undefined,
+        !item.sent && !queued ? 'sending' : undefined,
+      ]
+        .filter((part) => part !== undefined)
+        .join(' · ')}
+      text={item.text}
+      queued={queued}
+    >
       {queued && (
         <span className={styles.queuedChip}>
           <ClockIcon />
@@ -394,24 +391,32 @@ function HumanMessage({
       {queued && live && run && !options.inspect && (
         <QueuedActions runId={run.id} messageId={item.id} sendNow={options.interrupt !== false} />
       )}
-    </div>
+    </PersonMessage>
   )
-  if (comment) {
-    return (
-      <div className={`${styles.message} ${styles.personMessage}`} data-queued={queued}>
-        <PersonAvatar name={profile.name} photo={profile.photo} />
-        <div className={styles.messageBody}>
-          {head}
-          <Markdown className={styles.text} text={item.text} />
-        </div>
-      </div>
-    )
-  }
+}
+
+export function PersonMessage({
+  when,
+  text,
+  queued = false,
+  children,
+}: {
+  when: string
+  text: string
+  queued?: boolean
+  children?: ReactNode
+}) {
+  const profile = useProfile()
   return (
-    <div className={styles.human}>
-      <div className={styles.bubble} data-queued={queued}>
-        {head}
-        <Markdown className={styles.text} text={item.text} />
+    <div className={`${styles.message} ${styles.personMessage}`} data-queued={queued}>
+      <PersonAvatar name={profile.name} photo={profile.photo} />
+      <div className={styles.messageBody}>
+        <div className={styles.messageHead}>
+          <span className={styles.author}>{profile.name}</span>
+          <span className={styles.when}>{when}</span>
+          {children}
+        </div>
+        <Markdown className={styles.text} text={text} />
       </div>
     </div>
   )
@@ -535,7 +540,6 @@ function sameRow(before: ChatRowProps, after: ChatRowProps): boolean {
     before.options.interrupt === after.options.interrupt &&
     before.options.inspect === after.options.inspect &&
     before.options.audience === after.options.audience &&
-    before.options.humanAs === after.options.humanAs &&
     before.options.tedAs === after.options.tedAs &&
     (before.options.stopOutside === undefined) === (after.options.stopOutside === undefined) &&
     (before.options.matchItemId === before.item.id) ===
@@ -612,7 +616,6 @@ export interface ChatOptions {
   matchItemId?: string
   spot?: string
   audience?: string
-  humanAs?: 'comment'
   tedAs?: 'line'
 
   header?: ((run: RunSummary) => ReactNode) | undefined

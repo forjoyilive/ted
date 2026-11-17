@@ -597,12 +597,12 @@ test('List ID column fits the longest ID, and Status gives way before Title is u
     'max(56px, calc(10 * 0.65 * var(--text-14)))',
   )
   expect(listGrid(['id', 'title', 'status', 'updated'], [{ displayId: 'TED-1' }])).toBe(
-    '4px 24px max(56px, calc(7 * 0.65 * var(--text-14))) minmax(160px, 1fr) ' +
-      'minmax(120px, min(300px, calc(100% - 4px - 24px - max(56px, calc(7 * 0.65 * var(--text-14))) - 40ch - 56px - 4px - 6 * 16px))) 56px 4px',
+    '4px 24px max(56px, calc(7 * 0.65 * var(--text-14))) minmax(120px, 1fr) ' +
+      'minmax(176px, min(300px, calc(100% - 4px - 24px - max(56px, calc(7 * 0.65 * var(--text-14))) - 40ch - 56px - 4px - 6 * 16px))) 56px 4px',
   )
-  expect(listGrid(['id', 'status'], [])).toContain('minmax(120px, 300px)')
+  expect(listGrid(['id', 'status'], [])).toContain('minmax(176px, 300px)')
   expect(listGrid(['children', 'parent'], [{ displayId: 'TED-1000' }])).toBe(
-    '4px 24px 108px max(80px, calc(max(56px, calc(10 * 0.65 * var(--text-14))) + 8px)) 4px',
+    '4px 24px 104px max(80px, max(56px, calc(10 * 0.65 * var(--text-14)))) 4px',
   )
 })
 
@@ -716,5 +716,5 @@ test('Stopped is red, Snoozed is amber and Ready for Work stays green', async ()
   await screen.findByRole('region', { name: 'Work' })
   expect(screen.getByText('Stopped').className).toContain('stopped')
   expect(screen.getByText('Ready for Work').className).toContain('success')
-  expect(screen.getByText(/^Snoozed until/).className).toContain('snoozed')
+  expect(screen.getByText('Snoozed').className).toContain('snoozed')
 })

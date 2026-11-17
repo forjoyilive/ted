@@ -788,7 +788,6 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         operation,
         tasks: args.map((id) => ({ id, version: (versions as Record<string, unknown>)[id] })),
         ...(options.children !== undefined && { children: options.children }),
-        ...(options.blocked !== undefined && { blocked: options.blocked }),
         ...(options['close-pull-requests'] === true && { closePullRequests: true }),
       },
       kind,

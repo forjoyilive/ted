@@ -34,7 +34,7 @@ import { ProposalAnswer, ProposalRows } from '../components/ProposalCard.tsx'
 import { QuestionChoices, type QuestionSelection } from '../components/QuestionChoices.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { RoundAnswers, RoundQuestions } from '../components/RoundCard.tsx'
-import { type ChatExtra, RunChat, tokenCount } from '../components/RunChat.tsx'
+import { type ChatExtra, PersonMessage, RunChat, tokenCount } from '../components/RunChat.tsx'
 import { agentNames, RunIcon } from '../components/RunIcon.tsx'
 import type { ScrollReveal } from '../components/ScrollMemory.tsx'
 import { Select } from '../components/Select.tsx'
@@ -1214,10 +1214,7 @@ function QueuedChat({ plan }: { plan: Plan }) {
   return (
     <div className={styles.queued}>
       <div className={styles.queuedBody}>
-        <div className={styles.bubble}>
-          <span className={styles.bubbleHead}>{`You · ${clockTime(plan.createdAt)}`}</span>
-          <p className={styles.bubbleText}>{plan.message}</p>
-        </div>
+        <PersonMessage when={clockTime(plan.createdAt)} text={plan.message} />
         <p className={styles.waitNote}>
           {plan.status === 'queued'
             ? (plan.paused ?? 'Your message is kept. The planner is starting.')

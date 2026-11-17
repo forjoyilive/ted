@@ -58,7 +58,11 @@ export function CommentBox({
   const working = direct && run?.state === 'working'
   const typed = text.trim() !== ''
   const ready = (typed || files.length > 0) && uploading === 0
-  const note = task.canResume ? undefined : notes[state]
+  const note = task.canResume
+    ? undefined
+    : task.wakesOnComment
+      ? 'Send starts the Task Lead, and it gets this with the brief.'
+      : notes[state]
 
   const resumes = state === 'stopped'
   const done = state === 'done'

@@ -317,19 +317,7 @@ describe('the archived Task', () => {
 })
 
 describe('blocking others', () => {
-  test('archiving unblocks the Tasks it blocks by default', async () => {
-    const client = await startTed()
-    const blocker = await create(client, 'Blocker')
-    const waiting = await create(client, 'Waiting', { blockedBy: [blocker.id] })
-
-    await client.ok('POST', `/tasks/${blocker.id}/archive`)
-
-    const now = await getTask(client, waiting.id)
-    expect(now.blockedBy).toEqual([])
-    expect(now.markers).toEqual([])
-  })
-
-  test('archiving can keep them blocked, and the link says the blocker is archived', async () => {
+  test('archiving unblocks the Tasks it blocks, whatever an older client asks', async () => {
     const client = await startTed()
     const blocker = await create(client, 'Blocker')
     const waiting = await create(client, 'Waiting', { blockedBy: [blocker.id] })
@@ -337,45 +325,18 @@ describe('blocking others', () => {
     await client.ok('POST', `/tasks/${blocker.id}/archive`, { blocked: 'keep' })
 
     const now = await getTask(client, waiting.id)
-    expect(now.blockedBy).toEqual([blocker.id])
-    expect(now.markers).toEqual([{ kind: 'blocked-by', by: 'NB-1', ended: 'archived' }])
-    expect(now.activity).toBe('Blocked by archived NB-1')
+    expect(now.blockedBy).toEqual([])
+    expect(now.markers).toEqual([])
   })
 
-  test('deleting can keep them blocked, and the link still names the deleted Task', async () => {
+  test('deleting unblocks them, whatever an older client asks', async () => {
     const client = await startTed()
     const blocker = await create(client, 'Blocker')
     const waiting = await create(client, 'Waiting', { blockedBy: [blocker.id] })
 
     await client.ok('POST', `/tasks/${blocker.id}/delete`, { blocked: 'keep' })
 
-    const now = await getTask(client, waiting.id)
-    expect(now.markers).toEqual([{ kind: 'blocked-by', by: 'NB-1', ended: 'deleted' }])
-    expect(now.activity).toBe('Blocked by deleted NB-1')
-    expect((await client.call('POST', `/tasks/${waiting.id}/start`)).body).toMatchObject({
-      stage: 'backlog',
-    })
-
-    const removed = await client.call('DELETE', `/tasks/${waiting.id}/blockers/${blocker.id}`)
-    expect(removed.status).toBe(200)
     expect((await getTask(client, waiting.id)).blockedBy).toEqual([])
-  })
-
-  test('deleting unblocks them by default', async () => {
-    const client = await startTed()
-    const blocker = await create(client, 'Blocker')
-    const waiting = await create(client, 'Waiting', { blockedBy: [blocker.id] })
-
-    await client.ok('POST', `/tasks/${blocker.id}/delete`)
-
-    expect((await getTask(client, waiting.id)).blockedBy).toEqual([])
-  })
-
-  test('a blocked choice other than unblock or keep is refused', async () => {
-    const client = await startTed()
-    const task = await create(client, 'A')
-    const res = await client.call('POST', `/tasks/${task.id}/archive`, { blocked: 'maybe' })
-    expect(res.status).toBe(400)
   })
 })
 

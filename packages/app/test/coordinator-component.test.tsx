@@ -745,6 +745,7 @@ test('a Coordinator confirmation card shows its warnings and sends the human’s
             stage: 'review',
             descendants: [{ id: 'NB-11', displayId: 'NB-11', title: 'CSV headers' }],
             blockedTasks: [],
+            blockedTogether: [{ id: 'NB-12', displayId: 'NB-12', title: 'CSV import' }],
             pullRequests: [{ repo: 'ted', number: 212 }],
             working: true,
           },
@@ -761,7 +762,11 @@ test('a Coordinator confirmation card shows its warnings and sends the human’s
   const close = within(card).getByRole('checkbox', { name: /Close the pull request/ })
   expect((close as HTMLInputElement).checked).toBe(false)
   await user().click(close)
+  expect(within(card).getByRole('region', { name: 'Unblocks 1 Task' }).textContent).toContain(
+    'NB-12',
+  )
   await user().click(within(card).getByRole('radio', { name: /Detach them and keep them/ }))
+  expect(within(card).queryByRole('region', { name: /^Unblocks/ })).toBeNull()
   await user().click(within(card).getByRole('button', { name: 'Archive NB-3' }))
   expect(answer).toHaveBeenCalledWith('k1', 'c1', {
     decision: 'confirm',

@@ -1,5 +1,4 @@
 import type {
-  BlockedChoice,
   ConfirmationChoices,
   ConfirmationTaskRef,
   CoordinatorConfirmation,
@@ -10,6 +9,7 @@ import { clockTime } from '../requests.ts'
 import { useStages } from '../stages.tsx'
 import { readableError, ted } from '../ted.ts'
 import dialogs from './ArchiveDialogs.module.css'
+import { UnblocksList } from './ArchiveDialogs.tsx'
 import { Button } from './Button.tsx'
 import styles from './ConfirmationCard.module.css'
 
@@ -82,11 +82,14 @@ function CardTask({
   const id = task.displayId
   const ending = kind === 'archive' ? 'archived' : 'deleted'
   const under = task.descendants.length
-  const blocked = task.blockedTasks.length
   const together = kind === 'archive' ? 'archive' : 'delete'
   const apart = kind === 'archive' ? 'detach' : 'unparent'
   const children = choices.children ?? (kind === 'archive' ? 'archive' : 'unparent')
-  const blockedChoice: BlockedChoice = choices.blocked ?? 'unblock'
+  const unblocks =
+    under > 0 && children === together
+      ? (task.blockedTogether ?? task.blockedTasks)
+      : task.blockedTasks
+  const blocked = unblocks.length
   const prs = task.pullRequests.map((p) => `${p.repo} #${p.number}`).join(', ')
   return (
     <li className={styles.task} data-confirmation-task={task.id}>
@@ -153,30 +156,10 @@ function CardTask({
               </fieldset>
             )}
             {blocked > 0 && (
-              <fieldset className={dialogs.blocked}>
-                <legend className={dialogs.blockedHeading}>
-                  {`${plural(blocked, 'Task is', 'Tasks are')} blocked by ${id}`}
-                </legend>
-                <TaskList tasks={task.blockedTasks} />
-                <Radio
-                  name={`${confirmationId}-${task.id}-blocked`}
-                  value="unblock"
-                  chosen={blockedChoice}
-                  label={blocked === 1 ? 'Unblock it' : 'Unblock them'}
-                  help={`Removes ${id} from ${blocked === 1 ? 'its' : 'their'} Blocked by, so ${blocked === 1 ? 'it' : 'they'} can start.`}
-                  disabled={disabled}
-                  onChoose={(value) => onChange({ ...choices, blocked: value })}
-                />
-                <Radio
-                  name={`${confirmationId}-${task.id}-blocked`}
-                  value="keep"
-                  chosen={blockedChoice}
-                  label={blocked === 1 ? 'Keep it blocked' : 'Keep them blocked'}
-                  help={`${blocked === 1 ? 'It stays' : 'They stay'} blocked and ${blocked === 1 ? 'shows' : 'show'} “Blocked by ${ending} ${id}”.`}
-                  disabled={disabled}
-                  onChoose={(value) => onChange({ ...choices, blocked: value })}
-                />
-              </fieldset>
+              <UnblocksList
+                blocker={under > 0 && children === together ? `${id} and the Tasks under it` : id}
+                tasks={unblocks}
+              />
             )}
           </div>
         )
@@ -215,7 +198,6 @@ export function ConfirmationCard({
         t.id,
         {
           ...(t.children !== undefined && { children: t.children }),
-          ...(t.blocked !== undefined && { blocked: t.blocked }),
           ...(t.closePullRequests !== undefined && { closePullRequests: t.closePullRequests }),
         },
       ]),

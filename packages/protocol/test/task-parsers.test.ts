@@ -126,7 +126,6 @@ roundTrip(P.parseSetPriorityRequest, { priority: 'high' })
 roundTrip(P.parseEditTaskRequest, { title: 'Title', description: 'Details' })
 roundTrip(P.parseArchiveTaskRequest, {
   closePullRequests: true,
-  blocked: 'keep',
   children: 'detach',
   hierarchyRevision: 'a'.repeat(64),
 })
@@ -206,7 +205,6 @@ test('commitTitleProblem accepts Conventional Commits titles without the Task ID
   expect(P.commitTitle('fix: keep it open', 'TED-12')).toBe('fix: keep it open (TED-12)')
 })
 roundTrip(P.parseDeleteTaskRequest, {
-  blocked: 'unblock',
   children: 'delete',
   hierarchyRevision: 'a'.repeat(64),
 })
@@ -304,7 +302,6 @@ for (const answer of [
     choices: ['Board', 'List'],
     archive: {
       closePullRequests: true,
-      blocked: 'keep',
       children: 'detach',
       hierarchyRevision: 'a'.repeat(64),
     },
@@ -415,7 +412,6 @@ rejects(P.parseMoveTaskRequest, { after: 2 }, 'after must be a Task ID')
 rejects(P.parseSetPriorityRequest, {}, 'priority must be')
 rejects(P.parseEditTaskRequest, {}, 'send a title, a description or both')
 rejects(P.parseArchiveTaskRequest, { closePullRequests: 1 }, 'closePullRequests must be')
-rejects(P.parseDeleteTaskRequest, { blocked: 'other' }, 'blocked must be')
 rejects(P.parseBlockTaskRequest, {}, 'by is required')
 rejects(P.parseSetTaskReposRequest, { add: [], set: [] }, 'give exactly one')
 rejects(P.parseSetClarifyDepthRequest, { depth: 'other' }, 'depth must be')
@@ -541,7 +537,7 @@ rejects(P.parseLocalDesignReviewInput, { screenshots: [1] }, 'needs a path')
 
 test('legacy defaults, normalization and unknown fields remain explicit', () => {
   expect(P.parseRunChecksRequest({ name: 1 })).toEqual({})
-  expect(P.parseArchiveTaskRequest(null)).toEqual({ closePullRequests: false, blocked: 'unblock' })
+  expect(P.parseArchiveTaskRequest(null)).toEqual({ closePullRequests: false })
   expect(P.parseMoveTaskRequest({ after: null, unknown: true })).toEqual({})
   expect(P.parseSetActivityRequest({ text: '\u001b[31m Working\n now \u0000' })).toEqual({
     text: 'Working now',

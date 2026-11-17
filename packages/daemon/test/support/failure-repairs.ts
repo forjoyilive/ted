@@ -75,7 +75,7 @@ async function decide({ client, task, check }: Awaited<ReturnType<typeof begin>>
         published:
           value.repos.length > 0 && value.repos.every((repo) => repo.pullRequest && repo.pushed),
         recorded,
-        settled: !value.statuses.includes('working'),
+        settled: !value.statuses.includes('working') && !value.checksActive,
       }
       last = JSON.stringify({
         ...ready,

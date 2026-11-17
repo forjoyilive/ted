@@ -18,25 +18,22 @@ const blocked = task({
   blockedBy: ['NB-1'],
 })
 
-test('Archive defaults to unblock, allows Keep blocked, and sends the choice', async () => {
+test('Archive lists the Tasks it unblocks without asking about them', async () => {
   const api = bridge({ listTasks: () => [task(), blocked], archiveTask: vi.fn() })
   const close = vi.fn()
   render(<ArchiveDialog task={task()} onClose={close} />)
-  await screen.findByText('1 Task is blocked by NB-1')
-  expect(screen.getByText('Highlight search matches')).toBeTruthy()
-  expect((screen.getByRole('radio', { name: /^Unblock it/ }) as HTMLInputElement).checked).toBe(
-    true,
-  )
-  await user().click(screen.getByRole('radio', { name: /^Keep it blocked/ }))
+  const list = await screen.findByRole('region', { name: 'Unblocks 1 Task' })
+  expect(within(list).getByText('Highlight search matches')).toBeTruthy()
+  expect(
+    within(list).getByText('Ted removes NB-1 from its Blocked by. It doesn’t start on its own.'),
+  ).toBeTruthy()
+  expect(screen.queryByRole('radio')).toBeNull()
   await user().click(screen.getByRole('button', { name: 'Archive' }))
-  expect(api.request).toHaveBeenCalledWith('archiveTask', 'NB-1', {
-    closePullRequests: false,
-    blocked: 'keep',
-  })
+  expect(api.request).toHaveBeenCalledWith('archiveTask', 'NB-1', { closePullRequests: false })
   expect(close).toHaveBeenCalledOnce()
 })
 
-test('Delete offers Archive instead and sends its unblock choice', async () => {
+test('Delete offers Archive instead and lists the Tasks it unblocks', async () => {
   const archive = vi.fn()
   const close = vi.fn()
   const api = bridge({
@@ -45,12 +42,13 @@ test('Delete offers Archive instead and sends its unblock choice', async () => {
     deleteTask: vi.fn(),
   })
   render(<DeleteDialog task={task()} onClose={close} onArchiveInstead={archive} />)
-  await screen.findByText('1 Task is blocked by NB-1')
+  await screen.findByRole('region', { name: 'Unblocks 1 Task' })
+  expect(screen.queryByRole('radio')).toBeNull()
   expect(screen.getByText(/This can’t be undone/)).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'Archive instead' }))
   expect(archive).toHaveBeenCalledOnce()
   await user().click(screen.getByRole('button', { name: 'Delete NB-1' }))
-  expect(api.request).toHaveBeenCalledWith('deleteTask', 'NB-1', { blocked: 'unblock' })
+  expect(api.request).toHaveBeenCalledWith('deleteTask', 'NB-1', {})
   expect(close).toHaveBeenCalledOnce()
 })
 
@@ -205,7 +203,7 @@ test('App switches Delete to Archive, cancels it, then removes the deleted Task 
   }))
   a.handle('deleteTask', (id, choices) => {
     expect(id).toBe('NB-1')
-    expect(choices).toEqual({ blocked: 'unblock' })
+    expect(choices).toEqual({})
     a.state.tasks = [task({ ...blocked, blockedBy: [] })]
     a.emit({ type: 'task-deleted', taskId: 'NB-1' })
     a.emit({ type: 'task-updated', task: task({ ...blocked, blockedBy: [] }) })
@@ -235,7 +233,7 @@ test('App switches Delete to Archive, cancels it, then removes the deleted Task 
     'Highlight search matches',
   )
   expect(document.querySelector('tr[data-task="NB-2"]')?.textContent).not.toContain('Blocked')
-  expect(a.request).toHaveBeenCalledWith('deleteTask', 'NB-1', { blocked: 'unblock' })
+  expect(a.request).toHaveBeenCalledWith('deleteTask', 'NB-1', {})
 })
 
 test('Task actions opens and chooses actions without opening the enclosing Task', async () => {

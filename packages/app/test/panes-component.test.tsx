@@ -6,8 +6,11 @@ import { appState } from './support/app.tsx'
 import { deferred, required, user } from './support/component.ts'
 import { comment, createdAt, factory, plannerAgent, task } from './support/fixtures.ts'
 
-async function openTask(a: ReturnType<typeof appState>) {
-  a.state.tasks = [task()]
+async function openTask(
+  a: ReturnType<typeof appState>,
+  overrides: Parameters<typeof task>[0] = {},
+) {
+  a.state.tasks = [task(overrides)]
   a.mount()
   await user().click(await screen.findByRole('button', { name: 'All Tasks' }))
   await user().click(within(screen.getByRole('main')).getByText('Sync notes'))
@@ -48,6 +51,24 @@ test('thread notes show relative ages and keep advancing while open', async () =
   } finally {
     vi.useRealTimers()
   }
+})
+
+test('an undelivered Comment says what happens to it next', async () => {
+  const a = appState()
+  a.handle('listComments', () => [
+    comment({ id: 'c1', kind: 'note', body: 'Did you see my message?', author: { kind: 'human' } }),
+  ])
+  const thread = await openTask(a, { commentDelivery: 'paused', lead: { agent: 'codex' } })
+  expect(await within(thread).findByText('Waits for Codex to come back')).toBeTruthy()
+})
+
+test('the comment box says Send starts a Task Lead that ended while it waited', async () => {
+  const thread = await openTask(appState(), { commentBox: 'no-run', wakesOnComment: true })
+  const box = required(within(thread).getByRole('textbox', { name: 'Comment' }).closest('fieldset'))
+  await user().hover(within(box).getByRole('button', { name: 'Help' }))
+  expect(
+    await within(box).findByText('Send starts the Task Lead, and it gets this with the brief.'),
+  ).toBeTruthy()
 })
 
 test('Task back links restore Board, List and All Tasks', async () => {

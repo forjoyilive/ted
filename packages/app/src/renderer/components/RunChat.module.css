@@ -257,20 +257,6 @@
   line-height: var(--leading-body);
 }
 
-.human {
-  display: flex;
-  flex-shrink: 0;
-  justify-content: flex-end;
-}
-
-.bubble {
-  min-width: 0;
-  max-width: 75%;
-  padding: 8px 12px;
-  border-radius: var(--radius-control);
-  background: var(--status-working-bg);
-}
-
 .composer {
   display: flex;
   flex-shrink: 0;
@@ -395,10 +381,6 @@
   color: var(--text-muted);
 }
 
-.bubble[data-queued='true'] {
-  border: 1px solid var(--accent-border);
-}
-
 .queuedChip {
   display: inline-flex;
   align-items: center;
@@ -420,8 +402,6 @@
   opacity: 0;
 }
 
-.bubble:hover .queuedActions,
-.bubble:focus-within .queuedActions,
 .personMessage:hover .queuedActions,
 .personMessage:focus-within .queuedActions {
   opacity: 1;

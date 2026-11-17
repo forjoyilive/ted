@@ -224,13 +224,20 @@ test('interrupted Resume uses the queue and refuses duplicate and Run-token requ
   expect(notes.filter((c) => c.body === 'Carry on once.')).toHaveLength(1)
 })
 
-test('an answer restarts a Task Lead stopped while it waited, unless the user stopped the Task', async () => {
+test('an answer or a Comment restarts a Task Lead stopped while it waited, unless the user stopped the Task', async () => {
   const client = await startTed()
   const ask = steps({ run: ['ted', 'outcome', 'ask', 'Which endpoint?'] }, { endTurn: true })
   const task = await create(client, ask, { start: true })
   const byHand = await create(client, ask, { start: true })
+  const commented = await create(client, ask, { start: true })
   const asked = await waitFor(client, task, (t) => t.status?.kind === 'waiting-on-you', 'to ask')
   await waitFor(client, byHand, (t) => t.status?.kind === 'waiting-on-you', 'to ask')
+  const askedToo = await waitFor(
+    client,
+    commented,
+    (t) => t.status?.kind === 'waiting-on-you',
+    'to ask',
+  )
   await client.ok('POST', `/tasks/${byHand.id}/stop`)
   await client.ok('POST', '/shutdown')
   const waiting = await getTask(client, task.id)
@@ -253,8 +260,19 @@ test('an answer restarts a Task Lead stopped while it waited, unless the user st
     })
     expect(res.status).toBe(200)
   }
+  const post = async (id: string, body: string) => {
+    const res = await reopened.call('POST', `/tasks/${id}/comments`, { body })
+    expect(res.status).toBe(201)
+    return res.body as Comment
+  }
+  const before = await tasks()
+  expect(before.find((t) => t.id === commented.id)).toMatchObject({ wakesOnComment: true })
+  expect(before.find((t) => t.id === byHand.id)).not.toHaveProperty('wakesOnComment')
+  const stoppedNote = await post(byHand.id, 'Is this still going?')
+  expect(stoppedNote.delivered).toBeUndefined()
   await answer(task.id, 'Use /v2/notes.')
   await answer(byHand.id, 'Use /v3/notes.')
+  const note = await post(commented.id, 'There is overlap with NB-1; read it first.')
 
   const restarted = await waitUntil(async () => {
     const current = (await tasks()).find((t) => t.id === task.id)
@@ -269,6 +287,18 @@ test('an answer restarts a Task Lead stopped while it waited, unless the user st
     status: { kind: 'stopped' },
     runs: [],
   })
+
+  const woken = await waitUntil(async () => {
+    const current = (await tasks()).find((t) => t.id === commented.id)
+    return current && current.runs.length > 0 && current.leadRunId !== askedToo.leadRunId
+      ? current
+      : undefined
+  }, 'a fresh Task Lead after the Comment')
+  const wokenRun = (await reopened.getRun(woken.leadRunId ?? '')).run as { prompt?: string }
+  expect(wokenRun.prompt).toContain('There is overlap with NB-1; read it first.')
+  const after = (await reopened.call('GET', `/tasks/${commented.id}/comments`)).body as Comment[]
+  expect(after.find((c) => c.id === note.id)?.delivered?.runId).toBe(woken.leadRunId)
+  expect(after.find((c) => c.kind === 'question')?.answer).toBeUndefined()
 })
 
 test('after a quit Ted offers the Tasks that were working, restarts the chosen ones and leaves the rest', async () => {

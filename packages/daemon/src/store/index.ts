@@ -144,6 +144,7 @@ import { redactSecrets } from '../redact.ts'
 import { type QueueEntry, queueOrder } from '../tasks/queue.ts'
 import {
   commentBox,
+  commentDelivery,
   statusWithoutBlocker,
   type TaskFacts,
   taskActivity,
@@ -154,6 +155,7 @@ import {
   taskStatus,
   taskStatuses,
   taskWaitReasons,
+  taskWakesOnComment,
 } from '../tasks/status.ts'
 import type { OvernightGuard } from '../workflow/resolve.ts'
 import { type AutomationDraftStore, createAutomationDraftStore } from './automation-drafts.ts'
@@ -2240,7 +2242,7 @@ export async function openStore({
       ...(stoppedAt === null &&
         place === 0 &&
         repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
-      ...((checking || checkingTasks.has(row.id)) && { tedWorking: true }),
+      ...((checking || checkingTasks.has(row.id)) && { checksActive: true }),
       ...(checkingNow && { checking: checkingNow }),
       ...(movingAfterChecks.has(row.id) && { movingAfterChecks: true }),
       testActivity: testInvocationStore.active(row.id),
@@ -2254,6 +2256,7 @@ export async function openStore({
     }
     if (observe) noteTaskWait(row.id, facts)
     const status = taskStatus(facts)
+    const delivery = commentDelivery(facts)
     const unblocked = statusWithoutBlocker(facts, status)
     const shown = taskActivity(facts)
     const tabs: ConversationTab[] = reads.tabs(row.id).flatMap((tab) => {
@@ -2395,7 +2398,10 @@ export async function openStore({
       ...(shown !== undefined && { activity: shown }),
       track: track(stage, entries),
       commentBox: commentBox(facts, status),
+      ...(delivery !== undefined && { commentDelivery: delivery }),
       ...(taskCanResume(facts) && { canResume: true }),
+      ...(taskWakesOnComment(facts) && { wakesOnComment: true as const }),
+      ...(facts.checksActive && { checksActive: true }),
       tabs,
       runs: live
         .sort(
