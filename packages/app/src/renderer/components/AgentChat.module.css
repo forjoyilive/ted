@@ -102,6 +102,7 @@
 .banner {
   display: flex;
   flex-shrink: 0;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   padding: 10px 22px;
@@ -109,6 +110,11 @@
   background: var(--surface-neutral);
   color: var(--text-secondary);
   font-size: var(--text-13);
+}
+
+.bannerText {
+  flex: 1 1 240px;
+  min-width: 0;
 }
 
 .readOnly {

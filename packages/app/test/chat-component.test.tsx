@@ -412,6 +412,8 @@ test('Planning requests stay inline and keep drafts while the chat updates', asy
     />,
   )
   const round = await screen.findByRole('region', { name: 'Round 1 from the planner' })
+  const details = screen.getByRole('complementary', { name: 'Planning chat details' })
+  expect(within(details).getByRole('region', { name: 'Runs' }).textContent).toContain('Claude Code')
   const proposal = screen.getByRole('region', { name: 'Proposal from the planner' })
   expect(document.activeElement?.contains(proposal)).toBe(true)
   const scroller = required(round.closest('[data-scroller]'))
@@ -425,12 +427,16 @@ test('Planning requests stay inline and keep drafts while the chat updates', asy
   await act(async () => {
     chat = {
       ...chat,
-      items: [{ kind: 'agent', id: 'later', text: 'A later planner message.', at: createdAt }],
+      items: [
+        { kind: 'human', id: 'mine', text: 'One more thing.', at: createdAt, sent: true },
+        { kind: 'agent', id: 'later', text: 'A later planner message.', at: createdAt },
+      ],
     }
     api.emit({ type: 'run-output', runId: 'p1' })
     api.emit({ type: 'plan-updated', planId: 'p1' })
   })
   await screen.findByText('A later planner message.')
+  expect(screen.getByText(/to the Planner/)).toBeTruthy()
   expect(answer.value).toBe('After I confirm')
   await user().click(within(round).getByRole('button', { name: 'Submit answers' }))
   expect(api.request).toHaveBeenCalledWith('answerPlanRequest', 'round1', {

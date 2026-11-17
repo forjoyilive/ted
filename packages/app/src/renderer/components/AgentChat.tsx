@@ -93,7 +93,7 @@ export function AgentChat({
         </header>
         {banner !== undefined && (
           <div className={styles.banner}>
-            <span className={styles.spacer}>{banner}</span>
+            <span className={styles.bannerText}>{banner}</span>
             {state.planMore && (
               <Button disabled={busy} onClick={() => perform('plan-more')}>
                 Plan more from here…

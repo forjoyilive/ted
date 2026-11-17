@@ -54,13 +54,13 @@ import {
   planEnded,
   planStartedLine,
   planStatusChip,
+  planTimes,
   requestHeading,
   requestState,
   when,
 } from '../plans.ts'
 import { ago, clockTime, useNow } from '../requests.ts'
 import { useStages } from '../stages.tsx'
-import { agentLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { AgentDraftCard } from './AgentDraftCard.tsx'
 import { OutsideCommandCard } from './OutsideCommandCard.tsx'
@@ -792,6 +792,7 @@ function PlanChat({
           }))}
           revealRequest={revealRequest}
           onJumpRequest={(id) => inbox?.select(id)}
+          audience={chatAudience(plan.chatAgent)}
           placeholder="Message the planner…"
           help="Goes to the planner. While a round is open, this talks it through."
           {...(state.archived
@@ -812,6 +813,10 @@ function PlanChat({
       )}
     </AgentChat>
   )
+}
+
+function chatAudience(agent: Pick<AgentSummary, 'id' | 'name' | 'source'>): string {
+  return agent.id === 'planner' && agent.source === 'ted' ? 'to the Planner' : `to ${agent.name}`
 }
 
 function endedLine(plan: Plan): string | undefined {
@@ -932,7 +937,7 @@ function PlanPane({
                     : 'idle',
               name: 'Planner',
               line: [
-                agentLabels[plan.agent],
+                agentNames[plan.agent],
                 run?.model ?? plan.model,
                 run?.effort ?? plan.effort,
                 run?.state,
@@ -952,7 +957,7 @@ function PlanPane({
 
 function StartedLine({ plan, onOpenTask }: { plan: Plan; onOpenTask: (ref: string) => void }) {
   const from = plan.fromTask
-  if (!from || planEnded(plan)) return <>{planStartedLine(plan)}</>
+  if (!from) return <>{planStartedLine(plan)}</>
   return (
     <>
       {'Started from '}
@@ -963,7 +968,7 @@ function StartedLine({ plan, onOpenTask }: { plan: Plan; onOpenTask: (ref: strin
           {from.displayId}
         </ActionButton>
       )}
-      {` ${when(plan.createdAt)}`}
+      {` ${planTimes(plan)}`}
     </>
   )
 }

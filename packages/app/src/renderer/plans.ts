@@ -51,14 +51,17 @@ export function planStatusChip(plan: Pick<Plan, 'status' | 'queuePlace' | 'pause
   }
 }
 
+function endedAt(plan: Pick<Plan, 'status' | 'finishedAt'>): string | undefined {
+  return plan.status === 'finished' || plan.status === 'stopped' ? plan.finishedAt : undefined
+}
+
+export function planTimes(plan: Pick<Plan, 'status' | 'createdAt' | 'finishedAt'>): string {
+  const ended = endedAt(plan)
+  return ended === undefined ? when(plan.createdAt) : `${when(plan.createdAt)} to ${when(ended)}`
+}
+
 export function planStartedLine(plan: Pick<Plan, 'status' | 'createdAt' | 'finishedAt'>): string {
-  if (plan.status === 'finished' && plan.finishedAt !== undefined) {
-    return `Finished ${when(plan.finishedAt)}`
-  }
-  if (plan.status === 'stopped' && plan.finishedAt !== undefined) {
-    return `Stopped ${when(plan.finishedAt)}`
-  }
-  return `Started ${when(plan.createdAt)}`
+  return endedAt(plan) === undefined ? `Started ${planTimes(plan)}` : planTimes(plan)
 }
 
 export function planGroups(plans: readonly Plan[]): { open: Plan[]; past: Plan[] } {
