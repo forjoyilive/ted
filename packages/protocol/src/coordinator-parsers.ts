@@ -182,7 +182,7 @@ export function parseCoordinatorAction(
     return { ...base, message }
   }
   if (typeof body.request !== 'string' || body.request === '')
-    throw new HttpError(400, 'request must be the request’s Comment ID')
+    throw new HttpError(400, 'request must be the request’s comment ID')
   if (body.choice !== undefined && (typeof body.choice !== 'string' || body.choice === ''))
     throw new HttpError(400, 'choice must be one of the request’s choices')
   const picks = choiceStrings(body.choices)

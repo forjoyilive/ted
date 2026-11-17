@@ -47,7 +47,7 @@ export function planCheckFailures(name: string, failing: readonly string[]): Che
     return [
       {
         key: 'check',
-        title: `Fix the Scheduled Check “${name}”`,
+        title: `Fix the scheduled check “${name}”`,
         files: [...failing],
       },
     ]
@@ -92,7 +92,7 @@ export function checkFailureText(input: {
         : undefined
   return redactSecrets(
     [
-      `The scheduled Check “${input.name}” ${how} at ${input.at}${input.commit ? ` on commit ${input.commit.slice(0, 12)} of the default branch` : ' on the default branch'}.`,
+      `The scheduled check “${input.name}” ${how} at ${input.at}${input.commit ? ` on commit ${input.commit.slice(0, 12)} of the default branch` : ' on the default branch'}.`,
       `Its command: \`${input.command}\``,
       ...(files ? [`Failing test files:\n${files.map((f) => `- ${f}`).join('\n')}`] : []),
       `Last lines of its output:\n\n${fenceFor(input.tail)}\n${input.tail.trimEnd()}\n${fenceFor(input.tail)}`,

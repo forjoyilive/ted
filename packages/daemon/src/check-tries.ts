@@ -342,7 +342,7 @@ export function createCheckTries(options: {
         const shown = waits ? { ...started, waiting: true } : started
         await update(factoryId, shown)
         placeholder.done = execute(factory, entry, request, started, placeholder.abort, waits)
-          .catch((error: unknown) => console.error('a Check tried from settings failed:', error))
+          .catch((error: unknown) => console.error('a check tried from settings failed:', error))
           .finally(() => {
             if (running.get(factoryId) === placeholder) running.delete(factoryId)
           })

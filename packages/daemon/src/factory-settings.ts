@@ -525,7 +525,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     for (const repo of changes.repos) {
       if (repo.was === undefined) {
         effects.push(
-          `TED clones ${repo.repo} once this merges. A New setup Task can set up its Checks and Apps.`,
+          `TED clones ${repo.repo} once this merges. A New setup Task can set up its checks and Apps.`,
         )
       } else if (repo.was !== repo.name) {
         effects.push(`Checks that run in ${repo.was} now run in ${repo.name}.`)
@@ -534,7 +534,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     for (const repo of base.repos) {
       if (!changes.repos.some((r) => r.was === repo.was)) {
         effects.push(
-          `${repo.repo} leaves the Factory with its Apps and Checks. Its clone is deleted once no Factory uses it.`,
+          `${repo.repo} leaves the Factory with its Apps and checks. Its clone is deleted once no Factory uses it.`,
         )
       }
     }

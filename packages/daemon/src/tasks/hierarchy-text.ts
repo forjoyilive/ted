@@ -42,7 +42,7 @@ export function hierarchyText(view: HierarchyView): string | undefined {
   if (parent) {
     const siblings = parent.children.filter((c) => c.displayId !== displayId)
     parts.push(
-      `${displayId} is a child of ${parent.displayId}. Do only the work ${displayId}’s title and description name. ${parent.displayId} and its other children own the rest, and ${parent.displayId} brings the work together after its children merge. Read the parent with \`ted peers show ${parent.displayId}\`. If you find work that belongs to the parent or another child, say so in a Comment instead of doing it.`,
+      `${displayId} is a child of ${parent.displayId}. Do only the work ${displayId}’s title and description name. ${parent.displayId} and its other children own the rest, and ${parent.displayId} brings the work together after its children merge. Read the parent with \`ted peers show ${parent.displayId}\`. If you find work that belongs to the parent or another child, say so in a comment instead of doing it.`,
       `Parent:\n${listed([{ ...parent, children: [] }])}`,
       ...(siblings.length > 0 ? [`Its other children:\n${listed(siblings)}`] : []),
     )

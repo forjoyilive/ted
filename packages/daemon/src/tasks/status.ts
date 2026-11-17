@@ -215,7 +215,7 @@ function testMarkers(facts: TaskFacts): TaskMarker[] {
     add(
       'checks',
       'waiting',
-      `Waiting for a Check slot · ${ordinal(facts.checksWaiting.place)} in line`,
+      `Waiting for a check slot · ${ordinal(facts.checksWaiting.place)} in line`,
     )
   } else if (facts.checking) {
     const { name, index, total } = facts.checking
@@ -272,16 +272,16 @@ export function taskActivity(facts: TaskFacts): string | undefined {
     return 'Merge cancelled · GitHub auto-merge is still on; TED keeps trying to turn it off'
   }
   if (facts.movingAfterChecks) {
-    if (!facts.checking) return 'Running Checks before moving on'
+    if (!facts.checking) return 'Running checks before moving on'
     const { name, index, total } = facts.checking
-    return `Running Checks before moving on · ${name} (${index} of ${total})`
+    return `Running checks before moving on · ${name} (${index} of ${total})`
   }
   if (facts.checking) {
     const { name, index, total } = facts.checking
     if (facts.testActivity?.checksWaiting) return `Waiting for a shared test slot · ${name}`
-    return `Running Checks · ${name} (${index} of ${total})`
+    return `Running checks · ${name} (${index} of ${total})`
   }
-  if (facts.checksWaiting) return `Waiting to run Checks · ${ordinal(facts.checksWaiting.place)}`
+  if (facts.checksWaiting) return `Waiting to run checks · ${ordinal(facts.checksWaiting.place)}`
   if (facts.stage !== 'done' && facts.testActivity) {
     const { running, waiting } = facts.testActivity
     if (running > 0 && waiting > 0)

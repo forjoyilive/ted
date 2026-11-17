@@ -556,7 +556,7 @@ export function createFactories(options: FactoriesOptions): Factories {
         factoryId,
         subject: repo.repo,
         severity: 'warning',
-        text: `${repo.repo} was added · a New setup Task can set up its Checks and Apps`,
+        text: `${repo.repo} was added · a New setup Task can set up its checks and Apps`,
       })
     }
     if (added.length === 0 || factory.clonedAt === undefined) return

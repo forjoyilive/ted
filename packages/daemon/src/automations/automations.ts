@@ -598,7 +598,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     const check = automation.check
     const result = saved.checkResults([id]).get(id)
     if (!check || !result || !scheduledChecks) {
-      await endCheckAgent(id, { why: 'TED lost the Check’s result before the agent Run started' })
+      await endCheckAgent(id, { why: 'TED lost the check’s result before the agent Run started' })
       return
     }
     const held = store.newWorkHold()
@@ -1101,10 +1101,10 @@ export function createAutomations(options: AutomationsOptions): Automations {
       const releaseIdle = options.idle?.hold()
       entry.done = runCheck(automation, factory, check, firing, entry)
         .catch((error: unknown) => {
-          console.error(`a scheduled Check of ${automation.name} failed:`, error)
+          console.error(`a scheduled check of ${automation.name} failed:`, error)
           const current = saved.firing(firing.id)
           if (!closed && current && current.state !== 'dropped' && current.state !== 'ended') {
-            fail(current, `TED couldn’t run the Check: ${messageOf(error)}`)
+            fail(current, `TED couldn’t run the check: ${messageOf(error)}`)
           }
         })
         .finally(() => {
@@ -1268,7 +1268,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
         reason: `the computer is busy; runs anyway at ${run.until === undefined ? 'its cutoff' : clockText(run.until, saved.get(firing.automationId)?.timeZone)}`,
       }
     }
-    if (run?.phase === 'slot') return { kind: 'paused', reason: 'waiting for a free Check slot' }
+    if (run?.phase === 'slot') return { kind: 'paused', reason: 'waiting for a free check slot' }
     if (checkOf(firing.automationId) && firing.agentPhase === undefined) {
       if (status === 'queued') return { kind: 'queued', place: 1 }
       return status === 'working' ? { kind: 'working' } : undefined
@@ -1603,7 +1603,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
   for (const firing of saved.firings()) {
     if (firing.state !== 'started' || firing.resume === 'queued') continue
     if (checkOf(firing.automationId) && firing.agentPhase === undefined) {
-      fail(firing, 'TED stopped while this Check ran.')
+      fail(firing, 'TED stopped while this check ran.')
       continue
     }
     if (firing.agentPhase === 'queued') continue
@@ -1707,7 +1707,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
         input.effort === null ? undefined : (input.effort ?? (keep ? automation.effort : undefined))
       const before = checkOf(automation.id)
       if (input.check !== undefined && !before) {
-        throw new RequestError(400, 'an agent Automation can’t become a scheduled Check')
+        throw new RequestError(400, 'an agent Automation can’t become a scheduled check')
       }
       const check = before && input.check ? checkInput(input.check, before) : undefined
       saved.edit(
@@ -1766,12 +1766,12 @@ export function createAutomations(options: AutomationsOptions): Automations {
     },
     async output(firingId, caller = { kind: 'app' }) {
       if (caller.kind === 'run' && caller.runId !== firingId) {
-        throw new RequestError(403, 'a Run reads only its own Check output')
+        throw new RequestError(403, 'a Run reads only its own check output')
       }
       const firing = saved.firing(firingId)
       const automation = firing && saved.get(firing.automationId)
       if (!firing || !automation || !checkOf(automation.id) || !scheduledChecks) {
-        throw new RequestError(404, `no scheduled Check Run ${firingId}`)
+        throw new RequestError(404, `no scheduled check Run ${firingId}`)
       }
       return scheduledChecks.output(automation.id, firing.id)
     },
@@ -1788,7 +1788,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     report(caller, summary) {
       const own = caller.kind === 'run' ? runOf(caller.runId) : undefined
       if (!own?.automation.check || own.firing.agentPhase === undefined) {
-        throw new RequestError(403, 'only a Scheduled Check’s agent Run reports')
+        throw new RequestError(403, 'only a scheduled check’s agent Run reports')
       }
       if (own.firing.state !== 'started') throw new RequestError(409, 'this Run has finished')
       saved.checkAgentReported(own.firing.id, redactSecrets(summary))
@@ -1870,7 +1870,7 @@ export function createAutomations(options: AutomationsOptions): Automations {
     saved.delete(automation.id)
     await scheduledChecks
       ?.remove(automation.id)
-      .catch((error: unknown) => console.error(`couldn’t remove a scheduled Check’s files:`, error))
+      .catch((error: unknown) => console.error(`couldn’t remove a scheduled check’s files:`, error))
     banners.clear({
       problem: automationFailingProblem,
       factoryId: automation.factoryId,

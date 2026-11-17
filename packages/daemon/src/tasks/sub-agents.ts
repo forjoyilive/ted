@@ -470,7 +470,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
         if (earlier !== undefined) {
           throw new RequestError(
             409,
-            `this Validate visit already has its reviewer (Run ${shortReference(earlier)}), and each visit gets one review. Wait for its Findings with \`ted run wait ${shortReference(earlier)}\`, or send it a follow-up with \`ted run send ${shortReference(earlier)} "<text>"\`.`,
+            `this Validate visit already has its reviewer (Run ${shortReference(earlier)}), and each visit gets one review. Wait for its findings with \`ted run wait ${shortReference(earlier)}\`, or send it a follow-up with \`ted run send ${shortReference(earlier)} "<text>"\`.`,
           )
         }
         const id = crypto.randomUUID()

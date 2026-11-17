@@ -317,8 +317,8 @@ export function activityMessage(
     ...(conflict
       ? [
           atWork
-            ? 'To resolve a merge conflict, bring in the latest base branch, resolve the conflicts, run the Checks and commit.'
-            : 'A merge conflict is resolved in Work: bring in the latest base branch, resolve the conflicts, run the Checks and commit. When the conflict is the only thing to change, add `--cause base-conflict` to that command; TED then records the send-back as a base conflict and doesn’t count it against the limit.',
+            ? 'To resolve a merge conflict, bring in the latest base branch, resolve the conflicts, run the checks and commit.'
+            : 'A merge conflict is resolved in Work: bring in the latest base branch, resolve the conflicts, run the checks and commit. When the conflict is the only thing to change, add `--cause base-conflict` to that command; TED then records the send-back as a base conflict and doesn’t count it against the limit.',
         ]
       : []),
     ...(review

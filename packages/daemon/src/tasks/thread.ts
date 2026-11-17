@@ -576,7 +576,7 @@ export function threadEvents(
         add(
           entry,
           'failure',
-          `This computer ran out of memory, so the Check “${text(data.name)}” was stopped. TED didn’t count it as a failure: it runs the Check again when memory frees up, or asks you after a second stop in the same Stage.`,
+          `This computer ran out of memory, so the check “${text(data.name)}” was stopped. TED didn’t count it as a failure: it runs the check again when memory frees up, or asks you after a second stop in the same Stage.`,
           undefined,
           text(data.checkRunId),
         )
@@ -779,7 +779,7 @@ export function threadEvents(
         break
       }
       case 'v1.TaskGatesChanged':
-        add(entry, 'edit', 'You changed this Task’s Sign-Offs')
+        add(entry, 'edit', 'You changed this Task’s sign-offs')
         break
       case 'v1.GateKeptOvernight':
         add(
@@ -892,7 +892,7 @@ export function threadEvents(
           taskId,
           at: entry.at,
           tone: 'edit',
-          text: 'You steered the Task Lead in its Conversation',
+          text: 'You steered the Task Lead in its conversation',
           runId: text(data.runId),
         })
         break
@@ -964,7 +964,7 @@ export function threadEvents(
         add(
           entry,
           'run',
-          `Rebased ${text(data.name)} onto ${text(data.onto)} with no conflicts · running Checks again`,
+          `Rebased ${text(data.name)} onto ${text(data.onto)} with no conflicts · running checks again`,
         )
         break
       case 'v1.TaskPushRecordReconciled':
