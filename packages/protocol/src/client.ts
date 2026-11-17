@@ -173,6 +173,7 @@ import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrat
 import type {
   LinearIntakeChoices,
   LinearIntakeScope,
+  LinearIssueLink,
   LinearLookup,
   LinearStatus,
   SaveLinearKeyRequest,
@@ -1671,6 +1672,13 @@ export class DaemonClient {
 
   lookupLinear(url: string): Promise<LinearLookup> {
     return this.#request('POST', '/integrations/linear/lookup', { url })
+  }
+
+  linearIssueLinks(identifiers: readonly string[]): Promise<LinearIssueLink[]> {
+    return this.#request(
+      'GET',
+      `/integrations/linear/issue-links?${new URLSearchParams({ ids: identifiers.join(',') })}`,
+    )
   }
 
   allowLinearTeam(factoryId: string, team: string): Promise<MachineSettings> {
