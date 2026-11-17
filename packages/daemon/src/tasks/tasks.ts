@@ -157,10 +157,10 @@ import {
   maxLinearIntakeTasks,
   memoryFailedChoice,
   memoryRetryChoice,
-  parseAsanaTaskUrl,
-  parseGitHubIssueUrl,
   moveRefusal,
   moveRefusals,
+  parseAsanaTaskUrl,
+  parseGitHubIssueUrl,
   parseLinearUrl,
   type ResetRefusal,
   resetRefusal,
@@ -253,12 +253,12 @@ import type {
   FoundConflict,
   LoopCheck,
   LoopVerdict,
+  MoveTaskInput,
   NewTask,
   NewWorktree,
   RecordedSetup,
   RepoCommit,
   StoredFactory,
-  MoveTaskInput,
   StoredTask,
   TedStore,
 } from '../store/index.ts'
@@ -8784,10 +8784,12 @@ export function createTasks(options: {
         worktrees: member.repos.filter((r) => !r.removed).length,
         branches: [...new Set(member.repos.map((r) => r.branch))],
         pullRequests: openPullRequestsOf(member),
-        openRequests: store.listComments(member.id).filter((c) => c.kind !== 'note' && c.answer === undefined).length,
+        openRequests: store
+          .listComments(member.id)
+          .filter((c) => c.kind !== 'note' && c.answer === undefined).length,
         unlinked: [
-          ...blockers.map((b) => moveRef(find(b.blockerId))),
-          ...blocked.map((id) => moveRef(find(id))),
+          ...blockers.map((b) => ({ ...moveRef(find(b.blockerId)), blocks: true })),
+          ...blocked.map((id) => ({ ...moveRef(find(id)), blocks: false })),
         ],
         ...(tracker !== undefined && { trackerSync: tracker }),
       }
@@ -8816,7 +8818,10 @@ export function createTasks(options: {
     const id = task.id
     if (task.stage === 'backlog' && task.runs.length === 0 && task.repos.length === 0) return
     if (inFlight.is(id, 'checking')) {
-      throw new RequestError(409, `${task.displayId}’s Checks are running; try again when they finish`)
+      throw new RequestError(
+        409,
+        `${task.displayId}’s Checks are running; try again when they finish`,
+      )
     }
     if (inFlight.is(id, 'deleting')) {
       throw new RequestError(409, `${task.displayId} is being deleted, reset or moved`)

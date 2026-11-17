@@ -40,6 +40,7 @@ import {
   keyCommands,
   taskCommands,
 } from './commands.ts'
+import { openMovedTaskEvent } from './components/ArchiveDialogs.tsx'
 import { BannerStack } from './components/BannerStack.tsx'
 import { buttonPosition } from './components/ContextMenu.tsx'
 import { EditorPickerHost } from './components/EditorPicker.tsx'
@@ -474,6 +475,15 @@ export function App({ start }: { start?: AppStart | undefined }) {
   }, [offline])
   const openTask = (task: Task) =>
     dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
+  useEffect(() => {
+    const open = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return
+      const moved: Task = event.detail
+      dispatch({ type: 'open-task', taskId: moved.id, factoryId: moved.factoryId })
+    }
+    window.addEventListener(openMovedTaskEvent, open)
+    return () => window.removeEventListener(openMovedTaskEvent, open)
+  }, [])
   const task = tasks.find((t) => t.id === navigation.taskId)
 
   const onMenuCommand = useRef<(command: MenuCommand) => void>(() => undefined)

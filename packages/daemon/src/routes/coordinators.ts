@@ -13,6 +13,7 @@ import {
   parseCoordinatorMessage,
   parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
+  parseCoordinatorTransfer,
   parseOutsideCommandAnswer,
   parsePostChatRequest,
   parseRenameCoordinatorChatRequest,
@@ -307,6 +308,14 @@ export const coordinatorRoutes: Route[] = [
       },
     },
   ),
+  jsonRoute(parseCoordinatorTransfer, {
+    method: 'POST',
+    path: /^\/coordinator\/transfer$/,
+    runToken: true,
+    async handle({ caller, body }, { coordinators }) {
+      return [200, await coordinators.transfer(caller, body)]
+    },
+  }),
   jsonRoute(
     (value, { params: [, kind = ''] }) =>
       parseCoordinatorAction(value, kind as CoordinatorOperation),

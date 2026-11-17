@@ -6,8 +6,8 @@ import { DatabaseSync } from 'node:sqlite'
 import {
   type Comment,
   type Factory,
-  readDaemonInfo,
   type Run,
+  readDaemonInfo,
   type Task,
   type TaskMoved,
   type TaskMovePlan,
@@ -555,7 +555,7 @@ describe('move to another Factory', () => {
         lands: 'intake',
         startsLead: true,
         worktrees: 1,
-        unlinked: [{ id: blocker.id }],
+        unlinked: [{ id: blocker.id, blocks: true }],
       })
       expect(plan.tasks[0]?.newDisplayId.startsWith('WEB-')).toBe(true)
       const file = api(daemon?.port ?? 0, (await readDaemonInfo(home))?.token ?? '')

@@ -49,6 +49,10 @@ export interface TaskMoveRef {
   title: string
 }
 
+export interface TaskMoveUnlink extends TaskMoveRef {
+  blocks: boolean
+}
+
 export interface TaskMovePullRequest {
   repo: string
   number: number
@@ -63,7 +67,7 @@ export interface TaskMovePlanTask extends TaskMoveRef {
   branches: string[]
   pullRequests: TaskMovePullRequest[]
   openRequests: number
-  unlinked: TaskMoveRef[]
+  unlinked: TaskMoveUnlink[]
   trackerSync?: string
 }
 

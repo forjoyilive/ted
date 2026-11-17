@@ -17,6 +17,7 @@ import type {
   TaskLead,
   TaskStatusKind,
 } from './task.ts'
+import type { TaskMovePlan } from './task-move.ts'
 
 export type CoordinatorTaskState = Pick<
   Task,
@@ -32,9 +33,16 @@ export type CoordinatorOperation =
   | 'parent'
   | 'done'
   | 'create'
+  | 'transfer'
   | CoordinatorRemovalKind
 
 export type CoordinatorRemovalKind = 'archive' | 'unarchive' | 'delete'
+
+export interface CoordinatorTransfer {
+  operation: string
+  task: { id: string; version: string }
+  factory: string
+}
 
 export interface CoordinatorReceipt {
   id: string
@@ -118,7 +126,8 @@ export interface CoordinatorConfirmationTask extends ConfirmationTaskRef, Confir
 
 export interface CoordinatorConfirmation {
   id: string
-  kind: 'archive' | 'delete'
+  kind: 'archive' | 'delete' | 'transfer'
+  transfer?: TaskMovePlan
   operation: string
   fingerprint: string
   askedAt: string

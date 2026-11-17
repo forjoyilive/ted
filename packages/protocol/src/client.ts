@@ -1,5 +1,4 @@
 import { Agent, request as httpRequest, type IncomingMessage } from 'node:http'
-import type { MoveToFactoryRequest, TaskMoved, TaskMovePlan } from './task-move.ts'
 import type { Activity, OpenAppResult } from './activity.ts'
 import type {
   AgentAvailability,
@@ -98,6 +97,7 @@ import type {
   CoordinatorRemovalResult,
   CoordinatorStatus,
   CoordinatorTaskQuery,
+  CoordinatorTransfer,
 } from './coordinator.ts'
 import { coordinatorTaskSearch } from './coordinator-parsers.ts'
 import type { CallerInfo, DaemonInfo } from './daemon-info.ts'
@@ -276,6 +276,7 @@ import type {
 } from './task.ts'
 import type { TaskFileContent, TaskFiles } from './task-files.ts'
 import type { SetTaskGatesRequest, TaskGates } from './task-gates.ts'
+import type { MoveToFactoryRequest, TaskMoved, TaskMovePlan } from './task-move.ts'
 import type {
   RegisterTestInvocation,
   TestInvocationRegistration,
@@ -541,6 +542,10 @@ export class DaemonClient {
     input: CoordinatorRemoval,
   ): Promise<CoordinatorRemovalResult> {
     return this.#request('POST', `/coordinator/${kind}`, input)
+  }
+
+  coordinatorTransfer(input: CoordinatorTransfer): Promise<CoordinatorRemovalResult> {
+    return this.#request('POST', '/coordinator/transfer', input)
   }
 
   answerCoordinatorConfirmation(

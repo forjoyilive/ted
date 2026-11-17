@@ -6,10 +6,12 @@ import type {
   CoordinatorConfirmationTask,
 } from '@ted/protocol'
 import { useState } from 'react'
+import { throwsAwayWork } from '../move-plan.ts'
 import { clockTime } from '../requests.ts'
 import { useStages } from '../stages.tsx'
 import { readableError, ted } from '../ted.ts'
 import dialogs from './ArchiveDialogs.module.css'
+import { MovePlanDetails } from './ArchiveDialogs.tsx'
 import { Button } from './Button.tsx'
 import styles from './ConfirmationCard.module.css'
 
@@ -190,6 +192,10 @@ export function confirmationCount(
   choices: Record<string, ConfirmationChoices>,
 ): number {
   const ids = new Set<string>()
+  if (confirmation.kind === 'transfer') {
+    for (const task of confirmation.transfer?.tasks ?? confirmation.tasks) ids.add(task.id)
+    return ids.size
+  }
   for (const task of confirmation.tasks) {
     ids.add(task.id)
     const together = confirmation.kind === 'archive' ? 'archive' : 'delete'
@@ -202,7 +208,136 @@ export function confirmationCount(
   return ids.size
 }
 
+function useAnswer(chatId: string, confirmation: CoordinatorConfirmation) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const answer = async (
+    decision: 'confirm' | 'cancel',
+    choices?: Record<string, ConfirmationChoices>,
+  ) => {
+    setBusy(true)
+    setError(undefined)
+    try {
+      await ted.answerCoordinatorConfirmation(chatId, confirmation.id, {
+        decision,
+        ...(decision === 'confirm' && choices && { choices }),
+      })
+    } catch (failed) {
+      setError(readableError(failed))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return { busy, error, answer }
+}
+
+function Answered({ answer }: { answer: NonNullable<CoordinatorConfirmation['answer']> }) {
+  return (
+    <p className={styles.done}>
+      {answer.decision === 'cancel'
+        ? `Canceled at ${clockTime(answer.at)}. Nothing changed.`
+        : `Confirmed at ${clockTime(answer.at)}.`}
+    </p>
+  )
+}
+
+function TransferCard({
+  chatId,
+  confirmation,
+}: {
+  chatId: string
+  confirmation: CoordinatorConfirmation
+}) {
+  const stages = useStages()
+  const { busy, error, answer } = useAnswer(chatId, confirmation)
+  const plan = confirmation.transfer
+  const task = confirmation.tasks[0]
+  const answered = confirmation.answer
+  const id = task?.displayId ?? plan?.tasks[0]?.displayId ?? 'the Task'
+  const where = plan?.factoryName ?? 'another Factory'
+  const heading = `Move ${id} to ${where}?`
+  const danger = plan ? throwsAwayWork(plan) : false
+  return (
+    <section
+      className={styles.card}
+      aria-label={heading}
+      data-confirmation={confirmation.id}
+      data-answered={answered ? answered.decision : undefined}
+    >
+      <header className={styles.header}>
+        <h3>{heading}</h3>
+        <p
+          className={styles.from}
+        >{`Asked by the Coordinator · ${clockTime(confirmation.askedAt)}`}</p>
+      </header>
+      {!answered && (
+        <p
+          className={styles.body}
+        >{`The Task gets a new ID in ${where}, and its thread comes with it.`}</p>
+      )}
+      {task && (
+        <ul className={styles.tasks}>
+          <li className={styles.task} data-confirmation-task={task.id}>
+            <div className={styles.taskRow}>
+              <span className={styles.taskId}>{task.displayId}</span>
+              <span className={styles.taskTitle}>{task.title}</span>
+              <span className={styles.taskStage}>{stages.name(task.stage)}</span>
+            </div>
+            {task.result ? (
+              <p className={task.result.done ? styles.result : styles.refused}>
+                {task.result.text}
+              </p>
+            ) : (
+              plan &&
+              !answered && (
+                <div className={styles.plan}>
+                  <MovePlanDetails plan={plan} compact />
+                </div>
+              )
+            )}
+          </li>
+        </ul>
+      )}
+      {error !== undefined && (
+        <p className={styles.error} role="alert">
+          {error}
+        </p>
+      )}
+      {answered ? (
+        <Answered answer={answered} />
+      ) : (
+        <footer className={styles.footer}>
+          <span className={styles.note}>Also waiting in your Inbox</span>
+          <Button disabled={busy} onClick={() => answer('cancel')}>
+            Cancel
+          </Button>
+          <Button
+            variant={danger ? 'danger' : 'primary'}
+            disabled={busy || !plan || plan.refusal !== undefined}
+            onClick={() => answer('confirm')}
+          >
+            {`Move to ${where}`}
+          </Button>
+        </footer>
+      )}
+    </section>
+  )
+}
+
 export function ConfirmationCard({
+  chatId,
+  confirmation,
+}: {
+  chatId: string
+  confirmation: CoordinatorConfirmation
+}) {
+  if (confirmation.kind === 'transfer') {
+    return <TransferCard chatId={chatId} confirmation={confirmation} />
+  }
+  return <RemovalCard chatId={chatId} confirmation={confirmation} />
+}
+
+function RemovalCard({
   chatId,
   confirmation,
 }: {
@@ -221,26 +356,11 @@ export function ConfirmationCard({
       ]),
     ),
   )
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string>()
+  const { busy, error, answer } = useAnswer(chatId, confirmation)
   const answered = confirmation.answer
   const deleting = confirmation.kind === 'delete'
   const count = confirmationCount(confirmation, choices)
   const noun = count === 1 ? confirmation.tasks[0]?.displayId : `${count} Tasks`
-  const answer = async (decision: 'confirm' | 'cancel') => {
-    setBusy(true)
-    setError(undefined)
-    try {
-      await ted.answerCoordinatorConfirmation(chatId, confirmation.id, {
-        decision,
-        ...(decision === 'confirm' && { choices }),
-      })
-    } catch (failed) {
-      setError(readableError(failed))
-    } finally {
-      setBusy(false)
-    }
-  }
   const heading = `${deleting ? 'Delete' : 'Archive'} ${
     confirmation.tasks.length === 1
       ? confirmation.tasks[0]?.displayId
@@ -285,11 +405,7 @@ export function ConfirmationCard({
         </p>
       )}
       {answered ? (
-        <p className={styles.done}>
-          {answered.decision === 'cancel'
-            ? `Canceled at ${clockTime(answered.at)}. Nothing changed.`
-            : `Confirmed at ${clockTime(answered.at)}.`}
-        </p>
+        <Answered answer={answered} />
       ) : (
         <footer className={styles.footer}>
           <span className={styles.note}>Also waiting in your Inbox</span>
@@ -299,7 +415,7 @@ export function ConfirmationCard({
           <Button
             variant={deleting ? 'danger' : 'primary'}
             disabled={busy}
-            onClick={() => answer('confirm')}
+            onClick={() => answer('confirm', choices)}
           >
             {`${deleting ? 'Delete' : 'Archive'} ${noun}`}
           </Button>

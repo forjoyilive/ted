@@ -52,6 +52,7 @@ import {
   parseCoordinatorCreate,
   parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
+  parseCoordinatorTransfer,
   parseDesignReviewInput,
   parseDeviceRequest,
   parseLinearUrl,
@@ -1229,6 +1230,19 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     coordinatorArchive: () => coordinatorRemove('archive'),
     coordinatorUnarchive: () => coordinatorRemove('unarchive'),
     coordinatorDelete: () => coordinatorRemove('delete'),
+    coordinatorTransfer: async () => {
+      const { operation, version, factory } = options
+      if (!operation || !version || !factory)
+        throw new UsageError('operation, version and factory are required')
+      const input = parseCoordinatorTransfer({
+        operation,
+        task: { id: args[0] ?? '', version },
+        factory,
+      })
+      console.log(
+        JSON.stringify(await withDaemon(home, (client) => client.coordinatorTransfer(input))),
+      )
+    },
     coordinatorDone: async () => {
       const { operation, version } = options
       if (!operation || !version) throw new UsageError('operation and version are required')

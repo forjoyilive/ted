@@ -3,13 +3,17 @@
 import type { Task } from '@ted/protocol'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
-import { ArchiveDialog, DeleteDialog } from '../src/renderer/components/ArchiveDialogs.tsx'
+import {
+  ArchiveDialog,
+  DeleteDialog,
+  openMovedTaskEvent,
+} from '../src/renderer/components/ArchiveDialogs.tsx'
 import { TaskActionsMenu } from '../src/renderer/components/TaskActions.tsx'
 import { DataScreen } from '../src/renderer/views/DataScreen.tsx'
 import { EditTaskDialog } from '../src/renderer/views/EditTaskDialog.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, expandFactory, user } from './support/component.ts'
-import { createdAt, task } from './support/fixtures.ts'
+import { createdAt, factory, task } from './support/fixtures.ts'
 
 const blocked = task({
   id: 'NB-2',
@@ -422,12 +426,19 @@ test('a Task at Merge with a merged pull request shows Reset greyed out and offe
       throw new Error('acme/widgets#7 is still open on GitHub')
     },
   })
+  api.handle('listFactories', () => [
+    factory(),
+    factory({ id: 'web', key: 'WEB', name: 'Website' }),
+  ])
   const merged = task({ stage: 'merge', statuses: ['partly-merged'] })
   await act(async () => {
     render(<TaskActionsMenu task={merged} />)
   })
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'Task actions' }))
+  const move = await screen.findByRole('menuitem', { name: /^Move to Factory…/ })
+  expect(move.getAttribute('aria-disabled')).toBe('true')
+  expect(move.textContent).toContain('A pull request has merged')
   const item = screen.getByRole('menuitem', { name: /^Reset…/ })
   expect(item.getAttribute('aria-disabled')).toBe('true')
   expect(item.textContent).toContain('A pull request has merged')
@@ -436,4 +447,69 @@ test('a Task at Merge with a merged pull request shows Reset greyed out and offe
   expect((await screen.findByRole('alert')).textContent).toBe(
     'acme/widgets#7 is still open on GitHub',
   )
+})
+
+test('Move to Factory shows the plan for the picked Factory, moves the Task and opens it under its new ID', async () => {
+  const website = factory({ id: 'web', key: 'WEB', name: 'Website', position: 1 })
+  const backlog = task({ title: 'Tag notes from the share sheet' })
+  const api = bridge({
+    listTasks: () => [backlog],
+    listFactories: () => [factory(), website],
+    taskMovePlan: (_ref, factoryId) => ({
+      factoryId,
+      factoryName: 'Website',
+      repos: ['website'],
+      tasks: [
+        {
+          id: 'NB-1',
+          displayId: 'NB-1',
+          title: backlog.title,
+          newDisplayId: 'WEB-41',
+          stage: 'backlog',
+          lands: 'backlog',
+          startsLead: false,
+          worktrees: 0,
+          branches: [],
+          pullRequests: [],
+          openRequests: 0,
+          unlinked: [],
+        },
+      ],
+    }),
+    moveTaskToFactory: () => ({
+      task: { ...backlog, displayId: 'WEB-41', factoryId: 'web' },
+      moved: [{ id: 'NB-1', from: 'NB-1', to: 'WEB-41' }],
+    }),
+  })
+  const opened: Task[] = []
+  const open = (event: Event) => {
+    if (event instanceof CustomEvent) opened.push(event.detail)
+  }
+  window.addEventListener(openMovedTaskEvent, open)
+  await act(async () => {
+    render(<TaskActionsMenu task={backlog} />)
+  })
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'Task actions' }))
+  await u.click(await screen.findByRole('menuitem', { name: 'Move to Factory…' }))
+  const dialog = await screen.findByRole('dialog', { name: 'Move NB-1 to another Factory?' })
+  expect(within(dialog).getByRole('button', { name: 'Move' }).hasAttribute('disabled')).toBe(true)
+  await u.click(within(dialog).getByRole('combobox', { name: 'Factory' }))
+  expect(
+    within(dialog)
+      .getAllByRole('option')
+      .map((o) => o.textContent),
+  ).toEqual(['Website'])
+  await u.click(within(dialog).getByRole('option', { name: 'Website' }))
+  expect((await within(dialog).findByText(/^NB-1 becomes/)).textContent).toBe(
+    'NB-1 becomes WEB-41 in Backlog. Nothing starts until you start it.',
+  )
+  expect(within(dialog).getByRole('region', { name: 'What changes' }).textContent).toContain(
+    'Repos becomes Website’s: website',
+  )
+  await u.click(within(dialog).getByRole('button', { name: 'Move to Website' }))
+  expect(api.request).toHaveBeenCalledWith('moveTaskToFactory', 'NB-1', { factoryId: 'web' })
+  await expect.poll(() => opened.map((t) => t.displayId)).toEqual(['WEB-41'])
+  expect(screen.queryByRole('dialog')).toBeNull()
+  window.removeEventListener(openMovedTaskEvent, open)
 })

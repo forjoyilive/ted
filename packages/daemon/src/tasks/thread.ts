@@ -247,12 +247,12 @@ export function threadEvents(
         add(entry, 'edit', 'Task was reset')
         break
       case 'v1.TaskMovedToFactory': {
-        const factory = (id: unknown) => context.factoryNameOf?.(text(id)) ?? 'another Factory'
+        const factory = (id: string) => context.factoryNameOf?.(id) ?? 'another Factory'
         add(
           entry,
           'edit',
           [
-            `${data.by === 'coordinator' ? 'The Coordinator moved' : 'You moved'} this Task from ${text(data.fromDisplayId)} in ${factory(data.fromFactoryId)} to ${factory(data.factoryId)}`,
+            `${data.by === 'coordinator' ? 'The Coordinator moved' : 'You moved'} this Task from ${text(data.fromDisplayId)} in ${factory(text(data.fromFactoryId))} to ${factory(text(data.factoryId))}`,
             ...(data.started === true ? ['a fresh Task Lead Run starts from the brief'] : []),
           ].join(' · '),
         )

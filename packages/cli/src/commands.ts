@@ -325,6 +325,15 @@ export const commands = [
     callers: 'Coordinator Run',
   },
   {
+    name: 'coordinator transfer',
+    handler: 'coordinatorTransfer',
+    options: options('operation', 'version', 'factory'),
+    min: 1,
+    max: 1,
+    help: '  ted coordinator transfer <id> --factory <key or ID> --operation <id> --version <version>\n                                             Ask the human to confirm moving a Task to another\n                                             Factory (Coordinator only)',
+    callers: 'Coordinator Run',
+  },
+  {
     name: 'coordinator done',
     handler: 'coordinatorDone',
     options: options('operation', 'version'),

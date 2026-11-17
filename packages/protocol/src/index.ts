@@ -350,6 +350,7 @@ export type {
   CoordinatorTaskList,
   CoordinatorTaskQuery,
   CoordinatorTaskSummary,
+  CoordinatorTransfer,
   RenameCoordinatorChatRequest,
 } from './coordinator.ts'
 export {
@@ -360,6 +361,7 @@ export {
   parseCoordinatorMessage,
   parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
+  parseCoordinatorTransfer,
   parseRenameCoordinatorChatRequest,
 } from './coordinator-parsers.ts'
 export {
@@ -1162,6 +1164,7 @@ export type {
   TaskIntervalHistory,
   TaskIntervalReason,
 } from './task-intervals.ts'
+export * from './task-move.ts'
 export {
   parseAnswerRequest,
   parseAnswerTedStopsRequest,
@@ -1203,7 +1206,6 @@ export {
   parseUnarchiveTaskRequest,
   parseWriteBriefRequest,
 } from './task-parsers.ts'
-export * from './task-move.ts'
 export * from './test-invocations.ts'
 export {
   effectiveTimeZone,

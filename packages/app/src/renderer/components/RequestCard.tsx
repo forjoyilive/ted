@@ -24,6 +24,7 @@ import {
   useCheckRuns,
   useComments,
   useEmulators,
+  useFactories,
   useSimulators,
   useTasks,
   useThreadEvents,
@@ -1269,12 +1270,16 @@ export function RequestCard({
   )
 }
 
+function FactoryName({ id }: { id: string }) {
+  return useFactories().find((f) => f.id === id)?.name ?? 'another Factory'
+}
+
 function answerLine(
   request: Comment,
   newer: Comment | undefined,
   task: Task,
   stages: Stages,
-): { mark: string; tone: string; text: string } | undefined {
+): { mark: string; tone: string; text: string; factoryId?: string } | undefined {
   const { answer } = request
   if (!answer) return undefined
   if (request.autopilotAnswered)
@@ -1387,6 +1392,14 @@ function answerLine(
           mark: '–',
           tone: 'neutral',
           text: 'Withdrawn · the Task was archived before you answered',
+        }
+      }
+      if ('movedToFactory' in answer) {
+        return {
+          mark: '–',
+          tone: 'neutral',
+          text: 'Withdrawn · the Task moved to ',
+          factoryId: answer.movedToFactory,
         }
       }
       return {
@@ -1581,7 +1594,10 @@ export function AnsweredCard({
           <span className={styles[line.tone]} aria-hidden>
             {line.mark}
           </span>
-          <span className={styles.answerText}>{line.text}</span>
+          <span className={styles.answerText}>
+            {line.text}
+            {line.factoryId !== undefined && <FactoryName id={line.factoryId} />}
+          </span>
           <span className={styles.answerAge}>{ago(request.answer.at, now)}</span>
         </div>
       )}
