@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { readFile, rm, writeFile } from 'node:fs/promises'
 import { availableParallelism, homedir } from 'node:os'
 import path from 'node:path'
+import { crashReporter, type ReportCrash } from '@ted/daemon/crash-report'
 import { executionHome } from '@ted/daemon/execution'
 import {
   clearQuit,
@@ -19,6 +20,7 @@ import {
   type Activity,
   type Banner,
   countWaiting,
+  crashFrom,
   type DaemonClient,
   type DaemonEvent,
   defaultMachineSettings,
@@ -35,6 +37,7 @@ import {
   parseGitHubIssueUrl,
   parseLinearUrl,
   parseProblemReportRequest,
+  parseRendererCrash,
   remoteExecutionOn,
   sentryDsn,
   tedEnv,
@@ -117,7 +120,14 @@ import {
 import { nextReturn } from './renderer/banners.ts'
 import { thirdPartyLicenses } from './third-party.ts'
 import { dotPng, trayIconPng } from './tray-icon.ts'
-import { fileLog, handleUncaught, ignoreBrokenPipes, startupLog, watchParent } from './uncaught.ts'
+import {
+  fileLog,
+  handleUncaught,
+  ignoreBrokenPipes,
+  isConnectionError,
+  startupLog,
+  watchParent,
+} from './uncaught.ts'
 import { testFeedSource } from './update-source.ts'
 import {
   allowedUpdateUrl,
@@ -409,12 +419,41 @@ ignoreBrokenPipes([process.stdout, process.stderr], (error) => {
   if (testLaunch) app.exit(0)
 })
 
+let settings: MachineSettings = defaultMachineSettings
+const testSentryDsn = app.isPackaged ? undefined : tedEnv('TED_SENTRY_DSN')
+const forcedErrors = tedEnv('TED_FORCE_ERROR')?.split(',') ?? []
+
+function crashReports(part: 'main' | 'renderer'): ReportCrash {
+  return crashReporter({
+    part,
+    dsn: testSentryDsn ?? sentryDsn,
+    allowLoopbackHttp: testSentryDsn !== undefined,
+    version: tedVersion,
+    edition,
+    enabled: () => !workerOnly && settings.reporting,
+    post: (url, init) => net.fetch(url, init),
+  })
+}
+const reportMainCrash = crashReports('main')
+const reportRendererCrash = crashReports('renderer')
+
+function rendererCrash(input: Untyped): Promise<void> {
+  const crash = parseRendererCrash(input)
+  logUncaught('Renderer error:', crash.stack ?? `${crash.type}: ${crash.message}`)
+  return reportRendererCrash(crash)
+}
+
 process.on('uncaughtException', (error) => {
   handleUncaught(error, {
     hidden: testLaunch,
     log: logUncaught,
     show: (title, detail) => dialog.showErrorBox(title, detail),
   })
+  if (!isConnectionError(error)) void reportMainCrash(crashFrom('uncaught', error))
+})
+process.on('unhandledRejection', (reason) => {
+  logUncaught('Unhandled rejection:', reason)
+  if (!isConnectionError(reason)) void reportMainCrash(crashFrom('rejection', reason))
 })
 
 const testAppToken = app.isPackaged ? undefined : tedEnv('TED_APP_TOKEN')
@@ -456,7 +495,6 @@ let window: BrowserWindow | undefined
 let tray: Tray | undefined
 let quitting = false
 let state: MenuState = { activity: noActivity, waiting: 0, banners: [] }
-let settings: MachineSettings = defaultMachineSettings
 let bannerTimer: NodeJS.Timeout | undefined
 let loginItem: LoginItem | undefined
 let loginItemApplied: boolean | undefined
@@ -679,8 +717,6 @@ async function openGitHubIssue(): Promise<void> {
   clipboard.writeText(report.text)
   await shell.openExternal(newIssueUrl(report.daemon))
 }
-
-const testSentryDsn = app.isPackaged ? undefined : tedEnv('TED_SENTRY_DSN')
 
 function reportSources(): ReportSources {
   return {
@@ -993,6 +1029,14 @@ async function createWindow(): Promise<void> {
   created.webContents.once('dom-ready', () => traceStartup('renderer-dom-ready'))
   created.webContents.once('did-fail-load', () => traceStartup('renderer-load-failed'))
   created.webContents.once('render-process-gone', () => traceStartup('renderer-process-gone'))
+  created.webContents.on('render-process-gone', (_event, details) => {
+    if (details.reason === 'clean-exit' || details.reason === 'killed') return
+    void reportRendererCrash({
+      source: 'gone',
+      type: 'RendererGone',
+      message: `${details.reason} (exit code ${details.exitCode})`,
+    })
+  })
   created.once('unresponsive', () => traceStartup('window-unresponsive'))
   created.on('page-title-updated', (event) => event.preventDefault())
   created.on('close', (event) => {
@@ -1009,6 +1053,23 @@ async function createWindow(): Promise<void> {
     remoteExecution ? { query: { remoteExecution: 'on' } } : {},
   )
   traceStartup('renderer-load-finished')
+  windowLoaded.resolve()
+}
+
+const windowLoaded = Promise.withResolvers<void>()
+
+async function forceTestError(): Promise<void> {
+  if (forcedErrors.includes('main')) {
+    setTimeout(() => {
+      throw new Error(`Forced error in the main process (TED_FORCE_ERROR) in ${tedHome()}`)
+    })
+  }
+  if (forcedErrors.includes('renderer')) {
+    await windowLoaded.promise
+    await window?.webContents.executeJavaScript(
+      "setTimeout(() => { throw new Error('Forced error in the renderer (TED_FORCE_ERROR)') })",
+    )
+  }
 }
 
 let startChecked = false
@@ -1029,6 +1090,7 @@ async function loadState(): Promise<void> {
   startChecked = true
   try {
     applySettings(await startSettings(client, first))
+    if (first) void forceTestError()
   } finally {
     if (first) startSettled.resolve()
   }
@@ -1230,6 +1292,7 @@ async function start(): Promise<void> {
       : undefined
     if (appRequest) return appRequest()
     if (name === 'sendProblemReport') return sendReport(args[0])
+    if (name === 'reportCrash') return rendererCrash(args[0])
     const request = Object.hasOwn(requests, name)
       ? requests[name as keyof typeof requests]
       : undefined

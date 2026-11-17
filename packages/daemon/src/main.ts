@@ -1,13 +1,15 @@
 import { mkdirSync } from 'node:fs'
 import { appendFile } from 'node:fs/promises'
-import { parseArgs } from 'node:util'
-import { edition, tedEnv, tedHome, tedPaths, tedVersion } from '@ted/protocol'
+import { format, parseArgs } from 'node:util'
+import { crashFrom, edition, sentryDsn, tedEnv, tedHome, tedPaths, tedVersion } from '@ted/protocol'
+import { crashReporter } from './crash-report.ts'
 import { watchExitWith } from './exit-with.ts'
 import { DaemonAlreadyRunningError, type RunningDaemon, startDaemon } from './index.ts'
 import { closeInheritedFds } from './inherited-fds.ts'
 import { daemonAlreadyRunningExitCode, tedQuitExitCode } from './launch.ts'
 import { logConsoleTo, openRollingLog, tedLogLimits } from './logs.ts'
 import { QuitMarkedError } from './quit-mark.ts'
+import { redactSecrets } from './redact.ts'
 import { holdAwakeWithOs } from './stay-awake.ts'
 
 closeInheritedFds()
@@ -16,6 +18,29 @@ delete process.env.ELECTRON_RUN_AS_NODE
 const paths = tedPaths(tedHome())
 mkdirSync(paths.logs, { recursive: true, mode: 0o700 })
 logConsoleTo(openRollingLog(paths.daemonLog, tedLogLimits))
+
+let running: RunningDaemon | undefined
+const testSentryDsn = tedEnv('TED_SENTRY_DSN')
+const reportCrash = crashReporter({
+  part: 'daemon',
+  dsn: testSentryDsn ?? sentryDsn,
+  allowLoopbackHttp: testSentryDsn !== undefined,
+  version: tedVersion,
+  edition,
+  enabled: () => running?.reporting() ?? false,
+  post: (url, init) => fetch(url, init),
+})
+let crashing = false
+process.on('uncaughtException', (error, origin) => {
+  console.error('Uncaught exception:', error)
+  process.stderr.write(`${redactSecrets(format(error))}\n`)
+  if (crashing) process.exit(1)
+  crashing = true
+  setTimeout(() => process.exit(1), 6000).unref()
+  void reportCrash(
+    crashFrom(origin === 'unhandledRejection' ? 'rejection' : 'uncaught', error),
+  ).finally(() => process.exit(1))
+})
 
 const { values } = parseArgs({
   args: process.argv.slice(2),
@@ -131,7 +156,13 @@ try {
     }),
   })
   const daemon = await starting
+  running = daemon
   console.log(`TED daemon ${tedVersion} listening on 127.0.0.1:${daemon.port}`)
+  if (tedEnv('TED_FORCE_ERROR')?.split(',').includes('daemon')) {
+    setTimeout(() => {
+      throw new Error(`Forced error in the daemon (TED_FORCE_ERROR) in ${tedHome()}`)
+    })
+  }
 } catch (error) {
   await demoLinear?.close()
   if (error instanceof DaemonAlreadyRunningError) {

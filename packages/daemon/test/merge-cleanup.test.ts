@@ -79,6 +79,7 @@ test('cleanup reports delayed shutdown and home removal, retaining the host and 
     activate(resource, {
       port: 0,
       appToken: '',
+      reporting: () => false,
       async stop(onStep) {
         onStep?.('services')
         stopped.resolve()
@@ -143,12 +144,18 @@ test('delayed cleanup removes only its original resources when another test repl
   const next = await resources()
   const stopped = Promise.withResolvers<void>()
   const release = Promise.withResolvers<void>()
-  const nextDaemon: RunningDaemon = { port: 0, appToken: '', stop: async () => {} }
+  const nextDaemon: RunningDaemon = {
+    port: 0,
+    appToken: '',
+    reporting: () => false,
+    stop: async () => {},
+  }
   let cleanup: Promise<void> | undefined
   try {
     activate(old, {
       port: 0,
       appToken: '',
+      reporting: () => false,
       async stop(onStep) {
         onStep?.('services')
         stopped.resolve()
