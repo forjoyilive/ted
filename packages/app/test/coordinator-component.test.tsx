@@ -564,7 +564,7 @@ test('with no chats Agents opens New chat: a card for every Agent; a picked Agen
 test('the New Agent card opens this Factory’s Agent files settings', async () => {
   const { a, shown, open } = withCoordinator()
   shown.chats = []
-  a.handle('factorySettings', () => settingsView)
+  a.handle('factorySettings', settingsView)
   a.handle('homeFolder', () => '/test')
   a.handle('tedFolder', () => ({ path: '/test/', platform: 'darwin' }))
   a.mount()
