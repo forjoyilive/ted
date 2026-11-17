@@ -5,6 +5,9 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_APP_TOKEN: false,
   TED_AUTOMATION: 'Automation context for CLI task creation.',
   TED_BROWSER_PROFILE: 'Profile folder the daemon gives an Automation Run’s headless browser.',
+  TED_CHAT: 'Coordinator chat context for CLI requests from a chat’s Run.',
+  TED_CHECK_CPUS:
+    'Logical cores TED tells a Check command it may use, so a Check leaves room for Runs.',
   TED_CLAUDE_BIN: false,
   TED_CODEX_BIN: false,
   TED_ANTIGRAVITY_BIN: false,
@@ -62,6 +65,7 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_SANDBOX:
     'Marks commands run in TED’s OS sandbox, so the development app and its tests skip Electron there and the tests use a pass-through sandbox and their own cache folder.',
   TED_SANDBOX_BIN: false,
+  TED_SENTRY_DSN: false,
   TED_SANDBOX_ELECTRON:
     'Marks an Electron App run in TED’s OS sandbox with the exception Electron needs, so the development app starts there.',
   TED_SIMULATOR_UDID: 'Task simulator context supplied to App and Run commands.',

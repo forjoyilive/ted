@@ -9,6 +9,14 @@ const linear = `Bring the Linear issues assigned to me into TED as Tasks.
 
 End with one line naming the Tasks you created, or “No new Tasks”.`
 
+const linearIntake = `Bring my not-started Linear work into TED as Backlog Tasks.
+
+1. Run \`ted linear intake\` once. TED reads this Factory’s Linear intake Team or Project with my Linear connection, creates a Task for each issue assigned to me that hasn’t started (Triage, Backlog, Todo), and leaves alone what it already tracks.
+2. Don’t use your own Linear tools, don’t create Tasks from Linear issues any other way, and don’t change anything in Linear.
+3. If TED refuses, for example because no Linear intake Team or Project is chosen or Linear isn’t connected, don’t try again or work around it.
+
+End with one line: the Tasks TED created, or that it created nothing new, plus anything else TED reports: how many issues were already tracked or left for the next run, which issues it skipped and why, and why it stopped early. Or TED’s refusal.`
+
 const asana = `Bring my unfinished Asana work into TED as Backlog Tasks.
 
 1. Run \`ted asana intake\` once. TED reads this Factory’s chosen Asana project or section with my Asana connection, imports each unfinished task assigned to me with the tasks under it, and leaves alone what it already tracks.
@@ -81,6 +89,14 @@ export const automationTemplates: readonly AutomationTemplate[] = [
     summary:
       'Creates a Task for each new Linear issue assigned to you, using your own Linear tools.',
     prompt: linear,
+    schedule: { kind: 'every', every: 30, unit: 'minutes' },
+  },
+  {
+    id: 'linear-intake',
+    name: 'Import my Linear work',
+    summary:
+      'Imports your not-started Linear issues from the Factory’s Linear intake Team or Project into Backlog.',
+    prompt: linearIntake,
     schedule: { kind: 'every', every: 30, unit: 'minutes' },
   },
   {

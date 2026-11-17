@@ -5,6 +5,7 @@ import type {
   LayerKind,
   StageId,
 } from '@ted/protocol'
+import type { ResolvedAgent } from '@ted/protocol/agent-files'
 import {
   compareStages,
   isBuiltInStage,
@@ -14,6 +15,7 @@ import {
   stageDisplayName,
   stageWith,
 } from '@ted/protocol/stage'
+import { resolveAgents } from './agent-files.ts'
 import {
   type AgentChoice,
   type CheckedLayer,
@@ -47,7 +49,9 @@ export interface ResolvedWorkflow {
   names: Readonly<Record<string, string>>
   missing?: readonly string[]
   recorded?: readonly string[]
+  agents: readonly ResolvedAgent[]
   stageFile(id: AgentStageId): ResolvedStageFile | undefined
+  agent(id: string): ResolvedAgent | undefined
   name(id: StageId): string
   next(current: StageId, recorded?: readonly string[]): StageId
 }
@@ -88,7 +92,7 @@ export function resolveWorkflow(layers: CheckedLayer[]): ResolvedWorkflow {
     if (layer.notes !== undefined) notes = layer.notes
   }
 
-  return built(settings, (id) => stageFiles.get(id), notes)
+  return built(settings, (id) => stageFiles.get(id), notes, resolveAgents(layers))
 }
 
 export function cleanupOn(settings: WorkflowSettings): boolean {
@@ -102,6 +106,7 @@ function built(
   given: WorkflowSettings,
   stageFile: (id: AgentStageId) => ResolvedStageFile | undefined,
   notes: string | undefined,
+  agents: readonly ResolvedAgent[],
 ): ResolvedWorkflow {
   const order: AgentStageId[] = [
     ...(given.order ?? ['intake', 'work']).filter((id) => !isCleanup(id)),
@@ -123,7 +128,9 @@ function built(
     ...(notes !== undefined && { notes }),
     names,
     ...(missing.length > 0 && { missing }),
+    agents,
     stageFile,
+    agent: (id) => agents.find((agent) => agent.id === id),
     name: (id) => stageDisplayName(id, names),
     next: (current, recorded) => nextStage(stages, order, current, recorded),
   }
@@ -282,6 +289,7 @@ export function setupWorkflow(
     { ...workflow.settings, order, stages, ...(repos && { repos }) },
     stageFile,
     workflow.notes,
+    workflow.agents,
   )
 }
 

@@ -42,6 +42,10 @@ test('a setting is found by its name, group, page and description, with its page
   expect(find('diagnostics')[0]?.id).toBe('app.developer.diagnostics')
   expect(find('export format').map((hit) => hit.id)).toEqual(['app.storage.export.format'])
   expect(find('custom command')[0]?.id).toBe('app.general.editor.custom-command')
+  expect(find('archived chats')[0]).toMatchObject({
+    id: 'app.storage.archived-chats',
+    where: 'Settings › Storage',
+  })
   expect(find('STAY  awake')).toHaveLength(1)
   expect(find('   ')).toEqual([])
   expect(find('zzz')).toEqual([])
@@ -58,6 +62,26 @@ test('the Providers page is found by its name and by “agent”', () => {
       }),
     )
   }
+})
+
+test('the Agents page is found in Factory settings and in the Library', () => {
+  expect(find('agents powers')).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: 'factory.agent-files',
+        where: 'widgets › Settings',
+        target: expect.objectContaining({ kind: 'factory', section: 'agent-files' }),
+      }),
+      expect.objectContaining({
+        id: 'app.library.agents',
+        where: 'Settings › Library',
+        target: { kind: 'app', section: 'library' },
+      }),
+    ]),
+  )
+  expect(find('new agent').map((hit) => hit.id)).toEqual(
+    expect.arrayContaining(['factory.agent-files.new', 'app.library.agents.new']),
+  )
 })
 
 test('a name match comes first, a setting before a heading with the same words', () => {

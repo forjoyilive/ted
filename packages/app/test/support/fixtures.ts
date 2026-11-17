@@ -1,6 +1,22 @@
-import type { Comment, Factory, Task } from '@ted/protocol'
+import type { ChatAgent, Comment, Factory, Task } from '@ted/protocol'
 
 export const createdAt = '2026-11-09T12:00:00.000Z'
+
+export const coordinatorAgent: ChatAgent = {
+  id: 'coordinator',
+  name: 'Coordinator',
+  source: 'ted',
+  powers: ['ask', 'manage_tasks', 'manage_automations', 'manage_agents'],
+  removed: false,
+}
+
+export const plannerAgent: ChatAgent = {
+  id: 'planner',
+  name: 'Planner',
+  source: 'ted',
+  powers: ['ask', 'propose_tasks', 'read_code'],
+  removed: false,
+}
 
 export function factory(fields: Partial<Factory> = {}): Factory {
   return {
@@ -64,6 +80,7 @@ export function comment(fields: Partial<Comment> = {}): Comment {
 
 export function settingsView(): import('@ted/protocol').FactorySettingsView {
   return {
+    agentFiles: [],
     factoryId: 'f1',
     repo: 'acme/widgets',
     defaultBranch: 'main',
@@ -83,11 +100,12 @@ export function settingsView(): import('@ted/protocol').FactorySettingsView {
     problems: [],
     github: { ready: true },
     stages: [
-      { id: 'intake', inOrder: true, enabled: true, gate: false, from: 'ted' },
-      { id: 'design', inOrder: true, enabled: true, gate: true, from: 'ted' },
-      { id: 'work', inOrder: true, enabled: true, gate: false, from: 'ted' },
+      { id: 'intake', name: 'Intake', inOrder: true, enabled: true, gate: false, from: 'ted' },
+      { id: 'design', name: 'Design', inOrder: true, enabled: true, gate: true, from: 'ted' },
+      { id: 'work', name: 'Work', inOrder: true, enabled: true, gate: false, from: 'ted' },
       {
         id: 'review',
+        name: 'Review',
         inOrder: true,
         enabled: true,
         gate: true,

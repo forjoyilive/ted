@@ -1,6 +1,10 @@
-import type { Attachment, DesignFile, DesignReview, SetupProposal } from '@ted/protocol'
+import type { Attachment, DesignFile, DesignReview, MessageBox, SetupProposal } from '@ted/protocol'
+import { agentPowerNames } from '@ted/protocol/agent-files'
+import { isArray, isString } from '@ted/protocol/parse'
+import { type SetupAgentProposal, setupAgentFiles } from '@ted/protocol/setup-agents'
 import { type ReactNode, useEffect, useState } from 'react'
 import { useBytes } from '../attachment-bytes.ts'
+import { type MessageDraftHandle, useMessageDraft } from '../message-drafts.ts'
 import { useStages } from '../stages.tsx'
 import { readableError, ted } from '../ted.ts'
 import { ActionButton } from './ActionButton.tsx'
@@ -8,6 +12,7 @@ import { Button } from './Button.tsx'
 import styles from './DesignReview.module.css'
 import { Loading } from './Loading.tsx'
 import { Markdown } from './Markdown.tsx'
+import { agentNames } from './RunIcon.tsx'
 import { ImageViewer, Viewer } from './Viewer.tsx'
 
 const prototypeSrc = ({ hash, name }: DesignFile) =>
@@ -211,8 +216,108 @@ function SetupSection({ label, children }: { label: string; children: ReactNode 
   )
 }
 
-function SetupProposalView({ setup }: { setup: SetupProposal }) {
+export function removedAgentsDraft(draft: MessageDraftHandle): string[] {
+  const kept = draft.fields.removeAgents
+  return isArray(kept) ? kept.filter(isString) : []
+}
+
+function SetupAgents({
+  agents,
+  removed,
+  onToggle,
+}: {
+  agents: readonly SetupAgentProposal[]
+  removed: readonly string[]
+  onToggle: ((id: string) => void) | undefined
+}) {
+  return (
+    <SetupSection label="Agents · suggested for this repo">
+      <ul className={styles.agentRows}>
+        {agents.map((agent) => {
+          const kept = !removed.includes(agent.id)
+          return (
+            <li
+              key={agent.id}
+              className={kept ? styles.agentRow : `${styles.agentRow} ${styles.agentRemoved}`}
+            >
+              <input
+                type="checkbox"
+                className={styles.agentCheck}
+                aria-label={`Add ${agent.name}`}
+                checked={kept}
+                disabled={onToggle === undefined}
+                onChange={() => onToggle?.(agent.id)}
+              />
+              <div className={styles.agentBody}>
+                <div className={styles.agentLine}>
+                  <span className={styles.agentName}>{agent.name}</span>
+                  <code className={styles.agentId}>{agent.id}</code>
+                  {agent.agent !== undefined && (
+                    <span className={styles.meta}>
+                      {[agentNames[agent.agent], agent.model].filter(Boolean).join(' · ')}
+                    </span>
+                  )}
+                  {!kept && <span className={styles.meta}>Removed · won’t be written</span>}
+                </div>
+                <p className={styles.agentAbout}>{agent.about}</p>
+                {agent.powers.length > 0 && (
+                  <ul className={styles.powers} aria-label={`${agent.name}’s powers`}>
+                    {agent.powers.map((power) => (
+                      <li key={power} className={styles.power}>
+                        {agentPowerNames[power]}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {agent.commands !== undefined && agent.commands.length > 0 && (
+                  <ul className={styles.agentCommands} aria-label={`${agent.name}’s commands`}>
+                    {agent.commands.map((command) => (
+                      <li key={command.name}>
+                        <code>{command.name}</code>
+                        <code className={styles.agentCommand}>{command.command}</code>
+                        {command.repo !== undefined && (
+                          <span className={styles.meta}>in {command.repo}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <details className={styles.agentInstructions}>
+                  <summary>Instructions</summary>
+                  <Markdown text={agent.instructions} />
+                </details>
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+    </SetupSection>
+  )
+}
+
+function SetupProposalView({
+  setup,
+  box,
+  answeredRemoved,
+}: {
+  setup: SetupProposal
+  box: MessageBox | undefined
+  answeredRemoved: readonly string[] | undefined
+}) {
   const stages = useStages()
+  const draft = useMessageDraft(box)
+  const agents = setup.agents ?? []
+  const removed = answeredRemoved ?? (box === undefined ? [] : removedAgentsDraft(draft))
+  const toggle =
+    box === undefined || answeredRemoved !== undefined
+      ? undefined
+      : (id: string) =>
+          draft.setField(
+            'removeAgents',
+            removed.includes(id) ? removed.filter((r) => r !== id) : [...removed, id],
+          )
+  const agentFiles = new Set(setupAgentFiles(agents))
+  const keptFiles = new Set(setupAgentFiles(agents.filter((a) => !removed.includes(a.id))))
   return (
     <>
       {setup.workflow.length > 0 && (
@@ -269,14 +374,36 @@ function SetupProposalView({ setup }: { setup: SetupProposal }) {
           </ul>
         </SetupSection>
       )}
+      {agents.length > 0 && <SetupAgents agents={agents} removed={removed} onToggle={toggle} />}
       <SetupSection label="Files it will write">
         <ul className={styles.setupRows}>
-          {setup.files.map((file) => (
-            <li key={file.path} className={styles.fileRow}>
-              <code className={styles.filePath}>{file.path}</code>
-              <span className={styles.fileAbout}>{file.about}</span>
-            </li>
-          ))}
+          {setup.files
+            .filter((file) => !agentFiles.has(file.path))
+            .map((file) => (
+              <li key={file.path} className={styles.fileRow}>
+                <code className={styles.filePath}>{file.path}</code>
+                <span className={styles.fileAbout}>{file.about}</span>
+              </li>
+            ))}
+          {[...agentFiles].map((path) => {
+            const kept = keptFiles.has(path)
+            const agent = agents.find((a) => path === `.ted/agents/${a.id}.md`)
+            return (
+              <li
+                key={path}
+                className={kept ? styles.fileRow : `${styles.fileRow} ${styles.fileDropped}`}
+              >
+                <code className={styles.filePath}>{path}</code>
+                <span className={styles.fileAbout}>
+                  {!kept
+                    ? 'Not written'
+                    : agent
+                      ? `Instructions for ${agent.name}`
+                      : 'Name, Provider and powers of each Agent'}
+                </span>
+              </li>
+            )
+          })}
         </ul>
       </SetupSection>
       {setup.defaults !== undefined && <p className={styles.defaults}>{setup.defaults}</p>}
@@ -289,11 +416,15 @@ export function DesignReviewContent({
   files,
   taskId,
   commentId,
+  box,
+  answeredRemoved,
 }: {
   design: DesignReview
   files: readonly Attachment[]
   taskId: string
   commentId: string
+  box?: MessageBox | undefined
+  answeredRemoved?: readonly string[] | undefined
 }) {
   const [open, setOpen] = useState<number>()
   const shots = design.screenshots ?? []
@@ -325,7 +456,9 @@ export function DesignReviewContent({
           onClose={() => setOpen(undefined)}
         />
       )}
-      {design.setup && <SetupProposalView setup={design.setup} />}
+      {design.setup && (
+        <SetupProposalView setup={design.setup} box={box} answeredRemoved={answeredRemoved} />
+      )}
       {design.prototype && <Prototype file={design.prototype} />}
       {design.figma && <FigmaRow figma={design.figma} taskId={taskId} commentId={commentId} />}
       {design.worthYourEye && design.worthYourEye.length > 0 && (

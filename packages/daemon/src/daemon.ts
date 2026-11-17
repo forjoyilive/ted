@@ -17,6 +17,9 @@ import { createAttachments } from './attachments.ts'
 import { createAutomations } from './automations/automations.ts'
 import { createBanners } from './banners.ts'
 import { createBusyHold } from './busy.ts'
+import { createChatArchiveCleanup } from './chat-expiry.ts'
+import { builtInAgents } from './chats/agents.ts'
+import { createChatCommands } from './chats/commands.ts'
 import { createCheckTries } from './check-tries.ts'
 import type { Clock } from './clock.ts'
 import { createEnvironment, loginShell } from './command-env.ts'
@@ -46,9 +49,11 @@ import { acquireLock } from './lock.ts'
 import { createMemoryWatch } from './memory-kills.ts'
 import { createPlans, type Plans } from './plans/plans.ts'
 import { QuitMarkedError, quitMarkedSync } from './quit-mark.ts'
+import { redactSecrets } from './redact.ts'
 import { pruneRunOutput, runOutputEnd } from './retention.ts'
 import { loadRunTokens } from './run-token.ts'
 import { createConversations } from './runs/conversations.ts'
+import { sleepIdleRuns } from './runs/idle-sleep.ts'
 import { type RunManager, startRunManager } from './runs/run-manager.ts'
 import { createSteering } from './runs/steering.ts'
 import { restartOnNewVersions } from './runs/version-restarts.ts'
@@ -92,7 +97,7 @@ export interface DaemonOptions {
   integrations?: DaemonIntegrationsOptions
   asana?: Omit<AsanaOptions, 'home' | 'keyring'> & { keyring?: Keyring; intakeLimit?: number }
   github?: { uploadOrigins?: string[]; intakeLimit?: number }
-  linear?: { apiUrl?: string; keyring?: Keyring }
+  linear?: { apiUrl?: string; keyring?: Keyring; intakeLimit?: number }
   snoozes?: { now?: () => Date; checkEveryMs?: number }
   heldRequests?: { maxMs?: number }
   linearSyncMs?: number
@@ -121,6 +126,7 @@ export interface DaemonOptions {
   scratchMaxAgeMs?: number
   automations?: DaemonAutomationsOptions
   retention?: DaemonRetentionOptions
+  idleSleep?: { now?: () => number; checkEveryMs?: number }
   oldestHost?: number
   editors?: DaemonEditorsOptions
   compaction?: DataOptions['compaction']
@@ -424,7 +430,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           console.error(`couldn’t update ${factory.name}’s repos:`, error)
         })
       }
-      const checkSlots = createCheckSlots({ limit: () => store.settings().maxChecksAtOnce })
+      const checkSlots = createCheckSlots({
+        limit: () => store.settings().maxChecksAtOnce,
+        cpuPercent: () => store.settings().checkCpuPercent,
+      })
       const checkTries = createCheckTries({
         store,
         checkSlots,
@@ -515,6 +524,8 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.clock && { clock: options.clock }),
         steering,
         planning: () => plans,
+        setPullRequestCi: (factoryId, repo, mode) =>
+          factorySettings.setPullRequestCi(factoryId, repo, mode),
         store,
         runs,
         workflows,
@@ -543,6 +554,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         },
         ...(options.snoozes !== undefined && { snoozes: options.snoozes }),
         ...(options.heldRequests !== undefined && { heldRequests: options.heldRequests }),
+        ...(options.linear?.intakeLimit !== undefined && {
+          linearIntakeLimit: options.linear.intakeLimit,
+        }),
         ...(options.linearSyncMs !== undefined && { linearSyncMs: options.linearSyncMs }),
         ...(options.asanaSyncMs !== undefined && { asanaSyncMs: options.asanaSyncMs }),
         ...(options.githubSyncMs !== undefined && { githubSyncMs: options.githubSyncMs }),
@@ -644,8 +658,20 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.clock && { clock: options.clock }),
         ...automationOptions,
       })
+      const chatBuiltIns = await builtInAgents()
+      const chatCommands = createChatCommands({
+        home: paths.home,
+        store,
+        checkSlots,
+        sandbox,
+        banners,
+        workflows,
+        env: environment.current,
+      })
       const createdPlans = createPlans({
         home: paths.home,
+        builtInAgents: chatBuiltIns,
+        commands: chatCommands,
         store,
         runs,
         agents,
@@ -663,11 +689,18 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       plans = options.wrap?.plans?.(createdPlans) ?? createdPlans
       const createdCoordinators = createCoordinators({
         home: paths.home,
+        builtInAgents: chatBuiltIns,
+        commands: chatCommands,
+        automations,
+        agentTargets: { library, factory: factorySettings },
+        banners,
+        reposDir: paths.repos,
         store,
         runs,
         tasks,
         health,
         steering,
+        workflows,
         ...(options.mkdir !== undefined && { mkdir: options.mkdir }),
       })
       coordinators = options.wrap?.coordinators?.(createdCoordinators) ?? createdCoordinators
@@ -687,6 +720,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         paths.emulators,
         paths.scratch,
         paths.plans,
+        paths.chatCode,
         paths.automationRuns,
       ]
       const excludeFromBackups =
@@ -709,18 +743,29 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         tasks,
         ...(options.retention?.now && { now: options.retention.now }),
       })
+      const chatArchiveCleanup = createChatArchiveCleanup({
+        store,
+        plans,
+        coordinators,
+        ...(options.retention?.now && { now: options.retention.now }),
+      })
       const sweepArchived = () =>
-        archiveCleanup
-          .sweep()
-          .catch((error: unknown) => console.error('deleting archived Tasks failed:', error))
+        Promise.all([archiveCleanup.sweep(), chatArchiveCleanup.sweep()]).catch((error: unknown) =>
+          console.error('deleting archived Tasks or chats failed:', error),
+        )
       void prune()
       void sweepArchived()
       let keptDays = store.settings().runOutputDays
       let archivedDays = store.settings().deleteArchivedAfterDays
+      let archivedChatDays = store.settings().deleteArchivedChatsAfterDays
       const stopPruningOnChange = store.subscribe((event) => {
         if (event.type !== 'settings-changed') return
-        if (event.settings.deleteArchivedAfterDays !== archivedDays) {
+        if (
+          event.settings.deleteArchivedAfterDays !== archivedDays ||
+          event.settings.deleteArchivedChatsAfterDays !== archivedChatDays
+        ) {
           archivedDays = event.settings.deleteArchivedAfterDays
+          archivedChatDays = event.settings.deleteArchivedChatsAfterDays
           void sweepArchived()
         }
         if (event.settings.runOutputDays === keptDays) return
@@ -814,6 +859,37 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         conversations,
         versionsFile: path.join(paths.home, 'agent-versions.json'),
       })
+      runs.envSource((run) => tasks.leadRunEnv(run))
+      const wakeBanners = new Map<string, string>()
+      runs.observe({
+        wakeFailed(run, failures, reason) {
+          const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
+          if (!task || failures < 2) return
+          wakeBanners.set(run.id, task.factoryId)
+          banners.raiseUnsaved({
+            problem: 'run-wake-failed',
+            subject: run.id,
+            factoryId: task.factoryId,
+            severity: 'warning',
+            text: redactSecrets(
+              `${task.displayId}’s Task Lead couldn’t be started again after it was idle, and TED keeps trying: ${reason.split('\n')[0] ?? ''}`,
+            ),
+            action: { label: 'Open Task', opens: { kind: 'task', taskId: task.id } },
+          })
+        },
+        woke(run) {
+          const factoryId = wakeBanners.get(run.id)
+          if (factoryId === undefined) return
+          wakeBanners.delete(run.id)
+          banners.clear({ problem: 'run-wake-failed', subject: run.id, factoryId })
+        },
+      })
+      const idleSleep = sleepIdleRuns({
+        store,
+        runs,
+        midWork: (taskId) => tasks.midWork(taskId),
+        ...options.idleSleep,
+      })
       if (options.checkAgentsOnStart) {
         health.check().catch((error: unknown) => console.error('agent health check failed:', error))
       }
@@ -840,15 +916,18 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         shells,
         editors,
         archiveCleanup,
+        chatArchiveCleanup,
         async close() {
           await execution.close()
           const shellsClosed = shells.close()
           await sideChats.close()
+          chatCommands.close()
           await coordinators.close()
           await automations.close()
           plans.close()
           libraryWatch.close()
           versionRestarts.close()
+          idleSleep.close()
           await checkTries.close()
           workflows.close()
           await factorySettings.close()
@@ -857,6 +936,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           clearInterval(pruneTimer)
           stopPruningOnChange()
           await archiveCleanup.close()
+          await chatArchiveCleanup.close()
           stopWatchingWrites()
           online.close()
           health.close()

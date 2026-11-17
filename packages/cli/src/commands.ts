@@ -10,6 +10,7 @@ const flags = {
   'request-changes': { type: 'boolean' },
   answers: { type: 'string' },
   versions: { type: 'string' },
+  fields: { type: 'string' },
   children: { type: 'string' },
   blocked: { type: 'string' },
   'close-pull-requests': { type: 'boolean' },
@@ -99,7 +100,7 @@ export type Options = {
       : string
 }
 
-type Scope = 'task' | 'automation' | 'plan'
+type Scope = 'task' | 'automation' | 'plan' | 'chat'
 interface CommandDefinition<H extends string = string> {
   name: string
   handler: H
@@ -411,6 +412,38 @@ export const commands = [
     excludes: ['close', 'summary'],
     scope: 'plan',
     options: options('round', 'supersedes'),
+  },
+  {
+    name: 'ask',
+    handler: 'chatRound',
+    min: 0,
+    max: 0,
+    help: '',
+    callers: 'Coordinator chat Run',
+    requires: ['round'],
+    excludes: ['close', 'summary'],
+    scope: 'chat',
+    options: options('round', 'supersedes'),
+  },
+  {
+    name: 'agent run',
+    handler: 'agentRun',
+    min: 1,
+    max: 1,
+    help: '  ted agent run <name>                       In a chat whose Agent has commands, run one of\n                                             them in the chat’s copy of the code and print\n                                             its output; exits with the command’s status',
+    callers: 'Coordinator or planning chat Run',
+    options: options(),
+  },
+  {
+    name: 'ask',
+    handler: 'chatQuestion',
+    min: 1,
+    max: null,
+    help: '',
+    callers: 'Coordinator chat Run',
+    excludes: ['round', 'close', 'summary'],
+    scope: 'chat',
+    options: options('choice', 'multiple', 'supersedes'),
   },
   {
     name: 'ask',
@@ -870,6 +903,51 @@ export const commands = [
     callers: 'Current Task Lead',
   },
   {
+    name: 'coordinator automations',
+    handler: 'coordinatorAutomations',
+    options: options(),
+    min: 0,
+    max: 0,
+    help: '  ted coordinator automations                Read this Factory’s Automations (needs the\n                                             Manage Automations power)',
+    callers: 'Coordinator Run',
+  },
+  {
+    name: 'coordinator automation show',
+    handler: 'coordinatorAutomationShow',
+    options: options(),
+    min: 1,
+    max: 1,
+    help: '  ted coordinator automation show <id>       Read one Automation of this Factory',
+    callers: 'Coordinator Run',
+  },
+  {
+    name: 'coordinator automation draft',
+    handler: 'coordinatorAutomationDraft',
+    options: options('operation', 'fields'),
+    min: 0,
+    max: 0,
+    help: '  ted coordinator automation draft --operation <id> [--fields <json>]\n                                             Draft a new Automation for the human to create;\n                                             reads the JSON from stdin without --fields',
+    callers: 'Coordinator Run',
+  },
+  {
+    name: 'coordinator automation change',
+    handler: 'coordinatorAutomationChange',
+    options: options('operation', 'fields'),
+    min: 1,
+    max: 1,
+    help: '  ted coordinator automation change <id> --operation <id> [--fields <json>]\n                                             Draft a change for the human to save; reads the\n                                             JSON from stdin without --fields',
+    callers: 'Coordinator Run',
+  },
+  {
+    name: 'coordinator automation delete',
+    handler: 'coordinatorAutomationDelete',
+    options: options('operation'),
+    min: 1,
+    max: 1,
+    help: '  ted coordinator automation delete <id> --operation <id>\n                                             Ask the human to delete an Automation',
+    callers: 'Coordinator Run',
+  },
+  {
     name: 'coordinator tasks',
     handler: 'coordinatorTasks',
     options: options('stage', 'status', 'waiting', 'search', 'all', 'offset'),
@@ -885,6 +963,24 @@ export const commands = [
     min: 1,
     max: 1,
     help: '  ted coordinator task <id> [--offset <n>]   Read a Task, brief, open requests, Comments and version',
+    callers: 'Coordinator Run',
+  },
+  {
+    name: 'coordinator agents',
+    handler: 'coordinatorAgents',
+    options: options(),
+    min: 0,
+    max: 0,
+    help: '  ted coordinator agents                     Read this Factory’s Agents, with their powers and instructions',
+    callers: 'Coordinator Run',
+  },
+  {
+    name: 'coordinator agent-draft',
+    handler: 'chatAgentDraft',
+    options: options('file', 'supersedes'),
+    min: 0,
+    max: 0,
+    help: '  ted coordinator agent-draft --file <file> [--supersedes <request-id>]\n                                             Draft a new Agent or a change to one for the human to create',
     callers: 'Coordinator Run',
   },
   {
@@ -978,6 +1074,15 @@ export const commands = [
     help: '  ted github intake                          Import the open issues in the Factory’s repos that\n                                             carry its GitHub intake label into Backlog',
     callers: 'Automation Run',
     options: options(),
+  },
+  {
+    name: 'linear intake',
+    handler: 'linearIntake',
+    min: 0,
+    max: 0,
+    help: '  ted linear intake [--factory <key>]        Import the not-started Linear issues assigned to\n                                             you from the Factory’s Linear intake Team or\n                                             Project into Backlog',
+    callers: 'Terminal or Automation Run',
+    options: options('factory'),
   },
   {
     name: 'task create',
@@ -1090,6 +1195,16 @@ export const commands = [
     help: '',
     callers: 'Planning Run',
     scope: 'plan',
+    options: options('file', 'supersedes'),
+  },
+  {
+    name: 'task propose',
+    handler: 'chatProposal',
+    min: 0,
+    max: 0,
+    help: '',
+    callers: 'Coordinator chat Run',
+    scope: 'chat',
     options: options('file', 'supersedes'),
   },
   {
@@ -1387,7 +1502,10 @@ export function parseInvocation(
         : named.some((entry) => entry.name === 'ask' || entry.name === 'task propose') &&
             tedEnv('TED_PLAN', env)
           ? 'plan'
-          : 'task'
+          : named.some((entry) => entry.name === 'ask' || entry.name === 'task propose') &&
+              tedEnv('TED_CHAT', env)
+            ? 'chat'
+            : 'task'
     const selected = named.filter(
       (entry) =>
         (entry.scope === undefined || entry.scope === scope) &&

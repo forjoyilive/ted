@@ -105,5 +105,6 @@ export function runFiles(runDir: string) {
     pid: path.join(runDir, 'host.pid'),
     env: path.join(runDir, 'env.json'),
     readTo: path.join(runDir, 'read-offset.json'),
+    asleep: path.join(runDir, 'asleep.json'),
   }
 }

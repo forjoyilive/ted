@@ -36,6 +36,24 @@ const library = {
   stageFiles: { work: '# Work', review: null },
   keepStageFiles: ['work'],
   agents: { lead: { agent: 'codex', model: 'gpt-5.5', effort: 'high' }, reviewer: null },
+  agentFiles: [
+    {
+      id: 'release-notes',
+      settings: {
+        name: 'Release notes',
+        agent: 'claude',
+        model: 'opus',
+        powers: ['ask', 'read_code', 'run_commands'],
+        commands: [
+          { name: 'test', command: 'pnpm vitest run', repo: 'web' },
+          { name: 'lint', command: 'pnpm lint' },
+        ],
+      },
+      instructions: '# Release notes',
+    },
+    { id: 'planner', settings: null, instructions: null },
+  ],
+  keepAgentFiles: ['coordinator'],
 } satisfies Required<P.LibraryChanges>
 const settings = {
   ...library,
@@ -158,6 +176,71 @@ roundTrip(P.parseSetFactoryIconRequest, {
 roundTrip(P.parseSetFactoryIconRequest, { icon: null })
 roundTrip(P.parseLibraryChanges, library)
 roundTrip(P.parseSaveLibraryRequest, { changes: library, version: 'rev' })
+
+test('parseLibraryChanges drops an empty model and orders powers once each', () => {
+  const body = {
+    agentFiles: [{ id: 'notes', settings: { model: '', powers: ['read_code', 'ask', 'ask'] } }],
+  }
+  expect(P.parseLibraryChanges(body)).toEqual({
+    agentFiles: [{ id: 'notes', settings: { powers: ['ask', 'read_code'] } }],
+  })
+})
+rejects(P.parseLibraryChanges, { agentFiles: [{ id: 'Bad Id' }] }, 'isn’t an Agent id')
+rejects(
+  P.parseLibraryChanges,
+  { agentFiles: [{ id: 'a', settings: { powers: ['fly'] } }] },
+  'unknown power',
+)
+rejects(P.parseLibraryChanges, { agentFiles: [{ id: 'a', settings: { name: '' } }] }, 'a.name')
+rejects(P.parseLibraryChanges, { agentFiles: [{ id: 'a', settings: { agent: 'gpt' } }] }, 'a.agent')
+rejects(P.parseLibraryChanges, { agentFiles: [{ id: 'a' }, { id: 'a' }] }, 'twice')
+rejects(P.parseLibraryChanges, { agentFiles: [{ id: 'a', instructions: 3 }] }, 'instructions')
+rejects(P.parseLibraryChanges, { keepAgentFiles: ['../x'] }, 'isn’t an Agent id')
+rejects(
+  P.parseLibraryChanges,
+  { agentFiles: [{ id: 'a', settings: { powers: ['run_commands'] } }] },
+  'needs Read the code',
+)
+const command = (fields: { name?: string; command?: string; repo?: string }) => ({
+  agentFiles: [
+    { id: 'a', settings: { commands: [{ name: 'test', command: 'pnpm test', ...fields }] } },
+  ],
+})
+rejects(P.parseLibraryChanges, command({ name: 'Not A Name' }), 'isn’t a command name')
+rejects(P.parseLibraryChanges, command({ command: '  ' }), 'a.test must be a command')
+rejects(P.parseLibraryChanges, command({ command: 'x'.repeat(2001) }), 'up to 2000 characters')
+rejects(P.parseLibraryChanges, command({ repo: '../web' }), 'a.test.repo')
+rejects(
+  P.parseLibraryChanges,
+  {
+    agentFiles: [
+      {
+        id: 'a',
+        settings: {
+          commands: [
+            { name: 't', command: 'a' },
+            { name: 't', command: 'b' },
+          ],
+        },
+      },
+    ],
+  },
+  'twice',
+)
+rejects(
+  P.parseLibraryChanges,
+  {
+    agentFiles: [
+      {
+        id: 'a',
+        settings: {
+          commands: Array.from({ length: 21 }, (_, i) => ({ name: `c${i}`, command: 'x' })),
+        },
+      },
+    ],
+  },
+  'more than 20 commands',
+)
 
 rejects(P.parseAutoStartBacklogRequest, { enabled: 1 }, 'enabled must be')
 rejects(P.parseReorderFactoriesRequest, { factoryIds: 'one' }, 'factoryIds must be a list')
@@ -297,7 +380,7 @@ rejects(
   },
   'too large',
 )
-rejects(P.parseLibraryChanges, { keepStageFiles: ['other'] }, 'unknown Stage')
+rejects(P.parseLibraryChanges, { keepStageFiles: ['Other stage'] }, 'unknown Stage')
 rejects(P.parseSaveLibraryRequest, { changes: library }, 'version is required')
 
 test('legacy Factory normalization and defaults', () => {
@@ -332,6 +415,41 @@ test('Stage effort keeps null and rejects effort on a nonworking Stage', () => {
   })
   expect(() => P.parseLibraryChanges({ stages: { backlog: { effort: 'high' } } })).toThrow(
     'effort must be an effort level or null on a working Stage',
+  )
+})
+
+test('a custom Stage takes the general settings and its Stage file, but no built-in-only setting', () => {
+  expect(
+    P.parseLibraryChanges({
+      stages: { 'security-audit': { gate: true, maxBack: 1, effort: 'high' } },
+      stageFiles: { 'security-audit': 'Audit it.' },
+      keepStageFiles: ['security-audit'],
+    }),
+  ).toEqual({
+    stages: { 'security-audit': { gate: true, maxBack: 1, effort: 'high' } },
+    stageFiles: { 'security-audit': 'Audit it.' },
+    keepStageFiles: ['security-audit'],
+  })
+  for (const field of [
+    'enabled',
+    'depth',
+    'p1OnlyFrom',
+    'subAgents',
+    'leadClosesFailures',
+    'commitTitles',
+  ]) {
+    expect(() =>
+      P.parseLibraryChanges({ stages: { 'security-audit': { [field]: false } } }),
+    ).toThrow(`security-audit.${field} can’t be set on a custom Stage`)
+  }
+  expect(() => P.parseLibraryChanges({ stages: { 'Not A Stage': { gate: true } } })).toThrow(
+    'unknown Stage Not A Stage',
+  )
+  expect(() => P.parseLibraryChanges({ stageFiles: { '../x': 'text' } })).toThrow(
+    'unknown Stage ../x',
+  )
+  expect(() => P.parseLibraryChanges({ stageFiles: { done: 'text' } })).toThrow(
+    'unknown Stage done',
   )
 })
 

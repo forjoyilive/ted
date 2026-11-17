@@ -55,6 +55,7 @@ interface ValidationOptions {
     killed: NonNullable<CheckRunnerResult['killed']>,
   ): Promise<'retry' | 'failed' | 'interrupted'>
   takeCheckSlot(taskId: string, checkRunId: string): Promise<(() => void) | undefined>
+  checkCpus(): number
   checkLog(task: Task, id: string, position: number): string
   checkDir(task: Task, id: string): string
   findings(task: Task, run: CheckRun): Promise<string | undefined>
@@ -357,6 +358,7 @@ export function createValidation(options: ValidationOptions) {
           prepareLaunch: () => options.prepareLaunch(find(task.id)),
           signal: options.signal,
           lowPriority: options.lowPriority(),
+          cpus: options.checkCpus,
           ...(options.memory && { memory: options.memory }),
           onInterrupted: (position) => store.checkInterrupted(checkRun.id, position),
           ...(reportingEnv && {

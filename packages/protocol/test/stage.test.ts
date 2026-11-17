@@ -7,7 +7,10 @@ import {
   isPast,
   isStageId,
   type StageTrait,
+  settingsStageOrder,
   stageDisplayName,
+  stageEnabled,
+  stageFileId,
   stagePhase,
   stageTraits,
   stageWith,
@@ -223,4 +226,72 @@ test('Stage lists merge across Factories: built-ins in order, each custom Stage 
       (s) => s.id === 'review',
     )?.removed,
   ).toBeUndefined()
+})
+
+test('settings rows follow the order, keep built-ins that are off and put Cleanup after Merge', () => {
+  expect(
+    settingsStageOrder([
+      'intake',
+      'clarify',
+      'work',
+      'security-audit',
+      'validate',
+      'review',
+      'merge',
+    ]),
+  ).toEqual([
+    'backlog',
+    'intake',
+    'clarify',
+    'design',
+    'work',
+    'security-audit',
+    'validate',
+    'review',
+    'merge',
+    'cleanup',
+    'done',
+  ])
+  expect(settingsStageOrder(['intake', 'work', 'merge', 'ship', 'cleanup'])).toEqual([
+    'backlog',
+    'intake',
+    'clarify',
+    'design',
+    'work',
+    'validate',
+    'review',
+    'merge',
+    'ship',
+    'cleanup',
+    'done',
+  ])
+  expect(settingsStageOrder(['intake', 'work', 'design', 'merge'])).toEqual([
+    'backlog',
+    'intake',
+    'clarify',
+    'work',
+    'design',
+    'validate',
+    'review',
+    'merge',
+    'cleanup',
+    'done',
+  ])
+})
+
+test('a Stage file name gives its Stage id only for a working or custom Stage', () => {
+  expect(stageFileId('stages/review.md')).toBe('review')
+  expect(stageFileId('stages/security-audit.md')).toBe('security-audit')
+  expect(stageFileId('stages/done.md')).toBeUndefined()
+  expect(stageFileId('stages/Bad Name.md')).toBeUndefined()
+  expect(stageFileId('stages/a/b.md')).toBeUndefined()
+  expect(stageFileId('notes.md')).toBeUndefined()
+})
+
+test('Cleanup is on only when turned on; other Stages are on unless turned off', () => {
+  expect(stageEnabled('cleanup', true, undefined)).toBe(false)
+  expect(stageEnabled('cleanup', true, true)).toBe(true)
+  expect(stageEnabled('design', true, undefined)).toBe(true)
+  expect(stageEnabled('design', false, undefined)).toBe(false)
+  expect(stageEnabled('backlog', true, false)).toBe(true)
 })

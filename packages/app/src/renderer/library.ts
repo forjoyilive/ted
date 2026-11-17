@@ -1,5 +1,6 @@
 import type { LibraryChanges, LibraryView } from '@ted/protocol/factory-settings'
 import type { AgentStageId, StageId } from '@ted/protocol/task'
+import { agentDrafts } from './agent-files.ts'
 import {
   type SettingsDraft,
   type StageDraft,
@@ -34,6 +35,8 @@ export function libraryDraft(view: LibraryView): SettingsDraft {
     checks: [],
     cleanup: { enabled: false, steps: [] },
     agents,
+    agentFiles: agentDrafts(view.agentFiles),
+    keepAgentFiles: [],
     permissions: 'auto',
     maxWorkingRuns: '',
     notes: '',
@@ -41,17 +44,29 @@ export function libraryDraft(view: LibraryView): SettingsDraft {
 }
 
 export function libraryChanges(draft: SettingsDraft, loaded: SettingsDraft): LibraryChanges {
-  const { stages, stageFiles, keepStageFiles } = settingsChanges(draft, loaded)
+  const { stages, stageFiles, keepStageFiles, agentFiles, keepAgentFiles } = settingsChanges(
+    draft,
+    loaded,
+  )
   return {
     ...(stages !== undefined && { stages }),
     ...(stageFiles !== undefined && { stageFiles }),
     ...(keepStageFiles !== undefined && { keepStageFiles }),
+    ...(agentFiles !== undefined && { agentFiles }),
+    ...(keepAgentFiles !== undefined && { keepAgentFiles }),
   }
 }
 
 export function unsavedLibrary(draft: SettingsDraft, loaded: SettingsDraft): number {
-  const { stages, stageFiles, keepStageFiles } = libraryChanges(draft, loaded)
-  let count = Object.keys(stageFiles ?? {}).length + (keepStageFiles?.length ?? 0)
+  const { stages, stageFiles, keepStageFiles, agentFiles, keepAgentFiles } = libraryChanges(
+    draft,
+    loaded,
+  )
+  let count =
+    Object.keys(stageFiles ?? {}).length +
+    (keepStageFiles?.length ?? 0) +
+    (agentFiles?.length ?? 0) +
+    (keepAgentFiles?.length ?? 0)
   for (const stage of Object.values(stages ?? {})) count += Object.keys(stage ?? {}).length
   return count
 }

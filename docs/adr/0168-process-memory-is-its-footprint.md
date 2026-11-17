@@ -18,3 +18,7 @@ The sidebar footer, Settings → Developer and `ted dev memory` each showed a di
 ## Consequences
 
 Each read costs a fraction of a second of CPU, so the sidebar and Settings → Developer read processes every 5 seconds, not every 2. `ted dev memory` can’t see the app’s processes; it says so, and its total is lower than the sidebar’s by the app’s share.
+
+## Grouping by kind (TED-487)
+
+A total across many processes can’t be checked against Activity Monitor, which lists each one separately, mostly as `node`, `claude` or `TED`. So `classifyProcesses` in `diagnostics.ts` gives every process a kind from the nearest thing above it: a Run host (the host, its agent, and the agent’s tools and MCP servers below that), a Check or App root, or the daemon (anything else it started is “other”). Check and App processes are found through `process-roots.ts`, where `runTaskCommand` records a Check’s first process and the Apps module records each App host it follows; an App host left running across a daemon restart is counted too, though it no longer has the daemon as parent. `memoryParts` turns the groups into the sidebar’s hover card, the Developer page’s summary and `ted dev memory`, and `processName` names each row of the Processes table.

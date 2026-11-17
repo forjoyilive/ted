@@ -3,17 +3,26 @@ import path from 'node:path'
 import {
   isLinearTeamKey,
   type LinearIntakeChoices,
+  type LinearIntakeScope,
   type LinearIssue,
   type LinearKeyPlace,
   type LinearLookup,
   type LinearStatus,
   type LinearTeam,
   type LinearUrl,
+  linearIntakeStateTypes,
   type Priority,
   parseLinearUrl,
   type SaveLinearKeyRequest,
 } from '@ted/protocol'
-import type { JsonObject } from '@ted/protocol/parse'
+import {
+  isArray,
+  isBoolean,
+  isObject,
+  isString,
+  type Json,
+  type JsonObject,
+} from '@ted/protocol/parse'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import { fetchDiscussion } from './discussion.ts'
@@ -28,6 +37,7 @@ import { type Keyring, KeyringUnavailableError } from './keyring.ts'
 export interface Linear {
   intakeChoices(options?: { fresh?: boolean }): Promise<LinearIntakeChoices>
   intakeMembership(link: LinearUrl): Promise<LinearIntakeMembership>
+  intakeIssues(scope: LinearIntakeScope): Promise<LinearIntakeList>
   status(): Promise<LinearStatus>
   save(request: SaveLinearKeyRequest): Promise<LinearStatus>
   test(): Promise<LinearStatus>
@@ -46,6 +56,15 @@ export interface LinearIntakeMembership {
   teamId: string
   projectId: string | null
 }
+
+export interface LinearIntakeList {
+  workspaceId: string
+  workspace: string
+  issues: { identifier: string; title: string; url: string }[]
+  incomplete?: string
+}
+
+export const maxLinearIntakeListed = 1000
 
 export interface LinearWorkflowState {
   id: string
@@ -231,6 +250,84 @@ export function createLinear(options: LinearOptions): Linear {
         workspace: data.organization.urlKey.toLowerCase(),
         teamId: data.issue.team.id,
         projectId: data.issue.project?.id ?? null,
+      }
+    })
+  }
+
+  async function intakeIssues(scope: LinearIntakeScope): Promise<LinearIntakeList> {
+    if (!(await keyForSync()))
+      throw new RequestError(
+        409,
+        'Linear isn’t connected. Connect it in App Settings → Integrations first.',
+      )
+    return intakeRead(async (key) => {
+      const filter = {
+        assignee: { isMe: { eq: true } },
+        state: { type: { in: [...linearIntakeStateTypes] } },
+        [scope.kind]: { id: { eq: scope.id } },
+      }
+      const issues: LinearIntakeList['issues'] = []
+      const seen = new Set<string>()
+      const cursors = new Set<string>()
+      let workspace: { id: string; urlKey: string } | undefined
+      let after: string | null = null
+      let listed = 0
+      let cut = false
+      for (;;) {
+        const data: Json = await query<Json>(
+          key,
+          'query TedIntakeIssues($filter: IssueFilter, $after: String) { organization { id urlKey } issues(first: 50, after: $after, filter: $filter) { nodes { identifier title } pageInfo { hasNextPage endCursor } } }',
+          { filter, after },
+          { strict: true },
+        )
+        const organization = isObject(data) ? data.organization : undefined
+        const connection: Json | undefined = isObject(data) ? data.issues : undefined
+        const pageInfo: Json | undefined = isObject(connection) ? connection.pageInfo : undefined
+        const nodes = isObject(connection) ? connection.nodes : undefined
+        if (
+          !isObject(organization) ||
+          !isString(organization.id) ||
+          !isString(organization.urlKey) ||
+          organization.urlKey === '' ||
+          !isArray(nodes) ||
+          !isObject(pageInfo) ||
+          !isBoolean(pageInfo.hasNextPage)
+        )
+          throw new Error('Linear returned an incomplete issue list')
+        const page = { id: organization.id, urlKey: organization.urlKey.toLowerCase() }
+        if (workspace && (workspace.id !== page.id || workspace.urlKey !== page.urlKey))
+          throw new Error('Linear changed workspace while TED read the issue list')
+        workspace = page
+        for (const node of nodes) {
+          if (listed >= maxLinearIntakeListed) {
+            cut = true
+            break
+          }
+          listed++
+          if (!isObject(node) || !isString(node.identifier) || !isString(node.title))
+            throw new Error('Linear returned an incomplete issue')
+          const link = parseLinearUrl(`https://linear.app/${page.urlKey}/issue/${node.identifier}`)
+          if (!link) throw new Error('Linear returned an issue TED can’t link to')
+          if (seen.has(link.identifier)) continue
+          seen.add(link.identifier)
+          issues.push({
+            identifier: link.identifier,
+            title: oneLine(node.title).slice(0, maxTitle) || link.identifier,
+            url: link.url,
+          })
+        }
+        const result = { workspaceId: page.id, workspace: page.urlKey, issues }
+        if (!pageInfo.hasNextPage && !cut) return result
+        if (listed >= maxLinearIntakeListed)
+          return {
+            ...result,
+            incomplete: `TED read the first ${maxLinearIntakeListed} issues; the rest wait for the next run.`,
+          }
+        const cursor: Json | undefined = pageInfo.endCursor
+        if (!isString(cursor) || cursor === '' || cursors.has(cursor))
+          throw new Error('Linear returned an incomplete page')
+        cursors.add(cursor)
+        after = cursor
       }
     })
   }
@@ -593,6 +690,7 @@ export function createLinear(options: LinearOptions): Linear {
 
     intakeChoices,
     intakeMembership,
+    intakeIssues,
     issueFor,
     issueStates,
     teamStates,

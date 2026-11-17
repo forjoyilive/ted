@@ -1,3 +1,4 @@
+import { parseChatAgentId } from './chat-agent.ts'
 import type {
   PostPlanRequest,
   RenamePlanRequest,
@@ -10,6 +11,7 @@ import { agentChoice, bodyObject, RequestValidationError as HttpError } from './
 export function parseStartPlanRequest(value: unknown): StartPlanRequest {
   const body = bodyObject(value)
   const { factory, message, from } = body
+  const agentId = parseChatAgentId(body.agentId)
   if (typeof factory !== 'string' || factory.trim() === '') {
     throw new HttpError(400, 'name the Factory')
   }
@@ -22,6 +24,7 @@ export function parseStartPlanRequest(value: unknown): StartPlanRequest {
     message,
     ...(typeof from === 'string' && { from }),
     ...agentChoice(body),
+    ...(agentId !== undefined && { agentId }),
   }
 }
 

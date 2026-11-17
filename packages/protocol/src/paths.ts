@@ -32,6 +32,7 @@ export function tedPaths(home: string) {
     scratch: path.join(home, 'scratch'),
     seeds: path.join(home, 'seeds'),
     plans: path.join(home, 'plans'),
+    chatCode: path.join(home, 'chat-code'),
     automationRuns: path.join(home, 'automation-runs'),
     secrets: path.join(home, 'secrets'),
     linearKeyFile: path.join(home, 'secrets', 'linear-api-key'),

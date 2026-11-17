@@ -1,5 +1,7 @@
 # Each Coordinator chat has its own ID
 
+Status: accepted. An ended chat is an archived chat since ADR 0178-agent-chats-are-archived-like-tasks; Continue is now Unarchive.
+
 A Factory had exactly one live Coordinator. Its row in the `coordinators` table, its events, routes, locks and queue entries were all keyed by the Factory’s ID, and **New conversation** saved the live conversation into `coordinatorConversations` before starting a fresh one (ADR 0142). The Agents screen (TED-426) needs several Coordinator chats running side by side in one Factory, each with its own conversation, receipts and requests.
 
 **Every Coordinator chat is now a row of its own, keyed by a chat ID, and a Factory can have any number of them open at once.** One state table, `coordinatorChats` (`id`, `factoryId`, `endedAt`, `data`), replaces `coordinators` and `coordinatorConversations`. A chat with no `endedAt` is open; one with an `endedAt` has ended.

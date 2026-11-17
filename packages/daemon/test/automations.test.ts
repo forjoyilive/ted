@@ -1,5 +1,5 @@
 import { cp, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { availableParallelism, tmpdir } from 'node:os'
 import path from 'node:path'
 import type {
   Activity,
@@ -15,12 +15,13 @@ import type {
   ThreadEvent,
   WaitingRequest,
 } from '@ted/protocol'
-import { tedPaths } from '@ted/protocol'
+import { defaultMachineSettings, tedPaths } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { Clock } from '../src/clock.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { openStore } from '../src/store/index.ts'
+import { checkCpus } from '../src/tasks/check-slots.ts'
 import { stubKeyring, stubKeyringFile } from './fixtures/stub-keyring.ts'
 import { startStubLinear } from './fixtures/stub-linear.ts'
 import {
@@ -1056,7 +1057,7 @@ describe('Automations', () => {
     const kill = path.join(scratch, 'kill-check')
     const command = [
       `if [ -f '${kill}' ]; then kill -9 $$; fi`,
-      'echo "sandboxed=$TED_SANDBOX task=$TED_TASK."',
+      'echo "sandboxed=$TED_SANDBOX task=$TED_TASK. cpus=$TED_CHECK_CPUS."',
       'cat README.md',
       'echo "TED_SANDBOX_SKIPPED: the Electron app tests"',
       `if [ -f '${fail}' ]; then echo ' FAIL  |node| packages/x/test/a.test.ts > t'; echo ' FAIL  |node| packages/x/test/b.test.ts'; exit 1; fi`,
@@ -1098,7 +1099,9 @@ describe('Automations', () => {
       'GET',
       `/automation-runs/${passed?.id}/output`,
     )
-    expect(firstOutput.text).toContain('sandboxed=1 task=.')
+    expect(firstOutput.text).toContain(
+      `sandboxed=1 task=. cpus=${checkCpus(availableParallelism(), 1, defaultMachineSettings.checkCpuPercent)}.`,
+    )
     expect(firstOutput.text).toContain('# widgets')
     expect(firstOutput.log).toBe(path.join(checkLogs(), automation.id, `${passed?.id}.log`))
 
@@ -1304,10 +1307,21 @@ test('removing a Factory deletes its Automations, stops their Runs and removes s
     name: 'Nightly tests',
     prompt: undefined,
     schedule: { kind: 'daily', at: '03:00' },
-    check: { command: 'echo ok' },
+    check: { command: 'echo "cpus=$TED_CHECK_CPUS."' },
   })
+  await client.ok('PATCH', '/settings', { limitScheduledCheckCpus: false })
   await client.ok('POST', `/automations/${check.id}/run`)
-  await waitForHistory(client, check.id, (rows) => rows[0]?.result.kind === 'passed', 'the Check')
+  const [unlimited] = await waitForHistory(
+    client,
+    check.id,
+    (rows) => rows[0]?.result.kind === 'passed',
+    'the Check',
+  )
+  const output = await client.ok<{ text: string }>(
+    'GET',
+    `/automation-runs/${unlimited?.id}/output`,
+  )
+  expect(output.text).toContain('cpus=.')
   expect(await readdir(checkLogs())).toEqual([check.id])
   clock = Date.parse('2026-11-09T09:00:05Z')
   const [row] = await waitForHistory(
@@ -1690,6 +1704,137 @@ describe('Factory Linear intake enforcement', () => {
         })
         expect(manual.createdBy, `${kind}: manual import`).not.toBe('automation')
       }
+    } finally {
+      await linear.close()
+    }
+  })
+
+  test('ted linear intake creates Backlog Tasks for the not-started issues assigned to the user in the scope, skips tracked ones and refuses without a scope or a connection', async () => {
+    const key = 'lin_api_abcdefghijklmnopqrstuvwxyz0123456789ABCD'
+    const linear = await startStubLinear({
+      [key]: {
+        name: 'Nabha',
+        workspace: { name: 'Acme', urlKey: 'acme' },
+        teams: [{ id: 'team-NB', name: 'Widgets', key: 'NB' }],
+        issues: [
+          { identifier: 'NB-1', title: 'Todo for me', assignedToMe: true },
+          { identifier: 'NB-2', title: 'Backlog for me', state: 'Backlog', assignedToMe: true },
+          { identifier: 'NB-3', title: 'Triage for me', state: 'Triage', assignedToMe: true },
+          { identifier: 'NB-4', title: 'Tracked already', state: 'Backlog', assignedToMe: true },
+          { identifier: 'NB-5', title: 'Started', state: 'In Progress', assignedToMe: true },
+          { identifier: 'NB-6', title: 'Not mine' },
+          { identifier: 'OT-7', title: 'Other team', assignedToMe: true },
+        ],
+      },
+    })
+    try {
+      await writeFile(stubKeyringFile(home), JSON.stringify({ secret: key }))
+      const client = await startTed({
+        linear: {
+          apiUrl: linear.url,
+          keyring: stubKeyring(stubKeyringFile(home)),
+          intakeLimit: 2,
+        },
+      })
+      const [factory] = await client.ok<Factory[]>('GET', '/factories')
+      if (!factory) throw new Error('no Factory')
+      const unscoped = await client.call('POST', '/linear-intake', { factory: 'NB' })
+      expect(unscoped.status).toBe(403)
+      expect(JSON.stringify(unscoped.body)).toContain('Choose a Linear Team or Project')
+      await client.ok('PUT', `/factories/${factory.id}/linear-intake`, {
+        scope: {
+          kind: 'team',
+          id: 'team-NB',
+          name: 'Widgets',
+          workspaceId: 'workspace-acme',
+          workspace: 'acme',
+        },
+      })
+      await client.ok<Task>('POST', '/tasks', {
+        factory: 'NB',
+        source: 'https://linear.app/acme/issue/NB-4',
+        title: 'Tracked already',
+      })
+      const automation = await create(client, {
+        on: false,
+        name: 'Import my Linear work',
+        prompt: steps({ run: ['ted', 'linear', 'intake'] }, { endTurn: true }),
+      })
+      const outputs: string[] = []
+      const seen = new Set<string>()
+      for (const firings of [1, 2]) {
+        await client.ok('POST', `/automations/${automation.id}/run`)
+        const rows = await waitForHistory(
+          client,
+          automation.id,
+          (rows) => rows.length === firings && rows.every((row) => row.result.kind === 'created'),
+          `Linear intake firing ${firings}`,
+        )
+        const runId = rows.find((row) => row.runId && !seen.has(row.runId))?.runId ?? ''
+        seen.add(runId)
+        const [result] = await commandResults(client, runId)
+        expect(result?.code, result?.stderr).toBe(0)
+        outputs.push(result?.stdout ?? '')
+      }
+      expect(outputs[0]).toContain('Imported 2 Linear issues from the Linear team Widgets')
+      expect(outputs[0]).toContain('1 issue is already tracked')
+      expect(outputs[0]).toContain('1 more issue waits for the next run')
+      expect(outputs[1]).toContain('Imported 1 Linear issue from the Linear team Widgets')
+      expect(outputs[1]).toContain('3 issues are already tracked')
+      const imported = (await client.ok<Task[]>('GET', '/tasks'))
+        .filter((task) => task.createdBy === 'automation')
+        .map((task) => ({ id: task.source?.linear?.identifier, stage: task.stage }))
+        .sort((a, b) => (a.id ?? '').localeCompare(b.id ?? ''))
+      expect(imported).toEqual([
+        { id: 'NB-1', stage: 'backlog' },
+        { id: 'NB-2', stage: 'backlog' },
+        { id: 'NB-3', stage: 'backlog' },
+      ])
+      const account = linear.accounts.get(key)
+      if (!account?.issues) throw new Error('no stub account')
+      account.issues.push({ identifier: 'NB-8', title: 'Scope cleared', assignedToMe: true })
+      let release = () => {}
+      account.lookupReady = new Promise((resolve) => {
+        release = resolve
+      })
+      const looking = new Promise<void>((resolve) => {
+        account.onLookup = (id) => {
+          if (id === 'NB-8') resolve()
+        }
+      })
+      await client.ok('POST', `/automations/${automation.id}/run`)
+      await looking
+      await client.ok('PUT', `/factories/${factory.id}/linear-intake`, { scope: null })
+      release()
+      const rows = await waitForHistory(
+        client,
+        automation.id,
+        (rows) => rows.length === 3 && rows.every((row) => row.result.kind !== 'running'),
+        'Linear intake firing 3',
+      )
+      const runId = rows.find((row) => row.runId && !seen.has(row.runId))?.runId ?? ''
+      const [stopped] = await commandResults(client, runId)
+      expect(stopped?.stdout).toContain(
+        'Linear intake scope changed during the import. TED stopped; the next run uses the new scope.',
+      )
+      expect(
+        (await client.ok<Task[]>('GET', '/tasks')).some(
+          (task) => task.source?.linear?.identifier === 'NB-8',
+        ),
+      ).toBe(false)
+      await client.ok('PUT', `/factories/${factory.id}/linear-intake`, {
+        scope: {
+          kind: 'team',
+          id: 'team-NB',
+          name: 'Widgets',
+          workspaceId: 'workspace-acme',
+          workspace: 'acme',
+        },
+      })
+      await client.ok('DELETE', '/integrations/linear/key')
+      const disconnected = await client.call('POST', '/linear-intake', { factory: 'NB' })
+      expect(disconnected.status).toBe(409)
+      expect(JSON.stringify(disconnected.body)).toContain('Linear isn’t connected')
     } finally {
       await linear.close()
     }

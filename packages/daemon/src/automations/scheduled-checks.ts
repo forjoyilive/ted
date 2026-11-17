@@ -18,7 +18,8 @@ import type { CheckSlots } from '../tasks/check-slots.ts'
 import { lastLines, readOutput, runChecks } from '../tasks/checks.ts'
 import type { CommandLaunch } from '../tasks/command.ts'
 import { removeInside } from '../tasks/remove-files.ts'
-import { type Checkouts, SetupFailed } from './checkout.ts'
+import { SetupFailed } from '../tasks/scratch-setup.ts'
+import type { Checkouts } from './checkout.ts'
 
 export const memoryStopMessage =
   'This computer ran out of memory, so the Scheduled Check was stopped. TED didn’t count it as a failure.'
@@ -206,6 +207,9 @@ export function createScheduledChecks(options: {
           prepareLaunch: launcher(factory, firingId),
           signal,
           lowPriority: store.settings().lowPriorityWork,
+          ...(store.settings().limitScheduledCheckCpus && {
+            cpus: () => options.checkSlots.cpus(),
+          }),
           ...(options.memory && { memory: options.memory }),
           onStart: () => undefined,
           onFinish: (_, done) => {

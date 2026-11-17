@@ -9,6 +9,8 @@ import { checkWorkflowPath, NothingToCheckError } from '@ted/daemon/workflow'
 import {
   type AgentKind,
   type AgentStageId,
+  type AutomationCardKind,
+  type AutomationDraftRequest,
   agentKinds,
   type Banner,
   type BrowserRequest,
@@ -28,6 +30,7 @@ import {
   type DeviceRequest,
   declaredSendBackCauses,
   devicePoint,
+  draftBody,
   type Effort,
   efforts,
   type Factory,
@@ -41,8 +44,10 @@ import {
   minGhVersion,
   ownershipLine,
   parseAddFailureEvidenceRequest,
+  parseAgentDraftInput,
   parseAsanaTaskUrl,
   parseAssessFailureRequest,
+  parseAutomationDraftRequest,
   parseBrowserRequest,
   parseCoordinatorCreate,
   parseCoordinatorRemoval,
@@ -74,6 +79,7 @@ import {
   type ValidateJudgments,
 } from '@ted/protocol'
 import { executionCapacity, parseWorkerPairRequest } from '@ted/protocol/execution-pairing'
+import { type Json, parseJson } from '@ted/protocol/parse'
 import { matchReference, shortReference } from '@ted/protocol/reference'
 import { isCleanup } from '@ted/protocol/stage'
 import { asanaImportedText, asanaIntakeText, asanaTreeText } from './asana.ts'
@@ -87,6 +93,7 @@ import {
 } from './commands.ts'
 import { exportCommand } from './export.ts'
 import { githubIntakeText } from './github-intake.ts'
+import { linearIntakeText } from './linear.ts'
 import { formatMemoryUse } from './memory.ts'
 import { formatSlowMoments } from './slow.ts'
 
@@ -801,6 +808,32 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     }
   }
 
+  async function coordinatorAutomationDraft(kind: AutomationCardKind): Promise<void> {
+    const { operation } = options
+    if (!operation) throw new UsageError('operation is required')
+    let fields: Json | undefined
+    if (kind !== 'delete') {
+      const raw = options.fields ?? (await readStdin())
+      fields = parseJson(raw)
+      if (fields === undefined) throw new UsageError('the fields must be JSON')
+    }
+    let input: AutomationDraftRequest
+    try {
+      input = parseAutomationDraftRequest({
+        operation,
+        kind,
+        ...(kind !== 'create' && { automation: args[0] ?? '' }),
+        ...(fields !== undefined && { fields }),
+      })
+    } catch (error) {
+      if (error instanceof RequestValidationError) throw new UsageError(error.message)
+      throw error
+    }
+    console.log(
+      JSON.stringify(await withDaemon(home, (client) => client.draftAutomation(draftBody(input)))),
+    )
+  }
+
   async function coordinatorAct(command: 'start' | 'move'): Promise<void> {
     const { operation, version } = options
     if (!operation || !version) throw new UsageError('operation and version are required')
@@ -1027,8 +1060,8 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
   async function workerHome(): Promise<string> {
     if (!remoteExecutionOn(env)) throw new UsageError(remoteExecutionOff)
     if (
-      ['TED_RUN', 'TED_RUN_CAPABILITY', 'TED_RUN_TOKEN', 'TED_TASK', 'TED_PLAN'].some((name) =>
-        tedEnv(name, env),
+      ['TED_RUN', 'TED_RUN_CAPABILITY', 'TED_RUN_TOKEN', 'TED_TASK', 'TED_PLAN', 'TED_CHAT'].some(
+        (name) => tedEnv(name, env),
       )
     )
       throw new UsageError('Execution service control is not available inside a Run')
@@ -1567,6 +1600,13 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       const result = await withDaemon(home, (client) => client.runGitHubIntake())
       write(`${githubIntakeText(result)}\n`)
     },
+    linearIntake: async () => {
+      const { factory } = options
+      const result = await withDaemon(home, (client) =>
+        client.runLinearIntake(factory === undefined ? {} : { factory }),
+      )
+      write(`${linearIntakeText(result)}\n`)
+    },
     createTask: async () => {
       const title = args.join(' ')
       const { factory, source, start, description } = options
@@ -1828,6 +1868,57 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} ${what} (request ${request.id}). TED sends you the human’s answer.`,
       )
     },
+    chatQuestion: async () => {
+      const text = args.join(' ').trim()
+      if (text === '') throw new UsageError('give the question as text')
+      const choices = options.choice ?? []
+      const supersedes = options.supersedes
+      const request = await withDaemon(home, (client) =>
+        client.postChatRequest({
+          question: {
+            text,
+            ...(choices.length > 0 && { choices }),
+            ...(options.multiple === true && { multiple: true as const }),
+          },
+          ...(supersedes !== undefined && { supersedes }),
+        }),
+      )
+      console.log(
+        `Asked the human (request ${request.id}). End your turn; TED sends you their answer.`,
+      )
+    },
+    agentRun: async () => {
+      const name = args[0] ?? ''
+      const result = await withDaemon(home, async (client) => {
+        let current = await client.runChatCommand({ name })
+        while (current.output === undefined) current = await client.waitForChatCommand(current.id)
+        return current
+      })
+      console.log(printable(result.output ?? ''))
+      if (result.state !== 'passed')
+        exitCode = result.exitCode !== undefined && result.exitCode > 0 ? result.exitCode : 1
+    },
+    chatRound: async () => {
+      const supersedes = options.supersedes
+      const round = await readRound(options.round ?? '')
+      const request = await withDaemon(home, (client) =>
+        client.postChatRequest({ round, ...(supersedes !== undefined && { supersedes }) }),
+      )
+      console.log(
+        `Posted Round ${request.round?.number ?? ''} (request ${request.id}). End your turn; TED sends you the human’s answers.`,
+      )
+    },
+    chatProposal: async () => {
+      if (options.file === undefined) throw new UsageError('give the proposal with --file <file>')
+      const supersedes = options.supersedes
+      const proposal = await readParsedFile(options.file, 'proposal', parseProposalInput)
+      const request = await withDaemon(home, (client) =>
+        client.postChatRequest({ proposal, ...(supersedes !== undefined && { supersedes }) }),
+      )
+      console.log(
+        `Proposed ${request.proposal?.rows.length ?? 0} Tasks (request ${request.id}). End your turn; TED sends you the human’s answer.`,
+      )
+    },
     planProposal: async () => {
       const supersedes = options.supersedes
       if (options.file === undefined) {
@@ -1886,6 +1977,21 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         ),
       )
     },
+    coordinatorAutomations: async () => {
+      console.log(
+        JSON.stringify(await withDaemon(home, (client) => client.coordinatorAutomations())),
+      )
+    },
+    coordinatorAutomationShow: async () => {
+      console.log(
+        JSON.stringify(
+          await withDaemon(home, (client) => client.coordinatorAutomation(args[0] ?? '')),
+        ),
+      )
+    },
+    coordinatorAutomationDraft: () => coordinatorAutomationDraft('create'),
+    coordinatorAutomationChange: () => coordinatorAutomationDraft('edit'),
+    coordinatorAutomationDelete: () => coordinatorAutomationDraft('delete'),
     coordinatorTasks: async () => {
       const params = new URLSearchParams({ offset: String(offset()) })
       if (options.all) params.set('all', '1')
@@ -1910,6 +2016,20 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         JSON.stringify(
           await withDaemon(home, (client) => client.coordinatorTask(args[0] ?? '', page)),
         ),
+      )
+    },
+    coordinatorAgents: async () => {
+      console.log(JSON.stringify(await withDaemon(home, (client) => client.coordinatorAgents())))
+    },
+    chatAgentDraft: async () => {
+      if (options.file === undefined) throw new UsageError('give the draft with --file <file>')
+      const supersedes = options.supersedes
+      const agent = await readParsedFile(options.file, 'Agent draft', parseAgentDraftInput)
+      const request = await withDaemon(home, (client) =>
+        client.postChatRequest({ agent, ...(supersedes !== undefined && { supersedes }) }),
+      )
+      console.log(
+        `Drafted ${request.title ?? 'the Agent'} (request ${request.id}). End your turn; TED sends you what the human did.`,
       )
     },
     coordinatorCreate: async () => {

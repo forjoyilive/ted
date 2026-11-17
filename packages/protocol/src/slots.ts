@@ -127,6 +127,28 @@ export interface FactorySlots {
   working: number
 }
 
+export interface CheckingTask {
+  taskId: string
+  displayId: string
+  title: string
+  factoryId: string
+  place?: number
+}
+
+export interface SlotChecks {
+  running: number
+  waiting: number
+  tasks: CheckingTask[]
+  scheduled: { running: number; waiting: number }
+}
+
+export const noChecks: SlotChecks = {
+  running: 0,
+  waiting: 0,
+  tasks: [],
+  scheduled: { running: 0, waiting: 0 },
+}
+
 export interface RunSlots {
   limit: number
   working: number
@@ -134,5 +156,6 @@ export interface RunSlots {
   holders: SlotHolder[]
   queue: QueuedForSlot[]
   factories: FactorySlots[]
+  checks: SlotChecks
   busy?: BusyHold
 }

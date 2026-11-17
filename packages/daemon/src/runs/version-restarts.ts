@@ -34,7 +34,7 @@ export async function restartOnNewVersions(options: {
   const tryRestart = (run: Run) => {
     if (closed || !pending.has(run.id)) return
     if (store.sideChats.forRun(run.id)) return void pending.delete(run.id)
-    if (run.state === 'finished') return void pending.delete(run.id)
+    if (run.state === 'finished' || run.asleep) return void pending.delete(run.id)
     if (run.state !== 'idle' || !store.settings().restartIdleRuns) return
     pending.delete(run.id)
     conversations

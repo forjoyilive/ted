@@ -543,6 +543,7 @@ describe('ted automation', () => {
     const templates = await (await client()).automationTemplates()
     expect(templates.map((t) => t.name)).toEqual([
       'Pull new Linear issues assigned to me',
+      'Import my Linear work',
       'Import my Asana work',
       'Turn new Sentry issues into Tasks',
       'Daily GitHub issue triage',
@@ -550,6 +551,7 @@ describe('ted automation', () => {
       'Review codebase architecture',
       'Audit the Apps',
     ])
+    expect(templates.find((t) => t.id === 'linear-intake')?.prompt).toContain('ted linear intake')
     const sentry = templates.find((t) => t.id === 'sentry')?.prompt ?? ''
     expect(sentry).toContain('events from a release that contains that commit')
     expect(sentry).toContain('--sentry-id')
@@ -792,6 +794,38 @@ describe('ted workflow check', () => {
       '6 errors',
       '',
     ])
+  })
+
+  test('reports a bad agents.yaml and an Agent with no instructions file', async () => {
+    await writeLayer({
+      'agents.yaml': [
+        'scout:',
+        '  name: Scout',
+        '  powers: [read_code, deploy]',
+        'helper:',
+        '  role: helps',
+        '',
+      ].join('\n'),
+      'agents/helper.md': 'Help.\n',
+    })
+
+    const failure = await ted(['workflow', 'check']).then(
+      () => undefined,
+      (error: { code: number; stdout: string }) => error,
+    )
+
+    expect(failure?.code).toBe(1)
+    expect(failure?.stdout.split('\n')).toEqual([
+      '.ted/agents.yaml:1:1: error: `scout` has no instructions file; add agents/scout.md',
+      '.ted/agents.yaml:3:23: error: unknown power `deploy` in `scout.powers`; the powers are ask, manage_tasks, manage_automations, propose_tasks, read_code, manage_agents, run_commands',
+      '.ted/agents.yaml:4:1: error: `helper` needs a `name`',
+      '.ted/agents.yaml:5:3: error: unknown key `helper.role`; an Agent has name, agent, model, powers, commands, based_on',
+      '4 errors',
+      '',
+    ])
+    expect((await ted(['workflow', 'check', '.ted/agents/helper.md'])).stdout.trim()).toBe(
+      'No problems in .ted/agents/helper.md',
+    )
   })
 
   test('accepts the Validate round settings and rejects a P1-only round below 2', async () => {

@@ -60,6 +60,8 @@ export function repoSettingsFrom(
       name,
       ...(entry.base_branch !== undefined && { baseBranch: entry.base_branch }),
       ...(isMergeMethod(entry.merge_method) && { mergeMethod: entry.merge_method }),
+      ...(entry.pull_request_ci !== undefined &&
+        entry.pull_request_ci !== 'auto' && { pullRequestCi: entry.pull_request_ci }),
       ...(entry.worktree?.setup && { setup: entry.worktree.setup }),
       ...(entry.worktree?.teardown && { teardown: entry.worktree.teardown }),
       env: Object.entries(entry.worktree?.env ?? {}).map(([n, value]) => ({ name: n, value })),
@@ -429,12 +431,14 @@ function writeAgent(doc: Document, root: YAMLMap, role: string, choice: AgentCho
 }
 
 const unpadded = (line: string) => line.replace(/([[{]) +/g, '$1').replace(/ +([\]}])/g, '$1')
-const flowOnly = (line: string) => /^\s*(?:- )?(?:[\w-]+: )?[[{]/.test(line) && !/["'#]/.test(line)
+const flowLine = (line: string) => /^\s*(?:- )?(?:[\w-]+: )?[[{]/.test(line) && !line.includes('#')
+const flowOnly = (line: string) => flowLine(line) && !/["']/.test(line)
 
 function keepOriginalStyle(original: string | undefined, written: string): string {
   if (original === undefined) return written
-  const flowLines = original.split('\n').filter(flowOnly)
-  const lines = new Map(flowLines.map((line) => [unpadded(line), line]))
+  const originalLines = original.split('\n')
+  const lines = new Map(originalLines.filter(flowLine).map((line) => [unpadded(line), line]))
+  const flowLines = originalLines.filter(flowOnly)
   const padded = (open: string) => {
     const spaced = flowLines.join('\n').split(`${open} `).length - 1
     const tight = flowLines.join('\n').split(open).length - 1 - spaced
@@ -449,7 +453,9 @@ function keepOriginalStyle(original: string | undefined, written: string): strin
       .replace(/(?<=[^\s[])\]/g, pad['['] ? ' ]' : ']')
   return written
     .split('\n')
-    .map((line) => (flowOnly(line) ? (lines.get(line) ?? restyle(line)) : line))
+    .map((line) =>
+      flowLine(line) ? (lines.get(line) ?? (flowOnly(line) ? restyle(line) : line)) : line,
+    )
     .join('\n')
 }
 
@@ -464,6 +470,11 @@ function writeRepo(doc: Document, map: YAMLMap, repo: RepoSettingsInput, primary
   }
   setOrDelete(map, 'base_branch', repo.baseBranch?.trim() || undefined)
   setOrDelete(map, 'merge_method', repo.mergeMethod)
+  setOrDelete(
+    map,
+    'pull_request_ci',
+    repo.pullRequestCi === 'auto' ? undefined : repo.pullRequestCi,
+  )
 
   const worktree = map.get('worktree', true)
   const tree = isMap(worktree) ? worktree : (doc.createNode({}) as YAMLMap)
@@ -555,6 +566,7 @@ const keyOrder = [
   'remote',
   'base_branch',
   'merge_method',
+  'pull_request_ci',
   'worktree',
   'apps',
   'setup',

@@ -1,3 +1,4 @@
+import { parseAgentFileChanges, parseKeepAgentFiles } from './agent-file-parsers.ts'
 import type {
   AddFactoryRequest,
   AutoStartBacklogRequest,
@@ -51,14 +52,16 @@ import {
   settingsMergeMethods,
   type WorktreeCommandInput,
 } from './factory-settings.ts'
+import { isOneOf } from './parse.ts'
 import { permissionModes } from './run.ts'
+import { handsOff, isBuiltInStage, isStageId, mergesHere, stageFileId, validates } from './stage.ts'
 import {
   type AgentStageId,
-  agentStageIds,
   type ClarifyDepth,
   clarifyDepths,
   type Effort,
   efforts,
+  pullRequestCiModes,
   type StageId,
 } from './task.ts'
 import {
@@ -72,7 +75,6 @@ import {
 const maxSettingsRepos = 10
 const maxListItems = 200
 const maxFileChars = 256 * 1024
-const stageIds: readonly StageId[] = ['backlog', ...agentStageIds, 'done']
 
 export function parseCheckTryRequest(given: unknown): CheckTryRequest {
   const body = record(given)
@@ -92,6 +94,15 @@ export function parseCheckTryRequest(given: unknown): CheckTryRequest {
   }
 }
 
+const builtInOnlyFields = [
+  'enabled',
+  'depth',
+  'p1OnlyFrom',
+  'subAgents',
+  'leadClosesFailures',
+  'commitTitles',
+] as const
+
 function fileText(given: unknown, field: string): string {
   const value = text(given, field)
   if (value.length > maxFileChars) throw new HttpError(400, `${field} is too long`)
@@ -102,8 +113,13 @@ function stageSettings(given: unknown): Partial<Record<StageId, StageSettingsInp
   const body = record(given)
   const stages: Partial<Record<StageId, StageSettingsInput>> = {}
   for (const [id, value] of Object.entries(body)) {
-    if (!stageIds.includes(id as StageId)) throw new HttpError(400, `unknown Stage ${id}`)
+    if (!isStageId(id)) throw new HttpError(400, `unknown Stage ${id}`)
+    const custom = !isBuiltInStage(id)
     const stage = record(value)
+    const builtInOnly = builtInOnlyFields.find((name) => custom && stage[name] !== undefined)
+    if (builtInOnly !== undefined) {
+      throw new HttpError(400, `${id}.${builtInOnly} can’t be set on a custom Stage`)
+    }
     const flag = (name: 'enabled' | 'gate') => {
       const v = stage[name]
       if (v === undefined) return undefined
@@ -133,7 +149,7 @@ function stageSettings(given: unknown): Partial<Record<StageId, StageSettingsInp
     const p1OnlyFrom = stage.p1OnlyFrom
     if (
       p1OnlyFrom !== undefined &&
-      (id !== 'validate' ||
+      (!validates(id) ||
         (p1OnlyFrom !== false &&
           (typeof p1OnlyFrom !== 'number' || !Number.isInteger(p1OnlyFrom) || p1OnlyFrom < 2)))
     ) {
@@ -143,21 +159,21 @@ function stageSettings(given: unknown): Partial<Record<StageId, StageSettingsInp
       )
     }
     const subAgents = stage.subAgents
-    if (subAgents !== undefined && (id !== 'validate' || typeof subAgents !== 'boolean')) {
+    if (subAgents !== undefined && (!validates(id) || typeof subAgents !== 'boolean')) {
       throw new HttpError(400, `${id}.subAgents must be true or false, on Validate`)
     }
     const leadClosesFailures = stage.leadClosesFailures
     if (
       leadClosesFailures !== undefined &&
-      (id !== 'work' || typeof leadClosesFailures !== 'boolean')
+      (!handsOff(id) || typeof leadClosesFailures !== 'boolean')
     ) {
       throw new HttpError(400, `${id}.leadClosesFailures must be true or false, on Work`)
     }
     const commitTitles = stage.commitTitles
-    if (commitTitles !== undefined && (id !== 'merge' || typeof commitTitles !== 'boolean')) {
+    if (commitTitles !== undefined && (!mergesHere(id) || typeof commitTitles !== 'boolean')) {
       throw new HttpError(400, `${id}.commitTitles must be true or false, on Merge`)
     }
-    stages[id as StageId] = {
+    stages[id] = {
       ...(effort !== undefined && { effort: effort as Effort | null }),
       ...(enabled !== undefined && { enabled }),
       ...(gate !== undefined && { gate }),
@@ -176,7 +192,7 @@ function stageSettings(given: unknown): Partial<Record<StageId, StageSettingsInp
 
 function keepStageFiles(given: unknown): AgentStageId[] {
   return list(given, 'keepStageFiles').map((id) => {
-    const found = agentStageIds.find((s) => s === id)
+    const found = stageFileId(`stages/${String(id)}.md`)
     if (found === undefined) throw new HttpError(400, `unknown Stage ${String(id)}`)
     return found
   })
@@ -185,10 +201,9 @@ function keepStageFiles(given: unknown): AgentStageId[] {
 function stageFiles(given: unknown): Partial<Record<AgentStageId, string | null>> {
   const files: Partial<Record<AgentStageId, string | null>> = {}
   for (const [id, value] of Object.entries(record(given))) {
-    if (!(agentStageIds as readonly string[]).includes(id)) {
-      throw new HttpError(400, `unknown Stage ${id}`)
-    }
-    files[id as AgentStageId] = value === null ? null : fileText(value, `${id} Stage file`)
+    const found = stageFileId(`stages/${id}.md`)
+    if (found === undefined) throw new HttpError(400, `unknown Stage ${id}`)
+    files[found] = value === null ? null : fileText(value, `${id} Stage file`)
   }
   return files
 }
@@ -287,6 +302,10 @@ export function parseFactorySettingsChanges(given: unknown): FactorySettingsChan
       if (given[role] !== undefined) changes.agents[role] = roleChoice(given[role], role)
     }
   }
+  if (body.agentFiles !== undefined) changes.agentFiles = parseAgentFileChanges(body.agentFiles)
+  if (body.keepAgentFiles !== undefined) {
+    changes.keepAgentFiles = parseKeepAgentFiles(body.keepAgentFiles)
+  }
   if (body.permissions !== undefined) {
     const mode = permissionModes.find((m) => m === body.permissions)
     if (mode === undefined) throw new HttpError(400, 'permissions must be auto or bypass')
@@ -312,6 +331,10 @@ function settingsRepo(given: unknown): RepoSettingsInput {
   if (mergeMethod !== undefined && !settingsMergeMethods.some((m) => m === mergeMethod)) {
     throw new HttpError(400, 'mergeMethod must be squash, merge or rebase')
   }
+  const pullRequestCi = body.pullRequestCi
+  if (pullRequestCi !== undefined && !isOneOf(pullRequestCi, pullRequestCiModes)) {
+    throw new HttpError(400, 'pullRequestCi must be auto, none or required')
+  }
   const setup = command(body.setup, 'setup')
   const teardown = command(body.teardown, 'teardown')
   return {
@@ -321,6 +344,7 @@ function settingsRepo(given: unknown): RepoSettingsInput {
     name: text(body.name, 'name'),
     ...(baseBranch !== undefined && { baseBranch }),
     ...(mergeMethod !== undefined && { mergeMethod: mergeMethod as SettingsMergeMethod }),
+    ...(pullRequestCi !== undefined && { pullRequestCi }),
     ...(setup && { setup }),
     ...(teardown && { teardown }),
     env: list(body.env, 'env').map((v) => {
@@ -546,6 +570,10 @@ export function parseLibraryChanges(given: unknown): LibraryChanges {
     for (const role of agentRoles) {
       if (agents[role] !== undefined) changes.agents[role] = roleChoice(agents[role], role)
     }
+  }
+  if (body.agentFiles !== undefined) changes.agentFiles = parseAgentFileChanges(body.agentFiles)
+  if (body.keepAgentFiles !== undefined) {
+    changes.keepAgentFiles = parseKeepAgentFiles(body.keepAgentFiles)
   }
   return changes
 }

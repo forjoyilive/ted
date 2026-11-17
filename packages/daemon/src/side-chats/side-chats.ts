@@ -13,6 +13,7 @@ import type { RunManager } from '../runs/run-manager.ts'
 import type { TedStore } from '../store/index.ts'
 import type { StoredSideChat } from '../store/side-chats.ts'
 import type { QueueSource } from '../tasks/queue.ts'
+import { startGuard } from '../tasks/queued-runs.ts'
 import type { Tasks } from '../tasks/tasks.ts'
 import {
   boundSnapshot,
@@ -36,7 +37,7 @@ export function createSideChats(options: {
 }) {
   const { home, store, runs, agents, health } = options
   const saved = store.sideChats
-  const starts = new Map<string, Promise<void>>()
+  const starts = startGuard('Side chat')
   const stops = new Map<string, Promise<void>>()
   const opens = new Map<string, Promise<SideChat>>()
   let closed = false
@@ -132,7 +133,7 @@ export function createSideChats(options: {
     const existing = stops.get(c.id)
     if (existing) return existing
     const work = (async () => {
-      if (starts.has(c.id)) await starts.get(c.id)
+      if (starts.has(c.id)) await starts.wait(c.id)
       if (store.getRun(c.id)?.state !== 'finished' && store.getRun(c.id)) await runs.stop(c.id)
     })()
     stops.set(c.id, work)
@@ -248,7 +249,7 @@ export function createSideChats(options: {
     }
   }
   const source: QueueSource = {
-    starting: () => [...starts.keys()],
+    starting: () => starts.keys(),
     queued: () =>
       saved
         .list()
@@ -271,20 +272,19 @@ export function createSideChats(options: {
     },
     begin(id) {
       const c = saved.get(id)
-      if (!c || starts.has(c.id)) return
-      const work = launch(id)
-        .catch((error) => {
+      if (!c) return
+      starts.begin(c.id, () => launch(id), {
+        failed(error) {
           if (error instanceof AgentDisabledError) save({ ...requireChat(id), state: 'queued' })
           else fail(c, String(error))
-        })
-        .finally(() => {
-          starts.delete(c.id)
+        },
+        done() {
           if (!closed) {
             settle(c.id)
             changed()
           }
-        })
-      starts.set(c.id, work)
+        },
+      })
     },
     holders: () =>
       saved
@@ -463,7 +463,7 @@ export function createSideChats(options: {
     async close() {
       closed = true
       unsubscribe()
-      await Promise.allSettled([...starts.values(), ...stops.values()])
+      await Promise.allSettled([...starts.all(), ...stops.values()])
       release?.()
       release = undefined
     },

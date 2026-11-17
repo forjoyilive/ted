@@ -10,12 +10,15 @@ import {
 import { recordFailureRun } from './check-history.ts'
 import { type CheckMeasurement, measureCheck } from './check-measurement.ts'
 import {
+  allowedCpus,
   busy,
   busyLine,
+  cpusLine,
   loadPerCore,
   quietWaitMs,
   scaledWorkers,
   waitForQuiet,
+  workersWithin,
 } from './machine-load.ts'
 import { reportedTestLock } from './test-reporting.ts'
 
@@ -34,21 +37,21 @@ type TestGroup = (typeof idleGroups)[number]
 
 export type TestFiles = Record<string, readonly string[]>
 
-export function groupsFor(load: number | undefined, files?: TestFiles): TestGroup[] {
+export function groupsFor(load: number | undefined, files?: TestFiles, cpus?: number): TestGroup[] {
   const shared = files !== undefined && fileCount(files) < smallRunFiles
-  return idleGroups.flatMap((group) =>
+  const groups = idleGroups.flatMap((group) =>
     files === undefined || (files[group.project]?.length ?? 0) > 0
-      ? [
-          {
-            ...group,
-            maxWorkers: scaledWorkers(
-              shared ? Math.min(group.maxWorkers, 3) : group.maxWorkers,
-              load,
-            ),
-          },
-        ]
+      ? [{ ...group, maxWorkers: shared ? Math.min(group.maxWorkers, 3) : group.maxWorkers }]
       : [],
   )
+  const within = workersWithin(
+    groups.map((group) => group.maxWorkers),
+    cpus,
+  )
+  return groups.map((group, index) => ({
+    ...group,
+    maxWorkers: scaledWorkers(within[index] ?? group.maxWorkers, load),
+  }))
 }
 
 function fileCount(files: TestFiles): number {
@@ -402,11 +405,14 @@ export async function runChecks({
     mkdirSync(cacheDir, { recursive: true })
     if (quietWait !== undefined) await waitForQuiet({ maxWaitMs: quietWait })
     const load = loadPerCore()
-    const testGroups = groupsFor(load, files)
+    const cpus = allowedCpus()
+    const testGroups = groupsFor(load, files, cpus)
+    const allowedGroups = groupsFor(undefined, files, cpus)
+    const idle = groupText(groupsFor(undefined, files))
+    if (cpus !== undefined && groupText(allowedGroups) !== idle)
+      console.log(`\n${cpusLine(cpus, groupText(allowedGroups), idle)}`)
     if (busy(load))
-      console.log(
-        `\n${busyLine(load, groupText(testGroups), groupText(groupsFor(undefined, files)))}`,
-      )
+      console.log(`\n${busyLine(load, groupText(testGroups), groupText(allowedGroups))}`)
     ok = await checkInParallel(
       { appOnly, testsOnly, ...(files !== undefined && { files }) },
       testGroups,
@@ -592,7 +598,7 @@ export async function checkAffected({
     const changed = affected.changedSince(root, base)
     const repo = affected.readRepo(root, changed)
     const selection = affected.affectedTests({ changed, ...repo })
-    const chosen = affected.chooseTier(selection, repo.tests.length)
+    const chosen = affected.chooseTests(selection, repo.tests.length)
     console.log(`\n${affected.selectionText(selection, chosen, base, repo.electron)}`)
     const sandbox = affected.electronSandbox()
     const leftOut = sandbox && affected.leftOutText(chosen.run, repo.electron, sandbox)

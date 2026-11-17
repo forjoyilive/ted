@@ -102,8 +102,11 @@ const routes: Route[] = [
   },
   {
     method: 'GET',
-    path: /^\/diagnostics\/report$/,
-    handle: async (_, options) => [200, { text: await report(options) }],
+    path: /^\/diagnostics\/report(?:\?.*)?$/,
+    handle: async ({ req }, options) => {
+      const log = new URL(req.url ?? '/', 'http://localhost').searchParams.get('log')
+      return [200, { text: await report(options, { includeLog: log !== '0' }) }]
+    },
   },
   {
     method: 'GET',

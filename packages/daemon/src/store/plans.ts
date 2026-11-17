@@ -10,6 +10,7 @@ import type {
   Proposal,
   Round,
 } from '@ted/protocol'
+import { chatAgentEvents, type StoredChatAgent } from './chats.ts'
 import { events, planRequests, plans, planTasks, type schema } from './schema.ts'
 
 export type PlanState = 'queued' | 'started' | 'ended'
@@ -47,6 +48,7 @@ export interface StoredPlan {
   createdAt: string
   startedAt?: string
   finishedAt?: string
+  archivedAt?: string
   from?: { planId: string; title: string; context: string }
   fromTask?: PlanTaskLink
 }
@@ -76,7 +78,7 @@ export interface PlanStore {
     input: Pick<
       StoredPlan,
       'factoryId' | 'title' | 'message' | 'agent' | 'model' | 'effort' | 'fromTask' | 'from'
-    >,
+    > & { chatAgent?: StoredChatAgent },
   ): StoredPlan
   retried(id: string, retry: { fresh: boolean; checkout: PlanCheckout[] }): void
   detachTask(id: string, reason: PlanTaskGone): void
@@ -86,7 +88,8 @@ export interface PlanStore {
   resumeQueued(id: string, error: string): void
   revived(id: string): void
   ended(id: string, end: { outcome: PlanOutcome; error?: string }): void
-  markFinished(id: string, withdraw: readonly string[]): void
+  archive(id: string, withdraw: readonly string[]): void
+  unarchive(id: string): void
   postRequest(input: NewPlanRequest): PlanRequest
   answerRequest(id: string, answer: CommentAnswer): PlanRequest
   requests(planId?: string): PlanRequest[]
@@ -125,6 +128,7 @@ export function createPlanStore({
     createdAt: row.createdAt,
     ...(row.startedAt !== null && { startedAt: row.startedAt }),
     ...(row.finishedAt !== null && { finishedAt: row.finishedAt }),
+    ...(row.archivedAt !== null && { archivedAt: row.archivedAt }),
     ...(row.fromPlanId !== null && {
       from: {
         planId: row.fromPlanId,
@@ -181,11 +185,12 @@ export function createPlanStore({
   return {
     list: () => store.query(queryDb(plans.orderBy('createdAt', 'asc'))).map(toPlan),
     get,
-    start({ model, effort, fromTask, from, ...input }) {
+    start({ model, effort, fromTask, from, chatAgent, ...input }) {
       const id = randomUUID()
       const at = now()
       commit(
         events.planStarted({ ...input, id, model: model ?? null, effort: effort ?? null, at }),
+        ...(chatAgent ? chatAgentEvents(id, 'plan', input.factoryId, chatAgent) : []),
         ...(from
           ? [
               events.planContinued({
@@ -243,21 +248,9 @@ export function createPlanStore({
     revived: (id) => planEvent(id, (at) => events.planRunRevived({ id, at })),
     ended: (id, { outcome, error }) =>
       planEvent(id, (at) => events.planEnded({ id, outcome, error: error ?? null, at })),
-    markFinished(id, withdraw) {
-      if (!get(id)) return
-      const at = now()
-      commit(
-        events.planEnded({ id, outcome: 'finished', error: null, at }),
-        ...withdraw.map((requestId) =>
-          events.planRequestAnswered({
-            id: requestId,
-            answer: JSON.stringify({ kind: 'withdrawn', at, runStopped: true }),
-            at,
-          }),
-        ),
-      )
-      updated(id)
-    },
+    archive: (id, withdraw) =>
+      planEvent(id, (at) => events.planArchived({ id, withdraw: [...withdraw], at })),
+    unarchive: (id) => planEvent(id, (at) => events.planUnarchived({ id, at })),
     postRequest({ title, round, proposal, ...input }) {
       const id = randomUUID()
       commit(

@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
-import type { AutomationPromptDraft, DraftAutomationPromptRequest, SlotHolder } from '@ted/protocol'
+import type { AutomationPromptDraft, DraftAutomationPromptRequest } from '@ted/protocol'
 import { chatToolPolicy } from '@ted/protocol/run'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import { chatItems } from '../runs/conversations.ts'
 import type { StoredAutomationDraft } from '../store/automation-drafts.ts'
-import type { QueueSource } from '../tasks/queue.ts'
+import { queuedRuns, runLimits } from '../tasks/queued-runs.ts'
 import { removeInside } from '../tasks/remove-files.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import type { AutomationsOptions } from './automations.ts'
@@ -23,14 +23,26 @@ export function createAutomationDrafts(options: AutomationsOptions) {
   const { store, runs, agents } = options
   const saved = store.automationDrafts
   const root = path.join(options.home, 'automation-drafts')
-  const starting = new Map<string, Promise<void>>()
   const stopping = new Map<string, Promise<void>>()
   const deadlines = new Map<string, number>()
-  const limited = new Set<string>()
   const outputAfter = new Map<string, number>()
   const removedFactories = new Set<string>()
   let closed = false
   let releaseIdle: (() => void) | undefined
+  const limits = runLimits({
+    store,
+    runs,
+    health: options.health,
+    owns: (runId) => saved.get(runId) !== undefined,
+    isClosed: () => closed,
+    ready(agent) {
+      for (const draft of saved.list()) {
+        if (draft.state === 'working' && draft.input.agent === agent)
+          setImmediate(() => settle(draft.id))
+      }
+      changed()
+    },
+  })
   const find = (id: string) => {
     const draft = saved.get(id)
     if (!draft || !store.getFactory(draft.factoryId))
@@ -113,7 +125,7 @@ export function createAutomationDrafts(options: AutomationsOptions) {
     if (!draft || !active(draft)) return
     saved.change(id, state, result)
     deadlines.delete(id)
-    limited.delete(id)
+    limits.clear(id)
     outputAfter.delete(id)
     if (!starting.has(id)) void stopAndClean(id)
     changed()
@@ -122,7 +134,7 @@ export function createAutomationDrafts(options: AutomationsOptions) {
     if (closed) return
     const draft = saved.get(id)
     const run = store.getRun(id)
-    if (draft?.state !== 'working' || !run || paused(draft) || limited.has(id)) return
+    if (draft?.state !== 'working' || !run || paused(draft) || limits.has(id)) return
     if (run.problem || run.failure) {
       end(id, 'failed', {
         error:
@@ -184,7 +196,7 @@ export function createAutomationDrafts(options: AutomationsOptions) {
       outputAfter.set(id, runs.output.last(id, 1)[0]?.offset ?? -1)
       const previous = store.getRun(id)
       if (previous) {
-        limited.delete(id)
+        limits.clear(id)
         await runs.revive(id, {
           prompt: 'Continue drafting the Automation Prompt. Return only the complete Prompt.',
         })
@@ -223,18 +235,14 @@ export function createAutomationDrafts(options: AutomationsOptions) {
       })
     }
   }
-  const source: QueueSource = {
-    starting: () => [...starting.keys()],
-    queued: () =>
+  const { pump, starting } = queuedRuns(options.queue, {
+    kind: 'automation-draft',
+    what: 'Automation draft',
+    waiting: () =>
       saved
         .list()
-        .filter((d) => d.state === 'queued' && !starting.has(d.id))
-        .map((d) => ({
-          id: d.id,
-          kind: 'automation-draft',
-          rank: Date.parse(d.createdAt),
-          factoryId: d.factoryId,
-        })),
+        .filter((d) => d.state === 'queued')
+        .map((d) => ({ id: d.id, rank: Date.parse(d.createdAt), factoryId: d.factoryId })),
     runnable: (id) => {
       const draft = saved.get(id)
       return (
@@ -245,62 +253,34 @@ export function createAutomationDrafts(options: AutomationsOptions) {
         !paused(draft)
       )
     },
-    begin(id) {
-      if (closed || starting.has(id)) return
-      const work = launch(id)
-      starting.set(id, work)
-      void work.finally(() => {
-        starting.delete(id)
-        const draft = saved.get(id)
-        if (!draft || !active(draft)) void stopAndClean(id)
-        if (!closed) changed()
-      })
-    },
-    holders: () =>
-      saved.list().flatMap((d): SlotHolder[] =>
-        starting.has(d.id) ||
-        stopping.has(d.id) ||
-        ((d.state === 'working' || store.getRun(d.id)?.state === 'working') && !paused(d))
-          ? [
-              {
-                kind: 'automation-draft',
-                runId: d.id,
-                name: 'Draft Automation Prompt',
-                factoryId: d.factoryId,
-                runs: 1,
-              },
-            ]
-          : [],
-      ),
-    describe(id, place) {
-      const draft = saved.get(id)
+    launch: (id) => launch(id),
+    candidates: () => saved.list().map((d) => d.id),
+    holds(id) {
+      const d = saved.get(id)
       return (
-        draft && {
-          kind: 'automation-draft',
-          runId: id,
-          name: 'Draft Automation Prompt',
-          factoryId: draft.factoryId,
-          place,
-        }
+        !!d &&
+        (stopping.has(id) ||
+          ((d.state === 'working' || store.getRun(id)?.state === 'working') && !paused(d)))
       )
     },
-  }
-  const pump = options.queue.addQueueSource(source)
+    slot(id) {
+      const draft = saved.get(id)
+      return draft && { runId: id, name: 'Draft Automation Prompt', factoryId: draft.factoryId }
+    },
+    isClosed: () => closed,
+    done(id) {
+      const draft = saved.get(id)
+      if (!draft || !active(draft)) void stopAndClean(id)
+      if (!closed) changed()
+    },
+  })
   const unsubscribe = store.subscribe((event) => {
-    if (!closed && event.type === 'run-updated' && saved.get(event.run.id)) {
-      if (event.run.state === 'working') limited.delete(event.run.id)
+    if (!closed && event.type === 'run-updated' && saved.get(event.run.id))
       setImmediate(() => settle(event.run.id))
-    }
   })
   runs.observe({
     settled: (run) => {
       if (!closed && saved.get(run.id)) setImmediate(() => settle(run.id))
-    },
-    usage(run, signal) {
-      if (signal.limited && saved.get(run.id)) limited.add(run.id)
-    },
-    authFailed(run) {
-      if (saved.get(run.id)) limited.add(run.id)
     },
     finished(run, { stopped }) {
       const draft = saved.get(run.id)
@@ -308,7 +288,7 @@ export function createAutomationDrafts(options: AutomationsOptions) {
         !closed &&
         draft?.state === 'working' &&
         !stopped &&
-        (limited.has(run.id) || paused(draft))
+        (limits.has(run.id) || paused(draft))
       ) {
         saved.change(run.id, 'queued')
         deadlines.delete(run.id)
@@ -318,19 +298,6 @@ export function createAutomationDrafts(options: AutomationsOptions) {
           error: 'The drafting agent stopped before returning a Prompt. Try again.',
         })
     },
-  })
-  options.health.onReady((agent) => {
-    if (closed) return
-    for (const id of [...limited]) {
-      const run = store.getRun(id)
-      if (!run || (run.agent === agent && store.agentPauses()[agent] === undefined))
-        limited.delete(id)
-    }
-    for (const draft of saved.list()) {
-      if (draft.state === 'working' && draft.input.agent === agent)
-        setImmediate(() => settle(draft.id))
-    }
-    changed()
   })
   for (const draft of saved.list()) {
     if (active(draft))
@@ -419,7 +386,7 @@ export function createAutomationDrafts(options: AutomationsOptions) {
     async cancel(id: string) {
       find(id)
       end(id, 'canceled')
-      await starting.get(id)
+      await starting.wait(id)
       await stopAndClean(id)
       return view(find(id))
     },
@@ -427,7 +394,7 @@ export function createAutomationDrafts(options: AutomationsOptions) {
       removedFactories.add(factoryId)
       for (const draft of saved.list().filter((d) => d.factoryId === factoryId)) {
         end(draft.id, 'canceled')
-        await starting.get(draft.id)
+        await starting.wait(draft.id)
         await stopAndClean(draft.id)
         await removeInside(path.join(options.home, 'runs'), draft.id)
         saved.remove(draft.id)
@@ -437,9 +404,10 @@ export function createAutomationDrafts(options: AutomationsOptions) {
       closed = true
       clearInterval(timer)
       unsubscribe()
+      limits.close()
       for (const draft of saved.list().filter(active)) {
         end(draft.id, 'canceled')
-        await starting.get(draft.id)
+        await starting.wait(draft.id)
         await stopAndClean(draft.id)
       }
       await Promise.allSettled(stopping.values())

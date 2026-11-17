@@ -15,8 +15,10 @@ import {
   automationIntake,
   githubIntakeHold,
   intakeLines,
+  linearIntakeHold,
   planGitHubIntake,
   refuseAsanaRoot,
+  refuseLinearList,
 } from '../src/tasks/intake.ts'
 import type { SourceClash } from '../src/tasks/sources.ts'
 
@@ -146,6 +148,30 @@ describe('Linear', () => {
       followUpSourceUrl: url,
     })
     await expect(intake.verify()).rejects.toThrow('outside this Factory')
+  })
+
+  test('bulk intake needs a saved scope in the connected workspace and stops when the scope changes', () => {
+    const factory = { id: 'f', name: 'Notebook' }
+    expect(() => linearIntakeHold(settingsStore(), factory, () => false)).toThrow(
+      'TED imports Linear work in bulk only from Notebook’s Linear intake scope. Choose a Linear Team or Project in Factory settings → Linear intake first.',
+    )
+    const store = settingsStore({ linearIntakeScopes: { f: scope } })
+    let gone = false
+    const hold = linearIntakeHold(store, factory, () => gone)
+    expect(hold.scope).toEqual(scope)
+    expect(() => refuseLinearList(scope, membership)).not.toThrow()
+    expect(() =>
+      refuseLinearList(scope, { workspace: 'other', workspaceId: 'workspace-other' }),
+    ).toThrow(
+      'The connected Linear workspace (other) isn’t the one this Factory’s Linear intake scope is in (acme).',
+    )
+    gone = true
+    expect(() => hold.unchanged()).toThrow('Notebook is being removed')
+    gone = false
+    store.set({ linearIntakeScopes: { f: { ...scope, id: 'project-two' } } })
+    expect(() => hold.unchanged()).toThrow(
+      'Notebook’s Linear intake scope changed during the import. TED stopped; the next run uses the new scope.',
+    )
   })
 })
 

@@ -694,7 +694,7 @@
   },
   "packages/app/src/renderer/plans.ts": {
     "anti-slop/no-known-value-widening": {
-      "count": 11
+      "count": 9
     }
   },
   "packages/app/src/renderer/settings-search.ts": {
@@ -947,9 +947,6 @@
     }
   },
   "packages/app/src/renderer/views/PlanChat.tsx": {
-    "anti-slop/no-unknown-returns": {
-      "count": 1
-    },
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 2
     }
@@ -1620,7 +1617,7 @@
       "count": 3
     },
     "anti-slop/no-unknown-parameters": {
-      "count": 7
+      "count": 6
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 1
@@ -2079,7 +2076,7 @@
       "count": 2
     },
     "anti-slop/no-unknown-parameters": {
-      "count": 14
+      "count": 12
     },
     "anti-slop/no-unknown-returns": {
       "count": 1
@@ -2299,7 +2296,7 @@
       "count": 1
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 5
+      "count": 4
     }
   },
   "packages/daemon/src/store/coordinators.ts": {
@@ -2581,9 +2578,6 @@
     }
   },
   "packages/daemon/src/tasks/intake.ts": {
-    "anti-slop/no-known-value-widening": {
-      "count": 1
-    },
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 1
     }
@@ -2657,13 +2651,13 @@
   },
   "packages/daemon/src/tasks/pull-requests.ts": {
     "anti-slop/no-runtime-typeof": {
-      "count": 5
+      "count": 2
     },
     "anti-slop/no-unknown-parameters": {
       "count": 3
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 5
+      "count": 3
     }
   },
   "packages/daemon/src/tasks/request-answers.ts": {
@@ -3091,9 +3085,9 @@
       "count": 3
     }
   },
-  "packages/daemon/test/failure-merge.test.ts": {
+  "packages/daemon/test/failure-merge-invalidation.test.ts": {
     "anti-slop/no-unknown-parameters": {
-      "count": 2
+      "count": 1
     },
     "anti-slop/no-unsafe-dictionary-type": {
       "count": 1
@@ -3102,14 +3096,6 @@
   "packages/daemon/test/failure-observations.test.ts": {
     "anti-slop/no-unknown-parameters": {
       "count": 1
-    }
-  },
-  "packages/daemon/test/failure-repairs.test.ts": {
-    "anti-slop/no-known-value-widening": {
-      "count": 1
-    },
-    "anti-slop/no-unknown-parameters": {
-      "count": 3
     }
   },
   "packages/daemon/test/failure-repos.test.ts": {
@@ -3304,11 +3290,6 @@
       "count": 2
     }
   },
-  "packages/daemon/test/merge-check-decisions.test.ts": {
-    "anti-slop/no-unknown-parameters": {
-      "count": 1
-    }
-  },
   "packages/daemon/test/merge-ci-decisions.test.ts": {
     "anti-slop/no-unknown-parameters": {
       "count": 1
@@ -3348,14 +3329,6 @@
   },
   "packages/daemon/test/new-task.test.ts": {
     "anti-slop/no-unknown-parameters": {
-      "count": 1
-    }
-  },
-  "packages/daemon/test/overnight-gates.test.ts": {
-    "anti-slop/no-unknown-parameters": {
-      "count": 1
-    },
-    "anti-slop/no-unsafe-dictionary-type": {
       "count": 1
     }
   },
@@ -3621,17 +3594,6 @@
   },
   "packages/daemon/test/task-interval-recovery.test.ts": {
     "anti-slop/no-unknown-parameters": {
-      "count": 1
-    }
-  },
-  "packages/daemon/test/task-lead.test.ts": {
-    "anti-slop/no-runtime-typeof": {
-      "count": 1
-    },
-    "anti-slop/no-unknown-parameters": {
-      "count": 1
-    },
-    "anti-slop/no-unsafe-dictionary-type": {
       "count": 1
     }
   },
@@ -3977,7 +3939,7 @@
       "count": 4
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 18
+      "count": 14
     }
   },
   "packages/protocol/src/github-intake.ts": {

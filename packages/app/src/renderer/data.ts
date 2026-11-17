@@ -756,6 +756,17 @@ export function useCoordinatorChats(factoryId: string) {
   )
 }
 
+export function useFactoryAgents(factoryId: string) {
+  return useReloadingState(
+    () => ted.factoryAgents(factoryId),
+    (event) =>
+      (event.type === 'factory-settings-changed' && event.factoryId === factoryId) ||
+      (event.type === 'factory-updated' && event.factory.id === factoryId) ||
+      event.type === 'library-changed',
+    factoryId,
+  )
+}
+
 export function useCoordinatorState(chatId: string) {
   return useReloadingState(
     () => ted.coordinator(chatId),

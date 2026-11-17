@@ -32,6 +32,11 @@ export interface ScopeHold<S> {
   unchanged: () => void
 }
 
+export interface HeldScope<S> {
+  scope: S
+  unchanged: () => void
+}
+
 export function scopeHold<K extends IntakeKey>(
   store: Settings,
   key: K,
@@ -226,7 +231,7 @@ export function asanaIntakeHold(
   store: Settings,
   factory: IntakeFactory,
   gone: () => boolean,
-): { scope: AsanaIntakeScope; unchanged: () => void } {
+): HeldScope<AsanaIntakeScope> {
   const hold = scopeHold(
     store,
     'asanaIntakeScopes',
@@ -246,6 +251,45 @@ export function asanaIntakeHold(
       hold.unchanged()
       if (gone()) throw new RequestError(409, `${factory.name} is being removed`)
     },
+  }
+}
+
+export function linearIntakeHold(
+  store: Settings,
+  factory: IntakeFactory,
+  gone: () => boolean,
+): HeldScope<LinearIntakeScope> {
+  const hold = scopeHold(
+    store,
+    'linearIntakeScopes',
+    factory.id,
+    `${factory.name}’s Linear intake scope changed during the import. TED stopped; the next run uses the new scope.`,
+  )
+  const { scope } = hold
+  if (!scope) {
+    throw new RequestError(
+      403,
+      `TED imports Linear work in bulk only from ${factory.name}’s Linear intake scope. Choose a Linear Team or Project in Factory settings → Linear intake first.`,
+    )
+  }
+  return {
+    scope,
+    unchanged() {
+      hold.unchanged()
+      if (gone()) throw new RequestError(409, `${factory.name} is being removed`)
+    },
+  }
+}
+
+export function refuseLinearList(
+  scope: LinearIntakeScope,
+  list: { workspaceId: string; workspace: string },
+): void {
+  if (list.workspaceId !== scope.workspaceId || list.workspace !== scope.workspace) {
+    throw new RequestError(
+      409,
+      `The connected Linear workspace (${list.workspace}) isn’t the one this Factory’s Linear intake scope is in (${scope.workspace}). Connect that workspace or choose the scope again.`,
+    )
   }
 }
 

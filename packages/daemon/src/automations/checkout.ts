@@ -4,16 +4,15 @@ import { tedPaths } from '@ted/protocol'
 import type { AppTask } from '../apps/apps.ts'
 import type { AppDeclaration } from '../apps/declared.ts'
 import type { Banners } from '../banners.ts'
-import { worktreeCommandEnv } from '../command-env.ts'
 import { ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
 import { redactSecrets } from '../redact.ts'
 import type { Sandbox, SandboxScope } from '../sandbox.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
-import { runTaskCommand } from '../tasks/command.ts'
 import { removeInside } from '../tasks/remove-files.ts'
 import { type FactoryRepoEntry, factoryRepos } from '../tasks/repos.ts'
-import { copyFiles, outputTail } from '../tasks/worktree.ts'
+import { runScratchSetup } from '../tasks/scratch-setup.ts'
+import { copyFiles } from '../tasks/worktree.ts'
 import type { Workflows } from '../workflow/workflows.ts'
 
 export interface CheckoutRepo {
@@ -57,8 +56,6 @@ export interface Checkouts {
   sweep(keep: (runId: string) => boolean): Promise<void>
   forget(automationId: string): Promise<void>
 }
-
-export class SetupFailed extends Error {}
 
 export function createCheckouts(options: {
   home: string
@@ -129,51 +126,21 @@ export function createCheckouts(options: {
     entries: FactoryRepoEntry[],
     signal?: AbortSignal,
   ): Promise<void> {
-    for (const entry of entries) {
-      const repo = checkout.repos.find((r) => r.name === entry.name)
-      if (!repo || !entry.setup) continue
-      const problem = await options.sandbox.problem()
-      if (problem !== undefined) {
-        options.banners.raise({
-          problem: 'sandbox-unavailable',
-          factoryId: checkout.factoryId,
-          severity: 'stops-work',
-          text: problem,
-        })
-        throw new SetupFailed(problem)
-      }
-      await mkdir(cacheOf(checkout.automationId), { recursive: true, mode: 0o700 })
-      const log = path.join(tmpRootOf(checkout.runId), `setup-${entry.name}.log`)
-      const result = await runTaskCommand({
-        label: 'setup',
-        command: entry.setup,
-        cwd: repo.worktree,
-        env: worktreeCommandEnv(repo.env, {}, options.env()),
-        log,
-        lowPriority: options.store.settings().lowPriorityWork,
-        ...(signal !== undefined && { signal }),
-        sandbox: {
-          sandbox: options.sandbox,
-          scope: scopeOf(checkout),
-          tmpRoot: tmpRootOf(checkout.runId),
-        },
-      })
-      if (result.outcome === 'interrupted') throw new SetupFailed('The setup was stopped.')
-      if (result.outcome !== 'passed') {
-        const tail = await outputTail(log).catch(() => '')
-        const how =
-          result.outcome === 'timed-out'
-            ? 'timed out'
-            : result.exitCode !== undefined
-              ? `failed with exit code ${result.exitCode}`
-              : 'failed'
-        throw new SetupFailed(
-          redactSecrets(
-            `The setup command for ${entry.name} ${how}${tail.trim() === '' ? '' : `:\n${tail.trim()}`}`,
-          ),
-        )
-      }
-    }
+    await runScratchSetup({
+      repos: entries.flatMap((entry) => {
+        const repo = checkout.repos.find((r) => r.name === entry.name)
+        return repo ? [{ ...repo, ...(entry.setup && { setup: entry.setup }) }] : []
+      }),
+      factoryId: checkout.factoryId,
+      sandbox: options.sandbox,
+      banners: options.banners,
+      scope: scopeOf(checkout),
+      tmpRoot: tmpRootOf(checkout.runId),
+      logDir: tmpRootOf(checkout.runId),
+      env: options.env(),
+      lowPriority: options.store.settings().lowPriorityWork,
+      ...(signal !== undefined && { signal }),
+    })
   }
 
   async function discard(runId: string, repos: readonly { clone: string; worktree: string }[]) {

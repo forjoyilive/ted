@@ -3,6 +3,7 @@ import {
   type Banner,
   type BannerSeverity,
   bannerOrder,
+  type ChatRequestKind,
   type CommentKind,
   identity,
   isShowing,
@@ -355,6 +356,13 @@ const kindLabels: Record<CommentKind, string> = {
   proposal: 'Proposal',
 }
 
+const chatRequestLabels: Record<ChatRequestKind, string> = {
+  question: 'Question',
+  round: 'Round',
+  proposal: 'Proposal',
+  agent: 'Agent draft',
+}
+
 export function inboxNotice(request: WaitingRequest): ProblemNotice {
   if (request.source === 'task') {
     const label = request.failed ? 'FAILED' : kindLabels[request.kind]
@@ -378,8 +386,8 @@ export function inboxNotice(request: WaitingRequest): ProblemNotice {
   }
   if (request.source === 'coordinator') {
     return {
-      title: 'Coordinator',
-      body: `Confirm: ${request.headline}`,
+      title: request.agentName,
+      body: `${request.requestKind ? chatRequestLabels[request.requestKind] : 'Confirm'}: ${request.headline}`,
       opens: { kind: 'open-inbox' },
     }
   }

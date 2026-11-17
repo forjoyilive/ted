@@ -1,5 +1,14 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -97,8 +106,10 @@ describe('Library settings', () => {
       'validate',
       'review',
       'merge',
+      'cleanup',
       'done',
     ])
+    expect(view.stages.find((s) => s.id === 'cleanup')).toMatchObject({ enabled: false })
     const design = view.stages.find((s) => s.id === 'design')
     expect(design).toMatchObject({ from: 'ted', gate: true, enabled: true })
     expect(design?.libraryFile).toBeUndefined()
@@ -111,6 +122,15 @@ describe('Library settings', () => {
       ['planner', 'ted', undefined],
     ])
     expect(view.agents[0]?.default).toEqual({ agent: 'claude' })
+    expect(view.agentFiles.map((a) => [a.id, a.from, a.builtIn, a.own])).toEqual([
+      ['coordinator', 'ted', true, undefined],
+      ['planner', 'ted', true, undefined],
+    ])
+    expect(view.agentFiles[0]).toMatchObject({
+      name: 'Coordinator',
+      powers: ['ask', 'manage_tasks', 'manage_automations', 'manage_agents'],
+      inherited: { layer: 'ted', settings: { name: 'Coordinator' } },
+    })
   })
 
   test('Edit in Library copies the default with based_on, and Save writes straight to the Library', async () => {
@@ -140,6 +160,47 @@ describe('Library settings', () => {
     })
     expect(after.stages.find((s) => s.id === 'design')).toMatchObject({ gate: false })
 
+    const coordinator = after.agentFiles.find((a) => a.id === 'coordinator')
+    const instructions = coordinator?.inherited?.instructions ?? ''
+    const agentChanges: LibraryChanges = {
+      agentFiles: [
+        {
+          id: 'coordinator',
+          settings: { name: 'Coordinator', powers: ['ask', 'manage_tasks'], model: 'opus' },
+          instructions: `${instructions}\nKeep answers short.\n`,
+        },
+        {
+          id: 'release-notes',
+          settings: { name: 'Release notes', agent: 'claude', powers: ['ask', 'read_code'] },
+          instructions: '# Release notes\n\nWrite the notes.\n',
+        },
+      ],
+    }
+    expect((await client.preview(agentChanges)).files.map((f) => f.path)).toEqual([
+      'agents.yaml',
+      'agents/coordinator.md',
+      'agents/release-notes.md',
+    ])
+    const withAgents = await client.save(agentChanges, after.version)
+    expect(parse((await libraryFile('agents.yaml')) ?? '')).toEqual({
+      coordinator: {
+        name: 'Coordinator',
+        model: 'opus',
+        powers: ['ask', 'manage_tasks'],
+        based_on: blobHash(instructions),
+      },
+      'release-notes': { name: 'Release notes', agent: 'claude', powers: ['ask', 'read_code'] },
+    })
+    expect(await libraryFile('agents/release-notes.md')).toBe(
+      '# Release notes\n\nWrite the notes.\n',
+    )
+    expect(withAgents.agentFiles.map((a) => [a.id, a.from])).toEqual([
+      ['coordinator', 'library'],
+      ['planner', 'ted'],
+      ['release-notes', 'library'],
+    ])
+    expect(withAgents.agentFiles[0]?.own).toMatchObject({ basedOn: blobHash(instructions) })
+
     const factory = await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
     await waitUntil(
       async () => (await client.call('GET', `/factories/${factory.id}/settings`)).status === 200,
@@ -154,12 +215,25 @@ describe('Library settings', () => {
       inherited: { layer: 'library', text: edited },
     })
     expect(settings.stages.find((s) => s.id === 'design')).toMatchObject({ gate: false })
+    expect(settings.agentFiles.find((a) => a.id === 'release-notes')).toMatchObject({
+      from: 'library',
+      powers: ['ask', 'read_code'],
+      inherited: { layer: 'library' },
+    })
+    expect(settings.agentFiles.find((a) => a.id === 'release-notes')?.own).toBeUndefined()
+
+    const removed = await client.save(
+      { agentFiles: [{ id: 'release-notes', settings: null, instructions: null }] },
+      withAgents.version,
+    )
+    expect(await libraryFile('agents/release-notes.md')).toBeUndefined()
+    expect(removed.agentFiles.map((a) => a.id)).toEqual(['coordinator', 'planner'])
 
     const designGate = async () =>
       (
         await client.ok<FactorySettingsView>('GET', `/factories/${factory.id}/settings`)
       ).stages.find((s) => s.id === 'design')?.gate
-    await client.save({ stages: { design: { gate: true } } }, after.version)
+    await client.save({ stages: { design: { gate: true } } }, removed.version)
     expect(await designGate()).toBe(true)
     const written = await libraryFile('workflow.yaml')
     expect(written).toContain('gate: true')
@@ -182,6 +256,52 @@ describe('Library settings', () => {
     expect(await libraryFile('workflow.yaml')).toBe('version: 1\n')
     expect(reset.stages.find((s) => s.id === 'work')).toMatchObject({ from: 'ted' })
     expect(reset.stages.find((s) => s.id === 'work')?.basedOn).toBeUndefined()
+
+    const custom = [
+      'version: 1',
+      'order: [intake, work, design-qa, validate, review, merge]',
+      'stages:',
+      '  design-qa:',
+      '    name: Design QA # by hand',
+      '',
+    ].join('\n')
+    await mkdir(path.join(libraryDir(), 'stages'), { recursive: true })
+    await writeFile(path.join(libraryDir(), 'stages', 'design-qa.md'), '# QA\n')
+    await writeFile(path.join(libraryDir(), 'workflow.yaml'), custom)
+    const withCustom = await client.view()
+    expect(withCustom.stages.map((s) => s.id)).toEqual([
+      'backlog',
+      'intake',
+      'clarify',
+      'design',
+      'work',
+      'design-qa',
+      'validate',
+      'review',
+      'merge',
+      'cleanup',
+      'done',
+    ])
+    const qa = withCustom.stages.find((s) => s.id === 'design-qa')
+    expect(qa).toMatchObject({ name: 'Design QA', custom: true, libraryFile: '# QA\n' })
+    expect(qa?.defaultText).toBeUndefined()
+
+    const saved2 = await client.save(
+      {
+        stages: { 'design-qa': { gate: true, maxBack: 2 }, cleanup: { enabled: true } },
+        stageFiles: { 'design-qa': '# QA\n\nCompare with Figma.\n' },
+      },
+      withCustom.version,
+    )
+    const yaml = (await libraryFile('workflow.yaml')) ?? ''
+    expect(yaml).toContain('order: [intake, work, design-qa, validate, review, merge]')
+    expect(yaml).toContain('    name: Design QA # by hand')
+    expect(parse(yaml).stages).toEqual({
+      'design-qa': { name: 'Design QA', gate: true, max_back: 2 },
+      cleanup: { enabled: true },
+    })
+    expect(await libraryFile('stages/design-qa.md')).toBe('# QA\n\nCompare with Figma.\n')
+    expect(saved2.stages.find((s) => s.id === 'cleanup')).toMatchObject({ enabled: true })
   })
 
   test('a save that would leave an invalid Library writes nothing', async () => {
@@ -196,7 +316,34 @@ describe('Library settings', () => {
       version: view.version,
     })
     expect(res.status).toBe(400)
+    const nameless = await client.call('POST', '/library/save', {
+      changes: {
+        agentFiles: [{ id: 'helper', settings: { powers: ['ask'] }, instructions: 'Hi' }],
+      },
+      version: view.version,
+    })
+    expect(nameless.status).toBe(400)
+    expect(JSON.stringify(nameless.body)).toContain('needs a `name`')
     expect(await readdir(libraryDir()).catch(() => [])).toEqual([])
+
+    const outside = path.join(scratch, 'outside')
+    await mkdir(outside)
+    await writeFile(path.join(outside, 'helper.md'), 'not TED’s')
+    await mkdir(libraryDir(), { recursive: true })
+    await symlink(outside, path.join(libraryDir(), 'agents'))
+    const linked = await client.view()
+    for (const changes of [
+      { agentFiles: [{ id: 'notes', settings: { name: 'Notes' }, instructions: '# Notes' }] },
+      { agentFiles: [{ id: 'helper', settings: null, instructions: null }] },
+    ]) {
+      const refused = await client.call('POST', '/library/save', {
+        changes,
+        version: linked.version,
+      })
+      expect(refused.status).toBe(400)
+    }
+    expect(await readdir(outside)).toEqual(['helper.md'])
+    expect(await readFile(path.join(outside, 'helper.md'), 'utf8')).toBe('not TED’s')
   })
 
   test('a save after the Library changed on disk is refused', async () => {

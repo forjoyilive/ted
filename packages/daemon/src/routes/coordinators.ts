@@ -3,22 +3,43 @@ import type { CoordinatorOperation, CoordinatorRemovalKind } from '@ted/protocol
 import {
   type CoordinatorAction,
   type CoordinatorCreate,
+  parseAgentDraftAnswer,
+  parseAnswerRequest,
+  parseAutomationCardAnswer,
+  parseAutomationDraftRequest,
   parseCoordinatorAction,
   parseCoordinatorConfirmationAnswer,
   parseCoordinatorCreate,
   parseCoordinatorMessage,
   parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
+  parsePostChatRequest,
+  parseRenameCoordinatorChatRequest,
+  parseRunChatCommandRequest,
 } from '@ted/protocol'
+import type { AgentFilesForChat } from '../coordinators/coordinators.ts'
 import { RequestError } from '../errors.ts'
 import { redactSecrets } from '../redact.ts'
 import { jsonRoute, type Route } from './route.ts'
 
 const offset = (raw: string | undefined) => Number(raw ?? 0)
+const automationRef = (raw: string) => {
+  try {
+    return decodeURIComponent(raw)
+  } catch {
+    throw new RequestError(400, 'name the Automation by its ID')
+  }
+}
 const context = (value: unknown) => {
   const nonce = randomUUID()
   return {
     context: `<<<TASK CONTEXT ${nonce}>>>\n${JSON.stringify(value)}\n<<<END TASK CONTEXT ${nonce}>>>`,
+  }
+}
+const agentFiles = (value: readonly AgentFilesForChat[]) => {
+  const nonce = randomUUID()
+  return {
+    context: `<<<AGENT FILES ${nonce}>>>\n${JSON.stringify(value)}\n<<<END AGENT FILES ${nonce}>>>`,
   }
 }
 const operations: readonly string[] = [
@@ -34,7 +55,12 @@ export const coordinatorRoutes: Route[] = [
   {
     method: 'GET',
     path: /^\/factories\/([^/]+)\/coordinator-chats$/,
-    handle: async ({ params: [id = ''] }, { coordinators }) => [200, coordinators.chats(id)],
+    handle: async ({ params: [id = ''] }, { coordinators }) => [200, await coordinators.chats(id)],
+  },
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/agents$/,
+    handle: async ({ params: [id = ''] }, { coordinators }) => [200, await coordinators.agents(id)],
   },
   jsonRoute(parseCoordinatorMessage, {
     method: 'POST',
@@ -51,13 +77,13 @@ export const coordinatorRoutes: Route[] = [
   {
     method: 'GET',
     path: /^\/coordinator-chats\/([^/]+)$/,
-    handle: async ({ params: [id = ''] }, { coordinators }) => [200, coordinators.get(id)],
+    handle: async ({ params: [id = ''] }, { coordinators }) => [200, await coordinators.get(id)],
   },
   {
     method: 'GET',
     path: /^\/coordinator-chats\/([^/]+)\/chat$/,
     handle: async ({ params: [id = ''] }, { coordinators, conversations }) => {
-      coordinators.get(id)
+      await coordinators.get(id)
       return [200, await conversations.coordinatorChat(id)]
     },
   },
@@ -80,18 +106,117 @@ export const coordinatorRoutes: Route[] = [
   },
   {
     method: 'POST',
-    path: /^\/coordinator-chats\/([^/]+)\/continue$/,
+    path: /^\/coordinator-chats\/([^/]+)\/archive$/,
     handle: async ({ params: [id = ''] }, { coordinators }) => [
       200,
-      await coordinators.continueChat(id),
+      await coordinators.archiveChat(id),
     ],
   },
+  {
+    method: 'POST',
+    path: /^\/coordinator-chats\/([^/]+)\/unarchive$/,
+    handle: async ({ params: [id = ''] }, { coordinators }) => [
+      200,
+      await coordinators.unarchiveChat(id),
+    ],
+  },
+  jsonRoute(parseRenameCoordinatorChatRequest, {
+    method: 'PATCH',
+    path: /^\/coordinator-chats\/([^/]+)$/,
+    async handle({ params: [id = ''], body }, { coordinators }) {
+      return [200, await coordinators.renameChat(id, body.title)]
+    },
+  }),
   {
     method: 'DELETE',
     path: /^\/coordinator-chats\/([^/]+)$/,
     async handle({ params: [id = ''] }, { coordinators }) {
       await coordinators.deleteChat(id)
       return [200, null]
+    },
+  },
+  jsonRoute(parseAnswerRequest, {
+    method: 'POST',
+    path: /^\/coordinator-chats\/([^/]+)\/requests\/([^/]+)\/answer$/,
+    async handle({ params: [id = '', request = ''], body }, { coordinators }) {
+      return [200, await coordinators.answerRequest(id, request, body)]
+    },
+  }),
+  jsonRoute(parseAgentDraftAnswer, {
+    method: 'POST',
+    path: /^\/coordinator-chats\/([^/]+)\/requests\/([^/]+)\/agent$/,
+    async handle({ params: [id = '', request = ''], body }, { coordinators }) {
+      return [200, await coordinators.answerAgentDraft(id, request, body)]
+    },
+  }),
+  {
+    method: 'GET',
+    path: /^\/coordinator\/agents$/,
+    runToken: true,
+    handle: async ({ caller }, { coordinators }) => [
+      200,
+      agentFiles(await coordinators.agentFiles(caller)),
+    ],
+  },
+  jsonRoute(parsePostChatRequest, {
+    method: 'POST',
+    path: /^\/coordinator\/requests$/,
+    runToken: true,
+    async handle({ caller, body }, { coordinators }) {
+      return [201, await coordinators.ask(caller, body)]
+    },
+  }),
+  {
+    method: 'GET',
+    path: /^\/coordinator\/automations$/,
+    runToken: true,
+    handle: async ({ caller }, { coordinators }) => [
+      200,
+      context({ automations: await coordinators.listAutomations(caller) }),
+    ],
+  },
+  {
+    method: 'GET',
+    path: /^\/coordinator\/automations\/([^/?]+)$/,
+    runToken: true,
+    handle: async ({ caller, params: [ref = ''] }, { coordinators }) => [
+      200,
+      context({ automation: await coordinators.showAutomation(caller, automationRef(ref)) }),
+    ],
+  },
+  jsonRoute(parseAutomationDraftRequest, {
+    method: 'POST',
+    path: /^\/coordinator\/automation-drafts$/,
+    runToken: true,
+    async handle({ caller, body }, { coordinators }) {
+      return [201, await coordinators.draftAutomation(caller, body)]
+    },
+  }),
+  jsonRoute(parseAutomationCardAnswer, {
+    method: 'POST',
+    path: /^\/coordinator-chats\/([^/]+)\/automation-cards\/([^/]+)$/,
+    async handle({ params: [id = '', card = ''], body }, { coordinators }) {
+      return [200, await coordinators.answerAutomationCard(id, card, body)]
+    },
+  }),
+  jsonRoute(parseRunChatCommandRequest, {
+    method: 'POST',
+    path: /^\/chat-commands$/,
+    runToken: true,
+    waits: true,
+    async handle({ caller, body }, { coordinators, plans }) {
+      const owner = caller.kind === 'run' && plans.isPlanRun(caller.runId) ? plans : coordinators
+      return [200, await owner.runCommand(caller, body.name)]
+    },
+  }),
+  {
+    method: 'GET',
+    path: /^\/chat-commands\/([a-f0-9-]{36})$/,
+    runToken: true,
+    waits: true,
+    async handle({ caller, params: [id = ''] }, { coordinators, plans }) {
+      const owner = caller.kind === 'run' && plans.isPlanRun(caller.runId) ? plans : coordinators
+      return [200, await owner.commandResult(caller, id)]
     },
   },
   jsonRoute(parseCoordinatorConfirmationAnswer, {

@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import * as P from '../src/index.ts'
-import { type AllFields, rejects, roundTrip, variant } from './parser-cases.ts'
+import { type AllFields, rejects, roundTrip, variant, variants } from './parser-cases.ts'
 
 roundTrip(P.parseAppRef, { name: 'Dev', repo: 'ted' })
 roundTrip(P.parseStartAppRequest, {
@@ -30,8 +30,10 @@ roundTrip(P.parseStartPlanRequest, {
   agent: 'codex',
   model: 'gpt-5.5',
   effort: 'high',
+  agentId: 'planner',
 })
 roundTrip(P.parseRenamePlanRequest, { title: 'New title' })
+roundTrip(P.parseRenameCoordinatorChatRequest, { title: 'Release review' })
 roundTrip(P.parseResumePlanRequest, { message: 'Carry on' })
 const round = {
   title: 'Choices',
@@ -47,9 +49,75 @@ roundTrip(P.parsePostPlanRequest, { round, proposal, supersedes: 'old' })
 roundTrip(P.parseSendPeerMessage, { operation: 'unique', text: 'Coordinate' })
 roundTrip(P.parseCoordinatorMessage, {
   text: 'Coordinate',
+  agentId: 'release-scout',
   agent: 'codex',
   model: 'gpt-5.5',
   effort: 'high',
+})
+roundTrip(P.parseRunChatCommandRequest, { name: 'web-test' })
+rejects(P.parseRunChatCommandRequest, { name: 'rm -rf /' }, 'command names')
+rejects(P.parseRunChatCommandRequest, {}, 'name must be')
+variants(P.parsePostChatRequest, [
+  { question: { text: 'Which repo?', choices: ['web', 'api'], multiple: true }, supersedes: 'old' },
+  { round },
+  { proposal, supersedes: 'old' },
+  {
+    agent: {
+      id: 'billing-guide',
+      name: 'Billing guide',
+      instructions: '# Billing guide\n',
+      powers: ['ask', 'read_code'],
+      change: true,
+      summary: 'Answers billing questions.',
+    },
+    supersedes: 'old',
+  },
+])
+roundTrip(P.parseAgentDraftInput, {
+  id: 'billing-guide',
+  name: 'Billing guide',
+  instructions: '# Billing guide\n',
+  powers: ['ask', 'read_code'],
+  change: true,
+  summary: 'Answers billing questions.',
+})
+variants<P.AgentDraftAnswer, P.AgentDraftAnswer[]>(P.parseAgentDraftAnswer, [
+  {
+    action: 'create',
+    where: 'factory',
+    name: 'Billing guide',
+    instructions: '# Billing guide\n',
+    powers: ['read_code'],
+  },
+  { action: 'dismiss' },
+])
+test('an Agent draft refuses an outside power and caps its text, and keeps the power order', () => {
+  const draft = { id: 'helper', name: 'Helper', instructions: 'Help.', powers: ['read_code'] }
+  expect(() => P.parseAgentDraftInput({ ...draft, powers: ['deploy'] })).toThrow(
+    '"deploy" isn’t a power',
+  )
+  expect(() => P.parseAgentDraftInput({ ...draft, id: 'Not An Id' })).toThrow('agent.id')
+  expect(() => P.parseAgentDraftInput({ ...draft, name: 'x'.repeat(61) })).toThrow('agent.name')
+  expect(() => P.parseAgentDraftInput({ ...draft, instructions: 'x'.repeat(20_001) })).toThrow(
+    'agent.instructions has 1–20,000 characters',
+  )
+  expect(
+    P.parseAgentDraftInput({ ...draft, powers: ['manage_agents', 'ask', 'ask'], change: false }),
+  ).toEqual({ ...draft, powers: ['ask', 'manage_agents'] })
+  expect(() => P.parseAgentDraftAnswer({ action: 'create', where: 'elsewhere', ...draft })).toThrow(
+    'where is library or factory',
+  )
+})
+test('parsePostChatRequest takes exactly one request and checks the Agent id rule', () => {
+  expect(() => P.parsePostChatRequest({ round, proposal })).toThrow(
+    'send one of question, round, proposal or agent',
+  )
+  expect(() => P.parsePostChatRequest({})).toThrow('send one of question, round, proposal or agent')
+  expect(() => P.parsePostChatRequest({ question: { text: ' ' } })).toThrow('a question has')
+  expect(() => P.parsePostChatRequest({ question: { text: 'Why?' }, supersedes: '' })).toThrow(
+    'supersedes',
+  )
+  expect(() => P.parseCoordinatorMessage({ text: 'Hi', agentId: 'Not An Id' })).toThrow('agentId')
 })
 const version = 'a'.repeat(64)
 const completeAction: Required<P.CoordinatorAction> = {
@@ -230,6 +298,7 @@ variant(P.parseSetFactoryGitHubIntakeRequest, { scope: null })
 roundTrip(P.parseAsanaIntakeRequest, { factory: 'NB' })
 roundTrip(P.parseGitHubIntakeRequest, { factory: 'NB' })
 variant(P.parseGitHubIntakeRequest, {})
+roundTrip(P.parseLinearIntakeRequest, { factory: 'NB' })
 roundTrip(P.parseAllowAsanaProjectRequest, { factoryId: 'factory', project: '9' })
 roundTrip(P.parseForgetAsanaProjectRequest, { factoryId: 'factory', project: '9', list: 'allowed' })
 variant(P.parseForgetAsanaProjectRequest, { factoryId: 'factory', project: '9', list: 'declined' })
@@ -289,6 +358,7 @@ rejects(P.parseResumePlanRequest, { message: 2 }, 'message must be text')
 rejects(P.parsePostPlanRequest, { supersedes: 2 }, 'supersedes must be')
 rejects(P.parseSendPeerMessage, { operation: 'id' }, 'operation and text are required')
 rejects(P.parseCoordinatorMessage, { text: 1 }, 'text is required')
+rejects(P.parseRenameCoordinatorChatRequest, { title: 2 }, 'title must be text')
 rejects(
   (v) => P.parseCoordinatorAction(v, 'tell'),
   { operation: 'id', version, message: 'a'.repeat(8001) },
@@ -328,6 +398,8 @@ rejects(P.parseSetFactoryAsanaIntakeRequest, {}, 'Choose an Asana workspace and 
 rejects(P.parseAsanaIntakeRequest, { factory: '' }, 'Factory key')
 rejects(P.parseGitHubIntakeRequest, { factory: '' }, 'Factory key')
 rejects(P.parseGitHubIntakeRequest, { factory: 3 }, 'Factory key')
+rejects(P.parseLinearIntakeRequest, { factory: '' }, 'Factory key')
+rejects(P.parseLinearIntakeRequest, { factory: 7 }, 'Factory key')
 rejects(
   P.parseAllowAsanaProjectRequest,
   { factoryId: 'factory', project: 'https://app.asana.com/0/9' },

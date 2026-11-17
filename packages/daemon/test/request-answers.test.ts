@@ -82,6 +82,7 @@ beforeEach(async () => {
     bindApproval: async () => {
       effects.push('approval')
     },
+    requireSetupAgents: async () => {},
     liveLead: () => undefined,
     startMerging: () => {
       effects.push('merge')
@@ -771,6 +772,50 @@ test.each([
   expect(store.getComment(comment.id)?.answer).toMatchObject({ kind: 'answered', choice })
 })
 
+test('Merge and don’t wait again is the human’s, merges like Merge anyway and saves the setting', async () => {
+  store.startTask({
+    taskId,
+    stage: 'merge',
+    branch: 'task',
+    worktree: directory,
+    entry: { stageFile: { layer: 'ted', path: 'merge.md' }, layers: [], order: [] },
+    repo: { name: 'widgets', repo: 'acme/widgets', copied: [], skipped: [] },
+  })
+  const noCi = 'Merge, and don’t wait for CI on widgets again'
+  const saved: string[] = []
+  port.setPullRequestCi = async (factoryId, repo, mode) => {
+    saved.push(`${factoryId}:${repo}:${mode}`)
+    return {
+      pullRequest: { number: 9, url: 'https://github.com/acme/widgets/pull/9' },
+      merged: true,
+    }
+  }
+  const question = () =>
+    post(
+      { kind: 'ci-stuck' },
+      { choices: ['Send to Task Lead', 'Keep waiting', 'Merge anyway', noCi] },
+    )
+  const byAutopilot = question()
+  await expect(
+    createRequestAnswers(port)(
+      byAutopilot.id,
+      { action: 'answer', choice: noCi },
+      true,
+      'Autopilot',
+    ),
+  ).rejects.toThrow('only the human')
+  expect(store.getComment(byAutopilot.id)?.answer).toBeUndefined()
+
+  await answer(byAutopilot, { action: 'answer', choice: noCi })
+  expect(effects).toEqual(['obligations'])
+  expect(store.getComment(byAutopilot.id)?.answer).toMatchObject({ kind: 'answered', choice: noCi })
+  await vi.waitUntil(() => saved.length > 0)
+  expect(saved).toEqual([`${store.getTask(taskId)?.factoryId}:acme/widgets:none`])
+  await vi.waitUntil(() => store.listComments(taskId).some((c) => c.body.includes('#9')))
+  const note = store.listComments(taskId).find((c) => c.body.includes('#9'))
+  expect(note?.body).toContain('“Pull request CI: None” for widgets')
+})
+
 test('CI Merge anyway leaves its request open when obligations fail', async () => {
   port.requireObligations = async () => {
     throw new Error('unresolved failures')
@@ -885,6 +930,8 @@ const loopWorkflow = () =>
     {
       kind: 'ted',
       files: {},
+      agentSettings: {},
+      agentFiles: {},
       settings: {
         stages: {},
         order: ['intake', 'clarify', 'design', 'work', 'validate', 'review'],

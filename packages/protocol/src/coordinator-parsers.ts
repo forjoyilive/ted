@@ -1,3 +1,4 @@
+import { parseChatAgentId } from './chat-agent.ts'
 import type {
   ConfirmationChoices,
   CoordinatorAction,
@@ -8,7 +9,9 @@ import type {
   CoordinatorRemoval,
   CoordinatorRemovalKind,
   CoordinatorTaskQuery,
+  RenameCoordinatorChatRequest,
 } from './coordinator.ts'
+import { isString, type Untyped } from './parse.ts'
 import { isStageId } from './stage.ts'
 import {
   blockedChoices,
@@ -300,7 +303,14 @@ export function parseCoordinatorConfirmationAnswer(value: unknown): CoordinatorC
 export function parseCoordinatorMessage(value: unknown): CoordinatorMessage {
   const body = bodyObject(value)
   if (typeof body.text !== 'string') throw new HttpError(400, 'text is required')
-  return { text: body.text, ...agentChoice(body) }
+  const agentId = parseChatAgentId(body.agentId)
+  return { text: body.text, ...agentChoice(body), ...(agentId !== undefined && { agentId }) }
+}
+
+export function parseRenameCoordinatorChatRequest(value: Untyped): RenameCoordinatorChatRequest {
+  const { title } = bodyObject(value)
+  if (!isString(title)) throw new HttpError(400, 'title must be text')
+  return { title }
 }
 
 const queryStatuses: readonly string[] = taskStatusKinds
