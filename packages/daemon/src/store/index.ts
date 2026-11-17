@@ -254,6 +254,7 @@ import { createSideChatStore, type SideChatStore } from './side-chats.ts'
 import { markEventsSynced } from './sync-head.ts'
 import { createTaskHistory, type TaskHistory } from './task-history.ts'
 import { blockerTransitions, taskIntervalHistory } from './task-intervals.ts'
+import { taskTokens } from './task-tokens.ts'
 import { createTestInvocationStore, type TestInvocationStore } from './test-invocations.ts'
 
 export const placeholderFactory = { id: 'dev', key: 'DEV' }
@@ -1183,6 +1184,7 @@ export interface TedStore extends TaskHistory {
   answerPermission(commentId: string, answer: CommentAnswer): Comment
   setRunPermissions(runId: string, permissions: PermissionMode): void
   setRunAsleep(runId: string, asleep: boolean): void
+  setLiveTokens(runId: string, tokens: number | undefined): void
   restartRun(runId: string, flags: RunFlags): Run
   reviveRun(runId: string, flags?: RunFlags): Run
   lastOutputAt(runId: string): string | undefined
@@ -1391,6 +1393,7 @@ export async function openStore({
   let heldBusy: BusyHold | undefined
   const waitingOnSubAgents = new Set<string>()
   const asleepRuns = new Set<string>()
+  const liveTokens = new Map<string, number>()
   const checkingTasks = new Set<string>()
   const movingAfterChecks = new Set<string>()
   let checksWaiting: ReadonlyMap<string, number> = new Map()
@@ -1909,6 +1912,9 @@ export async function openStore({
     }
     const everyParent = once(() => store.query(queryDb(taskParents.orderBy('taskId', 'asc'))))
     const everyPullRequest = once(() => store.query(queryDb(pullRequests)))
+    const everyUsage = once(
+      () => new Map(store.query(queryDb(runUsage)).map((row) => [row.id, row] as const)),
+    )
     const factories = once(listFactories)
     return {
       factories,
@@ -1939,6 +1945,13 @@ export async function openStore({
         () => store.query(queryDb(taskRepos.orderBy('createdAt', 'asc'))),
         (r) => r.taskId,
       ),
+      usage: (runIds: readonly string[]): (typeof runUsage.Type)[] => {
+        if (runIds.length === 0) return []
+        if (!everyTask)
+          return store.query(queryDb(runUsage.where({ id: { op: 'IN', value: runIds } })))
+        const all = everyUsage()
+        return runIds.flatMap((id) => all.get(id) ?? [])
+      },
       pullRequest: rows(pullRequestRows, everyPullRequest, (r) => r.id),
       pullRequests: rows(taskPullRequests, everyPullRequest, (r) => r.taskId),
       task: rows(
@@ -2098,6 +2111,7 @@ export async function openStore({
     const all = reads.runs(row.id)
     const lead = all.find((r) => r.parentRunId === null)
     const live = all.filter((r) => r.state !== 'finished')
+    const tokens = taskTokens(all, reads.usage(all.map((r) => r.id)), liveTokens)
     const entries = reads.entries(row.id)
     const parentId = reads.parents(row.id).at(0)?.parentId
     const blockedBy = reads.blockers(row.id).map((b) => b.blockerId)
@@ -2414,6 +2428,7 @@ export async function openStore({
       ...(taskWakesOnComment(facts) && { wakesOnComment: true as const }),
       ...(facts.checksActive && { checksActive: true }),
       tabs,
+      ...(tokens > 0 && { tokens }),
       runs: live
         .sort(
           (a, b) =>
@@ -6950,6 +6965,14 @@ export async function openStore({
       const taskId = taskIdOfRun(runId)
       if (taskId !== undefined) updatedTask(taskId)
     },
+    setLiveTokens(runId, tokens) {
+      if (liveTokens.get(runId) === tokens) return
+      if (tokens === undefined) liveTokens.delete(runId)
+      else liveTokens.set(runId, tokens)
+      stateCommits += 1
+      const taskId = taskIdOfRun(runId)
+      if (taskId !== undefined && taskRow(taskId)) updatedTask(taskId)
+    },
     setRunAsleep(runId, asleep) {
       if (asleepRuns.has(runId) === asleep) return
       if (asleep) asleepRuns.add(runId)
@@ -7113,6 +7136,8 @@ export async function openStore({
       )
       const row = runRow(runId)
       if (row) emit({ type: 'run-updated', run: toRun(row) })
+      const taskId = taskIdOfRun(runId)
+      if (taskId !== undefined && taskRow(taskId)) updatedTask(taskId)
     },
     apiCost(days, now = new Date()) {
       const since = new Date(now.getTime() - days * 86_400_000).toISOString()

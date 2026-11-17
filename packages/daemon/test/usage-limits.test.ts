@@ -500,6 +500,10 @@ describe('Tokens, dollars, plan usage and retries', () => {
     }, 'tokens on the subscription Run')
     expect(subChat.run).toMatchObject({ credential: 'Subscription', tokens: 1500 })
     expect(subChat.run.cost).toBeUndefined()
+    await waitUntil(
+      async () => (await client.ok<Task>('GET', `/tasks/${sub.id}`)).tokens === 1500 || undefined,
+      'the working Run’s tokens on its Task',
+    )
 
     await client.ok('PATCH', '/settings', { billing: { claude: 'api-key', codex: 'subscription' } })
     await setStub('claude', { apiKeySource: 'ANTHROPIC_API_KEY' })
@@ -529,6 +533,8 @@ describe('Tokens, dollars, plan usage and retries', () => {
       output: 1000,
     })
     expect(report.agents[0]?.cost).toBeCloseTo(0.84)
+    for (const task of [sub, keyed])
+      expect((await client.ok<Task>('GET', `/tasks/${task.id}`)).tokens).toBe(1500)
   })
 
   test('plan usage comes from the last Run’s rate limit events, and the same usage again sends no event', async () => {
