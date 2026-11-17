@@ -244,7 +244,7 @@ describe('Agent health', () => {
     expect(await holdsSlot(a.id)).toBe(false)
     expect(await holdsSlot(b.id)).toBe(true)
     expect(await holdsSlot(later.id)).toBe(false)
-    await client.ok('POST', `/tasks/${later.id}/stop`)
+    await client.ok('POST', `/tasks/${later.id}/delete`)
 
     await writeFile(goB, '')
     await waitUntil(async () => {
