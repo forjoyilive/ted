@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -47,7 +47,9 @@ afterEach(async () => {
   await rm(scratch, { recursive: true, force: true })
 })
 
-async function startWithStub(options: { clock?: ManualClock; nudgeAfterMs?: number } = {}) {
+async function startWithStub(
+  options: { clock?: ManualClock; nudgeAfterMs?: number; runs?: { stopGraceMs: number } } = {},
+) {
   daemon = await startDaemon({ ...options, home, version: '9.9.9', claudeBin: stubClaudePath })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
@@ -103,6 +105,39 @@ describe('the queue', () => {
     ])
     await client.ok('POST', `/tasks/${task.id}/stop`)
     expect(await client.ok<RunSlots>('GET', '/slots')).toMatchObject({ working: 0, holders: [] })
+  })
+
+  test('a stopped Task reads Stopped while its Task Lead is still ending, and a Resume then waits for it', async () => {
+    const client = await startWithStub({ runs: { stopGraceMs: 600_000 } })
+    const task = await startTask(client, workingUntil(path.join(scratch, 'never')))
+    const lead = (await waitForRunState(client, task, 'working')).leadRunId
+    const gate = path.join(scratch, 'agent-exit')
+    await writeFile(path.join(home, 'stub-claude.json'), JSON.stringify({ stopWaitsFor: gate }))
+    const stopping = client.ok('POST', `/tasks/${task.id}/stop`)
+    try {
+      await waitUntil(
+        () =>
+          readFile(`${gate}.waiting`)
+            .then(() => true)
+            .catch(() => false),
+        'the Task Lead to hold its exit',
+      )
+      const stopped = await getTask(client, task.id)
+      expect(stopped.runs[0]?.state).toBe('working')
+      expect(stopped.status).toMatchObject({ kind: 'stopped' })
+      expect(stopped.statuses).not.toContain('working')
+
+      const resumed = await client.ok<Task>('POST', `/tasks/${task.id}/resume`, {})
+      expect(resumed.status).toMatchObject({ kind: 'queued' })
+      expect(resumed.leadRunId).toBe(lead)
+    } finally {
+      await writeFile(gate, '')
+      await stopping
+    }
+    await waitUntil(async () => {
+      const current = await getTask(client, task.id)
+      return current.leadRunId !== lead && current.status?.kind === 'working' ? current : undefined
+    }, `${task.displayId} to start a fresh Task Lead`)
   })
 
   test('with the limit full, a started Task is Queued with its place and starts when a slot frees', async () => {
