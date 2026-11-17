@@ -351,3 +351,101 @@
   font-size: var(--text-12-5);
   line-height: var(--leading-body);
 }
+
+.agentRows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agentRow {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.agentCheck {
+  align-self: start;
+  margin: 2px 0 0;
+}
+
+.agentBody {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.agentLine {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.agentName {
+  color: var(--text-primary);
+  font-weight: var(--weight-semibold);
+}
+
+.agentId {
+  color: var(--text-caption);
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+}
+
+.agentAbout {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-13);
+}
+
+.powers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.power {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--surface-neutral);
+  color: var(--text-primary);
+  font-size: var(--text-12);
+}
+
+.agentInstructions summary {
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  cursor: pointer;
+}
+
+.agentRemoved .agentName {
+  color: var(--text-caption);
+  font-weight: var(--weight-regular);
+  text-decoration: line-through;
+}
+
+.agentRemoved .agentAbout,
+.agentRemoved .powers,
+.agentRemoved .agentInstructions {
+  opacity: 0.5;
+}
+
+.fileDropped .filePath {
+  color: var(--text-caption);
+  text-decoration: line-through;
+}
+
+.fileDropped .fileAbout {
+  color: var(--text-caption);
+}

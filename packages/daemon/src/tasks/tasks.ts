@@ -166,6 +166,7 @@ import {
   sizeChoices,
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
+import { keptSetupAgents } from '@ted/protocol/setup-agents'
 import {
   bindsApproval,
   handsOff,
@@ -500,6 +501,7 @@ import {
   pickDepth,
   roundAnswerSummary,
 } from './rounds.ts'
+import { setupAgentDifferences } from './setup-agents.ts'
 import { clashMessage, sourceClash, sourceKey } from './sources.ts'
 import {
   afterPlanningWhy,
@@ -2502,7 +2504,7 @@ export function createTasks(options: {
   const checkLog = (task: Task, checkRunId: string, position: number) =>
     path.join(checkDir(task, checkRunId), `${position + 1}.log`)
 
-  async function approvedSetup(task: StoredTask) {
+  async function setupLayer(task: StoredTask) {
     const factory = factoryOf(task)
     const primary = task.repos.find((r) => !r.removed && sameRepo(r.repo, factory.repo))
     if (!primary) return undefined
@@ -2514,8 +2516,11 @@ export function createTasks(options: {
       primaryRepo: factory.repo,
       inherited: inheritedFrom(await workflows.inherited()),
     })
-    if (!layer.valid) return undefined
-    const proposal = store
+    return { primary, layer }
+  }
+
+  function approvedSetupProposal(task: StoredTask) {
+    const approval = store
       .listComments(task.id)
       .findLast(
         (c) =>
@@ -2523,8 +2528,51 @@ export function createTasks(options: {
           postsDesignReview(c.stage ?? '') &&
           c.answer?.kind === 'approved' &&
           c.design?.setup,
-      )?.design?.setup
-    return proposal && { primary, settings: layer.settings, proposal }
+      )
+    const proposal = approval?.design?.setup
+    const answer = approval?.answer
+    if (!proposal || answer?.kind !== 'approved') return undefined
+    return {
+      proposal,
+      agents: keptSetupAgents(proposal.agents ?? [], answer.removedAgents ?? []),
+    }
+  }
+
+  async function approvedSetup(task: StoredTask) {
+    const read = await setupLayer(task)
+    if (!read?.layer.valid) return undefined
+    const approved = approvedSetupProposal(task)
+    return approved && { primary: read.primary, settings: read.layer.settings, ...approved }
+  }
+
+  async function requireSetupAgents(task: StoredTask): Promise<void> {
+    if (!task.setup) return
+    const approved = approvedSetupProposal(task)
+    if (!approved) {
+      throw new RequestError(409, 'the setup proposal hasn’t been approved yet')
+    }
+    const read = await setupLayer(task)
+    if (!read?.layer.valid) {
+      throw new RequestError(
+        409,
+        'TED couldn’t read valid settings in .ted/ on this branch to compare its Agents with the approved setup proposal; run `ted workflow check`',
+      )
+    }
+    const differences = setupAgentDifferences(
+      approved.agents,
+      read.layer,
+      inheritedFrom(await workflows.inherited()).agents?.defined ?? [],
+    )
+    if (differences.length > 0) {
+      throw new RequestError(
+        409,
+        `The Agent files on this branch don’t match the approved setup proposal:\n\n${differences
+          .map((d) => `- ${d}`)
+          .join(
+            '\n',
+          )}\n\nWrite exactly the approved Agents to .ted/agents.yaml and .ted/agents/<id>.md, and nothing else.`,
+      )
+    }
   }
 
   async function approvedSetupChecks(task: StoredTask): Promise<CheckSettings[]> {
@@ -6264,6 +6312,7 @@ export function createTasks(options: {
           requireObligations(task, undefined, target, false, reads),
         checksThen: (taskId, action) => checksThen(taskId, action),
         bindApproval,
+        requireSetupAgents,
         liveLead,
         startMerging,
         watchMerge,
@@ -12211,6 +12260,9 @@ export function createTasks(options: {
               store.recordBaseConflict(task.id, foundConflict(current, conflict))
               throw new RequestError(409, conflictRefusal(current, conflict, manyRepos(current)))
             }
+          }
+          if (current.setup && (handsOff(stage) || signsOffCode(stage))) {
+            await requireSetupAgents(current)
           }
           const moved = validates(stage) ? await movedSinceReview(current) : undefined
           if (moved !== undefined) throw new RequestError(409, moved)
