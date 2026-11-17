@@ -323,7 +323,9 @@ test('an idle Coordinator chat sleeps, stays asleep across a daemon restart and 
     agent: 'claude',
   })
   const run = await waitUntil(async () => {
-    const found = (await client.getRun(chat.runId)).run
+    const res = await client.call('GET', `/runs/${chat.runId}`)
+    if (res.status !== 200) return undefined
+    const found = (res.body as { run: Run }).run
     return found.state === 'idle' && found.sessionId !== undefined ? found : undefined
   }, 'an idle Coordinator Run')
   const asleep = (what: string) =>
