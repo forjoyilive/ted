@@ -95,7 +95,7 @@ async function passing({
     await waitUntil(async () => {
       const progress = (await obligations()).progress
       return (await getTask(client, task.id)).stage === 'validate' && progress && !progress.pending
-    }, 'the hand-off Checks to move the Task to Validate and count as its coverage')
+    }, 'the Validate Checks to count as the Task’s coverage')
   }
   const settled = async () => {
     await waitUntil(async () => {

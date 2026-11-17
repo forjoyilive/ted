@@ -66,6 +66,7 @@ interface ValidationOptions {
   deliver(task: StoredTask, message: string, after: QueuedAfter): Promise<unknown>
   notify(task: StoredTask): Promise<void>
   instructions(task: StoredTask, resolution: WorkflowResolution, message?: string): Promise<string>
+  returnToWork(taskId: string, findings: string, checkRunId: string): Promise<void>
   apps(task: StoredTask): Promise<string | undefined>
   fix(task: StoredTask, value: FailureCase): Promise<void>
   checkFix(resolution: WorkflowResolution, task: StoredTask): void
@@ -80,11 +81,6 @@ export class StaleCoverageError extends RequestError {
       'The checks haven’t run on the Task’s current code, so TED can’t move it on yet. TED runs them first when the Task is moved on.',
     )
   }
-}
-
-export interface HandOffChecks {
-  run: CheckRun
-  coverage: string | undefined
 }
 
 export function createValidation(options: ValidationOptions) {
@@ -548,70 +544,28 @@ export function createValidation(options: ValidationOptions) {
     return true
   }
 
-  async function adoptHandOff(
-    task: StoredTask,
-    resolution: WorkflowResolution,
-    { run: checked, coverage: tested }: HandOffChecks,
-    reads: WorktreeReads,
-  ): Promise<boolean> {
-    const plan = await options.plan(task, resolution, undefined, reads)
-    const local = await coverage(task, reads)
-    if (
-      checked.outcome !== 'passed' ||
-      !local ||
-      local !== tested ||
-      sameCheckPlan(checked.checks) !== sameCheckPlan(plan.map((p) => p.check)) ||
-      checked.checks.some((c, i) => c.state === 'skipped' && plan[i]?.check.state !== 'skipped')
-    )
-      return false
-    await failures.obligations(task).catch(() => undefined)
-    verifyPassed(task, checked)
-    store.failures.saveProgress({
-      taskId: task.id,
-      visit: visitStart(task),
-      coverage: local,
-      checks: checked.checks,
-      executions: [{ runId: checked.id, start: 0 }],
-      next: checked.checks.length,
-      pending: false,
-    })
-    await store.persisted()
-    return true
-  }
-
-  async function validateChecks(
-    taskId: string,
-    message?: string,
-    checked?: HandOffChecks,
-  ): Promise<void> {
+  async function validateChecks(taskId: string, message?: string): Promise<void> {
     options.setChecking(taskId, true)
     try {
       const task = find(taskId)
       const resolution = await options.workflow(find(task.id))
-      const instructions = await options.instructions(task, resolution, message)
-      const withApps = async (text: string) => {
+      const withInstructions = async (text: string) => {
         const current = find(taskId)
+        const instructions = await options.instructions(current, resolution, message)
         const apps = current.setup ? await options.apps(current) : undefined
-        return apps === undefined ? text : `${text}\n\n${apps}`
+        return [
+          instructions,
+          ...(text === '' ? [] : [text]),
+          ...(apps === undefined ? [] : [apps]),
+        ].join('\n\n')
       }
-      const reads = worktreeReads()
-      if (checked && (await adoptHandOff(task, resolution, checked, reads))) {
-        await options.deliver(
-          task,
-          await withApps(
-            `${instructions}\n\n# Checks\n\nTED ran the Factory’s checks before moving the Task out of Work. None failed:\n\n${summary(checked.run.checks)}`,
-          ),
-          'checks-passed',
-        )
-        return
-      }
-      const started = await beginChecks(task, resolution, 'validate', undefined, reads)
+      const started = await beginChecks(task, resolution, 'validate', undefined, worktreeReads())
       if (!started) {
         const progress = store.failures.progress(taskId)
         const report = progress
-          ? `\n\n# Validation results\n\n${validationReport(progress, store.failures.list(taskId))}`
+          ? `# Validation results\n\n${validationReport(progress, store.failures.list(taskId))}`
           : ''
-        await options.deliver(task, await withApps(instructions + report), 'checks-done')
+        await options.deliver(task, await withInstructions(report), 'checks-done')
         return
       }
       const result = await started.done
@@ -629,7 +583,7 @@ export function createValidation(options: ValidationOptions) {
             : `TED ran the Factory’s checks before handing you this Stage. None failed:\n\n${summary(checkRun.checks)}`
         await options.deliver(
           current,
-          await withApps(`${instructions}\n\n# Checks\n\n${checksReport}`),
+          await withInstructions(`# Checks\n\n${checksReport}`),
           previousFailures ? 'checks-done' : 'checks-passed',
         )
         return
@@ -640,10 +594,22 @@ export function createValidation(options: ValidationOptions) {
       await writeFile(path.join(options.checkDir(current, checkRun.id), 'findings.md'), findings, {
         mode: 0o600,
       })
+      options.setChecking(taskId, false)
+      let problem: string | undefined
+      try {
+        await options.returnToWork(taskId, findings, checkRun.id)
+      } catch (error) {
+        problem = error instanceof Error ? error.message : String(error)
+      }
+      if (problem === undefined) return
+      console.error(redactSecrets(`couldn’t send ${task.displayId} back to Work: ${problem}`))
       const failureId = store.failures.progress(taskId)?.failureId
+      const reference = failureId ? shortReference(failureId) : '<id>'
       await options.deliver(
-        current,
-        `${instructions}\n\n# A check failed\n\nThe Task stays in Validate. Investigate failure case ${failureId ? shortReference(failureId) : '(see ted failure list)'}, add evidence and assess regression, unrelated or uncertain. A supported regression goes back through \`ted outcome back\`; unrelated or uncertain causes require a human decision. Investigation and retry do not count as send-backs.\n\n${findings}`,
+        find(taskId),
+        await withInstructions(
+          `# A check failed\n\nTED couldn’t send the Task back to Work: ${redactSecrets(problem)}. If this change caused failure case ${reference}, send the Task back with \`ted outcome back\`. If the cause is outside the Task, add evidence, assess it and run \`ted failure ask ${reference}\` so the human can decide.\n\n${findings}`,
+        ),
         'checks-done',
       )
     } finally {

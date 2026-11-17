@@ -2528,28 +2528,28 @@ test('answer gives Try again on Validate’s send-back limit; the receipt shows 
   )
   expect(limit).toMatchObject({
     author: { kind: 'ted' },
-    title: 'Validate has sent this Task back 1 time, its limit',
-    choices: ['Try again', 'Move to Done anyway'],
+    title: 'Back to Work 1 time, the limit',
+    choices: ['Keep going', 'Stop the Task'],
   })
   const stage = async () =>
     (await s.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.stage
   expect(await stage()).toBe('validate')
   const { run } = await s.start()
   const again = await run.call('POST', `/coordinator/tasks/${task.id}/answer`, {
-    operation: 'try-again',
+    operation: 'keep-going',
     version: await version(run, task.id),
     request: limit.id,
-    choice: 'Try again',
+    choice: 'Keep going',
   })
   expect(again.status).toBe(200)
   const receipt = again.body as CoordinatorReceipt
-  expect(receipt.text).toContain('with “Try again” · was validate')
+  expect(receipt.text).toContain('with “Keep going” · was validate')
   expect(receipt.text).toContain(' · now work')
   expect(receipt.before?.stage).toBe('validate')
   expect(receipt.after?.stage).toBe('work')
   expect((await s.comments(task.id)).find((c) => c.id === limit.id)?.answer).toMatchObject({
     kind: 'answered',
-    choice: 'Try again',
+    choice: 'Keep going',
     text: coordinatorLine,
   })
 })

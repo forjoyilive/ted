@@ -593,7 +593,7 @@ export function createFailureCases(options: {
         taskId: task.id,
         author: { kind: 'ted' },
         title: mergesHere(task.stage) ? mergeFailureNoticeTitle : 'Validate failure recorded',
-        body: `Failure ${shortReference(value.id)}\n\n${value.evidence}\n\nThe Task stays in ${mergesHere(task.stage) ? 'Merge' : 'Validate'} for investigation. No send-back was recorded.${mergesHere(task.stage) ? '\n\nInvestigate this failure, add evidence and assess regression, unrelated or uncertain. TED’s merge watcher sends supported regressions through Work, Validate and Review sign-off. Ask the user about unrelated or uncertain failures with `ted failure ask <id>`. Only the merge watcher can progress Merge; do not advance, merge or approve.' : ''}`,
+        body: `Failure ${shortReference(value.id)}\n\n${value.evidence}\n\n${value.source.kind === 'factory-check' && store.getCheckRun(value.source.checkRunId)?.trigger === 'validate' ? 'TED sends the Task back to Work with this failure. If Validate has reached its limit of returns, TED asks you first.' : `The Task stays in ${mergesHere(task.stage) ? 'Merge' : 'Validate'} for investigation. No send-back was recorded.`}${mergesHere(task.stage) ? '\n\nInvestigate this failure, add evidence and assess regression, unrelated or uncertain. TED’s merge watcher sends supported regressions through Work, Validate and Review sign-off. Ask the user about unrelated or uncertain failures with `ted failure ask <id>`. Only the merge watcher can progress Merge; do not advance, merge or approve.' : ''}`,
       })
     await store.persisted()
     await options.onHold(task)

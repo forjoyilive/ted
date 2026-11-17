@@ -73,14 +73,14 @@ describe('TED defaults', () => {
     expect(text).not.toMatch(/"title": "[^"]*· \d+ questions"/)
   })
 
-  test('put Gates on Design and Review, Merge on with no Gate, and max_back 3 except Validate 5', async () => {
+  test('put Gates on Design and Review, Merge on with no Gate, and max_back 3 except Validate 8', async () => {
     const { settings } = resolveWorkflow([await defaults()])
 
     expect(settings.stages.design?.gate).toBe(true)
     expect(settings.stages.review?.gate).toBe(true)
     expect(settings.stages.merge).toMatchObject({ enabled: true, gate: false })
     expect(settings.stages.work?.max_back).toBe(3)
-    expect(settings.stages.validate?.max_back).toBe(5)
+    expect(settings.stages.validate?.max_back).toBe(8)
     expect(settings.stages.validate?.loop_check).toBe(3)
     expect(settings.stages.clarify?.depth).toBe('auto')
   })
@@ -134,7 +134,7 @@ describe('layers', () => {
     ])
 
     expect(settings.stages.validate).toMatchObject({
-      max_back: 5,
+      max_back: 8,
       loop_check: 3,
       p1_only_from: false,
       sub_agents: true,

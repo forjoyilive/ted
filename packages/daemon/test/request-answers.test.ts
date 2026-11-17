@@ -96,6 +96,7 @@ beforeEach(async () => {
     },
     backMessage: (_workflow, _to, _from, sendBack) => sendBack.findings,
     leaveWorkToDiagnose: unexpected,
+    stop: unexpected,
     settleDependents: () => {
       effects.push('unblocked')
     },
@@ -1084,6 +1085,74 @@ test.each([
       to: next,
       counted: choice === 'Try again',
     })
+})
+
+test('the limit question’s Keep going returns the Task to Work counted as round 1, and Stop the Task stops it in Validate', async () => {
+  stage('validate')
+  port.gateWorkflow = async () => ({ workflow: loopWorkflow(), layers: [] })
+  port.move = async (task, _resolution, to) => {
+    effects.push(`move:${to}`)
+    return store.changeStage(task.id, to, {
+      stageFile: { layer: 'ted', path: `${to}.md` },
+      layers: [],
+      order: [],
+    })
+  }
+  port.stop = async (id) => {
+    effects.push(`stop:${store.getComment(stopped.id)?.answer?.kind}`)
+    return port.find(id)
+  }
+  const limitQuestion = () => {
+    const comment = post({ kind: 'send-back' }, { choices: ['Keep going', 'Stop the Task'] })
+    store.askAboutSendBack({
+      commentId: comment.id,
+      taskId,
+      from: 'validate',
+      to: 'work',
+      findings: 'Typecheck failed',
+      loop: true,
+      checkRunId: 'check-run',
+    })
+    return comment
+  }
+  const stopped = limitQuestion()
+  await answer(stopped, { action: 'answer', choice: 'Stop the Task' })
+  expect(effects).toEqual(['stop:answered'])
+  expect(store.getTask(taskId)?.stage).toBe('validate')
+  expect(store.listSendBacks(taskId)).toEqual([])
+
+  effects = []
+  const again = limitQuestion()
+  await answer(again, { action: 'answer', choice: 'Keep going' })
+  expect(effects).toEqual(['move:work'])
+  expect(store.listSendBacks(taskId).at(-1)).toMatchObject({
+    to: 'work',
+    counted: true,
+    round: 1,
+    checkRunId: 'check-run',
+    cause: 'check',
+  })
+})
+
+test('Try again on an open failing-Checks question from Work tells the Task Lead to report again', async () => {
+  stage('work')
+  const comment = post({ kind: 'send-back' }, { choices: ['Try again', 'Diagnose in Validate'] })
+  store.askAboutSendBack({
+    commentId: comment.id,
+    taskId,
+    from: 'work',
+    to: 'work',
+    findings: 'Tests failed',
+    loop: false,
+  })
+  const told: string[] = []
+  port.deliverAnswer = async (_task, _comment, text) => {
+    told.push(text)
+  }
+  await answer(comment, { action: 'answer', choice: 'Try again' })
+  expect(store.getComment(comment.id)?.answer).toMatchObject({ choice: 'Try again' })
+  expect(told[0]).toContain('report `ted outcome advance` again')
+  expect(store.getTask(taskId)?.stage).toBe('work')
 })
 
 test('send-back missing metadata is rejected, and non-loop choices are delivered normally', async () => {

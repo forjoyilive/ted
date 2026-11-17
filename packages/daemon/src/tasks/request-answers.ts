@@ -117,6 +117,7 @@ export interface RequestAnswerPort {
     sendBack: SendBack,
   ): string
   leaveWorkToDiagnose(task: StoredTask): Promise<(message: string) => Promise<Task>>
+  stop(id: string): Promise<Task>
   settleDependents(id: string): void
   beforeArchive?(task: StoredTask): void
   archiveNow(task: StoredTask, close: boolean): Task
@@ -203,6 +204,7 @@ export function createRequestAnswers(
     move,
     backMessage,
     leaveWorkToDiagnose,
+    stop,
     settleDependents,
     archiveNow,
     archiveAsked,
@@ -491,20 +493,38 @@ export function createRequestAnswers(
       )
       return answered
     }
+    if (handsOff(ask.from) && handsOff(ask.to) && choice === tryAgainChoice) {
+      const answered = answerRequest(task, comment, {
+        kind: 'answered',
+        at,
+        choice,
+        ...(text !== '' && { text }),
+      })
+      await deliverAnswer(
+        task,
+        comment,
+        [
+          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${tryAgainChoice}. The Task stays in Work. Fix what the check reports and nothing else, commit, then report \`ted outcome advance\` again. TED now runs the Factory’s checks when the Task enters Validate; if one fails, the Task comes back to Work with the output.`,
+          ...(text !== '' ? [`The human added:\n\n${text}`] : []),
+        ].join('\n\n'),
+      )
+      return answered
+    }
     if (!ask.loop || choice === undefined) return undefined
+    if (!(comment.choices ?? []).includes(choice)) return undefined
     const current = find(task.id)
     if (!validates(current.stage)) return undefined
     const reads = worktreeReads()
     const resolution = await gateWorkflow(current, { reads })
     const { workflow } = resolution
     const next = workflow.next(stageWith('validates')) as AgentStageId | 'done'
-    const choices = loopChoices(workflow)
-    if (!choices.includes(choice)) return undefined
-    if (choice === tryAgainChoice) checkBack(workflow, stageWith('validates'), ask.to)
+    const keepGoing = choice === keepGoingChoice || choice === tryAgainChoice
+    const legacy = !keepGoing && choice !== stopTaskChoice
+    if (legacy && !legacyLoopChoices(workflow).includes(choice)) return undefined
+    if (keepGoing) checkBack(workflow, stageWith('validates'), ask.to)
     if (choice === backToDesignChoice)
       checkBack(workflow, stageWith('validates'), stageWith('designReview'))
-    if (choice !== tryAgainChoice && choice !== backToDesignChoice)
-      await requireObligations(current, undefined, reads)
+    if (legacy && choice !== backToDesignChoice) await requireObligations(current, undefined, reads)
     const added = text === '' ? '' : `\n\nThe human added:\n\n${text}`
     const answered = answerRequest(task, comment, {
       kind: 'answered',
@@ -512,7 +532,11 @@ export function createRequestAnswers(
       choice,
       ...(text !== '' && { text }),
     })
-    if (choice === tryAgainChoice) {
+    if (choice === stopTaskChoice) {
+      if (!find(task.id).stopped) await stop(task.id)
+      return answered
+    }
+    if (keepGoing) {
       const limit = workflow.settings.stages.validate?.max_back
       const sentBack = store.recordSendBack({
         taskId: task.id,
@@ -529,7 +553,7 @@ export function createRequestAnswers(
         current,
         resolution,
         ask.to,
-        `The human chose Try again, so Validate’s count of send-backs starts over.${added}\n\n${backMessage(workflow, ask.to, stageWith('validates'), sentBack)}`,
+        `The human chose ${choice}, so Validate’s count of returns to Work starts over.${added}\n\n${backMessage(workflow, ask.to, stageWith('validates'), sentBack)}`,
       )
     } else if (choice === backToDesignChoice) {
       store.recordSendBack({
@@ -1157,11 +1181,13 @@ function oneLine(text: string, max = 200): string {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line
 }
 
+export const keepGoingChoice = 'Keep going'
+export const stopTaskChoice = 'Stop the Task'
 export const tryAgainChoice = 'Try again'
 export const backToDesignChoice = 'Back to Design'
 export const diagnoseChoice = 'Diagnose in Validate'
 
-export function loopChoices(workflow: ResolvedWorkflow): string[] {
+function legacyLoopChoices(workflow: ResolvedWorkflow): string[] {
   const next = workflow.next(stageWith('validates'))
   const design =
     workflow.stages.includes(stageWith('designReview')) &&

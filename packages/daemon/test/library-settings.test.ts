@@ -538,7 +538,7 @@ test('the Validate round settings save to the Library and turn off again', async
     },
     before.version,
   )
-  expect(validate(on)).toMatchObject({ p1OnlyFrom: 2, subAgents: true, maxBack: 5 })
+  expect(validate(on)).toMatchObject({ p1OnlyFrom: 2, subAgents: true, maxBack: 8 })
   expect(before.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: false })
   expect(on.stages.find((s) => s.id === 'work')).toMatchObject({ leadClosesFailures: true })
   const yaml = await libraryFile('workflow.yaml')

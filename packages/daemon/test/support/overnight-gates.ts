@@ -64,13 +64,6 @@ export async function advance(client: Client, task: Task) {
 
 export async function advanceTo(client: Client, task: Task, stage: string) {
   const res = await advance(client, task)
-  if (stage === 'validate' && /before \S+ leaves Work/.test(JSON.stringify(res.body))) {
-    await waitUntil(
-      async () => (await getTask(client, task.id)).stage === stage || undefined,
-      'the Checks to pass and the Task to reach Validate',
-    )
-    return
-  }
   expect(res.body).toMatchObject({ task: { stage } })
 }
 

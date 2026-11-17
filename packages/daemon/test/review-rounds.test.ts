@@ -260,7 +260,7 @@ describe('Validate rounds', () => {
       const messages = userMessages(await leadRun(client, task))
       const back = messages.find((m) => m.startsWith('TED moved this Task back to Work.'))
       expect(back).toContain('# Send-back 1 of 5 from Validate')
-      expect(back).toContain('TED runs the Factory’s checks before the Task leaves Work')
+      expect(back).toContain('the Task moves to Validate and TED runs the Factory’s checks first')
       const round = messages.find((m) => m.includes('# Validate round 2'))
       expect(round).toContain('TED has no finished review from the last round to build on')
       expect(round).toContain('this round reviews the whole change again')
@@ -316,9 +316,9 @@ describe('Validate rounds', () => {
     await waitForStage(client, task, 'review')
 
     const sendBacks = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
-    expect(sendBacks.map((b) => [b.cause, b.counted])).toEqual([
-      ['review', true],
-      ['base-conflict', false],
+    expect(sendBacks.map((b) => [b.cause, b.counted, b.round])).toEqual([
+      ['review', true, 1],
+      ['base-conflict', true, 2],
     ])
     const [first, second, ...more] = await reviewerPrompts(client, task)
     expect(more).toEqual([])
@@ -326,10 +326,13 @@ describe('Validate rounds', () => {
     expect(second).toContain('# Your instructions from the Task Lead of NB-1')
     expect(second).not.toContain('TED set the scope of this review')
     const rounds = userMessages(await leadRun(client, task)).filter((m) =>
-      m.includes('# Validate round 2'),
+      m.includes('# Validate round'),
     )
     expect(rounds).toHaveLength(2)
+    expect(rounds[0]).toContain('# Validate round 2')
     expect(rounds[0]).toContain('This round checks the fixes.')
+    expect(rounds[1]).toContain('# Validate round 3')
+    expect(rounds[1]).toContain('Validate has sent it back 2 times')
     expect(rounds[1]).toContain('conflict with the base branch')
     expect(rounds[1]).toContain('this round reviews the whole change again')
     expect(rounds[1]).not.toContain('This round checks the fixes.')

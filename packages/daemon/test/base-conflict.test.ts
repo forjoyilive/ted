@@ -98,7 +98,7 @@ describe('A branch that conflicts with its base', () => {
     expect(found[0]).not.toHaveProperty('sendBackId')
   })
 
-  test('is sent back from Validate with its cause recorded and not counted', async () => {
+  test('is sent back from Validate with its cause recorded, and the return counts', async () => {
     const { client, task } = await begin([
       `elif [ ! -e '${scratchFile('worked')}' ]; then`,
       work(),
@@ -122,16 +122,20 @@ describe('A branch that conflicts with its base', () => {
     expect(sendBack).toMatchObject({
       from: 'validate',
       to: 'work',
-      counted: false,
+      counted: true,
+      round: 1,
       cause: 'base-conflict',
     })
-    expect(sendBack?.round).toBeUndefined()
     expect(sendBack?.findings).toMatch(/(<<<FILES [0-9a-f-]{36}>>>)\n- notes\.txt\n\1\n/)
     const refused = await output('refused.out')
     expect(refused).toContain('conflicts with main, so TED kept it in Validate')
     expect(refused).toContain('--cause base-conflict')
     const thread = await lines(client, task)
-    expect(thread).toContain('Validate sent this back to Work · base conflict')
+    expect(
+      thread.some((l) =>
+        /^Validate sent this back to Work \(round 1 of \d+\) · base conflict$/.test(l),
+      ),
+    ).toBe(true)
     expect(
       thread.filter((l) => l.startsWith('TED kept this Task in Validate: its branch conflicts')),
     ).toHaveLength(1)
