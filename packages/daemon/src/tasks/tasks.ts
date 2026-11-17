@@ -1826,6 +1826,7 @@ export function createTasks(options: {
         const task = taskNow(id)
         if (!task || task.stopped || task.archived || task.waitsForBlockers) return []
         if (
+          stoppingByHand.has(id) ||
           inFlight.busy(id, ['held', 'transition', 'hierarchy', 'deleting']) ||
           leadLifecycle.applying(id) ||
           unfinishedChildren(id)
@@ -2202,7 +2203,7 @@ export function createTasks(options: {
     const paused = store.agentPauses()
     return entries.filter((entry) => {
       const task = taskNow(entry.id)
-      if (inFlight.inHierarchyWork(entry.id)) return false
+      if (inFlight.inHierarchyWork(entry.id) || stoppingByHand.has(entry.id)) return false
       if (task && unfinishedChildren(task.id)) return false
       const agent = task?.lead?.agent
       return agent === undefined || (!agentStartHold(store, agent) && paused[agent] === undefined)
@@ -6949,6 +6950,7 @@ export function createTasks(options: {
   function stopPreparedLead(task: Task): void {
     if (stoppingByHand.has(task.id)) return
     stoppingByHand.add(task.id)
+    store.setTaskStopping(task.id, true)
     if (store.heldRuns().some((h) => h.taskId === task.id)) store.releaseTaskRun(task.id)
     subAgents.dropFor(task.id)
     inBackground(`stop ${task.displayId} before Work`, async () => {
@@ -6956,6 +6958,7 @@ export function createTasks(options: {
         await store.persisted()
         await Promise.all(find(task.id).runs.map((run) => runs.stop(run.id)))
       } finally {
+        store.setTaskStopping(task.id, false)
         stoppingByHand.delete(task.id)
         void pump()
       }
@@ -10101,12 +10104,16 @@ export function createTasks(options: {
     if (!started) {
       throw new RequestError(409, `${task.displayId} hasn’t started, so there’s nothing to stop`)
     }
-    if ((task.stopped && task.preparation !== 'ready') || stoppingByHand.has(task.id)) {
+    if (stoppingByHand.has(task.id)) {
+      throw new RequestError(409, `${task.displayId} is still stopping; try again`)
+    }
+    if (task.stopped && task.preparation !== 'ready') {
       throw new RequestError(409, `${task.displayId} is already stopped`)
     }
     stoppingByHand.add(task.id)
     try {
       if (store.heldRuns().some((h) => h.taskId === task.id)) store.releaseTaskRun(task.id)
+      store.setTaskStopping(task.id, true)
       store.stopTask(task.id, { runs: task.runs.length, why: 'human' })
       dropWaitingMove(task.id)
       checkWaits.get(task.id)?.abort()
@@ -10118,6 +10125,7 @@ export function createTasks(options: {
       await Promise.all(find(task.id).runs.map((run) => runs.stop(run.id)))
       closeIdleQuestion(task.id, 'The Task was stopped.')
     } finally {
+      store.setTaskStopping(task.id, false)
       stoppingByHand.delete(task.id)
     }
     void pump()
@@ -10189,9 +10197,7 @@ export function createTasks(options: {
     if (!task.stopped && task.status?.kind !== 'failed' && !interrupted(task)) {
       throw new RequestError(409, `${task.displayId} isn’t stopped`)
     }
-    if (stoppingByHand.has(task.id)) {
-      throw new RequestError(409, `${task.displayId} is still stopping; try again`)
-    }
+    if (stoppingByHand.has(task.id)) await beginning.get(task.id)?.catch(() => undefined)
     const text = comment?.trim() ?? ''
     if (text !== '' || attachments.length > 0) {
       store.postComment({

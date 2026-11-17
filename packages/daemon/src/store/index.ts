@@ -1278,6 +1278,7 @@ export interface TedStore extends TaskHistory {
   newWorkHold(): string | undefined
   holdWhenBusy(held: BusyHold | undefined): void
   setTaskChecking(taskId: string, on: boolean): void
+  setTaskStopping(taskId: string, on: boolean): void
   setTaskMovingAfterChecks(taskId: string, on: boolean): void
   setChecksWaiting(places: ReadonlyMap<string, number>): void
   onWriteResult(listener: (error?: unknown) => void): () => void
@@ -1406,6 +1407,7 @@ export async function openStore({
   const liveTokens = new Map<string, number>()
   const checkingTasks = new Set<string>()
   const movingAfterChecks = new Set<string>()
+  const stoppingTasks = new Set<string>()
   let checksWaiting: ReadonlyMap<string, number> = new Map()
   const tellWriters = (error?: unknown) => {
     for (const listener of writeListeners) listener(error)
@@ -2273,7 +2275,7 @@ export async function openStore({
               : {}),
       })),
       pausedRuns,
-      runs: live.map((r) => r.state as RunState),
+      runs: stoppingTasks.has(row.id) ? [] : live.map((r) => r.state as RunState),
       openRequests: requests.filter((r) => !groupAskRow(r)).length,
       ...requestsSnoozed(
         row.id,
@@ -7516,6 +7518,15 @@ export async function openStore({
         if (!taskRow(taskId)) return
         movingAfterChecks.add(taskId)
       } else movingAfterChecks.delete(taskId)
+      if (taskRow(taskId)) updatedTask(taskId)
+    },
+    setTaskStopping(taskId, on) {
+      if (stoppingTasks.has(taskId) === on) return
+      stateCommits += 1
+      if (on) {
+        if (!taskRow(taskId)) return
+        stoppingTasks.add(taskId)
+      } else stoppingTasks.delete(taskId)
       if (taskRow(taskId)) updatedTask(taskId)
     },
     setTaskChecking(taskId, on) {
