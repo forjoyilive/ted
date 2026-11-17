@@ -1258,6 +1258,7 @@ export function createCoordinators(options: {
     }
   }
   async function discardCheckout(c: StoredCoordinator): Promise<void> {
+    if (!c.checkout?.length && !/^[a-f0-9-]{36}$/.test(c.id)) return
     const dir = await codeFolder(c)
     if (c.checkout?.length || (await lstat(dir).catch(() => undefined))?.isDirectory())
       await discard(c.checkout ?? [], dir)
