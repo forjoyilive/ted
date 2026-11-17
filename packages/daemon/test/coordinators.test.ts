@@ -760,6 +760,22 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   expect(await taskById(t.id)).toMatchObject({ factoryId: t.factoryId, displayId: t.displayId })
   await s.ok('POST', answer(toCancel.confirmation.id), { decision: 'cancel' })
   expect(await taskById(t.id)).toMatchObject({ factoryId: t.factoryId, displayId: t.displayId })
+  const stale = (await transfer('transfer-t-stale')).body as { confirmation: { id: string } }
+  const earlier = await s.task('Earlier')
+  await s.ok('POST', `/tasks/${t.id}/blockers`, { by: earlier.id })
+  const refusedStale = await s.ok<Coordinator>('POST', answer(stale.confirmation.id), {
+    decision: 'confirm',
+  })
+  expect(
+    refusedStale.confirmations.find((c) => c.id === stale.confirmation.id)?.tasks,
+  ).toMatchObject([
+    {
+      id: t.id,
+      result: { done: false, text: expect.stringMatching(/changed/) },
+    },
+  ])
+  expect(await taskById(t.id)).toMatchObject({ factoryId: t.factoryId, displayId: t.displayId })
+  await s.ok('DELETE', `/tasks/${t.id}/blockers/${earlier.id}`)
   const toMove = (await transfer('transfer-t')).body as { confirmation: { id: string } }
   const askedT = toMove.confirmation
   expect((await s.chat()).confirmations.find((c) => c.id === askedT.id)).toMatchObject({

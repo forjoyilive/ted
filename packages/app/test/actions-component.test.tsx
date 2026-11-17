@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import type { Task } from '@ted/protocol'
+import type { Task, TaskMovePlan } from '@ted/protocol'
+import { movePlanKey } from '@ted/protocol/task-move'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import {
@@ -450,30 +451,31 @@ test('a Task at Merge with a merged pull request shows Reset greyed out and offe
 test('Move to Factory shows the plan for the picked Factory, moves the Task and opens it under its new ID', async () => {
   const website = factory({ id: 'web', key: 'WEB', name: 'Website', position: 1 })
   const backlog = task({ title: 'Tag notes from the share sheet' })
+  const plan: TaskMovePlan = {
+    factoryId: 'web',
+    factoryName: 'Website',
+    repos: ['website'],
+    tasks: [
+      {
+        id: 'NB-1',
+        displayId: 'NB-1',
+        title: backlog.title,
+        newDisplayId: 'WEB-41',
+        stage: 'backlog',
+        lands: 'backlog',
+        startsLead: false,
+        worktrees: 0,
+        branches: [],
+        pullRequests: [],
+        openRequests: 0,
+        unlinked: [],
+      },
+    ],
+  }
   const api = bridge({
     listTasks: () => [backlog],
     listFactories: () => [factory(), website],
-    taskMovePlan: (_ref, factoryId) => ({
-      factoryId,
-      factoryName: 'Website',
-      repos: ['website'],
-      tasks: [
-        {
-          id: 'NB-1',
-          displayId: 'NB-1',
-          title: backlog.title,
-          newDisplayId: 'WEB-41',
-          stage: 'backlog',
-          lands: 'backlog',
-          startsLead: false,
-          worktrees: 0,
-          branches: [],
-          pullRequests: [],
-          openRequests: 0,
-          unlinked: [],
-        },
-      ],
-    }),
+    taskMovePlan: () => plan,
     moveTaskToFactory: () => ({
       task: { ...backlog, displayId: 'WEB-41', factoryId: 'web' },
       moved: [{ id: 'NB-1', from: 'NB-1', to: 'WEB-41' }],
@@ -502,7 +504,10 @@ test('Move to Factory shows the plan for the picked Factory, moves the Task and 
     'Repos becomes Website’s: website',
   )
   await u.click(within(dialog).getByRole('button', { name: 'Move to Website' }))
-  expect(api.request).toHaveBeenCalledWith('moveTaskToFactory', 'NB-1', { factoryId: 'web' })
+  expect(api.request).toHaveBeenCalledWith('moveTaskToFactory', 'NB-1', {
+    factoryId: 'web',
+    planKey: movePlanKey(plan),
+  })
   await expect.poll(() => opened.map((t) => t.displayId)).toEqual(['WEB-41'])
   expect(screen.queryByRole('dialog')).toBeNull()
   window.removeEventListener(openMovedTaskEvent, open)

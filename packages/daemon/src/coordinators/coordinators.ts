@@ -50,6 +50,7 @@ import {
   archiveChoice,
   isTrackerGroupAsk,
   maxOpenAutomationCards,
+  movePlanKey,
   planTitle,
   planTitleLength,
   priorities,
@@ -1392,7 +1393,12 @@ export function createCoordinators(options: {
     let done = false
     let shown = ''
     try {
-      const { moved } = await tasks.moveToFactory(task.id, plan.factoryId, 'coordinator')
+      const { moved } = await tasks.moveToFactory(
+        task.id,
+        plan.factoryId,
+        'coordinator',
+        movePlanKey(plan),
+      )
       const to = moved.find((m) => m.id === task.id)?.to ?? task.displayId
       const under = moved.length - 1
       const along =

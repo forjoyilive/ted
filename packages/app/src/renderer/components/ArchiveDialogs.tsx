@@ -1,5 +1,6 @@
 import type { Task, TaskHierarchyPreview, TaskMovePlan } from '@ted/protocol'
 import { archiveChoice } from '@ted/protocol/task'
+import { movePlanKey } from '@ted/protocol/task-move'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { useFactories, useTaskRuns, useTasks } from '../data.ts'
 import { childrenOf, isMerged } from '../hierarchy.ts'
@@ -860,12 +861,15 @@ export function MoveToFactoryDialog({ task, onClose }: { task: Task; onClose: ()
   const chosen = factories.find((f) => f.id === factoryId)
 
   async function move() {
-    if (moving.current || factoryId === undefined) return
+    if (moving.current || factoryId === undefined || plan === undefined) return
     moving.current = true
     setBusy(true)
     setError(undefined)
     try {
-      const moved = await ted.moveTaskToFactory(task.id, { factoryId })
+      const moved = await ted.moveTaskToFactory(task.id, {
+        factoryId,
+        planKey: movePlanKey(plan),
+      })
       onClose()
       window.dispatchEvent(new CustomEvent(openMovedTaskEvent, { detail: moved.task }))
     } catch (failure) {

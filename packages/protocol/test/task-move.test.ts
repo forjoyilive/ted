@@ -1,6 +1,12 @@
 import { expect, test } from 'vitest'
 import type { Task } from '../src/task.ts'
-import { moveRefusal, parseMoveToFactoryRequest } from '../src/task-move.ts'
+import {
+  movePlanKey,
+  moveRefusal,
+  parseMoveToFactoryRequest,
+  type TaskMovePlan,
+  type TaskMovePlanTask,
+} from '../src/task-move.ts'
 
 type Facts = Parameters<typeof moveRefusal>[0]
 
@@ -37,4 +43,54 @@ test('a move request names the Factory to move to', () => {
     'factoryId must be a Factory ID',
   )
   expect(() => parseMoveToFactoryRequest(null)).toThrow('move request must be an object')
+})
+
+test('a move plan’s key ignores the new number but not what the move discards', () => {
+  const plan: TaskMovePlan = {
+    factoryId: 'web',
+    factoryName: 'Website',
+    repos: ['website'],
+    tasks: [
+      {
+        id: 't1',
+        displayId: 'NB-1',
+        title: 'Offline editing',
+        newDisplayId: 'WEB-4',
+        stage: 'backlog',
+        lands: 'backlog',
+        startsLead: false,
+        worktrees: 0,
+        branches: [],
+        pullRequests: [],
+        openRequests: 0,
+        unlinked: [],
+      },
+    ],
+  }
+  const changed = (task: Partial<TaskMovePlanTask>): TaskMovePlan => ({
+    ...plan,
+    tasks: plan.tasks.map((t) => ({ ...t, ...task })),
+  })
+  expect(movePlanKey(changed({ newDisplayId: 'WEB-5' }))).toBe(movePlanKey(plan))
+  expect(movePlanKey(changed({ stage: 'work', startsLead: true }))).not.toBe(movePlanKey(plan))
+  expect(movePlanKey(changed({ worktrees: 1 }))).not.toBe(movePlanKey(plan))
+  expect(movePlanKey(changed({ pullRequests: [{ repo: 'notes', number: 3 }] }))).not.toBe(
+    movePlanKey(plan),
+  )
+  expect(
+    movePlanKey({
+      ...plan,
+      tasks: [...plan.tasks, { ...plan.tasks[0], id: 't2' } as TaskMovePlanTask],
+    }),
+  ).not.toBe(movePlanKey(plan))
+  expect(parseMoveToFactoryRequest({ factoryId: 'web', planKey: movePlanKey(plan) })).toEqual({
+    factoryId: 'web',
+    planKey: movePlanKey(plan),
+  })
+  expect(() => parseMoveToFactoryRequest({ factoryId: 'web', planKey: '' })).toThrow(
+    'planKey must be the key of a move plan',
+  )
+  expect(() => parseMoveToFactoryRequest({ factoryId: 'web', planKey: 3 })).toThrow(
+    'planKey must be text',
+  )
 })

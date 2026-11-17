@@ -157,6 +157,7 @@ import {
   maxLinearIntakeTasks,
   memoryFailedChoice,
   memoryRetryChoice,
+  movePlanKey,
   moveRefusal,
   moveRefusals,
   parseAsanaTaskUrl,
@@ -733,7 +734,12 @@ export interface Tasks {
   unarchive(ref: string, input?: UnarchiveTaskRequest): Promise<Task>
   reset(ref: string): Promise<Task>
   movePlan(ref: string, factoryId: string): Promise<TaskMovePlan>
-  moveToFactory(ref: string, factoryId: string, by: 'human' | 'coordinator'): Promise<TaskMoved>
+  moveToFactory(
+    ref: string,
+    factoryId: string,
+    by: 'human' | 'coordinator',
+    planKey?: string,
+  ): Promise<TaskMoved>
   delete(ref: string, options: DeleteTaskRequest): Promise<void>
   removeFactoryTasks(factoryId: string, options: { closePullRequests: boolean }): Promise<void>
   removeFactorySeed(factoryId: string): Promise<void>
@@ -8825,69 +8831,139 @@ export function createTasks(options: {
     return (await planMove(ref, factoryId)).plan
   }
 
-  async function discardForMove(task: StoredTask): Promise<void> {
-    const id = task.id
-    if (task.stage === 'backlog' && task.runs.length === 0 && task.repos.length === 0) return
-    if (inFlight.is(id, 'checking')) {
+  function refuseBusyMove(task: StoredTask): void {
+    if (inFlight.is(task.id, 'checking')) {
       throw new RequestError(
         409,
         `${task.displayId}’s Checks are running; try again when they finish`,
       )
     }
-    if (inFlight.is(id, 'deleting')) {
+    if (inFlight.inHierarchyWork(task.id)) {
       throw new RequestError(409, `${task.displayId} is being deleted, reset or moved`)
     }
-    await untilFree(id)
-    await holding(find(id), async () => {
-      const done = inFlight.mark(id, 'deleting')
-      try {
-        const current = find(id)
-        if (!current.stopped) store.stopTask(id, { runs: current.runs.length, why: 'human' })
-        dropWaitingMove(id)
-        await mergeWatcher.settled(id)
-        await pullRequestQueue.get(id)
-        if (moveRefusal(publicTask(id)) === 'merged') {
-          throw new RequestError(409, `${task.displayId} has a merged pull request`)
-        }
-        if (openPullRequestsOf(find(id)).length > 0) {
-          pullRequestWork(id, 'close')
-          await pullRequestQueue.get(id)
-        }
-        const left = openPullRequestsOf(find(id))
-        if (left.length > 0 || moveRefusal(publicTask(id)) === 'merged') {
-          throw new RequestError(
-            409,
-            `TED couldn’t close ${left.map((r) => `${r.repo}#${r.number}`).join(', ') || 'a merged pull request'}, so ${task.displayId} wasn’t moved. It is stopped and nothing was discarded.`,
-          )
-        }
-        options.planning?.()?.taskGone(id, 'moved')
-        browser.cancel(id)
-        browserApps.delete(id)
-        await clearing(id)
-        const last = find(id)
-        await removeBranches(last, 'moved')
-        await lifecycle.cleanFolders(await execution.local(id))
-        failures.forget(id)
-        autoStartFailures.delete(id)
-        continuationFailures.delete(id)
-        for (const key of runUploads) if (key.startsWith(`${id}:`)) runUploads.delete(key)
-        for (const repo of last.repos) baseTips.delete(baseTipKey(id, repo.name))
-      } finally {
-        done()
+  }
+
+  function holdingAll<T>(list: readonly StoredTask[], work: () => Promise<T>): Promise<T> {
+    const [first, ...rest] = list
+    return first ? holding(first, () => holdingAll(rest, work)) : work()
+  }
+
+  function sameMembers(a: readonly StoredTask[], b: readonly StoredTask[]): boolean {
+    const ids = new Set(a.map((t) => t.id))
+    return a.length === b.length && b.every((t) => ids.has(t.id))
+  }
+
+  async function discardForMove(task: StoredTask): Promise<void> {
+    const id = task.id
+    if (task.stage === 'backlog' && task.runs.length === 0 && task.repos.length === 0) return
+    const done = inFlight.mark(id, 'deleting')
+    try {
+      const current = find(id)
+      if (!current.stopped) store.stopTask(id, { runs: current.runs.length, why: 'human' })
+      dropWaitingMove(id)
+      await mergeWatcher.settled(id)
+      await pullRequestQueue.get(id)
+      if (moveRefusal(publicTask(id)) === 'merged') {
+        throw new RequestError(409, `${task.displayId} has a merged pull request`)
       }
-    })
+      if (openPullRequestsOf(find(id)).length > 0) {
+        pullRequestWork(id, 'close')
+        await pullRequestQueue.get(id)
+      }
+      const left = openPullRequestsOf(find(id))
+      if (left.length > 0 || moveRefusal(publicTask(id)) === 'merged') {
+        throw new RequestError(
+          409,
+          `TED couldn’t close ${left.map((r) => `${r.repo}#${r.number}`).join(', ') || 'a merged pull request'}, so ${task.displayId} wasn’t moved. It is stopped and nothing was discarded.`,
+        )
+      }
+      options.planning?.()?.taskGone(id, 'moved')
+      browser.cancel(id)
+      browserApps.delete(id)
+      await clearing(id)
+      const last = find(id)
+      await removeBranches(last, 'moved')
+      await lifecycle.cleanFolders(await execution.local(id))
+      failures.forget(id)
+      autoStartFailures.delete(id)
+      continuationFailures.delete(id)
+      for (const key of runUploads) if (key.startsWith(`${id}:`)) runUploads.delete(key)
+      for (const repo of last.repos) baseTips.delete(baseTipKey(id, repo.name))
+    } finally {
+      done()
+    }
   }
 
   async function moveToFactory(
     ref: string,
     factoryId: string,
     by: 'human' | 'coordinator',
+    planKey?: string,
   ): Promise<TaskMoved> {
     const first = await planMove(ref, factoryId)
     if (first.plan.refusal !== undefined) throw new RequestError(409, first.plan.refusal)
-    for (const member of first.members) await discardForMove(member)
+    for (const member of first.members) refuseBusyMove(member)
+    for (const member of first.members) await untilFree(member.id)
+    const moved = await holdingAll(
+      first.members.map((m) => find(m.id)),
+      async () => {
+        const parentId = first.root.parentId
+        const affected = [
+          ...first.members.map((m) => m.id),
+          ...(parentId === undefined ? [] : [parentId]),
+        ]
+        requireHierarchyIdle(affected)
+        const hierarchyDone = inFlight.mark(affected, 'hierarchy')
+        try {
+          return await moveHeld(first, factoryId, by, planKey)
+        } finally {
+          hierarchyDone()
+        }
+      },
+    )
+    for (const member of moved.members) {
+      if (member.stage === 'backlog') continue
+      await queueStart(member.id, undefined, false, true)
+    }
+    await pump()
+    wake()
+    return { task: publicTask(first.root.id), moved: moved.moved }
+  }
+
+  async function moveHeld(
+    first: MovePlanned,
+    factoryId: string,
+    by: 'human' | 'coordinator',
+    planKey: string | undefined,
+  ): Promise<{ members: StoredTask[]; moved: TaskMoved['moved'] }> {
+    const changed = (planned: MovePlanned) =>
+      !sameMembers(planned.members, first.members) ||
+      (planKey !== undefined && movePlanKey(planned.plan) !== planKey)
+    const ready = await planMove(first.root.id, factoryId)
+    if (ready.plan.refusal !== undefined) throw new RequestError(409, ready.plan.refusal)
+    if (changed(ready)) {
+      throw new RequestError(
+        409,
+        `${first.root.displayId} or a Task under it changed since the move was shown, so nothing was moved. Look at the move again.`,
+      )
+    }
+    for (const member of ready.members) {
+      if (inFlight.is(member.id, 'checking')) {
+        throw new RequestError(
+          409,
+          `${member.displayId}’s Checks are running; try again when they finish`,
+        )
+      }
+    }
+    for (const member of ready.members) await discardForMove(member)
     const { plan, root, members, unlink } = await planMove(first.root.id, factoryId)
     if (plan.refusal !== undefined) throw new RequestError(409, plan.refusal)
+    if (!sameMembers(members, first.members)) {
+      throw new RequestError(
+        409,
+        `The Tasks under ${root.displayId} changed during the move, so it stopped. They are stopped in their Factory; try the move again.`,
+      )
+    }
     const name = plan.factoryName
     const to = new Map(plan.tasks.map((t) => [t.id, t.newDisplayId]))
     const notes: MoveTaskInput['notes'] = []
@@ -8932,13 +9008,7 @@ export function createTasks(options: {
       by,
     })
     await store.persisted()
-    for (const member of members) {
-      if (member.stage === 'backlog') continue
-      await queueStart(member.id, undefined, false, true)
-    }
-    await pump()
-    wake()
-    return { task: publicTask(root.id), moved }
+    return { members, moved }
   }
 
   async function removeBranches(task: StoredTask, verb: 'reset' | 'moved'): Promise<void> {

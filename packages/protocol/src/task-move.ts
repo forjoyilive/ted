@@ -30,7 +30,10 @@ export function moveRefusal(
 
 export interface MoveToFactoryRequest {
   factoryId: string
+  planKey?: string
 }
+
+const maxPlanKey = 200_000
 
 const read = reader((message) => {
   throw new HttpError(400, message)
@@ -40,7 +43,12 @@ export function parseMoveToFactoryRequest(value: Untyped): MoveToFactoryRequest 
   const body = read.object(value, 'move request')
   const factoryId = read.string(body, 'factoryId', 'factoryId must be a Factory ID').trim()
   if (factoryId === '') throw new HttpError(400, 'factoryId must be a Factory ID')
-  return { factoryId }
+  const planKey = read.optional(body, 'planKey', (object, field) =>
+    read.string(object, field, 'planKey must be text'),
+  )
+  if (planKey !== undefined && (planKey === '' || planKey.length > maxPlanKey))
+    throw new HttpError(400, 'planKey must be the key of a move plan')
+  return { factoryId, ...(planKey !== undefined && { planKey }) }
 }
 
 export interface TaskMoveRef {
@@ -83,4 +91,24 @@ export interface TaskMovePlan {
 export interface TaskMoved {
   task: Task
   moved: { id: string; from: string; to: string }[]
+}
+
+export function movePlanKey(plan: TaskMovePlan): string {
+  const sorted = (list: readonly string[]) => [...list].sort()
+  return JSON.stringify({
+    factoryId: plan.factoryId,
+    repos: plan.repos,
+    leavesParent: plan.leavesParent?.id ?? null,
+    tasks: plan.tasks.map((t) => [
+      t.id,
+      t.stage,
+      t.lands,
+      t.startsLead,
+      t.worktrees,
+      sorted(t.branches),
+      sorted(t.pullRequests.map((p) => `${p.repo}#${p.number}`)),
+      t.openRequests,
+      sorted(t.unlinked.map((u) => `${u.id}:${u.blocks}`)),
+    ]),
+  })
 }

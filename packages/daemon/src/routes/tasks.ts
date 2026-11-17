@@ -471,7 +471,7 @@ export const taskRoutes: Route[] = [
     path: /^\/tasks\/([^/]+)\/move-to-factory$/,
     handle: async ({ params: [ref = ''], body }, { tasks }) => [
       200,
-      await tasks.moveToFactory(ref, body.factoryId, 'human'),
+      await tasks.moveToFactory(ref, body.factoryId, 'human', body.planKey),
     ],
   }),
   jsonRoute(parseDeleteTaskRequest, {
