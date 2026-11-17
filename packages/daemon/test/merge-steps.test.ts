@@ -326,6 +326,20 @@ describe('failed CI at Merge', () => {
         }),
       ),
     ).toBe(false)
+
+    const local = { kind: 'factory-check' as const, checkRunId: 'run', position: 0 }
+    const { ci: _ci, ...beforePullRequest } = context({ ciFailures: [] })
+    expect(sameTestedFor(local, beforePullRequest, other)).toBe(true)
+    expect(sameTestedFor(local, context(), other)).toBe(false)
+    expect(
+      sameTestedFor(
+        local,
+        beforePullRequest,
+        context({
+          repos: [{ repo: 'acme/app', head: 'abc', base: 'b', tree: 'new', mergeBase: 'mb' }],
+        }),
+      ),
+    ).toBe(false)
   })
 
   test('evidence fences what came from GitHub and holds back an outside app’s name', () => {

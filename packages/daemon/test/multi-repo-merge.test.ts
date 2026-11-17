@@ -229,14 +229,9 @@ async function toSignoff(client: Client) {
   const task = await client.ok<Task>('POST', '/tasks', { title: leadSteps(client), factory: 'NB' })
   await client.ok('POST', `/tasks/${task.id}/start`)
   const signoff = await nextSignoff(client, task, 1)
-  await waitUntil(
-    async () => {
-      const repos = (await getTask(client, task.id)).repos.filter((r) => !r.removed)
-      return repos.length === 3 && repos.every((r) => r.pullRequest?.state === 'ready')
-    },
-    'three ready pull requests',
-    20_000,
-  )
+  const repos = (await getTask(client, task.id)).repos.filter((r) => !r.removed)
+  expect(repos).toHaveLength(3)
+  expect(repos.some((r) => r.pullRequest !== undefined || r.pushed !== undefined)).toBe(false)
   const blocked = await client.ok<Task>('POST', '/tasks', {
     title: JSON.stringify({ steps: [{ endTurn: true }] }),
     factory: 'NB',
@@ -473,7 +468,11 @@ test('external partial merges remain visible while a failure case holds further 
   const client = await start({ 7: { mergeState: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED' } })
   const { task, signoff } = await toSignoff(client)
   await approve(client, signoff)
-  const current = await waitForStage(client, task, 'merge')
+  await waitForStage(client, task, 'merge')
+  const current = await waitUntil(async () => {
+    const value = await getTask(client, task.id)
+    return value.repos.every((r) => r.pullRequest?.state === 'ready') ? value : undefined
+  }, 'three ready pull requests')
   const tokens = await loadRunTokens(tedPaths(home).runTokenKey)
   const lead = api(daemon?.port ?? 0, tokens.issue(current.leadRunId ?? ''))
   const recorded = await lead.call('POST', `/tasks/${task.id}/failures`, {

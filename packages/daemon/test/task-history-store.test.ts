@@ -207,12 +207,29 @@ test('Gate approval bindings select their commit and Task', async () => {
   expect(store.approvalsBoundToCommit(id, 'signed')).toEqual(['review', 'merge'])
 })
 
-test('Gate request commit selects the first record for the requested Comment', () => {
-  expect(store.gateRequestCommit(id, 'review')).toBeUndefined()
+test('Gate request commit selects the first record for the requested Comment and repo', () => {
+  expect(store.gateRequestCommit(id, 'review', 'widgets')).toBeUndefined()
   store.gateRequestedFor(id, 'other', 'widgets', 'other-commit')
   store.gateRequestedFor(id, 'review', 'widgets', 'first')
+  store.gateRequestedFor(id, 'review', 'api', 'api-commit')
   store.gateRequestedFor(id, 'review', 'widgets', 'second')
-  expect(store.gateRequestCommit(id, 'review')).toBe('first')
+  expect(store.gateRequestCommit(id, 'review', 'widgets')).toBe('first')
+  expect(store.gateRequestCommit(id, 'review', 'api')).toBe('api-commit')
+  expect(store.gateRequestCommit(id, 'review', 'docs')).toBeUndefined()
+})
+
+test('Approved and chosen Merge commits are read per repo', () => {
+  store.gateApprovalBound(id, 'approved', 'widgets', 'widgets-commit')
+  expect(store.approvalBoundCommit(id, 'approved', 'widgets')).toBe('widgets-commit')
+  expect(store.approvalBoundCommit(id, 'approved', 'api')).toBeUndefined()
+  const since = new Date().toISOString()
+  expect(store.chosenMergeCommit(id, 'widgets', since)).toBeUndefined()
+  store.mergeCommitChosen(id, 'widgets', 'first')
+  store.mergeCommitChosen(id, 'api', undefined)
+  store.mergeCommitChosen(id, 'widgets', 'second')
+  expect(store.chosenMergeCommit(id, 'widgets', since)).toBe('second')
+  expect(store.chosenMergeCommit(id, 'api', since)).toBeNull()
+  expect(store.chosenMergeCommit(id, 'widgets', '9999-01-01T00:00:00.000Z')).toBeUndefined()
 })
 
 test('Overnight Gate history respects Stage and inclusive visit boundaries', () => {

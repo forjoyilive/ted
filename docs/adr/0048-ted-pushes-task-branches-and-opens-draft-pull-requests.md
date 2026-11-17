@@ -1,14 +1,13 @@
-# Ted pushes Task branches and opens draft pull requests from the Tasks module
+# Ted pushes Task branches and opens pull requests from the Tasks module
 
-Agents only commit (ADR 0007). The daemon pushes each Task branch and opens its pull requests through one module, `packages/daemon/src/tasks/pull-requests.ts`, which the Tasks module calls at three points: when a Task enters Validate, when Validate passes, and when the Review sign-off is posted. A Task entering Merge without a sign-off also marks its pull requests ready.
+Agents only commit (ADR 0007). The daemon pushes each Task branch and opens its pull requests through one module, `packages/daemon/src/tasks/pull-requests.ts`. The Tasks module calls it at one point: when a Task enters Merge. Nothing is pushed and no pull request exists while the Task is in Work, Validate or Review (TED-542). Until TED-542, Ted pushed and opened a draft at Validate entry, pushed again when Validate passed, and pushed and marked the draft ready when the Review sign-off was posted.
 
-- **Validate entry** pushes each repo that has commits on top of `origin/<base_branch>` and has no open pull request yet, then opens a draft with `gh pr create --draft`: the Task title as title, the brief’s Goal (or the description before a brief exists) and “Opened by Ted for NB-12” as body, with the Linear link when the Task came from Linear.
-- **Validate passing** (the Task Lead’s `ted outcome advance` from Validate) pushes every repo with commits again and opens any pull request that is still missing.
-- **Sign-off** pushes each draft’s repo once more, then runs `gh pr ready` on it. A draft whose push fails stays a draft, so a pull request is never marked ready without the reviewed commits.
+- **Merge entry** records, per repo, the commit to publish (`v1.MergeCommitChosen`, ADR 0056): the commit the human approved at the Gate before Merge, or the worktree’s `HEAD` when there was no Gate. `publish` pushes that commit for each repo that has commits on top of `origin/<base_branch>`, never a later `HEAD`. A repo with no open pull request gets one from `gh pr create` without `--draft`, recorded as ready at once: the Task title as title, the brief’s Goal (or the description before a brief exists) and “Opened by Ted for NB-12” as body, with the Linear link when the Task came from Linear. A pull request still open as a draft from before TED-542 is pushed and marked ready with `gh pr ready`.
+- **A pull request left open after a send-back from Merge** stays as it is. Ted pushes nothing to it until the Task enters Merge again.
 - A multi-repo Task gets one pull request per repo with commits; once a second one opens, Ted edits every body to name the others. A repo without commits gets none.
 - Archive closes the Task’s open pull requests with `gh pr close` when the request asks for it (`closePullRequests`); the branches stay.
 
-The work runs in the background in a queue per Task, in the order it was asked for, so a slow push never blocks a Stage change, `gh pr ready` never runs before the pull request exists, and an archive’s close never overtakes an earlier push. Removing a Task’s worktrees waits for that queue. A failed push or `gh` call is recorded on the repo (`v1.TaskBranchPushFailed`), logged through `redactSecrets`, and tried again at the next Validate pass. If `gh pr create` fails because a pull request already exists for the branch, Ted finds it with `gh pr list` and records that one.
+The work runs in the background in a queue per Task, in the order it was asked for, so a slow push never blocks a Stage change and an archive’s close never overtakes an earlier push. Removing a Task’s worktrees waits for that queue. A failed push or `gh` call is recorded on the repo (`v1.TaskBranchPushFailed`) and logged through `redactSecrets`. The Task stays at Merge, and the merge watcher queues the publish again on each of its checks until the push and pull request succeed. If `gh pr create` fails because a pull request already exists for the branch, Ted finds it with `gh pr list` and records that one.
 
 An agent can write to its worktree and to the clone’s git config, and Ted pushes outside the agent’s sandbox, so `git push`:
 
@@ -27,5 +26,5 @@ Events: `v1.TaskBranchPushed` (commit, CI and which signals found it), `v1.TaskB
 
 ## Consequences
 
-- An in-process daemon (`startDaemon`) now falls back to `TED_GH_BIN` for `gh`, as `main.ts` does, so tests that walk a Task through Validate run the stub `gh` and never reach GitHub.
+- An in-process daemon (`startDaemon`) now falls back to `TED_GH_BIN` for `gh`, as `main.ts` does, so tests that walk a Task to Merge run the stub `gh` and never reach GitHub.
 - The pull request body has no link that opens the Task in Ted, because Ted has no URL scheme yet.

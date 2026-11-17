@@ -135,7 +135,7 @@ export function acceptedFailing(pr: RemotePullRequest, options: CiOptions = {}):
 
 export function expectsCi(
   mode: PullRequestCiMode | undefined,
-  pushed: TaskPush | undefined,
+  pushed: Pick<TaskPush, 'ci' | 'ciSignals'> | undefined,
 ): boolean {
   if (mode === 'required') return true
   if (mode === 'none') return pushed?.ciSignals.includes('required-checks') === true

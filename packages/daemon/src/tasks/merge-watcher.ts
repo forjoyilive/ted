@@ -513,7 +513,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
         taskId,
         needsSignOff(
           unsigned,
-          `Ted has no signed-off commit for ${unsigned.name}: its branch couldn’t be pushed at sign-off.`,
+          `Ted has no signed-off commit for ${unsigned.name}: its branch changed after the sign-off, or its pull request didn’t get the signed-off commit.`,
         ),
         undefined,
         true,

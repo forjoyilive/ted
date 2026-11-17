@@ -14,11 +14,14 @@ import {
   approve,
   ctx,
   getTask,
+  heldLeadSteps,
   merges,
   readGh,
+  setGh,
   start,
   toSignoff,
   useMergeHarness,
+  waitForPullRequest,
 } from './merge-harness.ts'
 import { eventWait } from './support/event-wait.ts'
 import { leadFor } from './support/failure-merge.ts'
@@ -27,8 +30,12 @@ import { ManualClock } from './support/manual-clock.ts'
 useMergeHarness()
 
 test('acceptance, obligations and Gate approval each verify worktree edits made while GitHub is pending', async () => {
-  const client = await start({ mergePollMs: 60_000 })
+  const client = await start({
+    mergePollMs: 60_000,
+    workflow: ['stages:', '  review: { gate: false }', '  merge: { gate: true }'],
+  })
   const { task, signoff } = await toSignoff(client)
+  expect(signoff.stage).toBe('merge')
   await writeFile(client.mergingFile, '')
   const github = await readGh()
   for (const boundary of ['acceptance', 'obligations', 'gate']) {
@@ -101,7 +108,7 @@ test('acceptance, obligations and Gate approval each verify worktree edits made 
     )
     const comments = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
     expect(comments.find((c) => c.id === signoff.id)?.answer).toBeUndefined()
-    expect((await getTask(client, task.id)).stage).toBe('review')
+    expect((await getTask(client, task.id)).stage).toBe('merge')
     expect(await merges()).toEqual([])
     await rm(path.join(current.repos[0]?.worktree ?? '', 'changed.txt'))
     await post(`/failures/${value.id}/assessments`, {
@@ -191,7 +198,12 @@ test('completed acceptance survives background reads, explicit queries and daemo
     }, 'completed acceptance: Done'),
   )
   await rm(client.mergingFile)
-  await phase('second Task to Review sign-off', () => toSignoff(client, {}, clock))
+  await setGh({ merged: false })
+  await phase('second Task to Merge with an open pull request', async () => {
+    const second = await toSignoff(client, { title: heldLeadSteps(client) }, clock)
+    await approve(client, second.signoff)
+    await waitForPullRequest(client, second.task.id)
+  })
   await phase('drain background poll', pollFinished)
 
   const query = `/tasks/${task.id}/validation-obligations`

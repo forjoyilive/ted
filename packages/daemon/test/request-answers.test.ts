@@ -89,7 +89,6 @@ beforeEach(async () => {
     },
     watchMerge: () => {},
     deliver: async () => true,
-    pullRequestWork: () => {},
     move: async () => {
       effects.push('moved')
       return port.find(taskId)
@@ -1061,9 +1060,6 @@ test.each([
 ] as const)('send-back %s records the real decision and moves to %s', async (choice, next) => {
   stage('validate')
   port.gateWorkflow = async () => ({ workflow: loopWorkflow(), layers: [] })
-  port.pullRequestWork = () => {
-    effects.push('pull-request')
-  }
   port.move = async (task, _resolution, to) => {
     effects.push(`move:${to}`)
     return store.changeStage(task.id, to, {
@@ -1077,8 +1073,7 @@ test.each([
   expect(store.getTask(taskId)?.stage).toBe(next)
   expect(store.getComment(comment.id)?.answer).toMatchObject({ kind: 'answered', choice })
   expect(effects).toContain(`move:${next}`)
-  if (choice === 'Move to Review anyway')
-    expect(effects).toEqual(['obligations', 'pull-request', 'move:review'])
+  if (choice === 'Move to Review anyway') expect(effects).toEqual(['obligations', 'move:review'])
   else
     expect(store.listSendBacks(taskId).at(-1)).toMatchObject({
       to: next,

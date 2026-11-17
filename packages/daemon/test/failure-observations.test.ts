@@ -10,10 +10,12 @@ import {
   ctx,
   getTask,
   ghCalls,
+  heldLeadSteps,
   readGh,
   start,
   toSignoff,
   useMergeHarness,
+  waitForPullRequest,
 } from './merge-harness.ts'
 
 useMergeHarness()
@@ -22,9 +24,13 @@ test.each(['changed', 'unavailable'])(
   '%s CI observed during a remote merge invalidates consent before restoration and replays',
   async (observation) => {
     const client = await start({ mergePollMs: 50 })
-    const { task, signoff } = await toSignoff(client)
-    await writeFile(client.mergingFile, '')
-    const current = await getTask(client, task.id)
+    const { task, signoff } = await toSignoff(client, { title: heldLeadSteps(client) })
+    await approve(client, signoff)
+    const current = await waitForPullRequest(client, task.id)
+    await waitUntil(
+      async () => (await client.getRun(current.leadRunId ?? '')).run.state === 'idle',
+      'the Merge Task Lead to go idle',
+    )
     const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
     const lead = api(ctx.daemon?.port ?? 0, tokens.issue(current.leadRunId ?? ''))
     const root = `/tasks/${task.id}`
@@ -61,7 +67,8 @@ test.each(['changed', 'unavailable'])(
     const mergeGate = { entered: mergeEntered, release: mergeRelease }
     const state = await readGh()
     await writeFile(ctx.ghState, JSON.stringify({ ...state, mergeGate }))
-    await approve(client, signoff)
+    const advanced = await lead.call('POST', `${root}/outcome`, { outcome: 'advance' })
+    expect(advanced.status, JSON.stringify(advanced.body)).toBe(200)
     try {
       await waitUntil(
         () => readFile(mergeEntered, 'utf8').catch(() => undefined),

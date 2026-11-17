@@ -244,19 +244,23 @@ export const mergeAdvance =
 export const quietGuard = (client: Client) =>
   `[ -e '${client.mergingFile}' ] && { ${mergeAdvance}; exit 0; }`
 
-export function leadSteps(client: Client, commit = commitStep.run[2]) {
-  const outcome = `out=$(ted outcome advance 2>&1) || case "$out" in *"asked for changes"*) ted outcome back --to work --findings '${client.findingsFile}';; esac`
-  const script = [
-    quietGuard(client),
-    commit,
-    `ted brief write --file '${client.briefFile}'`,
-    outcome,
-  ].join('\n')
+const advanceOrBack = (client: Client) =>
+  `out=$(ted outcome advance 2>&1) || case "$out" in *"asked for changes"*) ted outcome back --to work --findings '${client.findingsFile}';; esac`
+
+function guardedLeadSteps(client: Client, guard: string, commit: string | undefined) {
+  const outcome = advanceOrBack(client)
+  const script = [guard, commit, `ted brief write --file '${client.briefFile}'`, outcome].join('\n')
   const each = [{ run: ['sh', '-c', script] }, { endTurn: true }]
   return JSON.stringify({
     steps: [{ everyMessage: each }, { run: ['sh', '-c', outcome] }, { endTurn: true }],
   })
 }
+
+export const leadSteps = (client: Client, commit = commitStep.run[2]) =>
+  guardedLeadSteps(client, quietGuard(client), commit)
+
+export const heldLeadSteps = (client: Client) =>
+  guardedLeadSteps(client, `[ -e '${client.mergingFile}' ] && exit 0`, commitStep.run[2])
 
 // A Task reaches its sign-off in 3 to 6 seconds on an idle machine, took up to 14 beside five
 // other daemon test files, and passed 20 in a full `pnpm check`.
@@ -287,12 +291,14 @@ export async function reviewSignoff(client: Client, taskId: string, clock?: Manu
     'the Review sign-off',
     signoffWaitMs,
   )
-  await waitUntil(
-    async () => (await getTask(client, taskId)).repos[0]?.pullRequest?.state === 'ready',
-    'the pull request to be ready',
-  )
   return item.request
 }
+
+export const waitForPullRequest = async (client: Client, taskId: string) =>
+  waitUntil(async () => {
+    const task = await getTask(client, taskId)
+    return task.repos[0]?.pullRequest?.state === 'ready' ? task : undefined
+  }, 'the pull request to be ready')
 
 export const getTask = async (client: Client, id: string) => {
   const task = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === id)

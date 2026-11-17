@@ -962,9 +962,8 @@ Figma: KRI-61 Task thread (sign-off, re-sign-off, Merge off, Merge sign-off, sim
 ### 9.1 Pushing and pull requests
 
 - **Ted pushes and opens pull requests, never the agent.** Agents only commit in their worktree. (KRI-58, ADR 0007)
-- When a Task first enters Validate with commits, Ted pushes `ted/<id>-<slug>` with the user’s git credentials and opens a **draft** pull request with `gh pr create --draft`. Title: the Task title. Body: the brief’s Goal plus a link back to the Task. (KRI-58)
-- Ted pushes again each time Validate passes, so CI and hosted previews run on what the human will review. (KRI-58)
-- When the sign-off is posted, Ted marks the pull request ready for review (`gh pr ready`). (KRI-58)
+- Nothing is pushed while a Task is in Work, Validate or Review. When the Task enters Merge with commits, Ted pushes `ted/<id>-<slug>` with the user’s git credentials and opens a pull request ready for review with `gh pr create`. Title: the Task title. Body: the brief’s Goal plus a link back to the Task. With a Gate before Merge, Ted pushes exactly the commit the human approved. GitHub CI and hosted previews first run then. (KRI-58, TED-542)
+- A push that fails at Merge keeps the Task at Merge and is tried again on each merge check. (TED-542)
 - Multi-repo Tasks get one pull request per repo that has commits, each linking the others. A repo with no commits gets none. (KRI-58)
 - Every GitHub request runs through `gh` as a child process (`gh api` for REST and GraphQL, `gh pr` for create, ready, auto-merge, merge and close), with `GH_PROMPT_DISABLED=1` and `GH_NO_UPDATE_NOTIFIER=1`. Polling sends one batched GraphQL query per host per cycle. Ted never runs `gh auth token` or `--show-token`. (KRI-57, ADR 0007)
 - **When `gh` fails:** Runs keep going; pull request watching stops; Tasks at Merge show **Waiting for GitHub sign-in**; the app-wide banner shows. Once `gh` works again, Ted reads the current state of every open pull request and sends anything it missed (CI failures, review comments, conflicts) to the Task Leads. GitHub rate limits back off on their own. (KRI-57)

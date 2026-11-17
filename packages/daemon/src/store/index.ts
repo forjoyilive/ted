@@ -863,6 +863,7 @@ export interface TedStore extends TaskHistory {
   gateSkippedOvernight(taskId: string, stage: AgentStageId): void
   gateApprovalBound(taskId: string, commentId: string, name: string, commit: string): void
   gateRequestedFor(taskId: string, commentId: string, name: string, commit: string): void
+  mergeCommitChosen(taskId: string, name: string, commit: string | undefined): void
   gateKeptOvernight(taskId: string, stage: AgentStageId, reason: OvernightGuard): void
   createdByAutomation(taskId: string): boolean
   mergeCanceled(taskId: string, commentId: string): void
@@ -5708,6 +5709,16 @@ export async function openStore({
           commentId,
           name,
           commit: requested,
+          at: new Date().toISOString(),
+        }),
+      )
+    },
+    mergeCommitChosen(taskId, name, chosen) {
+      commit(
+        events.mergeCommitChosen({
+          taskId,
+          name,
+          commit: chosen ?? null,
           at: new Date().toISOString(),
         }),
       )
