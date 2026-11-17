@@ -269,11 +269,13 @@ async function handle(
           (url === '/coordinator/agents' ||
             /^\/coordinator\/tasks\/[^/?]+(?:\?offset=\d{1,8})?$/.test(url) ||
             /^\/coordinator\/tasks(?:\?[^#]{0,2000})?$/.test(url) ||
-            /^\/coordinator\/automations(?:\/[^/?]+)?$/.test(url))) ||
+            /^\/coordinator\/automations(?:\/[^/?]+)?$/.test(url) ||
+            /^\/chat-commands\/[a-f0-9-]{36}$/.test(url))) ||
         (req.method === 'POST' &&
           (url === '/coordinator/tasks' ||
             url === '/coordinator/requests' ||
             url === '/coordinator/automation-drafts' ||
+            url === '/chat-commands' ||
             /^\/coordinator\/(archive|unarchive|delete)$/.test(url) ||
             /^\/coordinator\/tasks\/[^/]+\/(start|move|tell|answer|resume|parent|done)$/.test(url)))
       if (!coordinatorTool && !ownBoundary && !(req.method === 'GET' && url === '/caller')) {

@@ -1887,6 +1887,17 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         `Asked the human (request ${request.id}). End your turn; TED sends you their answer.`,
       )
     },
+    agentRun: async () => {
+      const name = args[0] ?? ''
+      const result = await withDaemon(home, async (client) => {
+        let current = await client.runChatCommand({ name })
+        while (current.output === undefined) current = await client.waitForChatCommand(current.id)
+        return current
+      })
+      console.log(printable(result.output ?? ''))
+      if (result.state !== 'passed')
+        exitCode = result.exitCode !== undefined && result.exitCode > 0 ? result.exitCode : 1
+    },
     chatRound: async () => {
       const supersedes = options.supersedes
       const round = await readRound(options.round ?? '')

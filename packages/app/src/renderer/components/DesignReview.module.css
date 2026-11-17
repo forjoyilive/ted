@@ -423,6 +423,26 @@
   font-size: var(--text-12);
 }
 
+.agentCommands {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-12);
+}
+
+.agentCommands li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.agentCommand {
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+
 .agentInstructions summary {
   color: var(--text-secondary);
   font-size: var(--text-12);
@@ -437,6 +457,7 @@
 
 .agentRemoved .agentAbout,
 .agentRemoved .powers,
+.agentRemoved .agentCommands,
 .agentRemoved .agentInstructions {
   opacity: 0.5;
 }

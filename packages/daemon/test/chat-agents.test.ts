@@ -9,6 +9,7 @@ import {
   type Coordinator,
   type Factory,
   type Plan,
+  type RunChat,
   type RunWithConversation,
   readDaemonInfo,
   tedPaths,
@@ -28,6 +29,7 @@ import {
   stubCodexPath,
   waitUntil,
 } from './helpers.ts'
+import { sandboxReasons, skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
 const exec = promisify(execFile)
 
@@ -184,6 +186,9 @@ test('a chat runs a repo Agent with the powers it had when the chat started', as
       /Scout doesn’t have the (Manage Tasks|Propose Tasks|Manage Automations|Manage Agents) power/,
     )
   }
+  const command = await run.call('POST', '/chat-commands', { name: 'test' })
+  expect(command.status).toBe(403)
+  expect(JSON.stringify(command.body)).toContain('Run commands in the copy')
 
   await writeFile(path.join(scratch, 'finish'), '')
   await waitUntil(
@@ -217,6 +222,9 @@ test('a chat runs a repo Agent with the powers it had when the chat started', as
   })
   expect(proposed.status).toBe(403)
   expect(JSON.stringify(proposed.body)).toContain('Propose Tasks')
+  const ranWithout = await planner.call('POST', '/chat-commands', { name: 'test' })
+  expect(ranWithout.status).toBe(403)
+  expect(JSON.stringify(ranWithout.body)).toContain('Run commands in the copy')
   await writeFile(path.join(scratch, 'plan-finish'), '')
 
   await commitToOrigin(scratch, {
@@ -443,3 +451,120 @@ test('a Coordinator drafts Agents that only the app creates, in the Library or a
     (await exec('git', ['ls-tree', '-r', '--name-only', 'main', '.ted/'], { cwd: origin })).stdout,
   ).not.toContain('release-notes')
 }, 120_000)
+test.runIf(process.platform === 'darwin')(
+  'a chat runs its Agent’s named commands in its copy, in the sandbox, and archive ends what they left',
+  async (context) => {
+    skipInsideTedSandbox(context, sandboxReasons.processes)
+    const planted = path.join(home, 'planted')
+    const outside = path.join(scratch, 'outside')
+    await commitToOrigin(scratch, {
+      '.ted/agents.yaml': [
+        'runner:',
+        '  name: Runner',
+        '  powers: [read_code, run_commands]',
+        '  commands:',
+        `    stub: "echo hello-from-stub; touch stub-inside; touch '${planted}' '${outside}' 2>/dev/null; exit 3"`,
+        '    sleeper: "sleep 120 >/dev/null 2>&1 & echo $! > sleeper.pid"',
+        '',
+      ].join('\n'),
+      '.ted/agents/runner.md': 'You run the checks.\n',
+    })
+    daemon = await startDaemon({
+      home,
+      version: '9.9.9',
+      claudeBin: stubClaudePath,
+      codexBin: stubCodexPath,
+    })
+    const app = api(daemon.port, { appKey: daemon.appToken })
+    const ok = async <T>(method: string, route: string, body?: JsonObject): Promise<T> => {
+      const res = await app.call(method, route, body)
+      if (res.status >= 300) throw new Error(`${method} ${route}: ${JSON.stringify(res.body)}`)
+      return res.body as T
+    }
+    const factory = await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+    const agents = await ok<AgentSummary[]>('GET', `/factories/${factory.id}/agents`)
+    expect(agents.find((a) => a.id === 'runner')?.commands?.map((c) => c.name)).toEqual([
+      'stub',
+      'sleeper',
+    ])
+
+    const file = (name: string) => path.join(scratch, name)
+    const ran = (name: string, out: string) => ({
+      run: [
+        'sh',
+        '-c',
+        `ted agent run ${name} > '${file(out)}' 2>&1; echo $? > '${file(`${out}.code`)}'`,
+      ],
+    })
+    const started = await ok<Coordinator>('POST', `/factories/${factory.id}/coordinator-chats`, {
+      agentId: 'runner',
+      agent: 'claude',
+      text: JSON.stringify({
+        steps: [
+          { run: ['sh', '-c', `pwd > '${file('cwd')}'`] },
+          ran('stub', 'stub'),
+          ran('deploy', 'deploy'),
+          ran('sleeper', 'sleeper'),
+          { waitFor: file('finish') },
+          { endTurn: true },
+        ],
+      }),
+    })
+    await waitUntil(
+      async () => (await ok<Coordinator>('GET', `/coordinator-chats/${started.id}`)).started,
+      'the chat to start',
+    )
+    const prompt = (await ok<RunWithConversation>('GET', `/runs/${started.runId}`)).run.prompt ?? ''
+    expect(prompt).toContain('- ted agent run <name>')
+    expect(prompt).toContain('  - stub: `echo hello-from-stub;')
+
+    await waitUntil(() => existsSync(file('sleeper.code')), 'the commands to run', 90_000)
+    const stub = await readFile(file('stub'), 'utf8')
+    expect(stub).toContain('TED ran `stub` in this chat’s copy: it failed with exit code 3.')
+    expect(stub).toMatch(/<<<COMMAND OUTPUT [a-f0-9-]+>>>\nhello-from-stub\n/)
+    expect((await readFile(file('stub.code'), 'utf8')).trim()).toBe('3')
+    expect(await readFile(file('deploy'), 'utf8')).toContain(
+      '`deploy` isn’t one of Runner’s commands',
+    )
+    expect((await readFile(file('deploy.code'), 'utf8')).trim()).not.toBe('0')
+    expect((await readFile(file('sleeper.code'), 'utf8')).trim()).toBe('0')
+
+    const checkout = path.join(home, 'chat-code', started.id)
+    const copy = (await readFile(file('cwd'), 'utf8')).trim()
+    expect(copy.startsWith(path.join(await realpath(home), 'chat-code', started.id))).toBe(true)
+    expect(existsSync(path.join(copy, 'stub-inside'))).toBe(true)
+    expect(existsSync(planted)).toBe(false)
+    expect(existsSync(outside)).toBe(false)
+    const chat = await ok<RunChat>('GET', `/runs/${started.runId}/chat`)
+    expect(
+      chat.items.flatMap((item) =>
+        item.kind === 'command' ? [[item.name, item.status, item.exitCode]] : [],
+      ),
+    ).toEqual([
+      ['stub', 'failed', 3],
+      ['sleeper', 'passed', 0],
+    ])
+    expect(chat.items.find((item) => item.kind === 'command')).toMatchObject({
+      output: expect.stringContaining('hello-from-stub'),
+    })
+
+    const sleeper = Number((await readFile(path.join(copy, 'sleeper.pid'), 'utf8')).trim())
+    const alive = () => {
+      try {
+        process.kill(sleeper, 0)
+        return true
+      } catch {
+        return false
+      }
+    }
+    expect(alive()).toBe(true)
+    const sandboxFolder = path.join(home, 'sandbox', `chat-${started.id}`)
+    expect(existsSync(sandboxFolder)).toBe(true)
+    await writeFile(file('finish'), '')
+    await ok('POST', `/coordinator-chats/${started.id}/archive`, {})
+    await waitUntil(() => !alive() || undefined, 'the leftover process to end')
+    expect(existsSync(checkout)).toBe(false)
+    expect(existsSync(sandboxFolder)).toBe(false)
+  },
+  120_000,
+)

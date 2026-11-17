@@ -19,6 +19,7 @@ import { createBanners } from './banners.ts'
 import { createBusyHold } from './busy.ts'
 import { createChatArchiveCleanup } from './chat-expiry.ts'
 import { builtInAgents } from './chats/agents.ts'
+import { createChatCommands } from './chats/commands.ts'
 import { createCheckTries } from './check-tries.ts'
 import type { Clock } from './clock.ts'
 import { createEnvironment, loginShell } from './command-env.ts'
@@ -658,9 +659,19 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...automationOptions,
       })
       const chatBuiltIns = await builtInAgents()
+      const chatCommands = createChatCommands({
+        home: paths.home,
+        store,
+        checkSlots,
+        sandbox,
+        banners,
+        workflows,
+        env: environment.current,
+      })
       const createdPlans = createPlans({
         home: paths.home,
         builtInAgents: chatBuiltIns,
+        commands: chatCommands,
         store,
         runs,
         agents,
@@ -679,6 +690,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       const createdCoordinators = createCoordinators({
         home: paths.home,
         builtInAgents: chatBuiltIns,
+        commands: chatCommands,
         automations,
         agentTargets: { library, factory: factorySettings },
         banners,
@@ -909,6 +921,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           await execution.close()
           const shellsClosed = shells.close()
           await sideChats.close()
+          chatCommands.close()
           await coordinators.close()
           await automations.close()
           plans.close()

@@ -1,11 +1,24 @@
 import {
+  type AgentCommand,
   type AgentFileChange,
   type AgentSettingsInput,
   agentPowers,
   isAgentId,
+  isCommandRepoName,
+  maxAgentCommandLength,
+  maxAgentCommands,
   maxAgentName,
+  runCommandsNeedsReadCode,
 } from './agent-files.ts'
-import { isArray, isOneOf, isString, type JsonObject, reader, type Untyped } from './parse.ts'
+import {
+  isArray,
+  isOneOf,
+  isString,
+  type JsonArray,
+  type JsonObject,
+  reader,
+  type Untyped,
+} from './parse.ts'
 import { agentKinds } from './run.ts'
 import { isModelName } from './task.ts'
 import { RequestValidationError as HttpError } from './validation.ts'
@@ -56,8 +69,36 @@ function settingsInput(value: Untyped, id: string): AgentSettingsInput {
     settings.powers = agentPowers.filter((power) => powers.includes(power))
     const stray = powers.find((power) => !isOneOf(power, agentPowers))
     if (stray !== undefined) fail(`${id}.powers has an unknown power: ${String(stray)}`)
+    if (settings.powers.includes('run_commands') && !settings.powers.includes('read_code'))
+      fail(`${id}: ${runCommandsNeedsReadCode}`)
   }
+  const commands = read.optional(body, 'commands', (object, field) =>
+    read.list(object, field, `${id}.commands must be a list`),
+  )
+  if (commands !== undefined) settings.commands = commandsInput(commands, id)
   return settings
+}
+
+function commandsInput(items: JsonArray, id: string): AgentCommand[] {
+  if (items.length > maxAgentCommands) fail(`${id} has more than ${maxAgentCommands} commands`)
+  const seen = new Set<string>()
+  return items.map((item) => {
+    const body = read.object(item, `a command of ${id}`)
+    const name = read.string(body, 'name', `${id}: a command’s name must be text`).trim()
+    if (!isAgentId(name))
+      fail(`${id}: \`${name}\` isn’t a command name; use lowercase letters, digits and hyphens`)
+    if (seen.has(name)) fail(`${id} lists the command ${name} twice`)
+    seen.add(name)
+    const command = read.string(body, 'command', `${id}.${name} must be a command`).trim()
+    if (command === '' || command.length > maxAgentCommandLength)
+      fail(`${id}.${name} must be a command of up to ${maxAgentCommandLength} characters`)
+    const repo = read.optional(body, 'repo', (object, field) =>
+      read.string(object, field, `${id}.${name}.repo must be a repo name`),
+    )
+    if (repo !== undefined && !isCommandRepoName(repo))
+      fail(`${id}.${name}.repo must be a repo name`)
+    return { name, command, ...(repo !== undefined && { repo }) }
+  })
 }
 
 function instructions(body: JsonObject, id: string): string | null {

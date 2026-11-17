@@ -1,9 +1,12 @@
 import {
+  type AgentCommand,
   type AgentFileChange,
   type AgentFileRow,
   type AgentSettingsInput,
   blankAgentInstructions,
   isAgentId,
+  maxAgentCommandLength,
+  maxAgentCommands,
   maxAgentId,
   maxAgentName,
 } from '@ted/protocol/agent-files'
@@ -39,6 +42,16 @@ function settingsKey(settings: AgentSettingsInput | null): string {
     agent: settings.agent,
     model: model || undefined,
     powers: settings.powers,
+    commands: settings.commands && cleanCommands(settings.commands),
+  })
+}
+
+function cleanCommands(commands: readonly AgentCommand[]): AgentCommand[] {
+  return commands.flatMap((c) => {
+    const name = c.name.trim()
+    const command = c.command.trim()
+    if (name === '' && command === '') return []
+    return [{ name, command, ...(c.repo !== undefined && { repo: c.repo }) }]
   })
 }
 
@@ -51,6 +64,7 @@ function cleanSettings(settings: AgentSettingsInput | null): AgentSettingsInput 
     ...(settings.agent && { agent: settings.agent }),
     ...(model && { model }),
     ...(settings.powers && { powers: settings.powers }),
+    ...(settings.commands && { commands: cleanCommands(settings.commands) }),
   }
 }
 
@@ -139,6 +153,24 @@ export function agentProblem(agent: AgentDraft, taken: readonly string[]): strin
   if (name.length > maxAgentName) return `The name can be up to ${maxAgentName} characters.`
   if (agent.instructions !== null && agent.instructions.trim() === '') {
     return 'The instructions can’t be empty.'
+  }
+  return commandsProblem(cleanCommands(agent.settings?.commands ?? []))
+}
+
+export function commandsProblem(commands: readonly AgentCommand[]): string | undefined {
+  if (commands.length > maxAgentCommands)
+    return `An Agent can have up to ${maxAgentCommands} commands.`
+  const seen = new Set<string>()
+  for (const { name, command } of commands) {
+    if (!isAgentId(name)) {
+      return `\`${name || '(no name)'}\` isn’t a command name. Use lowercase letters, digits and hyphens.`
+    }
+    if (seen.has(name)) return `Two commands are named ${name}.`
+    seen.add(name)
+    if (command === '') return `Give the ${name} command something to run.`
+    if (command.length > maxAgentCommandLength) {
+      return `The ${name} command can be up to ${maxAgentCommandLength} characters.`
+    }
   }
   return undefined
 }

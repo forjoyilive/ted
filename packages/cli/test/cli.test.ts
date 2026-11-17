@@ -817,9 +817,9 @@ describe('ted workflow check', () => {
     expect(failure?.code).toBe(1)
     expect(failure?.stdout.split('\n')).toEqual([
       '.ted/agents.yaml:1:1: error: `scout` has no instructions file; add agents/scout.md',
-      '.ted/agents.yaml:3:23: error: unknown power `deploy` in `scout.powers`; the powers are ask, manage_tasks, manage_automations, propose_tasks, read_code, manage_agents',
+      '.ted/agents.yaml:3:23: error: unknown power `deploy` in `scout.powers`; the powers are ask, manage_tasks, manage_automations, propose_tasks, read_code, manage_agents, run_commands',
       '.ted/agents.yaml:4:1: error: `helper` needs a `name`',
-      '.ted/agents.yaml:5:3: error: unknown key `helper.role`; an Agent has name, agent, model, powers, based_on',
+      '.ted/agents.yaml:5:3: error: unknown key `helper.role`; an Agent has name, agent, model, powers, commands, based_on',
       '4 errors',
       '',
     ])

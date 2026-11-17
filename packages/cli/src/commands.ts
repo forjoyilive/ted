@@ -426,6 +426,15 @@ export const commands = [
     options: options('round', 'supersedes'),
   },
   {
+    name: 'agent run',
+    handler: 'agentRun',
+    min: 1,
+    max: 1,
+    help: '  ted agent run <name>                       In a chat whose Agent has commands, run one of\n                                             them in the chat’s copy of the code and print\n                                             its output; exits with the command’s status',
+    callers: 'Coordinator or planning chat Run',
+    options: options(),
+  },
+  {
     name: 'ask',
     handler: 'chatQuestion',
     min: 1,

@@ -3,12 +3,16 @@ import path from 'node:path'
 import type { Banners } from '../banners.ts'
 import { ensureClone } from '../factories.ts'
 import * as git from '../git.ts'
+import { endProcessesInside, taskFolder } from '../leftover-processes.ts'
+import { redactSecrets } from '../redact.ts'
 import type { StoredFactory, TedStore } from '../store/index.ts'
 import type { PlanCheckout } from '../store/plans.ts'
+import { removeInside } from '../tasks/remove-files.ts'
 import type { FactoryRepoEntry } from '../tasks/repos.ts'
 import { copyFiles } from '../tasks/worktree.ts'
 
 export interface CheckoutDeps {
+  home: string
   banners: Banners
   reposDir: string
   store: Pick<TedStore, 'localFolder'>
@@ -39,14 +43,45 @@ export async function checkOut(
       await copyFiles(deps.store.localFolder(entry.repo), worktree, entry.copy)
     }
   } catch (error) {
-    await discard(made, folder)
+    await discard(made, folder, deps.home)
     throw error
   }
   return made
 }
 
-export async function discard(checkout: readonly PlanCheckout[], folder: string): Promise<void> {
+export function chatSandboxName(chatId: string): string {
+  return `chat-${chatId}`
+}
+
+export function chatSandboxRoot(home: string): string {
+  return path.join(home, 'sandbox')
+}
+
+export async function discard(
+  checkout: readonly PlanCheckout[],
+  folder: string,
+  home: string,
+): Promise<void> {
+  const sandboxName = chatSandboxName(path.basename(folder))
+  const sandboxRoot = chatSandboxRoot(home)
+  const sandboxFolder = await taskFolder(sandboxRoot, sandboxName).catch(() => undefined)
   const stat = await lstat(folder).catch(() => undefined)
+  const plain = stat?.isDirectory() === true && !stat.isSymbolicLink()
+  const realFolder = plain
+    ? await taskFolder(path.dirname(folder), path.basename(folder))
+    : undefined
+  const sandboxThere =
+    sandboxFolder !== undefined && (await lstat(sandboxFolder).catch(() => undefined)) !== undefined
+  if (!stat && !sandboxThere) return
+  const folders = [realFolder, sandboxThere ? sandboxFolder : undefined].filter(
+    (f): f is string => f !== undefined,
+  )
+  await endProcessesInside(folders).catch((error) =>
+    console.error(redactSecrets(`couldn’t end the processes left in ${folder}: ${String(error)}`)),
+  )
+  await removeInside(sandboxRoot, sandboxName).catch((error) =>
+    console.error(redactSecrets(`couldn’t remove ${sandboxName}: ${String(error)}`)),
+  )
   if (!stat) return
   const parent = await realpath(path.dirname(folder)).catch(() => undefined)
   const real = await realpath(folder).catch(() => undefined)

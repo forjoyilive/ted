@@ -1,4 +1,4 @@
-import { type AgentPower, agentPowerNames } from '@ted/protocol/agent-files'
+import { type AgentCommand, type AgentPower, agentPowerNames } from '@ted/protocol/agent-files'
 import { RequestError } from '../errors.ts'
 
 export interface Powered {
@@ -52,4 +52,26 @@ export function chatAgentCommands(): string {
 
 export function checkoutLine(where: string): string {
   return `${where} Read it as much as you need. Anything you write there is never pushed and is thrown away when this chat is archived or ends.`
+}
+
+const shownCommandLength = 200
+
+function shown(command: string): string {
+  const line = command.replace(/\s+/g, ' ').trim()
+  return line.length > shownCommandLength ? `${line.slice(0, shownCommandLength)}…` : line
+}
+
+export function chatCommandLines(
+  powers: readonly AgentPower[],
+  commands: readonly AgentCommand[] | undefined,
+): string[] {
+  if (!powers.includes('run_commands') || !powers.includes('read_code')) return []
+  const listed = commands ?? []
+  if (listed.length === 0) return []
+  return [
+    '- ted agent run <name>: TED runs one of the commands below in your copy of the code, in its sandbox, and prints the output and exit status. It takes no arguments, and one command runs at a time; a second one waits for the first. The command can write only inside your copy.',
+    ...listed.map(
+      (c) => `  - ${c.name}${c.repo ? ` (in ${c.repo})` : ''}: \`${shown(c.command)}\``,
+    ),
+  ]
 }

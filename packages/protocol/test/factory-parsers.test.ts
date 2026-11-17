@@ -43,7 +43,11 @@ const library = {
         name: 'Release notes',
         agent: 'claude',
         model: 'opus',
-        powers: ['ask', 'read_code'],
+        powers: ['ask', 'read_code', 'run_commands'],
+        commands: [
+          { name: 'test', command: 'pnpm vitest run', repo: 'web' },
+          { name: 'lint', command: 'pnpm lint' },
+        ],
       },
       instructions: '# Release notes',
     },
@@ -192,6 +196,51 @@ rejects(P.parseLibraryChanges, { agentFiles: [{ id: 'a', settings: { agent: 'gpt
 rejects(P.parseLibraryChanges, { agentFiles: [{ id: 'a' }, { id: 'a' }] }, 'twice')
 rejects(P.parseLibraryChanges, { agentFiles: [{ id: 'a', instructions: 3 }] }, 'instructions')
 rejects(P.parseLibraryChanges, { keepAgentFiles: ['../x'] }, 'isn’t an Agent id')
+rejects(
+  P.parseLibraryChanges,
+  { agentFiles: [{ id: 'a', settings: { powers: ['run_commands'] } }] },
+  'needs Read the code',
+)
+const command = (fields: { name?: string; command?: string; repo?: string }) => ({
+  agentFiles: [
+    { id: 'a', settings: { commands: [{ name: 'test', command: 'pnpm test', ...fields }] } },
+  ],
+})
+rejects(P.parseLibraryChanges, command({ name: 'Not A Name' }), 'isn’t a command name')
+rejects(P.parseLibraryChanges, command({ command: '  ' }), 'a.test must be a command')
+rejects(P.parseLibraryChanges, command({ command: 'x'.repeat(2001) }), 'up to 2000 characters')
+rejects(P.parseLibraryChanges, command({ repo: '../web' }), 'a.test.repo')
+rejects(
+  P.parseLibraryChanges,
+  {
+    agentFiles: [
+      {
+        id: 'a',
+        settings: {
+          commands: [
+            { name: 't', command: 'a' },
+            { name: 't', command: 'b' },
+          ],
+        },
+      },
+    ],
+  },
+  'twice',
+)
+rejects(
+  P.parseLibraryChanges,
+  {
+    agentFiles: [
+      {
+        id: 'a',
+        settings: {
+          commands: Array.from({ length: 21 }, (_, i) => ({ name: `c${i}`, command: 'x' })),
+        },
+      },
+    ],
+  },
+  'more than 20 commands',
+)
 
 rejects(P.parseAutoStartBacklogRequest, { enabled: 1 }, 'enabled must be')
 rejects(P.parseReorderFactoriesRequest, { factoryIds: 'one' }, 'factoryIds must be a list')

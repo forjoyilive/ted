@@ -1,16 +1,22 @@
 import {
+  type AgentCommand,
   type AgentPower,
   agentPowers,
   builtInAgentIds,
   isAgentId,
+  isCommandRepoName,
+  maxAgentCommandLength,
+  maxAgentCommands,
   maxAgentId,
   maxAgentName,
+  runCommandsNeedsReadCode,
 } from './agent-files.ts'
 import {
   type Fail,
   isArray,
   isOneOf,
   isString,
+  type JsonArray,
   type JsonObject,
   reader,
   type Untyped,
@@ -23,6 +29,7 @@ export interface SetupAgentProposal {
   name: string
   about: string
   powers: AgentPower[]
+  commands?: AgentCommand[]
   agent?: AgentKind
   model?: string
   instructions: string
@@ -64,6 +71,15 @@ export function parseSetupAgents(value: Untyped, fail: Fail): SetupAgentProposal
       return power
     })
     if (new Set(powers).size !== powers.length) fail(`${id} lists a power twice`, 'powers')
+    if (powers.includes('run_commands') && !powers.includes('read_code')) {
+      fail(`${id}: ${runCommandsNeedsReadCode}`, 'powers')
+    }
+    const commands = read.optional(row, 'commands', (object, field) =>
+      setupCommands(read.list(object, field, `${id}’s commands must be a list`), id, fail),
+    )
+    if (commands !== undefined && commands.length > 0 && !powers.includes('run_commands')) {
+      fail(`${id} lists commands without the run_commands power`, 'commands')
+    }
     const agent = read.optional(row, 'agent', (object, field) =>
       read.oneOf(
         object,
@@ -92,10 +108,40 @@ export function parseSetupAgents(value: Untyped, fail: Fail): SetupAgentProposal
       name,
       about,
       powers: agentPowers.filter((power) => powers.includes(power)),
+      ...(commands !== undefined && commands.length > 0 && { commands }),
       ...(agent !== undefined && { agent }),
       ...(model !== undefined && { model }),
       instructions,
     }
+  })
+}
+
+function setupCommands(items: JsonArray, id: string, fail: Fail): AgentCommand[] {
+  const read = reader(fail)
+  if (items.length > maxAgentCommands) {
+    fail(`${id} lists more than ${maxAgentCommands} commands`, 'commands')
+  }
+  const seen = new Set<string>()
+  return items.map((item) => {
+    const row = read.object(item, 'commands', `each of ${id}’s commands must be an object`)
+    const name = read.string(row, 'name', `each of ${id}’s commands needs a name`).trim()
+    if (!isAgentId(name)) {
+      fail(`${name} isn’t a command name: use lowercase letters, digits and hyphens`, 'name')
+    }
+    if (seen.has(name)) fail(`${id} lists the command ${name} twice`, 'name')
+    seen.add(name)
+    const command = read.string(row, 'command', `${id}’s ${name} needs a command`).trim()
+    if (command === '' || command.length > maxAgentCommandLength) {
+      fail(
+        `${id}’s ${name} must be a command of up to ${maxAgentCommandLength} characters`,
+        'command',
+      )
+    }
+    const repo = read.optional(row, 'repo', (object, field) => {
+      const given = read.string(object, field, `${id}’s ${name} repo must be a repo name`)
+      return isCommandRepoName(given) ? given : fail(`${given} isn’t a repo name`, field)
+    })
+    return { name, command, ...(repo !== undefined && { repo }) }
   })
 }
 

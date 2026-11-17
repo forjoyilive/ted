@@ -66,7 +66,14 @@ import type {
   TaskCommit,
 } from './changes.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
-import type { AgentDraftAnswer, AgentSummary, ChatRequest, PostChatRequest } from './chat-agent.ts'
+import type {
+  AgentDraftAnswer,
+  AgentSummary,
+  ChatCommandResult,
+  ChatRequest,
+  PostChatRequest,
+  RunChatCommandRequest,
+} from './chat-agent.ts'
 import type {
   BaseConflictFound,
   CheckOutput,
@@ -587,6 +594,14 @@ export class DaemonClient {
 
   postChatRequest(input: PostChatRequest): Promise<ChatRequest> {
     return this.#request('POST', '/coordinator/requests', input)
+  }
+
+  runChatCommand(input: RunChatCommandRequest): Promise<ChatCommandResult> {
+    return this.#request('POST', '/chat-commands', input)
+  }
+
+  waitForChatCommand(id: string): Promise<ChatCommandResult> {
+    return this.#request('GET', `/chat-commands/${encodeURIComponent(id)}`)
   }
 
   answerChatRequest(

@@ -6,6 +6,7 @@ import type {
   RunMessage,
   TaskLead,
 } from '@ted/protocol'
+import type { ChatAgentEvent } from './chats.ts'
 import { coordinatorChange, receiptsKept } from './coordinator-change.ts'
 import type { PlanCheckout } from './plans.ts'
 import { coordinatorChats, events, type schema } from './schema.ts'
@@ -52,7 +53,7 @@ export interface CoordinatorStore {
   save(
     value: StoredCoordinator,
     canceled?: readonly RunMessage[],
-    agent?: ReturnType<typeof events.chatAgentRecorded>,
+    agent?: readonly ChatAgentEvent[],
   ): void
   archive(id: string, at: string): void
   reopen(id: string): void
@@ -121,7 +122,7 @@ export function createCoordinatorStore(options: {
         ...canceled.map(({ id, runId }) =>
           events.runMessageDeleted({ id, runId, at: new Date().toISOString() }),
         ),
-        ...(agent ? [agent] : []),
+        ...(agent ?? []),
       ]
       if (writes.length > 0) options.commit(...writes)
       options.changed(value.factoryId, value.id)

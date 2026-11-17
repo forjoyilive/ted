@@ -15,6 +15,7 @@ import {
   parseCoordinatorTaskQuery,
   parsePostChatRequest,
   parseRenameCoordinatorChatRequest,
+  parseRunChatCommandRequest,
 } from '@ted/protocol'
 import type { AgentFilesForChat } from '../coordinators/coordinators.ts'
 import { RequestError } from '../errors.ts'
@@ -198,6 +199,26 @@ export const coordinatorRoutes: Route[] = [
       return [200, await coordinators.answerAutomationCard(id, card, body)]
     },
   }),
+  jsonRoute(parseRunChatCommandRequest, {
+    method: 'POST',
+    path: /^\/chat-commands$/,
+    runToken: true,
+    waits: true,
+    async handle({ caller, body }, { coordinators, plans }) {
+      const owner = caller.kind === 'run' && plans.isPlanRun(caller.runId) ? plans : coordinators
+      return [200, await owner.runCommand(caller, body.name)]
+    },
+  }),
+  {
+    method: 'GET',
+    path: /^\/chat-commands\/([a-f0-9-]{36})$/,
+    runToken: true,
+    waits: true,
+    async handle({ caller, params: [id = ''] }, { coordinators, plans }) {
+      const owner = caller.kind === 'run' && plans.isPlanRun(caller.runId) ? plans : coordinators
+      return [200, await owner.commandResult(caller, id)]
+    },
+  },
   jsonRoute(parseCoordinatorConfirmationAnswer, {
     method: 'POST',
     path: /^\/coordinator-chats\/([^/]+)\/confirmations\/([^/]+)$/,

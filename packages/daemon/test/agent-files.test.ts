@@ -114,6 +114,37 @@ describe('TED’s built-in Agents', () => {
     expect(plannerWith(['ask'])).not.toContain('ted task propose')
     expect(plannerWith(['propose_tasks'])).toContain('ted task propose')
   })
+
+  test('a chat with Run commands in the copy lists ted agent run and its named commands', () => {
+    const role = 'Review the change.'
+    const where = 'Your working folder is a fresh checkout of acme/widgets.'
+    const commands = [
+      { name: 'test', command: 'pnpm vitest run\n  packages/protocol' },
+      { name: 'web-lint', command: 'pnpm lint', repo: 'web' },
+    ]
+    const runs = coordinatorInstructions(role, ['read_code', 'run_commands'], where, commands)
+    expect(runs).toContain('- ted agent run <name>: TED runs one of the commands below')
+    expect(runs).toContain('  - test: `pnpm vitest run packages/protocol`')
+    expect(runs).toContain('  - web-lint (in web): `pnpm lint`')
+    expect(runs).toContain('run repo code other than through ted agent run')
+    expect(coordinatorInstructions(role, ['read_code'], where, commands)).not.toContain(
+      'ted agent run',
+    )
+    expect(coordinatorInstructions(role, ['read_code', 'run_commands'], where, [])).not.toContain(
+      'ted agent run',
+    )
+
+    const planner = plannerInstructions({
+      role: 'Plan.',
+      powers: ['read_code', 'run_commands'],
+      factory: { id: 'f', name: 'Widgets', repo: 'acme/widgets' } as never,
+      entries: [],
+      folder: '/tmp/plan',
+      commands,
+    })
+    expect(planner).toContain('- ted agent run <name>')
+    expect(planner).toContain('  - test: `pnpm vitest run packages/protocol`')
+  })
 })
 
 describe('checking Agent files', () => {
@@ -145,8 +176,8 @@ describe('checking Agent files', () => {
       }),
     ).toEqual([
       'error .ted/agents.yaml 1 1 `helper` needs a `name`',
-      'error .ted/agents.yaml 2 17 unknown power `launch_missiles` in `helper.powers`; the powers are ask, manage_tasks, manage_automations, propose_tasks, read_code, manage_agents',
-      'error .ted/agents.yaml 3 3 unknown key `helper.colour`; an Agent has name, agent, model, powers, based_on',
+      'error .ted/agents.yaml 2 17 unknown power `launch_missiles` in `helper.powers`; the powers are ask, manage_tasks, manage_automations, propose_tasks, read_code, manage_agents, run_commands',
+      'error .ted/agents.yaml 3 3 unknown key `helper.colour`; an Agent has name, agent, model, powers, commands, based_on',
       'error .ted/agents.yaml 4 1 `Bad_Id` isn’t an Agent id; an Agent id is lowercase letters, digits and hyphens, up to 40 characters',
       'error .ted/agents.yaml 6 1 `scout` has no instructions file; add agents/scout.md',
       'error .ted/agents.yaml 8 10 `scout.agent` must be claude, codex or antigravity',
@@ -174,6 +205,84 @@ describe('checking Agent files', () => {
         },
       ])[0]?.powers,
     ).toEqual(['ask'])
+  })
+
+  test('named commands are a map of names to a command or to a command and a repo', () => {
+    const files = {
+      'agents.yaml': [
+        'reviewer:',
+        '  name: Reviewer',
+        '  powers: [read_code, run_commands]',
+        '  commands:',
+        '    test: pnpm vitest run packages/protocol',
+        '    web-lint:',
+        '      command: pnpm lint',
+        '      repo: web',
+        '',
+      ].join('\n'),
+      'agents/reviewer.md': 'Review.\n',
+    }
+    expect(problems(files)).toEqual([])
+    expect(
+      resolveWorkflow([checkLayer({ kind: 'factory', files })]).agent('reviewer'),
+    ).toMatchObject({
+      powers: ['read_code', 'run_commands'],
+      commands: [
+        { name: 'test', command: 'pnpm vitest run packages/protocol' },
+        { name: 'web-lint', command: 'pnpm lint', repo: 'web' },
+      ],
+    })
+  })
+
+  test('reports bad commands and Run commands in the copy without Read the code', () => {
+    expect(
+      problems({
+        'agents.yaml': [
+          'reviewer:',
+          '  name: Reviewer',
+          '  powers: [run_commands]',
+          '  commands:',
+          '    Bad_Name: pnpm test',
+          '    empty: ""',
+          '    odd:',
+          '      command: pnpm test',
+          '      shell: zsh',
+          '    elsewhere:',
+          '      command: pnpm test',
+          '      repo: ../up',
+          '',
+        ].join('\n'),
+        'agents/reviewer.md': 'Review.\n',
+      }),
+    ).toEqual([
+      'error .ted/agents.yaml 1 1 `reviewer`: Run commands in the copy needs Read the code, because the commands run in the chat’s copy of the code',
+      'error .ted/agents.yaml 5 5 `Bad_Name` isn’t a command name; a command name is lowercase letters, digits and hyphens, up to 40 characters',
+      'error .ted/agents.yaml 6 12 `reviewer.commands.empty` must be a command of up to 2000 characters',
+      'error .ted/agents.yaml 9 7 unknown key `reviewer.commands.odd.shell`; a command has command and repo',
+      'error .ted/agents.yaml 12 13 `reviewer.commands.elsewhere.repo` must be a repo name',
+    ])
+    const many = Array.from({ length: 21 }, (_, i) => `    c${i}: echo ${i}`)
+    expect(
+      problems({
+        'agents.yaml': ['scout:', '  name: Scout', '  commands:', ...many, ''].join('\n'),
+        'agents/scout.md': 'Scout.\n',
+      }),
+    ).toEqual(['error .ted/agents.yaml 4 5 `scout.commands` has more than 20 commands'])
+    expect(
+      resolveAgents([
+        {
+          kind: 'factory',
+          agentSettings: {
+            scout: {
+              name: 'Scout',
+              powers: ['ask', 'run_commands'],
+              commands: [{ name: 'test', command: 'pnpm test' }],
+            },
+          },
+          agentFiles: { scout: 'Scout.\n' },
+        },
+      ])[0],
+    ).toMatchObject({ powers: ['ask'], commands: [{ name: 'test', command: 'pnpm test' }] })
   })
 
   test('an instructions file no agents.yaml lists is ignored with a warning; an empty one is an error', () => {
@@ -231,6 +340,28 @@ describe('Agent layers', () => {
       agent: 'codex',
     })
     expect(workflow.agent('scout')?.model).toBeUndefined()
+  })
+
+  test('a layer’s commands replace the inherited commands as a whole', () => {
+    const library = checkLayer({
+      kind: 'library',
+      files: {
+        'agents.yaml':
+          'scout:\n  name: Scout\n  powers: [read_code, run_commands]\n  commands:\n    test: pnpm test\n    lint: pnpm lint\n',
+        'agents/scout.md': 'Scout.\n',
+      },
+    })
+    const factory = checkLayer({
+      kind: 'factory',
+      files: { 'agents.yaml': 'scout:\n  commands:\n    check: pnpm check\n' },
+      inherited: inheritedFrom([library]),
+    })
+    expect([...library.problems, ...factory.problems]).toEqual([])
+    expect(resolveWorkflow([library]).agent('scout')?.commands).toHaveLength(2)
+    expect(resolveWorkflow([library, factory]).agent('scout')).toMatchObject({
+      powers: ['read_code', 'run_commands'],
+      commands: [{ name: 'check', command: 'pnpm check' }],
+    })
   })
 
   test('an override of a built-in Agent shows as drift once the built-in text changes', async () => {

@@ -1,5 +1,6 @@
 import type { AgentSummary, LayerKind } from '@ted/protocol'
 import {
+  type AgentCommand,
   type AgentPower,
   agentPowerNames,
   type BuiltInAgentId,
@@ -75,4 +76,23 @@ export function AgentPowers({ powers }: { powers: readonly AgentPower[] }) {
 
 export function AgentSource({ source }: { source: LayerKind }) {
   return <p className={styles.source}>{agentSources[source]}</p>
+}
+
+export function shownCommands(
+  agent: Pick<AgentSummary, 'powers' | 'commands'>,
+): readonly AgentCommand[] {
+  return agent.powers.includes('run_commands') ? (agent.commands ?? []) : []
+}
+
+export function AgentCommands({ commands }: { commands: readonly AgentCommand[] }) {
+  return (
+    <ul className={styles.commands}>
+      {commands.map((command) => (
+        <li key={command.name}>
+          <span className={styles.commandName}>{command.name}</span>
+          <code className={styles.command}>{command.command}</code>
+        </li>
+      ))}
+    </ul>
+  )
 }

@@ -269,6 +269,19 @@ function SetupAgents({
                     ))}
                   </ul>
                 )}
+                {agent.commands !== undefined && agent.commands.length > 0 && (
+                  <ul className={styles.agentCommands} aria-label={`${agent.name}’s commands`}>
+                    {agent.commands.map((command) => (
+                      <li key={command.name}>
+                        <code>{command.name}</code>
+                        <code className={styles.agentCommand}>{command.command}</code>
+                        {command.repo !== undefined && (
+                          <span className={styles.meta}>in {command.repo}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
                 <details className={styles.agentInstructions}>
                   <summary>Instructions</summary>
                   <Markdown text={agent.instructions} />

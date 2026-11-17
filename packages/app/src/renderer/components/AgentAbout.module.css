@@ -6,3 +6,7 @@
 .powers { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; color: var(--text-primary); font-size: var(--text-13); }
 .none { margin: 0; color: var(--text-caption); font-size: var(--text-13); }
 .source { margin: 0; color: var(--text-primary); font-size: var(--text-13); }
+.commands { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: var(--text-13); }
+.commands li { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.commandName { color: var(--text-primary); }
+.command { overflow-wrap: anywhere; color: var(--text-secondary); font-family: var(--font-mono); font-size: var(--text-12); }

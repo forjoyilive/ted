@@ -10,7 +10,7 @@ import type {
   Proposal,
   Round,
 } from '@ted/protocol'
-import { chatAgentEvent, type StoredChatAgent } from './chats.ts'
+import { chatAgentEvents, type StoredChatAgent } from './chats.ts'
 import { events, planRequests, plans, planTasks, type schema } from './schema.ts'
 
 export type PlanState = 'queued' | 'started' | 'ended'
@@ -190,7 +190,7 @@ export function createPlanStore({
       const at = now()
       commit(
         events.planStarted({ ...input, id, model: model ?? null, effort: effort ?? null, at }),
-        ...(chatAgent ? [chatAgentEvent(id, 'plan', input.factoryId, chatAgent)] : []),
+        ...(chatAgent ? chatAgentEvents(id, 'plan', input.factoryId, chatAgent) : []),
         ...(from
           ? [
               events.planContinued({

@@ -3824,6 +3824,9 @@ export async function openStore({
       if (chat) emit({ type: 'coordinator-changed', factoryId: chat.factoryId, chatId })
       noteActivity()
     },
+    runChanged(runId) {
+      emit({ type: 'run-output', runId })
+    },
   })
   lastWaiting = inbox()
 

@@ -54,6 +54,9 @@ roundTrip(P.parseCoordinatorMessage, {
   model: 'gpt-5.5',
   effort: 'high',
 })
+roundTrip(P.parseRunChatCommandRequest, { name: 'web-test' })
+rejects(P.parseRunChatCommandRequest, { name: 'rm -rf /' }, 'command names')
+rejects(P.parseRunChatCommandRequest, {}, 'name must be')
 variants(P.parsePostChatRequest, [
   { question: { text: 'Which repo?', choices: ['web', 'api'], multiple: true }, supersedes: 'old' },
   { round },

@@ -1,14 +1,16 @@
 import type { LayerKind } from '@ted/protocol'
 import {
+  type AgentCommand,
   type AgentFileRow,
   type AgentPower,
   type AgentSettingsInput,
   agentPowerHelp,
   agentPowerNames,
   agentPowers,
+  maxAgentCommands,
 } from '@ted/protocol/agent-files'
 import { agentKinds } from '@ted/protocol/run'
-import { useId, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import {
   type AgentDraft,
   agentFileEdited,
@@ -150,6 +152,7 @@ function shownSettings(line: Line): AgentSettingsInput {
         ...(row.agent !== undefined && { agent: row.agent }),
         ...(row.model !== undefined && { model: row.model }),
         powers: row.powers,
+        ...(row.commands && { commands: row.commands }),
       }
     : {}
 }
@@ -281,10 +284,22 @@ function AgentEditor({
   }
   const togglePower = (power: AgentPower, on: boolean) => {
     const current = settings.powers ?? row?.inherited?.settings.powers ?? []
-    const powers = agentPowers.filter((p) => (p === power ? on : current.includes(p)))
+    const powers = agentPowers.filter((p) => {
+      if (p === power) return on
+      if (p === 'run_commands' && power === 'read_code' && !on) return false
+      return current.includes(p)
+    })
     set({ powers })
   }
   const powers = settings.powers ?? row?.inherited?.settings.powers ?? []
+  const commands = settings.commands ?? row?.inherited?.settings.commands ?? []
+  const rowKeys = useRef<string[]>([])
+  const nextKey = useRef(0)
+  while (rowKeys.current.length < commands.length) rowKeys.current.push(`row-${nextKey.current++}`)
+  rowKeys.current.length = commands.length
+  const setCommand = (index: number, change: Partial<AgentCommand>) =>
+    set({ commands: commands.map((c, i) => (i === index ? { ...c, ...change } : c)) })
+  const runs = powers.includes('run_commands')
   const inherited = row?.inherited?.settings
   const resolved = resolvedChoice(settings, inherited)
   const inheritedModel = settings.model === undefined ? resolved.model : undefined
@@ -384,6 +399,7 @@ function AgentEditor({
             <input
               type="checkbox"
               checked={powers.includes(power)}
+              disabled={power === 'run_commands' && !powers.includes('read_code')}
               onChange={(event) => togglePower(power, event.target.checked)}
             />
             <span>
@@ -392,6 +408,54 @@ function AgentEditor({
             </span>
           </label>
         ))}
+      </fieldset>
+      <fieldset className={`${styles.commandList} ${runs ? '' : styles.dimmed}`}>
+        <legend className={base.label}>Commands</legend>
+        <p className={styles.hint}>
+          A chat runs one with <code className={base.mono}>ted agent run &lt;name&gt;</code>. TED
+          runs it in the chat’s copy, after the repo’s setup and in the sandbox, with no arguments
+          from the agent.
+          {runs ? '' : ' Turn on Run commands in the copy to use them.'}
+        </p>
+        {commands.map((command, index) => (
+          <div key={rowKeys.current[index]} className={styles.command}>
+            <input
+              aria-label={`Command ${index + 1} name`}
+              className={`${base.input} ${base.mono}`}
+              value={command.name}
+              placeholder="test"
+              spellCheck={false}
+              onChange={(event) => setCommand(index, { name: event.target.value })}
+            />
+            <input
+              aria-label={`Command ${index + 1}`}
+              className={`${base.input} ${base.mono}`}
+              value={command.command}
+              placeholder="pnpm test"
+              spellCheck={false}
+              onChange={(event) => setCommand(index, { command: event.target.value })}
+            />
+            <ActionButton
+              type="button"
+              className={base.link}
+              aria-label={`Remove command ${index + 1}`}
+              onClick={() => {
+                rowKeys.current.splice(index, 1)
+                set({ commands: commands.filter((_, i) => i !== index) })
+              }}
+            >
+              Remove
+            </ActionButton>
+          </div>
+        ))}
+        <div>
+          <Button
+            disabled={commands.length >= maxAgentCommands}
+            onClick={() => set({ commands: [...commands, { name: '', command: '' }] })}
+          >
+            Add command
+          </Button>
+        </div>
       </fieldset>
       <div className={styles.field}>
         <label className={base.label} htmlFor={`${id}-instructions`}>

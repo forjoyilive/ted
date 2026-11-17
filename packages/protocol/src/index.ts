@@ -273,13 +273,17 @@ export type {
   AgentDraftPlace,
   AgentSummary,
   ChatAgent,
+  ChatCommandResult,
+  ChatCommandState,
   ChatQuestionInput,
   ChatRequest,
   ChatRequestKind,
   PostChatRequest,
+  RunChatCommandRequest,
 } from './chat-agent.ts'
 export {
   agentDraftPlaces,
+  chatCommandStates,
   chatRequestKinds,
   maxAgentDraftSummary,
   maxChatQuestionLength,
@@ -287,6 +291,7 @@ export {
   parseAgentDraftInput,
   parseChatAgentId,
   parsePostChatRequest,
+  parseRunChatCommandRequest,
 } from './chat-agent.ts'
 export {
   type BaseConflictFound,

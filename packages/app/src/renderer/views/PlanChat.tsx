@@ -15,7 +15,14 @@ import type {
 import { efforts } from '@ted/protocol/task'
 import { type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
-import { AgentAbout, AgentPowers, AgentSource, builtInPlanner } from '../components/AgentAbout.tsx'
+import {
+  AgentAbout,
+  AgentCommands,
+  AgentPowers,
+  AgentSource,
+  builtInPlanner,
+  shownCommands,
+} from '../components/AgentAbout.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
 import column from '../components/ChatColumn.module.css'
@@ -358,6 +365,11 @@ function AgentSections({ agent, provider }: { agent: AgentSummary | ChatAgent; p
       <Section title="Powers">
         <AgentPowers powers={agent.powers} />
       </Section>
+      {shownCommands(agent).length > 0 && (
+        <Section title="Commands">
+          <AgentCommands commands={shownCommands(agent)} />
+        </Section>
+      )}
       <Section title="From">
         <AgentSource source={agent.source} />
       </Section>
