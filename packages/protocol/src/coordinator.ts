@@ -62,9 +62,9 @@ export interface Coordinator {
   unsentMessages: RunMessage[]
   receipts: CoordinatorReceipt[]
   confirmations: CoordinatorConfirmation[]
-  requests?: ChatRequest[]
+  requests: ChatRequest[]
   tasks: Task[]
-  chatAgent?: ChatAgent
+  chatAgent: ChatAgent
 }
 
 export interface CoordinatorChatSummary {
@@ -77,7 +77,7 @@ export interface CoordinatorChatSummary {
   endedAt?: string
   taskCount: number
   waiting: boolean
-  chatAgent?: ChatAgent
+  chatAgent: ChatAgent
 }
 
 export interface CoordinatorRemoval {

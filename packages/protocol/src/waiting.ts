@@ -28,7 +28,7 @@ export type WaitingRequest =
       source: 'coordinator'
       chatId: string
       chatTitle: string
-      agentName?: string
+      agentName: string
       confirmationKind?: 'archive' | 'delete'
       requestKind?: ChatRequestKind
     })

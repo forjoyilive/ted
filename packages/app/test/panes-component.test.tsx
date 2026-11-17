@@ -4,7 +4,7 @@ import { act, fireEvent, screen, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { appState } from './support/app.tsx'
 import { deferred, required, user } from './support/component.ts'
-import { comment, createdAt, factory, task } from './support/fixtures.ts'
+import { comment, createdAt, factory, plannerAgent, task } from './support/fixtures.ts'
 
 async function openTask(a: ReturnType<typeof appState>) {
   a.state.tasks = [task()]
@@ -584,6 +584,7 @@ test.each(['response-first', 'event-first'] as const)(
         lastAt: createdAt,
         createdTasks: 0,
         runId: 'planner',
+        chatAgent: plannerAgent,
       },
       requests: [
         {

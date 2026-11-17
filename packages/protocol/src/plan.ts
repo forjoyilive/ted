@@ -77,7 +77,7 @@ export interface Plan {
   canResume?: boolean
   fromPlan?: { id: string; title: string; deleted?: boolean }
   fromTask?: PlanFromTask
-  chatAgent?: ChatAgent
+  chatAgent: ChatAgent
 }
 
 export interface ChatArchiveExpiry {

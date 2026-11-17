@@ -1,6 +1,7 @@
 import type { CoordinatorChatSummary, Plan } from '@ted/protocol'
 import { expect, test } from 'vitest'
 import { agentChatRows, groupedRows, pickChat, splitArchived } from '../src/renderer/agent-chats.ts'
+import { coordinatorAgent, plannerAgent } from './support/fixtures.ts'
 
 const coordinator = (fields: Partial<CoordinatorChatSummary>): CoordinatorChatSummary => ({
   id: 'c',
@@ -11,6 +12,7 @@ const coordinator = (fields: Partial<CoordinatorChatSummary>): CoordinatorChatSu
   lastAt: '2026-11-10T10:00:00.000Z',
   taskCount: 0,
   waiting: false,
+  chatAgent: coordinatorAgent,
   ...fields,
 })
 
@@ -25,6 +27,7 @@ const plan = (fields: Partial<Plan>): Plan => ({
   createdAt: '2026-11-10T10:00:00.000Z',
   lastAt: '2026-11-10T10:00:00.000Z',
   createdTasks: 0,
+  chatAgent: plannerAgent,
   ...fields,
 })
 
@@ -93,6 +96,21 @@ test('Coordinator chats and planning chats make one list, newest activity first,
   expect(groupedRows(rows.filter((r) => r.agent === 'Planner')).map((g) => g.agent)).toEqual([
     'Planner',
   ])
+  const triager = {
+    ...coordinatorAgent,
+    id: 'triager',
+    name: 'Triager',
+    source: 'factory' as const,
+  }
+  const custom = agentChatRows(
+    [coordinator({ id: 'c4', title: '', chatAgent: triager }), coordinator({ id: 'c5' })],
+    [plan({ id: 'p3' })],
+  )
+  expect(custom.find((r) => r.ref.id === 'c4')).toMatchObject({
+    agent: 'Triager',
+    title: 'Triager chat',
+  })
+  expect(groupedRows(custom).map((g) => g.agent)).toEqual(['Coordinator', 'Planner', 'Triager'])
 
   const [stopped] = agentChatRows([], [plan({ status: 'stopped', openRequest: true })])
   expect(stopped).toMatchObject({ waiting: true, chip: { label: 'Stopped' } })

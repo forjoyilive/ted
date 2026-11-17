@@ -15,7 +15,7 @@ import { QuestionCard } from '../src/renderer/views/Automations.tsx'
 import { Inbox } from '../src/renderer/views/Inbox.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, deferred, user } from './support/component.ts'
-import { comment, createdAt, factory, task } from './support/fixtures.ts'
+import { comment, createdAt, factory, plannerAgent, task } from './support/fixtures.ts'
 
 const round: Round = {
   number: 1,
@@ -1087,6 +1087,7 @@ test('Inbox interleaves request types newest first, filters without reordering, 
       createdTasks: 0,
       createdAt,
       lastAt: createdAt,
+      chatAgent: plannerAgent,
     },
     request: {
       id: 'plan',
@@ -2131,6 +2132,7 @@ test('Inbox right-click offers request actions, then Task or plan actions, and n
       createdAt,
       lastAt: createdAt,
       createdTasks: 0,
+      chatAgent: plannerAgent,
     },
     request: {
       id: 'pr1',

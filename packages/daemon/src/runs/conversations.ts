@@ -493,7 +493,7 @@ export function createConversations(options: {
     return {
       run: run ?? {
         id: c.runId,
-        name: 'Coordinator',
+        name: store.chats.agent(c.id)?.name ?? 'Coordinator',
         role: 'run',
         agent: c.lead.agent,
         ...(c.lead.model !== undefined && { model: c.lead.model }),

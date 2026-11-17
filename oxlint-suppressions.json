@@ -166,9 +166,6 @@
     }
   },
   "packages/app/src/renderer/agent-chats.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 4
     },
@@ -719,7 +716,7 @@
       "count": 1
     },
     "anti-slop/no-known-value-widening": {
-      "count": 11
+      "count": 9
     }
   },
   "packages/app/src/renderer/requests.ts": {

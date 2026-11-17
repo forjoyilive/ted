@@ -1,6 +1,9 @@
 import type {
   AgentKind,
+  AgentSummary,
   AnswerRequest,
+  ChatAgent,
+  ChatRequest,
   Coordinator,
   Effort,
   Factory,
@@ -12,7 +15,7 @@ import type {
 import { efforts } from '@ted/protocol/task'
 import { type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
-import { AgentAbout } from '../components/AgentAbout.tsx'
+import { AgentAbout, AgentPowers, AgentSource, builtInPlanner } from '../components/AgentAbout.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
 import column from '../components/ChatColumn.module.css'
@@ -21,6 +24,7 @@ import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { Markdown } from '../components/Markdown.tsx'
 import { ModelSelect } from '../components/ModelSelect.tsx'
 import { ProposalAnswer, ProposalRows } from '../components/ProposalCard.tsx'
+import { QuestionChoices, type QuestionSelection } from '../components/QuestionChoices.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { RoundAnswers, RoundQuestions } from '../components/RoundCard.tsx'
 import { type ChatExtra, RunChat, tokenCount } from '../components/RunChat.tsx'
@@ -56,6 +60,7 @@ export function PlanChatView({
   revealRequest,
   from,
   switcher,
+  agent,
   onBack,
   backLabel,
   onOpenPlan,
@@ -68,6 +73,7 @@ export function PlanChatView({
   revealRequest?: ScrollReveal | undefined
   from?: string
   switcher?: ReactNode
+  agent?: AgentSummary | undefined
   onBack?: (() => void) | undefined
   backLabel?: string
   onOpenPlan: (planId: string) => void
@@ -81,6 +87,7 @@ export function PlanChatView({
         factory={factory}
         {...(from !== undefined && { from })}
         switcher={switcher}
+        agent={agent ?? builtInPlanner}
         onBack={onBack}
         backLabel={backLabel}
         onStarted={onOpenPlan}
@@ -187,6 +194,7 @@ function NewPlanChat({
   factory,
   from,
   switcher,
+  agent,
   onBack,
   backLabel,
   onStarted,
@@ -195,6 +203,7 @@ function NewPlanChat({
   factory: Factory
   from?: string
   switcher?: ReactNode
+  agent: AgentSummary
   onBack?: (() => void) | undefined
   backLabel?: string | undefined
   onStarted: (planId: string) => void
@@ -207,8 +216,14 @@ function NewPlanChat({
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string>()
   const cloning = !factory.cloned
+  const agentKind = agent.agent
+  const agentModel = agent.model
 
   useEffect(() => {
+    if (agentKind !== undefined) {
+      setLead({ agent: agentKind, ...(agentModel !== undefined && { model: agentModel }) })
+      return
+    }
     let active = true
     ted.taskDefaults(factory.id).then(
       (defaults) => {
@@ -221,7 +236,7 @@ function NewPlanChat({
     return () => {
       active = false
     }
-  }, [factory.id])
+  }, [factory.id, agentKind, agentModel])
 
   const box = useRef<HTMLTextAreaElement>(null)
   useEffect(() => {
@@ -310,9 +325,7 @@ function NewPlanChat({
         </div>
       </section>
       <DetailsPane className={views.detailsPane} aria-label="Planning chat details">
-        <Section title="Agent">
-          <AgentAbout agent="Planner" provider={leadLine(lead)} />
-        </Section>
+        <AgentSections agent={agent} provider={leadLine(lead)} />
         <Section title="Started from">
           {earlier ? (
             <FromPlan
@@ -327,6 +340,26 @@ function NewPlanChat({
           <p className={styles.paneMuted}>None yet.</p>
         </Section>
       </DetailsPane>
+    </>
+  )
+}
+
+function AgentSections({ agent, provider }: { agent: AgentSummary | ChatAgent; provider: string }) {
+  return (
+    <>
+      <Section title="Agent">
+        <AgentAbout
+          agent={agent}
+          provider={provider}
+          removed={'removed' in agent && agent.removed}
+        />
+      </Section>
+      <Section title="Powers">
+        <AgentPowers powers={agent.powers} />
+      </Section>
+      <Section title="From">
+        <AgentSource source={agent.source} />
+      </Section>
     </>
   )
 }
@@ -646,7 +679,7 @@ function OneLiner({
   latest,
   onOpenTask,
 }: {
-  request: PlanRequest
+  request: PlanRequest | ChatRequest
   latest: boolean
   onOpenTask: (ref: string) => void
 }) {
@@ -673,10 +706,11 @@ function OneLiner({
       </div>
     )
   }
-  const showLabel = request.kind === 'round' ? 'Show answers' : 'Show'
+  const showLabel = request.kind === 'proposal' ? 'Show' : 'Show answers'
+  const answered = request.answer?.kind === 'answered' ? request.answer : undefined
   const canShow =
     !pending &&
-    ((request.kind === 'round' && request.answer?.kind === 'answered') ||
+    (((request.kind === 'round' || request.kind === 'question') && answered !== undefined) ||
       request.kind === 'proposal')
   return (
     <div className={pending ? `${styles.line} ${styles.pending}` : styles.line}>
@@ -690,8 +724,19 @@ function OneLiner({
           </ActionButton>
         )}
       </div>
-      {open && request.kind === 'round' && request.answer?.kind === 'answered' && (
-        <RoundAnswers request={request} answers={request.answer.answers ?? []} />
+      {open && request.kind === 'round' && answered && (
+        <RoundAnswers request={request} answers={answered.answers ?? []} />
+      )}
+      {open && request.kind === 'question' && answered && (
+        <div className={styles.changes}>
+          <Markdown text={request.body} />
+          <p>
+            {[
+              ...(answered.choices ?? (answered.choice !== undefined ? [answered.choice] : [])),
+              ...(answered.text !== undefined ? [answered.text] : []),
+            ].join(' · ')}
+          </p>
+        </div>
       )}
       {open && request.kind === 'proposal' && request.proposal && (
         <ProposalRows proposal={request.proposal} skip={[]} disabled />
@@ -775,6 +820,172 @@ function PlanRequestCard({ request }: { request: PlanRequest }) {
       )}
     </section>
   )
+}
+
+function ChatRequestCard({
+  chatId,
+  request,
+  agentName,
+}: {
+  chatId: string
+  request: ChatRequest
+  agentName: string
+}) {
+  const now = useNow()
+  const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string>()
+  const { kind, detail } = requestHeading(request)
+  const box = { kind: 'coordinator-request' as const, id: request.id }
+
+  async function send(answer: AnswerRequest) {
+    setSending(true)
+    setError(undefined)
+    try {
+      await ted.answerChatRequest(chatId, request.id, answer)
+    } catch (failed) {
+      setError(readableError(failed))
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <section
+      className={styles.request}
+      aria-label={`${kind} from ${agentName}`}
+      data-request={request.id}
+    >
+      <div className={styles.cardHead}>
+        <span className={styles.pendingKind}>{kind}</span>
+        <span>{`· ${dotted(detail, `from ${agentName}`, ago(request.createdAt, now))}`}</span>
+      </div>
+      {request.title !== undefined && request.title !== '' && (
+        <p className={styles.cardTitle}>{request.title}</p>
+      )}
+      {request.body !== '' && <Markdown className={styles.summary} text={request.body} />}
+      {request.kind === 'question' && (
+        <QuestionAnswer request={request} sending={sending} box={box} onSend={send} />
+      )}
+      {request.round && (
+        <RoundQuestions
+          round={request.round}
+          readOnly={false}
+          sending={sending}
+          talking={false}
+          onTalk={undefined}
+          box={box}
+          onSend={(answer) => send(answer)}
+        />
+      )}
+      {request.proposal && (
+        <ProposalAnswer
+          proposal={request.proposal}
+          readOnly={false}
+          sending={sending}
+          box={box}
+          onSend={(answer) => send(answer)}
+        />
+      )}
+      {error !== undefined && (
+        <p className={styles.error} role="alert">
+          {error}
+        </p>
+      )}
+    </section>
+  )
+}
+
+function QuestionAnswer({
+  request,
+  sending,
+  box,
+  onSend,
+}: {
+  request: ChatRequest
+  sending: boolean
+  box: { kind: 'coordinator-request'; id: string }
+  onSend: (answer: AnswerRequest) => void
+}) {
+  const { text, setText } = useMessageDraft(box)
+  const [selection, setSelection] = useState<QuestionSelection>()
+  const choices = request.choices ?? []
+  const multiple = request.multiple === true
+  const picks =
+    selection === undefined
+      ? []
+      : 'picks' in selection
+        ? selection.picks
+        : 'choice' in selection
+          ? [selection.choice]
+          : []
+  const written = text.trim()
+  const ready = picks.length > 0 || written !== ''
+  function answer() {
+    if (!ready || sending) return
+    onSend({
+      action: 'answer',
+      ...(multiple
+        ? picks.length > 0 && { choices: picks }
+        : picks[0] !== undefined && { choice: picks[0] }),
+      ...(written !== '' && { text: written }),
+    })
+  }
+  return (
+    <>
+      {choices.length > 0 && (
+        <QuestionChoices
+          choices={choices}
+          selection={selection}
+          onSelect={setSelection}
+          multiple={multiple}
+          disabled={sending}
+        />
+      )}
+      <textarea
+        className={`${styles.box} ${grow.text}`}
+        aria-label="Your answer"
+        placeholder={choices.length > 0 ? 'Add to this answer…' : 'Write your answer…'}
+        value={text}
+        disabled={sending}
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={sendOnEnter(answer, () => ready && !sending)}
+      />
+      <div className={styles.composerButtons}>
+        <Button
+          variant="primary"
+          shortcut="↵"
+          disabled={sending || !ready}
+          pending={sending}
+          onClick={answer}
+        >
+          Send
+        </Button>
+      </div>
+    </>
+  )
+}
+
+export function chatRequestItems(
+  chatId: string,
+  requests: readonly ChatRequest[],
+  agentName: string,
+  onOpenTask: (ref: string) => void,
+): ChatExtra[] {
+  const latestProposal = requests.findLast((r) => r.kind === 'proposal')
+  return requests.map((request) => ({
+    id: request.id,
+    at: request.createdAt,
+    node:
+      request.answer === undefined ? (
+        <ChatRequestCard chatId={chatId} request={request} agentName={agentName} />
+      ) : (
+        <OneLiner
+          request={request}
+          latest={request.id === latestProposal?.id}
+          onOpenTask={onOpenTask}
+        />
+      ),
+  }))
 }
 
 function extraItems(detail: PlanDetail, onOpenTask: (ref: string) => void): ChatExtra[] {
@@ -1003,9 +1214,7 @@ function PlanPane({
   const stages = useStages()
   return (
     <DetailsPane className={views.detailsPane} aria-label="Planning chat details">
-      <Section title="Agent">
-        <AgentAbout agent="Planner" provider={leadLine(plan)} />
-      </Section>
+      <AgentSections agent={plan.chatAgent} provider={leadLine(plan)} />
       <Section title="Started from">
         {plan.fromPlan ? (
           <FromPlan plan={plan} onOpenPlan={onOpenPlan} />

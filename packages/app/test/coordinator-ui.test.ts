@@ -6,7 +6,13 @@ import { type Coordinator, type CoordinatorTask, tedPaths } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron } from 'playwright'
 import { afterEach, beforeAll, expect, test, vi } from 'vitest'
 import { loadRunTokens } from '../../daemon/src/run-token.ts'
-import { api, daemonAsApp, makeOriginRepo, waitUntil } from '../../daemon/test/helpers.ts'
+import {
+  api,
+  commitToOrigin,
+  daemonAsApp,
+  makeOriginRepo,
+  waitUntil,
+} from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
 import { loadedWindow } from './first-window.ts'
 import { cleanupCoordinator } from './support/coordinator-cleanup.ts'
@@ -30,7 +36,7 @@ afterEach(async ({ task }) => {
   )
 })
 
-test('Coordinator opens from the sidebar, sends, shows receipts and keeps its whole conversation and scroll position when reopened and after a new Run', async () => {
+test('Coordinator opens from the sidebar, lists a repo Agent with its powers and source, sends, shows receipts and keeps its whole conversation and scroll position when reopened and after a new Run', async () => {
   home = await mkdtemp(path.join(tmpdir(), 'ted-coordinator-ui-'))
   const env = {
     ...process.env,
@@ -43,6 +49,10 @@ test('Coordinator opens from the sidebar, sends, shows receipts and keeps its wh
   }
   const client = await daemonAsApp(home, env)
   const origin = await makeOriginRepo(path.join(home, 'origin'))
+  await commitToOrigin(path.join(home, 'origin'), {
+    '.ted/agents.yaml': 'triager:\n  name: Triager\n  powers: [ask, read_code]\n',
+    '.ted/agents/triager.md': 'You sort new issues.\n',
+  })
   const factory = await client.addFactory({ repo: origin, key: 'NB' })
   const task = await client.createTask({ factory: 'NB', title: 'Discuss priorities' })
   const current = async () => {
@@ -57,6 +67,22 @@ test('Coordinator opens from the sidebar, sends, shows receipts and keeps its wh
   await entry.click()
   const pane = window.getByRole('region', { name: 'Coordinator', exact: true })
   await pane.getByRole('heading', { name: /What needs your attention/ }).waitFor()
+  const picker = pane.getByRole('combobox', { name: 'Agent' })
+  await expect
+    .poll(() => picker.locator('option').allTextContents())
+    .toEqual(['Coordinator', 'Planner', 'Triager'])
+  await picker.selectOption('triager')
+  const triager = window.getByRole('region', { name: 'Triager', exact: true })
+  await triager.getByText('Ask the user · Read the code · This repo').waitFor()
+  const triagerDetails = window.getByRole('complementary', { name: 'Triager details' })
+  expect(
+    await triagerDetails
+      .getByRole('region', { name: 'Powers' })
+      .getByRole('listitem')
+      .allTextContents(),
+  ).toEqual(['Ask the user', 'Read the code'])
+  await triagerDetails.getByRole('region', { name: 'From' }).getByText('This repo').waitFor()
+  await triager.getByRole('combobox', { name: 'Agent' }).selectOption('coordinator')
   const input = pane.getByRole('textbox', { name: 'Message to the Coordinator' })
   await input.fill(
     JSON.stringify({

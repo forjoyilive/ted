@@ -2,3 +2,7 @@
 .about p { margin: 0; color: var(--text-secondary); }
 .about .name { color: var(--text-primary); font-weight: var(--weight-semibold); }
 .about .provider { color: var(--text-caption); }
+.about .removed { color: var(--text-primary); }
+.powers { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; color: var(--text-primary); font-size: var(--text-13); }
+.none { margin: 0; color: var(--text-caption); font-size: var(--text-13); }
+.source { margin: 0; color: var(--text-primary); font-size: var(--text-13); }
