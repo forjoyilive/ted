@@ -970,13 +970,14 @@ export function chatRequestItems(
   requests: readonly ChatRequest[],
   agentName: string,
   onOpenTask: (ref: string) => void,
+  answerable = true,
 ): ChatExtra[] {
   const latestProposal = requests.findLast((r) => r.kind === 'proposal')
   return requests.map((request) => ({
     id: request.id,
     at: request.createdAt,
     node:
-      request.answer === undefined ? (
+      request.answer === undefined && answerable ? (
         <ChatRequestCard chatId={chatId} request={request} agentName={agentName} />
       ) : (
         <OneLiner
