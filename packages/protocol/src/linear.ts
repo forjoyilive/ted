@@ -1,4 +1,5 @@
 import type { Attachment, Priority } from './task.ts'
+import { trimEndOf, urlTrailingPunctuation } from './trim.ts'
 
 export type LinearKeyPlace = 'keyring' | 'file'
 
@@ -89,7 +90,7 @@ export function findLinearUrl(text: string): LinearUrl | undefined {
   if (!found) return undefined
   const [url, workspace = '', identifier = ''] = found
   return {
-    url: url.replace(/[.,;:!?]+$/, ''),
+    url: trimEndOf(url, urlTrailingPunctuation),
     workspace: workspace.toLowerCase(),
     identifier: identifier.toUpperCase(),
   }
