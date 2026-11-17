@@ -285,7 +285,7 @@ test('a Coordinator drafts Agents that only the app creates, in the Library or a
   const factory = await ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
   const started = await ok<Coordinator>('POST', `/factories/${factory.id}/coordinator-chats`, {
     agent: 'claude',
-    text: JSON.stringify({ steps: [{ everyMessage: [{ endTurn: true }] }, { endTurn: true }] }),
+    text: JSON.stringify({ steps: [] }),
   })
   expect(started.chatAgent.powers).toEqual([
     'ask',
@@ -294,7 +294,12 @@ test('a Coordinator drafts Agents that only the app creates, in the Library or a
     'manage_agents',
   ])
   const chatPath = `/coordinator-chats/${started.id}`
-  await waitUntil(async () => (await ok<Coordinator>('GET', chatPath)).started, 'the chat')
+  const working = () =>
+    waitUntil(async () => {
+      const current = await ok<Coordinator>('GET', chatPath)
+      return (current.started && current.status === 'working') || undefined
+    }, 'the Coordinator to be working')
+  await working()
   const prompt = (await ok<RunWithConversation>('GET', `/runs/${started.runId}`)).run.prompt ?? ''
   expect(prompt).toContain('ted coordinator agent-draft --file <file>')
   const run = api(port, tokens.issue(started.runId))
@@ -380,6 +385,7 @@ test('a Coordinator drafts Agents that only the app creates, in the Library or a
       ) || undefined,
     'the result to reach the Coordinator',
   )
+  await working()
 
   const change = await post({
     id: 'billing-guide',
