@@ -25,7 +25,14 @@ const listen = async (server: Server | ReturnType<typeof createServer>) => {
 }
 
 test('only public addresses count as outside hosts', () => {
-  for (const address of ['93.184.216.34', '2606:2800:220:1::1', '::ffff:93.184.216.34'])
+  for (const address of [
+    '93.184.216.34',
+    '2606:2800:220:1::1',
+    '::ffff:93.184.216.34',
+    '64:ff9b::5db8:d822',
+    '64:ff9b::93.184.216.34',
+    '2002:5db8:d822::1',
+  ])
     expect(isPublicAddress(address), address).toBe(true)
   for (const address of [
     '127.0.0.1',
@@ -41,6 +48,16 @@ test('only public addresses count as outside hosts', () => {
     'fe80::1',
     '::ffff:127.0.0.1',
     '::ffff:7f00:1',
+    '64:ff9b::c0a8:101',
+    '64:ff9b::192.168.1.1',
+    '64:ff9b::7f00:1',
+    '2002:c0a8:101::1',
+    '64:ff9b:1::5db8:d822',
+    '2001:0:4136:e378::1',
+    '2001:db8::1',
+    'fec0::1',
+    '100::1',
+    'fe80::1%en0',
     'images.example',
   ])
     expect(isPublicAddress(address), address).toBe(false)

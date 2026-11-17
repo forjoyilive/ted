@@ -1,6 +1,7 @@
 import { createSocket } from 'node:dgram'
 import { createServer } from 'node:net'
 import path from 'node:path'
+import { scriptLiteral } from '@ted/protocol'
 import type { ElectronApplication, Page } from 'playwright'
 import { expect } from 'vitest'
 
@@ -263,21 +264,28 @@ export async function checkOutsideRequests(
   await new Promise<void>((resolve) => tcp.listen(0, '127.0.0.1', resolve))
   const address = tcp.address() as import('node:net').AddressInfo
   try {
+    const images = [
+      `http://127.0.0.1:${address.port}/art.png`,
+      `http://localhost:${address.port}/art.png`,
+    ]
+      .map(scriptLiteral)
+      .join(', ')
+    const script = `Promise.all([
+      ...[${images}].map((src) => new Promise((resolve) => {
+        const image = new Image(); image.onload = () => resolve('loaded'); image.onerror = () => resolve('blocked'); image.src = src;
+      })),
+      new Promise((resolve) => {
+        const script = document.createElement('script'); script.onload = () => resolve('loaded'); script.onerror = () => resolve('blocked');
+        script.src = ${scriptLiteral('https://cdn.example/app.js')}; document.head.append(script);
+      }),
+    ])`
     const results = await app.evaluate(
-      async ({ webContents }, { url, port }) => {
+      async ({ webContents }, { url, script }) => {
         const guest = webContents.getAllWebContents().find((c) => c.getURL() === url)
         if (!guest) throw new Error('No guest')
-        return guest.executeJavaScript(`Promise.all([
-          ...['http://127.0.0.1:${port}/art.png', 'http://localhost:${port}/art.png'].map((src) => new Promise((resolve) => {
-            const image = new Image(); image.onload = () => resolve('loaded'); image.onerror = () => resolve('blocked'); image.src = src;
-          })),
-          new Promise((resolve) => {
-            const script = document.createElement('script'); script.onload = () => resolve('loaded'); script.onerror = () => resolve('blocked');
-            script.src = 'https://cdn.example/app.js'; document.head.append(script);
-          }),
-        ])`)
+        return guest.executeJavaScript(script)
       },
-      { url, port: address.port },
+      { url, script },
     )
     expect(results).toEqual(['blocked', 'blocked', 'blocked'])
     expect(connections).toBe(0)

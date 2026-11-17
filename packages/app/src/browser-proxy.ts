@@ -30,8 +30,13 @@ for (const [address, prefix] of [
 }
 for (const [address, prefix] of [
   ['::', 96],
+  ['64:ff9b:1::', 48],
+  ['100::', 64],
+  ['2001::', 32],
+  ['2001:db8::', 32],
   ['fc00::', 7],
   ['fe80::', 10],
+  ['fec0::', 10],
   ['ff00::', 8],
 ] as const) {
   local.addSubnet(address, prefix, 'ipv6')
@@ -42,8 +47,34 @@ for (const [address, prefix] of [
 export function isPublicAddress(address: string): boolean {
   const version = isIP(address)
   if (version === 4) return !local.check(address, 'ipv4')
-  if (version === 6) return !local.check(address, 'ipv6')
-  return false
+  if (version !== 6 || address.includes('%')) return false
+  const embedded = embeddedIPv4(address)
+  if (embedded) return isPublicAddress(embedded)
+  return !local.check(address, 'ipv6')
+}
+
+function ipv6Groups(address: string): number[] {
+  const hex = new URL(`http://[${address}]`).hostname.slice(1, -1)
+  const [head = '', tail = ''] = hex.split('::')
+  const parse = (part: string) =>
+    part ? part.split(':').map((group) => Number.parseInt(group, 16)) : []
+  const front = parse(head)
+  const back = parse(tail)
+  return [...front, ...Array<number>(8 - front.length - back.length).fill(0), ...back]
+}
+
+// NAT64 (64:ff9b::/96) and 6to4 (2002::/16) gateways connect to the IPv4 address inside the IPv6 one.
+function embeddedIPv4(address: string): string | undefined {
+  const groups = ipv6Groups(address)
+  const quad = (high: number, low: number) => [high >> 8, high & 255, low >> 8, low & 255].join('.')
+  if (
+    groups[0] === 0x64 &&
+    groups[1] === 0xff9b &&
+    groups.slice(2, 6).every((group) => group === 0)
+  )
+    return quad(groups[6] ?? 0, groups[7] ?? 0)
+  if (groups[0] === 0x2002) return quad(groups[1] ?? 0, groups[2] ?? 0)
+  return undefined
 }
 
 export function isOutsideHost(hostname: string): boolean {
