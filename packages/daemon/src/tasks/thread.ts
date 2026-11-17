@@ -676,7 +676,7 @@ export function threadEvents(
           'failure',
           `${stageTitle(text(data.from))} sent this back to ${stageTitle(text(data.to))}${round}${
             judgedNow ? reviewedBy(judgedNow) : ''
-          }${causes.get(entry.at) === 'base-conflict' ? ' · base conflict' : ''}${severity === 'p1' ? ' · P1 declared' : severity === 'unfixed' ? ' · earlier Finding unfixed declared' : ''}`,
+          }${causes.get(entry.at) === 'base-conflict' ? ' · base conflict' : ''}${checkRunId !== undefined && fromValidate ? ' · a check failed' : ''}${severity === 'p1' ? ' · P1 declared' : severity === 'unfixed' ? ' · earlier Finding unfixed declared' : ''}`,
           checkRunId === undefined ? findings : (findings.split(/\n\s*\n/)[0] ?? findings),
           checkRunId ?? (judgedNow ? text(judgedNow.checkRunId) || undefined : undefined),
           {

@@ -535,6 +535,12 @@ export function createValidation(options: ValidationOptions) {
         })
         options.setChecking(taskId, false)
         await store.persisted()
+        const unreturned = unreturnedEntryFailure(find(taskId))
+        if (unreturned) {
+          const resolution = await options.workflow(find(taskId))
+          await returnFailedChecks(taskId, unreturned, instructionsWith(taskId, resolution))
+          return false
+        }
         if (validates(task.stage))
           await options.deliver(
             task,
@@ -559,21 +565,81 @@ export function createValidation(options: ValidationOptions) {
     store.failures.saveProgress({ ...saved, visit: visitStart(task) })
   }
 
+  const instructionsWith =
+    (taskId: string, resolution: WorkflowResolution, message?: string) => async (text: string) => {
+      const current = find(taskId)
+      const instructions = await options.instructions(current, resolution, message)
+      const apps = current.setup ? await options.apps(current) : undefined
+      return [
+        instructions,
+        ...(text === '' ? [] : [text]),
+        ...(apps === undefined ? [] : [apps]),
+      ].join('\n\n')
+    }
+
+  function unreturnedEntryFailure(task: Task): CheckRun | undefined {
+    const progress = store.failures.progress(task.id)
+    const runId = progress?.executions.at(-1)?.runId
+    const run = runId === undefined ? undefined : store.getCheckRun(runId)
+    if (
+      !validates(task.stage) ||
+      progress?.visit !== visitStart(task) ||
+      run?.trigger !== 'validate' ||
+      run.outcome !== 'failed'
+    )
+      return undefined
+    const diagnosed = store.failures
+      .list(task.id)
+      .some(
+        (value) =>
+          value.source.kind === 'factory-check' &&
+          value.source.checkRunId === run.id &&
+          (value.assessments.length > 0 || value.resolutions.length > 0),
+      )
+    const held =
+      store.sendBackAsks(task.id).some((ask) => ask.checkRunId === run.id) ||
+      store.loopChecks(task.id).some((check) => check.checkRunId === run.id)
+    return diagnosed || held ? undefined : run
+  }
+
+  async function returnFailedChecks(
+    taskId: string,
+    checkRun: CheckRun,
+    withInstructions: (text: string) => Promise<string>,
+  ): Promise<void> {
+    const current = find(taskId)
+    const findings = generatedFailureText(
+      (await options.findings(current, checkRun)) ?? summary(checkRun.checks),
+    )
+    await writeFile(path.join(options.checkDir(current, checkRun.id), 'findings.md'), findings, {
+      mode: 0o600,
+    })
+    options.setChecking(taskId, false)
+    let problem: string | undefined
+    try {
+      await options.returnToWork(taskId, findings, checkRun.id)
+    } catch (error) {
+      problem = error instanceof Error ? error.message : String(error)
+    }
+    if (problem === undefined) return
+    console.error(redactSecrets(`couldn’t send ${current.displayId} back to Work: ${problem}`))
+    const failureId = store.failures.progress(taskId)?.failureId
+    const reference = failureId ? shortReference(failureId) : '<id>'
+    await options.deliver(
+      find(taskId),
+      await withInstructions(
+        `# A check failed\n\nTED couldn’t send the Task back to Work: ${redactSecrets(problem)}. If this change caused failure case ${reference}, send the Task back with \`ted outcome back\`. If the cause is outside the Task, add evidence, assess it and run \`ted failure ask ${reference}\` so the human can decide.\n\n${findings}`,
+      ),
+      'checks-done',
+    )
+  }
+
   async function validateChecks(taskId: string, message?: string): Promise<void> {
     options.setChecking(taskId, true)
     try {
       const task = find(taskId)
       const resolution = await options.workflow(find(task.id))
-      const withInstructions = async (text: string) => {
-        const current = find(taskId)
-        const instructions = await options.instructions(current, resolution, message)
-        const apps = current.setup ? await options.apps(current) : undefined
-        return [
-          instructions,
-          ...(text === '' ? [] : [text]),
-          ...(apps === undefined ? [] : [apps]),
-        ].join('\n\n')
-      }
+      const withInstructions = instructionsWith(taskId, resolution, message)
       const started = await beginChecks(task, resolution, 'validate', undefined, worktreeReads())
       if (!started) {
         const progress = store.failures.progress(taskId)
@@ -603,30 +669,7 @@ export function createValidation(options: ValidationOptions) {
         )
         return
       }
-      const findings = generatedFailureText(
-        (await options.findings(current, checkRun)) ?? summary(checkRun.checks),
-      )
-      await writeFile(path.join(options.checkDir(current, checkRun.id), 'findings.md'), findings, {
-        mode: 0o600,
-      })
-      options.setChecking(taskId, false)
-      let problem: string | undefined
-      try {
-        await options.returnToWork(taskId, findings, checkRun.id)
-      } catch (error) {
-        problem = error instanceof Error ? error.message : String(error)
-      }
-      if (problem === undefined) return
-      console.error(redactSecrets(`couldn’t send ${task.displayId} back to Work: ${problem}`))
-      const failureId = store.failures.progress(taskId)?.failureId
-      const reference = failureId ? shortReference(failureId) : '<id>'
-      await options.deliver(
-        find(taskId),
-        await withInstructions(
-          `# A check failed\n\nTED couldn’t send the Task back to Work: ${redactSecrets(problem)}. If this change caused failure case ${reference}, send the Task back with \`ted outcome back\`. If the cause is outside the Task, add evidence, assess it and run \`ted failure ask ${reference}\` so the human can decide.\n\n${findings}`,
-        ),
-        'checks-done',
-      )
+      await returnFailedChecks(taskId, checkRun, withInstructions)
     } finally {
       options.setChecking(taskId, false)
     }
@@ -1067,7 +1110,8 @@ export function createValidation(options: ValidationOptions) {
           progress.visit !== visitStart(task) ||
           progress.pending ||
           decided ||
-          validationFixes(task).length > 0) &&
+          validationFixes(task).length > 0 ||
+          unreturnedEntryFailure(task) !== undefined) &&
         !options.isChecking(task.id)
       ) {
         options.setChecking(task.id, true)

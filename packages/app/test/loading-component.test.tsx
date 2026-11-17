@@ -158,6 +158,27 @@ test('Answer in the header closes a shown App so the request appears', async () 
   await waitFor(() => expect(document.activeElement?.contains(card)).toBe(true))
 })
 
+test('the Task header counts returns to Work from the first one, with the limit when there is one', () => {
+  bridge({
+    ...detailHandlers(),
+    listThreadEvents: () => [],
+    listCheckRuns: () => [],
+    listFailures: () => [],
+    taskDescriptions: () => [],
+    appLog: () => ({ text: '', truncated: false }),
+  })
+  const props = { backLink: undefined, shownRun: undefined, ...callbacks }
+  const meta = () => screen.getByText(/Back to Work/).textContent
+  const view = render(<TaskThread {...props} task={task({ stage: 'review' })} />)
+  expect(screen.queryByText(/Back to Work/)).toBeNull()
+  view.rerender(
+    <TaskThread {...props} task={task({ stage: 'review', backToWork: { count: 3, limit: 8 } })} />,
+  )
+  expect(meta()).toBe('NB-1  ·  Back to Work 3 of 8')
+  view.rerender(<TaskThread {...props} task={task({ stage: 'work', backToWork: { count: 1 } })} />)
+  expect(meta()).toBe('NB-1  ·  Back to Work 1')
+})
+
 test('a failed description load shows the error, even for an empty description, and can be retried', async () => {
   const pending = deferred<DescriptionVersion[]>()
   const api = bridge({ ...detailHandlers(), taskDescriptions: () => pending.promise })

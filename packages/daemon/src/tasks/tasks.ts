@@ -2837,6 +2837,25 @@ export function createTasks(options: {
       const task = find(taskId)
       if (!validates(task.stage) || task.archived || task.stopped) return
       const resolution = await taskWorkflow(task, { fetch: false })
+      const since = visitStart(task)
+      const recorded = store
+        .listSendBacks(taskId)
+        .find((b) => b.checkRunId === checkRunId && validates(b.from) && b.at >= since)
+      if (recorded) {
+        const to = stageWith('handOff')
+        await move(
+          task,
+          resolution,
+          to,
+          backMessage(resolution.workflow, to, stageWith('validates'), recorded),
+        )
+        return
+      }
+      if (
+        store.sendBackAsks(taskId).some((ask) => ask.checkRunId === checkRunId) ||
+        store.loopChecks(taskId).some((check) => check.checkRunId === checkRunId)
+      )
+        return
       judge(task, 'sent-back', undefined)
       await sendBack(
         task,

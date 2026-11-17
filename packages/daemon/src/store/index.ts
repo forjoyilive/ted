@@ -115,6 +115,7 @@ import {
   type StageId,
   type Task,
   type TaskAsanaSource,
+  type TaskBackToWork,
   type TaskBrief,
   type TaskEnding,
   type TaskGitHubSource,
@@ -2099,14 +2100,10 @@ export async function openStore({
   }
 
   const backToWork = (taskId: string, reads: TaskReads): TaskBackToWork | undefined => {
-    const since = reads
-      .sendBackResets(taskId)
-      .findLast((reset) => validates(reset.stage as StageId))?.at
+    const since = reads.sendBackResets(taskId).findLast((reset) => validates(reset.stage))?.at
     const returns = reads
       .sendBacks(taskId)
-      .filter(
-        (b) => b.counted && validates(b.fromStage as StageId) && (since === undefined || b.at > since),
-      )
+      .filter((b) => b.counted && validates(b.fromStage) && (since === undefined || b.at > since))
     const limit = returns.at(-1)?.limit ?? undefined
     return returns.length === 0
       ? undefined

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { StageId } from '@ted/protocol'
-import { handsOff } from '@ted/protocol/stage'
+import { handsOff, validates } from '@ted/protocol/stage'
 import { redactSecrets } from '../redact.ts'
 import { stageTitle } from '../workflow/workflow.ts'
 import { oneLine } from './review-rounds.ts'
@@ -48,7 +48,7 @@ export function conflictRefusal(
   if (handsOff(task.stage)) {
     return `${head}\n\nMerge that commit into the branch here (\`git merge ${conflict.tip}\` in the worktree${multiRepo ? ` for ${conflict.name}` : ''}), resolve the conflicts, run the tests and checks the conflict touches, commit, then report the outcome again.`
   }
-  return `${head}\n\nSend the Task back to Work with \`ted outcome back --to work --cause base-conflict --findings <file>\`; the findings only need to name the conflict. TED doesn’t count that send-back against the limit.`
+  return `${head}\n\nSend the Task back to Work with \`ted outcome back --to work --cause base-conflict --findings <file>\`; the findings only need to name the conflict. ${validates(task.stage) ? 'That send-back counts toward Validate’s limit, like any other return to Work.' : 'TED doesn’t count that send-back against the limit.'}`
 }
 
 export function conflictChecked(conflict: BaseConflict, multiRepo: boolean): string {

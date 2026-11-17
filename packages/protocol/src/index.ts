@@ -1115,6 +1115,7 @@ export {
   type Task,
   type TaskArchive,
   type TaskAsanaSource,
+  type TaskBackToWork,
   type TaskBrief,
   type TaskDefaults,
   type TaskDraftState,

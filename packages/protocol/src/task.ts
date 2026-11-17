@@ -283,6 +283,7 @@ export interface Task {
   splitFrom?: TaskLink
   fromPlan?: { id: string; title: string; deleted?: boolean }
   merged?: TaskMerged
+  backToWork?: TaskBackToWork
   createdAt: string
   startedAt?: string
   updatedAt: string
@@ -321,6 +322,11 @@ export interface TaskLink {
 export interface TaskMerged {
   at: string
   pullRequests: number[]
+}
+
+export interface TaskBackToWork {
+  count: number
+  limit?: number
 }
 
 export interface FollowUpRequest {

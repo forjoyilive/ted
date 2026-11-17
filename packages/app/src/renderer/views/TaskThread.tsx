@@ -969,6 +969,8 @@ export function TaskThread({
                   </ActionButton>
                 </>
               )}
+              {task.backToWork &&
+                `  ·  Back to Work ${task.backToWork.count}${task.backToWork.limit === undefined ? '' : ` of ${task.backToWork.limit}`}`}
               {task.followUpOf ? (
                 <>
                   {'  ·  Follow-up to '}
