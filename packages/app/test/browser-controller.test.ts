@@ -29,7 +29,7 @@ function makeSession() {
 }
 function makeContents() {
   let destroyed = false
-  return Object.assign(new EventEmitter(), {
+  const contents = Object.assign(new EventEmitter(), {
     debugger: Object.assign(new EventEmitter(), {
       attach: vi.fn(),
       sendCommand: vi.fn(async (_method: string, _params?: unknown) => ({})),
@@ -42,7 +42,7 @@ function makeContents() {
     setWindowOpenHandler: vi.fn(),
     getURL: () => 'http://localhost:3000/',
     getUserAgent: () => 'Electron desktop',
-    reload: vi.fn(),
+    reload: vi.fn((): void => {}),
     executeJavaScriptInIsolatedWorld: vi.fn(
       async (_world: number, scripts: { code: string }[]): Promise<unknown> => {
         const prefix = /const ref = "([^"]+)"/.exec(scripts[0]?.code ?? '')?.[1]
@@ -50,6 +50,10 @@ function makeContents() {
       },
     ),
   })
+  contents.reload.mockImplementation(() => {
+    queueMicrotask(() => contents.emit('did-stop-loading'))
+  })
+  return contents
 }
 const mocks = {
   views: [] as { webContents: ReturnType<typeof makeContents> }[],
@@ -827,11 +831,25 @@ test('a size command emulates a phone, scales clicks with the zoom and captures 
   const sent = (method: string) =>
     contents.debugger.sendCommand.mock.calls.filter(([name]) => name === method).map(([, p]) => p)
 
+  let finishLoad: (() => void) | undefined
+  contents.reload.mockImplementationOnce(() => {
+    finishLoad = () => contents.emit('did-stop-loading')
+  })
   await transport.send('size', 'one', 'size', { value: 'mobile' }, 1_000, 'run-1')
+  await vi.waitFor(() => expect(finishLoad).toBeTypeOf('function'))
+  expect(transport.replies).toHaveLength(1)
+  finishLoad?.()
   await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
   expect(transport.replies[1]?.result?.text).toBe('Preview size: Mobile · 390 × 844')
   expect(sent('Emulation.setDeviceMetricsOverride')).toEqual([
-    { width: 390, height: 844, deviceScaleFactor: 0, mobile: true, scale: 1 },
+    {
+      width: 390,
+      height: 844,
+      deviceScaleFactor: 0,
+      mobile: true,
+      scale: 1,
+      screenOrientation: { type: 'portraitPrimary', angle: 0 },
+    },
   ])
   expect(sent('Emulation.setTouchEmulationEnabled')).toEqual([{ enabled: true, maxTouchPoints: 5 }])
   expect(sent('Emulation.setUserAgentOverride')[0]).toMatchObject({ platform: 'iPhone' })
@@ -863,4 +881,39 @@ test('a size command emulates a phone, scales clicks with the zoom and captures 
   const state = await controller.state('one')
   expect(state).toMatchObject({ size: 'desktop' })
   expect(state).not.toHaveProperty('sizeByAgent')
+})
+
+test('a phone-sized screenshot that the page can’t draw fails instead of returning a smaller image', async () => {
+  const transport = bridge()
+  const controller = createTaskBrowsers(
+    () => undefined,
+    () => transport.client,
+    vi.fn(),
+    electron,
+    { captureMs: 10 },
+  )
+  controllers.push(controller)
+  await transport.send('open', 'one', 'open')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  const contents = mocks.views[0]?.webContents
+  if (!contents) throw new Error('Missing browser contents')
+  await transport.send('size', 'one', 'size', { value: 'mobile-landscape' })
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
+  expect(
+    contents.debugger.sendCommand.mock.calls.find(
+      ([method]) => method === 'Emulation.setDeviceMetricsOverride',
+    )?.[1],
+  ).toMatchObject({
+    width: 844,
+    height: 390,
+    screenOrientation: { type: 'landscapePrimary', angle: 90 },
+  })
+  contents.debugger.sendCommand.mockImplementation((method: string) =>
+    method === 'Page.captureScreenshot' ? new Promise(() => {}) : Promise.resolve({}),
+  )
+  await transport.send('shot', 'one', 'screenshot')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(3))
+  expect(transport.replies[2]?.error).toBe(
+    'Couldn’t capture the page at its preview size; open its preview and try again',
+  )
 })

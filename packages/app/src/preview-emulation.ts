@@ -8,13 +8,14 @@ export interface PreviewEmulation {
     deviceScaleFactor: 0
     mobile: boolean
     scale: number
+    screenOrientation?: { type: 'portraitPrimary' | 'landscapePrimary'; angle: 0 | 90 }
   }
   device?: { userAgent: string; platform: string }
 }
 
 export interface EmulationTarget {
   send(method: string, params?: JsonObject): Promise<void>
-  reload(): void
+  reload(): Promise<void>
   loaded(): boolean
 }
 
@@ -34,6 +35,11 @@ export function previewEmulation(
       deviceScaleFactor: 0,
       mobile: device !== undefined,
       scale,
+      ...((size.kind === 'tablet' || size.kind === 'mobile') && {
+        screenOrientation: size.landscape
+          ? { type: 'landscapePrimary' as const, angle: 90 as const }
+          : { type: 'portraitPrimary' as const, angle: 0 as const },
+      }),
     },
     ...(device && { device: { userAgent: device.userAgent, platform: device.platform } }),
   }
@@ -61,5 +67,5 @@ export async function applyEmulation(
       : { userAgent: original },
   )
   // Touch support and the user agent are read when a document starts.
-  if (target.loaded()) target.reload()
+  if (target.loaded()) await target.reload()
 }

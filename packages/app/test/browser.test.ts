@@ -369,9 +369,9 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   await sizeButton.click()
   await window.getByRole('menuitemradio', { name: /^Desktop/ }).click()
   await expect.poll(adminScreen).toMatchObject({ touch: 0, phone: false })
-  expect(await panel.locator('[data-preview-size]').getAttribute('data-preview-size')).toBe(
-    'desktop',
-  )
+  await expect
+    .poll(() => panel.locator('[data-preview-size]').getAttribute('data-preview-size'))
+    .toBe('desktop')
   await command({ action: 'open', app: { name: 'Web' } })
   expect(
     await app.evaluate(async ({ webContents }, url) => {

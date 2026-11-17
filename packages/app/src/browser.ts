@@ -78,6 +78,7 @@ export function createTaskBrowsers(
   getClient: () => DaemonClient,
   onSelect: (taskId: string, app: TaskApp) => void,
   electron: BrowserViews,
+  timing: { captureMs?: number; reloadMs?: number } = {},
 ) {
   const pages = new Map<string, Page>()
   const sessions = new Map<string, { session: Session; apps: Map<string, TaskApp> }>()
@@ -97,7 +98,16 @@ export function createTaskBrowsers(
     await applyEmulation(
       {
         send: (method, params) => contents.debugger.sendCommand(method, params),
-        reload: () => contents.reload(),
+        reload: () =>
+          new Promise<void>((resolve) => {
+            const done = () => {
+              contents.off('did-stop-loading', done)
+              resolve()
+            }
+            contents.on('did-stop-loading', done)
+            AbortSignal.timeout(timing.reloadMs ?? 15_000).addEventListener('abort', done)
+            contents.reload()
+          }),
         loaded: () => !['', 'about:blank'].includes(contents.getURL()),
       },
       page.emulation,
@@ -265,10 +275,16 @@ export function createTaskBrowsers(
                   .sendCommand('Page.captureScreenshot', { format: 'png' })
                   .then(({ data }) => (isString(data) ? data : undefined)),
                 new Promise<undefined>((resolve) =>
-                  AbortSignal.timeout(5_000).addEventListener('abort', () => resolve(undefined)),
+                  AbortSignal.timeout(timing.captureMs ?? 5_000).addEventListener('abort', () =>
+                    resolve(undefined),
+                  ),
                 ),
               ])
-              return data === undefined ? plain() : new Uint8Array(Buffer.from(data, 'base64'))
+              if (data === undefined)
+                throw new Error(
+                  'Couldn’t capture the page at its preview size; open its preview and try again',
+                )
+              return new Uint8Array(Buffer.from(data, 'base64'))
             },
           }
           opened = page
