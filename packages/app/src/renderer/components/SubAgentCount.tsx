@@ -6,6 +6,7 @@ import {
   subAgentWorking,
 } from '../sub-agents.ts'
 import { SubAgentsIcon } from './icons.tsx'
+import { statusChipClass } from './StatusChip.tsx'
 import styles from './SubAgentCount.module.css'
 import { TaskStatusChips } from './TaskStatus.tsx'
 
@@ -37,10 +38,10 @@ function SubAgentCount({ count, working }: { count: number; working: boolean }) 
       aria-label={label}
       title={label}
       data-working={working}
-      className={`${styles.count} ${working ? styles.working : ''}`}
+      className={statusChipClass(working ? 'working' : 'neutral')}
     >
       <SubAgentsIcon className={styles.icon} />
-      {count}
+      <span className={styles.count}>{count}</span>
     </span>
   )
 }
