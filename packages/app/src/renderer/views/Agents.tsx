@@ -27,13 +27,13 @@ import {
   useActionMenu,
 } from '../components/ContextMenu.tsx'
 import type { ScrollReveal } from '../components/ScrollMemory.tsx'
-import { Select } from '../components/Select.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
 import { useCoordinatorChats, useFactoryAgents, usePlansState } from '../data.ts'
 import { useMessageDraft } from '../message-drafts.ts'
 import { newPlan } from '../navigation.ts'
 import { when } from '../plans.ts'
 import { readableError, ted } from '../ted.ts'
+import { AgentPicker } from './AgentPicker.tsx'
 import styles from './Agents.module.css'
 import { CoordinatorChat, CoordinatorStart } from './Coordinator.tsx'
 import inbox from './Inbox.module.css'
@@ -52,6 +52,7 @@ export function AgentsView({
   revealRequest,
   onOpenChat,
   onNewPlan,
+  onNewAgent,
   onPlanMore,
   onOpenTask,
   onOpenAutomation,
@@ -63,6 +64,7 @@ export function AgentsView({
   revealRequest: ScrollReveal | undefined
   onOpenChat: (chat: AgentChatRef, options?: { replace: true }) => void
   onNewPlan: () => void
+  onNewAgent: () => void
   onPlanMore: (planId: string) => void
   onOpenTask: (ref: string) => void
   onOpenAutomation: (id: string) => void
@@ -81,6 +83,9 @@ export function AgentsView({
   const rowMenu = useActionMenu('agent-chats')
   const agents = orderedAgents(useFactoryAgents(factory.id).value)
   const [newAgentId, setNewAgentId] = useState(builtInCoordinator.id)
+  const [backFrom, setBackFrom] = useState<'planner' | 'chat'>()
+  const chatDraft = useMessageDraft({ kind: 'coordinator-new', id: factory.id })
+  const planDraft = useMessageDraft({ kind: 'new-plan', id: factory.id })
 
   const shown: AgentChatRef | 'start' | 'new-coordinator' | 'new-plan' | undefined =
     planId === newPlan
@@ -289,28 +294,36 @@ export function AgentsView({
 
   const chosen = agents.find((a) => a.id === newAgentId && a.id !== 'planner') ?? builtInCoordinator
   const planner = agents.find((a) => a.id === 'planner')
-  const switcher = (current: AgentSummary) => (
-    <AgentSwitch
-      factory={factory}
-      agents={agents}
-      current={current}
-      onPick={(next) => {
-        if (next.id === 'planner') return onNewPlan()
-        setNewAgentId(next.id)
-        if (current.id === 'planner') onOpenChat({ agent: 'coordinator', id: newCoordinatorChat })
-      }}
-    />
-  )
+  const backToPicker = (from: 'planner' | 'chat') => {
+    setBackFrom(from)
+    startPage()
+  }
+  const pick = (next: AgentSummary) => {
+    const to = next.id === 'planner' ? 'planner' : 'chat'
+    if (backFrom !== undefined && backFrom !== to) {
+      const [source, target] = to === 'planner' ? [chatDraft, planDraft] : [planDraft, chatDraft]
+      if (source.text.trim() !== '') {
+        target.setText(source.text)
+        source.clear()
+      }
+    }
+    setBackFrom(undefined)
+    if (to === 'planner') return onNewPlan()
+    setNewAgentId(next.id)
+    onOpenChat({ agent: 'coordinator', id: newCoordinatorChat })
+  }
   let middle: ReactNode
   if (shown === undefined) {
     middle = <section className={views.pane} aria-label="Agents" />
-  } else if (shown === 'start' || shown === 'new-coordinator') {
+  } else if (shown === 'start') {
+    middle = <AgentPicker factory={factory} agents={agents} onPick={pick} onNewAgent={onNewAgent} />
+  } else if (shown === 'new-coordinator') {
     middle = (
       <CoordinatorStart
         key={chosen.id}
         factory={factory}
         agent={chosen}
-        switcher={switcher(chosen)}
+        onBack={() => backToPicker('chat')}
         onStarted={(id) => onOpenChat({ agent: 'coordinator', id })}
         onOpenTask={onOpenTask}
       />
@@ -326,7 +339,11 @@ export function AgentsView({
         {...(planFrom !== undefined && { from: planFrom })}
         agent={planner}
         {...(id === undefined &&
-          planFrom === undefined && { switcher: switcher(planner ?? builtInPlanner) })}
+          planFrom === undefined && {
+            picked: true,
+            onBack: () => backToPicker('planner'),
+            backLabel: '← All agents',
+          })}
         controls={controls}
         onOpenPlan={(opened) => onOpenChat({ agent: 'planner', id: opened })}
         onOpenTask={onOpenTask}
@@ -470,41 +487,4 @@ function orderedAgents(agents: readonly AgentSummary[] | undefined): AgentSummar
     return at === -1 ? builtInOrder.length : at
   }
   return [...all].sort((a, b) => place(a) - place(b) || a.name.localeCompare(b.name))
-}
-
-function AgentSwitch({
-  factory,
-  agents,
-  current,
-  onPick,
-}: {
-  factory: Factory
-  agents: readonly AgentSummary[]
-  current: AgentSummary
-  onPick: (agent: AgentSummary) => void
-}) {
-  const coordinator = useMessageDraft({ kind: 'coordinator-new', id: factory.id })
-  const planner = useMessageDraft({ kind: 'new-plan', id: factory.id })
-  const pick = (id: string) => {
-    const next = agents.find((a) => a.id === id)
-    if (!next || next.id === current.id) return
-    if ((next.id === 'planner') !== (current.id === 'planner')) {
-      const [from, to] = current.id === 'planner' ? [planner, coordinator] : [coordinator, planner]
-      if (from.text.trim() !== '') {
-        to.setText(from.text)
-        from.clear()
-      }
-    }
-    onPick(next)
-  }
-  const shown = agents.some((a) => a.id === current.id) ? agents : [current, ...agents]
-  return (
-    <Select aria-label="Agent" value={current.id} onChange={(event) => pick(event.target.value)}>
-      {shown.map((agent) => (
-        <option key={agent.id} value={agent.id}>
-          {agent.name}
-        </option>
-      ))}
-    </Select>
-  )
 }

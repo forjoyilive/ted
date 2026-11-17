@@ -20,6 +20,7 @@ export type AgentChatKind = 'coordinator' | 'plan'
 export interface AgentSummary {
   id: string
   name: string
+  description?: string
   source: LayerKind
   agent?: AgentKind
   model?: string

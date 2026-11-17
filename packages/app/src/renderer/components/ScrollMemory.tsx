@@ -4,6 +4,7 @@ import styles from './ScrollMemory.module.css'
 
 export interface ScrollReveal {
   id: string
+  flash?: boolean
 }
 
 interface Spot {

@@ -1,16 +1,19 @@
 import { chmod, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
+  isLinearIdentifier,
   isLinearTeamKey,
   type LinearIntakeChoices,
   type LinearIntakeScope,
   type LinearIssue,
+  type LinearIssueLink,
   type LinearKeyPlace,
   type LinearLookup,
   type LinearStatus,
   type LinearTeam,
   type LinearUrl,
   linearIntakeStateTypes,
+  maxLinearIssueLinks,
   type Priority,
   parseLinearUrl,
   type SaveLinearKeyRequest,
@@ -38,6 +41,7 @@ export interface Linear {
   lookup(url: string): Promise<LinearLookup>
   issueFor(url: LinearUrl): Promise<LinearLookup>
   issueStates(links: readonly LinearUrl[]): Promise<Map<string, LinearIssueState> | undefined>
+  issueLinks(identifiers: readonly string[]): Promise<LinearIssueLink[]>
   teamStates(teamId: string): Promise<LinearWorkflowState[]>
   moveIssue(issueId: string, stateId: string): Promise<void>
   linkUrl(issueId: string, url: string, title: string): Promise<void>
@@ -567,6 +571,31 @@ export function createLinear(options: LinearOptions): Linear {
     return found
   }
 
+  async function issueLinks(identifiers: readonly string[]): Promise<LinearIssueLink[]> {
+    const wanted = [...new Set(identifiers.map((id) => id.toUpperCase()))]
+      .filter(isLinearIdentifier)
+      .slice(0, maxLinearIssueLinks)
+    if (wanted.length === 0) return []
+    try {
+      const key = await keyForSync()
+      if (!key) return []
+      const { urlKey } = await viewerOf(key)
+      if (urlKey === '') return []
+      const links = wanted.map((identifier) => ({
+        url: `https://linear.app/${urlKey}/issue/${identifier}`,
+        workspace: urlKey,
+        identifier,
+      }))
+      const found = await issueStates(links)
+      return links.flatMap(({ identifier, url }) =>
+        found?.has(linearIssueKey(urlKey, identifier)) ? [{ identifier, url }] : [],
+      )
+    } catch (error) {
+      if (error instanceof LinearApiError) return []
+      throw error
+    }
+  }
+
   async function teamStates(teamId: string): Promise<LinearWorkflowState[]> {
     const cached = teams.get(teamId)
     if (cached && now() - cached.at < cacheMs) return cached.states
@@ -685,6 +714,7 @@ export function createLinear(options: LinearOptions): Linear {
     intakeIssues,
     issueFor,
     issueStates,
+    issueLinks,
     teamStates,
 
     moveIssue(issueId, stateId) {

@@ -247,6 +247,7 @@ export const forwardedRequests = [
   'testLinear',
   'removeLinearKey',
   'lookupLinear',
+  'linearIssueLinks',
   'allowLinearTeam',
   'asanaProjects',
   'allowAsanaProject',

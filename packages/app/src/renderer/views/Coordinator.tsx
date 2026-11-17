@@ -8,7 +8,7 @@ import type {
   Task,
   TaskLead,
 } from '@ted/protocol'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { type ChatState, coordinatorChatState, coordinatorStatus } from '../agent-chats.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { builtInCoordinator, removedAgentNote } from '../components/AgentAbout.tsx'
@@ -30,8 +30,9 @@ import { useCoordinatorChatState, useCoordinatorState } from '../data.ts'
 import { useMessageDraft } from '../message-drafts.ts'
 import { when } from '../plans.ts'
 import { ted } from '../ted.ts'
+import { AgentDescriptionLine, AgentHeading } from './AgentPicker.tsx'
 import styles from './Coordinator.module.css'
-import { chatRequestItems, LeadSelects } from './PlanChat.tsx'
+import { Back, chatRequestItems, LeadSelects } from './PlanChat.tsx'
 import views from './views.module.css'
 
 function isCoordinator(agent: Pick<AgentSummary, 'id' | 'source'>): boolean {
@@ -57,13 +58,13 @@ function texts(agent: Pick<AgentSummary, 'id' | 'name' | 'source'>) {
 export function CoordinatorStart({
   factory,
   agent,
-  switcher,
+  onBack,
   onStarted,
   onOpenTask,
 }: {
   factory: Factory
   agent: AgentSummary
-  switcher?: ReactNode
+  onBack?: () => void
   onStarted: (id: string) => void
   onOpenTask: (id: string) => void
 }) {
@@ -103,11 +104,11 @@ export function CoordinatorStart({
       <section className={views.pane} aria-label={agent.name}>
         <header className={styles.header}>
           <div className={styles.titleRow}>
-            <h1>New chat</h1>
-            {switcher}
+            {onBack && <Back onBack={onBack} label="← All agents" />}
+            <AgentHeading agent={agent} />
             {lead && <LeadSelects lead={lead} onChange={setLead} />}
           </div>
-          <p>{factory.name}</p>
+          <AgentDescriptionLine agent={agent} />
         </header>
         {isCoordinator(agent) ? (
           <div className={styles.intro}>

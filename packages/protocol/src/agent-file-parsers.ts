@@ -3,10 +3,12 @@ import {
   type AgentFileChange,
   type AgentSettingsInput,
   agentPowers,
+  isAgentDescription,
   isAgentId,
   isCommandRepoName,
   maxAgentCommandLength,
   maxAgentCommands,
+  maxAgentDescription,
   maxAgentName,
   runCommandsNeedsReadCode,
 } from './agent-files.ts'
@@ -51,6 +53,15 @@ function settingsInput(value: Untyped, id: string): AgentSettingsInput {
       fail(`${id}.name must be text of up to ${maxAgentName} characters`)
     }
     settings.name = name
+  }
+  const description = read.optional(body, 'description', (object, field) =>
+    read.string(object, field, `${id}.description must be text`).trim(),
+  )
+  if (description !== undefined && description !== '') {
+    if (!isAgentDescription(description)) {
+      fail(`${id}.description must be one line of text of up to ${maxAgentDescription} characters`)
+    }
+    settings.description = description
   }
   const agent = read.optional(body, 'agent', (object, field) =>
     read.oneOf(object, field, agentKinds, `${id}.agent must be ${agentKinds.join(', ')}`),

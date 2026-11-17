@@ -50,7 +50,8 @@ test('Coordinator opens from the sidebar, lists a repo Agent with its powers and
   const client = await daemonAsApp(home, env)
   const origin = await makeOriginRepo(path.join(home, 'origin'))
   await commitToOrigin(path.join(home, 'origin'), {
-    '.ted/agents.yaml': 'triager:\n  name: Triager\n  powers: [ask, read_code]\n',
+    '.ted/agents.yaml':
+      'triager:\n  name: Triager\n  description: Sorts new issues.\n  powers: [ask, read_code]\n',
     '.ted/agents/triager.md': 'You sort new issues.\n',
   })
   const factory = await client.addFactory({ repo: origin, key: 'NB' })
@@ -65,13 +66,17 @@ test('Coordinator opens from the sidebar, lists a repo Agent with its powers and
   await window.keyboard.press('Meta+1')
   const entry = sidebar.getByRole('button', { name: /^Agents/ })
   await entry.click()
-  const pane = window.getByRole('region', { name: 'Coordinator', exact: true })
-  await pane.getByRole('heading', { name: /What needs your attention/ }).waitFor()
-  const picker = pane.getByRole('combobox', { name: 'Agent' })
+  const picker = window.getByRole('region', { name: 'New chat', exact: true })
+  const cards = picker.getByRole('list', { name: 'Agents' }).getByRole('button')
   await expect
-    .poll(() => picker.locator('option').allTextContents())
-    .toEqual(['Coordinator', 'Planner', 'Triager'])
-  await picker.selectOption('triager')
+    .poll(() => cards.allTextContents())
+    .toEqual([
+      expect.stringMatching(/^Coordinator/),
+      expect.stringMatching(/^Planner/),
+      expect.stringMatching(/Triager.*Sorts new issues\..*This repo/),
+      expect.stringMatching(/New Agent/),
+    ])
+  await picker.getByRole('button', { name: /Triager/ }).click()
   const triager = window.getByRole('region', { name: 'Triager', exact: true })
   await triager.getByRole('heading', { name: /New chat with Triager/ }).waitFor()
   const triagerDetails = window.getByRole('complementary', { name: 'Triager details' })
@@ -82,7 +87,10 @@ test('Coordinator opens from the sidebar, lists a repo Agent with its powers and
       .allTextContents(),
   ).toEqual(['Ask the user', 'Read the code'])
   await triagerDetails.getByRole('region', { name: 'Agent' }).getByText('This repo').waitFor()
-  await triager.getByRole('combobox', { name: 'Agent' }).selectOption('coordinator')
+  await triager.getByRole('button', { name: '← All agents' }).click()
+  await picker.getByRole('button', { name: /^Coordinator/ }).click()
+  const pane = window.getByRole('region', { name: 'Coordinator', exact: true })
+  await pane.getByRole('heading', { name: /What needs your attention/ }).waitFor()
   const input = pane.getByRole('textbox', { name: 'Message to the Coordinator' })
   await input.fill(
     JSON.stringify({
@@ -178,6 +186,10 @@ test('Stop keeps unstarted messages visible as Not sent when the Coordinator is 
   const sidebar = window.getByRole('navigation', { name: 'Sidebar' })
   await window.keyboard.press('Meta+1')
   await sidebar.getByRole('button', { name: /^Agents/ }).click()
+  await window
+    .getByRole('region', { name: 'New chat', exact: true })
+    .getByRole('button', { name: /^Coordinator/ })
+    .click()
   const pane = window.getByRole('region', { name: 'Coordinator', exact: true })
   await pane
     .getByRole('textbox', { name: 'Message to the Coordinator' })

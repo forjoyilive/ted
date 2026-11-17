@@ -694,12 +694,14 @@ export {
 export type { AllowLinearTeamRequest } from './linear.ts'
 export {
   findLinearUrl,
+  isLinearIdentifier,
   isLinearIntakeScope,
   isLinearTeamKey,
   type LinearFile,
   type LinearIntakeChoices,
   type LinearIntakeScope,
   type LinearIssue,
+  type LinearIssueLink,
   type LinearKeyPlace,
   type LinearKeyState,
   type LinearLookup,
@@ -709,6 +711,7 @@ export {
   type LinearUnfetched,
   type LinearUrl,
   linearKeyPage,
+  maxLinearIssueLinks,
   parseLinearUrl,
   type SaveLinearKeyRequest,
   type SetFactoryLinearIntakeRequest,

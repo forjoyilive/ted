@@ -58,6 +58,17 @@ export type LinearLookup =
   | { state: 'no-key' }
   | { state: 'failed'; error: string }
 
+export interface LinearIssueLink {
+  identifier: string
+  url: string
+}
+
+export const maxLinearIssueLinks = 50
+
+export function isLinearIdentifier(text: string): boolean {
+  return /^[A-Z][A-Z0-9_]{0,19}-\d{1,9}$/.test(text)
+}
+
 export interface LinearLookupRequest {
   url: string
 }

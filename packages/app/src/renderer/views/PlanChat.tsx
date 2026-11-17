@@ -63,6 +63,7 @@ import { ago, clockTime, useNow } from '../requests.ts'
 import { useStages } from '../stages.tsx'
 import { readableError, ted } from '../ted.ts'
 import { AgentDraftCard } from './AgentDraftCard.tsx'
+import { AgentDescriptionLine, AgentHeading } from './AgentPicker.tsx'
 import { OutsideCommandCard } from './OutsideCommandCard.tsx'
 import styles from './PlanChat.module.css'
 import views from './views.module.css'
@@ -72,8 +73,10 @@ export function PlanChatView({
   planId,
   revealRequest,
   from,
-  switcher,
+  picked = false,
   agent,
+  onBack,
+  backLabel,
   controls,
   onOpenPlan,
   onOpenTask,
@@ -82,8 +85,10 @@ export function PlanChatView({
   planId: string | undefined
   revealRequest?: ScrollReveal | undefined
   from?: string
-  switcher?: ReactNode
+  picked?: boolean
   agent?: AgentSummary | undefined
+  onBack?: (() => void) | undefined
+  backLabel?: string
   controls: (state: ChatState) => ChatControls
   onOpenPlan: (planId: string) => void
   onOpenTask: (ref: string) => void
@@ -93,8 +98,10 @@ export function PlanChatView({
       <NewPlanChat
         factory={factory}
         {...(from !== undefined && { from })}
-        switcher={switcher}
+        picked={picked}
         agent={agent ?? builtInPlanner}
+        onBack={onBack}
+        backLabel={backLabel}
         onStarted={onOpenPlan}
         onOpenPlan={onOpenPlan}
       />
@@ -184,18 +191,37 @@ function leadLine(lead: TaskLead | undefined): string {
   return lead ? [agentNames[lead.agent], lead.model, lead.effort].filter(Boolean).join(' · ') : ''
 }
 
+export function Back({
+  onBack,
+  label,
+}: {
+  onBack: (() => void) | undefined
+  label?: string | undefined
+}) {
+  if (!onBack || label === undefined) return null
+  return (
+    <ActionButton type="button" className={styles.back} onClick={onBack}>
+      {label}
+    </ActionButton>
+  )
+}
+
 function NewPlanChat({
   factory,
   from,
-  switcher,
+  picked,
   agent,
+  onBack,
+  backLabel,
   onStarted,
   onOpenPlan,
 }: {
   factory: Factory
   from?: string
-  switcher?: ReactNode
+  picked: boolean
   agent: AgentSummary
+  onBack?: (() => void) | undefined
+  backLabel?: string | undefined
   onStarted: (planId: string) => void
   onOpenPlan: (planId: string) => void
 }) {
@@ -258,14 +284,20 @@ function NewPlanChat({
     <>
       <section className={views.pane} aria-label="New planning chat">
         <header className={styles.header}>
+          {!picked && <Back onBack={onBack} label={backLabel} />}
           <div className={styles.titleRow}>
-            <h1 className={`${styles.title} ${styles.placeholderTitle}`}>
-              {switcher ? 'New chat' : 'New planning chat'}
-            </h1>
-            {switcher}
+            {picked ? (
+              <>
+                <Back onBack={onBack} label={backLabel} />
+                <AgentHeading agent={agent} titleClassName={styles.title} />
+              </>
+            ) : (
+              <h1 className={`${styles.title} ${styles.placeholderTitle}`}>New planning chat</h1>
+            )}
             <span className={styles.spacer} />
             {lead && <LeadSelects lead={lead} onChange={setLead} />}
           </div>
+          {picked && <AgentDescriptionLine agent={agent} />}
         </header>
         <div className={styles.intro}>
           <p>

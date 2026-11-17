@@ -35,11 +35,16 @@ export type BuiltInAgentId = (typeof builtInAgentIds)[number]
 export const maxAgentId = 40
 
 export const maxAgentName = 60
+export const maxAgentDescription = 140
 
 export const maxAgentDraftInstructions = 20_000
 
 export function isAgentId(id: string): boolean {
   return id.length <= maxAgentId && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(id)
+}
+
+export function isAgentDescription(text: string): boolean {
+  return text.length <= maxAgentDescription && !/[\r\n]/.test(text)
 }
 
 export const maxAgentCommands = 20
@@ -64,6 +69,7 @@ export const runCommandsNeedsReadCode =
 export interface ResolvedAgent {
   id: string
   name: string
+  description?: string
   agent?: AgentKind
   model?: string
   powers: AgentPower[]
@@ -106,6 +112,7 @@ TED adds the commands its powers allow, so you don’t need to list them here.
 
 export interface AgentSettingsInput {
   name?: string
+  description?: string
   agent?: AgentKind
   model?: string
   powers?: AgentPower[]
@@ -122,6 +129,7 @@ export interface AgentFileChange {
 export interface AgentFileRow {
   id: string
   name: string
+  description?: string
   agent?: AgentKind
   model?: string
   powers: AgentPower[]
