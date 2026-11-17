@@ -449,10 +449,6 @@ export interface PullRequestPreview {
   label: string
 }
 
-export const blockedChoices = ['unblock', 'keep'] as const
-
-export type BlockedChoice = (typeof blockedChoices)[number]
-
 export interface TaskHierarchy {
   parentId: string | null
   childIds: string[]
@@ -480,13 +476,11 @@ export interface ArchiveTaskRequest {
   children?: 'archive' | 'detach'
   hierarchyRevision?: string
   closePullRequests?: boolean
-  blocked?: BlockedChoice
 }
 
 export interface DeleteTaskRequest {
   children?: 'delete' | 'unparent'
   hierarchyRevision?: string
-  blocked?: BlockedChoice
 }
 
 export interface NewTaskDraft {

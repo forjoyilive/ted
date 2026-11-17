@@ -1,4 +1,4 @@
-import type { BlockedChoice, Task, TaskHierarchyPreview } from '@ted/protocol'
+import type { Task, TaskHierarchyPreview } from '@ted/protocol'
 import { archiveChoice } from '@ted/protocol/task'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import { useTaskRuns, useTasks } from '../data.ts'
@@ -201,62 +201,49 @@ export function Dialog({
   )
 }
 
-function BlockedTasks({
-  task,
-  blocked,
-  choice,
-  ending,
-  onChoose,
+export function unblockedBy(ids: readonly string[], all: readonly Task[]): Task[] {
+  const removing = new Set(ids)
+  return all.filter(
+    (t) => !t.archived && !removing.has(t.id) && t.blockedBy.some((id) => removing.has(id)),
+  )
+}
+
+export function UnblocksList({
+  blocker,
+  tasks,
 }: {
-  task: Task
-  blocked: readonly Task[]
-  choice: BlockedChoice
-  ending: 'archived' | 'deleted'
-  onChoose: (choice: BlockedChoice) => void
+  blocker: string
+  tasks: readonly { id: string; displayId: string; title: string; stage?: string }[]
 }) {
-  const stages = useStages()
-  const name = useId()
-  const one = blocked.length === 1
-  const options: { value: BlockedChoice; label: string; help: string }[] = [
-    {
-      value: 'unblock',
-      label: one ? 'Unblock it' : 'Unblock them',
-      help: `Removes ${task.displayId} from ${one ? 'its' : 'their'} Blocked by, so ${one ? 'it' : 'they'} can start.`,
-    },
-    {
-      value: 'keep',
-      label: one ? 'Keep it blocked' : 'Keep them blocked',
-      help: `${one ? 'It stays' : 'They stay'} blocked and ${one ? 'shows' : 'show'} “Blocked by ${ending} ${task.displayId}”.`,
-    },
-  ]
+  const one = tasks.length === 1
+  const heading = `Unblocks ${tasks.length} ${one ? 'Task' : 'Tasks'}`
   return (
-    <fieldset className={styles.blocked}>
-      <legend className={styles.blockedHeading}>
-        {`${blocked.length} ${one ? 'Task is' : 'Tasks are'} blocked by ${task.displayId}`}
-      </legend>
-      <ul className={styles.blockedList}>
-        {blocked.map((t) => (
+    <section className={styles.blocked} aria-label={heading}>
+      <h3 className={styles.unblocksHeading}>{heading}</h3>
+      <ul className={styles.unblocksList}>
+        {tasks.map((t) => (
           <li key={t.id} className={styles.blockedRow}>
             <span className={styles.blockedId}>{t.displayId}</span>
             <span className={styles.blockedTitle}>{t.title}</span>
-            <span className={styles.blockedStage}>{stages.name(t.stage, t.factoryId)}</span>
+            {t.stage !== undefined && <span className={styles.blockedStage}>{t.stage}</span>}
           </li>
         ))}
       </ul>
-      {options.map((option) => (
-        <label key={option.value} className={styles.radio}>
-          <input
-            type="radio"
-            name={name}
-            value={option.value}
-            checked={choice === option.value}
-            onChange={() => onChoose(option.value)}
-          />
-          {option.label}
-          <Help>{option.help}</Help>
-        </label>
-      ))}
-    </fieldset>
+      <p className={styles.note}>
+        {`TED removes ${blocker} from ${one ? 'its' : 'their'} Blocked by. ${one ? 'It doesn’t start on its' : 'They don’t start on their'} own.`}
+      </p>
+    </section>
+  )
+}
+
+export function Unblocks({ blocker, tasks }: { blocker: string; tasks: readonly Task[] }) {
+  const stages = useStages()
+  if (tasks.length === 0) return null
+  return (
+    <UnblocksList
+      blocker={blocker}
+      tasks={tasks.map((t) => ({ ...t, stage: stages.name(t.stage, t.factoryId) }))}
+    />
   )
 }
 
@@ -274,10 +261,8 @@ export function ArchiveDialog({
   onClose: () => void
   request?: { id: string; closePullRequests: boolean; text?: string } | undefined
 }) {
-  const blocked = useBlocked(task)
   const prs = openPullRequests(task)
   const [close, setClose] = useState(request?.closePullRequests ?? true)
-  const [choice, setChoice] = useState<BlockedChoice>('unblock')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const all = useTasks()
@@ -290,6 +275,8 @@ export function ArchiveDialog({
   const alreadyArchived = (hierarchy.preview?.descendants ?? []).filter(
     (d) => all.find((t) => t.id === d.id)?.archived,
   )
+  const archiving = family === 'together' ? [task.id, ...under] : [task.id]
+  const blocked = unblockedBy(archiving, all)
   const hasWorktree = task.repos.some((r) => !r.removed)
   const does = [
     ...(task.runs.length > 0 ? [`stops ${runsPhrase(task.runs.length)}`] : []),
@@ -307,7 +294,6 @@ export function ArchiveDialog({
     try {
       const options = {
         closePullRequests: prs.length > 0 && close,
-        ...(blocked.length > 0 && { blocked: choice }),
         ...(hierarchy.preview && {
           children: family === 'together' ? ('archive' as const) : ('detach' as const),
           hierarchyRevision: hierarchy.preview.revision,
@@ -387,15 +373,12 @@ export function ArchiveDialog({
               </span>
             </label>
           )}
-          {blocked.length > 0 && (
-            <BlockedTasks
-              task={task}
-              blocked={blocked}
-              choice={choice}
-              ending="archived"
-              onChoose={setChoice}
-            />
-          )}
+          <Unblocks
+            blocker={
+              archiving.length > 1 ? `${task.displayId} and the Tasks under it` : task.displayId
+            }
+            tasks={blocked}
+          />
           {error !== undefined && (
             <p className={styles.error} role="alert">
               {error}
@@ -542,10 +525,8 @@ export function DeleteDialog({
   onClose: () => void
   onArchiveInstead: () => void
 }) {
-  const blocked = useBlocked(task)
   const runs = useTaskRuns(task.id).length
   const prs = openPullRequests(task)
-  const [choice, setChoice] = useState<BlockedChoice>('unblock')
   const [busy, setBusy] = useState(false)
   const removing = useRef(false)
   const [error, setError] = useState<string>()
@@ -554,6 +535,8 @@ export function DeleteDialog({
   const hierarchy = useHierarchyPreview(task, hasChildren)
   const [family, setFamily] = useState<'together' | 'detach'>()
   const under = (hierarchy.preview?.descendants ?? []).map((d) => d.id)
+  const deleting = family === 'together' ? [task.id, ...under] : [task.id]
+  const blocked = unblockedBy(deleting, all)
   const removed = [
     'the Task',
     ...(runs > 0
@@ -572,7 +555,6 @@ export function DeleteDialog({
     setError(undefined)
     try {
       await ted.deleteTask(task.id, {
-        ...(blocked.length > 0 && { blocked: choice }),
         ...(hierarchy.preview && {
           children: family === 'together' ? 'delete' : 'unparent',
           hierarchyRevision: hierarchy.preview.revision,
@@ -633,15 +615,12 @@ export function DeleteDialog({
               {`${prs.length === 1 ? 'Pull request' : 'Pull requests'} ${joinAnd(prs.map(({ pr }) => `#${pr.number}`))} stay open on GitHub, and the ${prs.length === 1 ? 'branch stays' : 'branches stay'}.${task.archived ? '' : ' Archive closes the pull requests and keeps the history.'}`}
             </p>
           )}
-          {blocked.length > 0 && (
-            <BlockedTasks
-              task={task}
-              blocked={blocked}
-              choice={choice}
-              ending="deleted"
-              onChoose={setChoice}
-            />
-          )}
+          <Unblocks
+            blocker={
+              deleting.length > 1 ? `${task.displayId} and the Tasks under it` : task.displayId
+            }
+            tasks={blocked}
+          />
           {error !== undefined && (
             <p className={styles.error} role="alert">
               {error}

@@ -14,7 +14,6 @@ import type {
 import { isString, type Untyped } from './parse.ts'
 import { isStageId } from './stage.ts'
 import {
-  blockedChoices,
   type RoundAnswerInput,
   type StageId,
   type TaskStatusKind,
@@ -234,7 +233,7 @@ function removalChoices(
   body: Record<string, unknown>,
   kind: CoordinatorRemovalKind,
 ): ConfirmationChoices {
-  const { children, blocked, closePullRequests } = body
+  const { children, closePullRequests } = body
   const allowed = childChoices[kind]
   if (children !== undefined && !allowed.includes(children as string))
     throw new HttpError(
@@ -243,8 +242,6 @@ function removalChoices(
         ? 'children only applies to archive and delete'
         : `children must be ${allowed.join(' or ')}`,
     )
-  if (blocked !== undefined && (kind === 'unarchive' || !blockedChoices.includes(blocked as never)))
-    throw new HttpError(400, `blocked must be ${blockedChoices.join(' or ')}`)
   if (
     closePullRequests !== undefined &&
     (kind !== 'archive' || typeof closePullRequests !== 'boolean')
@@ -253,9 +250,6 @@ function removalChoices(
   return {
     ...(children !== undefined && {
       children: children as NonNullable<ConfirmationChoices['children']>,
-    }),
-    ...(blocked !== undefined && {
-      blocked: blocked as NonNullable<ConfirmationChoices['blocked']>,
     }),
     ...(closePullRequests === true && { closePullRequests: true }),
   }

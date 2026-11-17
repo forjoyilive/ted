@@ -23,7 +23,6 @@ import type {
   AssessFailureRequest,
   Attachment,
   BaseConflictFound,
-  BlockedChoice,
   AppRef as BrowserAppRef,
   BrowserCommand,
   BrowserReply,
@@ -1327,7 +1326,7 @@ export function createTasks(options: {
     liveRun: (task) => hasLiveRun(find(task.id)),
     openRequests,
     archive(task, why) {
-      settleDependents(task.id, 'unblock')
+      settleDependents(task.id)
       archiveNow(find(task.id), false, why)
       wake()
     },
@@ -6502,7 +6501,6 @@ export function createTasks(options: {
                 choice: archiveChoice,
                 archive: {
                   closePullRequests: comment.archive.pullRequests?.recommend === 'close',
-                  blocked: 'unblock',
                 },
               },
               false,
@@ -8323,7 +8321,6 @@ export function createTasks(options: {
     ref: string,
     {
       closePullRequests = false,
-      blocked = 'unblock',
       children: choice = 'archive',
       hierarchyRevision: revision,
     }: ArchiveTaskRequest = {},
@@ -8334,7 +8331,7 @@ export function createTasks(options: {
     for (const id of [...ids].reverse()) {
       const current = find(id)
       if (current.archived) continue
-      settleDependents(id, blocked)
+      settleDependents(id)
       if (store.childrenOf(id).length > 0 && current.startRequested)
         store.setStartRequested(id, false)
       archiveNow(find(id), closePullRequests)
@@ -8412,12 +8409,10 @@ export function createTasks(options: {
     }
   }
 
-  function settleDependents(taskId: string, blocked: BlockedChoice, action = 'archived'): void {
+  function settleDependents(taskId: string, action = 'archived'): void {
     for (const dependent of store.blockedBy(taskId)) {
-      const link = store.blockers(dependent).find((b) => b.blockerId === taskId)
-      const reason = `was ${action} without merging. ${reopened} ${blocked === 'unblock' ? 'Its blocker was removed. Use Resume when ready to reassess the failure.' : 'Its blocker was kept; this Task is still waiting. Choose another repair or remove the blocker in Task details.'}`
-      if (blocked === 'unblock') removeBlockers(dependent, { kind: 'app' }, taskId, reason)
-      else if (!link?.merged) repairNotice(dependent, taskId, reason)
+      const reason = `was ${action} without merging. ${reopened} Its blocker was removed. Use Resume when ready to reassess the failure.`
+      removeBlockers(dependent, { kind: 'app' }, taskId, reason)
     }
   }
 
@@ -8558,7 +8553,7 @@ export function createTasks(options: {
 
   async function remove(ref: string, input: DeleteTaskRequest): Promise<void> {
     const task = find(ref)
-    if (removingFactories.has(task.factoryId)) return removeOne(ref, input)
+    if (removingFactories.has(task.factoryId)) return removeOne(ref)
     const children = descendants(task.id)
     if (children.length > 0) {
       requireHierarchyRevision(task, input.hierarchyRevision)
@@ -8583,7 +8578,7 @@ export function createTasks(options: {
         tellHierarchyChanged(direct)
       }
       if (parent) releaseParent(parent.id, wasBlocked)
-      for (const id of [...ids].reverse()) await removeOne(id, input)
+      for (const id of [...ids].reverse()) await removeOne(id)
     } finally {
       if (parent) releaseParent(parent.id, wasBlocked)
       hierarchyDone()
@@ -8591,14 +8586,14 @@ export function createTasks(options: {
     wake()
   }
 
-  async function removeOne(ref: string, { blocked = 'unblock' }: DeleteTaskRequest): Promise<void> {
+  async function removeOne(ref: string): Promise<void> {
     const task = find(ref)
     if (inFlight.is(task.id, 'deleting'))
       throw new RequestError(409, `${task.displayId} is already being deleted`)
     const deletingDone = inFlight.mark(task.id, 'deleting')
     try {
       options.planning?.()?.taskGone(task.id, 'deleted')
-      settleDependents(task.id, blocked, 'deleted')
+      settleDependents(task.id, 'deleted')
       const unsentFiles = store.messageDraftFiles(task.id)
       if (!find(task.id).archived) archiveNow(find(task.id), false)
       await clearing(task.id)
@@ -8746,11 +8741,11 @@ export function createTasks(options: {
             const task = find(id)
             if (task.archived) pullRequestWork(id, 'close')
             else {
-              settleDependents(id, 'unblock')
+              settleDependents(id)
               archiveNow(find(id), true)
             }
           }
-          await remove(id, { blocked: 'unblock' })
+          await remove(id, {})
         }
       }
     } catch (error) {

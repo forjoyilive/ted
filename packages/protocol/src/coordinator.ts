@@ -2,7 +2,6 @@ import type { AutomationCard } from './automation-card.ts'
 import type { RunMessage } from './chat.ts'
 import type { ChatAgent, ChatRequest } from './chat-agent.ts'
 import type {
-  BlockedChoice,
   ClarifyDepth,
   Comment,
   DescriptionVersion,
@@ -86,7 +85,6 @@ export interface CoordinatorRemoval {
   operation: string
   tasks: { id: string; version: string }[]
   children?: 'archive' | 'detach' | 'delete' | 'unparent'
-  blocked?: BlockedChoice
   closePullRequests?: boolean
 }
 
@@ -103,7 +101,6 @@ export interface ConfirmationTaskRef {
 
 export interface ConfirmationChoices {
   children?: 'archive' | 'detach' | 'delete' | 'unparent'
-  blocked?: BlockedChoice
   closePullRequests?: boolean
 }
 
@@ -111,6 +108,7 @@ export interface CoordinatorConfirmationTask extends ConfirmationTaskRef, Confir
   stage: StageId
   descendants: ConfirmationTaskRef[]
   blockedTasks: ConfirmationTaskRef[]
+  blockedTogether?: ConfirmationTaskRef[]
   pullRequests: { repo: string; number: number }[]
   working: boolean
   result?: { done: boolean; text: string }
