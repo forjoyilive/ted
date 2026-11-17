@@ -603,6 +603,7 @@ export function createFailureCases(options: {
     evidence: string,
     checkRunId?: string,
     replacedBy?: string,
+    fixedBy?: { id: string; displayId: string; title: string },
   ) {
     const value = get(task, id)
     withdraw(value)
@@ -616,6 +617,7 @@ export function createFailureCases(options: {
             evidence: failureText(evidence),
             ...(checkRunId && { checkRunId }),
             ...(replacedBy && { replacedBy }),
+            ...(fixedBy && { fixedBy }),
           },
         ],
       },
@@ -643,6 +645,22 @@ export function createFailureCases(options: {
     },
     sourceCheck,
     abandonedRepair,
+    fixingTask(task: Task, value: FailureCase, ref: string) {
+      if (!abandonedRepair(value))
+        throw new RequestError(
+          409,
+          'name the Task that brought the fix only for a failure whose repair Task was archived, deleted or unblocked without merging',
+        )
+      const fixer = store.getTask(ref)
+      if (!fixer || fixer.factoryId !== task.factoryId || fixer.id === task.id)
+        throw new RequestError(409, 'name a merged Task in this Factory that brought the fix')
+      if (!store.isMerged(fixer.id))
+        throw new RequestError(
+          409,
+          `${fixer.displayId} hasn’t merged; name the Task whose merge brought the fix`,
+        )
+      return { id: fixer.id, displayId: fixer.displayId, title: fixer.title }
+    },
     list: (task: Task) => store.failures.list(task.id),
     get,
     obligations,

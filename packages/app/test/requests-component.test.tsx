@@ -2498,3 +2498,61 @@ test('an archive request presets the pull request choice, sends Keep it with a m
     archive: { closePullRequests: false, blocked: 'unblock' },
   })
 })
+
+test('a dropped repair says fresh Checks close the failure, and a closed case names the Task that fixed it', async () => {
+  const repairTask = { id: 'NB-2', displayId: 'NB-2', title: 'Repair the export' }
+  const fixer = { id: 'NB-3', displayId: 'NB-3', title: 'Fix the export elsewhere' }
+  const value: FailureCase = {
+    id: 'abcdef01-0000-4000-8000-000000000000',
+    taskId: 'NB-1',
+    source: { kind: 'finding', runId: 'lead', finding: 'Export timezone missing' },
+    recordedBy: 'lead',
+    provenance: 'task-lead-reported',
+    evidence: 'The export lost its timezone.',
+    createdAt,
+    validation: true,
+    assessments: [],
+    additions: [],
+    decisions: [],
+    resolutions: [
+      {
+        requestId: 'request',
+        resolution: 'repair',
+        repairTask,
+        at: createdAt,
+        assessmentId: 'assessment',
+      },
+    ],
+    invalidations: [],
+  }
+  bridge({
+    listTasks: () => [
+      task({ blockedBy: [] }),
+      task({
+        ...repairTask,
+        number: 2,
+        archived: { at: createdAt, ended: { kind: 'never-started' } },
+      }),
+      task({ ...fixer, number: 3, stage: 'done' }),
+    ],
+  })
+  const open = vi.fn()
+  const { rerender } = render(<FailureDetails failure={value} onOpenTask={open} />)
+  expect(
+    await screen.findByText(
+      'Repair archived without merging. Fresh passing Checks close this failure. If this Task is stopped, use Resume in Task details first.',
+    ),
+  ).toBeTruthy()
+  rerender(
+    <FailureDetails
+      failure={{
+        ...value,
+        verifications: [{ at: createdAt, evidence: 'Checks passed.', fixedBy: fixer }],
+      }}
+      onOpenTask={open}
+    />,
+  )
+  await user().click(await screen.findByRole('button', { name: 'NB-3 · Fix the export elsewhere' }))
+  expect(open).toHaveBeenCalledWith('NB-3')
+  expect(screen.getByText(/Later verification closed this failure/)).toBeTruthy()
+})

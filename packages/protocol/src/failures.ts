@@ -101,7 +101,13 @@ export interface FailureCase {
   contextId?: string
   createdAt: string
   validation?: boolean
-  verifications?: { at: string; evidence: string; checkRunId?: string; replacedBy?: string }[]
+  verifications?: {
+    at: string
+    evidence: string
+    checkRunId?: string
+    replacedBy?: string
+    fixedBy?: { id: string; displayId: string; title: string }
+  }[]
   assessments: FailureAssessment[]
   additions: { evidence: string; runId: string; at: string; contextId?: string }[]
   decisions: FailureDecision[]
@@ -167,4 +173,5 @@ export interface AddFailureEvidenceRequest {
 
 export interface VerifyFailureRequest {
   evidence: string
+  fixedBy?: string
 }

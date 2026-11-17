@@ -175,7 +175,37 @@ test.each(['archive', 'delete'] as const)(
     expect(brief.text).toContain('without merging')
     expect(brief.text).toContain('needs a decision again')
     expect(brief.text).toContain(repair.displayId)
+    if (action === 'delete') return
+    await s.client.ok('POST', `${s.root}/resume`, {})
+    const resumed = await waitUntil(async () => {
+      const t = await getTask(s.client, s.current.id)
+      return t.leadRunId !== s.current.leadRunId &&
+        t.runs.find((r) => r.id === t.leadRunId)?.state === 'idle' &&
+        !t.statuses.includes('working')
+        ? t
+        : undefined
+    }, 'a resumed Task Lead')
+    const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
+    const lead = api(required(ctx.daemon).port, tokens.issue(required(resumed.leadRunId)))
+    const verify = (body: { evidence: string; fixedBy?: string }) =>
+      lead.call('POST', `${s.root}/failures/${s.failure.id}/verification`, body)
+    const unmerged = await verify({ evidence: 'Reran the export.', fixedBy: repair.displayId })
+    expect(unmerged.status).toBe(409)
+    expect(JSON.stringify(unmerged.body)).toContain('hasn’t merged')
+    const verified = await verify({ evidence: 'Reran the export on the current code; it passes.' })
+    expect(verified.status, JSON.stringify(verified.body)).toBe(200)
+    expect(
+      (await s.client.ok<ValidationObligations>('GET', `${s.root}/validation-obligations`))
+        .satisfied,
+    ).toBe(true)
+    const advanced = await lead.call('POST', `${s.root}/outcome`, { outcome: 'advance' })
+    expect(advanced.status, JSON.stringify(advanced.body)).toBeLessThan(300)
+    await waitUntil(
+      async () => (await getTask(s.client, s.current.id)).stage === 'work' || undefined,
+      'the Task to leave Validate',
+    )
   },
+  90_000,
 )
 
 test('approving a queued repair releases a single working-Run slot for ordinary repair work', async () => {
