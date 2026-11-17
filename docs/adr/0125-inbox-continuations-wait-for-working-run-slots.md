@@ -8,4 +8,4 @@ A pending Task Lead message carries `waitForSlot` inside the existing `v1.TaskLe
 
 Reserving capacity between rounds would avoid repeated queue waits but leave less capacity for other Tasks. The user chose to release it instead. Existing working Runs continue; this change does not stop them to enforce a lower limit.
 
-A continuation after Checks or an answer skips the load hold and recent ones go first: ADR 0183-work-in-progress-skips-the-busy-hold.
+A continuation after Checks or an answer skips the load hold and recent ones go first: ADR 0184-work-in-progress-skips-the-busy-hold.
