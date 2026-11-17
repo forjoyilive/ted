@@ -67,7 +67,10 @@ describe('event lines', () => {
     ).toEqual([
       { tone: 'edit', text: 'You stopped the Task' },
       { tone: 'edit', text: 'You stopped the Task · 2 Runs stopped' },
-      { tone: 'quiet', text: 'TED stopped the Task until the merged repair is brought in' },
+      {
+        tone: 'quiet',
+        text: 'TED stopped the Task: the merged repair couldn’t be brought in · Resume to have the Task Lead try again',
+      },
       { tone: 'quiet', text: 'TED stopped the Task · 1 Run stopped' },
     ])
   })

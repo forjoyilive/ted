@@ -533,7 +533,11 @@ export function threadEvents(
           break
         }
         if (data.why === 'repair-incorporation') {
-          add(entry, 'quiet', 'TED stopped the Task until the merged repair is brought in')
+          add(
+            entry,
+            'quiet',
+            'TED stopped the Task: the merged repair couldn’t be brought in · Resume to have the Task Lead try again',
+          )
           break
         }
         const runs = typeof data.runs === 'number' ? data.runs : 0
