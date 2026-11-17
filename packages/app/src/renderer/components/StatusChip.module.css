@@ -56,6 +56,16 @@
   color: var(--status-failed-fg);
 }
 
+.stopped {
+  background: var(--status-stopped-bg);
+  color: var(--status-stopped-fg);
+}
+
+.snoozed {
+  background: var(--status-snoozed-bg);
+  color: var(--status-snoozed-fg);
+}
+
 .neutral {
   background: var(--status-neutral-bg);
   color: var(--status-neutral-fg);
