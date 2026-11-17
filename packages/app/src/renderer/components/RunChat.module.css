@@ -129,6 +129,19 @@
   border-top: 1px solid var(--border-subtle);
 }
 
+.outsideLine {
+  margin: 0;
+  padding: 8px 12px 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  overflow-wrap: anywhere;
+}
+
+.outsideLine code {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
 .output {
   max-height: 320px;
   margin: 0;
@@ -242,20 +255,6 @@
   margin: 2px 0 0;
   font-size: var(--text-14);
   line-height: var(--leading-body);
-}
-
-.human {
-  display: flex;
-  flex-shrink: 0;
-  justify-content: flex-end;
-}
-
-.bubble {
-  min-width: 0;
-  max-width: 75%;
-  padding: 8px 12px;
-  border-radius: var(--radius-control);
-  background: var(--status-working-bg);
 }
 
 .composer {
@@ -382,10 +381,6 @@
   color: var(--text-muted);
 }
 
-.bubble[data-queued='true'] {
-  border: 1px solid var(--accent-border);
-}
-
 .queuedChip {
   display: inline-flex;
   align-items: center;
@@ -407,8 +402,6 @@
   opacity: 0;
 }
 
-.bubble:hover .queuedActions,
-.bubble:focus-within .queuedActions,
 .personMessage:hover .queuedActions,
 .personMessage:focus-within .queuedActions {
   opacity: 1;

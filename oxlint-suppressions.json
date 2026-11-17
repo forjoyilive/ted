@@ -794,11 +794,6 @@
       "count": 1
     }
   },
-  "packages/app/src/renderer/sidebar-widths.ts": {
-    "anti-slop/no-runtime-typeof": {
-      "count": 1
-    }
-  },
   "packages/app/src/renderer/slots.ts": {
     "anti-slop/no-known-value-widening": {
       "count": 1
@@ -3839,7 +3834,7 @@
       "count": 3
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 8
+      "count": 6
     }
   },
   "packages/protocol/src/daemon-info.ts": {
@@ -4114,7 +4109,7 @@
       "count": 65
     },
     "anti-slop/no-unsafe-dictionary-type": {
-      "count": 34
+      "count": 33
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 64

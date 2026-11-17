@@ -9,12 +9,12 @@ import type {
   CoordinatorRemoval,
   CoordinatorRemovalKind,
   CoordinatorTaskQuery,
+  CoordinatorTransfer,
   RenameCoordinatorChatRequest,
 } from './coordinator.ts'
-import { isString, type Untyped } from './parse.ts'
+import { isString, reader, type Untyped } from './parse.ts'
 import { isStageId } from './stage.ts'
 import {
-  blockedChoices,
   type RoundAnswerInput,
   type StageId,
   type TaskStatusKind,
@@ -234,7 +234,7 @@ function removalChoices(
   body: Record<string, unknown>,
   kind: CoordinatorRemovalKind,
 ): ConfirmationChoices {
-  const { children, blocked, closePullRequests } = body
+  const { children, closePullRequests } = body
   const allowed = childChoices[kind]
   if (children !== undefined && !allowed.includes(children as string))
     throw new HttpError(
@@ -243,8 +243,6 @@ function removalChoices(
         ? 'children only applies to archive and delete'
         : `children must be ${allowed.join(' or ')}`,
     )
-  if (blocked !== undefined && (kind === 'unarchive' || !blockedChoices.includes(blocked as never)))
-    throw new HttpError(400, `blocked must be ${blockedChoices.join(' or ')}`)
   if (
     closePullRequests !== undefined &&
     (kind !== 'archive' || typeof closePullRequests !== 'boolean')
@@ -253,9 +251,6 @@ function removalChoices(
   return {
     ...(children !== undefined && {
       children: children as NonNullable<ConfirmationChoices['children']>,
-    }),
-    ...(blocked !== undefined && {
-      blocked: blocked as NonNullable<ConfirmationChoices['blocked']>,
     }),
     ...(closePullRequests === true && { closePullRequests: true }),
   }
@@ -280,6 +275,25 @@ export function parseCoordinatorRemoval(
   if (new Set(parsed.map((t) => t.id)).size !== parsed.length)
     throw new HttpError(400, 'name each Task once')
   return { operation, tasks: parsed, ...removalChoices(body, kind) }
+}
+const read = reader((message) => {
+  throw new HttpError(400, message)
+})
+export function parseCoordinatorTransfer(value: Untyped): CoordinatorTransfer {
+  const body = read.object(value, 'transfer request')
+  const operationProblem = 'operation must be a unique ID of up to 100 characters'
+  const operation = read.string(body, 'operation', operationProblem)
+  if (!/^[\w-]{1,100}$/.test(operation)) throw new HttpError(400, operationProblem)
+  const task = read.object(body.task, 'task', 'task needs its ID and version')
+  const id = read.string(task, 'id', 'the Task needs its ID')
+  if (id === '' || id.length > 100) throw new HttpError(400, 'the Task needs its ID')
+  const versionProblem = 'version must come from a current Task read'
+  const version = read.string(task, 'version', versionProblem)
+  if (!/^[a-f0-9]{64}$/.test(version)) throw new HttpError(400, versionProblem)
+  const factoryProblem = 'factory must be a Factory key or ID'
+  const factory = read.string(body, 'factory', factoryProblem).trim()
+  if (factory === '' || factory.length > 100) throw new HttpError(400, factoryProblem)
+  return { operation, task: { id, version }, factory }
 }
 export function parseCoordinatorConfirmationAnswer(value: unknown): CoordinatorConfirmationAnswer {
   const body = bodyObject(value)

@@ -9,17 +9,25 @@ export function agentSummary(agent: ResolvedAgent | StoredChatAgent): AgentSumma
   return {
     id: agent.id,
     name: agent.name,
+    ...('description' in agent &&
+      agent.description !== undefined && { description: agent.description }),
     source: agent.source,
     ...(agent.agent !== undefined && { agent: agent.agent }),
     ...(agent.model !== undefined && { model: agent.model }),
     powers: [...agent.powers],
     ...(agent.commands &&
       agent.commands.length > 0 && { commands: agent.commands.map((c) => ({ ...c })) }),
+    ...(agent.powers.includes('run_outside') &&
+      agent.outsideCommands &&
+      agent.outsideCommands.length > 0 && {
+        outsideCommands: agent.outsideCommands.map((c) => ({ ...c })),
+      }),
   }
 }
 
 export function storedAgent(agent: ResolvedAgent): StoredChatAgent {
-  return { ...agentSummary(agent), instructions: agent.instructions }
+  const { description: _, ...summary } = agentSummary(agent)
+  return { ...summary, instructions: agent.instructions }
 }
 
 export async function builtInAgents(): Promise<StoredChatAgent[]> {

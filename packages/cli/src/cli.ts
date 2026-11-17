@@ -52,6 +52,7 @@ import {
   parseCoordinatorCreate,
   parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
+  parseCoordinatorTransfer,
   parseDesignReviewInput,
   parseDeviceRequest,
   parseLinearUrl,
@@ -788,7 +789,6 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         operation,
         tasks: args.map((id) => ({ id, version: (versions as Record<string, unknown>)[id] })),
         ...(options.children !== undefined && { children: options.children }),
-        ...(options.blocked !== undefined && { blocked: options.blocked }),
         ...(options['close-pull-requests'] === true && { closePullRequests: true }),
       },
       kind,
@@ -1162,7 +1162,9 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         'failure verification',
         parseVerifyFailureRequest,
       )
-      await failureResult((client) => client.verifyFailure(ref, args[0] ?? '', input.evidence))
+      await failureResult((client) =>
+        client.verifyFailure(ref, args[0] ?? '', input.evidence, input.fixedBy),
+      )
     },
     failureAsk: () =>
       failureResult((client, ref) => client.requestFailureDecision(ref, args[0] ?? '')),
@@ -1227,6 +1229,19 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     coordinatorArchive: () => coordinatorRemove('archive'),
     coordinatorUnarchive: () => coordinatorRemove('unarchive'),
     coordinatorDelete: () => coordinatorRemove('delete'),
+    coordinatorTransfer: async () => {
+      const { operation, version, factory } = options
+      if (!operation || !version || !factory)
+        throw new UsageError('operation, version and factory are required')
+      const input = parseCoordinatorTransfer({
+        operation,
+        task: { id: args[0] ?? '', version },
+        factory,
+      })
+      console.log(
+        JSON.stringify(await withDaemon(home, (client) => client.coordinatorTransfer(input))),
+      )
+    },
     coordinatorDone: async () => {
       const { operation, version } = options
       if (!operation || !version) throw new UsageError('operation and version are required')
@@ -1673,6 +1688,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         })
       })
       console.log(`Created ${task.displayId}  ${printable(task.title)}`)
+      if (task.reminder !== undefined) console.log(printable(task.reminder))
     },
     listTasks: async () => {
       const tasks = await withDaemon(home, (client) => client.listTasks())
@@ -1897,6 +1913,14 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       console.log(printable(result.output ?? ''))
       if (result.state !== 'passed')
         exitCode = result.exitCode !== undefined && result.exitCode > 0 ? result.exitCode : 1
+    },
+    agentRunOutside: async () => {
+      const name = args[0] ?? ''
+      const argument = args[1]
+      const result = await withDaemon(home, (client) =>
+        client.runOutsideCommand({ name, ...(argument !== undefined && { argument }) }),
+      )
+      console.log(result.message)
     },
     chatRound: async () => {
       const supersedes = options.supersedes

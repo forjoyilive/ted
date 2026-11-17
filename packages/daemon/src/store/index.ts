@@ -19,6 +19,7 @@ import type {
   MessageDraft,
   NewTaskDraft,
   PeerMessage,
+  QueuedAfter,
   TaskDraftState,
   TaskGateOverrides,
   TaskIntervalHistory,
@@ -143,6 +144,7 @@ import { redactSecrets } from '../redact.ts'
 import { type QueueEntry, queueOrder } from '../tasks/queue.ts'
 import {
   commentBox,
+  commentDelivery,
   statusWithoutBlocker,
   type TaskFacts,
   taskActivity,
@@ -153,6 +155,7 @@ import {
   taskStatus,
   taskStatuses,
   taskWaitReasons,
+  taskWakesOnComment,
 } from '../tasks/status.ts'
 import type { OvernightGuard } from '../workflow/resolve.ts'
 import { type AutomationDraftStore, createAutomationDraftStore } from './automation-drafts.ts'
@@ -238,6 +241,7 @@ import {
   taskDraftConsumptions,
   taskDrafts,
   taskLog,
+  taskMoves,
   taskParents,
   taskQueue,
   taskRepos,
@@ -250,6 +254,7 @@ import { createSideChatStore, type SideChatStore } from './side-chats.ts'
 import { markEventsSynced } from './sync-head.ts'
 import { createTaskHistory, type TaskHistory } from './task-history.ts'
 import { blockerTransitions, taskIntervalHistory } from './task-intervals.ts'
+import { taskTokens } from './task-tokens.ts'
 import { createTestInvocationStore, type TestInvocationStore } from './test-invocations.ts'
 
 export const placeholderFactory = { id: 'dev', key: 'DEV' }
@@ -326,6 +331,8 @@ export interface LeadMessage {
   id: string
   text: string
   waitForSlot?: true
+  after?: QueuedAfter
+  heldAt?: string
 }
 
 export interface CheckWork {
@@ -602,6 +609,14 @@ export interface AcceptedLayer {
   files: Record<string, string | null>
   version: string
   acceptedAt: string
+}
+
+export interface MoveTaskInput {
+  moves: { taskId: string; factoryId: string; started: boolean }[]
+  unlink: { taskId: string; blockerId: string }[]
+  leaveParent?: string
+  notes: { taskId: string; body: string }[]
+  by: 'human' | 'coordinator'
 }
 
 export interface NewComment {
@@ -889,6 +904,8 @@ export interface TedStore extends TaskHistory {
   unarchiveTask(taskId: string, input: { queue: boolean; waitForBlockers: boolean }): Task
   deleteTask(taskId: string): void
   resetTask(taskId: string): Task
+  moveTask(input: MoveTaskInput): { id: string; from: string; to: string }[]
+  nextTaskNumber(factoryId: string): number
   blockedBy(blockerId: string): string[]
   openBlockedTasks(): string[]
   queue(): QueuedTask[]
@@ -983,7 +1000,7 @@ export interface TedStore extends TaskHistory {
   setTaskLead(taskId: string, lead: TaskLead): Task
   setLeadRestartPending(taskId: string, pending: boolean): void
   tasksWithQueuedContinuations(): string[]
-  holdLeadMessage(taskId: string, text: string, waitForSlot?: boolean): void
+  holdLeadMessage(taskId: string, text: string, waitForSlot?: boolean, after?: QueuedAfter): void
   deliveredLeadMessages(taskId: string, ids: readonly string[]): void
   setTaskAutopilot(taskId: string, choice: AutopilotChoice): Task
   setTaskGates(taskId: string, overrides: TaskGateOverrides): Task
@@ -1167,6 +1184,7 @@ export interface TedStore extends TaskHistory {
   answerPermission(commentId: string, answer: CommentAnswer): Comment
   setRunPermissions(runId: string, permissions: PermissionMode): void
   setRunAsleep(runId: string, asleep: boolean): void
+  setLiveTokens(runId: string, tokens: number | undefined): void
   restartRun(runId: string, flags: RunFlags): Run
   reviveRun(runId: string, flags?: RunFlags): Run
   lastOutputAt(runId: string): string | undefined
@@ -1272,6 +1290,7 @@ export interface TedStore extends TaskHistory {
     body: string,
     canAccept?: boolean,
     askedBy?: string,
+    closable?: boolean,
   ): FailureCase
   resolveFailure(
     value: FailureCase,
@@ -1374,6 +1393,7 @@ export async function openStore({
   let heldBusy: BusyHold | undefined
   const waitingOnSubAgents = new Set<string>()
   const asleepRuns = new Set<string>()
+  const liveTokens = new Map<string, number>()
   const checkingTasks = new Set<string>()
   const movingAfterChecks = new Set<string>()
   let checksWaiting: ReadonlyMap<string, number> = new Map()
@@ -1892,6 +1912,9 @@ export async function openStore({
     }
     const everyParent = once(() => store.query(queryDb(taskParents.orderBy('taskId', 'asc'))))
     const everyPullRequest = once(() => store.query(queryDb(pullRequests)))
+    const everyUsage = once(
+      () => new Map(store.query(queryDb(runUsage)).map((row) => [row.id, row] as const)),
+    )
     const factories = once(listFactories)
     return {
       factories,
@@ -1922,6 +1945,13 @@ export async function openStore({
         () => store.query(queryDb(taskRepos.orderBy('createdAt', 'asc'))),
         (r) => r.taskId,
       ),
+      usage: (runIds: readonly string[]): (typeof runUsage.Type)[] => {
+        if (runIds.length === 0) return []
+        if (!everyTask)
+          return store.query(queryDb(runUsage.where({ id: { op: 'IN', value: runIds } })))
+        const all = everyUsage()
+        return runIds.flatMap((id) => all.get(id) ?? [])
+      },
       pullRequest: rows(pullRequestRows, everyPullRequest, (r) => r.id),
       pullRequests: rows(taskPullRequests, everyPullRequest, (r) => r.taskId),
       task: rows(
@@ -2081,6 +2111,7 @@ export async function openStore({
     const all = reads.runs(row.id)
     const lead = all.find((r) => r.parentRunId === null)
     const live = all.filter((r) => r.state !== 'finished')
+    const tokens = taskTokens(all, reads.usage(all.map((r) => r.id)), liveTokens)
     const entries = reads.entries(row.id)
     const parentId = reads.parents(row.id).at(0)?.parentId
     const blockedBy = reads.blockers(row.id).map((b) => b.blockerId)
@@ -2117,9 +2148,13 @@ export async function openStore({
     const paused = reads.pauses()
     const held = reads.held(row.id).at(0)
     const taskComments = reads.comments(row.id)
-    const queuedContinuation =
-      pendingMessages.some((message) => message.waitForSlot) ||
-      taskComments.some((comment) => comment.answerHeld && comment.answerQueuedAt !== null)
+    const heldAnswer = taskComments.some(
+      (comment) => comment.answerHeld && comment.answerQueuedAt !== null,
+    )
+    const queuedContinuation = pendingMessages.some((message) => message.waitForSlot) || heldAnswer
+    const queuedAfter =
+      pendingMessages.find((message) => message.waitForSlot && message.after !== undefined)
+        ?.after ?? (heldAnswer ? 'answer' : undefined)
     const place =
       queued || queuedContinuation
         ? (queueActivity.taskPlaces?.find((entry) => entry.id === row.id)?.place ??
@@ -2197,7 +2232,7 @@ export async function openStore({
             ? { hold: `${leadAgent ?? held?.agent} is off. Enable it in Settings → Providers.` }
             : place > 0
               ? newWorkHeld === undefined
-                ? { place }
+                ? { place, ...(queuedAfter !== undefined && { after: queuedAfter }) }
                 : { hold: newWorkHeld }
               : { hold: 'Waiting for a Provider' },
       }),
@@ -2232,7 +2267,7 @@ export async function openStore({
       ...(stoppedAt === null &&
         place === 0 &&
         repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
-      ...((checking || checkingTasks.has(row.id)) && { tedWorking: true }),
+      ...((checking || checkingTasks.has(row.id)) && { checksActive: true }),
       ...(checkingNow && { checking: checkingNow }),
       ...(movingAfterChecks.has(row.id) && { movingAfterChecks: true }),
       testActivity: testInvocationStore.active(row.id),
@@ -2246,6 +2281,7 @@ export async function openStore({
     }
     if (observe) noteTaskWait(row.id, facts)
     const status = taskStatus(facts)
+    const delivery = commentDelivery(facts)
     const unblocked = statusWithoutBlocker(facts, status)
     const shown = taskActivity(facts)
     const tabs: ConversationTab[] = reads.tabs(row.id).flatMap((tab) => {
@@ -2387,8 +2423,12 @@ export async function openStore({
       ...(shown !== undefined && { activity: shown }),
       track: track(stage, entries),
       commentBox: commentBox(facts, status),
+      ...(delivery !== undefined && { commentDelivery: delivery }),
       ...(taskCanResume(facts) && { canResume: true }),
+      ...(taskWakesOnComment(facts) && { wakesOnComment: true as const }),
+      ...(facts.checksActive && { checksActive: true }),
       tabs,
+      ...(tokens > 0 && { tokens }),
       runs: live
         .sort(
           (a, b) =>
@@ -2892,10 +2932,27 @@ export async function openStore({
     const digits = ref.slice(dash + 1)
     if (dash < 0 || !/^(0|[1-9]\d*)$/.test(digits)) return undefined
     const key = ref.slice(0, dash)
-    return store
-      .query(queryDb(tasks.where({ number: Number(digits) })))
+    const number = Number(digits)
+    const row = store
+      .query(queryDb(tasks.where({ number })))
       .find((row) => factoryKey(row.factoryId) === key)
+    if (row) return row
+    const moved = store
+      .query(queryDb(taskMoves.where({ number })))
+      .find((row) => factoryKey(row.factoryId) === key)
+    return moved ? taskRow(moved.taskId) : undefined
   }
+  const nextNumber = (factoryId: string) => {
+    const awaitingSetup =
+      listFactories().find((f) => f.id === factoryId)?.clonedAt === undefined &&
+      factoryId !== placeholderFactory.id
+    return Math.max(awaitingSetup ? 1 : 0, ...usedNumbers(factoryId)) + 1
+  }
+  const usedNumbers = (factoryId: string) => [
+    ...store.query(queryDb(tasks.select('number').where({ factoryId }))),
+    ...store.query(queryDb(deletedTasks.select('number').where({ factoryId }))),
+    ...store.query(queryDb(taskMoves.select('number').where({ factoryId }))),
+  ]
   const lastCommentAt = (rows: readonly (typeof comments.Type)[]) =>
     rows
       .flatMap((c) => [
@@ -3998,7 +4055,7 @@ export async function openStore({
       updatedQueue(approval.failure.taskId)
       return next
     },
-    postFailureDecision(value, body, canAccept = true, askedBy) {
+    postFailureDecision(value, body, canAccept = true, askedBy, closable = false) {
       const at = new Date().toISOString()
       const assessment = value.assessments.at(-1)
       if (!assessment) throw new Error('a failure decision needs an assessment')
@@ -4010,7 +4067,12 @@ export async function openStore({
           ...(value.validation && {
             title: `How should we handle the ${value.originalCheck?.name ?? (value.source.kind === 'github-ci' ? 'CI' : 'validation')} failure?`,
           }),
-          choices: Object.values(value.validation ? validateFailureChoices : failureChoices).filter(
+          choices: [
+            ...Object.values(value.validation ? validateFailureChoices : failureChoices),
+            ...(value.validation && closable
+              ? [failureChoices.fixed, failureChoices['no-longer-applicable']]
+              : []),
+          ].filter(
             (choice) =>
               (canAccept || choice !== failureChoices.accepted) &&
               (choice !== 'Wait for a repair Task' ||
@@ -4125,10 +4187,7 @@ export async function openStore({
       children = [],
       notes = [],
     }) {
-      const used = [
-        ...store.query(queryDb(tasks.select('number').where({ factoryId }))),
-        ...store.query(queryDb(deletedTasks.select('number').where({ factoryId }))),
-      ]
+      const used = usedNumbers(factoryId)
       const awaitingSetup =
         !setup &&
         listFactories().find((f) => f.id === factoryId)?.clonedAt === undefined &&
@@ -4346,9 +4405,7 @@ export async function openStore({
       draftRevision,
     }) {
       const currentDraft = draftRevision ? taskDraft(factoryId).draft : null
-      const inFactory = store.query(queryDb(tasks.where({ factoryId })))
-      const deleted = store.query(queryDb(deletedTasks.where({ factoryId })))
-      const used = [...inFactory.map((t) => t.number), ...deleted.map((t) => t.number)]
+      const used = usedNumbers(factoryId)
       const awaitingSetup = listFactories().find((f) => f.id === factoryId)?.clonedAt === undefined
       let number = Math.max(awaitingSetup ? 1 : 0, ...used) + 1
       let rank = nextRank()
@@ -4675,6 +4732,78 @@ export async function openStore({
       updatedQueue(taskId)
       updatedDependents(taskId)
       return task
+    },
+    nextTaskNumber: (factoryId) => nextNumber(factoryId),
+    moveTask({ moves, unlink, leaveParent, notes, by }) {
+      const at = new Date().toISOString()
+      const next = new Map<string, number>()
+      const numberIn = (factoryId: string) => {
+        const number = next.get(factoryId) ?? nextNumber(factoryId)
+        next.set(factoryId, number + 1)
+        return number
+      }
+      const planned = moves.map(({ taskId, factoryId, started }) => {
+        const row = requireTaskRow(taskId)
+        checkingTasks.delete(taskId)
+        movingAfterChecks.delete(taskId)
+        return {
+          row,
+          started,
+          factoryId,
+          number: numberIn(factoryId),
+          from: `${factoryKey(row.factoryId)}-${row.number}`,
+        }
+      })
+      const withdrawn = planned.flatMap(({ row, factoryId }) =>
+        openRequestRows(row.id).map((request) => ({ request, factoryId })),
+      )
+      const oldParent = leaveParent === undefined ? undefined : parentRow(leaveParent)?.parentId
+      const posts = notes.map(({ taskId, body }) =>
+        commentPosted({ taskId, kind: 'note', author: { kind: 'ted' }, body }, at),
+      )
+      commit(
+        ...unlink.map(({ taskId, blockerId }) =>
+          events.taskBlockerRemoved({ taskId, blockerId, runId: null, at }),
+        ),
+        ...(leaveParent !== undefined && oldParent !== undefined
+          ? [events.taskParentChanged({ taskId: leaveParent, parentId: null, at })]
+          : []),
+        ...withdrawn.map(({ request, factoryId }) => {
+          const answer: CommentAnswer = { kind: 'withdrawn', at, movedToFactory: factoryId }
+          return events.commentAnswered({ id: request.id, answer: JSON.stringify(answer), at })
+        }),
+        ...planned.flatMap(({ row, started, factoryId, number, from }) => [
+          ...(row.snoozedUntil ? [events.taskSnoozeCleared({ taskId: row.id, at })] : []),
+          events.taskMovedToFactory({
+            taskId: row.id,
+            fromFactoryId: row.factoryId,
+            fromNumber: row.number,
+            fromDisplayId: from,
+            factoryId,
+            number,
+            by,
+            started,
+            checkRunIds: checkRunRows(row.id).map((r) => r.id),
+            at,
+          }),
+        ]),
+        ...posts.flatMap(({ event, attached }) => [event, ...attached]),
+      )
+      for (const { request } of withdrawn) emitComment(request.id)
+      for (const { id } of posts) emitComment(id)
+      for (const { row } of planned) updatedTask(row.id)
+      if (oldParent !== undefined && taskRow(oldParent)) updatedTask(oldParent)
+      for (const { taskId, blockerId } of unlink) {
+        if (taskRow(taskId)) updatedTask(taskId)
+        if (taskRow(blockerId)) updatedTask(blockerId)
+      }
+      updatedQueue()
+      for (const { row } of planned) updatedDependents(row.id)
+      return planned.map(({ row, factoryId, number, from }) => ({
+        id: row.id,
+        from,
+        to: `${factoryKey(factoryId)}-${number}`,
+      }))
     },
     blockedBy: (blockerId) =>
       store.query(queryDb(taskBlockers.where({ blockerId }))).map((row) => row.taskId),
@@ -5751,16 +5880,22 @@ export async function openStore({
           .map((comment) => comment.taskId),
       ]),
     ],
-    holdLeadMessage(taskId, text, waitForSlot = false) {
+    holdLeadMessage(taskId, text, waitForSlot = false, after) {
       const pending = toTask(requireTaskRow(taskId)).pendingLeadMessages
+      const at = new Date().toISOString()
       commit(
         events.taskLeadMessagesHeld({
           taskId,
           messages: JSON.stringify([
             ...pending,
-            { id: randomUUID(), text, ...(waitForSlot && { waitForSlot: true }) },
+            {
+              id: randomUUID(),
+              text,
+              ...(waitForSlot && { waitForSlot: true }),
+              ...(waitForSlot && after !== undefined && { after, heldAt: at }),
+            },
           ]),
-          at: new Date().toISOString(),
+          at,
         }),
       )
     },
@@ -6830,6 +6965,14 @@ export async function openStore({
       const taskId = taskIdOfRun(runId)
       if (taskId !== undefined) updatedTask(taskId)
     },
+    setLiveTokens(runId, tokens) {
+      if (liveTokens.get(runId) === tokens) return
+      if (tokens === undefined) liveTokens.delete(runId)
+      else liveTokens.set(runId, tokens)
+      stateCommits += 1
+      const taskId = taskIdOfRun(runId)
+      if (taskId !== undefined && taskRow(taskId)) updatedTask(taskId)
+    },
     setRunAsleep(runId, asleep) {
       if (asleepRuns.has(runId) === asleep) return
       if (asleep) asleepRuns.add(runId)
@@ -6993,6 +7136,8 @@ export async function openStore({
       )
       const row = runRow(runId)
       if (row) emit({ type: 'run-updated', run: toRun(row) })
+      const taskId = taskIdOfRun(runId)
+      if (taskId !== undefined && taskRow(taskId)) updatedTask(taskId)
     },
     apiCost(days, now = new Date()) {
       const since = new Date(now.getTime() - days * 86_400_000).toISOString()

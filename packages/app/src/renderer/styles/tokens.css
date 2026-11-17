@@ -58,6 +58,10 @@
   --status-warning-text: light-dark(#7a4a0c, #f0c27a);
   --status-failed-fg: light-dark(#c0392b, #f0705f);
   --status-failed-bg: light-dark(#fbeae8, #3d1f1b);
+  --status-stopped-fg: light-dark(#b4435a, #ee8a9c);
+  --status-stopped-bg: light-dark(#fcedf0, #3b1f26);
+  --status-snoozed-fg: light-dark(#8c6418, #d4b07a);
+  --status-snoozed-bg: light-dark(#fbf6ec, #332a1d);
   --status-failed-border: light-dark(#f0c9c4, #6a2e27);
   --status-destructive: light-dark(#b4372a, #c9483a);
   --status-destructive-text: light-dark(#b4372a, #f0705f);
@@ -204,7 +208,6 @@
   --radius-pill: 999px;
 
   --sidebar-width: 210px;
-  --list-pane-width: 330px;
   --details-pane-width: 320px;
   /* Text size 100% sets --text-scale to 1.1. */
   --chat-column: calc(650px * var(--text-scale) / 1.1);

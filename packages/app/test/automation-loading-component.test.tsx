@@ -109,7 +109,7 @@ for (const kind of ['details', 'run'] as const) {
   test(`${kind}: initial Automation failure offers retry and recovers without claiming deletion`, async () => {
     const pending = deferred<AutomationDetail>()
     const api = bridge({ getAutomation: () => pending.promise, getRunChat: chat })
-    if (kind === 'details') saveSidebarWidths({ navigation: 210, details: 416 })
+    if (kind === 'details') saveSidebarWidths({ navigation: 210, list: 330, details: 416 })
     render(kind === 'details' ? <SidebarLayout>{view(kind)}</SidebarLayout> : view(kind))
     expect(screen.getByRole('status')).toBeTruthy()
     if (kind === 'details') {

@@ -107,7 +107,10 @@ describe('Planning chats', () => {
       .getByRole('region', { name: 'Agent chats' })
       .getByRole('button', { name: 'New chat' })
       .click()
-    await window.getByRole('combobox', { name: 'Agent' }).selectOption('planner')
+    await window
+      .getByRole('region', { name: 'New chat', exact: true })
+      .getByRole('button', { name: /^Planner/ })
+      .click()
     const fresh = window.getByRole('region', { name: 'New planning chat' })
     await fresh.waitFor()
     expect(
@@ -236,10 +239,11 @@ describe('Planning chats', () => {
     await row('Quick plan').click()
     await chat.getByRole('heading', { name: 'Quick plan' }).waitFor()
     await chat.getByRole('button', { name: 'Resume' }).waitFor()
-    const archive = async () => {
-      await chat.getByRole('button', { name: 'More', exact: true }).click()
-      await chat.getByRole('menuitem', { name: 'Archive' }).click()
+    const menu = async (item: string) => {
+      await chat.getByRole('button', { name: 'Chat actions' }).click()
+      await window.getByRole('menuitem', { name: item, exact: true }).click()
     }
+    const archive = () => menu('Archive')
     await archive()
     await chat.getByText('This chat is archived. Unarchive it to write to it again.').waitFor()
     const archived = list.getByRole('region', { name: 'Archived chats' })
@@ -261,8 +265,7 @@ describe('Planning chats', () => {
 
     await row('Quick plan').click()
     await chat.getByRole('heading', { name: 'Quick plan' }).waitFor()
-    await chat.getByRole('button', { name: 'More', exact: true }).click()
-    await chat.getByRole('menuitem', { name: 'Plan more from here…' }).click()
+    await menu('Plan more from here…')
     const fresh = window.getByRole('region', { name: 'New planning chat' })
     await fresh.getByText('Builds on “Quick plan”', { exact: false }).waitFor()
     await fresh
@@ -282,12 +285,8 @@ describe('Planning chats', () => {
 
     await row('Quick plan').click()
     await chat.getByRole('heading', { name: 'Quick plan' }).waitFor()
-    await chat.getByRole('button', { name: 'More', exact: true }).click()
-    await chat.getByRole('menuitem', { name: 'Delete…' }).click()
-    await chat
-      .getByRole('alertdialog', { name: 'Delete this planning chat?' })
-      .getByRole('button', { name: 'Delete' })
-      .click()
+    await menu('Delete…')
+    await window.getByRole('dialog').getByRole('button', { name: 'Delete', exact: true }).click()
     await row('Quick plan').waitFor({ state: 'detached' })
     await client.stopPlan(failing.id)
   })

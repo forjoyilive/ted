@@ -137,5 +137,11 @@ export function parseResolveFailureRequest(value: Untyped): ResolveFailureReques
 }
 
 export function parseVerifyFailureRequest(value: Untyped): VerifyFailureRequest {
-  return { evidence: failureString(failureObject(value), 'evidence') }
+  const body = failureObject(value)
+  const fixedBy = read.optional(body, 'fixedBy', failureString)
+  const input: VerifyFailureRequest = {
+    evidence: failureString(body, 'evidence'),
+    ...(fixedBy !== undefined && { fixedBy }),
+  }
+  return input
 }

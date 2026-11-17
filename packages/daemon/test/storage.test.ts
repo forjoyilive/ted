@@ -223,6 +223,7 @@ describe('Settings → Storage', () => {
         paths.emulators,
         paths.scratch,
         paths.plans,
+        paths.chatCode,
         paths.automationRuns,
       ],
     ])

@@ -151,7 +151,11 @@ export function createCoordinatorStore(options: {
   }
 }
 
-export function confirmationHeadline(c: Pick<CoordinatorConfirmation, 'kind' | 'tasks'>): string {
+export function confirmationHeadline(
+  c: Pick<CoordinatorConfirmation, 'kind' | 'tasks' | 'transfer'>,
+): string {
+  if (c.kind === 'transfer')
+    return `Move ${c.tasks[0]?.displayId ?? 'a Task'} to ${c.transfer?.factoryName ?? 'another Factory'}?`
   const verb = c.kind === 'delete' ? 'Delete' : 'Archive'
   const ids = c.tasks.map((t) => t.displayId)
   return ids.length === 1 ? `${verb} ${ids[0]}?` : `${verb} ${ids.length} Tasks? ${ids.join(', ')}`

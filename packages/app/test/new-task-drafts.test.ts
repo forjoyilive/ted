@@ -194,15 +194,21 @@ describe('New Task drafts', () => {
     expect((await client.taskDraft(first.id)).draft?.description).toBe('')
 
     await description().fill('Site draft')
+    await form(window).getByLabel('Title', { exact: true }).fill('Site draft')
     await form(window).getByRole('button', { name: 'Create more', exact: true }).click()
     await waitFor(async () => (await description().inputValue()) === '')
     expect((await client.taskDraft(second.id)).draft).toBeNull()
-    await waitFor(() => description().evaluate((field) => field === document.activeElement))
+    await waitFor(() =>
+      form(window)
+        .getByLabel('Title', { exact: true })
+        .evaluate((field) => field === document.activeElement),
+    )
     expect((await client.listTasks()).find((t) => t.title === 'Site draft')?.factoryId).toBe(
       second.id,
     )
 
     await description().fill('Moved back')
+    await form(window).getByLabel('Title', { exact: true }).fill('Moved back')
     await chooseFactory(form(window), first.name)
     await waitFor(() => description().isEnabled())
     expect(await description().inputValue()).toBe('Moved back')
@@ -246,6 +252,9 @@ describe('New Task drafts', () => {
     await open(window)
     await form(window)
       .getByLabel('Description', { exact: true })
+      .fill('Keep my Task when the installed agents change')
+    await form(window)
+      .getByLabel('Title', { exact: true })
       .fill('Keep my Task when the installed agents change')
     await form(window).getByLabel('Start now', { exact: true }).uncheck()
     await form(window).getByRole('button', { name: /^More/ }).click()
@@ -305,6 +314,7 @@ await import(${JSON.stringify(pathToFileURL(stubCodexPath).href)})
     await form(window)
       .getByLabel('Description', { exact: true })
       .fill('Another Task after Create more')
+    await form(window).getByLabel('Title', { exact: true }).fill('Another Task after Create more')
     await form(window).getByLabel('Start now', { exact: true }).uncheck()
     await form(window).getByRole('button', { name: /^More/ }).click()
     expect(await form(window).getByLabel('Provider', { exact: true }).inputValue()).toBe('codex')

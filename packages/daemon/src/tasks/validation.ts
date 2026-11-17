@@ -7,10 +7,11 @@ import type {
   CheckState,
   FailureCase,
   FailureContext,
+  QueuedAfter,
   ResolveFailureRequest,
   Task,
 } from '@ted/protocol'
-import { validationExecution } from '@ted/protocol'
+import { failureChoices, validationExecution } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
 import { handsOff, mergesHere, stageWith, validates } from '@ted/protocol/stage'
 import { RequestError } from '../errors.ts'
@@ -62,7 +63,7 @@ interface ValidationOptions {
   reportNotFound(task: Task, result: CheckRunnerResult): void
   setChecking(id: string, on: boolean): void
   isChecking(id: string): boolean
-  deliver(task: StoredTask, message: string): Promise<unknown>
+  deliver(task: StoredTask, message: string, after: QueuedAfter): Promise<unknown>
   notify(task: StoredTask): Promise<void>
   instructions(task: StoredTask, resolution: WorkflowResolution, message?: string): Promise<string>
   apps(task: StoredTask): Promise<string | undefined>
@@ -125,16 +126,9 @@ export function createValidation(options: ValidationOptions) {
     return evidence.slice(0, Math.max(0, 16_000 - reference.length)) + reference
   }
 
-  function sourceCheck(value: FailureCase) {
-    return value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check'
-      ? (store.getCheckRun(value.source.checkRunId)?.checks[value.source.position] ??
-          value.originalCheck)
-      : value.originalCheck
-  }
-
   function verifyPassed(task: Task, run: CheckRun) {
     for (const prior of store.failures.list(task.id)) {
-      const original = sourceCheck(prior)
+      const original = failures.sourceCheck(prior)
       if (
         (!prior.validation &&
           !(
@@ -151,6 +145,7 @@ export function createValidation(options: ValidationOptions) {
       const decision = prior.resolutions.at(-1)
       if (
         decision?.resolution === 'repair' &&
+        !failures.abandonedRepair(prior) &&
         !prior.repairProgress?.some(
           (p) => p.requestId === decision.requestId && run.startedAt >= p.at,
         )
@@ -421,37 +416,7 @@ export function createValidation(options: ValidationOptions) {
               ...(contextId && { contextId }),
             })
             failureId = value.id
-            for (const previous of store.failures.list(task.id)) {
-              if (
-                previous.id === failureId ||
-                !previous.validation ||
-                previous.verifications?.length ||
-                (previous.source.kind !== 'factory-check' &&
-                  previous.source.kind !== 'post-rebase-check') ||
-                sourceCheck(previous)?.name !== sourceCheck(value)?.name ||
-                sourceCheck(previous)?.repo !== sourceCheck(value)?.repo ||
-                sourceCheck(previous)?.command !== sourceCheck(value)?.command
-              )
-                continue
-              const decision = previous.resolutions.at(-1)
-              if (
-                decision?.resolution === 'repair' &&
-                !previous.repairProgress?.some((p) => p.requestId === decision.requestId)
-              )
-                continue
-              if (
-                decision?.resolution === 'accepted' &&
-                !previous.invalidations.some((i) => i.requestId === decision.requestId)
-              )
-                continue
-              failures.verifyResult(
-                task,
-                previous.id,
-                `A new execution failed; failure ${shortReference(failureId)} now holds this verification.`,
-                checkRun.id,
-                failureId,
-              )
-            }
+            failures.replaceOlder(task, value, checkRun.id)
           }
           store.failures.saveProgress({
             ...current,
@@ -574,6 +539,7 @@ export function createValidation(options: ValidationOptions) {
           await options.deliver(
             task,
             `Validate failure ${shortReference(value.id)} still needs diagnosis or a human decision. Original evidence:\n\n${value.evidence}`,
+            'checks-done',
           )
         if (mergesHere(task.stage)) await options.notify(task)
         return false
@@ -635,6 +601,7 @@ export function createValidation(options: ValidationOptions) {
           await withApps(
             `${instructions}\n\n# Checks\n\nTED ran the Factory’s Checks before moving the Task out of Work. None failed:\n\n${summary(checked.run.checks)}`,
           ),
+          'checks-passed',
         )
         return
       }
@@ -644,7 +611,7 @@ export function createValidation(options: ValidationOptions) {
         const report = progress
           ? `\n\n# Validation results\n\n${validationReport(progress, store.failures.list(taskId))}`
           : ''
-        await options.deliver(task, await withApps(instructions + report))
+        await options.deliver(task, await withApps(instructions + report), 'checks-done')
         return
       }
       const result = await started.done
@@ -663,6 +630,7 @@ export function createValidation(options: ValidationOptions) {
         await options.deliver(
           current,
           await withApps(`${instructions}\n\n# Checks\n\n${checksReport}`),
+          previousFailures ? 'checks-done' : 'checks-passed',
         )
         return
       }
@@ -676,6 +644,7 @@ export function createValidation(options: ValidationOptions) {
       await options.deliver(
         current,
         `${instructions}\n\n# A Check failed\n\nThe Task stays in Validate. Investigate failure case ${failureId ? shortReference(failureId) : '(see ted failure list)'}, add evidence and assess regression, unrelated or uncertain. A supported regression goes back through \`ted outcome back\`; unrelated or uncertain causes require a human decision. Investigation and retry do not count as send-backs.\n\n${findings}`,
+        'checks-done',
       )
     } finally {
       options.setChecking(taskId, false)
@@ -791,7 +760,12 @@ export function createValidation(options: ValidationOptions) {
       (value.source.kind === 'post-rebase-check' || value.source.kind === 'github-ci')
     if (!validates(task.stage) && !merging)
       throw new RequestError(409, 'this Check decision is no longer current')
-    if (input.resolution === 'fixed' || input.resolution === 'no-longer-applicable')
+    const closingChoice =
+      input.resolution === 'fixed' || input.resolution === 'no-longer-applicable'
+        ? failureChoices[input.resolution]
+        : undefined
+    const closing = closingChoice !== undefined
+    if (closing && !store.getComment(input.requestId)?.choices?.includes(closingChoice))
       throw new RequestError(
         409,
         'use Retry, Fix in this Task or Accept this failure for a Check diagnosis',
@@ -818,7 +792,7 @@ export function createValidation(options: ValidationOptions) {
         await options.fix(find(task.id), result)
       } else if (
         (value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check') &&
-        (input.resolution === 'retry' || input.resolution === 'accepted') &&
+        (input.resolution === 'retry' || input.resolution === 'accepted' || closing) &&
         store.failures.progress(task.id)?.failureId === id
       ) {
         const progress = store.failures.progress(task.id)
@@ -826,7 +800,7 @@ export function createValidation(options: ValidationOptions) {
           throw new RequestError(409, 'this failure is not the outstanding Check')
         store.failures.saveProgress({
           ...progress,
-          next: input.resolution === 'accepted' ? progress.next + 1 : progress.next,
+          next: input.resolution === 'retry' ? progress.next : progress.next + 1,
           pending: true,
         })
         await store.persisted()
@@ -894,18 +868,24 @@ export function createValidation(options: ValidationOptions) {
     return plan.length === 0
   }
 
-  async function verifyRepair(task: StoredTask, value: FailureCase, evidence: string) {
+  async function verifyRepair(
+    task: StoredTask,
+    value: FailureCase,
+    evidence: string,
+    fixedBy?: { id: string; displayId: string; title: string },
+  ) {
     if (value.source.kind !== 'factory-check' && value.source.kind !== 'post-rebase-check')
       throw new RequestError(409, 'only a Check repair can use current Check coverage')
     const source = store.getCheckRun(value.source.checkRunId)
     const obligations = await failures.obligations(task)
     const current = await currentCoverage(task)
     const progress = store.failures.progress(task.id)
-    const original = sourceCheck(value)
+    const original = failures.sourceCheck(value)
     const decision = value.resolutions.at(-1)
     const incorporation =
       decision?.resolution === 'repair'
-        ? value.repairProgress?.findLast((p) => p.requestId === decision.requestId)
+        ? (value.repairProgress?.findLast((p) => p.requestId === decision.requestId) ??
+          (failures.abandonedRepair(value) ? decision : undefined))
         : undefined
     const freshRepair =
       incorporation &&
@@ -971,6 +951,9 @@ export function createValidation(options: ValidationOptions) {
       task,
       value.id,
       `${evidence}\n\nTask Lead reported repair against Validate visit ${progress.visit}. Current Checks: ${generatedFailureText(summary(progress.checks)) || '(empty plan)'}. Original execution remains failed.`,
+      undefined,
+      undefined,
+      fixedBy,
     )
   }
 

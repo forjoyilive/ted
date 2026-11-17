@@ -51,3 +51,63 @@
 .control:disabled + .chevron {
   color: var(--text-tertiary);
 }
+
+.list {
+  position: fixed;
+  inset: auto;
+  top: 0;
+  left: 0;
+  z-index: 100;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(calc(360px * var(--text-scale)), calc(100vw - 16px));
+  max-height: calc(100vh - 16px);
+  margin: 0;
+  overflow: auto;
+  padding: 6px 0;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  box-shadow: 0 8px 24px var(--shadow-popover);
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 30px;
+  padding: 5px 14px;
+  border: none;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--text-13-5);
+  text-align: left;
+}
+
+.option:disabled {
+  color: var(--text-faint);
+}
+
+.active {
+  background: var(--surface-selected);
+}
+
+.optionLabel {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.check {
+  flex-shrink: 0;
+  visibility: hidden;
+  color: var(--text-primary);
+}
+
+.option[aria-selected="true"] .check {
+  visibility: visible;
+}

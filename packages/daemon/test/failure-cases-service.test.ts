@@ -6,12 +6,7 @@ import { shortReference } from '@ted/protocol/reference'
 import { afterEach, expect, test, vi } from 'vitest'
 import { RequestError } from '../src/errors.ts'
 import { openStore } from '../src/store/index.ts'
-import {
-  acceptRefusals,
-  checkAskRefusal,
-  createFailureCases,
-  failureText,
-} from '../src/tasks/failure-cases.ts'
+import { acceptRefusals, createFailureCases, failureText } from '../src/tasks/failure-cases.ts'
 
 const lead = 'run-lead-7f3a'
 const secret = 'abcdefghijklmnopqrstuvwxyz'
@@ -30,7 +25,7 @@ async function setup() {
   })
   const task = await store.createTask({ title: 'Failure cases' })
   store.startRun({ id: lead, taskId: task.id, agent: 'codex', prompt: '', cwd: directory })
-  const worktree = { fingerprint: 'A', readable: true, base: 'base-1', head: 'head-1' }
+  const worktree = { fingerprint: 'A', readable: true, base: 'base-1', head: 'head-1', ci: '' }
   let reads = 0
   const service = createFailureCases({
     store,
@@ -52,6 +47,7 @@ async function setup() {
           },
         ],
         checks: worktree.fingerprint,
+        ...(worktree.ci && { ci: worktree.ci }),
       }
     },
     assertLead: () => {},
@@ -381,7 +377,7 @@ test('a stale ask is still posted when no new context could be attached or read'
   )
 })
 
-test('a Check failure stays acceptable with later evidence on the same code, and an ask after a change is refused', async () => {
+test('a Check failure stays acceptable with later evidence on the same code, and an ask after a change gets a card without Accept', async () => {
   const s = await setup()
   vi.useFakeTimers({ toFake: ['Date'] })
   cleanups.push(async () => {
@@ -406,17 +402,39 @@ test('a Check failure stays acceptable with later evidence on the same code, and
   const changed = await s.recordCheck((await s.capture()).id)
   vi.setSystemTime(start + 3000)
   s.worktree.head = 'head-2'
-  const questions = s.store.listComments(s.task.id).filter((c) => c.kind === 'question').length
-  await s.assess(changed)
-  const refused = await refusalText(() => s.decision(changed))
-  expect(refused).toBe(checkAskRefusal(changed.contextId))
-  expect(refused).toContain('`ted checks`')
+  const asked2 = await s.request(changed)
+  expect(s.comment(asked2.decisions.at(-1)?.commentId)).toMatchObject({
+    choices: ['Fixed', 'No longer applicable'],
+    body: expect.stringContaining('TED can’t tie a later test run to it'),
+  })
   s.evidence(changed, 'Looked at the new commit', (await s.capture()).id)
-  await s.assess(changed)
-  expect(await refusalText(() => s.decision(changed))).toBe(checkAskRefusal())
-  expect(s.store.listComments(s.task.id).filter((c) => c.kind === 'question')).toHaveLength(
-    questions,
-  )
+  const asked3 = await s.request(changed)
+  expect(s.comment(asked3.decisions.at(-1)?.commentId)?.choices).toEqual([
+    'Fixed',
+    'No longer applicable',
+  ])
+  expect(
+    (await s.resolve(asked3, 'no-longer-applicable', 'The Check changed.')).resolutions.at(-1)
+      ?.resolution,
+  ).toBe('no-longer-applicable')
+})
+
+test('a Check failure asked about after only the CI reading changed gets a card without Accept, not a refusal', async () => {
+  const s = await setup()
+  vi.useFakeTimers({ toFake: ['Date'] })
+  cleanups.push(async () => {
+    vi.useRealTimers()
+  })
+  const start = Date.parse('2026-11-16T12:00:00Z')
+  vi.setSystemTime(start)
+  const value = await s.recordCheck((await s.capture()).id)
+  vi.setSystemTime(start + 1000)
+  s.worktree.ci = 'pull-request-ci'
+  const asked = await s.request(value)
+  expect(s.comment(asked.decisions.at(-1)?.commentId)).toMatchObject({
+    choices: ['Fixed', 'No longer applicable'],
+    body: expect.stringContaining('TED can’t tie a later test run to it'),
+  })
 })
 
 test('accepting a failure with no tested context says so and tells the Task Lead to record it again', async () => {
@@ -549,4 +567,159 @@ test('short failure, Run and context references preserve canonical evidence and 
       }),
     ),
   ).toBe(409)
+})
+
+async function checkCases() {
+  const s = await setup()
+  vi.useFakeTimers({ toFake: ['Date'] })
+  cleanups.push(async () => {
+    vi.useRealTimers()
+  })
+  let now = Date.parse('2026-11-16T12:00:00Z')
+  const tick = () => {
+    now += 1000
+    vi.setSystemTime(now)
+  }
+  tick()
+  const validating = { ...s.task, stage: 'validate' }
+  const fail = async (command: string) => {
+    const contextId = (await s.capture()).id
+    tick()
+    const run = s.store.startChecks({
+      taskId: s.task.id,
+      trigger: 'validate',
+      stage: 'validate',
+      checks: [{ name: 'Affected tests', command, timeout: '10m', state: 'waiting' }],
+    })
+    s.store.checkStarted(run.id, 0)
+    s.store.checkFinished(run.id, 0, { state: 'failed', durationMs: 1000, exitCode: 1 })
+    s.store.finishChecks(run.id, 'failed')
+    const value = await s.service.recordCheck(validating, lead, {
+      source: { kind: 'factory-check', checkRunId: run.id, position: 0 },
+      evidence: 'The demo reset test failed',
+      contextId,
+    })
+    tick()
+    return { value, run }
+  }
+  const ask = async (value: FailureCase) => {
+    await s.assess(value)
+    return s.service.request(validating, value.id, lead)
+  }
+  const waitForRepair = async (value: FailureCase) => {
+    const asked = await ask(value)
+    const repair = await s.store.createTask({ title: 'Repair the demo reset test' })
+    s.store.approveRepair(
+      {
+        failure: asked,
+        request: {
+          requestId: asked.decisions.at(-1)?.commentId ?? '',
+          resolution: 'repair',
+          repair: { kind: 'existing', taskId: repair.id },
+        },
+        brief: 'Waiting for the repair',
+      },
+      repair,
+    )
+    return repair
+  }
+  const disposition = async (value: FailureCase) =>
+    (await s.obligations()).cases.find((c) => c.id === value.id)?.disposition
+  return { ...s, validating, fail, ask, waitForRepair, disposition }
+}
+
+test('a case whose repair Task was archived is replaced by a later failure of the same Check after the Check plan changed', async () => {
+  const s = await checkCases()
+  const { value: first } = await s.fail('pnpm check')
+  const repair = await s.waitForRepair(first)
+  expect(await s.obligations()).toMatchObject({ satisfied: false, blockers: [first.id] })
+  s.store.archiveTask(repair.id)
+  expect(await s.obligations()).toMatchObject({ satisfied: false, blockers: [first.id] })
+
+  s.worktree.fingerprint = 'B'
+  const { value: second } = await s.fail('pnpm check --changed')
+  expect(await s.disposition(first)).toBe('retried')
+  await s.assess(first)
+  expect(await refusalText(() => s.service.request(s.validating, first.id, lead))).toContain(
+    `failure ${shortReference(second.id)} replaced this case`,
+  )
+  const asked = await s.ask(second)
+  expect(s.comment(asked.decisions.at(-1)?.commentId)?.choices).toContain('Accept this failure')
+  await s.resolve(asked)
+  expect(await s.obligations()).toMatchObject({
+    satisfied: true,
+    cases: [
+      { id: first.id, disposition: 'retried' },
+      { id: second.id, disposition: 'accepted' },
+    ],
+  })
+})
+
+test('a new failure replaces an older case of the same Check only when the command matches or the old case is no longer tied, and never one waiting on a repair', async () => {
+  const s = await checkCases()
+  const { value: first } = await s.fail('pnpm check')
+  const { value: second, run: secondRun } = await s.fail('pnpm check --changed')
+  s.service.replaceOlder(s.validating, second, secondRun.id)
+  expect(await s.disposition(first)).toBe('unresolved')
+
+  const repair = await s.waitForRepair(second)
+  const { value: third, run: thirdRun } = await s.fail('pnpm check')
+  s.service.replaceOlder(s.validating, third, thirdRun.id)
+  expect(s.store.failures.get(first.id)?.verifications?.at(-1)).toMatchObject({
+    replacedBy: third.id,
+    checkRunId: thirdRun.id,
+  })
+
+  const { value: fourth, run: fourthRun } = await s.fail('pnpm check --changed')
+  s.service.replaceOlder(s.validating, fourth, fourthRun.id)
+  expect(s.store.failures.get(second.id)?.verifications).toBeUndefined()
+  expect(await s.disposition(second)).toBe('unresolved')
+  expect(s.store.getTask(repair.id)?.archived).toBeUndefined()
+})
+
+test('asking about a Validate Check failure TED can’t tie to the current code offers Fixed and No longer applicable instead of Accept', async () => {
+  const s = await checkCases()
+  const { value } = await s.fail('pnpm check')
+  s.worktree.head = 'head-2'
+  const asked = await s.ask(value)
+  expect(s.comment(asked.decisions.at(-1)?.commentId)).toMatchObject({
+    choices: ['Retry', 'Fix in this Task', 'Fixed', 'No longer applicable'],
+    body: expect.stringContaining('Fixed and No longer applicable close it'),
+  })
+  await s.resolve(asked, 'fixed', 'The Check was rewritten and passes.')
+  expect(await s.obligations()).toMatchObject({ satisfied: true, blockers: [] })
+})
+
+test('a repair that merged keeps its case out of replacement after its blocker link is removed', async () => {
+  const s = await checkCases()
+  const { value: first } = await s.fail('pnpm check')
+  const repair = await s.waitForRepair(first)
+  s.store.changeStage(repair.id, 'done')
+  s.store.removeBlocker(s.task.id, repair.id)
+  expect(s.service.abandonedRepair(s.store.failures.get(first.id) as FailureCase)).toBe(false)
+  s.worktree.fingerprint = 'B'
+  await s.fail('pnpm check --changed')
+  expect(await s.disposition(first)).toBe('unresolved')
+})
+
+test('a case whose repair was dropped can name the merged Task that brought the fix', async () => {
+  const s = await checkCases()
+  const { value: first } = await s.fail('pnpm check')
+  const repair = await s.waitForRepair(first)
+  const fixer = await s.store.createTask({ title: 'Fix the demo reset test elsewhere' })
+  const current = () => s.store.failures.get(first.id) as FailureCase
+  expect(() => s.service.fixingTask(s.task, current(), fixer.id)).toThrow(
+    'only for a failure whose repair Task was archived',
+  )
+  s.store.archiveTask(repair.id)
+  s.store.removeBlocker(s.task.id, repair.id)
+  expect(() => s.service.fixingTask(s.task, current(), fixer.id)).toThrow('hasn’t merged')
+  expect(() => s.service.fixingTask(s.task, current(), s.task.id)).toThrow(
+    'merged Task in this Factory',
+  )
+  s.store.changeStage(fixer.id, 'done')
+  const fix = s.service.fixingTask(s.task, current(), fixer.displayId)
+  expect(fix).toEqual({ id: fixer.id, displayId: fixer.displayId, title: fixer.title })
+  s.service.verifyResult(s.validating, first.id, 'Checks passed', undefined, undefined, fix)
+  expect(current().verifications?.at(-1)?.fixedBy).toEqual(fix)
 })

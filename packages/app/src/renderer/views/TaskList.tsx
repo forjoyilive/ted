@@ -34,6 +34,7 @@ import markerStyles from '../components/HierarchyMarker.module.css'
 import { ChevronIcon, CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { PriorityButton } from '../components/PriorityMenu.tsx'
+import { tokenAmount } from '../components/RunChat.tsx'
 import { SelectionBar } from '../components/SelectionBar.tsx'
 import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
@@ -86,10 +87,10 @@ const columnWidths: Record<ListColumn | 'queue', string> = {
   queue: '40px',
   priority: '16px',
   id: '56px',
-  title: 'minmax(160px, 1fr)',
-  children: '108px',
+  title: 'minmax(120px, 1fr)',
+  children: '104px',
   parent: '80px',
-  factory: '110px',
+  factory: '88px',
   stage: '80px',
   status: '300px',
   'blocked-by': '90px',
@@ -106,7 +107,7 @@ export function idColumnWidth(tasks: readonly Pick<Task, 'displayId'>[]): string
 }
 
 export const listColumnGap = '16px'
-const statusMin = '120px'
+const statusMin = '176px'
 const titleRoom = '40ch'
 
 export function listGrid(
@@ -117,7 +118,7 @@ export function listGrid(
     c === 'id'
       ? idColumnWidth(tasks)
       : c === 'parent'
-        ? `max(${columnWidths.parent}, calc(${idColumnWidth(tasks)} + 8px))`
+        ? `max(${columnWidths.parent}, ${idColumnWidth(tasks)})`
         : columnWidths[c]
   const status = (others: readonly (ListColumn | 'queue')[]) => {
     if (!others.includes('title')) return `minmax(${statusMin}, ${columnWidths.status})`
@@ -808,7 +809,11 @@ export function TaskList({
       case 'created-by':
         return createdByLabels[task.createdBy]
       case 'tokens':
-        return <span className={styles.none}>—</span>
+        return task.tokens === undefined ? (
+          <span className={styles.none}>—</span>
+        ) : (
+          <span title={`${task.tokens.toLocaleString()} tokens`}>{tokenAmount(task.tokens)}</span>
+        )
       case 'updated':
         return archivedOnly && task.archived
           ? shortDate(task.archived.at)

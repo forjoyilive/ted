@@ -97,6 +97,7 @@ import type {
   CoordinatorRemovalResult,
   CoordinatorStatus,
   CoordinatorTaskQuery,
+  CoordinatorTransfer,
 } from './coordinator.ts'
 import { coordinatorTaskSearch } from './coordinator-parsers.ts'
 import type { CallerInfo, DaemonInfo } from './daemon-info.ts'
@@ -173,6 +174,7 @@ import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrat
 import type {
   LinearIntakeChoices,
   LinearIntakeScope,
+  LinearIssueLink,
   LinearLookup,
   LinearStatus,
   SaveLinearKeyRequest,
@@ -180,6 +182,12 @@ import type {
 import type { LinearIntakeRequest, LinearIntakeResult } from './linear-intake.ts'
 import type { MemoryUse } from './memory.ts'
 import type { MessageBox, MessageDraftState, SaveMessageDraftRequest } from './message-draft.ts'
+import type {
+  OutsideCommandAllowance,
+  OutsideCommandAnswer,
+  RunOutsideCommandRequest,
+  RunOutsideCommandResult,
+} from './outside-command.ts'
 import type { PeerDetail, PeerInbox, PeerMessage, PeerPage, SendPeerMessage } from './peers.ts'
 import type {
   ChatArchiveExpiry,
@@ -231,6 +239,7 @@ import type {
   CleanupStepReport,
   CloseRoundRequest,
   Comment,
+  CreatedTask,
   CreateTaskRequest,
   DeleteTaskRequest,
   DescriptionVersion,
@@ -269,6 +278,7 @@ import type {
 } from './task.ts'
 import type { TaskFileContent, TaskFiles } from './task-files.ts'
 import type { SetTaskGatesRequest, TaskGates } from './task-gates.ts'
+import type { MoveToFactoryRequest, TaskMoved, TaskMovePlan } from './task-move.ts'
 import type {
   RegisterTestInvocation,
   TestInvocationRegistration,
@@ -536,6 +546,10 @@ export class DaemonClient {
     return this.#request('POST', `/coordinator/${kind}`, input)
   }
 
+  coordinatorTransfer(input: CoordinatorTransfer): Promise<CoordinatorRemovalResult> {
+    return this.#request('POST', '/coordinator/transfer', input)
+  }
+
   answerCoordinatorConfirmation(
     chatId: string,
     confirmationId: string,
@@ -602,6 +616,46 @@ export class DaemonClient {
 
   waitForChatCommand(id: string): Promise<ChatCommandResult> {
     return this.#request('GET', `/chat-commands/${encodeURIComponent(id)}`)
+  }
+
+  runOutsideCommand(input: RunOutsideCommandRequest): Promise<RunOutsideCommandResult> {
+    return this.#request('POST', '/chat-outside-commands', input)
+  }
+
+  answerOutsideCommand(
+    chatId: string,
+    requestId: string,
+    answer: OutsideCommandAnswer,
+  ): Promise<Coordinator> {
+    return this.#request(
+      'POST',
+      `/coordinator-chats/${encodeURIComponent(chatId)}/requests/${encodeURIComponent(requestId)}/outside-command`,
+      answer,
+    )
+  }
+
+  stopOutsideCommand(chatId: string): Promise<Coordinator> {
+    return this.#request(
+      'POST',
+      `/coordinator-chats/${encodeURIComponent(chatId)}/outside-command/stop`,
+    )
+  }
+
+  outsideCommandAllowances(factoryId: string): Promise<OutsideCommandAllowance[]> {
+    return this.#request(
+      'GET',
+      `/factories/${encodeURIComponent(factoryId)}/outside-command-allowances`,
+    )
+  }
+
+  removeOutsideCommandAllowance(
+    factoryId: string,
+    allowanceId: string,
+  ): Promise<OutsideCommandAllowance[]> {
+    return this.#request(
+      'DELETE',
+      `/factories/${encodeURIComponent(factoryId)}/outside-command-allowances/${encodeURIComponent(allowanceId)}`,
+    )
   }
 
   answerChatRequest(
@@ -703,7 +757,7 @@ export class DaemonClient {
     return this.#request('PUT', messageDraftPath(box), draft)
   }
 
-  createTask(input: CreateTaskRequest): Promise<Task> {
+  createTask(input: CreateTaskRequest): Promise<CreatedTask> {
     return this.#request('POST', '/tasks', input)
   }
 
@@ -903,6 +957,17 @@ export class DaemonClient {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/reset`, {})
   }
 
+  taskMovePlan(ref: string, factoryId: string): Promise<TaskMovePlan> {
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/move-plan?factory=${encodeURIComponent(factoryId)}`,
+    )
+  }
+
+  moveTaskToFactory(ref: string, request: MoveToFactoryRequest): Promise<TaskMoved> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/move-to-factory`, request)
+  }
+
   async deleteTask(ref: string, options: DeleteTaskRequest = {}): Promise<void> {
     await this.#request('POST', `/tasks/${encodeURIComponent(ref)}/delete`, options)
   }
@@ -955,11 +1020,11 @@ export class DaemonClient {
       input,
     )
   }
-  verifyFailure(ref: string, id: string, evidence: string): Promise<FailureCase> {
+  verifyFailure(ref: string, id: string, evidence: string, fixedBy?: string): Promise<FailureCase> {
     return this.#request(
       'POST',
       `/tasks/${encodeURIComponent(ref)}/failures/${encodeURIComponent(id)}/verification`,
-      { evidence },
+      { evidence, ...(fixedBy !== undefined && { fixedBy }) },
     )
   }
   requestFailureDecision(ref: string, id: string): Promise<FailureCase> {
@@ -1624,6 +1689,13 @@ export class DaemonClient {
 
   lookupLinear(url: string): Promise<LinearLookup> {
     return this.#request('POST', '/integrations/linear/lookup', { url })
+  }
+
+  linearIssueLinks(identifiers: readonly string[]): Promise<LinearIssueLink[]> {
+    return this.#request(
+      'GET',
+      `/integrations/linear/issue-links?${new URLSearchParams({ ids: identifiers.join(',') })}`,
+    )
   }
 
   allowLinearTeam(factoryId: string, team: string): Promise<MachineSettings> {

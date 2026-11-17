@@ -26,6 +26,7 @@ import { FactoryName } from '../components/FactoryIcon.tsx'
 import { Help } from '../components/Help.tsx'
 import { BellOffIcon, ChevronIcon, ClockIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
+import { ListPane } from '../components/ResizableSidebar.tsx'
 import { TaskDialog, type TaskDialogKind } from '../components/TaskActions.tsx'
 import type { ConfirmationRequest } from '../data.ts'
 import { type InboxEmpty, inboxEmpty } from '../empty-states.ts'
@@ -514,7 +515,7 @@ export function Inbox({
       {deletingPlan && (
         <DeletePlanDialog plan={deletingPlan} onClose={() => setDeletingPlan(undefined)} />
       )}
-      <section className={`${views.pane} ${views.listPane}`} aria-label="Inbox" data-fixed-pane>
+      <ListPane className={`${views.pane} ${views.listPane}`} aria-label="Inbox">
         <header className={styles.header}>
           <div className={styles.titleRow}>
             <h1 className={views.listTitle}>Inbox</h1>
@@ -710,7 +711,7 @@ export function Inbox({
                   aria-expanded={showSnoozed}
                   onClick={() => setShowSnoozed(!showSnoozed)}
                 >
-                  <span aria-hidden>{showSnoozed ? '▾' : '▸'}</span> Snoozed{' '}
+                  <ChevronIcon open={showSnoozed} /> Snoozed{' '}
                   <span className={styles.chipCount}>{snoozedRows.length}</span>
                 </button>
               </li>
@@ -741,7 +742,7 @@ export function Inbox({
               ))}
           </ul>
         )}
-      </section>
+      </ListPane>
       <InboxRequestsContext
         value={
           showAnswered

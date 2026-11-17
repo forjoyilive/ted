@@ -75,7 +75,7 @@ async function decide({ client, task, check }: Awaited<ReturnType<typeof begin>>
         published:
           value.repos.length > 0 && value.repos.every((repo) => repo.pullRequest && repo.pushed),
         recorded,
-        settled: !value.statuses.includes('working'),
+        settled: !value.statuses.includes('working') && !value.checksActive,
       }
       last = JSON.stringify({
         ...ready,
@@ -304,7 +304,9 @@ export async function incorporates(method: RepairMethod) {
     ).toBeUndefined()
     const held = (await notes()).find((b) => b.includes('still conflicts'))
     expect(held).toContain('`timezone.txt`')
-    expect(held).toContain('The Task Lead didn’t resolve it. To go on, merge main')
+    expect(held).toContain(
+      'The Task Lead didn’t resolve it. Resume to have the Task Lead try again. Or merge main',
+    )
     await writeFile(leadHold(), '')
     await s.client.ok('POST', `${s.root}/resume`, {})
     await waitUntil(
@@ -326,18 +328,38 @@ export async function incorporates(method: RepairMethod) {
     await s.client.ok('POST', `${s.root}/resume`, {})
   }
   if (method === 'dirty-worktree') {
-    const held = await waitUntil(async () => {
-      const t = await getTask(s.client, s.current.id)
-      return t.status?.kind === 'stopped' ? t : undefined
-    }, 'unsafe incorporation held')
+    const handedOff = await waitUntil(
+      async () => (await notes()).find((b) => b.includes('TED asked the Task Lead to commit them')),
+      'uncommitted changes handed to the Task Lead',
+      validateWaitMs,
+    )
+    expect(handedOff).toContain('`local-draft.txt`')
+    const lead = await waitUntil(
+      async () => {
+        const t = await getTask(s.client, s.current.id)
+        return t.leadRunId !== s.current.leadRunId ? t.leadRunId : undefined
+      },
+      'a Task Lead that receives the uncommitted changes',
+      validateWaitMs,
+    )
+    const { run: started } = await s.client.ok<{ run: { prompt?: string } }>('GET', `/runs/${lead}`)
+    expect(started.prompt).toContain('- local-draft.txt')
+    expect(started.prompt).toContain('Never discard or reset them')
+    const held = await waitUntil(
+      async () => {
+        const t = await getTask(s.client, s.current.id)
+        return t.status?.kind === 'stopped' ? t : undefined
+      },
+      'unsafe incorporation held',
+      validateWaitMs,
+    )
     expect(held.stage).toBe('validate')
     expect(await s.client.ok('GET', `${s.root}/check-runs`)).toHaveLength(previousChecks.length)
     const history = await s.client.ok<FailureCase[]>('GET', `${s.root}/failures`)
     expect(history[0]?.repairProgress).toBeUndefined()
     expect((await s.client.ok<TaskBrief>('GET', `${s.root}/brief`)).text).toContain(
-      'has uncommitted changes. TED can’t bring the repair in over them.',
+      'has uncommitted changes. The Task Lead left them uncommitted. TED can’t bring the repair in over them. Resume to have the Task Lead try again.',
     )
-    expect((await notes()).join('\n')).toContain('`local-draft.txt`')
     const { rm } = await import('node:fs/promises')
     expect(await readFile(path.join(affectedWorktree, 'local-draft.txt'), 'utf8')).toBe(
       'Keep this draft\n',

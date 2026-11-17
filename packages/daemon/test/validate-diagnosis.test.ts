@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
@@ -138,6 +139,16 @@ async function walk(
 
 type Scene = Awaited<ReturnType<typeof walk>>
 
+const git = (cwd: string, ...args: string[]) =>
+  execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], {
+    cwd,
+  })
+
+function required<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error('missing value')
+  return value
+}
+
 const setup = async (
   checks = usual,
   order = usualOrder,
@@ -228,6 +239,37 @@ together('accepting or retrying a failed Check, each on its own Task', {
     })
     expect((await s.obligations()).satisfied).toBe(true)
     expect(await s.backs()).toEqual([])
+  },
+  'a Check failure no longer tied to the code can be closed as Fixed from its card': async (s) => {
+    const { worktree } = required((await getTask(s.client, s.task.id)).repos[0])
+    await writeFile(path.join(worktree, 'later.txt'), 'later\n')
+    git(worktree, 'add', 'later.txt')
+    git(worktree, 'commit', '-qm', 'Later change')
+    const decision = await s.ask(s.one)
+    const commentId = decision.decisions.at(-1)?.commentId
+    const comment = (await s.client.ok<Comment[]>('GET', `${s.root}/comments`)).find(
+      (c) => c.id === commentId,
+    )
+    expect(comment?.choices).toEqual([
+      'Retry',
+      'Fix in this Task',
+      'Wait for a repair Task',
+      'Fixed',
+      'No longer applicable',
+    ])
+    const answered = await s.client.call('POST', `/comments/${commentId}/answer`, {
+      action: 'answer',
+      choice: 'Fixed',
+      text: 'The later change rewrote the failing test.',
+    })
+    expect(answered.status, JSON.stringify(answered.body)).toBe(200)
+    const closed = (await s.cases()).find((c) => c.id === s.one.id)
+    expect(closed?.resolutions.at(-1)?.resolution).toBe('fixed')
+    const next = await s.failure(2)
+    await waitUntil(async () => {
+      const { blockers } = await s.obligations()
+      return blockers.length === 1 && blockers[0] === next.id
+    }, 'only the new failure holds the Task')
   },
   'a new execution cannot inherit an earlier failure’s acceptance': async (s) => {
     await s.answer(await s.ask(s.one), 'Accept this failure')
@@ -730,7 +772,7 @@ test.each(
     )
     await waitUntil(async () => {
       const task = (await client.read<Task[]>('/tasks')).find((value) => value.id === s.task.id)
-      return task && !task.statuses.includes('working') ? task : undefined
+      return task && !task.statuses.includes('working') && !task.checksActive ? task : undefined
     }, 'replacement Merge Checks to release the Task')
     const response = await lead.call('POST', `${s.root}/failures/${saved.id}/verification`, {
       evidence: 'The repair replaced Tests with Repaired export; the complete current plan passed.',

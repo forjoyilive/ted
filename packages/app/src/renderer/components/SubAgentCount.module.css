@@ -1,8 +1,28 @@
 .count {
-  color: var(--text-secondary);
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+  padding: 0 6px 0 5px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  background: var(--status-neutral-bg);
+  color: var(--status-neutral-fg);
   font-size: var(--text-12);
   font-variant-numeric: tabular-nums;
+  line-height: 1;
   white-space: nowrap;
+}
+
+.count.working {
+  border-color: var(--accent-border);
+  background: var(--status-working-bg);
+  color: var(--status-working-fg);
+}
+
+.icon {
+  flex-shrink: 0;
 }
 
 .status {

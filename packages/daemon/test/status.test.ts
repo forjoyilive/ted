@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   commentBox,
+  commentDelivery,
   leadAskedAtMerge,
   statusWithoutBlocker,
   type TaskFacts,
@@ -9,6 +10,8 @@ import {
   taskIsMerged,
   taskMarkers,
   taskStatus,
+  taskStatuses,
+  taskWakesOnComment,
 } from '../src/tasks/status.ts'
 
 const at = (facts: Partial<TaskFacts>): TaskFacts => ({ stage: 'work', runs: [], ...facts })
@@ -38,7 +41,7 @@ describe('interrupted Tasks', () => {
     { openRequests: 1 },
     { queue: { place: 1 } },
     { queue: { hold: 'Disk full' } },
-    { tedWorking: true },
+    { checksActive: true },
     { settingUp: true },
     { checking: { name: 'Lint', index: 1, total: 1 } },
     { github: 'ci' },
@@ -48,6 +51,45 @@ describe('interrupted Tasks', () => {
     { stopped: { at: '2026-11-09T20:00:00Z', runs: 1, why: 'human' } },
   ])('does not offer interrupted continuation during another state: %j', (other) => {
     expect(taskCanResume(at({ interrupted: true, ...other }))).toBe(false)
+  })
+})
+
+describe('a Comment on a Task whose Task Lead ended', () => {
+  test('wakes it even while a request is open', () => {
+    expect(taskWakesOnComment(at({ interrupted: true }))).toBe(true)
+    expect(taskWakesOnComment(at({ interrupted: true, openRequests: 2 }))).toBe(true)
+    expect(taskCanResume(at({ interrupted: true, openRequests: 2 }))).toBe(false)
+    expect(taskWakesOnComment(at({ openRequests: 1 }))).toBe(false)
+  })
+
+  test.each<Partial<TaskFacts>>([
+    { stage: 'backlog' },
+    { stage: 'done' },
+    { archived: true },
+    { failed: true },
+    { leadLive: true },
+    { queue: { place: 1 } },
+    { blockedBy: ['NB-2'] },
+    { stopped: { at: '2026-11-09T20:00:00Z', runs: 1, why: 'human' } },
+  ])('does not wake it during another state: %j', (other) => {
+    expect(taskWakesOnComment(at({ interrupted: true, openRequests: 1, ...other }))).toBe(false)
+  })
+
+  test('says where a Comment waiting for a Run goes next', () => {
+    expect(commentDelivery(at({ leadLive: true }))).toBe('starting')
+    expect(commentDelivery(at({ queue: { place: 2 } }))).toBe('queued')
+    expect(commentDelivery(at({ queue: { hold: 'claude is off.' } }))).toBeUndefined()
+    expect(commentDelivery(at({ queue: { place: 1 }, busy: { loadRatio: 2 } }))).toBeUndefined()
+    expect(
+      commentDelivery(at({ queue: { place: 1, after: 'answer' }, busy: { loadRatio: 2 } })),
+    ).toBe('queued')
+    expect(commentDelivery(at({ queue: { place: 1 }, paused: 'Usage limit' }))).toBe('paused')
+    expect(commentDelivery(at({ interrupted: true, openRequests: 1 }))).toBeUndefined()
+    expect(
+      commentDelivery(
+        at({ queue: { place: 1 }, stopped: { at: '2026-11-09T20:00:00Z', runs: 1, why: 'human' } }),
+      ),
+    ).toBeUndefined()
   })
 })
 
@@ -62,21 +104,48 @@ describe('taskStatus', () => {
     expect(taskStatus(at({ runs: ['finished'] }))).toBeUndefined()
   })
 
-  test('a working Run or TED work under way makes the Task Working', () => {
+  test('a working Run, worktree setup or Cleanup commands make the Task Working', () => {
     expect(taskStatus(at({ runs: ['idle', 'working'] }))).toEqual({ kind: 'working' })
-    expect(taskStatus(at({ tedWorking: true }))).toEqual({ kind: 'working' })
     expect(taskStatus(at({ settingUp: true }))).toEqual({ kind: 'working' })
     expect(taskActivity(at({ settingUp: true }))).toBe('Setting up the worktree')
-    expect(taskActivity(at({ tedWorking: true, checksWaiting: { place: 2 } }))).toBe(
+    const cleanup = at({ stage: 'cleanup', checksActive: true, cleanupCommandsRunning: true })
+    expect(taskStatus(cleanup)).toEqual({ kind: 'working' })
+    expect(taskStatuses(cleanup)).toEqual(['working'])
+  })
+
+  test('TED’s Checks alone show their chip and no Working status', () => {
+    const running = at({ checksActive: true, checking: { name: 'Tests', index: 1, total: 2 } })
+    const waitingForSlot = at({ checksActive: true, checksWaiting: { place: 2 } })
+    const waitingForTests = at({
+      ...running,
+      testActivity: { running: 0, waiting: 0, checksWaiting: true },
+    })
+    for (const [facts, label] of [
+      [running, 'Running checks'],
+      [waitingForSlot, 'Waiting for checks'],
+      [waitingForTests, 'Waiting for checks'],
+    ] as const) {
+      expect(taskStatus(facts)).toBeUndefined()
+      expect(taskStatuses(facts)).toEqual([])
+      expect(taskCanResume({ ...facts, interrupted: true })).toBe(false)
+      expect(taskMarkers(facts, undefined)).toMatchObject([{ kind: 'test-activity', label }])
+    }
+    expect(taskStatus({ ...running, runs: ['working'] })).toEqual({ kind: 'working' })
+    expect(taskStatus({ ...running, blockedBy: ['NB-2'] })).toEqual({ kind: 'blocked', by: 'NB-2' })
+    expect(taskStatus({ ...running, stage: 'merge', github: 'ci' })).toEqual({
+      kind: 'waiting-for-github',
+      on: 'ci',
+    })
+    expect(taskActivity(at({ checksActive: true, checksWaiting: { place: 2 } }))).toBe(
       'Waiting to run Checks · 2nd',
     )
-    expect(taskActivity(at({ tedWorking: true, movingAfterChecks: true }))).toBe(
+    expect(taskActivity(at({ checksActive: true, movingAfterChecks: true }))).toBe(
       'Running Checks before moving on',
     )
     expect(
       taskActivity(
         at({
-          tedWorking: true,
+          checksActive: true,
           movingAfterChecks: true,
           checking: { name: 'Tests', index: 1, total: 2 },
         }),
@@ -165,6 +234,9 @@ describe('taskStatus', () => {
       kind: 'queued',
       hold: 'disk full',
     })
+    expect(
+      taskStatus(at({ stage: 'validate', queue: { place: 3, after: 'checks-passed' }, busy })),
+    ).toEqual({ kind: 'queued', place: 3, after: 'checks-passed' })
     expect(taskStatus(at({ runs: ['working'], busy }))).toEqual({ kind: 'working' })
     expect(taskStatus(at({ stage: 'merge', github: 'review' }))).toEqual({
       kind: 'waiting-for-github',

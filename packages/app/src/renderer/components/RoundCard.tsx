@@ -131,8 +131,15 @@ function Question({
                           : onChange({ ...draft, answer: choice, other: false })
                       }
                     />
-                    <ChoiceText choice={choice} className={styles.optionText} />
-                    {recommended && <span className={styles.tag}>Recommended</span>}
+                    <ChoiceText
+                      choice={choice}
+                      className={styles.optionText}
+                      tag={
+                        recommended && (
+                          <span className={`${styles.tag} ${styles.choiceTag}`}>Recommended</span>
+                        )
+                      }
+                    />
                   </label>
                 )
               })}

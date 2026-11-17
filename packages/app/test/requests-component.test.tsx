@@ -361,10 +361,10 @@ test('a round question that allows several answers sends every ticked choice', a
     questions: [
       {
         question: 'Which views?',
-        choices: ['Board', 'List', 'Map'],
+        choices: ['Board', 'List', 'Map\nPins Tasks on a map.'],
         recommended: 'Board; Map',
         multiple: true,
-        recommendedChoices: ['Board', 'Map'],
+        recommendedChoices: ['Board', 'Map\nPins Tasks on a map.'],
       },
     ],
   }
@@ -379,7 +379,10 @@ test('a round question that allows several answers sends every ticked choice', a
   const f = within(screen.getByRole('group', { name: /Which views/ }))
   expect(f.getByText('Pick any that apply.')).toBeTruthy()
   expect(f.queryAllByRole('radio')).toHaveLength(0)
-  expect(f.getAllByText('Recommended')).toHaveLength(2)
+  expect(f.getAllByText('Recommended').map((tag) => tag.parentElement?.textContent)).toEqual([
+    'Board Recommended',
+    'Map Recommended',
+  ])
   const submit = screen.getByRole('button', { name: 'Submit answers' }) as HTMLButtonElement
   expect(submit.disabled).toBe(false)
   await u.click(f.getByRole('checkbox', { name: /^Map/ }))
@@ -2478,20 +2481,75 @@ test('an archive request presets the pull request choice, sends Keep it with a m
   const blocked = task({ id: 'NB-3', displayId: 'NB-3', number: 3, blockedBy: ['NB-1'] })
   handle('listTasks', () => [withPr, blocked])
   render(<RequestCard task={withPr} request={request} />)
-  expect(await screen.findByRole('region', { name: 'Blocked by NB-1' })).toBeTruthy()
-  expect(screen.queryByRole('checkbox', { name: /Close the pull request/ })).toBeNull()
-  await u.type(screen.getByLabelText('Message to the Task Lead'), 'Merged into NB-2')
-  await u.click(screen.getByRole('button', { name: 'Archive…' }))
-  const dialog = screen.getByRole('dialog')
+  expect(await screen.findByRole('region', { name: 'Unblocks 1 Task' })).toBeTruthy()
   expect(
-    (within(dialog).getByRole('checkbox', { name: /Close the pull requests/ }) as HTMLInputElement)
-      .checked,
+    (screen.getByRole('checkbox', { name: /Close the pull request/ }) as HTMLInputElement).checked,
   ).toBe(false)
-  await u.click(within(dialog).getByRole('button', { name: 'Archive' }))
+  await u.type(screen.getByLabelText('Message to the Task Lead'), 'Merged into NB-2')
+  await u.click(screen.getByRole('button', { name: 'Archive' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
   expect(answer).toHaveBeenLastCalledWith('c1', {
     action: 'answer',
     choice: 'Archive',
     text: 'Merged into NB-2',
-    archive: { closePullRequests: false, blocked: 'unblock' },
+    archive: { closePullRequests: false },
   })
+})
+
+test('a dropped repair says fresh Checks close the failure, and a closed case names the Task that fixed it', async () => {
+  const repairTask = { id: 'NB-2', displayId: 'NB-2', title: 'Repair the export' }
+  const fixer = { id: 'NB-3', displayId: 'NB-3', title: 'Fix the export elsewhere' }
+  const value: FailureCase = {
+    id: 'abcdef01-0000-4000-8000-000000000000',
+    taskId: 'NB-1',
+    source: { kind: 'finding', runId: 'lead', finding: 'Export timezone missing' },
+    recordedBy: 'lead',
+    provenance: 'task-lead-reported',
+    evidence: 'The export lost its timezone.',
+    createdAt,
+    validation: true,
+    assessments: [],
+    additions: [],
+    decisions: [],
+    resolutions: [
+      {
+        requestId: 'request',
+        resolution: 'repair',
+        repairTask,
+        at: createdAt,
+        assessmentId: 'assessment',
+      },
+    ],
+    invalidations: [],
+  }
+  bridge({
+    listTasks: () => [
+      task({ blockedBy: [] }),
+      task({
+        ...repairTask,
+        number: 2,
+        archived: { at: createdAt, ended: { kind: 'never-started' } },
+      }),
+      task({ ...fixer, number: 3, stage: 'done' }),
+    ],
+  })
+  const open = vi.fn()
+  const { rerender } = render(<FailureDetails failure={value} onOpenTask={open} />)
+  expect(
+    await screen.findByText(
+      'Repair archived without merging. Fresh passing Checks close this failure. If this Task is stopped, use Resume in Task details first.',
+    ),
+  ).toBeTruthy()
+  rerender(
+    <FailureDetails
+      failure={{
+        ...value,
+        verifications: [{ at: createdAt, evidence: 'Checks passed.', fixedBy: fixer }],
+      }}
+      onOpenTask={open}
+    />,
+  )
+  await user().click(await screen.findByRole('button', { name: 'NB-3 · Fix the export elsewhere' }))
+  expect(open).toHaveBeenCalledWith('NB-3')
+  expect(screen.getByText(/Later verification closed this failure/)).toBeTruthy()
 })

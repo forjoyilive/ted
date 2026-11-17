@@ -56,6 +56,7 @@ import { createConversations } from './runs/conversations.ts'
 import { sleepIdleRuns } from './runs/idle-sleep.ts'
 import { type RunManager, startRunManager } from './runs/run-manager.ts'
 import { createSteering } from './runs/steering.ts'
+import { followTaskTokens } from './runs/task-tokens.ts'
 import { restartOnNewVersions } from './runs/version-restarts.ts'
 import { createSandbox } from './sandbox.ts'
 import { listen } from './server.ts'
@@ -198,6 +199,7 @@ export interface DaemonIntegrationsOptions {
 export interface RunningDaemon {
   port: number
   appToken: string
+  reporting(): boolean
   stop(onStep?: (step: DaemonCloseStep) => void): Promise<void>
 }
 
@@ -285,6 +287,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     env: environment.current,
   })
   const openTerminal = given.openTerminal ?? createTerminalOpener({ tmpDir: paths.tmp })
+  let openStore: TedStore | undefined
   const data = createData({
     home: paths.home,
     version: options.version,
@@ -294,6 +297,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     ...(options.changesetTrim && { changesetTrim: options.changesetTrim }),
     async startServices(opened, emit) {
       const store = options.wrap?.store?.(opened) ?? opened
+      openStore = store
       await environmentRead
       const busy = createBusyHold({
         on: () => store.settings().waitWhenBusy,
@@ -691,6 +695,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         home: paths.home,
         builtInAgents: chatBuiltIns,
         commands: chatCommands,
+        env: environment.current,
         automations,
         agentTargets: { library, factory: factorySettings },
         banners,
@@ -853,6 +858,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health,
         disk,
       })
+      const taskTokens = followTaskTokens({ store, runs, agents })
       const versionRestarts = await restartOnNewVersions({
         store,
         health,
@@ -918,6 +924,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         archiveCleanup,
         chatArchiveCleanup,
         async close() {
+          openStore = undefined
           await execution.close()
           const shellsClosed = shells.close()
           await sideChats.close()
@@ -927,6 +934,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           plans.close()
           libraryWatch.close()
           versionRestarts.close()
+          taskTokens.close()
           idleSleep.close()
           await checkTries.close()
           workflows.close()
@@ -988,6 +996,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   return {
     port,
     appToken,
+    reporting() {
+      try {
+        return openStore?.settings().reporting ?? false
+      } catch {
+        return false
+      }
+    },
     async stop(onStep) {
       await asana.close()
       idle?.cancel()

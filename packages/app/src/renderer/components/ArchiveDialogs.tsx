@@ -1,15 +1,18 @@
-import type { BlockedChoice, Task, TaskHierarchyPreview } from '@ted/protocol'
+import type { Task, TaskHierarchyPreview, TaskMovePlan } from '@ted/protocol'
 import { archiveChoice } from '@ted/protocol/task'
+import { movePlanKey } from '@ted/protocol/task-move'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
-import { useTaskRuns, useTasks } from '../data.ts'
+import { useFactories, useTaskRuns, useTasks } from '../data.ts'
 import { childrenOf, isMerged } from '../hierarchy.ts'
 import { useMessageDraft } from '../message-drafts.ts'
+import { type MovePlanRow, movePlanKept, movePlanView, throwsAwayWork } from '../move-plan.ts'
 import type { Stages } from '../stage-names.ts'
 import { useStages } from '../stages.tsx'
 import { readableError, ted } from '../ted.ts'
 import { ActionButton } from './ActionButton.tsx'
 import styles from './ArchiveDialogs.module.css'
 import { Button } from './Button.tsx'
+import { FactoryPicker } from './FactoryPicker.tsx'
 import { Help } from './Help.tsx'
 import grow from './TextGrow.module.css'
 
@@ -18,6 +21,7 @@ export const deleteTaskEvent = 'ted:delete-task'
 export const resetTaskEvent = 'ted:reset-task'
 export const followUpTaskEvent = 'ted:follow-up-task'
 export const unarchiveTaskEvent = 'ted:unarchive-task'
+export const openMovedTaskEvent = 'ted:open-moved-task'
 
 export function needsUnarchiveDialog(task: Task): boolean {
   return (task.parentId !== undefined && !isMerged(task)) || (task.childIds?.length ?? 0) > 0
@@ -201,62 +205,49 @@ export function Dialog({
   )
 }
 
-function BlockedTasks({
-  task,
-  blocked,
-  choice,
-  ending,
-  onChoose,
+export function unblockedBy(ids: readonly string[], all: readonly Task[]): Task[] {
+  const removing = new Set(ids)
+  return all.filter(
+    (t) => !t.archived && !removing.has(t.id) && t.blockedBy.some((id) => removing.has(id)),
+  )
+}
+
+export function UnblocksList({
+  blocker,
+  tasks,
 }: {
-  task: Task
-  blocked: readonly Task[]
-  choice: BlockedChoice
-  ending: 'archived' | 'deleted'
-  onChoose: (choice: BlockedChoice) => void
+  blocker: string
+  tasks: readonly { id: string; displayId: string; title: string; stage?: string }[]
 }) {
-  const stages = useStages()
-  const name = useId()
-  const one = blocked.length === 1
-  const options: { value: BlockedChoice; label: string; help: string }[] = [
-    {
-      value: 'unblock',
-      label: one ? 'Unblock it' : 'Unblock them',
-      help: `Removes ${task.displayId} from ${one ? 'its' : 'their'} Blocked by, so ${one ? 'it' : 'they'} can start.`,
-    },
-    {
-      value: 'keep',
-      label: one ? 'Keep it blocked' : 'Keep them blocked',
-      help: `${one ? 'It stays' : 'They stay'} blocked and ${one ? 'shows' : 'show'} “Blocked by ${ending} ${task.displayId}”.`,
-    },
-  ]
+  const one = tasks.length === 1
+  const heading = `Unblocks ${tasks.length} ${one ? 'Task' : 'Tasks'}`
   return (
-    <fieldset className={styles.blocked}>
-      <legend className={styles.blockedHeading}>
-        {`${blocked.length} ${one ? 'Task is' : 'Tasks are'} blocked by ${task.displayId}`}
-      </legend>
-      <ul className={styles.blockedList}>
-        {blocked.map((t) => (
+    <section className={styles.blocked} aria-label={heading}>
+      <h3 className={styles.unblocksHeading}>{heading}</h3>
+      <ul className={styles.unblocksList}>
+        {tasks.map((t) => (
           <li key={t.id} className={styles.blockedRow}>
             <span className={styles.blockedId}>{t.displayId}</span>
             <span className={styles.blockedTitle}>{t.title}</span>
-            <span className={styles.blockedStage}>{stages.name(t.stage, t.factoryId)}</span>
+            {t.stage !== undefined && <span className={styles.blockedStage}>{t.stage}</span>}
           </li>
         ))}
       </ul>
-      {options.map((option) => (
-        <label key={option.value} className={styles.radio}>
-          <input
-            type="radio"
-            name={name}
-            value={option.value}
-            checked={choice === option.value}
-            onChange={() => onChoose(option.value)}
-          />
-          {option.label}
-          <Help>{option.help}</Help>
-        </label>
-      ))}
-    </fieldset>
+      <p className={styles.note}>
+        {`TED removes ${blocker} from ${one ? 'its' : 'their'} Blocked by. ${one ? 'It doesn’t start on its' : 'They don’t start on their'} own.`}
+      </p>
+    </section>
+  )
+}
+
+export function Unblocks({ blocker, tasks }: { blocker: string; tasks: readonly Task[] }) {
+  const stages = useStages()
+  if (tasks.length === 0) return null
+  return (
+    <UnblocksList
+      blocker={blocker}
+      tasks={tasks.map((t) => ({ ...t, stage: stages.name(t.stage, t.factoryId) }))}
+    />
   )
 }
 
@@ -274,10 +265,8 @@ export function ArchiveDialog({
   onClose: () => void
   request?: { id: string; closePullRequests: boolean; text?: string } | undefined
 }) {
-  const blocked = useBlocked(task)
   const prs = openPullRequests(task)
   const [close, setClose] = useState(request?.closePullRequests ?? true)
-  const [choice, setChoice] = useState<BlockedChoice>('unblock')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const all = useTasks()
@@ -290,6 +279,8 @@ export function ArchiveDialog({
   const alreadyArchived = (hierarchy.preview?.descendants ?? []).filter(
     (d) => all.find((t) => t.id === d.id)?.archived,
   )
+  const archiving = family === 'together' ? [task.id, ...under] : [task.id]
+  const blocked = unblockedBy(archiving, all)
   const hasWorktree = task.repos.some((r) => !r.removed)
   const does = [
     ...(task.runs.length > 0 ? [`stops ${runsPhrase(task.runs.length)}`] : []),
@@ -307,7 +298,6 @@ export function ArchiveDialog({
     try {
       const options = {
         closePullRequests: prs.length > 0 && close,
-        ...(blocked.length > 0 && { blocked: choice }),
         ...(hierarchy.preview && {
           children: family === 'together' ? ('archive' as const) : ('detach' as const),
           hierarchyRevision: hierarchy.preview.revision,
@@ -387,15 +377,12 @@ export function ArchiveDialog({
               </span>
             </label>
           )}
-          {blocked.length > 0 && (
-            <BlockedTasks
-              task={task}
-              blocked={blocked}
-              choice={choice}
-              ending="archived"
-              onChoose={setChoice}
-            />
-          )}
+          <Unblocks
+            blocker={
+              archiving.length > 1 ? `${task.displayId} and the Tasks under it` : task.displayId
+            }
+            tasks={blocked}
+          />
           {error !== undefined && (
             <p className={styles.error} role="alert">
               {error}
@@ -542,10 +529,8 @@ export function DeleteDialog({
   onClose: () => void
   onArchiveInstead: () => void
 }) {
-  const blocked = useBlocked(task)
   const runs = useTaskRuns(task.id).length
   const prs = openPullRequests(task)
-  const [choice, setChoice] = useState<BlockedChoice>('unblock')
   const [busy, setBusy] = useState(false)
   const removing = useRef(false)
   const [error, setError] = useState<string>()
@@ -554,6 +539,8 @@ export function DeleteDialog({
   const hierarchy = useHierarchyPreview(task, hasChildren)
   const [family, setFamily] = useState<'together' | 'detach'>()
   const under = (hierarchy.preview?.descendants ?? []).map((d) => d.id)
+  const deleting = family === 'together' ? [task.id, ...under] : [task.id]
+  const blocked = unblockedBy(deleting, all)
   const removed = [
     'the Task',
     ...(runs > 0
@@ -572,7 +559,6 @@ export function DeleteDialog({
     setError(undefined)
     try {
       await ted.deleteTask(task.id, {
-        ...(blocked.length > 0 && { blocked: choice }),
         ...(hierarchy.preview && {
           children: family === 'together' ? 'delete' : 'unparent',
           hierarchyRevision: hierarchy.preview.revision,
@@ -633,15 +619,12 @@ export function DeleteDialog({
               {`${prs.length === 1 ? 'Pull request' : 'Pull requests'} ${joinAnd(prs.map(({ pr }) => `#${pr.number}`))} stay open on GitHub, and the ${prs.length === 1 ? 'branch stays' : 'branches stay'}.${task.archived ? '' : ' Archive closes the pull requests and keeps the history.'}`}
             </p>
           )}
-          {blocked.length > 0 && (
-            <BlockedTasks
-              task={task}
-              blocked={blocked}
-              choice={choice}
-              ending="deleted"
-              onChoose={setChoice}
-            />
-          )}
+          <Unblocks
+            blocker={
+              deleting.length > 1 ? `${task.displayId} and the Tasks under it` : task.displayId
+            }
+            tasks={blocked}
+          />
           {error !== undefined && (
             <p className={styles.error} role="alert">
               {error}
@@ -776,6 +759,174 @@ export function ResetDialog({ task, onClose }: { task: Task; onClose: () => void
             </Button>
             <Button variant="danger" disabled={busy} onClick={() => reset()}>
               {busy ? 'Resetting…' : 'Reset Task'}
+            </Button>
+          </div>
+        </>
+      )}
+    </Dialog>
+  )
+}
+
+function MovePlanRows({ rows }: { rows: readonly MovePlanRow[] }) {
+  return (
+    <ul className={styles.blockedList}>
+      {rows.map((row) => (
+        <li key={row.id} className={styles.blockedRow}>
+          <span className={styles.blockedId}>{row.displayId}</span>
+          <span className={styles.blockedTitle}>{row.title}</span>
+          {row.note !== '' && <span className={styles.blockedStage}>{row.note}</span>}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+export function MovePlanDetails({
+  plan,
+  compact = false,
+}: {
+  plan: TaskMovePlan
+  compact?: boolean
+}) {
+  const stages = useStages()
+  if (plan.refusal !== undefined) {
+    return (
+      <p className={styles.refused} role="alert">
+        {plan.refusal}
+      </p>
+    )
+  }
+  const view = movePlanView(plan, (stage) => stages.name(stage, plan.factoryId))
+  if (!view) return null
+  return (
+    <div className={styles.plan}>
+      <p className={styles.lands}>
+        {view.landing.before}
+        <b>{view.landing.newDisplayId}</b>
+        {view.landing.after}
+      </p>
+      {view.movesWith.length > 0 && (
+        <section className={styles.lost} aria-label="Moves with it">
+          <h3 className={styles.lostHeading}>Moves with it</h3>
+          <MovePlanRows rows={view.movesWith} />
+        </section>
+      )}
+      {view.leavesParent !== undefined && <p className={styles.warning}>{view.leavesParent}</p>}
+      {view.unlinked.length > 0 && (
+        <section className={styles.lost} aria-label="Blocker links removed">
+          <h3 className={styles.lostHeading}>Blocker links removed</h3>
+          <MovePlanRows rows={view.unlinked} />
+        </section>
+      )}
+      {(!compact || view.throwsAwayWork) && (
+        <section className={styles.lost} aria-label={view.changesHeading}>
+          <h3 className={styles.lostHeading}>{view.changesHeading}</h3>
+          <ul className={styles.lostList}>
+            {view.changes.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+      <p className={styles.kept}>{movePlanKept}</p>
+    </div>
+  )
+}
+
+export function MoveToFactoryDialog({ task, onClose }: { task: Task; onClose: () => void }) {
+  const factories = useFactories().filter((f) => f.id !== task.factoryId)
+  const [factoryId, setFactoryId] = useState<string>()
+  const [loaded, setLoaded] = useState<TaskMovePlan>()
+  const [planError, setPlanError] = useState<string>()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const moving = useRef(false)
+  useEffect(() => {
+    if (factoryId === undefined) return
+    let current = true
+    setPlanError(undefined)
+    ted.taskMovePlan(task.id, factoryId).then(
+      (next) => {
+        if (current) setLoaded(next)
+      },
+      (failure) => {
+        if (current) setPlanError(readableError(failure))
+      },
+    )
+    return () => {
+      current = false
+    }
+  }, [task.id, factoryId])
+  const plan = loaded?.factoryId === factoryId ? loaded : undefined
+  const chosen = factories.find((f) => f.id === factoryId)
+
+  async function move() {
+    if (moving.current || factoryId === undefined || plan === undefined) return
+    moving.current = true
+    setBusy(true)
+    setError(undefined)
+    try {
+      const moved = await ted.moveTaskToFactory(task.id, {
+        factoryId,
+        planKey: movePlanKey(plan),
+      })
+      onClose()
+      window.dispatchEvent(new CustomEvent(openMovedTaskEvent, { detail: moved.task }))
+    } catch (failure) {
+      setError(readableError(failure))
+      setBusy(false)
+    } finally {
+      moving.current = false
+    }
+  }
+
+  return (
+    <Dialog onClose={() => !moving.current && !busy && onClose()}>
+      {(headingId) => (
+        <>
+          <h2 id={headingId} className={styles.heading}>
+            {`Move ${task.displayId} to another Factory?`}
+          </h2>
+          <p className={styles.body}>
+            {`${task.title}. It gets a new ID in the Factory you pick, and its thread comes with it.${
+              task.stage === 'backlog'
+                ? ''
+                : ' What it has built so far is thrown away. This can’t be undone.'
+            }`}
+          </p>
+          <div className={styles.field}>
+            <span aria-hidden>Factory</span>
+            <FactoryPicker
+              factories={factories}
+              value={factoryId}
+              onChange={setFactoryId}
+              disabled={busy}
+              empty="Choose a Factory"
+            />
+          </div>
+          {planError !== undefined && (
+            <p className={styles.error} role="alert">
+              {planError}
+            </p>
+          )}
+          {plan && <MovePlanDetails plan={plan} />}
+          {error !== undefined && (
+            <p className={styles.error} role="alert">
+              {error}
+            </p>
+          )}
+          <div className={styles.buttons}>
+            <Button disabled={busy} onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              variant={
+                (plan ? throwsAwayWork(plan) : task.stage !== 'backlog') ? 'danger' : 'primary'
+              }
+              disabled={busy || !plan || plan.refusal !== undefined}
+              onClick={() => move()}
+            >
+              {busy ? 'Moving…' : chosen ? `Move to ${chosen.name}` : 'Move'}
             </Button>
           </div>
         </>

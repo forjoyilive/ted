@@ -40,6 +40,7 @@ import {
   keyCommands,
   taskCommands,
 } from './commands.ts'
+import { openMovedTaskEvent } from './components/ArchiveDialogs.tsx'
 import { BannerStack } from './components/BannerStack.tsx'
 import { buttonPosition } from './components/ContextMenu.tsx'
 import { EditorPickerHost } from './components/EditorPicker.tsx'
@@ -119,6 +120,7 @@ import { plansFailedByFactory } from './plans.ts'
 import { ProfileProvider } from './profile.tsx'
 import { openSnoozeMenu, SnoozedContext } from './request-snooze.ts'
 import { clearSelection, toggleTargetSelection } from './selection.ts'
+import { openSetting } from './setting-focus.ts'
 import { useNotificationsOff } from './settings/NotificationsPage.tsx'
 import { SettingsShell } from './settings/SettingsShell.tsx'
 import { searchFactory as settingsSearchFactory } from './settings-search.ts'
@@ -474,6 +476,15 @@ export function App({ start }: { start?: AppStart | undefined }) {
   }, [offline])
   const openTask = (task: Task) =>
     dispatch({ type: 'open-task', taskId: task.id, factoryId: task.factoryId })
+  useEffect(() => {
+    const open = (event: Event) => {
+      if (!(event instanceof CustomEvent)) return
+      const moved: Task = event.detail
+      dispatch({ type: 'open-task', taskId: moved.id, factoryId: moved.factoryId })
+    }
+    window.addEventListener(openMovedTaskEvent, open)
+    return () => window.removeEventListener(openMovedTaskEvent, open)
+  }, [])
   const task = tasks.find((t) => t.id === navigation.taskId)
 
   const onMenuCommand = useRef<(command: MenuCommand) => void>(() => undefined)
@@ -1101,6 +1112,17 @@ export function App({ start }: { start?: AppStart | undefined }) {
                     })
               }
               onNewPlan={openPlans}
+              onNewAgent={() =>
+                openSetting(
+                  {
+                    id: 'factory.agent-files.new',
+                    name: 'New Agent',
+                    where: '',
+                    target: { kind: 'factory', factoryId: factory.id, section: 'agent-files' },
+                  },
+                  dispatch,
+                )
+              }
               onPlanMore={(from) => dispatch({ type: 'open-plan', factoryId: factory.id, from })}
               onOpenTask={openTaskByRef}
               onOpenAutomation={(automationId) =>

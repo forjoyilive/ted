@@ -6,6 +6,7 @@ import {
   DaemonClient,
   type DaemonEvent,
   type Factory,
+  type InboxItem,
   type RunSlots,
   readDaemonInfo,
   type Task,
@@ -236,6 +237,49 @@ test('a waiting Task Lead’s first sub-agent still starts while this computer i
     second ||= current.runs.some((r) => r.name === 'Second')
     return second && current.runs[0]?.state !== 'working' ? current : undefined
   }, 'the second sub-agent to take the handoff and the Task Lead to end its turn')
+  expect((await getTask(client, other.id)).runs[0]?.state).toBe('working')
+})
+
+test('an answered Task Lead skips the busy hold but still waits for the working-Run limit', async () => {
+  const client = await startWithStub()
+  const lead = await startTask(
+    client,
+    JSON.stringify({
+      steps: [
+        { everyMessage: [{ hook: 'PreToolUse' }, { waitFor: never() }] },
+        { run: ['ted', 'comment', '--choice', 'Continue', 'Question'] },
+        { endTurn: true },
+      ],
+    }),
+  )
+  const question = await waitUntil(async () => {
+    const items = await client.ok<InboxItem[]>('GET', '/inbox')
+    return items.find((item) => item.task.id === lead.id)?.request
+  }, 'the Task Lead’s question')
+  const other = await startTask(client, workingUntil(never()))
+  await waitForLead(client, other)
+  await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
+  ratio = 3
+
+  await client.ok('POST', `/comments/${question.id}/answer`, {
+    action: 'answer',
+    choice: 'Continue',
+  })
+
+  await waitUntil(
+    async () => (await slotsOf(client)).busy?.loadRatio === 3 || undefined,
+    'the hold, read once the answered Task Lead waits',
+  )
+  expect((await getTask(client, lead.id)).status).toEqual({
+    kind: 'queued',
+    place: 1,
+    after: 'answer',
+  })
+  await client.ok('PATCH', '/settings', { maxWorkingRuns: 6 })
+  await waitUntil(async () => {
+    const current = await getTask(client, lead.id)
+    return current.runs[0]?.state === 'working' ? current : undefined
+  }, 'the answered Task Lead to work while the computer is still busy')
   expect((await getTask(client, other.id)).runs[0]?.state).toBe('working')
 })
 

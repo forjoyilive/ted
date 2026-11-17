@@ -4,6 +4,7 @@ import type {
   CheckRun,
   ClarifyDepth,
   Comment,
+  CommentDelivery,
   Factory,
   LineComment,
   Priority,
@@ -64,13 +65,14 @@ import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { Markdown } from '../components/Markdown.tsx'
 import { PeerMessage } from '../components/PeerMessage.tsx'
 import { QuickOpen } from '../components/QuickOpen.tsx'
-import { TaskReferences } from '../components/References.tsx'
+import { TaskReferences, type TaskTarget } from '../components/References.tsx'
 import { AnsweredCard, RequestCard } from '../components/RequestCard.tsx'
 import { RequestDock } from '../components/RequestDock.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { Diff } from '../components/RunChat.tsx'
 import { RunsSection, runIconState } from '../components/RunsSection.tsx'
 import type { ScrollReveal } from '../components/ScrollMemory.tsx'
+import { useOptionList } from '../components/Select.tsx'
 import { RunWithSideChat } from '../components/SideChat.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { TalkThrough } from '../components/TalkThrough.tsx'
@@ -115,6 +117,7 @@ import { inStage } from '../stage-filter.ts'
 import { useStages } from '../stages.tsx'
 import { runStatusAction, statusAction } from '../task-actions.ts'
 import {
+  agentLabels,
   clarifyDepthLabels,
   clarifyDepthText,
   formatSize,
@@ -135,9 +138,17 @@ function leadAgent(task: Task, comment: Comment) {
   return task.runs.find((r) => r.id === author.runId)?.agent ?? task.lead?.agent ?? 'claude'
 }
 
+function deliveryLabel(task: Task, state: CommentDelivery | undefined): string {
+  if (state === 'starting') return 'Starting the Task Lead…'
+  if (state === 'queued') return 'Waiting for a free slot'
+  if (state === 'paused')
+    return `Waits for ${agentLabels[task.lead?.agent ?? 'claude']} to come back`
+  return 'Goes to the next Task Lead Run'
+}
+
 function delivery(task: Task, comment: Comment): string | undefined {
   if (comment.author.kind !== 'human' || task.commentBox === 'done') return undefined
-  if (comment.delivered === undefined) return 'Goes to the next Task Lead Run'
+  if (comment.delivered === undefined) return deliveryLabel(task, task.commentDelivery)
   return comment.readAt === undefined ? 'Not read yet' : undefined
 }
 
@@ -282,6 +293,30 @@ function EventRow({
   )
 }
 
+function flashItem(id: string): void {
+  for (const item of document.querySelectorAll<HTMLElement>('[data-chat-item]')) {
+    if (item.dataset.chatItem !== id) continue
+    delete item.dataset.found
+    void item.offsetWidth
+    item.dataset.found = ''
+    item.addEventListener('animationend', () => delete item.dataset.found, { once: true })
+  }
+}
+
+function taskTarget(
+  id: string,
+  task: Task,
+  tasks: readonly Task[],
+  factories: readonly Factory[],
+): TaskTarget | 'tracker' | undefined {
+  if (id === task.displayId) return undefined
+  if (tasks.some((t) => t.displayId === id)) return { task: id }
+  const from = tasks.find((t) => t.source?.linear?.identifier === id)
+  if (from?.source) return from.id === task.id ? { url: from.source.url } : { task: from.displayId }
+  const key = id.slice(0, id.lastIndexOf('-'))
+  return factories.some((factory) => factory.key === key) ? undefined : 'tracker'
+}
+
 export function TaskPanes({
   task,
   tasks,
@@ -424,15 +459,31 @@ export function TaskPanes({
   const draftsIn = (file: ChangedFile) =>
     drafts.filter((d) => d.repo === file.repo && d.path === file.path).length
   const { covered, shell: shellRepo } = pane
+  const failures = useFailures(task.id)
+  const runList = useTaskRunsState(
+    task.id,
+    task.leadRunId !== undefined || task.runs.length > 0 || task.tabs.length > 0,
+  )
+  const [found, setFound] = useState<ScrollReveal>()
   return (
     <TaskReferences
       taskId={task.id}
       files={fileList.files}
       onWantFiles={browse}
-      hasTask={(id) => id !== task.displayId && tasks.some((t) => t.displayId === id)}
+      taskFor={(id) => taskTarget(id, task, tasks, factories)}
+      failures={failures}
+      runs={runList.value ?? []}
       onOpenTask={onOpenTask}
       onOpenFile={(file, line) => inspectFile({ ...file, ...(line !== undefined && { line }) })}
       onOpenCommit={(commit) => go({ kind: 'commit', commit })}
+      onOpenFailure={(target) => {
+        setState({})
+        setFound({ id: target, flash: true })
+      }}
+      onOpenRun={openRun}
+      onOpenUrl={(url) => {
+        void ted.openMarkdownLink(url).catch(console.error)
+      }}
     >
       {quickTask === task.id && (
         <QuickOpen
@@ -513,6 +564,7 @@ export function TaskPanes({
         task={task}
         backLink={backLink}
         revealRequest={revealRequest}
+        found={found}
         answeredId={answeredId}
         onBack={onBack}
         onOpenTask={onOpenTask}
@@ -580,6 +632,7 @@ export function TaskThread({
   onAllChanges,
   backLink,
   revealRequest,
+  found,
   answeredId,
   onBack,
   onOpenTask,
@@ -602,6 +655,7 @@ export function TaskThread({
   task: Task
   backLink: string | undefined
   revealRequest?: ScrollReveal | undefined
+  found?: ScrollReveal | undefined
   answeredId?: string | undefined
   onBack: () => void
   onOpenTask: (ref: string) => void
@@ -672,6 +726,22 @@ export function TaskThread({
     setReveal(revealRequest ?? (answeredId === undefined ? undefined : { id: answeredId }))
     if (revealRequest) setAnswering(revealRequest.id)
   }, [revealRequest, answeredId])
+  const sentBackLine = (id: string) => {
+    const checkRunId = id.startsWith('check:') ? id.slice('check:'.length) : undefined
+    const event = events.find((e) => checkRunId !== undefined && e.checkRunId === checkRunId)
+    return event ? `event:${event.id}` : id
+  }
+  const foundLine = useRef(sentBackLine)
+  foundLine.current = sentBackLine
+  useEffect(() => {
+    if (found === undefined) return
+    setConversationReveal(undefined)
+    setFilter(undefined)
+    setReveal({ ...found, id: foundLine.current(found.id) })
+  }, [found])
+  useEffect(() => {
+    if (reveal?.flash) flashItem(reveal.id)
+  }, [reveal])
   const stage = filter?.taskId === task.id ? filter.stage : undefined
   const items: ThreadItem[] = [
     ...comments.map((comment) => ({
@@ -1454,6 +1524,7 @@ function FieldSelect({
   options: readonly (readonly [string, string])[]
   onChange: (value: string) => void
 }) {
+  const { control, list } = useOptionList()
   return (
     <span className={styles.fieldSelect}>
       <span aria-hidden>{text}</span>
@@ -1463,6 +1534,7 @@ function FieldSelect({
         className={styles.fieldSelectControl}
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        {...control}
       >
         {options.map(([option, name]) => (
           <option key={option} value={option}>
@@ -1470,6 +1542,7 @@ function FieldSelect({
           </option>
         ))}
       </select>
+      {list}
     </span>
   )
 }

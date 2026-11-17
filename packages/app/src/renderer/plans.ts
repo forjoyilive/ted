@@ -47,18 +47,21 @@ export function planStatusChip(plan: Pick<Plan, 'status' | 'queuePlace' | 'pause
     case 'finished':
       return { tone: 'success', label: 'Finished' }
     case 'stopped':
-      return { tone: 'neutral', glyph: 'stopped', label: 'Stopped' }
+      return { tone: 'stopped', glyph: 'stopped', label: 'Stopped' }
   }
 }
 
+function endedAt(plan: Pick<Plan, 'status' | 'finishedAt'>): string | undefined {
+  return plan.status === 'finished' || plan.status === 'stopped' ? plan.finishedAt : undefined
+}
+
+export function planTimes(plan: Pick<Plan, 'status' | 'createdAt' | 'finishedAt'>): string {
+  const ended = endedAt(plan)
+  return ended === undefined ? when(plan.createdAt) : `${when(plan.createdAt)} to ${when(ended)}`
+}
+
 export function planStartedLine(plan: Pick<Plan, 'status' | 'createdAt' | 'finishedAt'>): string {
-  if (plan.status === 'finished' && plan.finishedAt !== undefined) {
-    return `Planning chat · finished ${when(plan.finishedAt)}`
-  }
-  if (plan.status === 'stopped' && plan.finishedAt !== undefined) {
-    return `Planning chat · stopped ${when(plan.finishedAt)}`
-  }
-  return `Planning chat · started by you ${when(plan.createdAt)}`
+  return endedAt(plan) === undefined ? `Started ${planTimes(plan)}` : planTimes(plan)
 }
 
 export function planGroups(plans: readonly Plan[]): { open: Plan[]; past: Plan[] } {
@@ -113,6 +116,7 @@ export function requestHeading(request: AskedRequest): RequestHeading {
   if (request.kind === 'question') return { kind: 'Question' }
   if (request.kind === 'round') return { kind: `Round ${request.round?.number ?? ''}` }
   if (request.kind === 'agent') return { kind: 'Agent draft' }
+  if (request.kind === 'outside-command') return { kind: 'Outside command' }
   const count = request.proposal?.rows.length ?? 0
   return { kind: 'Proposal', detail: `${count} ${count === 1 ? 'Task' : 'Tasks'}` }
 }
@@ -124,6 +128,9 @@ export function requestState(request: AskedRequest, latest: boolean): string {
   if (request.kind === 'agent' && answer.kind === 'approved')
     return `saved by you at ${clockTime(answer.at)}`
   if (request.kind === 'agent' && answer.kind === 'denied') return 'dismissed'
+  if (request.kind === 'outside-command' && answer.kind === 'approved')
+    return `run by you at ${clockTime(answer.at)}`
+  if (request.kind === 'outside-command' && answer.kind === 'denied') return 'not run'
   if (answer.kind === 'approved') return `approved by you at ${clockTime(answer.at)}`
   if (answer.kind === 'superseded') return 'Superseded'
   if (answer.kind === 'changes-requested') return latest ? 'changes requested' : 'Superseded'

@@ -118,9 +118,11 @@ export type TaskStatus =
   | { kind: 'working' }
   | { kind: 'stopped'; at?: string; prepared?: true }
   | { kind: 'blocked'; by: string; ended?: BlockerEnded }
-  | { kind: 'queued'; place: number }
+  | { kind: 'queued'; place: number; after?: QueuedAfter }
   | { kind: 'queued'; hold: string; busy?: BusyHold }
   | { kind: 'waiting-for-github'; on: GitHubWait }
+
+export type QueuedAfter = 'checks-passed' | 'checks-done' | 'answer'
 
 export type BlockerEnded = 'archived' | 'deleted'
 
@@ -154,6 +156,8 @@ export type CommentBox =
   | 'done'
   | 'merge-pending'
   | 'archived'
+
+export type CommentDelivery = 'starting' | 'queued' | 'paused'
 
 export interface TaskRun {
   id: string
@@ -264,8 +268,12 @@ export interface Task {
   activity?: string
   track: TrackStage[]
   commentBox: CommentBox
+  commentDelivery?: CommentDelivery
   canResume?: boolean
+  wakesOnComment?: true
+  checksActive?: true
   runs: TaskRun[]
+  tokens?: number
   tabs: ConversationTab[]
   repos: TaskRepo[]
   chosenRepos: string[]
@@ -279,6 +287,10 @@ export interface Task {
   startedAt?: string
   updatedAt: string
   archived?: TaskArchive
+}
+
+export interface CreatedTask extends Task {
+  reminder?: string
 }
 
 export type ResetRefusal = 'archived' | 'done' | 'merged' | 'not-started'
@@ -438,10 +450,6 @@ export interface PullRequestPreview {
   label: string
 }
 
-export const blockedChoices = ['unblock', 'keep'] as const
-
-export type BlockedChoice = (typeof blockedChoices)[number]
-
 export interface TaskHierarchy {
   parentId: string | null
   childIds: string[]
@@ -469,13 +477,11 @@ export interface ArchiveTaskRequest {
   children?: 'archive' | 'detach'
   hierarchyRevision?: string
   closePullRequests?: boolean
-  blocked?: BlockedChoice
 }
 
 export interface DeleteTaskRequest {
   children?: 'delete' | 'unparent'
   hierarchyRevision?: string
-  blocked?: BlockedChoice
 }
 
 export interface NewTaskDraft {
@@ -704,6 +710,7 @@ export type CommentAnswer =
     }
   | { kind: 'withdrawn'; at: string; movedTo: StageId }
   | { kind: 'withdrawn'; at: string; archived: true }
+  | { kind: 'withdrawn'; at: string; movedToFactory: string }
   | { kind: 'withdrawn'; at: string; runStopped: true }
   | { kind: 'withdrawn'; at: string; cancelled: true }
   | { kind: 'withdrawn'; at: string; ciReported: true }

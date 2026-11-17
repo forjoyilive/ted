@@ -1,13 +1,14 @@
 import type { ChatRequestKind, Coordinator, CoordinatorChatSummary, Plan } from '@ted/protocol'
 import { useCallback, useState } from 'react'
 import type { StatusGlyph, StatusTone } from './components/StatusChip.tsx'
-import { planStatusChip, planTasksLabel } from './plans.ts'
+import { planEnded, planStatusChip, planTasksLabel } from './plans.ts'
 
 export const chatRequestLabels: Readonly<Record<ChatRequestKind, string>> = {
   question: 'Question',
   round: 'Round',
   proposal: 'Proposal',
   agent: 'Agent draft',
+  'outside-command': 'Outside command',
 }
 
 export type AgentChatRef = { agent: 'coordinator'; id: string } | { agent: 'planner'; id: string }
@@ -21,6 +22,91 @@ export interface AgentChatRow {
   waiting: boolean
   archivedAt?: string
   meta: string
+  state: ChatState
+}
+
+export interface ChatState {
+  ref: AgentChatRef
+  archived: boolean
+  stoppable: boolean
+  restart?: 'Resume' | 'Retry'
+  planMore: boolean
+}
+
+export type ChatActionKind =
+  | 'stop'
+  | 'restart'
+  | 'rename'
+  | 'plan-more'
+  | 'archive'
+  | 'unarchive'
+  | 'delete'
+
+export function coordinatorChatState(
+  chat: Pick<CoordinatorChatSummary, 'id' | 'status' | 'endedAt' | 'chatAgent'>,
+): ChatState {
+  const archived = chat.endedAt !== undefined
+  return {
+    ref: { agent: 'coordinator', id: chat.id },
+    archived,
+    stoppable:
+      !archived &&
+      (chat.status === 'working' || chat.status === 'queued' || chat.status === 'paused'),
+    ...(!archived &&
+      !chat.chatAgent.removed &&
+      chat.status === 'failed' && { restart: 'Retry' as const }),
+    planMore: false,
+  }
+}
+
+export function planChatState(plan: Pick<Plan, 'id' | 'status' | 'archivedAt'>): ChatState {
+  const archived = plan.archivedAt !== undefined
+  const restart =
+    plan.status === 'failed' ? 'Retry' : plan.status === 'stopped' ? 'Resume' : undefined
+  return {
+    ref: { agent: 'planner', id: plan.id },
+    archived,
+    stoppable: !archived && !planEnded(plan),
+    ...(!archived && restart !== undefined && { restart }),
+    planMore: archived || planEnded(plan),
+  }
+}
+
+export function chatActions(state: ChatState): { kind: ChatActionKind; divider: boolean }[] {
+  const item = (kind: ChatActionKind, divider = false) => ({ kind, divider })
+  if (state.archived) {
+    return [
+      item('unarchive'),
+      ...(state.planMore ? [item('plan-more', true), item('delete')] : [item('delete', true)]),
+    ]
+  }
+  const first = state.stoppable ? 'stop' : state.restart !== undefined ? 'restart' : undefined
+  return [
+    ...(first === undefined ? [] : [item(first)]),
+    item('rename', first !== undefined),
+    ...(state.planMore ? [item('plan-more')] : []),
+    item('archive', true),
+    item('delete'),
+  ]
+}
+
+export function chatActionLabel(kind: ChatActionKind, state: ChatState): string {
+  switch (kind) {
+    case 'stop':
+      return 'Stop'
+    case 'restart':
+      return state.restart ?? 'Resume'
+    case 'rename':
+      return 'Rename…'
+    case 'plan-more':
+      return 'Plan more from here…'
+    case 'archive':
+      return 'Archive'
+    case 'unarchive':
+      return 'Unarchive'
+    case 'delete':
+      return 'Delete…'
+  }
 }
 
 export const coordinatorStatus: Record<
@@ -47,6 +133,7 @@ function coordinatorRow(chat: CoordinatorChatSummary): AgentChatRow {
     waiting: !archived && chat.waiting,
     ...(chat.endedAt !== undefined && { archivedAt: chat.endedAt }),
     meta: chat.taskCount === 1 ? '1 Task' : `${chat.taskCount} Tasks`,
+    state: coordinatorChatState(chat),
   }
 }
 
@@ -67,6 +154,7 @@ function planRow(plan: Plan): AgentChatRow {
       : planTasksLabel(plan) === '—'
         ? ''
         : planTasksLabel(plan),
+    state: planChatState(plan),
   }
 }
 

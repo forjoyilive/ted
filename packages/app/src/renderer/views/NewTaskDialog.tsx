@@ -105,7 +105,7 @@ function NewTaskForm({
   onFactory: (id: string, draft: NewTaskDraft) => void
 }) {
   const dialog = useRef<HTMLDialogElement>(null)
-  const descriptionField = useRef<HTMLTextAreaElement>(null)
+  const titleField = useRef<HTMLInputElement>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const drop = useFileDrop(() => attach)
   const headingId = useId()
@@ -273,7 +273,7 @@ function NewTaskForm({
 
   useEffect(() => {
     dialog.current?.showModal()
-    descriptionField.current?.focus()
+    titleField.current?.focus()
   }, [])
 
   useEffect(() => {
@@ -343,7 +343,7 @@ function NewTaskForm({
   }, [factory, ready, session])
 
   useEffect(() => {
-    if (ready && !busy) descriptionField.current?.focus()
+    if (ready && !busy) titleField.current?.focus()
   }, [ready, busy])
 
   const chosenFactory = factories.find((f) => f.id === factory)
@@ -381,7 +381,7 @@ function NewTaskForm({
     agentKinds.every((agent) => health.some((entry) => entry.agent === agent)) &&
     !health.some((entry) => entry.agent === lead?.agent && entry.state === 'not-installed') &&
     chosenFactory !== undefined &&
-    description.trim() !== '' &&
+    (asana !== undefined || title.trim() !== '') &&
     uploading === 0 &&
     !busy &&
     !moving &&
@@ -440,7 +440,7 @@ function NewTaskForm({
     setAsana(undefined)
     setSource(undefined)
     setError(undefined)
-    descriptionField.current?.focus()
+    titleField.current?.focus()
   }
 
   async function close(next = onClose) {
@@ -590,12 +590,16 @@ function NewTaskForm({
   const blockers = blockedBy
     .map((id) => tasks.find((t) => t.id === id))
     .filter((t) => t !== undefined)
+  const merges = `${joinIds(blockers.map((t) => t.displayId))} ${blockers.length === 1 ? 'merges' : 'merge'}`
+  const autoStarts = chosenFactory?.autoStartBacklog === true
   const note =
     start && blockers.length > 0
-      ? `Waits as Blocked until ${joinIds(blockers.map((t) => t.displayId))} ${blockers.length === 1 ? 'merges' : 'merge'}`
+      ? `Waits as Blocked until ${merges}`
       : start
         ? undefined
-        : 'Waits in Backlog until you start it'
+        : autoStarts
+          ? `${blockers.length > 0 ? `Starts when ${merges}` : 'Starts when a slot is free'}: this Factory starts Backlog Tasks automatically`
+          : 'Waits in Backlog until you start it'
   const summary = `Clarify depth ${clarifyDepthLabels[clarifyDepth]}${lead ? ` · Task Lead ${leadSummary(lead)}` : ''}`
 
   return (
@@ -646,19 +650,19 @@ function NewTaskForm({
       <fieldset disabled={busy || moving} className={styles.fields}>
         <fieldset disabled={!ready} className={styles.fields}>
           <input
+            ref={titleField}
             className={styles.title}
             aria-label="Title"
             data-arrows
-            placeholder="Title (optional). Blank uses the first line of the description."
+            placeholder="Title"
             value={title}
             onChange={(event) => setTitle(event.target.value)}
           />
           <div className={styles.descriptionBox}>
             <textarea
-              ref={descriptionField}
               className={`${styles.description} ${grow.text}`}
               aria-label="Description"
-              placeholder="Describe what you want done, or paste a Linear issue or Asana task URL."
+              placeholder="Description (optional). Describe what you want done, or paste a Linear issue or Asana task URL."
               value={description}
               onChange={(event) => changeDescription(event.target.value)}
             />
@@ -877,7 +881,8 @@ function NewTaskForm({
                   </label>
                   <Help>
                     Checked, the Task goes to Intake as soon as a slot is free. Unchecked, it waits
-                    in Backlog until you start it.
+                    in Backlog until you start it, unless the Factory starts Backlog Tasks
+                    automatically.
                   </Help>
                 </span>
                 {note !== undefined && <span className={styles.note}>{note}</span>}

@@ -1,4 +1,12 @@
-import type { BlockerEnded, GitHubWait, Task, TaskMarker, TaskRun, TaskStatus } from '@ted/protocol'
+import type {
+  BlockerEnded,
+  GitHubWait,
+  QueuedAfter,
+  Task,
+  TaskMarker,
+  TaskRun,
+  TaskStatus,
+} from '@ted/protocol'
 import { snoozeTime } from '../request-snooze.ts'
 import { ago, useNow } from '../requests.ts'
 import { statusDetail } from '../slots.ts'
@@ -25,6 +33,12 @@ const gitHubGlyphs: Record<GitHubWait, StatusGlyph> = {
   'required-check': 'ci',
 }
 
+const queuedAfterLabels: Record<QueuedAfter, string> = {
+  'checks-passed': 'Checks passed, waiting for a slot',
+  'checks-done': 'Checks finished, waiting for a slot',
+  answer: 'Answered, waiting for a slot',
+}
+
 export function ordinal(n: number): string {
   const tens = n % 100
   const suffix = tens >= 11 && tens <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] ?? 'th')
@@ -38,9 +52,7 @@ export function statusLabel(status: TaskStatus): string {
     case 'partly-merged':
       return 'Partly merged'
     case 'waiting-on-you':
-      return status.snoozedUntil === undefined
-        ? 'Waiting on you'
-        : `Snoozed until ${snoozeTime(status.snoozedUntil)}`
+      return status.snoozedUntil === undefined ? 'Waiting on you' : 'Snoozed'
     case 'paused':
       return `Paused · ${status.reason}`
     case 'working':
@@ -50,7 +62,8 @@ export function statusLabel(status: TaskStatus): string {
     case 'blocked':
       return `Blocked by ${status.ended ? `${status.ended} ` : ''}${status.by}`
     case 'queued':
-      return `Queued · ${'place' in status ? ordinal(status.place) : status.hold}`
+      if ('hold' in status) return `Queued · ${status.hold}`
+      return `Queued · ${status.after ? queuedAfterLabels[status.after] : ordinal(status.place)}`
     case 'waiting-for-github':
       return gitHubLabels[status.on]
   }
@@ -63,13 +76,13 @@ function look(status: TaskStatus): { tone: StatusTone; glyph: StatusGlyph } {
     case 'partly-merged':
       return { tone: 'failed', glyph: 'partly' }
     case 'waiting-on-you':
-      return { tone: status.snoozedUntil === undefined ? 'waiting' : 'neutral', glyph: 'waiting' }
+      return { tone: status.snoozedUntil === undefined ? 'waiting' : 'snoozed', glyph: 'waiting' }
     case 'paused':
       return { tone: 'neutral', glyph: 'paused' }
     case 'working':
       return { tone: 'working', glyph: 'working' }
     case 'stopped':
-      return { tone: status.prepared ? 'success' : 'neutral', glyph: 'stopped' }
+      return { tone: status.prepared ? 'success' : 'stopped', glyph: 'stopped' }
     case 'blocked':
       return { tone: 'neutral', glyph: 'blocked' }
     case 'queued':
@@ -96,7 +109,14 @@ function BlockedBy({
       {ended === 'deleted' ? (
         <span>{by}</span>
       ) : (
-        <button type="button" className={styles.link} onClick={() => onOpenTask(by)}>
+        <button
+          type="button"
+          className={styles.link}
+          onClick={(event) => {
+            event.stopPropagation()
+            onOpenTask(by)
+          }}
+        >
           {by}
         </button>
       )}
@@ -152,6 +172,14 @@ function Marker({
   )
 }
 
+function statusTitle(status: TaskStatus): string | undefined {
+  if (status.kind === 'queued' && 'place' in status && status.after !== undefined)
+    return `${ordinal(status.place)} in the queue`
+  if (status.kind === 'waiting-on-you' && status.snoozedUntil !== undefined)
+    return `Snoozed until ${snoozeTime(status.snoozedUntil)}`
+  return statusDetail(status)
+}
+
 function detailedLabel(status: TaskStatus, now: number): string {
   if (status.kind === 'stopped' && !status.prepared && status.at !== undefined) {
     return `Stopped by you · ${ago(status.at, now)}`
@@ -190,7 +218,7 @@ export function TaskStatusChips({
         <BlockedBy by={status.by} ended={status.ended} onOpenTask={onOpenTask} tall={tall} />
       ) : (
         status && (
-          <StatusChip {...look(status)} tall={tall} title={statusDetail(status)}>
+          <StatusChip {...look(status)} tall={tall} title={statusTitle(status)}>
             {detailed ? detailedLabel(status, now) : statusLabel(status)}
           </StatusChip>
         )

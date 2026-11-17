@@ -586,7 +586,13 @@ describe('blockers while the agent can’t run', () => {
     await block(client, running, blocker)
     await waitFor(client, running, (t) => t.status?.kind === 'blocked', 'to be Blocked')
     await client.ok('POST', `/tasks/${blocker.id}/start`)
-    await waitFor(client, blocker, (t) => t.leadRunId !== undefined, 'to start')
+    const started = await waitFor(client, blocker, (t) => t.leadRunId !== undefined, 'to start')
+    // Moving Date.now ahead before the Run host writes its start record expires the
+    // daemon's start deadline (stopGraceMs in run-manager.ts) and drops NB-1's Run.
+    await waitUntil(
+      async () => (await client.getRun(started.leadRunId ?? '')).conversation.length > 0,
+      `${blocker.displayId}’s Run to print its first line`,
+    )
 
     await signedIn(false)
     const realNow = Date.now
@@ -778,9 +784,8 @@ test('hierarchy API persists nested links, refuses stale and cyclic edits, and c
   expect((await getTask(client, child.id)).runs).toEqual([])
 
   await block(client, child, leaf)
-  await app.archiveTask(leaf.id, { blocked: 'keep' })
-  expect((await getTask(client, child.id)).blockedBy).toEqual([leaf.id])
-  await client.ok('DELETE', `/tasks/${child.id}/blockers`)
+  await app.archiveTask(leaf.id)
+  expect((await getTask(client, child.id)).blockedBy).toEqual([])
   expect((await getTask(client, child.id)).runs).toEqual([])
   expect((await getTask(client, leaf.id)).parentId).toBe(child.id)
   await app.unarchiveTask(leaf.id)
@@ -927,7 +932,7 @@ test('prepared parents require explicit Resume after unlink, reparent, archive o
     'archive',
     'delete',
     'delete-with-manual-blocker',
-    'archive-keep-then-unblock',
+    'archive-with-manual-blocker',
     'unlink-then-unblock',
   ]) {
     const parent = await create(client, steps({ endTurn: true }))
@@ -956,7 +961,7 @@ test('prepared parents require explicit Resume after unlink, reparent, archive o
     await parentOf(app, child, parent)
     if (
       operation === 'delete-with-manual-blocker' ||
-      operation === 'archive-keep-then-unblock' ||
+      operation === 'archive-with-manual-blocker' ||
       operation === 'unlink-then-unblock'
     ) {
       await block(client, parent, child)
@@ -985,15 +990,8 @@ test('prepared parents require explicit Resume after unlink, reparent, archive o
       })
       expect((await getTask(client, parent.id)).preparation).toBeUndefined()
       await client.ok('DELETE', `/tasks/${parent.id}/blockers/${child.id}`)
-    } else if (operation === 'archive-keep-then-unblock') {
-      await app.archiveTask(child.id, { blocked: 'keep' })
-      expect(await getTask(client, parent.id)).toMatchObject({
-        blockedBy: [child.id],
-        childIds: [child.id],
-        preparation: 'ready',
-        runs: [],
-      })
-      await client.ok('DELETE', `/tasks/${parent.id}/blockers/${child.id}`)
+    } else if (operation === 'archive-with-manual-blocker') {
+      await app.archiveTask(child.id)
       expect(await getTask(client, parent.id)).toMatchObject({
         blockedBy: [],
         childIds: [child.id],
@@ -1019,7 +1017,7 @@ test('prepared parents require explicit Resume after unlink, reparent, archive o
   for (const entry of [
     cases[0],
     cases.find((entry) => entry.operation === 'delete-with-manual-blocker'),
-    cases.find((entry) => entry.operation === 'archive-keep-then-unblock'),
+    cases.find((entry) => entry.operation === 'archive-with-manual-blocker'),
   ]) {
     if (!entry) throw new Error('no prepared parent')
     await client.ok('POST', `/tasks/${entry.parent.id}/resume`, {})

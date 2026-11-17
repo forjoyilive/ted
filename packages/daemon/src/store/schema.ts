@@ -232,6 +232,21 @@ export const deletedTasks = State.SQLite.table({
   },
 })
 
+export const taskMoves = State.SQLite.table({
+  name: 'taskMoves',
+  indexes: [
+    { name: 'idx_taskMoves_taskId', columns: ['taskId'] },
+    { name: 'idx_taskMoves_factoryId', columns: ['factoryId'] },
+  ],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    taskId: State.SQLite.text(),
+    factoryId: State.SQLite.text(),
+    number: State.SQLite.integer(),
+    at: State.SQLite.text(),
+  },
+})
+
 export const taskAttachments = State.SQLite.table({
   name: 'taskAttachments',
   indexes: [{ name: 'idx_taskAttachments_taskId', columns: ['taskId'] }],
@@ -1103,6 +1118,7 @@ export const chatAgents = State.SQLite.table({
     powers: State.SQLite.text(),
     instructions: State.SQLite.text(),
     commands: State.SQLite.text({ nullable: true }),
+    outsideCommands: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -1124,6 +1140,22 @@ export const chatCommands = State.SQLite.table({
     startedAt: State.SQLite.text(),
     endedAt: State.SQLite.text(),
     tail: State.SQLite.text(),
+    outside: State.SQLite.text({ nullable: true }),
+  },
+})
+
+export const outsideCommandAllowances = State.SQLite.table({
+  name: 'outsideCommandAllowances',
+  indexes: [{ name: 'idx_outsideCommandAllowances_factoryId', columns: ['factoryId'] }],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    factoryId: State.SQLite.text(),
+    agentId: State.SQLite.text(),
+    name: State.SQLite.text(),
+    command: State.SQLite.text(),
+    repo: State.SQLite.text(),
+    folder: State.SQLite.text(),
+    allowedAt: State.SQLite.text(),
   },
 })
 
@@ -1146,6 +1178,7 @@ export const chatRequests = State.SQLite.table({
     round: State.SQLite.text({ nullable: true }),
     proposal: State.SQLite.text({ nullable: true }),
     agentDraft: State.SQLite.text({ nullable: true }),
+    outsideCommand: State.SQLite.text({ nullable: true }),
     answer: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
@@ -1454,6 +1487,44 @@ export const events = {
   chatAgentDraftPosted: Events.synced({
     name: 'v1.ChatAgentDraftPosted',
     schema: Schema.Struct({ id: Schema.String, draft: Schema.String }),
+  }),
+  chatAgentOutsideCommandsRecorded: Events.synced({
+    name: 'v1.ChatAgentOutsideCommandsRecorded',
+    schema: Schema.Struct({
+      chatId: Schema.String,
+      commands: Schema.Array(
+        Schema.Struct({
+          name: Schema.String,
+          command: Schema.String,
+          repo: Schema.NullOr(Schema.String),
+        }),
+      ),
+    }),
+  }),
+  chatOutsideCommandAsked: Events.synced({
+    name: 'v1.ChatOutsideCommandAsked',
+    schema: Schema.Struct({ id: Schema.String, ask: Schema.String }),
+  }),
+  chatOutsideCommandRan: Events.synced({
+    name: 'v1.ChatOutsideCommandRan',
+    schema: Schema.Struct({ id: Schema.String, outside: Schema.String }),
+  }),
+  outsideCommandAllowed: Events.synced({
+    name: 'v1.OutsideCommandAllowed',
+    schema: Schema.Struct({
+      id: Schema.String,
+      factoryId: Schema.String,
+      agentId: Schema.String,
+      name: Schema.String,
+      command: Schema.String,
+      repo: Schema.String,
+      folder: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  outsideCommandAllowanceRemoved: Events.synced({
+    name: 'v1.OutsideCommandAllowanceRemoved',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
   }),
   chatRequestAnswered: Events.synced({
     name: 'v1.ChatRequestAnswered',
@@ -2131,6 +2202,21 @@ export const events = {
       clarifyDepth: Schema.String,
       clarifyDepthBy: Schema.NullOr(Schema.String),
       runIds: Schema.Array(Schema.String),
+      checkRunIds: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
+  taskMovedToFactory: Events.synced({
+    name: 'v1.TaskMovedToFactory',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      fromFactoryId: Schema.String,
+      fromNumber: Schema.Number,
+      fromDisplayId: Schema.String,
+      factoryId: Schema.String,
+      number: Schema.Number,
+      by: Schema.String,
+      started: Schema.Boolean,
       checkRunIds: Schema.Array(Schema.String),
       at: Schema.String,
     }),
@@ -4155,6 +4241,14 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     task(args, { tracker: args.tracker, item: args.item, urls: args.urls }),
   'v1.TaskUnarchived': (args) => task(args, { queued: args.rank !== null }),
   'v1.TaskReset': (args) => task(args, { clarifyDepth: args.clarifyDepth }),
+  'v1.TaskMovedToFactory': (args) =>
+    task(args, {
+      fromDisplayId: args.fromDisplayId,
+      fromFactoryId: args.fromFactoryId,
+      factoryId: args.factoryId,
+      by: args.by,
+      started: args.started,
+    }),
   'v1.TaskFollowsUp': (args) => task(args, { originalId: args.originalId }),
   'v1.TaskStartedByAutomation': (args) =>
     task(args, { automationId: args.automationId, firingId: args.firingId, name: args.name }),
@@ -4948,6 +5042,89 @@ const materializers = counted(
               checkBoundaries.delete().where({ checkRunId: { op: 'IN', value: checkRunIds } }),
             ]),
       ],
+      'v1.TaskMovedToFactory': ({
+        taskId,
+        fromFactoryId,
+        fromNumber,
+        factoryId,
+        number,
+        checkRunIds,
+        at,
+      }) => [
+        tasks
+          .update({
+            factoryId,
+            number,
+            stage: 'backlog',
+            branch: null,
+            worktree: null,
+            chosenRepos: null,
+            changesSettings: false,
+            activity: null,
+            activityEntries: null,
+            stageEffort: null,
+            pendingLeadMessage: null,
+            pendingLeadDeliveries: null,
+            leadRestartPending: false,
+            startRequested: false,
+            waitsForBlockers: false,
+            snoozedUntil: null,
+            stoppedAt: null,
+            stoppedRuns: null,
+            stoppedWhy: null,
+            preparation: null,
+            failedAt: null,
+            needsPlanningAt: null,
+            partlyMergedAt: null,
+            changedAt: at,
+          })
+          .where({ id: taskId }),
+        taskMoves
+          .insert({
+            id: `${taskId}:${fromFactoryId}:${fromNumber}`,
+            taskId,
+            factoryId: fromFactoryId,
+            number: fromNumber,
+            at,
+          })
+          .onConflict('id', 'ignore'),
+        taskQueue.delete().where({ taskId }),
+        taskBrowserCaptures.delete().where({ taskId }),
+        lineComments.delete().where({ taskId }),
+        subAgentRequests.delete().where({ taskId }),
+        reviewers.delete().where({ taskId }),
+        loopChecks.delete().where({ taskId }),
+        sendBackAsks.delete().where({ taskId }),
+        requestSnoozes.delete().where({ ownerId: taskId }),
+        messageDrafts.update({ factoryId }).where({ taskId }),
+        taskLog.delete().where({ taskId, name: { op: 'IN', value: trackerSyncLog } }),
+        peerMessages.delete().where({ recipientTaskId: taskId }),
+        peerMessages.delete().where({ senderTaskId: taskId }),
+        sendBacks.delete().where({ taskId }),
+        reviewScopes.delete().where({ taskId }),
+        taskTreeArchives.delete().where({ rootId: taskId }),
+        taskTreeArchives.delete().where({ taskId }),
+        baseConflicts.delete().where({ taskId }),
+        cleanupReports.delete().where({ taskId }),
+        p1OnlyReviews.delete().where({ taskId }),
+        severityDeclarations.delete().where({ taskId }),
+        sendBackResets.delete().where({ taskId }),
+        checkRuns.delete().where({ taskId }),
+        testInvocations.delete().where({ taskId }),
+        failureCases.delete().where({ taskId }),
+        validationProgress.delete().where({ taskId }),
+        failureContexts.delete().where({ taskId }),
+        stageEntries.delete().where({ taskId }),
+        taskRepos.delete().where({ taskId }),
+        pullRequests.delete().where({ taskId }),
+        heldRuns.delete().where({ taskId }),
+        ...(checkRunIds.length === 0
+          ? []
+          : [
+              checkResults.delete().where({ checkRunId: { op: 'IN', value: checkRunIds } }),
+              checkBoundaries.delete().where({ checkRunId: { op: 'IN', value: checkRunIds } }),
+            ]),
+      ],
       'v1.CommentPurposeRecorded': ({ commentId, purpose }) =>
         comments.update({ purpose }).where({ id: commentId }),
       'v1.CommentPosted': (comment) => comments.insert({ ...comment, authorKind: 'run' }),
@@ -5556,6 +5733,7 @@ const materializers = counted(
         factoryOrder.delete().where({ factoryId }),
         factoryLayout.delete().where({ id: `factory:${factoryId}` }),
         deletedTasks.delete().where({ factoryId }),
+        taskMoves.delete().where({ factoryId }),
         banners.delete().where({ factoryId }),
         workflowLayers.delete().where({ layer: `factory:${factoryId}` }),
         requestSnoozes.delete().where({ factoryId }),
@@ -5563,6 +5741,7 @@ const materializers = counted(
         chatAgents.delete().where({ factoryId }),
         chatCommands.delete().where({ factoryId }),
         chatRequests.delete().where({ factoryId }),
+        outsideCommandAllowances.delete().where({ factoryId }),
       ],
       'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
         workflowLayers
@@ -5825,6 +6004,18 @@ const materializers = counted(
         }),
       'v1.ChatAgentDraftPosted': ({ id, draft }) =>
         chatRequests.update({ agentDraft: draft }).where({ id }),
+      'v1.ChatAgentOutsideCommandsRecorded': ({ chatId, commands }) =>
+        chatAgents.update({ outsideCommands: JSON.stringify(commands) }).where({ chatId }),
+      'v1.ChatOutsideCommandAsked': ({ id, ask }) =>
+        chatRequests.update({ outsideCommand: ask }).where({ id }),
+      'v1.ChatOutsideCommandRan': ({ id, outside }) =>
+        chatCommands.update({ outside }).where({ id }),
+      'v1.OutsideCommandAllowed': ({ at, ...allowance }) =>
+        outsideCommandAllowances
+          .insert({ ...allowance, allowedAt: at })
+          .onConflict('id', 'replace'),
+      'v1.OutsideCommandAllowanceRemoved': ({ id }) =>
+        outsideCommandAllowances.delete().where({ id }),
       'v1.ChatRequestAnswered': ({ id, answer }) => [
         chatRequests.update({ answer }).where({ id }),
         requestSnoozes.delete().where({ requestId: id }),
@@ -5927,6 +6118,7 @@ const state = State.SQLite.makeState({
     taskParents,
     taskTreeArchives,
     deletedTasks,
+    taskMoves,
     taskAttachments,
     taskBrowserCaptures,
     runBrowserCaptures,
@@ -5988,6 +6180,7 @@ const state = State.SQLite.makeState({
     coordinatorChats,
     chatAgents,
     chatCommands,
+    outsideCommandAllowances,
     chatRequests,
     sideChats,
     requestSnoozes,

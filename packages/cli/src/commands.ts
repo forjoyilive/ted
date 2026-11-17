@@ -12,7 +12,6 @@ const flags = {
   versions: { type: 'string' },
   fields: { type: 'string' },
   children: { type: 'string' },
-  blocked: { type: 'string' },
   'close-pull-requests': { type: 'boolean' },
   'keep-pull-requests': { type: 'boolean' },
   'pull-request-reason': { type: 'string' },
@@ -300,10 +299,10 @@ export const commands = [
   {
     name: 'coordinator archive',
     handler: 'coordinatorArchive',
-    options: options('operation', 'versions', 'children', 'blocked', 'close-pull-requests'),
+    options: options('operation', 'versions', 'children', 'close-pull-requests'),
     min: 1,
     max: 20,
-    help: '  ted coordinator archive <id>… --operation <id> --versions <JSON> [--children archive|detach]\n                                             [--blocked unblock|keep] [--close-pull-requests]\n                                             Archive Tasks; the human confirms when there is\n                                             something to warn about (Coordinator only)',
+    help: '  ted coordinator archive <id>… --operation <id> --versions <JSON> [--children archive|detach]\n                                             [--close-pull-requests]\n                                             Archive Tasks; the human confirms when there is\n                                             something to warn about (Coordinator only)',
     callers: 'Coordinator Run',
   },
   {
@@ -318,10 +317,19 @@ export const commands = [
   {
     name: 'coordinator delete',
     handler: 'coordinatorDelete',
-    options: options('operation', 'versions', 'children', 'blocked'),
+    options: options('operation', 'versions', 'children'),
     min: 1,
     max: 20,
-    help: '  ted coordinator delete <id>… --operation <id> --versions <JSON> [--children delete|unparent]\n                                             [--blocked unblock|keep]\n                                             Ask the human to confirm deleting Tasks (Coordinator only)',
+    help: '  ted coordinator delete <id>… --operation <id> --versions <JSON> [--children delete|unparent]\n                                             Ask the human to confirm deleting Tasks (Coordinator only)',
+    callers: 'Coordinator Run',
+  },
+  {
+    name: 'coordinator transfer',
+    handler: 'coordinatorTransfer',
+    options: options('operation', 'version', 'factory'),
+    min: 1,
+    max: 1,
+    help: '  ted coordinator transfer <id> --factory <key or ID> --operation <id> --version <version>\n                                             Ask the human to confirm moving a Task to another\n                                             Factory (Coordinator only)',
     callers: 'Coordinator Run',
   },
   {
@@ -432,6 +440,15 @@ export const commands = [
     max: 1,
     help: '  ted agent run <name>                       In a chat whose Agent has commands, run one of\n                                             them in the chat’s copy of the code and print\n                                             its output; exits with the command’s status',
     callers: 'Coordinator or planning chat Run',
+    options: options(),
+  },
+  {
+    name: 'agent run-outside',
+    handler: 'agentRunOutside',
+    min: 1,
+    max: 2,
+    help: '  ted agent run-outside <name> [argument]    In a chat whose Agent has outside commands, ask\n                                             TED to run one on the user’s Mac outside the\n                                             sandbox; the user clicks Run unless they allowed it\n                                             always, and TED sends the output as a message',
+    callers: 'Coordinator chat Run',
     options: options(),
   },
   {

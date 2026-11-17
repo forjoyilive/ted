@@ -350,6 +350,7 @@ export type {
   CoordinatorTaskList,
   CoordinatorTaskQuery,
   CoordinatorTaskSummary,
+  CoordinatorTransfer,
   RenameCoordinatorChatRequest,
 } from './coordinator.ts'
 export {
@@ -360,8 +361,16 @@ export {
   parseCoordinatorMessage,
   parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
+  parseCoordinatorTransfer,
   parseRenameCoordinatorChatRequest,
 } from './coordinator-parsers.ts'
+export {
+  type Crash,
+  type CrashSource,
+  crashFrom,
+  maxCrashType,
+  parseRendererCrash,
+} from './crash-report.ts'
 export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export type {
   CostBucket,
@@ -687,12 +696,14 @@ export {
 export type { AllowLinearTeamRequest } from './linear.ts'
 export {
   findLinearUrl,
+  isLinearIdentifier,
   isLinearIntakeScope,
   isLinearTeamKey,
   type LinearFile,
   type LinearIntakeChoices,
   type LinearIntakeScope,
   type LinearIssue,
+  type LinearIssueLink,
   type LinearKeyPlace,
   type LinearKeyState,
   type LinearLookup,
@@ -702,6 +713,7 @@ export {
   type LinearUnfetched,
   type LinearUrl,
   linearKeyPage,
+  maxLinearIssueLinks,
   parseLinearUrl,
   type SaveLinearKeyRequest,
   type SetFactoryLinearIntakeRequest,
@@ -751,6 +763,20 @@ export {
   parseSaveMessageDraftRequest,
   type SaveMessageDraftRequest,
 } from './message-draft.ts'
+export type {
+  OutsideCommandAllowance,
+  OutsideCommandAnswer,
+  OutsideCommandAsk,
+  RunOutsideCommandRequest,
+  RunOutsideCommandResult,
+} from './outside-command.ts'
+export {
+  outsideArgumentProblem,
+  outsideArgv,
+  outsideCommandWords,
+  parseOutsideCommandAnswer,
+  parseRunOutsideCommandRequest,
+} from './outside-command.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export { parseSendPeerMessage } from './peer-parsers.ts'
 export type {
@@ -839,6 +865,7 @@ export {
   type AutomationHit,
   type CommentHit,
   type ConversationHit,
+  compactId,
   type FactoryHit,
   foldText,
   matchesTerms,
@@ -850,6 +877,8 @@ export {
   searchTerms,
   snippetAround,
   type TaskHit,
+  type TrackerKind,
+  type TrackerMatch,
 } from './search.ts'
 export {
   type Appearance,
@@ -961,12 +990,10 @@ export {
   type AttachmentRef,
   agentStageIds,
   archiveChoice,
-  type BlockedChoice,
   type BlockerEnded,
   type BlockTaskRequest,
   type BuiltInAgentStageId,
   type BuiltInStageId,
-  blockedChoices,
   briefHeadings,
   type CancelMergeRequest,
   type ChangedFile,
@@ -981,10 +1008,12 @@ export {
   type CommentAnswer,
   type CommentAuthor,
   type CommentBox,
+  type CommentDelivery,
   type CommentGate,
   type CommentKind,
   type CopySkip,
   type CreatedBy,
+  type CreatedTask,
   type CreateTaskRequest,
   ciSignals,
   clarifyDepths,
@@ -1042,6 +1071,7 @@ export {
   parseSnoozeRequestRequest,
   priorities,
   pullRequestCiModes,
+  type QueuedAfter,
   type ReportCleanupStepRequest,
   type ReportOutcomeRequest,
   type RepoSetupReport,
@@ -1137,6 +1167,7 @@ export type {
   TaskIntervalHistory,
   TaskIntervalReason,
 } from './task-intervals.ts'
+export * from './task-move.ts'
 export {
   parseAnswerRequest,
   parseAnswerTedStopsRequest,

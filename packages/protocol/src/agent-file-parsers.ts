@@ -3,13 +3,16 @@ import {
   type AgentFileChange,
   type AgentSettingsInput,
   agentPowers,
+  isAgentDescription,
   isAgentId,
   isCommandRepoName,
   maxAgentCommandLength,
   maxAgentCommands,
+  maxAgentDescription,
   maxAgentName,
   runCommandsNeedsReadCode,
 } from './agent-files.ts'
+import { maxOutsideCommands, outsideCommandWords } from './outside-command.ts'
 import {
   isArray,
   isOneOf,
@@ -51,6 +54,15 @@ function settingsInput(value: Untyped, id: string): AgentSettingsInput {
     }
     settings.name = name
   }
+  const description = read.optional(body, 'description', (object, field) =>
+    read.string(object, field, `${id}.description must be text`).trim(),
+  )
+  if (description !== undefined && description !== '') {
+    if (!isAgentDescription(description)) {
+      fail(`${id}.description must be one line of text of up to ${maxAgentDescription} characters`)
+    }
+    settings.description = description
+  }
   const agent = read.optional(body, 'agent', (object, field) =>
     read.oneOf(object, field, agentKinds, `${id}.agent must be ${agentKinds.join(', ')}`),
   )
@@ -76,11 +88,17 @@ function settingsInput(value: Untyped, id: string): AgentSettingsInput {
     read.list(object, field, `${id}.commands must be a list`),
   )
   if (commands !== undefined) settings.commands = commandsInput(commands, id)
+  const outside = read.optional(body, 'outsideCommands', (object, field) =>
+    read.list(object, field, `${id}.outsideCommands must be a list`),
+  )
+  if (outside !== undefined) settings.outsideCommands = commandsInput(outside, id, true)
   return settings
 }
 
-function commandsInput(items: JsonArray, id: string): AgentCommand[] {
-  if (items.length > maxAgentCommands) fail(`${id} has more than ${maxAgentCommands} commands`)
+function commandsInput(items: JsonArray, id: string, outside = false): AgentCommand[] {
+  const most = outside ? maxOutsideCommands : maxAgentCommands
+  const what = outside ? 'outside commands' : 'commands'
+  if (items.length > most) fail(`${id} has more than ${most} ${what}`)
   const seen = new Set<string>()
   return items.map((item) => {
     const body = read.object(item, `a command of ${id}`)
@@ -92,6 +110,10 @@ function commandsInput(items: JsonArray, id: string): AgentCommand[] {
     const command = read.string(body, 'command', `${id}.${name} must be a command`).trim()
     if (command === '' || command.length > maxAgentCommandLength)
       fail(`${id}.${name} must be a command of up to ${maxAgentCommandLength} characters`)
+    if (outside) {
+      const words = outsideCommandWords(command)
+      if ('problem' in words) fail(`${id}: the outside command ${name} ${words.problem}`)
+    }
     const repo = read.optional(body, 'repo', (object, field) =>
       read.string(object, field, `${id}.${name}.repo must be a repo name`),
     )

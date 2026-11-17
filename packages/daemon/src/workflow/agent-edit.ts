@@ -20,7 +20,16 @@ export interface AgentFileChanges {
   keepAgentFiles?: readonly string[]
 }
 
-const settingKeys = ['name', 'agent', 'model', 'powers', 'commands', 'based_on'] as const
+const settingKeys = [
+  'name',
+  'description',
+  'agent',
+  'model',
+  'powers',
+  'commands',
+  'outside_commands',
+  'based_on',
+] as const
 
 export function applyAgentChanges(
   after: LayerFiles,
@@ -83,6 +92,7 @@ function writeSettings(root: YAMLMap, id: string, input: AgentSettingsInput): vo
   else root.set(id, map)
   const values: [string, string | readonly string[] | undefined][] = [
     ['name', input.name],
+    ['description', input.description],
     ['agent', input.agent],
     ['model', input.model],
     ['powers', input.powers],
@@ -99,6 +109,9 @@ function writeSettings(root: YAMLMap, id: string, input: AgentSettingsInput): vo
   }
   if (input.commands === undefined || input.commands.length === 0) map.delete('commands')
   else setOrdered(map, 'commands', commandsMap(input.commands))
+  if (input.outsideCommands === undefined || input.outsideCommands.length === 0)
+    map.delete('outside_commands')
+  else setOrdered(map, 'outside_commands', commandsMap(input.outsideCommands))
 }
 
 function commandsMap(commands: readonly AgentCommand[]): YAMLMap {
@@ -157,10 +170,12 @@ export function agentFileRows(
       return {
         id: agent.id,
         name: agent.name,
+        ...(agent.description !== undefined && { description: agent.description }),
         ...(isOneOf(agent.agent, agentKinds) && { agent: agent.agent }),
         ...(agent.model !== undefined && { model: agent.model }),
         powers: agent.powers,
         ...(agent.commands && { commands: agent.commands }),
+        ...(agent.outsideCommands && { outsideCommands: agent.outsideCommands }),
         from: agent.source,
         builtIn: builtInAgentIds.some((id) => id === agent.id),
         ...((settings !== undefined || instructions !== undefined) && {
@@ -196,19 +211,23 @@ function settingsInput(settings: AgentSettings): AgentSettingsInput {
     : undefined
   return {
     ...(settings.name !== undefined && { name: settings.name }),
+    ...(settings.description !== undefined && { description: settings.description }),
     ...(agent !== undefined && { agent }),
     ...(settings.model !== undefined && { model: settings.model }),
     ...(settings.powers !== undefined && { powers: settings.powers }),
     ...(settings.commands !== undefined && { commands: settings.commands }),
+    ...(settings.outside_commands !== undefined && { outsideCommands: settings.outside_commands }),
   }
 }
 
 function resolvedInput(agent: ResolvedAgent): AgentSettingsInput {
   return {
     name: agent.name,
+    ...(agent.description !== undefined && { description: agent.description }),
     ...(isOneOf(agent.agent, agentKinds) && { agent: agent.agent }),
     ...(agent.model !== undefined && { model: agent.model }),
     powers: agent.powers,
     ...(agent.commands && { commands: agent.commands }),
+    ...(agent.outsideCommands && { outsideCommands: agent.outsideCommands }),
   }
 }

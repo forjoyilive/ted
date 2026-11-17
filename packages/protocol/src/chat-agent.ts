@@ -7,6 +7,7 @@ import {
   maxAgentId,
   maxAgentName,
 } from './agent-files.ts'
+import type { OutsideCommandAsk } from './outside-command.ts'
 import { isOneOf, isString, type JsonObject, reader, type Untyped } from './parse.ts'
 import type { AgentKind } from './run.ts'
 import type { CommentAnswer, Proposal, ProposalInput, Round, RoundInput } from './task.ts'
@@ -19,18 +20,26 @@ export type AgentChatKind = 'coordinator' | 'plan'
 export interface AgentSummary {
   id: string
   name: string
+  description?: string
   source: LayerKind
   agent?: AgentKind
   model?: string
   powers: AgentPower[]
   commands?: AgentCommand[]
+  outsideCommands?: AgentCommand[]
 }
 
 export interface ChatAgent extends AgentSummary {
   removed: boolean
 }
 
-export const chatRequestKinds = ['question', 'round', 'proposal', 'agent'] as const
+export const chatRequestKinds = [
+  'question',
+  'round',
+  'proposal',
+  'agent',
+  'outside-command',
+] as const
 
 export type ChatRequestKind = (typeof chatRequestKinds)[number]
 
@@ -46,6 +55,7 @@ export interface ChatRequest {
   round?: Round
   proposal?: Proposal
   agentDraft?: AgentDraft
+  outsideCommand?: OutsideCommandAsk
   answer?: CommentAnswer
   createdAt: string
 }

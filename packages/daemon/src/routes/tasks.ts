@@ -23,6 +23,7 @@ import {
   parseLinearIntakeRequest,
   parseMarkDoneRequest,
   parseMoveTaskRequest,
+  parseMoveToFactoryRequest,
   parsePostCommentRequest,
   parseRecordFailureRequest,
   parseReportCleanupStepRequest,
@@ -203,7 +204,7 @@ export const taskRoutes: Route[] = [
     path: /^\/tasks\/([^/]+)\/failures\/([^/]+)\/verification$/,
     runToken: true,
     async handle({ body, params: [ref = '', id = ''], caller }, { tasks }) {
-      return [200, await tasks.verifyFailure(ref, caller, id, body.evidence)]
+      return [200, await tasks.verifyFailure(ref, caller, id, body.evidence, body.fixedBy)]
     },
   }),
   jsonRoute(parseResolveFailureRequest, {
@@ -456,6 +457,23 @@ export const taskRoutes: Route[] = [
     path: /^\/tasks\/([^/]+)\/reset$/,
     handle: async ({ params: [ref = ''] }, { tasks }) => [200, await tasks.reset(ref)],
   },
+  {
+    method: 'GET',
+    path: /^\/tasks\/([^/?]+)\/move-plan(?:\?.*)?$/,
+    async handle({ req, params: [ref = ''] }, { tasks }) {
+      const factory = new URL(req.url ?? '/', 'http://localhost').searchParams.get('factory') ?? ''
+      if (factory === '') throw new HttpError(400, 'give the Factory to move to as ?factory=')
+      return [200, await tasks.movePlan(ref, factory)]
+    },
+  },
+  jsonRoute(parseMoveToFactoryRequest, {
+    method: 'POST',
+    path: /^\/tasks\/([^/]+)\/move-to-factory$/,
+    handle: async ({ params: [ref = ''], body }, { tasks }) => [
+      200,
+      await tasks.moveToFactory(ref, body.factoryId, 'human', body.planKey),
+    ],
+  }),
   jsonRoute(parseDeleteTaskRequest, {
     optionalBody: true,
     method: 'POST',

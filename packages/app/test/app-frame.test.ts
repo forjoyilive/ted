@@ -89,10 +89,10 @@ describe('New Task dialog', () => {
 
   const isFocused = (window: Page) =>
     dialog(window)
-      .getByLabel('Description')
+      .getByLabel('Title')
       .evaluate((el) => el === document.activeElement)
 
-  test('⌘N and C open it with the current Factory selected and the description focused', async () => {
+  test('⌘N and C open it with the current Factory selected and the title focused', async () => {
     const window = await withFactory()
 
     await window.keyboard.press('Meta+N')
@@ -124,12 +124,13 @@ describe('New Task dialog', () => {
     await expect.poll(async () => (await tasks()).filter((task) => !task.setup)).toEqual([])
   })
 
-  test('Start now unchecked puts the Task in Backlog, titled from the description’s first line', async () => {
+  test('Start now unchecked puts the Task in Backlog with its title and description', async () => {
     const window = await withFactory()
     await window.keyboard.press('Meta+N')
     const open = dialog(window)
 
-    await open.getByLabel('Description').fill('Search ignores accents\nTyping cafe finds Café.')
+    await open.getByLabel('Title').fill('Search ignores accents')
+    await open.getByLabel('Description').fill('Typing cafe finds Café.')
     await open.getByLabel('Priority').selectOption('high')
     await open.getByLabel('Start now').uncheck()
     await open.getByText('Waits in Backlog until you start it').waitFor()
@@ -226,7 +227,7 @@ describe('New Task dialog', () => {
     await tiles.getByRole('button', { name: 'Remove map.png' }).click()
     await tiles.locator('img[alt="map.png"]').waitFor({ state: 'detached' })
 
-    await open.getByLabel('Description').fill('With files')
+    await open.getByLabel('Title').fill('With files')
     await open.getByLabel('Start now').uncheck()
     await open.getByRole('button', { name: 'Create', exact: true }).click()
 

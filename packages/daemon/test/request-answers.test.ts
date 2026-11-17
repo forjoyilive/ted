@@ -182,7 +182,7 @@ test('an archive request needs a choice, records the answer before archiving and
   effects = []
   const archived = ask('Duplicate of TED-255')
   archiveId = archived.id
-  const options = { closePullRequests: true, blocked: 'keep' as const }
+  const options = { closePullRequests: true }
   expect(
     await answer(archived, { action: 'answer', choice: 'Archive', archive: options }),
   ).toMatchObject({

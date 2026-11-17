@@ -169,9 +169,7 @@ test('bulk selection sends Priority, Start and Archive to each selected Task', a
   expect(a.request.mock.calls.some(([name]) => name === 'deleteTask')).toBe(false)
   await u.click(within(confirm).getByRole('button', { name: 'Delete 2 Tasks' }))
   for (const id of ['NB-1', 'MS-1'])
-    await vi.waitFor(() =>
-      expect(a.request).toHaveBeenCalledWith('deleteTask', id, { blocked: 'unblock' }),
-    )
+    await vi.waitFor(() => expect(a.request).toHaveBeenCalledWith('deleteTask', id, {}))
   await vi.waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
   await more('Priority')
   await u.click(
@@ -402,7 +400,7 @@ test('right-click uses all selected Tasks; an unselected row and the Priority ic
   expect(a.request).not.toHaveBeenCalledWith('setPriority', 'MS-1', 'medium')
 })
 
-test('bulk context-menu Archive confirms the group and preserves blocker choices', async () => {
+test('bulk context-menu Archive confirms the group and lists the Tasks it unblocks', async () => {
   const a = await list()
   a.handle('archiveTask', vi.fn())
   await a.emitTask(
@@ -417,14 +415,13 @@ test('bulk context-menu Archive confirms the group and preserves blocker choices
   await user().click(within(menu).getByRole('menuitem', { name: 'Archive…' }))
   const dialog = await screen.findByRole('dialog', { name: 'Archive 2 Tasks?' })
   expect(a.request.mock.calls.some(([name]) => name === 'archiveTask')).toBe(false)
-  await user().click(within(dialog).getByRole('radio', { name: 'Keep them blocked' }))
+  const unblocks = within(dialog).getByRole('region', { name: 'Unblocks 1 Task' })
+  expect(within(unblocks).getByText('Sync notes')).toBeTruthy()
+  expect(within(dialog).queryByRole('radio')).toBeNull()
   await user().click(within(dialog).getByRole('button', { name: 'Archive 2 Tasks' }))
   for (const id of ['NB-1', 'MS-1'])
     await vi.waitFor(() =>
-      expect(a.request).toHaveBeenCalledWith('archiveTask', id, {
-        closePullRequests: false,
-        blocked: 'keep',
-      }),
+      expect(a.request).toHaveBeenCalledWith('archiveTask', id, { closePullRequests: false }),
     )
 })
 
@@ -671,4 +668,23 @@ test('with Nest child Tasks on, a child reorders among its siblings and a top-le
   await vi.waitFor(() =>
     expect(a.request).toHaveBeenCalledWith('moveTask', 'NB-4', { before: 'NB-1' }),
   )
+})
+
+test('the Blocked by link in a row opens the blocker, not the row’s Task', async () => {
+  const a = appState()
+  a.state.tasks = [
+    task({
+      title: 'Export notes',
+      blockedBy: ['NB-2'],
+      status: { kind: 'blocked', by: 'NB-2' },
+    }),
+    task({ id: 'NB-2', displayId: 'NB-2', title: 'Sync notes', rank: 2 }),
+  ]
+  a.mount()
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'All Tasks' }))
+  const row = required(document.querySelector<HTMLElement>('[data-task="NB-1"]'))
+  await u.click(within(row).getByRole('button', { name: 'NB-2' }))
+  expect(await screen.findByRole('heading', { level: 1, name: 'Sync notes' })).toBeTruthy()
+  expect(screen.queryByRole('heading', { level: 1, name: 'Export notes' })).toBeNull()
 })

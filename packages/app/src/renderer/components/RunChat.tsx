@@ -45,10 +45,14 @@ function elapsed(from: string, now: number): string {
     : `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
+export function tokenAmount(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`
+  if (tokens >= 1000) return `${Math.round(tokens / 1000)}k`
+  return `${tokens}`
+}
+
 export function tokenCount(tokens: number): string {
-  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M tokens`
-  if (tokens >= 1000) return `${Math.round(tokens / 1000)}k tokens`
-  return `${tokens} tokens`
+  return `${tokenAmount(tokens)} tokens`
 }
 
 export function runMeta(run: RunSummary): string {
@@ -234,16 +238,50 @@ export function commandMeta(item: Extract<ChatItem, { kind: 'command' }>, now: n
   return item.exitCode === undefined ? `Failed · ${took}` : `Exit code ${item.exitCode} · ${took}`
 }
 
-function CommandRow({ item, now }: { item: Extract<ChatItem, { kind: 'command' }>; now: number }) {
+export function outsideMeta(item: Extract<ChatItem, { kind: 'command' }>, now: number): string {
+  const base = commandMeta(item, now)
+  if (!item.outside) return base
+  return `${base} · Outside the sandbox${item.outside.always ? ' · Always allowed' : ''}`
+}
+
+function CommandRow({
+  item,
+  now,
+  stopOutside,
+}: {
+  item: Extract<ChatItem, { kind: 'command' }>
+  now: number
+  stopOutside?: (() => void) | undefined
+}) {
+  const { outside } = item
+  const running = item.status === 'running'
   return (
     <Collapsible
-      label={item.status === 'running' ? 'TED is running' : 'TED ran'}
+      label={running ? 'TED is running' : 'TED ran'}
       mono={item.name}
-      meta={commandMeta(item, now)}
+      meta={outsideMeta(item, now)}
+      open={outside !== undefined && running}
       tone={item.status === 'failed' ? 'failed' : undefined}
     >
-      {item.status !== 'running' && (
-        <pre className={styles.output}>{item.output.trim() === '' ? 'No output' : item.output}</pre>
+      {outside && (
+        <p className={styles.outsideLine} data-outside-command={item.name}>
+          <code>{outside.command}</code>
+          {` in ${outside.folder}`}
+        </p>
+      )}
+      {(!running || outside) && (
+        <pre className={styles.output}>
+          {item.output.trim() === ''
+            ? running
+              ? 'Waiting for output…'
+              : 'No output'
+            : item.output}
+        </pre>
+      )}
+      {outside && running && stopOutside && (
+        <Button size="small" onClick={stopOutside}>
+          Stop
+        </Button>
       )}
     </Collapsible>
   )
@@ -329,28 +367,25 @@ function HumanMessage({
   item: Extract<ChatItem, { kind: 'human' }>
   run?: Pick<RunSummary, 'id' | 'state' | 'role'>
   now: number
-  options?: Pick<ChatOptions, 'live' | 'interrupt' | 'inspect' | 'audience' | 'humanAs'>
+  options?: Pick<ChatOptions, 'live' | 'interrupt' | 'inspect' | 'audience'>
 }) {
-  const profile = useProfile()
   const unsent = item.unsent === true
   const queued = item.queued === true || unsent
   const live = !unsent && run !== undefined && (options.live ?? run.state !== 'finished')
   const audience =
     options.audience ?? (run && (run.role === 'lead' ? 'to the Task Lead' : 'to this Run only'))
-  const comment = options.humanAs === 'comment'
-  const head = (
-    <div className={styles.messageHead}>
-      <span className={styles.author}>{profile.name}</span>
-      <span className={styles.when}>
-        {[
-          ...(comment ? [] : ['']),
-          audience,
-          !queued ? ago(item.at, now) : undefined,
-          !item.sent && !queued ? 'sending' : undefined,
-        ]
-          .filter((part) => part !== undefined)
-          .join(' · ')}
-      </span>
+  return (
+    <PersonMessage
+      when={[
+        audience,
+        !queued ? ago(item.at, now) : undefined,
+        !item.sent && !queued ? 'sending' : undefined,
+      ]
+        .filter((part) => part !== undefined)
+        .join(' · ')}
+      text={item.text}
+      queued={queued}
+    >
       {queued && (
         <span className={styles.queuedChip}>
           <ClockIcon />
@@ -360,24 +395,32 @@ function HumanMessage({
       {queued && live && run && !options.inspect && (
         <QueuedActions runId={run.id} messageId={item.id} sendNow={options.interrupt !== false} />
       )}
-    </div>
+    </PersonMessage>
   )
-  if (comment) {
-    return (
-      <div className={`${styles.message} ${styles.personMessage}`} data-queued={queued}>
-        <PersonAvatar name={profile.name} photo={profile.photo} />
-        <div className={styles.messageBody}>
-          {head}
-          <Markdown className={styles.text} text={item.text} />
-        </div>
-      </div>
-    )
-  }
+}
+
+export function PersonMessage({
+  when,
+  text,
+  queued = false,
+  children,
+}: {
+  when: string
+  text: string
+  queued?: boolean
+  children?: ReactNode
+}) {
+  const profile = useProfile()
   return (
-    <div className={styles.human}>
-      <div className={styles.bubble} data-queued={queued}>
-        {head}
-        <Markdown className={styles.text} text={item.text} />
+    <div className={`${styles.message} ${styles.personMessage}`} data-queued={queued}>
+      <PersonAvatar name={profile.name} photo={profile.photo} />
+      <div className={styles.messageBody}>
+        <div className={styles.messageHead}>
+          <span className={styles.author}>{profile.name}</span>
+          <span className={styles.when}>{when}</span>
+          {children}
+        </div>
+        <Markdown className={styles.text} text={text} />
       </div>
     </div>
   )
@@ -501,8 +544,8 @@ function sameRow(before: ChatRowProps, after: ChatRowProps): boolean {
     before.options.interrupt === after.options.interrupt &&
     before.options.inspect === after.options.inspect &&
     before.options.audience === after.options.audience &&
-    before.options.humanAs === after.options.humanAs &&
     before.options.tedAs === after.options.tedAs &&
+    (before.options.stopOutside === undefined) === (after.options.stopOutside === undefined) &&
     (before.options.matchItemId === before.item.id) ===
       (after.options.matchItemId === after.item.id) &&
     (before.item === after.item || JSON.stringify(before.item) === JSON.stringify(after.item))
@@ -561,7 +604,7 @@ const ChatRow = memo(function ChatRow({ item, run, now, options }: ChatRowProps)
     case 'permission':
       return <PermissionRow item={item} now={now} inspect={options.inspect} />
     case 'command':
-      return <CommandRow item={item} now={now} />
+      return <CommandRow item={item} now={now} stopOutside={options.stopOutside} />
   }
 }, sameRow)
 
@@ -577,7 +620,6 @@ export interface ChatOptions {
   matchItemId?: string
   spot?: string
   audience?: string
-  humanAs?: 'comment'
   tedAs?: 'line'
 
   header?: ((run: RunSummary) => ReactNode) | undefined
@@ -598,6 +640,7 @@ export interface ChatOptions {
   interrupt?: false
   send?: (text: string) => Promise<unknown>
   stopTurn?: () => Promise<unknown>
+  stopOutside?: () => void
   box?: MessageBox
 }
 

@@ -50,6 +50,7 @@ test.each(['Create', 'Create more', 'failed creation'])(
     await waitUntil(() => form.getByLabel('Description').isEnabled(), 'the loaded draft')
     await form.getByLabel('Description').fill(issueUrl)
     await form.getByLabel('Linear API key').fill(key)
+    await form.getByLabel('Title').fill('Search ignores accents')
     await form.getByLabel('Start now').uncheck()
     await form.getByRole('button', { name: 'Save', exact: true }).click()
     await waitUntil(

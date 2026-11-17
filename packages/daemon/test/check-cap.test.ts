@@ -1,4 +1,4 @@
-import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type {
@@ -138,11 +138,36 @@ const finished = (client: Client, task: Task) =>
 describe('Checks running at once', () => {
   test('with the limit at 1, a second Task waits for its Checks, says so, and runs them after the first', async () => {
     const client = await startTed(1)
-    const first = await startTask(client)
+    const parent = await client.ok<Task>('POST', '/tasks', { title: 'Parent', factory: 'NB' })
+    const first = await client.ok<Task>('POST', '/tasks', {
+      title,
+      factory: 'NB',
+      parent: parent.id,
+    })
+    await client.ok('POST', `/tasks/${first.id}/start`)
     await running(client, first)
     const reset = await client.call('POST', `/tasks/${first.id}/reset`)
     expect(reset.status).toBe(409)
     expect(JSON.stringify(reset.body)).toContain('Checks are running')
+    const otherDir = await mkdtemp(path.join(tmpdir(), 'ted-check-cap-other-'))
+    try {
+      const gadgets = path.join(otherDir, 'acme', 'gadgets.git')
+      await rename(await makeOriginRepo(otherDir), gadgets)
+      const web = await client.ok<Factory>('POST', '/dev/factories', { repo: gadgets, key: 'WEB' })
+      const move = await client.call('POST', `/tasks/${parent.id}/move-to-factory`, {
+        factoryId: web.id,
+      })
+      expect(move.status).toBe(409)
+      expect(JSON.stringify(move.body)).toContain(`${first.displayId}’s Checks are running`)
+      expect(await getTask(client, parent.id)).toMatchObject({ factoryId: client.factory.id })
+      expect(await getTask(client, first.id)).toMatchObject({
+        factoryId: client.factory.id,
+        displayId: first.displayId,
+      })
+      expect(await started(client, first)).toBe(true)
+    } finally {
+      await rm(otherDir, { recursive: true, force: true })
+    }
     const second = await startTask(client)
     await waitingAt(client, second, '1st')
 
@@ -155,7 +180,10 @@ describe('Checks running at once', () => {
       durationMs: 0,
     })
     expect((await checkRun(client, first))?.waiting).toBeUndefined()
-    expect((await getTask(client, second.id))?.status).toEqual({ kind: 'working' })
+    expect(await getTask(client, second.id)).toMatchObject({
+      checksActive: true,
+      markers: [{ kind: 'test-activity', source: 'checks', phase: 'waiting' }],
+    })
     expect(await started(client, second)).toBe(false)
     expect(await client.ok<Activity>('GET', '/activity')).toMatchObject({
       checksRunning: 1,

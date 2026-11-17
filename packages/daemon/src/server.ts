@@ -276,7 +276,8 @@ async function handle(
             url === '/coordinator/requests' ||
             url === '/coordinator/automation-drafts' ||
             url === '/chat-commands' ||
-            /^\/coordinator\/(archive|unarchive|delete)$/.test(url) ||
+            url === '/chat-outside-commands' ||
+            /^\/coordinator\/(archive|unarchive|delete|transfer)$/.test(url) ||
             /^\/coordinator\/tasks\/[^/]+\/(start|move|tell|answer|resume|parent|done)$/.test(url)))
       if (!coordinatorTool && !ownBoundary && !(req.method === 'GET' && url === '/caller')) {
         throw new HttpError(403, 'Coordinator Runs may only use their Factory-scoped tools')

@@ -39,9 +39,8 @@
   font: inherit;
 }
 
-textarea.input {
-  min-height: 88px;
-  resize: vertical;
+.description {
+  min-height: max(88px, calc(4lh + 16px));
 }
 
 .input:focus-visible {

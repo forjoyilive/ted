@@ -158,6 +158,40 @@ describe('checking Agent files', () => {
     ).toEqual([])
   })
 
+  test('a description is one line of up to 140 characters and resolves onto the Agent', () => {
+    const layer = checkLayer({
+      kind: 'factory',
+      files: {
+        'agents.yaml': 'notes:\n  name: Notes\n  description: "  Drafts release notes.  "\n',
+        'agents/notes.md': 'Write notes.\n',
+      },
+    })
+    expect(layer.problems).toEqual([])
+    expect(resolveAgents([layer]).find((a) => a.id === 'notes')?.description).toBe(
+      'Drafts release notes.',
+    )
+    expect(
+      problems({
+        'agents.yaml': [
+          'notes:',
+          '  name: Notes',
+          `  description: ${'x'.repeat(141)}`,
+          'scout:',
+          '  name: Scout',
+          '  description: |',
+          '    One line.',
+          '    Another line.',
+          '',
+        ].join('\n'),
+        'agents/notes.md': 'Write notes.\n',
+        'agents/scout.md': 'Scout.\n',
+      }),
+    ).toEqual([
+      'error .ted/agents.yaml 3 16 `notes.description` must be one line of text of up to 140 characters',
+      'error .ted/agents.yaml 6 16 `scout.description` must be one line of text of up to 140 characters',
+    ])
+  })
+
   test('reports an unknown key, an unknown power, a missing name, a bad id and a missing instructions file', () => {
     expect(
       problems({
@@ -176,8 +210,8 @@ describe('checking Agent files', () => {
       }),
     ).toEqual([
       'error .ted/agents.yaml 1 1 `helper` needs a `name`',
-      'error .ted/agents.yaml 2 17 unknown power `launch_missiles` in `helper.powers`; the powers are ask, manage_tasks, manage_automations, propose_tasks, read_code, manage_agents, run_commands',
-      'error .ted/agents.yaml 3 3 unknown key `helper.colour`; an Agent has name, agent, model, powers, commands, based_on',
+      'error .ted/agents.yaml 2 17 unknown power `launch_missiles` in `helper.powers`; the powers are ask, manage_tasks, manage_automations, propose_tasks, read_code, manage_agents, run_commands, run_outside',
+      'error .ted/agents.yaml 3 3 unknown key `helper.colour`; an Agent has name, description, agent, model, powers, commands, outside_commands, based_on',
       'error .ted/agents.yaml 4 1 `Bad_Id` isn’t an Agent id; an Agent id is lowercase letters, digits and hyphens, up to 40 characters',
       'error .ted/agents.yaml 6 1 `scout` has no instructions file; add agents/scout.md',
       'error .ted/agents.yaml 8 10 `scout.agent` must be claude, codex or antigravity',

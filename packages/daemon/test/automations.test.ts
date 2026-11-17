@@ -825,7 +825,7 @@ describe('Automations', () => {
     }
   })
 
-  test('a Task Lead creates up to 3 Tasks in Backlog, and waits for a child it made', async () => {
+  test('a Task Lead creates up to 10 Tasks in Backlog, with a reminder past 3, and waits for a child it made', async () => {
     const client = await startTed()
     const factory = (await client.ok<Factory[]>('GET', '/factories')).find((f) => f.key === 'NB')
     await client.ok('PUT', `/factories/${factory?.id}/auto-start-backlog`, { enabled: true })
@@ -840,6 +840,8 @@ describe('Automations', () => {
         make('--child', 'Child work'),
         make('Third'),
         make('Fourth'),
+        ...['Fifth', 'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth'].map((title) => make(title)),
+        make('Eleventh'),
         { endTurn: true },
         { everyMessage: [{ endTurn: true }] },
       ),
@@ -848,23 +850,39 @@ describe('Automations', () => {
       const found = (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
       return found?.leadRunId
     }, 'the Task Lead to start')
-    const results = await waitUntil(async () => {
-      const found = await commandResults(client, lead)
-      return found.length === 6 ? found : undefined
-    }, 'the commands to run')
-    expect(results.map((r) => r.code)).toEqual([0, 1, 1, 0, 0, 1])
+    const results = await waitUntil(
+      async () => {
+        const found = await commandResults(client, lead)
+        return found.length === 13 ? found : undefined
+      },
+      'the commands to run',
+      60_000,
+    )
+    expect(results.map((r) => r.code)).toEqual([0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1])
     expect(results[1]?.stderr).toMatch(/Backlog; the user starts them/)
     expect(results[2]?.stderr).toMatch(/only in NB, its own Factory/)
-    expect(results[5]?.stderr).toMatch(/suggest a planning chat or Split it/)
+    expect(results[4]?.stdout).toMatch(/^Created NB-\d+ {2}Third\n$/)
+    expect(results[5]?.stdout).toContain(
+      `${task.displayId} has now created 4 Tasks, past the suggested 3. Next time, suggest a planning chat or Split it to the user instead.`,
+    )
+    expect(results[11]?.stdout).toContain('has now created 10 Tasks')
+    expect(results[12]?.stderr).toMatch(
+      /already created 10 Tasks, the most one Task creates\. .*suggest a planning chat or Split it/,
+    )
 
     const made = (await client.ok<Task[]>('GET', '/tasks')).filter(
       (t) => t.createdBy === 'task-lead',
     )
-    expect(made.map((t) => [t.title, t.stage, t.createdBy, t.parentId ?? null])).toEqual([
+    expect(made).toHaveLength(10)
+    expect(
+      made.slice(0, 4).map((t) => [t.title, t.stage, t.createdBy, t.parentId ?? null]),
+    ).toEqual([
       ['Separate work', 'backlog', 'task-lead', null],
       ['Child work', 'backlog', 'task-lead', task.id],
       ['Third', 'backlog', 'task-lead', null],
+      ['Fourth', 'backlog', 'task-lead', null],
     ])
+    expect(made.at(-1)?.title).toBe('Tenth')
     const child = made[1]
     expect(await threadTexts(client, made[0] as Task)).toContain(
       `${task.displayId}’s Task Lead created this Task`,
@@ -883,14 +901,12 @@ describe('Automations', () => {
       return found?.status?.kind === 'blocked' ? found : undefined
     }, 'the creating Task to wait for its child')
     const later = await client.ok<Task[]>('GET', '/tasks')
-    expect(
-      later.filter((t) => t.createdBy === 'task-lead').map((t) => [t.stage, t.runs.length]),
-    ).toEqual([
-      ['backlog', 0],
-      ['backlog', 0],
-      ['backlog', 0],
-    ])
-  })
+    const laterMade = later.filter((t) => t.createdBy === 'task-lead')
+    expect(laterMade.map((t) => [t.stage, t.runs.length])).toEqual(
+      laterMade.map(() => ['backlog', 0]),
+    )
+    expect(laterMade).toHaveLength(10)
+  }, 90_000)
 
   test('a failed Run is resumed once, then fails with Retry; three failures in a row raise a banner', async () => {
     const client = await startTed()

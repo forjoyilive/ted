@@ -375,7 +375,7 @@ test('New Task shortcuts select the current Factory and keep letters in inputs a
   fireEvent.keyDown(window, { key: 'n', metaKey: true })
   let dialog = screen.getByRole('dialog', { name: 'New Task' })
   await vi.waitFor(() =>
-    expect(document.activeElement).toBe(within(dialog).getByLabelText('Description')),
+    expect(document.activeElement).toBe(within(dialog).getByLabelText('Title')),
   )
   expect(within(dialog).getByRole('combobox', { name: 'Factory' }).dataset.value).toBe('f1')
   await user().click(within(dialog).getByRole('button', { name: 'Close' }))

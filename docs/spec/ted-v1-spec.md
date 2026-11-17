@@ -565,8 +565,8 @@ Figma: KRI-63 Task details (New Task dialog frames).
 
 - Opened with **+** in the sidebar, **New Task** in a View header, the menu-bar menu, or ⌘N / `C`. (KRI-55, KRI-56)
 - Header “New Task in [Notebook ▾]”; the Factory defaults to the current one. (KRI-55, KRI-63)
-- **Title:** optional. If blank, TED uses the first line of the description, and the Task Lead may rename it. (KRI-55)
-- **Description:** required, focused on open. Pasting a Linear URL shows a removable source card (“Linear · NOTE-212 · Search ignores accents”) and fills Title, Priority and the branch (6.3). (KRI-55, KRI-63, KRI-60)
+- **Title:** required, focused on open. **Create** stays off until Title has text; a title filled from Linear counts. The Task Lead may rename it. (KRI-55, TED-522)
+- **Description:** optional. Pasting a Linear URL shows a removable source card (“Linear · NOTE-212 · Search ignores accents”) and fills Title, Priority and the branch (6.3). The cursor stays where it is when the lookup finishes. (KRI-55, KRI-63, KRI-60)
 - **Attachments:** drag and drop. (KRI-55)
 - **Priority** (default None) and **Blocked by** (a search over every Factory on this machine) share a row. (KRI-55, KRI-63)
 - **More**, closed by default with a one-line summary: **Clarify depth** (Auto, None, Few, Grill) and **Task Lead** (Provider, model, effort, filled from the Factory’s `lead`). (KRI-55, KRI-63)
@@ -577,7 +577,7 @@ Figma: KRI-63 Task details (New Task dialog frames).
 
 - Pasting a Linear URL fetches the issue there and then with the Linear API key: title → Task title, description → context for the Task Lead, Priority copied, Linear’s suggested branch name → branch. (KRI-20, KRI-15, KRI-60)
 - **No key:** a note under Description reads “Add a Linear API key to fill in the title, Priority and branch from Linear.”, with an inline key field, **Save** (stores it where Settings does, then fetches at once) and **Create a key ↗**. (KRI-57, KRI-60)
-- **Create** without a key still works: the URL is the source, the description is as typed, the first line is the title, and the branch is slugged from the title. (KRI-60)
+- **Create** without a key still works once Title is typed: the URL is the source, the description is as typed, and the branch is slugged from the title. (KRI-60, TED-522)
 - An invalid key, a missing issue or no access shows “Couldn’t fetch from Linear: <reason>. The Task will be created with the link only.” A URL from a workspace the key can’t read fails with “This Linear key can’t read issues in <workspace>”. One Linear workspace per machine; several are later (KRI-77). (KRI-60, KRI-57)
 - `ted task create --source <Linear URL>` without a key falls back the same way. (KRI-60)
 - No built-in Linear connector; two-way sync is later (KRI-26). (KRI-20)
@@ -603,7 +603,7 @@ Figma: KRI-63 Task details (New Task dialog frames).
 
 - **Queued** is a status: a started Task waiting at the start of Intake for a free slot, with no Run and no worktree. (KRI-15, KRI-58)
 - **Max working Runs on this machine**, in Settings → Limits, default 6. It always stays on. (KRI-15, ADR 0004)
-- **Wait to start new work when this computer is busy**, in Settings → Limits, on by default. While the 1-minute load average is at or above the number of cores, or less than 10% of memory is available, TED starts no new Run, sub-agent or agent-requested simulator or emulator unless nothing is working, and Scheduled Checks wait; it starts again once the load is below three quarters of the cores and more than 20% of memory is available. Working Runs carry on, and the limit above is still the most TED runs. A held Task reads “Queued · this computer is busy”, and hovering over it says which resource holds and its figure. With no value set, **Max working Runs on this machine** defaults to one per 4 GB of memory, from 2 to 8. (ADR 0166)
+- **Wait to start new work when this computer is busy**, in Settings → Limits, on by default. While the 1-minute load average is at or above the number of cores, or less than 10% of memory is available, TED starts no new Run, sub-agent or agent-requested simulator or emulator unless nothing is working, and Scheduled Checks wait; it starts again once the load is below three quarters of the cores and more than 20% of memory is available. Working Runs carry on, and the limit above is still the most TED runs. A Task Lead continuing after its Checks or the user’s answer doesn’t wait for the computer, only for the limit: it reads “Queued · Checks passed, waiting for a slot” (or “Checks finished”, or “Answered”), and one held in the last 10 minutes goes first (ADR 0184). A held Task reads “Queued · this computer is busy”, and hovering over it says which resource holds and its figure. With no value set, **Max working Runs on this machine** defaults to one per 4 GB of memory, from 2 to 8. (ADR 0166)
 - Optional per-Factory `max_working_runs`. A new Run starts only when both limits have room. When a Factory’s cap is full, its Board and List header shows “4 of 4 working”. (KRI-15, KRI-8 coordinator decision 17)
 - **What counts:** working Runs: Task Leads, sub-agents, Automation Runs and active Planning Runs. Runs waiting on the human, a Task Lead waiting only on its sub-agents, Paused Runs, Apps and Checks don’t count. While a new worktree’s `setup` runs, the Task holds its slot. (KRI-15, KRI-19, KRI-18, KRI-54, KRI-60, KRI-58)
 - **The limit gates new starts only:** new Tasks, Resume, new sub-agents, Automation and Planning Runs. A waiting Run that the human answers starts working at once, even if that goes over the limit. (KRI-60)
@@ -627,7 +627,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 | 2 | Partly merged | red | half-filled ring | A multi-repo merge stopped partway. | KRI-52 |
 | 3 | Waiting on you | amber | dot | An Inbox item on the Task is unanswered. The only amber status. | KRI-55 |
 | 4 | Paused · reason | grey | ‖ | The Provider can’t run: usage limit, signed out, not installed, below the minimum version, using an API key instead of the subscription, or offline. | KRI-54, KRI-59 |
-| 5 | Working | blue | spinner arc | Some Run on the Task is working, including a Task Lead waiting only on its sub-agents, `setup` running in a new worktree (“Setting up app · npm ci”), and Checks running. | KRI-55, KRI-58, KRI-60 |
+| 5 | Working | blue | spinner arc | Some Run on the Task is working, including a Task Lead waiting only on its sub-agents, `setup` running in a new worktree (“Setting up app · npm ci”), and a Task’s Cleanup commands running. TED running a Task’s Checks is not Working: no Run holds a slot for them, and the Task shows its Checks chip instead. | KRI-55, KRI-58, KRI-60 |
 | 6 | Stopped | grey | ■ | The human stopped the Task. | KRI-55 |
 | 7 | Blocked | grey | ⊘ | No Run; waiting for another Task to merge. Shown as one “Blocked by NB-44” chip with the ID as a link. | KRI-55, KRI-62 |
 | 8 | Queued · 2nd | blue | clock | Waiting for a slot, with its place in the machine-wide queue. “Queued · disk full” during the disk hold. | KRI-55, KRI-59 |
@@ -725,7 +725,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 - **Blocked mid-flow:** when the Task Lead finds another Task must merge first, it adds the link, writes the brief and stops its Run. The Task stays in its Stage as Blocked, keeping its worktree. When the blocker merges, a fresh Run starts from the brief. (KRI-15, KRI-58)
 - A Task counts as merged only when every pull request has merged and it is in Cleanup or Done. (KRI-52, TED-307)
 - A blocker that would make a cycle is refused, with the cycle named. (KRI-55)
-- Archiving or deleting a Task that blocks others lists those Tasks and asks **Unblock them** (default) or **Keep them blocked**. Kept links show “Blocked by archived NB-12” or “Blocked by deleted NB-35”. (KRI-55, KRI-63)
+- Archiving or deleting a Task that blocks others removes it from their Blocked by, without asking. The confirmation lists those Tasks under “Unblocks N Tasks”. Links kept by earlier versions show “Blocked by archived NB-12” or “Blocked by deleted NB-35” until removed. (KRI-55, KRI-63, TED-528)
 
 ### 6.17 Worktrees and branches
 

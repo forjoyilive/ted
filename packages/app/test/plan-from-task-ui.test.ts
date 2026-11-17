@@ -127,7 +127,7 @@ describe('Plan in chat from a Task', () => {
     await thread.getByText(/^Planning in chat: /).waitFor({ timeout: 20_000 })
     expect(await chat.count()).toBe(0)
     await thread.getByRole('button', { name: 'Open chat' }).click()
-    await chat.getByText('Planning chat · started from').waitFor({ timeout: 20_000 })
+    await chat.getByText('Started from').waitFor({ timeout: 20_000 })
     await chat.getByRole('button', { name: 'NB-1' }).first().waitFor()
     const pane = window.getByRole('complementary', { name: 'Planning chat details' })
     await pane.getByText(/^Clarify/).waitFor()

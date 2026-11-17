@@ -6,6 +6,7 @@ import { userEvent } from '@testing-library/user-event'
 import { afterEach, beforeEach, expect, vi } from 'vitest'
 import { showDetailsTab } from '../../src/renderer/details.ts'
 import type { TedBridge, TedEvent } from '../../src/renderer/ted.ts'
+import { coordinatorAgent, plannerAgent } from './fixtures.ts'
 
 const verifications: (() => void)[] = []
 
@@ -23,6 +24,7 @@ export function bridge(given: Record<string, Handler>) {
     getAsana: () => ({ state: 'unconfigured', configured: false, redirectUri: '' }),
     tedStops: () => [],
     listTasks: () => [],
+    listFactories: () => [],
     guides: () => [],
     memoryUse: () => ({
       daemon: { bytes: 900 * 1024 ** 2, heapBytes: 0, externalBytes: 0 },
@@ -36,6 +38,7 @@ export function bridge(given: Record<string, Handler>) {
       app: { count: 4, bytes: 590 * 1024 ** 2 },
     }),
     appProcesses: () => [],
+    factoryAgents: () => [coordinatorAgent, plannerAgent],
     ...given,
   }
   const listeners = new Set<(event: TedEvent) => void>()
