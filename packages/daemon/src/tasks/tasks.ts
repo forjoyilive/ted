@@ -3182,6 +3182,14 @@ export function createTasks(options: {
     if ((await missingPullRequests(task)).length === 0) return false
     pullRequestWork(taskId, 'first', approvedCommits(task))
     pullRequestWork(taskId, 'signoff')
+    inBackground(`go on with ${task.displayId}’s merge once its pull requests open`, async () => {
+      await pullRequestQueue.get(taskId)
+      const current = taskNow(taskId)
+      if (!current || (await missingPullRequests(current)).length > 0) return
+      mergeUrgent.add(taskId)
+      mergeWaits.get(taskId)?.abort()
+      if (inFlight.is(taskId, 'merging')) watch?.kick()
+    })
     return true
   }
 

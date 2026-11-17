@@ -301,22 +301,22 @@ test.each(['failure', 'empty', 'skip'])(
     await store.persisted()
     await store.close()
     ctx.daemon = await startDaemon({ home: ctx.home, version: '9.9.9', claudeBin: stubClaudePath })
-    if (mode === 'failure') expect((await s.advance()).status).toBe(409)
+    if (mode === 'failure') {
+      const back = await waitUntil(async () => {
+        const value = (await s.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)
+        return value?.stage === 'work' && !value.checksActive ? value : undefined
+      }, 'the failed entry Check to return the Task to Work')
+      expect(back.backToWork).toMatchObject({ count: 1 })
+      expect((await s.runs()).at(-1)).toMatchObject({ trigger: 'validate', outcome: 'failed' })
+      return
+    }
     const result = await waitUntil(async () => {
       const value = await s.obligations()
       return value.progress && !value.progress.pending ? value : undefined
     }, 'reconstructed validation completes')
-    expect(result.progress?.checks.map((c) => c.state)).toEqual(
-      mode === 'empty' ? [] : [mode === 'skip' ? 'skipped' : 'failed'],
-    )
-    if (mode === 'failure') {
-      expect(result.satisfied).toBe(false)
-      expect((await s.runs()).at(-1)?.outcome).toBe('failed')
-      expect((await s.advance()).status).toBe(409)
-    } else {
-      await waitUntil(async () => (await s.obligations()).satisfied, 'legitimate coverage settled')
-      expect((await s.advance()).status).toBe(200)
-    }
+    expect(result.progress?.checks.map((c) => c.state)).toEqual(mode === 'empty' ? [] : ['skipped'])
+    await waitUntil(async () => (await s.obligations()).satisfied, 'legitimate coverage settled')
+    expect((await s.advance()).status).toBe(200)
   },
 )
 

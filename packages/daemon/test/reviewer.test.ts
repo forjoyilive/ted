@@ -311,9 +311,8 @@ describe('the Validate loop check', () => {
       const ask = await waitForAsk(client, task)
       const runs = await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)
       expect(runs.filter((r) => r.name === 'Loop check · Validate')).toHaveLength(2)
-      expect(ask.body).toContain('Making progress')
-      expect(ask.body).toContain('Recommended: Try again')
-      expect(ask.body).toContain('leaves the findings open')
+      expect(ask.body).toContain('the rounds are making progress')
+      expect(ask.choices).toEqual(['Keep going', 'Stop the Task'])
       expect(ask.body).not.toContain('The export button does nothing.')
       expect(ask.body.length).toBeLessThan(800)
       expect((await getTask(client, task.id)).stage).toBe('validate')
@@ -390,7 +389,7 @@ describe('the Validate loop check', () => {
         'the assessment to ask after restart',
         20_000,
       )
-      expect(ask.body).toContain('Making progress')
+      expect(ask.body).toContain('the rounds are making progress')
       const tasks = await restarted.call('GET', '/tasks')
       expect((tasks.body as Task[]).find((t) => t.id === task.id)?.stage).toBe('validate')
       const history = await restarted.call('GET', `/tasks/${task.id}/events`)
@@ -572,7 +571,7 @@ describe('the Validate loop check', () => {
         const current = await getTask(client, task.id)
         return current.status?.kind === 'stopped' ? current : undefined
       }, 'the Task to stop')
-      expect(stopped.stage).toBe('validate')
+      expect(stopped.stage).toBe('work')
     },
     slow,
   )

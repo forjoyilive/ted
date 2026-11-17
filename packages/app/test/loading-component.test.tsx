@@ -164,6 +164,7 @@ test('the Task header counts returns to Work from the first one, with the limit 
     listThreadEvents: () => [],
     listCheckRuns: () => [],
     listFailures: () => [],
+    listStageEntries: () => [],
     taskDescriptions: () => [],
     appLog: () => ({ text: '', truncated: false }),
   })

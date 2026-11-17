@@ -791,6 +791,7 @@ describe('Checks across restarts', () => {
         { everyMessage: [{ endTurn: true }] },
         { run: ['sh', '-c', 'echo x > a.txt'] },
         advance,
+        advance,
         { endTurn: true },
       ),
     )
