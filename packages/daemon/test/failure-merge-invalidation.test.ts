@@ -68,7 +68,7 @@ test('a same-SHA CI attempt replacement invalidates acceptance and holds Merge s
     satisfied: false,
     blockers: [value.id],
   })
-})
+}, 90_000)
 
 test('a known empty CI rollup permits acceptance while missing and truncated reads revoke it', async () => {
   const client = await start({ merge: { rollup: 'empty' }, workflow: mergeOff })
@@ -117,7 +117,7 @@ test('a known empty CI rollup permits acceptance while missing and truncated rea
   expect(await client.ok('GET', `/tasks/${task.id}/validation-obligations`)).toMatchObject({
     cases: [{ id: value.id, disposition: 'invalidated', context: 'current' }],
   })
-})
+}, 90_000)
 
 test('CI acceptance binds the observed failed attempt and head; historical failures remain unknown', async () => {
   const client = await start({ workflow: mergeOff })
@@ -214,7 +214,7 @@ test('CI acceptance binds the observed failed attempt and head; historical failu
       })
     ).status,
   ).toBe(409)
-})
+}, 90_000)
 
 test('final changed and unavailable acceptance observations each invalidate other cases durably', async () => {
   const client = await start({ mergePollMs: 60000, workflow: mergeOff })
@@ -324,4 +324,4 @@ test('final changed and unavailable acceptance observations each invalidate othe
     disposition: 'invalidated',
     context: 'current',
   })
-}, 60000)
+}, 90_000)

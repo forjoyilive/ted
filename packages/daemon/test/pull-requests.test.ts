@@ -167,14 +167,17 @@ describe('Pushing and pull requests', () => {
     await approve(client, signoff)
     const repo = await waitUntil(async () => {
       const found = await repoOf(client, task)
-      return found?.pullRequest?.state === 'ready' ? found : undefined
-    }, 'the pull request to be ready')
+      return found?.pullRequest?.state === 'ready' && found.pullRequest.signedOff
+        ? found
+        : undefined
+    }, 'the pull request to be ready and signed off')
     expect((await taskOf(client, task))?.stage).toBe('merge')
     expect(repo.pullRequest).toEqual({
       number: 7,
       url: 'https://github.com/acme/widgets/pull/7',
       base: 'main',
       state: 'ready',
+      signedOff: repo.pushed?.commit,
     })
 
     const creates = await prCalls('create')
