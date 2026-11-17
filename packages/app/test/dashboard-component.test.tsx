@@ -555,6 +555,39 @@ test('Stages shares the range selector and shows an empty period as unavailable'
   const select = screen.getByRole('combobox', { name: 'Historical period' })
   await user().selectOptions(select, '30d')
   expect(change).toHaveBeenCalledWith({ range: '30d', panel: 'stages' })
+
+  await user().click(select)
+  const list = screen.getByRole('listbox', { name: 'Historical period' })
+  expect(
+    within(list)
+      .getAllByRole('option')
+      .map((option) => option.textContent),
+  ).toEqual([
+    'Today',
+    'Last 7 days',
+    'Last 30 days',
+    'Last 90 days',
+    'Last 12 months',
+    'This week',
+    'This month',
+    'Year to date',
+    'All time',
+  ])
+  expect(within(list).getByRole('option', { selected: true }).textContent).toBe('All time')
+  await user().click(within(list).getByRole('option', { name: 'Today' }))
+  expect(change).toHaveBeenLastCalledWith({ range: 'today', panel: 'stages' })
+  expect(screen.queryByRole('listbox')).toBeNull()
+  expect(document.activeElement).toBe(select)
+
+  await user().keyboard('{Enter}')
+  expect(select.getAttribute('aria-expanded')).toBe('true')
+  await user().keyboard('{Escape}')
+  expect(screen.queryByRole('listbox')).toBeNull()
+  await user().keyboard('{ArrowDown}y{Enter}')
+  expect(change).toHaveBeenCalledTimes(3)
+  expect(change).toHaveBeenLastCalledWith({ range: 'year', panel: 'stages' })
+  await user().keyboard('{ArrowUp}{Home}{ArrowDown}{Enter}')
+  expect(change).toHaveBeenLastCalledWith({ range: '7d', panel: 'stages' })
 })
 
 test('previous-period Stage samples retain their own period and restore focus after closing', async () => {

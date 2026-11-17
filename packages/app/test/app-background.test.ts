@@ -1,11 +1,20 @@
+import { readFile } from 'node:fs/promises'
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
+import { homedir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { readDaemonInfo } from '@ted/protocol'
+import { parseJson } from '@ted/protocol/parse'
 import { type ElectronApplication, _electron as electron } from 'playwright'
 import { describe, expect, test } from 'vitest'
-import { hostRecords, isAlive, makeOriginRepo, waitForExit } from '../../daemon/test/helpers.ts'
+import {
+  daemonAsApp,
+  hostRecords,
+  isAlive,
+  makeOriginRepo,
+  waitForExit,
+} from '../../daemon/test/helpers.ts'
 import {
   addFactory,
   appDir,
@@ -182,6 +191,83 @@ describe('running in the background', () => {
       await again.getByRole('alert').getByText('The report wasn’t sent.').waitFor()
       await again.getByRole('button', { name: 'Copy report' }).waitFor()
       expect(sentry.envelopes).toHaveLength(2)
+    } finally {
+      sentry.server.close()
+    }
+  })
+
+  test('with reports on, uncaught errors in the main process and the renderer reach Sentry cleaned; with them off, nothing goes', async () => {
+    const sentry = await sentryStub()
+    try {
+      await (await daemonAsApp(ctx.home, env())).updateSettings({
+        reporting: true,
+        appearance: 'light',
+      })
+      const window = await launchApp({
+        TED_SENTRY_DSN: sentry.dsn,
+        TED_FORCE_ERROR: 'main,renderer',
+      })
+      const events = () =>
+        sentry.envelopes.map((envelope) => parseJson(envelope.split('\n')[2] ?? ''))
+      await expect.poll(() => sentry.envelopes.length, { timeout: 20_000 }).toBe(2)
+      expect(events()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            environment: 'dev',
+            tags: { part: 'main' },
+            exception: {
+              values: [
+                expect.objectContaining({
+                  value: 'Forced error in the main process (TED_FORCE_ERROR) in <path>',
+                }),
+              ],
+            },
+          }),
+          expect.objectContaining({
+            tags: { part: 'renderer' },
+            exception: {
+              values: [
+                expect.objectContaining({
+                  value: 'Forced error in the renderer (TED_FORCE_ERROR)',
+                }),
+              ],
+            },
+          }),
+        ]),
+      )
+      for (const envelope of sentry.envelopes) {
+        expect(envelope).not.toContain(ctx.home)
+        expect(envelope).not.toContain(homedir())
+      }
+
+      const client = await daemonClient()
+      const mainTheme = () => ctx.app?.evaluate(({ nativeTheme }) => nativeTheme.themeSource)
+      await client.updateSettings({ reporting: false, appearance: 'dark' })
+      await expect.poll(mainTheme).toBe('dark')
+      await ctx.app?.evaluate(() => {
+        setTimeout(() => {
+          throw new Error('main error while reports are off')
+        })
+      })
+      await window.evaluate(() => {
+        setTimeout(() => {
+          throw new Error('renderer error while reports are off')
+        })
+      })
+      const appLog = () => readFile(path.join(ctx.home, 'logs', 'app.log'), 'utf8')
+      await expect.poll(appLog).toContain('main error while reports are off')
+      await expect.poll(appLog).toContain('renderer error while reports are off')
+
+      await client.updateSettings({ reporting: true, appearance: 'light' })
+      await expect.poll(mainTheme).toBe('light')
+      await window.evaluate(() => {
+        setTimeout(() => {
+          throw new Error('renderer error after reports are back on')
+        })
+      })
+      await expect.poll(() => sentry.envelopes.length).toBe(3)
+      expect(sentry.envelopes[2]).toContain('renderer error after reports are back on')
+      expect(sentry.envelopes.join('\n')).not.toContain('while reports are off')
     } finally {
       sentry.server.close()
     }

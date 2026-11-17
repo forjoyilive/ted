@@ -79,7 +79,7 @@ The daemon derives the Factory from the current Lead’s verified Run. Sub-agent
   - Removable and network volumes: never for Ted’s own work. Ted’s `lsof` calls pass `-b`, so they don’t check files or mount points on disk. An agent, or a command it runs, can still read a drive, and macOS then asks on Ted’s behalf; the Set up Ted screen says so. (TED-399)
   - Never requested: Accessibility, Screen Recording, Full Disk Access, microphone, camera, Automation. (KRI-20, KRI-57)
 - **Secrets.** The Linear API key is the only secret Ted stores. Ted holds no agent credentials and no GitHub token. (KRI-57, ADR 0004, ADR 0007)
-- The daemon writes the Linear key to the OS keyring through a native module (for example `@napi-rs/keyring`): the macOS Keychain, or the Secret Service over D-Bus on Linux. Service `Ted`, account `linear-api-key`. Not Electron’s `safeStorage`, which works only in the main process and falls back to a hardcoded password on Linux. (KRI-57)
+- The daemon writes the Linear key to the OS keyring through a native module (for example `@napi-rs/keyring`): the macOS Keychain, or the Secret Service over D-Bus on Linux. Service `TED`, account `linear-api-key`. Not Electron’s `safeStorage`, which works only in the main process and falls back to a hardcoded password on Linux. (KRI-57)
 - **Linux with no Secret Service:** Ted never falls back silently. The Linear row says “No keyring found on this computer” and offers **Save in a file only you can read**, which writes `~/.ted/secrets/linear-api-key` (file 0600, folder 0700). A locked keyring shows “Keyring is locked”. **Remove** deletes the key wherever it was stored. (KRI-57)
 - The daemon uses the Linear key only to fill in a Task from a pasted Linear URL. It is never passed to agents. (KRI-57)
 

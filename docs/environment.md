@@ -22,7 +22,8 @@ The authoritative reasons for individual inputs are beside their entries in `ted
 | `TED_ASANA_API`, `TED_ASANA_CALLBACK_PORT` | Redirect Asana token/API requests to a loopback stub and isolate its temporary callback port. Ignored in release. |
 | `TED_LINEAR_API` | Redirect Linear requests to a stub. |
 | `TED_UPDATE_FEED`, `TED_UPDATE_LOG` | Use a loopback update server and record update installation. |
-| `TED_SENTRY_DSN` | Send Report a problem to a loopback Sentry stub instead of Ted’s Sentry project. `vitest.config.ts` points every test at a closed loopback port, so no test reaches Sentry. Ignored in release. |
+| `TED_SENTRY_DSN` | Send Report a problem and crash reports to a loopback Sentry stub instead of Ted’s Sentry project. `vitest.config.ts` points every test at a closed loopback port, so no test reaches Sentry. Ignored in release. |
+| `TED_FORCE_ERROR` | Set to `main`, `renderer` or `daemon`, or several separated by commas, to throw one uncaught error in each named process once it has read the machine settings, to try crash reports. Ignored in release. |
 | `TED_APP_TOKEN` | Supply a known app key in tests. Release generates its app key in memory and passes it to the daemon on stdin. |
 | `TED_HIDDEN_WINDOW`, `TED_SKIP_FIRST_LAUNCH` | Hide the test app and bypass first-launch setup. |
 | `TED_EXIT_WITH_PID`, `TED_TEST_RUN`, `TED_TEST_FILE` | Track and clean up test processes. |

@@ -162,6 +162,7 @@ export const ted = {
   problemReport: () => request('problemReport'),
   sendProblemReport: (input: import('@ted/protocol').ProblemReportRequest) =>
     request('sendProblemReport', input),
+  reportCrash: (crash: import('@ted/protocol').Crash) => request('reportCrash', crash),
   openGitHubIssue: () => request('openGitHubIssue'),
   runFix: (input: RunFixRequest) => request('runFix', input),
   authorizeAsana: () => request('authorizeAsana'),

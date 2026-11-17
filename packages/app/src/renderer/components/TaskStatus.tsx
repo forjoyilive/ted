@@ -111,7 +111,14 @@ function BlockedBy({
       {ended === 'deleted' ? (
         <span>{by}</span>
       ) : (
-        <button type="button" className={styles.link} onClick={() => onOpenTask(by)}>
+        <button
+          type="button"
+          className={styles.link}
+          onClick={(event) => {
+            event.stopPropagation()
+            onOpenTask(by)
+          }}
+        >
           {by}
         </button>
       )}

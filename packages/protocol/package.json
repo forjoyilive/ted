@@ -43,6 +43,7 @@
     "./automation-card": "./src/automation-card.ts",
     "./release": "./src/release.ts",
     "./problem-report": "./src/problem-report.ts",
+    "./crash-report": "./src/crash-report.ts",
     "./update": "./src/update.ts",
     "./proposal": "./src/proposal.ts",
     "./outside-command": "./src/outside-command.ts",

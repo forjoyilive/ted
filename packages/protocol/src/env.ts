@@ -30,6 +30,7 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_EXIT_WITH_PID: false,
   TED_FACTORY: 'Factory context supplied to Planning and Automation Runs.',
   TED_FIX_LOG: false,
+  TED_FORCE_ERROR: false,
   TED_FREE_BYTES_FILE: false,
   TED_GH_BIN: false,
   TED_HIDDEN_WINDOW: false,

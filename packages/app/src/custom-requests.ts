@@ -3,6 +3,7 @@ import type {
   AsanaStatus,
   Attachment,
   AutomationDetail,
+  Crash,
   ExportFormat,
   MachineSettings,
   MemoryUse,
@@ -83,6 +84,7 @@ export interface CustomRequests {
   copyCrashReport: () => Promise<void>
   problemReport: () => Promise<{ text: string; daemon: boolean }>
   sendProblemReport: (request: ProblemReportRequest) => Promise<ProblemReportResult>
+  reportCrash: (crash: Crash) => Promise<void>
   openGitHubIssue: () => Promise<void>
   runFix: (request: RunFixRequest) => Promise<RunFixResult>
   openLinearKeyPage: () => Promise<void>

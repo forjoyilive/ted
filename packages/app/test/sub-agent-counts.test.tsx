@@ -64,21 +64,32 @@ test('All Tasks and Factory List counts follow search, filters and live Task upd
   expect(screen.getByText('7 active Sub-Agents')).toBeTruthy()
   await u.click(workGroup)
   const row = required(document.querySelector<HTMLElement>('[data-task="NB-1"]'))
-  expect(within(row).getByTitle(/^6 active Sub-Agents/).textContent).toBe('6 Sub-Agents')
+  const pill = within(row).getByRole('img', { name: '6 sub-agents running' })
+  expect(pill.textContent).toBe('6')
+  expect(pill.title).toBe('6 sub-agents running')
+  expect(pill.dataset.working).toBe('true')
   expect(within(row).getByText('Working')).toBeTruthy()
   expect(
     within(required(document.querySelector<HTMLElement>('[data-task="NB-2"]'))).queryByLabelText(
-      /active Sub-Agent/,
+      /sub-agents? running/,
     ),
   ).toBeNull()
   await u.type(screen.getByRole('searchbox'), 'Explore')
   expect(screen.getByText('6 active Sub-Agents in results')).toBeTruthy()
+  await a.emitTask({
+    ...first,
+    runs: [run({ state: 'idle' }), run({ id: 'p', paused: 'Offline' })],
+  })
+  expect(screen.getByText('2 active Sub-Agents in results')).toBeTruthy()
+  const idle = within(row).getByRole('img', { name: '2 sub-agents running' })
+  expect(idle.textContent).toBe('2')
+  expect(idle.dataset.working).toBe('false')
   await a.emitTask({ ...first, runs: [run()] })
   expect(screen.getByText('1 active Sub-Agent in results')).toBeTruthy()
-  expect(within(row).getByTitle(/^1 active Sub-Agent/).textContent).toBe('1 Sub-Agent')
+  expect(within(row).getByRole('img', { name: '1 sub-agent running' }).textContent).toBe('1')
   await a.emitTask({ ...first, runs: [] })
   expect(screen.getByText('0 active Sub-Agents in results')).toBeTruthy()
-  expect(within(row).queryByText(/Sub-Agents?/i)).toBeNull()
+  expect(within(row).queryByRole('img', { name: /sub-agents? running/ })).toBeNull()
   await u.clear(screen.getByRole('searchbox'))
   expect(screen.getByText('1 active Sub-Agent')).toBeTruthy()
   await expandFactory()
@@ -128,14 +139,14 @@ test('Board cards and aggregate follow the same search and updated Runs', async 
   const view = render(<Board {...props} tasks={[first, second]} />)
   await screen.findByText('7 active Sub-Agents')
   const card = required(document.querySelector<HTMLElement>('[data-task="NB-1"]'))
-  expect(within(card).getByTitle(/^6 active Sub-Agents/)).toBeTruthy()
+  expect(within(card).getByRole('img', { name: '6 sub-agents running' }).textContent).toBe('6')
   await user().click(within(card).getByRole('button', { name: 'Explore counts' }))
   expect(props.onOpen).toHaveBeenCalledWith(first)
   await user().type(screen.getByRole('searchbox'), 'Explore')
   expect(screen.getByText('6 active Sub-Agents in results')).toBeTruthy()
   view.rerender(<Board {...props} tasks={[{ ...first, runs: [] }, second]} />)
   expect(screen.getByText('0 active Sub-Agents in results')).toBeTruthy()
-  expect(within(card).queryByText(/Sub-Agents?/i)).toBeNull()
+  expect(within(card).queryByRole('img', { name: /sub-agents? running/ })).toBeNull()
 })
 
 test('Runs summaries keep active counts separate from Lead history and usage totals', () => {

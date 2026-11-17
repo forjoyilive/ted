@@ -1,14 +1,9 @@
-import { randomUUID } from 'node:crypto'
 import os from 'node:os'
 import { setTimeout as delay } from 'node:timers/promises'
 import { redactSecrets } from '@ted/daemon/redact'
+import { envelopeRequest, newEventId, type Post, sentryTarget } from '@ted/daemon/sentry'
 import type { Edition, ProblemReportRequest, ProblemReportResult } from '@ted/protocol'
 import { withinDescriptionLimit } from '@ted/protocol/problem-report'
-
-export interface SentryTarget {
-  url: string
-  key: string
-}
 
 export interface FeedbackReport {
   eventId: string
@@ -21,8 +16,6 @@ export interface FeedbackReport {
   release: string
 }
 
-export type Post = (url: string, init: RequestInit) => Promise<{ ok: boolean; status: number }>
-
 export interface SendDeps {
   dsn: string
   allowLoopbackHttp: boolean
@@ -33,32 +26,6 @@ export interface SendDeps {
   now?: () => Date
   timeoutMs?: number
   reportTimeoutMs?: number
-}
-
-const loopbackHosts = ['127.0.0.1', 'localhost', '[::1]']
-
-export function sentryTarget(
-  dsn: string,
-  { allowLoopbackHttp }: { allowLoopbackHttp: boolean },
-): SentryTarget | undefined {
-  const url = URL.parse(dsn)
-  if (!url || url.username === '' || url.password !== '' || url.search !== '') return undefined
-  const segments = url.pathname.split('/').filter((segment) => segment !== '')
-  const project = segments.pop()
-  if (project === undefined || !/^\d+$/.test(project)) return undefined
-  const secure = url.protocol === 'https:'
-  const loopbackTest =
-    allowLoopbackHttp && url.protocol === 'http:' && loopbackHosts.includes(url.hostname)
-  if (!secure && !loopbackTest) return undefined
-  const prefix = segments.map((segment) => `/${segment}`).join('')
-  return {
-    url: `${url.protocol}//${url.host}${prefix}/api/${project}/envelope/`,
-    key: url.username,
-  }
-}
-
-export function newEventId(): string {
-  return randomUUID().replaceAll('-', '')
 }
 
 export function feedbackEnvelope(report: FeedbackReport): Uint8Array<ArrayBuffer> {
@@ -171,16 +138,10 @@ export async function sendProblemReport(
     release: deps.version,
   })
   try {
-    const answer = await deps.post(target.url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-sentry-envelope',
-        'X-Sentry-Auth': `Sentry sentry_version=7, sentry_key=${target.key}, sentry_client=ted/${deps.version}`,
-      },
-      body,
-      redirect: 'error',
-      signal: AbortSignal.timeout(deps.timeoutMs ?? 15_000),
-    })
+    const answer = await deps.post(
+      target.url,
+      envelopeRequest(target, deps.version, body, deps.timeoutMs ?? 15_000),
+    )
     if (answer.ok) return { sent: true, eventId }
     if (answer.status === 429) {
       return {
