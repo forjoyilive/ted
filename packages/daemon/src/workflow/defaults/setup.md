@@ -1,6 +1,6 @@
 # Setting up this Factory
 
-This Task is the Factory’s setup Task. It decides TED’s settings for this Factory: Factory notes in `.ted/notes.md`, Stage overrides in `.ted/stages/<id>.md`, and `.ted/workflow.yaml`. For this Task the Design and Review sign-offs are always on and Clarify runs at grilling depth. Change only files in `.ted/`, in the primary repo; the pull request goes to its default branch.
+This Task is the Factory’s setup Task. It decides TED’s settings for this Factory: Factory notes in `.ted/notes.md`, Stage overrides in `.ted/stages/<id>.md`, `.ted/workflow.yaml`, and any Agents the human approves in `.ted/agents.yaml` and `.ted/agents/<id>.md`. For this Task the Design and Review sign-offs are always on and Clarify runs at grilling depth. Change only files in `.ted/`, in the primary repo; the pull request goes to its default branch.
 
 If the primary repo already has `.ted/` on its default branch, this is a later setup Task: propose changes to the current files and show each change as a diff in the design review, instead of writing the files from scratch.
 
@@ -40,6 +40,15 @@ Ask too whether anything should happen after a pull request merges, such as a co
        "apps": [
          { "name": "Web", "repo": "notebook-app", "kind": "web", "run": "npm run dev -- --port ${PORT}", "ready": "ready in 9s at localhost:5174", "passed": true }
        ],
+       "agents": [
+         {
+           "id": "release",
+           "name": "Release helper",
+           "about": "Walks through cutting a release: version bump, changelog and the tag.",
+           "powers": ["ask", "read_code"],
+           "instructions": "# What this Agent is for\n\nHelps cut a Notebook release. Start a chat with it before you tag a version.\n\n## How it works\n\n- Read CHANGELOG.md and the commits since the last tag first.\n- Ask before proposing a version number.\n"
+         }
+       ],
        "files": [
          { "path": ".ted/notes.md", "about": "Factory notes: product, repos, running locally, conventions" },
          { "path": ".ted/workflow.yaml", "about": "repos with worktree setup and Apps, Checks, Stage settings" },
@@ -51,6 +60,8 @@ Ask too whether anything should happen after a pull request merges, such as a co
    ```
 
    `workflow` has one line per Stage, in order; leave out `setting` for a Stage that stays as TED’s default. `checks` and `apps` list everything you tried, with the results you saw; give each App the exact `run` command you will write in `.ted/workflow.yaml`. `files` names every file Work will write, with one line on what it holds; always include `.ted/stages/validate.md`, and override other Stages only when their steps really change. `defaults` names what stays at TED’s defaults.
+
+   `agents` is optional, and suggesting none is the normal case. Suggest an Agent only for a recurring job in this repo that a chat with the human helps with and that needs knowledge a general chat lacks, such as cutting a release, planning database migrations or an unusual deploy, and only when what you read shows how that job is done here. Don’t suggest one for work a Task already does (writing code, reviewing, fixing tests), and never one called `coordinator` or `planner`. Give each the fewest powers it needs, from `ask` (Ask the user), `read_code` (Read the code), `propose_tasks` (Propose Tasks) and `manage_tasks` (Manage Tasks); suggest `manage_tasks` only if the human asked for an Agent that starts or moves Tasks. Leave out `agent` and `model` unless the human asked for a Provider. `instructions` is the full text of `.ted/agents/<id>.md`: what the Agent is for, what to read first and what to ask before acting; TED adds the commands its powers allow. Don’t list the Agent files under `files`: the sign-off shows them from `agents`. The human can remove any Agent when they approve.
 
    When the user asked for after-merge work, add a `cleanup` line after the other Stages that names each step and whether it is an instruction or a command. Don’t run command steps in Design: they act after a merge and may shut things down, so the line says they weren’t tried. Leave the line out when Cleanup stays off.
 
@@ -67,6 +78,14 @@ stages:
         instruction: Post a comment on the Asana task this Task came from, with the merged pull request’s link.
       - name: Stop the preview
         command: ./scripts/preview.sh stop
+```
+
+For each Agent the human kept, add it to `.ted/agents.yaml` with the same `name` and `powers`, and `agent` and `model` only when the proposal has them, and write `instructions` word for word to `.ted/agents/<id>.md`. The approval message names any Agent the human removed; write nothing for those. With no Agents kept, write no `.ted/agents.yaml` and no `.ted/agents/` files. TED compares these files with the approved proposal and refuses `ted outcome advance` and the Review sign-off while they differ:
+
+```yaml
+release:
+  name: Release helper
+  powers: [ask, read_code]
 ```
 
 Run `ted workflow check` until it passes, commit, then run `ted outcome advance`.
