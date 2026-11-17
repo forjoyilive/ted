@@ -495,11 +495,7 @@ test('Move to Factory shows the plan for the picked Factory, moves the Task and 
   const dialog = await screen.findByRole('dialog', { name: 'Move NB-1 to another Factory?' })
   expect(within(dialog).getByRole('button', { name: 'Move' }).hasAttribute('disabled')).toBe(true)
   await u.click(within(dialog).getByRole('combobox', { name: 'Factory' }))
-  expect(
-    within(dialog)
-      .getAllByRole('option')
-      .map((o) => o.textContent),
-  ).toEqual(['Website'])
+  expect(within(dialog).getAllByRole('option')).toHaveLength(1)
   await u.click(within(dialog).getByRole('option', { name: 'Website' }))
   expect((await within(dialog).findByText(/^NB-1 becomes/)).textContent).toBe(
     'NB-1 becomes WEB-41 in Backlog. Nothing starts until you start it.',

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -516,8 +516,10 @@ describe('move to another Factory', () => {
       await commitToOrigin(otherScratch, {
         '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
       })
+      const gadgets = path.join(otherScratch, 'acme', 'gadgets.git')
+      await rename(otherOrigin, gadgets)
       const web = await client.ok<Factory>('POST', '/dev/factories', {
-        repo: otherOrigin,
+        repo: gadgets,
         key: 'WEB',
       })
       const gate = path.join(scratch, 'gate')
