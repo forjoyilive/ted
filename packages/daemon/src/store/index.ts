@@ -3720,7 +3720,6 @@ export async function openStore({
       emit({ type: 'inbox-changed', ...next })
     })
   }
-  lastWaiting = inbox()
 
   let lastActivity = activity()
   const noteActivity = () => {
@@ -3826,6 +3825,7 @@ export async function openStore({
       noteActivity()
     },
   })
+  lastWaiting = inbox()
 
   const execution = createExecutionStore({
     store,
