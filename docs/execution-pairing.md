@@ -1,18 +1,18 @@
 # Connect an execution Mac
 
-> **Shelved.** Remote execution is on hold. The code is kept but hidden behind `TED_REMOTE_EXECUTION=on`, which only TED Dev reads (see `docs/environment.md`). Don’t build new work on it or treat it as required.
+> **Shelved.** Remote execution is on hold. The code is kept but hidden behind `TED_REMOTE_EXECUTION=on`, which only Ted Dev reads (see `docs/environment.md`). Don’t build new work on it or treat it as required.
 
 This first version pairs Macs and reports readiness. It does not assign or run Tasks
-remotely. One controlling TED keeps the Factory, Tasks, Workflow, Inbox and approvals.
-An execution Mac has a smaller worker window. Its independent TED Factories, if any,
+remotely. One controlling Ted keeps the Factory, Tasks, Workflow, Inbox and approvals.
+An execution Mac has a smaller worker window. Its independent Ted Factories, if any,
 remain separate.
 
 ## Before pairing
 
-Install the same TED release on both Macs. TED Dev pairs only with TED Dev.
+Install the same Ted release on both Macs. Ted Dev pairs only with Ted Dev.
 Both Macs must be on the same local network and able to reach each other, using
 Wi-Fi or Ethernet. Sharing internet access does not guarantee that devices can
-connect; guest Wi-Fi can isolate them. Keep both Macs awake and the controlling TED
+connect; guest Wi-Fi can isolate them. Keep both Macs awake and the controlling Ted
 running. Cross-network VPN/internet setup and automatic discovery are outside this
 first setup flow. No router port forwarding is needed.
 
@@ -21,17 +21,22 @@ pairing. The worker checks its native sandbox and reports a failure instead of
 claiming support. Installed agents and agent sign-ins stay on the execution Mac;
 this release labels model access unverified and never runs a paid request to check it.
 
-## Pair in TED
+## Pair in Ted
 
 1. On the main Mac, open **Settings → Machines**. Choose its local Wi-Fi/Ethernet
    address reachable from the other Mac and the listener port (default 47443).
 2. Choose **Create pairing details**, then **Copy pairing details**. Details work
-   once and expire after five minutes. Keep them private.
+   once and expire after five minutes. Keep them private. While they are live, TED
+   also listens for pairing on a second, randomly chosen port on the same address;
+   the details name it, and it closes once they are used, cancelled or expire.
 3. On the execution Mac, open **Settings → Machines → Use this Mac as a worker**.
-   Alternatively launch TED with `--worker` to open directly into worker mode.
+   Alternatively launch Ted with `--worker` to open directly into worker mode.
 4. Paste the complete details, choose working Run capacity and choose
-   **Connect to controller**. The connection uses the controller identity in those
-   details; an identity mismatch stops it before enrollment material is sent.
+   **Connect to controller**. The details carry the controller’s certificate, and
+   the execution Mac trusts exactly that certificate: a mismatch stops the TLS
+   handshake before enrollment material is sent. Details from an older TED, which
+   lack the certificate, are refused; create new ones on the main Mac. A Mac already
+   paired keeps using the certificate it saved when it paired.
 5. Compare the worker identity on both screens. On the main Mac, select the exact
    existing repos the worker may access and choose **Approve pairing**. Nothing is
    selected by default. Repos added later are excluded. Only the controller’s app
@@ -45,9 +50,9 @@ Re-pairing issues a new grant and never takes over old execution assignments.
 
 Closing an app-owned worker window keeps its execution process running. **Stop
 worker** stops its connection but retains pairing; **Start worker** reconnects.
-**Quit TED completely** stops the worker started by that app. An execution service
+**Quit Ted completely** stops the worker started by that app. An execution service
 started independently through the CLI remains separate from the app and is stopped
-with the CLI. Neither closing a window nor quitting a separate independent TED
+with the CLI. Neither closing a window nor quitting a separate independent Ted
 installation gives another installation authority over its worker.
 
 ```sh
@@ -70,7 +75,7 @@ ted execution pair --capacity 2 < /path/to/private-pairing-details.json
 
 The file is optional: any stdin source works. If you save one, use a private local
 file and remove it after use; never commit it, include it in reports, or put its
-contents in command arguments. Approval still happens in the main TED app.
+contents in command arguments. Approval still happens in the main Ted app.
 For a foreground worker with no desktop window:
 
 ```sh
@@ -78,7 +83,7 @@ ted execution serve
 ```
 
 It remains running until Ctrl-C, SIGTERM or CLI Stop. No login item or service
-manager is installed. After logout or reboot, open TED in worker mode or run CLI
+manager is installed. After logout or reboot, open Ted in worker mode or run CLI
 Start/Serve. The service can run while the remote app is closed. Sleeping or losing
 the network makes it disconnected without deleting pairing. Unknown model access
 and stale offline readings remain explicit. The controller allows a short heartbeat
@@ -90,12 +95,12 @@ unavailable with a reason. These probes use a filtered environment and do not ma
 model requests. Model access remains unverified.
 
 Restart to update stops this app’s worker before handing the daemon over. A worker
-started separately through CLI stays running. If installation fails, TED recovers
+started separately through CLI stays running. If installation fails, Ted recovers
 its daemon; reopen the worker window and select Start to reconnect with saved pairing.
 
 ## Revoke and reconnect
 
-On the controller, choose **Revoke access** and confirm. TED durably revokes the
+On the controller, choose **Revoke access** and confirm. Ted durably revokes the
 machine credential, immediately refuses further traffic and asks reachable execution
 to stop. It does not wait for an unavailable Mac to acknowledge. Unavailable
 assignments remain unresolved. Restarting either side cannot revive a revoked grant.
@@ -109,8 +114,8 @@ command exchange described below. There is no generic HTTP proxy or remote shell
 
 ## Operations and disconnects
 
-TED sends work to an execution Mac as typed operations. This version has one, a
-test operation that only TED’s own validation sends; no Task runs on another Mac yet.
+Ted sends work to an execution Mac as typed operations. This version has one, a
+test operation that only Ted’s own validation sends; no Task runs on another Mac yet.
 Both Macs write down every operation and result before they acknowledge it, so a
 lost message or a restart of either side never runs an operation twice.
 
@@ -126,7 +131,7 @@ Settings → Machines add a line when there is something to say:
 - **Stop requested, not confirmed.** A stop counts only when the execution Mac
   answers.
 - **Unresolved.** After a crash the execution Mac could not tell whether an operation
-  started, or it reported an operation the controller has no record of. TED holds
+  started, or it reported an operation the controller has no record of. Ted holds
   it and never runs it again by itself. This version has no way to resolve it.
 - **Not accepting new work.** The execution Mac holds 256 operations or 64 MiB the
   controller has not confirmed, or has less than 1 GB free. It keeps everything it
@@ -134,15 +139,15 @@ Settings → Machines add a line when there is something to say:
 
 ## Troubleshooting
 
-- If unreachable, check awake Macs, the main TED, local address and port, guest Wi-Fi
-  isolation and local firewall rules. If macOS asks for TED’s Local Network access,
-  allow it for this setup. Do not disable identity verification or expose TED publicly.
+- If unreachable, check awake Macs, the main Ted, local address and port, guest Wi-Fi
+  isolation and local firewall rules. If macOS asks for Ted’s Local Network access,
+  allow it for this setup. Do not disable identity verification or expose Ted publicly.
 - Expired or used details need a newly created set from the main Mac.
 - Wrong identity means stop and obtain fresh details directly from the intended Mac.
-- A protocol/edition mismatch requires matching TED versions on both Macs.
+- A protocol/edition mismatch requires matching Ted versions on both Macs.
 - If the main Mac’s address changes, select the new local address, create fresh
-  details and approve pairing again. Revoke obsolete grants. TED does not silently
+  details and approve pairing again. Revoke obsolete grants. Ted does not silently
   trust a replacement identity.
 - Execution state lives in an edition-specific execution home, separate from
-  independent TED storage. Do not copy the controller’s keys to another machine or
+  independent Ted storage. Do not copy the controller’s keys to another machine or
   copy a worker’s credential to a second worker.

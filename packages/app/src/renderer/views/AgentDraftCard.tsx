@@ -186,7 +186,7 @@ export function AgentDraftCard({
             onChange={(event) => setInstructions(event.target.value)}
           />
           <span className={styles.hint}>
-            {`Up to ${maxAgentDraftInstructions.toLocaleString('en-US')} characters. TED adds the commands its powers allow.`}
+            {`Up to ${maxAgentDraftInstructions.toLocaleString('en-US')} characters. Ted adds the commands its powers allow.`}
           </span>
         </label>
       )}

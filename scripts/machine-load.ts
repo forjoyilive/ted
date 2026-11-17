@@ -47,7 +47,7 @@ export function workersWithin(idle: readonly number[], cpus: number | undefined)
 }
 
 export function cpusLine(cpus: number, chosen: string, idle: string): string {
-  return `TED allows this Check ${cpus} CPU${cpus === 1 ? '' : 's'} (${cpusEnv}, ${cpusPerWorker} per worker): running ${chosen} instead of ${idle}, so the rest of the machine stays free for Runs.`
+  return `Ted allows this Check ${cpus} CPU${cpus === 1 ? '' : 's'} (${cpusEnv}, ${cpusPerWorker} per worker): running ${chosen} instead of ${idle}, so the rest of the machine stays free for Runs.`
 }
 
 export function busyLine(load: number, chosen: string, idle: string): string {

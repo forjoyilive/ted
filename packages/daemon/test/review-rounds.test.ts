@@ -154,7 +154,7 @@ async function promptFile() {
 
 describe('Validate rounds', () => {
   test(
-    'from round two TED scopes the one reviewer to the earlier Findings and the diff since the last reviewed commit',
+    'from round two Ted scopes the one reviewer to the earlier Findings and the diff since the last reviewed commit',
     async () => {
       const client = await start({
         '.ted/workflow.yaml':
@@ -187,8 +187,8 @@ describe('Validate rounds', () => {
       const [first, second, ...more] = await reviewerPrompts(client, task)
       expect(more).toEqual([])
       expect(first).toContain('# Your instructions from the Task Lead of NB-1')
-      expect(first).not.toContain('TED set the scope of this review')
-      expect(second).toContain('# Your instructions from TED')
+      expect(first).not.toContain('Ted set the scope of this review')
+      expect(second).toContain('# Your instructions from Ted')
       expect(second).not.toContain('# Your instructions from the Task Lead')
       expect(second).toContain('# Review of the fixes in NB-1, Validate round 2')
       expect(second).toContain('1. The export button does nothing.')
@@ -208,16 +208,16 @@ describe('Validate rounds', () => {
         20_000,
       )
       expect(output).toMatch(/SECOND: .*this Validate visit already has its reviewer \(Run /)
-      expect(output).toContain('PLAIN: ted: in Validate the only sub-agent is TED’s reviewer')
+      expect(output).toContain('PLAIN: ted: in Validate the only sub-agent is Ted’s reviewer')
       expect(output).toContain('`stages.validate.sub_agents: true`')
 
       const messages = userMessages(await leadRun(client, task))
-      const back = messages.find((m) => m.startsWith('TED moved this Task back to Work.'))
+      const back = messages.find((m) => m.startsWith('Ted moved this Task back to Work.'))
       expect(back).toContain('# Send-back 1 of 5 from Validate')
       expect(back).toContain('Fix the findings above and nothing else.')
       const round = messages.find((m) => m.includes('# Validate round 2'))
       expect(round).toContain('Validate has sent it back 1 time, and the limit is 5')
-      expect(round).toContain('TED gives it the earlier findings and the diff since the commit')
+      expect(round).toContain('Ted gives it the earlier findings and the diff since the commit')
       expect(round).toContain('1. The export button does nothing.')
       expect(messages.filter((m) => m.includes('# Validate round'))).toHaveLength(1)
 
@@ -258,11 +258,11 @@ describe('Validate rounds', () => {
         expect.stringContaining('# Your instructions from the Task Lead of NB-1'),
       ])
       const messages = userMessages(await leadRun(client, task))
-      const back = messages.find((m) => m.startsWith('TED moved this Task back to Work.'))
+      const back = messages.find((m) => m.startsWith('Ted moved this Task back to Work.'))
       expect(back).toContain('# Send-back 1 of 5 from Validate')
-      expect(back).toContain('the Task moves to Validate and TED runs the Factory’s checks first')
+      expect(back).toContain('the Task moves to Validate and Ted runs the Factory’s checks first')
       const round = messages.find((m) => m.includes('# Validate round 2'))
-      expect(round).toContain('TED has no finished review from the last round to build on')
+      expect(round).toContain('Ted has no finished review from the last round to build on')
       expect(round).toContain('this round reviews the whole change again')
       expect(round).toContain('a problem anywhere in the change can be blocking')
       expect(round).not.toContain('This round checks the fixes.')
@@ -324,7 +324,7 @@ describe('Validate rounds', () => {
     expect(more).toEqual([])
     expect(first).toContain('# Your instructions from the Task Lead of NB-1')
     expect(second).toContain('# Your instructions from the Task Lead of NB-1')
-    expect(second).not.toContain('TED set the scope of this review')
+    expect(second).not.toContain('Ted set the scope of this review')
     const rounds = userMessages(await leadRun(client, task)).filter((m) =>
       m.includes('# Validate round'),
     )
@@ -353,7 +353,7 @@ describe('Validate rounds', () => {
       60_000,
     )
 
-  test('after a base-conflict send-back from Review, TED scopes the reviewer to the conflict resolution', async () => {
+  test('after a base-conflict send-back from Review, Ted scopes the reviewer to the conflict resolution', async () => {
     const client = await start({ 'export.txt': 'first\n', '.ted/workflow.yaml': flow })
     const prompt = await promptFile()
     const findings = path.join(scratch, 'findings.md')
@@ -410,7 +410,7 @@ describe('Validate rounds', () => {
     const [first, second, ...more] = await reviewerPrompts(client, task)
     expect(more).toEqual([])
     expect(first).toContain('# Your instructions from the Task Lead of NB-1')
-    expect(second).toContain('# Your instructions from TED')
+    expect(second).toContain('# Your instructions from Ted')
     expect(second).toContain('# Review of the conflict resolution in NB-1')
     expect(second).toMatch(
       /git --no-replace-objects [^`]* show --no-ext-diff [^`]* --remerge-diff [0-9a-f]{40}`/,

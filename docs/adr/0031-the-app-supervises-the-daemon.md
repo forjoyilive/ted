@@ -8,7 +8,7 @@ The app’s main process keeps the daemon running through `superviseDaemon` in `
 
 The app sends the state (`connected`, `reconnecting`, `stopped`) to the renderer on `ted:event` as a `connection` event, and the renderer can ask for it with the `connection` request. Requests to the daemon fail while it is down. When the state returns to `connected`, every list in the renderer loads again, because events sent while the daemon was down are lost.
 
-While reconnecting, the window shows the dark Reconnecting bar above everything and wraps the rest of the window in a disabled, dimmed `<fieldset>`, so every button and field is off without each component knowing. When stopped, the bar goes and the app shows the stops-work banner “TED’s background process keeps stopping” with **Restart ▾**, whose menu holds **Restart TED in the background** and **Copy report**, and shows one notification.
+While reconnecting, the window shows the dark Reconnecting bar above everything and wraps the rest of the window in a disabled, dimmed `<fieldset>`, so every button and field is off without each component knowing. When stopped, the bar goes and the app shows the stops-work banner “Ted’s background process keeps stopping” with **Restart ▾**, whose menu holds **Restart Ted in the background** and **Copy report**, and shows one notification.
 
 This banner is the one exception to ADR 0021: it is built in the renderer from the connection state, because the daemon that keeps banners is the thing that is down.
 
@@ -16,7 +16,7 @@ This banner is the one exception to ADR 0021: it is built in the renderer from t
 
 - The daemon writes its own log, everything it sends to `console` after `redactSecrets` (ADR 0024), to `~/.ted/logs/daemon.log`, rolling at 20 MB and keeping 7 files (`daemon.log`, `daemon.log.1` … `daemon.log.6`).
 - The daemon’s stdout and stderr go to `~/.ted/logs/daemon-output.log`, which holds crash output that never reaches `console`: uncaught exceptions and fatal errors. The launcher writes a “starting” line before each start and rolls the file at start under the same limits.
-- **Copy report** puts the end of both logs (256 KB of each, reaching back into `.1` when the current file is short), the TED version, the OS and the crash times on the clipboard, with secrets redacted, TED’s folder shown as `<TED home>` and the user’s home as `~`. Nothing is uploaded.
+- **Copy report** puts the end of both logs (256 KB of each, reaching back into `.1` when the current file is short), the Ted version, the OS and the crash times on the clipboard, with secrets redacted, Ted’s folder shown as `<Ted home>` and the user’s home as `~`. Nothing is uploaded.
 
 ## Considered Options
 

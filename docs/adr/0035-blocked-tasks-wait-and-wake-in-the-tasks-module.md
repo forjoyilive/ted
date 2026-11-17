@@ -8,7 +8,7 @@ A blocker link is a row in `taskBlockers`. `v2.TaskBlockerAdded` adds or replace
 - Queued with no worktree, it goes back to Backlog and is marked as meant to start (`v1.TaskStartRequestChanged`), in the same commit as the link.
 - Running, the human’s new blocker is sent into the Task Lead’s Run as a message. The Task Lead either runs `ted task block --by <id>` itself, writes the Task brief and ends its turn, or posts a Comment saying why it carries on.
 
-**Stopping mid-flow.** When the Task Lead’s Run goes idle and one of the Task’s unmerged blockers was set by that Run, TED stops the Run and records `v1.TaskWaitingForBlockers`. The Task keeps its Stage and worktree and shows Blocked (no live Run and an unmerged blocker). Stopping is keyed to the link the Run set itself, not to the message TED sent, so a message queued behind a turn that is ending can’t stop a Run before the agent has read it.
+**Stopping mid-flow.** When the Task Lead’s Run goes idle and one of the Task’s unmerged blockers was set by that Run, Ted stops the Run and records `v1.TaskWaitingForBlockers`. The Task keeps its Stage and worktree and shows Blocked (no live Run and an unmerged blocker). Stopping is keyed to the link the Run set itself, not to the message Ted sent, so a message queued behind a turn that is ending can’t stop a Run before the agent has read it.
 
 **Waking.** Each time a Task reaches Done, and once when the daemon starts, the Tasks module looks at every Task whose blockers have all merged. A Backlog Task meant to start is started through the queue. A Task waiting mid-flow is put back in the queue with `v1.TaskRequeuedAfterBlockers`; when the pump picks it, it gets a fresh Task Lead Run in its existing worktree. That Run’s prompt is the Stage prompt plus a “Picking up after a blocker” section with the latest Task brief and the Comments since it.
 
@@ -16,7 +16,7 @@ A blocker link is a row in `taskBlockers`. `v2.TaskBlockerAdded` adds or replace
 
 ## Considered Options
 
-- **Stopping any idle Task Lead that has an unanswered blocker.** Needs no extra step from the agent, but races with the message TED just sent, and a Task Lead that answers in a tool call rather than a Comment would be stopped.
+- **Stopping any idle Task Lead that has an unanswered blocker.** Needs no extra step from the agent, but races with the message Ted just sent, and a Task Lead that answers in a tool call rather than a Comment would be stopped.
 - **Waking from `reportOutcome` only.** Simpler, but misses Tasks reaching Done any other way, and misses wake-ups lost to a daemon restart.
 
 ## Consequences

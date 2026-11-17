@@ -809,7 +809,7 @@ test('pending requests hold merging while incorporated repair Checks can be veri
   expect(await watcher.cycle(id, read())).toBe('done')
 })
 
-test('a pull request merged outside TED finishes the Task before any other merge step, even while held', async () => {
+test('a pull request merged outside Ted finishes the Task before any other merge step, even while held', async () => {
   port.held = () => true
   gate()
   ci()
@@ -833,7 +833,7 @@ test('a pull request merged outside TED finishes the Task before any other merge
   expect(gh.run).not.toHaveBeenCalled()
 })
 
-test('a multi-repo Task merged only partly outside TED takes the usual path, and finishes once every pull request is recorded as merged', async () => {
+test('a multi-repo Task merged only partly outside Ted takes the usual path, and finishes once every pull request is recorded as merged', async () => {
   secondRepo()
   port.held = () => true
   expect(

@@ -255,7 +255,7 @@ function changePrompt(
   base: PermissionPrompt,
   changes: ShownChange[] | undefined,
 ): PermissionPrompt {
-  if (!changes) return { ...base, command: 'changes TED can’t show', refuse: true }
+  if (!changes) return { ...base, command: 'changes Ted can’t show', refuse: true }
   return {
     ...base,
     command: changes.map((c) => c.path).join(' '),
@@ -348,7 +348,7 @@ function promptFrom(message: CodexLine, earlier: EarlierLine): PermissionPrompt 
         cantAccept ||
         (network && host === undefined)
       ) {
-        return { ...ask(title, command ?? 'a command TED can’t show'), refuse: true }
+        return { ...ask(title, command ?? 'a command Ted can’t show'), refuse: true }
       }
       return commandPrompt(
         ask(title, command),
@@ -370,7 +370,7 @@ function promptFrom(message: CodexLine, earlier: EarlierLine): PermissionPrompt 
         argv.length === 0 ||
         argv.some((arg) => typeof arg !== 'string')
       ) {
-        return { ...ask(title, 'a command TED can’t show'), refuse: true }
+        return { ...ask(title, 'a command Ted can’t show'), refuse: true }
       }
       return commandPrompt(ask(title, shellLine(argv as string[])), text(params.cwd), undefined)
     }
@@ -386,7 +386,7 @@ function promptFrom(message: CodexLine, earlier: EarlierLine): PermissionPrompt 
       )
     case 'item/permissions/requestApproval': {
       const grant = grantFrom(params.permissions)
-      if (!grant) return { ...ask('Get more access', 'access TED can’t show'), refuse: true }
+      if (!grant) return { ...ask('Get more access', 'access Ted can’t show'), refuse: true }
       const parts = [
         ...(grant.network ? ['network access'] : []),
         ...(grant.fileSystem?.write ?? []).map((p) => `write ${p}`),

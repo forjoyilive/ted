@@ -1,5 +1,6 @@
 import type { FactoryIcon } from './factory-icon.ts'
 import type { PermissionMode } from './run.ts'
+import { trimOf } from './trim.ts'
 export interface LocalFolder {
   path: string
   found: boolean
@@ -191,7 +192,7 @@ export function suggestFactoryName(repo: string): string {
 
 export function suggestRepoName(repo: string): string {
   const name = (repo.split('/').at(-1) ?? repo).toLowerCase().replace(/[^a-z0-9-]+/g, '-')
-  return name.replace(/^-+|-+$/g, '') || 'repo'
+  return trimOf(name, '-') || 'repo'
 }
 
 export interface AutoStartBacklogRequest {

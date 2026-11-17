@@ -27,8 +27,8 @@ export function setupNotice(
 
 export function setupNoticeText(notice: SetupNotice): string {
   return notice.kind === 'open'
-    ? 'Setup isn’t finished. This Task will use TED’s defaults.'
-    : 'This Factory hasn’t been set up. This Task will use TED’s defaults.'
+    ? 'Setup isn’t finished. This Task will use Ted’s defaults.'
+    : 'This Factory hasn’t been set up. This Task will use Ted’s defaults.'
 }
 
 export function startTask(task: Task): Promise<Task | undefined> {

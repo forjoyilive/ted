@@ -1,5 +1,6 @@
 import { type Edition, edition } from './edition.ts'
 import type { MachineOperations, WorkerOperations } from './execution-commands.ts'
+import { isObject, parseJson } from './parse.ts'
 import { RequestValidationError } from './validation.ts'
 
 export const executionProtocol = 1
@@ -38,7 +39,9 @@ export interface ExecutionReadiness {
   capacity: number
 }
 export interface ExecutionOffer extends ExecutionHello, ExecutionEndpoint {
+  pairingPort: number
   controllerPin: string
+  controllerCertificate: string
   secret: string
   expiresAt: string
 }
@@ -188,7 +191,7 @@ export function parseExecutionEndpoint(value: unknown): ExecutionEndpoint {
 }
 export function parseExecutionHello(value: unknown): ExecutionHello {
   const v = object(value)
-  if (v.edition !== 'dev' && v.edition !== 'release') invalid('Invalid TED edition')
+  if (v.edition !== 'dev' && v.edition !== 'release') invalid('Invalid Ted edition')
   if (!Array.isArray(v.capabilities) || v.capabilities.length > 16)
     invalid('Invalid execution capabilities')
   return {
@@ -204,7 +207,7 @@ export function requireExecutionCompatibility(value: ExecutionHello): void {
     !executionCapabilities.every((c) => value.capabilities.includes(c))
   )
     invalid(
-      'Incompatible execution protocol, capabilities or TED edition. Update both Macs to the same TED release.',
+      'Incompatible execution protocol, capabilities or Ted edition. Update both Macs to the same Ted release.',
     )
 }
 export function executionHello(): ExecutionHello {
@@ -215,7 +218,9 @@ export function parseExecutionOffer(value: unknown): ExecutionOffer {
   return {
     ...parseExecutionEndpoint(v),
     ...parseExecutionHello(v),
+    pairingPort: integer(v.pairingPort, 1, 65535),
     controllerPin: pin(v.controllerPin),
+    controllerCertificate: pem(v.controllerCertificate),
     secret: pin(v.secret),
     expiresAt: timestamp(v.expiresAt),
   }
@@ -289,8 +294,15 @@ export function parseExecutionIdRequest(value: unknown): ExecutionIdRequest {
 export function parseWorkerPairRequest(value: unknown): WorkerPairRequest {
   const v = object(value),
     details = text(v.details, 8192)
+  const parsed = parseJson(details)
+  if (
+    isObject(parsed) &&
+    parsed.controllerPin !== undefined &&
+    !('controllerCertificate' in parsed)
+  )
+    invalid('These pairing details are from an older TED. Create new details on the main Mac.')
   try {
-    parseExecutionOffer(JSON.parse(details))
+    parseExecutionOffer(parsed)
   } catch {
     invalid('Pairing details are invalid. Create fresh details on the main Mac.')
   }

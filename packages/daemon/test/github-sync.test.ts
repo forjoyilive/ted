@@ -259,14 +259,14 @@ test('with the switch off nothing is read or written; with it on a one-repo Task
   await cycle()
   expect(commentsOn(5)).toEqual([startedText])
 
-  openPullRequest(fresh, 'notes', 'acme/notes', 8, 'Goal\n\n---\n\nOpened by TED for NB-2.')
+  openPullRequest(fresh, 'notes', 'acme/notes', 8, 'Goal\n\n---\n\nOpened by Ted for NB-2.')
   duringBodyRead = { pr: 'acme/notes#8', run: () => syncOn(false) }
   await cycle()
   expect(writes.filter((w) => w.kind === 'body')).toEqual([])
   syncOn(true)
   await cycle()
   expect(bodies.get('acme/notes#8')).toBe(
-    'Goal\n\n---\n\nOpened by TED for NB-2.\n\nFixes acme/notes#5',
+    'Goal\n\n---\n\nOpened by Ted for NB-2.\n\nFixes acme/notes#5',
   )
   await cycle()
   expect(writes.filter((w) => w.kind === 'body')).toHaveLength(1)

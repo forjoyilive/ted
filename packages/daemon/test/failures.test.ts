@@ -236,7 +236,7 @@ describe('an edit while the Task Lead is dead', () => {
   })
 })
 
-describe('when TED can’t resume', () => {
+describe('when Ted can’t resume', () => {
   test('a failed resume starts a fresh Run from the brief, shown as a new Run', async () => {
     const client = await startTed()
     const task = await startTask(client, steps({ endTurn: true }))
@@ -334,7 +334,7 @@ describe('Failed', () => {
       choices: ['Retry'],
       failed: { runId },
     })
-    expect(ask?.body).toContain('TED resumed the session')
+    expect(ask?.body).toContain('Ted resumed the session')
     expect(ask?.body).toContain('claude was killed (SIGKILL)')
     const inbox = await client.ok<InboxItem[]>('GET', '/inbox')
     expect(inbox.map((i) => i.request.id)).toContain(ask?.id)
@@ -427,7 +427,7 @@ describe('Failed', () => {
     expect(after.leadRunId).toBe(working.leadRunId)
   })
 
-  test('a Task Lead that TED stops isn’t a failure', async () => {
+  test('a Task Lead that Ted stops isn’t a failure', async () => {
     const client = await startTed()
     const task = await startTask(client, steps({ endTurn: true }))
 
@@ -449,7 +449,7 @@ async function failTwice(client: Client, task: Task): Promise<Task> {
   await waitUntil(
     async () =>
       (await client.getRun(task.leadRunId ?? '')).conversation.some((e) =>
-        e.line.includes('TED resumed your session'),
+        e.line.includes('Ted resumed your session'),
       ),
     'the resumed session to answer',
   )

@@ -32,7 +32,7 @@ export interface DiskWatch {
   close(): void
 }
 
-export const cantSaveMessage = 'TED can’t save changes: disk full'
+export const cantSaveMessage = 'Ted can’t save changes: disk full'
 
 const openStorage = {
   label: 'Open Storage',

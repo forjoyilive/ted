@@ -47,8 +47,8 @@ export function guideCard(
   })
   if (!factory.cloned || task === undefined) {
     return factory.setup?.some((repo) => repo.state === 'failed')
-      ? card('TED couldn’t clone your repos. See the banner at the top.')
-      : card('TED is cloning your repos.')
+      ? card('Ted couldn’t clone your repos. See the banner at the top.')
+      : card('Ted is cloning your repos.')
   }
   if (guide.setUp) {
     return card('Your Factory is set up. Create your first Task.', {
@@ -97,7 +97,7 @@ export function guideCard(
   if (task.status?.kind === 'stopped') {
     return card('Setup is stopped. Open the Task to start it again.', openTask)
   }
-  if (task.stage === 'merge') return card('TED is merging the pull request.')
+  if (task.stage === 'merge') return card('Ted is merging the pull request.')
   if (task.stage === 'design')
     return card('The Task Lead is trying your checks and Apps.', openTask)
   if (task.stage === 'work' || task.stage === 'validate' || task.stage === 'review') {

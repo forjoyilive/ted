@@ -8,7 +8,7 @@ import styles from './EditorPicker.module.css'
 import { Loading } from './Loading.tsx'
 
 export const customCommandHelp =
-  'TED fills in {path}, {line} and {column} and starts the command without a shell. With no {path}, the path goes last.'
+  'Ted fills in {path}, {line} and {column} and starts the command without a shell. With no {path}, the path goes last.'
 
 export function useFoundEditors(): { editors: FoundEditor[] | undefined; problem?: string } {
   const [state, setState] = useState<{ editors: FoundEditor[] | undefined; problem?: string }>({
@@ -62,7 +62,7 @@ function EditorPicker({ onPick }: { onPick: (pick: EditorPick | undefined) => vo
             Choose an editor
           </h2>
           <p className={styles.body}>
-            TED opens worktrees and files from diffs in it. You can change it later in Settings →
+            Ted opens worktrees and files from diffs in it. You can change it later in Settings →
             General.
           </p>
           {editors === undefined ? (
@@ -73,7 +73,7 @@ function EditorPicker({ onPick }: { onPick: (pick: EditorPick | undefined) => vo
             <fieldset className={styles.choices}>
               <legend className={styles.legend}>Editor</legend>
               {editors.length === 0 && (
-                <p className={styles.note}>TED didn’t find an editor on your PATH.</p>
+                <p className={styles.note}>Ted didn’t find an editor on your PATH.</p>
               )}
               {editors.map((editor) => (
                 <label key={editor.id} className={styles.radio} title={editor.path}>

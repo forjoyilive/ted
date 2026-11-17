@@ -140,7 +140,7 @@ export function AsanaGroup() {
           <summary>Set up your own Asana app</summary>
           <ol className={own.steps}>
             <li>
-              Open Asana’s developer console and click <b>Create new app</b>. Name it TED.
+              Open Asana’s developer console and click <b>Create new app</b>. Name it Ted.
               <br />
               <button
                 type="button"
@@ -171,7 +171,7 @@ export function AsanaGroup() {
                 ))}
               </span>
               <span className={own.note}>
-                TED reads tasks and their files to import them, and writes comments and completes
+                Ted reads tasks and their files to import them, and writes comments and completes
                 tasks only when Task Sync is on.
               </span>
             </li>
@@ -185,7 +185,7 @@ export function AsanaGroup() {
             </li>
           </ol>
           <p className={styles.explain}>
-            TED and TED Dev each need an app of their own, because their redirect URLs differ.
+            Ted and Ted Dev each need an app of their own, because their redirect URLs differ.
           </p>
         </details>
         <p role="status" className={styles.explain}>
@@ -200,11 +200,11 @@ export function AsanaGroup() {
                   : 'Set up an Asana app, then paste its client ID and secret.'}
           {status?.storedIn === 'file' &&
             !pasting &&
-            ' Credentials are stored in a private file in your TED home folder.'}
+            ' Credentials are stored in a private file in your Ted home folder.'}
         </p>
         {status?.user && !replacing && status.extraScopes && status.extraScopes.length > 0 && (
           <p className={styles.explain}>
-            Asana also granted {status.extraScopes.join(', ')}. TED doesn’t need{' '}
+            Asana also granted {status.extraScopes.join(', ')}. Ted doesn’t need{' '}
             {status.extraScopes.length === 1 ? 'it' : 'them'}; you can turn{' '}
             {status.extraScopes.length === 1 ? 'it' : 'them'} off in the Asana developer console.
           </p>
@@ -243,7 +243,7 @@ export function AsanaGroup() {
             </div>
             {noKeyring && (
               <p className={styles.explain}>
-                No keyring is available on this computer. TED can keep the secret in a private file
+                No keyring is available on this computer. Ted can keep the secret in a private file
                 in its home folder instead.
               </p>
             )}
@@ -276,7 +276,7 @@ export function AsanaGroup() {
                   status.user
                     ? confirm(
                         'Reconnect Asana?',
-                        'This disconnects the current account first. Canceling browser authorization leaves TED disconnected.',
+                        'This disconnects the current account first. Canceling browser authorization leaves Ted disconnected.',
                         ted.authorizeAsana,
                       )
                     : act(ted.authorizeAsana)
@@ -336,7 +336,7 @@ export function AsanaGroup() {
         )}
         {status?.user && !pasting && (
           <p className={styles.explain}>
-            Reconnect first disconnects this account. Canceling leaves TED disconnected. Disconnect
+            Reconnect first disconnects this account. Canceling leaves Ted disconnected. Disconnect
             retains app configuration; Remove configuration deletes it too.
           </p>
         )}

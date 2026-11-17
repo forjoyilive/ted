@@ -225,7 +225,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
 
   function addedLine(report: RepoSetupReport): string {
     if (report.worktree === undefined) {
-      return `Added ${report.name}. TED makes its worktree when the Task starts.`
+      return `Added ${report.name}. Ted makes its worktree when the Task starts.`
     }
     const added = `Added ${report.name} at ${report.worktree}.`
     if (report.state === 'none' || report.command === undefined) return added
@@ -380,15 +380,15 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         throw error
       },
     )
-    if (result?.opened) return void console.log('Opened TED')
+    if (result?.opened) return void console.log('Opened Ted')
     const app = tedEnv('TED_APP_EXECUTABLE', env)
     if (!app) {
-      console.error('ted: TED isn’t open. Open it from your app launcher.')
+      console.error('ted: Ted isn’t open. Open it from your app launcher.')
       exitCode = 1
       return
     }
     launchApp(app)
-    console.log('Opening TED')
+    console.log('Opening Ted')
   }
 
   function launchApp(executable: string): void {
@@ -400,14 +400,14 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
 
   async function status(): Promise<void> {
     const { pid, banners } = await problems()
-    console.log(`TED’s background process is running (pid ${pid ?? 'unknown'})`)
+    console.log(`Ted’s background process is running (pid ${pid ?? 'unknown'})`)
     console.log(banners.join('\n'))
   }
 
   async function doctor(): Promise<void> {
     const health = await withDaemon(home, (client) => client.checkIntegrations())
     const { pid, banners, stops } = await problems()
-    console.log(`✓ TED’s background process is running (pid ${pid ?? 'unknown'})`)
+    console.log(`✓ Ted’s background process is running (pid ${pid ?? 'unknown'})`)
     const lines = integrationLines(health)
     console.log(lines.map((line) => printable(line)).join('\n'))
     console.log(banners.join('\n'))
@@ -455,7 +455,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     if (banners.length === 0) return ['No problems.']
     const where = (b: Banner) =>
       b.factoryId === undefined
-        ? 'TED'
+        ? 'Ted'
         : (factories.find((f) => f.id === b.factoryId)?.name ?? 'a Factory')
     const rows = banners.map((b) => [
       b.severity === 'stops-work' ? 'Stops work' : 'Warning',
@@ -699,8 +699,8 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
           owner.what === 'this Run'
             ? `Every ${android ? 'emulator' : 'simulator'} slot is taken. Waiting for one to free up…`
             : android
-              ? 'Every emulator slot is taken, so TED asked the human which one to shut down. Waiting for an answer…'
-              : 'Every simulator is booted, so TED asked the human which one to shut down. Waiting for an answer…',
+              ? 'Every emulator slot is taken, so Ted asked the human which one to shut down. Waiting for an answer…'
+              : 'Every simulator is booted, so Ted asked the human which one to shut down. Waiting for an answer…',
         )
       }
       while (app.state === 'starting' || app.state === 'waiting') {
@@ -711,7 +711,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         )
         if (found === undefined || found.removed === true) {
           throw new Error(
-            `${printable(current.name)} was removed from the Factory’s settings while TED waited for it`,
+            `${printable(current.name)} was removed from the Factory’s settings while Ted waited for it`,
           )
         }
         app = found
@@ -1292,7 +1292,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       )
       console.log(
         comment.kind === 'question'
-          ? `Asked the human (request ${comment.id}). TED sends you their answer.`
+          ? `Asked the human (request ${comment.id}). Ted sends you their answer.`
           : 'Posted',
       )
     },
@@ -1340,7 +1340,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       })
       console.log(
         comment.kind === 'question'
-          ? `Asked the human (request ${comment.id}). TED sends you their answer.${heldNote(comment)}`
+          ? `Asked the human (request ${comment.id}). Ted sends you their answer.${heldNote(comment)}`
           : 'Posted',
       )
     },
@@ -1361,7 +1361,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         client.postComment(ref, { round, ...(supersedes !== undefined && { supersedes }) }),
       )
       console.log(
-        `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} Round ${request.round?.number ?? ''} (request ${request.id}). TED sends you the human’s answers.${heldNote(request)}`,
+        `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} Round ${request.round?.number ?? ''} (request ${request.id}). Ted sends you the human’s answers.${heldNote(request)}`,
       )
     },
     depth: async () => {
@@ -1393,7 +1393,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         }),
       )
       console.log(
-        `Asked the human what to do with this Task (request ${request.id}). TED sends you their answer.`,
+        `Asked the human what to do with this Task (request ${request.id}). Ted sends you their answer.`,
       )
     },
     proposal: async () => {
@@ -1406,7 +1406,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       )
       const rows = request.proposal?.rows.length ?? 0
       console.log(
-        `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} a proposal of ${rows} rows (request ${request.id}). TED sends you the human’s answer.${heldNote(request)}`,
+        `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} a proposal of ${rows} rows (request ${request.id}). Ted sends you the human’s answer.${heldNote(request)}`,
       )
     },
     replaceRequest: async () => {
@@ -1425,7 +1425,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         }),
       )
       console.log(
-        `Replaced request ${supersedes} with request ${request.id}. TED sends you their answer.`,
+        `Replaced request ${supersedes} with request ${request.id}. Ted sends you their answer.`,
       )
     },
     activity: async () => {
@@ -1737,7 +1737,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         }),
       )
       console.log(
-        `Asked the human to archive ${ref} (request ${asked.id}). End your turn now; TED sends you their answer.`,
+        `Asked the human to archive ${ref} (request ${asked.id}). End your turn now; Ted sends you their answer.`,
       )
     },
     taskMove: async () => {
@@ -1747,7 +1747,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         client.requestMove(ref, { factory: options.factory ?? '', reason: options.reason ?? '' }),
       )
       console.log(
-        `Asked the human: “${asked.title ?? `Move ${ref}?`}” (request ${asked.id}). End your turn now; TED sends you their answer.`,
+        `Asked the human: “${asked.title ?? `Move ${ref}?`}” (request ${asked.id}). End your turn now; Ted sends you their answer.`,
       )
     },
     factories: async () => {
@@ -1909,7 +1909,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
           ? `Round ${request.round?.number ?? ''}`
           : `a proposal of ${request.proposal?.rows.length ?? 0} rows`
       console.log(
-        `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} ${what} (request ${request.id}). TED sends you the human’s answer.`,
+        `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} ${what} (request ${request.id}). Ted sends you the human’s answer.`,
       )
     },
     chatQuestion: async () => {
@@ -1928,7 +1928,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         }),
       )
       console.log(
-        `Asked the human (request ${request.id}). End your turn; TED sends you their answer.`,
+        `Asked the human (request ${request.id}). End your turn; Ted sends you their answer.`,
       )
     },
     agentRun: async () => {
@@ -1957,7 +1957,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         client.postChatRequest({ round, ...(supersedes !== undefined && { supersedes }) }),
       )
       console.log(
-        `Posted Round ${request.round?.number ?? ''} (request ${request.id}). End your turn; TED sends you the human’s answers.`,
+        `Posted Round ${request.round?.number ?? ''} (request ${request.id}). End your turn; Ted sends you the human’s answers.`,
       )
     },
     chatProposal: async () => {
@@ -1968,7 +1968,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         client.postChatRequest({ proposal, ...(supersedes !== undefined && { supersedes }) }),
       )
       console.log(
-        `Proposed ${request.proposal?.rows.length ?? 0} Tasks (request ${request.id}). End your turn; TED sends you the human’s answer.`,
+        `Proposed ${request.proposal?.rows.length ?? 0} Tasks (request ${request.id}). End your turn; Ted sends you the human’s answer.`,
       )
     },
     planProposal: async () => {
@@ -1987,7 +1987,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
           ? `Round ${request.round?.number ?? ''}`
           : `a proposal of ${request.proposal?.rows.length ?? 0} rows`
       console.log(
-        `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} ${what} (request ${request.id}). TED sends you the human’s answer.`,
+        `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} ${what} (request ${request.id}). Ted sends you the human’s answer.`,
       )
     },
     reposSet: async () => {
@@ -2081,7 +2081,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         client.postChatRequest({ agent, ...(supersedes !== undefined && { supersedes }) }),
       )
       console.log(
-        `Drafted ${request.title ?? 'the Agent'} (request ${request.id}). End your turn; TED sends you what the human did.`,
+        `Drafted ${request.title ?? 'the Agent'} (request ${request.id}). End your turn; Ted sends you what the human did.`,
       )
     },
     coordinatorCreate: async () => {

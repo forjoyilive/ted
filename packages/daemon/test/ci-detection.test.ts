@@ -102,7 +102,7 @@ describe('CI detection at push', () => {
     expect((await detect(silentGh(), withPullRequest)).ciSignals).toEqual(['workflow-files'])
   })
 
-  test('a workflow TED can’t read the triggers of counts', async () => {
+  test('a workflow Ted can’t read the triggers of counts', async () => {
     const broken = await commit({ '.github/workflows/ci.yml': 'on: [push\n' })
     expect((await detect(silentGh(), broken)).ci).toBe(true)
     const none = await commit({ '.github/workflows/ci.yml': 'jobs: {}\n' })
@@ -149,6 +149,26 @@ describe('CI detection at push', () => {
     expect(await detect(other, sha)).toEqual({ ci: true, ciSignals: ['recent-pull-requests'] })
     const own = silentGh({}, pulls([{ head: 'ted/nb-1', rollup: { state: 'PENDING' } }]))
     expect((await detect(own, sha)).ci).toBe(false)
+  })
+
+  test('checks on base branch commits, such as a deploy build, don’t mean CI', async () => {
+    const sha = await commit({ 'README.md': 'hi' })
+    const deployChecks = {
+      ref: {
+        target: { history: { nodes: [{ statusCheckRollup: { state: 'SUCCESS' } }] } },
+      },
+    }
+    const firstPullRequest = silentGh(
+      {},
+      { data: { repository: { ...deployChecks, pullRequests: { nodes: [] } } } },
+    )
+    expect(await detect(firstPullRequest, sha)).toEqual({ ci: false, ciSignals: [] })
+    const merged = pulls([{ head: 'ted/tbw-1', rollup: null }])
+    const later = silentGh(
+      {},
+      { data: { repository: { ...deployChecks, ...merged.data.repository } } },
+    )
+    expect(await detect(later, sha)).toEqual({ ci: false, ciSignals: [] })
   })
 
   test('a workflow limited to other branches doesn’t count', async () => {

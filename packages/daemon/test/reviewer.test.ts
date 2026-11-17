@@ -136,7 +136,7 @@ const waitForAsk = (client: Client, task: Task) =>
       (await comments(client, task)).find(
         (c) => c.kind === 'question' && c.author.kind === 'ted' && c.answer === undefined,
       ),
-    'TED to ask the human',
+    'Ted to ask the human',
     30_000,
   )
 
@@ -356,7 +356,7 @@ describe('the Validate loop check', () => {
       await waitUntil(
         async () =>
           (await threadEvents(client, task)).some(
-            (e) => e.text === 'TED is checking whether Validate’s 2 rounds are converging',
+            (e) => e.text === 'Ted is checking whether Validate’s 2 rounds are converging',
           ),
         'the pending limit assessment',
         20_000,
@@ -413,7 +413,7 @@ describe('the Validate loop check', () => {
         expect(ask.body).toContain(
           verdict === 'looping'
             ? 'the rounds keep repeating the same problem'
-            : 'TED couldn’t check whether the rounds are making progress',
+            : 'Ted couldn’t check whether the rounds are making progress',
         )
         expect(ask.choices).toEqual(['Keep going', 'Stop the Task'])
         expect(ask.body).not.toContain('The export button does nothing.')
@@ -457,7 +457,7 @@ describe('the Validate loop check', () => {
       const check = runs.find((r) => r.name === 'Loop check · Validate')
       expect(check).toMatchObject({ agent: 'codex', role: 'sub-agent' })
       const texts = (await threadEvents(client, task)).map((e) => e.text)
-      expect(texts).toContain('TED is checking whether Validate’s 3 rounds are converging')
+      expect(texts).toContain('Ted is checking whether Validate’s 3 rounds are converging')
       expect(texts.some((t) => t.startsWith('Loop check: looping'))).toBe(true)
       expect(texts.filter((t) => t.startsWith('Validate sent this back to Work'))).toEqual([
         'Validate sent this back to Work (round 1 of 5)',
@@ -467,7 +467,7 @@ describe('the Validate loop check', () => {
       const refused = await waitUntil(
         async () =>
           (await commandResults(client, task)).find((r) =>
-            r.stderr.includes('TED asked the human whether to keep sending NB-1 back'),
+            r.stderr.includes('Ted asked the human whether to keep sending NB-1 back'),
           ),
         'the Task Lead’s advance to be refused',
         20_000,
@@ -526,7 +526,7 @@ describe('the Validate loop check', () => {
         20_000,
       )
       expect(message).toContain('Verdict: converging.')
-      expect(message).toContain('TED moved this Task back to Work.')
+      expect(message).toContain('Ted moved this Task back to Work.')
     },
     slow,
   )

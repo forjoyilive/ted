@@ -29,19 +29,19 @@ export interface ThreadContext {
 
 const planEndLines: Record<string, string> = {
   approved:
-    'The plan was approved. TED stopped the Task Lead while the Tasks it created are built.',
+    'The plan was approved. Ted stopped the Task Lead while the Tasks it created are built.',
   stopped:
-    'Planning chat stopped without approval. TED told the Task Lead to ask its size question again.',
+    'Planning chat stopped without approval. Ted told the Task Lead to ask its size question again.',
   failed:
-    'Planning chat failed without approval. TED told the Task Lead to ask its size question again.',
+    'Planning chat failed without approval. Ted told the Task Lead to ask its size question again.',
   deleted:
-    'Planning chat deleted without approval. TED told the Task Lead to ask its size question again.',
+    'Planning chat deleted without approval. Ted told the Task Lead to ask its size question again.',
   archived:
-    'Planning chat archived without approval. TED told the Task Lead to ask its size question again.',
+    'Planning chat archived without approval. Ted told the Task Lead to ask its size question again.',
 }
 
 export const nudgeMessage =
-  'Continue. If you need the human to decide or do something, ask with `ted outcome ask "<question>"`; a plain `ted comment` doesn’t wait for them, so TED will ask them why you stopped.'
+  'Continue. If you need the human to decide or do something, ask with `ted outcome ask "<question>"`; a plain `ted comment` doesn’t wait for them, so Ted will ask them why you stopped.'
 
 const agentNames: Record<string, string> = {
   claude: 'Claude',
@@ -111,7 +111,7 @@ function methodNote(data: Record<string, unknown>): string {
   const method = text(data.method)
   const requested = text(data.requested)
   if (method === '' || requested === '' || method === requested) return ''
-  return ` · ${requested} isn’t allowed on GitHub, so TED used ${method}`
+  return ` · ${requested} isn’t allowed on GitHub, so Ted used ${method}`
 }
 
 function leadFailedLine(data: Record<string, unknown>): string {
@@ -137,8 +137,8 @@ function settingsFallback(layers: unknown): string | undefined {
     const file = error?.file ?? (use.layer === 'library' ? 'workflow.yaml' : '.ted/workflow.yaml')
     const where = use.layer === 'library' ? 'Library ' : ''
     return use.status === 'last-valid'
-      ? `Used last valid TED settings: ${where}${file} has an error`
-      : `Used the inherited TED settings: ${where}${file} has an error`
+      ? `Used last valid Ted settings: ${where}${file} has an error`
+      : `Used the inherited Ted settings: ${where}${file} has an error`
   }
   return undefined
 }
@@ -279,7 +279,7 @@ export function threadEvents(
           entry,
           'done',
           setup
-            ? 'TED created this Task to set up this Factory'
+            ? 'Ted created this Task to set up this Factory'
             : byLead
               ? `${context.displayIdOf(text(byLead.data.creatorId))}’s Task Lead created this Task${byLead.data.child === true ? ' as its child' : ''}`
               : 'You created this Task',
@@ -316,7 +316,7 @@ export function threadEvents(
         add(
           entry,
           'done',
-          `TED created ${pieces.length} ${pieces.length === 1 ? 'Task' : 'Tasks'} in Backlog: ${pieces.join(', ')}. ${context.displayIdOf(taskId)} narrowed to ${text(data.narrowedTo)}.`,
+          `Ted created ${pieces.length} ${pieces.length === 1 ? 'Task' : 'Tasks'} in Backlog: ${pieces.join(', ')}. ${context.displayIdOf(taskId)} narrowed to ${text(data.narrowedTo)}.`,
           undefined,
           undefined,
           descriptionChanges(edits.get(entry.at)),
@@ -335,7 +335,7 @@ export function threadEvents(
         add(
           entry,
           'done',
-          'Every Task under this one has merged and it had no work of its own, so TED finished it.',
+          'Every Task under this one has merged and it had no work of its own, so Ted finished it.',
         )
         break
       case 'v1.PlanStartedFromTask': {
@@ -357,7 +357,7 @@ export function threadEvents(
         break
       }
       case 'v1.TaskNeedsPlanning':
-        add(entry, 'edit', 'Moved to Backlog to be planned outside TED')
+        add(entry, 'edit', 'Moved to Backlog to be planned outside Ted')
         break
       case 'v1.TaskStartedAfterPlanning':
         addStart(
@@ -425,7 +425,7 @@ export function threadEvents(
           entry,
           'edit',
           [
-            'TED archived this Task',
+            'Ted archived this Task',
             text(data.why),
             ...(closing.length > 0 ? [`closed ${joinAnd(closing)} on GitHub`] : []),
             ...(branches === 1 ? ['kept the branch'] : branches > 1 ? ['kept the branches'] : []),
@@ -442,14 +442,14 @@ export function threadEvents(
         break
       case 'v1.LinearSyncAllowed':
         if (data.by === 'menu') {
-          add(entry, 'edit', `You let TED sync this Task with ${text(data.identifier)} in Linear`)
+          add(entry, 'edit', `You let Ted sync this Task with ${text(data.identifier)} in Linear`)
         }
         break
       case 'v1.LinearTeamSyncAllowed':
         add(
           entry,
           'edit',
-          `You let TED sync ${text(data.team)} issues with Linear for Automations in this Factory`,
+          `You let Ted sync ${text(data.team)} issues with Linear for Automations in this Factory`,
         )
         break
       case 'v1.LinearPullRequestsLinked': {
@@ -481,7 +481,7 @@ export function threadEvents(
             'edit',
             data.tracker === 'asana'
               ? 'You turned on Task Sync with Asana for this Task'
-              : `You let TED sync this Task with ${text(data.item)} in ${trackerName(text(data.tracker))}`,
+              : `You let Ted sync this Task with ${text(data.item)} in ${trackerName(text(data.tracker))}`,
           )
         }
         break
@@ -491,7 +491,7 @@ export function threadEvents(
           'edit',
           data.tracker === 'asana'
             ? 'You allowed Task Sync with Asana for this Task’s Asana project, for Automations in this Factory'
-            : `You let TED sync ${text(data.group)} with ${trackerName(text(data.tracker))} for Automations in this Factory`,
+            : `You let Ted sync ${text(data.group)} with ${trackerName(text(data.tracker))} for Automations in this Factory`,
         )
         break
       case 'v1.TrackerPullRequestsLinked': {
@@ -585,12 +585,12 @@ export function threadEvents(
           add(
             entry,
             'quiet',
-            'TED stopped the Task: the merged repair couldn’t be brought in · Resume to have the Task Lead try again',
+            'Ted stopped the Task: the merged repair couldn’t be brought in · Resume to have the Task Lead try again',
           )
           break
         }
         const runs = typeof data.runs === 'number' ? data.runs : 0
-        const who = data.why === undefined || data.why === 'human' ? 'You' : 'TED'
+        const who = data.why === undefined || data.why === 'human' ? 'You' : 'Ted'
         add(
           entry,
           who === 'You' ? 'edit' : 'quiet',
@@ -608,8 +608,8 @@ export function threadEvents(
           entry,
           'quiet',
           data.cause === 'quit'
-            ? 'TED stopped the Task Lead when it quit'
-            : 'The Task Lead was stopped when TED went down',
+            ? 'Ted stopped the Task Lead when it quit'
+            : 'The Task Lead was stopped when Ted went down',
         )
         break
       case 'v1.TedStopAnswered':
@@ -625,7 +625,7 @@ export function threadEvents(
         add(
           entry,
           'failure',
-          `This computer ran out of memory, so the check “${text(data.name)}” was stopped. TED didn’t count it as a failure: it runs the check again when memory frees up, or asks you after a second stop in the same Stage.`,
+          `This computer ran out of memory, so the check “${text(data.name)}” was stopped. Ted didn’t count it as a failure: it runs the check again when memory frees up, or asks you after a second stop in the same Stage.`,
           undefined,
           text(data.checkRunId),
         )
@@ -639,7 +639,7 @@ export function threadEvents(
           )
         break
       case 'v1.TaskLeadNudged':
-        add(entry, 'run', `TED nudged the Task Lead: “${nudgeMessage}”`)
+        add(entry, 'run', `Ted nudged the Task Lead: “${nudgeMessage}”`)
         break
       case 'v1.TaskSentBack':
         sentBackTo = text(data.to)
@@ -713,7 +713,7 @@ export function threadEvents(
           entry,
           'failure',
           data.from === data.to
-            ? `Checks kept failing as this Task tried to leave ${stageTitle(text(data.from))}, so TED asked the human`
+            ? `Checks kept failing as this Task tried to leave ${stageTitle(text(data.from))}, so Ted asked the human`
             : `${stageTitle(text(data.from))} wants to send this Task back to ${stageTitle(text(data.to))}`,
           text(data.findings).trim(),
           text(data.checkRunId) || undefined,
@@ -725,7 +725,7 @@ export function threadEvents(
           add(
             entry,
             'failure',
-            `TED kept this Task in ${stageTitle(text(data.stage))}: its branch conflicts with ${text(data.base)} in ${count} ${count === 1 ? 'file' : 'files'}`,
+            `Ted kept this Task in ${stageTitle(text(data.stage))}: its branch conflicts with ${text(data.base)} in ${count} ${count === 1 ? 'file' : 'files'}`,
           )
         }
         break
@@ -758,15 +758,15 @@ export function threadEvents(
         add(entry, 'quiet', `Finished without the failed Cleanup ${stepList(data.steps)}`)
         break
       case 'v1.BaseBranchAdopted':
-        add(entry, 'quiet', `TED moved ${text(data.repo)} to the latest ${text(data.base)}`)
+        add(entry, 'quiet', `Ted moved ${text(data.repo)} to the latest ${text(data.base)}`)
         break
       case 'v1.LoopCheckStarted':
         add(
           entry,
           'run',
           typeof data.round === 'number'
-            ? `TED is checking whether Validate’s ${data.round} rounds are converging`
-            : 'TED is checking whether Validate’s rounds are converging',
+            ? `Ted is checking whether Validate’s ${data.round} rounds are converging`
+            : 'Ted is checking whether Validate’s rounds are converging',
         )
         break
       case 'v1.LoopCheckFinished': {
@@ -843,7 +843,7 @@ export function threadEvents(
         add(
           entry,
           'quiet',
-          `Autopilot is on, so TED skipped the ${stageTitle(text(data.stage))} sign-off`,
+          `Autopilot is on, so Ted skipped the ${stageTitle(text(data.stage))} sign-off`,
         )
         break
       case 'v1.TaskLeadSet':
@@ -889,7 +889,7 @@ export function threadEvents(
             : text(data.forTask) !== ''
               ? `to free a slot for ${text(data.forTask)}`
               : 'to free a slot'
-        add(entry, 'quiet', `TED shut down ${text(data.name)}’s ${device} ${why}`)
+        add(entry, 'quiet', `Ted shut down ${text(data.name)}’s ${device} ${why}`)
         break
       }
       case 'v1.TaskWorktreeSetupStarted':
@@ -1002,7 +1002,7 @@ export function threadEvents(
         add(
           entry,
           'failure',
-          `Merge stopped partway · ${joinAnd(merged)} merged, ${joinAnd(open)} didn’t. TED doesn’t revert a merged pull request.`,
+          `Merge stopped partway · ${joinAnd(merged)} merged, ${joinAnd(open)} didn’t. Ted doesn’t revert a merged pull request.`,
         )
         break
       }
@@ -1020,7 +1020,7 @@ export function threadEvents(
         add(
           entry,
           'quiet',
-          `The ${text(data.name)} branch on GitHub was at ${text(data.remote).slice(0, 8)}, ahead of TED’s recorded push ${text(data.recorded).slice(0, 8)} · the commit being pushed includes it, so TED updated its record`,
+          `The ${text(data.name)} branch on GitHub was at ${text(data.remote).slice(0, 8)}, ahead of Ted’s recorded push ${text(data.recorded).slice(0, 8)} · the commit being pushed includes it, so Ted updated its record`,
         )
         break
       case 'v1.TaskRunReleased':
@@ -1035,7 +1035,7 @@ export function threadEvents(
 function outsideCiNote(notices: unknown): string {
   const list = Array.isArray(notices) ? (notices as { kind?: unknown }[]) : []
   return list.some((n) => n.kind === 'outside-ci')
-    ? ' · TED passed on only how many checks from outside apps failed; look at them on GitHub'
+    ? ' · Ted passed on only how many checks from outside apps failed; look at them on GitHub'
     : ''
 }
 

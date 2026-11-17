@@ -166,7 +166,7 @@ function withCoordinator() {
   return { a, shown, open, changed }
 }
 
-test('the Coordinator draws its conversation like a Task thread: your messages to the Coordinator, TED’s continuation and receipts as event lines, and its questions as cards you answer', async () => {
+test('the Coordinator draws its conversation like a Task thread: your messages to the Coordinator, Ted’s continuation and receipts as event lines, and its questions as cards you answer', async () => {
   const { a, shown, open } = withCoordinator()
   const question: ChatRequest = {
     id: 'q1',
@@ -185,9 +185,9 @@ test('the Coordinator draws its conversation like a Task thread: your messages t
   const chat = await within(pane).findByRole('region', { name: 'Run chat' })
   expect(within(chat).getByText('Start with NB-1.')).toBeTruthy()
   expect(within(chat).getByText('What should we work on next?')).toBeTruthy()
-  const fromTed = within(chat).getByText(`From TED · ${continuation}`)
+  const fromTed = within(chat).getByText(`From Ted · ${continuation}`)
   expect(fromTed.closest('li')).toBeTruthy()
-  expect(within(chat).queryByRole('button', { name: /From TED/ })).toBeNull()
+  expect(within(chat).queryByRole('button', { name: /From Ted/ })).toBeNull()
   expect(within(chat).getAllByText('Nabha Cosley')).toHaveLength(2)
   expect(within(chat).getAllByText(/to the Coordinator/)).toHaveLength(2)
   expect(within(chat).queryByText(/to this Run only/)).toBeNull()
@@ -634,7 +634,7 @@ test('with no chats Agents opens New chat: a card for every Agent; a picked Agen
   expect(screen.queryByRole('heading', { name: 'New chat' })).toBeNull()
 })
 
-test('an overridden Coordinator keeps its icon and TED’s description; the New Agent card opens this Factory’s Agent files settings', async () => {
+test('an overridden Coordinator keeps its icon and Ted’s description; the New Agent card opens this Factory’s Agent files settings', async () => {
   const { a, shown, open } = withCoordinator()
   shown.chats = []
   a.handle('factoryAgents', () => [{ ...coordinatorAgent, source: 'factory' }, plannerAgent])

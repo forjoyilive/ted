@@ -93,13 +93,13 @@ async function stopsAtDesign(client: Client, task: Task, line: string) {
   const res = await advance(client, task)
   expect(res.body).toMatchObject({
     task: { stage: 'design' },
-    message: 'Waiting for the human at the Design sign-off. TED sends you their answer.',
+    message: 'Waiting for the human at the Design sign-off. Ted sends you their answer.',
   })
   expect(await lines(client, task)).toContain(line)
 }
 
 describe('Autopilot turns Sign-offs off', () => {
-  test('with Design, Review and Merge sign-offs saved, a Task runs to Done with no Sign-off request, while one that changes .ted/, one whose worktree TED can’t read and one from an issue with outsider text stop at Design', async () => {
+  test('with Design, Review and Merge sign-offs saved, a Task runs to Done with no Sign-off request, while one that changes .ted/, one whose worktree Ted can’t read and one from an issue with outsider text stop at Design', async () => {
     const client = await start(gated)
     await overnight(client, true)
     const source = await outsiderIssue(client)
@@ -144,7 +144,7 @@ describe('Autopilot turns Sign-offs off', () => {
         await stopsAtDesign(
           client,
           task,
-          'Autopilot is on, but TED couldn’t read this Task’s changes, so its Design sign-off stays on',
+          'Autopilot is on, but Ted couldn’t read this Task’s changes, so its Design sign-off stays on',
         )
         return
       }
@@ -159,9 +159,9 @@ describe('Autopilot turns Sign-offs off', () => {
       const all = await client.ok<{ gate?: unknown }[]>('GET', `/tasks/${task.id}/comments`)
       expect(all.filter((c) => c.gate !== undefined)).toEqual([])
       const thread = await lines(client, task)
-      expect(thread).toContain('Autopilot is on, so TED skipped the Design sign-off')
-      expect(thread).toContain('Autopilot is on, so TED skipped the Review sign-off')
-      expect(thread).toContain('Autopilot is on, so TED skipped the Merge sign-off')
+      expect(thread).toContain('Autopilot is on, so Ted skipped the Design sign-off')
+      expect(thread).toContain('Autopilot is on, so Ted skipped the Review sign-off')
+      expect(thread).toContain('Autopilot is on, so Ted skipped the Merge sign-off')
     })
   }, 120_000)
 
@@ -194,7 +194,7 @@ describe('Autopilot turns Sign-offs off', () => {
     await advanceTo(client, task, 'work')
     await advanceTo(client, task, 'validate')
     expect(await gateRequests(client, task)).toEqual([])
-    expect(await lines(client, task)).toContain('Autopilot is on, so TED skipped the Work sign-off')
+    expect(await lines(client, task)).toContain('Autopilot is on, so Ted skipped the Work sign-off')
     await overnight(client, false)
     expect(row(await gates(client, task), 'review')).toMatchObject({ effective: true })
     expect((await gates(client, task)).overrides).toEqual({ work: true })
@@ -203,7 +203,7 @@ describe('Autopilot turns Sign-offs off', () => {
     const res = await advance(client, task)
     expect(res.body).toMatchObject({
       task: { stage: 'review' },
-      message: 'Waiting for the human at the Review sign-off. TED sends you their answer.',
+      message: 'Waiting for the human at the Review sign-off. Ted sends you their answer.',
     })
     expect((await gateRequests(client, task)).map((item) => item.request.stage)).toEqual(['review'])
   })
@@ -220,7 +220,7 @@ describe('Autopilot turns Sign-offs off', () => {
     const res = await advance(client, task)
     expect(res.body).toMatchObject({
       task: { stage: 'design' },
-      message: 'Waiting for the human at the Design sign-off. TED sends you their answer.',
+      message: 'Waiting for the human at the Design sign-off. Ted sends you their answer.',
     })
     expect(await gateRequests(client, task)).toHaveLength(1)
     expect(row(await gates(client, task), 'review')).toMatchObject({ effective: true })

@@ -369,8 +369,8 @@ function CliRow({
         <>
           <p className={styles.detail}>
             {tooOld
-              ? `gh ${cli.version} is older than ${minGhVersion}, the oldest version TED supports`
-              : 'TED reaches GitHub through the GitHub CLI, gh'}
+              ? `gh ${cli.version} is older than ${minGhVersion}, the oldest version Ted supports`
+              : 'Ted reaches GitHub through the GitHub CLI, gh'}
           </p>
           <p className={styles.danger}>Needed to add a Factory and to merge.</p>
           {cli.fix &&
@@ -414,7 +414,7 @@ function GitRow({
         }
         lines={
           <>
-            <p className={styles.detail}>TED needs Git to clone repos and make worktrees.</p>
+            <p className={styles.detail}>Ted needs Git to clone repos and make worktrees.</p>
             {git.fix &&
               ('command' in git.fix ? (
                 <code className={styles.command}>{git.fix.command}</code>

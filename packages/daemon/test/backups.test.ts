@@ -147,7 +147,7 @@ describe('pre-update backups', () => {
     expect(await readdir(path.join(copied, 'ted'))).toEqual(['eventlog@6.db'])
 
     const outside = await mkdtemp(path.join(tmpdir(), 'ted-outside-'))
-    await writeFile(path.join(outside, 'eventlog@6.db'), 'not TED’s')
+    await writeFile(path.join(outside, 'eventlog@6.db'), 'not Ted’s')
     await rm(path.join(store, 'ted'), { recursive: true })
     await symlink(outside, path.join(store, 'ted'))
     now = new Date(now.getTime() + 1000)

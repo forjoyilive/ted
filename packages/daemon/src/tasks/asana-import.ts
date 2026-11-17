@@ -162,7 +162,7 @@ export function planAsanaImport(input: {
           reason:
             task.parentId === undefined
               ? `it’s already ${task.displayId}, which can’t go under this Task without a loop`
-              : `it’s already ${task.displayId}, under ${parentDisplayId}; TED left it there`,
+              : `it’s already ${task.displayId}, under ${parentDisplayId}; Ted left it there`,
         })
         childAnchor = { taskId: task.id }
       }
@@ -201,7 +201,7 @@ export function planAsanaImport(input: {
   }
   if (tree.tooBig !== undefined) refusal = tree.tooBig
   else if (creates.length > maxAsanaImportTasks)
-    refusal = `This import would create ${creates.length} Tasks. TED imports at most ${maxAsanaImportTasks} at a time.`
+    refusal = `This import would create ${creates.length} Tasks. Ted imports at most ${maxAsanaImportTasks} at a time.`
   const ownership = { you: 0, others: 0, unassigned: 0 }
   for (const { node } of creates) {
     const who = person(node)
@@ -230,13 +230,13 @@ export function planAsanaImport(input: {
 
 function problemsOf(node: AsanaNode): string[] {
   const problems: string[] = [...(node.partial ?? []).map((line) => `${line}.`)]
-  if (node.cut) problems.push('TED copies only the start of a very long description or comment.')
+  if (node.cut) problems.push('Ted copies only the start of a very long description or comment.')
   if (node.commentsWarning !== undefined) problems.push(node.commentsWarning)
   const missing = node.unfetched?.length ?? 0
   if (missing > 0) {
     const total = missing + (node.files?.length ?? 0)
     problems.push(
-      `TED could fetch ${total - missing} of ${total} files. The other ${missing === 1 ? 'one stays' : `${missing} stay`} as links in a TED note.`,
+      `Ted could fetch ${total - missing} of ${total} files. The other ${missing === 1 ? 'one stays' : `${missing} stay`} as links in a Ted note.`,
     )
   }
   return problems
@@ -300,7 +300,7 @@ export function asanaNotes(node: AsanaNode): string[] {
   )
   if (node.cut) {
     notes.push(
-      `This item’s description or a comment was longer than TED copies, so the Task has only the start of it. Read the rest in Asana: ${node.url}`,
+      `This item’s description or a comment was longer than Ted copies, so the Task has only the start of it. Read the rest in Asana: ${node.url}`,
     )
   }
   if (node.commentsWarning !== undefined) {
@@ -310,7 +310,7 @@ export function asanaNotes(node: AsanaNode): string[] {
   if (missing.length > 0) {
     notes.push(
       [
-        `TED couldn’t fetch ${missing.length} ${missing.length === 1 ? 'file' : 'files'} from Asana. Their links:`,
+        `Ted couldn’t fetch ${missing.length} ${missing.length === 1 ? 'file' : 'files'} from Asana. Their links:`,
         ...missing.map((file) => `- ${file.name}: ${file.reason}. ${file.url}`),
       ].join('\n'),
     )

@@ -77,7 +77,7 @@ export async function reportDirectory(requested: string, checkout: string, scrat
     if (stat && !stat.isDirectory()) throw new Error('report directory must be a plain directory')
   }
   if (forbidden.some((p) => within(p, absolute)))
-    throw new Error('report directory must be outside checkout, scratch and personal TED homes')
+    throw new Error('report directory must be outside checkout, scratch and personal Ted homes')
   await mkdir(absolute, { recursive: true, mode: 0o700 })
   const canonical = await realpath(absolute)
   if (canonical !== absolute || forbidden.some((p) => within(p, canonical)))

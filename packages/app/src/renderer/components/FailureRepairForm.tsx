@@ -197,7 +197,7 @@ export function FailureRepairForm({
         {reason?.trim() && <p className={styles.caption}>Your comment: {reason.trim()}</p>}
         <p className={styles.notice}>
           {task.displayId} will keep its Stage and worktree. Its Task Lead will stop, freeing its
-          working-Run slot. When the repair merges, TED will queue continuation, incorporate the
+          working-Run slot. When the repair merges, Ted will queue continuation, incorporate the
           repair and run fresh validation.
         </p>
         {error && (

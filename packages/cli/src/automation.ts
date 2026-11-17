@@ -32,7 +32,7 @@ export interface AutomationOptions {
   off?: boolean
 }
 
-const appOnly = 'only the TED app can do this'
+const appOnly = 'only the Ted app can do this'
 
 import type { commands } from './commands.ts'
 
@@ -141,7 +141,7 @@ export async function automationCommand(
       const summary = rest.join(' ').trim()
       if (summary === '') throw new AutomationUsageError('give a summary as text')
       await withDaemon(home, (client) => client.reportAutomationRun(summary))
-      console.log('Reported. TED makes no Tasks of its own for this firing.')
+      console.log('Reported. Ted makes no Tasks of its own for this firing.')
     },
   }
   try {
@@ -149,7 +149,7 @@ export async function automationCommand(
   } catch (error) {
     if (error instanceof Error && error.message === appOnly) {
       throw new Error(
-        'Create, change, run or delete Automations in the TED app. From a terminal, ted automation can list, show, history and disable.',
+        'Create, change, run or delete Automations in the Ted app. From a terminal, ted automation can list, show, history and disable.',
       )
     }
     throw error

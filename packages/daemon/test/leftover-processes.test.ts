@@ -46,7 +46,7 @@ test('lsof never checks files on disk and never names a file, so it can’t reac
   )
 })
 
-test('a process matches only inside the Task’s own folder, and TED’s own process never does', async () => {
+test('a process matches only inside the Task’s own folder, and Ted’s own process never does', async () => {
   const list = async () => [
     { pid: 11, path: '/home/ted/worktrees/NB-1' },
     { pid: 12, path: '/home/ted/worktrees/NB-1/widgets/node_modules/.bin/ted' },

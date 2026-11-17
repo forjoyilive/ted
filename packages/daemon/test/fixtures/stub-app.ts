@@ -1,13 +1,14 @@
 import { createHash } from 'node:crypto'
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
+import https from 'node:https'
 import type { Duplex } from 'node:stream'
 
 const port = Number(process.env.PORT)
 const crashAfter = Number(process.env.STUB_APP_CRASH_AFTER_MS ?? '0')
 const workerSockets = new Set<Duplex>()
 let workerMessages = 0
-const server = http.createServer((req, res) => {
+function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   if (process.env.STUB_APP_BROWSER === '1') {
     const url = new URL(req.url ?? '/', 'http://localhost')
     if (url.pathname === '/browser-service-worker.js') {
@@ -65,7 +66,13 @@ const server = http.createServer((req, res) => {
       home: process.env.TED_HOME ?? null,
     }),
   )
-})
+}
+const tlsKey = process.env.STUB_APP_TLS_KEY
+const tlsCert = process.env.STUB_APP_TLS_CERT
+const server =
+  tlsKey && tlsCert
+    ? https.createServer({ key: readFileSync(tlsKey), cert: readFileSync(tlsCert) }, handle)
+    : http.createServer(handle)
 server.on('upgrade', (req, socket) => {
   const key = req.headers['sec-websocket-key']
   if (process.env.STUB_APP_BROWSER !== '1' || req.url !== '/browser-worker-socket' || !key) {

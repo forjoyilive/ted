@@ -81,6 +81,16 @@ describe('schedules', () => {
     expect(describeSchedule(hourly, 'UTC')).toBe('Every 2 hours')
   })
 
+  test('RRULE text with a long run of spaces is read in one pass', () => {
+    const spaces = ' '.repeat(100_000)
+    const spaced = scheduleFromExpression(`RRULE:FREQ=DAILY;${spaces};INTERVAL=2`)
+    expect(checkSchedule(spaced, 'UTC', at('2026-11-09T10:00:00Z'))).toMatch(/has no value$/)
+    const daily = scheduleFromExpression(`dtstart:20261109T090000Z${spaces}rrule:FREQ=DAILY`)
+    expect(iso(nextFirings(daily, 'UTC', at('2026-11-09T10:00:00Z'), 1))).toEqual([
+      '2026-11-10T09:00:00.000Z',
+    ])
+  })
+
   test('cron with both day fields fires on either', () => {
     const schedule = scheduleFromExpression('0 6 1 * MON')
     expect(iso(nextFirings(schedule, 'UTC', at('2026-11-28T00:00:00Z'), 3))).toEqual([

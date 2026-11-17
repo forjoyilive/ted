@@ -74,20 +74,20 @@ const otherChoices = (validation: boolean) =>
 
 const cantAccept = {
   changed:
-    'This failure can’t be accepted: the Task’s code or checks changed since it was tested, and TED can’t tie a later test run to it.',
+    'This failure can’t be accepted: the Task’s code or checks changed since it was tested, and Ted can’t tie a later test run to it.',
   unknown:
-    'This failure can’t be accepted: TED has no record it can verify of what was tested when it happened.',
+    'This failure can’t be accepted: Ted has no record it can verify of what was tested when it happened.',
 }
 
 export const acceptRefusals = {
   changed:
     'The Task’s code or checks changed since this failure was assessed, so it can’t be accepted as it is. Ask the Task Lead to assess it again.',
   changedForGood: (validation: boolean) =>
-    `The Task’s code or checks changed since this failure was tested, and TED can’t tie a later test run to it, so it can’t be accepted any more. ${otherChoices(validation)}`,
+    `The Task’s code or checks changed since this failure was tested, and Ted can’t tie a later test run to it, so it can’t be accepted any more. ${otherChoices(validation)}`,
   unverified:
-    'TED couldn’t read the Task’s current code, checks and CI to compare them with what was tested, so this failure can’t be accepted right now. Try again in a moment.',
+    'Ted couldn’t read the Task’s current code, checks and CI to compare them with what was tested, so this failure can’t be accepted right now. Try again in a moment.',
   unknown:
-    'TED has no record it can verify of what was tested when this failure happened, so it can’t be accepted. Ask the Task Lead to record it again with a tested context.',
+    'Ted has no record it can verify of what was tested when this failure happened, so it can’t be accepted. Ask the Task Lead to record it again with a tested context.',
 }
 
 const assessmentWords: Record<AssessFailureRequest['assessment'], string> = {
@@ -110,7 +110,7 @@ const freshContextSteps = (id: string) =>
   `Capture a fresh context with \`ted failure context\`, add evidence that names it with \`ted failure evidence ${shortReference(id)} --file <json>\` (\`{"evidence":"…","contextId":"<new context ID>"}\`), then run \`ted failure assess ${shortReference(id)} --file <json>\` and \`ted failure ask ${shortReference(id)}\`. Evidence without the new contextId leaves the decision bound to the old context.`
 
 const newCaseSteps =
-  'A newly captured context can’t be attached to this failure, because TED can’t tie a later capture to the execution that failed. Run the verification again after `ted failure context` (`ted checks` for a Factory check); a failure that happens again is a new case to record, assess and ask about.'
+  'A newly captured context can’t be attached to this failure, because Ted can’t tie a later capture to the execution that failed. Run the verification again after `ted failure context` (`ted checks` for a Factory check); a failure that happens again is a new case to record, assess and ask about.'
 
 export function leadClosesFailures(workflow: ResolvedWorkflow): boolean {
   return workflow.settings.stages.work?.lead_closes_failures === true
@@ -272,7 +272,7 @@ export function createFailureCases(options: {
     if (!context || !tiedContext(task, value, context)) return 'unknown'
     if (observedCi) {
       if (observedCi.value === null) return 'unknown'
-      // A CI case TED recorded at Merge is closed or replaced from the same read by
+      // A CI case Ted recorded at Merge is closed or replaced from the same read by
       // the Tasks module, so a rerun must not first count as a changed context here.
       const same =
         value.source.kind === 'github-ci'
@@ -373,7 +373,7 @@ export function createFailureCases(options: {
     why: string,
     current?: FailureContext | null,
   ) {
-    const body = `The human chose Accept this failure for failure case ${shortReference(value.id)} (decision ${requestId}) and TED refused it: ${why} The question stays open and the Task stays held. ${nextSteps(task, value, current)}`
+    const body = `The human chose Accept this failure for failure case ${shortReference(value.id)} (decision ${requestId}) and Ted refused it: ${why} The question stays open and the Task stays held. ${nextSteps(task, value, current)}`
     if (
       store
         .listComments(task.id)
@@ -600,14 +600,14 @@ export function createFailureCases(options: {
         taskId: task.id,
         author: { kind: 'ted' },
         title: ciFailureNoticeTitle,
-        body: `Failure ${shortReference(value.id)}\n\n${value.evidence}\n\nThe Task stays in Merge for investigation. No send-back was recorded.\n\nInvestigate this failure, add evidence and assess regression, unrelated or uncertain. TED’s merge watcher sends supported regressions through Work, Validate and Review sign-off. Ask the user about unrelated or uncertain failures with \`ted failure ask <id>\`. Retry means the user or GitHub’s CI reruns the job: never start a GitHub workflow yourself. TED closes this failure when a later attempt of the same check passes. Only the merge watcher can progress Merge; do not advance, merge or approve.`,
+        body: `Failure ${shortReference(value.id)}\n\n${value.evidence}\n\nThe Task stays in Merge for investigation. No send-back was recorded.\n\nInvestigate this failure, add evidence and assess regression, unrelated or uncertain. Ted’s merge watcher sends supported regressions through Work, Validate and Review sign-off. Ask the user about unrelated or uncertain failures with \`ted failure ask <id>\`. Retry means the user or GitHub’s CI reruns the job: never start a GitHub workflow yourself. Ted closes this failure when a later attempt of the same check passes. Only the merge watcher can progress Merge; do not advance, merge or approve.`,
       })
     else if (value.validation)
       store.postComment({
         taskId: task.id,
         author: { kind: 'ted' },
         title: mergesHere(task.stage) ? mergeFailureNoticeTitle : 'Validate failure recorded',
-        body: `Failure ${shortReference(value.id)}\n\n${value.evidence}\n\n${value.source.kind === 'factory-check' && store.getCheckRun(value.source.checkRunId)?.trigger === 'validate' ? 'TED sends the Task back to Work with this failure. If Validate has reached its limit of returns, TED asks you first.' : `The Task stays in ${mergesHere(task.stage) ? 'Merge' : 'Validate'} for investigation. No send-back was recorded.`}${mergesHere(task.stage) ? '\n\nInvestigate this failure, add evidence and assess regression, unrelated or uncertain. TED’s merge watcher sends supported regressions through Work, Validate and Review sign-off. Ask the user about unrelated or uncertain failures with `ted failure ask <id>`. Only the merge watcher can progress Merge; do not advance, merge or approve.' : ''}`,
+        body: `Failure ${shortReference(value.id)}\n\n${value.evidence}\n\n${value.source.kind === 'factory-check' && store.getCheckRun(value.source.checkRunId)?.trigger === 'validate' ? 'Ted sends the Task back to Work with this failure. If Validate has reached its limit of returns, Ted asks you first.' : `The Task stays in ${mergesHere(task.stage) ? 'Merge' : 'Validate'} for investigation. No send-back was recorded.`}${mergesHere(task.stage) ? '\n\nInvestigate this failure, add evidence and assess regression, unrelated or uncertain. Ted’s merge watcher sends supported regressions through Work, Validate and Review sign-off. Ask the user about unrelated or uncertain failures with `ted failure ask <id>`. Only the merge watcher can progress Merge; do not advance, merge or approve.' : ''}`,
       })
     await store.persisted()
     await options.onHold(task)
@@ -827,7 +827,7 @@ export function createFailureCases(options: {
       if (fromWork && why)
         throw new RequestError(
           409,
-          `${why} Report \`ted outcome advance\` again: TED runs the checks on the current code when the Task enters Validate.`,
+          `${why} Report \`ted outcome advance\` again: Ted runs the checks on the current code when the Task enters Validate.`,
         )
       const closable = untied && value.validation === true
       return store.postFailureDecision(
@@ -842,10 +842,10 @@ export function createFailureCases(options: {
               ? closable
                 ? `Retry runs the checks again. Fix in this Task sends it back to Work. Fixed and No longer applicable close it and need a reason. ${why}`
                 : value.validation
-                  ? `${value.source.kind === 'github-ci' ? 'Retry waits for the check to be rerun on GitHub; TED never starts it.' : 'Retry runs the failed step again.'} Fix in this Task sends it back to Work. ${why}`
+                  ? `${value.source.kind === 'github-ci' ? 'Retry waits for the check to be rerun on GitHub; Ted never starts it.' : 'Retry runs the failed step again.'} Fix in this Task sends it back to Work. ${why}`
                   : `Close it as fixed or no longer applicable, with a reason. ${why} If it still happens, write to the Task Lead instead: a failure that happens again is recorded as a new one.`
               : value.validation && value.source.kind === 'github-ci'
-                ? 'Retry waits for the check to be rerun on GitHub; TED never starts it. Fix in this Task sends it back to Work. Accept this failure lets the Task go on with it, for this commit and this attempt of the check; it doesn’t count as passed, approve a merge or override a check GitHub requires.'
+                ? 'Retry waits for the check to be rerun on GitHub; Ted never starts it. Fix in this Task sends it back to Work. Accept this failure lets the Task go on with it, for this commit and this attempt of the check; it doesn’t count as passed, approve a merge or override a check GitHub requires.'
                 : value.validation
                   ? 'Retry runs the failed step again. Fix in this Task sends it back to Work. Accept this failure lets the Task go on with it, for the code as tested; it doesn’t count as passed or approve a merge.'
                   : 'Accept this failure lets the Task go on with it, for the code as tested; it doesn’t count as passed. Fixed and No longer applicable close it and need a reason.',
@@ -896,7 +896,7 @@ export function createFailureCases(options: {
           if (!context || !tiedContext(task, value, context)) {
             refused = {
               value,
-              why: 'TED can’t verify what was tested for the context this decision is bound to.',
+              why: 'Ted can’t verify what was tested for the context this decision is bound to.',
             }
             throw new RequestError(409, acceptRefusals.unknown)
           }

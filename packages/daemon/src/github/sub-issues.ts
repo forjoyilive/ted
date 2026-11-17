@@ -94,7 +94,7 @@ export async function readSubIssueTree(input: {
 }
 
 const unreadableWhy: Record<GitHubUnreadable, string> = {
-  'gh-missing': 'TED can’t find the GitHub CLI',
+  'gh-missing': 'Ted can’t find the GitHub CLI',
   'signed-out': 'the GitHub CLI isn’t signed in',
   'not-found': 'GitHub couldn’t find it, or your GitHub login can’t open it',
   'rate-limit': 'GitHub’s rate limit was reached',
@@ -104,7 +104,7 @@ const unreadableWhy: Record<GitHubUnreadable, string> = {
 export function subIssueNote(rootLabel: string, rootUrl: string, tree: SubIssueTree): string[] {
   if (tree.state === 'unreadable') {
     return [
-      `TED couldn’t read the sub-issues of GitHub issue ${rootLabel} (at ${tree.label}: ${unreadableWhy[tree.reason]}), so it created no child Tasks. Add them as Tasks yourself from ${rootUrl}`,
+      `Ted couldn’t read the sub-issues of GitHub issue ${rootLabel} (at ${tree.label}: ${unreadableWhy[tree.reason]}), so it created no child Tasks. Add them as Tasks yourself from ${rootUrl}`,
     ]
   }
   if (tree.skipped.length === 0) return []
@@ -113,11 +113,11 @@ export function subIssueNote(rootLabel: string, rootUrl: string, tree: SubIssueT
       ? 'in a repo outside this Factory'
       : skip.kind === 'tracked'
         ? `already tracked as ${skip.displayId}`
-        : `past TED’s limit of ${maxSubIssueTasks} child Tasks or ${maxSubIssueDepth} levels`
+        : `past Ted’s limit of ${maxSubIssueTasks} child Tasks or ${maxSubIssueDepth} levels`
   const count = tree.skipped.length
   return [
     [
-      `TED didn’t make child Tasks for ${count} open ${count === 1 ? 'sub-issue' : 'sub-issues'} of GitHub issue ${rootLabel}, or for anything under ${count === 1 ? 'it' : 'them'}:`,
+      `Ted didn’t make child Tasks for ${count} open ${count === 1 ? 'sub-issue' : 'sub-issues'} of GitHub issue ${rootLabel}, or for anything under ${count === 1 ? 'it' : 'them'}:`,
       ...tree.skipped.map((skip) => `- ${skip.label}: ${why(skip)}. ${skip.url}`),
     ].join('\n'),
   ]

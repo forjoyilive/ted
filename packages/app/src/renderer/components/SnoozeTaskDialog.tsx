@@ -78,8 +78,8 @@ export function SnoozeTaskDialog({
             </p>
           )}
           <p className={styles.note}>
-            TED starts it automatically when due, even if automatic Backlog starts are off. It waits
-            for blockers and a free slot. If TED is quit, it starts when TED next runs.
+            Ted starts it automatically when due, even if automatic Backlog starts are off. It waits
+            for blockers and a free slot. If Ted is quit, it starts when Ted next runs.
           </p>
           {(error ?? invalid) && (
             <p className={styles.error} role="alert">

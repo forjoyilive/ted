@@ -118,7 +118,7 @@ export const taskRoutes: Route[] = [
     path: /^\/factories\/([^/]+)\/task-draft$/,
     handle: async ({ params: [factoryId = ''], caller }, { store }) => {
       if (caller.kind !== 'app')
-        throw new HttpError(403, 'only the TED app can read New Task drafts')
+        throw new HttpError(403, 'only the Ted app can read New Task drafts')
       if (!store.getFactory(factoryId)) throw new HttpError(404, 'no such Factory')
       return [200, store.taskDraft(factoryId)]
     },
@@ -321,7 +321,7 @@ export const taskRoutes: Route[] = [
     optionalBody: true,
     async handle({ params: [ref = ''], body, caller }, { tasks }) {
       if (body.prepare && caller.kind !== 'app')
-        throw new HttpError(403, 'only the TED app can prepare Tasks')
+        throw new HttpError(403, 'only the Ted app can prepare Tasks')
       return [200, await tasks.start(ref, body)]
     },
   }),
@@ -592,7 +592,7 @@ export const taskRoutes: Route[] = [
     method: 'GET',
     path: /^\/tasks\/([^/?]+)\/files$/,
     async handle({ params: [ref = ''], caller }, { tasks }) {
-      if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can read files')
+      if (caller.kind !== 'app') throw new HttpError(403, 'only the Ted app can read files')
       return [200, await tasks.files(ref)]
     },
   },
@@ -600,7 +600,7 @@ export const taskRoutes: Route[] = [
     method: 'GET',
     path: /^\/tasks\/([^/?]+)\/repos\/([^/?]+)\/file(?:\?.*)?$/,
     async handle({ req, params: [ref = '', repo = ''], caller }, { tasks }) {
-      if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can read files')
+      if (caller.kind !== 'app') throw new HttpError(403, 'only the Ted app can read files')
       const relative = new URL(req.url ?? '/', 'http://localhost').searchParams.get('path') ?? ''
       return [200, await tasks.file(ref, repo, relative)]
     },
@@ -609,7 +609,7 @@ export const taskRoutes: Route[] = [
     method: 'GET',
     path: /^\/tasks\/([^/?]+)\/pull-request-changes\/([^/?]+)$/,
     async handle({ params: [ref = '', repo = ''], caller }, { tasks }) {
-      if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can read PR changes')
+      if (caller.kind !== 'app') throw new HttpError(403, 'only the Ted app can read PR changes')
       return [200, await tasks.pullRequestChanges(ref, repo)]
     },
   },
@@ -630,7 +630,7 @@ export const taskRoutes: Route[] = [
     method: 'GET',
     path: /^\/tasks\/([^/?]+)\/commits(?:\?.*)?$/,
     async handle({ req, params: [ref = ''], caller }, { tasks }) {
-      if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can look up commits')
+      if (caller.kind !== 'app') throw new HttpError(403, 'only the Ted app can look up commits')
       const ids = new URL(req.url ?? '/', 'http://localhost').searchParams.get('ids') ?? ''
       return [200, await tasks.commits(ref, ids.split(',').slice(0, maxCommitLookups))]
     },
@@ -639,7 +639,7 @@ export const taskRoutes: Route[] = [
     method: 'GET',
     path: /^\/tasks\/([^/?]+)\/commits\/([^/?]+)$/,
     async handle({ params: [ref = '', commit = ''], caller }, { tasks }) {
-      if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can read a commit')
+      if (caller.kind !== 'app') throw new HttpError(403, 'only the Ted app can read a commit')
       return [200, await tasks.commitChanges(ref, commit)]
     },
   },

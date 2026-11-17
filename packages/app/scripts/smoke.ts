@@ -12,7 +12,7 @@ function builtTed(): string {
   if (given !== undefined) return path.resolve(given)
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
   if (process.platform === 'darwin') {
-    const app = path.join(release, arch === 'arm64' ? 'mac-arm64' : 'mac', 'TED.app')
+    const app = path.join(release, arch === 'arm64' ? 'mac-arm64' : 'mac', 'Ted.app')
     return path.join(app, 'Contents', 'Resources', 'bin', 'ted')
   }
   const dir = path.join(release, arch === 'arm64' ? 'linux-arm64-unpacked' : 'linux-unpacked')

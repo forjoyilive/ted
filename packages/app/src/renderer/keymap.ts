@@ -32,7 +32,7 @@ const sections: readonly SheetSection[] = [
       },
       { id: 'settings', label: 'Settings', keys: ['⌘,'] },
       { id: 'shortcuts', label: 'Keyboard shortcuts', keys: ['?', '⌘/'] },
-      { id: 'quit', label: 'Quit TED', keys: ['⌘Q'] },
+      { id: 'quit', label: 'Quit Ted', keys: ['⌘Q'] },
     ],
   },
   {

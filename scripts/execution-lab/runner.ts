@@ -285,7 +285,7 @@ export async function runLab(options: LabOptions, run: Execute = execute, publis
     replay: {
       command: replay,
       candidate: null,
-      instruction: `Lab run ${id}. Restore the recorded clean candidate. Configuration/SSH keys stay on the controller. Existing-run actions require --run-id ${id}. Lab-access proves infrastructure only, not remote TED execution. Inspect/stop/cleanup this run after interruption; never delete or kill unowned resources.`,
+      instruction: `Lab run ${id}. Restore the recorded clean candidate. Configuration/SSH keys stay on the controller. Existing-run actions require --run-id ${id}. Lab-access proves infrastructure only, not remote Ted execution. Inspect/stop/cleanup this run after interruption; never delete or kill unowned resources.`,
     },
   }
   const deployed: LabHost[] = []

@@ -311,7 +311,7 @@ test('turning the setting off starts what the load was holding', async () => {
   expect((await slotsOf(client)).busy).toBeUndefined()
 })
 
-test('the limit above is still the most TED runs when this computer is quiet', async () => {
+test('the limit above is still the most Ted runs when this computer is quiet', async () => {
   const client = await startWithStub()
   await client.ok('PATCH', '/settings', { maxWorkingRuns: 1 })
   await startTask(client, workingUntil(never()))

@@ -54,7 +54,7 @@ describe('installing the ted command on macOS', () => {
   let adminCalls: [string, string][]
 
   beforeEach(async () => {
-    const resources = path.join(dir, 'TED.app', 'Contents', 'Resources')
+    const resources = path.join(dir, 'Ted.app', 'Contents', 'Resources')
     const copy = await packagedCopy(resources)
     source = path.join(resources, 'bin', 'ted')
     const systemBinDir = path.join(dir, 'usr-local-bin')
@@ -86,7 +86,7 @@ describe('installing the ted command on macOS', () => {
     expect(adminCalls).toEqual([])
   })
 
-  test('TED Dev never installs a command, so it can’t replace the release’s ted', async () => {
+  test('Ted Dev never installs a command, so it can’t replace the release’s ted', async () => {
     await mkdir(options.systemBinDir as string)
     const commandLine = createCommandLine({ ...options, edition: 'dev' })
 
@@ -109,9 +109,9 @@ describe('installing the ted command on macOS', () => {
     expect(await commandLine.install()).toEqual({ state: 'not-installed', path: target })
   })
 
-  test('replaces a link to a TED that has moved, but never another program', async () => {
+  test('replaces a link to a Ted that has moved, but never another program', async () => {
     await mkdir(options.systemBinDir as string)
-    await symlink('/Applications/Old/TED.app/Contents/Resources/bin/ted', target)
+    await symlink('/Applications/Old/Ted.app/Contents/Resources/bin/ted', target)
     const commandLine = createCommandLine(options)
 
     expect(await commandLine.status()).toEqual({ state: 'not-installed', path: target })
@@ -125,7 +125,7 @@ describe('installing the ted command on macOS', () => {
     expect(await readFile(target, 'utf8')).toContain('another ted')
   })
 
-  test('is unavailable when TED runs from source', async () => {
+  test('is unavailable when Ted runs from source', async () => {
     const commandLine = createCommandLine({ ...options, appRoot: dir })
 
     expect(await commandLine.status()).toEqual({ state: 'unavailable' })
@@ -135,7 +135,7 @@ describe('installing the ted command on macOS', () => {
 
 describe('the ted command on Linux', () => {
   test('deb and rpm packages install it themselves', async () => {
-    const resources = path.join(dir, 'opt', 'TED', 'resources')
+    const resources = path.join(dir, 'opt', 'Ted', 'resources')
     const copy = await packagedCopy(resources)
     await writeFile(path.join(resources, 'package-type'), 'deb')
     const commandLine = createCommandLine({ platform: 'linux', ...copy, env: {} })
@@ -189,12 +189,12 @@ describe('the ted command on Linux', () => {
     test('rewrites its own script for the AppImage now running, and leaves others alone', async () => {
       await createCommandLine({
         ...options,
-        env: { ...options.env, APPIMAGE: '/old/TED.AppImage' },
+        env: { ...options.env, APPIMAGE: '/old/Ted.AppImage' },
       }).install()
 
       await createCommandLine(options).refresh()
       expect(await readFile(target, 'utf8')).toContain(process.execPath)
-      expect(await readFile(target, 'utf8')).not.toContain('/old/TED.AppImage')
+      expect(await readFile(target, 'utf8')).not.toContain('/old/Ted.AppImage')
 
       await writeFile(target, '#!/bin/sh\necho mine\n')
       await createCommandLine(options).refresh()
@@ -219,7 +219,7 @@ describe('the command line over HTTP', () => {
   })
 
   test('the app reads and installs the ted command; a Run may not', async () => {
-    const copy = await packagedCopy(path.join(dir, 'TED.app', 'Contents', 'Resources'))
+    const copy = await packagedCopy(path.join(dir, 'Ted.app', 'Contents', 'Resources'))
     const systemBinDir = path.join(dir, 'usr-local-bin')
     await mkdir(systemBinDir)
     const home = path.join(dir, 'ted-home')

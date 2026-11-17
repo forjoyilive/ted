@@ -108,7 +108,7 @@ const dataRoutes: Route<BaseOptions>[] = [
     fileToken: true,
     async handle({ body: { keepRuns }, res, caller }, { data, onShutdown }) {
       if (caller.kind === 'file' && !keepRuns) {
-        throw new HttpError(403, 'only the TED app can do this')
+        throw new HttpError(403, 'only the Ted app can do this')
       }
       await settled(data)
       if (!keepRuns && data.status().state === 'ready') {
@@ -328,7 +328,7 @@ function find<O>(
       throw new HttpError(403, 'Not allowed from inside a Run')
     }
     if (caller.kind === 'file' && route.method !== 'GET' && !route.fileToken) {
-      throw new HttpError(403, 'only the TED app can do this')
+      throw new HttpError(403, 'only the Ted app can do this')
     }
     return {
       route,

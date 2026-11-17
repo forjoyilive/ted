@@ -113,7 +113,7 @@ describe('taskStatus', () => {
     expect(taskStatuses(cleanup)).toEqual(['working'])
   })
 
-  test('TED’s Checks alone show their chip and no Working status', () => {
+  test('Ted’s Checks alone show their chip and no Working status', () => {
     const running = at({ checksActive: true, checking: { name: 'Tests', index: 1, total: 2 } })
     const waitingForSlot = at({ checksActive: true, checksWaiting: { place: 2 } })
     const waitingForTests = at({
@@ -255,7 +255,7 @@ describe('taskStatus', () => {
 
   test('a Task that needs planning says so in its activity line', () => {
     expect(taskActivity(at({ stage: 'backlog', needsPlanning: true }))).toBe(
-      'Waiting for a plan made outside TED',
+      'Waiting for a plan made outside Ted',
     )
   })
 
@@ -278,7 +278,7 @@ describe('taskActivity', () => {
     )
   })
 
-  test('TED fills in for a Backlog Task and a blocked Task', () => {
+  test('Ted fills in for a Backlog Task and a blocked Task', () => {
     expect(taskActivity(at({ stage: 'backlog' }))).toBe('Not started')
     expect(taskActivity(at({ stage: 'design', blockedBy: ['NB-46'] }))).toBe(
       'Starts when NB-46 merges',

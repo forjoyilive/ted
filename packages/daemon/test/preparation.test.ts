@@ -98,7 +98,7 @@ test('Design approval durably holds before Work; Resume and Overnight release on
         (await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)).find(
           (c) => c.stage === 'design' && c.gate && !c.answer,
         ),
-      'the Design sign-off, which TED holds while the Lead is working',
+      'the Design sign-off, which Ted holds while the Lead is working',
     )
     expect((await get(task.id))?.stage).toBe('design')
     if (overnightOnApproval) await client.ok('PATCH', '/settings', { overnightMode: true })
@@ -117,7 +117,7 @@ test('Design approval durably holds before Work; Resume and Overnight release on
     }, 'ready before Work')
     expect(held).toMatchObject({ stage: 'work', status: { kind: 'stopped', prepared: true } })
     const messages = (await client.getRun(runId)).conversation.map((e) => e.line).join('\n')
-    expect(messages).not.toContain('TED moved this Task to Work')
+    expect(messages).not.toContain('Ted moved this Task to Work')
     return held
   }
   const a = await prepare()
@@ -130,13 +130,13 @@ test('Design approval durably holds before Work; Resume and Overnight release on
   const moves = async (id: string) =>
     (await client.ok<ThreadEvent[]>('GET', `/tasks/${id}/events`))
       .map((e) => e.text)
-      .filter((text) => text.startsWith('TED moved '))
-  expect(await moves(a.id)).toEqual(['TED moved widgets to the latest main'])
+      .filter((text) => text.startsWith('Ted moved '))
+  expect(await moves(a.id)).toEqual(['Ted moved widgets to the latest main'])
   expect(await moves(b.id)).toEqual([])
   await waitUntil(
     async () =>
       (await client.getRun((await get(a.id))?.leadRunId ?? '')).conversation.some((e) =>
-        e.line.includes('TED moved this Task’s branch to the latest main before Work started'),
+        e.line.includes('Ted moved this Task’s branch to the latest main before Work started'),
       ),
     'the Work Lead to be told its branch moved',
   )

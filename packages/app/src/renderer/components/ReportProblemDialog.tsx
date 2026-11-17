@@ -72,7 +72,7 @@ export function ReportProblemDialog({ onClose }: { onClose: () => void }) {
                 Report sent. Thank you.
               </h2>
               <p className={`${styles.lede} ${styles.fade}`}>
-                It reached the TED team. If you added an email, they may write to you about it.
+                It reached the Ted team. If you added an email, they may write to you about it.
               </p>
               <span className={`${styles.eventId} ${styles.fade}`}>
                 Event ID <code data-event-id="">{step.eventId}</code>
@@ -101,7 +101,7 @@ export function ReportProblemDialog({ onClose }: { onClose: () => void }) {
             Report a problem
           </h2>
           <p className={styles.lede}>
-            Tell the TED team what went wrong. Nothing is sent until you click Send.
+            Tell the Ted team what went wrong. Nothing is sent until you click Send.
           </p>
           <label className={styles.field}>
             <span className={styles.label}>What happened</span>
@@ -133,7 +133,7 @@ export function ReportProblemDialog({ onClose }: { onClose: () => void }) {
           </label>
           {report?.daemon === false && (
             <p className={styles.notice}>
-              TED’s background service isn’t answering, so the report has only what the app knows.
+              Ted’s background service isn’t answering, so the report has only what the app knows.
               You can still send it.
             </p>
           )}

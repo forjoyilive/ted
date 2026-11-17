@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { scriptLiteral } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { codexPlanWindows, readCodexPlanUsage } from '../src/agents/codex-usage.ts'
 import { stubCodexPath, waitUntil } from './helpers.ts'
@@ -113,7 +114,7 @@ test.each(['response', 'timeout', 'abort'] as const)(
       wrapper,
       `#!/usr/bin/env node
 import { spawn } from 'node:child_process'
-const child = spawn(process.execPath, ['--input-type=module', '-e', ${JSON.stringify(`setInterval(() => {}, 1000); await import(${JSON.stringify(stubCodexPath)})`)}], {stdio:'inherit'})
+const child = spawn(process.execPath, ['--input-type=module', '-e', ${scriptLiteral(`setInterval(() => {}, 1000); await import(${scriptLiteral(stubCodexPath)})`)}], {stdio:'inherit'})
 child.on('exit', code => process.exit(code ?? 0))
 `,
       { mode: 0o755 },

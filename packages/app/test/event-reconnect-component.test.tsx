@@ -22,10 +22,10 @@ test('General reloads login approval after reconnect', async () => {
   const a = appState()
   const page = <GeneralPage settings={defaultMachineSettings} dispatch={vi.fn()} />
   const view = render(connected(0, page))
-  await screen.findByText('Works only in an installed copy of TED.')
+  await screen.findByText('Works only in an installed copy of Ted.')
   a.handle('loginItem', () => 'requires-approval')
   view.rerender(connected(1, page))
-  await screen.findByText('Allow TED in System Settings → Login Items')
+  await screen.findByText('Allow Ted in System Settings → Login Items')
   expect(a.request.mock.calls.filter(([name]) => name === 'loginItem')).toHaveLength(2)
 })
 
@@ -36,7 +36,7 @@ test('Notifications reloads system permission after reconnect', async () => {
   await waitFor(() => expect(a.request).toHaveBeenCalledWith('notificationsOff'))
   a.handle('notificationsOff', () => true)
   view.rerender(connected(1, page))
-  await screen.findByText('Notifications are off for TED in System Settings')
+  await screen.findByText('Notifications are off for Ted in System Settings')
   expect(a.request.mock.calls.filter(([name]) => name === 'notificationsOff')).toHaveLength(2)
 })
 
@@ -52,14 +52,14 @@ test('Integrations reloads health after reconnect', async () => {
   a.handle('tedFolder', () => ({ path: '/test/' }))
   const page = <IntegrationsPage settings={defaultMachineSettings} />
   const view = render(connected(0, page))
-  await screen.findByText('TED needs Git to clone repos and make worktrees.')
+  await screen.findByText('Ted needs Git to clone repos and make worktrees.')
   state = 'ready'
   view.rerender(connected(1, page))
   await waitFor(() =>
     expect(a.request.mock.calls.filter(([name]) => name === 'getIntegrations')).toHaveLength(2),
   )
   await waitFor(() =>
-    expect(screen.queryByText('TED needs Git to clone repos and make worktrees.')).toBeNull(),
+    expect(screen.queryByText('Ted needs Git to clone repos and make worktrees.')).toBeNull(),
   )
 })
 

@@ -22,7 +22,7 @@ import { appLoaded, firstWindow } from './first-window.ts'
 
 setUpAppTests()
 
-describe('TED app frame', () => {
+describe('Ted app frame', () => {
   test('the Appearance setting switches the theme at once, from the app or the daemon', async () => {
     const window = await launchApp()
     await window.emulateMedia({ colorScheme: 'dark' })
@@ -104,6 +104,14 @@ describe('New Task dialog', () => {
       factory?.id,
     )
     await expect.poll(() => isFocused(window)).toBe(true)
+    const heading = await open.getByRole('heading', { name: 'New Task' }).boundingBox()
+    const picker = await open.getByRole('combobox', { name: 'Factory' }).boundingBox()
+    const close = await open.getByRole('button', { name: 'Close' }).boundingBox()
+    const dialogBounds = await open.boundingBox()
+    if (!heading || !picker || !close || !dialogBounds) throw new Error('header has no bounds')
+    expect(picker.x - (heading.x + heading.width)).toBeLessThan(40)
+    expect(close.x - (picker.x + picker.width)).toBeGreaterThan(100)
+    expect(dialogBounds.x + dialogBounds.width - (close.x + close.width)).toBeLessThan(40)
     await window.keyboard.press('Escape')
     await open.waitFor({ state: 'detached' })
 

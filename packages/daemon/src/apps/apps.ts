@@ -6,6 +6,7 @@ import https from 'node:https'
 import net from 'node:net'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
+import tls from 'node:tls'
 import { fileURLToPath } from 'node:url'
 import { stripVTControlCharacters } from 'node:util'
 import {
@@ -37,6 +38,7 @@ import { type Sandbox, type SandboxScope, SandboxUnavailable } from '../sandbox.
 import { signalGroup, signalProcess } from '../signal.ts'
 import type { TedStore } from '../store/index.ts'
 import { removeInside } from '../tasks/remove-files.ts'
+import { certificateErrorCode } from '../tls-trust.ts'
 import { isReservedEnvName } from '../workflow/check.ts'
 import type { AppDeclaration } from './declared.ts'
 import type { SimulatorApp } from './device-slots.ts'
@@ -219,7 +221,7 @@ const processRunner: Runner = {
       if (records.some((record) => record.t === 'start')) break
       if (waited >= 10_000) {
         child.kill('SIGKILL')
-        throw new RequestError(409, 'The App did not start; TED stopped its host')
+        throw new RequestError(409, 'The App did not start; Ted stopped its host')
       }
       await sleep(25)
     }
@@ -488,7 +490,7 @@ export function createApps(options: AppsOptions): Apps {
         return port
       }
     }
-    throw new RequestError(503, 'TED couldn’t find a free port')
+    throw new RequestError(503, 'Ted couldn’t find a free port')
   }
 
   function allocate(
@@ -612,25 +614,25 @@ export function createApps(options: AppsOptions): Apps {
       restart = true
     }
     if (isSimulatorApp(app) && !sims.supported) {
-      throw new RequestError(409, `TED can’t run ${app.name}: iOS simulator Apps run only on macOS`)
+      throw new RequestError(409, `Ted can’t run ${app.name}: iOS simulator Apps run only on macOS`)
     }
     if (isEmulatorApp(app) && !emus.supported) {
       throw new RequestError(
         409,
-        `TED can’t run ${app.name}: Android emulator Apps run only on macOS and Linux`,
+        `Ted can’t run ${app.name}: Android emulator Apps run only on macOS and Linux`,
       )
     }
     if (isEmulatorApp(app) && (app.device ?? '').trim() === '') {
       throw new RequestError(
         409,
-        `TED can’t run ${app.name}: set \`device:\` to the Android virtual device it runs on, such as Pixel_8_API_35`,
+        `Ted can’t run ${app.name}: set \`device:\` to the Android virtual device it runs on, such as Pixel_8_API_35`,
       )
     }
     const hold = store.newWorkHold()
     if (hold !== undefined) {
       throw new RequestError(
         409,
-        `The disk is almost full, so TED holds new Apps until there’s space`,
+        `The disk is almost full, so Ted holds new Apps until there’s space`,
       )
     }
     if (isDeviceApp(app)) {
@@ -675,7 +677,7 @@ export function createApps(options: AppsOptions): Apps {
       await failStart(taskId, dir, repo.name, app, problem, port)
       throw new RequestError(
         409,
-        `Port ${port} is taken, so TED couldn’t start ${app.name}. Stop whatever uses it, or remove \`port:\` from the App in workflow.yaml.`,
+        `Port ${port} is taken, so Ted couldn’t start ${app.name}. Stop whatever uses it, or remove \`port:\` from the App in workflow.yaml.`,
       )
     }
     return launch(taskId, task, repo, app, by, runId, restart, port, {})
@@ -717,7 +719,7 @@ export function createApps(options: AppsOptions): Apps {
       const sandboxed = await sandboxFor(scope && { ...scope, electron }, task, dir)
       if ('problem' in sandboxed) {
         await failStart(taskId, dir, repo.name, app, sandboxed.problem, port)
-        throw new RequestError(409, `TED couldn’t start ${app.name}: ${sandboxed.problem}`)
+        throw new RequestError(409, `Ted couldn’t start ${app.name}: ${sandboxed.problem}`)
       }
       const instance: Instance = {
         repo: repo.name,
@@ -1004,13 +1006,20 @@ export function createApps(options: AppsOptions): Apps {
       }
       const readyUrl = instance.url ?? instance.debugUrl
       if (instance.readyAt === undefined && instance.ready === 'url' && readyUrl && started) {
-        if (await answers(readyUrl)) {
+        const answer = await answers(readyUrl)
+        if (answer.kind === 'ready') {
           instance.readyAt = new Date().toISOString()
           await writeInstance(dir, instance)
           changed(taskId)
-        } else if (Date.now() - Date.parse(instance.startedAt) > readyTimeoutMs) {
+        } else if (
+          answer.kind === 'untrusted' ||
+          Date.now() - Date.parse(instance.startedAt) > readyTimeoutMs
+        ) {
           const where = readyUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')
-          const problem = `it didn’t answer at ${where} within ${minutes(readyTimeoutMs)}`
+          const problem =
+            answer.kind === 'untrusted'
+              ? `it answered over HTTPS with a certificate this Mac doesn’t trust (${answer.reason}). Use a certificate from a trusted authority, such as one made with mkcert, or serve the App over http.`
+              : `it didn’t answer at ${where} within ${minutes(readyTimeoutMs)}`
           stopping.add(key)
           void stopHost(key, dir).catch(() => undefined)
           while (await hostAlive(dir)) await sleep(50)
@@ -1287,7 +1296,7 @@ export function createApps(options: AppsOptions): Apps {
         const why = error instanceof Error ? error.message : String(error)
         throw new RequestError(
           409,
-          `TED couldn’t run ${app.name} on ${device}: ${why} ${
+          `Ted couldn’t run ${app.name} on ${device}: ${why} ${
             back
               ? `${app.name} runs on ${deviceOf(before)} again.`
               : `Start it again with ted run-app ${app.name}.`
@@ -1441,14 +1450,28 @@ export function electronEnv(
   return { TED_ELECTRON_ARGS: args.join(' '), TED_ELECTRON_HIDDEN: '1' }
 }
 
-function answers(url: string): Promise<boolean> {
+type Answer = { kind: 'ready' } | { kind: 'waiting' } | { kind: 'untrusted'; reason: string }
+let trustedCertificates: string[] | undefined
+function answers(url: string): Promise<Answer> {
   return new Promise((resolve) => {
-    const get = url.startsWith('https:') ? https.get : http.get
-    const request = get(url, { timeout: 1_000, rejectUnauthorized: false }, (response) => {
+    const respond = (response: http.IncomingMessage) => {
       response.resume()
-      resolve((response.statusCode ?? 500) < 500)
-    })
+      resolve({ kind: (response.statusCode ?? 500) < 500 ? 'ready' : 'waiting' })
+    }
+    trustedCertificates ??= [
+      ...tls.getCACertificates('default'),
+      ...tls.getCACertificates('system'),
+    ]
+    const request = url.startsWith('https:')
+      ? https.get(url, { timeout: 1_000, ca: trustedCertificates }, respond)
+      : http.get(url, { timeout: 1_000 }, respond)
     request.once('timeout', () => request.destroy())
-    request.once('error', () => resolve(false))
+    request.once('error', (error) =>
+      resolve(
+        certificateErrorCode(error)
+          ? { kind: 'untrusted', reason: error.message.split(';')[0] ?? error.message }
+          : { kind: 'waiting' },
+      ),
+    )
   })
 }

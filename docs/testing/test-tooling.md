@@ -1,26 +1,26 @@
 # This repo’s test tooling
 
-This page describes the tooling used to develop TED in this repo: `pnpm check`, the Vitest setup, the locks that let test runs share one machine, the logs they write, and `pnpm release`. None of it is part of the TED app, and no other Factory gets it. For what TED itself does at Validate, and how another Factory chooses its own rules, read [Factory validation](factory-validation.md).
+This page describes the tooling used to develop Ted in this repo: `pnpm check`, the Vitest setup, the locks that let test runs share one machine, the logs they write, and `pnpm release`. None of it is part of the Ted app, and no other Factory gets it. For what Ted itself does at Validate, and how another Factory chooses its own rules, read [Factory validation](factory-validation.md).
 
 The rules an agent must follow are repeated in `AGENTS.md`. This page holds the detail.
 
 ## Commands
 
 - `pnpm install`, then `pnpm typecheck`, `pnpm lint` (Biome; `pnpm format` fixes) and `pnpm test` (Vitest).
-- Run all three locally before merging to `main`: nothing runs them on GitHub. The CI workflow (`.github/workflows/ci.yml`, typecheck and lint) runs only when started by hand, so a Task’s pull request reports no checks and TED merges it without waiting for CI. Agents never start GitHub workflows.
+- Run all three locally before merging to `main`: nothing runs them on GitHub. The CI workflow (`.github/workflows/ci.yml`, typecheck and lint) runs only when started by hand, so a Task’s pull request reports no checks and Ted merges it without waiting for CI. Agents never start GitHub workflows.
 - `pnpm check` runs typecheck, lint and two Vitest processes at once.
 - `pnpm check --affected` runs only the test files a branch’s changes affect, without typecheck or lint. `pnpm check --affected --list` prints the selection and stops. See [Affected tests](#affected-tests).
 - `pnpm flaky <file> [-t <name>] [--runs N] [--load N]` runs one test file N times (default 5) alone under the full-run lock with one busy thread per core and no retry, and reports how many runs passed and which tests failed. Use it on a test that fails only in full runs, and fix the test’s timing rather than retrying it.
 
 ## What a Run may run
 
-- Agents, TED’s own Runs included, never run `pnpm test` or `pnpm check`. The full suite runs only when the human or a merge runs `pnpm check`.
-- In this Factory TED runs a Task’s tests itself, as the Affected tests Check (`pnpm check --affected` in `.ted/workflow.yaml`), as Validate’s first step. A Run picks no test files for coverage.
+- Agents, Ted’s own Runs included, never run `pnpm test` or `pnpm check`. The full suite runs only when the human or a merge runs `pnpm check`.
+- In this Factory Ted runs a Task’s tests itself, as the Affected tests Check (`pnpm check --affected` in `.ted/workflow.yaml`), as Validate’s first step. A Run picks no test files for coverage.
 - The Task Lead in Validate runs test files only in two cases: the Electron app tests a sandboxed Check left out, and a single file to look into a failure. Work, the other Stages and sub-agents run none (`.ted/stages/work.md`, `.ted/stages/validate.md`).
 - With `TED_RUN` set, `pnpm check`, `pnpm check --affected` (but not `--list`) and any Vitest run of more than 3 test files (`runTestFiles`) are refused before they take a lock (`runRefusal` and `affectedRefusal` in `scripts/check.ts`, `runRefusal` in `packages/daemon/test/support/suite-lock.ts`). `pnpm flaky` is refused under `TED_RUN` too.
-- A Check is not a Run: TED starts it with `TED_TASK` and `CI=1` and without `TED_RUN` (`checkEnv` in `packages/daemon/src/tasks/checks.ts`, which drops every inherited `TED_*` variable), so the Check may run more than 3 files. Nothing else tells the two apart. An agent that unsets `TED_RUN` in its own shell gets past every one of these refusals, as it always could; they stop mistakes, not a Run that sets out to break the rule.
+- A Check is not a Run: Ted starts it with `TED_TASK` and `CI=1` and without `TED_RUN` (`checkEnv` in `packages/daemon/src/tasks/checks.ts`, which drops every inherited `TED_*` variable), so the Check may run more than 3 files. Nothing else tells the two apart. An agent that unsets `TED_RUN` in its own shell gets past every one of these refusals, as it always could; they stop mistakes, not a Run that sets out to break the rule.
 
-These limits are code in this repo, not TED settings. TED has no setting for a test-file limit.
+These limits are code in this repo, not Ted settings. Ted has no setting for a test-file limit.
 
 ## Affected tests
 
@@ -46,9 +46,9 @@ How much of it runs:
 How it runs:
 
 - It runs the `electron` and `node` projects as `pnpm check` does, each only when it has files, and no typecheck or lint.
-- Ten or more files take the suite lock and get `pnpm check`’s worker counts. Fewer take one test slot and at most 3 workers per project, like any small run. Both keep to `TED_CHECK_CPUS` when TED runs them as a Check, and scale down on a busy machine (see [Machine load](#machine-load)).
+- Ten or more files take the suite lock and get `pnpm check`’s worker counts. Fewer take one test slot and at most 3 workers per project, like any small run. Both keep to `TED_CHECK_CPUS` when Ted runs them as a Check, and scale down on a busy machine (see [Machine load](#machine-load)).
 - It records no passing commit for the repo and doesn’t rewrite `ted-test-times.json`. Only a full `pnpm check` does.
-- Inside a sandbox where Electron can’t start (see [Inside a sandbox](#inside-a-sandbox)), it leaves the Electron files out, prints them, and writes `node_modules/.cache/ted-affected-left-out.txt`: the Electron files that were changed or picked by name, to run by hand. A run outside the sandbox deletes the file. TED runs Checks in its sandbox unless the Factory is in Bypass, so on macOS the Task Lead runs the listed files in Validate, 3 per command.
+- Inside a sandbox where Electron can’t start (see [Inside a sandbox](#inside-a-sandbox)), it leaves the Electron files out, prints them, and writes `node_modules/.cache/ted-affected-left-out.txt`: the Electron files that were changed or picked by name, to run by hand. A run outside the sandbox deletes the file. Ted runs Checks in its sandbox unless the Factory is in Bypass, so on macOS the Task Lead runs the listed files in Validate, 3 per command.
 
 How a rerun skips files that passed:
 
@@ -95,7 +95,7 @@ Test runs share the machine through `packages/daemon/test/support/suite-lock.ts`
 - A test run reads the 1-minute load per core when it starts (`scripts/machine-load.ts`). Above 0.75, `pnpm check` and plain Vitest runs multiply their worker counts by 0.75 ÷ load, never below 1, print one line saying so, and record `load` and `workers` in the run line of `~/.cache/ted/test-failures.jsonl`, which `pnpm test-failures` shows as a `busy` column.
 - `pnpm check --wait-for-quiet[=<minutes>]` (or `TED_CHECK_WAIT_FOR_QUIET`) instead waits, holding the test lock, until the load is 0.75 or below, for at most 30 minutes, then starts anyway.
 - `TED_TEST_LOAD=off` ignores the load and a number replaces it. `vitest.config.ts` sets `off` for every test file.
-- TED gives every Check command `TED_CHECK_CPUS`, the logical cores it may use: the share set in Settings → Limits (**CPU a Check may use**, half by default), divided by the Check runs running when it starts (ADR 0171-ted-tells-a-check-how-many-cpus-it-may-use). A Scheduled Check gets it unless **Limit the CPU Scheduled Checks use too** is off. `pnpm check` keeps to it before it looks at the load (`allowedCpus` and `workersWithin` in `scripts/machine-load.ts`): it allows one Vitest worker per 2 CPUs (`cpusPerWorker`), because a worker’s tests start daemons, Run hosts and `git` beside it, and shares them between the projects it runs at once in proportion, never below 1 each. With 6 CPUs that is `node ×3`, or `electron ×1, node ×2`. It prints one line when this lowers a count. A plain `pnpm vitest run` doesn’t read it, and outside a Check it isn’t set.
+- Ted gives every Check command `TED_CHECK_CPUS`, the logical cores it may use: the share set in Settings → Limits (**CPU a Check may use**, half by default), divided by the Check runs running when it starts (ADR 0171-ted-tells-a-check-how-many-cpus-it-may-use). A Scheduled Check gets it unless **Limit the CPU Scheduled Checks use too** is off. `pnpm check` keeps to it before it looks at the load (`allowedCpus` and `workersWithin` in `scripts/machine-load.ts`): it allows one Vitest worker per 2 CPUs (`cpusPerWorker`), because a worker’s tests start daemons, Run hosts and `git` beside it, and shares them between the projects it runs at once in proportion, never below 1 each. With 6 CPUs that is `node ×3`, or `electron ×1, node ×2`. It prints one line when this lowers a count. A plain `pnpm vitest run` doesn’t read it, and outside a Check it isn’t set.
 
 ## Electron in tests and scripts
 
@@ -105,8 +105,8 @@ Test runs share the machine through `packages/daemon/test/support/suite-lock.ts`
 
 ## Inside a sandbox
 
-- Inside Codex’s sandbox (`CODEX_SANDBOX` set), and on macOS inside TED’s own sandbox (`TED_SANDBOX=1`, which `sandbox.ts` sets on every command it wraps), the Electron test files are skipped with a warning. macOS stops Electron registering as an app there, and every launch aborts with a “quit unexpectedly” dialog.
-- `pnpm app` refuses there for the same reason (`sandboxRefusal` in `packages/app/scripts/sandbox-refusal.ts`), unless the sandbox is an Electron App’s, which allows the one service Electron needs and sets `TED_SANDBOX_ELECTRON=1`. TED Dev is that kind of App in `.ted/workflow.yaml`, so an Automation Run’s `ted run-app "TED Dev"` starts it hidden in the sandbox (ADR 0153-an-automation-run-drives-its-electron-apps-over-their-debugging-port).
+- Inside Codex’s sandbox (`CODEX_SANDBOX` set), and on macOS inside Ted’s own sandbox (`TED_SANDBOX=1`, which `sandbox.ts` sets on every command it wraps), the Electron test files are skipped with a warning. macOS stops Electron registering as an app there, and every launch aborts with a “quit unexpectedly” dialog.
+- `pnpm app` refuses there for the same reason (`sandboxRefusal` in `packages/app/scripts/sandbox-refusal.ts`), unless the sandbox is an Electron App’s, which allows the one service Electron needs and sets `TED_SANDBOX_ELECTRON=1`. Ted Dev is that kind of App in `.ted/workflow.yaml`, so an Automation Run’s `ted run-app "Ted Dev"` starts it hidden in the sandbox (ADR 0153-an-automation-run-drives-its-electron-apps-over-their-debugging-port).
 
 ## Release
 

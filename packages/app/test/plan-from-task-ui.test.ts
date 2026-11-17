@@ -137,8 +137,8 @@ describe('Plan in chat from a Task', () => {
     await card.getByText('becomes the parent of these Tasks and runs after they merge.').waitFor()
     await card.getByRole('button', { name: 'Create 3 Tasks' }).click()
     await chat
-      .getByText('TED created 3 Tasks under NB-1: NB-2, NB-3, NB-4. NB-1 waits for them to merge.')
+      .getByText('Ted created 3 Tasks under NB-1: NB-2, NB-3, NB-4. NB-1 waits for them to merge.')
       .waitFor({ timeout: 30_000 })
-    await chat.getByText('TED stopped NB-1’s Task Lead while its child Tasks are built.').waitFor()
+    await chat.getByText('Ted stopped NB-1’s Task Lead while its child Tasks are built.').waitFor()
   })
 })

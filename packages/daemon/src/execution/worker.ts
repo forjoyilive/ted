@@ -9,6 +9,7 @@ import {
   executionHello,
   executionLimits,
   parseExecutionCertificate,
+  parseExecutionEndpoint,
   parseExecutionOffer,
   parseExecutionSyncResponse,
   requireExecutionCompatibility,
@@ -20,12 +21,19 @@ import { privateDirectory, readPrivate, writePrivate } from './files.ts'
 import { createExecutionOperations } from './operations.ts'
 import { createExecutionReadiness } from './readiness.ts'
 import { workerOperationsText } from './status-text.ts'
-import { ExecutionRefused, executionRequest } from './transport.ts'
+import { ExecutionRefused, type ExecutionTarget, executionRequest } from './transport.ts'
 
 interface Saved {
   endpoint: Pick<ExecutionOffer, 'address' | 'port' | 'controllerPin'>
   credential: ExecutionCertificate
   capacity: number
+}
+function pairedTarget(saved: Saved): ExecutionTarget {
+  return {
+    address: saved.endpoint.address,
+    port: saved.endpoint.port,
+    controllerCertificate: saved.credential.ca,
+  }
 }
 export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv) {
   const root = await privateDirectory(home)
@@ -38,12 +46,7 @@ export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
   }
   if (saved) {
-    parseExecutionOffer({
-      ...saved.endpoint,
-      ...executionHello(),
-      secret: '0'.repeat(64),
-      expiresAt: new Date().toISOString(),
-    })
+    parseExecutionEndpoint(saved.endpoint)
     saved.credential = parseExecutionCertificate(saved.credential)
     executionCapacity(saved.capacity)
     if (
@@ -85,7 +88,7 @@ export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv
         try {
           const response = parseExecutionSyncResponse(
             await executionRequest(
-              saved.endpoint,
+              pairedTarget(saved),
               '/sync',
               {
                 ...executionHello(),
@@ -133,7 +136,7 @@ export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv
         if (signal.aborted) return
         changeStatus({ readiness: observed })
         await executionRequest(
-          saved.endpoint,
+          pairedTarget(saved),
           '/heartbeat',
           { ...executionHello(), grantId: saved.credential.grantId, readiness: observed },
           { key: identity.key, cert: saved.credential.certificate, signal },
@@ -153,7 +156,7 @@ export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv
         changeStatus({
           state: 'disconnected',
           message:
-            'Controller unreachable. Check both Macs are awake, TED is running on the main Mac, and both are on the same reachable local network.',
+            'Controller unreachable. Check both Macs are awake, Ted is running on the main Mac, and both are on the same reachable local network.',
         })
         await delay(2000, undefined, { signal }).catch(() => undefined)
       }
@@ -245,8 +248,16 @@ export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv
       }
       working = (async () => {
         try {
+          if (certificatePin(offer.controllerCertificate) !== offer.controllerPin)
+            throw new ExecutionRefused(
+              'Controller identity does not match. Get fresh pairing details directly from the main Mac; do not override this check.',
+            )
           const response = await executionRequest(
-            offer,
+            {
+              address: offer.address,
+              port: offer.pairingPort,
+              controllerCertificate: offer.controllerCertificate,
+            },
             '/enroll',
             {
               ...executionHello(),

@@ -137,7 +137,7 @@ test('the intake listing stops after 1,000 issues read, even when pages repeat i
       workspace: 'acme',
     })
     expect(list.issues).toHaveLength(50)
-    expect(list.incomplete).toBe('TED read the first 1000 issues; the rest wait for the next run.')
+    expect(list.incomplete).toBe('Ted read the first 1000 issues; the rest wait for the next run.')
     expect(
       stub.requests.filter((request) => request.query.includes('TedIntakeIssues')),
     ).toHaveLength(20)

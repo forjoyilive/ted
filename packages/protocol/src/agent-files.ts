@@ -92,7 +92,7 @@ export const agentPowerHelp: Readonly<Record<AgentPower, string>> = {
   manage_agents:
     'Drafts of new Agents and changes to Agents, shown as a card. Nothing is saved until you click Create.',
   run_commands:
-    'TED runs the commands listed below in the chat’s copy, in its sandbox, and returns the output. Needs Read the code.',
+    'Ted runs the commands listed below in the chat’s copy, in its sandbox, and returns the output. Needs Read the code.',
   run_outside:
     'Runs the outside commands listed below on this Mac, outside the sandbox, in the repo’s local folder. Each run needs your Run click unless you allowed that command always.',
 }
@@ -107,7 +107,7 @@ Say in a few sentences what this Agent helps with and when to start a chat with 
 - What it should ask you before it acts.
 - What a good answer from it looks like.
 
-TED adds the commands its powers allow, so you don’t need to list them here.
+Ted adds the commands its powers allow, so you don’t need to list them here.
 `
 
 export interface AgentSettingsInput {

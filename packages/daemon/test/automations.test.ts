@@ -311,10 +311,10 @@ describe('Automations', () => {
     const run = await waitUntil(async () => {
       const found = await client.ok<RunWithConversation>('GET', `/runs/${row?.runId}`)
       return found.run.state === 'finished' ? found : undefined
-    }, 'TED to stop the finished Run')
+    }, 'Ted to stop the finished Run')
     expect(run.run).toMatchObject({ name: 'Sentry crash intake', state: 'finished' })
     expect(run.run.taskId).toBeUndefined()
-    expect(run.run.prompt).toContain('# You are an Automation Run in TED')
+    expect(run.run.prompt).toContain('# You are an Automation Run in Ted')
     expect(run.run.prompt).toContain('## Write clearly for the user')
     expect(run.run.prompt).toContain('## Tasks this Automation has created\n\nNone yet.')
     expect(await said(client, row?.runId ?? '')).toEqual(['Nothing new'])
@@ -590,7 +590,7 @@ describe('Automations', () => {
     for (const [method, route, body] of changes.filter(([, r]) => !r.endsWith('/disable'))) {
       expect(await asFile.call(method, route, body), `${method} ${route}`).toEqual({
         status: 403,
-        body: { error: 'only the TED app can do this' },
+        body: { error: 'only the Ted app can do this' },
       })
     }
     expect((await detail(client, id)).automation).toMatchObject({ name: automation.name, on: true })
@@ -740,7 +740,7 @@ describe('Automations', () => {
     )
   })
 
-  test('missed firings are made up once when TED starts again', async () => {
+  test('missed firings are made up once when Ted starts again', async () => {
     let client = await startTed()
     const automation = await create(client, {
       schedule: { kind: 'every', every: 15, unit: 'minutes' },
@@ -1067,7 +1067,7 @@ describe('Automations', () => {
     expect(await client.ok<Automation[]>('GET', '/automations')).toEqual([])
   })
 
-  test('a scheduled Check waits while the computer is busy until its cutoff, runs sandboxed on the default branch, makes Tasks for failing tests and updates them when they fail again; its agent step files, notes and starts Tasks, and TED falls back when the agent doesn’t report', async () => {
+  test('a scheduled Check waits while the computer is busy until its cutoff, runs sandboxed on the default branch, makes Tasks for failing tests and updates them when they fail again; its agent step files, notes and starts Tasks, and Ted falls back when the agent doesn’t report', async () => {
     const client = await startTed()
     const fail = path.join(scratch, 'fail-check')
     const kill = path.join(scratch, 'kill-check')
@@ -1259,7 +1259,7 @@ describe('Automations', () => {
       client,
       automation.id,
       (r) => r[0]?.check?.agent?.state === 'fallback',
-      'TED to fall back after the agent ends without reporting',
+      'Ted to fall back after the agent ends without reporting',
     )
     expect(fellBack).toMatchObject({
       result: { kind: 'check-failed', tasks: [] },
@@ -1841,7 +1841,7 @@ describe('Factory Linear intake enforcement', () => {
       const runId = rows.find((row) => row.runId && !seen.has(row.runId))?.runId ?? ''
       const [stopped] = await commandResults(client, runId)
       expect(stopped?.stdout).toContain(
-        'Linear intake scope changed during the import. TED stopped; the next run uses the new scope.',
+        'Linear intake scope changed during the import. Ted stopped; the next run uses the new scope.',
       )
       expect(
         (await client.ok<Task[]>('GET', '/tasks')).some(

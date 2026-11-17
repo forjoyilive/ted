@@ -175,12 +175,12 @@ describe('Planning chats', () => {
     await proposalCard.waitFor({ timeout: 30_000 })
     expect(await proposalCard.evaluate((el) => el.closest('[data-scroller]') !== null)).toBe(true)
     await proposalCard
-      .getByText('TED creates a parent Task for these Tasks. It runs after they merge.')
+      .getByText('Ted creates a parent Task for these Tasks. It runs after they merge.')
       .waitFor()
     await proposalCard.getByRole('button', { name: 'Create 2 Tasks' }).click()
     await chat.getByText('Planning Run finished').waitFor({ timeout: 30_000 })
     await chat
-      .getByText('TED created 2 Tasks under NB-1: NB-2, NB-3. NB-1 waits for them to merge.')
+      .getByText('Ted created 2 Tasks under NB-1: NB-2, NB-3. NB-1 waits for them to merge.')
       .waitFor()
     await chat.getByText('This chat is archived. Unarchive it to write to it again.').waitFor()
     const pane = window.getByRole('complementary', { name: 'Planning chat details' })

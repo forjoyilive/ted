@@ -540,7 +540,7 @@ function AgentEditor({
       <fieldset className={styles.powerList}>
         <legend className={base.label}>Powers</legend>
         <p className={styles.hint}>
-          Each power is off unless you turn it on. TED checks every action against them.
+          Each power is off unless you turn it on. Ted checks every action against them.
         </p>
         {agentPowers.map((power) => (
           <label key={power} className={styles.power}>
@@ -566,7 +566,7 @@ function AgentEditor({
         placeholder="pnpm test"
         hint={
           <>
-            A chat runs one with <code className={base.mono}>ted agent run &lt;name&gt;</code>. TED
+            A chat runs one with <code className={base.mono}>ted agent run &lt;name&gt;</code>. Ted
             runs it in the chat’s copy, after the repo’s setup and in the sandbox, with no arguments
             from the agent.
             {runs ? '' : ' Turn on Run commands in the copy to use them.'}
@@ -584,7 +584,7 @@ function AgentEditor({
         hint={
           <>
             A chat asks for one with{' '}
-            <code className={base.mono}>ted agent run-outside &lt;name&gt; [argument]</code>. TED
+            <code className={base.mono}>ted agent run-outside &lt;name&gt; [argument]</code>. Ted
             runs it on this Mac, outside the sandbox, in the repo’s local folder, and only after you
             click Run on its card, unless you allowed it always. Plain words only, no quotes or
             shell characters, and at most one argument slot written{' '}
@@ -622,7 +622,7 @@ function AgentEditor({
               onChange={(event) => onChange({ ...own, instructions: event.target.value })}
             />
             <p className={styles.hint}>
-              Saved as {folder}agents/{own.id || '<id>'}.md. TED puts it inside its own
+              Saved as {folder}agents/{own.id || '<id>'}.md. Ted puts it inside its own
               instructions, which list the commands this Agent’s powers allow.
             </p>
           </>

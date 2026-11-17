@@ -197,10 +197,10 @@ describe('the token in daemon.json and the app’s token', () => {
     })
 
     expect(res.status).toBe(403)
-    expect(JSON.parse(res.body)).toEqual({ error: 'only the TED app can do this' })
+    expect(JSON.parse(res.body)).toEqual({ error: 'only the Ted app can do this' })
   })
 
-  test('the app’s token is never written to TED’s folder', async () => {
+  test('the app’s token is never written to Ted’s folder', async () => {
     daemon = await startDaemon({ home, version: '9.9.9' })
     const files = await readdir(home, { recursive: true, withFileTypes: true })
 

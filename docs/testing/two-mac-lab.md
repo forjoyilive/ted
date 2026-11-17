@@ -1,13 +1,13 @@
 # Two-Mac validation lab
 
-> **Shelved.** Remote execution is on hold. The code is kept but hidden behind `TED_REMOTE_EXECUTION=on`, which only TED Dev reads (see `docs/environment.md`). Don’t build new work on it or treat it as required.
+> **Shelved.** Remote execution is on hold. The code is kept but hidden behind `TED_REMOTE_EXECUTION=on`, which only Ted Dev reads (see `docs/environment.md`). Don’t build new work on it or treat it as required.
 
 > Validate doesn’t need this lab. Run its tests or scenarios only for a Task that works on remote execution itself and turns the flag on.
 
 This opt-in runner deploys a committed candidate to a local controller Mac and a
-distinct SSH-controlled execution Mac. SSH controls the lab only; it is not TED’s
+distinct SSH-controlled execution Mac. SSH controls the lab only; it is not Ted’s
 product execution transport. `lab-access` proves real host access, content identity,
-native sandbox enforcement and owned process control. It does not prove remote TED
+native sandbox enforcement and owned process control. It does not prove remote Ted
 execution, product reconnect behavior or GUI behavior.
 
 The normal `scripts/validate-execution.ts` runner never reads lab inventory or
@@ -153,7 +153,7 @@ the service’s PID, generation token and start count stay unchanged through thi
 fixture disconnect. This is infrastructure evidence only. Later product adapters
 must put the test product transport behind the owned relay and observe real product
 counters to prove continued remote work and absence of duplicate/new work. Never
-disconnect a whole Mac’s network or SSH, or claim the stub demonstrates TED behavior.
+disconnect a whole Mac’s network or SSH, or claim the stub demonstrates Ted behavior.
 
 Run selected implemented manifest scenarios on a retained deployment in Validate:
 
@@ -178,7 +178,7 @@ Do not remove or replace other Tasks’ manifest rows, including `local-lifecycl
 Those absolute paths are reachable only on their owning host. A future cross-host
 scenario must arrange a reachable fixture endpoint before using it; it cannot use
 a controller-local file URL on the mini. SSH may arrange fixtures and faults but
-must not perform product worktree, artifact or commit operations in place of TED.
+must not perform product worktree, artifact or commit operations in place of Ted.
 
 ## Reports and recovery
 

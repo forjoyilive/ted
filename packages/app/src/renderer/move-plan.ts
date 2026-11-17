@@ -81,7 +81,7 @@ export function movePlanView(
   const prs = plan.tasks.flatMap((t) => t.pullRequests.map((p) => `${p.repo} #${p.number}`))
   if (prs.length > 0) {
     changes.push(
-      `${prs.length === 1 ? 'Pull request' : 'Pull requests'} ${joinAnd(prs)}, which TED closes on GitHub`,
+      `${prs.length === 1 ? 'Pull request' : 'Pull requests'} ${joinAnd(prs)}, which Ted closes on GitHub`,
     )
   }
   const requests = plan.tasks.reduce((n, t) => n + t.openRequests, 0)
@@ -108,7 +108,7 @@ export function movePlanView(
     landing,
     movesWith,
     ...(parent !== undefined && {
-      leavesParent: `${id} is a child of ${parent}. It leaves ${parent}, which stops waiting for it. TED notes this on both Tasks.`,
+      leavesParent: `${id} is a child of ${parent}. It leaves ${parent}, which stops waiting for it. Ted notes this on both Tasks.`,
     }),
     unlinked,
     changesHeading: work ? 'What is lost' : 'What changes',

@@ -76,8 +76,8 @@ roundTrip(P.parseMergeSettingsRequest, { receipt: 'a'.repeat(32) })
 rejects(P.parseMergeSettingsRequest, { receipt: '../bad' }, 'receipt must be')
 roundTrip(P.parseAutoStartBacklogRequest, { enabled: true })
 roundTrip(P.parseCreateFactoryRequest, {
-  name: 'TED',
-  key: 'TED',
+  name: 'Ted',
+  key: 'Ted',
   repos: [
     { name: 'ted', source: { remote: 'https://github.com/owner/ted' } },
     { name: 'local', source: { folder: '/tmp/local' } },
@@ -91,7 +91,7 @@ roundTrip(P.parseFactoryLayout, {
     { group: { id: 'empty', name: 'Personal', factoryIds: [] } },
   ],
 })
-roundTrip(P.parseRemoveFactoryRequest, { key: 'TED', closePullRequests: true })
+roundTrip(P.parseRemoveFactoryRequest, { key: 'Ted', closePullRequests: true })
 roundTrip(P.parseCheckRepoRequest, {
   source: { remote: 'https://github.com/owner/ted' },
   primary: true,
@@ -141,7 +141,7 @@ rejects(
 )
 roundTrip(P.parseSetRepoFolderRequest, { path: '/tmp/local' })
 roundTrip(P.parseStopCheckTryRequest, { name: 'Check' })
-roundTrip(P.parseAddFactoryRequest, { repo: 'owner/ted', key: 'TED', localFolder: '/tmp/local' })
+roundTrip(P.parseAddFactoryRequest, { repo: 'owner/ted', key: 'Ted', localFolder: '/tmp/local' })
 roundTrip(P.parseCheckTryRequest, {
   name: 'Check',
   run: 'pnpm typecheck',
@@ -406,11 +406,11 @@ test('legacy Factory normalization and defaults', () => {
     repos: [],
   })
   expect(
-    P.parseCreateFactoryRequest({ name: 'TED', key: 'TED', repos: [], showTutorial: true }),
-  ).toEqual({ name: 'TED', key: 'TED', repos: [] })
+    P.parseCreateFactoryRequest({ name: 'Ted', key: 'Ted', repos: [], showTutorial: true }),
+  ).toEqual({ name: 'Ted', key: 'Ted', repos: [] })
   expect(P.parseCheckRepoRequest(null)).toEqual({ source: { remote: '' }, primary: false })
-  expect(P.parseRemoveFactoryRequest({ key: 'TED' })).toEqual({
-    key: 'TED',
+  expect(P.parseRemoveFactoryRequest({ key: 'Ted' })).toEqual({
+    key: 'Ted',
     closePullRequests: true,
   })
   expect(P.parseLibraryChanges({ unknown: true })).toEqual({})

@@ -37,7 +37,7 @@ describe('Autopilot and a Task that changes .ted/', () => {
     const res = await advance(client, task)
     expect(res.body).toMatchObject({
       task: { stage: 'review' },
-      message: 'Waiting for the human at the Review sign-off. TED sends you their answer.',
+      message: 'Waiting for the human at the Review sign-off. Ted sends you their answer.',
     })
     const [request] = await gateRequests(client, task)
     expect(request?.request.stage).toBe('review')

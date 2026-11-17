@@ -2,7 +2,7 @@
 
 Status: accepted (TED-357)
 
-A real home’s event log grew by several megabytes a day from four events that mostly repeated what the store already held. Measured on a backup of the installed TED, 10–13 November 2026, per day: `v1.WorkflowLayerAccepted` 70–90 events and 0.8–1.6 MB, `v2.TaskDraftSaved` up to 4,648 events and 2.9 MB, `v1.CoordinatorChanged` 120–280 events and 2.6 MB, `v1.TaskWaitObserved` 1,700–2,300 events and 0.2–0.3 MB. No shipped event is edited (ADR 0010); each fix changes when an event is written, and the Coordinator gets a new versioned event.
+A real home’s event log grew by several megabytes a day from four events that mostly repeated what the store already held. Measured on a backup of the installed Ted, 10–13 November 2026, per day: `v1.WorkflowLayerAccepted` 70–90 events and 0.8–1.6 MB, `v2.TaskDraftSaved` up to 4,648 events and 2.9 MB, `v1.CoordinatorChanged` 120–280 events and 2.6 MB, `v1.TaskWaitObserved` 1,700–2,300 events and 0.2–0.3 MB. No shipped event is edited (ADR 0010); each fix changes when an event is written, and the Coordinator gets a new versioned event.
 
 **A Factory layer is accepted again only when its files change.** `choose` in `workflow/workflows.ts` compares the layer’s files with the stored last valid copy and writes `v1.WorkflowLayerAccepted` only when they differ. The stored version stays the commit SHA: it is now the first commit that had those files, which the Factory settings notice shows with its commit date. Stage entries still record the current commit. The Library layer is unchanged; its version is already a content hash.
 

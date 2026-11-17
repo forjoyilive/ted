@@ -914,7 +914,7 @@ test('execution controls are hidden and off without the flag, terminal-only with
         stderr: (value) => off.push(value),
       }),
     ).toBe(2)
-    expect(off.join('')).toContain('Remote execution is turned off in this version of TED.')
+    expect(off.join('')).toContain('Remote execution is turned off in this version of Ted.')
     const output: string[] = []
     const code = await runCli(['execution', command], {
       env: { TED_RUN_CAPABILITY: 'private-capability', TED_REMOTE_EXECUTION: 'on' },

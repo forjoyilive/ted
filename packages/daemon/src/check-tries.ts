@@ -267,7 +267,7 @@ export function createCheckTries(options: {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      await writeFile(log, `TED couldn’t prepare the scratch worktree: ${message}\n`, {
+      await writeFile(log, `Ted couldn’t prepare the scratch worktree: ${message}\n`, {
         mode: 0o600,
       }).catch(() => undefined)
       finished = abort.signal.aborted
@@ -310,7 +310,7 @@ export function createCheckTries(options: {
       }
       const held = store.newWorkHold()
       if (held !== undefined) {
-        throw new RequestError(409, `TED isn’t starting new work right now: ${held}.`)
+        throw new RequestError(409, `Ted isn’t starting new work right now: ${held}.`)
       }
       if (running.has(factoryId)) {
         throw new RequestError(409, 'A check is already running here. Stop it first.')

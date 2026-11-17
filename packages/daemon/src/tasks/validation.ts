@@ -68,6 +68,7 @@ interface ValidationOptions {
   notify(task: StoredTask): Promise<void>
   instructions(task: StoredTask, resolution: WorkflowResolution, message?: string): Promise<string>
   returnToWork(taskId: string, findings: string, checkRunId: string): Promise<void>
+  diagnosing(task: Task): boolean
   leaveWork(
     task: StoredTask,
   ): Promise<(message: string, carried: ValidationProgress) => Promise<Task>>
@@ -82,7 +83,7 @@ export class StaleCoverageError extends RequestError {
   constructor() {
     super(
       409,
-      'The checks haven’t run on the Task’s current code, so TED can’t move it on yet. TED runs them first when the Task is moved on.',
+      'The checks haven’t run on the Task’s current code, so Ted can’t move it on yet. Ted runs them first when the Task is moved on.',
     )
   }
 }
@@ -194,7 +195,7 @@ export function createValidation(options: ValidationOptions) {
         store.latestRebase(task.id, mergeVisit) !== undefined ||
         mergeChecksStarted(task))
     if (merging) trigger = 'merge'
-    const validating = validates(task.stage) && trigger !== 'merge'
+    const validating = validates(task.stage) && trigger !== 'merge' && trigger !== 'hand-off'
     const diagnosing = validating || merging
     const existing = store.failures.progress(task.id)
     const order = resolution.workflow.order
@@ -599,7 +600,7 @@ export function createValidation(options: ValidationOptions) {
     const held =
       store.sendBackAsks(task.id).some((ask) => ask.checkRunId === run.id) ||
       store.loopChecks(task.id).some((check) => check.checkRunId === run.id)
-    return diagnosed || held ? undefined : run
+    return diagnosed || held || options.diagnosing(task) ? undefined : run
   }
 
   async function returnFailedChecks(
@@ -615,6 +616,17 @@ export function createValidation(options: ValidationOptions) {
       mode: 0o600,
     })
     options.setChecking(taskId, false)
+    if (options.diagnosing(current)) {
+      const failureId = store.failures.progress(taskId)?.failureId
+      await options.deliver(
+        find(taskId),
+        await withInstructions(
+          `# A check failed\n\nThe Task stays in Validate. Investigate failure case ${failureId ? shortReference(failureId) : '(see ted failure list)'}, add evidence and assess regression, unrelated or uncertain. A supported regression goes back through \`ted outcome back\`; unrelated or uncertain causes require a human decision. Investigation and retry do not count as send-backs.\n\n${findings}`,
+        ),
+        'checks-done',
+      )
+      return
+    }
     let problem: string | undefined
     try {
       await options.returnToWork(taskId, findings, checkRun.id)
@@ -661,7 +673,7 @@ export function createValidation(options: ValidationOptions) {
         const checksReport =
           previousFailures && progress
             ? `Outstanding checks finished. Earlier failures remain factual:\n\n${validationReport(progress, store.failures.list(taskId))}`
-            : `TED ran the Factory’s checks before handing you this Stage. None failed:\n\n${summary(checkRun.checks)}`
+            : `Ted ran the Factory’s checks before handing you this Stage. None failed:\n\n${summary(checkRun.checks)}`
         await options.deliver(
           current,
           await withInstructions(`# Checks\n\n${checksReport}`),
@@ -775,7 +787,7 @@ export function createValidation(options: ValidationOptions) {
     if (input.resolution !== 'accepted')
       throw new RequestError(
         409,
-        'The Task is already in Work, so Accept this failure is the only decision TED takes here',
+        'The Task is already in Work, so Accept this failure is the only decision Ted takes here',
       )
     if (!failures.latestCheckReturn(task, value))
       throw new RequestError(
@@ -794,7 +806,7 @@ export function createValidation(options: ValidationOptions) {
     if (!tested || !current || !sameTested(tested, current) || progress?.failureId !== value.id)
       throw new RequestError(
         409,
-        'The Task’s code changed since this check ran, so TED can’t accept the failure. Ask the Task Lead to report the outcome again: TED runs the checks on the new code when the Task enters Validate.',
+        'The Task’s code changed since this check ran, so Ted can’t accept the failure. Ask the Task Lead to report the outcome again: Ted runs the checks on the new code when the Task enters Validate.',
       )
     options.setChecking(task.id, true)
     let entered = false
@@ -804,7 +816,7 @@ export function createValidation(options: ValidationOptions) {
       store.failures.saveProgress(carried)
       await store.persisted()
       await enter(
-        `The human accepted failure case ${shortReference(value.id)} from Work, so TED moved the Task to Validate on the same code. The checks go on after the accepted one; the ones that passed on this code don’t run again.`,
+        `The human accepted failure case ${shortReference(value.id)} from Work, so Ted moved the Task to Validate on the same code. The checks go on after the accepted one; the ones that passed on this code don’t run again.`,
         carried,
       )
       entered = true
@@ -1040,7 +1052,7 @@ export function createValidation(options: ValidationOptions) {
     if (progress && !progress.pending && progress.next < progress.checks.length)
       throw new RequestError(
         409,
-        'A check failed on the Task’s current code, so TED can’t move it on. Resolve its failure case first.',
+        'A check failed on the Task’s current code, so Ted can’t move it on. Resolve its failure case first.',
       )
     throw new StaleCoverageError()
   }
@@ -1068,11 +1080,12 @@ export function createValidation(options: ValidationOptions) {
     })
   }
 
-  function recover() {
+  function recover(skip: ReadonlySet<string> = new Set()) {
     for (const checkRun of store.listCheckRuns().filter((r) => r.finishedAt === undefined)) {
       const task = store.getTask(checkRun.taskId)
       const restart =
         checkRun.trigger === 'validate' &&
+        !skip.has(checkRun.taskId) &&
         task !== undefined &&
         validates(task.stage) &&
         !pendingRepair(task)
@@ -1094,6 +1107,7 @@ export function createValidation(options: ValidationOptions) {
         decision?.resolution === 'fix'
       if (
         validates(task.stage) &&
+        !skip.has(task.id) &&
         !pendingRepair(task) &&
         !task.archived &&
         !store.failures.list(task.id).some((f) => {

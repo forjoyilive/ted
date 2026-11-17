@@ -222,7 +222,7 @@ describe('iOS simulator Apps', () => {
       state: 'running',
       simulator: { device: 'iPhone 17', booted: true },
     })
-    const clone = (await stubDevices()).find((d) => d.name === 'TED Dev NB-1 iPhone')
+    const clone = (await stubDevices()).find((d) => d.name === 'Ted Dev NB-1 iPhone')
     expect(clone?.state).toBe('Booted')
     expect((await stubCalls()).some((c) => c[0] === 'simctl' && c[1] === 'clone')).toBe(true)
     expect(
@@ -265,7 +265,7 @@ describe('iOS simulator Apps', () => {
       name: 'iPhone',
     })
     expect(again.simulator?.booted).toBe(true)
-    expect((await stubDevices()).filter((d) => d.name === 'TED Dev NB-1 iPhone')).toHaveLength(1)
+    expect((await stubDevices()).filter((d) => d.name === 'Ted Dev NB-1 iPhone')).toHaveLength(1)
 
     await client.ok('POST', `/tasks/${task.id}/archive`)
     await waitUntil(
@@ -316,7 +316,7 @@ describe('iOS simulator Apps', () => {
       'NB-1’s iPhone to stop',
     )
     expect(firstApp.simulator).toMatchObject({ booted: false, shutDown: { for: 'NB-2' } })
-    await eventText(client, first, 'TED shut down iPhone’s simulator to free a slot for NB-2')
+    await eventText(client, first, 'Ted shut down iPhone’s simulator to free a slot for NB-2')
     const slots = await client.ok<SimulatorSlots>('GET', '/simulators')
     expect(slots.booted.map((s) => s.displayId)).toEqual(['NB-2'])
   })
@@ -423,7 +423,7 @@ describe('iOS simulator Apps', () => {
       'the simulator to shut down',
     )
     expect(idle.simulator?.shutDown?.for).toBeUndefined()
-    await eventText(client, task, 'TED shut down iPhone’s simulator because it was idle')
+    await eventText(client, task, 'Ted shut down iPhone’s simulator because it was idle')
     expect((await client.ok<SimulatorSlots>('GET', '/simulators')).booted).toEqual([])
   })
 
@@ -467,7 +467,7 @@ describe('iOS simulator Apps', () => {
       'GET',
       `/attachments/${notes[1]?.attachments?.[0]?.hash}/${encodeURIComponent('iPhone recording.mov')}`,
     )
-    expect(Buffer.from(bytes.data, 'base64').toString()).toBe('MOV of TED Dev NB-1 iPhone finished')
+    expect(Buffer.from(bytes.data, 'base64').toString()).toBe('MOV of Ted Dev NB-1 iPhone finished')
   })
 
   test('an Automation Run with a checkout runs its own Apps, waits in line for a simulator, and loses both when it ends', async () => {
@@ -567,7 +567,7 @@ describe('iOS simulator Apps', () => {
     )
     await waitUntil(
       async () =>
-        (await stubDevices()).some((d) => d.name === 'TED Dev Nightly check iPhone')
+        (await stubDevices()).some((d) => d.name === 'Ted Dev Nightly check iPhone')
           ? undefined
           : true,
       'the Run’s simulator to be deleted',
@@ -743,7 +743,7 @@ describe('iOS simulator Apps', () => {
     expect(before[11]?.stderr).toContain('can’t be resized')
     expect(before[12]?.stdout).toContain('iPhone now runs on iPhone SE (3rd generation)')
     expect(before[13]?.stdout).toContain('label="Open details"')
-    expect(before[14]?.stderr).toContain('TED couldn’t run iPhone on iPhone 6')
+    expect(before[14]?.stderr).toContain('Ted couldn’t run iPhone on iPhone 6')
     expect(before[14]?.stderr).toContain('iPhone runs on iPhone SE (3rd generation) again.')
     expect(before[15]?.stdout).toContain('iPhone now runs on iPhone 17')
     const calls = await stubCalls()
@@ -755,7 +755,7 @@ describe('iOS simulator Apps', () => {
     expect(state.ui[firstUdid ?? '']).toMatchObject({ typed: "-it's", keys: ['40'] })
     const devices = await stubDevices()
     expect(devices.some((d) => d.udid === firstUdid)).toBe(false)
-    expect(devices.filter((d) => d.name.startsWith('TED Dev'))).toMatchObject([
+    expect(devices.filter((d) => d.name.startsWith('Ted Dev'))).toMatchObject([
       { state: 'Booted', deviceTypeIdentifier: 'com.apple.CoreSimulator.SimDeviceType.iPhone-17' },
     ])
 
@@ -789,10 +789,10 @@ describe('iOS simulator Apps', () => {
       'GET',
       `/attachments/${shot?.hash}/${encodeURIComponent(shot?.name ?? '')}`,
     )
-    expect(Buffer.from(bytes.data, 'base64').toString()).toMatch(/^PNG of TED Dev .* iPhone$/)
+    expect(Buffer.from(bytes.data, 'base64').toString()).toMatch(/^PNG of Ted Dev .* iPhone$/)
     await waitUntil(
       async () =>
-        (await stubDevices()).some((d) => d.name.startsWith('TED Dev')) ? undefined : true,
+        (await stubDevices()).some((d) => d.name.startsWith('Ted Dev')) ? undefined : true,
       'the Audit’s simulator to be deleted',
     )
   }, 60_000)

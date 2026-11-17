@@ -385,7 +385,7 @@ test('a repair incorporates every repo before validation and retains all worktre
 }, 120_000)
 
 describe('Merging a multi-repo Task', () => {
-  test('TED merges nothing until every pull request is green, then merges in repos order', async () => {
+  test('Ted merges nothing until every pull request is green, then merges in repos order', async () => {
     const client = await start({
       8: { mergeState: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED', autoMergeAllowed: true },
     })
@@ -445,9 +445,9 @@ describe('Merging a multi-repo Task', () => {
     }, 'the send-back to Work')
     const thread = await events(client, task)
     expect(thread.map((e) => e.text)).toContain(
-      'Merge stopped partway · widgets and api merged, web didn’t. TED doesn’t revert a merged pull request.',
+      'Merge stopped partway · widgets and api merged, web didn’t. Ted doesn’t revert a merged pull request.',
     )
-    expect(back?.findings).toContain('TED couldn’t merge acme/web#9')
+    expect(back?.findings).toContain('Ted couldn’t merge acme/web#9')
     expect(back?.findings).toContain('Fix only web')
     expect((await getTask(client, blocked.id)).leadRunId).toBeUndefined()
 

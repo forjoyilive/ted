@@ -14,7 +14,7 @@ export function keepsStoppingBanner(connection: DaemonConnection): Banner[] {
       id: `${keepsStoppingProblem}:app`,
       problem: keepsStoppingProblem,
       severity: 'stops-work',
-      text: 'TED’s background process keeps stopping',
+      text: 'Ted’s background process keeps stopping',
       action: { label: 'Restart' },
       raisedAt: connection.crashes.at(-1) ?? new Date().toISOString(),
     },
@@ -25,7 +25,7 @@ export const keepsStoppingMenu = (banner: Banner): BannerMenuItem[] | undefined 
   banner.problem === keepsStoppingProblem
     ? [
         {
-          label: 'Restart TED in the background',
+          label: 'Restart Ted in the background',
           onSelect: () => ted.restartDaemon().catch((error: unknown) => console.error(error)),
         },
         {

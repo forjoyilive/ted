@@ -136,7 +136,7 @@ partial console, not in this completed history; preserve it separately.
   2 runs  packages/app/test/banners-component.test.tsx > Add Factory repo-access and key errors prevent submission
   2 runs  packages/app/test/coordinator-ui.test.ts > Stop keeps unstarted messages visible as Not sent when the Coordinator is reopened
   2 runs  packages/daemon/test/integrations.test.ts > GitHub health signing out raises an app-wide banner whose Fix opens gh auth login, and signing in clears it
-  1 run  packages/app/test/app-background.test.ts > running in the background closing the window keeps TED running, and the window still gets updates
+  1 run  packages/app/test/app-background.test.ts > running in the background closing the window keeps Ted running, and the window still gets updates
   1 run  packages/app/test/app-background.test.ts > running in the background the app menu shows what’s waiting and running, and its items open the right place
   1 run  packages/app/test/app-background.test.ts > running in the background when macOS asks for approval, the row says so and opens Login Items
   1 run  packages/app/test/app-background.test.ts > running in the background with Keep running remembered, Quit leaves the Run going; with Stop it, Quit ends it all
@@ -145,10 +145,10 @@ partial console, not in this completed history; preserve it separately.
   1 run  packages/app/test/app-crashes.test.ts > daemon crashes killing the daemon shows the Reconnecting bar and turns actions off while the Run keeps going; the restarted daemon picks the Run back up
   Incomplete runs may have unreported failures.
 == Tests that failed, then passed on retry (last 9 runs)
-  1 run  packages/app/test/app-background.test.ts > running in the background started with --background, TED runs with no window
+  1 run  packages/app/test/app-background.test.ts > running in the background started with --background, Ted runs with no window
   1 run  packages/app/test/app-background.test.ts > running in the background the app menu shows what’s waiting and running, and its items open the right place
-  1 run  packages/app/test/app-task.test.ts > TED app quitting with nothing running ends the app and TED’s background process
-  1 run  packages/app/test/app.test.ts > TED app a Run opens in a Conversation tab with its chat, takes messages, and the tab persists
+  1 run  packages/app/test/app-task.test.ts > Ted app quitting with nothing running ends the app and Ted’s background process
+  1 run  packages/app/test/app.test.ts > Ted app a Run opens in a Conversation tab with its chat, takes messages, and the tab persists
   1 run  packages/app/test/automations-ui.test.ts > Automations in the app a failed Run shows Retry on the newest failed row only, and Duplicate makes an off copy
   1 run  packages/app/test/linear.test.ts > New Task dialog with a Linear URL a late inline key save preserves newer draft edits after dismissing the source
   1 run  packages/app/test/new-task-submission.test.ts > a pending key save respects the draft lifecycle during Create more

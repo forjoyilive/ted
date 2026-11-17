@@ -3,6 +3,9 @@ name: Release builds
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   mac:
     runs-on: macos-15
@@ -33,14 +36,14 @@ jobs:
       - name: Check the signature and notarization
         if: ${{ env.SIGNS == 'true' }}
         run: |
-          app=packages/app/dist/release/mac-arm64/TED.app
+          app=packages/app/dist/release/mac-arm64/Ted.app
           codesign --verify --deep --strict --verbose=2 "$app"
           spctl --assess --type execute --verbose "$app"
           xcrun stapler validate "$app"
       - name: Run the packaged ted command
         run: |
           export TED_HOME="$RUNNER_TEMP/ted-home" TED_IDLE_EXIT_MS=3000 TED_LOGIN_SHELL=off
-          packages/app/dist/release/mac-arm64/TED.app/Contents/Resources/bin/ted task list
+          packages/app/dist/release/mac-arm64/Ted.app/Contents/Resources/bin/ted task list
       - uses: actions/upload-artifact@v4
         with:
           name: ted-mac
@@ -109,4 +112,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" release/* --repo "$GITHUB_REPOSITORY" --draft --title "TED ${TAG#v}" --notes ""
+        run: gh release create "$TAG" release/* --repo "$GITHUB_REPOSITORY" --draft --title "Ted ${TAG#v}" --notes ""

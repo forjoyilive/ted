@@ -271,14 +271,14 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
       if (found && !found.isDirectory()) {
         throw new RequestError(
           400,
-          `${path.relative(libraryDir, folder) || 'The Library folder'} isn’t a plain folder, so TED won’t save into it.`,
+          `${path.relative(libraryDir, folder) || 'The Library folder'} isn’t a plain folder, so Ted won’t save into it.`,
         )
       }
     }
     const file = path.join(folder, parts.at(-1) ?? '')
     const target = await lstat(file).catch(() => undefined)
     if (target && !target.isFile()) {
-      throw new RequestError(400, `${name} isn’t a plain file, so TED won’t replace it.`)
+      throw new RequestError(400, `${name} isn’t a plain file, so Ted won’t replace it.`)
     }
     return file
   }
@@ -319,7 +319,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
     },
 
     async save({ changes, version }) {
-      if (saving) throw new RequestError(409, 'TED is already saving the Library.')
+      if (saving) throw new RequestError(409, 'Ted is already saving the Library.')
       saving = true
       try {
         const base = await load()

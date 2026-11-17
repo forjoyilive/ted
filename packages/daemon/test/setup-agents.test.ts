@@ -104,7 +104,7 @@ test('Agent files with no approved Agents are refused', () => {
 
 test('a setup Agent can’t reuse an id an inherited layer defines', () => {
   expect(setupAgentDifferences([release], layer(written), ['coordinator', 'release'])).toEqual([
-    'release is already defined in TED’s defaults or the Library; a setup Agent needs an id of its own',
+    'release is already defined in Ted’s defaults or the Library; a setup Agent needs an id of its own',
     'migrations is on the branch but not in the approved proposal',
   ])
 })

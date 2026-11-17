@@ -263,7 +263,7 @@ test('the first open by a new version backs the store up, then drops the lines f
   expect(oldOutput.map((e) => e.name)).toContain('v2.RunOutputRead')
   expect(oldOutput.some((e) => e.argsJson.includes(padding))).toBe(true)
 
-  await writeFile(`${await eventlogPath()}.compacting`, 'left by a killed TED')
+  await writeFile(`${await eventlogPath()}.compacting`, 'left by a killed Ted')
 
   const statuses: DataStatus[] = []
   let compactedBytes = 0
@@ -409,7 +409,7 @@ test('a state rebuild first drops the Run output events a later one replaces, re
   let client = await start('1.1.0')
   await stop()
   const eventsBefore = await loggedEvents()
-  await writeFile(`${await eventlogPath()}.dropping`, 'left by a killed TED')
+  await writeFile(`${await eventlogPath()}.dropping`, 'left by a killed Ted')
   await pretendStateSchemaChanged(home)
 
   const statuses: DataStatus[] = []

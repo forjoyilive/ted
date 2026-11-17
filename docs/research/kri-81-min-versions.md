@@ -27,7 +27,7 @@ Researched 2026-11-08 against the installed `claude` 2.1.319, `codex` 0.160.0 an
 | `--mcp-config` | 0.2.75 | CHANGELOG 0.2.75: “Run one-off MCP servers with `claude --mcp-config <path-to-file>`” |
 | `--settings` | 1.0.61 | CHANGELOG 1.0.61: “Added `--settings` flag to load settings from a JSON file” |
 | `total_cost_usd` | 1.0.22 | CHANGELOG 1.0.22: “SDK: Renamed `total_cost` to `total_cost_usd`” |
-| Hooks | 1.0.38 | CHANGELOG 1.0.38: “Released hooks”. The spec doesn’t name the hook events TED uses for working, idle and waiting, so the next two rows cover the likely ones. |
+| Hooks | 1.0.38 | CHANGELOG 1.0.38: “Released hooks”. The spec doesn’t name the hook events Ted uses for working, idle and waiting, so the next two rows cover the likely ones. |
 | `UserPromptSubmit` hook | 1.0.54 | CHANGELOG 1.0.54: “Added UserPromptSubmit hook” |
 | `Notification` hook matchers (to tell idle from waiting on a permission prompt) | 2.0.37 | CHANGELOG 2.0.37: “Added matcher values for Notification hook events” |
 | `claude update` | 2.0.67 or earlier (not pinned) | Oldest CHANGELOG mention is a 2.0.67 fix to `claude update`, so the command is older. Far below the floor, so I didn’t look further. |
@@ -37,7 +37,7 @@ Researched 2026-11-08 against the installed `claude` 2.1.319, `codex` 0.160.0 an
 | `rate_limits` (5-hour and weekly, with `resets_at`) | 2.1.80 | CHANGELOG 2.1.80: “Added `rate_limits` field to statusline scripts … (5-hour and 7-day windows with `used_percentage` and `resets_at`)”. The string is missing from the 2.1.69 npm package and present in 2.1.80. |
 | `--permission-mode auto` | **2.1.111** | CHANGELOG 2.1.111: “Auto mode no longer requires `--enable-auto-mode`” and “Auto mode is now available for Max subscribers when using Opus 4.7”. The CHANGELOG has no entry for auto mode’s first release. In npm `cli.js`, `"auto"` first appears in the permission-mode list in 2.1.71, together with the hidden `--enable-auto-mode` flag (both absent in 2.1.70). |
 
-**Floor: 2.1.111.** Before 2.1.111, `--permission-mode auto` only worked together with the hidden `--enable-auto-mode` opt-in flag. That flag never appeared in `--help` or the CHANGELOG, and TED shouldn’t depend on an undocumented flag. If TED did pass it, the floor would drop to 2.1.80, the next-highest feature (`rate_limits`).
+**Floor: 2.1.111.** Before 2.1.111, `--permission-mode auto` only worked together with the hidden `--enable-auto-mode` opt-in flag. That flag never appeared in `--help` or the CHANGELOG, and Ted shouldn’t depend on an undocumented flag. If Ted did pass it, the floor would drop to 2.1.80, the next-highest feature (`rate_limits`).
 
 ## `codex`
 
@@ -57,7 +57,7 @@ Researched 2026-11-08 against the installed `claude` 2.1.319, `codex` 0.160.0 an
 | `willRetry` | 0.66.0 | Not in 0.65.0. `will_retry` on `ErrorNotification` in [v2.rs at rust-v0.66.0](https://github.com/openai/codex/blob/rust-v0.66.0/codex-rs/app-server-protocol/src/protocol/v2.rs) |
 | `codex update` | **0.128.0** | [rust-v0.128.0 release](https://github.com/openai/codex/releases/tag/rust-v0.128.0): “#19933 Add `codex update` command”. `Subcommand::Update` is missing from `codex-rs/cli/src/main.rs` at rust-v0.125.0, the previous stable release. |
 
-**Floor: 0.128.0.** Every app-server feature TED needs was already there by 0.66.0. `codex update` is what raises the floor. If TED used the brew or npm command for older Codex versions (as it already does when a CLI can’t update itself), the floor could drop to 0.66.0.
+**Floor: 0.128.0.** Every app-server feature Ted needs was already there by 0.66.0. `codex update` is what raises the floor. If Ted used the brew or npm command for older Codex versions (as it already does when a CLI can’t update itself), the floor could drop to 0.66.0.
 
 Two notes for whoever builds the Codex adapter:
 

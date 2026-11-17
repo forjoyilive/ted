@@ -121,7 +121,7 @@ export function ciFailureSteps(input: {
         kind: 'close',
         id: value.id,
         evidence:
-          'Closed without a pass: the Task left Merge. TED looks at CI afresh when the Task comes back to Merge.',
+          'Closed without a pass: the Task left Merge. Ted looks at CI afresh when the Task comes back to Merge.',
       })
       continue
     }
@@ -132,7 +132,7 @@ export function ciFailureSteps(input: {
       steps.push({
         kind: 'close',
         id: value.id,
-        evidence: `Closed without a pass: ${pull.repo}#${pull.number} moved to commit ${pull.pr.headRefOid}. TED looks at CI on the new commit afresh.`,
+        evidence: `Closed without a pass: ${pull.repo}#${pull.number} moved to commit ${pull.pr.headRefOid}. Ted looks at CI on the new commit afresh.`,
       })
       continue
     }

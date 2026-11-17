@@ -354,13 +354,13 @@ test('startup shows a labelled spinner and lets a failed data-status read retry'
   const pending = deferred<never>()
   const api = bridge({ getDataStatus: () => pending.promise })
   render(<Root />)
-  expect(screen.getByRole('status', { name: 'Loading TED…' })).toBeTruthy()
+  expect(screen.getByRole('status', { name: 'Loading Ted…' })).toBeTruthy()
   await act(async () => pending.reject(new Error('Data unavailable')))
   expect(screen.queryByRole('status')).toBeNull()
   expect(screen.getByRole('alert').textContent).toContain('Data unavailable')
   api.handle('getDataStatus', () => ({ state: 'opening' }))
   await user().click(screen.getByRole('button', { name: 'Try again' }))
-  await screen.findByRole('status', { name: 'Loading TED…' })
+  await screen.findByRole('status', { name: 'Loading Ted…' })
 })
 
 test('an integration failure removes both pending rows and offers a retry', async () => {
@@ -383,7 +383,7 @@ test('an integration failure removes both pending rows and offers a retry', asyn
   await act(async () => pending.reject(new Error('Integrations unavailable')))
   expect(screen.queryByRole('status', { name: 'Loading integrations…' })).toBeNull()
   await user().click(screen.getByRole('button', { name: 'Try again' }))
-  await screen.findByText('TED needs Git to clone repos and make worktrees.')
+  await screen.findByText('Ted needs Git to clone repos and make worktrees.')
   expect(api.request).toHaveBeenCalledWith('checkIntegrations')
 })
 

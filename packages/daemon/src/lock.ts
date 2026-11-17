@@ -4,7 +4,7 @@ import { openPaths } from './leftover-processes.ts'
 
 export class DaemonAlreadyRunningError extends Error {
   constructor() {
-    super(`TED’s daemon is already running`)
+    super(`Ted’s daemon is already running`)
   }
 }
 

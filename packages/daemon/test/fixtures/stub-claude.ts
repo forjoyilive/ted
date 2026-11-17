@@ -218,7 +218,7 @@ async function runStep(step: Step): Promise<void> {
             if (
               attempt >= 100 ||
               !(error instanceof Error) ||
-              !/^TED is running .+Checks/.test(error.message)
+              !/^Ted is running .+Checks/.test(error.message)
             )
               throw error
             await sleep(25)

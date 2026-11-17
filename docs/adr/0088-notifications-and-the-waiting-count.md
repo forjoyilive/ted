@@ -6,7 +6,7 @@ Status: accepted (KRI-117)
 
 Spec 3.8 asks for one notification per new Inbox item, folding of more than 3 within a minute, a notification when a stops-work problem starts, an optional one when a Task merges, and a sound switch. It also says the sidebar Inbox count, the Dock badge and the menu-bar count all show the number of waiting requests, read or not. Spec 2.1 puts notifications in the app process. Spec 2.4 says to ask for notification permission when the first Inbox item arrives.
 
-Before this, the menu bar, tray and window title used `activity().waitingOnYou`, which counted Runs in `waiting` (including Runs paused by a problem) plus Automation questions and planning chat requests. It missed FAILED and idle asks, requests on Stopped Tasks and TED’s own sign-offs, counted a Task with several requests once, and counted an Automation question twice. The sidebar added three renderer lists instead.
+Before this, the menu bar, tray and window title used `activity().waitingOnYou`, which counted Runs in `waiting` (including Runs paused by a problem) plus Automation questions and planning chat requests. It missed FAILED and idle asks, requests on Stopped Tasks and Ted’s own sign-offs, counted a Task with several requests once, and counted an Automation question twice. The sidebar added three renderer lists instead.
 
 ## Decision
 
@@ -20,7 +20,7 @@ Before this, the menu bar, tray and window title used `activity().waitingOnYou`,
 ## Considered Options
 
 - **Keep counting in the renderer.** The main process has no renderer state when the window is closed, and the badge must be right with no window.
-- **A count on `Activity`.** Mixes what the human must answer with what keeps TED running; the quit dialog and Stay Awake would recompute on every Comment.
+- **A count on `Activity`.** Mixes what the human must answer with what keeps Ted running; the quit dialog and Stay Awake would recompute on every Comment.
 - **Hold the first notifications for a minute and send one summary.** Delays the first notice, which is the one that matters.
 
 ## Consequences

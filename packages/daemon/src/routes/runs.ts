@@ -8,8 +8,8 @@ import {
 import { matchReference } from '@ted/protocol/reference'
 import {
   collectDiagnostics,
+  currentUsage,
   memoryUse,
-  processUsage,
   readDaemonLog,
   readRunOutput,
   report,
@@ -93,7 +93,7 @@ const routes: Route[] = [
   {
     method: 'GET',
     path: /^\/diagnostics\/usage$/,
-    handle: async (_, options) => [200, await processUsage(options)],
+    handle: async (_, options) => [200, await currentUsage(options)],
   },
   {
     method: 'GET',
@@ -125,7 +125,7 @@ const routes: Route[] = [
     method: 'POST',
     path: /^\/dev\/runs$/,
     async handle({ body }, { runs, agents, disk, store }) {
-      if (disk.held()) throw new HttpError(507, 'The disk is full, so TED isn’t starting new Runs')
+      if (disk.held()) throw new HttpError(507, 'The disk is full, so Ted isn’t starting new Runs')
       return [
         201,
         await runs.start({

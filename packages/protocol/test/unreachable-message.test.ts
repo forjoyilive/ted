@@ -42,12 +42,12 @@ test('an unreachable daemon says why, in the app’s words, without the port', a
   const closed = await listen(() => undefined)
   servers.pop()?.close()
   expect(await failure(client(closed).listTasks())).toBe(
-    'TED in the background isn’t running. Try again in a moment.',
+    'Ted in the background isn’t running. Try again in a moment.',
   )
 
   const resets = await listen((socket) => socket.resetAndDestroy())
   expect(await failure(client(resets).listTasks())).toBe(
-    'TED in the background closed the connection before it answered. Try again in a moment.',
+    'Ted in the background closed the connection before it answered. Try again in a moment.',
   )
 
   const stalls = await listen((socket) => {
@@ -58,6 +58,6 @@ test('an unreachable daemon says why, in the app’s words, without the port', a
 
   const silent = await listen((socket) => socket.resume())
   expect(await failure(client(silent, 1000).listTasks())).toBe(
-    'TED in the background hasn’t answered for 1 second. It may be busy or stuck; if this keeps happening, quit TED and open it again.',
+    'Ted in the background hasn’t answered for 1 second. It may be busy or stuck; if this keeps happening, quit Ted and open it again.',
   )
 })

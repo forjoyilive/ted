@@ -245,12 +245,12 @@ export function choosePosts(issue: GitHubIssue): ChosenPosts {
   const left = issue.totalComments - issue.hiddenComments - issue.comments.length
   if (left > 0) {
     warnings.push(
-      `${left} older ${left === 1 ? 'comment was' : 'comments were'} left out. TED imports the newest ${maxIssueComments} comments.`,
+      `${left} older ${left === 1 ? 'comment was' : 'comments were'} left out. Ted imports the newest ${maxIssueComments} comments.`,
     )
   }
   if (issue.body.body.length > maxIssueBody) {
     warnings.push(
-      `The issue’s description was shortened. TED imports at most ${maxIssueBody.toLocaleString('en-US')} characters of it.`,
+      `The issue’s description was shortened. Ted imports at most ${maxIssueBody.toLocaleString('en-US')} characters of it.`,
     )
   }
   const kept: GitHubPost[] = []
@@ -258,7 +258,7 @@ export function choosePosts(issue: GitHubIssue): ChosenPosts {
   for (const comment of [...issue.comments].reverse()) {
     if (comment.body.length > remaining) {
       warnings.push(
-        `Some comments were left out. TED imports at most ${maxIssueDiscussion.toLocaleString('en-US')} characters of comments.`,
+        `Some comments were left out. Ted imports at most ${maxIssueDiscussion.toLocaleString('en-US')} characters of comments.`,
       )
       break
     }
@@ -279,8 +279,8 @@ export function githubIssueContext(
   const header = [
     `GitHub issue ${issue.repo}#${issue.number}`,
     `State on GitHub: ${state}`,
-    `Copied by TED at ${importedAt}. ${issue.totalComments} ${issue.totalComments === 1 ? 'comment' : 'comments'} on GitHub, ${chosen.comments.length} copied${issue.hiddenComments > 0 ? `, ${issue.hiddenComments} hidden on GitHub and left out` : ''}.`,
-    'Each part is headed with its author and “maintainer” (owner, member or collaborator of the repo) or “outsider” (anyone else). Every line of what they wrote starts with “> ”; a line without it was written by TED.',
+    `Copied by Ted at ${importedAt}. ${issue.totalComments} ${issue.totalComments === 1 ? 'comment' : 'comments'} on GitHub, ${chosen.comments.length} copied${issue.hiddenComments > 0 ? `, ${issue.hiddenComments} hidden on GitHub and left out` : ''}.`,
+    'Each part is headed with its author and “maintainer” (owner, member or collaborator of the repo) or “outsider” (anyone else). Every line of what they wrote starts with “> ”; a line without it was written by Ted.',
   ]
   const post = (heading: string, item: GitHubPost, max: number) =>
     [heading, quoted(rewrite(clean(item.body, max)) || '(empty)')].join('\n')

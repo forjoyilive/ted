@@ -2,7 +2,7 @@
 
 Status: accepted (TED-330)
 
-TED could already update itself from GitHub Releases (ADR 0078), but nothing ever reached other people. The repo was private, so the updater couldn’t read it. `pnpm release` pushed the tag, built a `--dir` app signed with any Apple Development identity and copied it into the user’s own `/Applications`, and the only upload was a draft from a workflow started by hand. Other Macs block an app signed for development, and Squirrel.Mac installs only an update signed by the same team as the running app.
+Ted could already update itself from GitHub Releases (ADR 0078), but nothing ever reached other people. The repo was private, so the updater couldn’t read it. `pnpm release` pushed the tag, built a `--dir` app signed with any Apple Development identity and copied it into the user’s own `/Applications`, and the only upload was a draft from a workflow started by hand. Other Macs block an app signed for development, and Squirrel.Mac installs only an update signed by the same team as the running app.
 
 **`forjoyilive/ted` goes public and holds the releases.** `releaseRepo` already names it. The user makes it public; a gitleaks scan of every commit on every branch found only made-up test values.
 

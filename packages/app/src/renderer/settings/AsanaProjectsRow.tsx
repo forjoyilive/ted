@@ -40,7 +40,7 @@ export function AsanaProjectsRow({
     <TrackerGroupsRow
       title={`Asana projects for Automations in ${factory.name}`}
       labelFor={fieldId}
-      help="TED writes to Asana for a Task an Automation made only while its Asana task is in one of these projects. The first time an Automation makes a Task from another project, TED asks you in the Inbox. Removing a project stops new Tasks from syncing through it; Tasks already syncing keep going. For a single Task, open its menu and choose Sync with Asana."
+      help="Ted writes to Asana for a Task an Automation made only while its Asana task is in one of these projects. The first time an Automation makes a Task from another project, Ted asks you in the Inbox. Removing a project stops new Tasks from syncing through it; Tasks already syncing keep going. For a single Task, open its menu and choose Sync with Asana."
       allowed={allowed}
       declined={declined}
       label={name}

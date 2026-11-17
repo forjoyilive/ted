@@ -147,7 +147,7 @@ describe('notifications and badges', () => {
     if (process.platform === 'darwin') {
       const offer = window.getByRole('region', { name: 'Notifications', exact: true })
       await offer.getByRole('button', { name: 'Turn on', exact: true }).click({ timeout: 30_000 })
-      await expect.poll(bodies).toEqual(['TED will tell you when something needs you.'])
+      await expect.poll(bodies).toEqual(['Ted will tell you when something needs you.'])
       expect(await offer.count()).toBe(0)
     } else {
       await expect.poll(bodies, { timeout: 30_000 }).toEqual(['Question: Q1'])

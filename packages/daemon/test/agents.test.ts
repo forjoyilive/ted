@@ -205,7 +205,7 @@ describe('agent kinds', () => {
     }
   })
 
-  test('Codex refuses linked session routing folders rather than resuming outside TED storage', () => {
+  test('Codex refuses linked session routing folders rather than resuming outside Ted storage', () => {
     const local = path.join(home, 'linked-home')
     mkdirSync(local)
     const codex = createAgents({ home: local }).get('codex')
@@ -218,7 +218,7 @@ describe('agent kinds', () => {
     expect(() => codex.launch({ ...run, resume: 'session' })).toThrow(/plain folder/)
   })
 
-  test('Codex storage belongs to this TED home regardless of inherited personal locations', () => {
+  test('Codex storage belongs to this Ted home regardless of inherited personal locations', () => {
     const codex = agents.get('codex')
     const env = { CODEX_HOME: '/personal/codex', CODEX_SQLITE_HOME: '/personal/db' }
     const launch = codex.launch({ ...run, env })
@@ -400,7 +400,7 @@ describe('usage, credentials and cost', () => {
     expect(claude.launch({ ...run, env }).env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBeUndefined()
   })
 
-  test('under Subscription TED removes credentials from the Claude Run, including Claude’s and GitHub’s tokens', () => {
+  test('under Subscription Ted removes credentials from the Claude Run, including Claude’s and GitHub’s tokens', () => {
     const removed = {
       ANTHROPIC_API_KEY: 'k',
       ANTHROPIC_AUTH_TOKEN: 't',
@@ -672,7 +672,7 @@ describe('Antigravity', () => {
     expect(h.stop).not.toHaveBeenCalled()
   })
 
-  test('streams chat, tools and file diffs, steers at TED’s request, and queues ordinary follow-ups', async () => {
+  test('streams chat, tools and file diffs, steers at Ted’s request, and queues ordinary follow-ups', async () => {
     const h = antigravityHarness({ billing: 'api-key' })
     await vi.waitFor(() =>
       expect(h.sent.filter((m) => m.method === 'session/prompt')).toHaveLength(1),

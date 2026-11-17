@@ -7,7 +7,7 @@ separate from the later reporting commit. Tracker follow-through is pending
 because Linear rejected the final writes; [drafts](suite-measurement-follow-ups.md)
 are ready for review. This procedure is not evidence that the targets passed.
 Agents must never run these full-suite commands. The human runs them in a normal terminal outside an agent
-Run or TED Task shell. No GitHub workflow is needed.
+Run or Ted Task shell. No GitHub workflow is needed.
 
 ## Accepted experiment
 
@@ -192,7 +192,7 @@ passing streak is zero. No further measurements are authorized by this procedure
 Report every attempt against 180 seconds, without averaging away a slow run.
 Require three consecutive loaded passes with complete evidence, no retry defects
 and a live workload throughout. If a criterion fails, record the failure and
-create a scoped TED-project Linear follow-up after checking for duplicates.
+create a scoped Ted-project Linear follow-up after checking for duplicates.
 The follow-up names the failing tests/phase and evidence, desired result and
 focused validation. Keep KRI-256 open while agreed criteria are unproven or
 unmet; measurements alone are not completion.

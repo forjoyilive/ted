@@ -388,7 +388,7 @@ async function choosePicture(): Promise<string | undefined> {
   const file = filePaths[0]
   if (canceled || file === undefined) return undefined
   const image = nativeImage.createFromPath(file)
-  if (image.isEmpty()) throw new Error('TED couldn’t read that picture.')
+  if (image.isEmpty()) throw new Error('Ted couldn’t read that picture.')
   const { width, height } = image.getSize()
   const side = Math.min(width, height)
   const square = image.crop({
@@ -470,7 +470,7 @@ const firstUpdateCheckMs = 10_000
 const restartDelaysMs = tedEnv('TED_RESTART_DELAYS_MS')?.split(',').map(Number) ?? [
   ...daemonRestartDelaysMs,
 ]
-const keepsStopping = 'TED’s background process keeps stopping'
+const keepsStopping = 'Ted’s background process keeps stopping'
 
 const workerWindow = createWorkerWindow(remoteExecution, hiddenWindow)
 const workerRequests = {
@@ -869,7 +869,7 @@ async function updateSource(asksPassword: boolean): Promise<MakeSource | undefin
     .fromPartition('electron-updater', { cache: false })
     .webRequest.onBeforeRequest((details, callback) => {
       const allowed = allowedUpdateUrl(details.url)
-      if (!allowed) console.error('TED’s updater refused a request to', details.url)
+      if (!allowed) console.error('Ted’s updater refused a request to', details.url)
       callback({ cancel: !allowed })
     })
   const { default: updater } = await import('electron-updater')
@@ -972,7 +972,7 @@ async function quitCompletely(): Promise<void> {
     ])
     if (!stopped) {
       await stopTedProcesses(tedHome()).catch((error: unknown) =>
-        console.error('stopping TED’s processes:', error),
+        console.error('stopping Ted’s processes:', error),
       )
     }
   }
@@ -1155,7 +1155,7 @@ async function start(): Promise<void> {
           label: appName,
           submenu: [
             { label: 'Open worker', click: () => void workerWindow.open() },
-            { label: 'Quit TED completely', click: () => app.quit() },
+            { label: 'Quit Ted completely', click: () => app.quit() },
           ],
         },
         { role: 'editMenu' },
@@ -1299,7 +1299,7 @@ async function start(): Promise<void> {
     const forwarded = isForwardedRequest(name)
     if (!request && !forwarded) throw new Error(`unknown request ${name}`)
     if (supervised.connection.state !== 'connected') {
-      throw new Error('TED’s background process isn’t running')
+      throw new Error('Ted’s background process isn’t running')
     }
     if (forwarded) return forwardDaemonRequest(supervised.client, name, args)
     return (request as (client: DaemonClient, ...args: unknown[]) => Promise<unknown>)(
@@ -1351,7 +1351,7 @@ if (!app.requestSingleInstanceLock()) {
   traceStartup('single-instance-refused')
   if (tedEnv('TED_SANDBOX_ELECTRON') === '1') {
     console.error(
-      `${appName} couldn’t take its single-instance lock inside TED’s sandbox, so it can’t start.`,
+      `${appName} couldn’t take its single-instance lock inside Ted’s sandbox, so it can’t start.`,
     )
     app.exit(1)
   } else app.exit(0)
@@ -1362,7 +1362,7 @@ if (!app.requestSingleInstanceLock()) {
     .then(start)
     .catch((error: unknown) => {
       traceStartup('startup-failed')
-      if (testLaunch) console.error('TED could not start:', error)
+      if (testLaunch) console.error('Ted could not start:', error)
       else
         dialog.showErrorBox(
           `${appName} couldn’t start`,

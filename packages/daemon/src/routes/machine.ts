@@ -490,7 +490,7 @@ export const settingParsers: {
   trackerSyncGroups: (value) => groupsByTracker('trackerSyncGroups', value),
   trackerSyncDeclined: (value) => groupsByTracker('trackerSyncDeclined', value),
   trackerSyncGroupAccounts() {
-    throw new HttpError(400, 'TED records which account allowed a group itself')
+    throw new HttpError(400, 'Ted records which account allowed a group itself')
   },
   factoryPermissions() {
     throw new HttpError(400, 'Change permission mode through Factory settings on this computer')

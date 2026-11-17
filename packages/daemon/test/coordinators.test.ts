@@ -182,7 +182,7 @@ test('one conversation per Factory; scoped reads include fresh briefs and Commen
   await mkdir(path.join(home, 'library', 'agents'), { recursive: true })
   await writeFile(
     path.join(home, 'library', 'agents', 'coordinator.md'),
-    '# You are the Coordinator for one TED Factory\nKeep answers to three lines.\n',
+    '# You are the Coordinator for one Ted Factory\nKeep answers to three lines.\n',
   )
   const { c, run } = await s.start()
   const conversation = await s.ok<RunWithConversation>('GET', `/runs/${c.runId}`)
@@ -1368,7 +1368,7 @@ test('agent health pauses queued responses and sending advice leaves Tasks uncha
   expect((await s.chat()).receipts).toEqual([])
 })
 
-test('a pause while working records TED’s continuation as TED’s and keeps the conversation', async () => {
+test('a pause while working records Ted’s continuation as Ted’s and keeps the conversation', async () => {
   const s = await setup()
   const { c } = await s.start([{ say: 'Saved advice' }, { waitFor: path.join(scratch, 'finish') }])
   const conversation = () => s.ok<RunChat>('GET', `${s.base}/chat`)
@@ -1414,7 +1414,7 @@ test('a pause while working records TED’s continuation as TED’s and keeps th
   ])
 })
 
-test('Retry’s continuation shows as TED’s in the resumed Run, never as the human’s', async () => {
+test('Retry’s continuation shows as Ted’s in the resumed Run, never as the human’s', async () => {
   const s = await setup()
   const { c } = await s.start([
     { say: 'Saved advice' },
@@ -1430,7 +1430,7 @@ test('Retry’s continuation shows as TED’s in the resumed Run, never as the h
     return chat.items.some((i) => i.kind === 'ted' && i.text.includes(continuation))
       ? chat
       : undefined
-  }, 'TED’s continuation in the chat')
+  }, 'Ted’s continuation in the chat')
   expect((await s.chat()).runId).toBe(c.runId)
   expect(chat.items.filter((i) => i.kind === 'human' && i.text.includes(continuation))).toEqual([])
 })
@@ -1481,7 +1481,7 @@ const bubbles = (chat: RunChat) =>
         : [],
   )
 
-test('a human message queued after Retry is delivered with TED’s continuation and each keeps its author', async () => {
+test('a human message queued after Retry is delivered with Ted’s continuation and each keeps its author', async () => {
   const s = await setup()
   const { c } = await s.start([
     { say: 'Saved advice' },
@@ -2426,7 +2426,7 @@ test.each(['general', 'Validate'])(
   },
 )
 
-test('answer gives a choice on TED’s idle question, and refuses free text alone', async () => {
+test('answer gives a choice on Ted’s idle question, and refuses free text alone', async () => {
   const s = await setup(undefined, undefined, 100)
   const { task } = await s.led(
     { say: 'Templates are wired in.' },
@@ -2435,7 +2435,7 @@ test('answer gives a choice on TED’s idle question, and refuses free text alon
   )
   const idle = await waitUntil(
     async () => (await s.comments(task.id)).find((c) => c.kind === 'question'),
-    'TED to ask about the idle Task Lead',
+    'Ted to ask about the idle Task Lead',
   )
   expect(idle).toMatchObject({ author: { kind: 'ted' }, choices: ['Nudge again'] })
   const { run } = await s.start()
@@ -2523,7 +2523,7 @@ test('answer gives Try again on Validate’s send-back limit; the receipt shows 
   })
   const limit = await waitUntil(
     async () => (await s.comments(task.id)).find((c) => c.kind === 'question'),
-    'TED to ask about the send-back limit',
+    'Ted to ask about the send-back limit',
     40_000,
   )
   expect(limit).toMatchObject({

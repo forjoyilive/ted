@@ -8,7 +8,7 @@ import { writingGuidance } from '../writing.ts'
 export const planOpening = '## What the human wants to plan'
 
 export const planResumePrompt =
-  'Your process stopped before you finished, so TED resumed your session. Check where you were in the planning chat, then carry on.'
+  'Your process stopped before you finished, so Ted resumed your session. Check where you were in the planning chat, then carry on.'
 
 export interface PlanTaskContext {
   displayId: string
@@ -34,11 +34,11 @@ function fromTaskSection(task: PlanTaskContext): string {
 }
 
 export function taskDetachedMessage(displayId: string, reason: string): string {
-  return `${displayId} was ${reason}, so the Tasks this chat creates won’t go under it. TED creates a new parent Task for them instead.`
+  return `${displayId} was ${reason}, so the Tasks this chat creates won’t go under it. Ted creates a new parent Task for them instead.`
 }
 
 export function taskDetachedNote(displayId: string, reason: string): string {
-  return `Unlinked this chat from ${displayId} because it was ${reason}. The chat carries on as a standalone plan, and TED creates a new parent Task for the Tasks it creates.`
+  return `Unlinked this chat from ${displayId} because it was ${reason}. The chat carries on as a standalone plan, and Ted creates a new parent Task for the Tasks it creates.`
 }
 
 export function plannerInstructions(input: {
@@ -62,19 +62,19 @@ export function plannerInstructions(input: {
   return [
     role.trim(),
     writingGuidance,
-    `Use relevant general skills when they help with your work. Skip skills that require another host tool, such as Orca, Paseo or Superset; for example, don’t use \`orca-linear\` in TED. Use TED commands for Task workflow actions.`,
+    `Use relevant general skills when they help with your work. Skip skills that require another host tool, such as Orca, Paseo or Superset; for example, don’t use \`orca-linear\` in Ted. Use Ted commands for Task workflow actions.`,
     [
       `This chat is in the ${factory.name} Factory.${powers.includes('read_code') ? ` ${where} Read it as much as you need. Anything you write there is never pushed and is thrown away when this chat ends.` : ''}`,
       ...(ask || propose || run.length > 0 ? [''] : []),
       ...(ask
         ? [
-            `- Ask the human questions in rounds with \`ted ask --round <file>\`. ${roundFormat} Then end your turn; TED sends you their answers. While a round is open the human may message you about it; answer them, and if your recommendation changes, replace the round with \`ted ask --supersedes <request-id> --round <file>\`.`,
+            `- Ask the human questions in rounds with \`ted ask --round <file>\`. ${roundFormat} Then end your turn; Ted sends you their answers. While a round is open the human may message you about it; answer them, and if your recommendation changes, replace the round with \`ted ask --supersedes <request-id> --round <file>\`.`,
           ]
         : []),
       ...(propose
         ? [
             `- After the user confirms the plan and asks to split it, propose the fewest coherent Tasks with \`ted task propose --file <file>\`. ${proposalFormat} Each Task should deliver a verifiable result in one pull request per repo, with success criteria and dependencies. Keep the layers needed for that result together rather than making a Task for each implementation layer. Use \`to-spec\` or \`to-tickets\` if available to capture the agreed specification or split it. Then end your turn.`,
-            '- When the human approves, TED creates the Tasks in Backlog and ends this chat. If they message you instead, reply in the chat.',
+            '- When the human approves, Ted creates the Tasks in Backlog and ends this chat. If they message you instead, reply in the chat.',
           ]
         : []),
       ...run,
@@ -185,7 +185,7 @@ export function planChangesMessage(text: string): string {
 export function planApprovedMessage(
   created: readonly { row: number; displayId: string }[],
 ): string {
-  return `The human approved your proposal. TED created ${created.map((c) => `${c.displayId} (row ${c.row})`).join(', ')} as child Tasks of one parent and is ending this chat. Thank you.`
+  return `The human approved your proposal. Ted created ${created.map((c) => `${c.displayId} (row ${c.row})`).join(', ')} as child Tasks of one parent and is ending this chat. Thank you.`
 }
 
 export function planCreatedNote(ids: readonly string[], parent: string): string {

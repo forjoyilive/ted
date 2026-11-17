@@ -324,7 +324,7 @@ test('a branch’s own commits since a reviewed commit are its first-parent chai
   ])
 })
 
-test('replace refs, grafts and a shallow file in the repo don’t change what TED reads', async () => {
+test('replace refs, grafts and a shallow file in the repo don’t change what Ted reads', async () => {
   await taskBranch()
   const reviewed = await git('rev-parse', 'task')
   const main = await git('rev-parse', 'main')

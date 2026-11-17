@@ -12,12 +12,13 @@ import {
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { createAgents } from '../src/agents/index.ts'
-import { classifyProcesses } from '../src/diagnostics.ts'
+import { classifyProcesses, sharedUsage } from '../src/diagnostics.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { runFiles } from '../src/runs/host-files.ts'
 import { parsedOutput } from '../src/runs/parsed-output.ts'
 import { createRunOutput } from '../src/runs/run-output.ts'
+import type { TedStore } from '../src/store/index.ts'
 import {
   api,
   killRunHosts,
@@ -63,14 +64,14 @@ test('each process is classified by the nearest Run host, Check or App above it'
   const classified = classifyProcesses(
     [
       row(1, 0, 'launchd'),
-      row(10, 1, 'TED'),
-      row(11, 10, 'TED'),
+      row(10, 1, 'Ted'),
+      row(11, 10, 'Ted'),
       row(12, 11, 'claude'),
       row(13, 12),
       row(14, 13, 'java'),
       row(20, 10, 'sandbox-exec'),
       row(21, 20, 'vitest'),
-      row(30, 1, 'TED'),
+      row(30, 1, 'Ted'),
       row(31, 30, 'electron'),
       row(40, 10, 'git'),
       row(41, 10, 'ps'),
@@ -186,7 +187,7 @@ describe('Diagnostics', () => {
     const client = await start()
     const run = await client.startRun([{ say: 'raw hello' }, { endTurn: true }], cwd)
     await mkdir(tedPaths(home).logs, { recursive: true })
-    await appendFile(tedPaths(home).daemonLog, 'TED daemon 9.9.9 listening\n')
+    await appendFile(tedPaths(home).daemonLog, 'Ted daemon 9.9.9 listening\n')
 
     const raw = await waitUntil(async () => {
       const { body } = await client.call('GET', `/runs/${run.id}/raw`)
@@ -195,7 +196,7 @@ describe('Diagnostics', () => {
     expect(raw.text.split('\n')[0]).toMatch(/^\{"t":"start"/)
 
     const log = await client.call('GET', '/logs/daemon')
-    expect(log.body).toEqual({ text: 'TED daemon 9.9.9 listening\n', truncated: false })
+    expect(log.body).toEqual({ text: 'Ted daemon 9.9.9 listening\n', truncated: false })
   })
 
   test('shows only the end of a long log', async () => {
@@ -216,7 +217,7 @@ describe('Diagnostics', () => {
     expect((await client.call('GET', '/logs/daemon')).body).toEqual({ text: '', truncated: false })
   })
 
-  test('raw output is only for Runs TED knows', async () => {
+  test('raw output is only for Runs Ted knows', async () => {
     const client = await start()
 
     expect((await client.call('GET', '/runs/nope/raw')).status).toBe(404)
@@ -237,9 +238,9 @@ describe('Diagnostics', () => {
 
     expect(status).toBe(200)
     const { text } = body as { text: string }
-    expect(text).toContain('TED 9.9.9')
+    expect(text).toContain('Ted 9.9.9')
     expect(text).toContain(run.id)
-    expect(text).toContain('opened <TED home>/store')
+    expect(text).toContain('opened <Ted home>/store')
     expect(text).not.toContain(home)
     expect(text).not.toContain('"steps"')
     expect(text).toContain('fatal: https://[redacted]@github.com/k/n.git')
@@ -250,7 +251,7 @@ describe('Diagnostics', () => {
     const { text: short } = withoutLog.body as { text: string }
     expect(short).toContain(run.id)
     expect(short).toContain('Daemon log and process command lines left out')
-    expect(short).not.toContain('opened <TED home>/store')
+    expect(short).not.toContain('opened <Ted home>/store')
     expect(short).not.toMatch(/^\d+ \(parent \d+\) (?!·)/m)
   })
 
@@ -383,5 +384,62 @@ describe('token use from agent output', () => {
     } finally {
       await rm(home, { recursive: true, force: true })
     }
+  })
+})
+
+describe('the shared usage reading', () => {
+  const usage = (cpuPercent: number) => ({ cpuPercent }) as ProcessUsage
+  const sourcesFor = () => ({ home, store: {} as TedStore })
+
+  function counted(results: Array<() => Promise<ProcessUsage>>) {
+    let clock = 0
+    let reads = 0
+    const read = sharedUsage({
+      now: () => clock,
+      read: () => {
+        const index = reads
+        reads += 1
+        return (results[index] ?? (() => Promise.resolve(usage(index))))()
+      },
+    })
+    return {
+      read,
+      reads: () => reads,
+      advance: (ms: number) => {
+        clock += ms
+      },
+    }
+  }
+
+  test('reuses a reading for 10 seconds after it finishes', async () => {
+    const shared = counted([])
+    const sources = sourcesFor()
+    expect(await shared.read(sources)).toEqual(usage(0))
+    shared.advance(5_000)
+    expect(await shared.read(sources)).toEqual(usage(0))
+    expect(shared.reads()).toBe(1)
+    shared.advance(5_000)
+    expect(await shared.read(sources)).toEqual(usage(1))
+    expect(shared.reads()).toBe(2)
+  })
+
+  test('callers who ask while a reading runs share it', async () => {
+    let finish: (value: ProcessUsage) => void = () => {}
+    const shared = counted([() => new Promise((resolve) => (finish = resolve))])
+    const sources = sourcesFor()
+    const first = shared.read(sources)
+    const second = shared.read(sources)
+    finish(usage(7))
+    expect(await Promise.all([first, second])).toEqual([usage(7), usage(7)])
+    expect(shared.reads()).toBe(1)
+  })
+
+  test('a failed reading is not kept, and each store has its own', async () => {
+    const shared = counted([() => Promise.reject(new Error('footprint timed out'))])
+    const sources = sourcesFor()
+    await expect(shared.read(sources)).rejects.toThrow('footprint timed out')
+    expect(await shared.read(sources)).toEqual(usage(1))
+    expect(await shared.read(sourcesFor())).toEqual(usage(2))
+    expect(shared.reads()).toBe(3)
   })
 })

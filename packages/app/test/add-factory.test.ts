@@ -36,12 +36,12 @@ const base = { name: 'Billing', key: 'BL', keyProblem: undefined, github: undefi
 describe('Add Factory footer', () => {
   test('says what happens next when everything is valid', () => {
     expect(footer({ ...base, rows: [ok('kriya/billing-web'), ok('kriya/notebook-api')] })).toEqual({
-      text: 'TED clones both repos, then starts the setup Task BL-1.',
+      text: 'Ted clones both repos, then starts the setup Task BL-1.',
       blocked: false,
       problem: false,
     })
-    expect(footer({ ...base, rows: [ok('kriya/app', ['Has TED settings already.'])] }).text).toBe(
-      'TED clones the repo. The setup Task BL-1 will wait in Backlog.',
+    expect(footer({ ...base, rows: [ok('kriya/app', ['Has Ted settings already.'])] }).text).toBe(
+      'Ted clones the repo. The setup Task BL-1 will wait in Backlog.',
     )
   })
 
@@ -162,7 +162,7 @@ describe('GitHub repo setup', () => {
     leaveOut: ['node_modules/', '/.env'],
   }
 
-  test('the plan lists each step TED takes, in order', () => {
+  test('the plan lists each step Ted takes, in order', () => {
     const steps = setupSteps(plan, choice)
     expect(steps).toEqual(['init', 'ignore', 'commit', 'create', 'push'])
     expect(steps.map((step) => stepLabel(step, plan, choice))).toEqual([

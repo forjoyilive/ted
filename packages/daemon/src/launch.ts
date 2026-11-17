@@ -39,7 +39,7 @@ export class DaemonDidNotStartError extends Error {}
 export class TedQuitError extends Error {
   constructor() {
     super(
-      'TED was quit, so it can’t take this command. Open TED to start it again; a Run stopped by the quit is offered a restart then.',
+      'Ted was quit, so it can’t take this command. Open Ted to start it again; a Run stopped by the quit is offered a restart then.',
     )
   }
 }
@@ -151,12 +151,12 @@ export async function withDaemon<T>(
       if (child.exitCode === daemonAlreadyRunningExitCode) child = undefined
       else if (!(await anotherDaemonStarting(home)))
         throw new DaemonDidNotStartError(
-          `TED’s daemon stopped as it started; see ${tedPaths(home).daemonOutput}`,
+          `Ted’s daemon stopped as it started; see ${tedPaths(home).daemonOutput}`,
         )
     }
     if (Date.now() > deadline) {
       throw new DaemonDidNotStartError(
-        `TED’s daemon didn’t start within ${Math.round(timeoutMs / 1000)} seconds; see ${tedPaths(home).daemonLog}`,
+        `Ted’s daemon didn’t start within ${Math.round(timeoutMs / 1000)} seconds; see ${tedPaths(home).daemonLog}`,
       )
     }
     await sleep(retryDelayMs)
@@ -231,7 +231,7 @@ async function handOver(home: string, info: DaemonInfo, deadline: number): Promi
   const asked = await askToStop(home, info)
   do {
     if (Date.now() > deadline) {
-      throw new DaemonDidNotStartError('TED’s daemon didn’t stop to hand over to the app')
+      throw new DaemonDidNotStartError('Ted’s daemon didn’t stop to hand over to the app')
     }
     await sleep(retryDelayMs)
   } while (asked && (await anotherDaemonStarting(home)))
@@ -250,7 +250,7 @@ async function startDaemon(home: string, appToken?: string): Promise<ChildProces
   await mkdir(paths.home, { recursive: true, mode: 0o700 })
   await mkdir(paths.logs, { recursive: true, mode: 0o700 })
   await rollLog(paths.daemonOutput, tedLogLimits)
-  await appendFile(paths.daemonOutput, `${new Date().toISOString()} starting TED’s daemon\n`, {
+  await appendFile(paths.daemonOutput, `${new Date().toISOString()} starting Ted’s daemon\n`, {
     mode: 0o600,
   })
   const output = await open(paths.daemonOutput, 'a')
@@ -390,7 +390,7 @@ export async function superviseDaemon(
         set({ state: 'connected' })
         return
       } catch (error) {
-        console.error('couldn’t restart TED’s daemon:', error)
+        console.error('couldn’t restart Ted’s daemon:', error)
       }
     }
     stop()
@@ -436,7 +436,7 @@ export async function superviseDaemon(
       })
       const deadline = Date.now() + handOverExitMs
       while ((await anotherDaemonStarting(home)) || running(info.pid)) {
-        if (Date.now() > deadline) throw new Error('TED’s daemon didn’t stop for the update')
+        if (Date.now() > deadline) throw new Error('Ted’s daemon didn’t stop for the update')
         await sleep(retryDelayMs)
       }
       await removeIfUnchanged(home, info)

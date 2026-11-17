@@ -21,7 +21,7 @@ test('the copy keeps the user’s messages, replies and one line per command, wi
     },
     agent('a1', 'Done.'),
     { kind: 'human', id: 'h2', text: 'Not sent yet', at, sent: false },
-    { kind: 'ted', id: 'ted', title: 'TED moved this Task to Work', text: 'Long text' },
+    { kind: 'ted', id: 'ted', title: 'Ted moved this Task to Work', text: 'Long text' },
     { kind: 'interrupted', id: 'x', at },
   ])
   expect(cut).toBe(false)
@@ -30,7 +30,7 @@ test('the copy keeps the user’s messages, replies and one line per command, wi
       'The user: Please fix the field',
       'Ran: pnpm typecheck',
       'Task Lead: Done.',
-      'TED: TED moved this Task to Work',
+      'Ted: Ted moved this Task to Work',
       '(The turn was interrupted.)',
     ].join('\n\n'),
   )

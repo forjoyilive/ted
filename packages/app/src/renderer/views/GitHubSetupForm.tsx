@@ -243,7 +243,7 @@ export function GitHubSetupForm({ folder, onDone, onCancel }: GitHubSetupFormPro
                   checked={leaveOut}
                   onChange={(event) => setLeaveOut(event.target.checked)}
                 />
-                Leave them out (TED writes a .gitignore for them)
+                Leave them out (Ted writes a .gitignore for them)
               </label>
             </div>
           )}
@@ -254,8 +254,8 @@ export function GitHubSetupForm({ folder, onDone, onCancel }: GitHubSetupFormPro
                 <code>{plan.otherRemote.url}</code>, which isn’t GitHub.
               </span>
               <span className={styles.warnBody}>
-                TED leaves {plan.otherRemote.name} as it is and adds the GitHub repo as a second
-                remote named {plan.remoteName}. TED clones from {plan.remoteName}; your own pushes
+                Ted leaves {plan.otherRemote.name} as it is and adds the GitHub repo as a second
+                remote named {plan.remoteName}. Ted clones from {plan.remoteName}; your own pushes
                 and pulls keep going where they went before.
               </span>
             </div>
@@ -269,7 +269,7 @@ export function GitHubSetupForm({ folder, onDone, onCancel }: GitHubSetupFormPro
           )}
           {plan.signedIn && (
             <div className={styles.plan}>
-              <h4 className={styles.planHeading}>When you click Create repo, TED will:</h4>
+              <h4 className={styles.planHeading}>When you click Create repo, Ted will:</h4>
               <ol className={styles.steps}>
                 {setupSteps(plan, choice).map((step) => (
                   <li key={step}>{stepLabel(step, plan, choice)}</li>

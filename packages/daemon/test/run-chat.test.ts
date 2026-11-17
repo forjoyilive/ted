@@ -101,7 +101,7 @@ async function startTask(client: Client, title: string) {
 const chatOf = (client: Client, runId: string) => client.ok<RunChat>('GET', `/runs/${runId}/chat`)
 
 describe('Run chat', () => {
-  test('shows TED’s instructions, the prompt, messages, tool calls and edits as diffs', async () => {
+  test('shows Ted’s instructions, the prompt, messages, tool calls and edits as diffs', async () => {
     const client = await startTed()
     const task = await startTask(
       client,
@@ -126,10 +126,10 @@ describe('Run chat', () => {
     })
     const [instructions, prompt, ...rest] = chat.items
     expect(instructions).toMatchObject({ kind: 'instructions' })
-    expect(instructions?.kind === 'instructions' && instructions.text).toMatch(/^# Working in TED/)
+    expect(instructions?.kind === 'instructions' && instructions.text).toMatch(/^# Working in Ted/)
     expect(prompt).toMatchObject({ kind: 'prompt' })
     expect(prompt?.kind === 'prompt' && prompt.text).toContain('# Your Task: NB-1')
-    expect(prompt?.kind === 'prompt' && prompt.text).not.toContain('# Working in TED')
+    expect(prompt?.kind === 'prompt' && prompt.text).not.toContain('# Working in Ted')
     expect(rest.map((item) => item.kind)).toEqual(['tool', 'tool', 'agent'])
     expect(rest[0]).toMatchObject({
       kind: 'tool',

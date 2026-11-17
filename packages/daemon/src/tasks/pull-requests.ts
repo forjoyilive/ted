@@ -100,7 +100,7 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
     if (remote === undefined || remote === recorded) throw refused
     if (!(await git.isAncestor(target.worktree, remote, head))) {
       throw new git.GitError(
-        `git push refused: the ${target.branch} branch on GitHub is at ${remote.slice(0, 8)}, which the commit being pushed (${head.slice(0, 8)}) does not include. TED last recorded a push of ${recorded.slice(0, 8)} and won’t overwrite commits it didn’t push.`,
+        `git push refused: the ${target.branch} branch on GitHub is at ${remote.slice(0, 8)}, which the commit being pushed (${head.slice(0, 8)}) does not include. Ted last recorded a push of ${recorded.slice(0, 8)} and won’t overwrite commits it didn’t push.`,
       )
     }
     store.pushRecordReconciled(task.id, target.name, { recorded, remote })
@@ -276,8 +276,8 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
 export function pullRequestBody(task: PullRequestTask, others: string[]): string {
   const goal = task.goal?.trim() || 'No Task brief yet.'
   const from = task.sourceUrl
-    ? `Opened by TED for ${task.displayId} (${task.sourceUrl}).`
-    : `Opened by TED for ${task.displayId}.`
+    ? `Opened by Ted for ${task.displayId} (${task.sourceUrl}).`
+    : `Opened by Ted for ${task.displayId}.`
   const linked = others.length > 0 ? [`Part of the same Task: ${others.join(', ')}`] : []
   const fixes = task.fixes === undefined ? [] : [`Fixes ${task.fixes}`]
   const ref = task.issue?.()

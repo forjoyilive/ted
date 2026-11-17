@@ -1,6 +1,6 @@
 # Setting up this Factory
 
-This Task is the Factory’s setup Task. It decides TED’s settings for this Factory: Factory notes in `.ted/notes.md`, Stage overrides in `.ted/stages/<id>.md`, `.ted/workflow.yaml`, and any Agents the human approves in `.ted/agents.yaml` and `.ted/agents/<id>.md`. For this Task the Design and Review sign-offs are always on and Clarify runs at grilling depth. Change only files in `.ted/`, in the primary repo; the pull request goes to its default branch.
+This Task is the Factory’s setup Task. It decides Ted’s settings for this Factory: Factory notes in `.ted/notes.md`, Stage overrides in `.ted/stages/<id>.md`, `.ted/workflow.yaml`, and any Agents the human approves in `.ted/agents.yaml` and `.ted/agents/<id>.md`. For this Task the Design and Review sign-offs are always on and Clarify runs at grilling depth. Change only files in `.ted/`, in the primary repo; the pull request goes to its default branch.
 
 If the primary repo already has `.ted/` on its default branch, this is a later setup Task: propose changes to the current files and show each change as a diff in the design review, instead of writing the files from scratch.
 
@@ -8,18 +8,18 @@ Don’t propose adding or removing repos; if something suggests a repo is missin
 
 ## Intake
 
-TED filled in this Task. Run `ted outcome advance`.
+Ted filled in this Task. Run `ted outcome advance`.
 
 ## Clarify
 
 Read every repo first: the README, `AGENTS.md` or `CLAUDE.md`, package manifests, CI workflows, test and lint scripts, and how the product runs locally. Then ask the human how they work, in rounds with `ted ask --round <file>`: which Stages they want, where sign-offs go, how they merge (merge method, waiting for CI or for a review), and what the Factory notes should say. Recommend an answer to each question from what you read. When the human may pick several answers, such as which Stages they want, mark the question `"multiple": true` with a list of recommended choices.
 
-Ask too whether anything should happen after a pull request merges, such as a comment on the Asana task or Linear issue, a message to someone, or shutting down a test environment or emulator. That work belongs in Cleanup, an optional Stage between Merge and Done: the Task keeps its Task Lead and worktree, does each Cleanup step, and moves to Done once every step has a result. Recommend a Cleanup step for each such request, never a line in the Review or Merge sign-off and never a task the user does by hand. A step that needs judgment or another tool’s access (posting a comment, writing to an issue) is an instruction step for the Task Lead; a fixed shell command (stopping a test server, deleting a preview) is a command step that TED runs itself, in the sandbox, before the Task Lead is told anything, and that may run twice after a restart.
+Ask too whether anything should happen after a pull request merges, such as a comment on the Asana task or Linear issue, a message to someone, or shutting down a test environment or emulator. That work belongs in Cleanup, an optional Stage between Merge and Done: the Task keeps its Task Lead and worktree, does each Cleanup step, and moves to Done once every step has a result. Recommend a Cleanup step for each such request, never a line in the Review or Merge sign-off and never a task the user does by hand. A step that needs judgment or another tool’s access (posting a comment, writing to an issue) is an instruction step for the Task Lead; a fixed shell command (stopping a test server, deleting a preview) is a command step that Ted runs itself, in the sandbox, before the Task Lead is told anything, and that may run twice after a restart.
 
 ## Design
 
 1. Try each candidate check on the default branch, in your worktree, before you change anything: run its command and note whether it passed and how long it took. A check that fails on the default branch is left off the proposal’s settings; list it as failed with the reason.
-2. Try to start each App the same way: note its kind, how it became ready and how long that took (for example “ready in 9s at localhost:5174”), then stop it. An App that won’t start is left off; list it as failed with the reason. An `ios-simulator` App that builds with `xcodebuild` must pass `-derivedDataPath "$TED_DERIVED_DATA" -packageCachePath "$TED_SWIFTPM_CACHE"`, because TED’s sandbox refuses Xcode’s own folders in the home folder.
+2. Try to start each App the same way: note its kind, how it became ready and how long that took (for example “ready in 9s at localhost:5174”), then stop it. An App that won’t start is left off; list it as failed with the reason. An `ios-simulator` App that builds with `xcodebuild` must pass `-derivedDataPath "$TED_DERIVED_DATA" -packageCachePath "$TED_SWIFTPM_CACHE"`, because Ted’s sandbox refuses Xcode’s own folders in the home folder.
 3. Post the proposal with `ted outcome advance --design <file>`. Write `summary` as two sentences, and add a `setup` object to the design file:
 
    ```json
@@ -54,14 +54,14 @@ Ask too whether anything should happen after a pull request merges, such as a co
          { "path": ".ted/workflow.yaml", "about": "repos with worktree setup and Apps, checks, Stage settings" },
          { "path": ".ted/stages/validate.md", "about": "Start the App, sign in, check the main flow" }
        ],
-       "defaults": "Left as TED’s defaults: Providers, permissions Auto, the Mac’s working Run limit."
+       "defaults": "Left as Ted’s defaults: Providers, permissions Auto, the Mac’s working Run limit."
      }
    }
    ```
 
-   `workflow` has one line per Stage, in order; leave out `setting` for a Stage that stays as TED’s default. `checks` and `apps` list everything you tried, with the results you saw; give each App the exact `run` command you will write in `.ted/workflow.yaml`. `files` names every file Work will write, with one line on what it holds; always include `.ted/stages/validate.md`, and override other Stages only when their steps really change. `defaults` names what stays at TED’s defaults.
+   `workflow` has one line per Stage, in order; leave out `setting` for a Stage that stays as Ted’s default. `checks` and `apps` list everything you tried, with the results you saw; give each App the exact `run` command you will write in `.ted/workflow.yaml`. `files` names every file Work will write, with one line on what it holds; always include `.ted/stages/validate.md`, and override other Stages only when their steps really change. `defaults` names what stays at Ted’s defaults.
 
-   `agents` is optional, and suggesting none is the normal case. Suggest an Agent only for a recurring job in this repo that a chat with the human helps with and that needs knowledge a general chat lacks, such as cutting a release, planning database migrations or an unusual deploy, and only when what you read shows how that job is done here. Don’t suggest one for work a Task already does (writing code, reviewing, fixing tests), and never one whose id TED or the Library already uses, such as `coordinator` or `planner`: TED refuses it, because the Library’s settings would fill in anything the setup files leave out. Give each the fewest powers it needs, from `ask` (Ask the user), `read_code` (Read the code), `run_commands` (Run commands in the copy), `propose_tasks` (Propose Tasks) and `manage_tasks` (Manage Tasks); suggest `manage_tasks` only if the human asked for an Agent that starts or moves Tasks. `run_commands` needs `read_code` and goes with `commands`, a list of `{ "name", "command" }` (add `"repo"` in a Factory with several repos) that TED runs in the chat’s copy, in its sandbox, when the chat asks by name; list only commands you ran in Design, such as the repo’s own test or lint command. Leave out `agent` and `model` unless the human asked for a Provider. `instructions` is the full text of `.ted/agents/<id>.md`: what the Agent is for, what to read first and what to ask before acting; TED adds the commands its powers allow. Don’t list the Agent files under `files`: the sign-off shows them from `agents`. The human can remove any Agent when they approve.
+   `agents` is optional, and suggesting none is the normal case. Suggest an Agent only for a recurring job in this repo that a chat with the human helps with and that needs knowledge a general chat lacks, such as cutting a release, planning database migrations or an unusual deploy, and only when what you read shows how that job is done here. Don’t suggest one for work a Task already does (writing code, reviewing, fixing tests), and never one whose id Ted or the Library already uses, such as `coordinator` or `planner`: Ted refuses it, because the Library’s settings would fill in anything the setup files leave out. Give each the fewest powers it needs, from `ask` (Ask the user), `read_code` (Read the code), `run_commands` (Run commands in the copy), `propose_tasks` (Propose Tasks) and `manage_tasks` (Manage Tasks); suggest `manage_tasks` only if the human asked for an Agent that starts or moves Tasks. `run_commands` needs `read_code` and goes with `commands`, a list of `{ "name", "command" }` (add `"repo"` in a Factory with several repos) that Ted runs in the chat’s copy, in its sandbox, when the chat asks by name; list only commands you ran in Design, such as the repo’s own test or lint command. Leave out `agent` and `model` unless the human asked for a Provider. `instructions` is the full text of `.ted/agents/<id>.md`: what the Agent is for, what to read first and what to ask before acting; Ted adds the commands its powers allow. Don’t list the Agent files under `files`: the sign-off shows them from `agents`. The human can remove any Agent when they approve.
 
    When the user asked for after-merge work, add a `cleanup` line after the other Stages that names each step and whether it is an instruction or a command. Don’t run command steps in Design: they act after a merge and may shut things down, so the line says they weren’t tried. Leave the line out when Cleanup stays off.
 
@@ -80,7 +80,7 @@ stages:
         command: ./scripts/preview.sh stop
 ```
 
-For each Agent the human kept, add it to `.ted/agents.yaml` with the same `name`, `powers` and `commands` (a map of each name to its command, or to `{ command, repo }`), and `agent` and `model` only when the proposal has them, and write `instructions` word for word to `.ted/agents/<id>.md`. The approval message names any Agent the human removed; write nothing for those. With no Agents kept, write no `.ted/agents.yaml` and no `.ted/agents/` files. TED compares these files with the approved proposal and refuses `ted outcome advance` and the Review sign-off while they differ:
+For each Agent the human kept, add it to `.ted/agents.yaml` with the same `name`, `powers` and `commands` (a map of each name to its command, or to `{ command, repo }`), and `agent` and `model` only when the proposal has them, and write `instructions` word for word to `.ted/agents/<id>.md`. The approval message names any Agent the human removed; write nothing for those. With no Agents kept, write no `.ted/agents.yaml` and no `.ted/agents/` files. Ted compares these files with the approved proposal and refuses `ted outcome advance` and the Review sign-off while they differ:
 
 ```yaml
 release:
@@ -92,4 +92,4 @@ Run `ted workflow check` until it passes, commit, then run `ted outcome advance`
 
 ## Validate
 
-TED runs the checks from this branch’s `.ted/workflow.yaml` whose name and command match the approved proposal, plus the TED settings check, then starts the Apps from this branch whose name, repo and `run` match the approved proposal and tells you how each one started. Confirm each App works the way the proposal says; `ted run-app <App>` reaches the same ones.
+Ted runs the checks from this branch’s `.ted/workflow.yaml` whose name and command match the approved proposal, plus the Ted settings check, then starts the Apps from this branch whose name, repo and `run` match the approved proposal and tells you how each one started. Confirm each App works the way the proposal says; `ted run-app <App>` reaches the same ones.

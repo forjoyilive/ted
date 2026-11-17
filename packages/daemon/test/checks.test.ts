@@ -212,7 +212,7 @@ describe('Checks at Validate entry', () => {
     expect(validate[0]).toBeGreaterThan(back)
     const passed = messages[validate[0] ?? -1] ?? ''
     expect(passed).toContain('✓ Typecheck\n✓ Tests\n✓ Lint')
-    expect(passed).toContain('TED moved this Task to Validate')
+    expect(passed).toContain('Ted moved this Task to Validate')
 
     const events = await threadEvents(client, task)
     expect(events.find((e) => e.validate === 'passed')?.checkRunId).toBe(second?.id)
@@ -228,7 +228,7 @@ describe('Checks at Validate entry', () => {
     expect(output.text).not.toContain('ghp_abcdefghij')
   }, 90_000)
 
-  test('Check returns count toward Validate’s limit; at the limit TED asks Keep going or Stop the Task, and each does what it says', async () => {
+  test('Check returns count toward Validate’s limit; at the limit Ted asks Keep going or Stop the Task, and each does what it says', async () => {
     await commitToOrigin(scratch, {
       '.gitignore': 'stub-*\n',
       '.ted/workflow.yaml': [
@@ -569,7 +569,7 @@ describe('Checks at Validate', () => {
 
     await waitUntil(async () => {
       const all = await leadMessages(client, task)
-      return all.some((m) => m.includes('TED moved this Task to Validate')) || undefined
+      return all.some((m) => m.includes('Ted moved this Task to Validate')) || undefined
     }, 'the Validate instructions')
     expect(await checkRuns(client, task)).toEqual([])
     const banners = await client.ok<Banner[]>('GET', '/banners')
@@ -622,7 +622,7 @@ describe('Checks at Validate', () => {
     await expect.poll(() => client.ok('GET', '/update/work')).toEqual({ checks: 0, merges: 0 })
   })
 
-  test('a Task whose changes touch .ted/ gets the TED settings Check', async () => {
+  test('a Task whose changes touch .ted/ gets the Ted settings Check', async () => {
     await workflow('      - { name: Typecheck, run: "echo typed" }')
     const client = await startTed()
     const task = await startTask(
@@ -638,7 +638,7 @@ describe('Checks at Validate', () => {
     const [run] = await finishedRuns(client, task, 1)
     expect(states(run)).toEqual([
       ['Typecheck', 'passed'],
-      ['TED settings', 'failed'],
+      ['Ted settings', 'failed'],
     ])
     expect(run?.checks[1]).toMatchObject({ command: 'ted workflow check', builtIn: 'ted-settings' })
     const output = await client.ok<{ text: string }>(
@@ -779,7 +779,7 @@ describe('Checks across restarts', () => {
     }, 'the Validate instructions')
   }, 90_000)
 
-  test('a Validate entry Check run that failed just before a restart is finished at start: TED records its failure case and returns the Task to Work once', async () => {
+  test('a Validate entry Check run that failed just before a restart is finished at start: Ted records its failure case and returns the Task to Work once', async () => {
     const go = path.join(scratch, 'go')
     await workflow(
       `      - { name: Tests, run: "echo run >> stub-count; while [ ! -e '${go}' ]; do sleep 0.05; done; exit 1" }`,
@@ -975,7 +975,7 @@ describe('the Checks’ environment', () => {
     }
   }, 90_000)
 
-  test('Checks run in the login shell and environment TED read at start, not the daemon’s own, and a fresh read doesn’t make their coverage stale', async () => {
+  test('Checks run in the login shell and environment Ted read at start, not the daemon’s own, and a fresh read doesn’t make their coverage stale', async () => {
     const loginBin = path.join(scratch, 'login-bin')
     await mkdir(loginBin)
     await writeFile(path.join(loginBin, 'login-tool'), '#!/bin/sh\nprintf %s "$1"\n')
@@ -1151,7 +1151,7 @@ describe('the Checks’ sandbox', () => {
   )
 
   test.runIf(process.platform === 'darwin')(
-    'the Checks TED runs before Validate are sandboxed too, since they run the code the agent wrote',
+    'the Checks Ted runs before Validate are sandboxed too, since they run the code the agent wrote',
     async (context) => {
       skipInsideTedSandbox(context)
       await workflow(escapeCheck([path.join(home, 'planted')]))

@@ -44,10 +44,10 @@ async function passing({ changed = true, plan = checks, enterValidate = true } =
   const call = (route: string, body = {}) =>
     waitUntil(async () => {
       const result = await api(ctx.daemon?.port ?? 0, token).call('POST', root + route, body)
-      return result.status === 409 && /TED is (already )?running/.test(JSON.stringify(result.body))
+      return result.status === 409 && /Ted is (already )?running/.test(JSON.stringify(result.body))
         ? undefined
         : result
-    }, 'TED to finish handing over the Checks')
+    }, 'Ted to finish handing over the Checks')
   const read = async <T>(route: string): Promise<T> => {
     const result = await app().call('GET', route)
     expect(result.status).toBe(200)
@@ -234,7 +234,7 @@ test('a no-change skip cannot cover a newly applicable Check after local code ch
   expect(await s.stage()).toBe('validate')
 })
 
-test('newly resolved Checks run before TED posts a Validate Gate', async () => {
+test('newly resolved Checks run before Ted posts a Validate Gate', async () => {
   const s = await passing()
   expect(
     (

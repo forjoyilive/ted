@@ -25,7 +25,7 @@ describe('app icon', () => {
     expect(shadow).toBeLessThan(128)
   })
 
-  test('TED Dev’s icon has a yellow tile and a dark band', () => {
+  test('Ted Dev’s icon has a yellow tile and a dark band', () => {
     const icon = decode(appIconPng({ size: 1024, edition: 'dev' }))
 
     const tile = icon.pixel(512, 150)

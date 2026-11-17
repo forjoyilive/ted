@@ -300,7 +300,7 @@ export function createLinear(options: LinearOptions): Linear {
           throw new Error('Linear returned an incomplete issue list')
         const page = { id: organization.id, urlKey: organization.urlKey.toLowerCase() }
         if (workspace && (workspace.id !== page.id || workspace.urlKey !== page.urlKey))
-          throw new Error('Linear changed workspace while TED read the issue list')
+          throw new Error('Linear changed workspace while Ted read the issue list')
         workspace = page
         for (const node of nodes) {
           if (listed >= maxLinearIntakeListed) {
@@ -311,7 +311,7 @@ export function createLinear(options: LinearOptions): Linear {
           if (!isObject(node) || !isString(node.identifier) || !isString(node.title))
             throw new Error('Linear returned an incomplete issue')
           const link = parseLinearUrl(`https://linear.app/${page.urlKey}/issue/${node.identifier}`)
-          if (!link) throw new Error('Linear returned an issue TED can’t link to')
+          if (!link) throw new Error('Linear returned an issue Ted can’t link to')
           if (seen.has(link.identifier)) continue
           seen.add(link.identifier)
           issues.push({
@@ -325,7 +325,7 @@ export function createLinear(options: LinearOptions): Linear {
         if (listed >= maxLinearIntakeListed)
           return {
             ...result,
-            incomplete: `TED read the first ${maxLinearIntakeListed} issues; the rest wait for the next run.`,
+            incomplete: `Ted read the first ${maxLinearIntakeListed} issues; the rest wait for the next run.`,
           }
         const cursor: Json | undefined = pageInfo.endCursor
         if (!isString(cursor) || cursor === '' || cursors.has(cursor))
@@ -656,7 +656,7 @@ export function createLinear(options: LinearOptions): Linear {
           (error: unknown) => !(error instanceof KeyringUnavailableError),
         )
         if (usable) {
-          throw new RequestError(409, 'This computer has a keyring, so TED keeps the key there.')
+          throw new RequestError(409, 'This computer has a keyring, so Ted keeps the key there.')
         }
         await writeKeyFile(keyFile, key)
         place = 'file'

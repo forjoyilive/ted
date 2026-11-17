@@ -25,7 +25,7 @@ export const executionRoutes: Route[] = [
     path: /^\/execution\/cancel-enrollment$/,
     async handle(_, { execution }) {
       execution.refuseWhenOff()
-      execution.cancelEnrollment()
+      await execution.cancelEnrollment()
       return [200, {}]
     },
   },
@@ -34,7 +34,7 @@ export const executionRoutes: Route[] = [
     path: /^\/execution\/enrollment$/,
     async handle(_, { execution }) {
       execution.refuseWhenOff()
-      return [200, execution.createEnrollment()]
+      return [200, await execution.createEnrollment()]
     },
   },
   jsonRoute(parseApproveExecution, {

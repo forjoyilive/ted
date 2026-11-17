@@ -6,7 +6,7 @@ const processes = (count: number) => `${count} ${count === 1 ? 'process' : 'proc
 export function formatMemoryUse(use: MemoryUse): string {
   const { bytes, heapBytes, externalBytes } = use.daemon
   return [
-    `TED is using ${memorySize(memoryTotal(use))}.`,
+    `Ted is using ${memorySize(memoryTotal(use))}.`,
     ...memoryParts(use).map((part) =>
       part.label === daemonPartLabel
         ? `  ${part.label}: ${memorySize(part.bytes)}, ${processes(part.count)} (daemon ${memorySize(bytes)}: JavaScript heap ${memorySize(heapBytes)}, store and buffers ${memorySize(externalBytes)})`

@@ -116,6 +116,7 @@ export interface RequestAnswerPort {
     sendBack: SendBack,
   ): string
   leaveWorkToDiagnose(task: StoredTask): Promise<(message: string) => Promise<Task>>
+  diagnoseInValidate(task: StoredTask, message: string): void
   stop(id: string): Promise<Task>
   settleDependents(id: string): void
   beforeArchive?(task: StoredTask): void
@@ -202,6 +203,7 @@ export function createRequestAnswers(
     move,
     backMessage,
     leaveWorkToDiagnose,
+    diagnoseInValidate,
     stop,
     settleDependents,
     archiveNow,
@@ -278,7 +280,7 @@ export function createRequestAnswers(
       await mergeSendBack(
         task.id,
         [
-          `TED asked the human about CI at Merge: ${comment.title ?? ''}.`,
+          `Ted asked the human about CI at Merge: ${comment.title ?? ''}.`,
           comment.body.split('\n\n')[0] ?? '',
           'The human sent it to you. Find out why CI hasn’t reported (a workflow that doesn’t run on this branch, a missing runner, a check that hangs), fix what belongs in this Task, and say what you found in the brief. The Task comes back through Validate for a short re-sign-off.',
           ...(text !== '' ? [`The human added: ${text}`] : []),
@@ -300,7 +302,7 @@ export function createRequestAnswers(
     }
     if (!port.setPullRequestCi) {
       note(
-        `TED couldn’t save ${setting}: Factory settings aren’t available. This Task still merges without waiting for CI.`,
+        `Ted couldn’t save ${setting}: Factory settings aren’t available. This Task still merges without waiting for CI.`,
       )
       return
     }
@@ -309,13 +311,13 @@ export function createRequestAnswers(
       const link = `[#${saved.pullRequest.number}](${saved.pullRequest.url})`
       note(
         saved.merged
-          ? `Saved ${setting} in the Factory settings through ${link}, which TED merged. TED won’t wait for CI on ${repo.name}’s pull requests from now on; change Pull request CI in Factory settings to undo it.`
-          : `TED opened ${link} to save ${setting}, but couldn’t merge it${saved.reason ? `: ${saved.reason}` : '.'} Merge it on GitHub to keep the setting. This Task still merges without waiting for CI.`,
+          ? `Saved ${setting} in the Factory settings through ${link}, which Ted merged. Ted won’t wait for CI on ${repo.name}’s pull requests from now on; change Pull request CI in Factory settings to undo it.`
+          : `Ted opened ${link} to save ${setting}, but couldn’t merge it${saved.reason ? `: ${saved.reason}` : '.'} Merge it on GitHub to keep the setting. This Task still merges without waiting for CI.`,
       )
     } catch (error) {
       const message = redactSecrets(error instanceof Error ? error.message : String(error))
       note(
-        `TED couldn’t save ${setting}: ${message} This Task still merges without waiting for CI.`,
+        `Ted couldn’t save ${setting}: ${message} This Task still merges without waiting for CI.`,
       )
     }
   }
@@ -344,7 +346,7 @@ export function createRequestAnswers(
       store.postComment({
         taskId: task.id,
         author: { kind: 'ted' },
-        body: 'The human chose Merge anyway, so the Task Lead’s Merge work was skipped. TED merges as it would after the Task Lead’s advance: once CI passes, and after the Merge sign-off if it is on.',
+        body: 'The human chose Merge anyway, so the Task Lead’s Merge work was skipped. Ted merges as it would after the Task Lead’s advance: once CI passes, and after the Merge sign-off if it is on.',
       })
       return reply
     })
@@ -485,7 +487,7 @@ export function createRequestAnswers(
       if (!liveLead(current)) store.holdAnswer(comment.id)
       await enterValidate(
         [
-          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${diagnoseChoice}, so TED moved this Task to Validate although the checks didn’t pass in Work. TED runs the checks at entry. A check that fails there is a failure case: assess it as Validate’s instructions say, and the human can then choose Retry, Fix in this Task or Accept this failure.`,
+          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${diagnoseChoice}, so Ted moved this Task to Validate although the checks didn’t pass in Work. Ted runs the checks at entry. A check that fails there is a failure case: assess it as Validate’s instructions say, and the human can then choose Retry, Fix in this Task or Accept this failure.`,
           ...(text !== '' ? [`The human added:\n\n${text}`] : []),
         ].join('\n\n'),
       )
@@ -502,7 +504,7 @@ export function createRequestAnswers(
         task,
         comment,
         [
-          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${tryAgainChoice}. The Task stays in Work. Fix what the check reports and nothing else, commit, then report \`ted outcome advance\` again. TED now runs the Factory’s checks when the Task enters Validate; if one fails, the Task comes back to Work with the output.`,
+          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${tryAgainChoice}. The Task stays in Work. Fix what the check reports and nothing else, commit, then report \`ted outcome advance\` again. Ted now runs the Factory’s checks when the Task enters Validate; if one fails, the Task comes back to Work with the output.`,
           ...(text !== '' ? [`The human added:\n\n${text}`] : []),
         ].join('\n\n'),
       )
@@ -516,6 +518,23 @@ export function createRequestAnswers(
     const resolution = await gateWorkflow(current, { reads })
     const { workflow } = resolution
     const next = workflow.next(stageWith('validates')) as AgentStageId | 'done'
+    if (choice === diagnoseChoice) {
+      const answered = answerRequest(task, comment, {
+        kind: 'answered',
+        at,
+        choice,
+        ...(text !== '' && { text }),
+      })
+      if (!liveLead(current)) store.holdAnswer(comment.id)
+      diagnoseInValidate(
+        current,
+        [
+          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${diagnoseChoice}, so the Task stays in Validate with the check failing. Ted runs the checks again now. A check that fails stays in Validate as a failure case: assess it as Validate’s instructions say, and the human can then choose Retry, Fix in this Task or Accept this failure.`,
+          ...(text !== '' ? [`The human added:\n\n${text}`] : []),
+        ].join('\n\n'),
+      )
+      return answered
+    }
     const stopping = choice === stopTaskChoice
     const keepGoing = choice === keepGoingChoice || choice === tryAgainChoice
     const legacy = !keepGoing && !stopping
@@ -550,7 +569,7 @@ export function createRequestAnswers(
         await move(find(task.id), resolution, ask.to, undefined)
         store.holdLeadMessage(
           task.id,
-          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${stopTaskChoice}, so TED moved the Task back to Work and stopped it there. Validate’s count of returns to Work starts over.${added}\n\n${back}`,
+          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${stopTaskChoice}, so Ted moved the Task back to Work and stopped it there. Validate’s count of returns to Work starts over.${added}\n\n${back}`,
         )
         await store.persisted()
         return answered
@@ -616,7 +635,7 @@ export function createRequestAnswers(
       if (store.newWorkHold() !== undefined) {
         throw new RequestError(
           409,
-          'The disk is almost full, so TED holds new Apps until there’s space',
+          'The disk is almost full, so Ted holds new Apps until there’s space',
         )
       }
       if (await simulator.hasRoom()) {
@@ -776,13 +795,13 @@ export function createRequestAnswers(
         taskId: task.id,
         kind: 'note',
         author: { kind: 'ted' },
-        body: `TED couldn’t move ${task.displayId}: ${why} Use Move to Factory… in the Task’s menu to try again.`,
+        body: `Ted couldn’t move ${task.displayId}: ${why} Use Move to Factory… in the Task’s menu to try again.`,
       })
       await store.persisted()
       if (ask.askedBy === 'coordinator' && ask.chatId !== undefined)
         await tellChat(
           ask.chatId,
-          `The user approved moving ${task.displayId}, but TED couldn’t move it: ${why}`,
+          `The user approved moving ${task.displayId}, but Ted couldn’t move it: ${why}`,
         )
       throw error
     }
@@ -874,7 +893,7 @@ export function createRequestAnswers(
         throw new RequestError(400, 'answer a sign-off request with Approve or Request changes')
       }
     } else if (comment.kind !== 'question') {
-      throw new RequestError(400, `TED can’t answer a ${comment.kind} request yet`)
+      throw new RequestError(400, `Ted can’t answer a ${comment.kind} request yet`)
     } else if (request.action !== 'answer') {
       throw new RequestError(400, 'answer a question with a choice or your own words')
     } else if (request.choices !== undefined && !comment.multiple) {
@@ -1018,7 +1037,7 @@ export function createRequestAnswers(
             watchMerge(task.id)
             await deliver(
               from,
-              `${approved}${text === '' ? ' ' : ''}TED merges the pull requests now and moves the Task to Done when they’ve merged. There’s nothing for you to report.`,
+              `${approved}${text === '' ? ' ' : ''}Ted merges the pull requests now and moves the Task to Done when they’ve merged. There’s nothing for you to report.`,
             )
             return
           }
@@ -1162,7 +1181,7 @@ function archiveKeptMessage(task: Task, comment: Comment): string {
   const who = comment.autopilotAnswered ? 'Autopilot' : 'The user'
   const text = comment.answer?.kind === 'answered' ? comment.answer.text : undefined
   return [
-    `${who} chose ${keepArchiveChoice} on your request to archive ${task.displayId}, so TED won’t archive it.`,
+    `${who} chose ${keepArchiveChoice} on your request to archive ${task.displayId}, so Ted won’t archive it.`,
     ...(text !== undefined ? [`They added:\n\n${text}`] : []),
     `The Task stays in ${stageTitle(task.stage)}. Carry on with this Stage’s work. Ask to archive it again only if something new comes up.`,
   ].join('\n\n')

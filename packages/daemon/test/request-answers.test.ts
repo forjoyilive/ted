@@ -95,6 +95,7 @@ beforeEach(async () => {
     },
     backMessage: (_workflow, _to, _from, sendBack) => sendBack.findings,
     leaveWorkToDiagnose: unexpected,
+    diagnoseInValidate: unexpected,
     stop: unexpected,
     settleDependents: () => {
       effects.push('unblocked')
@@ -823,7 +824,7 @@ const sizeQuestion = () =>
 test.each([
   ['Split it', 'delivered'],
   ['Grill anyway', 'delivered'],
-  ['Plan it outside TED', 'plan-outside'],
+  ['Plan it outside Ted', 'plan-outside'],
 ] as const)('size-check %s carries out the real decision', async (choice, effect) => {
   stage('clarify')
   const comment = sizeQuestion()
@@ -1206,6 +1207,50 @@ test('Diagnose in Validate on the failing-Checks question answers only after the
     text: 'Broken on main',
   })
   expect(effects).toEqual(['guards', 'move:validate'])
+  expect(store.getComment(comment.id)?.answer).toMatchObject({
+    kind: 'answered',
+    choice: 'Diagnose in Validate',
+    text: 'Broken on main',
+  })
+  expect(told[0]).toContain('with Diagnose in Validate')
+  expect(told[0]).toContain('The human added:\n\nBroken on main')
+  expect(store.listSendBacks(taskId)).toEqual([])
+})
+
+test('Diagnose in Validate on an open limit question from before ADR 0187 keeps the Task in Validate and runs the checks with diagnosis', async () => {
+  stage('validate')
+  port.gateWorkflow = async () => ({ workflow: loopWorkflow(), layers: [] })
+  const run = store.startChecks({
+    taskId,
+    trigger: 'hand-off',
+    stage: 'validate',
+    checks: [{ name: 'Types', command: 'tsc', timeout: '1m', state: 'waiting' }],
+  })
+  const comment = post(
+    { kind: 'send-back' },
+    { choices: ['Try again', 'Back to Design', 'Diagnose in Validate'] },
+  )
+  store.askAboutSendBack({
+    commentId: comment.id,
+    taskId,
+    from: 'validate',
+    to: 'work',
+    findings: 'Types failed',
+    loop: true,
+    checkRunId: run.id,
+  })
+  const told: string[] = []
+  port.diagnoseInValidate = (_task, message) => {
+    effects.push('diagnose')
+    told.push(message)
+  }
+  await answer(comment, {
+    action: 'answer',
+    choice: 'Diagnose in Validate',
+    text: 'Broken on main',
+  })
+  expect(effects).toEqual(['diagnose'])
+  expect(store.getTask(taskId)?.stage).toBe('validate')
   expect(store.getComment(comment.id)?.answer).toMatchObject({
     kind: 'answered',
     choice: 'Diagnose in Validate',

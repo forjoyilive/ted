@@ -124,7 +124,7 @@ export function createCommandLine(options: CommandLineOptions = {}): CommandLine
       const place = await layout()
       const before = await statusOf(place)
       if (before.state === 'unavailable') {
-        throw new RequestError(409, 'Only an installed copy of TED can install the ted command.')
+        throw new RequestError(409, 'Only an installed copy of Ted can install the ted command.')
       }
       if (before.state === 'package') {
         throw new RequestError(409, 'Your package already installed the ted command.')
@@ -168,7 +168,7 @@ async function isOurScript(file: string): Promise<boolean> {
 function linkAsAdmin(source: string, target: string): Promise<'done' | 'cancelled'> {
   const script = [
     'on run argv',
-    'do shell script "mkdir -p " & quoted form of item 2 of argv & " && ln -sfn " & quoted form of item 1 of argv & " " & quoted form of item 3 of argv with prompt "TED needs your password to install the ted command in " & item 2 of argv & "." with administrator privileges',
+    'do shell script "mkdir -p " & quoted form of item 2 of argv & " && ln -sfn " & quoted form of item 1 of argv & " " & quoted form of item 3 of argv with prompt "Ted needs your password to install the ted command in " & item 2 of argv & "." with administrator privileges',
     'end run',
   ]
   const args = [...script.flatMap((line) => ['-e', line]), source, path.dirname(target), target]
@@ -176,7 +176,7 @@ function linkAsAdmin(source: string, target: string): Promise<'done' | 'cancelle
     execFile('/usr/bin/osascript', args, (error, _stdout, stderr) => {
       if (!error) return resolve('done')
       if (String(stderr).includes('(-128)')) return resolve('cancelled')
-      reject(new Error(`TED couldn’t install the ted command: ${String(stderr).trim()}`))
+      reject(new Error(`Ted couldn’t install the ted command: ${String(stderr).trim()}`))
     })
   })
 }

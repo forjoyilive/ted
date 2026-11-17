@@ -31,6 +31,6 @@ export function commitTitleProblem(title: string, displayId: string): string | u
     return `start the title with a Conventional Commits type, an optional scope and a colon, such as “fix(app): keep the sidebar open”. Types: ${commitTypes.join(', ')}`
   }
   if (taskIdWord.test(title.trimEnd().split(' ').at(-1) ?? ''))
-    return `leave the Task ID out of the title; TED adds “(${displayId})”`
+    return `leave the Task ID out of the title; Ted adds “(${displayId})”`
   return undefined
 }

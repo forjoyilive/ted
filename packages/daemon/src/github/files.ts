@@ -137,7 +137,7 @@ export async function fetchGitHubFiles(input: {
       return {
         name: ref.name,
         url: ref.url,
-        reason: error instanceof DownloadError ? error.message : 'TED couldn’t save the file',
+        reason: error instanceof DownloadError ? error.message : 'Ted couldn’t save the file',
       }
     }
   }
@@ -156,7 +156,7 @@ export async function fetchGitHubFiles(input: {
       ...input.refs.slice(maxGitHubFiles).map((ref) => ({
         name: ref.name,
         url: ref.url,
-        reason: `TED takes at most ${maxGitHubFiles} files from an issue`,
+        reason: `Ted takes at most ${maxGitHubFiles} files from an issue`,
       })),
     ],
   }
@@ -171,7 +171,7 @@ async function download(
   let target = new URL(url)
   for (let hop = 0; ; hop++) {
     if (!isGitHubUpload(target.href, uploads)) {
-      throw new DownloadError('GitHub sent the download to a host TED doesn’t download from')
+      throw new DownloadError('GitHub sent the download to a host Ted doesn’t download from')
     }
     let response: Response
     try {
@@ -180,7 +180,7 @@ async function download(
       throw new DownloadError(
         error instanceof Error && error.name === 'TimeoutError'
           ? 'the download timed out'
-          : 'TED couldn’t reach GitHub',
+          : 'Ted couldn’t reach GitHub',
       )
     }
     if (response.status >= 300 && response.status < 400) {
@@ -197,7 +197,7 @@ async function download(
       await response.body?.cancel()
       throw new DownloadError(
         response.status === 404 || response.status === 403
-          ? 'GitHub didn’t give TED a link it could download without signing in'
+          ? 'GitHub didn’t give Ted a link it could download without signing in'
           : `GitHub answered ${response.status}`,
       )
     }

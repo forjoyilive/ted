@@ -459,7 +459,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health: async () => integrations.current() ?? (await integrations.check()),
         factories,
         createTask: async (input) => {
-          if (!started) throw new RequestError(503, 'TED is still starting')
+          if (!started) throw new RequestError(503, 'Ted is still starting')
           return started.create(input)
         },
         emit,
@@ -517,7 +517,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           }).tryRegisterTestInvocation(task.id, {
             id: randomUUID(),
             supported,
-            label: 'TED Check',
+            label: 'Ted Check',
             checkRunId,
             position,
           })
@@ -879,7 +879,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
             factoryId: task.factoryId,
             severity: 'warning',
             text: redactSecrets(
-              `${task.displayId}’s Task Lead couldn’t be started again after it was idle, and TED keeps trying: ${reason.split('\n')[0] ?? ''}`,
+              `${task.displayId}’s Task Lead couldn’t be started again after it was idle, and Ted keeps trying: ${reason.split('\n')[0] ?? ''}`,
             ),
             action: { label: 'Open Task', opens: { kind: 'task', taskId: task.id } },
           })

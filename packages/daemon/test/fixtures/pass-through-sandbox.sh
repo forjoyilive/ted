@@ -1,5 +1,5 @@
 #!/bin/sh
-# Stands in for sandbox-exec or bwrap inside TED's own sandbox, where a second sandbox can't
+# Stands in for sandbox-exec or bwrap inside Ted's own sandbox, where a second sandbox can't
 # start (ADR 0147): it drops the sandbox's options and runs the command in the outer sandbox.
 if [ "$1" = "--help" ]; then
   exit 0

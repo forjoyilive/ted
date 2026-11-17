@@ -106,15 +106,38 @@ function checksSummary({ passed, failed, pending }: MergeRow['checks']): string 
   return `${total} ${total === 1 ? 'check' : 'checks'} passed`
 }
 
-function MergeRows({ rows, taskId }: { rows: readonly MergeRow[]; taskId: string }) {
+const noCiText = (name: string) => `No CI on ${name}, so Ted merges without waiting`
+
+function NoCiLines({ names }: { names: readonly string[] }) {
+  return names.map((name) => (
+    <p key={name} className={styles.summary}>
+      {noCiText(name)}
+    </p>
+  ))
+}
+
+function MergeRows({
+  rows,
+  taskId,
+  noCi,
+}: {
+  rows: readonly MergeRow[]
+  taskId: string
+  noCi: readonly string[]
+}) {
   const several = rows.length > 1
+  const anyCi = rows.some((row) => !noCi.includes(row.name))
+  const which = rows.length === 2 ? 'both' : 'all'
+  const lead = several
+    ? anyCi
+      ? `CI passed and ${which} are mergeable. They merge in this order.`
+      : `${which === 'both' ? 'Both' : 'All'} are mergeable. They merge in this order.`
+    : anyCi
+      ? 'CI passed and it’s mergeable.'
+      : 'It’s mergeable.'
   return (
     <>
-      <p className={styles.summary}>
-        {several
-          ? `CI passed and ${rows.length === 2 ? 'both' : 'all'} are mergeable. They merge in this order.`
-          : 'CI passed and it’s mergeable.'}
-      </p>
+      <p className={styles.summary}>{lead}</p>
       <ol className={styles.mergeRows} aria-label="Pull requests">
         {rows.map((row, i) => (
           <li key={row.name} className={styles.mergeRow}>
@@ -132,7 +155,9 @@ function MergeRows({ rows, taskId }: { rows: readonly MergeRow[]; taskId: string
               </div>
               <div className={styles.mergeDetail}>
                 {[
-                  `${row.checks.failed === 0 && row.checks.pending === 0 ? '✓ ' : ''}${checksSummary(row.checks)}`,
+                  noCi.includes(row.name)
+                    ? noCiText(row.name)
+                    : `${row.checks.failed === 0 && row.checks.pending === 0 ? '✓ ' : ''}${checksSummary(row.checks)}`,
                   row.mergeable ? 'Mergeable' : 'Not mergeable yet',
                   methodNames[row.method],
                   ...(row.reviewMissing ? ['1 GitHub review still required'] : []),
@@ -177,7 +202,7 @@ function ChangesBlock({
                 <li key={repo.name} className={styles.changedFile}>
                   <span className={styles.changedRepo}>{repo.name}</span>
                   <span className={styles.noChanges}>
-                    {repo.unavailable ? 'TED couldn’t compare this repo' : 'no changes'}
+                    {repo.unavailable ? 'Ted couldn’t compare this repo' : 'no changes'}
                   </span>
                 </li>,
               ]
@@ -1227,7 +1252,8 @@ export function RequestCard({
       <h2 className={styles.title}>
         <ReferenceText text={headline(request)} />
       </h2>
-      {rows && <MergeRows rows={rows} taskId={task.id} />}
+      {rows && <MergeRows rows={rows} taskId={task.id} noCi={request.gate?.noCi ?? []} />}
+      {!rows && request.gate?.noCi && <NoCiLines names={request.gate.noCi} />}
       {rows && changes && <MergeChangesLine changes={changes} />}
       {changes && !rows && <ChangesBlock changes={changes} current={taskChanges} />}
       {request.kind === 'signoff' &&
@@ -1503,7 +1529,7 @@ function answerLine(
         return {
           mark: '–',
           tone: 'neutral',
-          text: 'Withdrawn · TED read Asana again and asked anew',
+          text: 'Withdrawn · Ted read Asana again and asked anew',
         }
       }
       if ('archived' in answer) {

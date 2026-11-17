@@ -155,7 +155,7 @@ function parentRefusal(task: Task, parent: Task): string | undefined {
   if (parent.stage === 'done')
     return `${parent.displayId} is Done, so it can’t take ${task.displayId} back.`
   if (parentWorking(parent))
-    return `${parent.displayId} is working, and TED doesn’t change a working Task’s children. Stop ${parent.displayId} first.`
+    return `${parent.displayId} is working, and Ted doesn’t change a working Task’s children. Stop ${parent.displayId} first.`
   return undefined
 }
 
@@ -234,7 +234,7 @@ export function UnblocksList({
         ))}
       </ul>
       <p className={styles.note}>
-        {`TED removes ${blocker} from ${one ? 'its' : 'their'} Blocked by. ${one ? 'It doesn’t start on its' : 'They don’t start on their'} own.`}
+        {`Ted removes ${blocker} from ${one ? 'its' : 'their'} Blocked by. ${one ? 'It doesn’t start on its' : 'They don’t start on their'} own.`}
       </p>
     </section>
   )
@@ -286,7 +286,7 @@ export function ArchiveDialog({
     ...(task.runs.length > 0 ? [`stops ${runsPhrase(task.runs.length)}`] : []),
     ...(hasWorktree ? ['removes the worktree'] : []),
   ]
-  const action = does.length === 0 ? '' : ` TED ${does.join(' and ')}.`
+  const action = does.length === 0 ? '' : ` Ted ${does.join(' and ')}.`
   const kept =
     task.repos.length > 0
       ? 'Comments, the brief, conversations and the branches are kept.'
@@ -580,7 +580,7 @@ export function DeleteDialog({
         <>
           <h2 id={headingId} className={styles.heading}>{`Delete ${task.displayId}?`}</h2>
           <p className={styles.body}>
-            {`${task.title}. TED removes ${joinAnd(removed)}. This can’t be undone.`}
+            {`${task.title}. Ted removes ${joinAnd(removed)}. This can’t be undone.`}
           </p>
           {hasChildren && (
             <TasksUnder
@@ -697,7 +697,7 @@ export function ResetDialog({ task, onClose }: { task: Task; onClose: () => void
       : []),
     ...(prs.length > 0
       ? [
-          `${prs.length === 1 ? 'Pull request' : 'Pull requests'} ${joinAnd(prs.map(({ repo, pr }) => `${repo.name} #${pr.number}`))}, which TED closes on GitHub`,
+          `${prs.length === 1 ? 'Pull request' : 'Pull requests'} ${joinAnd(prs.map(({ repo, pr }) => `${repo.name} #${pr.number}`))}, which Ted closes on GitHub`,
         ]
       : []),
     `The thread: ${joinAnd(thread)}`,
@@ -730,7 +730,7 @@ export function ResetDialog({ task, onClose }: { task: Task; onClose: () => void
         <>
           <h2 id={headingId} className={styles.heading}>{`Reset ${task.displayId}?`}</h2>
           <p className={styles.body}>
-            {`${task.title}. TED throws away what this Task has done and starts it again from the first Stage with its original request. This can’t be undone.`}
+            {`${task.title}. Ted throws away what this Task has done and starts it again from the first Stage with its original request. This can’t be undone.`}
           </p>
           <section className={styles.lost} aria-label="What is lost">
             <h3 className={styles.lostHeading}>What is lost</h3>
@@ -994,7 +994,7 @@ export function FollowUpDialog({
         <>
           <h2 id={headingId} className={styles.heading}>{`Follow-up to ${task.displayId}?`}</h2>
           <p className={styles.body}>
-            {`${task.title}. TED creates a new Task linked to ${task.displayId} that starts from its brief and pull requests. It skips Backlog and waits for a free Run slot. ${task.displayId} stays Done.`}
+            {`${task.title}. Ted creates a new Task linked to ${task.displayId} that starts from its brief and pull requests. It skips Backlog and waits for a free Run slot. ${task.displayId} stays Done.`}
           </p>
           <textarea
             className={`${styles.text} ${grow.text}`}

@@ -62,8 +62,8 @@ function useLoginItem(): LoginItemState | undefined {
 }
 
 function loginItemNote(state: LoginItemState | undefined): string | undefined {
-  if (state === 'requires-approval') return 'Allow TED in System Settings → Login Items'
-  if (state === 'unavailable') return 'Works only in an installed copy of TED.'
+  if (state === 'requires-approval') return 'Allow Ted in System Settings → Login Items'
+  if (state === 'unavailable') return 'Works only in an installed copy of Ted.'
   return undefined
 }
 
@@ -215,7 +215,7 @@ export function GeneralPage({ settings }: SettingsPageProps) {
             <Button onClick={() => ted.openLoginItemsSettings()}>Open System Settings</Button>
           )}
           <Switch
-            label="Start TED in the background when you log in"
+            label="Start Ted in the background when you log in"
             checked={settings.startAtLogin}
             onChange={(startAtLogin) => ted.updateSettings({ startAtLogin })}
           />

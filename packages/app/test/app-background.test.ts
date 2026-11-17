@@ -68,7 +68,7 @@ describe('running in the background', () => {
       item.click()
     }, label)
 
-  test('closing the window keeps TED running, and the window still gets updates', async () => {
+  test('closing the window keeps Ted running, and the window still gets updates', async () => {
     const window = await launchApp()
     await openAllTasks(window)
 
@@ -127,10 +127,10 @@ describe('running in the background', () => {
         expect.arrayContaining([
           '1 waiting on you',
           '0 working · 1 unfinished Run',
-          'Open TED',
+          'Open Ted',
           'New Task…',
           'Settings…',
-          'Quit TED completely',
+          'Quit Ted completely',
         ]),
       )
     if (process.platform === 'linux') {
@@ -138,7 +138,7 @@ describe('running in the background', () => {
         await ctx.app?.evaluate(({ BrowserWindow }) =>
           BrowserWindow.getAllWindows()[0]?.getTitle(),
         ),
-      ).toBe('TED Dev (1)')
+      ).toBe('Ted Dev (1)')
     }
 
     await clickMenuItem('Settings…')
@@ -174,7 +174,7 @@ describe('running in the background', () => {
         type: 'attachment',
         filename: 'report.txt',
       })
-      expect(text).toMatch(/^TED /)
+      expect(text).toMatch(/^Ted /)
       expect(sentry.envelopes[0]).toContain('Daemon log and process command lines left out')
       const client = await daemonClient()
       await expect.poll(async () => (await client.getSettings()).reportEmail).toBe('me@example.com')
@@ -307,7 +307,7 @@ describe('running in the background', () => {
       })
       await openSettings(window)
 
-      await window.getByText('Allow TED in System Settings → Login Items').waitFor()
+      await window.getByText('Allow Ted in System Settings → Login Items').waitFor()
       await window.getByRole('button', { name: 'Open System Settings' }).click()
 
       await expect
@@ -318,7 +318,7 @@ describe('running in the background', () => {
     },
   )
 
-  test('started with --background, TED runs with no window', async () => {
+  test('started with --background, Ted runs with no window', async () => {
     ctx.app = await electron.launch({
       executablePath: electronPath,
       args: [appDir, '--background'],
@@ -326,14 +326,14 @@ describe('running in the background', () => {
     })
     observeStartup(ctx.app, ctx.home)
     await expect.poll(() => readDaemonInfo(ctx.home), { timeout: 20_000 }).toBeDefined()
-    await expect.poll(menuLabels).toEqual(expect.arrayContaining(['Quit TED completely']))
+    await expect.poll(menuLabels).toEqual(expect.arrayContaining(['Quit Ted completely']))
 
     expect(
       await ctx.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length),
     ).toBe(0)
   })
 
-  test('opening TED again while it runs hands over to the running app', async () => {
+  test('opening Ted again while it runs hands over to the running app', async () => {
     await launchApp()
     const electronPid = ctx.app?.process().pid ?? 0
 

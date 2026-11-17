@@ -1,6 +1,6 @@
 # Releases build in their own worktree and publish the tag
 
-ADR 0154 built a release in the main checkout and published it by pushing `main` and the tag together, so `main` couldn’t move, here or on GitHub, from the start of the tests to the end of the publish. TED’s merge watcher merges pull requests on GitHub, so every release meant pausing it for about 45 minutes. This replaces those two parts of ADR 0154; the rest stands.
+ADR 0154 built a release in the main checkout and published it by pushing `main` and the tag together, so `main` couldn’t move, here or on GitHub, from the start of the tests to the end of the publish. Ted’s merge watcher merges pull requests on GitHub, so every release meant pausing it for about 45 minutes. This replaces those two parts of ADR 0154; the rest stands.
 
 **A release builds in a detached worktree of `origin/main`.** `pnpm release` keeps one beside the repo, at `<repo folder>-release` (`ted-release` next to a clone in `ted`), not inside `.git`, where Vite refuses to serve test files. A build fetches, checks it out at `origin/main` and runs `pnpm install` there, then runs that checkout’s own `scripts/release.ts`; `publish`, `discard` and `--install` run there too. The main checkout can hold changes and move on while a release runs. A build refuses while the release worktree holds changes or an unpublished build.
 

@@ -6,13 +6,13 @@ Agent health reuses what ADR 0029 built for GitHub and Git: `cli-env.ts` reads t
 
 A kind that isn’t Ready is paused in the store (`v1.AgentPaused`, `v1.AgentResumed`). A Task Lead that can’t start because its kind is paused is held (`v1.TaskRunHeld`, with the session to resume when an open Run stopped on an auth error; `v1.TaskRunReleased` when it starts). `TedStore` turns both into `TaskFacts.paused` and `TaskRun.paused`, so the status engine (ADR 0023) shows “Paused · Claude Code is signed out” with no new code in the app. When the kind is Ready again, the tasks module starts every held Task Lead (resuming the session when it has one) and sends a carry-on message to Runs that hit an auth error but stayed open.
 
-The full health (version, path, account, fix command, paused Run count) lives in daemon memory and reaches clients through `GET /agents/health` and the `agent-health-changed` event. The banner (`agent-unavailable`, one per kind) shows for signed out, too old and wrong credential, and for not installed only when a Run is waiting on that kind. Its **Fix**, and `POST /agents/:kind/fix`, open the fix command in the user’s terminal and then check again every 5 seconds for 10 minutes, reading the login shell again while the agent is still not installed. The banner names the Agents section (`BannerAction.section`), so Settings shows its dot. TED never runs an update or a sign-in itself.
+The full health (version, path, account, fix command, paused Run count) lives in daemon memory and reaches clients through `GET /agents/health` and the `agent-health-changed` event. The banner (`agent-unavailable`, one per kind) shows for signed out, too old and wrong credential, and for not installed only when a Run is waiting on that kind. Its **Fix**, and `POST /agents/:kind/fix`, open the fix command in the user’s terminal and then check again every 5 seconds for 10 minutes, reading the login shell again while the agent is still not installed. The banner names the Agents section (`BannerAction.section`), so Settings shows its dot. Ted never runs an update or a sign-in itself.
 
 ## Considered Options
 
 - **Pause state only in memory.** Task status is computed inside `TedStore` from stored rows; an in-memory flag would need a second path for live updates and would forget held Tasks across a restart.
 - **Health checks inside each agent module.** Every kind would repeat the environment, timeout and terminal code.
-- **Open the command in TED’s terminal.** A pasted login code would pass through TED’s process (spec 2.5).
+- **Open the command in Ted’s terminal.** A pasted login code would pass through Ted’s process (spec 2.5).
 
 ## Consequences
 

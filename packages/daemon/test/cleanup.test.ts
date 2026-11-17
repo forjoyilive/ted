@@ -70,7 +70,7 @@ describe('Cleanup command steps', () => {
     const text = cleanupStepsText(steps)
     expect(text).toContain('1. **Post note**\n\n   Post the link.')
     expect(text).not.toContain('make down')
-    expect(text).toContain('TED runs the command step itself (“Stop env”)')
+    expect(text).toContain('Ted runs the command step itself (“Stop env”)')
     expect(cleanupStepsText([steps[0] as (typeof steps)[0]])).not.toContain('ted cleanup report "')
   })
 
@@ -99,13 +99,13 @@ describe('Cleanup command steps', () => {
       {
         step: 'Stop env',
         result: 'failed',
-        text: 'TED ran the command; it failed with exit code 3',
+        text: 'Ted ran the command; it failed with exit code 3',
         runId: '',
         at: '',
       },
     ])
     expect(text).toContain(
-      '- “Stop env” (a command): TED ran the command; it failed with exit code 3',
+      '- “Stop env” (a command): Ted ran the command; it failed with exit code 3',
     )
     expect(text).toContain('A failed command counts as a failed step.')
     expect(text).toContain('Do only these, then report each: “Post note”.')

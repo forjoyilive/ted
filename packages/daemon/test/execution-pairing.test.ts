@@ -1,9 +1,11 @@
 import { spawn } from 'node:child_process'
-import { mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import net from 'node:net'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   DaemonClient,
+  type ExecutionEndpoint,
   enrollmentLifetimeMs,
   executionHello,
   readDaemonInfo,
@@ -13,6 +15,7 @@ import {
 import { expect, test } from 'vitest'
 import { productWorker } from '../../../scripts/execution-lab/product-worker.ts'
 import { createEnvironment, executionEnvironment } from '../src/command-env.ts'
+import { createExecutionController } from '../src/execution/controller.ts'
 import { privateDirectory, readPrivate } from '../src/execution/files.ts'
 import { createExecutionReadiness } from '../src/execution/readiness.ts'
 import { startExecutionService } from '../src/execution/service.ts'
@@ -62,10 +65,19 @@ test('pairing across isolated processes refuses untrusted peers and preserves ap
     await expect(
       worker.request('pair', { details: JSON.stringify({ ...offer, protocol: 999 }), capacity: 2 }),
     ).rejects.toThrow()
-    await expect(executionRequest(offer, '/execution/approve', {})).rejects.toThrow()
+    expect(await accepts(offer.address, offer.pairingPort)).toBe(true)
+    await expect(executionRequest(offer, '/execution/approve', {})).rejects.toThrow(
+      /certificate|handshake|socket hang up|ECONNRESET|EPIPE/i,
+    )
     await expect(
       executionRequest(offer, '/heartbeat', { ...executionHello(), grantId: 'unapproved' }),
-    ).rejects.toThrow()
+    ).rejects.toThrow(/certificate|handshake|socket hang up|ECONNRESET|EPIPE/i)
+    await expect(
+      executionRequest({ ...offer, port: offer.pairingPort }, '/heartbeat', {
+        ...executionHello(),
+        grantId: 'unapproved',
+      }),
+    ).rejects.toThrow('No such execution operation')
     const attempted = {
       ...executionHello(),
       secret: offer.secret,
@@ -75,7 +87,10 @@ test('pairing across isolated processes refuses untrusted peers and preserves ap
     }
     for (const incompatible of [{ protocol: 999 }, { edition: 'release' }, { capabilities: [] }]) {
       await expect(
-        executionRequest(offer, '/enroll', { ...attempted, ...incompatible }),
+        executionRequest({ ...offer, port: offer.pairingPort }, '/enroll', {
+          ...attempted,
+          ...incompatible,
+        }),
       ).rejects.toThrow()
     }
     expect(
@@ -112,6 +127,7 @@ test('pairing across isolated processes refuses untrusted peers and preserves ap
     expect((await controller.client.executionMachines()).machines).toEqual([])
     await controller.client.cancelExecutionEnrollment()
     await worker.state('refused')
+    expect(await accepts(fresh.address, fresh.pairingPort)).toBe(false)
     await controller.control({ executionClockOffsetMs: 0 })
     await observe('pairing-expiry', {
       expiredEnrollment: 'refused',
@@ -146,7 +162,16 @@ test('pairing across isolated processes refuses untrusted peers and preserves ap
       grantId: grant.id,
       readiness: { capacity: 3 },
     })
+    await waitUntil(
+      async () => !(await accepts(valid.address, valid.pairingPort)),
+      'pairing listener closed after approval',
+    )
     const persisted = await readPrivate(worker.home, 'pairing.json')
+    expect(Object.keys(JSON.parse(persisted).endpoint).sort()).toEqual([
+      'address',
+      'controllerPin',
+      'port',
+    ])
     const credential = JSON.parse(persisted).credential as { certificate: string }
     await expect(
       new DaemonClient(
@@ -307,6 +332,45 @@ test('pairing across isolated processes refuses untrusted peers and preserves ap
   }
 }, 180_000)
 
+test('a cancel sent while pairing details are being created closes their pairing listener', async () => {
+  const home = await realpath(await mkdtemp(path.join(tmpdir(), 'ted-pairing-cancel-')))
+  let saved: ExecutionEndpoint | undefined
+  const controller = createExecutionController({
+    home,
+    enabled: true,
+    store: {
+      pairing: {
+        endpoint: () => saved,
+        configure: (endpoint) => {
+          saved = endpoint
+        },
+        grants: () => [],
+        approve() {},
+        forgetFactory() {},
+        revoke() {},
+      },
+      persisted: async () => {},
+      newWorkHold: () => undefined,
+    },
+    repos: async () => [],
+  })
+  try {
+    await controller.configure({ address: '127.0.0.1', port: await freeExecutionPort() })
+    const creating = controller.createEnrollment()
+    const cancelling = controller.cancelEnrollment()
+    const cancelled = await creating
+    await cancelling
+    expect(await accepts(cancelled.address, cancelled.pairingPort)).toBe(false)
+    const live = await controller.createEnrollment()
+    expect(await accepts(live.address, live.pairingPort)).toBe(true)
+    await controller.cancelEnrollment()
+    expect(await accepts(live.address, live.pairingPort)).toBe(false)
+  } finally {
+    await controller.close()
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
 test('CLI Pair replaces a still-valid saved controller after process Stop and requires fresh approval', async () => {
   const fixture = await createExecutionFixture()
   const home = path.join(fixture.root, 'replacement-worker')
@@ -354,6 +418,16 @@ test('CLI Pair replaces a still-valid saved controller after process Stop and re
     const review = await pendingPairing(first)
     const oldGrant = await first.client.approveExecution({ id: review.id, scopes: [originalScope] })
     await worker.state('connected')
+    await worker.request('pair', {
+      details: JSON.stringify({
+        ...replacement.offer,
+        controllerPin: original.offer.controllerPin,
+        controllerCertificate: original.offer.controllerCertificate,
+      }),
+      capacity: 2,
+    })
+    expect((await worker.state('refused')).message).toContain('identity')
+    expect((await second.client.executionMachines()).pending).toEqual([])
     await cli('stop')
     await cli('pair', JSON.stringify(replacement.offer))
     const pending = await pendingPairing(second)

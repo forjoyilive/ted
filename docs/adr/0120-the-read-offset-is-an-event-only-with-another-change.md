@@ -20,4 +20,4 @@ Most of those events say only “read a little further”. The offset matters to
 
 - An event log grows with what Runs do (state changes, permission prompts, endings), not with how much they print.
 - The state database’s `runs.readOffset` can be behind what the daemon has read while a Run is live. Read it only through `store.runReadOffset`.
-- A process that can write a Run’s folder can make TED skip output by writing a larger offset. It can already write `host.log` itself, so this gives it nothing new.
+- A process that can write a Run’s folder can make Ted skip output by writing a larger offset. It can already write `host.log` itself, so this gives it nothing new.

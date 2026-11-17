@@ -106,7 +106,7 @@ export function lsofArgs(uid: number | undefined, descriptors?: string): string[
 }
 
 // -b keeps lsof from calling stat on files and mount points: stat on an attached drive
-// makes macOS ask whether TED may use removable volumes. lsof exits 1 when it finds
+// makes macOS ask whether Ted may use removable volumes. lsof exits 1 when it finds
 // nothing to list; any other failure is an error.
 export async function openPaths(
   descriptors?: string,

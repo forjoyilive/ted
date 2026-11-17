@@ -84,12 +84,12 @@ describe('A branch that conflicts with its base', () => {
       'the Task to reach Validate',
     )
     const refused = await output('refused.out')
-    expect(refused).toContain('conflicts with main, so TED kept it in Work')
+    expect(refused).toContain('conflicts with main, so Ted kept it in Work')
     expect(refused).toMatch(/(<<<FILES [0-9a-f-]{36}>>>)\n- notes\.txt\n\1\n/)
     expect(await sendBacks(client, task)).toEqual([])
     const thread = await lines(client, task)
     expect(thread.some((l) => l.includes('sent this back'))).toBe(false)
-    expect(thread).toContain('TED kept this Task in Work: its branch conflicts with main in 1 file')
+    expect(thread).toContain('Ted kept this Task in Work: its branch conflicts with main in 1 file')
     const found = await conflicts(client, task)
     expect(found).toMatchObject([
       { taskId: task.id, stage: 'work', base: 'main', fileCount: 1, files: ['notes.txt'] },
@@ -128,7 +128,7 @@ describe('A branch that conflicts with its base', () => {
     })
     expect(sendBack?.findings).toMatch(/(<<<FILES [0-9a-f-]{36}>>>)\n- notes\.txt\n\1\n/)
     const refused = await output('refused.out')
-    expect(refused).toContain('conflicts with main, so TED kept it in Validate')
+    expect(refused).toContain('conflicts with main, so Ted kept it in Validate')
     expect(refused).toContain('--cause base-conflict')
     const thread = await lines(client, task)
     expect(
@@ -137,7 +137,7 @@ describe('A branch that conflicts with its base', () => {
       ),
     ).toBe(true)
     expect(
-      thread.filter((l) => l.startsWith('TED kept this Task in Validate: its branch conflicts')),
+      thread.filter((l) => l.startsWith('Ted kept this Task in Validate: its branch conflicts')),
     ).toHaveLength(1)
     const found = await conflicts(client, task)
     expect(found.map((c) => [c.stage, c.files, c.sendBackId])).toEqual([
@@ -153,7 +153,7 @@ describe('A branch that conflicts with its base', () => {
     expect(await sendBacks(client, task)).toHaveLength(1)
   })
 
-  test('a send-back that names a conflict TED can’t find is an ordinary send-back, on a branch TED moved to the latest base at its first Work entry', async () => {
+  test('a send-back that names a conflict Ted can’t find is an ordinary send-back, on a branch Ted moved to the latest base at its first Work entry', async () => {
     const { client, task } = await begin(
       [
         `elif [ ! -e '${scratchFile('worked')}' ]; then`,
@@ -179,15 +179,15 @@ describe('A branch that conflicts with its base', () => {
       cause: 'review',
     })
     await waitUntil(
-      async () => (await output('back.out')).includes('TED found no conflict with the base branch'),
-      'the reply to say TED found no conflict',
+      async () => (await output('back.out')).includes('Ted found no conflict with the base branch'),
+      'the reply to say Ted found no conflict',
     )
 
     expect((await output('head-at-work')).trim()).toBe(await branchHead('main'))
-    const moves = (await lines(client, task)).filter((l) => l.startsWith('TED moved '))
-    expect(moves).toEqual(['TED moved widgets to the latest main'])
+    const moves = (await lines(client, task)).filter((l) => l.startsWith('Ted moved '))
+    expect(moves).toEqual(['Ted moved widgets to the latest main'])
     const { leadRunId } = await getTask(client, task.id)
     const heard = await readFile(path.join(ctx.home, 'runs', leadRunId ?? '', 'host.log'), 'utf8')
-    expect(heard.split('TED moved this Task’s branch to the latest main')).toHaveLength(2)
+    expect(heard.split('Ted moved this Task’s branch to the latest main')).toHaveLength(2)
   })
 })

@@ -99,7 +99,7 @@ export async function crashReport(
       : `${name} (last ${maxBytesPerFile} bytes):\n${text}`
   }
   const text = [
-    `TED ${version} crash report`,
+    `Ted ${version} crash report`,
     `${os.type()} ${os.release()} ${os.arch()}, Node ${process.versions.node}`,
     `Crashes: ${crashes.length === 0 ? 'none recorded' : crashes.join(', ')}`,
     '',
@@ -107,7 +107,7 @@ export async function crashReport(
     '',
     await section('daemon-output.log', paths.daemonOutput),
   ].join('\n')
-  return redactSecrets(text.replaceAll(home, '<TED home>').replaceAll(os.homedir(), '~'))
+  return redactSecrets(text.replaceAll(home, '<Ted home>').replaceAll(os.homedir(), '~'))
 }
 
 export function logConsoleTo(log: RollingLog): void {

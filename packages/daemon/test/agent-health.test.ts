@@ -144,7 +144,7 @@ describe('Agent health', () => {
     const codex = await waitUntil(async () => {
       const h = await healthOf(client, 'codex')
       return h?.state === 'signed-out' ? h : undefined
-    }, 'Codex to offer sign-in for TED storage')
+    }, 'Codex to offer sign-in for Ted storage')
     const folder = path.join(home, 'codex')
     const command = `env CODEX_HOME='${folder}' CODEX_SQLITE_HOME='${folder}' codex login`
     expect(codex.fix).toEqual({ label: 'Sign in', command })

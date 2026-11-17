@@ -48,7 +48,7 @@ export const GitHubIntakeSection = memo(function GitHubIntakeSection({
         GitHub
       </h3>
       <span className={styles.caption}>
-        Choose which GitHub issues Automations can bring into this Factory. TED checks each issue
+        Choose which GitHub issues Automations can bring into this Factory. Ted checks each issue
         itself. Tasks you create yourself aren’t affected.
       </span>
       <div className={styles.field} data-setting="factory.intake.github.scope">
@@ -83,7 +83,7 @@ export const GitHubIntakeSection = memo(function GitHubIntakeSection({
             className={styles.input}
             value={label}
             maxLength={maxLabelLength}
-            placeholder="ready for TED"
+            placeholder="ready for Ted"
             disabled={!settings || saving}
             onChange={(event) => setLabel(event.target.value)}
             onBlur={saveLabel}
@@ -94,7 +94,7 @@ export const GitHubIntakeSection = memo(function GitHubIntakeSection({
           />
           <span className={styles.caption}>
             {saved === undefined
-              ? 'Type the label a maintainer adds to issues TED may take. Nothing is saved until you do.'
+              ? 'Type the label a maintainer adds to issues Ted may take. Nothing is saved until you do.'
               : `Automations bring in only open issues labelled “${saved}”.`}
           </span>
         </div>

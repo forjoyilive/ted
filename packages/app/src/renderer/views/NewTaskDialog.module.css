@@ -31,7 +31,6 @@
 }
 
 .heading {
-  flex: 1;
   margin: 0;
   font-size: var(--text-17);
   font-weight: var(--weight-semibold);
@@ -44,6 +43,7 @@
 
 .close {
   display: inline-flex;
+  margin-left: auto;
   padding: 4px;
   border: none;
   border-radius: var(--radius-control);

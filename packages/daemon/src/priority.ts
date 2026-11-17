@@ -27,7 +27,7 @@ export function workCommand(
   if (program === undefined) {
     if (!warned) {
       console.error(
-        `${wrapper.programs.join(' or ')} isn’t there; TED’s work runs at normal priority`,
+        `${wrapper.programs.join(' or ')} isn’t there; Ted’s work runs at normal priority`,
       )
     }
     warned = true

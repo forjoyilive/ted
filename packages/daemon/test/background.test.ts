@@ -117,7 +117,7 @@ describe('quitting', () => {
     await ted.shutdown()
 
     const res = await raw.call('POST', '/dev/runs', { prompt: 'hello', cwd })
-    expect(res).toEqual({ status: 503, body: { error: 'TED is shutting down' } })
+    expect(res).toEqual({ status: 503, body: { error: 'Ted is shutting down' } })
     expect(await ted.getActivity()).toEqual(idle)
   })
 
@@ -183,7 +183,7 @@ describe('ted open', () => {
   })
 })
 
-test('Runs can’t read activity, shut TED down or open the app', async () => {
+test('Runs can’t read activity, shut Ted down or open the app', async () => {
   await start()
   const runToken = (await loadRunTokens(tedPaths(home).runTokenKey)).issue('run-1')
   const asRun = (method: string, route: string) =>

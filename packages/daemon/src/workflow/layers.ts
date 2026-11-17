@@ -25,7 +25,7 @@ export function sharedDefaultLayer(): Promise<CheckedLayer> {
 
 export async function builtInAgentText(id: BuiltInAgentId): Promise<string> {
   const text = (await sharedDefaultLayer()).agentFiles[id]
-  if (text === undefined) throw new Error(`TED’s built-in ${id} instructions are missing`)
+  if (text === undefined) throw new Error(`Ted’s built-in ${id} instructions are missing`)
   return text
 }
 

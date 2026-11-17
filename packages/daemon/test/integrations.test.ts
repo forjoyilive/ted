@@ -203,7 +203,7 @@ describe('GitHub health', () => {
       expect(call.env).toMatchObject({ GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1' })
     }
     await expect(integrations.gh.run(['auth', 'token'])).rejects.toThrow(
-      'TED runs only `gh auth status --json hosts` itself',
+      'Ted runs only `gh auth status --json hosts` itself',
     )
     await expect(integrations.gh.run(['auth', 'status', '--json', 'hosts', '-t'])).rejects.toThrow()
     expect(await ghCalls()).toHaveLength(2)
@@ -294,7 +294,7 @@ describe('GitHub health', () => {
       fix: { label: 'Update', command: 'brew upgrade gh' },
     })
     expect(store.listBanners()[0]?.text).toBe(
-      'GitHub CLI 2.40.1 is too old · TED needs 2.81.0 · needed to add a Factory',
+      'GitHub CLI 2.40.1 is too old · Ted needs 2.81.0 · needed to add a Factory',
     )
     expect((await ghCalls()).map((c) => c.args)).toEqual([['--version']])
   })
@@ -508,7 +508,7 @@ describe('Fix in the user’s terminal', () => {
         "export PATH='/opt/homebrew/bin:/it'\\''s/here'",
         "printf '%s\\n\\n' '$ gh auth login --web --hostname github.com -s workflow'",
         'gh auth login --web --hostname github.com -s workflow',
-        "printf '\\n%s\\n' 'Done. You can close this window and go back to TED.'",
+        "printf '\\n%s\\n' 'Done. You can close this window and go back to Ted.'",
         '',
       ].join('\n'),
     )

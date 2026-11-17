@@ -40,7 +40,7 @@ test('pairing review starts with no repo grants, requires identity confirmation,
       addresses: [{ name: 'Wi-Fi', address: '192.168.1.2' }],
       pending: rows,
       machines: [],
-      repos: [{ factoryId: 'factory-1', factoryName: 'TED', repo: 'owner/repo' }],
+      repos: [{ factoryId: 'factory-1', factoryName: 'Ted', repo: 'owner/repo' }],
     }),
     approveExecution: () => {
       rows = []
@@ -53,7 +53,7 @@ test('pairing review starts with no repo grants, requires identity confirmation,
   expect(screen.getByText(/both Macs must be on the same local network/)).toBeTruthy()
   const approve = screen.getByRole<HTMLButtonElement>('button', { name: 'Approve pairing' })
   expect(approve.disabled).toBe(true)
-  await user().click(screen.getByRole('checkbox', { name: 'TED / owner/repo' }))
+  await user().click(screen.getByRole('checkbox', { name: 'Ted / owner/repo' }))
   expect(approve.disabled).toBe(true)
   await user().click(
     screen.getByRole('checkbox', { name: 'I checked the worker identity on the other Mac.' }),

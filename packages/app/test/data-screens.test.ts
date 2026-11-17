@@ -65,7 +65,7 @@ async function withDaemon(
 const sidebar = (window: Page) => window.getByRole('navigation', { name: 'Sidebar' })
 
 describe('data screens', () => {
-  test('a store from a newer TED shows “This data needs TED 9.0 or later”, and its backup restores', async () => {
+  test('a store from a newer Ted shows “This data needs Ted 9.0 or later”, and its backup restores', async () => {
     await withDaemon('0.0.1', (ted) => ted.call('POST', '/tasks', { title: 'Fix login' }))
     await pretendStateSchemaChanged(home)
     await withDaemon('9.0.0', (ted) => ted.call('PATCH', '/settings', { appearance: 'dark' }))
@@ -76,13 +76,13 @@ describe('data screens', () => {
 
     const window = await launchApp()
 
-    await window.getByRole('heading', { name: 'This data needs TED 9.0 or later' }).waitFor()
+    await window.getByRole('heading', { name: 'This data needs Ted 9.0 or later' }).waitFor()
     await window
-      .getByText(`was last opened by TED 9.0.0. This is TED ${tedVersion}, which can’t read it.`, {
+      .getByText(`was last opened by Ted 9.0.0. This is Ted ${tedVersion}, which can’t read it.`, {
         exact: false,
       })
       .waitFor()
-    await window.getByRole('button', { name: 'Download TED 9.0' }).waitFor()
+    await window.getByRole('button', { name: 'Download Ted 9.0' }).waitFor()
     await window
       .getByText(/^Loses changes since \d{1,2} \w{3} \d{4}, \d{2}:\d{2}(?: [ap]m)?\.$/)
       .waitFor()

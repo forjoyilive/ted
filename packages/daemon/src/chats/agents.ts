@@ -39,7 +39,7 @@ export function builtInAgent(
   id: BuiltInAgentId,
 ): StoredChatAgent {
   const found = builtIns.find((agent) => agent.id === id)
-  if (!found) throw new Error(`TED’s built-in ${id} Agent is missing`)
+  if (!found) throw new Error(`Ted’s built-in ${id} Agent is missing`)
   return found
 }
 

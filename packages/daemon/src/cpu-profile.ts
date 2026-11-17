@@ -36,7 +36,7 @@ export function createCpuProfiler(home: string, stalls?: StallProfiles): CpuProf
   }
   return {
     async record(seconds) {
-      if (running) throw new RequestError(409, 'TED is already recording a CPU profile')
+      if (running) throw new RequestError(409, 'Ted is already recording a CPU profile')
       const stop = new AbortController()
       running = stop
       try {
@@ -218,7 +218,7 @@ async function sample(seconds: number, signal: AbortSignal): Promise<string> {
     await session.post('Profiler.start')
     await sleep(seconds * 1000, undefined, { signal, ref: false }).catch(() => undefined)
     const { profile } = await session.post('Profiler.stop')
-    if (signal.aborted) throw new RequestError(503, 'TED stopped before the profile finished')
+    if (signal.aborted) throw new RequestError(503, 'Ted stopped before the profile finished')
     return JSON.stringify(profile)
   } catch (error) {
     if (error instanceof RequestError) throw error
@@ -241,7 +241,7 @@ async function connect() {
 
 function unavailable(error: unknown): RequestError {
   const reason = error instanceof Error ? error.message : String(error)
-  return new RequestError(501, `This build of TED can’t record a CPU profile: ${reason}`)
+  return new RequestError(501, `This build of Ted can’t record a CPU profile: ${reason}`)
 }
 
 async function profilesDir(home: string): Promise<string> {
@@ -255,7 +255,7 @@ async function profilesDir(home: string): Promise<string> {
     if (info.isSymbolicLink() || !info.isDirectory()) {
       throw new RequestError(
         409,
-        `${displayPath(current)} isn’t a plain folder, so TED won’t save a profile there`,
+        `${displayPath(current)} isn’t a plain folder, so Ted won’t save a profile there`,
       )
     }
   }

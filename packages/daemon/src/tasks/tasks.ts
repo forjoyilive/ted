@@ -501,6 +501,7 @@ import {
   answerTaskRequest,
   checkBack,
   createRequestAnswers,
+  diagnoseChoice,
   keepGoingChoice,
   stopTaskChoice,
   tryAgainChoice,
@@ -1295,7 +1296,7 @@ export function createTasks(options: {
   ): Promise<Attachment> {
     if (!options.saveAttachment) {
       await rm(file, { force: true })
-      throw new RequestError(503, 'TED can’t save files here')
+      throw new RequestError(503, 'Ted can’t save files here')
     }
     const attachment = await options
       .saveAttachment(file, name, mediaType)
@@ -1312,7 +1313,7 @@ export function createTasks(options: {
   }
 
   async function saveRunCapture(runId: string, file: string, app: string): Promise<Attachment> {
-    if (!options.saveAttachment) throw new RequestError(503, 'TED can’t save files here')
+    if (!options.saveAttachment) throw new RequestError(503, 'Ted can’t save files here')
     const attachment = await options
       .saveAttachment(file, `${app} screenshot.png`, 'image/png')
       .finally(() => rm(file, { force: true }))
@@ -1673,7 +1674,7 @@ export function createTasks(options: {
       .filter((stage) => workflow.stages.includes(stage))
       .map((stage) => {
         const required = task.forcedGates.includes(stage)
-          ? 'Required by TED for this Task'
+          ? 'Required by Ted for this Task'
           : task.setup && setupGateStage(stage)
             ? 'Required for Factory setup'
             : signsOffCode(stage) && guard !== undefined
@@ -2492,7 +2493,7 @@ export function createTasks(options: {
     if (movingOn.has(taskId))
       throw new RequestError(
         409,
-        `TED is already running ${find(taskId).displayId}’s checks before moving it on; try again when they finish`,
+        `Ted is already running ${find(taskId).displayId}’s checks before moving it on; try again when they finish`,
       )
     waitingMoves += 1
     const waiting = waitingMoves
@@ -2519,7 +2520,7 @@ export function createTasks(options: {
       if (result?.outcome === 'interrupted') return
       if (result !== undefined && result.outcome !== 'passed') {
         const failureId = store.failures.progress(taskId)?.failureId
-        const failed = `TED ran the checks before moving ${current.displayId} on, and one failed, so the Task stays in ${stageTitle(current.stage)}.${failureId ? ` The failure is recorded as failure case ${shortReference(failureId)}.` : ''}`
+        const failed = `Ted ran the checks before moving ${current.displayId} on, and one failed, so the Task stays in ${stageTitle(current.stage)}.${failureId ? ` The failure is recorded as failure case ${shortReference(failureId)}.` : ''}`
         tedNote(taskId, failed)
         await deliver(
           find(taskId),
@@ -2542,7 +2543,7 @@ export function createTasks(options: {
             : error instanceof Error
               ? error.message
               : String(error)
-        const stuck = `TED ran the checks before moving ${current.displayId} on, but couldn’t move it: ${redactSecrets(why)}`
+        const stuck = `Ted ran the checks before moving ${current.displayId} on, but couldn’t move it: ${redactSecrets(why)}`
         tedNote(taskId, stuck)
         await deliver(find(taskId), stuck)
       }
@@ -2623,7 +2624,7 @@ export function createTasks(options: {
     if (!read?.layer.valid) {
       throw new RequestError(
         409,
-        'TED couldn’t read valid settings in .ted/ on this branch to compare its Agents with the approved setup proposal; run `ted workflow check`',
+        'Ted couldn’t read valid settings in .ted/ on this branch to compare its Agents with the approved setup proposal; run `ted workflow check`',
       )
     }
     const differences = setupAgentDifferences(
@@ -2703,7 +2704,7 @@ export function createTasks(options: {
     }
     return lines.length === 0
       ? undefined
-      : `# Apps\n\nTED started the approved Apps from this branch:\n\n${lines.join('\n')}`
+      : `# Apps\n\nTed started the approved Apps from this branch:\n\n${lines.join('\n')}`
   }
 
   async function checkPlan(
@@ -2746,7 +2747,7 @@ export function createTasks(options: {
     }
     const why =
       store.settings().billing.claude === 'api-key'
-        ? 'Claude Code’s auto mode is off under API key billing, because TED keeps the key out of the commands Claude runs'
+        ? 'Claude Code’s auto mode is off under API key billing, because Ted keeps the key out of the commands Claude runs'
         : 'Claude Code’s auto mode isn’t available'
     banners.raise({
       ...ref,
@@ -2783,7 +2784,7 @@ export function createTasks(options: {
   async function report(checkRun: CheckRun): Promise<string> {
     const task = find(checkRun.taskId)
     if (checkRun.outcome === 'interrupted') {
-      return `TED stopped before the checks finished.\n\n${summary(checkRun.checks)}`
+      return `Ted stopped before the checks finished.\n\n${summary(checkRun.checks)}`
     }
     return (await failedFindings(task, checkRun)) ?? `Checks passed.\n\n${summary(checkRun.checks)}`
   }
@@ -2881,7 +2882,7 @@ export function createTasks(options: {
   const leftWork = (task: StoredTask) => !handsOff(task.stage) || task.archived
 
   async function reportAgain(task: StoredTask): Promise<void> {
-    const text = `# Report the outcome again\n\nTED was running the Factory’s checks to move ${task.displayId} to Validate when it stopped, so it didn’t use their result. The Task is still in Work. TED now runs the checks when the Task enters Validate: report the outcome again with \`ted outcome advance\` when the work is finished.`
+    const text = `# Report the outcome again\n\nTED was running the Factory’s checks to move ${task.displayId} to Validate when it stopped, so it didn’t use their result. The Task is still in Work. Ted now runs the checks when the Task enters Validate: report the outcome again with \`ted outcome advance\` when the work is finished.`
     if (await deliver(task, text, 'checks-done')) return
     store.holdLeadMessage(task.id, text)
     await store.persisted()
@@ -2891,6 +2892,11 @@ export function createTasks(options: {
     task: StoredTask,
   ): Promise<(message: string) => Promise<Task>> {
     return leaveWork(task, 'diagnose')
+  }
+
+  function diagnoseInValidate(task: StoredTask, message: string): void {
+    setChecking(task.id, true)
+    inBackground(`run ${task.displayId}’s checks`, () => validation.enter(task.id, message))
   }
 
   async function leaveWork(
@@ -2911,7 +2917,7 @@ export function createTasks(options: {
     if (inFlight.is(task.id, 'checking')) {
       throw new RequestError(
         409,
-        `TED is running ${task.displayId}’s checks; answer when they finish`,
+        `Ted is running ${task.displayId}’s checks; answer when they finish`,
       )
     }
     await execution.local(task.id)
@@ -2933,7 +2939,7 @@ export function createTasks(options: {
       store.recordBaseConflict(task.id, foundConflict(task, conflict))
       throw new RequestError(
         409,
-        `${task.displayId}’s branch conflicts with ${clean(conflict.base, 200)}, so it can’t leave Work yet. ${accepting ? 'The Task Lead resolves the conflict in Work, and TED runs the checks again on the new code.' : `Choose ${tryAgainChoice} and the Task Lead resolves the conflict in Work.`}`,
+        `${task.displayId}’s branch conflicts with ${clean(conflict.base, 200)}, so it can’t leave Work yet. ${accepting ? 'The Task Lead resolves the conflict in Work, and Ted runs the checks again on the new code.' : `Choose ${tryAgainChoice} and the Task Lead resolves the conflict in Work.`}`,
       )
     }
     refuseHalted(find(task.id))
@@ -3063,7 +3069,7 @@ export function createTasks(options: {
           const step = baseStep({ head, tip, headInTip, tipInClone })
           if (step === 'clone-behind') {
             console.error(
-              `left ${task.displayId}’s ${target.name} where it was: TED’s clone doesn’t have the latest ${redactSecrets(clean(target.base, 200))}`,
+              `left ${task.displayId}’s ${target.name} where it was: Ted’s clone doesn’t have the latest ${redactSecrets(clean(target.base, 200))}`,
             )
           }
           if (step !== 'move') continue
@@ -3588,7 +3594,7 @@ export function createTasks(options: {
       .filter(acceptedCiCase)
       .filter((value) => keys.has(value.source.attempt))
     if (cases.length === 0) return
-    const body = `You accepted ${cases.length === 1 ? 'a failed CI check' : `${cases.length} failed CI checks`} on ${target.repo}#${target.number} (${cases.map((value) => `failure ${shortReference(value.id)}`).join(', ')}), but GitHub still won’t merge the pull request. Accepting a failure in TED never overrides GitHub’s own rules. TED merges once GitHub allows it: rerun the check on GitHub so it passes, or change the branch rule that requires it. Until then the Task waits at Merge.`
+    const body = `You accepted ${cases.length === 1 ? 'a failed CI check' : `${cases.length} failed CI checks`} on ${target.repo}#${target.number} (${cases.map((value) => `failure ${shortReference(value.id)}`).join(', ')}), but GitHub still won’t merge the pull request. Accepting a failure in Ted never overrides GitHub’s own rules. Ted merges once GitHub allows it: rerun the check on GitHub so it passes, or change the branch rule that requires it. Until then the Task waits at Merge.`
     if (
       store
         .listComments(taskId)
@@ -3700,6 +3706,18 @@ export function createTasks(options: {
     })
   }
 
+  function reposWithoutCi(task: StoredTask, resolution: WorkflowResolution): string[] {
+    const order = factoryRepos(resolution.workflow, factoryOf(task))
+    return task.repos.flatMap((r) =>
+      !r.removed &&
+      r.pushed !== undefined &&
+      r.pullRequest?.state !== 'merged' &&
+      !expectsCi(repoEntry(order, r)?.pullRequestCi, r.pushed)
+        ? [r.name]
+        : [],
+    )
+  }
+
   async function mergeTargets(
     task: StoredTask,
     resolution: WorkflowResolution,
@@ -3807,7 +3825,7 @@ export function createTasks(options: {
   }
 
   const partwayFindings = ({ merged, open }: { merged: string[]; open: string[] }) =>
-    `The merge stopped partway: ${joinAnd(merged)} already merged and TED doesn’t revert it. Fix only ${joinAnd(open)}; don’t change ${joinAnd(merged)}. The Task comes back through Validate for a short re-sign-off, then TED merges the rest.`
+    `The merge stopped partway: ${joinAnd(merged)} already merged and Ted doesn’t revert it. Fix only ${joinAnd(open)}; don’t change ${joinAnd(merged)}. The Task comes back through Validate for a short re-sign-off, then Ted merges the rest.`
 
   function lastApproval(task: Task): Comment | undefined {
     return store
@@ -3887,6 +3905,7 @@ export function createTasks(options: {
       method: chooseMethod(target.method, pr.allowed) ?? target.method,
       reviewMissing: reviewMissing(pr),
     }))
+    const noCi = ready.flatMap(({ target }) => (target.hasCi ? [] : [target.name]))
     const changes = await signOffChanges(task)
     await requireObligations(find(task.id))
     const count = rows.length
@@ -3903,6 +3922,7 @@ export function createTasks(options: {
         approveLabel: count === 1 ? 'Merge' : `Merge ${count} pull requests`,
         pullRequests: rows,
         ...(changes && { changes }),
+        ...(noCi.length > 0 && { noCi }),
       },
     })
   }
@@ -3929,15 +3949,15 @@ export function createTasks(options: {
       throw new RequestError(
         409,
         store.mergeHistory(task.id).awaitsLead
-          ? `${task.displayId}’s Merge work is already reported; TED takes it from here and tells you if CI or a check fails`
-          : `TED merges ${task.displayId}’s pull requests and moves it to Done when they’ve merged; there’s no outcome to report at Merge`,
+          ? `${task.displayId}’s Merge work is already reported; Ted takes it from here and tells you if CI or a check fails`
+          : `Ted merges ${task.displayId}’s pull requests and moves it to Done when they’ve merged; there’s no outcome to report at Merge`,
       )
     }
     const open = openMergeFailures(store, task.id)
     if (open.length > 0) {
       throw new RequestError(
         409,
-        `${task.displayId} has ${open.length === 1 ? 'an open failure' : `${open.length} open failures`} at Merge; assess ${open.length === 1 ? 'it' : 'them'} with \`ted failure\` first. TED goes on with the merge once ${open.length === 1 ? 'it is' : 'they are'} resolved.`,
+        `${task.displayId} has ${open.length === 1 ? 'an open failure' : `${open.length} open failures`} at Merge; assess ${open.length === 1 ? 'it' : 'them'} with \`ted failure\` first. Ted goes on with the merge once ${open.length === 1 ? 'it is' : 'they are'} resolved.`,
       )
     }
     store.mergeLeadAdvanced(task.id, 'lead')
@@ -3950,16 +3970,16 @@ export function createTasks(options: {
     watchMerge(task.id)
     const held =
       openRequests(task.id).length > 0
-        ? ' TED holds the merge while a request on the Task is open.'
+        ? ' Ted holds the merge while a request on the Task is open.'
         : ''
     return {
       task: publicTask(task.id),
       message:
         (mode === 'off'
-          ? `Merge is off for this Factory: the human merges ${task.displayId}’s pull requests on GitHub, and TED moves it to Done when it sees the merge. End your turn.`
+          ? `Merge is off for this Factory: the human merges ${task.displayId}’s pull requests on GitHub, and Ted moves it to Done when it sees the merge. End your turn.`
           : mode === 'gate'
-            ? `TED posts the Merge sign-off for ${task.displayId} once CI passes and merges when the human approves it. End your turn; TED tells you if CI or a check fails.`
-            : `TED merges ${task.displayId}’s pull requests once CI passes and moves it to Done. End your turn; TED tells you if CI or a check fails.`) +
+            ? `Ted posts the Merge sign-off for ${task.displayId} once CI passes and merges when the human approves it. End your turn; Ted tells you if CI or a check fails.`
+            : `Ted merges ${task.displayId}’s pull requests once CI passes and moves it to Done. End your turn; Ted tells you if CI or a check fails.`) +
         held,
     }
   }
@@ -3972,11 +3992,11 @@ export function createTasks(options: {
     await untilFree(find(ref).id)
     const task = find(ref)
     if (!store.mergePending(task.id)) {
-      throw new RequestError(409, `TED isn’t merging ${task.displayId}’s pull requests`)
+      throw new RequestError(409, `Ted isn’t merging ${task.displayId}’s pull requests`)
     }
     const posted = await holding(task, async () => {
       if (!store.mergePending(task.id)) {
-        throw new RequestError(409, `TED isn’t merging ${task.displayId}’s pull requests`)
+        throw new RequestError(409, `Ted isn’t merging ${task.displayId}’s pull requests`)
       }
       const comment = store.postComment({
         taskId: task.id,
@@ -4002,13 +4022,13 @@ export function createTasks(options: {
       await sendComment(run.id)
       await deliver(
         current,
-        'The human cancelled the merge with that comment, and it counts as Request changes. TED won’t merge. Decide whether the fix belongs in Work or in Design, write the human’s request into a findings file, and send the Task back with `ted outcome back --to work --findings <file>` (or `--to design`). The fix passes Validate again and comes back with a new sign-off.',
+        'The human cancelled the merge with that comment, and it counts as Request changes. Ted won’t merge. Decide whether the fix belongs in Work or in Design, write the human’s request into a findings file, and send the Task back with `ted outcome back --to work --findings <file>` (or `--to design`). The fix passes Validate again and comes back with a new sign-off.',
       )
     }
     if (stillOn.length > 0) {
       throw new RequestError(
         502,
-        `Your comment is posted and TED won’t merge, but GitHub’s auto-merge is still on for ${stillOn.join(', ')}, so GitHub may still merge it. TED keeps trying to turn it off.`,
+        `Your comment is posted and Ted won’t merge, but GitHub’s auto-merge is still on for ${stillOn.join(', ')}, so GitHub may still merge it. Ted keeps trying to turn it off.`,
       )
     }
     return store.getComment(posted.id) ?? posted
@@ -4043,7 +4063,7 @@ export function createTasks(options: {
       if (!watch) {
         throw new RequestError(
           409,
-          `TED can’t read GitHub, so it can’t check that ${task.displayId}’s pull requests merged`,
+          `Ted can’t read GitHub, so it can’t check that ${task.displayId}’s pull requests merged`,
         )
       }
       const read = await watch.next({ now: true })
@@ -4053,7 +4073,7 @@ export function createTasks(options: {
       if (missing.length > 0) {
         throw new RequestError(
           409,
-          `${joinAnd(missing)} ${missing.length === 1 ? 'has' : 'have'} commits with no pull request yet, so ${before.displayId} isn’t merged. TED pushes and opens ${missing.length === 1 ? 'it' : 'them'} again on its next pass.`,
+          `${joinAnd(missing)} ${missing.length === 1 ? 'has' : 'have'} commits with no pull request yet, so ${before.displayId} isn’t merged. Ted pushes and opens ${missing.length === 1 ? 'it' : 'them'} again on its next pass.`,
         )
       }
       if (!before.repos.some((r) => !r.removed && r.pullRequest !== undefined)) {
@@ -4071,7 +4091,7 @@ export function createTasks(options: {
         const host = read.hostOf.get(key)
         const remote = read.pulls.get(key)
         if ((host !== undefined && read.failed.has(host)) || !remote) {
-          throw new RequestError(409, `TED couldn’t read ${where} from GitHub; try again`)
+          throw new RequestError(409, `Ted couldn’t read ${where} from GitHub; try again`)
         }
         if (remote.state === 'CLOSED') {
           throw new RequestError(409, `${where} was closed on GitHub without merging`)
@@ -4088,7 +4108,7 @@ export function createTasks(options: {
       const left = unmerged(current)
       const changed = left.find(({ name, where }) => !verified.has(`${name}:${where}`))
       if (changed) {
-        throw new RequestError(409, `${changed.where} changed while TED read GitHub; try again`)
+        throw new RequestError(409, `${changed.where} changed while Ted read GitHub; try again`)
       }
       store.taskMarkedDone(id, by)
       for (const { name } of left) {
@@ -4356,7 +4376,7 @@ export function createTasks(options: {
       ...adding.map((e) => {
         const repo = task.repos.find((r) => !r.removed && sameRepo(r.repo, e.repo))
         const where = repo ? ` Its worktree is ${repo.worktree}, on branch ${repo.branch}.` : ''
-        const setup = e.setup ? ' TED is running its setup command and tells you when it ends.' : ''
+        const setup = e.setup ? ' Ted is running its setup command and tells you when it ends.' : ''
         return `- Added ${e.name} (${e.repo}).${where}${setup}`
       }),
       ...removing.map((e) => `- Removed ${e.name} (${e.repo}). Its worktree is gone.`),
@@ -4506,7 +4526,7 @@ export function createTasks(options: {
       purpose: { kind: 'model', runId: run.id },
       author: { kind: 'ted' },
       title: `${run.model} isn’t in your plan`,
-      body: `The Task Lead asked for the model “${run.model}”, which your plan doesn’t include. TED won’t switch models on its own, so the Run is waiting. Choose Use the default model to run this Run on the CLI’s default model, or Change setting to pick another model in the Task Lead field.`,
+      body: `The Task Lead asked for the model “${run.model}”, which your plan doesn’t include. Ted won’t switch models on its own, so the Run is waiting. Choose Use the default model to run this Run on the CLI’s default model, or Change setting to pick another model in the Task Lead field.`,
       choices: [useDefaultChoice, 'Change setting'],
     })
   }
@@ -4558,7 +4578,7 @@ export function createTasks(options: {
       ...(unread.length > 0
         ? [
             `## Messages the old Task Lead hadn’t read\n\n${unread
-              .map((m) => `${m.from === 'ted' ? 'TED' : 'The user'}: ${m.text.trim()}`)
+              .map((m) => `${m.from === 'ted' ? 'Ted' : 'The user'}: ${m.text.trim()}`)
               .join('\n\n')}`,
           ]
         : []),
@@ -4734,7 +4754,7 @@ export function createTasks(options: {
           unfetched: refs.map((ref) => ({
             name: ref.name,
             url: ref.url,
-            reason: 'TED can’t save files here',
+            reason: 'Ted can’t save files here',
           })),
         }
     const files = await storedFiles(fetched.files)
@@ -4747,13 +4767,13 @@ export function createTasks(options: {
       ...fetched.unfetched,
       ...fetched.files
         .filter((file) => !kept.has(file.url))
-        .map((file) => ({ name: file.name, url: file.url, reason: 'TED’s copy is gone' })),
+        .map((file) => ({ name: file.name, url: file.url, reason: 'Ted’s copy is gone' })),
     ]
     const notes = [
       ...(chosen.warnings.length > 0
         ? [
             [
-              `TED didn’t copy all of GitHub issue ${label}:`,
+              `Ted didn’t copy all of GitHub issue ${label}:`,
               ...chosen.warnings.map((warning) => `- ${warning}`),
               '',
               `Read the full issue on GitHub: ${url}`,
@@ -4763,7 +4783,7 @@ export function createTasks(options: {
       ...(missing.length > 0
         ? [
             [
-              `TED couldn’t fetch ${missing.length} ${missing.length === 1 ? 'file' : 'files'} from GitHub issue ${label}. Their links:`,
+              `Ted couldn’t fetch ${missing.length} ${missing.length === 1 ? 'file' : 'files'} from GitHub issue ${label}. Their links:`,
               ...missing.map((file) => `- ${file.name}: ${file.reason}. ${file.url}`),
             ].join('\n'),
           ]
@@ -4838,7 +4858,7 @@ export function createTasks(options: {
       throw new RequestError(
         409,
         status === 403
-          ? 'Asana didn’t let TED read this task. Check that the connected account can open it.'
+          ? 'Asana didn’t let Ted read this task. Check that the connected account can open it.'
           : status === 404
             ? 'Asana couldn’t find this task.'
             : redactSecrets(error instanceof Error ? error.message : 'Couldn’t read Asana'),
@@ -5142,7 +5162,7 @@ export function createTasks(options: {
       () => removingFactories.has(factory.id) || !store.getFactory(factory.id),
     )
     const gh = options.gh
-    if (!gh) throw new RequestError(409, 'TED can’t reach GitHub here, so it imported nothing.')
+    if (!gh) throw new RequestError(409, 'Ted can’t reach GitHub here, so it imported nothing.')
     const resolution = await resolveWorkflow(factory, { fetch: cloned(factory.id) }).catch(
       () => undefined,
     )
@@ -5167,7 +5187,7 @@ export function createTasks(options: {
         reason: githubUnreadableWhy[reason],
       })),
       ...(listing.incomplete.length > 0 && {
-        incomplete: `GitHub listed more than ${listedAtMost} open issues with the label in ${listing.incomplete.join(', ')}; TED checked the first ${listedAtMost} in each.`,
+        incomplete: `GitHub listed more than ${listedAtMost} open issues with the label in ${listing.incomplete.join(', ')}; Ted checked the first ${listedAtMost} in each.`,
       }),
     }
     const allowance = () => githubAllowance(automation)
@@ -5384,7 +5404,7 @@ export function createTasks(options: {
       if (intake) throw new IntakeBudgetError()
       throw new RequestError(
         409,
-        `This Automation Run has already created ${intakeLimit - allowance} Tasks from Asana. TED creates at most ${intakeLimit} per run; the rest wait for the next run.`,
+        `This Automation Run has already created ${intakeLimit - allowance} Tasks from Asana. Ted creates at most ${intakeLimit} per run; the rest wait for the next run.`,
       )
     }
     const tracked = plan.preview.tracked
@@ -5632,7 +5652,7 @@ export function createTasks(options: {
       ...(issue.unfetched ?? []),
       ...(issue.files ?? [])
         .filter((file) => !kept.has(file.url))
-        .map((file) => ({ name: file.name, url: file.url, reason: 'TED’s copy is gone' })),
+        .map((file) => ({ name: file.name, url: file.url, reason: 'Ted’s copy is gone' })),
     ]
     if (missing.length === 0) return
     store.postComment({
@@ -5640,7 +5660,7 @@ export function createTasks(options: {
       kind: 'note',
       author: { kind: 'ted' },
       body: [
-        `TED couldn’t fetch ${missing.length} ${missing.length === 1 ? 'file' : 'files'} from Linear ${issue.identifier}. Their links:`,
+        `Ted couldn’t fetch ${missing.length} ${missing.length === 1 ? 'file' : 'files'} from Linear ${issue.identifier}. Their links:`,
         ...missing.map((file) => `- ${file.name}: ${file.reason}. ${file.url}`),
       ].join('\n'),
     })
@@ -5797,7 +5817,7 @@ export function createTasks(options: {
       task.id,
       redactSecrets(
         oneLine(
-          `TED found a ${entry.name} worktree left by an earlier start that didn’t finish. It had nothing uncommitted, so TED removed it${branch} and started again.`,
+          `Ted found a ${entry.name} worktree left by an earlier start that didn’t finish. It had nothing uncommitted, so Ted removed it${branch} and started again.`,
           600,
         ),
       ),
@@ -5980,7 +6000,7 @@ export function createTasks(options: {
       ...comments.map((c) => ({
         at: c.createdAt,
         line: withLines(
-          `- ${c.createdAt}: ${failureNotice(c) ? 'TED: ' : ''}${peers.isMessage(c.id) ? plainText(c) : flat(plainText(c))}`,
+          `- ${c.createdAt}: ${failureNotice(c) ? 'Ted: ' : ''}${peers.isMessage(c.id) ? plainText(c) : flat(plainText(c))}`,
           c,
         ),
       })),
@@ -6354,6 +6374,7 @@ export function createTasks(options: {
           move(task, resolution, next, message, { ...options, waitForSlot: 'answer' }),
         backMessage,
         leaveWorkToDiagnose,
+        diagnoseInValidate,
         stop: stopByHand,
         settleDependents,
         beforeArchive: (task) => {
@@ -6586,7 +6607,7 @@ export function createTasks(options: {
     if (publicTask(task.id).commentBox === 'merge-pending') {
       throw new RequestError(
         409,
-        `TED is merging ${task.displayId}’s pull requests. Sending a comment now cancels the merge and counts as Request changes; use Send and cancel merge.`,
+        `Ted is merging ${task.displayId}’s pull requests. Sending a comment now cancels the merge and counts as Request changes; use Send and cancel merge.`,
       )
     }
   }
@@ -6891,7 +6912,7 @@ export function createTasks(options: {
       task,
       [
         `The human is done talking Round ${round.round?.number ?? ''} through.`,
-        'Write a summary of the talk to a file: each question and what you agreed, then what is still open. Post it with `ted ask --close --summary <file>`; TED posts it as your note and closes the round as answered in Talk it through.',
+        'Write a summary of the talk to a file: each question and what you agreed, then what is still open. Post it with `ted ask --close --summary <file>`; Ted posts it as your note and closes the round as answered in Talk it through.',
         'If anything is still open, ask it in a new round with `ted ask --round <file>` after closing this one.',
       ].join('\n\n'),
     )
@@ -7089,7 +7110,7 @@ export function createTasks(options: {
           state: 'failed' as const,
           timeout: step.timeout ?? defaultCheckTimeout,
           durationMs: 0,
-          output: 'TED didn’t run the command: the Task has no worktree of the primary repo',
+          output: 'Ted didn’t run the command: the Task has no worktree of the primary repo',
         }))
         for (const result of ran) store.recordCleanupCommand(taskId, result)
       } else {
@@ -7196,19 +7217,19 @@ export function createTasks(options: {
     if (asked)
       throw new RequestError(
         409,
-        `TED asked the user what to do about the failed Cleanup steps (request ${asked.id}); wait for their answer`,
+        `Ted asked the user what to do about the failed Cleanup steps (request ${asked.id}); wait for their answer`,
       )
     const steps = cleanupSteps(resolution.workflow)
     if (pendingCleanupCommands(task.id, resolution.workflow).length > 0) {
       await cleanupThen(
         task.id,
         resolution.workflow,
-        'TED ran the Cleanup commands that had no result yet.',
+        'Ted ran the Cleanup commands that had no result yet.',
       )
       return {
         task: publicTask(task.id),
         message:
-          'TED is running the Cleanup commands that have no result yet and sends you their results. End your turn.',
+          'Ted is running the Cleanup commands that have no result yet and sends you their results. End your turn.',
       }
     }
     const reports = new Map(store.cleanupReports(task.id).map((r) => [r.step, r]))
@@ -7238,7 +7259,7 @@ export function createTasks(options: {
     })
     return {
       task: publicTask(task.id),
-      message: `TED asked the user whether to try the failed Cleanup steps again or finish anyway (request ${request.id}). End your turn; TED sends you their answer.`,
+      message: `Ted asked the user whether to try the failed Cleanup steps again or finish anyway (request ${request.id}). End your turn; Ted sends you their answer.`,
       request,
     }
   }
@@ -7263,7 +7284,7 @@ export function createTasks(options: {
           kind: 'question',
           author: { kind: 'ted' },
           title: `This computer ran out of memory again: ${name}`,
-          body: `This computer ran out of memory, so the check “${name}” was stopped for the second time in this Stage. TED didn’t count either stop as a failure.\n\n**${memoryRetryChoice}** runs it again once memory frees up. **${memoryFailedChoice}** records it as a failed check, the same as when the code fails it.`,
+          body: `This computer ran out of memory, so the check “${name}” was stopped for the second time in this Stage. Ted didn’t count either stop as a failure.\n\n**${memoryRetryChoice}** runs it again once memory frees up. **${memoryFailedChoice}** records it as a failed check, the same as when the code fails it.`,
           choices: [memoryRetryChoice, memoryFailedChoice],
           memoryKill: { checkRunId, position: killed.position },
         })
@@ -7457,7 +7478,7 @@ export function createTasks(options: {
           return {
             task: publicTask(task.id),
             message:
-              'TED is checking progress before asking the human. The Task stays in Validate.',
+              'Ted is checking progress before asking the human. The Task stays in Validate.',
             pending: true,
           }
         }
@@ -7468,12 +7489,12 @@ export function createTasks(options: {
           intro:
             workflow.settings.stages.validate?.loop_check === false
               ? ''
-              : 'A Loop check couldn’t start, so TED couldn’t check whether the rounds are making progress.',
+              : 'A Loop check couldn’t start, so Ted couldn’t check whether the rounds are making progress.',
           ...(checkRunId !== undefined && { checkRunId }),
         })
         return {
           task: publicTask(task.id),
-          message: `Validate has sent this Task back ${times}, its limit, so TED asked the human instead. TED sends you their answer.`,
+          message: `Validate has sent this Task back ${times}, its limit, so Ted asked the human instead. Ted sends you their answer.`,
           request,
         }
       }
@@ -7497,7 +7518,7 @@ export function createTasks(options: {
       })
       return {
         task: publicTask(task.id),
-        message: `${workflow.name(from)} has sent this Task back ${times}, its limit, so TED asked the human instead. TED sends you their answer.`,
+        message: `${workflow.name(from)} has sent this Task back ${times}, its limit, so Ted asked the human instead. Ted sends you their answer.`,
         request,
       }
     }
@@ -7513,7 +7534,7 @@ export function createTasks(options: {
         keepConflict()
         return {
           task: publicTask(task.id),
-          message: `This is Validate’s send-back number ${count + 1}, so TED started a loop check to see whether the rounds are converging. The Task stays in Validate until it answers; TED sends you the result.`,
+          message: `This is Validate’s send-back number ${count + 1}, so Ted started a loop check to see whether the rounds are converging. The Task stays in Validate until it answers; Ted sends you the result.`,
           pending: true,
         }
       }
@@ -8006,7 +8027,7 @@ export function createTasks(options: {
         check.to,
         [
           backMessage(workflow, check.to, stageWith('validates'), sentBack),
-          `# Loop check\n\nTED checked Validate’s ${check.round} rounds of findings and the changes between them. Verdict: converging. ${reason}`,
+          `# Loop check\n\nTed checked Validate’s ${check.round} rounds of findings and the changes between them. Verdict: converging. ${reason}`,
         ].join('\n\n'),
       )
       return
@@ -8020,17 +8041,17 @@ export function createTasks(options: {
         ? `Back to Work ${returns}, the limit`
         : looping
           ? `Back to Work ${returns} with the same problem`
-          : `Back to Work ${returns}, and TED couldn’t check progress`,
+          : `Back to Work ${returns}, and Ted couldn’t check progress`,
       intro: looping
-        ? `TED’s Loop check found that the rounds keep repeating the same problem. ${reason} If you keep going, add guidance that breaks the pattern.`
+        ? `Ted’s Loop check found that the rounds keep repeating the same problem. ${reason} If you keep going, add guidance that breaks the pattern.`
         : verdict === 'converging'
-          ? `TED’s Loop check found that the rounds are making progress. ${reason}`
-          : `TED couldn’t check whether the rounds are making progress: ${reason}.`,
+          ? `Ted’s Loop check found that the rounds are making progress. ${reason}`
+          : `Ted couldn’t check whether the rounds are making progress: ${reason}.`,
       ...(check.checkRunId !== undefined && { checkRunId: check.checkRunId }),
     })
     await deliver(
       task,
-      `TED’s loop check ${looping ? 'found Validate’s rounds are looping' : verdict === 'converging' ? 'found progress, but the send-back limit still needs a human decision' : 'gave no verdict'}, so TED asked the human what to do (request ${request.id}). The Task stays in Validate; TED sends you their answer.`,
+      `Ted’s loop check ${looping ? 'found Validate’s rounds are looping' : verdict === 'converging' ? 'found progress, but the send-back limit still needs a human decision' : 'gave no verdict'}, so Ted asked the human what to do (request ${request.id}). The Task stays in Validate; Ted sends you their answer.`,
     )
   }
 
@@ -8045,6 +8066,9 @@ export function createTasks(options: {
     const before = entries[entries.findLastIndex((e) => e.stage === task.stage) - 1]
     const checkRun =
       checkRuns.filter((r) => r.trigger === 'validate' && r.startedAt >= since).at(-1) ??
+      checkRuns.findLast(
+        (r) => r.trigger === 'hand-off' && r.outcome === 'passed' && r.startedAt >= since,
+      ) ??
       (before !== undefined && handsOff(before.stage)
         ? checkRuns.findLast(
             (r) =>
@@ -8851,7 +8875,7 @@ export function createTasks(options: {
         if (left.length > 0 || resetRefusal(publicTask(id)) === 'merged') {
           throw new RequestError(
             409,
-            `TED couldn’t close ${left.map((r) => `${r.repo}#${r.pullRequest?.number}`).join(', ') || 'a merged pull request'}, so ${task.displayId} wasn’t reset. It is stopped and nothing was discarded.`,
+            `Ted couldn’t close ${left.map((r) => `${r.repo}#${r.pullRequest?.number}`).join(', ') || 'a merged pull request'}, so ${task.displayId} wasn’t reset. It is stopped and nothing was discarded.`,
           )
         }
         options.planning?.()?.taskGone(id, 'reset')
@@ -9046,7 +9070,7 @@ export function createTasks(options: {
       if (left.length > 0 || moveRefusal(publicTask(id)) === 'merged') {
         throw new RequestError(
           409,
-          `TED couldn’t close ${left.map((r) => `${r.repo}#${r.number}`).join(', ') || 'a merged pull request'}, so ${task.displayId} wasn’t moved. It is stopped and nothing was discarded.`,
+          `Ted couldn’t close ${left.map((r) => `${r.repo}#${r.number}`).join(', ') || 'a merged pull request'}, so ${task.displayId} wasn’t moved. It is stopped and nothing was discarded.`,
         )
       }
       options.planning?.()?.taskGone(id, 'moved')
@@ -9204,7 +9228,7 @@ export function createTasks(options: {
     const refuse = (where: string, branch: string, error: unknown) =>
       new RequestError(
         409,
-        `TED couldn’t delete the branch ${branch} ${where}, so ${task.displayId} wasn’t ${verb}: ${redactSecrets(error instanceof Error ? error.message : String(error))}. It is stopped and its thread is kept.`,
+        `Ted couldn’t delete the branch ${branch} ${where}, so ${task.displayId} wasn’t ${verb}: ${redactSecrets(error instanceof Error ? error.message : String(error))}. It is stopped and its thread is kept.`,
       )
     for (const repo of task.repos) {
       if (gh && (repo.pushed || repo.pullRequest)) {
@@ -9317,7 +9341,7 @@ export function createTasks(options: {
       throw new RequestError(409, `${factory.name} is being removed`)
     }
     if (creatingSetup.has(factory.id)) {
-      throw new RequestError(409, `TED is already creating ${factory.name}’s setup Task`)
+      throw new RequestError(409, `Ted is already creating ${factory.name}’s setup Task`)
     }
     creatingSetup.add(factory.id)
     try {
@@ -9383,7 +9407,7 @@ export function createTasks(options: {
       severity: 'warning',
       ...(open
         ? {
-            text: `Setup isn’t finished · Tasks use TED’s defaults until ${open.displayId} merges`,
+            text: `Setup isn’t finished · Tasks use Ted’s defaults until ${open.displayId} merges`,
             action: { label: `Open ${open.displayId}`, opens: { kind: 'task', taskId: open.id } },
           }
         : {
@@ -9630,7 +9654,7 @@ export function createTasks(options: {
       : ''
     return {
       heading: 'Picking up after a move to another Factory',
-      why: `This Task moved from ${from} to ${task.displayId}, in the ${factoryOf(task).name} Factory.${approved} TED removed the old worktree, branch and pull requests, so the work starts again from this Factory’s repos. Anything the brief or the conversation says about files, commits or pull requests refers to the old Factory.`,
+      why: `This Task moved from ${from} to ${task.displayId}, in the ${factoryOf(task).name} Factory.${approved} Ted removed the old worktree, branch and pull requests, so the work starts again from this Factory’s repos. Anything the brief or the conversation says about files, commits or pull requests refers to the old Factory.`,
     }
   }
 
@@ -9652,7 +9676,7 @@ export function createTasks(options: {
     if (last?.kind === 'unarchived') {
       return fromTheBrief(task, {
         heading: 'Picking up after unarchiving',
-        why: 'The human archived this Task and has now unarchived it. TED made its worktree again from the branch, so anything that wasn’t committed is gone.',
+        why: 'The human archived this Task and has now unarchived it. Ted made its worktree again from the branch, so anything that wasn’t committed is gone.',
       })
     }
     if (last?.kind === 'github') {
@@ -9664,7 +9688,7 @@ export function createTasks(options: {
     }
     if (last?.kind === 'planning') {
       return fromTheBrief(task, {
-        heading: 'Picking up after planning outside TED',
+        heading: 'Picking up after planning outside Ted',
         why: afterPlanningWhy,
       })
     }
@@ -9692,7 +9716,7 @@ export function createTasks(options: {
 
   function fromTheBrief(task: StoredTask, { heading, why }: { heading: string; why: string }) {
     const brief = store.latestBrief(task.id)
-    const authors = { ted: 'TED', human: 'The human', run: 'Task Lead' } as const
+    const authors = { ted: 'Ted', human: 'The human', run: 'Task Lead' } as const
     const notes = store
       .listComments(task.id)
       .filter((c) => !brief || c.createdAt > brief.createdAt)
@@ -9773,7 +9797,7 @@ export function createTasks(options: {
 
   function requireSameCreator(caller: Caller, creatorId: string): void {
     if (leadCreator(caller)?.task.id !== creatorId) {
-      throw new RequestError(409, 'this Task Lead’s Task changed while TED created the Task')
+      throw new RequestError(409, 'this Task Lead’s Task changed while Ted created the Task')
     }
   }
 
@@ -10225,7 +10249,7 @@ export function createTasks(options: {
     const id = blocker.displayId
     return runs.send(
       run.id,
-      `The human made this Task wait for ${id} (“${blocker.title}”). Before doing more work, explain whether you can still make useful progress and recommend waiting or continuing. Ask the human with \`ted comment --choice "Wait for blocker" --choice "Continue independent work" "<your explanation, recommendation and question>"\`, naming ${id}, then end your turn and wait for their answer. The Task shows Waiting on you while the question is open. If they choose Wait for blocker, write the Task brief with \`ted brief write\`, run \`ted task block --by ${id}\`, and end your turn: TED stops this Run, keeps the worktree and Stage, and starts a fresh Run from the brief when its blockers merge. If they choose Continue independent work, keep the blocker link and work only on independent parts; when you reach work that needs ${id} to merge first, write the brief, run \`ted task block --by ${id}\`, and end your turn. Don’t remove the blocker just to continue.`,
+      `The human made this Task wait for ${id} (“${blocker.title}”). Before doing more work, explain whether you can still make useful progress and recommend waiting or continuing. Ask the human with \`ted comment --choice "Wait for blocker" --choice "Continue independent work" "<your explanation, recommendation and question>"\`, naming ${id}, then end your turn and wait for their answer. The Task shows Waiting on you while the question is open. If they choose Wait for blocker, write the Task brief with \`ted brief write\`, run \`ted task block --by ${id}\`, and end your turn: Ted stops this Run, keeps the worktree and Stage, and starts a fresh Run from the brief when its blockers merge. If they choose Continue independent work, keep the blocker link and work only on independent parts; when you reach work that needs ${id} to merge first, write the brief, run \`ted task block --by ${id}\`, and end your turn. Don’t remove the blocker just to continue.`,
     )
   }
 
@@ -10676,7 +10700,7 @@ export function createTasks(options: {
       }
       const stillOn = await mergeWatcher.disableAutoMerge(task.id)
       if (stillOn.length > 0) {
-        const message = `Failure hold is saved, but GitHub auto-merge could not be disabled for ${stillOn.join(', ')}. GitHub may still merge it. TED will retry.`
+        const message = `Failure hold is saved, but GitHub auto-merge could not be disabled for ${stillOn.join(', ')}. GitHub may still merge it. Ted will retry.`
         if (
           !store
             .listComments(task.id)
@@ -10760,6 +10784,13 @@ export function createTasks(options: {
       ].join('\n\n')
     },
     returnToWork: checkReturn,
+    diagnosing: (task) => {
+      const since = visitStart(task)
+      return store.sendBackAsks(task.id).some((ask) => {
+        const answer = validates(ask.from) ? store.getComment(ask.commentId)?.answer : undefined
+        return answer?.kind === 'answered' && answer.choice === diagnoseChoice && answer.at >= since
+      })
+    },
     leaveWork: (task) => leaveWork(task, 'accept'),
     apps: startSetupApps,
     fix: applyValidationFix,
@@ -10845,14 +10876,26 @@ export function createTasks(options: {
     if (store.listComments(task.id).some((c) => c.talkRequested)) pendingTalks(task.id)
   }
 
-  const interruptedHandOffs = store
+  const unfinishedHandOffs = store
     .listCheckRuns()
     .filter((r) => r.finishedAt === undefined && r.trigger === 'hand-off')
     .flatMap((r) => {
       const task = store.getTask(r.taskId)
-      return task && !leftWork(task) ? [task] : []
+      return task && !task.archived ? [task] : []
     })
-  validation.recover()
+  const interruptedHandOffs = unfinishedHandOffs.filter(
+    (task) => validates(task.stage) && !find(task.id).stopped && task.status?.kind !== 'failed',
+  )
+  const handOffsLeftInWork = unfinishedHandOffs.filter((task) => handsOff(task.stage))
+  validation.recover(
+    new Set([
+      ...interruptedHandOffs.map((task) => task.id),
+      ...store
+        .listTasks()
+        .filter((task) => validates(task.stage) && openSendBackAsk(task) !== undefined)
+        .map((task) => task.id),
+    ]),
+  )
   for (const task of store.listTasks()) {
     if (!isCleanup(task.stage) || find(task.id).stopped || task.archived) continue
     if (openCleanupFailure(task.id)) continue
@@ -10882,6 +10925,19 @@ export function createTasks(options: {
     else repairHandOffs.set(task.id, new Date().toISOString())
   }
   for (const task of interruptedHandOffs) {
+    setChecking(task.id, true)
+    inBackground(`run ${task.displayId}’s checks again`, async () => {
+      let message: string | undefined
+      try {
+        const { workflow } = await taskWorkflow(find(task.id), { fetch: false })
+        message = nextStageMessage(workflow, stageWith('validates'))
+      } finally {
+        if (message === undefined) setChecking(task.id, false)
+      }
+      await validation.enter(task.id, message)
+    })
+  }
+  for (const task of handOffsLeftInWork) {
     inBackground(`tell ${task.displayId}’s Task Lead to report again`, () => reportAgain(task))
   }
 
@@ -11457,11 +11513,11 @@ export function createTasks(options: {
           const [what, asked] = held.conflict
             ? [
                 `it conflicts with this Task${where}`,
-                `TED asked the Task Lead to merge ${held.base} into the Task’s branch${where}, resolve the conflict and commit; fresh validation runs after that.`,
+                `Ted asked the Task Lead to merge ${held.base} into the Task’s branch${where}, resolve the conflict and commit; fresh validation runs after that.`,
               ]
             : [
                 `the worktree${where} has uncommitted changes`,
-                'TED asked the Task Lead to commit them if they are its own work, or say why not; TED then tries again.',
+                'Ted asked the Task Lead to commit them if they are its own work, or say why not; Ted then tries again.',
               ]
           repairNotice(
             task.id,
@@ -11513,7 +11569,7 @@ export function createTasks(options: {
     if (repairHandOffs.has(task.id))
       throw new RequestError(
         409,
-        `TED is waiting for you to finish what it asked about the merged repair in ${task.displayId}’s worktree: merge and commit, or commit your own uncommitted changes. End your turn when that is committed, or after saying why you can’t with \`ted comment\`; TED then brings the repair in and runs the checks itself.`,
+        `Ted is waiting for you to finish what it asked about the merged repair in ${task.displayId}’s worktree: merge and commit, or commit your own uncommitted changes. End your turn when that is committed, or after saying why you can’t with \`ted comment\`; Ted then brings the repair in and runs the checks itself.`,
       )
   }
 
@@ -12474,7 +12530,7 @@ export function createTasks(options: {
 
     async setTaskAutopilot(ref, caller, request) {
       if (caller.kind !== 'app')
-        throw new RequestError(403, 'only the TED app can change Autopilot')
+        throw new RequestError(403, 'only the Ted app can change Autopilot')
       const id = find(ref).id
       await untilFree(id)
       const task = await holding(find(id), async () => {
@@ -12513,7 +12569,7 @@ export function createTasks(options: {
 
     async setTaskGates(ref, caller, request) {
       if (caller.kind !== 'app')
-        throw new RequestError(403, 'only the TED app can change Task sign-offs')
+        throw new RequestError(403, 'only the Ted app can change Task sign-offs')
       const id = find(ref).id
       await untilFree(id)
       return holding(find(id), async () => {
@@ -12717,7 +12773,7 @@ export function createTasks(options: {
         if (inFlight.is(task.id, 'checking')) {
           throw new RequestError(
             409,
-            `TED is running ${task.displayId}’s checks; wait for their results before reporting an outcome`,
+            `Ted is running ${task.displayId}’s checks; wait for their results before reporting an outcome`,
           )
         }
         if (outcome.outcome !== 'ask') {
@@ -12737,7 +12793,7 @@ export function createTasks(options: {
             }
             checkOwnFiles(task, designFiles(outcome.design))
             if (outcome.design.setup && !task.setup) {
-              throw new RequestError(400, 'only a setup Task proposes TED settings')
+              throw new RequestError(400, 'only a setup Task proposes Ted settings')
             }
           }
           if (
@@ -12755,7 +12811,7 @@ export function createTasks(options: {
           if (pendingLoopCheck(task.id)) {
             throw new RequestError(
               409,
-              'TED is checking whether Validate’s rounds are converging; wait for its verdict before reporting an outcome',
+              'Ted is checking whether Validate’s rounds are converging; wait for its verdict before reporting an outcome',
             )
           }
           const asked = openSendBackAsk(task)
@@ -12763,8 +12819,8 @@ export function createTasks(options: {
             throw new RequestError(
               409,
               handOffAsks(task.id).some((c) => c.id === asked.id)
-                ? `TED asked the human about ${task.displayId}’s failing checks (request ${asked.id}); wait for their answer before reporting an outcome`
-                : `TED asked the human whether to keep sending ${task.displayId} back (request ${asked.id}); wait for their answer before reporting an outcome`,
+                ? `Ted asked the human about ${task.displayId}’s failing checks (request ${asked.id}); wait for their answer before reporting an outcome`
+                : `Ted asked the human whether to keep sending ${task.displayId} back (request ${asked.id}); wait for their answer before reporting an outcome`,
             )
           }
         }
@@ -12785,7 +12841,7 @@ export function createTasks(options: {
             })
             return {
               task: publicTask(task.id),
-              message: `Asked the human (request ${request.id}). TED sends you their answer.`,
+              message: `Asked the human (request ${request.id}). Ted sends you their answer.`,
               request,
             }
           }
@@ -12894,7 +12950,7 @@ export function createTasks(options: {
           if (waiting) {
             throw new RequestError(
               409,
-              `Round ${waiting.round?.number ?? ''} is still waiting on the human; TED sends you their answers`,
+              `Round ${waiting.round?.number ?? ''} is still waiting on the human; Ted sends you their answers`,
             )
           }
           if (outcome.skip === true) {
@@ -12952,7 +13008,7 @@ export function createTasks(options: {
               task: moved,
               message:
                 next !== 'done' && validates(next) && handsOff(stage)
-                  ? `${task.displayId} moved to ${workflow.name(next)}. TED runs the Factory’s checks first. If one fails, the Task comes back to Work and TED sends you the output; otherwise TED sends you ${workflow.name(next)}’s instructions.`
+                  ? `${task.displayId} moved to ${workflow.name(next)}. Ted runs the Factory’s checks first. If one fails, the Task comes back to Work and Ted sends you the output; otherwise Ted sends you ${workflow.name(next)}’s instructions.`
                   : `${task.displayId} moved to ${workflow.name(next)}`,
             }
           }
@@ -12978,6 +13034,11 @@ export function createTasks(options: {
           const changes = leadsToMerge
             ? await signOffChanges(current, outcome.changes?.trim())
             : undefined
+          const mergesOnApproval =
+            leadsToMerge &&
+            workflow.stages.includes(stageWith('merges')) &&
+            workflow.settings.stages.merge?.gate !== true
+          const noCi = mergesOnApproval ? reposWithoutCi(find(task.id), resolution) : []
           const design = outcome.design
           const requestedFor =
             signsOffCode(stage) || leadsToMerge ? await requestCommits(current, workflow) : []
@@ -12991,7 +13052,11 @@ export function createTasks(options: {
             title: design?.title ?? briefGoal(brief.text) ?? name,
             body: brief.text,
             author: { kind: 'run', runId },
-            gate: { ...gateButtons(workflow, stage), ...(changes && { changes }) },
+            gate: {
+              ...gateButtons(workflow, stage),
+              ...(changes && { changes }),
+              ...(noCi.length > 0 && { noCi }),
+            },
             ...(design && { attachments: designFiles(design) }),
             ...(design && hasDesign(storedDesign(design)) && { design: storedDesign(design) }),
           })
@@ -13000,7 +13065,7 @@ export function createTasks(options: {
           }
           return {
             task: publicTask(task.id),
-            message: `Waiting for the human at the ${name}. TED sends you their answer.`,
+            message: `Waiting for the human at the ${name}. Ted sends you their answer.`,
             request,
           }
         })
@@ -13009,7 +13074,7 @@ export function createTasks(options: {
       const id = taskLead(ref, caller, 'reports outcomes').task.id
       return checksFirst(id, report, () => ({
         task: publicTask(id),
-        message: `TED is running the checks on ${find(id).displayId}’s current code before moving it on. It moves the Task when they pass and tells you if one fails. End your turn.`,
+        message: `Ted is running the checks on ${find(id).displayId}’s current code before moving it on. It moves the Task when they pass and tells you if one fails. End your turn.`,
       }))
     },
 
@@ -13035,7 +13100,7 @@ export function createTasks(options: {
         if (openCleanupFailure(current.id))
           throw new RequestError(
             409,
-            'TED asked the user what to do about the failed Cleanup steps; wait for their answer',
+            'Ted asked the user what to do about the failed Cleanup steps; wait for their answer',
           )
         const { workflow } = await taskWorkflow(current, { fetch: false })
         const steps = cleanupSteps(workflow)
@@ -13065,7 +13130,7 @@ export function createTasks(options: {
       if (!commitTitlesOn(workflow)) {
         throw new RequestError(
           409,
-          `this Factory has the Task Lead’s merge commit turned off, so TED keeps ${task.displayId}’s title and GitHub’s merge message; skip this step`,
+          `this Factory has the Task Lead’s merge commit turned off, so Ted keeps ${task.displayId}’s title and GitHub’s merge message; skip this step`,
         )
       }
       const problem = commitTitleProblem(input.title, task.displayId)
@@ -13104,12 +13169,12 @@ export function createTasks(options: {
       } catch (error) {
         throw new RequestError(
           502,
-          `TED uses “${title}”${described} for the merge commit, but GitHub didn’t rename the pull request: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
+          `Ted uses “${title}”${described} for the merge commit, but GitHub didn’t rename the pull request: ${redactSecrets(error instanceof Error ? error.message : String(error))}`,
         )
       }
       return {
         title,
-        message: `TED titled ${current.displayId}’s pull request “${title}” and uses it${described} for the merge commit. Run \`ted outcome advance\` when the Merge work is done.`,
+        message: `Ted titled ${current.displayId}’s pull request “${title}” and uses it${described} for the merge commit. Run \`ted outcome advance\` when the Merge work is done.`,
       }
     },
 
@@ -13285,7 +13350,7 @@ export function createTasks(options: {
       if (publicTask(task.id).commentBox === 'merge-pending') {
         throw new RequestError(
           409,
-          `TED is merging ${task.displayId}’s pull requests. Sending a comment now cancels the merge and counts as Request changes; use Send and cancel merge.`,
+          `Ted is merging ${task.displayId}’s pull requests. Sending a comment now cancels the merge and counts as Request changes; use Send and cancel merge.`,
         )
       }
       return humanComment(task, '', [])
@@ -13303,7 +13368,7 @@ export function createTasks(options: {
         throw new RequestError(409, `${task.displayId} has no worktree to run checks in`)
       }
       if (inFlight.is(task.id, 'checking')) {
-        throw new RequestError(409, `TED is already running ${task.displayId}’s checks`)
+        throw new RequestError(409, `Ted is already running ${task.displayId}’s checks`)
       }
       setChecking(task.id, true)
       try {
@@ -13595,7 +13660,7 @@ export function createTasks(options: {
         )
       const { capture, ...result } = await runBrowsers.command(runId, shown, request)
       if (!capture) return result
-      if (!options.saveAttachment) throw new RequestError(503, 'TED can’t save files here')
+      if (!options.saveAttachment) throw new RequestError(503, 'Ted can’t save files here')
       const dir = path.join(path.dirname(worktreesDir), 'browsers')
       const file = path.join(dir, `capture-${randomUUID()}.png`)
       await writeFile(file, capture, { mode: 0o600 })
@@ -13608,7 +13673,7 @@ export function createTasks(options: {
       if (runAppOwner?.live(runId) !== true) throw new RequestError(409, 'This Run has ended')
       if (store.newWorkHold() !== undefined) throw new RequestError(507, 'New work is on hold')
       if (request.action !== 'screenshot') return { text: await apps.control(runId, request) }
-      if (!options.saveAttachment) throw new RequestError(503, 'TED can’t save files here')
+      if (!options.saveAttachment) throw new RequestError(503, 'Ted can’t save files here')
       const { file, app } = await apps.screenshot(runId, request.app)
       const attachment = await saveRunCapture(runId, file, app.name)
       return { text: `Took a screenshot of ${app.name}.`, attachment }
@@ -13639,7 +13704,7 @@ export function createTasks(options: {
 }
 
 const mergeOffMessage =
-  'Merge is off for this Factory: the human merges the pull requests on GitHub, and TED moves the Task to Done when it sees the merge. Check that each pull request’s description still matches what the Task does, update the Task brief, then run `ted outcome advance`. Don’t commit, push or merge.'
+  'Merge is off for this Factory: the human merges the pull requests on GitHub, and Ted moves the Task to Done when it sees the merge. Check that each pull request’s description still matches what the Task does, update the Task brief, then run `ted outcome advance`. Don’t commit, push or merge.'
 
 function textOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -13865,15 +13930,15 @@ function setupFailure(command: string, result: CommandResult, output: string): s
       : `it failed${result.exitCode !== undefined ? ` with exit code ${result.exitCode}` : ''}`
   return [
     result.problem === undefined
-      ? `# Setup failed\n\nTED ran this worktree’s setup command, \`${command}\`, before starting you, and ${how}. Its output:`
-      : `# Setup failed\n\nTED couldn’t run this worktree’s setup command, \`${command}\`, before starting you:`,
+      ? `# Setup failed\n\nTed ran this worktree’s setup command, \`${command}\`, before starting you, and ${how}. Its output:`
+      : `# Setup failed\n\nTed couldn’t run this worktree’s setup command, \`${command}\`, before starting you:`,
     `\`\`\`\n${(result.problem ?? output).trimEnd()}\n\`\`\``,
   ].join('\n\n')
 }
 
 function githubUnreadableNote(label: string, reason: GitHubUnreadable, url: string): string {
   const why = githubUnreadableWhy[reason]
-  return `TED couldn’t read GitHub issue ${label}: ${why}, then create the Task again to import the issue. This Task keeps only the link: ${url}`
+  return `Ted couldn’t read GitHub issue ${label}: ${why}, then create the Task again to import the issue. This Task keeps only the link: ${url}`
 }
 
 function taskSource(url: string, issue: LinearIssue | undefined): TaskSource {
@@ -13910,7 +13975,7 @@ function joinAnd(items: readonly string[]): string {
 const setupProblem = 'setup-unfinished'
 
 const firstSetupDescription =
-  'Set up TED for this Factory. Read its repos, ask how the human works, try candidate checks and Apps on the default branch, and propose Factory notes, Stage overrides and `.ted/workflow.yaml` in a design review. Once it’s approved, write the files on this Task’s branch; they merge through Review like any change.'
+  'Set up Ted for this Factory. Read its repos, ask how the human works, try candidate checks and Apps on the default branch, and propose Factory notes, Stage overrides and `.ted/workflow.yaml` in a design review. Once it’s approved, write the files on this Task’s branch; they merge through Review like any change.'
 
 const laterSetupDescription =
-  'Propose changes to this Factory’s TED settings in `.ted/`. Read the repos and the current files, ask how the human works now, try changed checks and Apps on the default branch, and show each change against the current files as a diff in the design review. Once it’s approved, write the changes on this Task’s branch; they merge through Review like any change.'
+  'Propose changes to this Factory’s Ted settings in `.ted/`. Read the repos and the current files, ask how the human works now, try changed checks and Apps on the default branch, and show each change against the current files as a diff in the design review. Once it’s approved, write the changes on this Task’s branch; they merge through Review like any change.'

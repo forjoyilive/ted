@@ -212,7 +212,7 @@ export function AddFactoryDialog({
           {first ? 'Add your first Factory' : 'Add Factory'}
         </h2>
         <Help>
-          A Factory carries Tasks from creation to merge for one product. TED works in its own
+          A Factory carries Tasks from creation to merge for one product. Ted works in its own
           clones of these repos. It changes your folder only when you ask it to set up a GitHub
           repo.
         </Help>

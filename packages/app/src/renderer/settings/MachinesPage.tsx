@@ -102,7 +102,7 @@ export function MachinesPage() {
   return (
     <SettingsPage
       title="Machines"
-      subtitle="This TED owns your Factories, Tasks and approvals. Connect another Mac for future execution."
+      subtitle="This Ted owns your Factories, Tasks and approvals. Connect another Mac for future execution."
     >
       <ExecutionHelp />
       {(problem || resource.error || data?.problem) && (

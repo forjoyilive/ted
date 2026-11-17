@@ -27,10 +27,10 @@ import { eventWait } from './support/event-wait.ts'
 useMergeHarness()
 
 describe('Approve and merge', () => {
-  test('with no CI, TED merges at once, deletes the branch, removes the worktree and releases blocked Tasks', async () => {
+  test('with no CI, Ted merges at once, deletes the branch, removes the worktree and releases blocked Tasks', async () => {
     const client = await start()
     const { task, signoff } = await toSignoff(client)
-    expect(signoff.gate).toEqual({ approveLabel: 'Approve and merge' })
+    expect(signoff.gate).toEqual({ approveLabel: 'Approve and merge', noCi: ['widgets'] })
     const blocked = await client.ok<Task>('POST', '/tasks', {
       title: JSON.stringify({ steps: [{ endTurn: true }] }),
       factory: 'NB',
@@ -79,7 +79,7 @@ describe('Approve and merge', () => {
     )
   })
 
-  test('with CI, TED waits for the checks, shows Waiting for CI, and merges once they pass', async () => {
+  test('with CI, Ted waits for the checks, shows Waiting for CI, and merges once they pass', async () => {
     const client = await start({
       files: { '.github/workflows/ci.yml': 'on: pull_request\n' },
       merge: { checks: [{ name: 'test', status: 'IN_PROGRESS' }] },
@@ -106,7 +106,7 @@ describe('Approve and merge', () => {
     expect(await lines(client, task)).toContain(`Merged ${done.repos[0]?.name}`)
   })
 
-  test('TED doesn’t merge until the Task Lead advances at Merge; before that a Comment steers the Task Lead, the Task Lead titles the pull request for the merge commit, and it can send back only to Work or Design or advance once', async () => {
+  test('Ted doesn’t merge until the Task Lead advances at Merge; before that a Comment steers the Task Lead, the Task Lead titles the pull request for the merge commit, and it can send back only to Work or Design or advance once', async () => {
     const client = await start()
     const script = [
       `[ -e '${client.mergingFile}' ] && exit 0`,
@@ -123,7 +123,7 @@ describe('Approve and merge', () => {
     const reads = async () =>
       (await ghCalls()).filter((c) => c.args[0] === 'api' && c.args[1] === 'graphql').length
     const before = await reads()
-    await waitUntil(async () => (await reads()) >= before + 3, 'TED to read the pull request')
+    await waitUntil(async () => (await reads()) >= before + 3, 'Ted to read the pull request')
     expect(await merges()).toEqual([])
     const holding = await getTask(client, task.id)
     expect(holding.status?.kind).not.toBe('waiting-for-github')
@@ -172,7 +172,7 @@ describe('Approve and merge', () => {
     )
   })
 
-  test('a Task waiting at Merge can be reset: TED closes the pull request and deletes the branch, and a branch GitHub won’t delete stops the reset', async () => {
+  test('a Task waiting at Merge can be reset: Ted closes the pull request and deletes the branch, and a branch GitHub won’t delete stops the reset', async () => {
     const client = await start({
       files: { '.github/workflows/ci.yml': 'on: pull_request\n' },
       merge: { checks: [{ name: 'test', status: 'IN_PROGRESS' }] },
@@ -275,7 +275,7 @@ describe('Merging only what the human signed off', () => {
       { cwd },
     )
 
-  test('TED merges the signed-off commit, never a commit the Task Lead made after it', async () => {
+  test('Ted merges the signed-off commit, never a commit the Task Lead made after it', async () => {
     const client = await start()
     const { task, signoff } = await toSignoff(client)
     const before = (await getTask(client, task.id)).repos[0]
