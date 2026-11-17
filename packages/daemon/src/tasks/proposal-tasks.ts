@@ -20,9 +20,9 @@ export async function createProposalTasks(
   proposal: Proposal,
   shape: ProposalPlan,
   options: {
-    parentId: string
+    parentId?: string
     factoryId: string
-    fields: (row: number) => Pick<NewTask, 'lead' | 'splitFrom' | 'plan'>
+    fields: (row: number) => Pick<NewTask, 'lead' | 'splitFrom' | 'plan' | 'coordinatorOperation'>
   },
 ): Promise<ProposalCreated['tasks']> {
   const ids = new Map<number, string>()
@@ -42,7 +42,7 @@ export async function createProposalTasks(
       factoryId: options.factoryId,
       ...options.fields(row),
       blockedBy,
-      parentId: options.parentId,
+      ...(options.parentId !== undefined && { parentId: options.parentId }),
       startRequested: blockedBy.length > 0,
     })
     ids.set(row, made.id)

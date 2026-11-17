@@ -2280,7 +2280,7 @@
       "count": 2
     },
     "anti-slop/no-unknown-parameters": {
-      "count": 13
+      "count": 12
     },
     "anti-slop/no-unknown-returns": {
       "count": 1

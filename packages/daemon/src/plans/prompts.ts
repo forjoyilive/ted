@@ -1,4 +1,6 @@
 import type { PlanRequest, PlanTask, RoundAnswer } from '@ted/protocol'
+import type { AgentPower } from '@ted/protocol/agent-files'
+import { proposalFormat, roundFormat } from '../chats/powers.ts'
 import type { StoredFactory } from '../store/index.ts'
 import type { FactoryRepoEntry } from '../tasks/repos.ts'
 import { writingGuidance } from '../writing.ts'
@@ -7,12 +9,6 @@ export const planOpening = '## What the human wants to plan'
 
 export const planResumePrompt =
   'Your process stopped before you finished, so TED resumed your session. Check where you were in the planning chat, then carry on.'
-
-const roundFormat =
-  'The file is JSON: a short `title` that names the topic and doesn’t say how many questions there are, an optional `summary` in Markdown with the context the user needs before the questions, and `questions`. Each question has its `question`, your `recommended` answer, and, when there are a few likely answers, `choices` that include the recommended one. When a choice needs explaining, start it with a short line that names it, then a line break and the explanation; the app shows the first line as the choice’s label. Without `choices`, the human edits your recommended answer as text. When the human may pick several choices, add `"multiple": true` and make `recommended` a list of the choices you recommend; the app shows checkboxes.'
-
-const proposalFormat =
-  'The file is JSON: a short `title`, an optional one-line `summary`, and `tasks`, one row per Task. Each row has a `title`, a one-line `scope`, an optional `description` that becomes the Task’s description, a `priority` (urgent, high, medium, low or none) and `blockedBy`, the row numbers that must merge first.'
 
 export interface PlanTaskContext {
   displayId: string
@@ -47,13 +43,16 @@ export function taskDetachedNote(displayId: string, reason: string): string {
 
 export function plannerInstructions(input: {
   role: string
+  powers: readonly AgentPower[]
   factory: StoredFactory
   entries: readonly FactoryRepoEntry[]
   folder: string
   task?: PlanTaskContext
   earlier?: string
 }): string {
-  const { role, factory, entries, folder, task, earlier } = input
+  const { role, powers, factory, entries, folder, task, earlier } = input
+  const ask = powers.includes('ask')
+  const propose = powers.includes('propose_tasks')
   const where =
     entries.length === 1
       ? `Your working folder is a fresh checkout of ${entries[0]?.repo ?? factory.repo} at the latest base branch.`
@@ -63,11 +62,19 @@ export function plannerInstructions(input: {
     writingGuidance,
     `Use relevant general skills when they help with your work. Skip skills that require another host tool, such as Orca, Paseo or Superset; for example, don’t use \`orca-linear\` in TED. Use TED commands for Task workflow actions.`,
     [
-      `This chat is in the ${factory.name} Factory. ${where} Read it as much as you need. Anything you write there is never pushed and is thrown away when this chat ends.`,
-      '',
-      `- Ask the human questions in rounds with \`ted ask --round <file>\`. ${roundFormat} Then end your turn; TED sends you their answers. While a round is open the human may message you about it; answer them, and if your recommendation changes, replace the round with \`ted ask --supersedes <request-id> --round <file>\`.`,
-      `- After the user confirms the plan and asks to split it, propose the fewest coherent Tasks with \`ted task propose --file <file>\`. ${proposalFormat} Each Task should deliver a verifiable result in one pull request per repo, with success criteria and dependencies. Keep the layers needed for that result together rather than making a Task for each implementation layer. Use \`to-spec\` or \`to-tickets\` if available to capture the agreed specification or split it. Then end your turn.`,
-      '- When the human approves, TED creates the Tasks in Backlog and ends this chat. If they message you instead, reply in the chat.',
+      `This chat is in the ${factory.name} Factory.${powers.includes('read_code') ? ` ${where} Read it as much as you need. Anything you write there is never pushed and is thrown away when this chat ends.` : ''}`,
+      ...(ask || propose ? [''] : []),
+      ...(ask
+        ? [
+            `- Ask the human questions in rounds with \`ted ask --round <file>\`. ${roundFormat} Then end your turn; TED sends you their answers. While a round is open the human may message you about it; answer them, and if your recommendation changes, replace the round with \`ted ask --supersedes <request-id> --round <file>\`.`,
+          ]
+        : []),
+      ...(propose
+        ? [
+            `- After the user confirms the plan and asks to split it, propose the fewest coherent Tasks with \`ted task propose --file <file>\`. ${proposalFormat} Each Task should deliver a verifiable result in one pull request per repo, with success criteria and dependencies. Keep the layers needed for that result together rather than making a Task for each implementation layer. Use \`to-spec\` or \`to-tickets\` if available to capture the agreed specification or split it. Then end your turn.`,
+            '- When the human approves, TED creates the Tasks in Backlog and ends this chat. If they message you instead, reply in the chat.',
+          ]
+        : []),
     ].join('\n'),
     ...(task ? [fromTaskSection(task)] : []),
     ...(earlier !== undefined && earlier !== ''

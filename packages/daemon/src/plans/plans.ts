@@ -1,4 +1,4 @@
-import { mkdir, rm } from 'node:fs/promises'
+import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import type {
   AnswerRequest,
@@ -21,13 +21,15 @@ import { planRequestLabel, planTitle, planTitleLength } from '@ted/protocol'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
+import { builtInAgent, chatAgentView, pickAgent, storedAgent } from '../chats/agents.ts'
+import { checkOut as checkOutRepos, discard } from '../chats/checkout.ts'
+import { hasPower, requirePower } from '../chats/powers.ts'
 import { RequestError } from '../errors.ts'
-import { ensureClone } from '../factories.ts'
-import * as git from '../git.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
 import type { RunManager } from '../runs/run-manager.ts'
+import type { StoredChatAgent } from '../store/chats.ts'
 import type { StoredFactory, StoredTask, TedStore } from '../store/index.ts'
-import type { PlanCheckout, StoredPlan } from '../store/plans.ts'
+import type { StoredPlan } from '../store/plans.ts'
 import { approvedShape, createProposalTasks, highestPriority } from '../tasks/proposal-tasks.ts'
 import {
   afterProcessEnded,
@@ -40,10 +42,8 @@ import { removeInside } from '../tasks/remove-files.ts'
 import { type FactoryRepoEntry, factoryRepos } from '../tasks/repos.ts'
 import { roundAnswers } from '../tasks/rounds.ts'
 import type { Caller, PlanApproval, PlanEnd } from '../tasks/tasks.ts'
-import { copyFiles } from '../tasks/worktree.ts'
 import { messageOf } from '../text.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
-import { builtInAgentText } from '../workflow/layers.ts'
 import type { Workflows } from '../workflow/workflows.ts'
 import {
   earlierPlanContext,
@@ -69,6 +69,7 @@ export interface PlansOptions {
   workflows: Workflows
   queue: RunQueue
   reposDir: string
+  builtInAgents: readonly StoredChatAgent[]
   isCloned?: (factoryId: string) => boolean
   startTask: (taskId: string) => Promise<unknown>
   planApproved?: (taskId: string, input: PlanApproval) => Promise<void>
@@ -230,12 +231,27 @@ export function createPlans(options: PlansOptions): Plans {
     },
   })
 
-  async function plannerSetup(
-    factory: StoredFactory,
-  ): Promise<{ entries: FactoryRepoEntry[]; role: string }> {
+  const agentOf = (plan: Pick<StoredPlan, 'id'>): StoredChatAgent =>
+    store.chats.agent(plan.id) ?? builtInAgent(options.builtInAgents, 'planner')
+
+  async function plannerSetup(factory: StoredFactory): Promise<{ entries: FactoryRepoEntry[] }> {
     const { workflow } = await workflows.resolve(factory, { fetch: false })
-    const role = workflow.agent('planner')?.instructions ?? (await builtInAgentText('planner'))
-    return { entries: factoryRepos(workflow, factory), role }
+    return { entries: factoryRepos(workflow, factory) }
+  }
+
+  async function prepareFolder(
+    plan: StoredPlan,
+    factory: StoredFactory,
+    entries: readonly FactoryRepoEntry[],
+  ): Promise<StoredPlan['checkout']> {
+    if (hasPower(agentOf(plan), 'read_code')) return checkOut(plan, factory, entries)
+    await mkdir(folderOf(plan.id), { recursive: true, mode: 0o700 })
+    return []
+  }
+
+  async function agentsNow(factory: StoredFactory) {
+    return (await workflows.resolve(factory, { fetch: false }).catch(() => undefined))?.workflow
+      .agents
   }
 
   async function entriesOf(factory: StoredFactory): Promise<FactoryRepoEntry[]> {
@@ -243,43 +259,12 @@ export function createPlans(options: PlansOptions): Plans {
     return factoryRepos(workflow, factory)
   }
 
-  async function checkOut(
+  const checkoutDeps = { banners, reposDir: options.reposDir, store }
+  const checkOut = (
     plan: StoredPlan,
     factory: StoredFactory,
     entries: readonly FactoryRepoEntry[],
-  ): Promise<PlanCheckout[]> {
-    const folder = folderOf(plan.id)
-    await rm(folder, { recursive: true, force: true })
-    await mkdir(folder, { recursive: true, mode: 0o700 })
-    const made: PlanCheckout[] = []
-    try {
-      for (const entry of entries) {
-        const clone = await ensureClone(
-          { banners, reposDir: options.reposDir },
-          entry.primary ? factory : { ...factory, repo: entry.repo, cloneUrl: entry.cloneUrl },
-        )
-        await git.fetch(clone)
-        const base = entry.baseBranch ?? (await git.defaultBranch(clone))
-        const worktree = path.join(folder, entry.name)
-        await git.addScratchWorktree(clone, worktree, `origin/${base}`)
-        made.push({ clone, worktree })
-        await copyFiles(store.localFolder(entry.repo), worktree, entry.copy)
-      }
-    } catch (error) {
-      await discard(made, folder)
-      throw error
-    }
-    return made
-  }
-
-  async function discard(checkout: readonly PlanCheckout[], folder: string): Promise<void> {
-    for (const { clone, worktree } of checkout) {
-      await git.removeWorktree(clone, worktree).catch(() => undefined)
-    }
-    await rm(folder, { recursive: true, force: true }).catch((error: unknown) =>
-      console.error(`couldn’t remove ${folder}:`, error),
-    )
-  }
+  ) => checkOutRepos(checkoutDeps, folderOf(plan.id), factory, entries)
 
   const cleaning = new Map<string, Promise<void>>()
 
@@ -308,11 +293,11 @@ export function createPlans(options: PlansOptions): Plans {
         return current?.state === 'started' && current.resume === 'queued'
       }
       try {
-        const { entries, role } = await plannerSetup(factory)
+        const { entries } = await plannerSetup(factory)
         if (!stillOpen()) return
         const fresh = store.getRun(id)?.sessionId === undefined
         await runs.revive(id, {
-          prompt: fresh ? firstPrompt(plan, factory, entries, role) : planResumePrompt,
+          prompt: fresh ? firstPrompt(plan, factory, entries) : planResumePrompt,
           env: envFor(plan, factory, entries),
           fresh,
         })
@@ -332,8 +317,8 @@ export function createPlans(options: PlansOptions): Plans {
     if (plan.state !== 'queued') return
     let prepared: StoredPlan['checkout'] = []
     try {
-      const { entries, role } = await plannerSetup(factory)
-      const checkout = await checkOut(plan, factory, entries)
+      const { entries } = await plannerSetup(factory)
+      const checkout = await prepareFolder(plan, factory, entries)
       prepared = checkout
       if (saved.get(id)?.state !== 'queued') {
         await discard(checkout, folderOf(id))
@@ -344,9 +329,9 @@ export function createPlans(options: PlansOptions): Plans {
         id,
         agent: plan.agent,
         onStarting: () => saved.began(id, checkout),
-        prompt: firstPrompt(plan, factory, entries, role),
+        prompt: firstPrompt(plan, factory, entries),
         cwd: single ?? folderOf(id),
-        name: 'Planner',
+        name: agentOf(plan).name,
         permissions: 'auto',
         env: envFor(plan, factory, entries),
         ...(plan.model !== undefined && { model: plan.model }),
@@ -371,10 +356,11 @@ export function createPlans(options: PlansOptions): Plans {
     plan: StoredPlan,
     factory: StoredFactory,
     entries: FactoryRepoEntry[],
-    role: string,
   ): string {
+    const agent = agentOf(plan)
     return `${plannerInstructions({
-      role,
+      role: agent.instructions,
+      powers: agent.powers,
       factory,
       entries,
       folder: folderOf(plan.id),
@@ -481,7 +467,11 @@ export function createPlans(options: PlansOptions): Plans {
     })
   }
 
-  function describe(plan: StoredPlan, slots: RunSlots | undefined): Plan {
+  function describe(
+    plan: StoredPlan,
+    slots: RunSlots | undefined,
+    current?: readonly { id: string }[],
+  ): Plan {
     const factory = factoryOf(plan)
     const status = statusOf(plan)
     const place = slots?.queue.find((q) => q.kind === 'planning' && q.planId === plan.id)?.place
@@ -534,6 +524,7 @@ export function createPlans(options: PlansOptions): Plans {
         },
       }),
       ...fromTaskOf(plan),
+      chatAgent: chatAgentView(agentOf(plan), current),
     }
   }
 
@@ -565,10 +556,13 @@ export function createPlans(options: PlansOptions): Plans {
 
   async function plannerFor(
     factory: StoredFactory,
-    input: Pick<StartPlanRequest, 'agent' | 'model' | 'effort'>,
-  ): Promise<Pick<StoredPlan, 'agent' | 'model' | 'effort'>> {
-    const settings = (await workflows.resolve(factory, { fetch: false }).catch(() => undefined))
-      ?.workflow.settings
+    input: Pick<StartPlanRequest, 'agent' | 'model' | 'effort' | 'agentId'>,
+  ): Promise<Pick<StoredPlan, 'agent' | 'model' | 'effort'> & { chatAgent: StoredChatAgent }> {
+    const resolved = await workflows.resolve(factory, { fetch: false }).catch(() => undefined)
+    const settings = resolved?.workflow.settings
+    const chatAgent = resolved
+      ? storedAgent(pickAgent(resolved.workflow.agents, 'plan', input.agentId))
+      : pickAgent(options.builtInAgents, 'plan', input.agentId)
     const planner = resolveAgentChoices(
       settings,
       {
@@ -578,14 +572,18 @@ export function createPlans(options: PlansOptions): Plans {
       },
       store.settings().enabledAgents,
     ).planner
-    const agent = input.agent ?? planner.agent
-    const same = agent === planner.agent
-    const model = input.model ?? (same ? planner.model : undefined)
+    const defaultAgent = chatAgent.agent ?? planner.agent
+    const agent = input.agent ?? defaultAgent
+    const same = agent === defaultAgent
+    const defaultModel =
+      chatAgent.model ?? (chatAgent.agent === undefined ? planner.model : undefined)
+    const model = input.model ?? (same ? defaultModel : undefined)
     const effort: Effort | undefined = input.effort ?? (same ? planner.effort : undefined)
     return {
       agent,
       ...(model !== undefined && { model }),
       ...(effort !== undefined && { effort }),
+      chatAgent,
     }
   }
 
@@ -732,8 +730,10 @@ export function createPlans(options: PlansOptions): Plans {
     },
     async detail(id) {
       const plan = find(id)
+      const factory = factoryOf(plan)
+      const current = factory && (await agentsNow(factory))
       return {
-        plan: describe(plan, await slotsNow()),
+        plan: describe(plan, await slotsNow(), current),
         requests: saved.requests(plan.id).map((r) => view(plan, r)),
         tasks: createdTasks(plan.id),
       }
@@ -885,6 +885,7 @@ export function createPlans(options: PlansOptions): Plans {
       if ((round === undefined) === (proposal === undefined)) {
         throw new RequestError(400, 'send a round or a proposal')
       }
+      requirePower(agentOf(plan), round ? 'ask' : 'propose_tasks')
       const kind = round ? 'round' : 'proposal'
       const task = linkedTask(plan)
       const requests = saved.requests(plan.id)
@@ -1059,7 +1060,7 @@ export function createPlans(options: PlansOptions): Plans {
       try {
         await stopping.get(plan.id)
         await cleaning.get(plan.id)
-        const checkout = await checkOut(plan, factory, await entriesOf(factory)).catch(
+        const checkout = await prepareFolder(plan, factory, await entriesOf(factory)).catch(
           (error: unknown) => {
             throw new RequestError(409, `Couldn’t check out the repos: ${messageOf(error)}`)
           },

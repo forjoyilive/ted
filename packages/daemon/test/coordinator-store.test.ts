@@ -1,6 +1,7 @@
 import path from 'node:path'
 import type { CoordinatorReceipt } from '@ted/protocol'
 import { afterEach, expect, test } from 'vitest'
+import { builtInAgent, builtInAgents } from '../src/chats/agents.ts'
 import { receiptsKept } from '../src/store/coordinator-change.ts'
 import type { StoredCoordinator } from '../src/store/coordinators.ts'
 import { openStore, type TedStore } from '../src/store/index.ts'
@@ -189,4 +190,49 @@ test('a home with conversations saved before chats lists each one as an ended ch
     { id: 'conversation-2', runIds: ['run-2'], phase: 'ready' },
   ])
   expect(store.coordinators.list().map((c) => c.id)).toEqual(['conversation-2'])
+})
+
+test('a chat’s Agent and requests are kept with it and deleted with it; an older chat has none', async () => {
+  const temporary = await makeTempHome()
+  cleanup = temporary.cleanup
+  store = await openStore({ directory: path.join(temporary.home, 'store') })
+  const builtIns = await builtInAgents()
+  const scout = {
+    id: 'scout',
+    name: 'Scout',
+    source: 'factory' as const,
+    agent: 'codex' as const,
+    powers: ['ask' as const, 'read_code' as const],
+    instructions: 'You scout releases.\n',
+  }
+  store.coordinators.save(chatIn('factory-1', 'old-chat', 'run-0'))
+  expect(store.chats.agent('old-chat')).toBeUndefined()
+  expect(builtInAgent(builtIns, 'coordinator')).toMatchObject({
+    name: 'Coordinator',
+    source: 'ted',
+    powers: ['ask', 'manage_tasks'],
+  })
+
+  const chat = chatIn('factory-1', 'chat-1', 'run-1')
+  store.coordinators.save(
+    chat,
+    [],
+    store.chats.agentRecorded('chat-1', 'coordinator', 'factory-1', scout),
+  )
+  expect(store.chats.agent('chat-1')).toEqual(scout)
+  const asked = store.chats.post({
+    chatId: 'chat-1',
+    factoryId: 'factory-1',
+    runId: 'run-1',
+    kind: 'question',
+    body: 'Ship today?',
+    choices: ['Yes', 'No'],
+  })
+  expect(store.chats.requests('chat-1')).toEqual([asked])
+  expect(asked).toMatchObject({ kind: 'question', choices: ['Yes', 'No'] })
+
+  store.coordinators.delete('chat-1')
+  expect(store.chats.agent('chat-1')).toBeUndefined()
+  expect(store.chats.requests('chat-1')).toEqual([])
+  expect(store.chats.request(asked.id)).toBeUndefined()
 })

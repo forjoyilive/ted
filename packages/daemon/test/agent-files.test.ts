@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { coordinatorInstructions } from '../src/coordinators/coordinators.ts'
 import { plannerInstructions } from '../src/plans/prompts.ts'
+import { resolveAgents } from '../src/workflow/agent-files.ts'
 import { inheritedFrom } from '../src/workflow/check.ts'
 import { driftCount, findAgentDrift } from '../src/workflow/drift.ts'
 import {
@@ -44,7 +45,8 @@ describe('TED’s built-in Agents', () => {
 
   test('chat prompts put the Agent’s instructions inside TED’s own text', async () => {
     const workflow = resolveWorkflow([await readDefaultLayer()])
-    const coordinator = coordinatorInstructions(workflow.agent('coordinator')?.instructions ?? '')
+    const builtIn = workflow.agent('coordinator')
+    const coordinator = coordinatorInstructions(builtIn?.instructions ?? '', builtIn?.powers ?? [])
     expect(coordinator).toMatch(
       /^# You are the Coordinator for one TED Factory\nHelp the human compare Tasks/,
     )
@@ -52,6 +54,7 @@ describe('TED’s built-in Agents', () => {
 
     const planner = plannerInstructions({
       role: 'Plan only the database changes.',
+      powers: ['ask', 'propose_tasks', 'read_code'],
       factory: { id: 'f', name: 'Widgets', repo: 'acme/widgets' } as never,
       entries: [],
       folder: '/tmp/plan',
@@ -59,6 +62,51 @@ describe('TED’s built-in Agents', () => {
     expect(planner).toMatch(/^Plan only the database changes\.\n\n## Write clearly/)
     expect(planner).toContain('This chat is in the Widgets Factory.')
     expect(planner).toContain('ted task propose --file <file>')
+  })
+
+  test('a chat’s preamble lists only the commands its powers allow', () => {
+    const role = 'Watch the releases.'
+    const none = coordinatorInstructions(role, [])
+    expect(none).toContain('You have no TED commands in this chat.')
+    for (const text of ['ted coordinator', 'ted ask', 'ted task propose', 'working folder'])
+      expect(none).not.toContain(text)
+
+    const manage = coordinatorInstructions(role, ['manage_tasks'])
+    expect(manage).toContain('ted coordinator tasks')
+    expect(manage).toContain('Start means Backlog to Queued')
+    expect(manage).not.toContain('ted ask')
+
+    const ask = coordinatorInstructions(role, ['ask'])
+    expect(ask).toContain('ted ask "<question>"')
+    expect(ask).toContain('ted ask --round <file>')
+    expect(ask).toContain('After you ask, end your turn')
+    expect(ask).not.toContain('ted coordinator')
+    expect(ask).not.toContain('ted task propose')
+
+    const propose = coordinatorInstructions(role, ['propose_tasks'])
+    expect(propose).toContain('ted task propose --file <file>')
+    expect(propose).not.toContain('ted ask')
+
+    const where =
+      'Your working folder is a fresh checkout of acme/widgets at the latest base branch.'
+    expect(coordinatorInstructions(role, ['read_code'], where)).toContain(where)
+    expect(coordinatorInstructions(role, ['ask'], where)).not.toContain(where)
+
+    const plannerWith = (powers: Parameters<typeof plannerInstructions>[0]['powers']) =>
+      plannerInstructions({
+        role: 'Plan.',
+        powers,
+        factory: { id: 'f', name: 'Widgets', repo: 'acme/widgets' } as never,
+        entries: [],
+        folder: '/tmp/plan',
+      })
+    const bare = plannerWith([])
+    expect(bare).not.toContain('ted ask --round')
+    expect(bare).not.toContain('ted task propose')
+    expect(bare).not.toContain('fresh checkout')
+    expect(plannerWith(['ask'])).toContain('ted ask --round')
+    expect(plannerWith(['ask'])).not.toContain('ted task propose')
+    expect(plannerWith(['propose_tasks'])).toContain('ted task propose')
   })
 })
 
@@ -97,6 +145,25 @@ describe('checking Agent files', () => {
       'error .ted/agents.yaml 6 1 `scout` has no instructions file; add agents/scout.md',
       'error .ted/agents.yaml 8 10 `scout.agent` must be claude, codex or antigravity',
     ])
+  })
+
+  test('the Planner can’t have Manage Tasks: check reports it and resolving drops it', () => {
+    const files = {
+      'agents.yaml': 'planner:\n  name: Planner\n  powers: [ask, manage_tasks]\n',
+      'agents/planner.md': 'Plan.\n',
+    }
+    expect(problems(files)).toEqual([
+      'error .ted/agents.yaml 1 1 `planner` can’t have `manage_tasks`; the Planner runs in a planning chat',
+    ])
+    expect(
+      resolveAgents([
+        {
+          kind: 'factory',
+          agentSettings: { planner: { name: 'Planner', powers: ['ask', 'manage_tasks'] } },
+          agentFiles: { planner: 'Plan.\n' },
+        },
+      ])[0]?.powers,
+    ).toEqual(['ask'])
   })
 
   test('an instructions file no agents.yaml lists is ignored with a warning; an empty one is an error', () => {
