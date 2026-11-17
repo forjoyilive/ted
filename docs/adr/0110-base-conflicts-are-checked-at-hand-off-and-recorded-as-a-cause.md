@@ -1,5 +1,7 @@
 # Base conflicts are checked at hand-off and recorded as a send-back’s cause
 
+_Changed by ADR 0187-the-checks-run-as-validates-first-step-and-every-return-to-work-counts: a verified `--cause base-conflict` send-back from Validate now counts toward `max_back` and the Loop check like every other return to Work. The refusal at Work is unchanged and still isn’t counted._
+
 Over two days, 43 of 137 send-backs (31%) said only that the pull request conflicted with its base branch: 20 from Merge, 9 from Review, 14 from Validate. Each one cost a Work visit and a full Validate visit with a reviewer Run.
 
 ## What produced them

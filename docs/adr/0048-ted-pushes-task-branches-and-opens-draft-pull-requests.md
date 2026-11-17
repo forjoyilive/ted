@@ -1,5 +1,7 @@
 # TED pushes Task branches and opens draft pull requests from the Tasks module
 
+_Changed by ADR 0187-the-checks-run-as-validates-first-step-and-every-return-to-work-counts: TED pushes and opens pull requests only when a Task enters Merge, ready for review rather than draft. There is no push at Validate entry, at Validate passing or at the sign-off; a draft opened before the change is marked ready at Merge entry. A failed push is retried by the merge watcher, and Merge and `ted task done` wait until each repo with commits has a pull request. The push itself, its safeguards and the events are unchanged._
+
 Agents only commit (ADR 0007). The daemon pushes each Task branch and opens its pull requests through one module, `packages/daemon/src/tasks/pull-requests.ts`, which the Tasks module calls at three points: when a Task enters Validate, when Validate passes, and when the Review sign-off is posted. A Task entering Merge without a sign-off also marks its pull requests ready.
 
 - **Validate entry** pushes each repo that has commits on top of `origin/<base_branch>` and has no open pull request yet, then opens a draft with `gh pr create --draft`: the Task title as title, the brief’s Goal (or the description before a brief exists) and “Opened by TED for NB-12” as body, with the Linear link when the Task came from Linear.

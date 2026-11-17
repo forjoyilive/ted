@@ -6,7 +6,7 @@ Find out whether the work does what the Task asks, without breaking anything els
 
 ## Before you start
 
-If the Factory has checks, TED runs them one after another and stops at the first failure. When the Task comes from Work, TED ran them before it left Work, a failure there kept it in Work, and the passing results are at the end of these instructions. When it comes from another Stage, TED runs them at Validate entry. A failure at entry keeps the Task in Validate with the output and a failure case ID; `ted failure list` and `ted failure show <id>` show it, and the preamble lists the other `ted failure` commands.
+If the Factory has checks, TED ran them as Validate’s first step, one after another, and they all passed before these instructions reached you; the results are at the end of these instructions. A failed check sends the Task back to Work instead, so you never start with one failing. A check the human accepted shows as failed and accepted, not passed; `ted failure list` and `ted failure show <id>` show it.
 
 These testing instructions are specific to developing TED. The Affected tests check and the three-file limit on a Run’s own test runs are this repo’s test tooling; other Factories choose their own commands and Stage instructions. See [Factory validation](../../docs/testing/factory-validation.md) when configuring those choices.
 
@@ -33,7 +33,7 @@ There are no blocking findings and the note is posted. Then report the outcome w
 
 ## Send back when
 
-There is a blocking finding. Write each one, numbered, in a findings file and run `ted outcome back --to work --findings <file>`, with `--review fail` or `--visual fail` when that is where it came from. In a round where TED says a new finding sends the Task back only if it is P1, say in the file which findings are P1 and which are earlier findings still not fixed, and add `--severity p1`, or `--severity unfixed` when the only blocking findings are earlier ones still not fixed; TED refuses the send-back without one of them, and the other new findings go in your note. From the third send-back TED checks whether the rounds are converging and may ask the human instead; it tells you what happens.
+There is a blocking finding. Write each one, numbered, in a findings file and run `ted outcome back --to work --findings <file>`, with `--review fail` or `--visual fail` when that is where it came from. In a round where TED says a new finding sends the Task back only if it is P1, say in the file which findings are P1 and which are earlier findings still not fixed, and add `--severity p1`, or `--severity unfixed` when the only blocking findings are earlier ones still not fixed; TED refuses the send-back without one of them, and the other new findings go in your note. Every return to Work counts, failed checks included. From the third, TED checks whether the rounds are converging and may ask the human instead; it tells you what happens.
 
 ## Never ask the human
 

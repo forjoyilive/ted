@@ -89,12 +89,16 @@ How much questioning Clarify does on a Task: none, a few simple questions in one
 _Avoid_: Tier, level
 
 **Check**:
-A command a Factory lists for Validate, which TED runs itself before the Task leaves Work, or at Validate entry when the Task comes from another Stage; it passes when the command exits cleanly. A failure before leaving Work keeps the Task in Work. A failure at Validate entry stays in Validate for diagnosis; an evidenced regression or the human’s Fix decision sends the Task back to Work. The machine runs the checks of only so many Tasks at once; the others wait their turn.
+A command a Factory lists for Validate, which TED runs itself as Validate’s first step, every time a Task enters Validate; it passes when the command exits cleanly. A failure is a return to Work: the Task Lead in Work fixes it, or asks the human to accept it when the cause is outside the Task. The machine runs the checks of only so many Tasks at once; the others wait their turn.
 _Avoid_: Test (when meaning the command), CI job
 
 **Finding**:
 Something Validate found wrong with a Task’s work. A blocking finding sends the Task back to Work; a note carries forward to Review.
 _Avoid_: Issue, bug, comment
+
+**Return to Work**:
+A Task going back from Validate to Work, for a failed check, a blocking finding or a conflict with the base branch. Every one counts toward Validate’s limit, and the Task’s header shows the count. At the limit TED asks the user to keep going or stop the Task.
+_Avoid_: Bounce, retry, round (when meaning the return itself)
 
 **P1**:
 The highest severity of a finding: the change loses or corrupts data, opens a security hole, or breaks behaviour the Task’s description asks for. From Validate’s second round a new finding about code the fixes didn’t touch is blocking only if it is P1, and a Factory can set a round from which a new finding sends a Task back only if it is P1.
@@ -228,7 +232,7 @@ _Avoid_: Worker, helper, child agent
 The sub-agent that reviews a Task’s diff at Validate with no Work context. TED picks its Provider from the `reviewer` setting, by default the other Provider from the Task Lead’s. Each Validate visit gets one. From the second round TED limits it to the earlier findings and the changes since the last reviewed commit, and after a send-back for a conflict with the base branch to the conflict resolution.
 
 **Loop check**:
-A sub-agent TED starts itself at Validate’s third send-back to read the rounds of findings and say whether they are converging or looping.
+A sub-agent TED starts itself at Validate’s third return to Work to read the rounds of findings and say whether they are converging or looping.
 
 **Run**:
 One agent conversation, on a Task (the Task Lead’s or a sub-agent’s), for an Automation, for planning, or for a Coordinator, from when TED starts it until it is stopped. TED may restart the Provider underneath it, for example onto a new Provider version, and it is still the same Run. A stopped Run is kept as history and never resumed; work continues in a fresh Run.

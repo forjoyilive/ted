@@ -1,5 +1,7 @@
 # Checks run before a Task leaves Work
 
+_Superseded by ADR 0187-the-checks-run-as-validates-first-step-and-every-return-to-work-counts: the Checks now run as Validate’s first step, a failure there is a counted return to Work, and there are no hand-off Checks or three-failures question. What follows is kept as the record._
+
 ADR 0044 ran the Factory’s Checks when a Task entered Validate, and a failure there was a counted send-back to Work. Since then a failure at Validate entry stays in Validate as a failure case for diagnosis (ADR 0095-failure-cases-preserve-results-and-bind-human-decisions, `tasks/validation.ts`), and a regression still costs a counted send-back. About 3 of 137 measured send-backs were only a failed Typecheck or Lint straight after Work reported it was finished. Each cost a Stage change, a push, a draft pull request update and a round against `max_back`, for something the Task Lead could have fixed where it was.
 
 ## Decision
