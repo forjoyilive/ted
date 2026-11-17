@@ -1,6 +1,6 @@
 # Checks run in the daemon as Check runs, not Runs
 
-_When Checks run changed in ADR 0111, and again in ADR 0187-the-checks-run-as-validates-first-step-and-every-return-to-work-counts: Validate runs them as its first step however the Task enters it, and a failure records a failure case and is a counted return to Work. Ted no longer starts Check runs with the trigger `hand-off`; old ones stay readable. The round in “round 2 of 5” now counts every return, and Validate’s default limit is 8. The rest of this ADR stands._
+_When Checks run changed in ADR 0111, and again in ADR 0188-the-checks-run-as-validates-first-step-and-every-return-to-work-counts: Validate runs them as its first step however the Task enters it, and a failure records a failure case and is a counted return to Work. Ted no longer starts Check runs with the trigger `hand-off`; old ones stay readable. The round in “round 2 of 5” now counts every return, and Validate’s default limit is 8. The rest of this ADR stands._
 
 When a Task enters Validate, or an agent runs `ted checks`, the daemon runs the Factory’s Checks itself through one runner, `runChecks` in `packages/daemon/src/tasks/checks.ts`. Each set of results is a **Check run** in the store (`v1.ChecksStarted`, `v1.CheckStarted`, `v1.CheckFinished`, `v1.ChecksFinished`), with one row per Check. A Check run is not a Run: it has no agent and never takes a working slot, but the Task shows Working with “Running Checks · Tests (2 of 3)” while one is unfinished.
 
