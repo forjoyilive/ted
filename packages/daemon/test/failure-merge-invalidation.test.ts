@@ -5,18 +5,46 @@ import { expect, test } from 'vitest'
 import { startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { api, stubClaudePath, waitUntil } from './helpers.ts'
-import { ctx, getTask, readGh, setGh, start, toSignoff, useMergeHarness } from './merge-harness.ts'
+import {
+  approve,
+  type Client,
+  ctx,
+  getTask,
+  readGh,
+  setGh,
+  start,
+  toSignoff,
+  useMergeHarness,
+} from './merge-harness.ts'
 import { leadFor } from './support/failure-merge.ts'
 
 useMergeHarness()
 
+const mergeOff = 'intake, work, validate, review'
+
+async function atMerge(client: Client) {
+  const { task, signoff } = await toSignoff(client)
+  await approve(client, signoff)
+  const current = await waitUntil(async () => {
+    const value = await getTask(client, task.id)
+    const lead = value.runs.find((r) => r.id === value.leadRunId)
+    return value.stage === 'merge' &&
+      value.repos[0]?.pullRequest !== undefined &&
+      lead?.state === 'idle' &&
+      !value.statuses.includes('working')
+      ? value
+      : undefined
+  }, 'the Task waiting at Merge with its pull request open')
+  return { task, current }
+}
+
 test('a same-SHA CI attempt replacement invalidates acceptance and holds Merge sign-off', async () => {
   const client = await start({
+    order: mergeOff,
     files: { '.github/workflows/ci.yml': 'on: pull_request\n' },
     merge: { checks: [{ name: 'test', conclusion: 'SUCCESS' }] },
   })
-  const { task } = await toSignoff(client)
-  const current = await getTask(client, task.id)
+  const { task, current } = await atMerge(client)
   const { post } = await leadFor(task.id, current.leadRunId ?? '')
   const context = await post<FailureContext>('/failure-contexts')
   const value = await post<FailureCase>('/failures', {
@@ -53,10 +81,8 @@ test('a same-SHA CI attempt replacement invalidates acceptance and holds Merge s
 })
 
 test('a known empty CI rollup permits acceptance while missing and truncated reads revoke it', async () => {
-  const client = await start({ merge: { rollup: 'empty' } })
-  const { task } = await toSignoff(client)
-  await writeFile(client.mergingFile, '')
-  const current = await getTask(client, task.id)
+  const client = await start({ order: mergeOff, merge: { rollup: 'empty' } })
+  const { task, current } = await atMerge(client)
   const { post, lead } = await leadFor(task.id, current.leadRunId ?? '')
   const context = await post<FailureContext>('/failure-contexts')
   const value = await post<FailureCase>('/failures', {
@@ -104,10 +130,8 @@ test('a known empty CI rollup permits acceptance while missing and truncated rea
 })
 
 test('CI acceptance binds the observed failed attempt and head; historical failures remain unknown', async () => {
-  const client = await start()
-  const { task } = await toSignoff(client)
-  await writeFile(client.mergingFile, '')
-  const current = await getTask(client, task.id)
+  const client = await start({ order: mergeOff })
+  const { task, current } = await atMerge(client)
   const { post, lead } = await leadFor(task.id, current.leadRunId ?? '')
   const failed = {
     id: 'failed-attempt',
@@ -203,10 +227,8 @@ test('CI acceptance binds the observed failed attempt and head; historical failu
 })
 
 test('final changed and unavailable acceptance observations each invalidate other cases durably', async () => {
-  const client = await start({ mergePollMs: 60000 })
-  const { task } = await toSignoff(client)
-  await writeFile(client.mergingFile, '')
-  const current = await getTask(client, task.id)
+  const client = await start({ order: mergeOff, mergePollMs: 60000 })
+  const { task, current } = await atMerge(client)
   const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
   const lead = api(ctx.daemon?.port ?? 0, tokens.issue(current.leadRunId ?? ''))
   const root = `/tasks/${task.id}`

@@ -172,11 +172,7 @@ test(
           steps: [{ everyMessage: each }, { run: ['ted', 'task', 'repos', 'add', 'api'] }, ...each],
         }),
       })
-      await waitUntil(
-        async () =>
-          (await getTask(client, task.id)).repos.every((r) => r.pullRequest?.state === 'ready'),
-        'both repos ready',
-      )
+      expect((await getTask(client, task.id)).repos).toHaveLength(2)
       await commitToOrigin(ctx.scratch, { 'base-only': 'Base regression.\n' })
       await approve(client, signoff)
       const failure = await failed(client, task)

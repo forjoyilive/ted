@@ -1591,16 +1591,23 @@ export function createTasks(options: {
     )
   }
 
-  async function requestCommit(
+  async function requestCommits(
     task: StoredTask,
     workflow: ResolvedWorkflow,
-  ): Promise<{ name: string; commit: string } | undefined> {
-    const { repo } = primaryRepo(task, workflow)
-    if (!repo) return undefined
-    return git.headCommit(repo.worktree).then(
-      (commit) => ({ name: repo.name, commit }),
-      () => undefined,
+  ): Promise<{ name: string; commit: string }[]> {
+    const { repo: primary } = primaryRepo(task, workflow)
+    const repos = task.repos
+      .filter((r) => !r.removed)
+      .sort((a, b) => Number(b.name === primary?.name) - Number(a.name === primary?.name))
+    const found = await Promise.all(
+      repos.map((r) =>
+        git.headCommit(r.worktree).then(
+          (commit) => [{ name: r.name, commit }],
+          () => [],
+        ),
+      ),
     )
+    return found.flat()
   }
 
   async function bindApproval(
@@ -3091,7 +3098,8 @@ export function createTasks(options: {
 
   function pullRequestWork(
     taskId: string,
-    what: 'first' | 'again' | 'ready' | 'close' | 'reopen' | 'signoff',
+    what: 'first' | 'again' | 'close' | 'reopen' | 'signoff',
+    commits?: ReadonlyMap<string, string>,
   ): void {
     const prs = pullRequests
     if (!prs) return
@@ -3101,9 +3109,11 @@ export function createTasks(options: {
       if (what === 'reopen') return prs.reopen(taskId)
       if (what === 'signoff') return recordSignOff(taskId)
       const current = find(taskId)
-      const targets = await pullRequestTargets(current)
-      if (what === 'ready') await prs.ready(pullRequestTask(current), targets)
-      else await prs.push(pullRequestTask(current), targets, what)
+      const targets = (await pullRequestTargets(current)).map((target) => {
+        const commit = commits?.get(target.name)
+        return commit === undefined ? target : { ...target, commit }
+      })
+      await prs.push(pullRequestTask(current), targets, what)
     }
     const next = (pullRequestQueue.get(taskId) ?? Promise.resolve()).then(work)
     const settled = next.catch(() => undefined)
@@ -3114,12 +3124,51 @@ export function createTasks(options: {
     inBackground(`update ${task.displayId}’s pull requests`, () => next)
   }
 
+  async function missingPullRequests(task: StoredTask): Promise<string[]> {
+    if (!pullRequests) return []
+    const missing: string[] = []
+    for (const target of await pullRequestTargets(task).catch(() => [])) {
+      const repo = task.repos.find((r) => r.name === target.name)
+      if (!repo || repo.pullRequest?.state === 'merged') continue
+      if (repo.pushFailed !== undefined) missing.push(repo.name)
+      else if (repo.pullRequest === undefined) {
+        const ahead = await git
+          .commitsAhead(target.worktree, `origin/${target.base}`)
+          .catch(() => 0)
+        if (ahead > 0) missing.push(repo.name)
+      }
+    }
+    return missing
+  }
+
+  function approvedCommits(task: StoredTask): ReadonlyMap<string, string> | undefined {
+    const entries = store.listStageEntries(task.id)
+    const entered = entries.findLastIndex((e) => mergesHere(e.stage))
+    const from = entries[entered - 1]?.at
+    const to = entries[entered]?.at
+    const approval = lastApproval(task)
+    const at = approval?.answer?.kind === 'approved' ? approval.answer.at : undefined
+    if (!approval || at === undefined || from === undefined || to === undefined) return undefined
+    return at >= from && at <= to ? store.gateRequestCommits(task.id, approval.id) : undefined
+  }
+
+  async function openMissing(taskId: string): Promise<boolean> {
+    const task = find(taskId)
+    if ((await missingPullRequests(task)).length === 0) return false
+    pullRequestWork(taskId, 'first', approvedCommits(task))
+    pullRequestWork(taskId, 'signoff')
+    return true
+  }
+
   function recordSignOff(taskId: string): void {
-    for (const repo of find(taskId).repos) {
+    const task = find(taskId)
+    if (!mergesHere(task.stage)) return
+    for (const repo of task.repos) {
       const pr = repo.pullRequest
       if (repo.removed || !pr || pr.state === 'merged' || pr.state === 'closed') continue
       const valid = pr.state === 'ready' && !repo.pushFailed && repo.pushed !== undefined
-      store.pullRequestSignedOff(taskId, repo.name, valid ? repo.pushed?.commit : undefined)
+      const commit = valid ? repo.pushed?.commit : undefined
+      if (pr.signedOff !== commit) store.pullRequestSignedOff(taskId, repo.name, commit)
     }
   }
 
@@ -3545,6 +3594,7 @@ export function createTasks(options: {
       targets: mergeTargets,
       checks: mergeChecks,
       sendBack: mergeSendBack,
+      openMissing,
       finish: finishMerge,
       postGate: postMergeGate,
       recordPullRequests,
@@ -3722,6 +3772,7 @@ export function createTasks(options: {
     const task = find(taskId)
     if (!mergesHere(task.stage)) return 'done'
     if (inFlight.is(taskId, 'transition')) return 'busy'
+    if ((await missingPullRequests(task)).length > 0) return 'wait'
     const resolution = await taskWorkflow(find(task.id), { fetch: false })
     await holding(task, async () => {
       const current = find(taskId)
@@ -3758,7 +3809,7 @@ export function createTasks(options: {
     const repos: SignOffChanges['repos'] = []
     for (const target of targets) {
       const repo = current.repos.find((r) => r.name === target.name)
-      const to = repo?.pullRequest?.signedOff ?? repo?.pushed?.commit
+      const to = await git.headCommit(target.worktree).catch(() => undefined)
       const approved = store.signedOffCommit(task.id, target.name, approvedAt)
       if (approved === undefined || to === undefined) continue
       const base = repo?.pullRequest?.base ?? target.base
@@ -3973,6 +4024,13 @@ export function createTasks(options: {
       const read = await watch.next({ now: true })
       const before = find(id)
       if (!mergesHere(before.stage) || before.archived) throw notAtMerge(before)
+      const missing = await missingPullRequests(before)
+      if (missing.length > 0) {
+        throw new RequestError(
+          409,
+          `${joinAnd(missing)} ${missing.length === 1 ? 'has' : 'have'} commits with no pull request yet, so ${before.displayId} isn’t merged. TED pushes and opens ${missing.length === 1 ? 'it' : 'them'} again on its next pass.`,
+        )
+      }
       if (!before.repos.some((r) => !r.removed && r.pullRequest !== undefined)) {
         throw new RequestError(409, `${before.displayId} has no pull request to check on GitHub`)
       }
@@ -6267,7 +6325,6 @@ export function createTasks(options: {
         startMerging,
         watchMerge,
         deliver: (task, text) => deliver(task, text, 'answer'),
-        pullRequestWork,
         move: (task, resolution, next, message, options) =>
           move(task, resolution, next, message, { ...options, waitForSlot: 'answer' }),
         backMessage,
@@ -6884,12 +6941,10 @@ export function createTasks(options: {
     to: AgentStageId | 'done',
     given: string | undefined,
     {
-      signedOff = false,
       waitForSlot = false,
       reads,
       carried,
     }: {
-      signedOff?: boolean
       waitForSlot?: boolean | QueuedAfter
       reads?: WorktreeReads
       carried?: ValidationProgress
@@ -6936,9 +6991,8 @@ export function createTasks(options: {
         }
       }
     }
-    if (validates(next)) pullRequestWork(task.id, 'first')
-    if (mergesHere(next) && !signedOff) {
-      pullRequestWork(task.id, 'ready')
+    if (mergesHere(next)) {
+      pullRequestWork(task.id, 'again', approvedCommits(find(task.id)))
       pullRequestWork(task.id, 'signoff')
     }
     if (next === 'done') {
@@ -12861,10 +12915,7 @@ export function createTasks(options: {
               })
             }
             const next = workflow.next(stage) as AgentStageId | 'done'
-            if (validates(stage)) {
-              judge(current, 'passed', outcome.judged)
-              pullRequestWork(task.id, 'again')
-            }
+            if (validates(stage)) judge(current, 'passed', outcome.judged)
             const moved = await move(
               current,
               resolution,
@@ -12903,9 +12954,8 @@ export function createTasks(options: {
             ? await signOffChanges(current, outcome.changes?.trim())
             : undefined
           const design = outcome.design
-          const requestedFor = signsOffCode(stage)
-            ? await requestCommit(current, workflow)
-            : undefined
+          const requestedFor =
+            signsOffCode(stage) || leadsToMerge ? await requestCommits(current, workflow) : []
           const kept = workflow.overnightKept
           if (kept?.stages.includes(stage) && !gateKept(current)) {
             store.gateKeptOvernight(task.id, stage, kept.reason)
@@ -12920,12 +12970,8 @@ export function createTasks(options: {
             ...(design && { attachments: designFiles(design) }),
             ...(design && hasDesign(storedDesign(design)) && { design: storedDesign(design) }),
           })
-          if (requestedFor) {
-            store.gateRequestedFor(task.id, request.id, requestedFor.name, requestedFor.commit)
-          }
-          if (validates(stage)) pullRequestWork(task.id, 'again')
-          if (signsOffCode(stage) || mergesHere(workflow.next(stage))) {
-            pullRequestWork(task.id, 'ready')
+          for (const { name: repo, commit } of requestedFor) {
+            store.gateRequestedFor(task.id, request.id, repo, commit)
           }
           return {
             task: publicTask(task.id),

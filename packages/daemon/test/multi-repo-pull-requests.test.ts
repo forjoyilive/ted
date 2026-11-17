@@ -89,8 +89,12 @@ function fakeStore(names: string[], onReconciled?: () => void, onRead?: () => vo
       onRead?.()
       return { repos: [...repos.values()] } as StoredTask
     },
-    branchPushed: (_: string, name: string, push: Omit<NonNullable<TaskRepo['pushed']>, 'at'>) =>
-      change(name, { pushed: { ...push, at: 'now' } }),
+    branchPushed: (_: string, name: string, push: Omit<NonNullable<TaskRepo['pushed']>, 'at'>) => {
+      const repo = repos.get(name)
+      if (!repo) return
+      const { pushFailed: _failed, ...rest } = repo
+      repos.set(name, { ...rest, pushed: { ...push, at: 'now' } })
+    },
     branchPushFailed: (_: string, name: string, message: string) =>
       change(name, { pushFailed: { message, at: 'now' } }),
     pushRecordReconciled: (
@@ -107,7 +111,8 @@ function fakeStore(names: string[], onReconciled?: () => void, onRead?: () => vo
       _: string,
       name: string,
       pr: { number: number; url: string; base: string },
-    ) => change(name, { pullRequest: { ...pr, state: 'draft' } }),
+      ready?: boolean,
+    ) => change(name, { pullRequest: { ...pr, state: ready ? 'ready' : 'draft' } }),
     pullRequestMarkedReady: (_: string, name: string) => {
       const pr = repos.get(name)?.pullRequest
       if (pr) change(name, { pullRequest: { ...pr, state: 'ready' } })
@@ -164,20 +169,22 @@ function fakeGh() {
   return { gh, calls }
 }
 
-test('a multi-repo Task gets one draft pull request per repo with commits, each linking the others', async () => {
+test('a multi-repo Task gets one ready pull request per repo with commits, each linking the others', async () => {
   const targets = [await repoWith('api', 1), await repoWith('web', 2), await repoWith('docs', 0)]
   const { store, repos } = fakeStore(['api', 'web', 'docs'])
   const { gh, calls } = fakeGh()
   const prs = createPullRequests({ store, gh })
   const task = { id: 't', displayId: 'NB-1', title: 'Offline notes', goal: 'Edit notes offline.' }
 
-  await prs.push(task, targets, 'first')
+  await prs.push(task, targets, 'again')
 
-  expect(repos.get('api')?.pullRequest).toMatchObject({ number: 10, state: 'draft' })
-  expect(repos.get('web')?.pullRequest).toMatchObject({ number: 11, state: 'draft' })
+  expect(repos.get('api')?.pullRequest).toMatchObject({ number: 10, state: 'ready' })
+  expect(repos.get('web')?.pullRequest).toMatchObject({ number: 11, state: 'ready' })
   expect(repos.get('docs')?.pullRequest).toBeUndefined()
   expect(repos.get('docs')?.pushed).toBeUndefined()
-  expect(calls.filter((c) => c.args[1] === 'create')).toHaveLength(2)
+  const creates = calls.filter((c) => c.args[1] === 'create')
+  expect(creates).toHaveLength(2)
+  expect(creates.flatMap((c) => c.args)).not.toContain('--draft')
 
   const edits = calls.filter((c) => c.args[1] === 'edit')
   expect(edits.map((c) => [c.args[2], c.args[4]])).toEqual([
@@ -191,35 +198,43 @@ test('a multi-repo Task gets one draft pull request per repo with commits, each 
 
   await prs.push(task, targets, 'again')
   expect(calls.filter((c) => c.args[1] === 'create')).toHaveLength(2)
-
-  await prs.ready(task, targets)
-  expect(calls.filter((c) => c.args[1] === 'ready').map((c) => c.args.slice(2))).toEqual([
-    ['10', '--repo', 'acme/api'],
-    ['11', '--repo', 'acme/web'],
-  ])
+  expect(calls.filter((c) => c.args[1] === 'ready')).toEqual([])
 })
 
-test('a draft whose latest commits can’t be pushed stays a draft at sign-off', async () => {
+test('a draft left from before is marked ready once its push succeeds, and the retry pushes only what is left', async () => {
   const targets = [await repoWith('api', 1), await repoWith('web', 1)]
   const { store, repos } = fakeStore(['api', 'web'])
   const { gh, calls } = fakeGh()
   const prs = createPullRequests({ store, gh })
   const task = { id: 't', displayId: 'NB-1', title: 'Offline notes' }
-  await prs.push(task, targets, 'first')
+  for (const [name, number] of [
+    ['api', 10],
+    ['web', 11],
+  ] as const) {
+    const repo = repos.get(name)
+    if (repo) {
+      const url = `https://github.com/acme/${name}/pull/${number}`
+      repos.set(name, { ...repo, pullRequest: { number, url, base: 'main', state: 'draft' } })
+    }
+  }
+  const hook = path.join(dir, 'api.git', 'hooks', 'pre-receive')
+  await writeFile(hook, '#!/bin/sh\nexit 1\n', { mode: 0o755 })
 
-  await writeFile(path.join(dir, 'api.git', 'hooks', 'pre-receive'), '#!/bin/sh\nexit 1\n', {
-    mode: 0o755,
-  })
-  const api = targets[0]?.worktree ?? ''
-  await writeFile(path.join(api, 'later.txt'), 'later')
-  await run('git', ['add', '-A'], { cwd: api, env })
-  await run('git', ['commit', '-m', 'later'], { cwd: api, env })
-
-  await prs.ready(task, targets)
-  expect(calls.filter((c) => c.args[1] === 'ready').map((c) => c.args[4])).toEqual(['acme/web'])
+  await prs.push(task, targets, 'again')
+  const readied = () => calls.filter((c) => c.args[1] === 'ready').map((c) => c.args[4])
+  expect(readied()).toEqual(['acme/web'])
   expect(repos.get('api')?.pullRequest?.state).toBe('draft')
   expect(repos.get('api')?.pushFailed?.message).toContain('git push failed')
   expect(repos.get('web')?.pullRequest?.state).toBe('ready')
+
+  await rm(hook)
+  const webPush = repos.get('web')?.pushed
+  await prs.push(task, targets, 'first')
+  expect(readied()).toEqual(['acme/web', 'acme/api'])
+  expect(repos.get('api')?.pullRequest?.state).toBe('ready')
+  expect(repos.get('api')?.pushFailed).toBeUndefined()
+  expect(repos.get('web')?.pushed).toBe(webPush)
+  expect(calls.filter((c) => c.args[1] === 'create')).toEqual([])
 })
 
 test('TED pushes to the Factory’s URL and ignores the repo’s own git config', async () => {
@@ -253,7 +268,7 @@ test('TED pushes to the Factory’s URL and ignores the repo’s own git config'
   await prs.push({ id: 't', displayId: 'NB-1', title: 'Offline notes' }, [api], 'first')
 
   expect(repos.get('api')?.pushFailed).toBeUndefined()
-  expect(repos.get('api')?.pullRequest?.state).toBe('draft')
+  expect(repos.get('api')?.pullRequest?.state).toBe('ready')
   const pushed = await run('git', ['rev-parse', 'refs/heads/ted/nb-1-notes'], {
     cwd: path.join(dir, 'api.git'),
   })

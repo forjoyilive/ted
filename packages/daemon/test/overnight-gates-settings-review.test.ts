@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'vitest'
-import { waitUntil } from './helpers.ts'
-import { getTask, lines, merges, start, useMergeHarness, waitForStage } from './merge-harness.ts'
+import {
+  getTask,
+  lines,
+  merges,
+  run,
+  start,
+  useMergeHarness,
+  waitForStage,
+} from './merge-harness.ts'
 import {
   advance,
   advanceTo,
@@ -70,13 +77,10 @@ describe('Autopilot and a Task that changes .ted/', () => {
     await advanceTo(client, task, 'review')
     await advance(client, task)
     const [review] = await gateRequests(client, task)
-    await waitUntil(
-      async () => (await getTask(client, task.id)).repos[0]?.pullRequest?.state === 'ready',
-      'the pull request to be ready',
-    )
     const repo = (await getTask(client, task.id)).repos[0]
-    const requested = repo?.pushed?.commit
-    expect(requested).toBeDefined()
+    expect(repo?.pushed).toBeUndefined()
+    const head = await run('git', ['rev-parse', 'HEAD'], { cwd: repo?.worktree ?? '' })
+    const requested = head.stdout.trim()
     await lateSettingsCommit(repo?.worktree ?? '')
     await verifyCurrent(client, task)
 

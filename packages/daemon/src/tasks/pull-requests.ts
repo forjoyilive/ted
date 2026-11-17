@@ -1,5 +1,13 @@
 import type { CiSignal, TaskRepo } from '@ted/protocol'
-import { isArray, isObject, type Json, type Untyped } from '@ted/protocol/parse'
+import {
+  isArray,
+  isNumber,
+  isObject,
+  isString,
+  type Json,
+  parseJson,
+  type Untyped,
+} from '@ted/protocol/parse'
 import * as git from '../git.ts'
 import type { Gh } from '../github/gh.ts'
 import { redactSecrets } from '../redact.ts'
@@ -13,6 +21,7 @@ export interface PullRequestTarget {
   worktree: string
   base: string
   url: string
+  commit?: string
 }
 
 export interface PullRequestTask {
@@ -32,7 +41,6 @@ export interface IssueRef {
 
 export interface PullRequests {
   push(task: PullRequestTask, targets: PullRequestTarget[], mode: 'first' | 'again'): Promise<void>
-  ready(task: PullRequestTask, targets: PullRequestTarget[]): Promise<void>
   close(taskId: string): Promise<void>
   reopen(taskId: string): Promise<void>
   retitle(taskId: string, title: string): Promise<void>
@@ -46,12 +54,15 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
   const isOpen = (repo: TaskRepo | undefined) =>
     repo?.pullRequest !== undefined && repo.pullRequest.state !== 'closed'
 
+  const unfinished = (repo: TaskRepo | undefined) =>
+    !isOpen(repo) || repo?.pushFailed !== undefined || repo?.pullRequest?.state === 'draft'
+
   async function pushOne(task: PullRequestTask, target: PullRequestTarget): Promise<boolean> {
     if (repoOf(task.id, target.name)?.pullRequest?.state === 'merged') return false
     try {
       const ahead = await git.commitsAhead(target.worktree, `origin/${target.base}`)
       if (ahead === 0) return false
-      const head = await git.headCommit(target.worktree)
+      const head = target.commit ?? (await git.headCommit(target.worktree))
       const recorded = repoOf(task.id, target.name)?.pushed?.commit
       const commit = await git
         .pushBranch(target.worktree, target.branch, {
@@ -66,8 +77,8 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
       const ci = await detectCi({ gh, commit, ...target })
       store.branchPushed(task.id, target.name, { commit, ...ci })
       if (isOpen(repoOf(task.id, target.name))) return false
-      const opened = await openDraft(task, target)
-      store.pullRequestOpened(task.id, target.name, { ...opened, base: target.base })
+      const { draft, ...opened } = await openPullRequest(task, target)
+      store.pullRequestOpened(task.id, target.name, { ...opened, base: target.base }, !draft)
       return true
     } catch (error) {
       const message = redactSecrets(error instanceof Error ? error.message : String(error))
@@ -101,17 +112,16 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
     })
   }
 
-  async function openDraft(
+  async function openPullRequest(
     task: PullRequestTask,
     target: PullRequestTarget,
-  ): Promise<{ number: number; url: string }> {
+  ): Promise<{ number: number; url: string; draft: boolean }> {
     const body = pullRequestBody(task, [])
     try {
       const out = await gh.run(
         [
           'pr',
           'create',
-          '--draft',
           '--repo',
           target.repo,
           '--head',
@@ -126,7 +136,7 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
         { input: body },
       )
       const found = parsePullRequestUrl(out)
-      if (found) return found
+      if (found) return { ...found, draft: false }
       throw new Error(`gh pr create printed no pull request URL`)
     } catch (error) {
       const existing = await findOpen(target).catch(() => undefined)
@@ -146,14 +156,38 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
       '--state',
       'open',
       '--json',
-      'number,url',
+      'number,url,isDraft',
       '--limit',
       '1',
     ])
-    const [first] = JSON.parse(out) as { number?: unknown; url?: unknown }[]
-    return typeof first?.number === 'number' && typeof first.url === 'string'
-      ? { number: first.number, url: first.url }
+    const list = parseJson(out)
+    const first = isArray(list) ? list[0] : undefined
+    const number = field(first, 'number')
+    const url = field(first, 'url')
+    return isNumber(number) && isString(url)
+      ? { number, url, draft: field(first, 'isDraft') === true }
       : undefined
+  }
+
+  async function markReady(task: PullRequestTask, target: PullRequestTarget): Promise<void> {
+    const repo = repoOf(task.id, target.name)
+    const pr = repo?.pullRequest
+    if (pr?.state !== 'draft') return
+    if (repo?.pushFailed) {
+      console.error(
+        `left ${task.displayId}’s pull request ${target.repo}#${pr.number} as a draft: its branch couldn’t be pushed`,
+      )
+      return
+    }
+    try {
+      await gh.run(['pr', 'ready', String(pr.number), '--repo', target.repo])
+      store.pullRequestMarkedReady(task.id, target.name)
+    } catch (error) {
+      console.error(
+        `couldn’t mark ${task.displayId}’s pull request ready:`,
+        redactSecrets(error instanceof Error ? error.message : String(error)),
+      )
+    }
   }
 
   async function linkAll(task: PullRequestTask, targets: PullRequestTarget[]): Promise<void> {
@@ -184,38 +218,13 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
   return {
     async push(task, targets, mode) {
       const chosen =
-        mode === 'first' ? targets.filter((t) => !isOpen(repoOf(task.id, t.name))) : targets
+        mode === 'first' ? targets.filter((t) => unfinished(repoOf(task.id, t.name))) : targets
       let opened = false
       for (const target of chosen) {
         if (await pushOne(task, target)) opened = true
+        await markReady(task, target)
       }
       if (opened) await linkAll(task, targets)
-    },
-
-    async ready(task, targets) {
-      for (const target of targets) {
-        const before = repoOf(task.id, target.name)
-        if (before?.pullRequest?.state !== 'draft') continue
-        await pushOne(task, target)
-        const repo = repoOf(task.id, target.name)
-        const pr = repo?.pullRequest
-        if (pr?.state !== 'draft') continue
-        if (repo?.pushFailed) {
-          console.error(
-            `left ${task.displayId}’s pull request ${target.repo}#${pr.number} as a draft: its branch couldn’t be pushed`,
-          )
-          continue
-        }
-        try {
-          await gh.run(['pr', 'ready', String(pr.number), '--repo', target.repo])
-          store.pullRequestMarkedReady(task.id, target.name)
-        } catch (error) {
-          console.error(
-            `couldn’t mark ${task.displayId}’s pull request ready:`,
-            redactSecrets(error instanceof Error ? error.message : String(error)),
-          )
-        }
-      }
     },
 
     async close(taskId) {

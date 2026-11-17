@@ -7,7 +7,7 @@ import { startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { openStore } from '../src/store/index.ts'
 import { api, commitToOrigin, stubClaudePath, waitUntil } from './helpers.ts'
-import { ctx, getTask, run, setGh, start, useMergeHarness } from './merge-harness.ts'
+import { ctx, getTask, start, useMergeHarness } from './merge-harness.ts'
 
 useMergeHarness()
 
@@ -23,19 +23,11 @@ const workflow = (plan = checks, extra: string[] = []) =>
     '',
   ].join('\n')
 
-async function passing({
-  changed = true,
-  plan = checks,
-  pullRequest = false,
-  enterValidate = true,
-} = {}) {
+async function passing({ changed = true, plan = checks, enterValidate = true } = {}) {
   const client = await start({
     order: 'intake, work, validate, review',
     workflow: ['stages:', '  validate:', `    checks: ${JSON.stringify(plan)}`],
     files: { 'work.txt': 'implemented\n' },
-    ...(pullRequest && {
-      merge: { checks: [{ id: 'ci-stable-attempt', name: 'CI', status: 'IN_PROGRESS' }] },
-    }),
   })
   const task = await client.ok<Task>('POST', '/tasks', {
     title: '{"steps":[{"endTurn":true}]}',
@@ -66,28 +58,6 @@ async function passing({
   const advance = () => call('/outcome', { outcome: 'advance' })
   const repo = current.repos[0]
   if (!repo) throw new Error('Worktree missing')
-  if (pullRequest) {
-    const head = (await run('git', ['rev-parse', 'HEAD'], { cwd: repo.worktree })).stdout.trim()
-    const commit = (
-      await run(
-        'git',
-        [
-          '-c',
-          'user.name=T',
-          '-c',
-          'user.email=t@example.com',
-          'commit-tree',
-          `${head}^{tree}`,
-          '-p',
-          head,
-          '-m',
-          'fixture revision',
-        ],
-        { cwd: repo.worktree },
-      )
-    ).stdout.trim()
-    await run('git', ['update-ref', 'HEAD', commit], { cwd: repo.worktree })
-  }
   if (changed) await writeFile(path.join(repo.worktree, 'feature.txt'), 'implemented\n')
   expect((await advance()).status).toBe(200)
   if (enterValidate) {
@@ -226,35 +196,8 @@ test('a new Check added after an empty plan still must run', async () => {
   await waitUntil(async () => (await s.stage()) === 'review', 'the Task to move on')
 })
 
-test('CI completion alone preserves completed local Check coverage', async () => {
-  const s = await passing({ pullRequest: true })
-  await waitUntil(
-    async () =>
-      (await s.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)?.repos[0]?.pullRequest,
-    'fixture PR',
-  )
-  await s.obligations()
-  expect((await s.call('/checks')).status).toBe(201)
-  await s.settled()
-  const original = await s.runs()
-  expect((await s.obligations()).satisfied).toBe(true)
-  await setGh({
-    checks: [{ id: 'ci-stable-attempt', name: 'CI', status: 'COMPLETED', conclusion: 'SUCCESS' }],
-  })
-  const result = await s.advance()
-  expect(result.status, JSON.stringify(result.body)).toBe(200)
-  expect(await s.runs()).toEqual(original)
-  await setGh({ rollup: 'missing' })
-  expect((await s.obligations()).satisfied).toBe(true)
-})
-
 test('passing later-stage Checks can refresh changed local coverage', async () => {
-  const s = await passing({ pullRequest: true })
-  await waitUntil(
-    async () =>
-      (await s.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)?.repos[0]?.pullRequest,
-    'fixture PR',
-  )
+  const s = await passing()
   await s.obligations()
   expect((await s.call('/checks')).status).toBe(201)
   await s.settled()

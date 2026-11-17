@@ -100,9 +100,13 @@ describe('TED → Linear', () => {
 
     const { task, signoff } = await toSignoff(client, { source: url })
     await waitUntil(() => issue().state === 'In Progress' || undefined, 'In Progress')
-    const pr = (await getTask(client, task.id)).repos[0]?.pullRequest
-    await waitUntil(() => (account().attachments?.length ?? 0) > 0, 'the pull request link')
+    expect((await getTask(client, task.id)).repos[0]?.pullRequest).toBeUndefined()
     await approve(client, signoff)
+    const pr = await waitUntil(
+      async () => (await getTask(client, task.id)).repos[0]?.pullRequest,
+      'the pull request opened at Merge entry',
+    )
+    await waitUntil(() => (account().attachments?.length ?? 0) > 0, 'the pull request link')
     await waitUntil(() => issue().state === 'In Review' || undefined, 'In Review')
     await seenAfterNow()
     await setGh({ merged: true })

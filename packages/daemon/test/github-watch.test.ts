@@ -20,10 +20,19 @@ import {
 
 useMergeHarness()
 
-const quiet = (client: Client) => writeFile(client.mergingFile, '')
+const mergeOff = ['stages:', '  merge: { enabled: false }']
 
-function guardedSteps(client: Client): string {
-  const guard = quietGuard(client)
+async function atMergeOff(client: Client) {
+  const { task, signoff } = await toSignoff(client)
+  await approve(client, signoff)
+  await waitUntil(
+    async () => (await getTask(client, task.id)).repos[0]?.pullRequest,
+    'the pull request opened at Merge entry',
+  )
+  return task
+}
+
+function guardedSteps(client: Client, guard = quietGuard(client)): string {
   const outcome = `out=$(ted outcome advance 2>&1) || case "$out" in *"asked for changes"*) ted outcome back --to work --findings '${client.findingsFile}';; esac`
   const script = [guard, commitStep.run[2], `ted brief write --file '${client.briefFile}'`, outcome]
   const each = [{ run: ['sh', '-c', script.join('\n')] }, { endTurn: true }]
@@ -81,9 +90,8 @@ const failingCheck = {
 
 describe('Watching GitHub', () => {
   test('a hosted preview is stored on the pull request; a failing CI check, then review comments and a merge conflict, each reach the open Task Lead once; a pull request closed on GitHub is recorded and the archived Task says so', async () => {
-    const client = await start()
-    const { task } = await toSignoff(client)
-    await quiet(client)
+    const client = await start({ workflow: mergeOff })
+    const task = await atMergeOff(client)
     const lead = await leadOf(client, task)
 
     await setGh({
@@ -130,7 +138,7 @@ describe('Watching GitHub', () => {
       (await sentTo(client, lead)).filter((m) => m.includes('CI is failing')),
       'failing CI: delivered once',
     ).toHaveLength(1)
-    expect((await getTask(client, task.id)).stage, 'failing CI: Stage').toBe('review')
+    expect((await getTask(client, task.id)).stage, 'failing CI: Stage').toBe('merge')
 
     await setGh({ checks: [] })
     const cleared = (await readCalls()).length
@@ -199,9 +207,8 @@ describe('Watching GitHub', () => {
   })
 
   test('an outside contributor’s comment isn’t sent to the Task Lead; the thread says so', async () => {
-    const client = await start()
-    const { task } = await toSignoff(client)
-    await quiet(client)
+    const client = await start({ workflow: mergeOff })
+    const task = await atMergeOff(client)
     const lead = await leadOf(client, task)
     await setGh({
       threads: [
@@ -251,13 +258,17 @@ describe('Watching GitHub', () => {
   })
 
   test('GitHub activity waits for explicit Resume after quit, then reaches the fresh Task Lead', async () => {
-    const client = await start()
-    const { task, signoff } = await toSignoff(client, { title: guardedSteps(client) })
-    await quiet(client)
-    await client.ok('POST', `/comments/${signoff.id}/answer`, {
-      action: 'request-changes',
-      text: 'Keep the current work.',
+    const client = await start({
+      merge: { mergeState: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED' },
     })
+    const backFromMerge = `ted task list | grep -q "^$TED_TASK  Merge  " && ted outcome back --to work --findings '${client.findingsFile}' >/dev/null 2>&1`
+    const guard = `[ -e '${client.mergingFile}' ] && { ${backFromMerge}; exit 0; }`
+    const { task, signoff } = await toSignoff(client, { title: guardedSteps(client, guard) })
+    await approve(client, signoff)
+    await waitUntil(async () => {
+      const current = await getTask(client, task.id)
+      return current.stage === 'work' && current.repos[0]?.pullRequest?.state === 'ready'
+    }, 'the Task back in Work with its pull request open')
     const first = await leadOf(client, task)
     expect((await client.call('POST', '/shutdown', {})).status).toBe(200)
     await ctx.daemon?.stop()
@@ -416,7 +427,12 @@ describe('Watching GitHub', () => {
     )
     await rm(client.mergingFile, { force: true })
     const two = await toSignoff(client)
-    expect((await getTask(client, two.task.id)).repos[0]?.pullRequest?.number).toBe(8)
+    expect((await getTask(client, two.task.id)).repos[0]?.pullRequest).toBeUndefined()
+    await approve(client, two.signoff)
+    await waitUntil(
+      async () => (await getTask(client, two.task.id)).repos[0]?.pullRequest?.number === 8,
+      'the second pull request opened at Merge entry',
+    )
 
     const before = (await readCalls()).length
     await waitUntil(async () => (await readCalls()).length >= before + 4, 'four polls')

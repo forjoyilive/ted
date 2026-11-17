@@ -287,10 +287,6 @@ export async function reviewSignoff(client: Client, taskId: string, clock?: Manu
     'the Review sign-off',
     signoffWaitMs,
   )
-  await waitUntil(
-    async () => (await getTask(client, taskId)).repos[0]?.pullRequest?.state === 'ready',
-    'the pull request to be ready',
-  )
   return item.request
 }
 

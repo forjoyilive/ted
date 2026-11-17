@@ -763,6 +763,7 @@ export interface TedStore extends TaskHistory {
     taskId: string,
     name: string,
     pullRequest: { number: number; url: string; base: string },
+    ready?: boolean,
   ): void
   pullRequestMarkedReady(taskId: string, name: string): void
   pullRequestClosed(taskId: string, name: string): void
@@ -5266,17 +5267,11 @@ export async function openStore({
       )
       updatedTask(taskId)
     },
-    pullRequestOpened(taskId, name, { number, url, base }) {
-      commit(
-        events.pullRequestOpened({
-          taskId,
-          name,
-          number,
-          url,
-          base,
-          at: new Date().toISOString(),
-        }),
-      )
+    pullRequestOpened(taskId, name, { number, url, base }, ready = false) {
+      const at = new Date().toISOString()
+      const opened = events.pullRequestOpened({ taskId, name, number, url, base, at })
+      if (ready) commit(opened, events.pullRequestMarkedReady({ taskId, name, at }))
+      else commit(opened)
       updatedTask(taskId)
     },
     pullRequestMarkedReady(taskId, name) {

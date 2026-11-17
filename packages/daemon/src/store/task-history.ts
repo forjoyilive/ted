@@ -1,4 +1,5 @@
 import type { ClarifyDepth, StageId } from '@ted/protocol'
+import { isString } from '@ted/protocol/parse'
 import type { GitHubNotice } from '../tasks/github-activity.ts'
 import type { LoggedEvent } from './index.ts'
 import { isRunStarted } from './interval-schema.ts'
@@ -104,6 +105,15 @@ export function createTaskHistory(
       return read(taskId)
         .filter((e) => e.name === 'v1.GateApprovalBound' && e.data.commit === commit)
         .map((e) => String(e.data.commentId))
+    },
+    gateRequestCommits(taskId: string, commentId: string): Map<string, string> {
+      const commits = new Map<string, string>()
+      for (const e of read(taskId)) {
+        if (e.name !== 'v1.GateRequestedFor' || e.data.commentId !== commentId) continue
+        const { name, commit } = e.data
+        if (isString(name) && isString(commit) && !commits.has(name)) commits.set(name, commit)
+      }
+      return commits
     },
     gateRequestCommit(taskId: string, commentId: string): string | undefined {
       return read(taskId).find(

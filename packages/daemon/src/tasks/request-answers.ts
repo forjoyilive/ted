@@ -102,13 +102,12 @@ export interface RequestAnswerPort {
   startMerging(task: StoredTask, workflow: ResolvedWorkflow): void
   watchMerge(id: string): void
   deliver(task: Task, text: string): Promise<boolean>
-  pullRequestWork(id: string, reason: 'signoff' | 'again'): void
   move(
     task: StoredTask,
     resolution: WorkflowResolution,
     next: AgentStageId | 'done',
     message: string | undefined,
-    options?: { signedOff?: boolean; reads?: WorktreeReads },
+    options?: { reads?: WorktreeReads },
   ): Promise<Task>
   backMessage(
     workflow: ResolvedWorkflow,
@@ -200,7 +199,6 @@ export function createRequestAnswers(
     startMerging,
     watchMerge,
     deliver,
-    pullRequestWork,
     move,
     backMessage,
     leaveWorkToDiagnose,
@@ -579,7 +577,6 @@ export function createRequestAnswers(
         `The human sent this Task back to Design from Validate.${added}\n\n${backStageMessage(workflow, stageWith('designReview'), stageWith('validates'), ask.findings)}`,
       )
     } else {
-      pullRequestWork(task.id, 'again')
       const open = `# Open findings\n\nThe human chose “${choice}” with Validate’s blocking findings still open. Put them in the Task brief under “Current state” so the human sees them at ${stageTitle(next)}:\n\n${ask.findings}`
       await move(
         current,
@@ -1025,8 +1022,6 @@ export function createRequestAnswers(
             )
             return
           }
-          const signedOff = mergesHere(to)
-          if (signedOff) pullRequestWork(task.id, 'signoff')
           await move(
             from,
             using,
@@ -1034,7 +1029,7 @@ export function createRequestAnswers(
             to === 'done'
               ? undefined
               : `${approved}${text === '' ? ' ' : ''}${nextStageMessage(using.workflow, to)}`,
-            { signedOff, ...(reads !== undefined && { reads }) },
+            reads !== undefined ? { reads } : {},
           )
         }
         if (stale) {

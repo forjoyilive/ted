@@ -37,12 +37,16 @@ describe('Approve and merge', () => {
       start: true,
       blockedBy: [task.id],
     })
-    const before = await getTask(client, task.id)
-    const repo = before.repos[0]
-    if (!repo?.pushed) throw new Error('no push')
+    expect((await getTask(client, task.id)).repos[0]?.pushed).toBeUndefined()
+    expect((await ghCalls()).filter((c) => c.args[0] === 'pr')).toEqual([])
 
     await approve(client, signoff)
     const done = await waitForStage(client, task, 'done')
+    const repo = done.repos[0]
+    if (!repo?.pushed) throw new Error('no push')
+    const [create] = (await ghCalls()).filter((c) => c.args[0] === 'pr' && c.args[1] === 'create')
+    expect(create?.args).not.toContain('--draft')
+    expect((await ghCalls()).filter((c) => c.args[0] === 'pr' && c.args[1] === 'ready')).toEqual([])
 
     expect(await merges()).toEqual([
       [
@@ -275,7 +279,8 @@ describe('Merging only what the human signed off', () => {
     const client = await start()
     const { task, signoff } = await toSignoff(client)
     const before = (await getTask(client, task.id)).repos[0]
-    const signedOff = before?.pushed?.commit
+    const head = await run('git', ['rev-parse', 'HEAD'], { cwd: before?.worktree ?? '' })
+    const signedOff = head.stdout.trim()
     await commitIn(before?.worktree ?? '', 'late.txt')
 
     await approve(client, signoff)
