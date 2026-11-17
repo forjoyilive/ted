@@ -89,7 +89,7 @@ How much questioning Clarify does on a Task: none, a few simple questions in one
 _Avoid_: Tier, level
 
 **Check**:
-A command a Factory lists for Validate, which TED runs itself before the Task leaves Work, or at Validate entry when the Task comes from another Stage; it passes when the command exits cleanly. A failure before leaving Work keeps the Task in Work. A failure at Validate entry stays in Validate for diagnosis; an evidenced regression or the human’s Fix decision sends the Task back to Work. The machine runs the checks of only so many Tasks at once; the others wait their turn.
+A command a Factory lists for Validate, which TED runs itself when the Task enters Validate; it passes when the command exits cleanly. When the Task comes straight from Work, a failure sends it back to Work, counted toward Validate’s send-back limit. When it comes from another Stage, a failure stays in Validate for diagnosis; an evidenced regression or the human’s Fix decision sends the Task back to Work. The machine runs the checks of only so many Tasks at once; the others wait their turn.
 _Avoid_: Test (when meaning the command), CI job
 
 **Finding**:

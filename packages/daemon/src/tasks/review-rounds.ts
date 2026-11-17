@@ -161,7 +161,7 @@ export function workRoundText(input: {
 }): string {
   const { round, limit, cause } = input
   const checks =
-    '- When you report `ted outcome advance`, TED runs the Factory’s checks before the Task leaves Work. If one fails, the Task stays in Work and TED sends you the output; fix it and report again.'
+    '- When you report `ted outcome advance`, TED moves the Task to Validate and runs the Factory’s checks there. If one fails, TED sends the Task back to Work with the output, and that send-back counts toward Validate’s limit. If a check fails for a reason outside this Task, don’t change unrelated code to make it pass: say so in the Task brief with what shows it.'
   return [
     `# Send-back ${round}${limit === undefined ? '' : ` of ${limit}`} from Validate`,
     cause === 'check'
