@@ -888,7 +888,7 @@ test('Failure case, Run and tracker references link, with their kind as plain te
       >
         <Markdown
           text={
-            'Old failure case 0007fc, accepted as a50acd. Found by 9c41e2; 5d07aa and 77e0aa stay plain. Fixed in `195e5ce2`. See NB-2, KRI-357, KRI-999 and KRI-12. 1f00e4 is nothing.'
+            'Old failure case 0007fc, accepted as a50acd. Found by 9c41e2; 5d07aa and 77e0aa stay plain. Fixed in `195e5ce2`. See NB-2, KRI-357, KRI-999 and KRI-12. 1f00e4 is nothing. The failure **a50acd** again, and **run** 9c41e2.'
           }
         />
       </TaskReferences>
@@ -905,6 +905,8 @@ test('Failure case, Run and tracker references link, with their kind as plain te
       'NB-2',
       'KRI-357↗',
       'KRI-12↗',
+      'a50acd',
+      '9c41e2',
     ]),
   )
   const text = document.body.textContent ?? ''
@@ -913,14 +915,15 @@ test('Failure case, Run and tracker references link, with their kind as plain te
   expect(text).toContain('Found by run 9c41e2;')
   expect(text).toContain('Fixed in commit 195e5ce2.')
   expect(text).toContain('See NB-2, KRI-357↗, KRI-999 and KRI-12↗.')
+  expect(text).toContain('The failure a50acd again, and run 9c41e2.')
   expect(
     b.request.mock.calls.flatMap(([name, ids]) => (name === 'linearIssueLinks' ? ids : [])),
   ).toEqual(['KRI-357', 'KRI-999'])
 
   await user().click(screen.getByRole('button', { name: '0007fc' }))
-  await user().click(screen.getByRole('button', { name: 'a50acd' }))
+  await user().click(required(screen.getAllByRole('button', { name: 'a50acd' })[0]))
   expect(onOpenFailure.mock.calls).toEqual([['c9'], ['check:cr1']])
-  await user().click(screen.getByRole('button', { name: '9c41e2' }))
+  await user().click(required(screen.getAllByRole('button', { name: '9c41e2' })[0]))
   expect(onOpenRun).toHaveBeenCalledWith('9c41e2aa-run')
   await user().click(screen.getByRole('button', { name: 'KRI-357' }))
   await user().click(screen.getByRole('button', { name: 'KRI-12' }))

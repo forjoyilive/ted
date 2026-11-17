@@ -83,35 +83,46 @@ function referenceNode(reference: Reference, before: string, children: HastNode[
   }
 }
 
-function linkReferences(node: HastNode): void {
-  if (!node.children) return
-  let last = ''
+const textOf = (node: HastNode): string =>
+  node.type === 'text' ? (node.value ?? '') : (node.children ?? []).map(textOf).join('')
+
+const tail = (text: string) => text.slice(-40)
+
+function linkReferences(node: HastNode, context = ''): string {
+  if (!node.children) return context
+  let last = context
   node.children = node.children.flatMap((child): HastNode[] => {
     if (child.type === 'text' && child.value !== undefined) {
       return references(child.value).map((piece) => {
         const before = last
-        last = piece.text
+        last = tail(last + piece.text)
         return piece.reference
           ? referenceNode(piece.reference, before, [{ type: 'text', value: piece.text }])
           : { type: 'text', value: piece.text }
       })
     }
     const before = last
-    last = ''
-    if (child.type !== 'element' || child.tagName === 'a' || child.tagName === 'pre') return [child]
+    if (child.type !== 'element' || child.tagName === 'a' || child.tagName === 'pre') {
+      last = tail(last + textOf(child))
+      return [child]
+    }
     if (child.tagName === 'code') {
+      last = tail(last + textOf(child))
       const [only] = child.children ?? []
       const pieces =
         child.children?.length === 1 && only?.type === 'text' ? references(only.value ?? '') : []
       const reference = pieces.length === 1 ? pieces[0]?.reference : undefined
       return [reference ? referenceNode(reference, before, [child]) : child]
     }
-    linkReferences(child)
+    last = linkReferences(child, before)
     return [child]
   })
+  return last
 }
 
-const rehypeReferences = () => (tree: HastNode) => linkReferences(tree)
+const rehypeReferences = () => (tree: HastNode) => {
+  linkReferences(tree)
+}
 
 function LinkedReference({
   reference,
