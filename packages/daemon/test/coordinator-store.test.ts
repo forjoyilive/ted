@@ -97,6 +97,54 @@ test('a chat saves only what changed, keeps the newest receipts, and rebuilds fr
   ).toEqual(['chat-1', 'chat-2'])
 })
 
+test('a home with open chats in a Factory reopens, with and without open requests', async () => {
+  const temporary = await makeTempHome()
+  cleanup = temporary.cleanup
+  const directory = path.join(temporary.home, 'store')
+  store = await openStore({ directory })
+  const factory = store.addFactory({
+    key: 'NB',
+    name: 'notebook',
+    repo: 'kriya/notebook',
+    cloneUrl: 'https://example.invalid/notebook.git',
+    defaultBranch: 'main',
+  })
+  const scout = {
+    id: 'scout',
+    name: 'Scout',
+    source: 'factory' as const,
+    agent: 'codex' as const,
+    powers: ['ask' as const],
+    instructions: 'You scout releases.\n',
+  }
+  store.coordinators.save(chatIn(factory.id, 'quiet-chat', 'run-1'))
+  store.coordinators.save(
+    chatIn(factory.id, 'asking-chat', 'run-2'),
+    [],
+    store.chats.agentRecorded('asking-chat', 'coordinator', factory.id, scout),
+  )
+  const asked = store.chats.post({
+    chatId: 'asking-chat',
+    factoryId: factory.id,
+    runId: 'run-2',
+    kind: 'question',
+    body: 'Ship today?',
+    choices: ['Yes', 'No'],
+  })
+
+  await store.close()
+  store = await openStore({ directory })
+  expect(
+    store.coordinators
+      .chats(factory.id)
+      .map((c) => c.id)
+      .sort(),
+  ).toEqual(['asking-chat', 'quiet-chat'])
+  expect(store.waiting()).toMatchObject([
+    { source: 'coordinator', id: asked.id, chatId: 'asking-chat', agentName: 'Scout' },
+  ])
+})
+
 test('a home with conversations saved before chats lists each one as an ended chat', async () => {
   const temporary = await makeTempHome()
   cleanup = temporary.cleanup
