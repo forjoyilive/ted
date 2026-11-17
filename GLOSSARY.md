@@ -4,13 +4,15 @@ TED (“Totally Excellent Development”) runs software factories: agents carry 
 
 ## Language
 
+These terms are common English words, so they are written in lowercase in running text and take a capital only at the start of a sentence or label: check (with check run, scheduled check and Affected tests check), comment, line comment, finding, failure case, gate, sign-off, follow-up, sub-agent, reviewer, conversation, source, priority, preview and banner. The other terms keep their capital everywhere (Task, Factory, Workflow, Stage, Run, App, Automation, Task Lead, and the rest).
+
 **Controller**:
 The Mac that owns the authoritative Tasks, Inbox, queue and Workflow decisions when TED uses several machines.
 _Avoid_: Primary server, master
 
 **Execution machine**:
 _Shelved: remote execution is on hold. The code is kept but hidden; don’t build new work on it._
-The machine assigned to carry out a Task’s work, including its Runs, sub-agents and Checks.
+The machine assigned to carry out a Task’s work, including its Runs, sub-agents and checks.
 _Avoid_: Worker node, remote host
 
 **Execution operation**:
@@ -70,7 +72,7 @@ _Avoid_: Hook, after-merge action
 The holding Stage at the end of a Workflow where a Task sits once all of its pull requests have merged and any Cleanup has ended. Nothing runs on a Task in Done.
 _Avoid_: Closed, complete, shipped
 
-**Sign-Off**:
+**Sign-off**:
 A setting on a Stage that makes the Task wait for the human’s sign-off at the end of that Stage before it moves on; a Stage that skips itself skips its sign-off. Set in TED’s defaults, the user’s Library, or a Factory, with optional choices for one Task. The configuration key remains `gate`. Autopilot turns these sign-offs off while it is on; Sign-offs TED forces stay.
 _Avoid_: Approval step, checkpoint
 
@@ -87,23 +89,23 @@ How much questioning Clarify does on a Task: none, a few simple questions in one
 _Avoid_: Tier, level
 
 **Check**:
-A command a Factory lists for Validate, which TED runs itself before the Task leaves Work, or at Validate entry when the Task comes from another Stage; it passes when the command exits cleanly. A failure before leaving Work keeps the Task in Work. A failure at Validate entry stays in Validate for diagnosis; an evidenced regression or the human’s Fix decision sends the Task back to Work. The machine runs the Checks of only so many Tasks at once; the others wait their turn.
+A command a Factory lists for Validate, which TED runs itself before the Task leaves Work, or at Validate entry when the Task comes from another Stage; it passes when the command exits cleanly. A failure before leaving Work keeps the Task in Work. A failure at Validate entry stays in Validate for diagnosis; an evidenced regression or the human’s Fix decision sends the Task back to Work. The machine runs the checks of only so many Tasks at once; the others wait their turn.
 _Avoid_: Test (when meaning the command), CI job
 
 **Finding**:
-Something Validate found wrong with a Task’s work. A blocking Finding sends the Task back to Work; a note carries forward to Review.
+Something Validate found wrong with a Task’s work. A blocking finding sends the Task back to Work; a note carries forward to Review.
 _Avoid_: Issue, bug, comment
 
 **P1**:
-The highest severity of a Finding: the change loses or corrupts data, opens a security hole, or breaks behaviour the Task’s description asks for. From Validate’s second round a new Finding about code the fixes didn’t touch is blocking only if it is P1, and a Factory can set a round from which a new Finding sends a Task back only if it is P1.
+The highest severity of a finding: the change loses or corrupts data, opens a security hole, or breaks behaviour the Task’s description asks for. From Validate’s second round a new finding about code the fixes didn’t touch is blocking only if it is P1, and a Factory can set a round from which a new finding sends a Task back only if it is P1.
 _Avoid_: Critical, blocker, severity 1
 
 **Failure case**:
 A record of one failure, its evidence, the Task Lead’s assessment and the human’s decision. Accepting a failure case allows that failure in its tested context; the original result stays failed.
-_Avoid_: Passed failure, ignored Check
+_Avoid_: Passed failure, ignored check
 
 **Factory setup**:
-The first Task of a new Factory, which carries the proposed Workflow for that product through the Workflow itself: it reads the repos, asks the human how they work, and proposes Checks, Apps and Stage settings for the human to approve.
+The first Task of a new Factory, which carries the proposed Workflow for that product through the Workflow itself: it reads the repos, asks the human how they work, and proposes checks, Apps and Stage settings for the human to approve.
 _Avoid_: Onboarding, init
 
 **Factory notes**:
@@ -112,7 +114,7 @@ _Avoid_: Context file, product brief
 
 **App**:
 A program a Factory declares for running a Task’s work, such as a dev server, a desktop Electron app, an iOS simulator build or an Android emulator build; each Task has at most one running instance of each App, shared by the human and agents.
-_Avoid_: Preview server, environment
+_Avoid_: preview server, environment
 
 **Preview**:
 The one place to look at a Task’s work: the hosted preview its pull request reports, or else its running App.
@@ -146,20 +148,20 @@ _Avoid_: Subtask, sub-issue (except when naming the Linear, Asana or GitHub item
 Remove a Task from its parent so it carries on as a separate Task; its own children stay under it.
 _Avoid_: Unparent, unlink
 
-**Follow-Up**:
+**Follow-up**:
 A Task created from a Done Task for a further change, linked to it and starting from its Task brief; the Done Task is never reopened.
 _Avoid_: Reopen, amendment, revision
 
 **Reset**:
-The human’s choice to throw away what a started Task has done (its worktree, branch, pull request, thread and Runs) and start the same Task again from its first Stage with its Original request. The Task keeps its ID, title, Source, Priority, rank and blockers.
+The human’s choice to throw away what a started Task has done (its worktree, branch, pull request, thread and Runs) and start the same Task again from its first Stage with its Original request. The Task keeps its ID, title, source, priority, rank and blockers.
 _Avoid_: Restart, retry, redo
 
 **Source**:
-The URL of the item a Task was created from, such as a Linear, Sentry or GitHub issue. A Linear source also fills in the Task’s title, Priority and branch when TED has a Linear API key. A GitHub issue in one of the Factory’s repos fills in the title, a copy of the issue and its comments with each author marked maintainer or outsider, and its files, read through the user’s `gh` login.
+The URL of the item a Task was created from, such as a Linear, Sentry or GitHub issue. A Linear source also fills in the Task’s title, priority and branch when TED has a Linear API key. A GitHub issue in one of the Factory’s repos fills in the title, a copy of the issue and its comments with each author marked maintainer or outsider, and its files, read through the user’s `gh` login.
 _Avoid_: Origin, link, ticket
 
 **Tracker sync**:
-TED keeping a Task’s Source item (a Linear issue, an Asana item or a GitHub issue) up to date: it moves the item forward as the Task goes on, links its pull requests and notices when the item is closed outside TED. For Linear and Asana it runs only for a Task the human allowed, one by one or for a whole group (a Linear team or an Asana project) in one Factory; for GitHub issues one machine setting, off by default, turns it on for every Task whose GitHub issue TED imported (a Source that kept only the link doesn’t sync). Each tracker plugs in through a connector.
+TED keeping a Task’s source item (a Linear issue, an Asana item or a GitHub issue) up to date: it moves the item forward as the Task goes on, links its pull requests and notices when the item is closed outside TED. For Linear and Asana it runs only for a Task the human allowed, one by one or for a whole group (a Linear team or an Asana project) in one Factory; for GitHub issues one machine setting, off by default, turns it on for every Task whose GitHub issue TED imported (a source that kept only the link doesn’t sync). Each tracker plugs in through a connector.
 _Avoid_: Integration sync, two-way sync
 
 **Task Sync**:
@@ -195,7 +197,7 @@ The one agent in charge of a Task; it carries the Task through its Stages and ma
 _Avoid_: Orchestrator, manager agent
 
 **Coordinator**:
-The conversational agent for one Factory. It compares current Tasks, briefs and Comments and carries out the human’s requests in its chat to create Tasks, start Backlog Tasks, reorder waiting Tasks, resume stopped Tasks, send a Task Lead a message, or answer a Task’s open requests, sign-offs included. It never answers a permission prompt, a simulator ask or the Linear team ask. It works only when messaged; each Task keeps its own Task Lead. A Factory can have any number of Coordinator chats running at once; an archived chat stays readable and can be unarchived.
+The conversational agent for one Factory. It compares current Tasks, briefs and comments and carries out the human’s requests in its chat to create Tasks, start Backlog Tasks, reorder waiting Tasks, resume stopped Tasks, send a Task Lead a message, or answer a Task’s open requests, sign-offs included. It never answers a permission prompt, a simulator ask or the Linear team ask. It works only when messaged; each Task keeps its own Task Lead. A Factory can have any number of Coordinator chats running at once; an archived chat stays readable and can be unarchived.
 _Avoid_: Foreman, manager, supervisor
 
 **Agent**:
@@ -207,7 +209,7 @@ One thing an Agent’s chat may do through TED: Ask the user (questions and roun
 _Avoid_: Permission, capability, tool
 
 **Agent command**:
-A command with a name that an Agent’s settings list in `agents.yaml`. A chat whose Agent has Run commands in the copy asks for one by name with `ted agent run <name>`; TED runs the listed command itself in the chat’s copy of the code, in the sandbox, like a Check, and returns its output and exit status. The agent can’t change the command or add arguments.
+A command with a name that an Agent’s settings list in `agents.yaml`. A chat whose Agent has Run commands in the copy asks for one by name with `ted agent run <name>`; TED runs the listed command itself in the chat’s copy of the code, in the sandbox, like a check, and returns its output and exit status. The agent can’t change the command or add arguments.
 _Avoid_: Tool, script, task
 
 **Outside command**:
@@ -218,26 +220,26 @@ _Avoid_: Escape hatch, unsandboxed command
 One conversation with an Agent, from its first message until it is deleted: a Coordinator chat or a planning chat. A Factory can have several at once, each with its own title, status, Run and requests. A chat stays open until the user archives it; an archived chat is read only, listed under Archived, and can be unarchived or deleted.
 _Avoid_: Session, thread, conversation (a Run’s exchange with its Provider)
 
-**Sub-Agent**:
-A Run the Task Lead starts on its Task for one piece of work, such as exploring or reviewing; it reports back to the Task Lead with its final message and may post only plain Comments.
+**Sub-agent**:
+A Run the Task Lead starts on its Task for one piece of work, such as exploring or reviewing; it reports back to the Task Lead with its final message and may post only plain comments.
 _Avoid_: Worker, helper, child agent
 
 **Reviewer**:
-The sub-agent that reviews a Task’s diff at Validate with no Work context. TED picks its Provider from the `reviewer` setting, by default the other Provider from the Task Lead’s. Each Validate visit gets one. From the second round TED limits it to the earlier Findings and the changes since the last reviewed commit, and after a send-back for a conflict with the base branch to the conflict resolution.
+The sub-agent that reviews a Task’s diff at Validate with no Work context. TED picks its Provider from the `reviewer` setting, by default the other Provider from the Task Lead’s. Each Validate visit gets one. From the second round TED limits it to the earlier findings and the changes since the last reviewed commit, and after a send-back for a conflict with the base branch to the conflict resolution.
 
 **Loop check**:
-A sub-agent TED starts itself at Validate’s third send-back to read the rounds of Findings and say whether they are converging or looping.
+A sub-agent TED starts itself at Validate’s third send-back to read the rounds of findings and say whether they are converging or looping.
 
 **Run**:
 One agent conversation, on a Task (the Task Lead’s or a sub-agent’s), for an Automation, for planning, or for a Coordinator, from when TED starts it until it is stopped. TED may restart the Provider underneath it, for example onto a new Provider version, and it is still the same Run. A stopped Run is kept as history and never resumed; work continues in a fresh Run.
 _Avoid_: Session, job
 
 **Asleep**:
-Said of an idle Task Lead Run whose Provider process TED has ended to free memory. The Run, its Conversation and its place on the Task stay as they are, and TED starts the Provider again in the same session when there is a message for it.
+Said of an idle Task Lead Run whose Provider process TED has ended to free memory. The Run, its conversation and its place on the Task stay as they are, and TED starts the Provider again in the same session when there is a message for it.
 _Avoid_: Suspended, hibernated, paused (a paused Provider is something else)
 
 **Provider**:
-The AI coding tool a Run uses: Claude Code, Codex or Antigravity. It is chosen for each Task Lead, Reviewer, Planning Run, Automation and Sub-Agent, and set up on Settings → Providers. “Agent” means a Run or its role (Task Lead, Sub-Agent, agent Run), never the tool.
+The AI coding tool a Run uses: Claude Code, Codex or Antigravity. It is chosen for each Task Lead, reviewer, Planning Run, Automation and sub-agent, and set up on Settings → Providers. “Agent” means a Run or its role (Task Lead, sub-agent, agent Run), never the tool.
 _Avoid_: Agent, agent kind
 
 **Planning Run**:
@@ -245,11 +247,11 @@ A Run in a Factory, not on any Task, where the human and an agent work out a pie
 _Avoid_: Planning session, epic, map
 
 **Conversation**:
-A Run’s full exchange with its agent, including tool calls and messages the human types directly into it; kept with the Run and separate from the Task’s Comments.
+A Run’s full exchange with its agent, including tool calls and messages the human types directly into it; kept with the Run and separate from the Task’s comments.
 _Avoid_: Transcript, chat log
 
 **Side chat**:
-A separate conversation for asking questions about a Task Lead Run, using the Conversation as it was when the side chat started, while the Run continues its work. Its answers stay in the side chat.
+A separate conversation for asking questions about a Task Lead Run, using the conversation as it was when the side chat started, while the Run continues its work. Its answers stay in the side chat.
 _Avoid_: Fork, sub-agent, steering thread
 
 **Task brief**:
@@ -261,15 +263,15 @@ A message on a Task, or from an Automation’s or Planning Run, written by the h
 _Avoid_: Message, note
 
 **Line comment**:
-A note the human attaches to one line of a Task’s diff; it stays a draft until it is sent to the Task Lead with the human’s next Comment on the Task. Approving doesn’t send it.
+A note the human attaches to one line of a Task’s diff; it stays a draft until it is sent to the Task Lead with the human’s next comment on the Task. Approving doesn’t send it.
 _Avoid_: Inline comment, review comment, diff comment
 
 **Automation**:
 A schedule in a Factory that starts a Run each time it fires, outside any Task, usually to bring new work in as Tasks; one of several ways Tasks are created, alongside the human creating them by hand. With **Run in a copy of the code** on, each of its Runs works in a fresh copy of the default branch and can start the Factory’s Apps there and drive its web Apps in a headless browser; TED removes them when the Run ends.
 _Avoid_: Cron job, trigger
 
-**Scheduled Check**:
-An Automation that runs its own command as a Check in a fresh worktree on the tip of the Factory’s default branch. Its **agent step** (when the Check fails, after every run, or never) then starts an agent Run in a copy of the same commit, which investigates the result and creates Tasks, adds notes to open ones and, with **Start the Tasks it creates** ticked, starts the Tasks it created. Without the agent step, or when the agent Run can’t start, fails or ends without reporting, TED creates one Task per failing test file, and a later failure of the same test file adds a note to its open Task instead of making another.
+**Scheduled check**:
+An Automation that runs its own command as a check in a fresh worktree on the tip of the Factory’s default branch. Its **agent step** (when the check fails, after every run, or never) then starts an agent Run in a copy of the same commit, which investigates the result and creates Tasks, adds notes to open ones and, with **Start the Tasks it creates** ticked, starts the Tasks it created. Without the agent step, or when the agent Run can’t start, fails or ends without reporting, TED creates one Task per failing test file, and a later failure of the same test file adds a note to its open Task instead of making another.
 _Avoid_: Nightly build, scheduled test run
 
 **Asana intake**:
@@ -293,7 +295,7 @@ The View that shows one Factory’s Tasks, each in a column for its current Stag
 _Avoid_: Kanban (as a noun for the data)
 
 **List**:
-The View that shows Tasks, of one Factory or of every Factory, as rows that can be sorted, grouped and filtered; sorted by Priority and rank, the human can reorder, start and un-start Tasks as on the Board.
+The View that shows Tasks, of one Factory or of every Factory, as rows that can be sorted, grouped and filtered; sorted by priority and rank, the human can reorder, start and un-start Tasks as on the Board.
 _Avoid_: Table
 
 **Map**:
@@ -301,7 +303,7 @@ The View that draws one Factory’s blockers: each Task that waits for another, 
 _Avoid_: Graph, timeline, dependency chart
 
 **Inbox**:
-The Comments and chat requests from every Factory waiting on the human’s answer: questions, Clarify rounds, design reviews, sign-offs, Task proposals and permission requests. A Comment leaves the Inbox once it is answered or can no longer be answered. A snoozed request is hidden from the Inbox and its counts until the time the human picked, and stays open meanwhile.
+The comments and chat requests from every Factory waiting on the human’s answer: questions, Clarify rounds, design reviews, sign-offs, Task proposals and permission requests. A Comment leaves the Inbox once it is answered or can no longer be answered. A snoozed request is hidden from the Inbox and its counts until the time the human picked, and stays open meanwhile.
 _Avoid_: Notifications, feed
 
 **Middle pane**:
