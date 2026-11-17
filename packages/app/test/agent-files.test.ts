@@ -10,6 +10,7 @@ import {
   agentProblem,
   newAgentDraft,
   overrideDraft,
+  resolvedChoice,
 } from '../src/renderer/agent-files.ts'
 
 const planner: AgentFileRow = {
@@ -76,4 +77,16 @@ test('a new Agent starts from the Blank recipe with an id that is free', () => {
   )
   expect(agentProblem({ ...agent, settings: { name: 'Notes' } }, [])).toBeUndefined()
   expect(agentIdFrom('  Release Notes — v2!  ')).toBe('release-notes-v2')
+})
+
+test('the editor shows the Provider and model a save resolves to', () => {
+  const inherited = { name: 'Scout', agent: 'claude' as const, model: 'opus' }
+  expect(resolvedChoice({ agent: 'codex' }, inherited)).toEqual({ agent: 'codex' })
+  expect(resolvedChoice({ agent: 'claude' }, inherited)).toEqual({ agent: 'claude', model: 'opus' })
+  expect(resolvedChoice({}, inherited)).toEqual({ agent: 'claude', model: 'opus' })
+  expect(resolvedChoice({ agent: 'codex', model: 'gpt-5.5' }, inherited)).toEqual({
+    agent: 'codex',
+    model: 'gpt-5.5',
+  })
+  expect(resolvedChoice({ name: 'New' }, undefined)).toEqual({})
 })

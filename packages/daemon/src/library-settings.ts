@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
   type AgentChoiceInput,
@@ -262,9 +262,32 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
     }
   }
 
+  async function plainTarget(name: string): Promise<string> {
+    const parts = name.split('/')
+    let folder = libraryDir
+    for (const part of [undefined, ...parts.slice(0, -1)]) {
+      if (part !== undefined) folder = path.join(folder, part)
+      const found = await lstat(folder).catch(() => undefined)
+      if (found && !found.isDirectory()) {
+        throw new RequestError(
+          400,
+          `${path.relative(libraryDir, folder) || 'The Library folder'} isn’t a plain folder, so TED won’t save into it.`,
+        )
+      }
+    }
+    const file = path.join(folder, parts.at(-1) ?? '')
+    const target = await lstat(file).catch(() => undefined)
+    if (target && !target.isFile()) {
+      throw new RequestError(400, `${name} isn’t a plain file, so TED won’t replace it.`)
+    }
+    return file
+  }
+
   async function write(files: Record<string, string | null>): Promise<void> {
+    const targets = new Map<string, string>()
+    for (const name of Object.keys(files)) targets.set(name, await plainTarget(name))
     for (const [name, text] of Object.entries(files)) {
-      const file = path.join(libraryDir, ...name.split('/'))
+      const file = targets.get(name) ?? path.join(libraryDir, ...name.split('/'))
       if (text === null) {
         await rm(file, { force: true })
         continue

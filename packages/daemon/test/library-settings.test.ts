@@ -1,5 +1,14 @@
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -316,6 +325,25 @@ describe('Library settings', () => {
     expect(nameless.status).toBe(400)
     expect(JSON.stringify(nameless.body)).toContain('needs a `name`')
     expect(await readdir(libraryDir()).catch(() => [])).toEqual([])
+
+    const outside = path.join(scratch, 'outside')
+    await mkdir(outside)
+    await writeFile(path.join(outside, 'helper.md'), 'not TED’s')
+    await mkdir(libraryDir(), { recursive: true })
+    await symlink(outside, path.join(libraryDir(), 'agents'))
+    const linked = await client.view()
+    for (const changes of [
+      { agentFiles: [{ id: 'notes', settings: { name: 'Notes' }, instructions: '# Notes' }] },
+      { agentFiles: [{ id: 'helper', settings: null, instructions: null }] },
+    ]) {
+      const refused = await client.call('POST', '/library/save', {
+        changes,
+        version: linked.version,
+      })
+      expect(refused.status).toBe(400)
+    }
+    expect(await readdir(outside)).toEqual(['helper.md'])
+    expect(await readFile(path.join(outside, 'helper.md'), 'utf8')).toBe('not TED’s')
   })
 
   test('a save after the Library changed on disk is refused', async () => {

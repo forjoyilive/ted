@@ -16,6 +16,7 @@ import {
   agentProblem,
   newAgentDraft,
   overrideDraft,
+  resolvedChoice,
 } from '../agent-files.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
@@ -136,9 +137,12 @@ export function AgentFilesSection({
 }
 
 function shownSettings(line: Line): AgentSettingsInput {
-  const inherited = line.row?.inherited?.settings ?? {}
+  const inherited = line.row?.inherited?.settings
   const own = line.own?.settings
-  if (line.own) return { ...inherited, ...own }
+  if (line.own) {
+    const { agent: _agent, model: _model, ...rest } = { ...inherited, ...own }
+    return { ...rest, ...resolvedChoice(own, inherited) }
+  }
   const row = line.row
   return row
     ? {
@@ -281,6 +285,9 @@ function AgentEditor({
     set({ powers })
   }
   const powers = settings.powers ?? row?.inherited?.settings.powers ?? []
+  const inherited = row?.inherited?.settings
+  const resolved = resolvedChoice(settings, inherited)
+  const inheritedModel = settings.model === undefined ? resolved.model : undefined
   return (
     <div className={styles.editor}>
       {own.added && (
@@ -336,7 +343,9 @@ function AgentEditor({
               else set({ agent, model: '' })
             }}
           >
-            <option value="">Default</option>
+            <option value="">
+              {inherited?.agent ? `Inherited · ${agentLabels[inherited.agent]}` : 'Default'}
+            </option>
             <AgentOptions current={settings.agent} />
           </Select>
           <p className={styles.hint}>Which Provider runs this Agent’s chats.</p>
@@ -348,14 +357,18 @@ function AgentEditor({
           <ModelSelect
             id={`${id}-model`}
             fullWidth
-            defaultLabel="Provider’s default model"
-            disabled={settings.agent === undefined}
-            agent={settings.agent ?? 'claude'}
+            defaultLabel={
+              inheritedModel === undefined
+                ? 'Provider’s default model'
+                : `Inherited · ${inheritedModel}`
+            }
+            disabled={resolved.agent === undefined}
+            agent={resolved.agent ?? 'claude'}
             value={settings.model ?? ''}
             onChange={(model) => set({ model })}
           />
           <p className={styles.hint}>
-            {settings.agent === undefined
+            {resolved.agent === undefined
               ? 'Pick a Provider to choose a model.'
               : 'Leave it on the default unless this Agent needs a particular model.'}
           </p>

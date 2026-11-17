@@ -7,6 +7,7 @@ import {
   maxAgentId,
   maxAgentName,
 } from '@ted/protocol/agent-files'
+import type { AgentKind } from '@ted/protocol/run'
 
 export interface AgentDraft {
   id: string
@@ -140,4 +141,19 @@ export function agentProblem(agent: AgentDraft, taken: readonly string[]): strin
     return 'The instructions can’t be empty.'
   }
   return undefined
+}
+
+export interface ResolvedChoice {
+  agent?: AgentKind
+  model?: string
+}
+
+export function resolvedChoice(
+  own: AgentSettingsInput | null | undefined,
+  inherited: AgentSettingsInput | undefined,
+): ResolvedChoice {
+  const agent = own?.agent ?? inherited?.agent
+  const keepsModel = own?.agent === undefined || own.agent === inherited?.agent
+  const model = own?.model ?? (keepsModel ? inherited?.model : undefined)
+  return { ...(agent !== undefined && { agent }), ...(model !== undefined && { model }) }
 }
