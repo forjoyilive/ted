@@ -59,6 +59,15 @@ describe('setup Tasks', () => {
               passed: true,
             },
           ],
+          agents: [
+            {
+              id: 'release',
+              name: 'Release helper',
+              about: 'Walks through cutting a release.',
+              powers: ['ask', 'read_code'],
+              instructions: '# Release helper\n\nRead CHANGELOG.md first.\n',
+            },
+          ],
           files: [
             {
               path: '.ted/notes.md',
@@ -135,8 +144,17 @@ describe('setup Tasks', () => {
     const apps = card.getByRole('region', { name: 'Apps · started on main' })
     await apps.getByText('web · ready in 9s at localhost:5174').waitFor()
     await apps.getByText('npm run dev', { exact: true }).waitFor()
+    const agents = card.getByRole('region', { name: 'Agents · suggested for this repo' })
+    await agents.getByText('Walks through cutting a release.').waitFor()
+    expect(await agents.getByRole('list', { name: 'Release helper’s powers' }).textContent()).toBe(
+      'Ask the userRead the code',
+    )
     const written = card.getByRole('region', { name: 'Files it will write' })
-    expect(await written.getByRole('listitem').count()).toBe(3)
+    expect(await written.getByRole('listitem').count()).toBe(5)
+    await written.getByText('Instructions for Release helper').waitFor()
+    await agents.getByRole('checkbox', { name: 'Add Release helper' }).uncheck()
+    await agents.getByText('Removed · won’t be written').waitFor()
+    await expect.poll(() => written.getByText('Not written').count()).toBe(2)
     await card
       .getByText('Left as TED’s defaults: agents, permissions Auto, 6 working Runs.')
       .waitFor()
@@ -155,5 +173,16 @@ describe('setup Tasks', () => {
     await guide.getByRole('button', { name: 'Hide guide' }).click()
     await guide.waitFor({ state: 'detached' })
     expect(await client.guides()).toEqual([])
+
+    await thread
+      .getByRole('region', { name: 'Answer', exact: true })
+      .getByRole('button', { name: 'Approve' })
+      .click()
+    await waitUntil(async () => {
+      const review = (await client.listComments(setup.id)).find(
+        (c) => c.gate && c.stage === 'design',
+      )
+      return review?.answer?.kind === 'approved' && review.answer.removedAgents?.[0] === 'release'
+    }, 'the approval to record the removed Agent')
   }, 90_000)
 })
