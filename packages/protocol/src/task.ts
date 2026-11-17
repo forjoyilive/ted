@@ -283,6 +283,10 @@ export interface Task {
   archived?: TaskArchive
 }
 
+export interface CreatedTask extends Task {
+  reminder?: string
+}
+
 export type ResetRefusal = 'archived' | 'done' | 'merged' | 'not-started'
 
 export function resetRefusal(

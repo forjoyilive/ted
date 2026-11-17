@@ -37,6 +37,7 @@ import type {
   Comment,
   CommentAnswer,
   CommitChanges,
+  CreatedTask,
   DaemonEvent,
   DeleteTaskRequest,
   DescriptionVersion,
@@ -663,7 +664,7 @@ export interface Tasks {
   ): Promise<FailureCase>
   requestFailureDecision(ref: string, caller: Caller, id: string): Promise<FailureCase>
   resolveFailure(ref: string, id: string, input: ResolveFailureRequest): Promise<FailureCase>
-  create(input: CreateTaskInput, caller?: Caller): Promise<Task>
+  create(input: CreateTaskInput, caller?: Caller): Promise<CreatedTask>
   asanaPreview(input: AsanaImportRequest, caller?: Caller): Promise<AsanaImportPreview>
   importAsana(input: AsanaImportRequest, caller?: Caller): Promise<AsanaImportResult>
   asanaIntake(input: AsanaIntakeRequest, caller?: Caller): Promise<AsanaIntakeResult>
@@ -840,7 +841,8 @@ export interface Tasks {
 const slugLength = 40
 const recordedConflictFiles = 50
 const handOffCheckLimit = 3
-export const maxTasksPerLead = 3
+export const suggestedTasksPerLead = 3
+export const maxTasksPerLead = 10
 
 function withoutRepeats(files: readonly Attachment[]): Attachment[] {
   const seen = new Map<string, Attachment>()
@@ -9228,6 +9230,17 @@ export function createTasks(options: {
     }
   }
 
+  function withLeadReminder(task: Task, creatorId: string | undefined): CreatedTask {
+    const creator = creatorId === undefined ? undefined : store.getTask(creatorId)
+    if (!creator || task.createdBy !== 'task-lead') return task
+    const count = store.leadCreatedTasks(creator.id).length
+    if (count <= suggestedTasksPerLead) return task
+    return {
+      ...task,
+      reminder: `${creator.displayId} has now created ${count} Tasks, past the suggested ${suggestedTasksPerLead}. Next time, suggest a planning chat or Split it to the user instead.`,
+    }
+  }
+
   function refuseLeadLimit(task: StoredTask): void {
     if (store.leadCreatedTasks(task.id).length < maxTasksPerLead) return
     throw new RequestError(
@@ -11420,8 +11433,8 @@ export function createTasks(options: {
         caller.kind === 'run' && !firing ? store.getRun(caller.runId)?.taskId : undefined
       const key = leadTask ?? (firing && store.automations.check(firing.automationId) && firing.id)
       if (!key) return createTask(input, caller)
-      const next = (checkCreates.get(key) ?? Promise.resolve()).then(() =>
-        createTask(input, caller),
+      const next = (checkCreates.get(key) ?? Promise.resolve()).then(async () =>
+        withLeadReminder(await createTask(input, caller), leadTask),
       )
       const settled = next.then(
         () => undefined,
