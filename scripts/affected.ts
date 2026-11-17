@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { globSync, readFileSync } from 'node:fs'
 import path from 'node:path'
+import { isObject, isString, parseJson } from '../packages/protocol/src/parse.ts'
 import { electronFiles, testFilePatterns } from './test-files.ts'
 
 export { electronSandbox } from './test-files.ts'
@@ -339,4 +340,106 @@ export function leftOutText(
     'Run these outside the sandbox, at most 3 files per command: pnpm vitest run <files>',
     ...skipped.map((pick) => `  ${pick.file}  ${pick.why}`),
   ].join('\n')
+}
+
+export type Passes = ReadonlyMap<string, string>
+
+const commitPattern = /^[0-9a-f]{40}$/
+
+export function parsePasses(text: string): Passes {
+  const value = parseJson(text)
+  if (!isObject(value) || value.version !== 1 || !isObject(value.passes)) return new Map()
+  const passes = new Map<string, string>()
+  for (const [file, commit] of Object.entries(value.passes)) {
+    if (isString(commit) && commitPattern.test(commit)) passes.set(file, commit)
+  }
+  return passes
+}
+
+export function passesText(passes: Passes): string {
+  const sorted = [...passes].sort(([a], [b]) => (a < b ? -1 : 1))
+  return `${JSON.stringify({ version: 1, passes: Object.fromEntries(sorted) }, null, 2)}\n`
+}
+
+export function mergePasses(
+  passes: Passes,
+  run: { commit: string; ran: readonly string[]; passed: ReadonlySet<string> },
+): Passes {
+  const merged = new Map(passes)
+  for (const file of run.ran) {
+    if (run.passed.has(file)) merged.set(file, run.commit)
+    else merged.delete(file)
+  }
+  return merged
+}
+
+export interface Skipped {
+  file: string
+  commit: string
+}
+
+export interface Kept {
+  run: Pick[]
+  skipped: Skipped[]
+}
+
+export function skipPassed(
+  run: readonly Pick[],
+  passes: Passes,
+  rerunFor: (commit: string) => ReadonlySet<string> | undefined,
+): Kept {
+  const reruns = new Map<string, ReadonlySet<string> | undefined>()
+  const kept: Pick[] = []
+  const skipped: Skipped[] = []
+  for (const pick of run) {
+    const commit = passes.get(pick.file)
+    if (commit === undefined) {
+      kept.push(pick)
+      continue
+    }
+    if (!reruns.has(commit)) reruns.set(commit, rerunFor(commit))
+    const rerun = reruns.get(commit)
+    if (rerun === undefined || rerun.has(pick.file)) kept.push(pick)
+    else skipped.push({ file: pick.file, commit })
+  }
+  return { run: kept, skipped }
+}
+
+export function skippedText(skipped: readonly Skipped[], record: string): string | undefined {
+  if (skipped.length === 0) return undefined
+  const byCommit = new Map<string, string[]>()
+  for (const { file, commit } of skipped)
+    byCommit.set(commit, [...(byCommit.get(commit) ?? []), file])
+  return [
+    `Skipped ${files(skipped.length)} that passed before, because nothing since picks them again:`,
+    ...[...byCommit].flatMap(([commit, list]) => [
+      `  passed on ${commit.slice(0, 9)}:`,
+      ...list.map((file) => `    ${file}`),
+    ]),
+    `To run them anyway: pnpm check --affected --no-skip, or delete ${record}.`,
+  ].join('\n')
+}
+
+export function commitExists(root: string, commit: string): boolean {
+  if (!commitPattern.test(commit)) return false
+  try {
+    git(root, 'cat-file', '-e', `${commit}^{commit}`)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function changedFrom(root: string, commit: string): string[] {
+  return [
+    ...new Set([
+      ...lines(git(root, 'diff', '--name-only', '--no-renames', '--no-ext-diff', commit)),
+      ...lines(git(root, 'ls-files', '--others', '--exclude-standard')),
+    ]),
+  ].sort()
+}
+
+export function cleanCommit(root: string): string | undefined {
+  if (git(root, 'status', '--porcelain', '--untracked-files=all').trim() !== '') return undefined
+  return git(root, 'rev-parse', 'HEAD').trim()
 }

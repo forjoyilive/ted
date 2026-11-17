@@ -19,6 +19,7 @@ import {
   onlyAppChanged,
   parseReport,
   parseRetries,
+  passedFiles,
   runRefusal,
 } from './check.ts'
 import {
@@ -143,6 +144,22 @@ describe('pnpm check --affected', () => {
       { project: 'node', maxWorkers: 3 },
     ])
     expect(groupsFor(1.5, { node: many }, 6)).toEqual([{ project: 'node', maxWorkers: 2 }])
+  })
+
+  test('counts a file as passed only when every test passed on the first try', () => {
+    const file = 'scripts/example.test.ts'
+    expect(passedFiles(parse(report('passed')).report, [])).toEqual([file])
+    expect(passedFiles(parse(report('passed')).report, [`${file} > example works`])).toEqual([])
+    expect(passedFiles(parse(report('passed')).report, ['scripts/other.test.ts > x'])).toEqual([
+      file,
+    ])
+    expect(passedFiles(parse(report('failed'), false).report, [])).toEqual([])
+    const value = report('passed')
+    const suiteError = {
+      ...value,
+      testResults: value.testResults.map((result) => ({ ...result, message: 'afterAll failed' })),
+    }
+    expect(passedFiles(parse(suiteError).report, [])).toEqual([])
   })
 })
 

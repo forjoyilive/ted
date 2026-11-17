@@ -27,6 +27,7 @@ const cacheDir = path.join(root, 'node_modules', '.cache')
 export const timesFile = path.join(cacheDir, 'ted-test-times.json')
 export const failuresFile = path.join(cacheDir, 'ted-test-failures.json')
 export const leftOutFile = path.join(cacheDir, 'ted-affected-left-out.txt')
+export const passesFile = path.join(cacheDir, 'ted-affected-passes.json')
 
 const idleGroups = [
   { project: 'electron', maxWorkers: 3 },
@@ -156,8 +157,16 @@ type JsonReport = {
     name: string
     startTime?: number
     endTime?: number
+    passed?: boolean
     assertionResults?: { fullName: string; status: string }[]
   }[]
+}
+
+export function passedFiles(report: JsonReport, retried: readonly string[]): string[] {
+  return (report.testResults ?? [])
+    .filter((result) => result.passed === true)
+    .map((result) => path.relative(root, result.name))
+    .filter((file) => !retried.some((name) => name.startsWith(`${file} > `)))
 }
 
 export function failedTests(report: JsonReport): string[] {
@@ -256,6 +265,7 @@ export function parseReport(text: string, project: string, exitedOk: boolean): P
       continue
     }
     const results: { fullName: string; status: string }[] = []
+    let clean = file.status === 'passed'
     for (const test of file.assertionResults) {
       if (
         !object(test) ||
@@ -264,6 +274,7 @@ export function parseReport(text: string, project: string, exitedOk: boolean): P
         !['passed', 'failed', 'skipped', 'pending', 'todo', 'disabled'].includes(test.status)
       ) {
         problem(`invalid assertion in ${path.relative(root, file.name)}`)
+        clean = false
         continue
       }
       const status = test.status
@@ -274,11 +285,14 @@ export function parseReport(text: string, project: string, exitedOk: boolean): P
       if (['skipped', 'pending', 'disabled'].includes(status)) pending++
       if (status === 'todo') todo++
       if (status === 'pending') problem(`unfinished assertion in ${path.relative(root, file.name)}`)
+      if (status === 'failed' || status === 'pending') clean = false
     }
     if (file.status !== 'passed' && file.status !== 'failed') problem('invalid test file status')
     if (typeof file.message === 'string' && file.message.trim()) {
+      clean = false
       problem(`suite error in ${path.relative(root, file.name)}: ${file.message}`)
     } else if (file.message !== undefined && typeof file.message !== 'string') {
+      clean = false
       problem(`invalid suite error in ${path.relative(root, file.name)}`)
     }
     if (file.status === 'failed' && !results.some((test) => test.status === 'failed')) {
@@ -286,6 +300,7 @@ export function parseReport(text: string, project: string, exitedOk: boolean): P
     }
     report.testResults?.push({
       name: file.name,
+      passed: clean,
       assertionResults: results,
       ...(typeof file.startTime === 'number' &&
         Number.isFinite(file.startTime) &&
@@ -582,9 +597,11 @@ export function affectedRefusal(env: NodeJS.ProcessEnv = process.env): string | 
 
 export async function checkAffected({
   list = false,
+  noSkip = false,
   quietWait,
 }: {
   list?: boolean
+  noSkip?: boolean
   quietWait?: number
 } = {}): Promise<boolean> {
   const refusal = list ? undefined : affectedRefusal()
@@ -595,7 +612,9 @@ export async function checkAffected({
   const affected = await import('./affected.ts')
   const base = affected.defaultBranch(root)
   let files: TestFiles | undefined
+  let commit: string | undefined
   try {
+    commit = affected.cleanCommit(root)
     const changed = affected.changedSince(root, base)
     const repo = affected.readRepo(root, changed)
     const selection = affected.affectedTests({ changed, ...repo })
@@ -609,7 +628,19 @@ export async function checkAffected({
       if (leftOut) writeFileSync(leftOutFile, `${leftOut}\n`)
       else rmSync(leftOutFile, { force: true })
     }
-    const run = chosen.run.map((pick) => pick.file)
+    const passes = noSkip ? new Map() : readPasses(affected)
+    const rerunFor = (passedOn: string) => {
+      if (!affected.commitExists(root, passedOn)) return undefined
+      const since = affected.affectedTests({
+        changed: affected.changedFrom(root, passedOn),
+        ...repo,
+      })
+      return new Set(affected.chooseTests(since, repo.tests.length).run.map((pick) => pick.file))
+    }
+    const kept = affected.skipPassed(chosen.run, passes, rerunFor)
+    const skipped = affected.skippedText(kept.skipped, path.relative(root, passesFile))
+    if (skipped) console.log(`\n${skipped}`)
+    const run = kept.run.map((pick) => pick.file)
     files = {
       electron: sandbox ? [] : run.filter((file) => repo.electron.has(file)),
       node: run.filter((file) => !repo.electron.has(file)),
@@ -625,16 +656,52 @@ export async function checkAffected({
     console.log('\nNo affected tests to run.')
     return true
   }
+  for (const project of idleGroups.map((group) => group.project)) {
+    rmSync(reportFile(project), { force: true })
+    rmSync(retryFile(project), { force: true })
+  }
   const ok = await runChecks({
     testsOnly: true,
     ...(files && { files }),
     ...(quietWait !== undefined && { quietWait }),
   })
+  if (files && commit !== undefined) {
+    try {
+      recordPasses(affected, files, commit)
+    } catch (error) {
+      console.error(`check: Could not record the passed test files: ${String(error)}`)
+    }
+  }
   if (ok)
     console.log(
-      '\nThe affected tests passed. Nothing was recorded: only a full pnpm check records a passing commit.',
+      '\nThe affected tests passed. No passing commit was recorded: only a full pnpm check records one.',
     )
   return ok
+}
+
+type Affected = typeof import('./affected.ts')
+
+function readPasses(affected: Affected): ReturnType<Affected['parsePasses']> {
+  try {
+    return affected.parsePasses(readFileSync(passesFile, 'utf8'))
+  } catch {
+    return new Map()
+  }
+}
+
+function recordPasses(affected: Affected, files: TestFiles, commit: string): void {
+  if (affected.cleanCommit(root) !== commit) return
+  const ran: string[] = []
+  const passed = new Set<string>()
+  for (const [project, list] of Object.entries(files)) {
+    if (list.length === 0) continue
+    ran.push(...list)
+    const retried = readRetries(project)
+    if (retried === undefined) continue
+    for (const file of passedFiles(readReport(project, true).report, retried)) passed.add(file)
+  }
+  const merged = affected.mergePasses(readPasses(affected), { commit, ran, passed })
+  writeFileSync(passesFile, affected.passesText(merged))
 }
 
 if (import.meta.main) {
@@ -644,7 +711,11 @@ if (import.meta.main) {
   process.exit(
     (
       args.includes('--affected')
-        ? await checkAffected({ list: args.includes('--list'), ...wait })
+        ? await checkAffected({
+            list: args.includes('--list'),
+            noSkip: args.includes('--no-skip'),
+            ...wait,
+          })
         : await checkAndRecord({ all: args.includes('--all'), ...wait })
     )
       ? 0
