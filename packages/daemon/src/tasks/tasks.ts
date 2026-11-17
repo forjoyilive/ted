@@ -8434,9 +8434,40 @@ export function createTasks(options: {
   }
 
   function settleDependents(taskId: string, action = 'archived'): void {
-    for (const dependent of store.blockedBy(taskId)) {
+    const dependents = store.blockedBy(taskId)
+    for (const dependent of dependents) {
       const reason = `was ${action} without merging. ${reopened} Its blocker was removed. Use Resume when ready to reassess the failure.`
       removeBlockers(dependent, { kind: 'app' }, taskId, reason)
+    }
+    if (action === 'archived') store.recordArchiveUnblocks(taskId, dependents)
+  }
+
+  function blocksToRestore(taskId: string, restoring: ReadonlySet<string>): string[] {
+    const recorded = store
+      .archiveUnblocked(taskId)
+      .flatMap((id) => store.getTask(id) ?? [])
+      .sort((a, b) => a.number - b.number)
+      .map((task) => task.id)
+    return recorded.filter((id) => {
+      const dependent = store.getTask(id)
+      if (!dependent || dependent.stage === 'done') return false
+      if (dependent.archived && !restoring.has(id)) return false
+      if (inFlight.is(id, 'deleting')) return false
+      if (store.blockers(id).some((link) => link.blockerId === taskId)) return false
+      return !cycleFrom(taskId, id)
+    })
+  }
+
+  async function restoreBlocks(taskId: string, dependents: readonly string[]): Promise<void> {
+    for (const id of dependents) {
+      try {
+        await block(id, { kind: 'app' }, taskId)
+      } catch (error: unknown) {
+        console.error(
+          `couldn’t restore ${taskId} as a blocker of ${id}:`,
+          redactSecrets(textOf(error)),
+        )
+      }
     }
   }
 
@@ -8523,7 +8554,7 @@ export function createTasks(options: {
     return family
   }
 
-  async function restoreArchived(id: string): Promise<void> {
+  async function restoreArchived(id: string, reblocked: readonly string[]): Promise<void> {
     await clearingAway.get(id)?.catch(() => undefined)
     await pullRequestQueue.get(id)
     const current = find(id)
@@ -8534,6 +8565,7 @@ export function createTasks(options: {
     store.unarchiveTask(id, {
       queue: midFlow,
       waitForBlockers: midFlow && unmergedBlockers(id).length > 0,
+      reblocked,
     })
     if (midFlow && current.repos.some((r) => r.pullRequest?.state === 'closed')) {
       pullRequestWork(id, 'reopen')
@@ -8561,8 +8593,11 @@ export function createTasks(options: {
         if (!find(task.id).archived) throw new RequestError(409, `${task.displayId} isn’t archived`)
         store.setTaskParent(task.id, null)
       }
-      await restoreArchived(task.id)
-      for (const id of family) await restoreArchived(id)
+      const restoring = new Set([task.id, ...family])
+      const reblocked = new Map([...restoring].map((id) => [id, blocksToRestore(id, restoring)]))
+      await restoreArchived(task.id, reblocked.get(task.id) ?? [])
+      for (const id of family) await restoreArchived(id, reblocked.get(id) ?? [])
+      for (const [id, dependents] of reblocked) await restoreBlocks(id, dependents)
       for (const id of [...family].reverse()) holdParent(id)
       if (family.length > 0) holdParent(task.id)
       if (parent && !input.unlinkParent) holdParent(parent.id)
@@ -11640,6 +11675,43 @@ export function createTasks(options: {
     return startInBackground === true ? queueAndAnswer(task.id) : start(task.id)
   }
 
+  async function block(ref: string, caller: Caller, by: string): Promise<Task> {
+    const task = caller.kind === 'run' ? taskLead(ref, caller, 'changes blockers').task : find(ref)
+    await beginning.get(task.id)?.catch(() => undefined)
+    const blocker = find(by)
+    if (blocker.id === task.id) {
+      throw new RequestError(409, `${task.displayId} can’t block itself`)
+    }
+    if (task.stage === 'done') throw new RequestError(409, `${task.displayId} is done`)
+    const cycle = cycleFrom(blocker.id, task.id)
+    if (cycle) {
+      const ids = [task.id, ...cycle].map((id) => store.getTask(id)?.displayId ?? id)
+      throw new RequestError(
+        409,
+        `${blocker.displayId} can’t block ${task.displayId}: that makes a cycle, ${ids.join(' → ')}`,
+      )
+    }
+    const current = find(task.id)
+    const runId = caller.kind === 'run' ? caller.runId : undefined
+    const existing = store
+      .blockers(task.id)
+      .find((b) => b.kind === undefined && b.blockerId === blocker.id)
+    if (existing && (runId === undefined || existing.setByRunId === runId)) {
+      return publicTask(task.id)
+    }
+    const unmerged = !store.isMerged(blocker.id)
+    const queued = store.queue().some((q) => q.id === task.id)
+    const midFlow = current.repos.some((r) => !r.removed)
+    const then = !unmerged || !queued ? undefined : midFlow ? 'wait' : 'backlog'
+    const updated = store.addBlocker(task.id, blocker.id, {
+      ...(runId !== undefined && { runId }),
+      ...(then !== undefined && { then }),
+    })
+    const run = liveLead(current)
+    if (unmerged && run && caller.kind !== 'run' && !existing) await tellLead(blocker, run)
+    return updated
+  }
+
   return {
     failureContext(ref, id, caller) {
       const task = caller.kind === 'run' ? ownTask(ref, caller).task : find(ref)
@@ -12095,43 +12167,7 @@ export function createTasks(options: {
       return start(task.id)
     },
 
-    async block(ref, caller, by) {
-      const task =
-        caller.kind === 'run' ? taskLead(ref, caller, 'changes blockers').task : find(ref)
-      await beginning.get(task.id)?.catch(() => undefined)
-      const blocker = find(by)
-      if (blocker.id === task.id) {
-        throw new RequestError(409, `${task.displayId} can’t block itself`)
-      }
-      if (task.stage === 'done') throw new RequestError(409, `${task.displayId} is done`)
-      const cycle = cycleFrom(blocker.id, task.id)
-      if (cycle) {
-        const ids = [task.id, ...cycle].map((id) => store.getTask(id)?.displayId ?? id)
-        throw new RequestError(
-          409,
-          `${blocker.displayId} can’t block ${task.displayId}: that makes a cycle, ${ids.join(' → ')}`,
-        )
-      }
-      const current = find(task.id)
-      const runId = caller.kind === 'run' ? caller.runId : undefined
-      const existing = store
-        .blockers(task.id)
-        .find((b) => b.kind === undefined && b.blockerId === blocker.id)
-      if (existing && (runId === undefined || existing.setByRunId === runId)) {
-        return publicTask(task.id)
-      }
-      const unmerged = !store.isMerged(blocker.id)
-      const queued = store.queue().some((q) => q.id === task.id)
-      const midFlow = current.repos.some((r) => !r.removed)
-      const then = !unmerged || !queued ? undefined : midFlow ? 'wait' : 'backlog'
-      const updated = store.addBlocker(task.id, blocker.id, {
-        ...(runId !== undefined && { runId }),
-        ...(then !== undefined && { then }),
-      })
-      const run = liveLead(current)
-      if (unmerged && run && caller.kind !== 'run' && !existing) await tellLead(blocker, run)
-      return updated
-    },
+    block,
 
     unblock(ref, caller, by) {
       const task =
