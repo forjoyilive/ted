@@ -378,7 +378,7 @@ export function draftNotes(
 
 export function majorEmpty(notes: string): boolean {
   const match = /^## Major[ \t]*\n([\s\S]*?)(?=^## |^\*\*Full changelog|(?![\s\S]))/m.exec(notes)
-  return match !== null && (match[1] ?? '').replace(/<!--[\s\S]*?-->/g, '').trim() === ''
+  return match !== null && /^(?:\s|<!--(?:(?!-->)[\s\S])*-->)*$/.test(match[1] ?? '')
 }
 
 const pullRequests = (text: string) => [...text.matchAll(/#(\d+)/g)].map((match) => match[1])

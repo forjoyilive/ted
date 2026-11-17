@@ -301,6 +301,8 @@ describe('release notes', () => {
   test('a Major section is empty until it has text outside comments', () => {
     expect(majorEmpty('## Major\n\n<!-- x -->\n\n## Fixes\n\n- a\n')).toBe(true)
     expect(majorEmpty('## Major\n\nOnly this.')).toBe(false)
+    expect(majorEmpty('## Major\n\n<!-- a -->\nText\n<!-- b -->\n')).toBe(false)
+    expect(majorEmpty('## Major\n\n<!-- never closed\n')).toBe(false)
     expect(majorEmpty('## Features\n\n- a\n')).toBe(false)
   })
 })

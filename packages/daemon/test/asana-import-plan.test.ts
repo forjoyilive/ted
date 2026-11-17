@@ -193,6 +193,10 @@ test('the planner creates unfinished items, keeps completed ones as context and 
   const text = asanaTreeText(result.preview)
   expect(text).toContain('Item 9')
   expect(text).toContain('NB-d · under NB-z, left there')
+  const [first] = result.preview.rows
+  if (first === undefined) throw new Error('no rows')
+  const deep = { ...result.preview, rows: [{ ...first, depth: 1_000_000 }] }
+  expect(asanaTreeText(deep).indexOf(first.name)).toBe(40)
   expect(
     asanaImportedText({
       preview: result.preview,

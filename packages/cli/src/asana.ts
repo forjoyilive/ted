@@ -38,9 +38,12 @@ function actionText(row: AsanaImportRow): string {
   }
 }
 
+const deepestIndent = 20
+
 export function asanaTreeText(preview: AsanaImportPreview): string {
   const rows = preview.rows.map((row) => {
-    const name = `${'  '.repeat(row.depth)}${row.name}`
+    const depth = row.depth > deepestIndent ? deepestIndent : row.depth
+    const name = `${'  '.repeat(depth)}${row.name}`
     const who = row.assignee ? (row.assignee.you ? 'you' : row.assignee.name) : 'unassigned'
     return [name, who, actionText(row)].map((cell) => printable(cell))
   })
