@@ -821,14 +821,6 @@
       "count": 1
     }
   },
-  "packages/app/src/renderer/sidebar-widths.ts": {
-    "anti-slop/no-reflect-get": {
-      "count": 1
-    },
-    "anti-slop/no-runtime-typeof": {
-      "count": 2
-    }
-  },
   "packages/app/src/renderer/slots.ts": {
     "anti-slop/no-known-value-widening": {
       "count": 1

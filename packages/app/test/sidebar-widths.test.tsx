@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, expect, test, vi } from 'vitest'
 import {
   DetailsPane,
+  ListPane,
   ResizableSidebar,
   SidebarLayout,
 } from '../src/renderer/components/ResizableSidebar.tsx'
@@ -18,8 +19,7 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
     this: HTMLElement,
   ) {
-    const width =
-      this.className === 'layout' ? viewport : this.hasAttribute('data-fixed-pane') ? 330 : 0
+    const width = this.className === 'layout' ? viewport : 0
     return {
       width,
       height: 800,
@@ -63,7 +63,7 @@ function Layout({ hidden = false, inbox = false }: { hidden?: boolean; inbox?: b
       <ResizableSidebar side="navigation">
         <nav>Navigation</nav>
       </ResizableSidebar>
-      {inbox && <section data-fixed-pane>Inbox</section>}
+      {inbox && <ListPane aria-label="Inbox">Inbox</ListPane>}
       <main>Thread</main>
       <DetailsPane aria-label="Task details" hidden={hidden}>
         Details
@@ -72,10 +72,13 @@ function Layout({ hidden = false, inbox = false }: { hidden?: boolean; inbox?: b
   )
 }
 
-function separator(side: 'Navigation' | 'Details') {
-  return screen.getByRole('separator', { name: `${side} sidebar width` })
+type Side = 'Navigation' | 'List' | 'Details'
+function separator(side: Side) {
+  return screen.getByRole('separator', {
+    name: side === 'List' ? 'List width' : `${side} sidebar width`,
+  })
 }
-function width(side: 'Navigation' | 'Details') {
+function width(side: Side) {
   return Number(separator(side).getAttribute('aria-valuenow'))
 }
 function drag(element: HTMLElement, from: number, to: number, end = 'pointerup') {
@@ -125,25 +128,51 @@ test('window constraints include the Inbox list and restore preferred widths whe
     viewport = 900
     resize()
   })
-  expect([width('Navigation'), width('Details')]).toEqual([210, 260])
+  expect([width('Navigation'), width('List'), width('Details')]).toEqual([210, 260, 260])
   expect(readSidebarWidths()).toEqual(saved)
   expect(Number(separator('Details').getAttribute('aria-valuemax'))).toBe(260)
   act(() => {
     viewport = 1440
     resize()
   })
-  expect(width('Details')).toBe(480)
+  expect([width('List'), width('Details')]).toEqual([330, 480])
   mounted.rerender(<Layout hidden inbox />)
   expect(screen.queryByRole('separator', { name: 'Details sidebar width' })).toBeNull()
   mounted.rerender(<Layout inbox />)
   expect(width('Details')).toBe(480)
 })
 
+test('the list column drags, resets, keeps its width and gives way first in a narrow window', () => {
+  const mounted = render(<Layout hidden inbox />)
+  expect(width('List')).toBe(330)
+  drag(separator('List'), 540, 640)
+  expect(width('List')).toBe(430)
+  drag(separator('List'), 640, 2000)
+  expect(width('List')).toBe(640)
+  drag(separator('List'), 850, 0)
+  expect(width('List')).toBe(260)
+  fireEvent.doubleClick(separator('List'))
+  expect(width('List')).toBe(330)
+  drag(separator('List'), 540, 690)
+  mounted.unmount()
+  render(<Layout inbox />)
+  expect(width('List')).toBe(480)
+  act(() => {
+    viewport = 1200
+    resize()
+  })
+  expect([width('Navigation'), width('List'), width('Details')]).toEqual([210, 350, 320])
+  expect(readSidebarWidths().list).toBe(480)
+})
+
 test('invalid saved data falls back safely and finite widths are clamped', () => {
   localStorage.setItem('ted.sidebar.widths', '{bad')
-  expect(readSidebarWidths()).toEqual({ navigation: 210, details: 320 })
-  localStorage.setItem('ted.sidebar.widths', JSON.stringify({ navigation: 'big', details: 900 }))
-  expect(readSidebarWidths()).toEqual({ navigation: 210, details: 560 })
+  expect(readSidebarWidths()).toEqual({ navigation: 210, list: 330, details: 320 })
+  localStorage.setItem(
+    'ted.sidebar.widths',
+    JSON.stringify({ navigation: 'big', list: 100, details: 900 }),
+  )
+  expect(readSidebarWidths()).toEqual({ navigation: 210, list: 260, details: 560 })
   vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
     throw Error('Unavailable')
   })

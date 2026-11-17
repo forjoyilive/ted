@@ -9,7 +9,6 @@
 }
 
 .listPane {
-  flex: 0 0 var(--list-pane-width);
   border-right: 1px solid var(--border-subtle);
 }
 
