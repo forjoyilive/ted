@@ -59,6 +59,7 @@ import { useStages } from '../stages.tsx'
 import { agentLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { AgentDraftCard } from './AgentDraftCard.tsx'
+import { AgentHeading } from './AgentPicker.tsx'
 import { OutsideCommandCard } from './OutsideCommandCard.tsx'
 import styles from './PlanChat.module.css'
 import views from './views.module.css'
@@ -68,7 +69,7 @@ export function PlanChatView({
   planId,
   revealRequest,
   from,
-  switcher,
+  picked = false,
   agent,
   onBack,
   backLabel,
@@ -81,7 +82,7 @@ export function PlanChatView({
   planId: string | undefined
   revealRequest?: ScrollReveal | undefined
   from?: string
-  switcher?: ReactNode
+  picked?: boolean
   agent?: AgentSummary | undefined
   onBack?: (() => void) | undefined
   backLabel?: string
@@ -95,7 +96,7 @@ export function PlanChatView({
       <NewPlanChat
         factory={factory}
         {...(from !== undefined && { from })}
-        switcher={switcher}
+        picked={picked}
         agent={agent ?? builtInPlanner}
         onBack={onBack}
         backLabel={backLabel}
@@ -190,7 +191,13 @@ function leadLine(lead: TaskLead | undefined): string {
   return lead ? [agentNames[lead.agent], lead.model, lead.effort].filter(Boolean).join(' · ') : ''
 }
 
-function Back({ onBack, label }: { onBack: (() => void) | undefined; label?: string | undefined }) {
+export function Back({
+  onBack,
+  label,
+}: {
+  onBack: (() => void) | undefined
+  label?: string | undefined
+}) {
   if (!onBack || label === undefined) return null
   return (
     <ActionButton type="button" className={styles.back} onClick={onBack}>
@@ -202,7 +209,7 @@ function Back({ onBack, label }: { onBack: (() => void) | undefined; label?: str
 function NewPlanChat({
   factory,
   from,
-  switcher,
+  picked,
   agent,
   onBack,
   backLabel,
@@ -211,7 +218,7 @@ function NewPlanChat({
 }: {
   factory: Factory
   from?: string
-  switcher?: ReactNode
+  picked: boolean
   agent: AgentSummary
   onBack?: (() => void) | undefined
   backLabel?: string | undefined
@@ -279,10 +286,11 @@ function NewPlanChat({
         <header className={styles.header}>
           <Back onBack={onBack} label={backLabel} />
           <div className={styles.titleRow}>
-            <h1 className={`${styles.title} ${styles.placeholderTitle}`}>
-              {switcher ? 'New chat' : 'New planning chat'}
-            </h1>
-            {switcher}
+            {picked ? (
+              <AgentHeading agent={agent} />
+            ) : (
+              <h1 className={`${styles.title} ${styles.placeholderTitle}`}>New planning chat</h1>
+            )}
             <span className={styles.spacer} />
             {lead && <LeadSelects lead={lead} onChange={setLead} />}
           </div>

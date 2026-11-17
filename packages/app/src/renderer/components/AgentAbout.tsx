@@ -15,6 +15,18 @@ const about = {
     'Reads the repos, talks a large piece of work through with you in rounds, then proposes Tasks. Nothing is created until you approve the proposal.',
 } satisfies Record<BuiltInAgentId, string>
 
+const summaries = {
+  coordinator: 'Recommends what to do next and acts on Tasks when you ask.',
+  planner: 'Talks a large piece of work through with you, then proposes Tasks.',
+} satisfies Record<BuiltInAgentId, string>
+
+export function agentDescription(
+  agent: Pick<AgentSummary, 'id' | 'source' | 'description'>,
+): string | undefined {
+  const builtIn = builtInAgentIds.find((id) => id === agent.id)
+  return agent.source === 'ted' && builtIn !== undefined ? summaries[builtIn] : agent.description
+}
+
 export const builtInCoordinator: AgentSummary = {
   id: 'coordinator',
   name: 'Coordinator',
