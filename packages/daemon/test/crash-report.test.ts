@@ -74,6 +74,10 @@ describe('cleaning', () => {
     expect(cleanText("open '/Users/bob/Bob's Drive/plan.txt' failed", roots, home)).toBe(
       "open '<path>' failed",
     )
+    expect(cleanText('read "unclosed secret text', roots, home)).toBe('read "<text>"')
+    expect(cleanText(`a "one 'two" and 'three "four' end`, roots, home)).toBe(
+      `a "<text>" and '<text>' end`,
+    )
     expect(cleanText('input"confidential contents" and x`secret snippet`', roots, home)).toBe(
       'input"<text>" and x`<text>`',
     )

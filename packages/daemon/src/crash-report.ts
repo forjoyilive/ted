@@ -57,23 +57,30 @@ const betweenPaths = /<path>(?:[ \t]+\S+)*[ \t]+<path>/g
 const keptPrefixes = ['packages/', 'node:', '<path>', '<anonymous>']
 
 const quotedPath = /(^|[^\w])'(?:<path>|file:\/\/|~?\/|[A-Za-z]:\\)[^\n]*'/gm
-const quotedRuns: [RegExp, string][] = [
-  [/()"([^"\n]*)"/g, '"'],
-  [/()\x60([^\x60\n]*)\x60/g, '\x60'],
-  [/(^|[^\w])'([^'\n]*)'/gm, "'"],
-]
+const quotedText = /"([^"\n]*)(?:"|$)|\x60([^\x60\n]*)(?:\x60|$)|(^|[^\w])'([^'\n]*)'/gm
 const pathLike = /^(?:<path>|file:\/\/|~?\/|[A-Za-z]:\\)/
 
+function placeholder(inside: string): string {
+  return pathLike.test(inside) ? '<path>' : '<text>'
+}
+
 function withoutQuotedText(text: string): string {
-  return quotedRuns.reduce(
-    (result, [pattern, quote]) =>
-      result.replace(
-        pattern,
-        (_match, before: string, inside: string) =>
-          `${before}${quote}${pathLike.test(inside) ? '<path>' : '<text>'}${quote}`,
-      ),
-    text.replace(quotedPath, "$1'<path>'"),
-  )
+  return text
+    .replace(quotedPath, "$1'<path>'")
+    .replace(
+      quotedText,
+      (
+        _match,
+        double: string | undefined,
+        backtick: string | undefined,
+        before: string | undefined,
+        single: string | undefined,
+      ) => {
+        if (double !== undefined) return `"${placeholder(double)}"`
+        if (backtick !== undefined) return `\x60${placeholder(backtick)}\x60`
+        return `${before ?? ''}'${placeholder(single ?? '')}'`
+      },
+    )
 }
 
 function kept(token: string): boolean {
