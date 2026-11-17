@@ -117,7 +117,7 @@ test('Limits changes how many Checks run at once and turns low priority off', as
     updateSettings: update,
   })
   render(<LimitsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
-  await screen.findByText('Now: 0 agents working · limit 6')
+  await screen.findByText('Now: 0 of 6 slots in use')
   const toggle = screen.getByRole('switch', { name: 'Run agents and Checks at low priority' })
   expect(toggle.getAttribute('aria-checked')).toBe('true')
   expect(screen.getByText(/Applies to work started after you change it/)).toBeTruthy()
@@ -668,6 +668,7 @@ test('App settings navigation selects real pages and Factory settings leaves the
       { id: 'backlog', name: 'Backlog', inOrder: true, enabled: true, gate: false, from: 'ted' },
     ],
     agents: [],
+    agentFiles: [],
     problems: [],
   }))
   a.handle('tedFolder', () => ({ path: '/test/', platform: 'darwin' }))

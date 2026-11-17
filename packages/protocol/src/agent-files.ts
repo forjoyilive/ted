@@ -1,3 +1,4 @@
+import type { StageDrift } from './factory-settings.ts'
 import type { AgentKind } from './run.ts'
 import type { LayerKind } from './workflow.ts'
 
@@ -33,4 +34,52 @@ export interface ResolvedAgent {
   instructions: string
   source: LayerKind
   path: string
+}
+
+export const agentPowerHelp: Readonly<Record<AgentPower, string>> = {
+  ask: 'Questions and rounds that show in the Inbox.',
+  manage_tasks:
+    'Create, start, move and answer Tasks in this Factory, as the Coordinator does. Archives and deletes wait for your confirmation.',
+  propose_tasks: 'A set of Tasks with blockers for you to approve, as the Planner does.',
+  read_code:
+    'A fresh copy of the default branch for each chat. It is never pushed and is removed when the chat is archived.',
+}
+
+export const blankAgentInstructions = `# What this Agent is for
+
+Say in a few sentences what this Agent helps with and when to start a chat with it.
+
+## How it works
+
+- What it should look at first.
+- What it should ask you before it acts.
+- What a good answer from it looks like.
+
+TED adds the commands its powers allow, so you don’t need to list them here.
+`
+
+export interface AgentSettingsInput {
+  name?: string
+  agent?: AgentKind
+  model?: string
+  powers?: AgentPower[]
+}
+
+export interface AgentFileChange {
+  id: string
+  settings?: AgentSettingsInput | null
+  instructions?: string | null
+}
+
+export interface AgentFileRow {
+  id: string
+  name: string
+  agent?: AgentKind
+  model?: string
+  powers: AgentPower[]
+  from: LayerKind
+  builtIn: boolean
+  own?: { settings?: AgentSettingsInput; instructions?: string; basedOn?: string }
+  inherited?: { layer: LayerKind; settings: AgentSettingsInput; instructions: string }
+  drift?: StageDrift
 }

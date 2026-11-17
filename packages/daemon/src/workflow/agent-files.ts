@@ -253,7 +253,15 @@ export function resolveAgents(layers: readonly AgentLayer[]): ResolvedAgent[] {
   for (const layer of layers) {
     for (const [id, own] of Object.entries(layer.agentSettings)) {
       const before = merged.get(id)
-      merged.set(id, { settings: { ...before?.settings, ...own }, source: layer.kind })
+      const settings = { ...before?.settings, ...own }
+      if (
+        own.agent !== undefined &&
+        own.model === undefined &&
+        own.agent !== before?.settings.agent
+      ) {
+        delete settings.model
+      }
+      merged.set(id, { settings, source: layer.kind })
     }
     for (const [id, text] of Object.entries(layer.agentFiles)) {
       texts.set(id, { text, kind: layer.kind })

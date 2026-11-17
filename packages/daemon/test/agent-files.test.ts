@@ -185,7 +185,8 @@ describe('Agent layers', () => {
     const library = checkLayer({
       kind: 'library',
       files: {
-        'agents.yaml': 'coordinator:\n  powers: [manage_tasks]\nscout:\n  name: Scout\n',
+        'agents.yaml':
+          'coordinator:\n  powers: [manage_tasks]\n  agent: claude\n  model: opus\nscout:\n  name: Scout\n  agent: claude\n  model: opus\n',
         'agents/coordinator.md': 'Coordinate briefly.\n',
         'agents/scout.md': 'Scout the code.\n',
       },
@@ -193,7 +194,9 @@ describe('Agent layers', () => {
     const defaults = await readDefaultLayer()
     const factory = checkLayer({
       kind: 'factory',
-      files: { 'agents.yaml': 'scout:\n  name: Repo scout\n  powers: [read_code]\n' },
+      files: {
+        'agents.yaml': 'scout:\n  name: Repo scout\n  powers: [read_code]\n  agent: codex\n',
+      },
       inherited: inheritedFrom([defaults, library]),
     })
     expect([...library.problems, ...factory.problems]).toEqual([])
@@ -202,6 +205,8 @@ describe('Agent layers', () => {
     expect(workflow.agent('coordinator')).toMatchObject({
       name: 'Coordinator',
       powers: ['manage_tasks'],
+      agent: 'claude',
+      model: 'opus',
       instructions: 'Coordinate briefly.\n',
       source: 'library',
       path: 'agents/coordinator.md',
@@ -213,7 +218,9 @@ describe('Agent layers', () => {
       instructions: 'Scout the code.\n',
       source: 'factory',
       path: 'agents/scout.md',
+      agent: 'codex',
     })
+    expect(workflow.agent('scout')?.model).toBeUndefined()
   })
 
   test('an override of a built-in Agent shows as drift once the built-in text changes', async () => {

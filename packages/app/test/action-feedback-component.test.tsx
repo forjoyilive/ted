@@ -224,6 +224,7 @@ test('Check Run now acknowledges before a remote running state and restores afte
   const run = vi.fn(() => completion.promise)
   bridge({ tryCheck: run })
   const view: FactorySettingsView = {
+    agentFiles: [],
     factoryId: 'factory',
     repo: 'acme/widgets',
     defaultBranch: 'main',

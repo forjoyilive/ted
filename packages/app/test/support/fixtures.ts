@@ -80,6 +80,7 @@ export function comment(fields: Partial<Comment> = {}): Comment {
 
 export function settingsView(): import('@ted/protocol').FactorySettingsView {
   return {
+    agentFiles: [],
     factoryId: 'f1',
     repo: 'acme/widgets',
     defaultBranch: 'main',
