@@ -20,6 +20,7 @@ import {
   saveSidebarWidths,
   sidebarDefaults,
   sidebarLimit,
+  sidebarMaximums,
   sidebarMinimums,
 } from '../sidebar-widths.ts'
 import styles from './ResizableSidebar.module.css'
@@ -30,6 +31,12 @@ interface WidthContext {
   change: (side: SidebarSide, width: number, save?: boolean) => void
   save: () => void
 }
+
+const labels = {
+  navigation: 'Navigation sidebar width',
+  list: 'List width',
+  details: 'Details sidebar width',
+} satisfies { [side in SidebarSide]: string }
 
 const Widths = createContext<WidthContext | undefined>(undefined)
 const keyTargets = new WeakMap<Element, (key: number | 'min' | 'max') => void>()
@@ -55,8 +62,8 @@ export function SidebarLayout({
   const latest = useRef(preferred)
   const [space, setSpace] = useState<SidebarSpace>({
     width: 0,
-    fixed: 0,
     navigation: false,
+    list: false,
     details: false,
   })
   const measure = useCallback(() => {
@@ -64,17 +71,14 @@ export function SidebarLayout({
     if (!element) return
     const next = {
       width: element.getBoundingClientRect().width,
-      fixed: [...element.querySelectorAll('[data-fixed-pane]')].reduce(
-        (sum, pane) => sum + pane.getBoundingClientRect().width,
-        0,
-      ),
       navigation: element.querySelector('[data-sidebar="navigation"]') !== null,
+      list: element.querySelector('[data-sidebar="list"]') !== null,
       details: element.querySelector('[data-sidebar="details"]') !== null,
     }
     setSpace((old) =>
       old.width === next.width &&
-      old.fixed === next.fixed &&
       old.navigation === next.navigation &&
+      old.list === next.list &&
       old.details === next.details
         ? old
         : next,
@@ -116,9 +120,8 @@ export function ResizableSidebar({ side, children }: { side: SidebarSide; childr
   const max =
     shared && shared.space.width > 0
       ? sidebarLimit(side, shared.widths, shared.space)
-      : side === 'navigation'
-        ? 360
-        : 560
+      : sidebarMaximums[side]
+  const direction = side === 'details' ? -1 : 1
   const ref = useRef<HTMLHRElement>(null)
   const drag = useRef<{ x: number; width: number; pointer: number; restore: () => void }>(null)
   const [dragging, setDragging] = useState(false)
@@ -145,7 +148,7 @@ export function ResizableSidebar({ side, children }: { side: SidebarSide; childr
     keyTargets.set(element, (key) => {
       if (key === 'min') change(sidebarMinimums[side])
       else if (key === 'max') change(max)
-      else change(width + key * (side === 'navigation' ? 1 : -1))
+      else change(width + key * direction)
     })
     return () => {
       keyTargets.delete(element)
@@ -158,7 +161,7 @@ export function ResizableSidebar({ side, children }: { side: SidebarSide; childr
         ref={ref}
         className={`${styles.handle} ${styles[side]} ${dragging ? styles.dragging : ''}`}
         tabIndex={0}
-        aria-label={side === 'navigation' ? 'Navigation sidebar width' : 'Details sidebar width'}
+        aria-label={labels[side]}
         aria-orientation="vertical"
         aria-valuemin={sidebarMinimums[side]}
         aria-valuemax={max}
@@ -192,7 +195,7 @@ export function ResizableSidebar({ side, children }: { side: SidebarSide; childr
         onPointerMove={(event) => {
           const start = drag.current
           if (!start || start.pointer !== event.pointerId) return
-          change(start.width + (event.clientX - start.x) * (side === 'navigation' ? 1 : -1), false)
+          change(start.width + (event.clientX - start.x) * direction, false)
         }}
         onPointerUp={finish}
         onPointerCancel={finish}
@@ -207,6 +210,14 @@ export function DetailsPane({ hidden, ...props }: ComponentProps<'aside'>) {
   return (
     <ResizableSidebar side="details">
       <aside {...props} />
+    </ResizableSidebar>
+  )
+}
+
+export function ListPane(props: ComponentProps<'section'>) {
+  return (
+    <ResizableSidebar side="list">
+      <section {...props} />
     </ResizableSidebar>
   )
 }

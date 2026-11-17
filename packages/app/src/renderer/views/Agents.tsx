@@ -16,6 +16,7 @@ import dialogs from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
 import { contextMenu, type MenuPosition, useActionMenu } from '../components/ContextMenu.tsx'
+import { ListPane } from '../components/ResizableSidebar.tsx'
 import type { ScrollReveal } from '../components/ScrollMemory.tsx'
 import { Select } from '../components/Select.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
@@ -167,7 +168,7 @@ export function AgentsView({
   }
 
   const list = (
-    <section className={`${views.pane} ${views.listPane}`} aria-label="Agent chats" data-fixed-pane>
+    <ListPane className={`${views.pane} ${views.listPane}`} aria-label="Agent chats">
       <header className={styles.listHeader}>
         <h1 className={views.listTitle}>Agents</h1>
         <span className={styles.spacer} />
@@ -240,7 +241,7 @@ export function AgentsView({
           </p>
         )}
       </div>
-    </section>
+    </ListPane>
   )
 
   const chosen = agents.find((a) => a.id === newAgentId && a.id !== 'planner') ?? builtInCoordinator

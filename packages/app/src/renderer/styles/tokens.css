@@ -208,7 +208,6 @@
   --radius-pill: 999px;
 
   --sidebar-width: 210px;
-  --list-pane-width: 330px;
   --details-pane-width: 320px;
   /* Text size 100% sets --text-scale to 1.1. */
   --chat-column: calc(650px * var(--text-scale) / 1.1);
