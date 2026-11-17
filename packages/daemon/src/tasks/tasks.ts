@@ -654,7 +654,13 @@ export interface Tasks {
     id: string,
     input: AssessFailureRequest,
   ): Promise<FailureCase>
-  verifyFailure(ref: string, caller: Caller, id: string, evidence: string): Promise<FailureCase>
+  verifyFailure(
+    ref: string,
+    caller: Caller,
+    id: string,
+    evidence: string,
+    fixedBy?: string,
+  ): Promise<FailureCase>
   requestFailureDecision(ref: string, caller: Caller, id: string): Promise<FailureCase>
   resolveFailure(ref: string, id: string, input: ResolveFailureRequest): Promise<FailureCase>
   create(input: CreateTaskInput, caller?: Caller): Promise<Task>
@@ -11321,9 +11327,10 @@ export function createTasks(options: {
       ),
     assessFailure: (ref, caller, id, input) =>
       failureLead(ref, caller, (task, runId) => failures.assess(task, id, runId, input)),
-    verifyFailure: (ref, caller, id, evidence) =>
+    verifyFailure: (ref, caller, id, evidence, fixedBy) =>
       failureLead(ref, caller, async (task) => {
         const value = failures.get(task, id)
+        const abandoned = failures.abandonedRepair(value)
         const repairedMergeFailure =
           mergesHere(task.stage) &&
           ['finding', 'post-rebase-check'].includes(value.source.kind) &&
@@ -11357,9 +11364,8 @@ export function createTasks(options: {
           ![
             'retry',
             'fix',
-            ...(value.repairProgress?.some(
-              (p) => p.requestId === value.resolutions.at(-1)?.requestId,
-            )
+            ...(abandoned ||
+            value.repairProgress?.some((p) => p.requestId === value.resolutions.at(-1)?.requestId)
               ? ['repair']
               : []),
           ].includes(value.resolutions.at(-1)?.resolution ?? '') &&
@@ -11372,15 +11378,16 @@ export function createTasks(options: {
         const safeEvidence = failureText(evidence)
         if (value.verifications?.length)
           throw new RequestError(409, 'this failure already has verification evidence')
+        const fix = fixedBy === undefined ? undefined : failures.fixingTask(task, value, fixedBy)
         const result =
           value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check'
-            ? await validation.verifyRepair(task, value, safeEvidence)
-            : failures.verifyResult(task, id, safeEvidence)
+            ? await validation.verifyRepair(task, value, safeEvidence, fix)
+            : failures.verifyResult(task, id, safeEvidence, undefined, undefined, fix)
         store.postComment({
           taskId: task.id,
           author: { kind: 'run', runId: task.leadRunId ?? '' },
           title: 'Failure repair verified',
-          body: `Failure ${shortReference(result.id)}\n\n${result.verifications?.at(-1)?.evidence}`,
+          body: `Failure ${shortReference(result.id)}${fix ? ` · Fixed by ${fix.displayId}` : ''}\n\n${result.verifications?.at(-1)?.evidence}`,
         })
         return result
       }),

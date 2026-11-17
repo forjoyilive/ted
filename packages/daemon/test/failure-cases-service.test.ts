@@ -701,3 +701,25 @@ test('a repair that merged keeps its case out of replacement after its blocker l
   await s.fail('pnpm check --changed')
   expect(await s.disposition(first)).toBe('unresolved')
 })
+
+test('a case whose repair was dropped can name the merged Task that brought the fix', async () => {
+  const s = await checkCases()
+  const { value: first } = await s.fail('pnpm check')
+  const repair = await s.waitForRepair(first)
+  const fixer = await s.store.createTask({ title: 'Fix the demo reset test elsewhere' })
+  const current = () => s.store.failures.get(first.id) as FailureCase
+  expect(() => s.service.fixingTask(s.task, current(), fixer.id)).toThrow(
+    'only for a failure whose repair Task was archived',
+  )
+  s.store.archiveTask(repair.id)
+  s.store.removeBlocker(s.task.id, repair.id)
+  expect(() => s.service.fixingTask(s.task, current(), fixer.id)).toThrow('hasn’t merged')
+  expect(() => s.service.fixingTask(s.task, current(), s.task.id)).toThrow(
+    'merged Task in this Factory',
+  )
+  s.store.changeStage(fixer.id, 'done')
+  const fix = s.service.fixingTask(s.task, current(), fixer.displayId)
+  expect(fix).toEqual({ id: fixer.id, displayId: fixer.displayId, title: fixer.title })
+  s.service.verifyResult(s.validating, first.id, 'Checks passed', undefined, undefined, fix)
+  expect(current().verifications?.at(-1)?.fixedBy).toEqual(fix)
+})
