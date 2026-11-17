@@ -10,6 +10,7 @@ import type {
   Proposal,
   Round,
 } from '@ted/protocol'
+import { chatAgentEvents, type StoredChatAgent } from './chats.ts'
 import { events, planRequests, plans, planTasks, type schema } from './schema.ts'
 
 export type PlanState = 'queued' | 'started' | 'ended'
@@ -77,7 +78,7 @@ export interface PlanStore {
     input: Pick<
       StoredPlan,
       'factoryId' | 'title' | 'message' | 'agent' | 'model' | 'effort' | 'fromTask' | 'from'
-    >,
+    > & { chatAgent?: StoredChatAgent },
   ): StoredPlan
   retried(id: string, retry: { fresh: boolean; checkout: PlanCheckout[] }): void
   detachTask(id: string, reason: PlanTaskGone): void
@@ -184,11 +185,12 @@ export function createPlanStore({
   return {
     list: () => store.query(queryDb(plans.orderBy('createdAt', 'asc'))).map(toPlan),
     get,
-    start({ model, effort, fromTask, from, ...input }) {
+    start({ model, effort, fromTask, from, chatAgent, ...input }) {
       const id = randomUUID()
       const at = now()
       commit(
         events.planStarted({ ...input, id, model: model ?? null, effort: effort ?? null, at }),
+        ...(chatAgent ? chatAgentEvents(id, 'plan', input.factoryId, chatAgent) : []),
         ...(from
           ? [
               events.planContinued({

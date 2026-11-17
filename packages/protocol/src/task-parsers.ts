@@ -9,6 +9,7 @@ import {
 import { maxCommitBody } from './commit-title.ts'
 import { proposalCycle } from './proposal.ts'
 import { agentKindList } from './run.ts'
+import { parseRemovedAgents, parseSetupAgents } from './setup-agents.ts'
 import { isHoldingStage, isStageId } from './stage.ts'
 import type {
   ArchiveTaskRequest,
@@ -706,6 +707,7 @@ function setupProposal(value: unknown): SetupProposal {
       ...(reason !== undefined && { reason }),
     }
   })
+  const agents = input.agents === undefined ? undefined : parseSetupAgents(input.agents, badRequest)
   const files = setupList(input.files, 'files').map((file) => {
     const where = needed(file.path, 'each file’s path', 200)
     if (!/^\.ted\/[A-Za-z0-9._/-]+$/.test(where) || where.includes('..')) {
@@ -717,7 +719,18 @@ function setupProposal(value: unknown): SetupProposal {
     throw new HttpError(400, 'the setup proposal names the files it will write')
   }
   const defaults = shortText(input.defaults, 'the line on what stays at Ted’s defaults', 300)
-  return { workflow, checks, apps, files, ...(defaults !== undefined && { defaults }) }
+  return {
+    workflow,
+    checks,
+    apps,
+    ...(agents !== undefined && agents.length > 0 && { agents }),
+    files,
+    ...(defaults !== undefined && { defaults }),
+  }
+}
+
+function badRequest(message: string): never {
+  throw new HttpError(400, message)
 }
 
 function judgments(value: unknown): ValidateJudgments | undefined {
@@ -761,6 +774,9 @@ export function parseAnswerRequest(body: unknown): AnswerRequest {
       ...(text !== undefined && { text }),
       ...(request.proposal !== undefined && { proposal: proposalChoice(request.proposal) }),
       ...(typeof request.simulator === 'string' && { simulator: request.simulator }),
+      ...(request.removeAgents !== undefined && {
+        removeAgents: parseRemovedAgents(request.removeAgents, badRequest),
+      }),
     }
   }
   if (request.action === 'request-changes') {

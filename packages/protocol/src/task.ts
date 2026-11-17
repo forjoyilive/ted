@@ -6,6 +6,7 @@ import type { DeclaredSendBackCause, FindingSeverity } from './checks.ts'
 import type { ValidationSnapshot } from './failures.ts'
 import type { LinearTeam } from './linear.ts'
 import type { AgentKind, RunState } from './run.ts'
+import type { SetupAgentProposal } from './setup-agents.ts'
 import type { BusyHold } from './slots.ts'
 import type { AgentStageId, StageId } from './stage.ts'
 import { RequestValidationError } from './validation.ts'
@@ -682,7 +683,14 @@ export interface RoundAnswerInput {
 }
 
 export type CommentAnswer =
-  | { kind: 'approved'; at: string; text?: string; created?: ProposalCreated; shutDown?: string }
+  | {
+      kind: 'approved'
+      at: string
+      text?: string
+      created?: ProposalCreated
+      shutDown?: string
+      removedAgents?: string[]
+    }
   | { kind: 'changes-requested'; at: string; text: string }
   | {
       kind: 'answered'
@@ -866,6 +874,7 @@ export interface SetupProposal {
   workflow: SetupStageLine[]
   checks: SetupCheckTried[]
   apps: SetupAppTried[]
+  agents?: SetupAgentProposal[]
   files: SetupFileLine[]
   defaults?: string
 }
@@ -991,7 +1000,13 @@ export interface InboxItem {
 }
 
 export type AnswerRequest =
-  | { action: 'approve'; text?: string; proposal?: ProposalChoice; simulator?: string }
+  | {
+      action: 'approve'
+      text?: string
+      proposal?: ProposalChoice
+      simulator?: string
+      removeAgents?: string[]
+    }
   | { action: 'request-changes'; text: string }
   | { action: 'deny'; text?: string }
   | {

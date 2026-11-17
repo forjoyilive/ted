@@ -85,6 +85,7 @@ describe('Factory settings save bar', () => {
 })
 
 const view: FactorySettingsView = {
+  agentFiles: [],
   factoryId: 'f1',
   repo: 'kriya/app',
   defaultBranch: 'main',

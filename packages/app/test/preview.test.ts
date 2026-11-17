@@ -1,5 +1,6 @@
 import type { RunSlots, SimulatorSlots, Task, TaskApp } from '@ted/protocol'
 import { emulatorsLine, simulatorsLine } from '@ted/protocol'
+import { noChecks } from '@ted/protocol/slots'
 import { describe, expect, test } from 'vitest'
 import { appStatusLine, needsSlot, previewChoice } from '../src/renderer/apps.ts'
 import { busyDetail, nowLine, runsLine, statusDetail } from '../src/renderer/slots.ts'
@@ -143,12 +144,18 @@ describe('iOS simulator Apps', () => {
     expect(simulatorsLine(booted(3))).toBe('Simulators 3 of 3 booted')
     expect(simulatorsLine(booted(0))).toBeUndefined()
     expect(simulatorsLine({ ...booted(1), supported: false })).toBeUndefined()
-    const slots = { working: 4, limit: 6, queued: 2, factories: [] } as unknown as RunSlots
+    const slots = {
+      working: 4,
+      limit: 6,
+      queued: 2,
+      factories: [],
+      checks: noChecks,
+    } as unknown as RunSlots
     expect(nowLine(slots, booted(1))).toBe(
-      'Now: 4 slots in use · limit 6 · 2 queued · 1 of 3 simulators booted',
+      'Now: 4 of 6 slots in use · 2 queued · 1 of 3 simulators booted',
     )
     expect(nowLine(slots, { ...booted(1), supported: false })).toBe(
-      'Now: 4 slots in use · limit 6 · 2 queued',
+      'Now: 4 of 6 slots in use · 2 queued',
     )
   })
 })
@@ -191,20 +198,60 @@ describe('Android emulator Apps', () => {
     expect(needsSlot(phone({}), running(2))).toBe(true)
     expect(emulatorsLine(running(2))).toBe('Emulators 2 of 2 running')
     expect(emulatorsLine(running(0))).toBeUndefined()
-    const slots = { working: 4, limit: 6, queued: 2, factories: [] } as unknown as RunSlots
+    const slots = {
+      working: 4,
+      limit: 6,
+      queued: 2,
+      factories: [],
+      checks: noChecks,
+    } as unknown as RunSlots
     expect(nowLine(slots, undefined, running(1))).toBe(
-      'Now: 4 slots in use · limit 6 · 2 queued · 1 of 2 emulators running',
+      'Now: 4 of 6 slots in use · 2 queued · 1 of 2 emulators running',
     )
   })
 })
 
 test('the sidebar names slot usage and its limit, including above-limit and queued-only work', () => {
-  const slots: RunSlots = { working: 7, limit: 6, queued: 1, holders: [], queue: [], factories: [] }
-  expect(runsLine(slots)).toBe('7 slots in use · limit 6 · 1 queued')
-  expect(runsLine({ ...slots, working: 1, queued: 0 })).toBe('1 slot in use · limit 6')
-  expect(runsLine({ ...slots, working: 0 })).toBe('0 slots in use · limit 6 · 1 queued')
-  expect(runsLine({ ...slots, working: 0, queued: 0 })).toBe('0 slots in use · limit 6')
+  const slots: RunSlots = {
+    working: 7,
+    limit: 6,
+    queued: 1,
+    holders: [],
+    queue: [],
+    factories: [],
+    checks: noChecks,
+  }
+  expect(runsLine(slots)).toBe('7 of 6 slots in use · 1 queued')
+  expect(runsLine({ ...slots, working: 1, queued: 0 })).toBe('1 of 6 slots in use')
+  expect(runsLine({ ...slots, working: 0 })).toBe('0 of 6 slots in use · 1 queued')
+  expect(runsLine({ ...slots, working: 0, queued: 0 })).toBe('0 of 6 slots in use')
   expect(runsLine({ ...slots, busy: { loadRatio: 1.4 } })).toContain('this computer is busy')
+})
+
+test('the sidebar counts running and waiting Checks beside the agents', () => {
+  const slots: RunSlots = {
+    working: 1,
+    limit: 6,
+    queued: 7,
+    holders: [],
+    queue: [],
+    factories: [],
+    checks: { ...noChecks, running: 3, waiting: 1 },
+    busy: { loadRatio: 1.4 },
+  }
+  expect(runsLine(slots)).toBe(
+    '1 of 6 slots in use · 3 Checks running, 1 waiting · 7 queued · this computer is busy',
+  )
+  expect(nowLine(slots)).toBe(
+    'Now: 1 of 6 slots in use · 3 Checks running, 1 waiting · 7 queued · this computer is busy',
+  )
+  const { busy: _, ...calm } = slots
+  expect(runsLine({ ...calm, queued: 0, checks: { ...noChecks, running: 1 } })).toBe(
+    '1 of 6 slots in use · 1 Check running',
+  )
+  expect(runsLine({ ...calm, queued: 0, checks: { ...noChecks, waiting: 2 } })).toBe(
+    '1 of 6 slots in use · 2 Checks waiting',
+  )
 })
 
 test('hovering a busy hold names each resource that holds, with its figure and marks', () => {

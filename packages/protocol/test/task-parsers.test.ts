@@ -48,9 +48,24 @@ const setup = {
       reason: 'Ready',
     },
   ],
+  agents: [
+    {
+      id: 'release',
+      name: 'Release helper',
+      about: 'Cuts a release',
+      powers: ['ask', 'read_code', 'run_commands'],
+      commands: [
+        { name: 'test', command: 'pnpm test' },
+        { name: 'lint', command: 'pnpm lint', repo: 'web' },
+      ],
+      agent: 'claude',
+      model: 'opus',
+      instructions: '# Release helper\n',
+    },
+  ],
   files: [{ path: '.ted/workflow.yaml', about: 'Workflow' }],
   defaults: 'Keep other defaults.',
-} satisfies P.SetupProposal
+} satisfies Required<P.SetupProposal>
 const design = {
   title: 'Design',
   summary: 'Approach',
@@ -278,6 +293,7 @@ for (const answer of [
     text: 'Approved',
     simulator: 'sim',
     proposal: { skip: [2], startUnblocked: true },
+    removeAgents: ['release'],
   },
   { action: 'request-changes', text: 'Change this' },
   { action: 'deny', text: 'Denied' },
@@ -314,6 +330,30 @@ roundTrip(P.parseLocalDesignReviewInput, {
   video: { path: 'demo.mp4', caption: 'Video' },
   prototype: { path: 'demo.html', caption: 'Prototype' },
 })
+
+const agent = setup.agents[0]
+for (const [agents, message] of [
+  ['release', 'the setup proposal’s Agents must be a list'],
+  [[{ ...agent, id: 'Release' }], 'Release isn’t an Agent id'],
+  [[{ ...agent, id: 'coordinator' }], 'coordinator is one of Ted’s own Agents'],
+  [[agent, agent], 'the setup proposal suggests release twice'],
+  [[{ ...agent, powers: ['ask', 'push'] }], 'release asks for a power Ted doesn’t have'],
+  [[{ ...agent, powers: ['ask', 'ask'] }], 'release lists a power twice'],
+  [[{ ...agent, name: ' ' }], 'release’s name is required'],
+  [[{ ...agent, agent: undefined }], 'release names a model without a Provider'],
+  [[{ ...agent, instructions: '' }], 'release’s instructions are empty'],
+  [[{ ...agent, powers: ['run_commands'] }], 'Run commands in the copy needs Read the code'],
+  [[{ ...agent, powers: ['read_code'] }], 'release lists commands without the run_commands power'],
+  [[{ ...agent, commands: [{ name: 'Test', command: 'x' }] }], 'Test isn’t a command name'],
+  [[{ ...agent, commands: [{ name: 'test', command: ' ' }] }], 'release’s test must be a command'],
+] as const) {
+  rejects(P.parseDesignReviewInput, { ...design, setup: { ...setup, agents } }, message)
+}
+rejects(
+  P.parseAnswerRequest,
+  { action: 'approve', removeAgents: ['Not An Id'] },
+  'removeAgents must be a list of Agent ids',
+)
 
 rejects(P.parseCreateTaskRequest, { start: 'yes' }, 'start must be true or false')
 rejects(P.parseCreateTaskRequest, { child: 'yes' }, 'child must be true or false')

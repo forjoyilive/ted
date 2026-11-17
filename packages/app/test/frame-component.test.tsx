@@ -619,3 +619,49 @@ test('Factory groups: New group from the + menu, Move to group, collapse and Ung
   expect(a.state.layout).toEqual({ items: [{ factoryId: 'f2' }, { factoryId: 'f1' }] })
   expect(within(nav()).queryByRole('region', { name: 'Acme' })).toBeNull()
 })
+
+test('hovering the sidebar memory figure shows what makes it up and opens every process', async () => {
+  const { ResourceUsage } = await import('../src/renderer/components/ResourceUsage.tsx')
+  const mb = 1024 ** 2
+  const none = { count: 0, bytes: 0 }
+  bridge({
+    resourceUsage: () => ({
+      cpuPercent: 339,
+      memoryBytes: 2600 * mb,
+      memory: {
+        daemon: { bytes: 900 * mb, heapBytes: 0, externalBytes: 0 },
+        hosts: { count: 2, bytes: 100 * mb },
+        agents: { count: 2, bytes: 700 * mb },
+        agentTools: { count: 5, bytes: 400 * mb },
+        checks: { count: 3, bytes: 300 * mb },
+        apps: none,
+        other: none,
+        store: { eventLogBytes: 0, stateBytes: 0 },
+        app: { count: 4, bytes: 200 * mb },
+      },
+    }),
+  })
+  const dispatch = vi.fn()
+  render(<ResourceUsage dispatch={dispatch} />)
+  const figure = await screen.findByRole('button', { name: 'CPU 339% · Memory 2.5 GB' })
+  await user().hover(figure)
+  const card = await screen.findByRole('region', { name: 'Memory breakdown' })
+  expect(within(card).getByRole('heading').textContent).toBe(
+    'Memory used by Ted and its agents (17 processes)',
+  )
+  expect(
+    within(card)
+      .getAllByRole('listitem')
+      .map((item) => item.textContent),
+  ).toEqual([
+    'Agents’ tools and MCP servers · 5400 MB',
+    'Agents · 2700 MB',
+    'Checks · 3300 MB',
+    'Daemon and Run hosts · 31000 MB',
+    'Ted app · 4200 MB',
+  ])
+  expect(within(card).getByText('Total').parentElement?.textContent).toBe('Total2.5 GB')
+  await user().click(within(card).getByRole('button', { name: /Show every process/ }))
+  expect(dispatch).toHaveBeenCalledWith({ type: 'open-settings', section: 'developer' })
+  expect(screen.queryByRole('region', { name: 'Memory breakdown' })).toBeNull()
+})

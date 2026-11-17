@@ -199,8 +199,16 @@ The conversational agent for one Factory. It compares current Tasks, briefs and 
 _Avoid_: Foreman, manager, supervisor
 
 **Agent**:
-A kind of helper for a Factory that works outside any one Task, with powers of its own: the built-in Coordinator and Planner, which runs planning chats, and Agents a layer defines. An Agent is defined by its Agent files: its settings in `agents.yaml` and its instructions in `agents/<id>.md`, in Ted’s defaults, the Library or `.ted/`. Its powers come from a fixed list: Ask the user, Manage Tasks, Propose Tasks and Read the code. Each Factory’s Agents screen lists every chat with them. Lowercase “agent” still means a Run or its role (see Provider).
+A kind of helper for a Factory that works outside any one Task, with powers of its own: the built-in Coordinator and Planner, which runs planning chats, and Agents a layer defines. An Agent is defined by its Agent files: its settings in `agents.yaml` and its instructions in `agents/<id>.md`, in Ted’s defaults, the Library or `.ted/`. Its powers come from a fixed list: Ask the user, Manage Tasks, Manage Automations, Propose Tasks, Read the code, Manage Agents and Run commands in the copy, and it can list Agent commands. The Planner runs in planning chats and every other Agent in Coordinator chats. A chat keeps the Agent as it was when the chat started, so editing or removing an Agent changes only later chats. Each Factory’s Agents screen lists every chat with them. Lowercase “agent” still means a Run or its role (see Provider).
 _Avoid_: Assistant, bot
+
+**Power**:
+One thing an Agent’s chat may do through Ted: Ask the user (questions and rounds in the Inbox), Manage Tasks (the Coordinator’s Task actions), Manage Automations (reading the Factory’s Automations and drafting new ones, changes and deletes that the user carries out from a card), Propose Tasks (a proposal that creates Tasks when approved), Read the code (a fresh checkout of the Factory’s repos), Manage Agents (drafts of Agents the user creates from a card) or Run commands in the copy (the Agent’s commands, which needs Read the code). Ted checks every power but Read the code on every request; Read the code only decides whether the chat gets a checkout.
+_Avoid_: Permission, capability, tool
+
+**Agent command**:
+A command with a name that an Agent’s settings list in `agents.yaml`. A chat whose Agent has Run commands in the copy asks for one by name with `ted agent run <name>`; Ted runs the listed command itself in the chat’s copy of the code, in the sandbox, like a Check, and returns its output and exit status. The agent can’t change the command or add arguments.
+_Avoid_: Tool, script, task
 
 **Chat**:
 One conversation with an Agent, from its first message until it is deleted: a Coordinator chat or a planning chat. A Factory can have several at once, each with its own title, status, Run and requests. A chat stays open until the user archives it; an archived chat is read only, listed under Archived, and can be unarchived or deleted.
@@ -219,6 +227,10 @@ A sub-agent Ted starts itself at Validate’s third send-back to read the rounds
 **Run**:
 One agent conversation, on a Task (the Task Lead’s or a sub-agent’s), for an Automation, for planning, or for a Coordinator, from when Ted starts it until it is stopped. Ted may restart the Provider underneath it, for example onto a new Provider version, and it is still the same Run. A stopped Run is kept as history and never resumed; work continues in a fresh Run.
 _Avoid_: Session, job
+
+**Asleep**:
+Said of an idle Task Lead Run whose Provider process Ted has ended to free memory. The Run, its Conversation and its place on the Task stay as they are, and Ted starts the Provider again in the same session when there is a message for it.
+_Avoid_: Suspended, hibernated, paused (a paused Provider is something else)
 
 **Provider**:
 The AI coding tool a Run uses: Claude Code, Codex or Antigravity. It is chosen for each Task Lead, Reviewer, Planning Run, Automation and Sub-Agent, and set up on Settings → Providers. “Agent” means a Run or its role (Task Lead, Sub-Agent, agent Run), never the tool.
@@ -285,7 +297,7 @@ The View that draws one Factory’s blockers: each Task that waits for another, 
 _Avoid_: Graph, timeline, dependency chart
 
 **Inbox**:
-The Comments from every Factory waiting on the human’s answer: questions, Clarify rounds, design reviews, sign-offs, Task proposals and permission requests. A Comment leaves the Inbox once it is answered or can no longer be answered. A snoozed request is hidden from the Inbox and its counts until the time the human picked, and stays open meanwhile.
+The Comments and chat requests from every Factory waiting on the human’s answer: questions, Clarify rounds, design reviews, sign-offs, Task proposals and permission requests. A Comment leaves the Inbox once it is answered or can no longer be answered. A snoozed request is hidden from the Inbox and its counts until the time the human picked, and stays open meanwhile.
 _Avoid_: Notifications, feed
 
 **Middle pane**:

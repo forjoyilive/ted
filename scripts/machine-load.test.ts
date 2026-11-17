@@ -1,14 +1,17 @@
 import { expect, test } from 'vitest'
 import { groupsFor } from './check.ts'
 import {
+  allowedCpus,
   busy,
   busyAbove,
+  cpusLine,
   loadPerCore,
   quietMaxWaitMs,
   quietStep,
   quietWaitMs,
   scaledWorkers,
   waitForQuiet,
+  workersWithin,
 } from './machine-load.ts'
 
 test('the load per core comes from the machine unless TED_TEST_LOAD names it or turns it off', () => {
@@ -41,6 +44,27 @@ test('worker counts stay as they are up to the busy mark and shrink above it, ne
     { project: 'electron', maxWorkers: 1 },
     { project: 'node', maxWorkers: 2 },
   ])
+})
+
+test('a Check keeps its workers within the CPUs Ted allows it, 2 per worker, never below 1 each', () => {
+  expect(allowedCpus({})).toBeUndefined()
+  expect(allowedCpus({ TED_CHECK_CPUS: '' })).toBeUndefined()
+  expect(allowedCpus({ TED_CHECK_CPUS: '0' })).toBeUndefined()
+  expect(allowedCpus({ TED_CHECK_CPUS: '2.5' })).toBeUndefined()
+  expect(allowedCpus({ TED_CHECK_CPUS: 'many' })).toBeUndefined()
+  expect(allowedCpus({ TED_CHECK_CPUS: '6' })).toBe(6)
+  expect(workersWithin([3, 6], undefined)).toEqual([3, 6])
+  expect(workersWithin([6], 12)).toEqual([6])
+  expect(workersWithin([6], 6)).toEqual([3])
+  expect(workersWithin([6], 3)).toEqual([1])
+  expect(workersWithin([6], 1)).toEqual([1])
+  expect(workersWithin([3, 6], 12)).toEqual([2, 4])
+  expect(workersWithin([3, 6], 6)).toEqual([1, 2])
+  expect(workersWithin([3, 6], 2)).toEqual([1, 1])
+  expect(workersWithin([3], 6)).toEqual([3])
+  expect(cpusLine(6, 'node ×3', 'node ×6')).toBe(
+    'Ted allows this Check 6 CPUs (TED_CHECK_CPUS, 2 per worker): running node ×3 instead of node ×6, so the rest of the machine stays free for Runs.',
+  )
 })
 
 test('pnpm check waits for a quiet machine only when asked, by flag or environment', () => {

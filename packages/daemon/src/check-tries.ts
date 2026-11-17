@@ -8,7 +8,7 @@ import { RequestError } from './errors.ts'
 import { clonePath } from './factories.ts'
 import * as git from './git.ts'
 import type { StoredFactory, TedStore } from './store/index.ts'
-import type { CheckSlots } from './tasks/check-slots.ts'
+import { type CheckSlots, checkCpusEnv } from './tasks/check-slots.ts'
 import { defaultCheckTimeout, readOutput } from './tasks/checks.ts'
 import { removeInside } from './tasks/remove-files.ts'
 import { type FactoryRepoEntry, factoryRepos, findRepo, isSafeRepo } from './tasks/repos.ts'
@@ -246,7 +246,11 @@ export function createCheckTries(options: {
             timeoutMs: durationMs(request.timeout ?? defaultCheckTimeout),
           },
           cwd: prepared.worktree,
-          env: worktreeCommandEnv(entry.env, { CI: '1' }, options.env?.() ?? process.env),
+          env: worktreeCommandEnv(
+            entry.env,
+            { CI: '1', ...checkCpusEnv(options.checkSlots.cpus()) },
+            options.env?.() ?? process.env,
+          ),
           log,
           shell: [loginShell(options.env?.() ?? process.env), '-lc'],
           signal: abort.signal,

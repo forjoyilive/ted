@@ -1,8 +1,19 @@
-import type { Diagnostics, LogText, ProcessInfo } from '@ted/protocol'
-import { memorySize, memorySummary } from '@ted/protocol/memory'
+import type { Diagnostics, LogText } from '@ted/protocol'
+import {
+  type DiagnosticsSort,
+  isNumberColumn,
+  nextSort,
+  type ProcessSortColumn,
+  providerName,
+  type RunSortColumn,
+  sortProcesses,
+  sortRuns,
+  type TableSort,
+} from '@ted/protocol/diagnostics-sort'
+import { memorySize, memorySummary, processName } from '@ted/protocol/memory'
 import { shortReference } from '@ted/protocol/reference'
 import { profileSeconds } from '@ted/protocol/slow'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react'
 import { Loading, LoadingError, Skeleton } from '../components/Loading.tsx'
 import { useRefreshAction } from '../refresh-action.ts'
 import { readableError, ted } from '../ted.ts'
@@ -173,15 +184,21 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
               </Button>
             </SettingRow>
           </SettingsGroup>
-          <DeveloperTools onCopyReport={report.copy} />
+          <DeveloperTools sort={settings.diagnosticsSort} onCopyReport={report.copy} />
         </>
       )}
     </SettingsPage>
   )
 }
 
-function DeveloperTools({ onCopyReport }: { onCopyReport: () => void }) {
-  const resource = usePolled(ted.getDiagnostics, processRefreshMs)
+function DeveloperTools({
+  sort,
+  onCopyReport,
+}: {
+  sort: DiagnosticsSort
+  onCopyReport: () => void
+}) {
+  const resource = usePolled(loadDiagnostics, processRefreshMs)
   const diagnostics = resource.value
   return (
     <>
@@ -189,30 +206,139 @@ function DeveloperTools({ onCopyReport }: { onCopyReport: () => void }) {
       {diagnostics === undefined ? (
         !resource.error && <Skeleton shape="settings" label="Loading diagnostics…" />
       ) : (
-        <DiagnosticsView diagnostics={diagnostics} onCopyReport={onCopyReport} />
+        <DiagnosticsView diagnostics={diagnostics} sort={sort} onCopyReport={onCopyReport} />
       )}
       <LogViewer runs={diagnostics?.runs.map((r) => r.runId) ?? []} />
     </>
   )
 }
 
-function owner(process: ProcessInfo): string {
-  return process.owner === 'daemon' ? 'Daemon' : `Run ${shortReference(process.owner.runId)}`
+async function loadDiagnostics(): Promise<Diagnostics> {
+  const [diagnostics, own] = await Promise.all([ted.getDiagnostics(), ted.appProcesses()])
+  return { ...diagnostics, processes: [...diagnostics.processes, ...own] }
+}
+
+interface Column<Key extends string> {
+  key: Key
+  label: string
+  width?: number
+}
+
+const runColumns: readonly Column<RunSortColumn>[] = [
+  { key: 'run', label: 'Run', width: 88 },
+  { key: 'provider', label: 'Provider', width: 120 },
+  { key: 'state', label: 'State' },
+  { key: 'cpu', label: 'CPU', width: 80 },
+  { key: 'memory', label: 'Memory', width: 96 },
+  { key: 'tokensIn', label: 'Tokens in', width: 120 },
+  { key: 'tokensOut', label: 'Tokens out', width: 120 },
+]
+
+const processColumns: readonly Column<ProcessSortColumn>[] = [
+  { key: 'pid', label: 'PID', width: 72 },
+  { key: 'command', label: 'Command' },
+  { key: 'name', label: 'What it is', width: 200 },
+  { key: 'cpu', label: 'CPU', width: 80 },
+  { key: 'memory', label: 'Memory', width: 96 },
+]
+
+function SortableTable<Key extends RunSortColumn | ProcessSortColumn>({
+  label,
+  columns,
+  sort,
+  onSort,
+  children,
+}: {
+  label: string
+  columns: readonly Column<Key>[]
+  sort: TableSort<Key>
+  onSort: (sort: TableSort<Key>) => void
+  children: ReactNode
+}) {
+  return (
+    <table className={styles.table} aria-label={label}>
+      <colgroup>
+        {columns.map((column) => (
+          <col key={column.key} style={{ width: column.width }} />
+        ))}
+      </colgroup>
+      <thead>
+        <tr>
+          {columns.map((column) => {
+            const active = sort.column === column.key
+            return (
+              <th
+                key={column.key}
+                className={isNumberColumn(column.key) ? styles.number : undefined}
+                aria-sort={active ? sort.direction : undefined}
+              >
+                <button
+                  type="button"
+                  className={styles.sortButton}
+                  onClick={() => onSort(nextSort(sort, column.key))}
+                >
+                  {column.label}
+                  <span className={styles.sortArrow} aria-hidden="true">
+                    {active && sort.direction === 'ascending' ? '▲' : '▼'}
+                  </span>
+                </button>
+              </th>
+            )
+          })}
+        </tr>
+      </thead>
+      <tbody>{children}</tbody>
+    </table>
+  )
+}
+
+function Cell({
+  text,
+  title = text,
+  number = false,
+  mono = false,
+}: {
+  text: string
+  title?: string
+  number?: boolean
+  mono?: boolean
+}) {
+  const classes = [number && styles.number, mono && styles.mono].filter(Boolean).join(' ')
+  return (
+    <td className={classes || undefined} title={title}>
+      {text}
+    </td>
+  )
 }
 
 function DiagnosticsView({
   diagnostics,
+  sort,
   onCopyReport,
 }: {
   diagnostics: Diagnostics | undefined
+  sort: DiagnosticsSort
   onCopyReport: () => void
 }) {
   const memory = diagnostics?.memory
   const used = memory ? memory.totalBytes - memory.availableBytes : 0
   const usedPercent = memory ? Math.round((used / memory.totalBytes) * 100) : 0
+  const [chosen, setChosen] = useState(sort)
+  const saving = useRef(0)
+  useEffect(() => {
+    if (saving.current === 0) setChosen(sort)
+  }, [sort])
+  const saveSort = (change: Partial<DiagnosticsSort>) => {
+    const next = { ...chosen, ...change }
+    setChosen(next)
+    saving.current += 1
+    return ted.updateSettings({ diagnosticsSort: next }).finally(() => {
+      saving.current -= 1
+    })
+  }
 
   return (
-    <section className={styles.group} aria-label="Diagnostics">
+    <section className={`${styles.group} ${styles.wideGroup}`} aria-label="Diagnostics">
       <div className={styles.groupHeader}>
         <h2 className={styles.groupLabel} data-setting="app.developer.diagnostics">
           Diagnostics
@@ -233,70 +359,49 @@ function DiagnosticsView({
           {diagnostics && diagnostics.runs.length === 0 ? (
             <p className={styles.tableEmpty}>No Runs yet.</p>
           ) : (
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Run</th>
-                  <th>Provider</th>
-                  <th>State</th>
-                  <th className={styles.number}>CPU</th>
-                  <th className={styles.number}>Memory</th>
-                  <th className={styles.number}>Tokens in</th>
-                  <th className={styles.number}>Tokens out</th>
-                </tr>
-              </thead>
-              <tbody>
-                {diagnostics?.runs.map((run) => (
+            <SortableTable
+              label="Runs"
+              columns={runColumns}
+              sort={chosen.runs}
+              onSort={(runs) => saveSort({ runs })}
+            >
+              {sortRuns(diagnostics?.runs ?? [], chosen.runs).map((run) => {
+                const live = run.state !== 'finished'
+                return (
                   <tr key={run.runId}>
-                    <td className={styles.mono} title={run.runId}>
-                      {shortReference(run.runId)}
-                    </td>
-                    <td>
-                      {run.agent === 'claude'
-                        ? 'Claude Code'
-                        : run.agent === 'antigravity'
-                          ? 'Antigravity'
-                          : 'Codex'}
-                    </td>
-                    <td>{run.state}</td>
-                    <td className={styles.number}>
-                      {run.state === 'finished' ? '–' : `${run.cpuPercent}%`}
-                    </td>
-                    <td className={styles.number}>
-                      {run.state === 'finished' ? '–' : memorySize(run.memoryBytes)}
-                    </td>
-                    <td className={styles.number}>{tokens(run.tokens.input)}</td>
-                    <td className={styles.number}>{tokens(run.tokens.output)}</td>
+                    <Cell text={shortReference(run.runId)} title={run.runId} mono />
+                    <Cell text={providerName(run)} />
+                    <Cell text={run.state} />
+                    <Cell text={live ? `${run.cpuPercent}%` : '–'} number />
+                    <Cell text={live ? memorySize(run.memoryBytes) : '–'} number />
+                    <Cell text={tokens(run.tokens.input)} number />
+                    <Cell text={tokens(run.tokens.output)} number />
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                )
+              })}
+            </SortableTable>
           )}
         </div>
         <div className={styles.tableRow}>
-          <h3 className={styles.tableTitle}>Processes</h3>
-          <table className={styles.table}>
-            <thead>
-              <tr>
-                <th className={styles.number}>PID</th>
-                <th>Command</th>
-                <th>Belongs to</th>
-                <th className={styles.number}>CPU</th>
-                <th className={styles.number}>Memory</th>
+          <h3 className={styles.tableTitle} data-setting="app.developer.processes">
+            Processes
+          </h3>
+          <SortableTable
+            label="Processes"
+            columns={processColumns}
+            sort={chosen.processes}
+            onSort={(processes) => saveSort({ processes })}
+          >
+            {sortProcesses(diagnostics?.processes ?? [], chosen.processes).map((process) => (
+              <tr key={process.pid}>
+                <Cell text={String(process.pid)} number mono />
+                <Cell text={process.command} mono />
+                <Cell text={processName(process)} />
+                <Cell text={`${process.cpuPercent}%`} number />
+                <Cell text={memorySize(process.memoryBytes)} number />
               </tr>
-            </thead>
-            <tbody>
-              {diagnostics?.processes.map((process) => (
-                <tr key={process.pid}>
-                  <td className={`${styles.number} ${styles.mono}`}>{process.pid}</td>
-                  <td className={styles.mono}>{process.command}</td>
-                  <td>{owner(process)}</td>
-                  <td className={styles.number}>{process.cpuPercent}%</td>
-                  <td className={styles.number}>{memorySize(process.memoryBytes)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            ))}
+          </SortableTable>
         </div>
       </div>
     </section>

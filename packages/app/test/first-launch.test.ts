@@ -3,7 +3,12 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { type MachineSettings, readDaemonInfo } from '@ted/protocol'
-import { type ElectronApplication, _electron as electron, type Page } from 'playwright'
+import {
+  type ElectronApplication,
+  _electron as electron,
+  type Locator,
+  type Page,
+} from 'playwright'
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import { appClient, removeHome, stopDaemonIn } from '../../daemon/test/helpers.ts'
 import { buildRenderer } from './build-renderer.ts'
@@ -114,6 +119,14 @@ const startAtLogin = (window: Page) =>
 const nextButton = (window: Page) => window.getByRole('button', { name: 'Next' })
 const nextHelp = 'Next needs Git and at least one Provider ready.'
 
+const overflowsRow = (group: Locator) =>
+  group.evaluate((fieldset) => {
+    const edge = fieldset.getBoundingClientRect().right
+    return [...fieldset.querySelectorAll('code, button')].flatMap((element) =>
+      element.getBoundingClientRect().right > edge + 0.5 ? [element.textContent] : [],
+    )
+  })
+
 async function toSetUp(window: Page) {
   await welcome(window).waitFor()
   await nextButton(window).click()
@@ -143,7 +156,12 @@ describe('first launch', () => {
     await startAtLogin(again).setChecked(true)
     await again.getByRole('button', { name: 'Skip' }).click()
     await sidebar(again).waitFor()
-    await expect.poll(settings).toMatchObject({ firstLaunchDone: true, startAtLogin: true })
+    await expect.poll(settings).toMatchObject({
+      firstLaunchDone: true,
+      startAtLogin: true,
+      reporting: true,
+      reportingAsked: true,
+    })
     await expect.poll(loginLines).toEqual(['on'])
 
     const completed = await relaunch()
@@ -203,6 +221,16 @@ describe('first launch', () => {
     const codex = row(window, 'Codex')
     await codex.getByText('Not installed').waitFor()
     await codex.getByText('npm install -g @openai/codex').waitFor()
+    const antigravity = row(window, 'Antigravity')
+    await antigravity.getByText('Not installed').waitFor()
+    await antigravity.getByRole('button', { name: 'Open Terminal' }).waitFor()
+    expect(await overflowsRow(antigravity)).toEqual([])
+    const tops = await Promise.all(
+      ['Copy', 'Open Terminal'].map((name) =>
+        antigravity.getByRole('button', { name }).evaluate((b) => b.getBoundingClientRect().top),
+      ),
+    )
+    expect(tops[0]).toBe(tops[1])
     const git = row(window, 'Git')
     await git.getByText('No name or email set').waitFor()
     await git.getByText('git config --global user.name "Your Name"').waitFor()

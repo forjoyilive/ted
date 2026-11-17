@@ -57,6 +57,7 @@ import { openSetting, useShownSetting } from '../setting-focus.ts'
 import { type FactorySectionId, factorySections, type SettingId } from '../settings-search.ts'
 import { readableError, ted } from '../ted.ts'
 import { RepoRowView } from './AddFactoryDialog.tsx'
+import { AgentFilesSection } from './AgentFilesSection.tsx'
 import { AsanaIntakeSection } from './AsanaIntakeSection.tsx'
 import styles from './FactorySettings.module.css'
 import {
@@ -478,6 +479,39 @@ export function FactorySettings({
                     <ChecksSection view={view} draft={draft} tries={tries} onDraft={onDraft} />
                   )}
                   {section === 'cleanup' && <CleanupSection draft={draft} onDraft={onDraft} />}
+                  {section === 'agent-files' && (
+                    <section
+                      className={`${styles.section} ${styles.wideSection}`}
+                      aria-labelledby="agent-files"
+                    >
+                      <SectionHeading
+                        id="agent-files"
+                        setting="factory.agent-files"
+                        title="Agents"
+                        where="repo"
+                        help="The Agents you can start chats with in this Factory, saved in .ted/agents.yaml and .ted/agents/. Override copies an inherited Agent into .ted/ for this Factory. Saving opens a settings pull request."
+                      />
+                      <AgentFilesSection
+                        layer="factory"
+                        folder=".ted/"
+                        rows={view.agentFiles}
+                        draft={draft.agentFiles}
+                        loaded={base.draft.agentFiles}
+                        kept={draft.keepAgentFiles}
+                        newSetting="factory.agent-files.new"
+                        onDraft={(change) =>
+                          onDraft((d) => ({ ...d, agentFiles: change(d.agentFiles) }))
+                        }
+                        onKeep={(id) =>
+                          onDraft((d) =>
+                            d.keepAgentFiles.includes(id)
+                              ? d
+                              : { ...d, keepAgentFiles: [...d.keepAgentFiles, id] },
+                          )
+                        }
+                      />
+                    </section>
+                  )}
                   {section === 'agents' && (
                     <AgentsSection
                       view={view}

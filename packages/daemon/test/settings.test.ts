@@ -262,6 +262,8 @@ describe('settings and Factories over the daemon API', () => {
     ['Stay Awake that is not true or false', { stayAwake: 1 }],
     ['first launch done that is not true or false', { firstLaunchDone: 'yes' }],
     ['onboarding on next open that is not true or false', { onboardingOnNextOpen: 1 }],
+    ['reporting that is not true or false', { reporting: 'on' }],
+    ['reporting asked that is not true or false', { reportingAsked: 1 }],
     ['no simulator slots', { maxBootedSimulators: 0 }],
     ['no Checks at once', { maxChecksAtOnce: 0 }],
     ['more Checks at once than the limit', { maxChecksAtOnce: 17 }],
@@ -324,6 +326,15 @@ describe('settings and Factories over the daemon API', () => {
     await ted.updateSettings({ deleteArchivedAfterDays: null })
     expect((await ted.getSettings()).deleteArchivedAfterDays).toBeNull()
 
+    expect((await ted.getSettings()).sleepIdleRunsAfterMinutes).toBe(10)
+    await ted.updateSettings({ sleepIdleRunsAfterMinutes: 1440 })
+    expect((await ted.getSettings()).sleepIdleRunsAfterMinutes).toBe(1440)
+    await expect(ted.updateSettings({ sleepIdleRunsAfterMinutes: 0 })).rejects.toThrow(
+      'sleepIdleRunsAfterMinutes must be null or a whole number from 1 to 1440',
+    )
+    await ted.updateSettings({ sleepIdleRunsAfterMinutes: null })
+    expect((await ted.getSettings()).sleepIdleRunsAfterMinutes).toBeNull()
+
     expect((await ted.getSettings()).deleteArchivedChatsAfterDays).toBeNull()
     await ted.updateSettings({ deleteArchivedChatsAfterDays: 30 })
     expect((await ted.getSettings()).deleteArchivedChatsAfterDays).toBe(30)
@@ -365,14 +376,22 @@ describe('settings and Factories over the daemon API', () => {
     expect((await ted.getSettings()).factoryNotifications).toEqual({})
   })
 
-  test('a client marks first launch done and asks for onboarding again', async () => {
+  test('a client marks first launch done, answers reporting and asks for onboarding again', async () => {
     daemon = await startDaemon({ home, version: '9.9.9' })
     const ted = await client()
 
-    await ted.updateSettings({ firstLaunchDone: true, onboardingOnNextOpen: true })
+    expect(await ted.getSettings()).toMatchObject({ reporting: false, reportingAsked: false })
+    await ted.updateSettings({
+      firstLaunchDone: true,
+      onboardingOnNextOpen: true,
+      reporting: true,
+      reportingAsked: true,
+    })
     expect(await ted.getSettings()).toMatchObject({
       firstLaunchDone: true,
       onboardingOnNextOpen: true,
+      reporting: true,
+      reportingAsked: true,
     })
   })
 

@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import * as P from '../src/index.ts'
-import { type AllFields, rejects, roundTrip, variant } from './parser-cases.ts'
+import { type AllFields, rejects, roundTrip, variant, variants } from './parser-cases.ts'
 
 roundTrip(P.parseAppRef, { name: 'Dev', repo: 'ted' })
 roundTrip(P.parseStartAppRequest, {
@@ -30,6 +30,7 @@ roundTrip(P.parseStartPlanRequest, {
   agent: 'codex',
   model: 'gpt-5.5',
   effort: 'high',
+  agentId: 'planner',
 })
 roundTrip(P.parseRenamePlanRequest, { title: 'New title' })
 roundTrip(P.parseRenameCoordinatorChatRequest, { title: 'Release review' })
@@ -48,9 +49,75 @@ roundTrip(P.parsePostPlanRequest, { round, proposal, supersedes: 'old' })
 roundTrip(P.parseSendPeerMessage, { operation: 'unique', text: 'Coordinate' })
 roundTrip(P.parseCoordinatorMessage, {
   text: 'Coordinate',
+  agentId: 'release-scout',
   agent: 'codex',
   model: 'gpt-5.5',
   effort: 'high',
+})
+roundTrip(P.parseRunChatCommandRequest, { name: 'web-test' })
+rejects(P.parseRunChatCommandRequest, { name: 'rm -rf /' }, 'command names')
+rejects(P.parseRunChatCommandRequest, {}, 'name must be')
+variants(P.parsePostChatRequest, [
+  { question: { text: 'Which repo?', choices: ['web', 'api'], multiple: true }, supersedes: 'old' },
+  { round },
+  { proposal, supersedes: 'old' },
+  {
+    agent: {
+      id: 'billing-guide',
+      name: 'Billing guide',
+      instructions: '# Billing guide\n',
+      powers: ['ask', 'read_code'],
+      change: true,
+      summary: 'Answers billing questions.',
+    },
+    supersedes: 'old',
+  },
+])
+roundTrip(P.parseAgentDraftInput, {
+  id: 'billing-guide',
+  name: 'Billing guide',
+  instructions: '# Billing guide\n',
+  powers: ['ask', 'read_code'],
+  change: true,
+  summary: 'Answers billing questions.',
+})
+variants<P.AgentDraftAnswer, P.AgentDraftAnswer[]>(P.parseAgentDraftAnswer, [
+  {
+    action: 'create',
+    where: 'factory',
+    name: 'Billing guide',
+    instructions: '# Billing guide\n',
+    powers: ['read_code'],
+  },
+  { action: 'dismiss' },
+])
+test('an Agent draft refuses an outside power and caps its text, and keeps the power order', () => {
+  const draft = { id: 'helper', name: 'Helper', instructions: 'Help.', powers: ['read_code'] }
+  expect(() => P.parseAgentDraftInput({ ...draft, powers: ['deploy'] })).toThrow(
+    '"deploy" isn’t a power',
+  )
+  expect(() => P.parseAgentDraftInput({ ...draft, id: 'Not An Id' })).toThrow('agent.id')
+  expect(() => P.parseAgentDraftInput({ ...draft, name: 'x'.repeat(61) })).toThrow('agent.name')
+  expect(() => P.parseAgentDraftInput({ ...draft, instructions: 'x'.repeat(20_001) })).toThrow(
+    'agent.instructions has 1–20,000 characters',
+  )
+  expect(
+    P.parseAgentDraftInput({ ...draft, powers: ['manage_agents', 'ask', 'ask'], change: false }),
+  ).toEqual({ ...draft, powers: ['ask', 'manage_agents'] })
+  expect(() => P.parseAgentDraftAnswer({ action: 'create', where: 'elsewhere', ...draft })).toThrow(
+    'where is library or factory',
+  )
+})
+test('parsePostChatRequest takes exactly one request and checks the Agent id rule', () => {
+  expect(() => P.parsePostChatRequest({ round, proposal })).toThrow(
+    'send one of question, round, proposal or agent',
+  )
+  expect(() => P.parsePostChatRequest({})).toThrow('send one of question, round, proposal or agent')
+  expect(() => P.parsePostChatRequest({ question: { text: ' ' } })).toThrow('a question has')
+  expect(() => P.parsePostChatRequest({ question: { text: 'Why?' }, supersedes: '' })).toThrow(
+    'supersedes',
+  )
+  expect(() => P.parseCoordinatorMessage({ text: 'Hi', agentId: 'Not An Id' })).toThrow('agentId')
 })
 const version = 'a'.repeat(64)
 const completeAction: Required<P.CoordinatorAction> = {

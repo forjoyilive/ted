@@ -4,6 +4,8 @@ import { setTimeout as sleep } from 'node:timers/promises'
 export const loadEnv = 'TED_TEST_LOAD'
 export const quietEnv = 'TED_CHECK_WAIT_FOR_QUIET'
 export const quietFlag = '--wait-for-quiet'
+export const cpusEnv = 'TED_CHECK_CPUS'
+export const cpusPerWorker = 2
 export const busyAbove = 0.75
 export const quietMaxWaitMs = 30 * 60_000
 export const quietPollMs = 10_000
@@ -29,6 +31,23 @@ export function busy(load: number | undefined): load is number {
 export function scaledWorkers(idle: number, load: number | undefined): number {
   if (!busy(load)) return idle
   return Math.max(1, Math.min(idle, Math.round((idle * busyAbove) / load)))
+}
+
+export function allowedCpus(env: NodeJS.ProcessEnv = process.env): number | undefined {
+  const cpus = Number(env[cpusEnv])
+  return Number.isInteger(cpus) && cpus >= 1 ? cpus : undefined
+}
+
+export function workersWithin(idle: readonly number[], cpus: number | undefined): number[] {
+  if (cpus === undefined) return [...idle]
+  const allowed = Math.max(1, Math.floor(cpus / cpusPerWorker))
+  const wanted = idle.reduce((sum, count) => sum + count, 0)
+  if (wanted <= allowed) return [...idle]
+  return idle.map((count) => Math.max(1, Math.floor((count * allowed) / wanted)))
+}
+
+export function cpusLine(cpus: number, chosen: string, idle: string): string {
+  return `Ted allows this Check ${cpus} CPU${cpus === 1 ? '' : 's'} (${cpusEnv}, ${cpusPerWorker} per worker): running ${chosen} instead of ${idle}, so the rest of the machine stays free for Runs.`
 }
 
 export function busyLine(load: number, chosen: string, idle: string): string {

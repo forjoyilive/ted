@@ -66,6 +66,14 @@ export function messageDraftOwner(store: TedStore, box: MessageBox): Owner {
         throw new HttpError(404, 'no such Coordinator chat')
       return { box, factoryId: chat.factoryId }
     }
+    case 'coordinator-request': {
+      const request = store.chats.request(box.id)
+      if (!request) throw new HttpError(404, 'no such request')
+      if (request.answer) throw new HttpError(409, 'this request is already answered')
+      const chat = store.coordinators.find(request.chatId)
+      if (!chat || !store.getFactory(chat.factoryId)) throw new HttpError(404, 'no such request')
+      return { box, factoryId: chat.factoryId }
+    }
     case 'coordinator-new':
     case 'new-plan':
       if (!store.getFactory(box.id)) throw new HttpError(404, 'no such Factory')

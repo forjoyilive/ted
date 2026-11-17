@@ -7,10 +7,12 @@ import {
   billings,
   boardCardSizes,
   boardFields,
+  checkCpuLimits,
   checkLimits,
   createdByKinds,
   editorIds,
   emulatorSlotLimits,
+  idleRunSleepLimits,
   isLinearIntakeScope,
   isLinearTeamKey,
   isTimeZone,
@@ -35,6 +37,7 @@ import {
   timeFormats,
   workingRunLimits,
 } from '@ted/protocol'
+import { parseDiagnosticsSort } from '@ted/protocol/diagnostics-sort'
 import { isInteger, isString } from '@ted/protocol/parse'
 import { isReportEmail } from '@ted/protocol/problem-report'
 import { builtInStageOrder, isStageId } from '@ted/protocol/stage'
@@ -263,7 +266,9 @@ function boardView(value: unknown): BoardView {
   }
 }
 
-const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => MachineSettings[K] } = {
+export const settingParsers: {
+  [K in keyof MachineSettings]: (value: unknown) => MachineSettings[K]
+} = {
   enabledAgents() {
     throw new HttpError(
       400,
@@ -292,6 +297,10 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
       ]),
     )
   },
+  diagnosticsSort: (value) =>
+    parseDiagnosticsSort(value, (message) => {
+      throw new HttpError(400, `diagnosticsSort: ${message}`)
+    }),
   boardViews(value) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) {
       throw new HttpError(400, 'boardViews must be an object of Board views by Factory')
@@ -412,6 +421,17 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   startAtLogin: onOff('startAtLogin'),
   stayAwake: onOff('stayAwake'),
   restartIdleRuns: onOff('restartIdleRuns'),
+  sleepIdleRunsAfterMinutes(value) {
+    if (value === null) return null
+    const { min, max } = idleRunSleepLimits
+    if (!isInteger(value) || value < min || value > max) {
+      throw new HttpError(
+        400,
+        `sleepIdleRunsAfterMinutes must be null or a whole number from ${min} to ${max}`,
+      )
+    }
+    return value
+  },
   notifyInboxItems: onOff('notifyInboxItems'),
   notifyProblems: onOff('notifyProblems'),
   notifyTaskMerged: onOff('notifyTaskMerged'),
@@ -421,6 +441,8 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
   },
   firstLaunchDone: onOff('firstLaunchDone'),
   onboardingOnNextOpen: onOff('onboardingOnNextOpen'),
+  reporting: onOff('reporting'),
+  reportingAsked: onOff('reportingAsked'),
   guideNextFactory: onOff('guideNextFactory'),
   linearIntakeScopes(value) {
     if (
@@ -452,6 +474,17 @@ const settingParsers: { [K in keyof MachineSettings]: (value: unknown) => Machin
     }
     return value
   },
+  checkCpuPercent(value) {
+    const { min, max, step } = checkCpuLimits
+    if (!isInteger(value) || value < min || value > max || value % step !== 0) {
+      throw new HttpError(
+        400,
+        `checkCpuPercent must be a multiple of ${step} from ${min} to ${max}`,
+      )
+    }
+    return value
+  },
+  limitScheduledCheckCpus: onOff('limitScheduledCheckCpus'),
   linearSyncTeams: (value) => teamsByFactory('linearSyncTeams', value),
   linearSyncDeclined: (value) => teamsByFactory('linearSyncDeclined', value),
   trackerSyncGroups: (value) => groupsByTracker('trackerSyncGroups', value),

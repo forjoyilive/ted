@@ -1,4 +1,5 @@
 import type { Factory, FactoryLayout, ListGroup, RunSlots, Task } from '@ted/protocol'
+import { noChecks } from '@ted/protocol/slots'
 import { describe, expect, test } from 'vitest'
 import {
   activeFilterCount,
@@ -380,6 +381,7 @@ describe('selection', () => {
       holders: [],
       queue: [],
       factories: [],
+      checks: noChecks,
       ...fields,
     })
     const three = list.slice(0, 3)

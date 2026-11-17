@@ -25,6 +25,7 @@ import {
   handsOff,
   hasClarifyRounds,
   mergesHere,
+  signsOffCode,
   stageWith,
   validates,
 } from '@ted/protocol/stage'
@@ -95,6 +96,7 @@ export interface RequestAnswerPort {
   ): Promise<void>
   checksThen(taskId: string, action: () => Promise<unknown>): Promise<void>
   bindApproval(task: StoredTask, comment: Comment, workflow: ResolvedWorkflow): Promise<void>
+  requireSetupAgents(task: StoredTask): Promise<void>
   liveLead(task: Task): Run | undefined
   startMerging(task: StoredTask, workflow: ResolvedWorkflow): void
   watchMerge(id: string): void
@@ -184,6 +186,7 @@ export function createRequestAnswers(
     requireObligations,
     checksThen,
     bindApproval,
+    requireSetupAgents,
     liveLead,
     startMerging,
     watchMerge,
@@ -846,6 +849,8 @@ export function createRequestAnswers(
       }
       if (request.action === 'approve') {
         const now = find(task.id)
+        const removedAgents = removedSetupAgents(comment, request.removeAgents)
+        if (now.setup && signsOffCode(now.stage)) await requireSetupAgents(now)
         const reads = worktreeReads()
         const resolution = await gateWorkflow(now, { reads })
         const next = resolution.workflow.next(now.stage) as AgentStageId | 'done'
@@ -858,10 +863,16 @@ export function createRequestAnswers(
           },
         )
         if (automatic) await automatic.guard(comment)
+        const removedLine =
+          removedAgents.length === 0
+            ? ''
+            : ` They removed ${removedAgents.length === 1 ? 'this Agent' : 'these Agents'} from the setup proposal, so don’t write ${removedAgents.length === 1 ? 'it' : 'them'}: ${removedAgents.join(', ')}.`
         const approved =
           text === ''
-            ? `${automatic ? 'Autopilot' : 'The human'} approved the ${gateName(comment)}.`
-            : `${automatic ? 'Autopilot' : 'The human'} approved the ${gateName(comment)} and added:\n\n${text}\n\n`
+            ? `${automatic ? 'Autopilot' : 'The human'} approved the ${gateName(comment)}.${removedLine}`
+            : removedLine === ''
+              ? `${automatic ? 'Autopilot' : 'The human'} approved the ${gateName(comment)} and added:\n\n${text}\n\n`
+              : `${automatic ? 'Autopilot' : 'The human'} approved the ${gateName(comment)}.${removedLine} They added:\n\n${text}\n\n`
         const carryOut = async (
           from: StoredTask,
           using: WorkflowResolution,
@@ -905,6 +916,7 @@ export function createRequestAnswers(
           kind: 'approved',
           at,
           ...(text !== '' && { text }),
+          ...(removedAgents.length > 0 && { removedAgents }),
         })
         await bindApproval(now, comment, resolution.workflow)
         if (!liveLead(now)) store.holdAnswer(comment.id)
@@ -1081,4 +1093,20 @@ export function answerTaskRequest(
   const answered = store.answerComment(comment.id, answer, lineComments, autopilot, queueAnswer)
   if (comment.stage !== undefined) store.resetSendBacks(task.id, comment.stage)
   return answered
+}
+
+function removedSetupAgents(
+  comment: Comment,
+  removeAgents: readonly string[] | undefined,
+): string[] {
+  if (removeAgents === undefined || removeAgents.length === 0) return []
+  const suggested = comment.design?.setup?.agents?.map((agent) => agent.id) ?? []
+  const unknown = removeAgents.filter((id) => !suggested.includes(id))
+  if (unknown.length > 0) {
+    throw new RequestError(
+      400,
+      `the setup proposal doesn’t suggest ${unknown.join(', ')}, so it can’t be removed`,
+    )
+  }
+  return [...removeAgents]
 }

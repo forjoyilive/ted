@@ -1,4 +1,4 @@
-import type { ChatItem, Plan, PlanRequest, PlanStatus } from '@ted/protocol'
+import type { ChatItem, ChatRequest, Plan, PlanRequest, PlanStatus } from '@ted/protocol'
 import type { StatusGlyph, StatusTone } from './components/StatusChip.tsx'
 import { clockTime } from './requests.ts'
 import { formatDate } from './time.ts'
@@ -100,16 +100,30 @@ export function plansFailedByFactory(
   )
 }
 
-export function requestHeading(request: PlanRequest): { kind: string; detail?: string } {
+export type AskedRequest = Pick<PlanRequest, 'round' | 'proposal' | 'answer'> & {
+  kind: PlanRequest['kind'] | ChatRequest['kind']
+}
+
+export interface RequestHeading {
+  kind: string
+  detail?: string
+}
+
+export function requestHeading(request: AskedRequest): RequestHeading {
+  if (request.kind === 'question') return { kind: 'Question' }
   if (request.kind === 'round') return { kind: `Round ${request.round?.number ?? ''}` }
+  if (request.kind === 'agent') return { kind: 'Agent draft' }
   const count = request.proposal?.rows.length ?? 0
   return { kind: 'Proposal', detail: `${count} ${count === 1 ? 'Task' : 'Tasks'}` }
 }
 
-export function requestState(request: PlanRequest, latest: boolean): string {
+export function requestState(request: AskedRequest, latest: boolean): string {
   const { answer } = request
   if (!answer) return 'waiting for you'
   if (answer.kind === 'answered') return `answered by you at ${clockTime(answer.at)}`
+  if (request.kind === 'agent' && answer.kind === 'approved')
+    return `saved by you at ${clockTime(answer.at)}`
+  if (request.kind === 'agent' && answer.kind === 'denied') return 'dismissed'
   if (answer.kind === 'approved') return `approved by you at ${clockTime(answer.at)}`
   if (answer.kind === 'superseded') return 'Superseded'
   if (answer.kind === 'changes-requested') return latest ? 'changes requested' : 'Superseded'

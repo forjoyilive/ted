@@ -82,6 +82,7 @@ beforeEach(async () => {
     bindApproval: async () => {
       effects.push('approval')
     },
+    requireSetupAgents: async () => {},
     liveLead: () => undefined,
     startMerging: () => {
       effects.push('merge')

@@ -11,6 +11,7 @@ import { PersonAvatar } from '../components/Avatar.tsx'
 import { useEventValue } from '../data.ts'
 import { useOvernightChange } from '../overnight.tsx'
 import { useProfile } from '../profile.tsx'
+import { reportingLabel } from '../reporting.ts'
 import { useNow } from '../requests.ts'
 import { ted } from '../ted.ts'
 import { formatTime } from '../time.ts'
@@ -242,6 +243,16 @@ export function GeneralPage({ settings }: SettingsPageProps) {
             label="Stay awake while Runs are working"
             checked={settings.stayAwake}
             onChange={(stayAwake) => ted.updateSettings({ stayAwake })}
+          />
+        </SettingRow>
+      </SettingsGroup>
+
+      <SettingsGroup setting="app.general.privacy">
+        <SettingRow setting="app.general.privacy.reporting">
+          <Switch
+            label={reportingLabel}
+            checked={settings.reporting}
+            onChange={(reporting) => ted.updateSettings({ reporting, reportingAsked: true })}
           />
         </SettingRow>
       </SettingsGroup>

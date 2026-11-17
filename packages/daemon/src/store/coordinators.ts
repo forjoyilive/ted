@@ -1,11 +1,14 @@
 import { queryDb, type Store } from '@livestore/livestore'
 import type {
+  AutomationCard,
   CoordinatorConfirmation,
   CoordinatorReceipt,
   RunMessage,
   TaskLead,
 } from '@ted/protocol'
+import type { ChatAgentEvent } from './chats.ts'
 import { coordinatorChange, receiptsKept } from './coordinator-change.ts'
+import type { PlanCheckout } from './plans.ts'
 import { coordinatorChats, events, type schema } from './schema.ts'
 
 export interface PromptPart {
@@ -30,12 +33,14 @@ export interface StoredCoordinator {
   error?: string | undefined
   receipts: CoordinatorReceipt[]
   confirmations?: CoordinatorConfirmation[]
+  automationCards?: AutomationCard[]
   taskIds: string[]
   unsentMessages?: RunMessage[]
   launch?:
     | { prompt: string; sourceRunId: string; messages: RunMessage[]; parts?: PromptPart[] }
     | undefined
   prompts?: Record<string, PromptPart[]>
+  checkout?: PlanCheckout[] | undefined
 }
 
 export interface CoordinatorStore {
@@ -45,7 +50,11 @@ export interface CoordinatorStore {
   chats(factoryId: string): StoredCoordinator[]
   forRun(runId: string): StoredCoordinator | undefined
   endedForRun(runId: string): StoredCoordinator | undefined
-  save(value: StoredCoordinator, canceled?: readonly RunMessage[]): void
+  save(
+    value: StoredCoordinator,
+    canceled?: readonly RunMessage[],
+    agent?: readonly ChatAgentEvent[],
+  ): void
   archive(id: string, at: string): void
   reopen(id: string): void
   rename(id: string, title: string): void
@@ -91,7 +100,7 @@ export function createCoordinatorStore(options: {
     chats: (factoryId) => all({ factoryId }),
     forRun: (id) => list().find((c) => c.runIds.includes(id)),
     endedForRun: (id) => all().find((c) => c.endedAt !== undefined && c.runIds.includes(id)),
-    save(value, canceled = []) {
+    save(value, canceled = [], agent) {
       const { endedAt: _ended, title: _title, ...kept } = value
       const trimmed = { ...kept, receipts: value.receipts.slice(-receiptsKept) }
       const before = find(value.id)
@@ -113,6 +122,7 @@ export function createCoordinatorStore(options: {
         ...canceled.map(({ id, runId }) =>
           events.runMessageDeleted({ id, runId, at: new Date().toISOString() }),
         ),
+        ...(agent ?? []),
       ]
       if (writes.length > 0) options.commit(...writes)
       options.changed(value.factoryId, value.id)

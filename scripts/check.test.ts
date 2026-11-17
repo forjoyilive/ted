@@ -130,6 +130,20 @@ describe('pnpm check --affected', () => {
     ])
     expect(groupsFor(1.5, { node: many })).toEqual([{ project: 'node', maxWorkers: 3 }])
   })
+
+  test('keeps to the CPUs Ted allows a Check, before the load scales it further', () => {
+    const many = Array.from({ length: 10 }, (_, index) => `${index}.test.ts`)
+    expect(groupsFor(undefined, { node: many }, 6)).toEqual([{ project: 'node', maxWorkers: 3 }])
+    expect(groupsFor(undefined, { node: many }, 12)).toEqual([{ project: 'node', maxWorkers: 6 }])
+    expect(groupsFor(undefined, { node: many, electron: ['e.test.ts'] }, 6)).toEqual([
+      { project: 'electron', maxWorkers: 1 },
+      { project: 'node', maxWorkers: 2 },
+    ])
+    expect(groupsFor(undefined, { node: ['a.test.ts'] }, 6)).toEqual([
+      { project: 'node', maxWorkers: 3 },
+    ])
+    expect(groupsFor(1.5, { node: many }, 6)).toEqual([{ project: 'node', maxWorkers: 2 }])
+  })
 })
 
 describe('failure window', () => {

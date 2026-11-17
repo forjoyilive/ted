@@ -60,17 +60,28 @@ function OnboardingSteps({
     : ['welcome', 'how', 'setup']
   const [step, setStep] = useState<Step>('welcome')
   const [startAtLogin, setStartAtLogin] = useState(initialStartAtLogin)
+  const [reporting, setReporting] = useState(settings.reportingAsked ? settings.reporting : true)
+  const [sawReporting, setSawReporting] = useState(false)
   const [saving, setSaving] = useState(false)
   const [problem, setProblem] = useState<string>()
   const index = steps.indexOf(step)
   const last = index === steps.length - 1
+
+  useEffect(() => {
+    if (step === 'setup') setSawReporting(true)
+  }, [step])
 
   async function finish(start?: AppStart) {
     setSaving(true)
     setProblem(undefined)
     onFinish(start)
     try {
-      await ted.updateSettings({ firstLaunchDone: true, startAtLogin, onboardingOnNextOpen: false })
+      await ted.updateSettings({
+        firstLaunchDone: true,
+        startAtLogin,
+        onboardingOnNextOpen: false,
+        ...(sawReporting && { reporting, reportingAsked: true }),
+      })
     } catch (error) {
       setProblem(readableError(error))
       setSaving(false)
@@ -192,6 +203,8 @@ function OnboardingSteps({
         settings={settings}
         startAtLogin={startAtLogin}
         onStartAtLogin={setStartAtLogin}
+        reporting={reporting}
+        onReporting={setReporting}
         footer={(ready) =>
           footer({
             nextDisabled: !ready,

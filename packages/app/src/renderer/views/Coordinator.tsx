@@ -1,4 +1,6 @@
 import type {
+  AgentSummary,
+  ChatAgent,
   CoordinatorConfirmation,
   CoordinatorReceipt,
   Factory,
@@ -9,7 +11,16 @@ import type {
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { coordinatorStatus } from '../agent-chats.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
-import { AgentAbout } from '../components/AgentAbout.tsx'
+import {
+  AgentAbout,
+  AgentCommands,
+  AgentPowers,
+  AgentSource,
+  builtInCoordinator,
+  removedAgentNote,
+  shownCommands,
+} from '../components/AgentAbout.tsx'
+import { AutomationCard } from '../components/AutomationCard.tsx'
 import { Button } from '../components/Button.tsx'
 import { ConfirmationCard } from '../components/ConfirmationCard.tsx'
 import { EventLine } from '../components/EventLine.tsx'
@@ -23,19 +34,38 @@ import { useMessageDraft } from '../message-drafts.ts'
 import { when } from '../plans.ts'
 import { readableError, ted } from '../ted.ts'
 import styles from './Coordinator.module.css'
-import { LeadSelects, TitleEditor } from './PlanChat.tsx'
+import { chatRequestItems, LeadSelects, TitleEditor } from './PlanChat.tsx'
 import views from './views.module.css'
 
-const placeholder = 'Ask about Tasks, or say what to start next…'
-const help = 'Goes to this Coordinator chat. While it works, your message waits for its next step.'
+function isCoordinator(agent: Pick<AgentSummary, 'id' | 'source'>): boolean {
+  return agent.id === 'coordinator' && agent.source === 'ted'
+}
+
+function texts(agent: Pick<AgentSummary, 'id' | 'name' | 'source'>) {
+  return isCoordinator(agent)
+    ? {
+        placeholder: 'Ask about Tasks, or say what to start next…',
+        help: 'Goes to this Coordinator chat. While it works, your message waits for its next step.',
+        label: 'Message to the Coordinator',
+        audience: 'to the Coordinator',
+      }
+    : {
+        placeholder: `Message ${agent.name}…`,
+        help: `Goes to this chat with ${agent.name}. While it works, your message waits for its next step.`,
+        label: `Message to ${agent.name}`,
+        audience: `to ${agent.name}`,
+      }
+}
 
 export function CoordinatorStart({
   factory,
+  agent,
   switcher,
   onStarted,
   onOpenTask,
 }: {
   factory: Factory
+  agent: AgentSummary
   switcher?: ReactNode
   onStarted: (id: string) => void
   onOpenTask: (id: string) => void
@@ -43,6 +73,9 @@ export function CoordinatorStart({
   const box: MessageBox = { kind: 'coordinator-new', id: factory.id }
   const { setText } = useMessageDraft(box)
   const [lead, setLead] = useState<TaskLead>()
+  const { placeholder, help, label } = texts(agent)
+  const agentKind = agent.agent
+  const agentModel = agent.model
   const shown = useRef(true)
   useEffect(() => {
     shown.current = true
@@ -51,6 +84,10 @@ export function CoordinatorStart({
     }
   }, [])
   useEffect(() => {
+    if (agentKind !== undefined) {
+      setLead({ agent: agentKind, ...(agentModel !== undefined && { model: agentModel }) })
+      return
+    }
     let active = true
     void ted.taskDefaults(factory.id).then(
       (defaults) => {
@@ -63,10 +100,10 @@ export function CoordinatorStart({
     return () => {
       active = false
     }
-  }, [factory.id])
+  }, [factory.id, agentKind, agentModel])
   return (
     <>
-      <section className={views.pane} aria-label="Coordinator">
+      <section className={views.pane} aria-label={agent.name}>
         <header className={styles.header}>
           <div className={styles.titleRow}>
             <h1>New chat</h1>
@@ -75,24 +112,36 @@ export function CoordinatorStart({
           </div>
           <p>{factory.name}</p>
         </header>
-        <div className={styles.intro}>
-          <h2>What needs your attention in {factory.name}?</h2>
-          <p>I can compare Tasks, recommend next work, and start or reorder Tasks when you ask.</p>
-          <Button onClick={() => setText('What should we work on next?')}>
-            What should we work on next?
-          </Button>
-        </div>
+        {isCoordinator(agent) ? (
+          <div className={styles.intro}>
+            <h2>What needs your attention in {factory.name}?</h2>
+            <p>
+              I can compare Tasks, recommend next work, and start or reorder Tasks when you ask.
+            </p>
+            <Button onClick={() => setText('What should we work on next?')}>
+              What should we work on next?
+            </Button>
+          </div>
+        ) : (
+          <div className={styles.intro}>
+            <h2>{`New chat with ${agent.name} in ${factory.name}`}</h2>
+          </div>
+        )}
         <Composer
           live
           working={false}
-          label="Message to the Coordinator"
+          label={label}
           placeholder={placeholder}
           endedPlaceholder={placeholder}
           help={help}
           interrupt={false}
           box={box}
           send={async (message) => {
-            const started = await ted.startCoordinatorChat(factory.id, { text: message, ...lead })
+            const started = await ted.startCoordinatorChat(factory.id, {
+              text: message,
+              ...lead,
+              agentId: agent.id,
+            })
             if (shown.current) onStarted(started.id)
             return started
           }}
@@ -100,6 +149,7 @@ export function CoordinatorStart({
         />
       </section>
       <CoordinatorDetails
+        agent={agent}
         tasks={[]}
         provider={
           lead && [agentNames[lead.agent], lead.model, lead.effort].filter(Boolean).join(' · ')
@@ -116,6 +166,7 @@ export function CoordinatorChat({
   busy,
   error,
   onOpenTask,
+  onOpenAutomation,
   onArchive,
   onUnarchive,
   onDelete,
@@ -125,6 +176,7 @@ export function CoordinatorChat({
   busy: boolean
   error: string | undefined
   onOpenTask: (id: string) => void
+  onOpenAutomation: (id: string) => void
   onArchive: () => void
   onUnarchive: () => void
   onDelete: () => void
@@ -137,6 +189,9 @@ export function CoordinatorChat({
   const [retrying, setRetrying] = useState(false)
   const [retryError, setRetryError] = useState<string>()
   const ended = coordinator?.endedAt !== undefined
+  const agent: ChatAgent = coordinator?.chatAgent ?? { ...builtInCoordinator, removed: false }
+  const removed = agent.removed
+  const { placeholder, help, label, audience } = texts(agent)
   const status = coordinator?.status ?? 'ready'
   const chip = coordinatorStatus[status]
   const retry = async () => {
@@ -153,23 +208,23 @@ export function CoordinatorChat({
   const shownError = error ?? retryError ?? coordinator?.error
   return (
     <>
-      <section className={views.pane} aria-label="Coordinator">
+      <section className={views.pane} aria-label={agent.name}>
         <header className={styles.header}>
           <div className={styles.titleRow}>
             {coordinator ? (
               <TitleEditor
-                current={coordinator.title || 'Coordinator chat'}
+                current={coordinator.title || `${agent.name} chat`}
                 onRename={(title) => ted.renameCoordinatorChat(chatId, title)}
               />
             ) : (
-              <h1 className={styles.chatTitle}>Coordinator chat</h1>
+              <h1 className={styles.chatTitle}>Chat</h1>
             )}
             {coordinator && !ended && (
               <StatusChip tone={chip.tone} {...(chip.glyph && { glyph: chip.glyph })}>
                 {chip.label}
               </StatusChip>
             )}
-            {!ended && status === 'failed' && (
+            {!ended && !removed && status === 'failed' && (
               <Button disabled={retrying} onClick={() => retry()}>
                 Retry
               </Button>
@@ -219,34 +274,58 @@ export function CoordinatorChat({
         )}
         <ChatSection
           chat={coordinator === undefined ? undefined : (chat ?? undefined)}
-          loading="Loading the Coordinator…"
+          loading="Loading the chat…"
           error={resource.error ?? chatResource.error}
           retry={resource.error ? resource.retry : chatResource.retry}
           options={{
             bar: false,
-            extra: chatExtras(
-              chatId,
-              coordinator?.confirmations ?? [],
-              coordinator?.receipts ?? [],
-              coordinator?.tasks ?? [],
-              onOpenTask,
-            ),
+            extra: [
+              ...chatExtras(
+                chatId,
+                coordinator?.confirmations ?? [],
+                coordinator?.receipts ?? [],
+                coordinator?.tasks ?? [],
+                onOpenTask,
+              ),
+              ...(coordinator?.automationCards ?? []).map((card) => ({
+                id: card.id,
+                at: card.askedAt,
+                node: (
+                  <AutomationCard
+                    key={`${card.id}:${card.answer?.decision ?? 'open'}`}
+                    chatId={chatId}
+                    card={card}
+                    agentName={agent.name}
+                    onOpenAutomation={onOpenAutomation}
+                  />
+                ),
+              })),
+              ...chatRequestItems(
+                chatId,
+                coordinator?.requests ?? [],
+                agent.name,
+                onOpenTask,
+                !coordinator?.chatAgent.removed,
+              ),
+            ],
             spot: `coordinator:${chatId}`,
-            audience: 'to the Coordinator',
+            audience,
             humanAs: 'comment',
             tedAs: 'line',
-            ...(ended
+            ...(ended || removed
               ? {
                   readOnly: (
                     <p className={`${styles.muted} ${styles.readOnly}`}>
-                      Read only. Unarchive this chat to send a message.
+                      {ended
+                        ? 'Read only. Unarchive this chat to send a message.'
+                        : removedAgentNote}
                     </p>
                   ),
                 }
               : {
-                  label: 'Message to the Coordinator',
+                  label,
                   placeholder,
-                  endedPlaceholder: 'Retry the Coordinator to send a message.',
+                  endedPlaceholder: `Retry ${agent.name} to send a message.`,
                   help,
                   live: status !== 'failed',
                   working: status === 'working' || status === 'queued' || status === 'paused',
@@ -259,6 +338,8 @@ export function CoordinatorChat({
         />
       </section>
       <CoordinatorDetails
+        agent={agent}
+        removed={removed}
         tasks={coordinator?.tasks ?? []}
         provider={
           chat
@@ -323,20 +404,53 @@ function chatExtras(
 }
 
 function CoordinatorDetails({
+  agent,
+  removed = false,
   tasks,
   provider,
   onOpenTask,
 }: {
+  agent: AgentSummary
+  removed?: boolean
   tasks: readonly Task[]
   provider: string | undefined
   onOpenTask: (id: string) => void
 }) {
+  const manages = agent.powers.includes('manage_tasks')
   return (
-    <DetailsPane className={views.detailsPane} aria-label="Coordinator details">
-      <section className={styles.section}>
+    <DetailsPane className={views.detailsPane} aria-label={`${agent.name} details`}>
+      <section className={styles.section} aria-label="Agent">
         <h2>Agent</h2>
-        <AgentAbout agent="Coordinator" {...(provider !== undefined && { provider })} />
+        <AgentAbout agent={agent} provider={provider} removed={removed} />
       </section>
+      <section className={styles.section} aria-label="Powers">
+        <h2>Powers</h2>
+        <AgentPowers powers={agent.powers} />
+      </section>
+      {shownCommands(agent).length > 0 && (
+        <section className={styles.section} aria-label="Commands">
+          <h2>Commands</h2>
+          <AgentCommands commands={shownCommands(agent)} />
+        </section>
+      )}
+      <section className={styles.section} aria-label="From">
+        <h2>From</h2>
+        <AgentSource source={agent.source} />
+      </section>
+      {manages && <TasksInChat tasks={tasks} onOpenTask={onOpenTask} />}
+    </DetailsPane>
+  )
+}
+
+function TasksInChat({
+  tasks,
+  onOpenTask,
+}: {
+  tasks: readonly Task[]
+  onOpenTask: (id: string) => void
+}) {
+  return (
+    <>
       <section className={styles.section}>
         <h2>Tasks in this chat</h2>
         {tasks.length ? (
@@ -366,6 +480,6 @@ function CoordinatorDetails({
           you delete them.
         </p>
       </section>
-    </DetailsPane>
+    </>
   )
 }

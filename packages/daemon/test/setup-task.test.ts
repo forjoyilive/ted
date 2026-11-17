@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -262,6 +262,7 @@ describe('the setup Workflow', () => {
 })
 
 describe('the proposal', () => {
+  const releaseInstructions = '# Release helper\n\nHelps cut a release.\n'
   const proposal = (checks: unknown[]) => ({
     title: 'Proposed setup for Widgets',
     summary: 'One repo with a test script. I ran each Check on main.',
@@ -277,6 +278,22 @@ describe('the proposal', () => {
           passed: true,
         },
         { name: 'Changed', kind: 'command', run: 'true', ready: 'exits at once', passed: true },
+      ],
+      agents: [
+        {
+          id: 'release',
+          name: 'Release helper',
+          about: 'Cuts a release',
+          powers: ['ask', 'read_code'],
+          instructions: releaseInstructions,
+        },
+        {
+          id: 'sneaky',
+          name: 'Sneaky',
+          about: 'Starts Tasks',
+          powers: ['manage_tasks'],
+          instructions: '# Sneaky\n',
+        },
       ],
       files: [
         { path: '.ted/notes.md', about: 'Factory notes' },
@@ -355,13 +372,32 @@ describe('the proposal', () => {
           '',
         ].join('\n'),
       )
-      const writeSettings = `grep -q Sneaky .ted/workflow.yaml || (cp ${branchSettings} .ted/workflow.yaml && git add .ted && git -c user.name=T -c user.email=t@example.com commit -qm settings)`
+      const agentFiles = path.join(scratch, 'agent-files')
+      await mkdir(path.join(agentFiles, 'both', 'agents'), { recursive: true })
+      await mkdir(path.join(agentFiles, 'kept', 'agents'), { recursive: true })
+      for (const kind of ['both', 'kept']) {
+        await writeFile(path.join(agentFiles, kind, 'agents', 'release.md'), releaseInstructions)
+      }
+      await writeFile(path.join(agentFiles, 'both', 'agents', 'sneaky.md'), '# Sneaky\n')
+      const release = 'release:\n  name: Release helper\n  powers: [ask, read_code]\n'
+      await writeFile(path.join(agentFiles, 'kept', 'agents.yaml'), release)
+      await writeFile(
+        path.join(agentFiles, 'both', 'agents.yaml'),
+        `${release}sneaky:\n  name: Sneaky\n  powers: [manage_tasks]\n`,
+      )
+      const refused = path.join(scratch, 'refused.txt')
+      const commit = 'git add -A .ted && git -c user.name=T -c user.email=t@example.com commit -qm'
+      const writeSettings = `grep -q Sneaky .ted/workflow.yaml || (cp ${branchSettings} .ted/workflow.yaml && cp -R ${path.join(agentFiles, 'both')}/. .ted/ && ${commit} settings)`
+      const captureRefusal = `test -f ${refused} || ted outcome advance > ${path.join(scratch, 'advance.txt')} 2>&1 || (grep -q 'match the approved setup proposal' ${path.join(scratch, 'advance.txt')} && cp ${path.join(scratch, 'advance.txt')} ${refused}); true`
+      const fixAgents = `test -f ${refused} && test -f .ted/agents/sneaky.md && rm .ted/agents/sneaky.md && cp ${path.join(agentFiles, 'kept', 'agents.yaml')} .ted/agents.yaml && ${commit} agents; true`
       const each = [
         { run: ['ted', 'brief', 'write', '--file', brief] },
         { run: ['ted', 'outcome', 'advance', '--skip'] },
         { run: ['ted', 'outcome', 'advance', '--design', missingSetup] },
         { run: ['ted', 'outcome', 'advance', '--design', design] },
         { run: ['sh', '-c', writeSettings] },
+        { run: ['sh', '-c', captureRefusal] },
+        { run: ['sh', '-c', fixAgents] },
         { run: ['ted', 'outcome', 'advance'] },
         { endTurn: true },
       ]
@@ -384,15 +420,18 @@ describe('the proposal', () => {
       }
       await client.ok('POST', `/tasks/${setup.id}/start`)
 
-      const answer = async (stage: string) => {
+      const answer = async (stage: string, removeAgents?: string[]) => {
         const item = await waitUntil(
           async () => (await inbox(client)).find((i) => i.request.stage === stage),
           `the ${stage} request`,
         )
-        await client.ok('POST', `/comments/${item.request.id}/answer`, { action: 'approve' })
+        await client.ok('POST', `/comments/${item.request.id}/answer`, {
+          action: 'approve',
+          ...(removeAgents && { removeAgents }),
+        })
         return item.request
       }
-      const review = await answer('design')
+      const review = await answer('design', ['sneaky'])
       expect(review).toMatchObject({
         kind: 'review',
         title: 'Proposed setup for Widgets',
@@ -407,6 +446,10 @@ describe('the proposal', () => {
               { name: 'Web', kind: 'web', run: `'${process.execPath}' '${stubApp}'`, passed: true },
               { name: 'Changed', run: 'true' },
             ],
+            agents: [
+              { id: 'release', powers: ['ask', 'read_code'], instructions: releaseInstructions },
+              { id: 'sneaky', powers: ['manage_tasks'] },
+            ],
             files: [
               { path: '.ted/notes.md' },
               { path: '.ted/workflow.yaml' },
@@ -415,6 +458,10 @@ describe('the proposal', () => {
           },
         },
       })
+      const approval = (await client.ok<Comment[]>('GET', `/tasks/${setup.id}/comments`)).find(
+        (c) => c.id === review.id,
+      )
+      expect(approval?.answer).toMatchObject({ kind: 'approved', removedAgents: ['sneaky'] })
 
       const checkRun = await waitUntil(async () => {
         const runs = await client.ok<CheckRun[]>('GET', `/tasks/${setup.id}/check-runs`)
@@ -423,6 +470,9 @@ describe('the proposal', () => {
         )
       }, 'the Validate Checks')
       expect(checkRun.checks.map((c) => c.name)).toEqual(['Unit', 'Ted settings'])
+      expect(await readFile(refused, 'utf8')).toContain(
+        'sneaky is on the branch but not in the approved proposal',
+      )
       expect(existsSync(path.join(scratch, 'sneaky'))).toBe(false)
       const web = await waitUntil(async () => {
         const apps = await client.ok<TaskApp[]>('GET', `/tasks/${setup.id}/apps`)

@@ -87,7 +87,13 @@ test('usage below the warning threshold remains visible and follows live reports
 
 test('empty, API-key and offline states are explicit; settings navigation uses the existing Agents page', async () => {
   const a = appState()
-  a.handle('library', () => ({ version: 'v1', agents: [], stages: [], problems: [] }))
+  a.handle('library', () => ({
+    version: 'v1',
+    agents: [],
+    agentFiles: [],
+    stages: [],
+    problems: [],
+  }))
   a.mount()
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'Usage' }))
@@ -153,7 +159,7 @@ test('outside click and navigation dismiss usage; sidebar pop-ups never overlap'
   await u.click(screen.getByRole('button', { name: 'All Tasks' }))
   expect(screen.queryByRole('dialog', { name: 'Usage' })).toBeNull()
   await u.click(tracker())
-  await u.click(screen.getByRole('button', { name: '0 slots in use · limit 3' }))
+  await u.click(screen.getByRole('button', { name: '0 of 3 slots in use' }))
   expect(screen.queryByRole('dialog', { name: 'Usage' })).toBeNull()
   expect(screen.getByRole('dialog', { name: 'Working Runs' })).toBeTruthy()
   await u.click(tracker())

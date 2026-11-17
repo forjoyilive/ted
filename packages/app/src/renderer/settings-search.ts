@@ -1,5 +1,6 @@
 import { foldText, matchesTerms, searchTerms } from '@ted/protocol/search'
 import { type SettingsSectionId, shownSettingsSectionIds } from './navigation.ts'
+import { reportingHelp, reportingLabel } from './reporting.ts'
 
 export const settingsPageNames: Record<SettingsSectionId, string> = {
   general: 'General',
@@ -20,6 +21,7 @@ export const factorySections = [
   ['workflow', 'Workflow'],
   ['checks', 'Checks'],
   ['cleanup', 'Cleanup'],
+  ['agent-files', 'Agents'],
   ['agents', 'Providers'],
   ['permissions', 'Permissions'],
   ['notifications', 'Notifications'],
@@ -104,6 +106,12 @@ const entries = {
     name: 'Stay awake while Runs are working',
     help: 'Keeps this computer from going to sleep on its own while any Run is working. Automations don’t keep it awake.',
   },
+  'app.general.privacy': { name: 'Privacy', heading: true },
+  'app.general.privacy.reporting': {
+    name: reportingLabel,
+    keywords: 'telemetry crash error usage sentry diagnostics',
+    help: reportingHelp,
+  },
   'app.general.editor': { name: 'Editor and command line', heading: true },
   'app.general.editor.editor': {
     name: 'Editor',
@@ -186,6 +194,26 @@ const entries = {
     name: 'Checks running at once',
     help: 'A Task’s Checks run one after another and count as one. When this many Tasks are running Checks, the next waits its turn; a Check you try with Run now in Factory settings waits too. Lowering the limit doesn’t stop Checks that are running.',
   },
+  'app.limits.check-cpus': {
+    name: 'CPU a Check may use',
+    help: 'Ted tells each Check how many of this computer’s cores it may use: this share of them, divided between the Checks running at once, and never fewer than 1. A lower share leaves more room for Runs and makes Checks slower.',
+    detail:
+      'Ted doesn’t enforce it. A Check’s command has to pass the number, TED_CHECK_CPUS, to its test runner. Applies to Checks started after you change it.',
+  },
+  'app.limits.scheduled-check-cpus': {
+    name: 'Limit the CPU Scheduled Checks use too',
+    help: 'When this is off, a Scheduled Check isn’t told a number and may use the whole computer. It finishes sooner, but new Runs may wait until it ends.',
+  },
+  'app.limits.sleep-idle': {
+    name: 'End idle Task Lead agents to free memory',
+    help: 'A Task Lead that is only waiting keeps its agent and the tools the agent started in memory, about 1 GB each. With this on, Ted ends an idle Task Lead’s agent and starts it again, in the same conversation, when there is something for it to do.',
+    detail:
+      'The first message after a wait takes a few seconds longer. Anything the agent left running in the background ends with it.',
+  },
+  'app.limits.sleep-idle-after': {
+    name: 'End an agent after it has been idle for',
+    help: 'How long a Task Lead’s agent has done nothing before Ted ends it.',
+  },
   'app.limits.low-priority': {
     name: 'Run agents and Checks at low priority',
     help: 'For agents, Checks, worktree setup and teardown, and Apps an agent starts. On macOS they run at the system’s “utility” priority, so they give way to your other apps and may run slower. On Linux they run at a lower scheduling priority. Apps you start with ▶ and Task shells keep normal priority.',
@@ -234,6 +262,16 @@ const entries = {
     help: 'Turns Cleanup on for every Factory that doesn’t say otherwise. A Factory runs it only once it has at least one step, set in that Factory’s settings under Cleanup.',
   },
   'app.library.stage-files': { name: 'Stage files', heading: true },
+  'app.library.agents': {
+    name: 'Agents',
+    keywords: 'coordinator planner chat powers instructions agents.yaml',
+    help: 'Agents every Factory gets, saved in the Library’s agents.yaml and agents/. Override copies a built-in Agent into the Library.',
+    heading: true,
+  },
+  'app.library.agents.new': {
+    name: 'New Agent',
+    keywords: 'add create custom agent blank',
+  },
 
   'app.storage.space': { name: 'Space used', heading: true },
   'app.storage.worktrees': {
@@ -280,7 +318,7 @@ const entries = {
   },
   'app.developer.memory': {
     name: 'Ted’s memory use',
-    help: 'Memory used by Ted’s background process (the daemon), the app, the Run hosts and the agents they run. Refreshes every two seconds while this page is open.',
+    help: 'Memory used by Ted and everything it started: the app, the daemon and Run hosts, the agents and the tools and MCP servers they run, Checks and Apps. Refreshes every five seconds while this page is open.',
     keywords: 'RAM usage daemon app agents Run hosts',
   },
   'app.developer.folder': { name: 'Ted’s folder' },
@@ -303,6 +341,10 @@ const entries = {
   'app.developer.diagnostics.memory': {
     name: 'System memory usage',
     help: 'Memory in use across this computer, including other apps. This is separate from the memory used by Ted’s processes below.',
+  },
+  'app.developer.processes': {
+    name: 'Processes',
+    keywords: 'memory CPU PID Activity Monitor MCP servers agents Checks Apps',
   },
   'app.developer.logs': { name: 'Log', keywords: 'logs daemon log raw output', heading: true },
 
@@ -409,6 +451,16 @@ const entries = {
     name: 'Checks',
     help: 'Commands Ted runs at Validate, one after another, before the agent’s own checks. Run now tries one on the base branch in a scratch worktree.',
     heading: true,
+  },
+  'factory.agent-files': {
+    name: 'Agents',
+    keywords: 'coordinator planner chat powers instructions agents.yaml',
+    help: 'The Agents you can start chats with in this Factory, saved in .ted/agents.yaml and .ted/agents/. Override copies an inherited Agent into .ted/ for this Factory.',
+    heading: true,
+  },
+  'factory.agent-files.new': {
+    name: 'New Agent',
+    keywords: 'add create custom agent blank',
   },
   'factory.agents': {
     name: 'Providers',

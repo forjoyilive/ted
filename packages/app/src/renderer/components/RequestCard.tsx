@@ -52,7 +52,7 @@ import { Button } from './Button.tsx'
 import { ChangeList } from './ChangesSection.tsx'
 import { CheckOutputDialog } from './CheckOutputDialog.tsx'
 import { ChecksRow } from './ChecksRow.tsx'
-import { DesignReviewContent } from './DesignReview.tsx'
+import { DesignReviewContent, removedAgentsDraft } from './DesignReview.tsx'
 import {
   FailureRequestDetails,
   RecordedValidationSummary,
@@ -745,9 +745,11 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
         : ready && 'answer'
 
   function approve() {
+    const removeAgents = request.design?.setup?.agents ? removedAgentsDraft(kept) : []
     return send({
       action: 'approve',
       ...(request.simulator && chosen !== undefined && { simulator: chosen }),
+      ...(removeAgents.length > 0 && { removeAgents }),
       ...withText,
     })
   }
@@ -1121,6 +1123,10 @@ export function RequestCard({
           files={request.attachments ?? []}
           taskId={task.id}
           commentId={request.id}
+          box={box}
+          answeredRemoved={
+            request.answer?.kind === 'approved' ? (request.answer.removedAgents ?? []) : undefined
+          }
         />
       ) : failure ? (
         <FailureRequestDetails

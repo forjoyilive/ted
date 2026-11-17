@@ -122,6 +122,7 @@ export async function seedDemo(home: string, client: DaemonClient): Promise<Demo
   const start = Date.now()
   await client.updateSettings({
     firstLaunchDone: true,
+    reportingAsked: true,
     maxWorkingRuns: 99,
     maxBootedSimulators: 1,
     stayAwake: false,

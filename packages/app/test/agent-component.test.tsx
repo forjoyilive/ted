@@ -23,7 +23,7 @@ test('signed-out agent shows its Fix commands and follows Ready health events', 
   const api = bridge({
     agentHealth: () => [signedOut],
     apiCost: () => ({ days: 30, since: '2026-10-12T00:00:00.000Z', agents: [] }),
-    library: () => ({ version: 'v1', agents: [], stages: [], problems: [] }),
+    library: () => ({ version: 'v1', agents: [], agentFiles: [], stages: [], problems: [] }),
     checkAgentHealth: vi.fn(),
     copyText: vi.fn(),
   })
@@ -50,7 +50,7 @@ test('restart idle Runs defaults on and sends the changed machine setting', asyn
   const api = bridge({
     agentHealth: () => [],
     apiCost: () => ({ days: 30, since: '2026-10-12T00:00:00.000Z', agents: [] }),
-    library: () => ({ version: 'v1', agents: [], stages: [], problems: [] }),
+    library: () => ({ version: 'v1', agents: [], agentFiles: [], stages: [], problems: [] }),
     updateSettings: vi.fn(),
   })
   const view = render(<AgentsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
@@ -83,7 +83,7 @@ test('Antigravity shares agent health controls and saves its billing choice with
       },
     ],
     apiCost: () => ({ days: 30, since: '2026-10-12T00:00:00.000Z', agents: [] }),
-    library: () => ({ version: 'v1', agents: [], stages: [], problems: [] }),
+    library: () => ({ version: 'v1', agents: [], agentFiles: [], stages: [], problems: [] }),
     updateSettings: vi.fn(),
     copyText: vi.fn(),
   })
@@ -106,7 +106,7 @@ test('off cards stay discoverable and the last enabled switch explains its restr
   bridge({
     getSettings: () => settings,
     agentHealth: () => [signedOut, { ...signedOut, agent: 'codex', state: 'ready' }],
-    library: () => ({ version: 'v1', agents: [], stages: [], problems: [] }),
+    library: () => ({ version: 'v1', agents: [], agentFiles: [], stages: [], problems: [] }),
     agentAvailability: () => [
       { agent: 'claude', enabled: false, runs: [{ id: 'one' }], additionalRuns: [] },
     ],
@@ -131,7 +131,7 @@ test('turning off confirms the count and collateral Runs, supports Cancel and se
   const change = vi.fn().mockResolvedValue({ availability, confirmationRequired: true })
   const api = bridge({
     agentHealth: () => [signedOut],
-    library: () => ({ version: 'v1', agents: [], stages: [], problems: [] }),
+    library: () => ({ version: 'v1', agents: [], agentFiles: [], stages: [], problems: [] }),
     changeAgentAvailability: change,
   })
   render(<AgentsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
@@ -177,7 +177,7 @@ test('the stop choice includes all affected Runs and refreshes the confirmation 
     })
   const api = bridge({
     agentHealth: () => [signedOut],
-    library: () => ({ version: 'v1', agents: [], stages: [], problems: [] }),
+    library: () => ({ version: 'v1', agents: [], agentFiles: [], stages: [], problems: [] }),
     changeAgentAvailability: change,
   })
   render(<AgentsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
@@ -207,7 +207,7 @@ test('Antigravity on a Google plan shows Google’s terms and saves the choice t
   const api = bridge({
     agentHealth: () => [antigravity],
     apiCost: () => ({ days: 30, since: '2026-10-12T00:00:00.000Z', agents: [] }),
-    library: () => ({ version: 'v1', agents: [], stages: [], problems: [] }),
+    library: () => ({ version: 'v1', agents: [], agentFiles: [], stages: [], problems: [] }),
     updateSettings: vi.fn(),
   })
   const view = render(<AgentsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
@@ -247,7 +247,7 @@ test('each agent’s panel shows what its Runs of the last 30 days would cost on
   })
   bridge({
     agentHealth: () => [agent('claude'), agent('codex'), agent('antigravity')],
-    library: () => ({ version: 'v1', agents: [], stages: [], problems: [] }),
+    library: () => ({ version: 'v1', agents: [], agentFiles: [], stages: [], problems: [] }),
     apiCost: () => ({
       days: 30,
       since: '2026-10-12T00:00:00.000Z',

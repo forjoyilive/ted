@@ -124,6 +124,7 @@ const validate: StageRowView = {
 }
 
 const library: LibraryView = {
+  agentFiles: [],
   path: '/home/library',
   version: 'v1',
   stages: [validate],

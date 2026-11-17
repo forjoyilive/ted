@@ -8,7 +8,7 @@ import { TaskActionsMenu } from '../src/renderer/components/TaskActions.tsx'
 import { PlanChatView } from '../src/renderer/views/PlanChat.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, required, user } from './support/component.ts'
-import { createdAt, factory, task } from './support/fixtures.ts'
+import { createdAt, factory, plannerAgent, task } from './support/fixtures.ts'
 
 const lead: RunSummary & { role: 'lead' } = {
   id: 'r1',
@@ -335,6 +335,8 @@ test('Planning requests stay inline and keep drafts while the chat updates', asy
       createdAt,
       lastAt: createdAt,
       createdTasks: 0,
+
+      chatAgent: plannerAgent,
     },
     requests: [
       {
@@ -490,10 +492,23 @@ test('live and saved conversations share Markdown while tool output stays litera
         status: 'done',
         output: '## Literal\n**raw**',
       },
+      {
+        kind: 'command',
+        id: 'c1',
+        name: 'test',
+        status: 'failed',
+        exitCode: 1,
+        output: '× parses **commands**',
+        at: createdAt,
+        endedAt: new Date(Date.parse(createdAt) + 41_000).toISOString(),
+      },
     ],
   }
   bridge({ getRunChat: () => chat })
   const view = render(<Conversation runId="r1" />)
+  const command = await screen.findByRole('button', { name: /TED ran.*test.*Exit code 1 · 41s/ })
+  await user().click(command)
+  expect(screen.getByText('× parses **commands**').tagName).toBe('PRE')
   await screen.findByRole('heading', { name: 'Progress' })
   expect(screen.getByText('Ready').tagName).toBe('STRONG')
   expect(screen.getByText('nested').tagName).toBe('EM')

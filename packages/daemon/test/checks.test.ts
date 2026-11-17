@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { homedir, tmpdir } from 'node:os'
+import { availableParallelism, homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import type {
@@ -14,9 +14,11 @@ import type {
   Task,
   ThreadEvent,
 } from '@ted/protocol'
+import { defaultMachineSettings } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
+import { checkCpus } from '../src/tasks/check-slots.ts'
 import {
   api,
   assistantTexts,
@@ -823,7 +825,7 @@ describe('Checks before a stopped Task leaves Work', () => {
 })
 
 describe('the Checks’ environment', () => {
-  test('Checks get worktree.env, CI=1 and TED_TASK, and none of the daemon’s TED_ names or agent credentials', async () => {
+  test('Checks get worktree.env, CI=1, TED_TASK and their CPU allowance, and none of the daemon’s TED_ names or agent credentials', async () => {
     const planted = {
       ANTHROPIC_API_KEY: 'anthropic-secret',
       ANTHROPIC_AUTH_TOKEN: 'anthropic-token',
@@ -831,6 +833,7 @@ describe('the Checks’ environment', () => {
       CODEX_API_KEY: 'codex-secret',
       TED_APP_WEB_PORT: '5174',
       TED_PRIVATE_THING: 'internal',
+      TED_CHECK_CPUS: '99',
       KEEP_ME: 'kept',
     }
     const before = { ...process.env }
@@ -881,6 +884,9 @@ describe('the Checks’ environment', () => {
     )
     expect(env.CI).toBe('1')
     expect(env.TED_TASK).toBe('NB-1')
+    expect(env.TED_CHECK_CPUS).toBe(
+      String(checkCpus(availableParallelism(), 1, defaultMachineSettings.checkCpuPercent)),
+    )
     expect(env.GREETING).toBe('hello')
     expect(env.KEEP_ME).toBe('kept')
     for (const name of [
