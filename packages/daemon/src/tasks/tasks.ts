@@ -3622,6 +3622,18 @@ export function createTasks(options: {
     })
   }
 
+  function reposWithoutCi(task: StoredTask, resolution: WorkflowResolution): string[] {
+    const order = factoryRepos(resolution.workflow, factoryOf(task))
+    return task.repos.flatMap((r) =>
+      !r.removed &&
+      r.pushed !== undefined &&
+      r.pullRequest?.state !== 'merged' &&
+      !expectsCi(repoEntry(order, r)?.pullRequestCi, r.pushed)
+        ? [r.name]
+        : [],
+    )
+  }
+
   async function mergeTargets(
     task: StoredTask,
     resolution: WorkflowResolution,
@@ -3808,6 +3820,7 @@ export function createTasks(options: {
       method: chooseMethod(target.method, pr.allowed) ?? target.method,
       reviewMissing: reviewMissing(pr),
     }))
+    const noCi = ready.flatMap(({ target }) => (target.hasCi ? [] : [target.name]))
     const changes = await signOffChanges(task)
     await requireObligations(find(task.id))
     const count = rows.length
@@ -3824,6 +3837,7 @@ export function createTasks(options: {
         approveLabel: count === 1 ? 'Merge' : `Merge ${count} pull requests`,
         pullRequests: rows,
         ...(changes && { changes }),
+        ...(noCi.length > 0 && { noCi }),
       },
     })
   }
@@ -12940,6 +12954,17 @@ export function createTasks(options: {
           const changes = leadsToMerge
             ? await signOffChanges(current, outcome.changes?.trim())
             : undefined
+          const mergesOnApproval =
+            leadsToMerge &&
+            workflow.stages.includes(stageWith('merges')) &&
+            workflow.settings.stages.merge?.gate !== true
+          const readies = signsOffCode(stage) || mergesHere(workflow.next(stage))
+          if (mergesOnApproval) {
+            if (validates(stage)) pullRequestWork(task.id, 'again')
+            if (readies) pullRequestWork(task.id, 'ready')
+            await pullRequestQueue.get(task.id)
+          }
+          const noCi = mergesOnApproval ? reposWithoutCi(find(task.id), resolution) : []
           const design = outcome.design
           const requestedFor = signsOffCode(stage)
             ? await requestCommit(current, workflow)
@@ -12954,16 +12979,20 @@ export function createTasks(options: {
             title: design?.title ?? briefGoal(brief.text) ?? name,
             body: brief.text,
             author: { kind: 'run', runId },
-            gate: { ...gateButtons(workflow, stage), ...(changes && { changes }) },
+            gate: {
+              ...gateButtons(workflow, stage),
+              ...(changes && { changes }),
+              ...(noCi.length > 0 && { noCi }),
+            },
             ...(design && { attachments: designFiles(design) }),
             ...(design && hasDesign(storedDesign(design)) && { design: storedDesign(design) }),
           })
           if (requestedFor) {
             store.gateRequestedFor(task.id, request.id, requestedFor.name, requestedFor.commit)
           }
-          if (validates(stage)) pullRequestWork(task.id, 'again')
-          if (signsOffCode(stage) || mergesHere(workflow.next(stage))) {
-            pullRequestWork(task.id, 'ready')
+          if (!mergesOnApproval) {
+            if (validates(stage)) pullRequestWork(task.id, 'again')
+            if (readies) pullRequestWork(task.id, 'ready')
           }
           return {
             task: publicTask(task.id),
