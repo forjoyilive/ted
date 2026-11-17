@@ -7,6 +7,7 @@ import {
   edition,
   parseAsanaConfiguration,
 } from '@ted/protocol'
+import { isInteger, isString, type Untyped } from '@ted/protocol/parse'
 import { type Clock, systemClock, type Timer } from '../clock.ts'
 import { RequestError } from '../errors.ts'
 import { type Keyring, KeyringUnavailableError } from '../linear/keyring.ts'
@@ -165,7 +166,7 @@ export function createAsana(options: AsanaOptions) {
       })
       if (response.status === 401) {
         await response.body?.cancel()
-        throw new RevokedError('Asana authorization expired or was revoked. Reconnect to continue.')
+        throw new RevokedError(unauthorizedMessage(new URL(url).pathname))
       }
       if (!response.ok) {
         const invalid = response.status === 400 && url.endsWith('/-/oauth_token')
@@ -693,14 +694,30 @@ function grantProblem(info: Record<string, unknown>, clientId: string) {
   if (info.active !== true) return 'the token isn’t active'
   if (typeof info.token_type !== 'string' || info.token_type.toLowerCase() !== 'bearer')
     return 'the token isn’t an access token'
-  if (info.client_id !== undefined && info.client_id !== clientId)
-    return 'the token belongs to a different client ID'
+  if (info.client_id !== undefined) {
+    const sent = clientIdText(info.client_id)
+    if (sent !== clientId)
+      return `the token belongs to client ID ${sent ?? '(unreadable)'}, not ${clientId}`
+  }
   if (typeof info.scope !== 'string') return 'Asana sent no scope list'
   const granted = scopeList(info.scope)
   const missing = asanaScopes.filter((scope) => !granted.includes(scope))
   if (missing.length > 0)
     return `${missing.length === 1 ? 'this scope is' : 'these scopes are'} missing: ${missing.join(', ')}`
   return undefined
+}
+
+function clientIdText(value: Untyped) {
+  const text = isInteger(value) ? String(value) : isString(value) ? value.trim() : undefined
+  return text !== undefined && /^[\w.-]{1,64}$/.test(text) ? text : undefined
+}
+
+function unauthorizedMessage(pathname: string) {
+  if (pathname === '/-/oauth_token')
+    return 'Asana didn’t accept this app’s client ID and secret. If you rotated the secret, paste the new one in Settings → Integrations → Asana, then reconnect.'
+  if (pathname === '/-/token_info')
+    return 'Asana refused to check the new token. Reconnect to try again.'
+  return 'Asana authorization expired or was revoked. Reconnect to continue.'
 }
 
 function hasRequiredScopes(scopes: readonly string[] | undefined) {
