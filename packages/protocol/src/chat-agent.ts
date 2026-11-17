@@ -1,5 +1,12 @@
-import { type AgentPower, isAgentId } from './agent-files.ts'
-import { isString, reader, type Untyped } from './parse.ts'
+import {
+  type AgentPower,
+  agentPowers,
+  isAgentId,
+  maxAgentDraftInstructions,
+  maxAgentId,
+  maxAgentName,
+} from './agent-files.ts'
+import { isOneOf, isString, type JsonObject, reader, type Untyped } from './parse.ts'
 import type { AgentKind } from './run.ts'
 import type { CommentAnswer, Proposal, ProposalInput, Round, RoundInput } from './task.ts'
 import { parsePostCommentRequest, parseProposalInput, parseRoundInput } from './task-parsers.ts'
@@ -21,7 +28,7 @@ export interface ChatAgent extends AgentSummary {
   removed: boolean
 }
 
-export const chatRequestKinds = ['question', 'round', 'proposal'] as const
+export const chatRequestKinds = ['question', 'round', 'proposal', 'agent'] as const
 
 export type ChatRequestKind = (typeof chatRequestKinds)[number]
 
@@ -36,9 +43,42 @@ export interface ChatRequest {
   multiple?: true
   round?: Round
   proposal?: Proposal
+  agentDraft?: AgentDraft
   answer?: CommentAnswer
   createdAt: string
 }
+
+export interface AgentDraftFields {
+  name: string
+  instructions: string
+  powers: AgentPower[]
+}
+
+export interface AgentDraftInput extends AgentDraftFields {
+  id: string
+  change?: true
+  summary?: string
+}
+
+export interface AgentDraftCurrent extends AgentDraftFields {
+  source: LayerKind
+  hash: string
+}
+
+export interface AgentDraft extends AgentDraftFields {
+  id: string
+  current?: AgentDraftCurrent
+}
+
+export const agentDraftPlaces = ['library', 'factory'] as const
+
+export type AgentDraftPlace = (typeof agentDraftPlaces)[number]
+
+export type AgentDraftAnswer =
+  | ({ action: 'create'; where: AgentDraftPlace } & AgentDraftFields)
+  | { action: 'dismiss' }
+
+export const maxAgentDraftSummary = 2000
 
 export interface ChatQuestionInput {
   text: string
@@ -50,6 +90,7 @@ export interface PostChatRequest {
   question?: ChatQuestionInput
   round?: RoundInput
   proposal?: ProposalInput
+  agent?: AgentDraftInput
   supersedes?: string
 }
 
@@ -83,8 +124,9 @@ export function parsePostChatRequest(value: Untyped): PostChatRequest {
   const proposal = read.optional(body, 'proposal', (object, field) =>
     parseProposalInput(object[field]),
   )
-  if ([question, round, proposal].filter((part) => part !== undefined).length !== 1)
-    throw new HttpError(400, 'send one of question, round or proposal')
+  const agent = read.optional(body, 'agent', (object, field) => parseAgentDraftInput(object[field]))
+  if ([question, round, proposal, agent].filter((part) => part !== undefined).length !== 1)
+    throw new HttpError(400, 'send one of question, round, proposal or agent')
   const supersedes = read.optional(body, 'supersedes', (object, field) =>
     read.string(object, field, 'supersedes must be a request’s ID'),
   )
@@ -93,7 +135,67 @@ export function parsePostChatRequest(value: Untyped): PostChatRequest {
     ...(question && { question }),
     ...(round && { round }),
     ...(proposal && { proposal }),
+    ...(agent && { agent }),
     ...(supersedes !== undefined && { supersedes }),
+  }
+}
+
+function parseDraftFields(body: JsonObject, where: string): AgentDraftFields {
+  const name = read.string(body, 'name', `${where}.name must be text`).trim()
+  if (name === '' || name.length > maxAgentName)
+    throw new HttpError(400, `${where}.name has 1–${maxAgentName} characters`)
+  const instructions = read.string(body, 'instructions', `${where}.instructions must be text`)
+  if (instructions.trim() === '' || instructions.length > maxAgentDraftInstructions)
+    throw new HttpError(
+      400,
+      `${where}.instructions has 1–${maxAgentDraftInstructions.toLocaleString('en-US')} characters`,
+    )
+  const listed = read.list(body, 'powers', `${where}.powers must be a list of powers`)
+  const unknown = listed.find((power) => !isOneOf(power, agentPowers))
+  if (unknown !== undefined)
+    throw new HttpError(
+      400,
+      `${JSON.stringify(unknown)} isn’t a power; the powers are ${agentPowers.join(', ')}`,
+    )
+  return {
+    name,
+    instructions: instructions.endsWith('\n') ? instructions : `${instructions}\n`,
+    powers: agentPowers.filter((power) => listed.includes(power)),
+  }
+}
+
+export function parseAgentDraftInput(value: Untyped): AgentDraftInput {
+  const body = read.object(value, 'agent')
+  const id = read.string(body, 'id', 'agent.id must be text')
+  if (!isAgentId(id))
+    throw new HttpError(
+      400,
+      `agent.id uses lowercase letters, digits and hyphens, up to ${maxAgentId} characters`,
+    )
+  const change = read.optional(body, 'change', (object, field) =>
+    read.boolean(object, field, 'agent.change must be true or false'),
+  )
+  const summary = read.optional(body, 'summary', (object, field) =>
+    read.string(object, field, 'agent.summary must be text').trim(),
+  )
+  if (summary !== undefined && summary.length > maxAgentDraftSummary)
+    throw new HttpError(400, `agent.summary has at most ${maxAgentDraftSummary} characters`)
+  return {
+    id,
+    ...parseDraftFields(body, 'agent'),
+    ...(change === true && { change: true as const }),
+    ...(summary !== undefined && summary !== '' && { summary }),
+  }
+}
+
+export function parseAgentDraftAnswer(value: Untyped): AgentDraftAnswer {
+  const body = read.object(value, 'body', 'body must be a JSON object')
+  const action = read.oneOf(body, 'action', ['create', 'dismiss'], 'action is create or dismiss')
+  if (action === 'dismiss') return { action }
+  return {
+    action,
+    where: read.oneOf(body, 'where', agentDraftPlaces, 'where is library or factory'),
+    ...parseDraftFields(body, 'answer'),
   }
 }
 

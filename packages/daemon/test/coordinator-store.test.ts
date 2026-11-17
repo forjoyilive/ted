@@ -210,7 +210,7 @@ test('a chat’s Agent and requests are kept with it and deleted with it; an old
   expect(builtInAgent(builtIns, 'coordinator')).toMatchObject({
     name: 'Coordinator',
     source: 'ted',
-    powers: ['ask', 'manage_tasks'],
+    powers: ['ask', 'manage_tasks', 'manage_agents'],
   })
 
   const chat = chatIn('factory-1', 'chat-1', 'run-1')

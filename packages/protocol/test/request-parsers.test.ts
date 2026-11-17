@@ -58,12 +58,58 @@ variants(P.parsePostChatRequest, [
   { question: { text: 'Which repo?', choices: ['web', 'api'], multiple: true }, supersedes: 'old' },
   { round },
   { proposal, supersedes: 'old' },
+  {
+    agent: {
+      id: 'billing-guide',
+      name: 'Billing guide',
+      instructions: '# Billing guide\n',
+      powers: ['ask', 'read_code'],
+      change: true,
+      summary: 'Answers billing questions.',
+    },
+    supersedes: 'old',
+  },
 ])
+roundTrip(P.parseAgentDraftInput, {
+  id: 'billing-guide',
+  name: 'Billing guide',
+  instructions: '# Billing guide\n',
+  powers: ['ask', 'read_code'],
+  change: true,
+  summary: 'Answers billing questions.',
+})
+variants<P.AgentDraftAnswer, P.AgentDraftAnswer[]>(P.parseAgentDraftAnswer, [
+  {
+    action: 'create',
+    where: 'factory',
+    name: 'Billing guide',
+    instructions: '# Billing guide\n',
+    powers: ['read_code'],
+  },
+  { action: 'dismiss' },
+])
+test('an Agent draft refuses an outside power and caps its text, and keeps the power order', () => {
+  const draft = { id: 'helper', name: 'Helper', instructions: 'Help.', powers: ['read_code'] }
+  expect(() => P.parseAgentDraftInput({ ...draft, powers: ['deploy'] })).toThrow(
+    '"deploy" isn’t a power',
+  )
+  expect(() => P.parseAgentDraftInput({ ...draft, id: 'Not An Id' })).toThrow('agent.id')
+  expect(() => P.parseAgentDraftInput({ ...draft, name: 'x'.repeat(61) })).toThrow('agent.name')
+  expect(() => P.parseAgentDraftInput({ ...draft, instructions: 'x'.repeat(20_001) })).toThrow(
+    'agent.instructions has 1–20,000 characters',
+  )
+  expect(
+    P.parseAgentDraftInput({ ...draft, powers: ['manage_agents', 'ask', 'ask'], change: false }),
+  ).toEqual({ ...draft, instructions: 'Help.\n', powers: ['ask', 'manage_agents'] })
+  expect(() => P.parseAgentDraftAnswer({ action: 'create', where: 'elsewhere', ...draft })).toThrow(
+    'where is library or factory',
+  )
+})
 test('parsePostChatRequest takes exactly one request and checks the Agent id rule', () => {
   expect(() => P.parsePostChatRequest({ round, proposal })).toThrow(
-    'send one of question, round or proposal',
+    'send one of question, round, proposal or agent',
   )
-  expect(() => P.parsePostChatRequest({})).toThrow('send one of question, round or proposal')
+  expect(() => P.parsePostChatRequest({})).toThrow('send one of question, round, proposal or agent')
   expect(() => P.parsePostChatRequest({ question: { text: ' ' } })).toThrow('a question has')
   expect(() => P.parsePostChatRequest({ question: { text: 'Why?' }, supersedes: '' })).toThrow(
     'supersedes',
