@@ -501,7 +501,7 @@ describe('Tokens, dollars, plan usage and retries', () => {
     expect(subChat.run).toMatchObject({ credential: 'Subscription', tokens: 1500 })
     expect(subChat.run.cost).toBeUndefined()
     await waitUntil(
-      async () => (await client.ok<Task>('GET', `/tasks/${sub.id}`)).tokens === 1500 || undefined,
+      async () => (await getTask(client, sub.id))?.tokens === 1500 || undefined,
       'the working Run’s tokens on its Task',
     )
 
@@ -533,8 +533,7 @@ describe('Tokens, dollars, plan usage and retries', () => {
       output: 1000,
     })
     expect(report.agents[0]?.cost).toBeCloseTo(0.84)
-    for (const task of [sub, keyed])
-      expect((await client.ok<Task>('GET', `/tasks/${task.id}`)).tokens).toBe(1500)
+    for (const task of [sub, keyed]) expect((await getTask(client, task.id))?.tokens).toBe(1500)
   })
 
   test('plan usage comes from the last Run’s rate limit events, and the same usage again sends no event', async () => {

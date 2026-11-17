@@ -370,7 +370,7 @@ describe('TedStore', () => {
         })
       start('lead')
       start('reviewer', 'lead')
-      store.failRun('reviewer', 'done')
+      store.recordRunOutput('reviewer', { toOffset: 1, state: 'finished' })
       store.recordRunUsage({ runId: 'reviewer', agent: 'claude', input: 900, output: 100 })
       const counted = () => ({
         one: store.getTask(task.id)?.tokens,
@@ -383,7 +383,7 @@ describe('TedStore', () => {
       store.setLiveTokens('reviewer', 50)
       expect(counted()).toEqual({ one: 3500, all: 3500 })
 
-      store.failRun('lead', 'done')
+      store.recordRunOutput('lead', { toOffset: 1, state: 'finished' })
       store.recordRunUsage({ runId: 'lead', agent: 'claude', input: 2000, output: 600 })
       store.setLiveTokens('lead', undefined)
       expect(counted()).toEqual({ one: 3600, all: 3600 })
