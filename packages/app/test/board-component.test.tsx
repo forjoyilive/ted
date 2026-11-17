@@ -673,6 +673,21 @@ test('the Stage lists reload for a requested Factory, even before its first list
   expect(affects(moved, ['f1'], listed)).toBe(false)
 })
 
+test('a Task waiting after its Checks says so, with its place in the hover title', async () => {
+  api()
+  const facts: TaskFacts = {
+    stage: 'work',
+    runs: ['idle'],
+    queue: { place: 2, after: 'checks-passed' },
+    busy: { loadRatio: 2 },
+  }
+  const status = taskStatus(facts)
+  if (!status) throw new Error('Expected a queued status')
+  render(<Board {...props()} tasks={[task({ stage: 'work', status, markers: [] })]} />)
+  const chip = await screen.findByText('Queued · Checks passed, waiting for a slot')
+  expect(chip.title).toBe('2nd in the queue')
+})
+
 test('Stopped is red, Snoozed is amber and Ready for Work stays green', async () => {
   api()
   const p = props()

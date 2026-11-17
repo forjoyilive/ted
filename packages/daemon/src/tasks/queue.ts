@@ -26,6 +26,20 @@ export interface QueueEntry {
   rank: number
   priority?: Priority
   factoryId?: string
+  skipsBusy?: true
+  recent?: true
+}
+
+export const recentContinuationMs = 10 * 60_000
+
+export function continuationFlags(
+  heldAt: string,
+  now: number,
+): Pick<QueueEntry, 'skipsBusy' | 'recent'> {
+  return {
+    skipsBusy: true,
+    ...(now - Date.parse(heldAt) < recentContinuationMs && { recent: true }),
+  }
 }
 
 export interface SlotUse {
@@ -46,6 +60,7 @@ export function queueOrder<T extends QueueEntry>(entries: readonly T[]): T[] {
         queueKinds.indexOf(
           b.kind === 'coordinator' || b.kind === 'side-chat' ? 'planning' : b.kind,
         ) ||
+      Number(b.recent === true) - Number(a.recent === true) ||
       priorityRank(a) - priorityRank(b) ||
       a.rank - b.rank ||
       a.id.localeCompare(b.id),
@@ -68,7 +83,7 @@ export function startsNow<T extends QueueEntry>(ordered: readonly T[], use: Slot
       !use.handoffs?.has(entry.id)
     ) {
       if (working >= use.limit) continue
-      if (use.busy && working > 0) continue
+      if (use.busy && working > 0 && !entry.skipsBusy) continue
       const cap = factory === undefined ? undefined : use.caps[factory]
       if (factory !== undefined && cap !== undefined && (byFactory[factory] ?? 0) >= cap) continue
     }
