@@ -40,7 +40,11 @@ export interface AgentLayer {
 }
 
 const agentKeys = ['name', 'agent', 'model', 'powers', 'commands', 'based_on']
-const chatOnlyPowers: readonly AgentPower[] = ['manage_tasks', 'manage_agents']
+const chatOnlyPowers: readonly AgentPower[] = [
+  'manage_tasks',
+  'manage_automations',
+  'manage_agents',
+]
 const idRule = `lowercase letters, digits and hyphens, up to ${maxAgentId} characters`
 const powerList = agentPowers.join(', ')
 

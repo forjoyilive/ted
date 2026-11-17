@@ -9,6 +9,8 @@ import { checkWorkflowPath, NothingToCheckError } from '@ted/daemon/workflow'
 import {
   type AgentKind,
   type AgentStageId,
+  type AutomationCardKind,
+  type AutomationDraftRequest,
   agentKinds,
   type Banner,
   type BrowserRequest,
@@ -28,6 +30,7 @@ import {
   type DeviceRequest,
   declaredSendBackCauses,
   devicePoint,
+  draftBody,
   type Effort,
   efforts,
   type Factory,
@@ -44,6 +47,7 @@ import {
   parseAgentDraftInput,
   parseAsanaTaskUrl,
   parseAssessFailureRequest,
+  parseAutomationDraftRequest,
   parseBrowserRequest,
   parseCoordinatorCreate,
   parseCoordinatorRemoval,
@@ -75,6 +79,7 @@ import {
   type ValidateJudgments,
 } from '@ted/protocol'
 import { executionCapacity, parseWorkerPairRequest } from '@ted/protocol/execution-pairing'
+import { type Json, parseJson } from '@ted/protocol/parse'
 import { matchReference, shortReference } from '@ted/protocol/reference'
 import { isCleanup } from '@ted/protocol/stage'
 import { asanaImportedText, asanaIntakeText, asanaTreeText } from './asana.ts'
@@ -801,6 +806,32 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     } catch {
       throw new UsageError(`--${name} must be JSON`)
     }
+  }
+
+  async function coordinatorAutomationDraft(kind: AutomationCardKind): Promise<void> {
+    const { operation } = options
+    if (!operation) throw new UsageError('operation is required')
+    let fields: Json | undefined
+    if (kind !== 'delete') {
+      const raw = options.fields ?? (await readStdin())
+      fields = parseJson(raw)
+      if (fields === undefined) throw new UsageError('the fields must be JSON')
+    }
+    let input: AutomationDraftRequest
+    try {
+      input = parseAutomationDraftRequest({
+        operation,
+        kind,
+        ...(kind !== 'create' && { automation: args[0] ?? '' }),
+        ...(fields !== undefined && { fields }),
+      })
+    } catch (error) {
+      if (error instanceof RequestValidationError) throw new UsageError(error.message)
+      throw error
+    }
+    console.log(
+      JSON.stringify(await withDaemon(home, (client) => client.draftAutomation(draftBody(input)))),
+    )
   }
 
   async function coordinatorAct(command: 'start' | 'move'): Promise<void> {
@@ -1946,6 +1977,21 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         ),
       )
     },
+    coordinatorAutomations: async () => {
+      console.log(
+        JSON.stringify(await withDaemon(home, (client) => client.coordinatorAutomations())),
+      )
+    },
+    coordinatorAutomationShow: async () => {
+      console.log(
+        JSON.stringify(
+          await withDaemon(home, (client) => client.coordinatorAutomation(args[0] ?? '')),
+        ),
+      )
+    },
+    coordinatorAutomationDraft: () => coordinatorAutomationDraft('create'),
+    coordinatorAutomationChange: () => coordinatorAutomationDraft('edit'),
+    coordinatorAutomationDelete: () => coordinatorAutomationDraft('delete'),
     coordinatorTasks: async () => {
       const params = new URLSearchParams({ offset: String(offset()) })
       if (options.all) params.set('all', '1')

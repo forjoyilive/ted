@@ -44,6 +44,7 @@ export function AgentsView({
   onNewPlan,
   onPlanMore,
   onOpenTask,
+  onOpenAutomation,
 }: {
   factory: Factory
   chatId: string | undefined
@@ -54,6 +55,7 @@ export function AgentsView({
   onNewPlan: () => void
   onPlanMore: (planId: string) => void
   onOpenTask: (ref: string) => void
+  onOpenAutomation: (id: string) => void
 }) {
   const coordinatorChats = useCoordinatorChats(factory.id)
   const plans = usePlansState(factory.id)
@@ -297,6 +299,7 @@ export function AgentsView({
         busy={busy}
         error={error}
         onOpenTask={onOpenTask}
+        onOpenAutomation={onOpenAutomation}
         onArchive={() => void archive({ agent: 'coordinator', id })}
         onUnarchive={() => void unarchive({ agent: 'coordinator', id })}
         onDelete={() => askDelete({ agent: 'coordinator', id })}

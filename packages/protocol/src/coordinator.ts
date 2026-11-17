@@ -1,3 +1,4 @@
+import type { AutomationCard } from './automation-card.ts'
 import type { RunMessage } from './chat.ts'
 import type { ChatAgent, ChatRequest } from './chat-agent.ts'
 import type {
@@ -62,6 +63,7 @@ export interface Coordinator {
   unsentMessages: RunMessage[]
   receipts: CoordinatorReceipt[]
   confirmations: CoordinatorConfirmation[]
+  automationCards: AutomationCard[]
   requests: ChatRequest[]
   tasks: Task[]
   chatAgent: ChatAgent

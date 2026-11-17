@@ -21,6 +21,7 @@ export const forwardedRequests = [
   'stopCoordinator',
   'retryCoordinator',
   'answerCoordinatorConfirmation',
+  'answerAutomationCard',
   'archiveCoordinatorChat',
   'unarchiveCoordinatorChat',
   'deleteCoordinatorChat',

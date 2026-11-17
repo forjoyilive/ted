@@ -5,6 +5,7 @@ import type { LayerKind } from './workflow.ts'
 export const agentPowers = [
   'ask',
   'manage_tasks',
+  'manage_automations',
   'propose_tasks',
   'read_code',
   'manage_agents',
@@ -16,6 +17,7 @@ export type AgentPower = (typeof agentPowers)[number]
 export const agentPowerNames: Readonly<Record<AgentPower, string>> = {
   ask: 'Ask the user',
   manage_tasks: 'Manage Tasks',
+  manage_automations: 'Manage Automations',
   propose_tasks: 'Propose Tasks',
   read_code: 'Read the code',
   manage_agents: 'Manage Agents',
@@ -71,6 +73,8 @@ export const agentPowerHelp: Readonly<Record<AgentPower, string>> = {
   ask: 'Questions and rounds that show in the Inbox.',
   manage_tasks:
     'Create, start, move and answer Tasks in this Factory, as the Coordinator does. Archives and deletes wait for your confirmation.',
+  manage_automations:
+    'Read this Factory’s Automations and draft new ones, changes and deletes. Each draft waits for you to create, save or delete it.',
   propose_tasks: 'A set of Tasks with blockers for you to approve, as the Planner does.',
   read_code:
     'A fresh copy of the default branch for each chat. It is never pushed and is removed when the chat is archived.',

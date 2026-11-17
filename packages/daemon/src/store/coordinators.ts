@@ -1,5 +1,6 @@
 import { queryDb, type Store } from '@livestore/livestore'
 import type {
+  AutomationCard,
   CoordinatorConfirmation,
   CoordinatorReceipt,
   RunMessage,
@@ -32,6 +33,7 @@ export interface StoredCoordinator {
   error?: string | undefined
   receipts: CoordinatorReceipt[]
   confirmations?: CoordinatorConfirmation[]
+  automationCards?: AutomationCard[]
   taskIds: string[]
   unsentMessages?: RunMessage[]
   launch?:

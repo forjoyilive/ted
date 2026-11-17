@@ -146,6 +146,25 @@ export type {
 } from './automation.ts'
 export { automationTemplateIds, checkAgentSteps, scheduledCheckPrompt } from './automation.ts'
 export {
+  type AutomationCard,
+  type AutomationCardAnswer,
+  type AutomationCardKind,
+  type AutomationCardResult,
+  type AutomationCardRow,
+  type AutomationDraftBody,
+  type AutomationDraftRequest,
+  type AutomationDraftResult,
+  automationCardHeadline,
+  automationCardKinds,
+  automationDraftLimits,
+  draftBody,
+  maxOpenAutomationCards,
+} from './automation-card.ts'
+export {
+  parseAutomationCardAnswer,
+  parseAutomationDraftRequest,
+} from './automation-card-parsers.ts'
+export {
   parseAnswerAutomationRequest,
   parseAutomationCheck,
   parseAutomationCommentRequest,
