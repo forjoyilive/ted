@@ -79,6 +79,7 @@ export function createTaskBrowsers(
   onSelect: (taskId: string, app: TaskApp) => void,
   electron: BrowserViews,
   timing: { captureMs?: number; reloadMs?: number } = {},
+  proxy?: () => Promise<string>,
 ) {
   const pages = new Map<string, Page>()
   const sessions = new Map<string, { session: Session; apps: Map<string, TaskApp> }>()
@@ -270,6 +271,7 @@ export function createTaskBrowsers(
     try {
       return (await openGuest(ses, app.url as string, {
         check: checkSession,
+        ...(proxy && { proxy }),
         host: (webPreferences) => {
           const created = new electron.WebContentsView({ webPreferences })
           created.setBounds({ x: 0, y: 0, width: 1024, height: 720 })
@@ -480,6 +482,7 @@ export function createTaskBrowsers(
         text: page.ready ? (page.error ?? 'Ready') : 'Opening…',
         size: previewSizeValue(chosen.size),
         ...(chosen.byAgent && { sizeByAgent: true as const }),
+        blocked: page.blocked,
       }
     },
     async external(taskId: string) {

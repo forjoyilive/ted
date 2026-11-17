@@ -88,6 +88,7 @@ import {
   windowTitle,
 } from './background.ts'
 import { createTaskBrowsers } from './browser.ts'
+import { guestProxyRules } from './browser-proxy.ts'
 import type { CustomHandlers, CustomRequests } from './custom-requests.ts'
 import { getAutomation, taskBrief } from './daemon-adapters.ts'
 import { forwardDaemonRequest, isForwardedRequest } from './daemon-requests.ts'
@@ -1222,6 +1223,8 @@ async function start(): Promise<void> {
       })
     },
     { session, WebContentsView },
+    {},
+    guestProxyRules(app),
   )
   servePrototypes((file) => supervised.client.readAttachment(file))
   traceStartup('initial-state-start')

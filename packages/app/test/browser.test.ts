@@ -21,6 +21,7 @@ import {
   checkGuestNetwork,
   checkInFlightNavigation,
   checkModalRace,
+  checkOutsideRequests,
   guestWorkerTraffic,
   startGuestWorker,
 } from './browser-probes.ts'
@@ -177,6 +178,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       { url: running.url, port: daemonInfo.port },
     ),
   ).toEqual([true, true])
+  await checkOutsideRequests(app, panel, new URL(running.url ?? '').href)
   expect(
     await app.evaluate(async ({ webContents }, url) => {
       return webContents

@@ -1,6 +1,7 @@
 import { createSocket } from 'node:dgram'
 import { createServer } from 'node:net'
 import path from 'node:path'
+import { scriptLiteral } from '@ted/protocol'
 import type { ElectronApplication, Page } from 'playwright'
 import { expect } from 'vitest'
 
@@ -246,6 +247,54 @@ export async function checkInFlightNavigation(
         await webContents.fromId(id)?.loadURL(url)
       },
       { id, url },
+    )
+  }
+}
+
+export async function checkOutsideRequests(
+  app: ElectronApplication,
+  panel: import('playwright').Locator,
+  url: string,
+) {
+  let connections = 0
+  const tcp = createServer((socket) => {
+    connections++
+    socket.destroy()
+  })
+  await new Promise<void>((resolve) => tcp.listen(0, '127.0.0.1', resolve))
+  const address = tcp.address() as import('node:net').AddressInfo
+  try {
+    const images = [
+      `http://127.0.0.1:${address.port}/art.png`,
+      `http://localhost:${address.port}/art.png`,
+    ]
+      .map(scriptLiteral)
+      .join(', ')
+    const script = `Promise.all([
+      ...[${images}].map((src) => new Promise((resolve) => {
+        const image = new Image(); image.onload = () => resolve('loaded'); image.onerror = () => resolve('blocked'); image.src = src;
+      })),
+      new Promise((resolve) => {
+        const script = document.createElement('script'); script.onload = () => resolve('loaded'); script.onerror = () => resolve('blocked');
+        script.src = ${scriptLiteral('https://cdn.example/app.js')}; document.head.append(script);
+      }),
+    ])`
+    const results = await app.evaluate(
+      async ({ webContents }, { url, script }) => {
+        const guest = webContents.getAllWebContents().find((c) => c.getURL() === url)
+        if (!guest) throw new Error('No guest')
+        return guest.executeJavaScript(script)
+      },
+      { url, script },
+    )
+    expect(results).toEqual(['blocked', 'blocked', 'blocked'])
+    expect(connections).toBe(0)
+    await expect
+      .poll(() => panel.textContent())
+      .toMatch(/Blocked [1-9]\d* requests to other sites · Open ↗/)
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      tcp.close((error) => (error ? reject(error) : resolve())),
     )
   }
 }
