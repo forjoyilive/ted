@@ -501,6 +501,7 @@ export const loopChecks = State.SQLite.table({
     round: State.SQLite.integer(),
     limit: State.SQLite.integer({ nullable: true }),
     verdict: State.SQLite.text({ nullable: true }),
+    cause: State.SQLite.text({ nullable: true }),
     at: State.SQLite.text(),
   },
 })
@@ -516,6 +517,7 @@ export const sendBackAsks = State.SQLite.table({
     findings: State.SQLite.text(),
     checkRunId: State.SQLite.text({ nullable: true }),
     loop: State.SQLite.boolean(),
+    cause: State.SQLite.text({ nullable: true }),
     at: State.SQLite.text(),
   },
 })
@@ -3726,6 +3728,20 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  loopCheckStartedV2: Events.synced({
+    name: 'v2.LoopCheckStarted',
+    schema: Schema.Struct({
+      runId: Schema.String,
+      taskId: Schema.String,
+      to: Schema.String,
+      findings: Schema.String,
+      checkRunId: Schema.NullOr(Schema.String),
+      round: Schema.Number,
+      limit: Schema.NullOr(Schema.Number),
+      cause: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   loopCheckFinished: Events.synced({
     name: 'v1.LoopCheckFinished',
     schema: Schema.Struct({
@@ -3746,6 +3762,20 @@ export const events = {
       findings: Schema.String,
       checkRunId: Schema.NullOr(Schema.String),
       loop: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
+  sendBackAskedV2: Events.synced({
+    name: 'v2.SendBackAsked',
+    schema: Schema.Struct({
+      commentId: Schema.String,
+      taskId: Schema.String,
+      from: Schema.String,
+      to: Schema.String,
+      findings: Schema.String,
+      checkRunId: Schema.NullOr(Schema.String),
+      loop: Schema.Boolean,
+      cause: Schema.NullOr(Schema.String),
       at: Schema.String,
     }),
   }),
@@ -4486,12 +4516,22 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
       reviewer: args.reviewer,
     }),
   'v1.LoopCheckStarted': (args) => task(args, { runId: args.runId, round: args.round }),
+  'v2.LoopCheckStarted': (args) =>
+    task(args, { runId: args.runId, round: args.round, cause: args.cause }),
   'v1.SendBackAsked': (args) =>
     task(args, {
       from: args.from,
       to: args.to,
       findings: args.findings,
       checkRunId: args.checkRunId,
+    }),
+  'v2.SendBackAsked': (args) =>
+    task(args, {
+      from: args.from,
+      to: args.to,
+      findings: args.findings,
+      checkRunId: args.checkRunId,
+      cause: args.cause,
     }),
   'v1.LoopCheckFinished': (args) =>
     task(args, { runId: args.runId, verdict: args.verdict, reason: args.reason }),
@@ -5476,10 +5516,14 @@ const materializers = counted(
       'v2.ValidateJudged': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.LoopCheckStarted': ({ to, ...row }) =>
+        loopChecks.insert({ ...row, toStage: to, verdict: null, cause: null }),
+      'v2.LoopCheckStarted': ({ to, ...row }) =>
         loopChecks.insert({ ...row, toStage: to, verdict: null }),
       'v1.LoopCheckFinished': ({ runId, verdict }) =>
         loopChecks.update({ verdict }).where({ runId }),
       'v1.SendBackAsked': ({ from, to, ...row }) =>
+        sendBackAsks.insert({ ...row, fromStage: from, toStage: to, cause: null }),
+      'v2.SendBackAsked': ({ from, to, ...row }) =>
         sendBackAsks.insert({ ...row, fromStage: from, toStage: to }),
       'v1.RunFailed': ({ runId, error }) => runs.update({ failure: error }).where({ id: runId }),
       'v1.RunRestarted': ({ runId, model, effort, usesDefaultModel }) =>

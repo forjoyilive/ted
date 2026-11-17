@@ -1,6 +1,6 @@
 import { access, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { BaseConflictFound, SendBack, Task } from '@ted/protocol'
+import type { BaseConflictFound, Comment, SendBack, Task } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { commitToOrigin, waitUntil } from './helpers.ts'
 import {
@@ -42,8 +42,8 @@ const resolve = () =>
     `${commit} merge -q -X ours -m merge "$sha"`,
   ].join('\n')
 
-async function begin(stages: string[], intake: string[] = []) {
-  const client = await start({ files: { 'notes.txt': 'first\n' } })
+async function begin(stages: string[], intake: string[] = [], workflow: string[] = []) {
+  const client = await start({ files: { 'notes.txt': 'first\n' }, workflow })
   const script = [
     `if [ ! -e '${scratchFile('intake')}' ]; then`,
     `touch '${scratchFile('intake')}'`,
@@ -154,6 +154,56 @@ describe('A branch that conflicts with its base', () => {
       'the Task to come back to Validate',
     )
     expect(await sendBacks(client, task)).toHaveLength(1)
+  })
+
+  test('held at Validate’s limit, keeps its cause when the human answers Keep going', async () => {
+    const { client, task } = await begin(
+      [
+        `elif [ ! -e '${scratchFile('worked')}' ]; then`,
+        work(),
+        'ted outcome advance',
+        `elif [ ! -e '${scratchFile('held')}' ]; then`,
+        `touch '${scratchFile('validating')}'`,
+        waitForMain(),
+        `ted outcome back --to work --cause base-conflict --findings '${scratchFile('findings.md')}'`,
+        `touch '${scratchFile('held')}'`,
+      ],
+      [],
+      ['stages:', '  validate:', '    max_back: 0', '    loop_check: false'],
+    )
+    await moveMain('validating')
+
+    const question = await waitUntil(
+      async () =>
+        (await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)).find(
+          (c) => c.kind === 'question' && c.answer === undefined,
+        ),
+      'the limit question',
+    )
+    expect(question.choices).toEqual(['Keep going', 'Stop the Task'])
+    expect(question.body).toContain('This time the branch conflicted with its base branch')
+    expect(await sendBacks(client, task)).toEqual([])
+
+    await client.ok('POST', `/comments/${question.id}/answer`, {
+      action: 'answer',
+      choice: 'Keep going',
+    })
+    const [sendBack] = await waitUntil(async () => {
+      const found = await sendBacks(client, task)
+      return found.length > 0 ? found : undefined
+    }, 'the send-back')
+    expect(sendBack).toMatchObject({
+      from: 'validate',
+      to: 'work',
+      counted: true,
+      round: 1,
+      cause: 'base-conflict',
+    })
+    expect(
+      (await lines(client, task)).some((l) =>
+        /^Validate sent this back to Work \(round 1 of \d+\) · base conflict$/.test(l),
+      ),
+    ).toBe(true)
   })
 
   test('a send-back that names a conflict Ted can’t find is an ordinary send-back, on a branch Ted moved to the latest base at its first Work entry', async () => {

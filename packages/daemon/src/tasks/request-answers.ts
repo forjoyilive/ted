@@ -563,7 +563,7 @@ export function createRequestAnswers(
         round: 1,
         ...(limit !== undefined && { limit }),
         ...(ask.checkRunId !== undefined && { checkRunId: ask.checkRunId }),
-        cause: ask.checkRunId !== undefined ? 'check' : 'review',
+        cause: ask.cause ?? (ask.checkRunId !== undefined ? 'check' : 'review'),
       })
       const back = backMessage(workflow, ask.to, stageWith('validates'), sentBack)
       if (stopping) {

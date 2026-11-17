@@ -709,6 +709,7 @@ export function threadEvents(
         )
         break
       case 'v1.SendBackAsked':
+      case 'v2.SendBackAsked':
         add(
           entry,
           'failure',
@@ -761,6 +762,7 @@ export function threadEvents(
         add(entry, 'quiet', `Ted moved ${text(data.repo)} to the latest ${text(data.base)}`)
         break
       case 'v1.LoopCheckStarted':
+      case 'v2.LoopCheckStarted':
         add(
           entry,
           'run',
