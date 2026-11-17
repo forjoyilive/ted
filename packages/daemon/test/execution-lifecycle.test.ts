@@ -4,8 +4,10 @@ import { expect, test } from 'vitest'
 import { commitToOrigin, waitUntil } from './helpers.ts'
 import { createExecutionFixture } from './support/execution-fixture.ts'
 import { observe } from './support/execution-observations.ts'
+import { skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
-test('the process fixture carries copy, setup, stop and archive teardown through the local backend', async () => {
+test('the process fixture carries copy, setup, stop and archive teardown through the local backend', async (context) => {
+  skipInsideTedSandbox(context)
   const fixture = await createExecutionFixture()
   try {
     const machine = await fixture.machine('controller')
