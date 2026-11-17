@@ -64,6 +64,7 @@ import { Markdown } from './Markdown.tsx'
 import { PreviewRow } from './PreviewRow.tsx'
 import { ProposalAnswer, ProposalRows } from './ProposalCard.tsx'
 import { isSeveral, QuestionChoices, type QuestionSelection } from './QuestionChoices.tsx'
+import { ReferenceText } from './References.tsx'
 import styles from './RequestCard.module.css'
 import { RequestSnoozeLine } from './RequestSnooze.tsx'
 import { RoundAnswers, RoundQuestions, roundTally } from './RoundCard.tsx'
@@ -1106,7 +1107,9 @@ export function RequestCard({
         <PreviouslyApprovedSignOff id={changes.since} task={task} />
       )}
       {!readOnly && request.answer === undefined && <RequestSnoozeLine requestId={request.id} />}
-      <h2 className={styles.title}>{headline(request)}</h2>
+      <h2 className={styles.title}>
+        <ReferenceText text={headline(request)} />
+      </h2>
       {rows && <MergeRows rows={rows} taskId={task.id} />}
       {rows && changes && <MergeChangesLine changes={changes} />}
       {changes && !rows && <ChangesBlock changes={changes} current={taskChanges} />}
@@ -1550,7 +1553,9 @@ export function AnsweredCard({
       </div>
       {permission ? (
         <>
-          <h2 className={styles.title}>{headline(request)}</h2>
+          <h2 className={styles.title}>
+            <ReferenceText text={headline(request)} />
+          </h2>
           {shown !== undefined && shown !== '' && <Markdown text={shown} />}
           <PermissionCommand request={request} />
           {request.simulator && (
@@ -1563,7 +1568,9 @@ export function AnsweredCard({
           )}
         </>
       ) : (
-        <p className={styles.answeredTitle}>{headline(request)}</p>
+        <p className={styles.answeredTitle}>
+          <ReferenceText text={headline(request)} />
+        </p>
       )}
       {request.answer?.kind === 'answered' && request.answer.answers && (
         <RoundAnswers request={request} answers={request.answer.answers} />

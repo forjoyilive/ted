@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type {
+  FailureCase,
   PullRequestChanges,
   TaskChanges,
   TaskCommit,
@@ -13,6 +14,7 @@ import { CommentFiles } from '../src/renderer/components/CommentFiles.tsx'
 import { DesignReviewContent } from '../src/renderer/components/DesignReview.tsx'
 import { FilesSection } from '../src/renderer/components/FilesSection.tsx'
 import { FileView } from '../src/renderer/components/FileView.tsx'
+import { Markdown } from '../src/renderer/components/Markdown.tsx'
 import { QuickOpen } from '../src/renderer/components/QuickOpen.tsx'
 import { ReferenceText, TaskReferences } from '../src/renderer/components/References.tsx'
 import { Viewer } from '../src/renderer/components/Viewer.tsx'
@@ -703,7 +705,28 @@ test('a commit, a Task ID and a worktree path in a Task’s messages are links, 
       author: { kind: 'human' },
       body: 'Fixed in `195e5ce2` for NB-2 and NB-1. See src/hello.ts:2, not tmp/session-78452.txt or `0badc0de`.\n\n```\n195e5ce2 README.md\n```',
     }),
-    comment({ id: 'c2', kind: 'note', body: 'On 195e5ce2 the Check failed. NB-9 is unknown.' }),
+    comment({
+      id: 'c2',
+      kind: 'note',
+      body: 'On 195e5ce2 the Check failed as 0007fc. NB-9 is unknown.',
+    }),
+    comment({ id: 'c3', kind: 'question', body: 'Close failure 0007fc as fixed in NB-2?' }),
+  ])
+  a.handle('listFailures', () => [
+    {
+      id: '0007fcaa-case',
+      taskId: 'NB-1',
+      source: { kind: 'factory-check', checkRunId: 'cr1', position: 0 },
+      recordedBy: 'r1',
+      provenance: 'stored-check',
+      evidence: 'Tests failed',
+      createdAt: '2026-11-17T00:00:00.000Z',
+      assessments: [],
+      additions: [],
+      decisions: [{ commentId: 'c3', assessmentId: 'a1' }],
+      resolutions: [],
+      invalidations: [],
+    } satisfies FailureCase,
   ])
   a.handle('taskFiles', () => ({
     taskId: 'NB-1',
@@ -744,8 +767,14 @@ test('a commit, a Task ID and a worktree path in a Task’s messages are links, 
   await waitFor(() =>
     expect(
       [...thread().querySelectorAll('[data-reference]')].map((link) => link.textContent),
-    ).toEqual(['195e5ce2', 'NB-2', 'src/hello.ts:2', '195e5ce2']),
+    ).toEqual(['195e5ce2', 'NB-2', 'src/hello.ts:2', '195e5ce2', '0007fc', '0007fc', 'NB-2']),
   )
+  expect(thread().textContent).toContain('On commit 195e5ce2 the Check failed as failure 0007fc.')
+  expect(thread().textContent).toContain('Close failure 0007fc as fixed in NB-2?')
+  const card = () => required(thread().querySelector<HTMLElement>('li[data-chat-item="c3"]'))
+  expect(card().dataset.found).toBeUndefined()
+  await user().click(required(within(thread()).getAllByRole('button', { name: '0007fc' })[0]))
+  await waitFor(() => expect(card().dataset.found).toBe(''))
   const commits = within(thread()).getAllByRole('button', { name: '195e5ce2' })
   expect(commits[0]?.querySelector('code')).toBeTruthy()
   expect(
@@ -780,10 +809,15 @@ test('a commit lookup answered after a reconnect does not undo the links found s
         taskId="NB-1"
         files={undefined}
         onWantFiles={vi.fn()}
-        hasTask={() => false}
+        taskFor={() => undefined}
+        failures={[]}
+        runs={[]}
         onOpenTask={vi.fn()}
         onOpenFile={vi.fn()}
         onOpenCommit={vi.fn()}
+        onOpenFailure={vi.fn()}
+        onOpenRun={vi.fn()}
+        onOpenUrl={vi.fn()}
       >
         <ReferenceText text="Fixed in 195e5ce2." />
       </TaskReferences>
@@ -795,4 +829,102 @@ test('a commit lookup answered after a reconnect does not undo the links found s
   await screen.findByRole('button', { name: '195e5ce2' })
   await act(async () => old.resolve([]))
   expect(screen.getByRole('button', { name: '195e5ce2' })).toBeTruthy()
+})
+
+test('Failure case, Run and tracker references link, with their kind as plain text before them', async () => {
+  const failure = (id: string, fields: Partial<FailureCase> = {}): FailureCase => ({
+    id,
+    taskId: 'NB-1',
+    source: { kind: 'factory-check', checkRunId: 'cr1', position: 0 },
+    recordedBy: 'r1',
+    provenance: 'stored-check',
+    evidence: 'Tests failed',
+    createdAt: '2026-11-17T00:00:00.000Z',
+    assessments: [],
+    additions: [],
+    decisions: [],
+    resolutions: [],
+    invalidations: [],
+    ...fields,
+  })
+  const onOpenFailure = vi.fn()
+  const onOpenRun = vi.fn()
+  const onOpenUrl = vi.fn()
+  const onOpenTask = vi.fn()
+  const runs = [{ id: '9c41e2aa-run' }, { id: '5d07aa22-run' }]
+  const issue = { identifier: 'KRI-357', url: 'https://linear.app/acme/issue/KRI-357' }
+  const b = bridge({
+    taskCommits: () => [{ id: '195e5ce2', repo: 'web', commit: `195e5ce2${'0'.repeat(32)}` }],
+    linearIssueLinks: (ids) => ((ids as string[]).includes('KRI-357') ? [issue] : []),
+  })
+  render(
+    <ConnectionContext value={{ connection: { state: 'connected' }, epoch: 0 }}>
+      <TaskReferences
+        taskId="NB-1"
+        files={undefined}
+        onWantFiles={vi.fn()}
+        taskFor={(id) =>
+          id === 'NB-2'
+            ? { task: 'NB-2' }
+            : id === 'KRI-12'
+              ? { url: 'https://linear.app/acme/issue/KRI-12' }
+              : id.startsWith('KRI-')
+                ? 'tracker'
+                : undefined
+        }
+        failures={[
+          failure('0007fcaa-case', { decisions: [{ commentId: 'c9', assessmentId: 'a1' }] }),
+          failure('a50acdaa-case'),
+          failure('5d07aa11-case'),
+          failure('77e0aaaa-case', { source: { kind: 'finding', runId: 'r1', finding: 'Off' } }),
+        ]}
+        runs={runs}
+        onOpenTask={onOpenTask}
+        onOpenFile={vi.fn()}
+        onOpenCommit={vi.fn()}
+        onOpenFailure={onOpenFailure}
+        onOpenRun={onOpenRun}
+        onOpenUrl={onOpenUrl}
+      >
+        <Markdown
+          text={
+            'Old failure case 0007fc, accepted as a50acd. Found by 9c41e2; 5d07aa and 77e0aa stay plain. Fixed in `195e5ce2`. See NB-2, KRI-357, KRI-999 and KRI-12. 1f00e4 is nothing.'
+          }
+        />
+      </TaskReferences>
+    </ConnectionContext>,
+  )
+  const links = () =>
+    [...document.querySelectorAll('[data-reference]')].map((link) => link.textContent)
+  await waitFor(() =>
+    expect(links()).toEqual([
+      '0007fc',
+      'a50acd',
+      '9c41e2',
+      '195e5ce2',
+      'NB-2',
+      'KRI-357↗',
+      'KRI-12↗',
+    ]),
+  )
+  const text = document.body.textContent ?? ''
+  expect(text).toContain('Old failure case 0007fc,')
+  expect(text).toContain('accepted as failure a50acd.')
+  expect(text).toContain('Found by run 9c41e2;')
+  expect(text).toContain('Fixed in commit 195e5ce2.')
+  expect(text).toContain('See NB-2, KRI-357↗, KRI-999 and KRI-12↗.')
+  expect(
+    b.request.mock.calls.flatMap(([name, ids]) => (name === 'linearIssueLinks' ? ids : [])),
+  ).toEqual(['KRI-357', 'KRI-999'])
+
+  await user().click(screen.getByRole('button', { name: '0007fc' }))
+  await user().click(screen.getByRole('button', { name: 'a50acd' }))
+  expect(onOpenFailure.mock.calls).toEqual([['c9'], ['check:cr1']])
+  await user().click(screen.getByRole('button', { name: '9c41e2' }))
+  expect(onOpenRun).toHaveBeenCalledWith('9c41e2aa-run')
+  await user().click(screen.getByRole('button', { name: 'KRI-357' }))
+  await user().click(screen.getByRole('button', { name: 'KRI-12' }))
+  expect(onOpenUrl.mock.calls).toEqual([[issue.url], ['https://linear.app/acme/issue/KRI-12']])
+  await user().click(screen.getByRole('button', { name: 'NB-2' }))
+  expect(onOpenTask).toHaveBeenCalledWith('NB-2')
 })

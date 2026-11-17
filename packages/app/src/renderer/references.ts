@@ -1,13 +1,35 @@
-import type { TaskFileRef, TaskFiles } from '@ted/protocol'
+import type { FailureCase, TaskFileRef, TaskFiles } from '@ted/protocol'
 
 export type Reference =
   | { kind: 'commit'; id: string }
+  | { kind: 'short'; id: string }
   | { kind: 'task'; id: string }
   | { kind: 'file'; path: string; line?: number }
 
 export interface Piece {
   text: string
   reference?: Reference
+}
+
+export type LabelledKind = 'commit' | 'failure' | 'run'
+
+const named: Record<LabelledKind, RegExp> = {
+  commit: /\b(?:commits?|committed|hash|sha)[\s,:(]*$/i,
+  failure: /\b(?:failures?|cases?|findings?)[\s,:(]*$/i,
+  run: /\b(?:runs?|sub-agents?|subagents?|lead)[\s,:(]*$/i,
+}
+
+export function kindLabel(kind: LabelledKind, before: string): string | undefined {
+  return named[kind].test(before) ? undefined : kind
+}
+
+export function failureTarget(failure: FailureCase): string | undefined {
+  const asked = failure.decisions.at(-1)?.commentId
+  if (asked !== undefined) return asked
+  const { source } = failure
+  return source.kind === 'factory-check' || source.kind === 'post-rebase-check'
+    ? `check:${source.checkRunId}`
+    : undefined
 }
 
 const start = String.raw`(?<![\w/.@-])`
@@ -17,6 +39,7 @@ const pattern = new RegExp(
     String.raw`(?<url>[A-Za-z][A-Za-z0-9+.-]*:\/\/\S+)`,
     String.raw`(?<task>${start}[A-Z][A-Z0-9]{1,9}-\d{1,6}${end})`,
     `(?<commit>${start}[0-9a-f]{7,40}${end})`,
+    `(?<short>${start}[0-9a-f]{6}${end})`,
     String.raw`(?<path>${start}(?:\.{1,2}\/)?\.?[\w@+-][\w@.+-]*(?:\/[\w@.+-]+)*(?::(?<line>\d{1,7})(?!\w))?)`,
   ].join('|'),
   'g',
@@ -38,9 +61,10 @@ export function references(text: string): Piece[] {
     const at = match.index ?? 0
     plain += text.slice(last, at)
     last = at + match[0].length
-    const { task, commit, path, line } = match.groups ?? {}
+    const { task, commit, short, path, line } = match.groups ?? {}
     if (task !== undefined) add({ kind: 'task', id: task }, task)
     else if (commit !== undefined) add({ kind: 'commit', id: commit }, commit)
+    else if (short !== undefined) add({ kind: 'short', id: short }, short)
     else if (path !== undefined) {
       const suffix = line === undefined ? '' : `:${line}`
       const whole = path.slice(0, path.length - suffix.length)

@@ -74,32 +74,37 @@ interface HastNode {
 
 const referenceTag = 'ted-reference'
 
-function referenceNode(reference: Reference, children: HastNode[]): HastNode {
+function referenceNode(reference: Reference, before: string, children: HastNode[]): HastNode {
   return {
     type: 'element',
     tagName: referenceTag,
-    properties: { reference: JSON.stringify(reference) },
+    properties: { reference: JSON.stringify(reference), before },
     children,
   }
 }
 
 function linkReferences(node: HastNode): void {
   if (!node.children) return
+  let last = ''
   node.children = node.children.flatMap((child): HastNode[] => {
     if (child.type === 'text' && child.value !== undefined) {
-      return references(child.value).map((piece) =>
-        piece.reference
-          ? referenceNode(piece.reference, [{ type: 'text', value: piece.text }])
-          : { type: 'text', value: piece.text },
-      )
+      return references(child.value).map((piece) => {
+        const before = last
+        last = piece.text
+        return piece.reference
+          ? referenceNode(piece.reference, before, [{ type: 'text', value: piece.text }])
+          : { type: 'text', value: piece.text }
+      })
     }
+    const before = last
+    last = ''
     if (child.type !== 'element' || child.tagName === 'a' || child.tagName === 'pre') return [child]
     if (child.tagName === 'code') {
       const [only] = child.children ?? []
       const pieces =
         child.children?.length === 1 && only?.type === 'text' ? references(only.value ?? '') : []
       const reference = pieces.length === 1 ? pieces[0]?.reference : undefined
-      return [reference ? referenceNode(reference, [child]) : child]
+      return [reference ? referenceNode(reference, before, [child]) : child]
     }
     linkReferences(child)
     return [child]
@@ -108,9 +113,19 @@ function linkReferences(node: HastNode): void {
 
 const rehypeReferences = () => (tree: HastNode) => linkReferences(tree)
 
-function LinkedReference({ reference, children }: { reference?: string; children?: ReactNode }) {
+function LinkedReference({
+  reference,
+  before,
+  children,
+}: {
+  reference?: string
+  before?: string
+  children?: ReactNode
+}) {
   return (
-    <ReferenceLink reference={JSON.parse(reference ?? '{}') as Reference}>{children}</ReferenceLink>
+    <ReferenceLink reference={JSON.parse(reference ?? '{}') as Reference} before={before}>
+      {children}
+    </ReferenceLink>
   )
 }
 
