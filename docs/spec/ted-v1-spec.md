@@ -921,7 +921,8 @@ The daemon also serves `/healthz`. (KRI-20, KRI-59)
 - Suggested headings only. The default covers: run the project’s tests (and end-to-end tests where they exist); have the reviewer perform code review and security review of the committed diff against a stated base with no Work context; check against the description and the Design brief; for UI changes, take screenshots, judge them against what was wanted, and attach them as evidence. The aim is as much automated validation as possible. (KRI-16, KRI-199)
 - Every default Validate pass records the security review’s scope, method and outcome. Changes involving input, files, processes, network or credentials get a review of the relevant trust boundaries, permissions and failure cases, using an available security skill or tool when helpful, or manual review. A change with no security-sensitive impact records why. Code and security Findings use the same blocking/note flow. (KRI-199)
 - Factory setup always writes a Factory `validate.md`: how to start the app, which flows to run, what “looks right” means here. (KRI-16, KRI-22)
-- For local web Apps, agents use `ted browser open <App>`, `snapshot`, `click`, `fill`, `press`, `navigate`, `back`, `forward`, `reload` and `screenshot` to drive the same Task browser the human sees. Sessions are isolated per Task and last until Ted quits. Only the selected App’s origin is reachable; external login and resources use the default browser. (KRI-18, KRI-34, ADR 0097)
+- For local web Apps, agents use `ted browser open <App>`, `snapshot`, `click`, `fill`, `press`, `navigate`, `back`, `forward`, `reload`, `size` and `screenshot` to drive the same Task browser the human sees. Sessions are isolated per Task and last until Ted quits. Only the selected App’s origin is reachable; external login and resources use the default browser. (KRI-18, KRI-34, ADR 0097)
+- **Preview size.** The Task browser’s size menu shows the page at Desktop (the pane), Tablet (768 × 1024), Mobile (390 × 844), either of those in landscape, or a custom width, with Zoom (Fit, 50%, 75%, 100%) for the framed sizes. Tablet and mobile also get touch support and a phone or tablet user agent. A web App’s `preview:` sets the size it opens at. The chosen size lasts for that App in that Task until Ted quits; an agent’s `ted browser size` changes the human’s view too, and the status line says so. (TED-563, ADR 0188)
 - Pass means no blocking Findings. (KRI-16)
 
 ### 8.3 Findings
@@ -1025,7 +1026,7 @@ apps:
     run: 'xcodebuild -scheme App -destination "id=$TED_SIMULATOR_UDID" -derivedDataPath "$TED_DERIVED_DATA" -packageCachePath "$TED_SWIFTPM_CACHE" build'
 ```
 
-- Declared per repo under `repos[].apps`. Keys: `name`, `run`, `url`, `ready`, `kind`, `device`, optional fixed `port`, optional `env`. (KRI-18, KRI-58)
+- Declared per repo under `repos[].apps`. Keys: `name`, `run`, `url`, `ready`, `kind`, `device`, optional fixed `port`, optional `env`, and for a web App optional `preview` (`desktop`, `tablet` or `mobile`, the size its Task browser opens at). (KRI-18, KRI-58, TED-563)
 - `kind`: `web` (default), `command` (no URL) or `ios-simulator`. React Native Web is a `web` App. (KRI-18)
 - Ted picks a free port per App per worktree and passes it as `${PORT}` and `PORT`. A taken fixed `port:` fails with a clear error. Port agent-orchestrator’s `previewserver` manager. (KRI-18)
 - One running instance per App per Task, shared by the human and agents (`ted run-app` reuses it). Restarts and crashes show as thread events. (KRI-18, KRI-61)

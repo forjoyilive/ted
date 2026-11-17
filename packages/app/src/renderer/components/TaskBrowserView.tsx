@@ -1,12 +1,25 @@
 import type { Attachment, BrowserRequest, Task } from '@ted/protocol'
-import { useEffect, useRef, useState } from 'react'
+import { isString } from '@ted/protocol/parse'
+import {
+  type PreviewSize,
+  type PreviewZoom,
+  previewSize,
+  previewSizeLabel,
+  previewSizeOf,
+  previewSizeValue,
+} from '@ted/protocol/preview-size'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useConnection, useTaskApps } from '../data.ts'
+import { previewFrame } from '../preview-frame.ts'
 import { readableError, ted } from '../ted.ts'
 import type { ShownApp } from './AppsSection.tsx'
 import { Button } from './Button.tsx'
 import { CommentFiles } from './CommentFiles.tsx'
+import { PreviewSizeMenu } from './PreviewSizeMenu.tsx'
 import { Select } from './Select.tsx'
 import styles from './TaskBrowserView.module.css'
+
+const zooms = new Map<string, PreviewZoom>()
 
 export function TaskBrowserView({
   task,
@@ -23,6 +36,20 @@ export function TaskBrowserView({
   const apps = useTaskApps(task.id).filter((a) => a.kind === 'web' && !a.removed)
   const app = apps.find((a) => a.repo === shown.repo && a.name === shown.name)
   const viewport = useRef<HTMLDivElement>(null)
+  const area = useRef<HTMLDivElement>(null)
+  const zoomKey = JSON.stringify([task.id, shown.repo, shown.name])
+  const [size, setSize] = useState<PreviewSize>(() => previewSizeOf(app?.preview))
+  const [zoom, setZoomState] = useState<PreviewZoom>(() => zooms.get(zoomKey) ?? 'fit')
+  const [room, setRoom] = useState({ width: 0, height: 0 })
+  const frame = previewFrame(size, zoom, room)
+  const scale = useRef(frame.scale)
+  scale.current = frame.scale
+  const sizeValue = useRef(previewSizeValue(size))
+  const note = useRef<string>(undefined)
+  const setZoom = (next: PreviewZoom) => {
+    zooms.set(zoomKey, next)
+    setZoomState(next)
+  }
   const editing = useRef(false)
   const [address, setAddress] = useState('')
   const [status, setStatus] = useState('Opening…')
@@ -33,9 +60,10 @@ export function TaskBrowserView({
   const [ready, setReady] = useState(false)
   const [retryOpen, setRetryOpen] = useState(0)
   const running = app?.state === 'running'
-  const act = async (request: BrowserRequest) => {
-    if (active.current) return
+  const act = async (request: BrowserRequest): Promise<boolean> => {
+    if (active.current) return false
     active.current = true
+    note.current = undefined
     setCommand(request.action)
     setBusy(true)
     try {
@@ -48,13 +76,57 @@ export function TaskBrowserView({
       setStatus(
         result.attachment ? 'Screenshot saved to Task attachments' : (result.text ?? 'Ready'),
       )
+      return true
     } catch (error) {
       setStatus(readableError(error))
+      return false
     } finally {
       active.current = false
       setBusy(false)
     }
   }
+  const preset = useRef(app?.preview)
+  preset.current = app?.preview
+  const synced = useRef(false)
+  useEffect(() => {
+    setZoomState(zooms.get(zoomKey) ?? 'fit')
+    const initial = previewSizeOf(preset.current)
+    sizeValue.current = previewSizeValue(initial)
+    synced.current = false
+    setSize(initial)
+  }, [zoomKey])
+
+  useEffect(() => {
+    const element = area.current
+    if (!element) return
+    const measure = () => {
+      const box = element.getBoundingClientRect()
+      setRoom((old) =>
+        old.width === box.width && old.height === box.height
+          ? old
+          : { width: box.width, height: box.height },
+      )
+    }
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    measure()
+    return () => observer.disconnect()
+  }, [])
+
+  const showSize = useCallback((next: PreviewSize, byAgent: boolean) => {
+    const value = previewSizeValue(next)
+    if (value === sizeValue.current) return
+    sizeValue.current = value
+    setSize(next)
+    if (!byAgent || !synced.current) return
+    note.current = `An agent switched the preview to ${previewSizeLabel(next)}`
+    setStatus(note.current)
+  }, [])
+
+  const chooseSize = async (next: PreviewSize) => {
+    if (await act({ action: 'size', value: previewSizeValue(next) })) showSize(next, false)
+  }
+
   useEffect(() => {
     void epoch
     void retryOpen
@@ -69,6 +141,11 @@ export function TaskBrowserView({
           app: { repo: shown.repo, name: shown.name },
         })
         if (stopped) return
+        const state = await ted.browserState(task.id).catch(() => undefined)
+        if (stopped) return
+        const chosen = previewSize(state?.size ?? '')
+        if (!isString(chosen)) showSize(chosen, false)
+        synced.current = true
         setReady(true)
         setAddress(result.url ?? '')
         setStatus(result.text ?? 'Ready')
@@ -90,7 +167,17 @@ export function TaskBrowserView({
       clearTimeout(retry)
       void ted.hideBrowser()
     }
-  }, [task.id, shown.repo, shown.name, running, app?.startedAt, epoch, connection.state, retryOpen])
+  }, [
+    task.id,
+    shown.repo,
+    shown.name,
+    running,
+    app?.startedAt,
+    epoch,
+    connection.state,
+    retryOpen,
+    showSize,
+  ])
 
   useEffect(() => {
     if (!ready || !running) return
@@ -111,12 +198,13 @@ export function TaskBrowserView({
       if (presenting) return
       presenting = true
       return ted
-        .presentBrowser(task.id, shown.repo, shown.name, {
-          x: rect.x,
-          y: rect.y,
-          width: rect.width,
-          height: rect.height,
-        })
+        .presentBrowser(
+          task.id,
+          shown.repo,
+          shown.name,
+          { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+          scale.current,
+        )
         .catch((error: unknown) => {
           if (!stopped) setStatus(readableError(error))
         })
@@ -148,7 +236,9 @@ export function TaskBrowserView({
               setRetryOpen((attempt) => attempt + 1)
               return
             }
-            setStatus(state.text)
+            const chosen = previewSize(state.size ?? '')
+            if (!isString(chosen)) showSize(chosen, state.sizeByAgent === true)
+            setStatus(note.current ?? state.text)
             if (!editing.current) setAddress(state.url)
           }
         })
@@ -164,7 +254,7 @@ export function TaskBrowserView({
       mutations.disconnect()
       void ted.hideBrowser()
     }
-  }, [task.id, shown.repo, shown.name, ready, running])
+  }, [task.id, shown.repo, shown.name, ready, running, showSize])
 
   return (
     <section className={styles.pane} aria-label="Task browser">
@@ -235,10 +325,29 @@ export function TaskBrowserView({
         >
           Open ↗
         </Button>
+        <PreviewSizeMenu
+          scope={zoomKey}
+          size={size}
+          zoom={zoom}
+          scale={frame.scale}
+          disabled={busy || !ready}
+          onSize={chooseSize}
+          onZoom={setZoom}
+        />
       </form>
       <p className={styles.shared}>Shared with this Task’s agents · Local App only</p>
-      <div ref={viewport} className={styles.viewport}>
-        {!ready && <p>{status}</p>}
+      <div
+        ref={area}
+        className={`${styles.viewport} ${size.kind === 'desktop' ? '' : styles.framed}`}
+        data-preview-size={previewSizeValue(size)}
+      >
+        <div
+          ref={viewport}
+          className={styles.frame}
+          style={{ width: frame.width, height: frame.height }}
+        >
+          {!ready && <p>{status}</p>}
+        </div>
       </div>
       <p className={styles.status} role="status">
         {status}

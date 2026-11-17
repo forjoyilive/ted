@@ -1,4 +1,10 @@
-import { type AppKind, appKinds, isLoopbackUrl } from '@ted/protocol'
+import {
+  type AppKind,
+  appKinds,
+  isLoopbackUrl,
+  type PreviewPreset,
+  previewPresets,
+} from '@ted/protocol'
 
 export interface AppDeclaration {
   name: string
@@ -10,6 +16,7 @@ export interface AppDeclaration {
   env: Record<string, string>
   device?: string
   electron?: true
+  preview?: PreviewPreset
 }
 
 export const defaultAppUrl = `http://localhost:\${PORT}`
@@ -23,6 +30,7 @@ export function appDeclarations(apps: readonly unknown[] | undefined): AppDeclar
     if (name === '' || run === '') return []
     const kind = appKinds.find((k) => k === fields.kind) ?? 'web'
     const electron = kind === 'command' && fields.electron === true
+    const preview = kind === 'web' ? previewPresets.find((p) => p === fields.preview) : undefined
     const url =
       kind !== 'web'
         ? undefined
@@ -63,6 +71,7 @@ export function appDeclarations(apps: readonly unknown[] | undefined): AppDeclar
         env,
         ...(typeof fields.device === 'string' && { device: fields.device }),
         ...(electron && { electron: true as const }),
+        ...(preview !== undefined && { preview }),
       },
     ]
   })

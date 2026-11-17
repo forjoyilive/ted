@@ -14,10 +14,13 @@ export const browserActions = [
   'screenshot',
   'resize',
   'color-scheme',
+  'size',
 ] as const
 export type BrowserAction = (typeof browserActions)[number]
 
 export const runOnlyBrowserActions: readonly BrowserAction[] = ['resize', 'color-scheme']
+
+export const taskOnlyBrowserActions: readonly BrowserAction[] = ['size']
 
 export const browserViewportLimits = {
   minWidth: 320,

@@ -5,6 +5,8 @@ import {
   browserActions,
   browserViewport,
 } from './browser.ts'
+import { isString } from './parse.ts'
+import { previewSize } from './preview-size.ts'
 import { bodyObject, RequestValidationError, text } from './validation.ts'
 
 function shortText(value: unknown, name: string, limit: number): string {
@@ -35,13 +37,17 @@ export function parseBrowserRequest(value: unknown): BrowserRequest {
   if (['click', 'fill'].includes(action) && !request.ref)
     throw new RequestValidationError(400, 'Name an element reference from snapshot')
   if (
-    ['fill', 'press', 'navigate', 'resize', 'color-scheme'].includes(action) &&
+    ['fill', 'press', 'navigate', 'resize', 'color-scheme', 'size'].includes(action) &&
     request.value === undefined
   )
     throw new RequestValidationError(400, 'Give a value')
   if (action === 'resize') {
     const viewport = browserViewport(request.value ?? '')
     if (typeof viewport === 'string') throw new RequestValidationError(400, viewport)
+  }
+  if (action === 'size') {
+    const size = previewSize(request.value ?? '')
+    if (isString(size)) throw new RequestValidationError(400, size)
   }
   if (action === 'color-scheme' && request.value !== 'light' && request.value !== 'dark')
     throw new RequestValidationError(400, 'Use light or dark')

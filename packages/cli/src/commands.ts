@@ -81,6 +81,7 @@ const flags = {
   stop: { type: 'boolean' },
   reason: { type: 'string' },
   density: { type: 'string' },
+  landscape: { type: 'boolean' },
   supersedes: { type: 'string' },
   skip: { type: 'boolean' },
   changes: { type: 'string' },
@@ -711,6 +712,15 @@ export const commands = [
     help: '  ted browser color-scheme light|dark         Show an Automation Run’s page in light or dark mode',
     callers: 'Automation Run',
     options: options(),
+  },
+  {
+    name: 'browser size',
+    handler: 'browserSize',
+    min: 1,
+    max: 1,
+    help: '  ted browser size <size> [--landscape]      Show the page at desktop, tablet, mobile or a\n                                             width in px; the human’s preview changes too',
+    callers: 'Task Run',
+    options: options('task', 'landscape'),
   },
   {
     name: 'browser screenshot',

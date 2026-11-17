@@ -29,7 +29,7 @@ function makeSession() {
 }
 function makeContents() {
   let destroyed = false
-  return Object.assign(new EventEmitter(), {
+  const contents = Object.assign(new EventEmitter(), {
     debugger: Object.assign(new EventEmitter(), {
       attach: vi.fn(),
       sendCommand: vi.fn(async (_method: string, _params?: unknown) => ({})),
@@ -41,6 +41,8 @@ function makeContents() {
     }),
     setWindowOpenHandler: vi.fn(),
     getURL: () => 'http://localhost:3000/',
+    getUserAgent: () => 'Electron desktop',
+    reload: vi.fn((): void => {}),
     executeJavaScriptInIsolatedWorld: vi.fn(
       async (_world: number, scripts: { code: string }[]): Promise<unknown> => {
         const prefix = /const ref = "([^"]+)"/.exec(scripts[0]?.code ?? '')?.[1]
@@ -48,6 +50,10 @@ function makeContents() {
       },
     ),
   })
+  contents.reload.mockImplementation(() => {
+    queueMicrotask(() => contents.emit('did-stop-loading'))
+  })
+  return contents
 }
 const mocks = {
   views: [] as { webContents: ReturnType<typeof makeContents> }[],
@@ -572,7 +578,11 @@ test('a Task whose App is being switched reports Opening until the new page is r
   controllers.push(controller)
   await transport.send('first', 'one', 'open')
   await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
-  expect(await controller.state('one')).toEqual({ url: 'http://localhost:3000/', text: 'Ready' })
+  expect(await controller.state('one')).toEqual({
+    url: 'http://localhost:3000/',
+    text: 'Ready',
+    size: 'desktop',
+  })
   let release: (() => void) | undefined
   mocks.sessions[0]?.clearStorageData.mockImplementationOnce(
     () =>
@@ -585,7 +595,11 @@ test('a Task whose App is being switched reports Opening until the new page is r
   expect(await controller.state('one')).toEqual({ url: '', text: 'Opening…', opening: true })
   release?.()
   await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
-  expect(await controller.state('one')).toEqual({ url: 'http://localhost:3000/', text: 'Ready' })
+  expect(await controller.state('one')).toEqual({
+    url: 'http://localhost:3000/',
+    text: 'Ready',
+    size: 'desktop',
+  })
   expect(await controller.state('two')).toEqual({ url: '', text: 'Open a running web App' })
 })
 
@@ -792,4 +806,146 @@ test('lifecycle teardown stops retained workers even after the guest was cancele
   expect(control?.debugger.sendCommand).toHaveBeenCalledWith('ServiceWorker.stopAllWorkers')
   expect(control?.close).toHaveBeenCalledOnce()
   expect(ses.closeAllConnections).toHaveBeenCalledOnce()
+})
+
+test('a size command emulates a phone, scales clicks with the zoom and captures the full page', async () => {
+  const transport = bridge()
+  const upload = vi.fn(async (_owner: string, _id: string, _bytes: Uint8Array) => {})
+  Object.assign(transport.client, { uploadBrowserCapture: upload })
+  const window = {
+    isDestroyed: () => false,
+    getContentBounds: () => ({ x: 0, y: 0, width: 2000, height: 2000 }),
+    contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
+  }
+  const controller = createTaskBrowsers(
+    () => window as never,
+    () => transport.client,
+    vi.fn(),
+    electron,
+  )
+  controllers.push(controller)
+  await transport.send('open', 'one', 'open')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  const contents = mocks.views[0]?.webContents
+  if (!contents) throw new Error('Missing browser contents')
+  const sent = (method: string) =>
+    contents.debugger.sendCommand.mock.calls.filter(([name]) => name === method).map(([, p]) => p)
+
+  let finishLoad: (() => void) | undefined
+  contents.reload.mockImplementationOnce(() => {
+    finishLoad = () => contents.emit('did-stop-loading')
+  })
+  await transport.send('size', 'one', 'size', { value: 'mobile' }, 1_000, 'run-1')
+  await vi.waitFor(() => expect(finishLoad).toBeTypeOf('function'))
+  expect(transport.replies).toHaveLength(1)
+  finishLoad?.()
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
+  expect(transport.replies[1]?.result?.text).toBe('Preview size: Mobile · 390 × 844')
+  expect(sent('Emulation.setDeviceMetricsOverride')).toEqual([
+    {
+      width: 390,
+      height: 844,
+      deviceScaleFactor: 0,
+      mobile: true,
+      scale: 1,
+      screenOrientation: { type: 'portraitPrimary', angle: 0 },
+    },
+  ])
+  expect(sent('Emulation.setTouchEmulationEnabled')).toEqual([{ enabled: true, maxTouchPoints: 5 }])
+  expect(sent('Emulation.setUserAgentOverride')[0]).toMatchObject({ platform: 'iPhone' })
+  expect(contents.reload).toHaveBeenCalledOnce()
+  expect(await controller.state('one')).toMatchObject({ size: 'mobile', sizeByAgent: true })
+
+  await controller.present('one', { x: 0, y: 0, width: 195, height: 422 }, 0.5)
+  expect(sent('Emulation.setDeviceMetricsOverride').at(-1)).toMatchObject({ scale: 0.5 })
+  await transport.send('snapshot', 'one', 'snapshot')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(3))
+  const ref = (transport.replies[2]?.result?.text ?? '').split(' ')[0]
+  await transport.send('click', 'one', 'click', { ref })
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(4))
+  expect(sent('Input.dispatchMouseEvent')[0]).toMatchObject({ x: 5, y: 5 })
+
+  contents.debugger.sendCommand.mockImplementation(async (method: string) =>
+    method === 'Page.captureScreenshot' ? { data: Buffer.from('phone').toString('base64') } : {},
+  )
+  await transport.send('shot', 'one', 'screenshot')
+  await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce())
+  expect(Buffer.from(upload.mock.calls[0]?.[2] ?? []).toString()).toBe('phone')
+
+  await transport.send('desktop', 'one', 'size', { value: 'desktop' })
+  await vi.waitFor(() => expect(transport.replies.some((r) => r.id === 'desktop')).toBe(true))
+  expect(sent('Emulation.clearDeviceMetricsOverride')).toHaveLength(1)
+  expect(sent('Emulation.setTouchEmulationEnabled').at(-1)).toEqual({ enabled: false })
+  expect(sent('Emulation.setUserAgentOverride').at(-1)).toEqual({ userAgent: 'Electron desktop' })
+  expect(contents.reload).toHaveBeenCalledTimes(2)
+  const state = await controller.state('one')
+  expect(state).toMatchObject({ size: 'desktop' })
+  expect(state).not.toHaveProperty('sizeByAgent')
+})
+
+test('a phone-sized screenshot that the page can’t draw fails instead of returning a smaller image', async () => {
+  const transport = bridge()
+  const controller = createTaskBrowsers(
+    () => undefined,
+    () => transport.client,
+    vi.fn(),
+    electron,
+    { captureMs: 10 },
+  )
+  controllers.push(controller)
+  await transport.send('open', 'one', 'open')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  const contents = mocks.views[0]?.webContents
+  if (!contents) throw new Error('Missing browser contents')
+  await transport.send('size', 'one', 'size', { value: 'mobile-landscape' })
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
+  expect(
+    contents.debugger.sendCommand.mock.calls.find(
+      ([method]) => method === 'Emulation.setDeviceMetricsOverride',
+    )?.[1],
+  ).toMatchObject({
+    width: 844,
+    height: 390,
+    screenOrientation: { type: 'landscapePrimary', angle: 90 },
+  })
+  contents.debugger.sendCommand.mockImplementation((method: string) =>
+    method === 'Page.captureScreenshot' ? new Promise(() => {}) : Promise.resolve({}),
+  )
+  await transport.send('shot', 'one', 'screenshot')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(3))
+  expect(transport.replies[2]?.error).toBe(
+    'Couldn’t capture the page at its preview size; open its preview and try again',
+  )
+})
+
+test('a size change whose reload never finishes reports an error instead of success', async () => {
+  const transport = bridge()
+  const window = {
+    isDestroyed: () => false,
+    getContentBounds: () => ({ x: 0, y: 0, width: 2000, height: 2000 }),
+    contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
+  }
+  const controller = createTaskBrowsers(
+    () => window as never,
+    () => transport.client,
+    vi.fn(),
+    electron,
+    { reloadMs: 10 },
+  )
+  controllers.push(controller)
+  await transport.send('open', 'one', 'open')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  const contents = mocks.views[0]?.webContents
+  if (!contents) throw new Error('Missing browser contents')
+  contents.reload.mockImplementationOnce(() => {})
+  await transport.send('size', 'one', 'size', { value: 'mobile' })
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
+  expect(transport.replies[1]?.error).toBe(
+    'The page didn’t finish loading at its new size; take a snapshot to check it',
+  )
+  expect(contents.listenerCount('did-stop-loading')).toBe(0)
+  expect(await controller.state('one')).toMatchObject({ size: 'mobile' })
+  await controller.present('one', { x: 0, y: 0, width: 390, height: 844 }, 1)
+  expect(window.contentView.addChildView).toHaveBeenCalled()
+  expect(contents.reload).toHaveBeenCalledOnce()
 })

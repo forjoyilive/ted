@@ -1,4 +1,5 @@
 import type { AppKind } from './factory-settings.ts'
+import type { PreviewPreset } from './preview-size.ts'
 import type { Attachment } from './task.ts'
 
 export const appStates = ['stopped', 'waiting', 'starting', 'running', 'exited', 'failed'] as const
@@ -24,6 +25,7 @@ export interface TaskApp {
   simulator?: AppSimulator
   confirmOutsideSandbox?: true
   electron?: true
+  preview?: PreviewPreset
 }
 
 export interface AppSimulator {

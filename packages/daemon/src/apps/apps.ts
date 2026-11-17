@@ -443,6 +443,7 @@ export function createApps(options: AppsOptions): Apps {
         instance?.waitingFor !== undefined && { waitingFor: instance.waitingFor }),
       ...(simulator !== undefined && { simulator }),
       ...(app.electron && { electron: true }),
+      ...(app.preview !== undefined && { preview: app.preview }),
     }
   }
 
