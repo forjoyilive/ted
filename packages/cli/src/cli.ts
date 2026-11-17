@@ -1898,6 +1898,14 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       if (result.state !== 'passed')
         exitCode = result.exitCode !== undefined && result.exitCode > 0 ? result.exitCode : 1
     },
+    agentRunOutside: async () => {
+      const name = args[0] ?? ''
+      const argument = args[1]
+      const result = await withDaemon(home, (client) =>
+        client.runOutsideCommand({ name, ...(argument !== undefined && { argument }) }),
+      )
+      console.log(result.message)
+    },
     chatRound: async () => {
       const supersedes = options.supersedes
       const round = await readRound(options.round ?? '')
