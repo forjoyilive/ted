@@ -2887,7 +2887,7 @@ export function createTasks(options: {
         if (result?.outcome === 'passed') {
           const now = await validation.coverage(find(taskId), worktreeReads())
           if (now !== coverage && attempt < handOffCheckRuns) continue
-          if (now === coverage) pullRequestWork(taskId, 'first')
+          if (coverage !== undefined && now === coverage) pullRequestWork(taskId, 'first')
           handedOver = true
           await validation.enter(taskId, message, { run: checkRun, coverage })
           return
