@@ -17,6 +17,7 @@ import {
   heldLeadSteps,
   merges,
   readGh,
+  setGh,
   start,
   toSignoff,
   useMergeHarness,
@@ -197,6 +198,7 @@ test('completed acceptance survives background reads, explicit queries and daemo
     }, 'completed acceptance: Done'),
   )
   await rm(client.mergingFile)
+  await setGh({ merged: false })
   await phase('second Task to Merge with an open pull request', async () => {
     const second = await toSignoff(client, { title: heldLeadSteps(client) }, clock)
     await approve(client, second.signoff)
