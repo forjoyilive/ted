@@ -56,7 +56,7 @@ describe('the guide card follows the setup Task', () => {
     const signOff = comment({ id: 's1', taskId: 't1', kind: 'signoff', stage: 'review' })
     expect(card(guided(), setup('review'), [signOff])).toEqual({
       text: 'Approve the settings to merge them.',
-      button: { label: 'Open the Sign-Off', open: 'request', requestId: 's1' },
+      button: { label: 'Open the sign-off', open: 'request', requestId: 's1' },
     })
     const permission = comment({ id: 'q1', taskId: 't1', kind: 'permission', stage: 'work' })
     expect(card(guided(), setup('work'), [permission])).toEqual({

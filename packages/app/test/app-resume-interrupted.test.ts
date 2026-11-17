@@ -54,7 +54,7 @@ describe('Resume after a full quit', () => {
       await header.getByRole('button', { name: 'Resume', exact: true }).waitFor()
       await thread
         .getByText(
-          'Resume starts a fresh Task Lead Run from the brief and Comments when a slot is free.',
+          'Resume starts a fresh Task Lead Run from the brief and comments when a slot is free.',
         )
         .waitFor()
       expect((await client.listTasks())[0]?.leadRunId).toBe(first.leadRunId)

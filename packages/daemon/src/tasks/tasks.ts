@@ -2719,7 +2719,7 @@ export function createTasks(options: {
       banners.raise({
         ...ref,
         severity: 'warning',
-        text: `A Check’s command wasn’t found: \`${command}\``,
+        text: `A check’s command wasn’t found: \`${command}\``,
         action: { label: 'Open Factory settings', opens: { kind: 'factory-settings', factoryId } },
       })
     } else if (result.outcome !== 'interrupted') {

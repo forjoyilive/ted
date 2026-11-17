@@ -185,7 +185,7 @@ describe('Run chat', () => {
     const lines = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
     expect(lines.filter((l) => l.runId !== undefined)).toEqual([
       expect.objectContaining({
-        text: 'You steered the Task Lead in its Conversation',
+        text: 'You steered the Task Lead in its conversation',
         runId,
         tone: 'edit',
       }),

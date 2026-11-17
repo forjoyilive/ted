@@ -137,10 +137,10 @@ describe('taskStatus', () => {
       on: 'ci',
     })
     expect(taskActivity(at({ checksActive: true, checksWaiting: { place: 2 } }))).toBe(
-      'Waiting to run Checks · 2nd',
+      'Waiting to run checks · 2nd',
     )
     expect(taskActivity(at({ checksActive: true, movingAfterChecks: true }))).toBe(
-      'Running Checks before moving on',
+      'Running checks before moving on',
     )
     expect(
       taskActivity(
@@ -150,7 +150,7 @@ describe('taskStatus', () => {
           checking: { name: 'Tests', index: 1, total: 2 },
         }),
       ),
-    ).toBe('Running Checks before moving on · Tests (1 of 2)')
+    ).toBe('Running checks before moving on · Tests (1 of 2)')
   })
 
   test('an open request or a Run waiting on the human makes it Waiting on you', () => {

@@ -119,7 +119,7 @@ const running = (client: Client, task: Task) =>
 const waitingAt = (client: Client, task: Task, place: string) =>
   waitUntil(
     async () =>
-      (await getTask(client, task.id))?.activity === `Waiting to run Checks · ${place}` ||
+      (await getTask(client, task.id))?.activity === `Waiting to run checks · ${place}` ||
       undefined,
     `${task.displayId} to wait ${place} for its Checks`,
     20_000,
@@ -178,7 +178,7 @@ describe('Checks running at once', () => {
     expect((await finished(client, first)).outcome).toBe('passed')
     await running(client, second)
     expect((await checkRun(client, second))?.waiting).toBeUndefined()
-    expect((await getTask(client, second.id))?.activity).toBe('Running Checks · Wait (1 of 1)')
+    expect((await getTask(client, second.id))?.activity).toBe('Running checks · Wait (1 of 1)')
     await expect
       .poll(() => client.ok<Activity>('GET', '/activity'))
       .toMatchObject({ checksRunning: 1, checksWaiting: 0 })

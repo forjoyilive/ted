@@ -474,7 +474,7 @@ export function createRequestAnswers(
       if (!liveLead(current)) store.holdAnswer(comment.id)
       await enterValidate(
         [
-          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${diagnoseChoice}, so TED moved this Task to Validate although the checks didn’t pass in Work. TED runs the checks at entry. A Check that fails there is a failure case: assess it as Validate’s instructions say, and the human can then choose Retry, Fix in this Task or Accept this failure.`,
+          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${diagnoseChoice}, so TED moved this Task to Validate although the checks didn’t pass in Work. TED runs the checks at entry. A check that fails there is a failure case: assess it as Validate’s instructions say, and the human can then choose Retry, Fix in this Task or Accept this failure.`,
           ...(text !== '' ? [`The human added:\n\n${text}`] : []),
         ].join('\n\n'),
       )

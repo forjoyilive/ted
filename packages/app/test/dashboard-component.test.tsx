@@ -301,7 +301,7 @@ test('Overview figures open the Tasks behind them, durations slowest first', asy
       .map((row) => row.textContent?.slice(0, 4)),
   ).toEqual(['NB-1', 'NB-2'])
   expect(within(sample).getByRole('button', { name: /NB-1.*Fix login/ }).textContent).toContain(
-    'Waited 1d 2h · Review Sign-Off, Question',
+    'Waited 1d 2h · Review sign-off, Question',
   )
   await close()
   await user().click(within(waits).getByRole('button', { name: 'Median answer time 6h' }))
@@ -328,7 +328,7 @@ test('Overview figures open the Tasks behind them, durations slowest first', asy
   await user().click(longestRows[0] as HTMLElement)
   sample = screen.getByRole('dialog')
   expect(within(sample).getByRole('heading').textContent).toBe(
-    'Waiting on you · Review Sign-Off in Review',
+    'Waiting on you · Review sign-off in Review',
   )
   expect(within(sample).getAllByRole('button', { name: /NB-/ })).toHaveLength(1)
   await user().click(within(sample).getByRole('button', { name: /NB-1.*Fix login/ }))

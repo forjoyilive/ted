@@ -303,7 +303,7 @@ The View that draws one Factory’s blockers: each Task that waits for another, 
 _Avoid_: Graph, timeline, dependency chart
 
 **Inbox**:
-The comments and chat requests from every Factory waiting on the human’s answer: questions, Clarify rounds, design reviews, sign-offs, Task proposals and permission requests. A Comment leaves the Inbox once it is answered or can no longer be answered. A snoozed request is hidden from the Inbox and its counts until the time the human picked, and stays open meanwhile.
+The comments and chat requests from every Factory waiting on the human’s answer: questions, Clarify rounds, design reviews, sign-offs, Task proposals and permission requests. A comment leaves the Inbox once it is answered or can no longer be answered. A snoozed request is hidden from the Inbox and its counts until the time the human picked, and stays open meanwhile.
 _Avoid_: Notifications, feed
 
 **Middle pane**:

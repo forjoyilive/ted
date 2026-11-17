@@ -18,7 +18,7 @@ Ask too whether anything should happen after a pull request merges, such as a co
 
 ## Design
 
-1. Try each candidate check on the default branch, in your worktree, before you change anything: run its command and note whether it passed and how long it took. A Check that fails on the default branch is left off the proposal’s settings; list it as failed with the reason.
+1. Try each candidate check on the default branch, in your worktree, before you change anything: run its command and note whether it passed and how long it took. A check that fails on the default branch is left off the proposal’s settings; list it as failed with the reason.
 2. Try to start each App the same way: note its kind, how it became ready and how long that took (for example “ready in 9s at localhost:5174”), then stop it. An App that won’t start is left off; list it as failed with the reason. An `ios-simulator` App that builds with `xcodebuild` must pass `-derivedDataPath "$TED_DERIVED_DATA" -packageCachePath "$TED_SWIFTPM_CACHE"`, because TED’s sandbox refuses Xcode’s own folders in the home folder.
 3. Post the proposal with `ted outcome advance --design <file>`. Write `summary` as two sentences, and add a `setup` object to the design file:
 

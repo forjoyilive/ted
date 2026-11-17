@@ -267,7 +267,7 @@ test('Workflow and notes stay staged across pages while confirmed permissions sa
   })
   const u = user()
   await page('Workflow')
-  const gate = await screen.findByRole('switch', { name: 'Design Sign-Off' })
+  const gate = await screen.findByRole('switch', { name: 'Design sign-off' })
   expect(gate.getAttribute('aria-checked')).toBe('true')
   expect(screen.queryByRole('switch', { name: 'Work on' })).toBeNull()
   expect(screen.queryByRole('switch', { name: 'Intake on' })).toBeNull()
@@ -281,7 +281,7 @@ test('Workflow and notes stay staged across pages while confirmed permissions sa
   expect(screen.getByText('1 unsaved change to .ted/workflow.yaml')).toBeTruthy()
   expect(unsavedOn('Workflow')).toBe(true)
   await page('Checks')
-  expect(screen.queryByRole('switch', { name: 'Design Sign-Off' })).toBeNull()
+  expect(screen.queryByRole('switch', { name: 'Design sign-off' })).toBeNull()
   expect(screen.getByText('How repo settings are saved')).toBeTruthy()
   expect(
     (screen.getByRole('textbox', { name: 'Typecheck command' }) as HTMLInputElement).value,
@@ -304,7 +304,7 @@ test('Workflow and notes stay staged across pages while confirmed permissions sa
   expect(screen.getByText('2 unsaved changes to 2 files in .ted/')).toBeTruthy()
   expect(['Workflow', 'Checks', 'Factory notes'].map(unsavedOn)).toEqual([true, false, true])
   await page('Workflow')
-  expect(screen.getByRole('switch', { name: 'Design Sign-Off' }).getAttribute('aria-checked')).toBe(
+  expect(screen.getByRole('switch', { name: 'Design sign-off' }).getAttribute('aria-checked')).toBe(
     'false',
   )
   await u.click(screen.getByRole('button', { name: 'Review and save…' }))
@@ -375,7 +375,7 @@ test('repo settings explain saving and let the user retry merging without losing
   expect(unsavedOn('Repos')).toBe(false)
 
   await page('Workflow')
-  const gate = screen.getByRole('switch', { name: 'Design Sign-Off' })
+  const gate = screen.getByRole('switch', { name: 'Design sign-off' })
   await u.click(gate)
   await u.click(screen.getByRole('button', { name: 'Review and save…' }))
   const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
@@ -883,7 +883,7 @@ test('a drift reload during save completion still resets the saved draft', async
   })
   const u = user()
   await page('Workflow')
-  await u.click(await screen.findByRole('switch', { name: 'Design Sign-Off' }))
+  await u.click(await screen.findByRole('switch', { name: 'Design sign-off' }))
   await u.click(screen.getByRole('button', { name: 'Review and save…' }))
   const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
   await u.click(within(dialog).getByRole('button', { name: 'Save and merge' }))
@@ -898,7 +898,7 @@ test('a drift reload during save completion still resets the saved draft', async
     expect(screen.queryByText('1 unsaved change to .ted/workflow.yaml')).toBeNull(),
   )
   expect(screen.queryByRole('button', { name: 'Review and save…' })).toBeNull()
-  expect(screen.getByRole('switch', { name: 'Design Sign-Off' }).getAttribute('aria-checked')).toBe(
+  expect(screen.getByRole('switch', { name: 'Design sign-off' }).getAttribute('aria-checked')).toBe(
     'false',
   )
 })
@@ -1114,13 +1114,13 @@ test('the Workflow table shows a custom Stage by name and a Cleanup row that tur
   expect(region.getByText('Custom')).toBeTruthy()
   expect(region.getByText('In order')).toBeTruthy()
   expect(region.queryByRole('switch', { name: 'Security audit on' })).toBeNull()
-  await u.click(region.getByRole('switch', { name: 'Security audit Sign-Off' }))
+  await u.click(region.getByRole('switch', { name: 'Security audit sign-off' }))
 
   await u.click(region.getByRole('switch', { name: 'Cleanup on' }))
   expect(
     region.getByText('Cleanup is on but has no steps, so it won’t run. Add a step under Cleanup.'),
   ).toBeTruthy()
-  expect(region.queryByRole('switch', { name: 'Cleanup Sign-Off' })).toBeNull()
+  expect(region.queryByRole('switch', { name: 'Cleanup sign-off' })).toBeNull()
 
   await u.click(region.getByRole('button', { name: 'Add steps →' }))
   const cleanup = within(await screen.findByRole('region', { name: 'Cleanup' }))

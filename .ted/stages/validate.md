@@ -41,6 +41,6 @@ Don’t run `ted outcome ask`, `ted ask` or `ted comment --choice` in Validate. 
 
 - A check fails for a reason outside this Task: a note, as in step 1.
 - Fixing a finding would change what the Task delivers: send it back to Work with the smallest fix that keeps what the Task’s description promises. If no such fix exists, send it back saying Work must remove the part that causes the finding and say so in its note.
-- A Finding is about code this Task didn’t change, or asks for more than the Task’s description does: a note, not a blocking finding.
+- A finding is about code this Task didn’t change, or asks for more than the Task’s description does: a note, not a blocking finding.
 - From the second round, a new finding about code the fixes didn’t touch: a note, unless it is P1. P1 means the change loses or corrupts data, opens a security hole, or breaks behaviour the Task’s description asks for. When TED says the round checks a conflict resolution, a new finding about code the resolution didn’t touch is a note unless it is P1. When TED says the round reviews the whole change again, sort findings as in the first round. When TED says that from this round a new finding sends the Task back only if it is P1 (the Factory’s `stages.validate.p1_only_from`), every new finding that isn’t P1 is a note, wherever it is in the change; an earlier round’s finding that is still not fixed stays blocking.
 - A tool or service is unavailable (a reviewer that can’t start, Figma, a sandbox refusal): do the step another way or skip it, and say which in a note.

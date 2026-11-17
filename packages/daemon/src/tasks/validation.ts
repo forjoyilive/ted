@@ -643,7 +643,7 @@ export function createValidation(options: ValidationOptions) {
       const failureId = store.failures.progress(taskId)?.failureId
       await options.deliver(
         current,
-        `${instructions}\n\n# A Check failed\n\nThe Task stays in Validate. Investigate failure case ${failureId ? shortReference(failureId) : '(see ted failure list)'}, add evidence and assess regression, unrelated or uncertain. A supported regression goes back through \`ted outcome back\`; unrelated or uncertain causes require a human decision. Investigation and retry do not count as send-backs.\n\n${findings}`,
+        `${instructions}\n\n# A check failed\n\nThe Task stays in Validate. Investigate failure case ${failureId ? shortReference(failureId) : '(see ted failure list)'}, add evidence and assess regression, unrelated or uncertain. A supported regression goes back through \`ted outcome back\`; unrelated or uncertain causes require a human decision. Investigation and retry do not count as send-backs.\n\n${findings}`,
         'checks-done',
       )
     } finally {
@@ -967,7 +967,7 @@ export function createValidation(options: ValidationOptions) {
     if (progress && !progress.pending && progress.next < progress.checks.length)
       throw new RequestError(
         409,
-        'A Check failed on the Task’s current code, so TED can’t move it on. Resolve its failure case first.',
+        'A check failed on the Task’s current code, so TED can’t move it on. Resolve its failure case first.',
       )
     throw new StaleCoverageError()
   }

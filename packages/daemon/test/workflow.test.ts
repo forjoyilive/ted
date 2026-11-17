@@ -823,7 +823,7 @@ describe('checking a layer', () => {
       'error .ted/workflow.yaml 7 21 `stages.clarify.depth` must be one of auto, none, few, grilling',
       'error .ted/workflow.yaml 9 15 `stages.validate.max_back` must be a whole number, 0 or more',
       'error .ted/workflow.yaml 10 17 `stages.validate.loop_check` must be a whole number above 0, or false',
-      'error .ted/workflow.yaml 11 14 each Check needs a `run` command',
+      'error .ted/workflow.yaml 11 14 each check needs a `run` command',
       'error .ted/workflow.yaml 12 23 `stages.review.based_on` must be text',
     ])
   })
@@ -950,7 +950,7 @@ describe('repos', () => {
       '6:13 kriya/api is listed twice in `repos`',
       '7:5 a secondary repo needs a `remote`',
       '9:13 `remote` must be a GitHub repo',
-      '12:44 the Check’s `repo: nowhere` names no entry in `repos`',
+      '12:44 the check’s `repo: nowhere` names no entry in `repos`',
     ])
   })
 

@@ -301,7 +301,7 @@ describe('Tasks', () => {
     const task = await createTask(
       client,
       steps(
-        { run: ['ted', 'status', 'Running Checks · Tests (2 of 3)'] },
+        { run: ['ted', 'status', 'Running checks · Tests (2 of 3)'] },
         { run: ['ted', 'status', '--task', 'NB-1', 'sneaky'] },
         { run: ['ted', 'status', 'line one\nline\u001b[31m two'] },
         { endTurn: true },

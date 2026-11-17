@@ -318,7 +318,7 @@ describe('Sign-offs', () => {
 
     const results = await commandResults(client, task)
     expect(results.slice(3, 6)).toEqual([
-      { code: 2, stdout: '', stderr: 'ted: give the Findings file with --findings <file>\n' },
+      { code: 2, stdout: '', stderr: 'ted: give the findings file with --findings <file>\n' },
       {
         code: 1,
         stdout: '',
@@ -822,7 +822,7 @@ describe('custom Stages', () => {
     expect((await comments(client, task)).filter((c) => c.gate)).toEqual([])
     const history = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
     expect(history.map((e) => e.text)).toContain(
-      'Autopilot is on, so TED skipped the Release checklist Sign-Off',
+      'Autopilot is on, so TED skipped the Release checklist sign-off',
     )
   }, 120_000)
 })

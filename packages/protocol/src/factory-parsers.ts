@@ -80,7 +80,7 @@ export function parseCheckTryRequest(given: unknown): CheckTryRequest {
   const body = record(given)
   const name = text(body.name, 'name').trim()
   const run = text(body.run, 'run').trim()
-  if (name === '' || run === '') throw new HttpError(400, 'A Check needs a name and a command')
+  if (name === '' || run === '') throw new HttpError(400, 'A check needs a name and a command')
   const repo = optionalText(body.repo, 'repo')?.trim() || undefined
   const timeout = optionalText(body.timeout, 'timeout')?.trim() || undefined
   if (timeout !== undefined && !/^\d+[smh]$/.test(timeout)) {

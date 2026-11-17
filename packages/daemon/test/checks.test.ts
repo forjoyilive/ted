@@ -186,7 +186,7 @@ describe('Checks before a Task leaves Work', () => {
     expect(await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)).toEqual([])
 
     const messages = await leadMessages(client, task)
-    const failed = messages.find((m) => m.startsWith('# A Check failed')) ?? ''
+    const failed = messages.find((m) => m.startsWith('# A check failed')) ?? ''
     expect(failed).toContain('so the Task stays in Work')
     expect(failed).toContain('This is failure 1 of 3 in this visit to Work')
     expect(failed).toContain('\n102\n')
@@ -261,7 +261,7 @@ describe('Checks before a Task leaves Work', () => {
       const id = (await getTask(client, task.id))?.leadRunId
       if (!id) return undefined
       return assistantTexts((await client.getRun(id)).conversation).some((t) =>
-        t.includes('TED asked the human about NB-1’s failing Checks'),
+        t.includes('TED asked the human about NB-1’s failing checks'),
       )
     }, 'the Task Lead’s advance to be refused')
     expect((await getTask(client, task.id))?.stage).toBe('work')
@@ -346,7 +346,7 @@ describe('Checks killed for lack of memory', () => {
     const killed = (n: number) =>
       waitUntil(async () => {
         const lines = (await threadEvents(client, task)).filter((e) =>
-          e.text.includes('ran out of memory, so the Check “Tests” was stopped'),
+          e.text.includes('ran out of memory, so the check “Tests” was stopped'),
         )
         return lines.length >= n ? lines : undefined
       }, `memory kill ${n} in the thread`)
@@ -391,7 +391,7 @@ describe('Checks killed for lack of memory', () => {
     expect(failed).toMatchObject({ trigger: 'hand-off', outcome: 'failed' })
     expect(states(failed)).toEqual([['Tests', 'failed']])
     expect(passed).toMatchObject({ trigger: 'hand-off', outcome: 'passed' })
-    expect((await leadMessages(client, task)).some((m) => m.startsWith('# A Check failed'))).toBe(
+    expect((await leadMessages(client, task)).some((m) => m.startsWith('# A check failed'))).toBe(
       true,
     )
     expect(await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)).toEqual([])
@@ -456,7 +456,7 @@ describe('Checks at Validate', () => {
     await waitUntil(
       async () =>
         (await leadMessages(client, task)).some(
-          (m) => m.includes('# A Check failed') && m.includes(shortReference(failure.id)),
+          (m) => m.includes('# A check failed') && m.includes(shortReference(failure.id)),
         ),
       'diagnosis instructions',
     )
@@ -500,7 +500,7 @@ describe('Checks at Validate', () => {
       ['Lint', 'not-run'],
     ])
     const failed = await waitUntil(
-      async () => (await leadMessages(client, task)).find((m) => m.startsWith('# A Check failed')),
+      async () => (await leadMessages(client, task)).find((m) => m.startsWith('# A check failed')),
       'the failure to reach the Task Lead',
     )
     expect(failed).toContain('timed out after 1s')
@@ -526,7 +526,7 @@ describe('Checks at Validate', () => {
     const banners = await client.ok<Banner[]>('GET', '/banners')
     expect(banners.find((b) => b.problem === 'setup-suggested')).toMatchObject({
       severity: 'warning',
-      text: 'A Check’s command wasn’t found: `ted-no-such-command-xyz --all`',
+      text: 'A check’s command wasn’t found: `ted-no-such-command-xyz --all`',
       action: { label: 'Open Factory settings' },
     })
   })
@@ -594,7 +594,7 @@ describe('Checks at Validate', () => {
         ? current
         : undefined
     }, 'the Checks to start and the Task Lead to end its turn')
-    expect(running.activity).toBe('Running Checks · Tests (2 of 3)')
+    expect(running.activity).toBe('Running checks · Tests (2 of 3)')
     expect(running.status).toBeUndefined()
     expect(running.checksActive).toBe(true)
     await expect
@@ -809,7 +809,7 @@ describe('Checks before a stopped Task leaves Work', () => {
     const resumed = await getTask(client, task.id)
     expect(resumed?.stage).toBe('work')
     expect(await leadMessages(client, task)).toEqual(
-      expect.arrayContaining([expect.stringContaining('# TED didn’t use the Checks’ result')]),
+      expect.arrayContaining([expect.stringContaining('# TED didn’t use the checks’ result')]),
     )
 
     await client.ok('POST', `/tasks/${task.id}/stop`, {})
@@ -1032,7 +1032,7 @@ describe('ted checks', () => {
         : undefined
     }, 'the ted checks result')
     expect(result?.code).not.toBe(0)
-    expect(result?.stderr).toContain('no Check named “Nope”')
+    expect(result?.stderr).toContain('no check named “Nope”')
     expect(await checkRuns(client, task)).toEqual([])
   })
 })
