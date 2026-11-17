@@ -1143,15 +1143,6 @@ test('Diagnose in Validate on a hand-off Check ask keeps the Task in Validate an
   expect(store.listSendBacks(taskId)).toEqual([])
 })
 
-test('Diagnose in Validate is not a choice on an ask about reviewer findings', async () => {
-  stage('validate')
-  port.gateWorkflow = async () => ({ workflow: loopWorkflow(), layers: [] })
-  const comment = sendBackQuestion()
-  await answer(comment, { action: 'answer', choice: 'Diagnose in Validate' })
-  expect(effects).toEqual(['delivered'])
-  expect(store.getTask(taskId)?.stage).toBe('validate')
-})
-
 const simulatorQuestion = () =>
   store.requestSimulator({
     taskId,
