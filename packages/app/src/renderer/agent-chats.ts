@@ -8,6 +8,7 @@ export const chatRequestLabels: Readonly<Record<ChatRequestKind, string>> = {
   round: 'Round',
   proposal: 'Proposal',
   agent: 'Agent draft',
+  'outside-command': 'Outside command',
 }
 
 export type AgentChatRef = { agent: 'coordinator'; id: string } | { agent: 'planner'; id: string }

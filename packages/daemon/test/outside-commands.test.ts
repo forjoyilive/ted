@@ -10,8 +10,10 @@ import {
   tedPaths,
   type WaitingRequest,
 } from '@ted/protocol'
+import type { ResolvedAgent } from '@ted/protocol/agent-files'
 import type { JsonObject } from '@ted/protocol/parse'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
+import { planDraft } from '../src/chats/agent-drafts.ts'
 import { findOutsideCommand, outsideResultMessage } from '../src/chats/outside-commands.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { coordinatorRoutes } from '../src/routes/coordinators.ts'
@@ -247,7 +249,7 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
     `/factories/${factory.id}/outside-command-allowances`,
   )
   expect(allowed).toMatchObject([
-    { agentId: 'release', name: 'build', command: 'pnpm release <version>' },
+    { agentId: 'release', name: 'build', command: 'pnpm release <version>', folder },
   ])
 
   const second = await chat([
@@ -272,8 +274,10 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
 
   const coordinator = await chat([{ waitFor: path.join(scratch, 'coordinator') }], 'coordinator')
   await waitUntil(
-    async () => (await ok<Coordinator>('GET', `/coordinator-chats/${coordinator.id}`)).started,
-    'the Coordinator chat',
+    async () =>
+      (await ok<Coordinator>('GET', `/coordinator-chats/${coordinator.id}`)).status === 'working' ||
+      undefined,
+    'the Coordinator chat to work',
   )
   const powerless = await api(port, tokens.issue(coordinator.runId)).call(
     'POST',
@@ -327,3 +331,27 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
     [],
   )
 }, 120_000)
+
+test('an Agent draft can’t give Run outside commands; only the user adds it in settings', () => {
+  const base = {
+    id: 'shipper',
+    name: 'Shipper',
+    instructions: 'Ship.',
+    powers: ['ask' as const, 'run_outside' as const],
+  }
+  expect(() => planDraft(base, [])).toThrow(
+    'A draft can’t give Run outside commands; only the user adds it, in the Agent’s settings',
+  )
+  const existing: ResolvedAgent = {
+    id: 'shipper',
+    name: 'Shipper',
+    powers: ['ask', 'run_outside'],
+    outsideCommands: [{ name: 'build', command: 'pnpm release <version>' }],
+    instructions: 'Ship.',
+    source: 'factory',
+    path: '.ted/agents/shipper.md',
+  }
+  expect(planDraft({ ...base, change: true, name: 'Ship it' }, [existing])).toMatchObject({
+    powers: ['ask', 'run_outside'],
+  })
+})

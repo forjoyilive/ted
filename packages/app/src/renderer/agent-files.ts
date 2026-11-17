@@ -10,6 +10,7 @@ import {
   maxAgentId,
   maxAgentName,
 } from '@ted/protocol/agent-files'
+import { maxOutsideCommands, outsideCommandWords } from '@ted/protocol/outside-command'
 import type { AgentKind } from '@ted/protocol/run'
 
 export interface AgentDraft {
@@ -43,6 +44,7 @@ function settingsKey(settings: AgentSettingsInput | null): string {
     model: model || undefined,
     powers: settings.powers,
     commands: settings.commands && cleanCommands(settings.commands),
+    outsideCommands: settings.outsideCommands && cleanCommands(settings.outsideCommands),
   })
 }
 
@@ -65,6 +67,9 @@ function cleanSettings(settings: AgentSettingsInput | null): AgentSettingsInput 
     ...(model && { model }),
     ...(settings.powers && { powers: settings.powers }),
     ...(settings.commands && { commands: cleanCommands(settings.commands) }),
+    ...(settings.outsideCommands && {
+      outsideCommands: cleanCommands(settings.outsideCommands),
+    }),
   }
 }
 
@@ -121,9 +126,58 @@ export function overrideDraft(row: AgentFileRow): AgentDraft {
   }
 }
 
-export function newAgentDraft(taken: readonly string[]): AgentDraft {
-  let id = 'new-agent'
-  for (let n = 2; taken.includes(id); n++) id = `new-agent-${n}`
+export const agentRecipes = ['blank', 'release'] as const
+
+export type AgentRecipe = (typeof agentRecipes)[number]
+
+export const agentRecipeText: Readonly<Record<AgentRecipe, { name: string; help: string }>> = {
+  blank: { name: 'Blank', help: 'No powers and an outline of the instructions to fill in.' },
+  release: {
+    name: 'Release',
+    help: 'Drafts release notes, checks readiness, then runs your build and publish commands outside the sandbox, asking you between them.',
+  },
+}
+
+export const releaseRecipeInstructions = `# What this Agent is for
+
+You release this repo: you build a new version on the user’s Mac, show them what is in it, and publish it only when they say so.
+
+# How you work
+
+1. Ask the user which version to release if they didn’t say.
+2. In your copy of the code, read what merged since the last release tag (\`git describe --tags --abbrev=0\`, then \`git log --merges --first-parent <tag>..HEAD\`). Write a short draft of the release notes in the chat, grouped as Features, Fixes and Other, one line per change.
+3. Check the code is ready with this Agent’s commands (\`ted agent run <name>\`). If one fails, show the user what failed and stop.
+4. Build with \`ted agent run-outside build <version>\`, then end your turn and wait for TED’s message with the output.
+5. When the build passed, ask the user whether to publish, with Publish and Discard the build as choices, and end your turn.
+6. Only when the user answers Publish, run \`ted agent run-outside publish\`. If they answer Discard the build, run \`ted agent run-outside discard\`. Never publish without their answer in this chat.
+7. When a command fails, show the user the last lines of its output in plain words and ask what to do. Don’t run it again on your own.
+
+# Rules
+
+- Outside commands run on the user’s Mac, outside the sandbox, and can push and publish. Run only the ones this file names, only in this order, and only for the version the user gave.
+- Never change files in the user’s folder yourself.
+`
+
+export function newAgentDraft(taken: readonly string[], recipe: AgentRecipe = 'blank'): AgentDraft {
+  const wanted = recipe === 'release' ? 'release' : 'new-agent'
+  let id = wanted
+  for (let n = 2; taken.includes(id); n++) id = `${wanted}-${n}`
+  if (recipe === 'release')
+    return {
+      id,
+      added: true,
+      settings: {
+        name: 'Release',
+        powers: ['ask', 'read_code', 'run_commands', 'run_outside'],
+        commands: [{ name: 'check', command: '' }],
+        outsideCommands: [
+          { name: 'build', command: '' },
+          { name: 'publish', command: '' },
+          { name: 'discard', command: '' },
+        ],
+      },
+      instructions: releaseRecipeInstructions,
+    }
   return {
     id,
     added: true,
@@ -154,22 +208,40 @@ export function agentProblem(agent: AgentDraft, taken: readonly string[]): strin
   if (agent.instructions !== null && agent.instructions.trim() === '') {
     return 'The instructions can’t be empty.'
   }
-  return commandsProblem(cleanCommands(agent.settings?.commands ?? []))
+  return (
+    commandsProblem(cleanCommands(agent.settings?.commands ?? [])) ??
+    outsideCommandsProblem(cleanCommands(agent.settings?.outsideCommands ?? []))
+  )
 }
 
-export function commandsProblem(commands: readonly AgentCommand[]): string | undefined {
+export function outsideCommandsProblem(commands: readonly AgentCommand[]): string | undefined {
+  if (commands.length > maxOutsideCommands)
+    return `An Agent can have up to ${maxOutsideCommands} outside commands.`
+  const named = commandsProblem(commands, 'outside command')
+  if (named !== undefined) return named
+  for (const { name, command } of commands) {
+    const words = outsideCommandWords(command)
+    if ('problem' in words) return `The outside command ${name} ${words.problem}.`
+  }
+  return undefined
+}
+
+export function commandsProblem(
+  commands: readonly AgentCommand[],
+  what = 'command',
+): string | undefined {
   if (commands.length > maxAgentCommands)
-    return `An Agent can have up to ${maxAgentCommands} commands.`
+    return `An Agent can have up to ${maxAgentCommands} ${what}s.`
   const seen = new Set<string>()
   for (const { name, command } of commands) {
     if (!isAgentId(name)) {
-      return `\`${name || '(no name)'}\` isn’t a command name. Use lowercase letters, digits and hyphens.`
+      return `\`${name || '(no name)'}\` isn’t ${what === 'command' ? 'a' : 'an'} ${what} name. Use lowercase letters, digits and hyphens.`
     }
-    if (seen.has(name)) return `Two commands are named ${name}.`
+    if (seen.has(name)) return `Two ${what}s are named ${name}.`
     seen.add(name)
-    if (command === '') return `Give the ${name} command something to run.`
+    if (command === '') return `Give the ${name} ${what} something to run.`
     if (command.length > maxAgentCommandLength) {
-      return `The ${name} command can be up to ${maxAgentCommandLength} characters.`
+      return `The ${name} ${what} can be up to ${maxAgentCommandLength} characters.`
     }
   }
   return undefined

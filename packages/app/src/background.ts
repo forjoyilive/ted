@@ -361,6 +361,7 @@ const chatRequestLabels: Record<ChatRequestKind, string> = {
   round: 'Round',
   proposal: 'Proposal',
   agent: 'Agent draft',
+  'outside-command': 'Outside command',
 }
 
 export function inboxNotice(request: WaitingRequest): ProblemNotice {

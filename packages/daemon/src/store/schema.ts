@@ -1138,6 +1138,8 @@ export const outsideCommandAllowances = State.SQLite.table({
     agentId: State.SQLite.text(),
     name: State.SQLite.text(),
     command: State.SQLite.text(),
+    repo: State.SQLite.text(),
+    folder: State.SQLite.text(),
     allowedAt: State.SQLite.text(),
   },
 })
@@ -1500,6 +1502,8 @@ export const events = {
       agentId: Schema.String,
       name: Schema.String,
       command: Schema.String,
+      repo: Schema.String,
+      folder: Schema.String,
       at: Schema.String,
     }),
   }),

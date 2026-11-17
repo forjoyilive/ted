@@ -103,7 +103,10 @@ export interface ChatStore {
   answer(id: string, answer: CommentAnswer): ChatRequest
   allowances(factoryId: string): OutsideCommandAllowance[]
   allowance(key: AllowanceKey): OutsideCommandAllowance | undefined
-  allow(key: AllowanceKey, command: string): OutsideCommandAllowance
+  allow(
+    key: AllowanceKey,
+    allowed: Pick<OutsideCommandAllowance, 'command' | 'repo' | 'folder'>,
+  ): OutsideCommandAllowance
   removeAllowance(id: string): void
 }
 
@@ -193,6 +196,8 @@ function allowanceOf(row: typeof outsideCommandAllowances.Type): OutsideCommandA
     agentId: row.agentId,
     name: row.name,
     command: row.command,
+    repo: row.repo,
+    folder: row.folder,
     allowedAt: row.allowedAt,
   }
 }
@@ -340,12 +345,12 @@ export function createChatStore(options: {
       const row = store.query(queryDb(outsideCommandAllowances.where({ ...key }))).at(0)
       return row && allowanceOf(row)
     },
-    allow(key, command) {
+    allow(key, allowed) {
       const before = store.query(queryDb(outsideCommandAllowances.where({ ...key }))).at(0)
       const id = before?.id ?? randomUUID()
       const at = new Date().toISOString()
-      commit(events.outsideCommandAllowed({ id, ...key, command, at }))
-      return { id, ...key, command, allowedAt: at }
+      commit(events.outsideCommandAllowed({ id, ...key, ...allowed, at }))
+      return { id, ...key, ...allowed, allowedAt: at }
     },
     removeAllowance(id) {
       commit(events.outsideCommandAllowanceRemoved({ id, at: new Date().toISOString() }))

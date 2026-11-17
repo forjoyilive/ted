@@ -376,6 +376,18 @@ export function createCoordinators(options: {
     factory: requireFactory(c.factoryId),
     agent: agentOf(c),
   })
+  async function stillListed(c: StoredCoordinator, name: string): Promise<void> {
+    const agent = agentOf(c)
+    const stored = agent.outsideCommands?.find((x) => x.name === name)
+    const current = (await agentFilesOf(c)).find((a) => a.id === agent.id)
+    const listed = current?.outsideCommands?.find((x) => x.name === name)
+    if (!current) throw new RequestError(409, removedRefusal(agent))
+    if (!current.powers.includes('run_outside') || !stored || listed?.command !== stored.command)
+      throw new RequestError(
+        409,
+        `\`${name}\` changed or was removed from ${agent.name}’s Agent files since this chat started, so TED refused it. Start a new chat to use the current outside commands.`,
+      )
+  }
   async function tellChat(chatId: string, text: string): Promise<void> {
     const latest = saved.get(chatId)
     if (!latest || latest.endedAt !== undefined || closed) return
@@ -2385,6 +2397,7 @@ export function createCoordinators(options: {
           throw new RequestError(409, 'The human is changing this chat')
         const chat = outsideChat(c)
         const plan = await outside.plan(chat, input.name, input.argument)
+        await stillListed(c, plan.command.name)
         if (outside.allowed(chat, plan)) {
           outside.start(chat, plan, { always: true })
           return {
@@ -2441,6 +2454,7 @@ export function createCoordinators(options: {
         }
         const chat = outsideChat(c)
         const plan = await outside.plan(chat, ask.name, ask.argument)
+        await stillListed(c, plan.command.name)
         if (plan.command.command !== ask.command || plan.folder !== ask.folder)
           throw new RequestError(
             409,
@@ -2450,7 +2464,7 @@ export function createCoordinators(options: {
         if (answer.always)
           store.chats.allow(
             { factoryId: c.factoryId, agentId: agent.id, name: plan.command.name },
-            plan.command.command,
+            { command: plan.command.command, repo: plan.repo, folder: plan.folder },
           )
         store.chats.answer(asked.id, {
           kind: 'approved',

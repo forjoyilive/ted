@@ -129,6 +129,19 @@
   border-top: 1px solid var(--border-subtle);
 }
 
+.outsideLine {
+  margin: 0;
+  padding: 8px 12px 0;
+  color: var(--text-secondary);
+  font-size: var(--text-12);
+  overflow-wrap: anywhere;
+}
+
+.outsideLine code {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
 .output {
   max-height: 320px;
   margin: 0;

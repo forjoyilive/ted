@@ -102,6 +102,7 @@ export interface OutsideCommandAsk {
   folder: string
   repo: string
   allowedBefore?: string
+  allowedFolder?: string
 }
 
 export interface OutsideCommandAnswer {
@@ -115,6 +116,8 @@ export interface OutsideCommandAllowance {
   agentId: string
   name: string
   command: string
+  repo: string
+  folder: string
   allowedAt: string
 }
 

@@ -299,6 +299,11 @@ export function createOutsideCommands(options: {
         folder: plan.folder,
         repo: plan.repo,
         ...(before && before.command !== plan.command.command && { allowedBefore: before.command }),
+        ...(before &&
+          before.command === plan.command.command &&
+          (before.folder !== plan.folder || before.repo !== plan.repo) && {
+            allowedFolder: before.folder,
+          }),
       }
     },
     allowed(chat, plan) {
@@ -307,7 +312,12 @@ export function createOutsideCommands(options: {
         agentId: chat.agent.id,
         name: plan.command.name,
       })
-      return found !== undefined && found.command === plan.command.command
+      return (
+        found !== undefined &&
+        found.command === plan.command.command &&
+        found.repo === plan.repo &&
+        found.folder === plan.folder
+      )
     },
     busy,
     start(chat, plan, how) {
