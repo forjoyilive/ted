@@ -354,6 +354,45 @@ describe('TedStore', () => {
     }
   })
 
+  test('a Task’s tokens add its finished Runs’ saved use to its live Runs’ counts, read one by one or all at once', async () => {
+    const store = await openStore({ directory: dir })
+    try {
+      const task = await store.createTask({ title: 'Count tokens' })
+      const other = await store.createTask({ title: 'Never started' })
+      const start = (id: string, parentRunId?: string) =>
+        store.startRun({
+          id,
+          taskId: task.id,
+          agent: 'claude',
+          prompt: 'go',
+          cwd: '/tmp',
+          ...(parentRunId !== undefined && { parentRunId }),
+        })
+      start('lead')
+      start('reviewer', 'lead')
+      store.recordRunOutput('reviewer', { toOffset: 1, state: 'finished' })
+      store.recordRunUsage({ runId: 'reviewer', agent: 'claude', input: 900, output: 100 })
+      const counted = () => ({
+        one: store.getTask(task.id)?.tokens,
+        all: store.listTasks().find((t) => t.id === task.id)?.tokens,
+      })
+      expect(counted()).toEqual({ one: 1000, all: 1000 })
+
+      store.setLiveTokens('lead', 2500)
+      expect(counted()).toEqual({ one: 3500, all: 3500 })
+      store.setLiveTokens('reviewer', 50)
+      expect(counted()).toEqual({ one: 3500, all: 3500 })
+
+      store.recordRunOutput('lead', { toOffset: 1, state: 'finished' })
+      store.recordRunUsage({ runId: 'lead', agent: 'claude', input: 2000, output: 600 })
+      store.setLiveTokens('lead', undefined)
+      expect(counted()).toEqual({ one: 3600, all: 3600 })
+      expect(store.getTask(other.id)?.tokens).toBeUndefined()
+    } finally {
+      await store.close()
+    }
+  })
+
   test('Run starts store shared prompt text once and rebuild the same prompts from a mixed log', async () => {
     const fixed = `# Working in Ted\n\n${'Fixed guidance. '.repeat(40)}`
     const stage = `# Work\n\n${'Stage steps. '.repeat(30)}`
@@ -566,7 +605,7 @@ describe('TedStore', () => {
       const task = await store.createTask({ title: 'Second', blockedBy: [blocker.id] })
 
       expect(task.markers).toEqual([{ kind: 'blocked-by', by: 'DEV-1' }])
-      expect(task.activity).toBe('Starts when DEV-1 merges')
+      expect(task.activity).toBe('Blocked by DEV-1')
       const seen: DaemonEvent[] = []
       store.subscribe((event) => seen.push(event))
       const entry = { layers: [], order: agentStages.map((stage) => ({ stage, enabled: true })) }

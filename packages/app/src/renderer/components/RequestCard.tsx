@@ -17,6 +17,7 @@ import {
   noChoicesPicked,
   trackerName,
 } from '@ted/protocol/task'
+import { keepMoveChoice, moveChoice, movePlanKey } from '@ted/protocol/task-move'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import type { ChangedFile } from '../changes.ts'
 import { sendOnEnter, signOffEnter } from '../composer-keys.ts'
@@ -24,12 +25,14 @@ import {
   useCheckRuns,
   useComments,
   useEmulators,
+  useFactories,
   useSimulators,
   useTasks,
   useThreadEvents,
   useValidationObligations,
 } from '../data.ts'
 import { draftField, useMessageDraft } from '../message-drafts.ts'
+import { throwsAwayWork } from '../move-plan.ts'
 import {
   ago,
   briefSections,
@@ -47,12 +50,20 @@ import { formatDate } from '../time.ts'
 import { ActionButton } from './ActionButton.tsx'
 import type { ShownApp } from './AppsSection.tsx'
 import dialogStyles from './ArchiveDialogs.module.css'
-import { ArchiveDialog, Dialog, openPullRequests, useBlocked } from './ArchiveDialogs.tsx'
+import {
+  ArchiveDialog,
+  Dialog,
+  MovePlanDetails,
+  openPullRequests,
+  useBlocked,
+  useMovePlan,
+} from './ArchiveDialogs.tsx'
 import { Button } from './Button.tsx'
 import { ChangeList } from './ChangesSection.tsx'
 import { CheckOutputDialog } from './CheckOutputDialog.tsx'
 import { ChecksRow } from './ChecksRow.tsx'
 import { DesignReviewContent, removedAgentsDraft } from './DesignReview.tsx'
+import { FactoryPicker } from './FactoryPicker.tsx'
 import {
   FailureRequestDetails,
   RecordedValidationSummary,
@@ -64,6 +75,7 @@ import { Markdown } from './Markdown.tsx'
 import { PreviewRow } from './PreviewRow.tsx'
 import { ProposalAnswer, ProposalRows } from './ProposalCard.tsx'
 import { isSeveral, QuestionChoices, type QuestionSelection } from './QuestionChoices.tsx'
+import { ReferenceText } from './References.tsx'
 import styles from './RequestCard.module.css'
 import { RequestSnoozeLine } from './RequestSnooze.tsx'
 import { RoundAnswers, RoundQuestions, roundTally } from './RoundCard.tsx'
@@ -497,7 +509,108 @@ type AnswerProps = {
 }
 
 export function RequestAnswer(props: AnswerProps) {
+  if (props.request.move) return <MoveAnswer {...props} />
   return props.request.archive ? <ArchiveAnswer {...props} /> : <QuestionAnswer {...props} />
+}
+
+function MoveAnswer({ request, task, lead }: AnswerProps) {
+  const ask = request.move
+  const kept = useMessageDraft({ kind: 'request', id: request.id })
+  const { text, setText } = kept
+  const { send: post, comment, commenting, sending, submission, error } = useSending(request, false)
+  const factories = useFactories().filter((f) => f.id !== task.factoryId)
+  const suggested = factories.find((f) => f.id === ask?.factoryId)
+  const [picked, setFactoryId] = useState<string>()
+  const factoryId = picked ?? suggested?.id
+  const { plan, planError } = useMovePlan(task.id, factoryId, task.updatedAt, request.id)
+  const chosen = factories.find((f) => f.id === factoryId)
+  const asker = ask?.askedBy === 'coordinator' ? 'the Coordinator' : 'the Task Lead'
+  const typed = text.trim() !== ''
+
+  async function send(answer: AnswerRequest) {
+    if (await post(answer)) kept.clear()
+  }
+
+  async function commentInstead() {
+    if (await comment(text)) setText('')
+  }
+
+  return (
+    <>
+      {ask?.askedBy === 'coordinator' && (
+        <p className={styles.caption}>Asked by the Coordinator.</p>
+      )}
+      <div className={dialogStyles.field}>
+        <span aria-hidden>Factory</span>
+        <FactoryPicker
+          factories={factories}
+          value={factoryId}
+          onChange={setFactoryId}
+          disabled={sending}
+          empty="Choose a Factory"
+        />
+      </div>
+      {suggested && chosen && chosen.id !== suggested.id && (
+        <p className={styles.caption}>{`Suggested by ${asker}: ${suggested.name}.`}</p>
+      )}
+      {!suggested && ask && (
+        <p className={styles.caption}>
+          {`The Factory ${asker} suggested no longer exists. Choose another.`}
+        </p>
+      )}
+      {planError !== undefined && (
+        <p className={styles.error} role="alert">
+          {planError}
+        </p>
+      )}
+      {plan && <MovePlanDetails plan={plan} />}
+      <textarea
+        className={`${styles.box} ${grow.text}`}
+        data-answer-box
+        aria-label={`Message to ${asker}`}
+        placeholder={`Add a message for ${asker}…`}
+        value={text}
+        disabled={sending}
+        onChange={(event) => setText(event.target.value)}
+      />
+      {error !== undefined && (
+        <p className={styles.error} role="alert">
+          {error}
+        </p>
+      )}
+      <div className={styles.buttons}>
+        {lead?.({
+          disabled: sending || !typed,
+          pending: commenting,
+          send: () => void commentInstead(),
+        })}
+        <Button
+          pending={sending && submission?.action === 'answer' && submission.choice !== moveChoice}
+          disabled={sending}
+          onClick={() => send({ action: 'answer', choice: keepMoveChoice, ...(typed && { text }) })}
+        >
+          {keepMoveChoice}
+        </Button>
+        <Button
+          variant={plan && !throwsAwayWork(plan) ? 'primary' : 'danger'}
+          pending={sending && submission?.action === 'answer' && submission.choice === moveChoice}
+          disabled={sending || !plan || plan.refusal !== undefined}
+          onClick={() =>
+            plan &&
+            factoryId !== undefined &&
+            send({
+              action: 'answer',
+              choice: moveChoice,
+              ...(typed && { text }),
+              move: { factoryId, planKey: movePlanKey(plan) },
+            })
+          }
+        >
+          {chosen ? `Move to ${chosen.name}` : moveChoice}
+        </Button>
+      </div>
+    </>
+  )
 }
 
 function ArchiveAnswer({ request, task, lead }: AnswerProps) {
@@ -1111,7 +1224,9 @@ export function RequestCard({
         <PreviouslyApprovedSignOff id={changes.since} task={task} />
       )}
       {!readOnly && request.answer === undefined && <RequestSnoozeLine requestId={request.id} />}
-      <h2 className={styles.title}>{headline(request)}</h2>
+      <h2 className={styles.title}>
+        <ReferenceText text={headline(request)} />
+      </h2>
       {rows && <MergeRows rows={rows} taskId={task.id} />}
       {rows && changes && <MergeChangesLine changes={changes} />}
       {changes && !rows && <ChangesBlock changes={changes} current={taskChanges} />}
@@ -1274,12 +1389,16 @@ export function RequestCard({
   )
 }
 
+function FactoryName({ id }: { id: string }) {
+  return useFactories().find((f) => f.id === id)?.name ?? 'another Factory'
+}
+
 function answerLine(
   request: Comment,
   newer: Comment | undefined,
   task: Task,
   stages: Stages,
-): { mark: string; tone: string; text: string } | undefined {
+): { mark: string; tone: string; text: string; factoryId?: string } | undefined {
   const { answer } = request
   if (!answer) return undefined
   if (request.autopilotAnswered)
@@ -1392,6 +1511,14 @@ function answerLine(
           mark: '–',
           tone: 'neutral',
           text: 'Withdrawn · the Task was archived before you answered',
+        }
+      }
+      if ('movedToFactory' in answer) {
+        return {
+          mark: '–',
+          tone: 'neutral',
+          text: 'Withdrawn · the Task moved to ',
+          factoryId: answer.movedToFactory,
         }
       }
       return {
@@ -1555,7 +1682,9 @@ export function AnsweredCard({
       </div>
       {permission ? (
         <>
-          <h2 className={styles.title}>{headline(request)}</h2>
+          <h2 className={styles.title}>
+            <ReferenceText text={headline(request)} />
+          </h2>
           {shown !== undefined && shown !== '' && <Markdown text={shown} />}
           <PermissionCommand request={request} />
           {request.simulator && (
@@ -1568,7 +1697,9 @@ export function AnsweredCard({
           )}
         </>
       ) : (
-        <p className={styles.answeredTitle}>{headline(request)}</p>
+        <p className={styles.answeredTitle}>
+          <ReferenceText text={headline(request)} />
+        </p>
       )}
       {request.answer?.kind === 'answered' && request.answer.answers && (
         <RoundAnswers request={request} answers={request.answer.answers} />
@@ -1586,7 +1717,10 @@ export function AnsweredCard({
           <span className={styles[line.tone]} aria-hidden>
             {line.mark}
           </span>
-          <span className={styles.answerText}>{line.text}</span>
+          <span className={styles.answerText}>
+            {line.text}
+            {line.factoryId !== undefined && <FactoryName id={line.factoryId} />}
+          </span>
           <span className={styles.answerAge}>{ago(request.answer.at, now)}</span>
         </div>
       )}

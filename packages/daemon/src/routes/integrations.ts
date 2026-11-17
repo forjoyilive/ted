@@ -1,6 +1,7 @@
 import type { AsanaStatus } from '@ted/protocol'
 import {
   agentKinds,
+  maxLinearIssueLinks,
   parseAllowAsanaProjectRequest,
   parseAllowLinearTeamRequest,
   parseAsanaChoicesQuery,
@@ -156,6 +157,16 @@ export const integrationRoutes: Route[] = [
     method: 'POST',
     path: /^\/integrations\/linear\/test$/,
     handle: async (_, { linear }) => [200, await linear.test()],
+  },
+  {
+    method: 'GET',
+    path: /^\/integrations\/linear\/issue-links(?:\?.*)?$/,
+    async handle({ req, caller }, { linear }) {
+      if (caller.kind !== 'app')
+        throw new HttpError(403, 'only the Ted app can look up Linear issues')
+      const ids = new URL(req.url ?? '/', 'http://localhost').searchParams.get('ids') ?? ''
+      return [200, await linear.issueLinks(ids.split(',').slice(0, maxLinearIssueLinks))]
+    },
   },
   jsonRoute(parseLinearLookupRequest, {
     method: 'POST',

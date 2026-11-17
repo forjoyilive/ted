@@ -39,22 +39,31 @@ async function newTask(
   return { api, created, close, settings }
 }
 
-test('New Task focuses the description and closes without creating', async () => {
+test('New Task focuses the title and closes without creating', async () => {
   const { created, close } = await newTask()
-  await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Description')))
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Title')))
   expect(screen.getByRole('combobox', { name: 'Factory' }).dataset.value).toBe('f1')
   await user().click(screen.getByRole('button', { name: 'Close' }))
   expect(close).toHaveBeenCalledOnce()
   expect(created).not.toHaveBeenCalled()
 })
 
-test('New Task sends a blank title for daemon inference, description, Priority and Start now false', async () => {
+test('New Task needs a title, not a description, and sends Priority and Start now false', async () => {
   const { created, close, settings } = await newTask()
   const u = user()
-  await u.type(
-    screen.getByLabelText('Description'),
-    'Search ignores accents\nTyping cafe finds Café.',
+  const createButton = () => screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement
+  expect(screen.getByLabelText('Title').getAttribute('placeholder')).toBe('Title')
+  expect(screen.getByLabelText('Description').getAttribute('placeholder')).toMatch(
+    /^Description \(optional\)\./,
   )
+  await u.type(screen.getByLabelText('Description'), 'Typing cafe finds Café.')
+  expect(createButton().disabled).toBe(true)
+  await u.clear(screen.getByLabelText('Description'))
+  await u.type(screen.getByLabelText('Title'), '   ')
+  expect(createButton().disabled).toBe(true)
+  await u.clear(screen.getByLabelText('Title'))
+  await u.type(screen.getByLabelText('Title'), 'Search ignores accents')
+  expect(createButton().disabled).toBe(false)
   await u.selectOptions(screen.getByLabelText('Priority'), 'high')
   expect(screen.queryByText('Unchecked puts it in Backlog')).toBeNull()
   await u.click(screen.getByLabelText('Start now'))
@@ -63,8 +72,8 @@ test('New Task sends a blank title for daemon inference, description, Priority a
   expect(created).toHaveBeenCalledWith(
     expect.objectContaining({
       factory: 'NB',
-      title: '',
-      description: 'Search ignores accents\nTyping cafe finds Café.',
+      title: 'Search ignores accents',
+      description: '',
       priority: 'high',
       start: false,
     }),
@@ -111,7 +120,7 @@ test('Create more clears both fields, keeps the dialog open and restores focus; 
   expect(close).not.toHaveBeenCalled()
   expect((screen.getByLabelText('Title') as HTMLInputElement).value).toBe('')
   expect((screen.getByLabelText('Description') as HTMLTextAreaElement).value).toBe('')
-  await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Description')))
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText('Title')))
 })
 
 test('More retains Clarify and Task Lead choices when collapsed and submits them', async () => {
@@ -126,6 +135,7 @@ test('More retains Clarify and Task Lead choices when collapsed and submits them
   await u.selectOptions(screen.getByLabelText('Effort'), 'high')
   await u.click(more)
   expect(screen.getByText('Clarify depth Grill · Task Lead Codex · high')).toBeTruthy()
+  await u.type(screen.getByLabelText('Title'), 'Deep one')
   await u.type(screen.getByLabelText('Description'), 'Deep one')
   await u.click(more)
   await u.selectOptions(screen.getByLabelText('Model'), 'Other…')
@@ -170,6 +180,7 @@ test('a blocker from another Factory is sent with its waiting explanation', asyn
   await u.type(screen.getByLabelText('Find a Task'), 'crash')
   await u.click(screen.getByRole('option', { name: /DEV-1/ }))
   expect(screen.getByText('Waits as Blocked until DEV-1 merges')).toBeTruthy()
+  await u.type(screen.getByLabelText('Title'), 'After the crash fix')
   await u.type(screen.getByLabelText('Description'), 'After the crash fix')
   await u.click(screen.getByRole('button', { name: 'Create' }))
   expect(created).toHaveBeenCalledWith(expect.objectContaining({ blockedBy: ['DEV-1'] }))
@@ -245,6 +256,7 @@ test('a pending create disables submission and an error preserves the draft', as
   })
   render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={vi.fn()} />)
   await formReady()
+  fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Keep this' } })
   fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Keep this' } })
   await user().click(screen.getByRole('button', { name: 'Create' }))
   expect((screen.getByRole('button', { name: 'Create' }) as HTMLButtonElement).disabled).toBe(true)
@@ -345,6 +357,7 @@ test('an edit made before the defaults arrive keeps the Factory’s Clarify dept
   render(<NewTaskDialog factories={[factory()]} tasks={[]} factoryId="f1" onClose={vi.fn()} />)
   await waitFor(() => expect(screen.getByLabelText('Description').matches(':disabled')).toBe(false))
   const u = user()
+  await u.type(screen.getByLabelText('Title'), 'Typed early')
   await u.type(screen.getByLabelText('Description'), 'Typed early')
   const more = screen.getByRole('button', { name: /^More/ })
   await u.click(more)
@@ -513,6 +526,7 @@ test.each(['stage', 'high', ''] as const)(
     if (effort === 'stage')
       expect((screen.getByLabelText('Effort') as HTMLSelectElement).value).toBe('stage')
     else await u.selectOptions(screen.getByLabelText('Effort'), effort)
+    await u.type(screen.getByLabelText('Title'), 'Stage effort')
     await u.type(
       screen.getByLabelText('Description'),
       'Use the configured Stage effort with the installed agent.',

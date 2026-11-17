@@ -74,7 +74,7 @@ test('merge history shares pending/canceled facts and isolates Stage visits', ()
     base: 'main',
   })
   expect(store.mergePending(id)).toBe(false)
-  expect(store.mergeHistory(id)).toEqual({ started: false })
+  expect(store.mergeHistory(id)).toEqual({ started: false, awaitsLead: false })
   store.mergeStarted(id)
   expect(store.mergePending(id)).toBe(true)
   store.mergeCanceled(id, 'comment')
@@ -84,11 +84,12 @@ test('merge history shares pending/canceled facts and isolates Stage visits', ()
     started: true,
     latest: 'started',
     canceledAt: new Date().toISOString(),
+    awaitsLead: false,
   })
   store.changeStage(id, 'work', entry)
   vi.setSystemTime(initial + 1000)
   store.changeStage(id, 'merge', entry)
-  expect(store.mergeHistory(id)).toEqual({ started: false })
+  expect(store.mergeHistory(id)).toEqual({ started: false, awaitsLead: true })
 })
 
 test('rebases and edits respect inclusive timestamp boundaries and Task identity', async () => {
@@ -285,7 +286,12 @@ test('a reset keeps the Task, its Linear consent and its original request, and c
   })
   const read = () => store.listTasks().find((t) => t.id === task.id)
   store.linearSyncAllowed(task.id, 'ACM-7')
-  store.queueTask(task.id, 'intake')
+  store.queueTask(task.id, 'intake', { cause: { cause: 'blockers-merged', blockers: ['NB-1'] } })
+  const queued = store.taskLog(task.id).find((e) => e.name === 'v1.TaskQueued')
+  expect(store.taskLog(task.id).find((e) => e.name === 'v1.TaskStartCause')).toMatchObject({
+    at: queued?.at,
+    data: { cause: 'blockers-merged', blockers: ['NB-1'] },
+  })
   store.startTask({
     taskId: task.id,
     stage: 'intake',
@@ -337,6 +343,110 @@ test('a reset keeps the Task, its Linear consent and its original request, and c
         .map((e) => e.name)
         .filter((name) => !name.startsWith('v1.Linear')),
     ).toEqual(['v1.TaskReset'])
+  }
+  check()
+  await store.close()
+  store = await openStore({ directory: dir })
+  check()
+})
+
+test('a moved Task keeps its thread, gets the new Factory’s ID and is still found by its old one', async () => {
+  const notes = store.createFactory({
+    key: 'NB',
+    name: 'Notebook',
+    repos: [],
+    defaultBranch: 'main',
+  })
+  const web = store.createFactory({ key: 'WEB', name: 'Website', repos: [], defaultBranch: 'main' })
+  store.factoryCloned(notes.id)
+  store.factoryCloned(web.id)
+  await store.createTask({ factoryId: web.id, title: 'Already there', clarifyDepth: 'few' })
+  const blocker = await store.createTask({
+    factoryId: notes.id,
+    title: 'Blocker',
+    clarifyDepth: 'few',
+  })
+  const task = await store.createTask({
+    factoryId: notes.id,
+    title: 'Offline editing',
+    description: 'The original request',
+    clarifyDepth: 'few',
+    blockedBy: [blocker.id],
+    source: { url: 'https://linear.app/acme/issue/ACM-8/offline' },
+  })
+  const child = await store.createTask({
+    factoryId: notes.id,
+    title: 'Local cache',
+    clarifyDepth: 'few',
+    parentId: task.id,
+  })
+  const read = (taskId: string) => store.listTasks().find((t) => t.id === taskId)
+  store.linearSyncAllowed(task.id, 'ACM-8')
+  store.queueTask(task.id, 'intake')
+  store.startTask({
+    taskId: task.id,
+    stage: 'intake',
+    branch: 'task',
+    worktree: dir,
+    entry,
+    repo: { name: 'widgets', repo: 'acme/widgets', copied: [], skipped: [] },
+  })
+  store.editTask(task.id, { description: 'An edited request' })
+  store.writeBrief({ taskId: task.id, text: '## Goal' })
+  store.postComment({ taskId: task.id, kind: 'note', author: { kind: 'human' }, body: 'Keep me' })
+  const question = store.postComment({
+    taskId: task.id,
+    kind: 'question',
+    author: { kind: 'ted' },
+    body: 'Go on?',
+    choices: ['Yes', 'No'],
+  })
+
+  const moved = store.moveTask({
+    moves: [
+      { taskId: task.id, factoryId: web.id, started: true },
+      { taskId: child.id, factoryId: web.id, started: false },
+    ],
+    unlink: [{ taskId: task.id, blockerId: blocker.id }],
+    notes: [{ taskId: blocker.id, body: 'NB-2 moved to Website as WEB-2.' }],
+    by: 'human',
+  })
+
+  expect(moved).toEqual([
+    { id: task.id, from: 'NB-2', to: 'WEB-2' },
+    { id: child.id, from: 'NB-3', to: 'WEB-3' },
+  ])
+  const check = () => {
+    expect(read(task.id)).toMatchObject({
+      factoryId: web.id,
+      displayId: 'WEB-2',
+      stage: 'backlog',
+      repos: [],
+    })
+    expect(read(task.id)?.blockedBy ?? []).not.toContain(blocker.id)
+    expect(read(task.id)?.linearSync).not.toBe('on')
+    expect(read(child.id)).toMatchObject({ displayId: 'WEB-3', parentId: task.id })
+    expect(store.getTask('NB-2')?.id).toBe(task.id)
+    expect(store.getTask('WEB-2')?.id).toBe(task.id)
+    expect(store.listComments(task.id).find((c) => c.body === 'Keep me')).toBeDefined()
+    expect(store.listComments(task.id).find((c) => c.id === question.id)?.answer).toMatchObject({
+      kind: 'withdrawn',
+      movedToFactory: web.id,
+    })
+    expect(store.latestBrief(task.id)?.text).toBe('## Goal')
+    expect(store.descriptionVersions(task.id).map((v) => v.text)).toEqual([
+      'The original request',
+      'An edited request',
+    ])
+    expect(store.listComments(blocker.id).map((c) => c.body)).toContain(
+      'NB-2 moved to Website as WEB-2.',
+    )
+    expect(store.freshRunRequest(task.id)).toMatchObject({
+      kind: 'moved',
+      from: 'NB-2',
+      pending: true,
+    })
+    expect(store.nextTaskNumber(notes.id)).toBe(4)
   }
   check()
   await store.close()

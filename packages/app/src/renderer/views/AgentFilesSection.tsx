@@ -8,6 +8,7 @@ import {
   agentPowerNames,
   agentPowers,
   maxAgentCommands,
+  maxAgentDescription,
 } from '@ted/protocol/agent-files'
 import { maxOutsideCommands } from '@ted/protocol/outside-command'
 import { agentKinds } from '@ted/protocol/run'
@@ -179,6 +180,7 @@ function shownSettings(line: Line): AgentSettingsInput {
   return row
     ? {
         name: row.name,
+        ...(row.description !== undefined && { description: row.description }),
         ...(row.agent !== undefined && { agent: row.agent }),
         ...(row.model !== undefined && { model: row.model }),
         powers: row.powers,
@@ -415,6 +417,7 @@ function AgentEditor({
     const next: AgentSettingsInput = { ...settings, ...fields }
     if (clearAgent) delete next.agent
     if (!next.model) delete next.model
+    if (!next.description?.trim()) delete next.description
     onChange({ ...own, settings: next })
   }
   const togglePower = (power: AgentPower, on: boolean) => {
@@ -473,6 +476,20 @@ function AgentEditor({
           }}
         />
         <p className={styles.hint}>Shown in New chat and on the Agent’s Inbox requests.</p>
+      </div>
+      <div className={styles.field}>
+        <label className={base.label} htmlFor={`${id}-description`}>
+          Description
+        </label>
+        <input
+          id={`${id}-description`}
+          className={base.input}
+          value={settings.description ?? ''}
+          maxLength={maxAgentDescription}
+          placeholder={row?.inherited?.settings.description}
+          onChange={(event) => set({ description: event.target.value })}
+        />
+        <p className={styles.hint}>Shown on the New chat card.</p>
       </div>
       <div className={styles.twoFields}>
         <div className={styles.field}>

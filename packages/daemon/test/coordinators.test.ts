@@ -17,6 +17,7 @@ import {
   draftBody,
   type Factory,
   type LineComment,
+  movePlanKey,
   parseAutomationDraftRequest,
   type RunChat,
   type RunMessage,
@@ -25,6 +26,8 @@ import {
   readDaemonInfo,
   sizeChoices,
   type Task,
+  type TaskMovePlan,
+  type ThreadEvent,
   tedPaths,
   type WaitingRequest,
 } from '@ted/protocol'
@@ -427,7 +430,11 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   const s = await setup(),
     a = await s.task('A'),
     b = await s.task('B'),
-    { run } = await s.start([{ waitFor: path.join(scratch, 'finish') }, { endTurn: true }])
+    { run } = await s.start([
+      { everyMessage: [{ endTurn: true }] },
+      { waitFor: path.join(scratch, 'finish') },
+      { endTurn: true },
+    ])
   const read = async (id: string) =>
     unpack<CoordinatorTask>((await run.call('GET', `/coordinator/tasks/${id}`)).body)
   await s.ok('PUT', `/tasks/${b.id}/priority`, { priority: 'high' })
@@ -744,6 +751,94 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
     ],
   })
 
+  const t = await s.task('T')
+  const transfer = async (operation: string, factory = 'OTHER') =>
+    run.call('POST', '/coordinator/transfer', {
+      operation,
+      task: { id: t.id, version: (await read(t.id)).version },
+      factory,
+      reason: 'The user asked to move it',
+    })
+  expect((await transfer('transfer-own', 'NB')).status).toBe(409)
+  expect((await transfer('transfer-nowhere', 'NOPE')).status).toBe(404)
+  const moveAsked = async () =>
+    (await s.comments(t.id)).find((c) => c.move !== undefined && c.answer === undefined)
+  expect((await transfer('transfer-t-keep')).body).toMatchObject({
+    receipts: [
+      {
+        operation: 'transfer',
+        taskId: t.id,
+        text: expect.stringContaining('Asked the user to move'),
+      },
+    ],
+  })
+  const kept = await waitUntil(moveAsked, 'the move request')
+  expect(kept).toMatchObject({
+    author: { kind: 'ted' },
+    choices: ['Move', 'Keep it'],
+    move: {
+      askedBy: 'coordinator',
+      chatId: (await s.chat()).id,
+      reason: 'The user asked to move it',
+    },
+  })
+  expect(await s.waitingIds()).toContain(kept.id)
+  expect((await transfer('transfer-t-again')).status).toBe(409)
+  expect(
+    (
+      await run.call('POST', `/coordinator/tasks/${t.id}/answer`, {
+        operation: 'answer-move',
+        version: (await read(t.id)).version,
+        request: kept.id,
+        choice: 'Move',
+      })
+    ).status,
+  ).toBe(403)
+  await s.ok('POST', `/comments/${kept.id}/answer`, { action: 'answer', choice: 'Keep it' })
+  expect(await taskById(t.id)).toMatchObject({ factoryId: t.factoryId, displayId: t.displayId })
+
+  await transfer('transfer-t')
+  const asked = await waitUntil(moveAsked, 'the second move request')
+  const counted = await s.ok<TaskMovePlan>(
+    'GET',
+    `/tasks/${t.id}/move-plan?factory=${foreign.factoryId}`,
+  )
+  expect(counted.tasks).toMatchObject([{ id: t.id, openRequests: 1 }])
+  const plan = await s.ok<TaskMovePlan>(
+    'GET',
+    `/tasks/${t.id}/move-plan?factory=${foreign.factoryId}&request=${asked.id}`,
+  )
+  expect(plan.tasks).toMatchObject([{ id: t.id, openRequests: 0 }])
+  await s.ok('POST', `/comments/${asked.id}/answer`, {
+    action: 'answer',
+    choice: 'Move',
+    move: { factoryId: foreign.factoryId, planKey: movePlanKey(plan) },
+  })
+  expect(await taskById(t.id)).toMatchObject({
+    factoryId: foreign.factoryId,
+    displayId: expect.stringMatching(/^OTHER-\d+$/),
+  })
+  expect((await s.comments(t.id)).find((c) => c.id === asked.id)?.answer).toMatchObject({
+    kind: 'answered',
+    choice: 'Move',
+  })
+
+  const u = await s.task('U')
+  await run.call('POST', '/coordinator/transfer', {
+    operation: 'transfer-u',
+    task: { id: u.id, version: (await read(u.id)).version },
+    factory: 'OTHER',
+    reason: 'The user asked to move it',
+  })
+  const askedU = await waitUntil(
+    async () => (await s.comments(u.id)).find((c) => c.move !== undefined),
+    'the move request on U',
+  )
+  await s.ok('POST', `/tasks/${u.id}/move-to-factory`, { factoryId: foreign.factoryId })
+  expect((await s.comments(u.id)).find((c) => c.id === askedU.id)?.answer).toMatchObject({
+    kind: 'withdrawn',
+  })
+
   if (!receipt) throw new Error('missing move receipt')
   const legacyReceipt = {
     ...receipt,
@@ -755,6 +850,14 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   }
   await writeFile(path.join(scratch, 'finish'), '')
   await waitUntil(async () => (await s.chat()).status === 'ready', 'Coordinator to finish its turn')
+  const chatRun = (await s.chat()).runId
+  await waitUntil(
+    async () =>
+      JSON.stringify((await s.ok<RunChat>('GET', `/runs/${chatRun}/chat`)).items).includes(
+        `Your request to move ${u.displayId} was withdrawn`,
+      ),
+    'the Coordinator to hear its request was withdrawn',
+  )
   await daemon?.stop()
   const store = await openStore({ directory: tedPaths(home).store })
   let deliveredId = ''
@@ -891,6 +994,9 @@ test('start queues a Task through existing slot limits and writes one receipt', 
   const slots = await s.ok<RunSlots>('GET', '/slots')
   expect(slots.working).toBe(1)
   expect(slots.queue.some((q) => q.kind === 'task' && q.taskId === task.id)).toBe(true)
+  const thread = (await s.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)).map((e) => e.text)
+  expect(thread).toContain('Started by the Coordinator')
+  expect(thread).not.toContain('Task started')
 })
 
 test('idle follow-up turns start past the slot limit, including generic chat message paths', async () => {

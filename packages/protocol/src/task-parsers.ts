@@ -68,6 +68,7 @@ import {
   type WriteBriefRequest,
 } from './task.ts'
 import type { SetTaskGatesRequest, TaskGateOverrides } from './task-gates.ts'
+import { parseMoveAnswer } from './task-move.ts'
 import { agentChoice, bodyObject, RequestValidationError as HttpError } from './validation.ts'
 
 export function parseStartTaskRequest(value: unknown): StartTaskRequest {
@@ -796,6 +797,7 @@ export function parseAnswerRequest(body: unknown): AnswerRequest {
       ...(request.archive !== undefined && {
         archive: parseArchiveTaskRequest(objectOrNull(request.archive, 'archive')),
       }),
+      ...(request.move !== undefined && { move: parseMoveAnswer(request.move) }),
     }
   }
   if (request.action === 'accept-recommended') return { action: 'accept-recommended' }

@@ -137,6 +137,7 @@ import {
   mergesHere,
   validates,
 } from '@ted/protocol/stage'
+import { type MoveAsk, readMoveAsk } from '@ted/protocol/task-move'
 import { Effect } from 'effect'
 import { totalMemory } from '../busy.ts'
 import { isDiskFullError } from '../disk.ts'
@@ -181,6 +182,7 @@ import { joinPrompt, type PromptPart, splitPrompt } from './prompt-parts.ts'
 import { legacyPurpose, structuralPurpose } from './request-purpose.ts'
 import {
   agentPauses,
+  archiveUnblocks,
   automationComments,
   automations,
   automationTasks,
@@ -241,6 +243,7 @@ import {
   taskDraftConsumptions,
   taskDrafts,
   taskLog,
+  taskMoves,
   taskParents,
   taskQueue,
   taskRepos,
@@ -253,7 +256,13 @@ import { createSideChatStore, type SideChatStore } from './side-chats.ts'
 import { markEventsSynced } from './sync-head.ts'
 import { createTaskHistory, type TaskHistory } from './task-history.ts'
 import { blockerTransitions, taskIntervalHistory } from './task-intervals.ts'
+import { taskTokens } from './task-tokens.ts'
 import { createTestInvocationStore, type TestInvocationStore } from './test-invocations.ts'
+
+function movedAsk(text: string | null): { move?: MoveAsk } {
+  const move = text === null ? undefined : readMoveAsk(text)
+  return move ? { move } : {}
+}
 
 export const placeholderFactory = { id: 'dev', key: 'DEV' }
 
@@ -433,6 +442,10 @@ export interface BlockerLink {
 
 export type AfterBlocking = 'backlog' | 'wait'
 
+export type StartCause =
+  | { cause: 'factory-setting' | 'snooze' | 'coordinator' | 'automation' }
+  | { cause: 'blockers-merged'; blockers: readonly string[] }
+
 export interface RepairApproval {
   drafts?: readonly string[]
   startStage?: StageId
@@ -609,6 +622,14 @@ export interface AcceptedLayer {
   acceptedAt: string
 }
 
+export interface MoveTaskInput {
+  moves: { taskId: string; factoryId: string; started: boolean }[]
+  unlink: { taskId: string; blockerId: string }[]
+  leaveParent?: string
+  notes: { taskId: string; body: string }[]
+  by: 'human' | 'coordinator'
+}
+
 export interface NewComment {
   purpose?: RequestPurpose
   taskId: string
@@ -629,6 +650,7 @@ export interface NewComment {
   asanaMissing?: AsanaMissing
   asanaUnfinished?: AsanaUnfinished
   archive?: ArchiveAsk
+  move?: MoveAsk
   cleanupFailure?: CleanupFailureAsk
   memoryKill?: MemoryKillAsk
 }
@@ -860,7 +882,7 @@ export interface TedStore extends TaskHistory {
   queueTask(
     taskId: string,
     stage: StageId,
-    options?: { prepare?: boolean; keepRank?: boolean },
+    options?: { prepare?: boolean; keepRank?: boolean; cause?: StartCause | undefined },
   ): Task
   moveToBacklog(taskId: string): Task
   needsPlanning(taskId: string, runId: string): Task
@@ -868,7 +890,7 @@ export interface TedStore extends TaskHistory {
     taskId: string,
     stage: StageId,
     entry: NewStageEntry,
-    options?: { prepare?: boolean },
+    options?: { prepare?: boolean; cause?: StartCause | undefined },
   ): Task
   taskSplit(
     taskId: string,
@@ -891,9 +913,14 @@ export interface TedStore extends TaskHistory {
   editTask(taskId: string, edit: { title?: string; description?: string }): Task
   descriptionVersions(taskId: string): DescriptionVersion[]
   archiveTask(taskId: string, record?: { closing: string[]; branches: number; why?: string }): Task
-  unarchiveTask(taskId: string, input: { queue: boolean; waitForBlockers: boolean }): Task
+  unarchiveTask(
+    taskId: string,
+    input: { queue: boolean; waitForBlockers: boolean; reblocked?: readonly string[] },
+  ): Task
   deleteTask(taskId: string): void
   resetTask(taskId: string): Task
+  moveTask(input: MoveTaskInput): { id: string; from: string; to: string }[]
+  nextTaskNumber(factoryId: string): number
   blockedBy(blockerId: string): string[]
   openBlockedTasks(): string[]
   queue(): QueuedTask[]
@@ -902,6 +929,8 @@ export interface TedStore extends TaskHistory {
   childrenOf(taskId: string): string[]
   setTaskParent(taskId: string, parentId: string | null): Task
   recordTreeArchive(rootId: string, taskIds: readonly string[]): void
+  recordArchiveUnblocks(blockerId: string, taskIds: readonly string[]): void
+  archiveUnblocked(blockerId: string): string[]
   archivedWith(rootId: string): string[]
   blockers(taskId: string): BlockerLink[]
   addBlocker(
@@ -1172,6 +1201,7 @@ export interface TedStore extends TaskHistory {
   answerPermission(commentId: string, answer: CommentAnswer): Comment
   setRunPermissions(runId: string, permissions: PermissionMode): void
   setRunAsleep(runId: string, asleep: boolean): void
+  setLiveTokens(runId: string, tokens: number | undefined): void
   restartRun(runId: string, flags: RunFlags): Run
   reviveRun(runId: string, flags?: RunFlags): Run
   lastOutputAt(runId: string): string | undefined
@@ -1255,6 +1285,7 @@ export interface TedStore extends TaskHistory {
   newWorkHold(): string | undefined
   holdWhenBusy(held: BusyHold | undefined): void
   setTaskChecking(taskId: string, on: boolean): void
+  setTaskStopping(taskId: string, on: boolean): void
   setTaskMovingAfterChecks(taskId: string, on: boolean): void
   setChecksWaiting(places: ReadonlyMap<string, number>): void
   onWriteResult(listener: (error?: unknown) => void): () => void
@@ -1380,8 +1411,10 @@ export async function openStore({
   let heldBusy: BusyHold | undefined
   const waitingOnSubAgents = new Set<string>()
   const asleepRuns = new Set<string>()
+  const liveTokens = new Map<string, number>()
   const checkingTasks = new Set<string>()
   const movingAfterChecks = new Set<string>()
+  const stoppingTasks = new Set<string>()
   let checksWaiting: ReadonlyMap<string, number> = new Map()
   const tellWriters = (error?: unknown) => {
     for (const listener of writeListeners) listener(error)
@@ -1819,6 +1852,18 @@ export async function openStore({
       ? [events.taskStartRequestChanged({ taskId, startRequested: false, at })]
       : []
 
+  const startCause = (taskId: string, cause: StartCause | undefined, at: string) =>
+    cause
+      ? [
+          events.taskStartCause({
+            taskId,
+            cause: cause.cause,
+            blockers: cause.cause === 'blockers-merged' ? [...cause.blockers] : [],
+            at,
+          }),
+        ]
+      : []
+
   const commentFiles = (commentId: string): Attachment[] =>
     store
       .query(queryDb(commentAttachments.where({ commentId }).orderBy('position', 'asc')))
@@ -1898,6 +1943,9 @@ export async function openStore({
     }
     const everyParent = once(() => store.query(queryDb(taskParents.orderBy('taskId', 'asc'))))
     const everyPullRequest = once(() => store.query(queryDb(pullRequests)))
+    const everyUsage = once(
+      () => new Map(store.query(queryDb(runUsage)).map((row) => [row.id, row] as const)),
+    )
     const factories = once(listFactories)
     return {
       factories,
@@ -1928,6 +1976,13 @@ export async function openStore({
         () => store.query(queryDb(taskRepos.orderBy('createdAt', 'asc'))),
         (r) => r.taskId,
       ),
+      usage: (runIds: readonly string[]): (typeof runUsage.Type)[] => {
+        if (runIds.length === 0) return []
+        if (!everyTask)
+          return store.query(queryDb(runUsage.where({ id: { op: 'IN', value: runIds } })))
+        const all = everyUsage()
+        return runIds.flatMap((id) => all.get(id) ?? [])
+      },
       pullRequest: rows(pullRequestRows, everyPullRequest, (r) => r.id),
       pullRequests: rows(taskPullRequests, everyPullRequest, (r) => r.taskId),
       task: rows(
@@ -2087,6 +2142,7 @@ export async function openStore({
     const all = reads.runs(row.id)
     const lead = all.find((r) => r.parentRunId === null)
     const live = all.filter((r) => r.state !== 'finished')
+    const tokens = taskTokens(all, reads.usage(all.map((r) => r.id)), liveTokens)
     const entries = reads.entries(row.id)
     const parentId = reads.parents(row.id).at(0)?.parentId
     const blockedBy = reads.blockers(row.id).map((b) => b.blockerId)
@@ -2226,7 +2282,7 @@ export async function openStore({
               : {}),
       })),
       pausedRuns,
-      runs: live.map((r) => r.state as RunState),
+      runs: stoppingTasks.has(row.id) ? [] : live.map((r) => r.state as RunState),
       openRequests: requests.filter((r) => !groupAskRow(r)).length,
       ...requestsSnoozed(
         row.id,
@@ -2236,6 +2292,7 @@ export async function openStore({
       ...(pausedReason !== undefined && { paused: pausedReason }),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
       ...(firstEnded !== undefined && { blockerEnded: firstEnded }),
+      ...(row.startRequested && { startsAfterBlockers: true }),
       ...(github !== undefined && { github }),
       ...(mergeWaits && { mergePending: true }),
       ...(autoMergeLeft && { autoMergeLeft: true }),
@@ -2403,6 +2460,7 @@ export async function openStore({
       ...(taskWakesOnComment(facts) && { wakesOnComment: true as const }),
       ...(facts.checksActive && { checksActive: true }),
       tabs,
+      ...(tokens > 0 && { tokens }),
       runs: live
         .sort(
           (a, b) =>
@@ -2583,6 +2641,7 @@ export async function openStore({
     asanaMissing,
     asanaUnfinished,
     archive,
+    move,
     cleanupFailure,
     memoryKill,
     multiple,
@@ -2639,6 +2698,7 @@ export async function openStore({
           asanaUnfinished: JSON.parse(asanaUnfinished) as AsanaUnfinished,
         }),
         ...(archive !== null && { archive: JSON.parse(archive) as ArchiveAsk }),
+        ...movedAsk(move),
         ...(cleanupFailure !== null && {
           cleanupFailure: JSON.parse(cleanupFailure) as CleanupFailureAsk,
         }),
@@ -2906,10 +2966,27 @@ export async function openStore({
     const digits = ref.slice(dash + 1)
     if (dash < 0 || !/^(0|[1-9]\d*)$/.test(digits)) return undefined
     const key = ref.slice(0, dash)
-    return store
-      .query(queryDb(tasks.where({ number: Number(digits) })))
+    const number = Number(digits)
+    const row = store
+      .query(queryDb(tasks.where({ number })))
       .find((row) => factoryKey(row.factoryId) === key)
+    if (row) return row
+    const moved = store
+      .query(queryDb(taskMoves.where({ number })))
+      .find((row) => factoryKey(row.factoryId) === key)
+    return moved ? taskRow(moved.taskId) : undefined
   }
+  const nextNumber = (factoryId: string) => {
+    const awaitingSetup =
+      listFactories().find((f) => f.id === factoryId)?.clonedAt === undefined &&
+      factoryId !== placeholderFactory.id
+    return Math.max(awaitingSetup ? 1 : 0, ...usedNumbers(factoryId)) + 1
+  }
+  const usedNumbers = (factoryId: string) => [
+    ...store.query(queryDb(tasks.select('number').where({ factoryId }))),
+    ...store.query(queryDb(deletedTasks.select('number').where({ factoryId }))),
+    ...store.query(queryDb(taskMoves.select('number').where({ factoryId }))),
+  ]
   const lastCommentAt = (rows: readonly (typeof comments.Type)[]) =>
     rows
       .flatMap((c) => [
@@ -3106,6 +3183,7 @@ export async function openStore({
       asanaMissing,
       asanaUnfinished,
       archive,
+      move,
       cleanupFailure,
       memoryKill,
       purpose,
@@ -3159,6 +3237,7 @@ export async function openStore({
         ...(asanaMissing && { asanaMissing }),
         ...(asanaUnfinished && { asanaUnfinished }),
         ...(archive && { archive }),
+        ...(move && { move }),
         ...(cleanupFailure && { cleanupFailure }),
         ...(memoryKill && { memoryKill }),
       })
@@ -3203,6 +3282,7 @@ export async function openStore({
       ...(archive
         ? [events.commentArchiveAsked({ commentId: id, archive: JSON.stringify(archive) })]
         : []),
+      ...(move ? [events.commentMoveAsked({ commentId: id, move: JSON.stringify(move) })] : []),
       ...(multiple && choices?.length
         ? [events.commentMultipleChoiceAsked({ commentId: id })]
         : []),
@@ -4144,10 +4224,7 @@ export async function openStore({
       children = [],
       notes = [],
     }) {
-      const used = [
-        ...store.query(queryDb(tasks.select('number').where({ factoryId }))),
-        ...store.query(queryDb(deletedTasks.select('number').where({ factoryId }))),
-      ]
+      const used = usedNumbers(factoryId)
       const awaitingSetup =
         !setup &&
         listFactories().find((f) => f.id === factoryId)?.clonedAt === undefined &&
@@ -4365,9 +4442,7 @@ export async function openStore({
       draftRevision,
     }) {
       const currentDraft = draftRevision ? taskDraft(factoryId).draft : null
-      const inFactory = store.query(queryDb(tasks.where({ factoryId })))
-      const deleted = store.query(queryDb(deletedTasks.where({ factoryId })))
-      const used = [...inFactory.map((t) => t.number), ...deleted.map((t) => t.number)]
+      const used = usedNumbers(factoryId)
       const awaitingSetup = listFactories().find((f) => f.id === factoryId)?.clonedAt === undefined
       let number = Math.max(awaitingSetup ? 1 : 0, ...used) + 1
       let rank = nextRank()
@@ -4485,6 +4560,7 @@ export async function openStore({
         ...startRequestUsed(taskId, at),
         ...(kept == null ? [events.taskRanked({ taskId, rank, at })] : []),
         events.taskQueued({ taskId, stage, rank, at }),
+        ...startCause(taskId, options?.cause, at),
         ...(options?.prepare || taskRow(taskId)?.preparation !== null
           ? [
               events.taskPreparationChanged({
@@ -4534,6 +4610,7 @@ export async function openStore({
         ...startRequestUsed(taskId, at),
         events.taskRanked({ taskId, rank, at }),
         events.taskStartedAfterPlanning({ taskId, stage, rank, at }),
+        ...startCause(taskId, options?.cause, at),
         ...(options?.prepare || taskRow(taskId)?.preparation !== null
           ? [
               events.taskPreparationChanged({
@@ -4623,11 +4700,11 @@ export async function openStore({
       if (guideEnd.length > 0) emitGuides()
       return task
     },
-    unarchiveTask(taskId, { queue: queued, waitForBlockers }) {
+    unarchiveTask(taskId, { queue: queued, waitForBlockers, reblocked = [] }) {
       const at = new Date().toISOString()
       const rank = queued ? Math.max(0, ...queue().map((q) => q.rank)) + 1 : null
       commit(
-        events.taskUnarchived({ taskId, rank, at }),
+        events.taskUnarchivedV2({ taskId, rank, reblocked: [...reblocked], at }),
         ...(taskRow(taskId)?.preparation === 'ready'
           ? [events.taskStopped({ taskId, runs: 0, why: 'prepared', at })]
           : []),
@@ -4695,6 +4772,78 @@ export async function openStore({
       updatedDependents(taskId)
       return task
     },
+    nextTaskNumber: (factoryId) => nextNumber(factoryId),
+    moveTask({ moves, unlink, leaveParent, notes, by }) {
+      const at = new Date().toISOString()
+      const next = new Map<string, number>()
+      const numberIn = (factoryId: string) => {
+        const number = next.get(factoryId) ?? nextNumber(factoryId)
+        next.set(factoryId, number + 1)
+        return number
+      }
+      const planned = moves.map(({ taskId, factoryId, started }) => {
+        const row = requireTaskRow(taskId)
+        checkingTasks.delete(taskId)
+        movingAfterChecks.delete(taskId)
+        return {
+          row,
+          started,
+          factoryId,
+          number: numberIn(factoryId),
+          from: `${factoryKey(row.factoryId)}-${row.number}`,
+        }
+      })
+      const withdrawn = planned.flatMap(({ row, factoryId }) =>
+        openRequestRows(row.id).map((request) => ({ request, factoryId })),
+      )
+      const oldParent = leaveParent === undefined ? undefined : parentRow(leaveParent)?.parentId
+      const posts = notes.map(({ taskId, body }) =>
+        commentPosted({ taskId, kind: 'note', author: { kind: 'ted' }, body }, at),
+      )
+      commit(
+        ...unlink.map(({ taskId, blockerId }) =>
+          events.taskBlockerRemoved({ taskId, blockerId, runId: null, at }),
+        ),
+        ...(leaveParent !== undefined && oldParent !== undefined
+          ? [events.taskParentChanged({ taskId: leaveParent, parentId: null, at })]
+          : []),
+        ...withdrawn.map(({ request, factoryId }) => {
+          const answer: CommentAnswer = { kind: 'withdrawn', at, movedToFactory: factoryId }
+          return events.commentAnswered({ id: request.id, answer: JSON.stringify(answer), at })
+        }),
+        ...planned.flatMap(({ row, started, factoryId, number, from }) => [
+          ...(row.snoozedUntil ? [events.taskSnoozeCleared({ taskId: row.id, at })] : []),
+          events.taskMovedToFactory({
+            taskId: row.id,
+            fromFactoryId: row.factoryId,
+            fromNumber: row.number,
+            fromDisplayId: from,
+            factoryId,
+            number,
+            by,
+            started,
+            checkRunIds: checkRunRows(row.id).map((r) => r.id),
+            at,
+          }),
+        ]),
+        ...posts.flatMap(({ event, attached }) => [event, ...attached]),
+      )
+      for (const { request } of withdrawn) emitComment(request.id)
+      for (const { id } of posts) emitComment(id)
+      for (const { row } of planned) updatedTask(row.id)
+      if (oldParent !== undefined && taskRow(oldParent)) updatedTask(oldParent)
+      for (const { taskId, blockerId } of unlink) {
+        if (taskRow(taskId)) updatedTask(taskId)
+        if (taskRow(blockerId)) updatedTask(blockerId)
+      }
+      updatedQueue()
+      for (const { row } of planned) updatedDependents(row.id)
+      return planned.map(({ row, factoryId, number, from }) => ({
+        id: row.id,
+        from,
+        to: `${factoryKey(factoryId)}-${number}`,
+      }))
+    },
     blockedBy: (blockerId) =>
       store.query(queryDb(taskBlockers.where({ blockerId }))).map((row) => row.taskId),
     openBlockedTasks: () =>
@@ -4733,6 +4882,16 @@ export async function openStore({
         events.taskTreeArchived({ rootId, taskIds: [...taskIds], at: new Date().toISOString() }),
       )
     },
+    recordArchiveUnblocks(blockerId, taskIds) {
+      if (taskIds.length === 0) return
+      commit(
+        events.archiveUnblocked({ blockerId, taskIds: [...taskIds], at: new Date().toISOString() }),
+      )
+    },
+    archiveUnblocked: (blockerId) =>
+      store
+        .query(queryDb(archiveUnblocks.where({ blockerId }).orderBy('taskId', 'asc')))
+        .map((row) => row.taskId),
     archivedWith: (rootId) =>
       store
         .query(queryDb(taskTreeArchives.where({ rootId }).orderBy('taskId', 'asc')))
@@ -6855,6 +7014,14 @@ export async function openStore({
       const taskId = taskIdOfRun(runId)
       if (taskId !== undefined) updatedTask(taskId)
     },
+    setLiveTokens(runId, tokens) {
+      if (liveTokens.get(runId) === tokens) return
+      if (tokens === undefined) liveTokens.delete(runId)
+      else liveTokens.set(runId, tokens)
+      stateCommits += 1
+      const taskId = taskIdOfRun(runId)
+      if (taskId !== undefined && taskRow(taskId)) updatedTask(taskId)
+    },
     setRunAsleep(runId, asleep) {
       if (asleepRuns.has(runId) === asleep) return
       if (asleep) asleepRuns.add(runId)
@@ -7018,6 +7185,8 @@ export async function openStore({
       )
       const row = runRow(runId)
       if (row) emit({ type: 'run-updated', run: toRun(row) })
+      const taskId = taskIdOfRun(runId)
+      if (taskId !== undefined && taskRow(taskId)) updatedTask(taskId)
     },
     apiCost(days, now = new Date()) {
       const since = new Date(now.getTime() - days * 86_400_000).toISOString()
@@ -7361,6 +7530,15 @@ export async function openStore({
         if (!taskRow(taskId)) return
         movingAfterChecks.add(taskId)
       } else movingAfterChecks.delete(taskId)
+      if (taskRow(taskId)) updatedTask(taskId)
+    },
+    setTaskStopping(taskId, on) {
+      if (stoppingTasks.has(taskId) === on) return
+      stateCommits += 1
+      if (on) {
+        if (!taskRow(taskId)) return
+        stoppingTasks.add(taskId)
+      } else stoppingTasks.delete(taskId)
       if (taskRow(taskId)) updatedTask(taskId)
     },
     setTaskChecking(taskId, on) {

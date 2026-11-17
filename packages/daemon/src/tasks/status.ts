@@ -41,6 +41,7 @@ export interface TaskFacts {
   }
   blockedBy?: readonly string[]
   blockerEnded?: BlockerEnded
+  startsAfterBlockers?: boolean
   queue?: { place: number; after?: QueuedAfter } | { hold: string }
   queuedSubAgents?: readonly { id: string; hold?: string; paused?: string }[]
   busy?: BusyHold
@@ -306,7 +307,10 @@ export function taskActivity(facts: TaskFacts): string | undefined {
   if (blocker !== undefined && facts.blockerEnded !== undefined) {
     return `Blocked by ${facts.blockerEnded} ${blocker}`
   }
-  if (blocker !== undefined && facts.runs.length === 0) return `Starts when ${blocker} merges`
+  if (blocker !== undefined && facts.runs.length === 0)
+    return facts.stage === 'backlog' && facts.startsAfterBlockers !== true
+      ? `Blocked by ${blocker}`
+      : `Starts when ${blocker} merges`
   if (facts.stage === 'backlog' && facts.needsPlanning) return 'Waiting for a plan made outside Ted'
   if (facts.stage === 'backlog' && facts.snoozedUntil) return 'Scheduled to start'
   if (facts.stage === 'backlog') return 'Not started'

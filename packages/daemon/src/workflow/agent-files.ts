@@ -3,10 +3,12 @@ import {
   type AgentCommand,
   type AgentPower,
   agentPowers,
+  isAgentDescription,
   isAgentId,
   isCommandRepoName,
   maxAgentCommandLength,
   maxAgentCommands,
+  maxAgentDescription,
   maxAgentId,
   maxAgentName,
   type ResolvedAgent,
@@ -20,6 +22,7 @@ import { displayPath } from './display-path.ts'
 
 export interface AgentSettings {
   name?: string
+  description?: string
   agent?: AgentKind
   model?: string
   powers?: AgentPower[]
@@ -41,7 +44,16 @@ export interface AgentLayer {
   agentFiles: Readonly<Record<string, string>>
 }
 
-const agentKeys = ['name', 'agent', 'model', 'powers', 'commands', 'outside_commands', 'based_on']
+const agentKeys = [
+  'name',
+  'description',
+  'agent',
+  'model',
+  'powers',
+  'commands',
+  'outside_commands',
+  'based_on',
+]
 const chatOnlyPowers: readonly AgentPower[] = [
   'manage_tasks',
   'manage_automations',
@@ -186,6 +198,16 @@ function checkAgentsYaml(
             error(node, `\`${path}\` must be text of up to ${maxAgentName} characters`)
           } else agent.name = raw.trim()
           break
+        case 'description': {
+          const description = raw?.trim()
+          if (description === undefined || !isAgentDescription(description)) {
+            error(
+              node,
+              `\`${path}\` must be one line of text of up to ${maxAgentDescription} characters`,
+            )
+          } else if (description !== '') agent.description = description
+          break
+        }
         case 'agent':
           if (!isOneOf(raw, agentKinds)) {
             error(node, `\`${path}\` must be ${agentKindList}`)
@@ -378,6 +400,7 @@ export function resolveAgents(layers: readonly AgentLayer[]): ResolvedAgent[] {
       {
         id,
         name: settings.name,
+        ...(settings.description !== undefined && { description: settings.description }),
         ...(settings.agent !== undefined && { agent: settings.agent }),
         ...(settings.model !== undefined && { model: settings.model }),
         powers,

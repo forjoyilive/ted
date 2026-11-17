@@ -350,6 +350,7 @@ export type {
   CoordinatorTaskList,
   CoordinatorTaskQuery,
   CoordinatorTaskSummary,
+  CoordinatorTransfer,
   RenameCoordinatorChatRequest,
 } from './coordinator.ts'
 export {
@@ -360,6 +361,7 @@ export {
   parseCoordinatorMessage,
   parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
+  parseCoordinatorTransfer,
   parseRenameCoordinatorChatRequest,
 } from './coordinator-parsers.ts'
 export {
@@ -694,12 +696,14 @@ export {
 export type { AllowLinearTeamRequest } from './linear.ts'
 export {
   findLinearUrl,
+  isLinearIdentifier,
   isLinearIntakeScope,
   isLinearTeamKey,
   type LinearFile,
   type LinearIntakeChoices,
   type LinearIntakeScope,
   type LinearIssue,
+  type LinearIssueLink,
   type LinearKeyPlace,
   type LinearKeyState,
   type LinearLookup,
@@ -709,6 +713,7 @@ export {
   type LinearUnfetched,
   type LinearUrl,
   linearKeyPage,
+  maxLinearIssueLinks,
   parseLinearUrl,
   type SaveLinearKeyRequest,
   type SetFactoryLinearIntakeRequest,
@@ -1162,6 +1167,7 @@ export type {
   TaskIntervalHistory,
   TaskIntervalReason,
 } from './task-intervals.ts'
+export * from './task-move.ts'
 export {
   parseAnswerRequest,
   parseAnswerTedStopsRequest,

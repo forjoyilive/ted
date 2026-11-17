@@ -1,19 +1,30 @@
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, test } from 'vitest'
 import {
   affectedTests,
   appSmokeTests,
+  changedFrom,
   chooseTests,
+  cleanCommit,
+  commitExists,
   electronSandbox,
   importGraph,
   knownFiles,
   leftOutText,
+  mergePasses,
   type Pick,
+  parsePasses,
+  passesText,
   readRepo,
   references,
   resolveReference,
   runsEverything,
   selectionText,
+  skipPassed,
+  skippedText,
   sourceAreas,
   testArea,
   words,
@@ -496,4 +507,134 @@ test('this repo: the smoke set exists, the setup files run everything, and a sid
   const merge = affectedTests({ changed: ['packages/daemon/test/merge-harness.ts'], ...repo })
   expect(merge.picks.length).toBeGreaterThan(0)
   expect(merge.picks.every((pick) => pick.file.startsWith('packages/daemon/test/'))).toBe(true)
+})
+
+describe('a rerun skips files that passed before', () => {
+  const a = 'a'.repeat(40)
+  const b = 'b'.repeat(40)
+  const pick = (file: string): Pick => ({ file, kind: 'changed', why: 'changed' })
+
+  test('the record keeps each file’s own commit and ignores what it can’t read', () => {
+    const passes = new Map([
+      ['x.test.ts', a],
+      ['y.test.ts', b],
+    ])
+    expect(parsePasses(passesText(passes))).toEqual(passes)
+    expect(parsePasses('{')).toEqual(new Map())
+    expect(parsePasses(JSON.stringify({ version: 2, passes: { 'x.test.ts': a } }))).toEqual(
+      new Map(),
+    )
+    expect(
+      parsePasses(
+        JSON.stringify({ version: 1, passes: { 'x.test.ts': '--output=x', 'y.test.ts': b } }),
+      ),
+    ).toEqual(new Map([['y.test.ts', b]]))
+  })
+
+  test('a run adds what passed, drops what failed and keeps what it didn’t run', () => {
+    const before = new Map([
+      ['kept.test.ts', a],
+      ['failed.test.ts', a],
+    ])
+    const merged = mergePasses(before, {
+      commit: b,
+      ran: ['failed.test.ts', 'new.test.ts'],
+      passed: new Set(['new.test.ts']),
+    })
+    expect(merged).toEqual(
+      new Map([
+        ['kept.test.ts', a],
+        ['new.test.ts', b],
+      ]),
+    )
+  })
+
+  test('a passed file runs again only when the changes since its commit pick it', () => {
+    const asked: string[] = []
+    const rerunFor = (commit: string) => {
+      asked.push(commit)
+      if (commit === b) return undefined
+      return new Set(['changed-again.test.ts'])
+    }
+    const passes = new Map([
+      ['untouched.test.ts', a],
+      ['also-untouched.test.ts', a],
+      ['changed-again.test.ts', a],
+      ['lost-commit.test.ts', b],
+    ])
+    const run = [
+      'untouched.test.ts',
+      'also-untouched.test.ts',
+      'changed-again.test.ts',
+      'lost-commit.test.ts',
+      'never-passed.test.ts',
+    ].map(pick)
+    const result = skipPassed(run, passes, rerunFor)
+    expect(result.run.map((kept) => kept.file)).toEqual([
+      'changed-again.test.ts',
+      'lost-commit.test.ts',
+      'never-passed.test.ts',
+    ])
+    expect(result.skipped).toEqual([
+      { file: 'untouched.test.ts', commit: a },
+      { file: 'also-untouched.test.ts', commit: a },
+    ])
+    expect(asked).toEqual([a, b])
+  })
+
+  test('the command names each skipped file, its commit and how to run it anyway', () => {
+    expect(skippedText([], 'record.json')).toBeUndefined()
+    expect(skippedText([{ file: 'x.test.ts', commit: a }], 'record.json')).toContain(
+      'Skipped 1 file that passed before, because nothing since picks it again:',
+    )
+    expect(
+      skippedText(
+        [
+          { file: 'x.test.ts', commit: a },
+          { file: 'y.test.ts', commit: b },
+          { file: 'z.test.ts', commit: a },
+        ],
+        'record.json',
+      ),
+    ).toBe(
+      [
+        'Skipped 3 files that passed before, because nothing since picks them again:',
+        `  passed on ${a.slice(0, 9)}:`,
+        '    x.test.ts',
+        '    z.test.ts',
+        `  passed on ${b.slice(0, 9)}:`,
+        '    y.test.ts',
+        'To run them anyway: pnpm check --affected --no-skip, or delete record.json.',
+      ].join('\n'),
+    )
+  })
+
+  test('git: a clean tree gives its commit, and changes since a commit include uncommitted and new files', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'ted-affected-passes-'))
+    try {
+      const git = (...args: string[]) =>
+        execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+          cwd: root,
+          encoding: 'utf8',
+        })
+      git('init', '-q')
+      writeFileSync(path.join(root, 'a.test.ts'), '1')
+      writeFileSync(path.join(root, 'b.test.ts'), '1')
+      git('add', '.')
+      git('commit', '-qm', 'one')
+      const first = cleanCommit(root)
+      expect(first).toMatch(/^[0-9a-f]{40}$/)
+      expect(commitExists(root, first ?? '')).toBe(true)
+      expect(commitExists(root, 'c'.repeat(40))).toBe(false)
+      expect(changedFrom(root, first ?? '')).toEqual([])
+      writeFileSync(path.join(root, 'a.test.ts'), '2')
+      git('commit', '-qam', 'two')
+      writeFileSync(path.join(root, 'b.test.ts'), '2')
+      writeFileSync(path.join(root, 'c.test.ts'), '1')
+      expect(cleanCommit(root)).toBeUndefined()
+      expect(changedFrom(root, first ?? '')).toEqual(['a.test.ts', 'b.test.ts', 'c.test.ts'])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })

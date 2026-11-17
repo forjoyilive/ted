@@ -9,6 +9,8 @@ export function agentSummary(agent: ResolvedAgent | StoredChatAgent): AgentSumma
   return {
     id: agent.id,
     name: agent.name,
+    ...('description' in agent &&
+      agent.description !== undefined && { description: agent.description }),
     source: agent.source,
     ...(agent.agent !== undefined && { agent: agent.agent }),
     ...(agent.model !== undefined && { model: agent.model }),
@@ -24,7 +26,8 @@ export function agentSummary(agent: ResolvedAgent | StoredChatAgent): AgentSumma
 }
 
 export function storedAgent(agent: ResolvedAgent): StoredChatAgent {
-  return { ...agentSummary(agent), instructions: agent.instructions }
+  const { description: _, ...summary } = agentSummary(agent)
+  return { ...summary, instructions: agent.instructions }
 }
 
 export async function builtInAgents(): Promise<StoredChatAgent[]> {

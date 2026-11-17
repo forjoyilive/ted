@@ -1537,6 +1537,16 @@ describe('Tasks an Automation Run starts', () => {
         comments.some((c) => c.body.includes('left in Backlog')),
         `Auto: ${task.title}`,
       ).toBe(false)
+      const lines = await threadTexts(client, task)
+      expect(lines, `Auto: ${task.title}`).not.toContain('Task started')
+      expect(
+        lines.filter(
+          (line) =>
+            line === 'Started by an Automation' ||
+            line === `The Automation “${started.automation.name}” started this Task`,
+        ),
+        `Auto: ${task.title}`,
+      ).toHaveLength(1)
     }
   })
 })

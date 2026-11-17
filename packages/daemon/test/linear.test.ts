@@ -251,12 +251,27 @@ describe('looking up a pasted Linear URL', () => {
       authorization: key,
       variables: { id: 'NOTE-212' },
     })
+
+    expect(
+      await client.linearIssueLinks(['NOTE-212', 'note-212', 'NOTE-999', 'UTF-8x', 'bad key']),
+    ).toEqual([{ identifier: 'NOTE-212', url: 'https://linear.app/kriyadesign/issue/NOTE-212' }])
+    expect(linear.requests.find((r) => r.query.includes('TedIssueStates'))?.variables).toEqual({
+      i0: 'NOTE-212',
+      i1: 'NOTE-999',
+    })
+    const info = await readDaemonInfo(home)
+    if (!info) throw new Error('no daemon.json')
+    const { DaemonClient } = await import('@ted/protocol')
+    expect(await failure(new DaemonClient(info).linearIssueLinks(['NOTE-212']))).toMatchObject({
+      status: 403,
+    })
   })
 
   test('without a key the lookup says so', async () => {
     const client = await start()
 
     expect(await client.lookupLinear(issueUrl)).toEqual({ state: 'no-key' })
+    expect(await client.linearIssueLinks(['NOTE-212'])).toEqual([])
     expect(linear.requests).toEqual([])
   })
 

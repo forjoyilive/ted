@@ -235,6 +235,14 @@ describe('sort and group', () => {
     expect(ids(sortTasks(all, 'title'))).toEqual(['NB-11', 'NB-10', 'NB-12', 'MS-10'])
     expect(ids(sortTasks(all, 'stage'))).toEqual(['NB-12', 'MS-10', 'NB-10', 'NB-11'])
     expect(ids(sortTasks(all, 'updated'))[0]).toBe('MS-10')
+    const counted = all.map((t) =>
+      t.displayId === 'NB-10'
+        ? { ...t, tokens: 500 }
+        : t.displayId === 'MS-10'
+          ? { ...t, tokens: 2000 }
+          : t,
+    )
+    expect(ids(sortTasks(counted, 'tokens'))).toEqual(['MS-10', 'NB-10', 'NB-11', 'NB-12'])
   })
 
   test('grouping by Stage follows the Stage order and starts with Done collapsed', () => {

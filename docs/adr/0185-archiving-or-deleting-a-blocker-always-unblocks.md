@@ -10,8 +10,10 @@ ADR 0058 gave Archive and Delete a `blocked: "unblock" | "keep"` choice. An arch
 
 Links kept before this change stay, still marked “Blocked by archived NB-12” or “Blocked by deleted NB-35”, until the user removes them.
 
+**Unarchive puts the blocks back (TED-530).** After an archive removes the links, `settleDependents` commits `v1.ArchiveUnblocked` with the Tasks it unblocked, kept in the `archiveUnblocks` table. Any later `TaskBlockerAdded` or `TaskBlockerRemoved` for the same pair drops its row, so a change the user made by hand wins. Unarchive (`unarchive` in `tasks/tasks.ts`, for the Task and every child restored with it) puts back each recorded link whose Task isn’t archived (unless it is restored in the same unarchive), isn’t Done, has no link to it already and wouldn’t make a cycle. `restoreBlock` checks each one and adds it right before the unarchive commits, with no wait in between, so a Task archived meanwhile is skipped and each cycle check sees the blocks already restored. A restored link follows the rules for a blocker the user adds: a queued Task goes back to Backlog and a running Task Lead gets the usual message. `v2.TaskUnarchived` carries only the Tasks actually restored, as `reblocked`; the thread line reads “You unarchived this Task · NB-12 is blocked by it again”, and its materializer clears the Task’s rows. Delete records nothing. Tasks archived before this change have no rows, so nothing comes back for them.
+
 ## Considered Options
 
 - **Keep the choice and change only the default.** The default was already Unblock; the extra question was the cost.
 - **Ignore `blocked` in the API but keep accepting it.** The app, daemon and CLI ship together, so nothing current sends it; the parsers already ignore unknown fields.
-- **Put the blocks back on Unarchive.** Left for TED-530.
+- **Put the blocks back on Unarchive.** Done in TED-530; see “Unarchive puts the blocks back” above.

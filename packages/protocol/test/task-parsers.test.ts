@@ -305,6 +305,7 @@ for (const answer of [
       children: 'detach',
       hierarchyRevision: 'a'.repeat(64),
     },
+    move: { factoryId: 'factory-b', planKey: '{"factoryId":"factory-b"}' },
   },
   { action: 'accept-recommended' },
   {

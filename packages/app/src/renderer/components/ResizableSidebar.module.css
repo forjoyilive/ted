@@ -20,7 +20,8 @@
   outline: none;
 }
 
-.navigation {
+.navigation,
+.list {
   right: -4px;
 }
 

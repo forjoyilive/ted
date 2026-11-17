@@ -34,6 +34,7 @@ import markerStyles from '../components/HierarchyMarker.module.css'
 import { ChevronIcon, CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { PriorityButton } from '../components/PriorityMenu.tsx'
+import { tokenAmount } from '../components/RunChat.tsx'
 import { SelectionBar } from '../components/SelectionBar.tsx'
 import { SubAgentTotal, TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
 import { openTaskActions } from '../components/TaskContextMenu.tsx'
@@ -808,7 +809,11 @@ export function TaskList({
       case 'created-by':
         return createdByLabels[task.createdBy]
       case 'tokens':
-        return <span className={styles.none}>—</span>
+        return task.tokens === undefined ? (
+          <span className={styles.none}>—</span>
+        ) : (
+          <span title={`${task.tokens.toLocaleString()} tokens`}>{tokenAmount(task.tokens)}</span>
+        )
       case 'updated':
         return archivedOnly && task.archived
           ? shortDate(task.archived.at)

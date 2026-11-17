@@ -1,15 +1,18 @@
-import type { Task, TaskHierarchyPreview } from '@ted/protocol'
+import type { Task, TaskHierarchyPreview, TaskMovePlan } from '@ted/protocol'
 import { archiveChoice } from '@ted/protocol/task'
+import { movePlanKey } from '@ted/protocol/task-move'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
-import { useTaskRuns, useTasks } from '../data.ts'
+import { useFactories, useTaskRuns, useTasks } from '../data.ts'
 import { childrenOf, isMerged } from '../hierarchy.ts'
 import { useMessageDraft } from '../message-drafts.ts'
+import { type MovePlanRow, movePlanKept, movePlanView, throwsAwayWork } from '../move-plan.ts'
 import type { Stages } from '../stage-names.ts'
 import { useStages } from '../stages.tsx'
 import { readableError, ted } from '../ted.ts'
 import { ActionButton } from './ActionButton.tsx'
 import styles from './ArchiveDialogs.module.css'
 import { Button } from './Button.tsx'
+import { FactoryPicker } from './FactoryPicker.tsx'
 import { Help } from './Help.tsx'
 import grow from './TextGrow.module.css'
 
@@ -18,6 +21,7 @@ export const deleteTaskEvent = 'ted:delete-task'
 export const resetTaskEvent = 'ted:reset-task'
 export const followUpTaskEvent = 'ted:follow-up-task'
 export const unarchiveTaskEvent = 'ted:unarchive-task'
+export const openMovedTaskEvent = 'ted:open-moved-task'
 
 export function needsUnarchiveDialog(task: Task): boolean {
   return (task.parentId !== undefined && !isMerged(task)) || (task.childIds?.length ?? 0) > 0
@@ -755,6 +759,194 @@ export function ResetDialog({ task, onClose }: { task: Task; onClose: () => void
             </Button>
             <Button variant="danger" disabled={busy} onClick={() => reset()}>
               {busy ? 'Resetting…' : 'Reset Task'}
+            </Button>
+          </div>
+        </>
+      )}
+    </Dialog>
+  )
+}
+
+function MovePlanRows({ rows }: { rows: readonly MovePlanRow[] }) {
+  return (
+    <ul className={styles.blockedList}>
+      {rows.map((row) => (
+        <li key={row.id} className={styles.blockedRow}>
+          <span className={styles.blockedId}>{row.displayId}</span>
+          <span className={styles.blockedTitle}>{row.title}</span>
+          {row.note !== '' && <span className={styles.blockedStage}>{row.note}</span>}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+export function MovePlanDetails({
+  plan,
+  compact = false,
+}: {
+  plan: TaskMovePlan
+  compact?: boolean
+}) {
+  const stages = useStages()
+  if (plan.refusal !== undefined) {
+    return (
+      <p className={styles.refused} role="alert">
+        {plan.refusal}
+      </p>
+    )
+  }
+  const view = movePlanView(plan, (stage) => stages.name(stage, plan.factoryId))
+  if (!view) return null
+  return (
+    <div className={styles.plan}>
+      <p className={styles.lands}>
+        {view.landing.before}
+        <b>{view.landing.newDisplayId}</b>
+        {view.landing.after}
+      </p>
+      {view.movesWith.length > 0 && (
+        <section className={styles.lost} aria-label="Moves with it">
+          <h3 className={styles.lostHeading}>Moves with it</h3>
+          <MovePlanRows rows={view.movesWith} />
+        </section>
+      )}
+      {view.leavesParent !== undefined && <p className={styles.warning}>{view.leavesParent}</p>}
+      {view.unlinked.length > 0 && (
+        <section className={styles.lost} aria-label="Blocker links removed">
+          <h3 className={styles.lostHeading}>Blocker links removed</h3>
+          <MovePlanRows rows={view.unlinked} />
+        </section>
+      )}
+      {(!compact || view.throwsAwayWork) && (
+        <section className={styles.lost} aria-label={view.changesHeading}>
+          <h3 className={styles.lostHeading}>{view.changesHeading}</h3>
+          <ul className={styles.lostList}>
+            {view.changes.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </section>
+      )}
+      <p className={styles.kept}>{movePlanKept}</p>
+    </div>
+  )
+}
+
+export interface MovePlanLoad {
+  plan?: TaskMovePlan
+  planError?: string
+}
+
+export function useMovePlan(
+  taskId: string,
+  factoryId: string | undefined,
+  version?: string,
+  requestId?: string,
+): MovePlanLoad {
+  const [loaded, setLoaded] = useState<TaskMovePlan>()
+  const [planError, setPlanError] = useState<string>()
+  useEffect(() => {
+    if (factoryId === undefined) return
+    let current = true
+    void version
+    setPlanError(undefined)
+    const loading =
+      requestId === undefined
+        ? ted.taskMovePlan(taskId, factoryId)
+        : ted.taskMovePlan(taskId, factoryId, requestId)
+    loading.then(
+      (next) => {
+        if (current) setLoaded(next)
+      },
+      (failure) => {
+        if (current) setPlanError(readableError(failure))
+      },
+    )
+    return () => {
+      current = false
+    }
+  }, [taskId, factoryId, version, requestId])
+  const plan = loaded?.factoryId === factoryId ? loaded : undefined
+  return { ...(plan && { plan }), ...(planError !== undefined && { planError }) }
+}
+
+export function MoveToFactoryDialog({ task, onClose }: { task: Task; onClose: () => void }) {
+  const factories = useFactories().filter((f) => f.id !== task.factoryId)
+  const [factoryId, setFactoryId] = useState<string>()
+  const { plan, planError } = useMovePlan(task.id, factoryId)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string>()
+  const moving = useRef(false)
+  const chosen = factories.find((f) => f.id === factoryId)
+
+  async function move() {
+    if (moving.current || factoryId === undefined || plan === undefined) return
+    moving.current = true
+    setBusy(true)
+    setError(undefined)
+    try {
+      const moved = await ted.moveTaskToFactory(task.id, {
+        factoryId,
+        planKey: movePlanKey(plan),
+      })
+      onClose()
+      window.dispatchEvent(new CustomEvent(openMovedTaskEvent, { detail: moved.task }))
+    } catch (failure) {
+      setError(readableError(failure))
+      setBusy(false)
+    } finally {
+      moving.current = false
+    }
+  }
+
+  return (
+    <Dialog onClose={() => !moving.current && !busy && onClose()}>
+      {(headingId) => (
+        <>
+          <h2 id={headingId} className={styles.heading}>
+            {`Move ${task.displayId} to another Factory?`}
+          </h2>
+          <p className={styles.body}>
+            {`${task.title}. It gets a new ID in the Factory you pick, and its thread comes with it.${
+              task.stage === 'backlog'
+                ? ''
+                : ' What it has built so far is thrown away. This can’t be undone.'
+            }`}
+          </p>
+          <div className={styles.field}>
+            <span aria-hidden>Factory</span>
+            <FactoryPicker
+              factories={factories}
+              value={factoryId}
+              onChange={setFactoryId}
+              disabled={busy}
+              empty="Choose a Factory"
+            />
+          </div>
+          {planError !== undefined && (
+            <p className={styles.error} role="alert">
+              {planError}
+            </p>
+          )}
+          {plan && <MovePlanDetails plan={plan} />}
+          {error !== undefined && (
+            <p className={styles.error} role="alert">
+              {error}
+            </p>
+          )}
+          <div className={styles.buttons}>
+            <Button disabled={busy} onClick={onClose}>
+              Cancel
+            </Button>
+            <Button
+              variant={
+                (plan ? throwsAwayWork(plan) : task.stage !== 'backlog') ? 'danger' : 'primary'
+              }
+              disabled={busy || !plan || plan.refusal !== undefined}
+              onClick={() => move()}
+            >
+              {busy ? 'Moving…' : chosen ? `Move to ${chosen.name}` : 'Move'}
             </Button>
           </div>
         </>

@@ -37,9 +37,11 @@ export function agentDrafts(rows: readonly AgentFileRow[]): AgentDraft[] {
 function settingsKey(settings: AgentSettingsInput | null): string {
   if (!settings) return 'null'
   const name = settings.name?.trim()
+  const description = settings.description?.trim()
   const model = settings.model?.trim()
   return JSON.stringify({
     name: name || undefined,
+    description: description || undefined,
     agent: settings.agent,
     model: model || undefined,
     powers: settings.powers,
@@ -60,9 +62,11 @@ function cleanCommands(commands: readonly AgentCommand[]): AgentCommand[] {
 function cleanSettings(settings: AgentSettingsInput | null): AgentSettingsInput | null {
   if (!settings) return null
   const name = settings.name?.trim()
+  const description = settings.description?.trim()
   const model = settings.model?.trim()
   return {
     ...(name && { name }),
+    ...(description && { description }),
     ...(settings.agent && { agent: settings.agent }),
     ...(model && { model }),
     ...(settings.powers && { powers: settings.powers }),

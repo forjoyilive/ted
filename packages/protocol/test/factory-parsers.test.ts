@@ -41,6 +41,7 @@ const library = {
       id: 'release-notes',
       settings: {
         name: 'Release notes',
+        description: 'Drafts the release notes from merged pull requests.',
         agent: 'claude',
         model: 'opus',
         powers: ['ask', 'read_code', 'run_commands'],
@@ -193,6 +194,21 @@ rejects(
 )
 rejects(P.parseLibraryChanges, { agentFiles: [{ id: 'a', settings: { name: '' } }] }, 'a.name')
 rejects(P.parseLibraryChanges, { agentFiles: [{ id: 'a', settings: { agent: 'gpt' } }] }, 'a.agent')
+rejects(
+  P.parseLibraryChanges,
+  { agentFiles: [{ id: 'a', settings: { description: 'x'.repeat(141) } }] },
+  'a.description',
+)
+rejects(
+  P.parseLibraryChanges,
+  { agentFiles: [{ id: 'a', settings: { description: 'one\ntwo' } }] },
+  'a.description',
+)
+rejects(
+  P.parseLibraryChanges,
+  { agentFiles: [{ id: 'a', settings: { description: 3 } }] },
+  'a.description',
+)
 rejects(P.parseLibraryChanges, { agentFiles: [{ id: 'a' }, { id: 'a' }] }, 'twice')
 rejects(P.parseLibraryChanges, { agentFiles: [{ id: 'a', instructions: 3 }] }, 'instructions')
 rejects(P.parseLibraryChanges, { keepAgentFiles: ['../x'] }, 'isn’t an Agent id')

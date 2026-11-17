@@ -52,6 +52,7 @@ import {
   parseCoordinatorCreate,
   parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
+  parseCoordinatorTransfer,
   parseDesignReviewInput,
   parseDeviceRequest,
   parseLinearUrl,
@@ -1228,6 +1229,20 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     coordinatorArchive: () => coordinatorRemove('archive'),
     coordinatorUnarchive: () => coordinatorRemove('unarchive'),
     coordinatorDelete: () => coordinatorRemove('delete'),
+    coordinatorTransfer: async () => {
+      const { operation, version, factory, reason } = options
+      if (!operation || !version || !factory || !reason)
+        throw new UsageError('operation, version, factory and reason are required')
+      const input = parseCoordinatorTransfer({
+        operation,
+        task: { id: args[0] ?? '', version },
+        factory,
+        reason,
+      })
+      console.log(
+        JSON.stringify(await withDaemon(home, (client) => client.coordinatorTransfer(input))),
+      )
+    },
     coordinatorDone: async () => {
       const { operation, version } = options
       if (!operation || !version) throw new UsageError('operation and version are required')
@@ -1724,6 +1739,33 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       console.log(
         `Asked the human to archive ${ref} (request ${asked.id}). End your turn now; Ted sends you their answer.`,
       )
+    },
+    taskMove: async () => {
+      const ref = tedEnv('TED_TASK', env)
+      if (!ref) throw new UsageError('ted task move works only inside a Task Lead’s Run')
+      const asked = await withDaemon(home, (client) =>
+        client.requestMove(ref, { factory: options.factory ?? '', reason: options.reason ?? '' }),
+      )
+      console.log(
+        `Asked the human: “${asked.title ?? `Move ${ref}?`}” (request ${asked.id}). End your turn now; Ted sends you their answer.`,
+      )
+    },
+    factories: async () => {
+      const others = await withDaemon(home, (client) => client.otherFactories())
+      if (others.length === 0) {
+        console.log('There are no other Factories.')
+        return
+      }
+      for (const factory of others) {
+        console.log(`${factory.key}  ${factory.name}`)
+        if (factory.repos !== undefined)
+          console.log(
+            factory.repos
+              .split('\n')
+              .map((line) => `  ${line}`)
+              .join('\n'),
+          )
+      }
     },
     taskPullRequest: async () => {
       const ref = tedEnv('TED_TASK', env)

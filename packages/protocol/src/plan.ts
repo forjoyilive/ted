@@ -39,7 +39,7 @@ export interface PlanTask {
   blockedBy: string[]
 }
 
-export type PlanTaskGone = 'archived' | 'deleted' | 'reset'
+export type PlanTaskGone = 'archived' | 'deleted' | 'reset' | 'moved'
 
 export interface PlanFromTask {
   id: string

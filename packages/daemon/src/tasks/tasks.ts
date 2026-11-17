@@ -152,19 +152,32 @@ import {
   isTrackerGroupAsk,
   joinChoices,
   keepArchiveChoice,
+  keepMoveChoice,
+  type MoveAsk,
   maxAsanaIntakeTasks,
   maxGitHubIntakeTasks,
   maxLinearIntakeTasks,
   memoryFailedChoice,
   memoryRetryChoice,
+  moveChoice,
+  movePlanKey,
+  moveRefusal,
+  moveRefusals,
+  type OtherFactory,
   parseAsanaTaskUrl,
   parseGitHubIssueUrl,
   parseLinearUrl,
+  type RequestMoveRequest,
   type ResetRefusal,
   resetRefusal,
   runOnlyBrowserActions,
   type SetPullRequestTitleRequest,
   sizeChoices,
+  type TaskMoved,
+  type TaskMovePlan,
+  type TaskMovePlanTask,
+  type TaskMovePullRequest,
+  type TaskMoveRef,
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
 import { keptSetupAgents } from '@ted/protocol/setup-agents'
@@ -246,10 +259,12 @@ import type {
   FoundConflict,
   LoopCheck,
   LoopVerdict,
+  MoveTaskInput,
   NewTask,
   NewWorktree,
   RecordedSetup,
   RepoCommit,
+  StartCause,
   StoredFactory,
   StoredTask,
   TedStore,
@@ -453,6 +468,7 @@ import {
   startMerging as startMergingFor,
 } from './merge-watcher.ts'
 import { placeBetween } from './order.ts'
+import { reposSection } from './other-factories.ts'
 import { overnightGuidance } from './overnight.ts'
 import { createPeers, type Peers } from './peers.ts'
 import { checkPreparationWorkflow } from './preparation.ts'
@@ -552,7 +568,7 @@ export interface TaskPlanning {
     id: string
     title: string
   }>
-  taskGone(taskId: string, reason: 'archived' | 'deleted' | 'reset'): void
+  taskGone(taskId: string, reason: 'archived' | 'deleted' | 'reset' | 'moved'): void
 }
 
 export interface PlanApproval {
@@ -689,7 +705,11 @@ export interface Tasks {
   automationStart(ref: string, caller: Caller): Promise<TaskReference>
   newSetupTask(factoryId: string): Promise<Task>
   board(factoryId: string): Promise<FactoryBoard>
-  start(ref: string, request?: import('@ted/protocol').StartTaskRequest): Promise<Task>
+  start(
+    ref: string,
+    request?: import('@ted/protocol').StartTaskRequest,
+    cause?: StartCause,
+  ): Promise<Task>
   moveToBacklog(ref: string): Task
   stop(ref: string): Promise<Task>
   resume(ref: string, input?: { comment?: string; attachments?: Attachment[] }): Promise<Task>
@@ -706,6 +726,12 @@ export interface Tasks {
   descriptions(ref: string): DescriptionVersion[]
   archive(ref: string, options?: ArchiveTaskRequest): Task
   requestArchive(ref: string, caller: Caller, request: RequestArchiveRequest): Promise<Comment>
+  requestMove(ref: string, caller: Caller, request: RequestMoveRequest): Promise<Comment>
+  coordinatorAskMove(
+    ref: string,
+    request: RequestMoveRequest & { chatId: string },
+  ): Promise<{ comment: Comment; factory: string }>
+  otherFactories(caller: Caller): Promise<OtherFactory[]>
   allowLinearSync(ref: string): Task
   allowAsanaSync(ref: string): Promise<Task>
   asanaStatusSeen(status: AsanaStatus): void
@@ -724,6 +750,13 @@ export interface Tasks {
   setParent(ref: string, input: SetTaskParentRequest): Task
   unarchive(ref: string, input?: UnarchiveTaskRequest): Promise<Task>
   reset(ref: string): Promise<Task>
+  movePlan(ref: string, factoryId: string, requestId?: string): Promise<TaskMovePlan>
+  moveToFactory(
+    ref: string,
+    factoryId: string,
+    by: 'human' | 'coordinator',
+    planKey?: string,
+  ): Promise<TaskMoved>
   delete(ref: string, options: DeleteTaskRequest): Promise<void>
   removeFactoryTasks(factoryId: string, options: { closePullRequests: boolean }): Promise<void>
   removeFactorySeed(factoryId: string): Promise<void>
@@ -912,6 +945,7 @@ export function createTasks(options: {
   emulators?: Omit<EmulatorOptions, 'dir' | 'banners'> & { dir?: string }
   saveAttachment?: (file: string, name: string, mediaType: string) => Promise<Attachment>
   planning?: () => TaskPlanning | undefined
+  chats?: () => { tellChat(chatId: string, text: string): Promise<void> } | undefined
   setPullRequestCi?: (
     factoryId: string,
     repo: string,
@@ -1805,6 +1839,7 @@ export function createTasks(options: {
         const task = taskNow(id)
         if (!task || task.stopped || task.archived || task.waitsForBlockers) return []
         if (
+          stoppingByHand.has(id) ||
           inFlight.busy(id, ['held', 'transition', 'hierarchy', 'deleting']) ||
           leadLifecycle.applying(id) ||
           unfinishedChildren(id)
@@ -2160,7 +2195,8 @@ export function createTasks(options: {
           again = true
           return
         }
-        if (await queueStart(task.id, version)) {
+        const cause = current.snoozedUntil ? 'snooze' : 'factory-setting'
+        if (await queueStart(task.id, { version, cause: { cause } })) {
           begin(task.id)
           again = true
           return
@@ -2180,7 +2216,7 @@ export function createTasks(options: {
     const paused = store.agentPauses()
     return entries.filter((entry) => {
       const task = taskNow(entry.id)
-      if (inFlight.inHierarchyWork(entry.id)) return false
+      if (inFlight.inHierarchyWork(entry.id) || stoppingByHand.has(entry.id)) return false
       if (task && unfinishedChildren(task.id)) return false
       const agent = task?.lead?.agent
       return agent === undefined || (!agentStartHold(store, agent) && paused[agent] === undefined)
@@ -4517,12 +4553,7 @@ export function createTasks(options: {
     return publicTask(task.id)
   }
 
-  async function agentChangeNote(
-    task: StoredTask,
-    run: Run,
-    agent: AgentKind,
-    unread: readonly RunMessage[],
-  ): Promise<string> {
+  async function carriedConversation(task: StoredTask, run: Run, to: string): Promise<string[]> {
     const items = chatItems({
       run,
       prompt: store.runPrompt(run.id),
@@ -4532,7 +4563,6 @@ export function createTasks(options: {
       preamble: await preambleText().catch(() => ''),
     })
     const { text, cut, leftOut } = conversationText(items)
-    const name = agentShortNames[agent]
     if (cut) {
       const middle =
         leftOut > 0
@@ -4540,16 +4570,27 @@ export function createTasks(options: {
           : ''
       tedNote(
         task.id,
-        `Part of the conversation was left out. It was too long to pass to ${name} whole, so the new Task Lead got the Task brief, the start of the conversation and the newest part${middle}.`,
+        `Part of the conversation was left out. It was too long to pass to ${to} whole, so the new Task Lead got the Task brief, the start of the conversation and the newest part${middle}.`,
       )
       await store.persisted()
     }
+    return text === '' ? [] : [`## The conversation so far\n\n${text}`]
+  }
+
+  async function agentChangeNote(
+    task: StoredTask,
+    run: Run,
+    agent: AgentKind,
+    unread: readonly RunMessage[],
+  ): Promise<string> {
+    const name = agentShortNames[agent]
+    const conversation = await carriedConversation(task, run, name)
     return [
       fromTheBrief(task, {
         heading: 'Picking up after an agent change',
         why: `The human switched this Task’s Task Lead from ${agentShortNames[run.agent]} to ${name}.`,
       }),
-      ...(text !== '' ? [`## The conversation so far\n\n${text}`] : []),
+      ...conversation,
       ...(unread.length > 0
         ? [
             `## Messages the old Task Lead hadn’t read\n\n${unread
@@ -5512,8 +5553,9 @@ export function createTasks(options: {
     tellHierarchyChanged([...existingParents, ...plan.links.map((link) => link.taskId)])
     const startAll = resolution !== undefined && !held && input.start === true
     if (startAll) {
+      const cause: StartCause | undefined = automation && { cause: 'automation' }
       for (const task of created) {
-        await start(task.id).catch((error: unknown) => {
+        await start(task.id, {}, cause).catch((error: unknown) => {
           console.error(redactSecrets(`couldn’t start ${task.displayId}: ${String(error)}`))
         })
       }
@@ -5835,7 +5877,10 @@ export function createTasks(options: {
       store.failures.list(task.id).some((f) => f.resolutions.at(-1)?.resolution === 'repair')
     const note = repairBrief
       ? freshRunNote(current)
-      : (pickUp ?? (resumeSession === undefined ? pendingPickUp(current) : undefined))
+      : (pickUp ??
+        (resumeSession === undefined
+          ? ((await movedPickUp(current)) ?? pendingPickUp(current))
+          : undefined))
     const followUp = resumeSession === undefined ? followUpNote(current) : undefined
     const waiting = waitingForRun(task.id)
     const since = sinceLastRun(task.id, waiting, resumeSession === undefined && note === undefined)
@@ -6361,6 +6406,18 @@ export function createTasks(options: {
           }
           archivePlan(task.id, chosen.hierarchyRevision, chosen.children === 'detach')
           return () => archiveHierarchy(task.id, chosen)
+        },
+        movePlanKey: async (taskId, factoryId, requestId) => {
+          const { plan } = await planMove(taskId, factoryId, requestId)
+          return {
+            key: movePlanKey(plan),
+            ...(plan.refusal !== undefined && { refusal: plan.refusal }),
+          }
+        },
+        moveTask: (taskId, factoryId, planKey) =>
+          moveToFactory(taskId, factoryId, 'human', planKey),
+        tellChat: async (chatId, text) => {
+          await options.chats?.()?.tellChat(chatId, text)
         },
         wake,
         sendNudge,
@@ -6918,6 +6975,7 @@ export function createTasks(options: {
   function stopPreparedLead(task: Task): void {
     if (stoppingByHand.has(task.id)) return
     stoppingByHand.add(task.id)
+    store.setTaskStopping(task.id, true)
     if (store.heldRuns().some((h) => h.taskId === task.id)) store.releaseTaskRun(task.id)
     subAgents.dropFor(task.id)
     inBackground(`stop ${task.displayId} before Work`, async () => {
@@ -6925,6 +6983,7 @@ export function createTasks(options: {
         await store.persisted()
         await Promise.all(find(task.id).runs.map((run) => runs.stop(run.id)))
       } finally {
+        store.setTaskStopping(task.id, false)
         stoppingByHand.delete(task.id)
         void pump()
       }
@@ -8143,6 +8202,97 @@ export function createTasks(options: {
     })
   }
 
+  function factoryNamed(name: string): StoredFactory {
+    const factory =
+      store.getFactory(name) ??
+      store.listFactories().find((f) => f.key.toUpperCase() === name.toUpperCase())
+    if (!factory)
+      throw new RequestError(
+        404,
+        `No Factory with the key ${name}. Run \`ted factories\` to see them.`,
+      )
+    return factory
+  }
+
+  async function postMoveRequest(
+    task: StoredTask,
+    factoryName: string,
+    reason: string,
+    asker: { kind: 'task-lead'; runId: string } | { kind: 'coordinator'; chatId: string },
+  ): Promise<{ comment: Comment; factory: string }> {
+    const factory = factoryNamed(factoryName)
+    return holding(task, async () => {
+      const now = find(task.id)
+      if (openRequests(now.id).some((c) => c.move))
+        throw new RequestError(409, `${now.displayId} already has an open move request`)
+      const { plan } = await planMove(now.id, factory.id)
+      if (plan.refusal !== undefined) throw new RequestError(409, plan.refusal)
+      const move: MoveAsk = {
+        factoryId: factory.id,
+        reason: redactSecrets(reason),
+        askedBy: asker.kind,
+        ...(asker.kind === 'coordinator' && { chatId: asker.chatId }),
+      }
+      const comment = store.postComment({
+        taskId: now.id,
+        kind: 'question',
+        author: asker.kind === 'task-lead' ? { kind: 'run', runId: asker.runId } : { kind: 'ted' },
+        title: `Move ${now.displayId} to ${factory.name}?`,
+        body: move.reason,
+        choices: [moveChoice, keepMoveChoice],
+        move,
+      })
+      await store.persisted()
+      return { comment, factory: factory.name }
+    })
+  }
+
+  async function requestMove(
+    ref: string,
+    caller: Caller,
+    request: RequestMoveRequest,
+  ): Promise<Comment> {
+    const { task, runId } = taskLead(ref, caller, 'asks to move its Task')
+    const { comment } = await postMoveRequest(task, request.factory, request.reason, {
+      kind: 'task-lead',
+      runId,
+    })
+    return comment
+  }
+
+  function coordinatorAskMove(
+    ref: string,
+    request: RequestMoveRequest & { chatId: string },
+  ): Promise<{ comment: Comment; factory: string }> {
+    return postMoveRequest(find(ref), request.factory, request.reason, {
+      kind: 'coordinator',
+      chatId: request.chatId,
+    })
+  }
+
+  async function otherFactories(caller: Caller): Promise<OtherFactory[]> {
+    const taskId = caller.kind === 'run' ? store.getRun(caller.runId)?.taskId : undefined
+    if (taskId === undefined) throw new RequestError(403, 'only a Task Lead lists other Factories')
+    const { task } = taskLead(taskId, caller, 'lists other Factories')
+    const others = store.listFactories().filter((f) => f.id !== task.factoryId)
+    return Promise.all(
+      others.map(async (factory): Promise<OtherFactory> => {
+        const resolution = await resolveWorkflow(factory, { fetch: false }).catch(() => undefined)
+        const section = reposSection(resolution?.workflow.notes)
+        const names = resolution
+          ? factoryRepos(resolution.workflow, factory).map((entry) => entry.name)
+          : []
+        const repos = section ?? (names.length > 0 ? names.join(', ') : undefined)
+        return {
+          id: factory.id,
+          key: factory.key,
+          name: factory.name,
+          ...(repos !== undefined && { repos }),
+        }
+      }),
+    )
+  }
+
   function underToArchive(taskId: string): string[] {
     return descendants(taskId).filter((id) => !find(id).archived)
   }
@@ -8410,10 +8560,26 @@ export function createTasks(options: {
   }
 
   function settleDependents(taskId: string, action = 'archived'): void {
-    for (const dependent of store.blockedBy(taskId)) {
+    const dependents = store.blockedBy(taskId)
+    for (const dependent of dependents) {
       const reason = `was ${action} without merging. ${reopened} Its blocker was removed. Use Resume when ready to reassess the failure.`
       removeBlockers(dependent, { kind: 'app' }, taskId, reason)
     }
+    if (action === 'archived') store.recordArchiveUnblocks(taskId, dependents)
+  }
+
+  function restoreBlock(taskId: string, id: string, restoring: ReadonlySet<string>): boolean {
+    const dependent = store.getTask(id)
+    if (!dependent || dependent.stage === 'done') return false
+    if (dependent.archived && !restoring.has(id)) return false
+    if (inFlight.is(id, 'deleting')) return false
+    if (store.blockers(id).some((link) => link.blockerId === taskId)) return false
+    if (cycleFrom(taskId, id)) return false
+    const holds = !store.isMerged(taskId) && store.queue().some((q) => q.id === id)
+    const midFlow = dependent.repos.some((r) => !r.removed)
+    const then = !holds ? undefined : midFlow ? 'wait' : 'backlog'
+    store.addBlocker(id, taskId, then === undefined ? {} : { then })
+    return true
   }
 
   function leftBehind(displayId: string): boolean {
@@ -8499,20 +8665,44 @@ export function createTasks(options: {
     return family
   }
 
-  async function restoreArchived(id: string): Promise<void> {
+  async function restoreArchived(id: string, restoring: ReadonlySet<string>): Promise<void> {
     await clearingAway.get(id)?.catch(() => undefined)
     await pullRequestQueue.get(id)
+    await Promise.all(
+      store
+        .archiveUnblocked(id)
+        .map((dependent) => beginning.get(dependent)?.catch(() => undefined)),
+    )
     const current = find(id)
     if (!current.archived || inFlight.is(id, 'deleting')) {
       throw new RequestError(409, `${current.displayId} isn’t archived`)
     }
+    const reblocked = store
+      .archiveUnblocked(id)
+      .flatMap((dependent) => store.getTask(dependent) ?? [])
+      .sort((a, b) => a.number - b.number)
+      .filter((dependent) => restoreBlock(id, dependent.id, restoring))
+      .map((dependent) => dependent.id)
     const midFlow = current.stage !== 'backlog' && current.stage !== 'done'
     store.unarchiveTask(id, {
       queue: midFlow,
       waitForBlockers: midFlow && unmergedBlockers(id).length > 0,
+      reblocked,
     })
     if (midFlow && current.repos.some((r) => r.pullRequest?.state === 'closed')) {
       pullRequestWork(id, 'reopen')
+    }
+    for (const dependentId of reblocked) {
+      const run = liveLead(find(dependentId))
+      if (!run || store.isMerged(id)) continue
+      try {
+        await tellLead(find(id), run)
+      } catch (error) {
+        console.error(
+          `couldn’t tell ${dependentId} about its restored blocker:`,
+          redactSecrets(textOf(error)),
+        )
+      }
     }
   }
 
@@ -8537,8 +8727,9 @@ export function createTasks(options: {
         if (!find(task.id).archived) throw new RequestError(409, `${task.displayId} isn’t archived`)
         store.setTaskParent(task.id, null)
       }
-      await restoreArchived(task.id)
-      for (const id of family) await restoreArchived(id)
+      const restoring = new Set([task.id, ...family])
+      await restoreArchived(task.id, restoring)
+      for (const id of family) await restoreArchived(id, restoring)
       for (const id of [...family].reverse()) holdParent(id)
       if (family.length > 0) holdParent(task.id)
       if (parent && !input.unlinkParent) holdParent(parent.id)
@@ -8671,7 +8862,7 @@ export function createTasks(options: {
         browserApps.delete(id)
         await clearing(id)
         const last = find(id)
-        await removeBranches(last)
+        await removeBranches(last, 'reset')
         await lifecycle.cleanFolders(await execution.local(id))
         const runIds = store.taskRunList(id).map((r) => r.id)
         const files = [...store.taskFiles(id), ...store.messageDraftFiles(id)]
@@ -8688,19 +8879,335 @@ export function createTasks(options: {
       }
     })
     if (task.setup) reportSetup(task.factoryId)
-    if (await queueStart(id, undefined, false, true)) {
+    if (await queueStart(id, { keepRank: true })) {
       await pump()
       await beginning.get(id)
     }
     return publicTask(id)
   }
 
-  async function removeBranches(task: StoredTask): Promise<void> {
+  interface MovePlanned {
+    plan: TaskMovePlan
+    root: StoredTask
+    members: StoredTask[]
+    unlink: { taskId: string; blockerId: string }[]
+  }
+
+  function moveRef(task: Pick<Task, 'id' | 'displayId' | 'title'>): TaskMoveRef {
+    return { id: task.id, displayId: task.displayId, title: task.title }
+  }
+
+  function trackerName(task: Task): string | undefined {
+    if (!task.source) return undefined
+    if (task.source.asana) return 'Asana'
+    if (task.source.github) return 'GitHub'
+    return parseLinearUrl(task.source.url) ? 'Linear' : undefined
+  }
+
+  function openPullRequestsOf(task: StoredTask): TaskMovePullRequest[] {
+    return task.repos.flatMap((r) =>
+      r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged'
+        ? [{ repo: r.repo, number: r.pullRequest.number }]
+        : [],
+    )
+  }
+
+  async function planMove(
+    ref: string,
+    factoryId: string,
+    answering?: string,
+  ): Promise<MovePlanned> {
+    const root = find(ref)
+    const target = store.getFactory(factoryId)
+    if (!target) throw new RequestError(404, `no Factory ${factoryId}`)
+    const members: StoredTask[] = []
+    const visit = (task: StoredTask) => {
+      members.push(task)
+      for (const child of store.childrenOf(task.id)) visit(find(child))
+    }
+    visit(root)
+    const inMove = new Set(members.map((m) => m.id))
+    const refusal = (): string | undefined => {
+      if (root.factoryId === target.id) return `${root.displayId} is already in ${target.name}`
+      for (const member of members) {
+        const refused = moveRefusal(publicTask(member.id))
+        if (refused === undefined) continue
+        return member.id === root.id
+          ? `${root.displayId} ${moveRefusals[refused]}, so it can’t move`
+          : `${member.displayId} is under ${root.displayId} and ${moveRefusals[refused]}, so it can’t move, and ${root.displayId} can’t move without it. Detach ${member.displayId} first, then try again.`
+      }
+      const everyTask = store.listTasks()
+      for (const member of members) {
+        if (!member.source) continue
+        const clash = sourceClash(everyTask, target.id, member.source.url)
+        if (clash) {
+          return `${target.name} already tracks ${member.displayId}’s source as ${clash.task.displayId}, so ${member.displayId} can’t move there`
+        }
+      }
+      return undefined
+    }
+    const refused = refusal()
+    const resolution = await resolveWorkflow(target)
+    const repos = factoryRepos(resolution.workflow, target).map((entry) => entry.name)
+    const lands = resolution.workflow.next('backlog') ?? 'backlog'
+    const first = store.nextTaskNumber(target.id)
+    const unlink: MovePlanned['unlink'] = []
+    const tasks = members.map((member, index): TaskMovePlanTask => {
+      const blockers = store
+        .blockers(member.id)
+        .filter((b) => b.kind === undefined && !inMove.has(b.blockerId))
+      const blocked = store.blockedBy(member.id).filter((id) => !inMove.has(id))
+      unlink.push(
+        ...blockers.map((b) => ({ taskId: member.id, blockerId: b.blockerId })),
+        ...blocked.map((id) => ({ taskId: id, blockerId: member.id })),
+      )
+      const started = member.stage !== 'backlog'
+      const tracker = trackerName(member)
+      return {
+        ...moveRef(member),
+        newDisplayId: `${target.key}-${first + index}`,
+        stage: member.stage,
+        lands: started ? lands : 'backlog',
+        startsLead: started,
+        worktrees: member.repos.filter((r) => !r.removed).length,
+        branches: [...new Set(member.repos.map((r) => r.branch))],
+        pullRequests: openPullRequestsOf(member),
+        openRequests: store
+          .listComments(member.id)
+          .filter((c) => c.kind !== 'note' && c.answer === undefined && c.id !== answering).length,
+        unlinked: [
+          ...blockers.map((b) => ({ ...moveRef(find(b.blockerId)), blocks: true })),
+          ...blocked.map((id) => ({ ...moveRef(find(id)), blocks: false })),
+        ],
+        ...(tracker !== undefined && { trackerSync: tracker }),
+      }
+    })
+    const parent = root.parentId === undefined ? undefined : store.getTask(root.parentId)
+    return {
+      root,
+      members,
+      unlink,
+      plan: {
+        factoryId: target.id,
+        factoryName: target.name,
+        repos,
+        tasks,
+        ...(parent && { leavesParent: moveRef(parent) }),
+        ...(refused !== undefined && { refusal: refused }),
+      },
+    }
+  }
+
+  async function movePlan(
+    ref: string,
+    factoryId: string,
+    requestId?: string,
+  ): Promise<TaskMovePlan> {
+    return (await planMove(ref, factoryId, requestId)).plan
+  }
+
+  function refuseBusyMove(task: StoredTask): void {
+    if (inFlight.is(task.id, 'checking')) {
+      throw new RequestError(
+        409,
+        `${task.displayId}’s Checks are running; try again when they finish`,
+      )
+    }
+    if (inFlight.inHierarchyWork(task.id)) {
+      throw new RequestError(409, `${task.displayId} is being deleted, reset or moved`)
+    }
+  }
+
+  function holdingAll<T>(list: readonly StoredTask[], work: () => Promise<T>): Promise<T> {
+    const [first, ...rest] = list
+    return first ? holding(first, () => holdingAll(rest, work)) : work()
+  }
+
+  function sameMembers(a: readonly StoredTask[], b: readonly StoredTask[]): boolean {
+    const ids = new Set(a.map((t) => t.id))
+    return a.length === b.length && b.every((t) => ids.has(t.id))
+  }
+
+  async function discardForMove(task: StoredTask): Promise<void> {
+    const id = task.id
+    if (task.stage === 'backlog' && task.runs.length === 0 && task.repos.length === 0) return
+    const done = inFlight.mark(id, 'deleting')
+    try {
+      const current = find(id)
+      if (!current.stopped) store.stopTask(id, { runs: current.runs.length, why: 'human' })
+      dropWaitingMove(id)
+      await mergeWatcher.settled(id)
+      await pullRequestQueue.get(id)
+      if (moveRefusal(publicTask(id)) === 'merged') {
+        throw new RequestError(409, `${task.displayId} has a merged pull request`)
+      }
+      if (openPullRequestsOf(find(id)).length > 0) {
+        pullRequestWork(id, 'close')
+        await pullRequestQueue.get(id)
+      }
+      const left = openPullRequestsOf(find(id))
+      if (left.length > 0 || moveRefusal(publicTask(id)) === 'merged') {
+        throw new RequestError(
+          409,
+          `Ted couldn’t close ${left.map((r) => `${r.repo}#${r.number}`).join(', ') || 'a merged pull request'}, so ${task.displayId} wasn’t moved. It is stopped and nothing was discarded.`,
+        )
+      }
+      options.planning?.()?.taskGone(id, 'moved')
+      browser.cancel(id)
+      browserApps.delete(id)
+      await clearing(id)
+      const last = find(id)
+      await removeBranches(last, 'moved')
+      await lifecycle.cleanFolders(await execution.local(id))
+      failures.forget(id)
+      autoStartFailures.delete(id)
+      continuationFailures.delete(id)
+      for (const key of runUploads) if (key.startsWith(`${id}:`)) runUploads.delete(key)
+      for (const repo of last.repos) baseTips.delete(baseTipKey(id, repo.name))
+    } finally {
+      done()
+    }
+  }
+
+  async function moveToFactory(
+    ref: string,
+    factoryId: string,
+    by: 'human' | 'coordinator',
+    planKey?: string,
+  ): Promise<TaskMoved> {
+    const first = await planMove(ref, factoryId)
+    if (first.plan.refusal !== undefined) throw new RequestError(409, first.plan.refusal)
+    for (const member of first.members) refuseBusyMove(member)
+    for (const member of first.members) await untilFree(member.id)
+    const moved = await holdingAll(
+      first.members.map((m) => find(m.id)),
+      async () => {
+        const parentId = first.root.parentId
+        const affected = [
+          ...first.members.map((m) => m.id),
+          ...(parentId === undefined ? [] : [parentId]),
+        ]
+        requireHierarchyIdle(affected)
+        const hierarchyDone = inFlight.mark(affected, 'hierarchy')
+        try {
+          return await moveHeld(first, factoryId, by, planKey)
+        } finally {
+          hierarchyDone()
+        }
+      },
+    )
+    for (const member of moved.members) {
+      if (member.stage === 'backlog') continue
+      await queueStart(member.id, { keepRank: true })
+    }
+    await pump()
+    wake()
+    return { task: publicTask(first.root.id), moved: moved.moved }
+  }
+
+  async function moveHeld(
+    first: MovePlanned,
+    factoryId: string,
+    by: 'human' | 'coordinator',
+    planKey: string | undefined,
+  ): Promise<{ members: StoredTask[]; moved: TaskMoved['moved'] }> {
+    const changed = (planned: MovePlanned) =>
+      !sameMembers(planned.members, first.members) ||
+      (planKey !== undefined && movePlanKey(planned.plan) !== planKey)
+    const ready = await planMove(first.root.id, factoryId)
+    if (ready.plan.refusal !== undefined) throw new RequestError(409, ready.plan.refusal)
+    if (changed(ready)) {
+      throw new RequestError(
+        409,
+        `${first.root.displayId} or a Task under it changed since the move was shown, so nothing was moved. Look at the move again.`,
+      )
+    }
+    for (const member of ready.members) {
+      if (inFlight.is(member.id, 'checking')) {
+        throw new RequestError(
+          409,
+          `${member.displayId}’s Checks are running; try again when they finish`,
+        )
+      }
+    }
+    for (const member of ready.members) await discardForMove(member)
+    const { plan, root, members, unlink } = await planMove(first.root.id, factoryId)
+    if (plan.refusal !== undefined) throw new RequestError(409, plan.refusal)
+    if (!sameMembers(members, first.members)) {
+      throw new RequestError(
+        409,
+        `The Tasks under ${root.displayId} changed during the move, so it stopped. They are stopped in their Factory; try the move again.`,
+      )
+    }
+    const name = plan.factoryName
+    const to = new Map(plan.tasks.map((t) => [t.id, t.newDisplayId]))
+    const notes: MoveTaskInput['notes'] = []
+    for (const planned of plan.tasks) {
+      if (planned.unlinked.length > 0) {
+        notes.push({
+          taskId: planned.id,
+          body: `Moving to ${name} removed the blocker links with ${joinIds(planned.unlinked.map((t) => t.displayId))}.`,
+        })
+      }
+    }
+    for (const { taskId, blockerId } of unlink) {
+      const moved = to.has(taskId) ? taskId : blockerId
+      const other = moved === taskId ? blockerId : taskId
+      const from = plan.tasks.find((t) => t.id === moved)
+      if (!from) continue
+      notes.push({
+        taskId: other,
+        body:
+          moved === blockerId
+            ? `${from.displayId} moved to ${name} as ${from.newDisplayId}, so it no longer blocks this Task.`
+            : `${from.displayId} moved to ${name} as ${from.newDisplayId}, so this Task no longer blocks it.`,
+      })
+    }
+    if (plan.leavesParent) {
+      notes.push(
+        {
+          taskId: root.id,
+          body: `Moving to ${name} took this Task out from under ${plan.leavesParent.displayId}.`,
+        },
+        {
+          taskId: plan.leavesParent.id,
+          body: `${root.displayId} moved to ${name} as ${to.get(root.id)}, so it is no longer under this Task and this Task doesn’t wait for it.`,
+        },
+      )
+    }
+    const withdrawn = members.flatMap((m) =>
+      openRequests(m.id).flatMap((c) =>
+        c.move?.askedBy === 'coordinator' && c.move.chatId !== undefined
+          ? [{ chatId: c.move.chatId, displayId: m.displayId }]
+          : [],
+      ),
+    )
+    const moved = store.moveTask({
+      moves: members.map((m) => ({ taskId: m.id, factoryId, started: m.stage !== 'backlog' })),
+      unlink,
+      ...(plan.leavesParent && { leaveParent: root.id }),
+      notes,
+      by,
+    })
+    await store.persisted()
+    for (const ask of withdrawn) {
+      const to = moved.find((m) => m.from === ask.displayId)?.to ?? ask.displayId
+      await options
+        .chats?.()
+        ?.tellChat(
+          ask.chatId,
+          `Your request to move ${ask.displayId} was withdrawn: the user moved it to ${name} as ${to} before answering it.`,
+        )
+    }
+    return { members, moved }
+  }
+
+  async function removeBranches(task: StoredTask, verb: 'reset' | 'moved'): Promise<void> {
     const gh = options.gh
     const refuse = (where: string, branch: string, error: unknown) =>
       new RequestError(
         409,
-        `Ted couldn’t delete the branch ${branch} ${where}, so ${task.displayId} wasn’t reset: ${redactSecrets(error instanceof Error ? error.message : String(error))}. It is stopped and its thread is kept.`,
+        `Ted couldn’t delete the branch ${branch} ${where}, so ${task.displayId} wasn’t ${verb}: ${redactSecrets(error instanceof Error ? error.message : String(error))}. It is stopped and its thread is kept.`,
       )
     for (const repo of task.repos) {
       if (gh && (repo.pushed || repo.pullRequest)) {
@@ -8893,27 +9400,32 @@ export function createTasks(options: {
   async function start(
     ref: string,
     request: import('@ted/protocol').StartTaskRequest = {},
+    cause?: StartCause,
   ): Promise<Task> {
     const task = live(ref)
     autoStartFailures.delete(task.id)
-    if (!(await queueStart(task.id, undefined, request.prepare))) return publicTask(task.id)
+    if (!(await queueStart(task.id, { prepare: request.prepare === true, cause })))
+      return publicTask(task.id)
     await pump()
     await beginning.get(task.id)
     return publicTask(task.id)
   }
 
-  async function queueAndAnswer(ref: string): Promise<Task> {
+  async function queueAndAnswer(ref: string, cause?: StartCause): Promise<Task> {
     const task = live(ref)
     autoStartFailures.delete(task.id)
-    if (await queueStart(task.id)) void pump()
+    if (await queueStart(task.id, { cause })) void pump()
     return publicTask(task.id)
   }
 
   async function queueStart(
     ref: string,
-    version?: number,
-    prepare = false,
-    keepRank = false,
+    {
+      version,
+      prepare = false,
+      keepRank = false,
+      cause,
+    }: { version?: number; prepare?: boolean; keepRank?: boolean; cause?: StartCause | undefined },
   ): Promise<boolean> {
     const automatic = version !== undefined
     const task = live(ref)
@@ -8984,9 +9496,10 @@ export function createTasks(options: {
           : stage
         store.startAfterPlanning(task.id, again, entryFor(resolution, again as AgentStageId), {
           prepare,
+          cause,
         })
       } else {
-        store.queueTask(task.id, stage, { prepare, keepRank })
+        store.queueTask(task.id, stage, { prepare, keepRank, cause })
       }
     } finally {
       startingDone()
@@ -9097,6 +9610,34 @@ export function createTasks(options: {
     }
   }
 
+  async function movedPickUp(task: StoredTask): Promise<string | undefined> {
+    const request = store.freshRunRequest(task.id)
+    if (request?.kind !== 'moved' || !request.pending) return undefined
+    const run = store.taskRunList(task.id).find((r) => r.parentRunId === undefined)
+    const conversation = run ? await carriedConversation(task, run, 'the new Task Lead') : []
+    return [fromTheBrief(task, movedReason(task, request.from)), ...conversation].join('\n\n')
+  }
+
+  function movedReason(task: StoredTask, from: string) {
+    const asked = store
+      .listComments(task.id)
+      .findLast(
+        (c) =>
+          c.move &&
+          c.title?.startsWith(`Move ${from} to `) &&
+          c.answer?.kind === 'answered' &&
+          c.answer.choice === moveChoice,
+      )
+    const who = asked?.move?.askedBy === 'coordinator' ? 'A Coordinator' : 'The previous Task Lead'
+    const approved = asked?.move
+      ? ` ${who} asked for the move and the user approved it. The reason given: “${asked.move.reason}”`
+      : ''
+    return {
+      heading: 'Picking up after a move to another Factory',
+      why: `This Task moved from ${from} to ${task.displayId}, in the ${factoryOf(task).name} Factory.${approved} Ted removed the old worktree, branch and pull requests, so the work starts again from this Factory’s repos. Anything the brief or the conversation says about files, commits or pull requests refers to the old Factory.`,
+    }
+  }
+
   function pendingPickUp(task: StoredTask): string | undefined {
     return store.freshRunRequest(task.id)?.pending ? freshRunNote(task) : undefined
   }
@@ -9111,6 +9652,7 @@ export function createTasks(options: {
     if (last?.kind === 'retried' || last?.kind === 'failure') {
       return fromTheBrief(task, freshAfterFailure(last))
     }
+    if (last?.kind === 'moved') return fromTheBrief(task, movedReason(task, last.from))
     if (last?.kind === 'unarchived') {
       return fromTheBrief(task, {
         heading: 'Picking up after unarchiving',
@@ -9344,7 +9886,7 @@ export function createTasks(options: {
     if (!checkAgentCaller(caller, 'start Tasks').check.startTasks) {
       throw new RequestError(403, 'The human turned off “Start the Tasks it creates”.')
     }
-    await queueAndAnswer(task.id)
+    await queueAndAnswer(task.id, { cause: 'automation' })
     store.automations.taskStarted({
       taskId: task.id,
       automationId: automation.link.automationId,
@@ -9504,7 +10046,7 @@ export function createTasks(options: {
     if (input.automation && runsInBypass(resolution)) {
       return holdInBacklog(task.id, input.automation.name)
     }
-    return start(task.id)
+    return start(task.id, {}, input.automation && { cause: 'automation' })
   }
 
   function followUpNote(task: StoredTask): string | undefined {
@@ -9635,8 +10177,12 @@ export function createTasks(options: {
       return
     }
     if (task.stage === 'backlog' && task.startRequested && !task.snoozedUntil) {
+      const blockers = store
+        .blockers(id)
+        .filter((b) => b.merged)
+        .map((b) => b.displayId)
       inBackground(`start ${task.displayId}`, async () => {
-        await start(id)
+        await start(id, {}, { cause: 'blockers-merged', blockers })
       })
     } else if (task.waitsForBlockers && !liveLead(task)) {
       store.requeueAfterBlockers(id)
@@ -9711,12 +10257,16 @@ export function createTasks(options: {
     if (!started) {
       throw new RequestError(409, `${task.displayId} hasn’t started, so there’s nothing to stop`)
     }
-    if ((task.stopped && task.preparation !== 'ready') || stoppingByHand.has(task.id)) {
+    if (stoppingByHand.has(task.id)) {
+      throw new RequestError(409, `${task.displayId} is still stopping; try again`)
+    }
+    if (task.stopped && task.preparation !== 'ready') {
       throw new RequestError(409, `${task.displayId} is already stopped`)
     }
     stoppingByHand.add(task.id)
     try {
       if (store.heldRuns().some((h) => h.taskId === task.id)) store.releaseTaskRun(task.id)
+      store.setTaskStopping(task.id, true)
       store.stopTask(task.id, { runs: task.runs.length, why: 'human' })
       dropWaitingMove(task.id)
       checkWaits.get(task.id)?.abort()
@@ -9728,6 +10278,7 @@ export function createTasks(options: {
       await Promise.all(find(task.id).runs.map((run) => runs.stop(run.id)))
       closeIdleQuestion(task.id, 'The Task was stopped.')
     } finally {
+      store.setTaskStopping(task.id, false)
       stoppingByHand.delete(task.id)
     }
     void pump()
@@ -9799,9 +10350,7 @@ export function createTasks(options: {
     if (!task.stopped && task.status?.kind !== 'failed' && !interrupted(task)) {
       throw new RequestError(409, `${task.displayId} isn’t stopped`)
     }
-    if (stoppingByHand.has(task.id)) {
-      throw new RequestError(409, `${task.displayId} is still stopping; try again`)
-    }
+    if (stoppingByHand.has(task.id)) await beginning.get(task.id)?.catch(() => undefined)
     const text = comment?.trim() ?? ''
     if (text !== '' || attachments.length > 0) {
       store.postComment({
@@ -11297,7 +11846,7 @@ export function createTasks(options: {
       startNow === true
     ) {
       for (const id of descendants(task.id)) {
-        await queueAndAnswer(id).catch((error: unknown) => {
+        await queueAndAnswer(id, automation && { cause: 'automation' }).catch((error: unknown) => {
           console.error(redactSecrets(`couldn’t start ${find(id).displayId}: ${String(error)}`))
         })
       }
@@ -11305,7 +11854,8 @@ export function createTasks(options: {
     if (!resolution || unmergedBlockers(task.id).length > 0 || automation?.check || githubIntake)
       return task
     if (startNow !== true) return task
-    return startInBackground === true ? queueAndAnswer(task.id) : start(task.id)
+    const cause: StartCause | undefined = automation && { cause: 'automation' }
+    return startInBackground === true ? queueAndAnswer(task.id, cause) : start(task.id, {}, cause)
   }
 
   return {
@@ -11700,10 +12250,15 @@ export function createTasks(options: {
     setParent,
     archive: archiveHierarchy,
     requestArchive,
+    requestMove,
+    coordinatorAskMove,
+    otherFactories,
 
     unarchive,
     delete: remove,
     reset,
+    movePlan,
+    moveToFactory,
     removeFactoryTasks,
     removeFactorySeed: (factoryId) => seeds.remove(factoryId),
 
@@ -11908,6 +12463,7 @@ export function createTasks(options: {
       }
       if (old.gate) throw new RequestError(409, 'a sign-off request can’t be superseded')
       if (old.archive) throw new RequestError(409, 'an archive request can’t be superseded')
+      if (old.move) throw new RequestError(409, 'a move request can’t be superseded')
       if (!postedBy(old, task, runId)) {
         throw new RequestError(403, 'a Run can supersede only its own requests')
       }
@@ -11948,6 +12504,7 @@ export function createTasks(options: {
         comment.taskId !== task.id ||
         comment.kind !== 'question' ||
         comment.archive !== undefined ||
+        comment.move !== undefined ||
         !ordinaryAutopilotRequest(comment) ||
         request.action !== 'answer'
       )
@@ -12065,6 +12622,7 @@ export function createTasks(options: {
         waitingFor: unmergedBlockers(task.id).map((b) => b.displayId),
         descriptions: store.descriptionVersions(task.id),
         planTitleOf: (planId) => store.plans.get(planId)?.title,
+        factoryNameOf: (id) => store.getFactory(id)?.name,
       })
     },
 

@@ -97,6 +97,7 @@ import type {
   CoordinatorRemovalResult,
   CoordinatorStatus,
   CoordinatorTaskQuery,
+  CoordinatorTransfer,
 } from './coordinator.ts'
 import { coordinatorTaskSearch } from './coordinator-parsers.ts'
 import type { CallerInfo, DaemonInfo } from './daemon-info.ts'
@@ -173,6 +174,7 @@ import type { IntegrationsHealth, RunFixRequest, RunFixResult } from './integrat
 import type {
   LinearIntakeChoices,
   LinearIntakeScope,
+  LinearIssueLink,
   LinearLookup,
   LinearStatus,
   SaveLinearKeyRequest,
@@ -276,6 +278,13 @@ import type {
 } from './task.ts'
 import type { TaskFileContent, TaskFiles } from './task-files.ts'
 import type { SetTaskGatesRequest, TaskGates } from './task-gates.ts'
+import type {
+  MoveToFactoryRequest,
+  OtherFactory,
+  RequestMoveRequest,
+  TaskMoved,
+  TaskMovePlan,
+} from './task-move.ts'
 import type {
   RegisterTestInvocation,
   TestInvocationRegistration,
@@ -541,6 +550,10 @@ export class DaemonClient {
     input: CoordinatorRemoval,
   ): Promise<CoordinatorRemovalResult> {
     return this.#request('POST', `/coordinator/${kind}`, input)
+  }
+
+  coordinatorTransfer(input: CoordinatorTransfer): Promise<CoordinatorRemovalResult> {
+    return this.#request('POST', '/coordinator/transfer', input)
   }
 
   answerCoordinatorConfirmation(
@@ -948,6 +961,26 @@ export class DaemonClient {
 
   resetTask(ref: string): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/reset`, {})
+  }
+
+  taskMovePlan(ref: string, factoryId: string, requestId?: string): Promise<TaskMovePlan> {
+    const request = requestId === undefined ? '' : `&request=${encodeURIComponent(requestId)}`
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/move-plan?factory=${encodeURIComponent(factoryId)}${request}`,
+    )
+  }
+
+  moveTaskToFactory(ref: string, request: MoveToFactoryRequest): Promise<TaskMoved> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/move-to-factory`, request)
+  }
+
+  requestMove(ref: string, request: RequestMoveRequest): Promise<Comment> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/move-request`, request)
+  }
+
+  otherFactories(): Promise<OtherFactory[]> {
+    return this.#request('GET', '/factories/others')
   }
 
   async deleteTask(ref: string, options: DeleteTaskRequest = {}): Promise<void> {
@@ -1671,6 +1704,13 @@ export class DaemonClient {
 
   lookupLinear(url: string): Promise<LinearLookup> {
     return this.#request('POST', '/integrations/linear/lookup', { url })
+  }
+
+  linearIssueLinks(identifiers: readonly string[]): Promise<LinearIssueLink[]> {
+    return this.#request(
+      'GET',
+      `/integrations/linear/issue-links?${new URLSearchParams({ ids: identifiers.join(',') })}`,
+    )
   }
 
   allowLinearTeam(factoryId: string, team: string): Promise<MachineSettings> {

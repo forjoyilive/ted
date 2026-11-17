@@ -1,6 +1,7 @@
 import type { RunSummary, Task } from '@ted/protocol'
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, clarifyIsOver, priorities, resetRefusal } from '@ted/protocol/task'
+import { type MoveRefusal, moveRefusal } from '@ted/protocol/task-move'
 import {
   type ReactNode,
   useContext,
@@ -11,7 +12,7 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { useSettings, useTasks } from '../data.ts'
+import { useFactories, useSettings, useTasks } from '../data.ts'
 import { newChildTask, pickChildEvent, pickParentEvent } from '../hierarchy.ts'
 import { keysFor } from '../keymap.ts'
 import { besideMenu } from '../menu-tooltip.ts'
@@ -33,6 +34,7 @@ import {
   deleteTaskEvent,
   FollowUpDialog,
   followUpTaskEvent,
+  MoveToFactoryDialog,
   needsUnarchiveDialog,
   ResetDialog,
   resetTaskEvent,
@@ -50,7 +52,7 @@ import styles from './TaskActions.module.css'
 
 export const pickBlockerEvent = 'ted:pick-blocker'
 
-function MoreIcon() {
+export function MoreIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
       <circle cx="3" cy="7" r="1.2" fill="currentColor" />
@@ -238,11 +240,56 @@ function HistoryItem({ history, close }: { history: TaskHistory; close: () => vo
   )
 }
 
+const moveRefusalHints: Record<MoveRefusal, string> = {
+  archived: 'Archived',
+  done: 'Done',
+  merged: 'A pull request has merged',
+  setup: 'Setup Task',
+}
+
+const moveRefusalTitles: Record<MoveRefusal, string> = {
+  archived: 'This Task is archived, so it can’t move to another Factory.',
+  done: 'This Task is Done, so it can’t move to another Factory.',
+  merged: 'A pull request has merged, so this Task can’t move to another Factory.',
+  setup: 'This is its Factory’s setup Task, so it can’t move to another Factory.',
+}
+
+function MoveItem({
+  refusal,
+  onChoose,
+}: {
+  refusal: MoveRefusal | undefined
+  onChoose: () => void
+}) {
+  const others = useFactories().length > 1
+  if (!others) return null
+  if (refusal !== undefined) {
+    return (
+      <button
+        type="button"
+        role="menuitem"
+        className={styles.item}
+        aria-disabled
+        title={moveRefusalTitles[refusal]}
+      >
+        <span className={styles.label}>Move to Factory…</span>
+        <span className={styles.hint}>{moveRefusalHints[refusal]}</span>
+      </button>
+    )
+  }
+  return (
+    <ActionButton type="button" role="menuitem" className={styles.item} onClick={onChoose}>
+      <span className={styles.label}>Move to Factory…</span>
+    </ActionButton>
+  )
+}
+
 export type TaskDialogKind =
   | 'archive'
   | 'delete'
   | 'edit'
   | 'follow-up'
+  | 'move'
   | 'reset'
   | 'snooze'
   | 'unarchive'
@@ -264,6 +311,7 @@ export function TaskDialog({
   if (kind === 'unarchive') return <UnarchiveDialog task={task} onClose={close} />
   if (kind === 'edit') return <EditTaskDialog task={task} onClose={close} />
   if (kind === 'reset') return <ResetDialog task={task} onClose={close} />
+  if (kind === 'move') return <MoveToFactoryDialog task={task} onClose={close} />
   if (kind === 'delete') {
     return <DeleteDialog task={task} onClose={close} onArchiveInstead={() => onKind('archive')} />
   }
@@ -391,6 +439,7 @@ export function TaskActionsMenu({
 
   const action = statusAction(task)
   const refusal = resetRefusal(task)
+  const moveItem = <MoveItem refusal={moveRefusal(task)} onChoose={() => choose('move')} />
   const linear = task.source?.linear
   const sync = trackerSyncOf(task)
   const settings = useSettings()
@@ -506,6 +555,7 @@ export function TaskActionsMenu({
             </ActionButton>
             {conversationItems && <hr className={styles.separator} />}
             {conversationItems}
+            {moveItem}
             {deleteItem}
           </ContextMenu>
         )}
@@ -803,6 +853,7 @@ export function TaskActionsMenu({
             </ActionButton>
           )}
           <hr className={styles.separator} />
+          {moveItem}
           {refusal === undefined && (
             <ActionButton
               type="button"
