@@ -297,7 +297,9 @@ export function createFailureCases(options: {
     const link = store
       .blockers(value.taskId)
       .find((l) => l.kind === undefined && l.blockerId === repair.id)
-    return !link || (!link.merged && link.ended !== undefined)
+    if (link) return !link.merged && link.ended !== undefined
+    const task = store.getTask(repair.id)
+    return !task || (task.merged === undefined && task.stage !== 'done')
   }
   function liveRepair(value: FailureCase): boolean {
     const decision = value.resolutions.at(-1)

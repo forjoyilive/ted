@@ -670,3 +670,15 @@ test('asking about a Validate Check failure TED can’t tie to the current code 
   await s.resolve(asked, 'fixed', 'The Check was rewritten and passes.')
   expect(await s.obligations()).toMatchObject({ satisfied: true, blockers: [] })
 })
+
+test('a repair that merged keeps its case out of replacement after its blocker link is removed', async () => {
+  const s = await checkCases()
+  const { value: first } = await s.fail('pnpm check')
+  const repair = await s.waitForRepair(first)
+  s.store.changeStage(repair.id, 'done')
+  s.store.removeBlocker(s.task.id, repair.id)
+  expect(s.service.abandonedRepair(s.store.failures.get(first.id) as FailureCase)).toBe(false)
+  s.worktree.fingerprint = 'B'
+  await s.fail('pnpm check --changed')
+  expect(await s.disposition(first)).toBe('unresolved')
+})

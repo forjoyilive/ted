@@ -11,7 +11,7 @@ import type {
   ResolveFailureRequest,
   Task,
 } from '@ted/protocol'
-import { validationExecution } from '@ted/protocol'
+import { failureChoices, validationExecution } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
 import { handsOff, mergesHere, stageWith, validates } from '@ted/protocol/stage'
 import { RequestError } from '../errors.ts'
@@ -760,7 +760,12 @@ export function createValidation(options: ValidationOptions) {
       (value.source.kind === 'post-rebase-check' || value.source.kind === 'github-ci')
     if (!validates(task.stage) && !merging)
       throw new RequestError(409, 'this Check decision is no longer current')
-    if (input.resolution === 'fixed' || input.resolution === 'no-longer-applicable')
+    const closingChoice =
+      input.resolution === 'fixed' || input.resolution === 'no-longer-applicable'
+        ? failureChoices[input.resolution]
+        : undefined
+    const closing = closingChoice !== undefined
+    if (closing && !store.getComment(input.requestId)?.choices?.includes(closingChoice))
       throw new RequestError(
         409,
         'use Retry, Fix in this Task or Accept this failure for a Check diagnosis',
@@ -787,7 +792,7 @@ export function createValidation(options: ValidationOptions) {
         await options.fix(find(task.id), result)
       } else if (
         (value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check') &&
-        (input.resolution === 'retry' || input.resolution === 'accepted') &&
+        (input.resolution === 'retry' || input.resolution === 'accepted' || closing) &&
         store.failures.progress(task.id)?.failureId === id
       ) {
         const progress = store.failures.progress(task.id)
@@ -795,7 +800,7 @@ export function createValidation(options: ValidationOptions) {
           throw new RequestError(409, 'this failure is not the outstanding Check')
         store.failures.saveProgress({
           ...progress,
-          next: input.resolution === 'accepted' ? progress.next + 1 : progress.next,
+          next: input.resolution === 'retry' ? progress.next : progress.next + 1,
           pending: true,
         })
         await store.persisted()
