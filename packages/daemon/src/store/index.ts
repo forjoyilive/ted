@@ -1275,6 +1275,7 @@ export interface TedStore extends TaskHistory {
     body: string,
     canAccept?: boolean,
     askedBy?: string,
+    closable?: boolean,
   ): FailureCase
   resolveFailure(
     value: FailureCase,
@@ -4005,7 +4006,7 @@ export async function openStore({
       updatedQueue(approval.failure.taskId)
       return next
     },
-    postFailureDecision(value, body, canAccept = true, askedBy) {
+    postFailureDecision(value, body, canAccept = true, askedBy, closable = false) {
       const at = new Date().toISOString()
       const assessment = value.assessments.at(-1)
       if (!assessment) throw new Error('a failure decision needs an assessment')
@@ -4017,7 +4018,12 @@ export async function openStore({
           ...(value.validation && {
             title: `How should we handle the ${value.originalCheck?.name ?? (value.source.kind === 'github-ci' ? 'CI' : 'validation')} failure?`,
           }),
-          choices: Object.values(value.validation ? validateFailureChoices : failureChoices).filter(
+          choices: [
+            ...Object.values(value.validation ? validateFailureChoices : failureChoices),
+            ...(value.validation && closable
+              ? [failureChoices.fixed, failureChoices['no-longer-applicable']]
+              : []),
+          ].filter(
             (choice) =>
               (canAccept || choice !== failureChoices.accepted) &&
               (choice !== 'Wait for a repair Task' ||

@@ -8332,6 +8332,9 @@ export function createTasks(options: {
     return publicTask(task.id)
   }
 
+  const reopened =
+    'The failure it was meant to repair needs a decision again, and if the same Check fails again, the new failure replaces it.'
+
   function repairNotice(
     taskId: string,
     blockerId: string,
@@ -8361,7 +8364,7 @@ export function createTasks(options: {
     taskId: string,
     caller: Caller,
     blockerId?: string,
-    reason = 'was unblocked without merging. Use Resume when ready to reassess the failure.',
+    reason = `was unblocked without merging. ${reopened} Use Resume when ready to reassess the failure.`,
   ): void {
     const links = store.blockers(taskId).filter((link) => link.kind === undefined)
     const wasBlocked = links.some((l) => !l.merged)
@@ -8390,7 +8393,7 @@ export function createTasks(options: {
   function settleDependents(taskId: string, blocked: BlockedChoice, action = 'archived'): void {
     for (const dependent of store.blockedBy(taskId)) {
       const link = store.blockers(dependent).find((b) => b.blockerId === taskId)
-      const reason = `was ${action} without merging. ${blocked === 'unblock' ? 'Its blocker was removed. Use Resume when ready to reassess the failure.' : 'Its blocker was kept; this Task is still waiting. Choose another repair or remove the blocker in Task details.'}`
+      const reason = `was ${action} without merging. ${reopened} ${blocked === 'unblock' ? 'Its blocker was removed. Use Resume when ready to reassess the failure.' : 'Its blocker was kept; this Task is still waiting. Choose another repair or remove the blocker in Task details.'}`
       if (blocked === 'unblock') removeBlockers(dependent, { kind: 'app' }, taskId, reason)
       else if (!link?.merged) repairNotice(dependent, taskId, reason)
     }
