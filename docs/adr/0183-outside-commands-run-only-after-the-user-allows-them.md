@@ -18,7 +18,7 @@ Everything an agent starts runs in TED’s sandbox, so nothing an agent starts c
 
 **Drafts can’t add it.** The Manage Agents draft card writes only names, instructions and powers, and `planDraft` refuses a draft that gives `run_outside` unless the Agent already has it. Only the user adds the power or an outside command, in Agent settings.
 
-**The Release recipe and this repo’s Release Agent.** New Agent… offers Blank and Release. The Release recipe fills in the four powers, instructions that build, ask the user and then publish or discard, and empty `build`, `publish` and `discard` outside commands for the user to fill in. This repo’s `.ted/agents.yaml` has a Release Agent with `pnpm release <version>`, `pnpm release publish` and `pnpm release discard`. The stop between build and publish is a question in the Agent’s instructions; publish still needs its own Run unless the user allowed it always.
+**The Release recipe and this repo’s Release Agent.** New Agent… offers Blank and Release. The Release recipe fills in the four powers, instructions that build, ask the user and then publish or discard, and empty `build`, `publish` and `discard` outside commands for the user to fill in. This repo’s `.ted/agents.yaml` has a Release Agent with `pnpm release build <version>`, `pnpm release publish` and `pnpm release discard`. The stop between build and publish is a question in the Agent’s instructions; publish still needs its own Run unless the user allowed it always.
 
 ## Considered Options
 
@@ -29,6 +29,6 @@ Everything an agent starts runs in TED’s sandbox, so nothing an agent starts c
 
 ## Consequences
 
-- A command the user allowed always runs whenever the Agent asks, with any plain argument. The card and the settings say so.
+- A command the user allowed always runs whenever the Agent asks, with any plain argument. The card and the settings say so. A slot must therefore never be able to pick a different action: with `pnpm release <version>`, the argument `publish` would run `pnpm release publish` with no card once build was always allowed. This repo’s Release Agent uses `pnpm release build <version>`, which refuses anything but a version, and the Release recipe tells the user to write build commands the same way.
 - An approval for a command that later leaves the Agent files stays listed until the user removes it, but no longer matches anything.
 - Tests stub `pnpm` on `PATH`; real signing never runs in a test.

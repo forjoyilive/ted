@@ -134,7 +134,7 @@ export const agentRecipeText: Readonly<Record<AgentRecipe, { name: string; help:
   blank: { name: 'Blank', help: 'No powers and an outline of the instructions to fill in.' },
   release: {
     name: 'Release',
-    help: 'Drafts release notes, checks readiness, then runs your build and publish commands outside the sandbox, asking you between them.',
+    help: 'Drafts release notes, checks readiness, then runs your build and publish commands outside the sandbox, asking you between them. Write the build command so its argument can only be a version, never another action such as publish.',
   },
 }
 

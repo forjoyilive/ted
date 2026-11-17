@@ -563,7 +563,7 @@ function AgentEditor({
         active={outside}
         commands={outsideCommands}
         max={maxOutsideCommands}
-        placeholder="pnpm release <version>"
+        placeholder="pnpm release build <version>"
         hint={
           <>
             A chat asks for one with{' '}

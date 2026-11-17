@@ -56,14 +56,14 @@ const release: StoredChatAgent = {
   name: 'Release',
   source: 'factory',
   powers: ['run_outside'],
-  outsideCommands: [{ name: 'build', command: 'pnpm release <version>' }],
+  outsideCommands: [{ name: 'build', command: 'pnpm release build <version>' }],
   instructions: 'Release.',
 }
 
 test('an outside command runs only when the Agent has the power and lists the name', () => {
   expect(findOutsideCommand(release, 'build')).toEqual({
     name: 'build',
-    command: 'pnpm release <version>',
+    command: 'pnpm release build <version>',
   })
   expect(() => findOutsideCommand(release, 'deploy')).toThrow(
     '`deploy` isn’t one of Release’s outside commands, so TED refused it. Its outside commands are build.',
@@ -156,7 +156,7 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
     id: 'release',
     powers: ['ask', 'read_code', 'run_commands', 'run_outside'],
     outsideCommands: [
-      { name: 'build', command: 'pnpm release <version>' },
+      { name: 'build', command: 'pnpm release build <version>' },
       { name: 'publish', command: 'pnpm release publish' },
       { name: 'discard', command: 'pnpm release discard' },
     ],
@@ -166,7 +166,7 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
     title: 'Run build outside the sandbox?',
     outsideCommand: {
       name: 'build',
-      command: 'pnpm release <version>',
+      command: 'pnpm release build <version>',
       argument: '1.2.3',
       folder,
       repo: factory.repos[0]?.repo,
@@ -175,7 +175,7 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
   expect(build.outsideCommand?.allowedBefore).toBeUndefined()
   const prompt = (await ok<{ run: { prompt?: string } }>('GET', `/runs/${first.runId}`)).run
   expect(prompt.prompt).toContain(outsideLine)
-  expect(prompt.prompt).toContain('build: `pnpm release <version>`')
+  expect(prompt.prompt).toContain('build: `pnpm release build <version>`')
   const waiting = await ok<WaitingRequest[]>('GET', '/inbox/waiting')
   expect(waiting.find((w) => w.id === build.id)).toMatchObject({
     source: 'coordinator',
@@ -209,7 +209,7 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
     always: true,
   })
   await waitUntil(
-    async () => (await ran()).includes(`${folder}|release 1.2.3`) || undefined,
+    async () => (await ran()).includes(`${folder}|release build 1.2.3`) || undefined,
     'the build',
   )
   const line = await waitUntil(
@@ -220,8 +220,8 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
     'the build’s chat line',
   )
   expect(line).toMatchObject({
-    output: 'pnpm release 1.2.3\n',
-    outside: { command: 'pnpm release 1.2.3', folder },
+    output: 'pnpm release build 1.2.3\n',
+    outside: { command: 'pnpm release build 1.2.3', folder },
   })
   expect(line.kind === 'command' && line.outside?.always).toBeUndefined()
   await writeFile(path.join(scratch, 'built'), '')
@@ -249,7 +249,7 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
     `/factories/${factory.id}/outside-command-allowances`,
   )
   expect(allowed).toMatchObject([
-    { agentId: 'release', name: 'build', command: 'pnpm release <version>', folder },
+    { agentId: 'release', name: 'build', command: 'pnpm release build <version>', folder },
   ])
 
   const second = await chat([
@@ -258,7 +258,7 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
     { endTurn: true },
   ])
   await waitUntil(
-    async () => (await ran()).includes(`${folder}|release 1.2.4`) || undefined,
+    async () => (await ran()).includes(`${folder}|release build 1.2.4`) || undefined,
     'the second build',
   )
   const always = await waitUntil(
@@ -266,7 +266,7 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
       (await items(second.id)).find((item) => item.kind === 'command' && item.status === 'passed'),
     'the always-allowed chat line',
   )
-  expect(always).toMatchObject({ outside: { command: 'pnpm release 1.2.4', always: true } })
+  expect(always).toMatchObject({ outside: { command: 'pnpm release build 1.2.4', always: true } })
   expect((await ok<Coordinator>('GET', `/coordinator-chats/${second.id}`)).requests ?? []).toEqual(
     [],
   )
@@ -290,8 +290,8 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
 
   await commitToOrigin(scratch, {
     '.ted/agents.yaml': (await readFile(path.join(repoRoot, '.ted/agents.yaml'), 'utf8')).replace(
-      'pnpm release <version>',
-      'pnpm release <version> --skip-checks',
+      'pnpm release build <version>',
+      'pnpm release build <version> --skip-checks',
     ),
   })
   await ok('GET', `/factories/${factory.id}/settings?refresh=first`)
@@ -302,8 +302,8 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
   ])
   const changed = await asked(third.id)
   expect(changed.outsideCommand).toMatchObject({
-    command: 'pnpm release <version> --skip-checks',
-    allowedBefore: 'pnpm release <version>',
+    command: 'pnpm release build <version> --skip-checks',
+    allowedBefore: 'pnpm release build <version>',
   })
   const repoName = encodeURIComponent(factory.repos[0]?.name ?? '')
   await ok('DELETE', `/factories/${factory.id}/repos/${repoName}/local-folder`)
@@ -346,7 +346,7 @@ test('an Agent draft can’t give Run outside commands; only the user adds it in
     id: 'shipper',
     name: 'Shipper',
     powers: ['ask', 'run_outside'],
-    outsideCommands: [{ name: 'build', command: 'pnpm release <version>' }],
+    outsideCommands: [{ name: 'build', command: 'pnpm release build <version>' }],
     instructions: 'Ship.',
     source: 'factory',
     path: '.ted/agents/shipper.md',

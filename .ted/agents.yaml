@@ -5,6 +5,6 @@ release:
     typecheck: pnpm typecheck
     lint: pnpm lint
   outside_commands:
-    build: pnpm release <version>
+    build: pnpm release build <version>
     publish: pnpm release publish
     discard: pnpm release discard
