@@ -138,7 +138,6 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
             path: `${target.pathname}${target.search}`,
             headers,
             setHost: false,
-            agent: false,
             createConnection: () => open(port, address),
           },
           (response) => {
