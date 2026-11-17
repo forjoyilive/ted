@@ -6411,6 +6411,16 @@ export function createTasks(options: {
     const task = store.getTask(taskId)
     if (!task || stoppingByHand.has(taskId)) return
     if (!interrupted(task) && !resumesAtMerge(task, answered)) return
+    await resumeEnded(taskId)
+  }
+
+  async function resumeAfterComment(taskId: string): Promise<void> {
+    const task = store.getTask(taskId)
+    if (!task || stoppingByHand.has(taskId) || !wakesOnComment(task)) return
+    await resumeEnded(taskId)
+  }
+
+  async function resumeEnded(taskId: string): Promise<void> {
     if (store.tedStopPending(taskId)) store.answerTedStop(taskId, 'restart')
     store.resumeTask(taskId, { waitForBlockers: unmergedBlockers(taskId).length > 0 })
     await store.persisted()
@@ -6567,6 +6577,7 @@ export function createTasks(options: {
     body: string,
     attachments: readonly Attachment[],
     sendDrafts = true,
+    wakes = true,
   ): Promise<Comment> {
     const posted = store.postComment({
       taskId: task.id,
@@ -6576,7 +6587,10 @@ export function createTasks(options: {
       ...(sendDrafts && task.stage !== 'done' && { lineComments: drafts(task.id) }),
     })
     const run = liveLead(find(task.id))
-    if (!run) return posted
+    if (!run) {
+      if (wakes) await resumeAfterComment(task.id)
+      return store.getComment(posted.id) ?? posted
+    }
     await sendComment(run.id)
     return store.getComment(posted.id) ?? posted
   }
@@ -9726,8 +9740,15 @@ export function createTasks(options: {
   }
 
   function interrupted(task: StoredTask): boolean {
+    return task.canResume === true && resumable(task)
+  }
+
+  function wakesOnComment(task: StoredTask): boolean {
+    return task.wakesOnComment && resumable(task)
+  }
+
+  function resumable(task: StoredTask): boolean {
     return (
-      task.canResume === true &&
       canStartFresh(task) &&
       !inFlight.is(task.id, 'transition') &&
       !leadLifecycle.pendingRevive(task.id) &&
@@ -12123,7 +12144,7 @@ export function createTasks(options: {
     async coordinatorTell(ref, body) {
       const task = find(ref)
       requireCommentable(task)
-      return humanComment(task, body, [], false)
+      return humanComment(task, body, [], false, false)
     },
 
     setActivity(ref, caller, text) {

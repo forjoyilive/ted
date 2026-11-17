@@ -4,6 +4,7 @@ import type {
   CheckRun,
   ClarifyDepth,
   Comment,
+  CommentDelivery,
   Factory,
   LineComment,
   Priority,
@@ -116,6 +117,7 @@ import { inStage } from '../stage-filter.ts'
 import { useStages } from '../stages.tsx'
 import { runStatusAction, statusAction } from '../task-actions.ts'
 import {
+  agentLabels,
   clarifyDepthLabels,
   clarifyDepthText,
   formatSize,
@@ -136,9 +138,17 @@ function leadAgent(task: Task, comment: Comment) {
   return task.runs.find((r) => r.id === author.runId)?.agent ?? task.lead?.agent ?? 'claude'
 }
 
+function deliveryLabel(task: Task, state: CommentDelivery | undefined): string {
+  if (state === 'starting') return 'Starting the Task Lead…'
+  if (state === 'queued') return 'Waiting for a free slot'
+  if (state === 'paused')
+    return `Waits for ${agentLabels[task.lead?.agent ?? 'claude']} to come back`
+  return 'Goes to the next Task Lead Run'
+}
+
 function delivery(task: Task, comment: Comment): string | undefined {
   if (comment.author.kind !== 'human' || task.commentBox === 'done') return undefined
-  if (comment.delivered === undefined) return 'Goes to the next Task Lead Run'
+  if (comment.delivered === undefined) return deliveryLabel(task, task.commentDelivery)
   return comment.readAt === undefined ? 'Not read yet' : undefined
 }
 

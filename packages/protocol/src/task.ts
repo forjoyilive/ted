@@ -157,6 +157,8 @@ export type CommentBox =
   | 'merge-pending'
   | 'archived'
 
+export type CommentDelivery = 'starting' | 'queued' | 'paused'
+
 export interface TaskRun {
   id: string
   agent: AgentKind
@@ -266,6 +268,7 @@ export interface Task {
   activity?: string
   track: TrackStage[]
   commentBox: CommentBox
+  commentDelivery?: CommentDelivery
   canResume?: boolean
   runs: TaskRun[]
   tabs: ConversationTab[]

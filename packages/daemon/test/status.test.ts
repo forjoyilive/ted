@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   commentBox,
+  commentDelivery,
   leadAskedAtMerge,
   statusWithoutBlocker,
   type TaskFacts,
@@ -9,6 +10,7 @@ import {
   taskIsMerged,
   taskMarkers,
   taskStatus,
+  taskWakesOnComment,
 } from '../src/tasks/status.ts'
 
 const at = (facts: Partial<TaskFacts>): TaskFacts => ({ stage: 'work', runs: [], ...facts })
@@ -48,6 +50,40 @@ describe('interrupted Tasks', () => {
     { stopped: { at: '2026-11-09T20:00:00Z', runs: 1, why: 'human' } },
   ])('does not offer interrupted continuation during another state: %j', (other) => {
     expect(taskCanResume(at({ interrupted: true, ...other }))).toBe(false)
+  })
+})
+
+describe('a Comment on a Task whose Task Lead ended', () => {
+  test('wakes it even while a request is open', () => {
+    expect(taskWakesOnComment(at({ interrupted: true }))).toBe(true)
+    expect(taskWakesOnComment(at({ interrupted: true, openRequests: 2 }))).toBe(true)
+    expect(taskCanResume(at({ interrupted: true, openRequests: 2 }))).toBe(false)
+    expect(taskWakesOnComment(at({ openRequests: 1 }))).toBe(false)
+  })
+
+  test.each<Partial<TaskFacts>>([
+    { stage: 'backlog' },
+    { stage: 'done' },
+    { archived: true },
+    { failed: true },
+    { leadLive: true },
+    { queue: { place: 1 } },
+    { blockedBy: ['NB-2'] },
+    { stopped: { at: '2026-11-09T20:00:00Z', runs: 1, why: 'human' } },
+  ])('does not wake it during another state: %j', (other) => {
+    expect(taskWakesOnComment(at({ interrupted: true, openRequests: 1, ...other }))).toBe(false)
+  })
+
+  test('says where a Comment waiting for a Run goes next', () => {
+    expect(commentDelivery(at({ leadLive: true }))).toBe('starting')
+    expect(commentDelivery(at({ queue: { place: 2 } }))).toBe('queued')
+    expect(commentDelivery(at({ queue: { place: 1 }, paused: 'Usage limit' }))).toBe('paused')
+    expect(commentDelivery(at({ interrupted: true, openRequests: 1 }))).toBeUndefined()
+    expect(
+      commentDelivery(
+        at({ queue: { place: 1 }, stopped: { at: '2026-11-09T20:00:00Z', runs: 1, why: 'human' } }),
+      ),
+    ).toBeUndefined()
   })
 })
 

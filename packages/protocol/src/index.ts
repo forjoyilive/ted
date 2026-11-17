@@ -1005,6 +1005,7 @@ export {
   type CommentAnswer,
   type CommentAuthor,
   type CommentBox,
+  type CommentDelivery,
   type CommentGate,
   type CommentKind,
   type CopySkip,

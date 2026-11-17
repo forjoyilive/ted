@@ -144,6 +144,7 @@ import { redactSecrets } from '../redact.ts'
 import { type QueueEntry, queueOrder } from '../tasks/queue.ts'
 import {
   commentBox,
+  commentDelivery,
   statusWithoutBlocker,
   type TaskFacts,
   taskActivity,
@@ -154,6 +155,7 @@ import {
   taskStatus,
   taskStatuses,
   taskWaitReasons,
+  taskWakesOnComment,
 } from '../tasks/status.ts'
 import type { OvernightGuard } from '../workflow/resolve.ts'
 import { type AutomationDraftStore, createAutomationDraftStore } from './automation-drafts.ts'
@@ -406,6 +408,7 @@ export interface StoredTask extends Task {
   startRequested: boolean
   waitsForBlockers: boolean
   stopped: boolean
+  wakesOnComment: boolean
 }
 
 export interface SeenStageFile {
@@ -2254,6 +2257,7 @@ export async function openStore({
     }
     if (observe) noteTaskWait(row.id, facts)
     const status = taskStatus(facts)
+    const delivery = commentDelivery(facts)
     const unblocked = statusWithoutBlocker(facts, status)
     const shown = taskActivity(facts)
     const tabs: ConversationTab[] = reads.tabs(row.id).flatMap((tab) => {
@@ -2395,7 +2399,9 @@ export async function openStore({
       ...(shown !== undefined && { activity: shown }),
       track: track(stage, entries),
       commentBox: commentBox(facts, status),
+      ...(delivery !== undefined && { commentDelivery: delivery }),
       ...(taskCanResume(facts) && { canResume: true }),
+      wakesOnComment: taskWakesOnComment(facts),
       tabs,
       runs: live
         .sort(
@@ -2457,6 +2463,7 @@ export async function openStore({
     startRequested: __,
     waitsForBlockers: ___,
     stopped: ____,
+    wakesOnComment: _________,
     ...task
   }: StoredTask): Task => task
 
