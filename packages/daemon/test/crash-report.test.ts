@@ -76,6 +76,8 @@ describe('cleaning', () => {
     )
     expect(cleanText('read "unclosed secret text', roots, home)).toBe('read "<text>"')
     expect(cleanText(`x ' a "b's secret"`, roots, home)).toBe(`x '<text>'`)
+    expect(cleanText(`read "a client's secret`, roots, home)).toBe('read "<text>"')
+    expect(cleanText(`read "the clients' secret`, roots, home)).toBe('read "<text>"')
     expect(cleanText('a "b `c" secret` d', roots, home)).toBe('a "<text>" d')
     expect(cleanText(`a "one 'two" and 'three "four' end`, roots, home)).toBe(`a "<text>" end`)
     expect(cleanText('input"confidential contents" and x`secret snippet`', roots, home)).toBe(
