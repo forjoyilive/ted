@@ -38,6 +38,7 @@ import type {
   CommitChanges,
   CreatedTask,
   DaemonEvent,
+  DeclaredSendBackCause,
   DeleteTaskRequest,
   DescriptionVersion,
   DesignFile,
@@ -147,6 +148,7 @@ import {
   cleanupRetryChoice,
   commitTitle,
   commitTitleProblem,
+  declaredSendBackCauses,
   isChat,
   isLoopbackUrl,
   isTrackerClosedQuestion,
@@ -7507,6 +7509,11 @@ export function createTasks(options: {
     const keepConflict = () => {
       if (options.conflict !== undefined) store.recordBaseConflict(task.id, options.conflict)
     }
+    const declared = declaredSendBackCauses.find((c) => c === options.cause)
+    const held = {
+      ...(checkRunId !== undefined && { checkRunId }),
+      ...(declared !== undefined && { cause: declared }),
+    }
     if (counted && limit !== undefined && count >= limit) {
       keepConflict()
       const times = `${count} ${count === 1 ? 'time' : 'times'}`
@@ -7518,7 +7525,7 @@ export function createTasks(options: {
             findings,
             round: count + 1,
             limit,
-            ...(checkRunId !== undefined && { checkRunId }),
+            ...held,
           }))
         ) {
           return {
@@ -7536,7 +7543,7 @@ export function createTasks(options: {
             workflow.settings.stages.validate?.loop_check === false
               ? ''
               : 'A Loop check couldn’t start, so Ted couldn’t check whether the rounds are making progress.',
-          ...(checkRunId !== undefined && { checkRunId }),
+          ...held,
         })
         return {
           task: publicTask(task.id),
@@ -7560,7 +7567,7 @@ export function createTasks(options: {
         to,
         findings,
         loop: false,
-        ...(checkRunId !== undefined && { checkRunId }),
+        ...held,
       })
       return {
         task: publicTask(task.id),
@@ -7574,7 +7581,7 @@ export function createTasks(options: {
         findings,
         round: count + 1,
         ...(limit !== undefined && { limit }),
-        ...(checkRunId !== undefined && { checkRunId }),
+        ...held,
       })
       if (started) {
         keepConflict()
@@ -7950,11 +7957,16 @@ export function createTasks(options: {
       title: string
       intro: string
       checkRunId?: string
+      cause?: DeclaredSendBackCause
     },
   ): Comment {
     const limit = workflow.settings.stages.validate?.max_back
     const held =
-      input.checkRunId === undefined ? 'Validate found more problems to fix' : 'a check failed'
+      input.cause === 'base-conflict'
+        ? 'the branch conflicted with its base branch'
+        : input.checkRunId === undefined
+          ? 'Validate found more problems to fix'
+          : 'a check failed'
     const request = store.postComment({
       taskId: task.id,
       kind: 'question',
@@ -7978,6 +7990,7 @@ export function createTasks(options: {
       findings: input.findings,
       loop: true,
       ...(input.checkRunId !== undefined && { checkRunId: input.checkRunId }),
+      ...(input.cause !== undefined && { cause: input.cause }),
     })
     return request
   }
@@ -8002,6 +8015,7 @@ export function createTasks(options: {
       round: number
       limit?: number
       checkRunId?: string
+      cause?: DeclaredSendBackCause
     },
   ): Promise<boolean> {
     const rounds = [...countedValidateSendBacks(task.id).map((b) => b.findings), input.findings]
@@ -8026,6 +8040,7 @@ export function createTasks(options: {
       round: input.round,
       ...(input.limit !== undefined && { limit: input.limit }),
       ...(input.checkRunId !== undefined && { checkRunId: input.checkRunId }),
+      ...(input.cause !== undefined && { cause: input.cause }),
     })
     inBackground(`run ${task.displayId}’s loop check`, () => awaitLoopCheck(check))
     return true
@@ -8065,7 +8080,7 @@ export function createTasks(options: {
         round: check.round,
         ...(check.limit !== undefined && { limit: check.limit }),
         ...(check.checkRunId !== undefined && { checkRunId: check.checkRunId }),
-        cause: check.checkRunId !== undefined ? 'check' : 'review',
+        cause: check.cause ?? (check.checkRunId !== undefined ? 'check' : 'review'),
       })
       await move(
         task,
@@ -8094,6 +8109,7 @@ export function createTasks(options: {
           ? `Ted’s Loop check found that the rounds are making progress. ${reason}`
           : `Ted couldn’t check whether the rounds are making progress: ${reason}.`,
       ...(check.checkRunId !== undefined && { checkRunId: check.checkRunId }),
+      ...(check.cause !== undefined && { cause: check.cause }),
     })
     if (check.checkRunId !== undefined) return
     await deliver(

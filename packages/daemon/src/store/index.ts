@@ -70,9 +70,11 @@ import {
   chatRequestKinds,
   checkLabel,
   type DaemonEvent,
+  type DeclaredSendBackCause,
   type DescriptionVersion,
   type DesignReview,
   type DiffRow,
+  declaredSendBackCauses,
   defaultMachineSettings,
   defaultWorkingRuns,
   type Effort,
@@ -583,6 +585,11 @@ export interface FoundConflict {
 
 export type LoopVerdict = 'converging' | 'looping' | 'failed'
 
+const declaredCause = (cause: string | null): { cause?: DeclaredSendBackCause } => {
+  const known = declaredSendBackCauses.find((c) => c === cause)
+  return known === undefined ? {} : { cause: known }
+}
+
 export interface LoopCheck {
   runId: string
   taskId: string
@@ -592,6 +599,7 @@ export interface LoopCheck {
   round: number
   limit?: number
   verdict?: LoopVerdict
+  cause?: DeclaredSendBackCause
   at: string
 }
 
@@ -603,6 +611,7 @@ export interface SendBackAsk {
   findings: string
   checkRunId?: string
   loop: boolean
+  cause?: DeclaredSendBackCause
   at: string
 }
 
@@ -1617,6 +1626,7 @@ export async function openStore({
     checkRunId,
     limit,
     verdict,
+    cause,
     ...row
   }: typeof loopChecks.Type): LoopCheck => ({
     ...row,
@@ -1624,18 +1634,21 @@ export async function openStore({
     ...(checkRunId !== null && { checkRunId }),
     ...(limit !== null && { limit }),
     ...(verdict !== null && { verdict: verdict as LoopVerdict }),
+    ...declaredCause(cause),
   })
 
   const toSendBackAsk = ({
     fromStage,
     toStage,
     checkRunId,
+    cause,
     ...row
   }: typeof sendBackAsks.Type): SendBackAsk => ({
     ...row,
     from: fromStage as AgentStageId,
     to: toStage as AgentStageId,
     ...(checkRunId !== null && { checkRunId }),
+    ...declaredCause(cause),
   })
 
   const toSubAgentRequest = ({
@@ -6843,13 +6856,14 @@ export async function openStore({
       )
       updatedTask(taskId)
     },
-    startLoopCheck({ checkRunId, limit, ...check }) {
+    startLoopCheck({ checkRunId, limit, cause, ...check }) {
       const at = new Date().toISOString()
       commit(
-        events.loopCheckStarted({
+        events.loopCheckStartedV2({
           ...check,
           checkRunId: checkRunId ?? null,
           limit: limit ?? null,
+          cause: cause ?? null,
           at,
         }),
       )
@@ -6858,6 +6872,7 @@ export async function openStore({
         ...check,
         ...(checkRunId !== undefined && { checkRunId }),
         ...(limit !== undefined && { limit }),
+        ...(cause !== undefined && { cause }),
         at,
       }
     },
@@ -6883,16 +6898,26 @@ export async function openStore({
           ),
         )
         .map(toLoopCheck),
-    askAboutSendBack({ checkRunId, ...ask }) {
+    askAboutSendBack({ checkRunId, cause, ...ask }) {
       const at = new Date().toISOString()
       commit(
-        events.sendBackAsked({ ...ask, checkRunId: checkRunId ?? null, at }),
+        events.sendBackAskedV2({
+          ...ask,
+          checkRunId: checkRunId ?? null,
+          cause: cause ?? null,
+          at,
+        }),
         events.commentPurposeRecorded({
           commentId: ask.commentId,
           purpose: JSON.stringify({ kind: 'send-back' }),
         }),
       )
-      return { ...ask, ...(checkRunId !== undefined && { checkRunId }), at }
+      return {
+        ...ask,
+        ...(checkRunId !== undefined && { checkRunId }),
+        ...(cause !== undefined && { cause }),
+        at,
+      }
     },
     sendBackAsk: (commentId) => {
       const row = store.query(queryDb(sendBackAsks.where({ commentId }))).at(0)

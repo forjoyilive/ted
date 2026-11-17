@@ -54,3 +54,35 @@ test('base conflicts are kept per Task, survive a reopen and go when the Task is
     await rm(directory, { recursive: true, force: true })
   }
 })
+
+test('a held send-back and a Loop check keep a base-conflict cause through a reopen', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'ted-held-causes-'))
+  let store = await openStore({ directory })
+  try {
+    const task = await store.createTask({ title: 'Held' })
+    const held = { taskId: task.id, to: 'work', findings: 'Conflicts with main.' } as const
+    store.askAboutSendBack({
+      ...held,
+      commentId: 'conflict',
+      from: 'validate',
+      loop: true,
+      cause: 'base-conflict',
+    })
+    store.askAboutSendBack({ ...held, commentId: 'review', from: 'validate', loop: true })
+    store.startLoopCheck({ ...held, runId: 'conflict-run', round: 2, cause: 'base-conflict' })
+    store.startLoopCheck({ ...held, runId: 'review-run', round: 2 })
+    await store.persisted()
+    await store.close()
+    store = await openStore({ directory })
+
+    expect(store.sendBackAsk('conflict')).toMatchObject({ cause: 'base-conflict' })
+    expect(store.sendBackAsk('review')).not.toHaveProperty('cause')
+    expect(Object.fromEntries(store.loopChecks(task.id).map((c) => [c.runId, c.cause]))).toEqual({
+      'conflict-run': 'base-conflict',
+      'review-run': undefined,
+    })
+  } finally {
+    await store.close()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
