@@ -13,6 +13,8 @@ export function agentSummary(agent: ResolvedAgent | StoredChatAgent): AgentSumma
     ...(agent.agent !== undefined && { agent: agent.agent }),
     ...(agent.model !== undefined && { model: agent.model }),
     powers: [...agent.powers],
+    ...(agent.commands &&
+      agent.commands.length > 0 && { commands: agent.commands.map((c) => ({ ...c })) }),
   }
 }
 

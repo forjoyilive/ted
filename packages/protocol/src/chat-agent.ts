@@ -1,4 +1,4 @@
-import { type AgentPower, isAgentId } from './agent-files.ts'
+import { type AgentCommand, type AgentPower, isAgentId } from './agent-files.ts'
 import { isString, reader, type Untyped } from './parse.ts'
 import type { AgentKind } from './run.ts'
 import type { CommentAnswer, Proposal, ProposalInput, Round, RoundInput } from './task.ts'
@@ -15,6 +15,7 @@ export interface AgentSummary {
   agent?: AgentKind
   model?: string
   powers: AgentPower[]
+  commands?: AgentCommand[]
 }
 
 export interface ChatAgent extends AgentSummary {
@@ -102,4 +103,28 @@ export function parseChatAgentId(value: Untyped): string | undefined {
   if (!isString(value) || !isAgentId(value))
     throw new HttpError(400, 'agentId must be an Agent id from this Factory’s Agent files')
   return value
+}
+
+export interface RunChatCommandRequest {
+  name: string
+}
+
+export const chatCommandStates = ['waiting', 'running', 'passed', 'failed', 'stopped'] as const
+
+export type ChatCommandState = (typeof chatCommandStates)[number]
+
+export interface ChatCommandResult {
+  id: string
+  name: string
+  state: ChatCommandState
+  exitCode?: number
+  durationMs?: number
+  output?: string
+}
+
+export function parseRunChatCommandRequest(value: Untyped): RunChatCommandRequest {
+  const body = read.object(value, 'body', 'body must be a JSON object')
+  const name = read.string(body, 'name', 'name must be one of this Agent’s command names')
+  if (!isAgentId(name)) throw new HttpError(400, 'name must be one of this Agent’s command names')
+  return { name }
 }

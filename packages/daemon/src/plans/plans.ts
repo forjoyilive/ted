@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import type {
   AnswerRequest,
+  ChatCommandResult,
   Effort,
   Plan,
   PlanDetail,
@@ -23,6 +24,7 @@ import type { Agents } from '../agents/index.ts'
 import type { Banners } from '../banners.ts'
 import { builtInAgent, chatAgentView, pickAgent, storedAgent } from '../chats/agents.ts'
 import { checkOut as checkOutRepos, discard } from '../chats/checkout.ts'
+import { type ChatCommands, findCommand } from '../chats/commands.ts'
 import { hasPower, requirePower } from '../chats/powers.ts'
 import { RequestError } from '../errors.ts'
 import type { AgentHealthMonitor } from '../health/agent-health.ts'
@@ -70,6 +72,7 @@ export interface PlansOptions {
   queue: RunQueue
   reposDir: string
   builtInAgents: readonly StoredChatAgent[]
+  commands: ChatCommands
   isCloned?: (factoryId: string) => boolean
   startTask: (taskId: string) => Promise<unknown>
   planApproved?: (taskId: string, input: PlanApproval) => Promise<void>
@@ -96,6 +99,8 @@ export interface Plans {
     input: { round?: RoundInput; proposal?: ProposalInput; supersedes?: string },
   ): PlanRequest
   answer(id: string, request: AnswerRequest): Promise<PlanRequest>
+  runCommand(caller: Caller, name: string): Promise<ChatCommandResult>
+  commandResult(caller: Caller, id: string): Promise<ChatCommandResult>
   isPlanRun(runId: string): boolean
   close(): void
 }
@@ -259,7 +264,7 @@ export function createPlans(options: PlansOptions): Plans {
     return factoryRepos(workflow, factory)
   }
 
-  const checkoutDeps = { banners, reposDir: options.reposDir, store }
+  const checkoutDeps = { home: options.home, banners, reposDir: options.reposDir, store }
   const checkOut = (
     plan: StoredPlan,
     factory: StoredFactory,
@@ -269,10 +274,11 @@ export function createPlans(options: PlansOptions): Plans {
   const cleaning = new Map<string, Promise<void>>()
 
   function cleanUp(id: string): void {
+    options.commands.stop(id)
     const plan = saved.get(id)
     const before = cleaning.get(id) ?? Promise.resolve()
     const done = before
-      .then(() => discard(plan?.checkout ?? [], folderOf(id)))
+      .then(() => discard(plan?.checkout ?? [], folderOf(id), options.home))
       .finally(() => {
         if (cleaning.get(id) === done) cleaning.delete(id)
       })
@@ -321,7 +327,7 @@ export function createPlans(options: PlansOptions): Plans {
       const checkout = await prepareFolder(plan, factory, entries)
       prepared = checkout
       if (saved.get(id)?.state !== 'queued') {
-        await discard(checkout, folderOf(id))
+        await discard(checkout, folderOf(id), options.home)
         return
       }
       const single = entries.length === 1 ? checkout[0]?.worktree : undefined
@@ -343,7 +349,7 @@ export function createPlans(options: PlansOptions): Plans {
       }
     } catch (error) {
       if (error instanceof AgentDisabledError) {
-        await discard(prepared, folderOf(id))
+        await discard(prepared, folderOf(id), options.home)
         return
       }
       const current = saved.get(id)
@@ -366,6 +372,7 @@ export function createPlans(options: PlansOptions): Plans {
       folder: folderOf(plan.id),
       ...withTask(plan),
       ...(plan.from && { earlier: plan.from.context }),
+      ...(agent.commands && { commands: agent.commands }),
     })}\n\n${plan.message}`
   }
 
@@ -709,7 +716,7 @@ export function createPlans(options: PlansOptions): Plans {
 
   for (const plan of saved.list()) {
     if (plan.state === 'ended') {
-      if (plan.checkout.length > 0) void discard(plan.checkout, folderOf(plan.id))
+      if (plan.checkout.length > 0) void discard(plan.checkout, folderOf(plan.id), options.home)
       continue
     }
     if (plan.state !== 'started' || plan.resume === 'queued') continue
@@ -879,6 +886,20 @@ export function createPlans(options: PlansOptions): Plans {
         if (!plan || request.kind === 'note' || request.answer !== undefined) return []
         return [{ request: view(plan, request), plan: describe(plan, slots) }]
       })
+    },
+    async runCommand(caller, name) {
+      const plan = ownPlan(caller)
+      const factory = factoryOf(plan)
+      if (!factory) throw new RequestError(404, `no planning chat ${plan.id}`)
+      const agent = agentOf(plan)
+      findCommand(agent, name)
+      return options.commands.run(
+        { chatId: plan.id, runId: plan.id, factory, agent, checkout: plan.checkout },
+        name,
+      )
+    },
+    async commandResult(caller, id) {
+      return options.commands.wait(ownPlan(caller).id, id)
     },
     post(caller, { round, proposal, supersedes }) {
       const plan = ownPlan(caller)
@@ -1067,7 +1088,7 @@ export function createPlans(options: PlansOptions): Plans {
         )
         const current = saved.get(plan.id)
         if (!current || !resumable(current)) {
-          await discard(checkout, folderOf(plan.id))
+          await discard(checkout, folderOf(plan.id), options.home)
           throw new RequestError(409, 'only a planning chat whose Run ended can be resumed')
         }
         if (text !== '') store.queueRunMessage({ runId: run.id, text })
@@ -1081,6 +1102,7 @@ export function createPlans(options: PlansOptions): Plans {
   }
 
   async function remove(plan: StoredPlan, output: 'keep' | 'remove'): Promise<void> {
+    options.commands.stop(plan.id)
     const run = store.getRun(plan.id)
     if (plan.state !== 'ended') {
       saved.ended(plan.id, { outcome: 'stopped' })
@@ -1090,7 +1112,7 @@ export function createPlans(options: PlansOptions): Plans {
       await runs.stop(run.id).catch((error: unknown) => console.error(error))
     }
     saved.delete(plan.id)
-    await discard(plan.checkout, folderOf(plan.id))
+    await discard(plan.checkout, folderOf(plan.id), options.home)
     if (output === 'remove') {
       await removeInside(path.join(options.home, 'runs'), plan.id).catch((error: unknown) =>
         console.error(`couldn’t remove the Run files of planning chat ${plan.id}:`, error),

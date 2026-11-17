@@ -1102,6 +1102,28 @@ export const chatAgents = State.SQLite.table({
     model: State.SQLite.text({ nullable: true }),
     powers: State.SQLite.text(),
     instructions: State.SQLite.text(),
+    commands: State.SQLite.text({ nullable: true }),
+  },
+})
+
+export const chatCommands = State.SQLite.table({
+  name: 'chatCommands',
+  indexes: [
+    { name: 'idx_chatCommands_chatId', columns: ['chatId'] },
+    { name: 'idx_chatCommands_runId', columns: ['runId'] },
+    { name: 'idx_chatCommands_factoryId', columns: ['factoryId'] },
+  ],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    chatId: State.SQLite.text(),
+    factoryId: State.SQLite.text(),
+    runId: State.SQLite.text(),
+    name: State.SQLite.text(),
+    outcome: State.SQLite.text(),
+    exitCode: State.SQLite.integer({ nullable: true }),
+    startedAt: State.SQLite.text(),
+    endedAt: State.SQLite.text(),
+    tail: State.SQLite.text(),
   },
 })
 
@@ -1381,6 +1403,34 @@ export const events = {
         instructions: Schema.String,
       }),
       at: Schema.String,
+    }),
+  }),
+  chatAgentCommandsRecorded: Events.synced({
+    name: 'v1.ChatAgentCommandsRecorded',
+    schema: Schema.Struct({
+      chatId: Schema.String,
+      commands: Schema.Array(
+        Schema.Struct({
+          name: Schema.String,
+          command: Schema.String,
+          repo: Schema.NullOr(Schema.String),
+        }),
+      ),
+    }),
+  }),
+  chatCommandRan: Events.synced({
+    name: 'v1.ChatCommandRan',
+    schema: Schema.Struct({
+      id: Schema.String,
+      chatId: Schema.String,
+      factoryId: Schema.String,
+      runId: Schema.String,
+      name: Schema.String,
+      outcome: Schema.String,
+      exitCode: Schema.NullOr(Schema.Number),
+      startedAt: Schema.String,
+      endedAt: Schema.String,
+      tail: Schema.String,
     }),
   }),
   chatRequestPosted: Events.synced({
@@ -4293,6 +4343,7 @@ const coordinatorRunsDeleted = (runIds: readonly string[]) =>
 function chatRowsDeleted(chatId: string, requests: readonly { id: string }[]) {
   return [
     chatAgents.delete().where({ chatId }),
+    chatCommands.delete().where({ chatId }),
     chatRequests.delete().where({ chatId }),
     ...requests.map(({ id }) =>
       messageDrafts.delete().where({ key: messageDraftKey('coordinator-request', id) }),
@@ -5505,6 +5556,7 @@ const materializers = counted(
         requestSnoozes.delete().where({ factoryId }),
         messageDrafts.delete().where({ factoryId }),
         chatAgents.delete().where({ factoryId }),
+        chatCommands.delete().where({ factoryId }),
         chatRequests.delete().where({ factoryId }),
       ],
       'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
@@ -5757,6 +5809,9 @@ const materializers = counted(
             instructions: agent.instructions,
           })
           .onConflict('chatId', 'replace'),
+      'v1.ChatAgentCommandsRecorded': ({ chatId, commands }) =>
+        chatAgents.update({ commands: JSON.stringify(commands) }).where({ chatId }),
+      'v1.ChatCommandRan': (ran) => chatCommands.insert(ran).onConflict('id', 'ignore'),
       'v1.ChatRequestPosted': ({ at, choices, ...request }) =>
         chatRequests.insert({
           ...request,
@@ -5773,6 +5828,7 @@ const materializers = counted(
       'v1.PlanRenamed': ({ id, title }) => plans.update({ title }).where({ id }),
       'v1.PlanDeleted': ({ id }) => [
         chatAgents.delete().where({ chatId: id }),
+        chatCommands.delete().where({ chatId: id }),
         messageDrafts.delete().where({ planId: id }),
         plans.delete().where({ id }),
         planRequests.delete().where({ planId: id }),
@@ -5924,6 +5980,7 @@ const state = State.SQLite.makeState({
     planTasks,
     coordinatorChats,
     chatAgents,
+    chatCommands,
     chatRequests,
     sideChats,
     requestSnoozes,

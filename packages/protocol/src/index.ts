@@ -248,16 +248,21 @@ export type {
   AgentChatKind,
   AgentSummary,
   ChatAgent,
+  ChatCommandResult,
+  ChatCommandState,
   ChatQuestionInput,
   ChatRequest,
   ChatRequestKind,
   PostChatRequest,
+  RunChatCommandRequest,
 } from './chat-agent.ts'
 export {
+  chatCommandStates,
   chatRequestKinds,
   maxChatQuestionLength,
   parseChatAgentId,
   parsePostChatRequest,
+  parseRunChatCommandRequest,
 } from './chat-agent.ts'
 export {
   type BaseConflictFound,

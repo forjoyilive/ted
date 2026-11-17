@@ -1,6 +1,6 @@
 import type { PlanRequest, PlanTask, RoundAnswer } from '@ted/protocol'
-import type { AgentPower } from '@ted/protocol/agent-files'
-import { proposalFormat, roundFormat } from '../chats/powers.ts'
+import type { AgentCommand, AgentPower } from '@ted/protocol/agent-files'
+import { chatCommandLines, proposalFormat, roundFormat } from '../chats/powers.ts'
 import type { StoredFactory } from '../store/index.ts'
 import type { FactoryRepoEntry } from '../tasks/repos.ts'
 import { writingGuidance } from '../writing.ts'
@@ -49,10 +49,12 @@ export function plannerInstructions(input: {
   folder: string
   task?: PlanTaskContext
   earlier?: string
+  commands?: readonly AgentCommand[]
 }): string {
   const { role, powers, factory, entries, folder, task, earlier } = input
   const ask = powers.includes('ask')
   const propose = powers.includes('propose_tasks')
+  const run = chatCommandLines(powers, input.commands)
   const where =
     entries.length === 1
       ? `Your working folder is a fresh checkout of ${entries[0]?.repo ?? factory.repo} at the latest base branch.`
@@ -63,7 +65,7 @@ export function plannerInstructions(input: {
     `Use relevant general skills when they help with your work. Skip skills that require another host tool, such as Orca, Paseo or Superset; for example, don’t use \`orca-linear\` in TED. Use TED commands for Task workflow actions.`,
     [
       `This chat is in the ${factory.name} Factory.${powers.includes('read_code') ? ` ${where} Read it as much as you need. Anything you write there is never pushed and is thrown away when this chat ends.` : ''}`,
-      ...(ask || propose ? [''] : []),
+      ...(ask || propose || run.length > 0 ? [''] : []),
       ...(ask
         ? [
             `- Ask the human questions in rounds with \`ted ask --round <file>\`. ${roundFormat} Then end your turn; TED sends you their answers. While a round is open the human may message you about it; answer them, and if your recommendation changes, replace the round with \`ted ask --supersedes <request-id> --round <file>\`.`,
@@ -75,6 +77,7 @@ export function plannerInstructions(input: {
             '- When the human approves, TED creates the Tasks in Backlog and ends this chat. If they message you instead, reply in the chat.',
           ]
         : []),
+      ...run,
     ].join('\n'),
     ...(task ? [fromTaskSection(task)] : []),
     ...(earlier !== undefined && earlier !== ''
