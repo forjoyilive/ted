@@ -40,6 +40,13 @@ test('every Asana task URL form gives the task ID, and sources match by it', () 
     url: 'https://app.asana.com/0/1188/1209337/f',
     gid: '1209337',
   })
+  expect(
+    findAsanaUrl(`https://app.asana.com/0/1188/1209337${'.'.repeat(100_000)}x`),
+  ).toBeUndefined()
+  expect(findAsanaUrl(`https://app.asana.com/0/1188/1209337${'!?'.repeat(50_000)}`)).toEqual({
+    url: 'https://app.asana.com/0/1188/1209337',
+    gid: '1209337',
+  })
 })
 
 test('the import request parser copies every field and rejects bad input', () => {

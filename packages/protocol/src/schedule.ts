@@ -194,10 +194,26 @@ function rruleNumbers(value: string, min: number, max: number, what: string): nu
   })
 }
 
+function rruleLines(text: string): string[] {
+  const lines: string[] = []
+  for (const row of text.split('\n')) {
+    let start = 0
+    for (const space of row.matchAll(/\s+/g)) {
+      const after = space.index + space[0].length
+      if (/^(?:DTSTART|RRULE)/i.test(row.slice(after, after + 7))) {
+        lines.push(row.slice(start, space.index))
+        start = after
+      }
+    }
+    lines.push(row.slice(start))
+  }
+  return lines
+}
+
 function rruleRule(text: string): Rule {
   let dtstart: number | undefined
   const parts = new Map<string, string>()
-  for (const line of text.split(/\s*\n\s*|\s+(?=DTSTART|RRULE)/i)) {
+  for (const line of rruleLines(text)) {
     const trimmed = line.trim()
     if (trimmed === '') continue
     const start = /^DTSTART(?:;[^:]*)?:(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})?Z?)?$/i.exec(

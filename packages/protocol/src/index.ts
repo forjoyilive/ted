@@ -861,6 +861,7 @@ export {
   type Weekday,
   weekdays,
 } from './schedule.ts'
+export { scriptLiteral } from './script-literal.ts'
 export {
   type AutomationHit,
   type CommentHit,

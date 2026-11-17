@@ -1,4 +1,5 @@
 import { type Priority, priorities } from './task.ts'
+import { trimEndOf, urlTrailingPunctuation } from './trim.ts'
 import { bodyObject, RequestValidationError } from './validation.ts'
 
 export const maxAsanaImportTasks = 100
@@ -16,7 +17,7 @@ const gidPattern = /^\d{1,32}$/
 
 export function findAsanaUrl(text: string): AsanaTaskUrl | undefined {
   for (const match of text.matchAll(new RegExp(asanaUrl, 'gi'))) {
-    const url = match[0].replace(/[.,;:!?]+$/, '')
+    const url = trimEndOf(match[0], urlTrailingPunctuation)
     const gid = asanaGid(url)
     if (gid !== undefined) return { url, gid }
   }

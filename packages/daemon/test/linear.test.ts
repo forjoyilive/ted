@@ -121,6 +121,7 @@ describe('Linear URLs', () => {
     expect(parseLinearUrl(`${issueUrl} and more`)).toBeUndefined()
     expect(parseLinearUrl('https://example.com/kriyadesign/issue/NOTE-7')).toBeUndefined()
     expect(findLinearUrl('http://linear.app/kriyadesign/issue/NOTE-7')).toBeUndefined()
+    expect(findLinearUrl(`${issueUrl}/${';'.repeat(100_000)}`)?.url).toBe(`${issueUrl}/`)
   })
 })
 
