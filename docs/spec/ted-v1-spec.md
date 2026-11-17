@@ -725,7 +725,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 - **Blocked mid-flow:** when the Task Lead finds another Task must merge first, it adds the link, writes the brief and stops its Run. The Task stays in its Stage as Blocked, keeping its worktree. When the blocker merges, a fresh Run starts from the brief. (KRI-15, KRI-58)
 - A Task counts as merged only when every pull request has merged and it is in Cleanup or Done. (KRI-52, TED-307)
 - A blocker that would make a cycle is refused, with the cycle named. (KRI-55)
-- Archiving or deleting a Task that blocks others lists those Tasks and asks **Unblock them** (default) or **Keep them blocked**. Kept links show “Blocked by archived NB-12” or “Blocked by deleted NB-35”. (KRI-55, KRI-63)
+- Archiving or deleting a Task that blocks others removes it from their Blocked by, without asking. The confirmation lists those Tasks under “Unblocks N Tasks”. Links kept by earlier versions show “Blocked by archived NB-12” or “Blocked by deleted NB-35” until removed. (KRI-55, KRI-63, TED-528)
 
 ### 6.17 Worktrees and branches
 

@@ -169,7 +169,7 @@ test('an Inbox row snoozes from its button with the exact time shown; snoozed ro
   )
 })
 
-test('a snoozed request’s card says when it returns, and its Task reads Snoozed until', async () => {
+test('a snoozed request’s card says when it returns, and its Task reads Snoozed with the time on hover', async () => {
   const utc = { ...defaultMachineSettings, timeZone: 'UTC', timeFormat: '24-hour' as const }
   setTimePreferences(utc)
   const api = bridge({
@@ -190,7 +190,9 @@ test('a snoozed request’s card says when it returns, and its Task reads Snooze
       <RequestCard task={value} request={comment({ id: 'c1' })} />
     </SnoozedContext>,
   )
-  expect(screen.getByText('Snoozed until Wed 11 Nov, 9:00')).toBeTruthy()
+  expect(screen.getByText('Snoozed').closest('[title]')?.getAttribute('title')).toBe(
+    'Snoozed until Wed 11 Nov, 9:00',
+  )
   expect(screen.getByText(/Snoozed\. Returns to the Inbox Wed 11 Nov, 9:00/)).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'Unsnooze' }))
   expect(api.request).toHaveBeenCalledWith('snoozeRequest', 'c1', null)

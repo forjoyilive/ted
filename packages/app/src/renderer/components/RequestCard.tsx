@@ -512,7 +512,7 @@ function ArchiveAnswer({ request, task, lead }: AnswerProps) {
   const advice = request.archive?.pullRequests
   const [close, setClose] = useState(advice?.recommend === 'close')
   const [dialog, setDialog] = useState(false)
-  const asksUser = under.length > 0 || blocked.length > 0
+  const asksUser = under.length > 0
   const typed = text.trim() !== ''
 
   async function send(answer: AnswerRequest) {
@@ -535,7 +535,12 @@ function ArchiveAnswer({ request, task, lead }: AnswerProps) {
           tasks={under}
         />
       )}
-      {blocked.length > 0 && <TaskNames heading={`Blocked by ${task.displayId}`} tasks={blocked} />}
+      {blocked.length > 0 && (
+        <TaskNames
+          heading={`Unblocks ${blocked.length} ${blocked.length === 1 ? 'Task' : 'Tasks'}`}
+          tasks={blocked}
+        />
+      )}
       {prs.length > 0 && !asksUser && (
         <label className={dialogStyles.check}>
           <input

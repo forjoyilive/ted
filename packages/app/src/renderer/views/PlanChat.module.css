@@ -280,26 +280,6 @@
   overflow-y: auto;
 }
 
-.bubble {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: var(--radius-control);
-  background: var(--accent-subtle);
-}
-
-.bubbleHead {
-  color: var(--text-secondary);
-  font-size: var(--text-12-5);
-}
-
-.bubbleText {
-  margin: 0;
-  font-size: var(--text-14);
-  white-space: pre-wrap;
-}
-
 .waitNote {
   margin: 0;
   color: var(--text-caption);

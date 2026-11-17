@@ -11,7 +11,7 @@ import { trackerSyncOf } from '../tracker-sync.ts'
 import { plural } from '../words.ts'
 import { useEnabledAgents } from './AgentOptions.tsx'
 import dialogStyles from './ArchiveDialogs.module.css'
-import { Dialog, needsUnarchiveDialog } from './ArchiveDialogs.tsx'
+import { Dialog, needsUnarchiveDialog, Unblocks, unblockedBy } from './ArchiveDialogs.tsx'
 import { autopilotChoiceLabel, autopilotChoices } from './Autopilot.tsx'
 import { Button } from './Button.tsx'
 import menuStyles from './ContextMenu.module.css'
@@ -53,13 +53,13 @@ export function BulkConfirmDialog({
   onKind: (kind: 'archive' | 'delete' | undefined) => void
 }) {
   const [closePullRequests, setClosePullRequests] = useState(true)
-  const [blocked, setBlocked] = useState<'unblock' | 'keep'>('unblock')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
   const active = tasks.every((task) => !task.archived)
   const count = plural(tasks.length, 'Task')
-  const dependents = allTasks.filter(
-    (t) => !t.archived && t.blockedBy.some((id) => tasks.some((chosen) => chosen.id === id)),
+  const dependents = unblockedBy(
+    tasks.map((t) => t.id),
+    allTasks,
   )
   const pullRequests = tasks.flatMap((t) =>
     t.repos.flatMap((r) =>
@@ -77,9 +77,8 @@ export function BulkConfirmDialog({
         kind === 'archive'
           ? ted.archiveTask(t.id, {
               closePullRequests: closePullRequests && pullRequests.length > 0,
-              blocked,
             })
-          : ted.deleteTask(t.id, { blocked }),
+          : ted.deleteTask(t.id, {}),
       )
       onKind(undefined)
     } catch (failure) {
@@ -120,28 +119,7 @@ export function BulkConfirmDialog({
               Close {pullRequests.length} open pull requests on GitHub
             </label>
           )}
-          {dependents.length > 0 && (
-            <fieldset className={dialogStyles.body}>
-              <legend>{dependents.length} Tasks depend on the selected Tasks</legend>
-              <p>{dependents.map((t) => t.displayId).join(', ')}</p>
-              <label>
-                <input
-                  type="radio"
-                  checked={blocked === 'unblock'}
-                  onChange={() => setBlocked('unblock')}
-                />
-                Unblock them
-              </label>
-              <label>
-                <input
-                  type="radio"
-                  checked={blocked === 'keep'}
-                  onChange={() => setBlocked('keep')}
-                />
-                Keep them blocked
-              </label>
-            </fieldset>
-          )}
+          <Unblocks blocker="the selected Tasks" tasks={dependents} />
           {parents.length > 0 && (
             <p className={dialogStyles.warning}>
               {`${parents.map((t) => t.displayId).join(', ')} ${parents.length === 1 ? 'has' : 'have'} child Tasks. ${kind === 'archive' ? 'Archive' : 'Delete'} ${parents.length === 1 ? 'it' : 'each'} on its own to choose what happens to the Tasks under ${parents.length === 1 ? 'it' : 'them'}.`}

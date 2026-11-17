@@ -300,7 +300,6 @@ export function CoordinatorChat({
           ],
           spot: `coordinator:${chatId}`,
           audience,
-          humanAs: 'comment',
           tedAs: 'line',
           ...(ended || removed
             ? {
