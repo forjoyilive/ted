@@ -3584,11 +3584,6 @@
       "count": 2
     }
   },
-  "packages/daemon/test/merge-check-decisions.test.ts": {
-    "anti-slop/no-unknown-parameters": {
-      "count": 1
-    }
-  },
   "packages/daemon/test/merge-ci-decisions.test.ts": {
     "anti-slop/no-unknown-parameters": {
       "count": 1
