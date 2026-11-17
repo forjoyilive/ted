@@ -7,6 +7,7 @@ import {
   addFactory,
   ctx,
   launchApp,
+  openFactoryView,
   openSettings,
   settingsNav,
   setUpAppTests,
@@ -21,9 +22,7 @@ describe('Factory settings sections', () => {
     await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin')), 'NB')
     const window = await launchApp()
     await window.setViewportSize({ width: 1280, height: 900 })
-    const nav = sidebar(window)
-    await nav.getByRole('button', { name: 'widgets' }).click()
-    await nav.getByRole('button', { name: 'Settings', exact: true }).first().click()
+    await openFactoryView(window, 'widgets', 'Settings')
     await window
       .getByRole('navigation', { name: 'Factory settings' })
       .getByRole('button', { name: 'Permissions' })
@@ -49,11 +48,10 @@ describe('Factory settings sections', () => {
     await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin')), 'NB')
     const window = await launchApp()
     await window.setViewportSize({ width: 1280, height: 800 })
-    const nav = sidebar(window)
-    await nav.getByRole('button', { name: 'widgets' }).click()
-    await nav.getByRole('button', { name: 'Settings', exact: true }).first().click()
+    await openFactoryView(window, 'widgets', 'Settings')
     await window.getByRole('region', { name: 'General', exact: true }).waitFor()
     const jump = window.getByRole('navigation', { name: 'Factory settings' })
+    const nav = sidebar(window)
 
     for (const width of [1280, 900]) {
       await window.setViewportSize({ width, height: 800 })
@@ -166,9 +164,7 @@ test('Stage effort saves in Library and a Factory override can return to inherit
   )
 
   await settingsNav(window).getByRole('button', { name: /Back/ }).click()
-  const nav = sidebar(window)
-  await nav.getByRole('button', { name: 'widgets' }).click()
-  await nav.getByRole('button', { name: 'Settings', exact: true }).first().click()
+  await openFactoryView(window, 'widgets', 'Settings')
   await window
     .getByRole('navigation', { name: 'Factory settings' })
     .getByRole('button', { name: 'Workflow', exact: true })

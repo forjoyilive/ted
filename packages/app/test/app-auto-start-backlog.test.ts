@@ -7,8 +7,8 @@ import {
   ctx,
   daemonClient,
   launchApp,
+  openFactoryView,
   setUpAppTests,
-  sidebar,
   waitFor,
 } from './app-harness.ts'
 
@@ -19,8 +19,7 @@ describe('automatic Backlog starting settings', () => {
     await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin')), 'NB')
     const window = await launchApp()
     await window.setViewportSize({ width: 1280, height: 800 })
-    await sidebar(window).getByRole('button', { name: 'widgets' }).click()
-    await sidebar(window).getByRole('button', { name: 'Settings', exact: true }).first().click()
+    await openFactoryView(window, 'widgets', 'Settings')
     const autoStart = window.getByRole('switch', { name: 'Start Backlog Tasks automatically' })
     expect(await autoStart.getAttribute('aria-checked')).toBe('false')
     await autoStart.click()
