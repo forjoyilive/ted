@@ -301,6 +301,7 @@ describe('text boxes', () => {
       ['components/RoundCard.module.css', 'text', 2],
       ['components/ProposalCard.module.css', 'box', 2],
       ['components/CommentBox.module.css', 'box', 2],
+      ['components/ReportProblemDialog.module.css', 'description', 4],
       ['components/RequestCard.module.css', 'box', 2],
       ['components/RunChat.module.css', 'box', 2],
       ['views/Automations.module.css', 'answer', 2],
