@@ -13,10 +13,12 @@ import { coordinatorStatus } from '../agent-chats.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
 import {
   AgentAbout,
+  AgentCommands,
   AgentPowers,
   AgentSource,
   builtInCoordinator,
   removedAgentNote,
+  shownCommands,
 } from '../components/AgentAbout.tsx'
 import { Button } from '../components/Button.tsx'
 import { ConfirmationCard } from '../components/ConfirmationCard.tsx'
@@ -409,6 +411,12 @@ function CoordinatorDetails({
         <h2>Powers</h2>
         <AgentPowers powers={agent.powers} />
       </section>
+      {shownCommands(agent).length > 0 && (
+        <section className={styles.section} aria-label="Commands">
+          <h2>Commands</h2>
+          <AgentCommands commands={shownCommands(agent)} />
+        </section>
+      )}
       <section className={styles.section} aria-label="From">
         <h2>From</h2>
         <AgentSource source={agent.source} />

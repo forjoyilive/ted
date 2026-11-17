@@ -129,7 +129,13 @@ function withCoordinator() {
   a.handle('coordinatorChats', () => shown.chats)
   a.handle('factoryAgents', () => [
     coordinatorAgent,
-    { id: 'triager', name: 'Triager', source: 'factory', powers: ['ask', 'read_code'] },
+    {
+      id: 'triager',
+      name: 'Triager',
+      source: 'factory',
+      powers: ['ask', 'read_code', 'run_commands'],
+      commands: [{ name: 'test', command: 'pnpm vitest run' }],
+    },
     plannerAgent,
   ])
   a.handle('coordinator', (id) =>
@@ -494,6 +500,7 @@ test('with no chats Agents opens New chat; the Agent menu lists every Agent with
       .getAllByRole('listitem')
       .map((li) => li.textContent),
   ).toEqual(['Ask the user', 'Manage Tasks'])
+  expect(within(coordinatorDetails).queryByRole('region', { name: 'Commands' })).toBeNull()
   await user().click(within(pane).getByRole('button', { name: 'What should we work on next?' }))
   await user().selectOptions(agent, 'planner')
   const planning = await screen.findByRole('region', { name: 'New planning chat' })
@@ -510,7 +517,10 @@ test('with no chats Agents opens New chat; the Agent menu lists every Agent with
     within(within(details).getByRole('region', { name: 'Powers' }))
       .getAllByRole('listitem')
       .map((li) => li.textContent),
-  ).toEqual(['Ask the user', 'Read the code'])
+  ).toEqual(['Ask the user', 'Read the code', 'Run commands in the copy'])
+  const commands = within(within(details).getByRole('region', { name: 'Commands' }))
+  expect(commands.getByText('test')).toBeTruthy()
+  expect(commands.getByText('pnpm vitest run')).toBeTruthy()
   expect(
     within(within(details).getByRole('region', { name: 'From' })).getByText('This repo'),
   ).toBeTruthy()

@@ -90,3 +90,56 @@ test('the editor shows the Provider and model a save resolves to', () => {
   })
   expect(resolvedChoice({ name: 'New' }, undefined)).toEqual({})
 })
+
+test('a save sends the commands trimmed, drops blank rows, and the editor names a bad command', () => {
+  const loaded = agentDrafts([notes])
+  const draft: AgentDraft[] = [
+    {
+      id: 'notes',
+      settings: {
+        name: 'Notes',
+        powers: ['read_code', 'run_commands'],
+        commands: [
+          { name: ' test ', command: ' pnpm test ' },
+          { name: 'web-lint', command: 'pnpm lint', repo: 'web' },
+          { name: '', command: '' },
+        ],
+      },
+      instructions: '# Notes',
+    },
+  ]
+  expect(agentChanges(draft, loaded)).toEqual([
+    {
+      id: 'notes',
+      settings: {
+        name: 'Notes',
+        powers: ['read_code', 'run_commands'],
+        commands: [
+          { name: 'test', command: 'pnpm test' },
+          { name: 'web-lint', command: 'pnpm lint', repo: 'web' },
+        ],
+      },
+    },
+  ])
+  const withCommands = (commands: { name: string; command: string }[]): AgentDraft => ({
+    id: 'notes',
+    settings: { name: 'Notes', commands },
+    instructions: '# Notes',
+  })
+  expect(agentProblem(withCommands([{ name: 'Run Tests', command: 'x' }]), [])).toBe(
+    '`Run Tests` isn’t a command name. Use lowercase letters, digits and hyphens.',
+  )
+  expect(
+    agentProblem(
+      withCommands([
+        { name: 'test', command: 'a' },
+        { name: 'test', command: 'b' },
+      ]),
+      [],
+    ),
+  ).toBe('Two commands are named test.')
+  expect(agentProblem(withCommands([{ name: 'test', command: ' ' }]), [])).toBe(
+    'Give the test command something to run.',
+  )
+  expect(agentProblem(withCommands([{ name: 'test', command: 'pnpm test' }]), [])).toBeUndefined()
+})
