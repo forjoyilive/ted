@@ -181,6 +181,7 @@ import { joinPrompt, type PromptPart, splitPrompt } from './prompt-parts.ts'
 import { legacyPurpose, structuralPurpose } from './request-purpose.ts'
 import {
   agentPauses,
+  archiveUnblocks,
   automationComments,
   automations,
   automationTasks,
@@ -901,7 +902,10 @@ export interface TedStore extends TaskHistory {
   editTask(taskId: string, edit: { title?: string; description?: string }): Task
   descriptionVersions(taskId: string): DescriptionVersion[]
   archiveTask(taskId: string, record?: { closing: string[]; branches: number; why?: string }): Task
-  unarchiveTask(taskId: string, input: { queue: boolean; waitForBlockers: boolean }): Task
+  unarchiveTask(
+    taskId: string,
+    input: { queue: boolean; waitForBlockers: boolean; reblocked?: readonly string[] },
+  ): Task
   deleteTask(taskId: string): void
   resetTask(taskId: string): Task
   moveTask(input: MoveTaskInput): { id: string; from: string; to: string }[]
@@ -914,6 +918,8 @@ export interface TedStore extends TaskHistory {
   childrenOf(taskId: string): string[]
   setTaskParent(taskId: string, parentId: string | null): Task
   recordTreeArchive(rootId: string, taskIds: readonly string[]): void
+  recordArchiveUnblocks(blockerId: string, taskIds: readonly string[]): void
+  archiveUnblocked(blockerId: string): string[]
   archivedWith(rootId: string): string[]
   blockers(taskId: string): BlockerLink[]
   addBlocker(
@@ -4661,11 +4667,11 @@ export async function openStore({
       if (guideEnd.length > 0) emitGuides()
       return task
     },
-    unarchiveTask(taskId, { queue: queued, waitForBlockers }) {
+    unarchiveTask(taskId, { queue: queued, waitForBlockers, reblocked = [] }) {
       const at = new Date().toISOString()
       const rank = queued ? Math.max(0, ...queue().map((q) => q.rank)) + 1 : null
       commit(
-        events.taskUnarchived({ taskId, rank, at }),
+        events.taskUnarchivedV2({ taskId, rank, reblocked: [...reblocked], at }),
         ...(taskRow(taskId)?.preparation === 'ready'
           ? [events.taskStopped({ taskId, runs: 0, why: 'prepared', at })]
           : []),
@@ -4843,6 +4849,16 @@ export async function openStore({
         events.taskTreeArchived({ rootId, taskIds: [...taskIds], at: new Date().toISOString() }),
       )
     },
+    recordArchiveUnblocks(blockerId, taskIds) {
+      if (taskIds.length === 0) return
+      commit(
+        events.archiveUnblocked({ blockerId, taskIds: [...taskIds], at: new Date().toISOString() }),
+      )
+    },
+    archiveUnblocked: (blockerId) =>
+      store
+        .query(queryDb(archiveUnblocks.where({ blockerId }).orderBy('taskId', 'asc')))
+        .map((row) => row.taskId),
     archivedWith: (rootId) =>
       store
         .query(queryDb(taskTreeArchives.where({ rootId }).orderBy('taskId', 'asc')))

@@ -8434,10 +8434,26 @@ export function createTasks(options: {
   }
 
   function settleDependents(taskId: string, action = 'archived'): void {
-    for (const dependent of store.blockedBy(taskId)) {
+    const dependents = store.blockedBy(taskId)
+    for (const dependent of dependents) {
       const reason = `was ${action} without merging. ${reopened} Its blocker was removed. Use Resume when ready to reassess the failure.`
       removeBlockers(dependent, { kind: 'app' }, taskId, reason)
     }
+    if (action === 'archived') store.recordArchiveUnblocks(taskId, dependents)
+  }
+
+  function restoreBlock(taskId: string, id: string, restoring: ReadonlySet<string>): boolean {
+    const dependent = store.getTask(id)
+    if (!dependent || dependent.stage === 'done') return false
+    if (dependent.archived && !restoring.has(id)) return false
+    if (inFlight.is(id, 'deleting')) return false
+    if (store.blockers(id).some((link) => link.blockerId === taskId)) return false
+    if (cycleFrom(taskId, id)) return false
+    const holds = !store.isMerged(taskId) && store.queue().some((q) => q.id === id)
+    const midFlow = dependent.repos.some((r) => !r.removed)
+    const then = !holds ? undefined : midFlow ? 'wait' : 'backlog'
+    store.addBlocker(id, taskId, then === undefined ? {} : { then })
+    return true
   }
 
   function leftBehind(displayId: string): boolean {
@@ -8523,20 +8539,44 @@ export function createTasks(options: {
     return family
   }
 
-  async function restoreArchived(id: string): Promise<void> {
+  async function restoreArchived(id: string, restoring: ReadonlySet<string>): Promise<void> {
     await clearingAway.get(id)?.catch(() => undefined)
     await pullRequestQueue.get(id)
+    await Promise.all(
+      store
+        .archiveUnblocked(id)
+        .map((dependent) => beginning.get(dependent)?.catch(() => undefined)),
+    )
     const current = find(id)
     if (!current.archived || inFlight.is(id, 'deleting')) {
       throw new RequestError(409, `${current.displayId} isn’t archived`)
     }
+    const reblocked = store
+      .archiveUnblocked(id)
+      .flatMap((dependent) => store.getTask(dependent) ?? [])
+      .sort((a, b) => a.number - b.number)
+      .filter((dependent) => restoreBlock(id, dependent.id, restoring))
+      .map((dependent) => dependent.id)
     const midFlow = current.stage !== 'backlog' && current.stage !== 'done'
     store.unarchiveTask(id, {
       queue: midFlow,
       waitForBlockers: midFlow && unmergedBlockers(id).length > 0,
+      reblocked,
     })
     if (midFlow && current.repos.some((r) => r.pullRequest?.state === 'closed')) {
       pullRequestWork(id, 'reopen')
+    }
+    for (const dependentId of reblocked) {
+      const run = liveLead(find(dependentId))
+      if (!run || store.isMerged(id)) continue
+      try {
+        await tellLead(find(id), run)
+      } catch (error) {
+        console.error(
+          `couldn’t tell ${dependentId} about its restored blocker:`,
+          redactSecrets(textOf(error)),
+        )
+      }
     }
   }
 
@@ -8561,8 +8601,9 @@ export function createTasks(options: {
         if (!find(task.id).archived) throw new RequestError(409, `${task.displayId} isn’t archived`)
         store.setTaskParent(task.id, null)
       }
-      await restoreArchived(task.id)
-      for (const id of family) await restoreArchived(id)
+      const restoring = new Set([task.id, ...family])
+      await restoreArchived(task.id, restoring)
+      for (const id of family) await restoreArchived(id, restoring)
       for (const id of [...family].reverse()) holdParent(id)
       if (family.length > 0) holdParent(task.id)
       if (parent && !input.unlinkParent) holdParent(parent.id)

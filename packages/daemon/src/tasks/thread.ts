@@ -482,14 +482,25 @@ export function threadEvents(
         break
       }
       case 'v1.TaskUnarchived':
+      case 'v2.TaskUnarchived': {
+        const reblocked = Array.isArray(data.reblocked)
+          ? data.reblocked.map((id) => context.displayIdOf(String(id)))
+          : []
         add(
           entry,
           'edit',
-          data.queued === true
-            ? 'You unarchived this Task · a fresh Task Lead Run starts from the brief'
-            : 'You unarchived this Task',
+          [
+            'You unarchived this Task',
+            ...(data.queued === true ? ['a fresh Task Lead Run starts from the brief'] : []),
+            ...(reblocked.length > 0
+              ? [
+                  `${joinAnd(reblocked)} ${reblocked.length === 1 ? 'is' : 'are'} blocked by it again`,
+                ]
+              : []),
+          ].join(' · '),
         )
         break
+      }
       case 'v1.TaskBlockerAdded':
       case 'v2.TaskBlockerAdded':
         add(

@@ -38,7 +38,8 @@ const asksForFreshRun = (entry: LoggedEvent): boolean =>
   entry.name === 'v1.TaskRequeuedAfterBlockers' ||
   entry.name === 'v1.TaskRetried' ||
   entry.name === 'v1.GitHubActivityQueued' ||
-  (entry.name === 'v1.TaskUnarchived' && entry.data.queued === true) ||
+  ((entry.name === 'v1.TaskUnarchived' || entry.name === 'v2.TaskUnarchived') &&
+    entry.data.queued === true) ||
   (entry.name === 'v1.TaskMovedToFactory' && entry.data.started === true) ||
   (entry.name === 'v1.TaskLeadFailed' && entry.data.recovery === 'fresh')
 
@@ -161,6 +162,7 @@ export function createTaskHistory(
         case 'v1.TaskRetried':
           return { kind: 'retried', pending }
         case 'v1.TaskUnarchived':
+        case 'v2.TaskUnarchived':
           return { kind: 'unarchived', pending }
         case 'v1.TaskMovedToFactory':
           return { kind: 'moved', from: String(last.data.fromDisplayId), pending }

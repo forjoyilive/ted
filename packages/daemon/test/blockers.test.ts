@@ -13,6 +13,7 @@ import {
   type Factory,
   readDaemonInfo,
   type Task,
+  type ThreadEvent,
   tedPaths,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
@@ -889,6 +890,37 @@ test('hierarchy API persists nested links, refuses stale and cyclic edits, and c
   const restoredLoner = await getTask(client, loner.id)
   expect(restoredLoner.archived).toBeUndefined()
   expect(restoredLoner.parentId).toBeUndefined()
+
+  const siblings = await create(client, 'Siblings')
+  const first = await create(client, 'First sibling')
+  const second = await create(client, 'Second sibling')
+  const waitsForFirst = await create(client, 'Waits for the first', { blockedBy: [first.id] })
+  const waitsForSecond = await create(client, 'Waits for the second', { blockedBy: [second.id] })
+  await parentOf(app, first, siblings)
+  await parentOf(app, second, siblings)
+  await app.archiveTask(siblings.id, { hierarchyRevision: await confirm(siblings) })
+  expect((await block(client, second, waitsForFirst)).status).toBe(200)
+  expect((await block(client, first, waitsForSecond)).status).toBe(200)
+  await app.unarchiveTask(siblings.id, { children: 'restore' })
+  const restoredTo = async (task: Task) => {
+    const events = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
+    return events.findLast((e) => e.text.startsWith('You unarchived this Task'))?.text
+  }
+  const pairs = [
+    [first, waitsForFirst],
+    [second, waitsForSecond],
+  ] as const
+  const restored = []
+  for (const [sibling, waiting] of pairs) {
+    const back = (await getTask(client, waiting.id)).blockedBy.includes(sibling.id)
+    if (back) restored.push(sibling)
+    expect(await restoredTo(sibling)).toBe(
+      back
+        ? `You unarchived this Task · ${waiting.displayId} is blocked by it again`
+        : 'You unarchived this Task',
+    )
+  }
+  expect(restored).toHaveLength(1)
 
   const made = await app.createTask({
     title: 'Made under Kid',
