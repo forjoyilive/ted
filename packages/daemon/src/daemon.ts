@@ -56,6 +56,7 @@ import { createConversations } from './runs/conversations.ts'
 import { sleepIdleRuns } from './runs/idle-sleep.ts'
 import { type RunManager, startRunManager } from './runs/run-manager.ts'
 import { createSteering } from './runs/steering.ts'
+import { followTaskTokens } from './runs/task-tokens.ts'
 import { restartOnNewVersions } from './runs/version-restarts.ts'
 import { createSandbox } from './sandbox.ts'
 import { listen } from './server.ts'
@@ -857,6 +858,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         health,
         disk,
       })
+      const taskTokens = followTaskTokens({ store, runs, agents })
       const versionRestarts = await restartOnNewVersions({
         store,
         health,
@@ -932,6 +934,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
           plans.close()
           libraryWatch.close()
           versionRestarts.close()
+          taskTokens.close()
           idleSleep.close()
           await checkTries.close()
           workflows.close()

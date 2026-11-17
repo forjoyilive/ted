@@ -1,6 +1,14 @@
 import type { CreatedBy, Priority, StageId, TaskStatusKind } from './task.ts'
 
-export const listSorts = ['manual', 'priority', 'updated', 'created', 'stage', 'title'] as const
+export const listSorts = [
+  'manual',
+  'priority',
+  'updated',
+  'created',
+  'stage',
+  'title',
+  'tokens',
+] as const
 
 export type ListSort = (typeof listSorts)[number]
 
