@@ -935,6 +935,7 @@ export interface CommentGate {
   caption?: string
   pullRequests?: MergeRow[]
   changes?: SignOffChanges
+  noCi?: string[]
 }
 
 export interface MergeRow {

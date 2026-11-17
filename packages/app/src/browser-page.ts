@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import { type BrowserRequest, type BrowserResult, browserViewport } from '@ted/protocol'
+import {
+  type BrowserRequest,
+  type BrowserResult,
+  browserViewport,
+  scriptLiteral,
+} from '@ted/protocol'
 import type { Session, WebContents, WebPreferences } from 'electron'
 
 export interface GuestHost {
@@ -239,7 +244,7 @@ export async function runOnPage(
   const script = async <T>(code: string): Promise<T> => {
     check()
     const result = (await contents.script(
-      `(() => { const check = () => { if (Date.now() >= ${command.expiresAt}) throw Error('Browser command expired'); }; check(); return (${code}); })()`,
+      `(() => { const check = () => { if (Date.now() >= ${scriptLiteral(command.expiresAt)}) throw Error('Browser command expired'); }; check(); return (${code}); })()`,
     )) as T
     check()
     return result
@@ -254,7 +259,7 @@ export async function runOnPage(
           if (index >= 200) break;
           const r = e.getBoundingClientRect();
           if (!r.width || !r.height || getComputedStyle(e).visibility === 'hidden') continue;
-          const ref = ${JSON.stringify(prefix)} + ':' + (++index);
+          const ref = ${scriptLiteral(prefix)} + ':' + (++index);
           globalThis.__tedElements.set(ref,e);
           const name = (e.getAttribute('aria-label') || (e.labels && Array.from(e.labels).map(l => l.innerText).join(' ')) || e.innerText || e.getAttribute('placeholder') || '').replace(/\\s+/g,' ').slice(0,200);
           out.push(ref + ' ' + (e.getAttribute('role') || e.tagName.toLowerCase()) + ' ' + name);
@@ -267,7 +272,7 @@ export async function runOnPage(
     checkPage()
     if (!ref?.startsWith(`${page.revision}:`))
       throw new Error('Stale element reference; run snapshot again')
-    const lookup = `const e = globalThis.__tedElements?.get(${JSON.stringify(ref)}); if (!e || !e.isConnected) throw Error('Stale element reference; run snapshot again'); if (e instanceof HTMLInputElement && e.type === 'file') throw Error('File inputs aren’t supported');`
+    const lookup = `const e = globalThis.__tedElements?.get(${scriptLiteral(ref)}); if (!e || !e.isConnected) throw Error('Stale element reference; run snapshot again'); if (e instanceof HTMLInputElement && e.type === 'file') throw Error('File inputs aren’t supported');`
     if (action === 'click') {
       const point = await script<{ x: number; y: number }>(
         `(() => { ${lookup} e.scrollIntoView({block:'center'}); const r=e.getBoundingClientRect(); if (!r.width || !r.height || e.disabled) throw Error('Element is not clickable'); const x=r.x+r.width/2,y=r.y+r.height/2; if (!e.contains(document.elementFromPoint(x,y))) throw Error('Element is covered'); return {x,y}; })()`,
@@ -291,7 +296,7 @@ export async function runOnPage(
       })
     } else {
       await script(
-        `(() => { ${lookup} if (!(e instanceof HTMLInputElement || e instanceof HTMLTextAreaElement) || e.disabled || e.readOnly) throw Error('Choose an editable text field'); if(e instanceof HTMLInputElement && !['text','search','email','url','tel','password','number'].includes(e.type)) throw Error('Choose a text field'); check(); e.focus(); check(); const proto=e instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto,'value').set.call(e,${JSON.stringify(value ?? '')}); check(); e.dispatchEvent(new Event('input',{bubbles:true})); check(); e.dispatchEvent(new Event('change',{bubbles:true})); })()`,
+        `(() => { ${lookup} if (!(e instanceof HTMLInputElement || e instanceof HTMLTextAreaElement) || e.disabled || e.readOnly) throw Error('Choose an editable text field'); if(e instanceof HTMLInputElement && !['text','search','email','url','tel','password','number'].includes(e.type)) throw Error('Choose a text field'); check(); e.focus(); check(); const proto=e instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto,'value').set.call(e,${scriptLiteral(value ?? '')}); check(); e.dispatchEvent(new Event('input',{bubbles:true})); check(); e.dispatchEvent(new Event('change',{bubbles:true})); })()`,
       )
     }
     page.revision = randomUUID()

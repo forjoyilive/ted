@@ -194,7 +194,7 @@ export function createValidation(options: ValidationOptions) {
         store.latestRebase(task.id, mergeVisit) !== undefined ||
         mergeChecksStarted(task))
     if (merging) trigger = 'merge'
-    const validating = validates(task.stage) && trigger !== 'merge'
+    const validating = validates(task.stage) && trigger !== 'merge' && trigger !== 'hand-off'
     const diagnosing = validating || merging
     const existing = store.failures.progress(task.id)
     const order = resolution.workflow.order
@@ -599,7 +599,7 @@ export function createValidation(options: ValidationOptions) {
         await options.deliver(
           task,
           await withApps(
-            `${instructions}\n\n# Checks\n\nTed ran the Factory’s checks before moving the Task out of Work. None failed:\n\n${summary(checked.run.checks)}`,
+            `${instructions}\n\n# Checks\n\nTed ran the Factory’s checks when the Task entered Validate. None failed:\n\n${summary(checked.run.checks)}`,
           ),
           'checks-passed',
         )
@@ -995,11 +995,12 @@ export function createValidation(options: ValidationOptions) {
     })
   }
 
-  function recover() {
+  function recover(skip: ReadonlySet<string> = new Set()) {
     for (const checkRun of store.listCheckRuns().filter((r) => r.finishedAt === undefined)) {
       const task = store.getTask(checkRun.taskId)
       const restart =
         checkRun.trigger === 'validate' &&
+        !skip.has(checkRun.taskId) &&
         task !== undefined &&
         validates(task.stage) &&
         !pendingRepair(task)
@@ -1021,6 +1022,7 @@ export function createValidation(options: ValidationOptions) {
         decision?.resolution === 'fix'
       if (
         validates(task.stage) &&
+        !skip.has(task.id) &&
         !pendingRepair(task) &&
         !task.archived &&
         !store.failures.list(task.id).some((f) => {

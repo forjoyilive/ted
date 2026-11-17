@@ -116,7 +116,7 @@ export interface RequestAnswerPort {
     from: AgentStageId,
     sendBack: SendBack,
   ): string
-  leaveWorkToDiagnose(task: StoredTask): Promise<(message: string) => Promise<Task>>
+  diagnoseInValidate(task: StoredTask, message: string): void
   settleDependents(id: string): void
   beforeArchive?(task: StoredTask): void
   archiveNow(task: StoredTask, close: boolean): Task
@@ -201,7 +201,7 @@ export function createRequestAnswers(
     deliver,
     move,
     backMessage,
-    leaveWorkToDiagnose,
+    diagnoseInValidate,
     settleDependents,
     archiveNow,
     archiveAsked,
@@ -472,24 +472,6 @@ export function createRequestAnswers(
   ): Promise<Comment | undefined> {
     const ask = store.sendBackAsk(comment.id)
     if (!ask) throw new RequestError(409, 'this send-back request has no recorded decision')
-    if (handsOff(ask.from) && handsOff(ask.to) && choice === diagnoseChoice) {
-      const current = find(task.id)
-      const enterValidate = await leaveWorkToDiagnose(current)
-      const answered = answerRequest(task, comment, {
-        kind: 'answered',
-        at,
-        choice,
-        ...(text !== '' && { text }),
-      })
-      if (!liveLead(current)) store.holdAnswer(comment.id)
-      await enterValidate(
-        [
-          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${diagnoseChoice}, so Ted moved this Task to Validate although the checks didn’t pass in Work. Ted runs the checks at entry. A check that fails there is a failure case: assess it as Validate’s instructions say, and the human can then choose Retry, Fix in this Task or Accept this failure.`,
-          ...(text !== '' ? [`The human added:\n\n${text}`] : []),
-        ].join('\n\n'),
-      )
-      return answered
-    }
     if (!ask.loop || choice === undefined) return undefined
     const current = find(task.id)
     if (!validates(current.stage)) return undefined
@@ -497,8 +479,27 @@ export function createRequestAnswers(
     const resolution = await gateWorkflow(current, { reads })
     const { workflow } = resolution
     const next = workflow.next(stageWith('validates')) as AgentStageId | 'done'
-    const choices = loopChoices(workflow)
+    const handOff =
+      ask.checkRunId !== undefined && store.getCheckRun(ask.checkRunId)?.trigger === 'hand-off'
+    const choices = loopChoices(workflow, handOff)
     if (!choices.includes(choice)) return undefined
+    if (choice === diagnoseChoice) {
+      const answered = answerRequest(task, comment, {
+        kind: 'answered',
+        at,
+        choice,
+        ...(text !== '' && { text }),
+      })
+      if (!liveLead(current)) store.holdAnswer(comment.id)
+      diagnoseInValidate(
+        current,
+        [
+          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${diagnoseChoice}, so the Task stays in Validate with the check failing. Ted runs the checks again now. A check that fails is a failure case: assess it as Validate’s instructions say, and the human can then choose Retry, Fix in this Task or Accept this failure.`,
+          ...(text !== '' ? [`The human added:\n\n${text}`] : []),
+        ].join('\n\n'),
+      )
+      return answered
+    }
     if (choice === tryAgainChoice) checkBack(workflow, stageWith('validates'), ask.to)
     if (choice === backToDesignChoice)
       checkBack(workflow, stageWith('validates'), stageWith('designReview'))
@@ -1158,7 +1159,7 @@ export const tryAgainChoice = 'Try again'
 export const backToDesignChoice = 'Back to Design'
 export const diagnoseChoice = 'Diagnose in Validate'
 
-export function loopChoices(workflow: ResolvedWorkflow): string[] {
+export function loopChoices(workflow: ResolvedWorkflow, handOff = false): string[] {
   const next = workflow.next(stageWith('validates'))
   const design =
     workflow.stages.includes(stageWith('designReview')) &&
@@ -1167,7 +1168,7 @@ export function loopChoices(workflow: ResolvedWorkflow): string[] {
   return [
     tryAgainChoice,
     ...(design ? [backToDesignChoice] : []),
-    `Move to ${stageTitle(next)} anyway`,
+    handOff ? diagnoseChoice : `Move to ${stageTitle(next)} anyway`,
   ]
 }
 

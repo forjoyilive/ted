@@ -6,5 +6,6 @@ release:
     lint: pnpm lint
   outside_commands:
     build: pnpm release build <version>
+    build-without-tests: pnpm release build <version> --skip-checks
     publish: pnpm release publish
     discard: pnpm release discard

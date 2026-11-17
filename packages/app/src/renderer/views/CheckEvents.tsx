@@ -30,8 +30,8 @@ export function checkRunHeadline(
     ]
   }
   if (checkRun.outcome === 'interrupted') return ['quiet', 'Checks stopped before they finished']
-  if (failed) return ['failure', `${checkLabel(failed)} failed at ${stage}`]
-  return ['done', `Checks passed at ${stage}`]
+  if (failed) return ['failure', `${checkLabel(failed)} failed in ${stage}`]
+  return ['done', `Checks passed in ${stage}`]
 }
 
 export function CheckRunLine({

@@ -31,7 +31,7 @@ describe('Approve and merge', () => {
   test('with no CI, Ted merges at once, deletes the branch, removes the worktree and releases blocked Tasks', async () => {
     const client = await start()
     const { task, signoff } = await toSignoff(client)
-    expect(signoff.gate).toEqual({ approveLabel: 'Approve and merge' })
+    expect(signoff.gate).toEqual({ approveLabel: 'Approve and merge', noCi: ['widgets'] })
     const blocked = await client.ok<Task>('POST', '/tasks', {
       title: JSON.stringify({ steps: [{ endTurn: true }] }),
       factory: 'NB',
