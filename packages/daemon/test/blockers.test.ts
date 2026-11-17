@@ -170,7 +170,7 @@ describe('adding a blocker', () => {
       stage: 'backlog',
       blockedBy: [d.id],
       markers: [{ kind: 'blocked-by', by: d.displayId }],
-      activity: `Starts when ${d.displayId} merges`,
+      activity: `Blocked by ${d.displayId}`,
     })
 
     const blocker = await create(client, 'Blocker')

@@ -2263,6 +2263,7 @@ export async function openStore({
       ...(pausedReason !== undefined && { paused: pausedReason }),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
       ...(firstEnded !== undefined && { blockerEnded: firstEnded }),
+      ...(row.startRequested && { startsAfterBlockers: true }),
       ...(github !== undefined && { github }),
       ...(mergeWaits && { mergePending: true }),
       ...(autoMergeLeft && { autoMergeLeft: true }),
