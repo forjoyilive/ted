@@ -533,7 +533,7 @@ describe('Run output retention in the daemon', () => {
         kind: 'ted',
         id: 'output-not-kept',
         title: 'Output no longer kept',
-        text: 'TED no longer keeps this Run’s output, so its messages and tool calls can’t be shown.',
+        text: 'Ted no longer keeps this Run’s output, so its messages and tool calls can’t be shown.',
       })
     }
     expect((await task(done.id)).stage).toBe('done')

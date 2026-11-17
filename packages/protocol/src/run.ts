@@ -53,7 +53,7 @@ export interface Run {
   name?: string
   failure?: string
   state: RunState
-  /** TED ended the idle agent to free memory; the next message starts it again in the same session. */
+  /** Ted ended the idle agent to free memory; the next message starts it again in the same session. */
   asleep?: true
   startedAt: string
   revivedAt?: string

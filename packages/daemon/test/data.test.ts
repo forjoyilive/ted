@@ -154,10 +154,10 @@ describe('store migrations', () => {
     expect(status.restore).toMatchObject({ kind: 'pre-update', dataFrom: '1.0.0' })
     const tasks = await ted.call('GET', '/tasks')
     expect(tasks.status).toBe(503)
-    expect(tasks.body.error).toBe('TED couldn’t update its data')
+    expect(tasks.body.error).toBe('Ted couldn’t update its data')
   })
 
-  test('a store written by a newer TED doesn’t open, and restoring its pre-update backup does', async () => {
+  test('a store written by a newer Ted doesn’t open, and restoring its pre-update backup does', async () => {
     let ted = await start('1.0.0')
     await ted.call('POST', '/tasks', { title: 'Fix login' })
     await stop()
@@ -329,7 +329,7 @@ describe('restore', () => {
     expect(res.status).toBe(500)
     expect(res.body.error).toMatch(
       new RegExp(
-        `^Restored ${newer?.name}, but TED couldn’t open it: This data needs a newer TED\\. Your data from before the restore is in backup before-restore-\\d{8}-\\d{6}\\.$`,
+        `^Restored ${newer?.name}, but Ted couldn’t open it: This data needs a newer Ted\\. Your data from before the restore is in backup before-restore-\\d{8}-\\d{6}\\.$`,
       ),
     )
   })

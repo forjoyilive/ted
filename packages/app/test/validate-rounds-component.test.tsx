@@ -107,7 +107,7 @@ test('the Work setting starts off, sends what the human picks and says what it t
   expect(closes.getAttribute('aria-checked')).toBe('true')
   await user().hover(screen.getByRole('button', { name: 'Help' }))
   expect(screen.getByRole('tooltip').textContent).toContain(
-    'TED doesn’t run the test, so you are trusting the Task Lead’s report.',
+    'Ted doesn’t run the test, so you are trusting the Task Lead’s report.',
   )
 })
 

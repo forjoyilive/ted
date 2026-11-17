@@ -15,7 +15,7 @@ const shellPath = (rest: string) =>
 const workspacePath = (rest: string) => new RegExp(`^/tasks/([^/]+)/repos/([^/]+)/shells${rest}$`)
 
 function appOnly(caller: Caller): void {
-  if (caller.kind !== 'app') throw new HttpError(403, 'only the TED app can do this')
+  if (caller.kind !== 'app') throw new HttpError(403, 'only the Ted app can do this')
 }
 
 function query(search: string): { generation: number; from: number; waitMs: number } {

@@ -8,7 +8,7 @@ describe('the new issue link', () => {
     expect(newIssueUrl(true)).toMatch(/^https:\/\/github\.com\/forjoyilive\/ted\/issues\/new\?/)
   })
 
-  test('asks for the pasted report only when TED copied one', () => {
+  test('asks for the pasted report only when Ted copied one', () => {
     expect(body(newIssueUrl(true))).toContain('paste it here')
     expect(body(newIssueUrl(false))).not.toContain('clipboard')
     expect(body(newIssueUrl(false))).toContain('couldn’t make a diagnostic report')

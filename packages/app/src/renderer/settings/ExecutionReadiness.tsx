@@ -16,7 +16,7 @@ export function ExecutionReadiness({
       <dl className={styles.readiness}>
         <dt>Platform</dt>
         <dd>
-          {value.platform} · {value.arch} · TED {value.version}
+          {value.platform} · {value.arch} · Ted {value.version}
         </dd>
         <dt>Providers</dt>
         <dd>

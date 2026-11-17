@@ -12,13 +12,13 @@ export interface Identity {
 const identities: Record<Edition, Identity> = {
   release: {
     edition: 'release',
-    name: 'TED',
+    name: 'Ted',
     homeFolder: '.ted',
     keyringService: 'TED',
   },
   dev: {
     edition: 'dev',
-    name: 'TED Dev',
+    name: 'Ted Dev',
     homeFolder: '.ted-dev',
     keyringService: 'TED Dev',
   },

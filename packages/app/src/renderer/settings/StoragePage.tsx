@@ -126,8 +126,8 @@ function ArchivedTasksRow({ days }: { days: number | null }) {
               </h2>
               <p className={dialogStyles.body}>
                 {confirm.due === 1
-                  ? `It was archived more than ${plural(confirm.days, 'day')} ago, so TED deletes it with its comments, Task brief and chats. This can’t be undone.`
-                  : `They were archived more than ${plural(confirm.days, 'day')} ago, so TED deletes them with their comments, Task briefs and chats. This can’t be undone.`}
+                  ? `It was archived more than ${plural(confirm.days, 'day')} ago, so Ted deletes it with its comments, Task brief and chats. This can’t be undone.`
+                  : `They were archived more than ${plural(confirm.days, 'day')} ago, so Ted deletes them with their comments, Task briefs and chats. This can’t be undone.`}
               </p>
               <div className={dialogStyles.buttons}>
                 <Button onClick={() => setConfirm(undefined)}>Cancel</Button>
@@ -197,8 +197,8 @@ function ArchivedChatsRow({ days }: { days: number | null }) {
               </h2>
               <p className={dialogStyles.body}>
                 {confirm.due === 1
-                  ? `It was archived more than ${plural(confirm.days, 'day')} ago, so TED deletes it with its conversation. Tasks it created stay. This can’t be undone.`
-                  : `They were archived more than ${plural(confirm.days, 'day')} ago, so TED deletes them with their conversations. Tasks they created stay. This can’t be undone.`}
+                  ? `It was archived more than ${plural(confirm.days, 'day')} ago, so Ted deletes it with its conversation. Tasks it created stay. This can’t be undone.`
+                  : `They were archived more than ${plural(confirm.days, 'day')} ago, so Ted deletes them with their conversations. Tasks they created stay. This can’t be undone.`}
               </p>
               <div className={dialogStyles.buttons}>
                 <Button onClick={() => setConfirm(undefined)}>Cancel</Button>

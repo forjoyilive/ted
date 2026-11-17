@@ -43,7 +43,7 @@ export function fixedText(urls: readonly string[]): string {
 }
 
 export function leftOpenNote(label: string, open: number): string {
-  return `TED left ${label} open on GitHub because ${open === 1 ? 'one of its sub-issues is' : `${open} of its sub-issues are`} still open.`
+  return `Ted left ${label} open on GitHub because ${open === 1 ? 'one of its sub-issues is' : `${open} of its sub-issues are`} still open.`
 }
 
 const pullRequestUrls = (task: Task): string[] =>
@@ -193,11 +193,11 @@ export function githubConnector(store: TedStore, github: GitHubIssueSyncApi): Gi
     texts: {
       closedTitle: (label, state) => `${label} was ${state} on GitHub`,
       closedBody: (label, state, pastSignOff) =>
-        `${label} was ${state} on GitHub ${pastSignOff ? 'after you signed off on this Task' : 'while this Task is still being worked on'}. TED keeps going until you choose.`,
+        `${label} was ${state} on GitHub ${pastSignOff ? 'after you signed off on this Task' : 'while this Task is still being worked on'}. Ted keeps going until you choose.`,
       childArchived: (child, label, state) =>
-        `TED archived ${child}, a Task under this one, because ${label} was ${state} on GitHub.`,
+        `Ted archived ${child}, a Task under this one, because ${label} was ${state} on GitHub.`,
       groupTitle: (group) => `Sync ${group.name} issues with GitHub?`,
-      groupBody: ({ label }) => `TED doesn’t ask before syncing ${label}.`,
+      groupBody: ({ label }) => `Ted doesn’t ask before syncing ${label}.`,
     },
   }
 }

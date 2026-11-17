@@ -308,7 +308,7 @@ test('Workflow and notes stay staged across pages while confirmed permissions sa
     'false',
   )
   await u.click(screen.getByRole('button', { name: 'Review and save…' }))
-  const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
+  const dialog = await screen.findByRole('dialog', { name: 'Save Ted settings' })
   for (const name of ['Changes to .ted/notes.md', 'Changes to .ted/workflow.yaml'])
     expect(within(dialog).getByRole('region', { name })).toBeTruthy()
   const button = within(dialog).getByRole('button', { name: 'Save and merge' }) as HTMLButtonElement
@@ -378,7 +378,7 @@ test('repo settings explain saving and let the user retry merging without losing
   const gate = screen.getByRole('switch', { name: 'Design sign-off' })
   await u.click(gate)
   await u.click(screen.getByRole('button', { name: 'Review and save…' }))
-  const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
+  const dialog = await screen.findByRole('dialog', { name: 'Save Ted settings' })
   expect(
     within(dialog).getByText(/leaves it open for you to review and merge on GitHub/),
   ).toBeTruthy()
@@ -534,7 +534,7 @@ test('Factory drift offers merge and inherited choices; Library drift offers def
   expect(screen.queryByRole('button', { name: 'Merge with an agent' })).toBeNull()
 })
 
-test('Agent defaults save a Library override and reset it to the TED default', async () => {
+test('Agent defaults save a Library override and reset it to the Ted default', async () => {
   const { AgentDefaults } = await import('../src/renderer/settings/AgentDefaults.tsx')
   let library: import('@ted/protocol').LibraryView = {
     agentFiles: [],
@@ -585,12 +585,12 @@ test('Agent defaults save a Library override and reset it to the TED default', a
       (screen.getByRole('combobox', { name: 'Reviewer model' }) as HTMLSelectElement).value,
     ).toBe('gpt-5.5'),
   )
-  await user().click(screen.getByRole('button', { name: 'Reset to TED default' }))
+  await user().click(screen.getByRole('button', { name: 'Reset to Ted default' }))
   expect(api.request).toHaveBeenLastCalledWith('saveLibrary', {
     changes: { agents: { reviewer: null } },
     version: 'v2',
   })
-  expect(screen.queryByRole('button', { name: 'Reset to TED default' })).toBeNull()
+  expect(screen.queryByRole('button', { name: 'Reset to Ted default' })).toBeNull()
 })
 
 test('repo setup edits show Edited and unsaved counts, and Discard restores loaded values', async () => {
@@ -700,7 +700,7 @@ test('Factory drift counts lead to Keep mine staging the actual parent draft', a
   })
 })
 
-test('Library drift counts and the TED-default explanation lead to a saved Keep mine draft', async () => {
+test('Library drift counts and the Ted-default explanation lead to a saved Keep mine draft', async () => {
   const a = appState()
   const library: import('@ted/protocol').LibraryView = {
     agentFiles: [],
@@ -717,7 +717,7 @@ test('Library drift counts and the TED-default explanation lead to a saved Keep 
         gate: true,
         from: 'library',
         libraryFile: '# My review',
-        defaultText: '# TED review',
+        defaultText: '# Ted review',
         basedOn: 'abcdef0',
         drift: { ...changedStage, layer: 'ted', changedIn: '0.1.5' },
       },
@@ -734,7 +734,7 @@ test('Library drift counts and the TED-default explanation lead to a saved Keep 
   await a.settings()
   await user().click(await screen.findByRole('button', { name: /^Library\s*1$/ }))
   const notice = await screen.findByRole('region', { name: 'Review drift' })
-  expect(notice.textContent).toContain('TED 0.1.5')
+  expect(notice.textContent).toContain('Ted 0.1.5')
   expect(notice.textContent).toContain('compares your copy with the default')
   await user().click(within(notice).getByRole('button', { name: 'Keep mine' }))
   expect(screen.queryByRole('region', { name: 'Review drift' })).toBeNull()
@@ -885,7 +885,7 @@ test('a drift reload during save completion still resets the saved draft', async
   await page('Workflow')
   await u.click(await screen.findByRole('switch', { name: 'Design sign-off' }))
   await u.click(screen.getByRole('button', { name: 'Review and save…' }))
-  const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
+  const dialog = await screen.findByRole('dialog', { name: 'Save Ted settings' })
   await u.click(within(dialog).getByRole('button', { name: 'Save and merge' }))
   await waitFor(() => expect(reads).toBe(2))
   act(() => api.emit({ type: 'drift-changed', drift: { factories: { f1: 1 }, library: 0 } }))
@@ -950,7 +950,7 @@ test('the page loads once on open, shows a remote change when it has no edits an
   expect(screen.getByText('1 unsaved change to .ted/notes.md')).toBeTruthy()
 
   await u.click(screen.getByRole('button', { name: 'Review and save…' }))
-  const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
+  const dialog = await screen.findByRole('dialog', { name: 'Save Ted settings' })
   await u.click(within(dialog).getByRole('button', { name: 'Save and merge' }))
   await screen.findByText('Pull request #7 merged. Settings saved to the repo.')
   expect(save.mock.calls[0]?.[1]).toMatchObject({ version: 'v2', changes: { notes: 'Mine' } })
@@ -1049,7 +1049,7 @@ test('Cleanup turns on, adds an instruction and a command step, reorders them an
   )
 
   await u.click(screen.getByRole('button', { name: 'Review and save…' }))
-  const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
+  const dialog = await screen.findByRole('dialog', { name: 'Save Ted settings' })
   await u.click(within(dialog).getByRole('button', { name: 'Save and merge' }))
   const cleanup = {
     enabled: true,
@@ -1129,7 +1129,7 @@ test('the Workflow table shows a custom Stage by name and a Cleanup row that tur
   ).toBe('true')
 
   await u.click(screen.getByRole('button', { name: 'Review and save…' }))
-  const dialog = await screen.findByRole('dialog', { name: 'Save TED settings' })
+  const dialog = await screen.findByRole('dialog', { name: 'Save Ted settings' })
   await u.click(within(dialog).getByRole('button', { name: 'Save and merge' }))
   expect(api.request).toHaveBeenCalledWith(
     'saveFactorySettings',

@@ -68,7 +68,7 @@ async function toSetUp() {
   await user().click(button('Next'))
   await screen.findByRole('heading', { name: 'How it works' })
   await user().click(button('Next'))
-  await screen.findByRole('heading', { name: /^Set up TED/ })
+  await screen.findByRole('heading', { name: /^Set up Ted/ })
 }
 
 async function open(agents?: AgentHealth[]) {
@@ -92,11 +92,11 @@ test('the steps run in order, Back returns, and Skip saves Start at login and re
   await user().click(button('Next'))
   await screen.findByText('Step 3 of 4')
   const login = screen.getByRole('checkbox', {
-    name: 'Start TED in the background when you log in',
+    name: 'Start Ted in the background when you log in',
   }) as HTMLInputElement
   expect(login.checked).toBe(false)
   const reporting = screen.getByRole('checkbox', {
-    name: /^Send error reporting and usage data to the TED team/,
+    name: /^Send error reporting and usage data to the Ted team/,
   }) as HTMLInputElement
   expect(reporting.checked).toBe(true)
   await user().click(reporting)
@@ -122,7 +122,7 @@ test('Skip on the first step ends onboarding without answering reporting', async
   })
 })
 
-test('after a reset with a Factory, Set up TED is the last step and keeps Start at login and reporting', async () => {
+test('after a reset with a Factory, Set up Ted is the last step and keeps Start at login and reporting', async () => {
   const a = start(undefined, {
     factories: [factory()],
     settings: {
@@ -137,14 +137,14 @@ test('after a reset with a Factory, Set up TED is the last step and keeps Start 
   expect(
     (
       screen.getByRole('checkbox', {
-        name: 'Start TED in the background when you log in',
+        name: 'Start Ted in the background when you log in',
       }) as HTMLInputElement
     ).checked,
   ).toBe(true)
   expect(
     (
       screen.getByRole('checkbox', {
-        name: /^Send error reporting and usage data to the TED team/,
+        name: /^Send error reporting and usage data to the Ted team/,
       }) as HTMLInputElement
     ).checked,
   ).toBe(false)
@@ -199,20 +199,20 @@ test('Next waits for Git and an agent, then Add Factory is step 4 with Back and 
   await act(async () => a.emit({ type: 'integrations-checked', health: integrations }))
   expect(next.disabled).toBe(false)
   await user().click(
-    screen.getByRole('checkbox', { name: 'Start TED in the background when you log in' }),
+    screen.getByRole('checkbox', { name: 'Start Ted in the background when you log in' }),
   )
   expect(a.request.mock.calls.filter(([name]) => name === 'updateSettings')).toEqual([])
   await user().click(next)
   let dialog = within(await screen.findByRole('dialog', { name: 'Add your first Factory' }))
   expect(dialog.getByText('Step 4 of 4')).toBeTruthy()
   await user().click(dialog.getByRole('button', { name: 'Back' }))
-  await screen.findByRole('heading', { name: /^Set up TED/ })
+  await screen.findByRole('heading', { name: /^Set up Ted/ })
   await vi.waitFor(() => expect(button('Next').disabled).toBe(false))
   await user().click(button('Next'))
   dialog = within(await screen.findByRole('dialog', { name: 'Add your first Factory' }))
-  a.handle('updateSettings', () => Promise.reject(new Error('TED isn’t answering')))
+  a.handle('updateSettings', () => Promise.reject(new Error('Ted isn’t answering')))
   await user().click(dialog.getByRole('button', { name: 'Skip' }))
-  expect((await dialog.findByRole('alert')).textContent).toBe('TED isn’t answering')
+  expect((await dialog.findByRole('alert')).textContent).toBe('Ted isn’t answering')
   expect((dialog.getByRole('button', { name: 'Skip' }) as HTMLButtonElement).disabled).toBe(false)
   a.handle('updateSettings', () => undefined)
   await user().click(dialog.getByRole('button', { name: 'Skip' }))

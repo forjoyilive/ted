@@ -95,7 +95,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
   const visitStart = (task: Task) =>
     store.listStageEntries(task.id).findLast((e) => e.stage === task.stage)?.at ?? ''
   const needsSignOff = (target: MergeWork, why: string) =>
-    `${why} TED merges only the commits the human signed off (${target.expectedHead || 'none recorded'} on ${target.repo}#${target.number}). Bring the Task back through Validate for a new sign-off.`
+    `${why} Ted merges only the commits the human signed off (${target.expectedHead || 'none recorded'} on ${target.repo}#${target.number}). Bring the Task back through Validate for a new sign-off.`
   const mergeSplit = (task: StoredTask) => {
     const repos = task.repos.filter((r) => !r.removed && r.pullRequest)
     return (
@@ -170,7 +170,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
         task.id,
         needsSignOff(
           target,
-          `The branch on GitHub after TED’s rebase isn’t the signed-off work rebased onto ${target.base}.`,
+          `The branch on GitHub after Ted’s rebase isn’t the signed-off work rebased onto ${target.base}.`,
         ),
         undefined,
         true,
@@ -287,7 +287,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     const minutes = (ms: number) => `${Math.round(ms / 60_000)} minutes`
     const what =
       pr.checks.length === 0
-        ? `No CI check has appeared on ${where} ${minutes(answeredAt === '' ? ciStuckMs.noChecks : ciStuckMs.pending)} after ${answeredAt === '' ? 'TED pushed' : 'you said to keep waiting'}.`
+        ? `No CI check has appeared on ${where} ${minutes(answeredAt === '' ? ciStuckMs.noChecks : ciStuckMs.pending)} after ${answeredAt === '' ? 'Ted pushed' : 'you said to keep waiting'}.`
         : `${checkList(pr, pending)} ${pending.length === 1 ? 'is' : 'are'} still queued or pending on ${where} after ${minutes(ciStuckMs.pending)}.`
     store.postComment({
       taskId: task.id,
@@ -299,11 +299,11 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
         what,
         `**${sendToLeadChoice}** sends the Task back to Work so the Task Lead can find out why. **${keepWaitingChoice}** waits another ${minutes(ciStuckMs.pending)}.${
           requiredPending
-            ? ' A required check is still pending, so TED can’t merge without it.'
+            ? ' A required check is still pending, so Ted can’t merge without it.'
             : ` **${mergeAnywayChoice}** merges without waiting for the checks.`
         }${
           offerNoCi
-            ? ` **${noCiAgainChoice(target.name)}** merges now and saves “Pull request CI: None” for ${target.name} in the Factory settings, through a settings pull request TED merges.`
+            ? ` **${noCiAgainChoice(target.name)}** merges now and saves “Pull request CI: None” for ${target.name} in the Factory settings, through a settings pull request Ted merges.`
             : ''
         }`,
       ].join('\n\n'),
@@ -513,7 +513,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
         taskId,
         needsSignOff(
           unsigned,
-          `TED has no signed-off commit for ${unsigned.name}: its branch couldn’t be pushed at sign-off.`,
+          `Ted has no signed-off commit for ${unsigned.name}: its branch couldn’t be pushed at sign-off.`,
         ),
         undefined,
         true,
@@ -689,7 +689,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
           if (!mergeSplit(find(taskId))) throw error
           return mergeSendBack(
             taskId,
-            `TED couldn’t merge ${target.repo}#${target.number}: ${redactSecrets(textOf(error))}`,
+            `Ted couldn’t merge ${target.repo}#${target.number}: ${redactSecrets(textOf(error))}`,
           )
         }
       }
@@ -748,7 +748,7 @@ export function isCiStuck(comment: Comment): boolean {
 }
 
 function conflictFindings(target: { repo: string; number: number; base: string }): string {
-  return `${target.repo}#${target.number} conflicts with ${target.base}, so TED couldn’t rebase it. Rebase onto origin/${target.base} and resolve the conflicts; the Task then comes back through Validate for a short re-sign-off.`
+  return `${target.repo}#${target.number} conflicts with ${target.base}, so Ted couldn’t rebase it. Rebase onto origin/${target.base} and resolve the conflicts; the Task then comes back through Validate for a short re-sign-off.`
 }
 
 export const sendToLeadChoice = 'Send to Task Lead'

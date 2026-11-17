@@ -194,7 +194,7 @@ describe('which tests a change affects', () => {
     })
     const chosen = chooseTests(both, tests.length)
     expect(chosen.run.map((pick) => pick.file)).toContain('packages/app/test/app-inbox.test.ts')
-    expect(leftOutText(chosen.run, electron, 'TED’s sandbox')).toContain(
+    expect(leftOutText(chosen.run, electron, 'Ted’s sandbox')).toContain(
       '  packages/app/test/app-inbox.test.ts  app area “inbox”',
     )
     expect(
@@ -460,7 +460,7 @@ describe('what the command prints', () => {
 describe('what a sandboxed run leaves out', () => {
   const text = (...changed: string[]) => {
     const selection = select(...changed)
-    return leftOutText(chooseTests(selection, tests.length).run, electron, 'TED’s sandbox')
+    return leftOutText(chooseTests(selection, tests.length).run, electron, 'Ted’s sandbox')
   }
 
   test('nothing when no Electron test runs', () => {
@@ -470,7 +470,7 @@ describe('what a sandboxed run leaves out', () => {
   test('the Electron tests that changed or were picked by name are listed to run by hand', () => {
     expect(
       text('packages/app/src/renderer/inbox.ts', 'packages/app/test/app.test.ts'),
-    ).toBe(`TED’s sandbox can’t start Electron, so the Affected tests Check left the Electron app tests out.
+    ).toBe(`Ted’s sandbox can’t start Electron, so the Affected tests Check left the Electron app tests out.
 Run these outside the sandbox, at most 3 files per command: pnpm vitest run <files>
   packages/app/test/app-inbox.test.ts  app area “inbox” (packages/app/src/renderer/inbox.ts)
   packages/app/test/app.test.ts  changed`)
@@ -481,9 +481,9 @@ Run these outside the sandbox, at most 3 files per command: pnpm vitest run <fil
   })
 })
 
-test('Electron can’t start in Codex’s sandbox, or in TED’s on macOS', () => {
+test('Electron can’t start in Codex’s sandbox, or in Ted’s on macOS', () => {
   expect(electronSandbox({}, 'darwin')).toBeUndefined()
-  expect(electronSandbox({ TED_SANDBOX: '1' }, 'darwin')).toBe('TED’s sandbox')
+  expect(electronSandbox({ TED_SANDBOX: '1' }, 'darwin')).toBe('Ted’s sandbox')
   expect(electronSandbox({ TED_SANDBOX: '1' }, 'linux')).toBeUndefined()
   expect(electronSandbox({ CODEX_SANDBOX: 'seatbelt' }, 'linux')).toBe('Codex’s sandbox')
 })

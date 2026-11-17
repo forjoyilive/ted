@@ -36,7 +36,7 @@ export function createBrowserBroker() {
   return {
     request(command: Omit<BrowserCommand, 'id' | 'expiresAt'>): Promise<BrowserResult> {
       if (Date.now() - seen > 12_000) {
-        throw new RequestError(503, 'Open TED to use the Task browser')
+        throw new RequestError(503, 'Open Ted to use the Task browser')
       }
       if (
         pending.size >= 32 ||

@@ -287,7 +287,7 @@ describe('reading and profiling: who may call', () => {
     expect((await file.call('GET', '/diagnostics/slow')).status).toBe(200)
     expect(await file.call('POST', '/diagnostics/profile', { seconds: 5 })).toEqual({
       status: 403,
-      body: { error: 'only the TED app can do this' },
+      body: { error: 'only the Ted app can do this' },
     })
     expect((await run.call('GET', '/diagnostics/slow')).status).toBe(403)
     expect((await run.call('POST', '/diagnostics/profile', { seconds: 5 })).status).toBe(403)

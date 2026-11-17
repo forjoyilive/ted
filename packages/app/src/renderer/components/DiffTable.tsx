@@ -149,7 +149,7 @@ export function DiffTable({
           </tbody>
         ))}
       </table>
-      {diff.truncated && <p className={styles.note}>Longer than TED shows here.</p>}
+      {diff.truncated && <p className={styles.note}>Longer than Ted shows here.</p>}
     </>
   )
 }

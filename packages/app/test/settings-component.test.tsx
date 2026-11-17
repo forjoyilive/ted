@@ -49,7 +49,7 @@ test.each([80, 200])('text size disables the button at %s%%', async (textSize) =
 test('source command row explains that installation requires an installed copy', async () => {
   bridge({ getCommandLine: () => ({ state: 'unavailable' }) })
   render(<CommandLineGroup />)
-  await screen.findByText('Only an installed copy of TED can install it.')
+  await screen.findByText('Only an installed copy of Ted can install it.')
   expect(screen.queryByRole('button', { name: 'Install the ted command' })).toBeNull()
 })
 
@@ -60,7 +60,7 @@ test('About shows the version and loads and closes third-party licenses', async 
     thirdPartyLicenses: () => notice,
   })
   render(<AboutGroup />)
-  expect(screen.getByText(/^TED \d+\.\d+\.\d+$/)).toBeTruthy()
+  expect(screen.getByText(/^Ted \d+\.\d+\.\d+$/)).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'View' }))
   const dialog = screen.getByRole('dialog', { name: 'Third-party licenses' })
   expect(within(dialog).getByText(/agent-orchestrator/).textContent).toBe(notice)
@@ -86,7 +86,7 @@ test('quit choice, login, Stay Awake and reporting switches send machine setting
     'stop',
   )
   for (const name of [
-    'Start TED in the background when you log in',
+    'Start Ted in the background when you log in',
     'Stay awake while Runs are working',
   ]) {
     const toggle = screen.getByRole('switch', { name })
@@ -94,7 +94,7 @@ test('quit choice, login, Stay Awake and reporting switches send machine setting
     await u.click(toggle)
   }
   const reporting = screen.getByRole('switch', {
-    name: 'Send error reporting and usage data to the TED team',
+    name: 'Send error reporting and usage data to the Ted team',
   })
   expect(reporting.getAttribute('aria-checked')).toBe('false')
   await u.click(reporting)
@@ -300,7 +300,7 @@ test('login approval opens the fixed system-settings bridge action', async () =>
     openLoginItemsSettings: open,
   })
   render(<GeneralPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
-  await screen.findByText('Allow TED in System Settings → Login Items')
+  await screen.findByText('Allow Ted in System Settings → Login Items')
   await user().click(screen.getByRole('button', { name: 'Open System Settings' }))
   expect(open).toHaveBeenCalledOnce()
 })
@@ -340,13 +340,13 @@ test('notification switches and an OS-disabled event show the settings action', 
     ['nb', { inboxItems: false }],
     ['nb', { taskMerged: true }],
   ])
-  await screen.findByText('TED doesn’t send notifications yet')
+  await screen.findByText('Ted doesn’t send notifications yet')
   await u.click(screen.getByRole('button', { name: 'Turn on' }))
   expect(turnOn).toHaveBeenCalledOnce()
   await act(async () => api.emit({ type: 'notification-offer', offer: 'done' }))
-  expect(screen.queryByText('TED doesn’t send notifications yet')).toBeNull()
+  expect(screen.queryByText('Ted doesn’t send notifications yet')).toBeNull()
   await act(async () => api.emit({ type: 'notifications-off', off: true }))
-  expect(screen.getByRole('alert').textContent).toContain('Notifications are off for TED')
+  expect(screen.getByRole('alert').textContent).toContain('Notifications are off for Ted')
   await u.click(screen.getByRole('button', { name: 'Open System Settings' }))
   expect(open).toHaveBeenCalledOnce()
 })
@@ -364,7 +364,7 @@ test('the notifications offer asks before macOS does, and leaves once answered',
   })
   render(<NotificationOfferBanner />)
   const offer = await screen.findByRole('region', { name: 'Notifications' })
-  expect(offer.textContent).toContain('macOS will ask whether TED may send notifications.')
+  expect(offer.textContent).toContain('macOS will ask whether Ted may send notifications.')
   const u = user()
   await u.click(within(offer).getByRole('button', { name: 'Not now' }))
   await u.click(within(offer).getByRole('button', { name: 'Turn on' }))
@@ -408,18 +408,18 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
       {
         pid: 456,
         ppid: 1,
-        command: 'TED',
+        command: 'Ted',
         owner: 'app',
         kind: 'ted-app',
         cpuPercent: 1,
         memoryBytes: 200 * 1024 * 1024,
       },
     ],
-    readDaemonLog: () => ({ text: 'TED daemon 123 listening', truncated: false }),
+    readDaemonLog: () => ({ text: 'Ted daemon 123 listening', truncated: false }),
     readRunOutput: () => ({ text: 'from the stub', truncated: false }),
   })
   const view = render(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
-  await screen.findByText('2.3 GB · Agents 700 MB · Daemon and Run hosts 1.0 GB · TED app 590 MB')
+  await screen.findByText('2.3 GB · Agents 700 MB · Daemon and Run hosts 1.0 GB · Ted app 590 MB')
   expect(screen.queryByRole('region', { name: 'Diagnostics' })).toBeNull()
   expect(screen.queryByRole('region', { name: 'Logs' })).toBeNull()
   expect(screen.queryByText('Show onboarding again')).toBeNull()
@@ -432,7 +432,7 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
       dispatch={vi.fn()}
     />,
   )
-  await screen.findByText('TED daemon 123 listening')
+  await screen.findByText('Ted daemon 123 listening')
   const processRows = () =>
     within(screen.getByRole('table', { name: 'Processes' }))
       .getAllByRole('row')
@@ -441,7 +441,7 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
   await waitFor(() =>
     expect(processRows()).toEqual([
       '123nodeTool or MCP server of TED-487’s Task Lead2.4%64 MB',
-      '456TEDTED app1%200 MB',
+      '456TedTed app1%200 MB',
     ]),
   )
   const processTable = within(screen.getByRole('table', { name: 'Processes' }))
@@ -477,7 +477,7 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
   ])
   expect(processRows()).toEqual([
     '123nodeTool or MCP server of TED-487’s Task Lead2.4%64 MB',
-    '456TEDTED app1%200 MB',
+    '456TedTed app1%200 MB',
   ])
   view.rerender(
     <DeveloperPage
@@ -494,7 +494,7 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
   )
   await waitFor(() =>
     expect(processRows()).toEqual([
-      '456TEDTED app1%200 MB',
+      '456TedTed app1%200 MB',
       '123nodeTool or MCP server of TED-487’s Task Lead2.4%64 MB',
     ]),
   )
@@ -514,7 +514,7 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
       dispatch={vi.fn()}
     />,
   )
-  expect(screen.getByText('Onboarding will show the next time TED opens.')).toBeTruthy()
+  expect(screen.getByText('Onboarding will show the next time Ted opens.')).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'Undo' }))
   expect(api.request).toHaveBeenCalledWith('updateSettings', {
     onboardingOnNextOpen: false,
@@ -574,11 +574,11 @@ test('Record a CPU profile asks for one profile at a time and shows where it was
   expect(screen.getByText('Saved to ~/.ted/logs/profiles/daemon-1.cpuprofile')).toBeTruthy()
   api.handle('recordProfile', () => {
     throw new Error(
-      "Error invoking remote method 'ted:request': DaemonRequestError: TED is already recording a CPU profile",
+      "Error invoking remote method 'ted:request': DaemonRequestError: Ted is already recording a CPU profile",
     )
   })
   await user().click(screen.getByRole('button', { name: 'Record 30 seconds' }))
-  await screen.findByText('Couldn’t record a profile: TED is already recording a CPU profile')
+  await screen.findByText('Couldn’t record a profile: Ted is already recording a CPU profile')
   expect(api.request.mock.calls.filter(([name]) => name === 'recordProfile')).toHaveLength(2)
 })
 
@@ -811,7 +811,7 @@ test('the reporting question asks once after setup and saves the answer', async 
   a.state.settings = { ...a.state.settings, reportingAsked: false }
   const view = a.mount()
   const dialog = await screen.findByRole('dialog', {
-    name: 'Send error reporting and usage data to the TED team?',
+    name: 'Send error reporting and usage data to the Ted team?',
   })
   await user().click(within(dialog).getByRole('button', { name: 'Send reports' }))
   await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
@@ -822,7 +822,7 @@ test('the reporting question asks once after setup and saves the answer', async 
   a.mount()
   fireEvent(
     await screen.findByRole('dialog', {
-      name: 'Send error reporting and usage data to the TED team?',
+      name: 'Send error reporting and usage data to the Ted team?',
     }),
     new Event('cancel', { cancelable: true }),
   )

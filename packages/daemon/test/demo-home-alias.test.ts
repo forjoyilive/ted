@@ -38,7 +38,7 @@ afterEach(async () => {
 })
 
 test.for([
-  { name: '.ted', alias: '.TED' },
+  { name: '.ted', alias: '.Ted' },
   { name: '.ted-dev', alias: '.TeD-DeV' },
 ])(
   'rejects empty and missing homes through a case alias of $name',
@@ -55,10 +55,10 @@ test.for([
 
 test('reserves protected home names before they exist, including alternate casing', async () => {
   await rm(path.join(userHome, '.ted-dev'), { recursive: true })
-  expect(await check(path.join(userHome, '.TED-DEV'))).toEqual({
+  expect(await check(path.join(userHome, '.Ted-DEV'))).toEqual({
     error: expect.stringContaining('separate demo home'),
   })
-  expect(await check(path.join(userHome, '.TED-DEV', 'demo'))).toEqual({
+  expect(await check(path.join(userHome, '.Ted-DEV', 'demo'))).toEqual({
     error: expect.stringContaining('separate demo home'),
   })
 })

@@ -12,7 +12,7 @@ Spec 11.2 lists many machine settings: Appearance, terminal font size, profile p
 - The daemon validates each setting in `settingParsers` in `server.ts`. A new setting is a field and default in `packages/protocol/src/settings.ts` plus a parser; no new event.
 - The profile picture is a PNG data URL of at most 256 by 256 pixels, made by the app’s main process from the file the human picks, and stored with the other settings (at most 512 KB). The renderer’s CSP allows `img-src data:` for it. Initials come from `GET /profile`, which reads the global Git `user.name`.
 - App Settings is a navigation overlay (`Navigation.settings`), so closing it returns to the exact screen and Task the human left. Its sections are listed in `settingsSections` in `packages/app/src/renderer/settings/sections.tsx`; a section without a `Page` shows “Not built yet.” A new page is a component that takes `SettingsPageProps` and uses the shared controls in `settings/controls.tsx`.
-- Diagnostics, the daemon log and a Run’s raw output come from the daemon (`GET /diagnostics`, `/diagnostics/report`, `/logs/daemon`, `/runs/<id>/raw`), all closed to Run tokens. Logs are read from the end, 256 KB at most. The report replaces the TED home folder and the user’s home folder in paths and never includes prompts or raw output. It goes only to the clipboard.
+- Diagnostics, the daemon log and a Run’s raw output come from the daemon (`GET /diagnostics`, `/diagnostics/report`, `/logs/daemon`, `/runs/<id>/raw`), all closed to Run tokens. Logs are read from the end, 256 KB at most. The report replaces the Ted home folder and the user’s home folder in paths and never includes prompts or raw output. It goes only to the clipboard.
 
 ## Consequences
 

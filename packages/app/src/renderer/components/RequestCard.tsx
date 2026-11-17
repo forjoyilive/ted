@@ -177,7 +177,7 @@ function ChangesBlock({
                 <li key={repo.name} className={styles.changedFile}>
                   <span className={styles.changedRepo}>{repo.name}</span>
                   <span className={styles.noChanges}>
-                    {repo.unavailable ? 'TED couldn’t compare this repo' : 'no changes'}
+                    {repo.unavailable ? 'Ted couldn’t compare this repo' : 'no changes'}
                   </span>
                 </li>,
               ]
@@ -1503,7 +1503,7 @@ function answerLine(
         return {
           mark: '–',
           tone: 'neutral',
-          text: 'Withdrawn · TED read Asana again and asked anew',
+          text: 'Withdrawn · Ted read Asana again and asked anew',
         }
       }
       if ('archived' in answer) {

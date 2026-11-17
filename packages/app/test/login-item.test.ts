@@ -33,7 +33,7 @@ function system(changes: Partial<LoginItemSystem>, mac?: FakeMac): LoginItemSyst
     platform: 'darwin',
     packaged: true,
     macVersion: 15,
-    executable: '/Applications/TED.app/Contents/MacOS/TED',
+    executable: '/Applications/Ted.app/Contents/MacOS/Ted',
     autostartDir: path.join(dir, 'autostart'),
     getLoginItemSettings(options) {
       mac?.calls.push(['get', options])
@@ -50,7 +50,7 @@ function system(changes: Partial<LoginItemSystem>, mac?: FakeMac): LoginItemSyst
 const agent = { type: 'agentService', serviceName: macLoginService }
 
 describe('Start at login on macOS', () => {
-  test('registers TED’s LaunchAgent through SMAppService and reports it on', async () => {
+  test('registers Ted’s LaunchAgent through SMAppService and reports it on', async () => {
     const mac: FakeMac = { calls: [], status: 'enabled', openAtLogin: false }
 
     expect(await createLoginItem(system({}, mac)).apply(true)).toBe('on')
@@ -69,7 +69,7 @@ describe('Start at login on macOS', () => {
     expect(mac.calls[0]).toEqual(['set', { openAtLogin: false, ...agent }])
   })
 
-  test('says when macOS needs the human to allow TED in System Settings', async () => {
+  test('says when macOS needs the human to allow Ted in System Settings', async () => {
     const mac: FakeMac = { calls: [], status: 'requires-approval', openAtLogin: false }
 
     expect(await createLoginItem(system({}, mac)).apply(true)).toBe('requires-approval')
@@ -102,12 +102,12 @@ describe('Start at login on macOS', () => {
 })
 
 describe('the LaunchAgent shipped in the macOS bundle', () => {
-  test('is named for the service TED registers and starts the app with --background', async () => {
+  test('is named for the service Ted registers and starts the app with --background', async () => {
     const plist = await readFile(
       new URL(`../build/mac/LaunchAgents/${macLoginService}`, import.meta.url),
       'utf8',
     )
-    expect(plist).toContain('<string>Contents/MacOS/TED</string>')
+    expect(plist).toContain('<string>Contents/MacOS/Ted</string>')
     expect(plist).toContain(`<string>${backgroundFlag}</string>`)
     expect(plist).toContain('<string>design.kriya.ted.background</string>')
   })
@@ -115,15 +115,15 @@ describe('the LaunchAgent shipped in the macOS bundle', () => {
 
 describe('Start at login on Linux', () => {
   const linux = (changes: Partial<LoginItemSystem> = {}) =>
-    system({ platform: 'linux', executable: '/opt/TED/ted-app', ...changes })
+    system({ platform: 'linux', executable: '/opt/Ted/ted-app', ...changes })
   const entryFile = () => path.join(dir, 'autostart', 'ted.desktop')
 
-  test('writes an XDG autostart entry that starts TED in the background', async () => {
+  test('writes an XDG autostart entry that starts Ted in the background', async () => {
     expect(await createLoginItem(linux()).apply(true)).toBe('on')
 
     const text = await readFile(entryFile(), 'utf8')
     expect(text).toContain('[Desktop Entry]')
-    expect(text).toContain('Exec="/opt/TED/ted-app" --background\n')
+    expect(text).toContain('Exec="/opt/Ted/ted-app" --background\n')
     expect((await stat(entryFile())).mode & 0o777).toBe(0o644)
   })
 
@@ -159,7 +159,7 @@ describe('Start at login on Linux', () => {
   })
 
   test('refuses a path with a line break', () => {
-    expect(() => desktopEntry('/opt/TED\nExec=rm')).toThrow()
+    expect(() => desktopEntry('/opt/Ted\nExec=rm')).toThrow()
   })
 })
 
@@ -192,8 +192,8 @@ describe('recording instead of registering', () => {
 })
 
 describe('starting in the background', () => {
-  test('only --background starts TED with no window', () => {
-    expect(startsInBackground(['/opt/TED/ted-app', '--background'])).toBe(true)
-    expect(startsInBackground(['/opt/TED/ted-app'])).toBe(false)
+  test('only --background starts Ted with no window', () => {
+    expect(startsInBackground(['/opt/Ted/ted-app', '--background'])).toBe(true)
+    expect(startsInBackground(['/opt/Ted/ted-app'])).toBe(false)
   })
 })

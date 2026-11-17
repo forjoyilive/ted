@@ -72,7 +72,7 @@ export function factoryExport(store: TedStore, factoryId: string): FactoryExport
     coverage: [
       'All retained Tasks, including Done and archived Tasks, comments and answers, saved brief and description versions, and Task Run metadata.',
       'Attachment metadata and references only; attached files and Run conversations are not included.',
-      'Deleted records, repository files and non-Task Runs are not included. This export cannot be restored into TED.',
+      'Deleted records, repository files and non-Task Runs are not included. This export cannot be restored into Ted.',
       'Known token-shaped secrets and URL credentials are redacted. Other authored text is preserved.',
     ],
     factory: {

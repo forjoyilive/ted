@@ -16,7 +16,7 @@ test('on macOS each process’s memory is its footprint, the figure Activity Mon
       asked.push([...pids])
       return footprintJson([
         { name: 'node', pid: 10, footprint: 300 },
-        { name: 'TED Helper', pid: 11, footprint: 200 },
+        { name: 'Ted Helper', pid: 11, footprint: 200 },
       ])
     },
     ps: async () => {

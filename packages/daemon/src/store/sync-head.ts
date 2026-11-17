@@ -7,7 +7,7 @@ export type SyncHeadMark =
   | { kind: 'failed'; reason: string }
 
 // ADR 0163: LiveStore keeps every event above this head in memory as not yet pushed to a sync
-// backend, and TED has none. Call only while the store is closed.
+// backend, and Ted has none. Call only while the store is closed.
 export async function markEventsSynced(directory: string): Promise<SyncHeadMark> {
   try {
     const file = await eventlogFile(directory)

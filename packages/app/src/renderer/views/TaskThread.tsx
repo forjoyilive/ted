@@ -174,7 +174,7 @@ function NoteRow({
     comment.author.kind === 'human'
       ? profile.name
       : comment.author.kind === 'ted'
-        ? 'TED'
+        ? 'Ted'
         : 'Task Lead'
   const state = delivery(task, comment)
   if (comment.peer) {
@@ -981,7 +981,7 @@ export function TaskThread({
                   </ActionButton>
                 </>
               ) : task.setup ? (
-                '  ·  Created by TED'
+                '  ·  Created by Ted'
               ) : task.splitFrom ? (
                 <>
                   {'  ·  Split from '}
@@ -1323,7 +1323,7 @@ export function TaskDetails({
             {task.setup && (
               <p className={styles.setupNote}>
                 The Design and Review sign-offs are always on for a setup Task. Tasks started before
-                it merges use TED’s defaults.
+                it merges use Ted’s defaults.
               </p>
             )}
             <dl className={styles.details}>

@@ -12,7 +12,7 @@ This is a bounded exception to ADR 0032’s human-only ordinary approvals and AD
 
 A request still closes once through `v1.CommentAnswered`. Its commit includes the companion `v1.CommentAnsweredByAutopilot` event, which records attribution durably without rewriting historical events. Thread cards and replacement-Lead context identify these as Autopilot’s decisions. They are never answers posted as the user.
 
-Setup questions, rounds and sign-offs, talked-through rounds awaiting a summary close, permissions, failed Checks requiring a user decision and Workflow-change safeguards, missing information or access, size checks and split proposals remain manual. Ordinary questions are eligible only when they are Task Lead questions, rather than TED’s failure, permission, simulator, model, integration or other operational requests. Workflow-change inspection fails closed. Validation obligations still apply to automatic approvals.
+Setup questions, rounds and sign-offs, talked-through rounds awaiting a summary close, permissions, failed Checks requiring a user decision and Workflow-change safeguards, missing information or access, size checks and split proposals remain manual. Ordinary questions are eligible only when they are Task Lead questions, rather than Ted’s failure, permission, simulator, model, integration or other operational requests. Workflow-change inspection fails closed. Validation obligations still apply to automatic approvals.
 
 ## Consequences
 

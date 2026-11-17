@@ -219,7 +219,7 @@ const processRunner: Runner = {
       if (records.some((record) => record.t === 'start')) break
       if (waited >= 10_000) {
         child.kill('SIGKILL')
-        throw new RequestError(409, 'The App did not start; TED stopped its host')
+        throw new RequestError(409, 'The App did not start; Ted stopped its host')
       }
       await sleep(25)
     }
@@ -488,7 +488,7 @@ export function createApps(options: AppsOptions): Apps {
         return port
       }
     }
-    throw new RequestError(503, 'TED couldn’t find a free port')
+    throw new RequestError(503, 'Ted couldn’t find a free port')
   }
 
   function allocate(
@@ -612,25 +612,25 @@ export function createApps(options: AppsOptions): Apps {
       restart = true
     }
     if (isSimulatorApp(app) && !sims.supported) {
-      throw new RequestError(409, `TED can’t run ${app.name}: iOS simulator Apps run only on macOS`)
+      throw new RequestError(409, `Ted can’t run ${app.name}: iOS simulator Apps run only on macOS`)
     }
     if (isEmulatorApp(app) && !emus.supported) {
       throw new RequestError(
         409,
-        `TED can’t run ${app.name}: Android emulator Apps run only on macOS and Linux`,
+        `Ted can’t run ${app.name}: Android emulator Apps run only on macOS and Linux`,
       )
     }
     if (isEmulatorApp(app) && (app.device ?? '').trim() === '') {
       throw new RequestError(
         409,
-        `TED can’t run ${app.name}: set \`device:\` to the Android virtual device it runs on, such as Pixel_8_API_35`,
+        `Ted can’t run ${app.name}: set \`device:\` to the Android virtual device it runs on, such as Pixel_8_API_35`,
       )
     }
     const hold = store.newWorkHold()
     if (hold !== undefined) {
       throw new RequestError(
         409,
-        `The disk is almost full, so TED holds new Apps until there’s space`,
+        `The disk is almost full, so Ted holds new Apps until there’s space`,
       )
     }
     if (isDeviceApp(app)) {
@@ -675,7 +675,7 @@ export function createApps(options: AppsOptions): Apps {
       await failStart(taskId, dir, repo.name, app, problem, port)
       throw new RequestError(
         409,
-        `Port ${port} is taken, so TED couldn’t start ${app.name}. Stop whatever uses it, or remove \`port:\` from the App in workflow.yaml.`,
+        `Port ${port} is taken, so Ted couldn’t start ${app.name}. Stop whatever uses it, or remove \`port:\` from the App in workflow.yaml.`,
       )
     }
     return launch(taskId, task, repo, app, by, runId, restart, port, {})
@@ -717,7 +717,7 @@ export function createApps(options: AppsOptions): Apps {
       const sandboxed = await sandboxFor(scope && { ...scope, electron }, task, dir)
       if ('problem' in sandboxed) {
         await failStart(taskId, dir, repo.name, app, sandboxed.problem, port)
-        throw new RequestError(409, `TED couldn’t start ${app.name}: ${sandboxed.problem}`)
+        throw new RequestError(409, `Ted couldn’t start ${app.name}: ${sandboxed.problem}`)
       }
       const instance: Instance = {
         repo: repo.name,
@@ -1287,7 +1287,7 @@ export function createApps(options: AppsOptions): Apps {
         const why = error instanceof Error ? error.message : String(error)
         throw new RequestError(
           409,
-          `TED couldn’t run ${app.name} on ${device}: ${why} ${
+          `Ted couldn’t run ${app.name} on ${device}: ${why} ${
             back
               ? `${app.name} runs on ${deviceOf(before)} again.`
               : `Start it again with ted run-app ${app.name}.`

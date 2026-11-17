@@ -22,7 +22,7 @@ export function linearIntakeText(result: LinearIntakeResult): string {
     lines.push(printable(`Skipped ${item.identifier} (${item.url}): ${item.reason}`))
   if (result.left > 0)
     lines.push(
-      `${result.left} more ${result.left === 1 ? 'issue waits' : 'issues wait'} for the next run; TED creates at most ${maxLinearIntakeTasks} Tasks per run.`,
+      `${result.left} more ${result.left === 1 ? 'issue waits' : 'issues wait'} for the next run; Ted creates at most ${maxLinearIntakeTasks} Tasks per run.`,
     )
   if (result.incomplete !== undefined) lines.push(printable(result.incomplete))
   if (result.stopped !== undefined) lines.push(printable(result.stopped))

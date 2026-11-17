@@ -27,7 +27,7 @@ The original pre-merge 171-file run retained two failures:
 
 The original failure log is retained unchanged. The updated source excerpt in Vitest’s final stack reflects the file edit made after that test failed; its recorded Expected 1 / Received 0 values preserve the original assertion result.
 
-TED Checks: Typecheck and Lint passed; the final rerun after removal of the disposable capture test also passed. Test-first direct public-interface assertions reproduced incorrect labels, summed Quit totals, held-launch counts, missing queued Tasks and missing preparation for revival, then passed after their corresponding changes.
+Ted Checks: Typecheck and Lint passed; the final rerun after removal of the disposable capture test also passed. Test-first direct public-interface assertions reproduced incorrect labels, summed Quit totals, held-launch counts, missing queued Tasks and missing preparation for revival, then passed after their corresponding changes.
 
 Existing regression tests cover:
 
@@ -51,7 +51,7 @@ The Task thread attaches `implemented-mixed.png`, `implemented-above-limit.png` 
 
 ## Required main integration
 
-After the user accepted the recorded timing uncertainty, TED refused the Work hand-off because main at `8a8ad3bbfe6649f1f9dff4e33e299b3d25ef48ef` conflicted with the branch. That exact main commit was merged. The sole conflict was the store schema import list: keep main’s `severityDeclarations`, and keep this Task’s removal of the unused `sideChats` table import. The reporting implementation and queue summary survived unchanged; main’s Check timing, request/review and Task history changes were retained. Typecheck and Lint passed on the merged tree. Fresh merged-tree verification is required/queued; the earlier counts above describe the pre-merge run. The earlier failure acceptance is historical and must not be treated as current after this merge.
+After the user accepted the recorded timing uncertainty, Ted refused the Work hand-off because main at `8a8ad3bbfe6649f1f9dff4e33e299b3d25ef48ef` conflicted with the branch. That exact main commit was merged. The sole conflict was the store schema import list: keep main’s `severityDeclarations`, and keep this Task’s removal of the unused `sideChats` table import. The reporting implementation and queue summary survived unchanged; main’s Check timing, request/review and Task history changes were retained. Typecheck and Lint passed on the merged tree. Fresh merged-tree verification is required/queued; the earlier counts above describe the pre-merge run. The earlier failure acceptance is historical and must not be treated as current after this merge.
 
 ## Validate round 1
 
@@ -90,7 +90,7 @@ Final source/test revision `5247512f` passed all 50 tests across `failures.test.
 
 An exact archive of merged base `8a8ad3bb` passed both timeout-test files and all three selected parameterized cases in `base-timeout-repeat.log`. Workspace dependencies were installed offline and `@ted/protocol` was verified to resolve inside that snapshot. The comparison ran from `.claude/worktrees/ted136-baseline`, an ignored folder inside this worktree. The initial comparison under `node_modules` was canceled before collection because Node refuses TypeScript child paths there; its log is not a test result. No peer process or shared lock was changed.
 
-Direct Typecheck and Lint pass in `recovery-corrected-typecheck.log` and `recovery-corrected-lint.log`. TED’s manual Checks command refused “already moving” despite the Task being in Work; this is recorded separately from the passing direct commands and does not claim final Factory hand-off Checks ran.
+Direct Typecheck and Lint pass in `recovery-corrected-typecheck.log` and `recovery-corrected-lint.log`. Ted’s manual Checks command refused “already moving” despite the Task being in Work; this is recorded separately from the passing direct commands and does not claim final Factory hand-off Checks ran.
 
 The historical broad timeouts remain in failure cases `c3d148b7-d555-4f2f-ba94-bbfa8ceecc46` (merge acceptance) and `7007c3c6-242c-4236-bea4-87f04ddae284` (Stop/effort). Both exact cases now pass on this branch and the base, but no causal timing repair was made. These Work-reported cases require the user’s decision; the Task Lead cannot close them with `failure verify`, which is limited to eligible Validate failures. Recommend accepting the retained timing uncertainty with the original broad results and successful repeats both visible. Acceptance is not a passing test result or merge approval.
 
@@ -113,7 +113,7 @@ The earlier failure decision requests were captured before this required integra
 
 ## Lifecycle extraction integration repair
 
-Round 2 Validate passed on c30595b2: selected failures/automation-drafts/automations files passed 57 tests; exact base 6123d244 passed the same files/56 tests; fresh Factory Typecheck/Lint, reviewer and current screenshots passed. No code changed after its reviewer started. TED advanced to Merge. PR CI run 43121248525 then found the combined-code Typecheck failure: the reporting hook referred to awaitingRevive/pendingRevive after main’s lifecycle extraction moved them into lead-lifecycle.ts. That failure and original CI log remain attached; the Task returned to Work.
+Round 2 Validate passed on c30595b2: selected failures/automation-drafts/automations files passed 57 tests; exact base 6123d244 passed the same files/56 tests; fresh Factory Typecheck/Lint, reviewer and current screenshots passed. No code changed after its reviewer started. Ted advanced to Merge. PR CI run 43121248525 then found the combined-code Typecheck failure: the reporting hook referred to awaitingRevive/pendingRevive after main’s lifecycle extraction moved them into lead-lifecycle.ts. That failure and original CI log remain attached; the Task returned to Work.
 
 Integrated exact main 291318198eda7791f43b0414545315afaa37fc71 automatically. The narrow repair exposes pendingRecoveryTaskIds(): readonly string[] from the lifecycle owner, returning a new array filtered through its private pendingRevive predicate. Tasks uses that snapshot for QueueActivity. No scheduling query, mutable collection, admission or RunManager behavior changes. The store’s normal/held/starting/live union remains intact. Added three lifecycle-boundary cases: pending recovery remains visible under agent pause/load/disk holds, then disappears after Stop, archive or revival. Existing HTTP recovery tests remain the end-to-end seam.
 

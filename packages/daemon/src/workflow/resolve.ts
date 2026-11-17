@@ -34,7 +34,7 @@ export type OvernightGuard = 'settings' | 'unreadable' | 'automation' | 'outside
 
 export const overnightGuardTexts: Readonly<Record<OvernightGuard, string>> = {
   settings: 'this Task changes .ted/',
-  unreadable: 'TED couldn’t read this Task’s changes',
+  unreadable: 'Ted couldn’t read this Task’s changes',
   automation: 'an Automation created this Task',
   outsider: 'its GitHub issue has text from outsiders',
 }

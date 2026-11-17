@@ -70,7 +70,7 @@ export async function fetchLinearFiles(input: {
     ...refs.slice(maxLinearFiles).map((ref) => ({
       name: ref.name,
       url: ref.url,
-      reason: `TED takes at most ${maxLinearFiles} files from an issue`,
+      reason: `Ted takes at most ${maxLinearFiles} files from an issue`,
     })),
   ]
   return { files, unfetched }
@@ -132,7 +132,7 @@ async function download(
       throw new DownloadError(
         error instanceof Error && error.name === 'TimeoutError'
           ? 'the download timed out'
-          : 'TED couldn’t reach Linear',
+          : 'Ted couldn’t reach Linear',
       )
     }
     if (response.status >= 300 && response.status < 400) {
@@ -158,5 +158,5 @@ async function download(
 }
 
 function reasonOf(error: unknown): string {
-  return error instanceof DownloadError ? error.message : 'TED couldn’t save the file'
+  return error instanceof DownloadError ? error.message : 'Ted couldn’t save the file'
 }

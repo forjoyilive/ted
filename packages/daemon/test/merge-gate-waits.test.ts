@@ -57,7 +57,7 @@ describe('Merge sign-off', () => {
       const outcome = runClient.call('POST', `/tasks/${task.id}/outcome`, {
         outcome: 'back',
         to: 'validate',
-        findings: 'Hold the Task while TED fetches.',
+        findings: 'Hold the Task while Ted fetches.',
       })
       try {
         await waitUntil(

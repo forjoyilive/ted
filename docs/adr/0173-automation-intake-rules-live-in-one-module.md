@@ -2,7 +2,7 @@
 
 Status: accepted (TED-449)
 
-An Automation brings work in from Linear, GitHub and Asana, and TED refuses what the Factory’s intake setting doesn’t take (ADR 0097, ADR 0149, ADR 0159). Those rules were spread over `tasks/linear-intake.ts`, `tasks/github-intake.ts`, an Asana guard inside `tasks.ts`, inline refusals in `create` and the Automation prompt in `automations.ts`, in three shapes: a function that throws and returns an `unchanged` check, a refusal string plus a separate scope reader, and an inline guard. The prompt described the rules in its own words, and nothing tied them to the checks.
+An Automation brings work in from Linear, GitHub and Asana, and Ted refuses what the Factory’s intake setting doesn’t take (ADR 0097, ADR 0149, ADR 0159). Those rules were spread over `tasks/linear-intake.ts`, `tasks/github-intake.ts`, an Asana guard inside `tasks.ts`, inline refusals in `create` and the Automation prompt in `automations.ts`, in three shapes: a function that throws and returns an `unchanged` check, a refusal string plus a separate scope reader, and an inline guard. The prompt described the rules in its own words, and nothing tied them to the checks.
 
 Now `packages/daemon/src/tasks/intake.ts` holds them:
 

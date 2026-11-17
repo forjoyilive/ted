@@ -625,7 +625,7 @@ export async function checkAndRecord({
 
 export function affectedRefusal(env: NodeJS.ProcessEnv = process.env): string | undefined {
   if (!env.TED_RUN) return undefined
-  return 'A Run can’t run pnpm check --affected: TED runs it as the Affected tests Check. pnpm check --affected --list prints what it selects without running anything. To look into a failure, run that test file: pnpm vitest run <file>.'
+  return 'A Run can’t run pnpm check --affected: Ted runs it as the Affected tests Check. pnpm check --affected --list prints what it selects without running anything. To look into a failure, run that test file: pnpm vitest run <file>.'
 }
 
 export async function checkAffected({

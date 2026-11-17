@@ -133,7 +133,7 @@ interface Recording {
 export const simulatorToolsProblem = 'simulator-tools'
 
 export const idbMissing =
-  'TED drives iOS simulators through Meta’s idb, which isn’t installed on this Mac. Install it with brew install facebook/fb/idb-companion and pip3 install fb-idb, then try again.'
+  'Ted drives iOS simulators through Meta’s idb, which isn’t installed on this Mac. Install it with brew install facebook/fb/idb-companion and pip3 install fb-idb, then try again.'
 
 export function createSimulators(options: {
   dir: string
@@ -216,8 +216,8 @@ export function createSimulators(options: {
     throw new RequestError(
       409,
       missingXcode
-        ? 'Xcode not found, so TED can’t start iOS simulator Apps. Install Xcode, open it once to finish setting up, then press Check again on the banner.'
-        : 'Xcode has no iOS simulator runtime, so TED can’t start iOS simulator Apps. Add one in Xcode → Settings → Components, then press Check again on the banner.',
+        ? 'Xcode not found, so Ted can’t start iOS simulator Apps. Install Xcode, open it once to finish setting up, then press Check again on the banner.'
+        : 'Xcode has no iOS simulator runtime, so Ted can’t start iOS simulator Apps. Add one in Xcode → Settings → Components, then press Check again on the banner.',
     )
   }
 
@@ -291,7 +291,7 @@ export function createSimulators(options: {
       if (result.code !== 0 && !/current state: Booted/i.test(result.stderr)) {
         throw new RequestError(
           409,
-          `TED couldn’t boot ${record.device}: ${firstLine(result.stderr)}`,
+          `Ted couldn’t boot ${record.device}: ${firstLine(result.stderr)}`,
         )
       }
       await tools.open(['-g', '-a', 'Simulator', '--args', '-CurrentDeviceUDID', record.udid])
@@ -302,7 +302,7 @@ export function createSimulators(options: {
       if (result.code !== 0 && !/current state: Shutdown/i.test(result.stderr)) {
         throw new RequestError(
           409,
-          `TED couldn’t shut down ${record.device}: ${firstLine(result.stderr)}`,
+          `Ted couldn’t shut down ${record.device}: ${firstLine(result.stderr)}`,
         )
       }
       booted.delete(record.udid)
@@ -397,7 +397,7 @@ export function createSimulators(options: {
       const result = await tools.simctl(['io', record.udid, 'screenshot', out])
       if (result.code !== 0) {
         await rm(out, { force: true })
-        throw new RequestError(409, `TED couldn’t take the screenshot: ${firstLine(result.stderr)}`)
+        throw new RequestError(409, `Ted couldn’t take the screenshot: ${firstLine(result.stderr)}`)
       }
       touch(record)
       return out
@@ -414,7 +414,7 @@ export function createSimulators(options: {
         if (result.code !== 0)
           throw new RequestError(
             409,
-            `TED couldn’t ${what}: ${firstLine(result.stderr || result.stdout)}`,
+            `Ted couldn’t ${what}: ${firstLine(result.stderr || result.stdout)}`,
           )
         return result
       }
@@ -422,7 +422,7 @@ export function createSimulators(options: {
         const out = await idb(['ui', 'describe-all', '--json'], 'read the screen')
         const screen = parseIdbScreen(out.stdout)
         if (!screen)
-          throw new RequestError(409, 'TED couldn’t read the screen; try again in a moment')
+          throw new RequestError(409, 'Ted couldn’t read the screen; try again in a moment')
         screens.set(key, {
           refs: new Map(screen.elements.map((e) => [e.ref, centre(e)])),
           width: screen.width,
@@ -471,7 +471,7 @@ export function createSimulators(options: {
           if (!iosText(text))
             throw new RequestError(
               400,
-              'TED can type only printable ASCII characters into an iOS simulator, without line breaks; press enter with ted app key',
+              'Ted can type only printable ASCII characters into an iOS simulator, without line breaks; press enter with ted app key',
             )
           await idb(['ui', 'text', '--', text], 'type')
           return `Typed ${text.length} characters.`
@@ -497,7 +497,7 @@ export function createSimulators(options: {
           if (result.code !== 0)
             throw new RequestError(
               409,
-              `TED couldn’t switch to ${request.appearance} mode: ${firstLine(result.stderr)}`,
+              `Ted couldn’t switch to ${request.appearance} mode: ${firstLine(result.stderr)}`,
             )
           return `${name} is in ${dark ? 'dark' : 'light'} mode.`
         }

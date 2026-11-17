@@ -50,7 +50,7 @@ export function memoryParts(use: MemoryUse): MemoryPart[] {
       bytes: use.daemon.bytes + use.hosts.bytes,
       count: 1 + use.hosts.count,
     },
-    ...part('TED app', use.app),
+    ...part('Ted app', use.app),
     ...part('Other commands', use.other),
   ]
 }
@@ -96,9 +96,9 @@ export function processName(process: ProcessInfo): string {
   const { run } = process
   switch (process.kind) {
     case 'ted-app':
-      return 'TED app'
+      return 'Ted app'
     case 'daemon':
-      return 'TED daemon'
+      return 'Ted daemon'
     case 'run-host':
       return run ? `Run host of ${runName(run)}` : 'Run host'
     case 'agent':
@@ -112,6 +112,6 @@ export function processName(process: ProcessInfo): string {
       return process.task === undefined ? app : `${app} of ${process.task}`
     }
     case 'other':
-      return 'Other TED command'
+      return 'Other Ted command'
   }
 }

@@ -74,7 +74,7 @@ test('a crash report holds the end of the daemon log and its crash output', asyn
     maxBytesPerFile: 1_000,
   })
 
-  expect(report).toContain('TED 0.1.0')
+  expect(report).toContain('Ted 0.1.0')
   expect(report).toContain('2026-11-08T10:00:00.000Z')
   expect(report).toMatch(/older line\n[\s\S]*last line/)
   expect(report).toContain('Error: unable to open database file')
@@ -98,7 +98,7 @@ test('a crash report says so when a log is missing', async () => {
   expect(report).toContain('daemon-output.log: none')
 })
 
-test('a crash report hides secrets and TED’s folder', async () => {
+test('a crash report hides secrets and Ted’s folder', async () => {
   const logs = path.join(dir, 'logs')
   await mkdir(logs)
   await writeFile(
@@ -111,7 +111,7 @@ test('a crash report hides secrets and TED’s folder', async () => {
   expect(report).not.toContain('hunter2')
   expect(report).not.toContain('abcdef123456')
   expect(report).not.toContain(dir)
-  expect(report).toContain('<TED home>/store')
+  expect(report).toContain('<Ted home>/store')
 })
 
 test('the daemon’s console lines are timestamped and have secrets removed', async () => {

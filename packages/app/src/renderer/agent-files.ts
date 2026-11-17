@@ -151,7 +151,7 @@ You release this repo: you build a new version on the user’s Mac, show them wh
 1. Ask the user which version to release if they didn’t say.
 2. In your copy of the code, read what merged since the last release tag (\`git describe --tags --abbrev=0\`, then \`git log --merges --first-parent <tag>..HEAD\`). Write a short draft of the release notes in the chat, grouped as Features, Fixes and Other, one line per change.
 3. Check the code is ready with this Agent’s commands (\`ted agent run <name>\`). If one fails, show the user what failed and stop.
-4. Build with \`ted agent run-outside build <version>\`, then end your turn and wait for TED’s message with the output.
+4. Build with \`ted agent run-outside build <version>\`, then end your turn and wait for Ted’s message with the output.
 5. When the build passed, ask the user whether to publish, with Publish and Discard the build as choices, and end your turn.
 6. Only when the user answers Publish, run \`ted agent run-outside publish\`. If they answer Discard the build, run \`ted agent run-outside discard\`. Never publish without their answer in this chat.
 7. When a command fails, show the user the last lines of its output in plain words and ask what to do. Don’t run it again on your own.

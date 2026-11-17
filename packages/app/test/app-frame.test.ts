@@ -22,7 +22,7 @@ import { appLoaded, firstWindow } from './first-window.ts'
 
 setUpAppTests()
 
-describe('TED app frame', () => {
+describe('Ted app frame', () => {
   test('the Appearance setting switches the theme at once, from the app or the daemon', async () => {
     const window = await launchApp()
     await window.emulateMedia({ colorScheme: 'dark' })

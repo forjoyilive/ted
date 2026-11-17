@@ -237,7 +237,7 @@ test('a first Factories load that fails is tried again until it succeeds', async
     const a = appState()
     let calls = 0
     a.handle('listFactories', () =>
-      ++calls < 3 ? Promise.reject(new Error('can’t reach TED’s daemon')) : [factory()],
+      ++calls < 3 ? Promise.reject(new Error('can’t reach Ted’s daemon')) : [factory()],
     )
     const view = a.mount()
     await act(async () => vi.advanceTimersByTimeAsync(0))
@@ -647,7 +647,7 @@ test('hovering the sidebar memory figure shows what makes it up and opens every 
   await user().hover(figure)
   const card = await screen.findByRole('region', { name: 'Memory breakdown' })
   expect(within(card).getByRole('heading').textContent).toBe(
-    'Memory used by TED and its agents (17 processes)',
+    'Memory used by Ted and its agents (17 processes)',
   )
   expect(
     within(card)
@@ -658,7 +658,7 @@ test('hovering the sidebar memory figure shows what makes it up and opens every 
     'Agents · 2700 MB',
     'Checks · 3300 MB',
     'Daemon and Run hosts · 31000 MB',
-    'TED app · 4200 MB',
+    'Ted app · 4200 MB',
   ])
   expect(within(card).getByText('Total').parentElement?.textContent).toBe('Total2.5 GB')
   await user().click(within(card).getByRole('button', { name: /Show every process/ }))

@@ -105,7 +105,7 @@ test('Run chat of a finished Run whose output was deleted shows the “Output no
           kind: 'ted',
           id: 'output-not-kept',
           title: 'Output no longer kept',
-          text: 'TED no longer keeps this Run’s output, so its messages and tool calls can’t be shown.',
+          text: 'Ted no longer keeps this Run’s output, so its messages and tool calls can’t be shown.',
         },
       ],
     }),
@@ -114,10 +114,10 @@ test('Run chat of a finished Run whose output was deleted shows the “Output no
   await user().click(await screen.findByText('Output no longer kept'))
   expect(
     await screen.findByText(
-      'TED no longer keeps this Run’s output, so its messages and tool calls can’t be shown.',
+      'Ted no longer keeps this Run’s output, so its messages and tool calls can’t be shown.',
     ),
   ).toBeTruthy()
-  expect(screen.getByText('From TED')).toBeTruthy()
+  expect(screen.getByText('From Ted')).toBeTruthy()
 })
 
 test('Runs nests sub-agents, opens their chat, stops the sub-agent and collapses to its summary', async () => {
@@ -517,7 +517,7 @@ test('live and saved conversations share Markdown while tool output stays litera
   }
   bridge({ getRunChat: () => chat })
   const view = render(<Conversation runId="r1" />)
-  const command = await screen.findByRole('button', { name: /TED ran.*test.*Exit code 1 · 41s/ })
+  const command = await screen.findByRole('button', { name: /Ted ran.*test.*Exit code 1 · 41s/ })
   await user().click(command)
   expect(screen.getByText('× parses **commands**').tagName).toBe('PRE')
   await screen.findByRole('heading', { name: 'Progress' })

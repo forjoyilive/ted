@@ -20,11 +20,11 @@ describe('the guide card follows the setup Task', () => {
   test('while cloning, and when a clone fails', () => {
     const cloning = factory({ cloned: false, setup: [{ repo: 'acme/widgets', state: 'cloning' }] })
     expect(card(guided(false, cloning), undefined, [])).toEqual({
-      text: 'TED is cloning your repos.',
+      text: 'Ted is cloning your repos.',
     })
     const failed = factory({ cloned: false, setup: [{ repo: 'acme/widgets', state: 'failed' }] })
     expect(card(guided(false, failed), undefined, [])).toEqual({
-      text: 'TED couldn’t clone your repos. See the banner at the top.',
+      text: 'Ted couldn’t clone your repos. See the banner at the top.',
     })
   })
 
@@ -78,7 +78,7 @@ describe('the guide card follows the setup Task', () => {
 
   test('merging, done, stopped and failed', () => {
     expect(card(guided(), setup('merge'), [])).toEqual({
-      text: 'TED is merging the pull request.',
+      text: 'Ted is merging the pull request.',
     })
     const newTask = { label: 'New Task…', open: 'new-task' }
     expect(card(guided(true), setup('done'), [])).toEqual({

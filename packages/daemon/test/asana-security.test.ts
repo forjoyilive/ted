@@ -357,7 +357,7 @@ test('Asana writes go only to fixed task paths as JSON, refuse redirects, honour
     stub.setTasks([{ gid: '501', name: 'Checkout' }])
     expect(await asana.account()).toBe('100')
     const text =
-      'TED opened a pull request for this task: acme/notes#7 https://github.com/acme/notes/pull/7'
+      'Ted opened a pull request for this task: acme/notes#7 https://github.com/acme/notes/pull/7'
     await asana.comment('501', text, '100')
     await asana.complete('501', '100')
     expect(

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""PostToolUse hook: deliver a message TED is holding, if any, as additionalContext.
+"""PostToolUse hook: deliver a message Ted is holding, if any, as additionalContext.
 
 Usage (from per-Run --settings): hold_hook.py <queue-file>
-The queue file stands in for TED's own store. Deleting it before the hook runs is "Delete".
+The queue file stands in for Ted's own store. Deleting it before the hook runs is "Delete".
 """
 import json, os, sys
 

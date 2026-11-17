@@ -356,7 +356,7 @@ describe('Codex and the Workflow', () => {
     await waitUntil(async () => {
       const { conversation } = await client.getRun(lead)
       return conversation.some(
-        (e) => e.line.includes('userMessage') && e.line.includes('TED moved this Task to Clarify'),
+        (e) => e.line.includes('userMessage') && e.line.includes('Ted moved this Task to Clarify'),
       )
     }, 'the Clarify Stage file to reach the Codex Task Lead')
   })

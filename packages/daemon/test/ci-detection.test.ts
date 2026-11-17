@@ -102,7 +102,7 @@ describe('CI detection at push', () => {
     expect((await detect(silentGh(), withPullRequest)).ciSignals).toEqual(['workflow-files'])
   })
 
-  test('a workflow TED can’t read the triggers of counts', async () => {
+  test('a workflow Ted can’t read the triggers of counts', async () => {
     const broken = await commit({ '.github/workflows/ci.yml': 'on: [push\n' })
     expect((await detect(silentGh(), broken)).ci).toBe(true)
     const none = await commit({ '.github/workflows/ci.yml': 'jobs: {}\n' })

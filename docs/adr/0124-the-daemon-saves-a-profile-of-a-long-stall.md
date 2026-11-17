@@ -8,7 +8,7 @@ ADR 0114 counts event-loop stalls and lets the app record a CPU profile from Set
 - **It profiles only a stall.** When no beat has come for 2 seconds, the worker connects its `node:inspector` session to the daemon’s thread (`connectToMainThread`) and starts V8’s CPU profiler there at one sample per 10 ms. V8 handles that request as an interrupt, so it starts while the thread is still blocked. When the beats come back the worker stops the profiler and posts the profile with the time between the last beat before and the first beat after.
 - **Saved at 5 seconds.** A stall of 5 seconds or more is written to `TED_HOME/logs/profiles/stall-<time>.cpuprofile` (mode `0600`, plain folders only, newest five kept, separately from the app’s `daemon-` profiles), and one line with its length and the file goes to the daemon log. A shorter one is thrown away. A worker tick that is itself 2 seconds late means the machine slept, and that profile is thrown away.
 - **The app’s profile comes first.** `record` tells the worker to pause, because V8 has one sampling rate.
-- Nothing new can start or read a profile: there is no route, no setting and no inspector port. A profile holds function names, file paths and line numbers of TED’s own code and its libraries, and no arguments or data.
+- Nothing new can start or read a profile: there is no route, no setting and no inspector port. A profile holds function names, file paths and line numbers of Ted’s own code and its libraries, and no arguments or data.
 
 ## Considered Options
 

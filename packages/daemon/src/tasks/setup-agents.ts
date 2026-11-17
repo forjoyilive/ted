@@ -13,7 +13,7 @@ export function setupAgentDifferences(
   const differences: string[] = approved.flatMap((agent) =>
     inherited.includes(agent.id)
       ? [
-          `${agent.id} is already defined in TED’s defaults or the Library; a setup Agent needs an id of its own`,
+          `${agent.id} is already defined in Ted’s defaults or the Library; a setup Agent needs an id of its own`,
         ]
       : [],
   )

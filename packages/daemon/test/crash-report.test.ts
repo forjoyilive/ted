@@ -21,7 +21,7 @@ const home = '/Users/bob'
 const token = `ghp_${'a1'.repeat(18)}`
 
 describe('cleaning', () => {
-  test('keeps TED’s own paths relative and replaces every other path', () => {
+  test('keeps Ted’s own paths relative and replaces every other path', () => {
     const stack = [
       'Error: boom',
       '    at run (/repo/packages/daemon/src/tasks/queue.ts:120:5)',
@@ -67,7 +67,7 @@ describe('cleaning', () => {
     expect(cleanText('cannot parse `API_KEY=abc and the rest`', roots, home)).toBe(
       'cannot parse `<text>`',
     )
-    expect(cleanText("TED can't start", roots, home)).toBe("TED can't start")
+    expect(cleanText("Ted can't start", roots, home)).toBe("Ted can't start")
     expect(cleanText("open '/Volumes/Bob's Drive/confidential plan.txt'", roots, home)).toBe(
       "open '<path>'",
     )

@@ -1,6 +1,6 @@
 # A push recovers when the remote branch is ahead of the recorded push and contained in the pushed commit
 
-TED pushes a Task branch with `--force-with-lease` against the commit it recorded as its last push (ADR 0048). When the branch on GitHub was at any other commit, the push failed with “stale info”, and nothing ever changed the record, so every later push and sign-off failed the same way. TED-177 was stuck like this: the record said `9eaef80d`, GitHub had `2ac276ea`, and the reviewed local commit `6b3cb1cd` contained both.
+Ted pushes a Task branch with `--force-with-lease` against the commit it recorded as its last push (ADR 0048). When the branch on GitHub was at any other commit, the push failed with “stale info”, and nothing ever changed the record, so every later push and sign-off failed the same way. TED-177 was stuck like this: the record said `9eaef80d`, GitHub had `2ac276ea`, and the reviewed local commit `6b3cb1cd` contained both.
 
 **A refused push looks at the remote.** `pushOne` in `tasks/pull-requests.ts` reads the worktree’s `HEAD` once, before the first push, and every later step uses that commit. When `pushBranch` fails for a branch that has a recorded push, `pushPastRecord` there:
 
@@ -14,9 +14,9 @@ The push that follows is a fast-forward, because the pushed commit contains the 
 ## Considered Options
 
 - **A button or command the human starts.** Rejected by the human in Clarify: the containment check is what makes the recovery safe, and it needs no judgment.
-- **Push without a lease when the remote is contained.** Rejected: a plain push would also be a fast-forward, but the lease is what stops a push over a branch that moved after TED looked.
-- **Ask in the Inbox when the remote holds commits that aren’t contained.** Rejected by the human in Clarify: the push fails as before, with a message that says what TED found.
-- **Repair the installed TED’s store by hand for TED-177.** Rejected: the Task recovers at its next push once a release with this change is installed.
+- **Push without a lease when the remote is contained.** Rejected: a plain push would also be a fast-forward, but the lease is what stops a push over a branch that moved after Ted looked.
+- **Ask in the Inbox when the remote holds commits that aren’t contained.** Rejected by the human in Clarify: the push fails as before, with a message that says what Ted found.
+- **Repair the installed Ted’s store by hand for TED-177.** Rejected: the Task recovers at its next push once a release with this change is installed.
 
 ## Consequences
 

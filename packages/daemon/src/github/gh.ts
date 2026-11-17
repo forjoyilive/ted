@@ -118,7 +118,7 @@ function checkAllowed(args: readonly string[]): void {
   const isStatus = authStatus.every((arg, i) => args[i] === arg)
   const hostOnly = extra.length === 0 || (extra.length === 2 && extra[0] === '--hostname')
   if (!isStatus || !hostOnly) {
-    throw new GhError('failed', 'TED runs only `gh auth status --json hosts` itself')
+    throw new GhError('failed', 'Ted runs only `gh auth status --json hosts` itself')
   }
 }
 

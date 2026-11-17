@@ -319,7 +319,7 @@ export async function report(
   const log = includeLog ? await tail(tedPaths(sources.home).daemonLog, reportLogBytes) : undefined
   const { totalBytes, availableBytes } = diagnostics.memory
   const lines = [
-    `TED ${sources.version}`,
+    `Ted ${sources.version}`,
     `Created ${new Date().toISOString()}`,
     `${os.type()} ${os.release()} ${os.arch()}, Node ${process.versions.node}`,
     `Memory: ${megabytes(availableBytes)} available of ${megabytes(totalBytes)}`,
@@ -345,5 +345,5 @@ export async function report(
 
 function hideHome(text: string, home: string): string {
   const user = os.homedir()
-  return text.replaceAll(home, '<TED home>').replaceAll(user, '~')
+  return text.replaceAll(home, '<Ted home>').replaceAll(user, '~')
 }

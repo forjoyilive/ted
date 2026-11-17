@@ -2,7 +2,7 @@
 
 Status: accepted (TED-519). Amends ADR 0125-inbox-continuations-wait-for-working-run-slots and ADR 0166-new-work-waits-while-the-computer-is-busy.
 
-Since ADR 0125 an idle Task Lead gets TED’s next message only through the queue: an answer, a sign-off approval, the Check results and Validate instructions from `tasks/validation.ts`. A Task holds no slot while its Checks run, and Checks push the load past the busy mark of ADR 0166, which went on by default. So a Task whose Checks had just passed, or whose question the user had just answered, waited until nothing else was working.
+Since ADR 0125 an idle Task Lead gets Ted’s next message only through the queue: an answer, a sign-off approval, the Check results and Validate instructions from `tasks/validation.ts`. A Task holds no slot while its Checks run, and Checks push the load past the busy mark of ADR 0166, which went on by default. So a Task whose Checks had just passed, or whose question the user had just answered, waited until nothing else was working.
 
 **A continuation after Checks or an answer skips the busy hold.** A held Task Lead message records why it waits in `after` (`checks-passed`, `checks-done` or `answer`) and when in `heldAt`, inside the JSON `messages` of the existing `v1.TaskLeadMessagesHeld` event, as `waitForSlot` does; a held answer uses its `answerDelivery.queuedAt`. `continuationsReady` in `tasks/tasks.ts` gives such an entry `skipsBusy`, and `startsNow` in `tasks/queue.ts` lets it past the busy hold. The machine limit, Factory caps, the disk hold and agent pauses still apply. Cleanup and Autopilot reminders keep waiting like new work.
 
@@ -13,5 +13,5 @@ Since ADR 0125 an idle Task Lead gets TED’s next message only through the queu
 ## Considered Options
 
 - **Starting these continuations over the limit**, like a permission answer. The user chose to keep the limit.
-- **Discounting the load TED’s own Checks cause.** TED can’t separate it cleanly, and a heavy Check does slow everything else.
+- **Discounting the load Ted’s own Checks cause.** Ted can’t separate it cleanly, and a heavy Check does slow everything else.
 - **Holding the slot while Checks run.** It would keep capacity idle during long Checks, against ADR 0125’s choice to release it.

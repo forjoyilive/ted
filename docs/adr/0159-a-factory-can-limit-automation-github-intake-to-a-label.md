@@ -1,6 +1,6 @@
 # A Factory can limit Automation GitHub intake to a label
 
-The “Daily GitHub issue triage” Automation used to let the agent choose any open issue, and anyone can open an issue on a public repo. Now the user can tell a Factory to take only issues a maintainer has labelled, and TED, not the agent, decides whether an Automation may import an issue. It works like the Linear and Asana intake scopes (ADR 0149).
+The “Daily GitHub issue triage” Automation used to let the agent choose any open issue, and anyone can open an issue on a public repo. Now the user can tell a Factory to take only issues a maintainer has labelled, and Ted, not the agent, decides whether an Automation may import an issue. It works like the Linear and Asana intake scopes (ADR 0149).
 
 - **The setting.** `githubIntakeScopes` in the machine settings, keyed by Factory ID, holds `{ label }`; no entry means Any open issue. Only the app-only `PUT /factories/:id/github-intake` changes it (no `runToken`, no `fileToken`), through `parseSetFactoryGitHubIntakeRequest` in `packages/protocol/src/github-intake.ts`: a trimmed label of 1 to 50 characters (GitHub’s limit) with no control characters. The machine settings route refuses the key, and `factory-removal.ts` deletes the entry. It is local to the machine, like the other intake scopes. Factory settings → GitHub intake (`views/GitHubIntakeSection.tsx`) saves a choice of Any open issue at once and a label when the field is committed.
 - **The check.** When an Automation Run (any caller `automationCaller` returns) creates a Task whose `--source` is a GitHub issue URL, `createTask` in `tasks/tasks.ts` passes the setting to `githubIssue`, which reads the issue through `readGitHubIssue` as for any import (ADR 0158), now with its labels and parent issue, and asks `githubIntakeRefusal` in `tasks/github-intake.ts`. The import is refused with a 409 that names the rule unless the issue is readable, open, in one of the Factory’s repos (by URL and by the `nameWithOwner` GitHub reports), carries the label when one is set (case ignored, as GitHub does), and is not a sub-issue of an issue the Factory already tracks (`sourceClash`: open, Done or archived). The label a Run sends is never read. The setting is read before the GitHub read and compared again just before the commit, as `verifyLinearIntake` does, and the parent issue is checked again there too, since another import may have created its Task meanwhile. The child Tasks made from the issue’s sub-issues follow ADR 0158’s rules; the label is checked on the issue the Automation named.
@@ -13,7 +13,7 @@ The “Daily GitHub issue triage” Automation used to let the agent choose any 
 
 - **Trust the agent’s search.** The prompt alone would be enough most days, but a Run that reads hostile issue text could be talked into importing anything.
 - **Store the setting in `.ted/`.** It would follow the repo to every machine, but the other intake scopes are local and a change would need a pull request.
-- **Several labels, or a full search query.** More flexible, but one label is what maintainers already use for triage, and a query is harder to check on TED’s side.
+- **Several labels, or a full search query.** More flexible, but one label is what maintainers already use for triage, and a query is harder to check on Ted’s side.
 
 ## Consequences
 

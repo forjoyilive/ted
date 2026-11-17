@@ -50,7 +50,7 @@ const openFailure = (client: Awaited<ReturnType<typeof start>>, task: Task, afte
 const runs = async (worktree: string, file: string) =>
   (await readFile(path.join(worktree, file), 'utf8')).split('\n').filter(Boolean).length
 
-test('a merged Task goes through Cleanup: blockers are released at the merge, TED runs the commands before the Task Lead, a failed step asks Try again or Finish anyway, and the worktree goes only at Done', async () => {
+test('a merged Task goes through Cleanup: blockers are released at the merge, Ted runs the commands before the Task Lead, a failed step asks Try again or Finish anyway, and the worktree goes only at Done', async () => {
   const client = await start({ workflow: workflow('Drop the staging database.') })
   const { task, signoff } = await toSignoff(client)
   const blocked = await client.ok<Task>('POST', '/tasks', {

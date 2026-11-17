@@ -551,7 +551,7 @@ test('an idle question reply stays queued past the nudge deadline until a workin
   expect(await client.ok<RunSlots>('GET', '/slots')).toMatchObject({ working: 1, queued: 1 })
   expect(
     (await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)).filter((event) =>
-      event.text.startsWith('TED nudged the Task Lead'),
+      event.text.startsWith('Ted nudged the Task Lead'),
     ),
   ).toEqual([])
   await client.ok('POST', `/tasks/${blocker.id}/stop`)

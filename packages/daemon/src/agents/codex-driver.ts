@@ -73,7 +73,7 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
 
   void (async () => {
     const init = await request('initialize', {
-      clientInfo: { name: 'ted', title: 'TED', version: plan.clientVersion },
+      clientInfo: { name: 'ted', title: 'Ted', version: plan.clientVersion },
       capabilities: null,
     })
     if (init.error !== undefined) return stop()
@@ -247,7 +247,7 @@ export const drive: DriveAgent = ({ input, send, stop }) => {
       send(
         JSON.stringify(
           result === undefined
-            ? { id: message.id, error: { code: -32601, message: 'TED doesn’t answer this yet' } }
+            ? { id: message.id, error: { code: -32601, message: 'Ted doesn’t answer this yet' } }
             : { id: message.id, result },
         ),
       )

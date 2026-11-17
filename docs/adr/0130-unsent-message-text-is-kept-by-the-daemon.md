@@ -1,6 +1,6 @@
 # Unsent message text is kept by the daemon
 
-Text the human typed into a message or answer box and didn’t send was lost when they opened another Task or view, or quit TED. They want it to stay until they send or clear it, and to go when its Task is archived or deleted (KRI-268). The New Task dialog already keeps its text this way (`v2.TaskDraftSaved`).
+Text the human typed into a message or answer box and didn’t send was lost when they opened another Task or view, or quit Ted. They want it to stay until they send or clear it, and to go when its Task is archived or deleted (KRI-268). The New Task dialog already keeps its text this way (`v2.TaskDraftSaved`).
 
 - **One row per box.** A box is a `MessageBox`, `{ kind, id }`: `comment` and `follow-up` (a Task), `request` (a Comment), `plan-request` (a plan’s request), `run` (a Run chat; a Planning chat is its Run’s), `coordinator` and `new-plan` (a Factory). The `messageDrafts` table holds the text, the Comment box’s attached files and, for cards with more than one field, the card’s fields as one JSON string that only the app reads and checks.
 - **Two events.** `v1.MessageDraftSaved` carries the row with the Task, plan and Factory it belongs to; `v1.MessageDraftCleared` deletes it. Saving empty text with no files and no fields clears. A save that changes nothing commits nothing.
@@ -19,6 +19,6 @@ Text the human typed into a message or answer box and didn’t send was lost whe
 
 - A saved text stays in the event log and in backups after it is deleted from the state.
 - Typing adds at most one event per box every 500 ms.
-- If TED quits between a send succeeding and the clear reaching the daemon, the sent text shows again as unsent.
+- If Ted quits between a send succeeding and the clear reaching the daemon, the sent text shows again as unsent.
 - Files attached and never sent stay in `TED_HOME/attachments` after their Task is archived, as files uploaded and never sent already did.
 - The thread Comment box and the Task Lead’s Run chat box are two boxes with their own text.

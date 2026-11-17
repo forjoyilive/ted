@@ -9,8 +9,8 @@ while [ -L "$self" ]; do
 done
 resources=$(cd "$(dirname "$self")/.." && pwd -P)
 outer=$(cd "$resources/.." && pwd -P)
-if [ -x "$outer/MacOS/TED" ]; then
-  app=$outer/MacOS/TED
+if [ -x "$outer/MacOS/Ted" ]; then
+  app=$outer/MacOS/Ted
 else
   app=$outer/ted-app
 fi

@@ -7,7 +7,7 @@ Both app routes (`POST /comments/:id/talk`, `POST /comments/:id/done-talking`) a
 ## Considered Options
 
 - **A separate Run for the talk.** Rejected: the spec wants the Task Lead’s own context, agent, model and effort, and a second Run would have to be told what the first one knows.
-- **TED writes the summary or closes the round on Done talking.** Rejected: only the Task Lead knows what was agreed, and the spec has the Task Lead post the summary.
+- **Ted writes the summary or closes the round on Done talking.** Rejected: only the Task Lead knows what was agreed, and the spec has the Task Lead post the summary.
 - **Counting the round as answered at Few.** A round closed by Talk it through doesn’t use up Few’s one round, so the Task Lead can put what is still open into a new round.
 
 ## Consequences

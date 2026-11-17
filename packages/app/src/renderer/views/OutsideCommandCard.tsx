@@ -56,9 +56,9 @@ export function OutsideCommandCard({
       </p>
       <p className={draft.note}>
         {ask.allowedBefore !== undefined
-          ? 'The command changed since you allowed it, so TED asks again. '
+          ? 'The command changed since you allowed it, so Ted asks again. '
           : ask.allowedFolder !== undefined
-            ? 'The folder changed since you allowed this command, so TED asks again. '
+            ? 'The folder changed since you allowed this command, so Ted asks again. '
             : ''}
         This command runs on your Mac with your login environment. It can push, publish and use your
         keychain. It runs only if you click Run.
@@ -96,7 +96,7 @@ export function OutsideCommandCard({
         <span>
           <span className={draft.powerName}>Always allow this command</span>
           <span className={draft.hint}>
-            {`${agentName} runs ${ask.command} in any chat of this Factory without asking${ask.argument !== undefined ? ', with any plain argument' : ''}. TED asks again if the command or the folder changes. Remove it from ${agentName}’s settings.`}
+            {`${agentName} runs ${ask.command} in any chat of this Factory without asking${ask.argument !== undefined ? ', with any plain argument' : ''}. Ted asks again if the command or the folder changes. Remove it from ${agentName}’s settings.`}
           </span>
         </span>
       </label>

@@ -99,8 +99,8 @@ export function createFactories(options: FactoriesOptions): Factories {
   const account = () => {
     const login = options.login?.()
     return login === undefined
-      ? 'the GitHub account TED uses'
-      : `the GitHub account TED uses (${login})`
+      ? 'the GitHub account Ted uses'
+      : `the GitHub account Ted uses (${login})`
   }
 
   function find(id: string): StoredFactory {
@@ -187,7 +187,7 @@ export function createFactories(options: FactoriesOptions): Factories {
       return failChecked({
         kind: 'read-only',
         text: `You can read ${canonical} but not push to it.`,
-        detail: `TED pushes Task branches and opens pull requests, so ${account()} needs write access. Fork-only repos aren’t supported yet.`,
+        detail: `Ted pushes Task branches and opens pull requests, so ${account()} needs write access. Fork-only repos aren’t supported yet.`,
         fixes: [{ kind: 'check-again' }],
       })
     }
@@ -212,7 +212,7 @@ export function createFactories(options: FactoriesOptions): Factories {
       .filter((f) => f.repos.some((r) => sameRepo(r.repo, canonical)))
       .map((f) => f.name)
     if (users.length > 0) {
-      notes.push(`Also used by Factory ${users.join(', ')}. TED shares one clone between them.`)
+      notes.push(`Also used by Factory ${users.join(', ')}. Ted shares one clone between them.`)
     }
     if (primary) {
       const hasSettings = await gh
@@ -223,7 +223,7 @@ export function createFactories(options: FactoriesOptions): Factories {
         )
       if (hasSettings) {
         notes.push(
-          'Has TED settings already. They’ll be used, and the setup Task will wait in Backlog.',
+          'Has Ted settings already. They’ll be used, and the setup Task will wait in Backlog.',
         )
       }
     }
@@ -240,8 +240,8 @@ export function createFactories(options: FactoriesOptions): Factories {
         kind: 'github',
         text:
           error.kind === 'missing'
-            ? 'TED needs the GitHub CLI to check this repo.'
-            : 'Sign in to GitHub so TED can check this repo.',
+            ? 'Ted needs the GitHub CLI to check this repo.'
+            : 'Sign in to GitHub so Ted can check this repo.',
         fixes: [{ kind: 'github-settings' }],
       }
     }
@@ -361,7 +361,7 @@ export function createFactories(options: FactoriesOptions): Factories {
     const clone = path.join(reposDir, ...repo.split('/'))
     try {
       if (!isSafeRepo(repo) || !isInside(reposDir, clone)) {
-        throw new Error(`${repo} isn’t a GitHub repo TED can clone`)
+        throw new Error(`${repo} isn’t a GitHub repo Ted can clone`)
       }
       await cloneRemoved(clone)
       const inFlight = cloning.get(clone)
@@ -532,7 +532,7 @@ export function createFactories(options: FactoriesOptions): Factories {
         factoryId,
         subject: repo.repo,
         severity: 'warning',
-        text: `.ted/workflow.yaml adds ${repo.repo} · TED clones it only once you add it here`,
+        text: `.ted/workflow.yaml adds ${repo.repo} · Ted clones it only once you add it here`,
         action: { label: 'Add' },
       })
     }
@@ -570,7 +570,7 @@ export function createFactories(options: FactoriesOptions): Factories {
       throw new RequestError(404, 'no such repo')
     }
     const check = await checkRepo({ source: { remote: repo }, primary: false })
-    if (!check.ok) throw new RequestError(409, check.problem?.text ?? `TED can’t add ${repo}`)
+    if (!check.ok) throw new RequestError(409, check.problem?.text ?? `Ted can’t add ${repo}`)
     approveRepos(factory.id, [repo])
     await workflows.resolve(factory, { fetch: false })
   })
@@ -753,8 +753,8 @@ async function locate(source: RepoSource): Promise<Located> {
         kind: 'no-remote',
         text: 'This folder has no GitHub remote.',
         detail: offerSetup
-          ? 'TED works from GitHub. TED can make a private GitHub repo for this folder and push it, or you can choose another folder.'
-          : 'TED works from GitHub. Push the folder to a GitHub repo, or choose another folder.',
+          ? 'Ted works from GitHub. Ted can make a private GitHub repo for this folder and push it, or you can choose another folder.'
+          : 'Ted works from GitHub. Push the folder to a GitHub repo, or choose another folder.',
         fixes: offerSetup ? [{ kind: 'set-up-github' }, ...chooseAgain.fixes] : chooseAgain.fixes,
       },
     })
@@ -777,7 +777,7 @@ async function locate(source: RepoSource): Promise<Located> {
         kind: 'invalid',
         text:
           /^[a-z]+:\/\/|@/i.test(text) && !/github\.com/i.test(text)
-            ? 'TED works with repos on github.com.'
+            ? 'Ted works with repos on github.com.'
             : 'Give a GitHub URL or owner/repo.',
         fixes: [],
       },

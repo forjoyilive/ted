@@ -9,7 +9,7 @@ The host holds an exclusive SQLite lock on `runs/<run-id>/host.lock` while it ru
 ## Considered Options
 
 - **Start the agent detached with stdout to a file and stdin from a FIFO, with no host.** Rejected: when the daemon dies, the FIFO’s writer closes and the agent gets end of input and exits.
-- **tmux or another terminal multiplexer.** Rejected: an extra dependency built around PTYs, and TED reads structured output.
+- **tmux or another terminal multiplexer.** Rejected: an extra dependency built around PTYs, and Ted reads structured output.
 - **The host sends output to the daemon over a socket.** Rejected for now: output written while the daemon is down would need its own buffer, and the log file already is one.
 
 ## Consequences

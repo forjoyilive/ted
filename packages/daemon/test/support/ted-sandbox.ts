@@ -1,15 +1,15 @@
 export const insideTedSandbox = process.env.TED_SANDBOX === '1'
 
 export const insideTedSandboxReason =
-  'this run is inside TED’s sandbox (a Scheduled Check), where a second sandbox can’t start, so a test that needs the real sandbox or checks what it refuses can’t run'
+  'this run is inside Ted’s sandbox (a Scheduled Check), where a second sandbox can’t start, so a test that needs the real sandbox or checks what it refuses can’t run'
 
 export const sandboxReasons = {
   secondSandbox: insideTedSandboxReason,
   tedHome:
-    'tests whose files TED refuses inside a TED home: TED’s sandbox keeps its temp folder under ~/.ted',
+    'tests whose files Ted refuses inside a Ted home: Ted’s sandbox keeps its temp folder under ~/.ted',
   processes:
-    'tests that start or inspect processes (ps, a PTY, a process group): TED’s sandbox refuses them',
-  appStart: 'the app start script test: TED Dev refuses to open inside TED’s sandbox',
+    'tests that start or inspect processes (ps, a PTY, a process group): Ted’s sandbox refuses them',
+  appStart: 'the app start script test: Ted Dev refuses to open inside Ted’s sandbox',
 } as const
 
 const reported = new Set<string>()

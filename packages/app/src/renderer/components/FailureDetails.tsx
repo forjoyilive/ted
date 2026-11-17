@@ -70,7 +70,7 @@ export function FailureDetails({
             ? failure.verifications.at(-1)?.checkRunId
               ? 'verified by a later execution'
               : failure.validation && failure.source.kind === 'github-ci'
-                ? 'closed by TED'
+                ? 'closed by Ted'
                 : 'verified with recorded evidence'
             : (decision?.resolution ?? 'unresolved')
   const contextId = requestId ? request?.contextId : failure.contextId
@@ -140,8 +140,8 @@ export function FailureDetails({
       <p className={styles.caption}>
         {noAccept
           ? failure.validation
-            ? 'This failure can’t be accepted: TED can’t tie it to the Task’s code as it is now.'
-            : 'This failure can’t be accepted: TED can’t tie it to the Task’s code as it is now. If it still happens, send a message to the Task Lead instead of choosing.'
+            ? 'This failure can’t be accepted: Ted can’t tie it to the Task’s code as it is now.'
+            : 'This failure can’t be accepted: Ted can’t tie it to the Task’s code as it is now. If it still happens, send a message to the Task Lead instead of choosing.'
           : 'Accepting covers only this failure. It doesn’t count as passed or approve a merge.'}
       </p>
     </section>

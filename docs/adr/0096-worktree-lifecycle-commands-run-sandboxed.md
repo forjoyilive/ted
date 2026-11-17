@@ -1,6 +1,6 @@
-# Worktree setup and teardown run in TED’s OS sandbox
+# Worktree setup and teardown run in Ted’s OS sandbox
 
-KRI-164 extends ADR 0091 to Task worktree setup and teardown, changing ADR 0025’s execution boundary. Commands still run automatically, but outside Bypass they use TED’s OS sandbox even when the human starts the Task. Reading the command from the default branch is insufficient: teardown can invoke scripts the Task Lead changed, and a Run can trigger it through `ted task repos remove`.
+KRI-164 extends ADR 0091 to Task worktree setup and teardown, changing ADR 0025’s execution boundary. Commands still run automatically, but outside Bypass they use Ted’s OS sandbox even when the human starts the Task. Reading the command from the default branch is insufficient: teardown can invoke scripts the Task Lead changed, and a Run can trigger it through `ted task repos remove`.
 
 Setup, added-repo setup, recovered setup and teardown share `tasks/command.ts` with Checks. It wraps the existing process runner, preserves each caller’s shell, timeout and cancellation, and supplies a fresh temp folder and the Task’s private package caches. Setup installs therefore use the same caches as later Checks rather than creating new hard links into the user’s shared package store. Recorded setup command, timeout and env still survive daemon restarts; sandbox policy comes from the Task’s resolved Workflow.
 

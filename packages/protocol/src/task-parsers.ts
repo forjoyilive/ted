@@ -717,7 +717,7 @@ function setupProposal(value: unknown): SetupProposal {
   if (files.length === 0) {
     throw new HttpError(400, 'the setup proposal names the files it will write')
   }
-  const defaults = shortText(input.defaults, 'the line on what stays at TED’s defaults', 300)
+  const defaults = shortText(input.defaults, 'the line on what stays at Ted’s defaults', 300)
   return {
     workflow,
     checks,

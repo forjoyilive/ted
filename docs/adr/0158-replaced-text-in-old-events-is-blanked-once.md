@@ -28,13 +28,13 @@ No row is added or deleted and no other column changes, so sequence numbers stay
 
 - Every reader of these events goes through the materializers, apart from the interval boundaries (`interval-schema.ts`), which read a sub-agent request’s `id`, `taskId`, `agent` and `at` and never its prompt.
 - The last event of each group is untouched, and every earlier one is replaced whole by it, so a rebuild ends with the same rows. On the copy of a real home, states rebuilt from the original and from the blanked log had the same rows in all 79 state tables; only the observation sessions the two opens themselves recorded differed.
-- It reuses ADR 0099’s steps and checks (`store/rewrite-eventlog.ts`), and adds one: from the original log, TED works out again which events a later one replaces, and refuses the copy if any other event changed.
+- It reuses ADR 0099’s steps and checks (`store/rewrite-eventlog.ts`), and adds one: from the original log, Ted works out again which events a later one replaces, and refuses the copy if any other event changed.
 
 ## How it runs
 
 `packages/daemon/src/store/blank-replaced.ts` does the rewrite and `data.ts` decides when, with the store closed, right after ADR 0099’s compaction:
 
-1. Nothing happens when `store/ted-store.json` has `replacedText` with `state: "done"`, or `state: "failed"` from this same version; when the event log holds events this TED doesn’t know; or on the open that follows a restore. A new home gets the marker on its first open.
+1. Nothing happens when `store/ted-store.json` has `replacedText` with `state: "done"`, or `state: "failed"` from this same version; when the event log holds events this Ted doesn’t know; or on the open that follows a restore. A new home gets the marker on its first open.
 2. If no event would be blanked, the marker is written and nothing else happens.
 3. A pre-update backup must exist from this same open: one the rebuild or the compaction took, or a new one. If it can’t be taken, the log stays as it is, nothing is marked, and the next start tries again.
 4. The store folder, its `ted` folder and the event log must be a plain folder, folder and file, not links, with the log’s real path inside the store folder; otherwise the pass fails and nothing is touched. Compaction shares this check. The event log is then cloned to `eventlog@<n>.db.blanking`, the fields are blanked in the clone, and the clone is vacuumed.

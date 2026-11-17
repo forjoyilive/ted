@@ -361,7 +361,7 @@ test('Merge uses the same repair remedy without allowing the Task Lead to advanc
   await waitUntil(async () => {
     const current = await getTask(client, task.id)
     return (!current.statuses.includes('working') && !current.checksActive) || undefined
-  }, 'TED to finish the Merge Checks before verifying')
+  }, 'Ted to finish the Merge Checks before verifying')
   expect(
     (
       await replacement.call('POST', `${root}/failures/${failure.id}/verification`, {

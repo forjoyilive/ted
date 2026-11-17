@@ -13,11 +13,11 @@ A Task that went down a wrong path could only be steered further, or archived an
 
 - **Delete the Task and create a new one with the same number.** Blockers, the Linear sync record, the rank and links from other Tasks point at the Task’s ID, and the human chose the same Task.
 - **Keep the old branch on GitHub.** The new attempt’s first push to it would be refused, or it would need a new branch name; the human chose to discard the code.
-- **Record the title from before a split.** TED keeps old descriptions but not old titles, so this would help only Tasks split after the change. A narrowed Task keeps its narrowed title, and the dialog says so.
+- **Record the title from before a split.** Ted keeps old descriptions but not old titles, so this would help only Tasks split after the change. A narrowed Task keeps its narrowed title, and the dialog says so.
 
 ## Consequences
 
 - A reset can’t be undone. The events of the old attempt stay in the event log, as with a deleted Task.
 - The Dashboard’s times for the Task start again, because the Task log and interval boundaries are cleared. What its Runs used (`v1.RunUsageRecorded`) stays in the API cost totals.
-- A Linear issue TED already moved to review stays there until the new attempt reaches that step again; TED never moves an issue backwards.
+- A Linear issue Ted already moved to review stays there until the new attempt reaches that step again; Ted never moves an issue backwards.
 - A planning chat started from the Task is unlinked, with the reason `reset`.

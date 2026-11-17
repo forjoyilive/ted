@@ -38,9 +38,12 @@ function actionText(row: AsanaImportRow): string {
   }
 }
 
+const deepestIndent = 20
+
 export function asanaTreeText(preview: AsanaImportPreview): string {
   const rows = preview.rows.map((row) => {
-    const name = `${'  '.repeat(row.depth)}${row.name}`
+    const depth = row.depth > deepestIndent ? deepestIndent : row.depth
+    const name = `${'  '.repeat(depth)}${row.name}`
     const who = row.assignee ? (row.assignee.you ? 'you' : row.assignee.name) : 'unassigned'
     return [name, who, actionText(row)].map((cell) => printable(cell))
   })
@@ -74,7 +77,7 @@ export function asanaImportedText(result: AsanaImportResult): string {
       : `; ${result.linked.map((t) => t.displayId).join(', ')} moved under ${result.linked.length === 1 ? 'its' : 'their'} new parent`
   const waiting =
     result.preview.missing > 0
-      ? `\nTED waits for your answer about ${result.preview.missing} ${result.preview.missing === 1 ? 'item' : 'items'} that didn’t come across.`
+      ? `\nTed waits for your answer about ${result.preview.missing} ${result.preview.missing === 1 ? 'item' : 'items'} that didn’t come across.`
       : ''
   return `${created}${linked}.${waiting}`
 }
@@ -103,7 +106,7 @@ export function asanaIntakeText(result: AsanaIntakeResult): string {
     lines.push(printable(`Skipped ${item.name} (${item.url}): ${item.reason}`))
   if (result.left > 0)
     lines.push(
-      `${result.left} more ${result.left === 1 ? 'item waits' : 'items wait'} for the next run; TED creates at most ${maxAsanaIntakeTasks} Tasks per run.`,
+      `${result.left} more ${result.left === 1 ? 'item waits' : 'items wait'} for the next run; Ted creates at most ${maxAsanaIntakeTasks} Tasks per run.`,
     )
   if (result.incomplete !== undefined) lines.push(printable(result.incomplete))
   if (result.stopped !== undefined) lines.push(printable(result.stopped))

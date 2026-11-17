@@ -60,7 +60,7 @@ description.
 
 ## Current source
 
-Commit `6035789f` (“Make Quit TED completely always exit the app”) is on `main`
+Commit `6035789f` (“Make Quit Ted completely always exit the app”) is on `main`
 and was not in the measured commit. The app now waits at most 10 seconds for the
 shutdown answer and exits 5 seconds after asking Electron to quit. The daemon
 shuts down when the response closes, or at once if the app has already gone. The

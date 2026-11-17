@@ -20,7 +20,7 @@ A store that needs no rebuild gets the pass once: at an open where `outputDrop` 
 
 - It works on a copy of the event log. The copy replaces the original, by a rename, only after it passes verification. Any failure deletes the copy and the store opens from the original log.
 - Verification attaches the original and checks: SQLite’s integrity check; the same settings, tables, indexes and other tables’ rows; the copy is one chain starting at the original’s first number; walking both logs in order, every event of the copy is the original’s next event with the same name, arguments, client, session, schema hash and sync metadata, and every original event passed over is a readable `RunOutputRead`; the number passed over is the number dropped; and each Run’s final read offset and last output time, worked out the way the materializers do, are the same in both.
-- Every state file, of this schema and of older ones, is removed before the rename. A crash between the two leaves the original log and no state, which rebuilds as before; and an older TED opened later finds no state database numbered against the old log.
+- Every state file, of this schema and of older ones, is removed before the rename. A crash between the two leaves the original log and no state, which rebuilds as before; and an older Ted opened later finds no state database numbered against the old log.
 - The pre-update backup taken in this open holds the original log.
 
 ## Considered Options
@@ -32,5 +32,5 @@ A store that needs no rebuild gets the pass once: at an open where `outputDrop` 
 ## Consequences
 
 - An event’s sequence number is not stable across this pass. The state database derives Task log and interval boundary IDs from it (`withTaskLog`, `withIntervalBoundaries`), so a thread event’s ID changes when the state is rebuilt after the pass; their order doesn’t. Those IDs are used only to order rows and as list keys. Never store one in an event or outside the state database.
-- The pass keeps working for homes that still gain `RunOutputRead` events from an older TED, and finds nothing to do once ADR 0120 has been in use.
+- The pass keeps working for homes that still gain `RunOutputRead` events from an older Ted, and finds nothing to do once ADR 0120 has been in use.
 - Any further rewrite of shipped events needs its own decision.

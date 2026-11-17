@@ -91,13 +91,13 @@ export function checkAgentFiles(input: {
   const listed = new Map<string, Node | null>()
   let agentSettings: AgentSettingsById = {}
   if (text === null) {
-    problems.push(at(yamlFile, 'TED couldn’t read agents.yaml'))
+    problems.push(at(yamlFile, 'Ted couldn’t read agents.yaml'))
   } else if (text !== undefined) {
     agentSettings = Object.fromEntries(checkAgentsYaml(text, yamlFile, inherited, problems, listed))
   }
 
   if (files.agents === null) {
-    problems.push(at(displayPath(kind, 'agents'), 'TED couldn’t read the agents folder'))
+    problems.push(at(displayPath(kind, 'agents'), 'Ted couldn’t read the agents folder'))
   }
   const agentFiles: Record<string, string> = {}
   for (const [file, body] of Object.entries(files)) {
@@ -108,16 +108,16 @@ export function checkAgentFiles(input: {
       problems.push({
         ...where,
         severity: 'warning',
-        message: `\`${file.slice('agents/'.length)}\` isn’t named after an Agent id, so TED ignores this file. An Agent id is ${idRule}.`,
+        message: `\`${file.slice('agents/'.length)}\` isn’t named after an Agent id, so Ted ignores this file. An Agent id is ${idRule}.`,
       })
     } else if (!Object.hasOwn(agentSettings, id) && !inherited.defined.includes(id)) {
       problems.push({
         ...where,
         severity: 'warning',
-        message: `No agents.yaml lists \`${id}\`, so TED ignores this file. Add \`${id}\` to agents.yaml to use it.`,
+        message: `No agents.yaml lists \`${id}\`, so Ted ignores this file. Add \`${id}\` to agents.yaml to use it.`,
       })
     } else if (body === null) {
-      problems.push({ ...where, message: 'TED couldn’t read the instructions file' })
+      problems.push({ ...where, message: 'Ted couldn’t read the instructions file' })
     } else if (body.trim() === '') {
       problems.push({ ...where, message: 'the instructions file is empty' })
     } else {

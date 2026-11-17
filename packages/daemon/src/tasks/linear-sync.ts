@@ -137,19 +137,19 @@ export function linearConnector(
       closedTitle: (identifier, state) => `${identifier} was marked ${state} in Linear`,
       closedBody: (identifier, state, pastSignOff) =>
         pastSignOff
-          ? `Someone marked ${identifier} ${state} in Linear after you signed off on this Task. TED keeps going until you choose.`
-          : `Someone marked ${identifier} ${state} in Linear while this Task is still being worked on. TED keeps going until you choose.`,
+          ? `Someone marked ${identifier} ${state} in Linear after you signed off on this Task. Ted keeps going until you choose.`
+          : `Someone marked ${identifier} ${state} in Linear while this Task is still being worked on. Ted keeps going until you choose.`,
       childArchived: (child, identifier, state) =>
-        `TED archived ${child}, a Task under this one, because ${identifier} was marked ${state} in Linear.`,
+        `Ted archived ${child}, a Task under this one, because ${identifier} was marked ${state} in Linear.`,
       groupTitle(team, factoryName) {
         const named = team.name === team.key ? team.key : `${team.name} (${team.key})`
         return `Sync ${named} issues with Linear for Automations in ${factoryName}?`
       },
       groupBody: ({ automation, task, label, group, factoryName }) =>
         [
-          `${automation} made ${task} from ${label}. TED doesn’t change Linear issues for Tasks an Automation makes until you allow it for the issue’s team.`,
-          `If you allow ${group.key} for ${factoryName}, TED moves each issue to In Progress when its Task starts, to review at the sign-off before Merge, and to Done when the Task merges, and attaches the Task’s pull requests. It does this for ${group.key} Tasks Automations already made in ${factoryName}, too.`,
-          'Not now keeps them as they are, and TED won’t ask about this team again. You can change either in Settings → Integrations.',
+          `${automation} made ${task} from ${label}. Ted doesn’t change Linear issues for Tasks an Automation makes until you allow it for the issue’s team.`,
+          `If you allow ${group.key} for ${factoryName}, Ted moves each issue to In Progress when its Task starts, to review at the sign-off before Merge, and to Done when the Task merges, and attaches the Task’s pull requests. It does this for ${group.key} Tasks Automations already made in ${factoryName}, too.`,
+          'Not now keeps them as they are, and Ted won’t ask about this team again. You can change either in Settings → Integrations.',
         ].join('\n\n'),
     },
   }

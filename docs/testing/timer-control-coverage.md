@@ -41,7 +41,7 @@ below are relative to `packages/daemon/test/`.
 | Area | Cases retained | Synchronization |
 | --- | --- | --- |
 | GitHub polling | Existing `github-watch.test.ts` cases, including fenced CI forwarding, deduplication and trusted reviews | New `github-watch-clock.test.ts` exercises full interval boundaries, host batching, urgent wake, kick, no overlapping requests, close with pending readers, and removal of all refs without a real daemon. Existing integration cases remain. |
-| Nudges | `stop-resume.test.ts`: “is nudged once, then TED asks with its last message and Nudge again”; “isn’t nudged while it waits on the human” | Advance the nudge clock, await the nudged turn and its rearmed timer, then advance to the second idle check. Advance through the negative time window with the human request still open. |
+| Nudges | `stop-resume.test.ts`: “is nudged once, then Ted asks with its last message and Nudge again”; “isn’t nudged while it waits on the human” | Advance the nudge clock, await the nudged turn and its rearmed timer, then advance to the second idle check. Advance through the negative time window with the human request still open. |
 | Stop/resume | Existing stop and last-blocker cases in `stop-resume.test.ts` | The completed stop/unblock response and finished Run are the completion barriers before asserting no automatic restart; the subsequent explicit Resume still proves recovery. |
 | Silent Run recovery | `failures.test.ts`: “thirty minutes with no output while Working counts as a failure” | Advance the injected silence clock and await the real recovery event. Queue-capacity assertions check the recorded failure and the other Task holding the only working slot; restart recovery waits for the detached host’s exit record; human-stop assertions wait for the Run to finish. |
 | Steering | Existing queued-message, delete, interrupt and Codex boundary cases in `steering.test.ts`; queued Comment case in `thread.test.ts` | Keep the stub blocked on its explicit file gate while asserting no delivery, or await completed interruption/turn state before asserting absence. Then release the gate and verify actual delivery and order. Run state/text and Task state helpers recheck on daemon events. |
@@ -61,7 +61,7 @@ full-suite quiet/busy measurements required by stage 5.
 ## Test Run isolation
 
 The affected Automation question tests exposed inherited parent Run context:
-inside TED, the stub CLI received `TED_TASK=TED-45` and tried to comment on that
+inside Ted, the stub CLI received `TED_TASK=TED-45` and tried to comment on that
 Task in its temporary daemon. Shared test setup now clears `TED_RUN_CAPABILITY`,
 `TED_RUN_TOKEN`, `TED_RUN`, `TED_TASK` and `TED_PLAN` before any test Run starts.
 The real Automation question/answer tests exercise this fix; test Runs receive

@@ -110,11 +110,11 @@ export function footer({ rows, name, keyProblem, key, github }: FormState): Foot
       : filled.length === 2
         ? 'both repos'
         : `all ${filled.length} repos`
-  const settled = rows[0]?.check?.notes.some((n) => n.startsWith('Has TED settings')) === true
+  const settled = rows[0]?.check?.notes.some((n) => n.startsWith('Has Ted settings')) === true
   return {
     text: settled
-      ? `TED clones ${clones}. The setup Task ${key}-1 will wait in Backlog.`
-      : `TED clones ${clones}, then starts the setup Task ${key}-1.`,
+      ? `Ted clones ${clones}. The setup Task ${key}-1 will wait in Backlog.`
+      : `Ted clones ${clones}, then starts the setup Task ${key}-1.`,
     blocked: false,
     problem: false,
   }
@@ -147,7 +147,7 @@ export function protectedFolderNote(
     return folder === root || folder.startsWith(`${root}/`)
   })
   if (!found) return undefined
-  return `macOS may ask whether TED can use your ${found.name}. Allow it: TED reads this folder to check the repo and copies the files you list from it into each Task.`
+  return `macOS may ask whether Ted can use your ${found.name}. Allow it: Ted reads this folder to check the repo and copies the files you list from it into each Task.`
 }
 
 export function shortPath(folder: string, home: string | undefined): string {

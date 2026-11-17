@@ -1,6 +1,6 @@
 # Every child process starts from the one environment the daemon read at start
 
-`packages/daemon/src/command-env.ts` owns how TED builds a child process’s environment. `createEnvironment` reads the login shell’s environment once at start (ADR 0033; it moved here from `health/environment.ts`) and again on **Check again** or while a Fix is being watched. The daemon makes one and passes it everywhere:
+`packages/daemon/src/command-env.ts` owns how Ted builds a child process’s environment. `createEnvironment` reads the login shell’s environment once at start (ADR 0033; it moved here from `health/environment.ts`) and again on **Check again** or while a Fix is being watched. The daemon makes one and passes it everywhere:
 
 - Runs and agent checks use it as before.
 - Worktree setup and teardown, and setup for a scratch worktree in Factory settings, start from it and then go through `worktreeCommandEnv`, which drops `TED_` names, `ELECTRON_RUN_AS_NODE` and agent credentials (ADR 0044). They still run with `/bin/sh -c` (ADR 0025).

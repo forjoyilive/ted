@@ -197,7 +197,7 @@ describe('Checks before a Task leaves Work', () => {
     expect(messages.some((m) => m.includes('moved this Task back to Work'))).toBe(false)
     const passed = messages.find((m) => m.includes('None failed')) ?? ''
     expect(passed).toContain('✓ Typecheck\n✓ Tests\n✓ Lint')
-    expect(passed).toContain('TED moved this Task to Validate')
+    expect(passed).toContain('Ted moved this Task to Validate')
     expect(passed).toContain('before moving the Task out of Work')
 
     const events = await threadEvents(client, task)
@@ -212,7 +212,7 @@ describe('Checks before a Task leaves Work', () => {
     expect(output.text).not.toContain('ghp_abcdefghij')
   }, 90_000)
 
-  test('after three failures in one Work visit TED asks the human and refuses an outcome until they answer; Diagnose in Validate moves the Task and the failure becomes a failure case', async () => {
+  test('after three failures in one Work visit Ted asks the human and refuses an outcome until they answer; Diagnose in Validate moves the Task and the failure becomes a failure case', async () => {
     await workflow('      - { name: Tests, run: "echo nope; exit 1" }')
     const client = await startTed()
     const task = await startTask(
@@ -261,12 +261,12 @@ describe('Checks before a Task leaves Work', () => {
       const id = (await getTask(client, task.id))?.leadRunId
       if (!id) return undefined
       return assistantTexts((await client.getRun(id)).conversation).some((t) =>
-        t.includes('TED asked the human about NB-1’s failing checks'),
+        t.includes('Ted asked the human about NB-1’s failing checks'),
       )
     }, 'the Task Lead’s advance to be refused')
     expect((await getTask(client, task.id))?.stage).toBe('work')
     expect((await threadEvents(client, task)).map((e) => e.text)).toContain(
-      'Checks kept failing as this Task tried to leave Work, so TED asked the human',
+      'Checks kept failing as this Task tried to leave Work, so Ted asked the human',
     )
 
     await client.ok('POST', `/comments/${question.id}/answer`, {
@@ -560,7 +560,7 @@ describe('Checks at Validate', () => {
 
     await waitUntil(async () => {
       const all = await leadMessages(client, task)
-      return all.some((m) => m.includes('TED moved this Task to Validate')) || undefined
+      return all.some((m) => m.includes('Ted moved this Task to Validate')) || undefined
     }, 'the Validate instructions')
     expect(await checkRuns(client, task)).toEqual([])
     const banners = await client.ok<Banner[]>('GET', '/banners')
@@ -613,7 +613,7 @@ describe('Checks at Validate', () => {
     await expect.poll(() => client.ok('GET', '/update/work')).toEqual({ checks: 0, merges: 0 })
   })
 
-  test('a Task whose changes touch .ted/ gets the TED settings Check', async () => {
+  test('a Task whose changes touch .ted/ gets the Ted settings Check', async () => {
     await workflow('      - { name: Typecheck, run: "echo typed" }')
     const client = await startTed()
     const task = await startTask(
@@ -629,7 +629,7 @@ describe('Checks at Validate', () => {
     const [run] = await finishedRuns(client, task, 1)
     expect(states(run)).toEqual([
       ['Typecheck', 'passed'],
-      ['TED settings', 'failed'],
+      ['Ted settings', 'failed'],
     ])
     expect(run?.checks[1]).toMatchObject({ command: 'ted workflow check', builtIn: 'ted-settings' })
     const output = await client.ok<{ text: string }>(
@@ -809,7 +809,7 @@ describe('Checks before a stopped Task leaves Work', () => {
     const resumed = await getTask(client, task.id)
     expect(resumed?.stage).toBe('work')
     expect(await leadMessages(client, task)).toEqual(
-      expect.arrayContaining([expect.stringContaining('# TED didn’t use the checks’ result')]),
+      expect.arrayContaining([expect.stringContaining('# Ted didn’t use the checks’ result')]),
     )
 
     await client.ok('POST', `/tasks/${task.id}/stop`, {})
@@ -907,7 +907,7 @@ describe('the Checks’ environment', () => {
     }
   }, 90_000)
 
-  test('Checks run in the login shell and environment TED read at start, not the daemon’s own, and a fresh read doesn’t make their coverage stale', async () => {
+  test('Checks run in the login shell and environment Ted read at start, not the daemon’s own, and a fresh read doesn’t make their coverage stale', async () => {
     const loginBin = path.join(scratch, 'login-bin')
     await mkdir(loginBin)
     await writeFile(path.join(loginBin, 'login-tool'), '#!/bin/sh\nprintf %s "$1"\n')
@@ -1083,7 +1083,7 @@ describe('the Checks’ sandbox', () => {
   )
 
   test.runIf(process.platform === 'darwin')(
-    'the Checks TED runs before Validate are sandboxed too, since they run the code the agent wrote',
+    'the Checks Ted runs before Validate are sandboxed too, since they run the code the agent wrote',
     async (context) => {
       skipInsideTedSandbox(context)
       await workflow(escapeCheck([path.join(home, 'planted')]))

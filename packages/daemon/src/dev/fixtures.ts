@@ -68,7 +68,7 @@ await import(${JSON.stringify(fixture.href)})
 export async function makeDemoOrigins(home: string): Promise<void> {
   await writeFile(
     path.join(home, 'gitconfig'),
-    '[user]\n name = TED Demo\n email = demo@example.invalid\n[core]\n hooksPath = /dev/null\n',
+    '[user]\n name = Ted Demo\n email = demo@example.invalid\n[core]\n hooksPath = /dev/null\n',
   )
   for (const name of ['garden', 'garden-api', 'journal']) {
     const cwd = path.join(home, 'fixture-repos', name)

@@ -210,7 +210,7 @@ describe('Usage limits', () => {
     )
   })
 
-  test('with no reset time TED tries one Run every 15 minutes and carries on once it works', async () => {
+  test('with no reset time Ted tries one Run every 15 minutes and carries on once it works', async () => {
     const client = await start()
     const task = await startTask(
       client,

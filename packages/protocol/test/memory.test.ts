@@ -8,8 +8,8 @@ test('each process is named so it can be found in Activity Monitor', () => {
   const lead = { runId: 'aaaaaaaa-1', agent: 'claude', role: 'task-lead', task: 'TED-487' } as const
   const named = (process: Omit<ProcessInfo, keyof typeof row>) =>
     processName({ ...row, ...process })
-  expect(named({ owner: 'app', kind: 'ted-app' })).toBe('TED app')
-  expect(named({ owner: 'daemon', kind: 'daemon' })).toBe('TED daemon')
+  expect(named({ owner: 'app', kind: 'ted-app' })).toBe('Ted app')
+  expect(named({ owner: 'daemon', kind: 'daemon' })).toBe('Ted daemon')
   expect(named({ owner: { runId: lead.runId }, kind: 'run-host', run: lead })).toBe(
     'Run host of TED-487’s Task Lead',
   )
@@ -32,8 +32,8 @@ test('each process is named so it can be found in Activity Monitor', () => {
   ).toBe('Codex agent of a Coordinator chat')
   expect(named({ owner: 'daemon', kind: 'check', task: 'TED-479' })).toBe('Check of TED-479')
   expect(named({ owner: 'daemon', kind: 'check' })).toBe('Scheduled check')
-  expect(named({ owner: 'daemon', kind: 'app', task: 'TED-479', appName: 'TED Dev' })).toBe(
-    'App “TED Dev” of TED-479',
+  expect(named({ owner: 'daemon', kind: 'app', task: 'TED-479', appName: 'Ted Dev' })).toBe(
+    'App “Ted Dev” of TED-479',
   )
-  expect(named({ owner: 'daemon', kind: 'other' })).toBe('Other TED command')
+  expect(named({ owner: 'daemon', kind: 'other' })).toBe('Other Ted command')
 })

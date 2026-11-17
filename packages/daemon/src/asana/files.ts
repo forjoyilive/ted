@@ -39,7 +39,7 @@ export async function fetchAsanaFiles(input: {
         results[index] = {
           name: attachment.name,
           url: attachment.viewUrl,
-          reason: error instanceof DownloadError ? error.message : 'TED couldn’t save the file',
+          reason: error instanceof DownloadError ? error.message : 'Ted couldn’t save the file',
         }
       }
     }
@@ -83,7 +83,7 @@ async function download(
     throw new DownloadError(
       error instanceof Error && error.name === 'TimeoutError'
         ? 'the download timed out'
-        : 'TED couldn’t download it',
+        : 'Ted couldn’t download it',
     )
   }
   if (!response.ok || !response.body) {

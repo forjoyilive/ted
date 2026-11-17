@@ -19,7 +19,7 @@ export function NotificationOfferBanner() {
     <section className={styles.offer} aria-label="Notifications">
       <div className={styles.text}>
         <span className={styles.title}>Get a notification when something needs you?</span>
-        <span className={styles.detail}>macOS will ask whether TED may send notifications.</span>
+        <span className={styles.detail}>macOS will ask whether Ted may send notifications.</span>
       </div>
       <Button onClick={() => ted.declineNotifications()}>Not now</Button>
       <Button variant="primary" onClick={() => ted.turnOnNotifications()}>

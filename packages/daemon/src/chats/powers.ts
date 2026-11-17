@@ -14,7 +14,7 @@ export function requirePower(agent: Powered, power: AgentPower): void {
   if (!hasPower(agent, power))
     throw new RequestError(
       403,
-      `${agent.name} doesn’t have the ${agentPowerNames[power]} power in this chat, so TED refused this`,
+      `${agent.name} doesn’t have the ${agentPowerNames[power]} power in this chat, so Ted refused this`,
     )
 }
 
@@ -28,14 +28,14 @@ export function chatAskCommands(): string {
   return [
     '- ted ask "<question>" [--choice "<answer>"]… [--multiple]: ask the human one question. It waits in their Inbox and in this chat. Choices become buttons; --multiple lets them pick several.',
     `- ted ask --round <file>: ask the human several questions at once. ${roundFormat}`,
-    'After you ask, end your turn: TED sends you the human’s answer as a message from TED. One request waits at a time; to replace your own unanswered request, add --supersedes <request-id>.',
+    'After you ask, end your turn: Ted sends you the human’s answer as a message from Ted. One request waits at a time; to replace your own unanswered request, add --supersedes <request-id>.',
   ].join('\n')
 }
 
 export function chatProposeCommands(): string {
   return [
     `- ted task propose --file <file>: propose Tasks for this Factory. ${proposalFormat} Each Task should deliver a verifiable result in one pull request per repo.`,
-    'When the human approves, TED creates the Tasks in Backlog, one parent Task over them when there are several rows, and this chat stays open. After you propose, end your turn.',
+    'When the human approves, Ted creates the Tasks in Backlog, one parent Task over them when there are several rows, and this chat stays open. After you propose, end your turn.',
   ].join('\n')
 }
 
@@ -46,7 +46,7 @@ export function chatAgentCommands(): string {
   return [
     '- ted coordinator agents: this Factory’s Agents, each with its id, name, where it is defined, its powers and its full instructions.',
     `- ted coordinator agent-draft --file <file> [--supersedes <request-id>]: draft a new Agent, or a change to one, for the human to create. ${agentDraftFormat} For a change, give the whole new instructions and powers, not only what differs.`,
-    'TED shows the human the draft as a card in this chat and their Inbox. They may edit it, untick powers and pick the Library (every Factory on this Mac) or this Factory (a settings pull request); nothing is saved until they click Create. You can’t save Agent files yourself, and an Agent can’t be given commands from here. After you draft, end your turn: TED sends you what the human did.',
+    'Ted shows the human the draft as a card in this chat and their Inbox. They may edit it, untick powers and pick the Library (every Factory on this Mac) or this Factory (a settings pull request); nothing is saved until they click Create. You can’t save Agent files yourself, and an Agent can’t be given commands from here. After you draft, end your turn: Ted sends you what the human did.',
   ].join('\n')
 }
 
@@ -69,7 +69,7 @@ export function chatOutsideCommandLines(
   const listed = commands ?? []
   if (listed.length === 0) return []
   return [
-    '- ted agent run-outside <name> [argument]: ask TED to run one of the outside commands below on the user’s Mac, outside the sandbox, in the repo’s local folder. A command written with <slot> takes one argument: letters, digits, dot, dash and underscore only. The first time, the user sees a card with Run; nothing runs until they click it, unless they allowed that command always. One outside command runs at a time in this Factory. After you ask, end your turn: TED sends you the output, or the user’s refusal, as a message from TED.',
+    '- ted agent run-outside <name> [argument]: ask Ted to run one of the outside commands below on the user’s Mac, outside the sandbox, in the repo’s local folder. A command written with <slot> takes one argument: letters, digits, dot, dash and underscore only. The first time, the user sees a card with Run; nothing runs until they click it, unless they allowed that command always. One outside command runs at a time in this Factory. After you ask, end your turn: Ted sends you the output, or the user’s refusal, as a message from Ted.',
     'These commands can push, publish or use the keychain. Ask only for what the user asked you to do, and say in the chat why before you ask.',
     ...listed.map(
       (c) => `  - ${c.name}${c.repo ? ` (in ${c.repo})` : ''}: \`${shown(c.command)}\``,
@@ -85,7 +85,7 @@ export function chatCommandLines(
   const listed = commands ?? []
   if (listed.length === 0) return []
   return [
-    '- ted agent run <name>: TED runs one of the commands below in your copy of the code, in its sandbox, and prints the output and exit status. It takes no arguments, and one command runs at a time; a second one waits for the first. The command can write only inside your copy.',
+    '- ted agent run <name>: Ted runs one of the commands below in your copy of the code, in its sandbox, and prints the output and exit status. It takes no arguments, and one command runs at a time; a second one waits for the first. The command can write only inside your copy.',
     ...listed.map(
       (c) => `  - ${c.name}${c.repo ? ` (in ${c.repo})` : ''}: \`${shown(c.command)}\``,
     ),

@@ -2,9 +2,9 @@
 
 Status: accepted (TED-461)
 
-The anti-slop rules (ADR 0174-anti-slop-rules-guard-new-code) reject `unknown` parameters, returns and type aliases, `typeof` checks and `Record<string, unknown>`. Those are exactly what TED’s hand-written parsers use, so until now new code that read untyped data could pass `pnpm lint` only by being recorded in `oxlint-suppressions.json`.
+The anti-slop rules (ADR 0174-anti-slop-rules-guard-new-code) reject `unknown` parameters, returns and type aliases, `typeof` checks and `Record<string, unknown>`. Those are exactly what Ted’s hand-written parsers use, so until now new code that read untyped data could pass `pnpm lint` only by being recorded in `oxlint-suppressions.json`.
 
-TED now has one module for it, `packages/protocol/src/parse.ts`, imported as `@ted/protocol/parse`. It imports no Node modules, so the daemon, the CLI, the app’s main process and the renderer can all use it.
+Ted now has one module for it, `packages/protocol/src/parse.ts`, imported as `@ted/protocol/parse`. It imports no Node modules, so the daemon, the CLI, the app’s main process and the renderer can all use it.
 
 ## What it holds
 
@@ -28,6 +28,6 @@ TED now has one module for it, `packages/protocol/src/parse.ts`, imported as `@t
 
 ## Considered Options
 
-- **A schema library such as Zod or Valibot.** It would add a runtime dependency to `@ted/protocol`, which the renderer bundles, and replace hand-written parsers whose exact error messages the CLI and app show. TED keeps its parsers hand-written, each with an explicit return type and an all-fields test; the module only removes the repeated `typeof` and cast code inside them.
+- **A schema library such as Zod or Valibot.** It would add a runtime dependency to `@ted/protocol`, which the renderer bundles, and replace hand-written parsers whose exact error messages the CLI and app show. Ted keeps its parsers hand-written, each with an explicit return type and an all-fields test; the module only removes the repeated `typeof` and cast code inside them.
 - **Parsers taking `Json`.** Cleaner types, but every `jsonRoute` and `readParsedFile` caller would change, which is daemon and CLI work outside this Task. It can follow once more parsers have moved.
 - **Exempting each parser file.** The rules would then guard nothing in the files where untyped data comes in.

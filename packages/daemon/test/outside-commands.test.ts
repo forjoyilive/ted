@@ -66,7 +66,7 @@ test('an outside command runs only when the Agent has the power and lists the na
     command: 'pnpm release build <version>',
   })
   expect(() => findOutsideCommand(release, 'deploy')).toThrow(
-    '`deploy` isn’t one of Release’s outside commands, so TED refused it. Its outside commands are build.',
+    '`deploy` isn’t one of Release’s outside commands, so Ted refused it. Its outside commands are build.',
   )
   expect(() => findOutsideCommand({ ...release, powers: ['run_commands'] }, 'build')).toThrow(
     'Release doesn’t have the Run outside commands power',
@@ -240,7 +240,7 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
   await waitUntil(
     async () =>
       JSON.stringify(await items(first.id)).includes(
-        'TED ran the outside command `publish` (`pnpm release publish`): it passed',
+        'Ted ran the outside command `publish` (`pnpm release publish`): it passed',
       ) || undefined,
     'the publish result to reach the chat',
   )

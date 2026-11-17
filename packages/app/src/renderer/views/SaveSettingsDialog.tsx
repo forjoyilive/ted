@@ -50,8 +50,8 @@ export function SaveSettingsDialog({
   }, [factoryId, changes])
 
   const account = view.github.login
-    ? `the GitHub account TED uses (${view.github.login})`
-    : 'the GitHub account TED uses'
+    ? `the GitHub account Ted uses (${view.github.login})`
+    : 'the GitHub account Ted uses'
   const blocked = !view.github.ready
     ? view.github.problem
     : preview && !preview.valid && preview.problems.length === 0
@@ -89,14 +89,14 @@ export function SaveSettingsDialog({
     >
       <div className={styles.dialogBody}>
         <h2 id={headingId} className={styles.dialogHeading}>
-          Save TED settings
+          Save Ted settings
         </h2>
         <p className={styles.dialogText}>
-          TED commits these changes to a new branch of {view.repo} and opens the pull request
-          “Update TED settings”, using {account}.
+          Ted commits these changes to a new branch of {view.repo} and opens the pull request
+          “Update Ted settings”, using {account}.
         </p>
         <p className={styles.dialogText}>
-          The changes must merge before TED can use them. Tasks use updated Workflow settings when
+          The changes must merge before Ted can use them. Tasks use updated Workflow settings when
           they next enter a Stage.
         </p>
         {!preview && error === undefined && <p className={styles.caption}>Preparing the diff…</p>}
@@ -105,7 +105,7 @@ export function SaveSettingsDialog({
         ))}
         {preview && preview.problems.length > 0 && (
           <div className={styles.problems} role="alert">
-            <p className={styles.problemsTitle}>TED won’t save this, because:</p>
+            <p className={styles.problemsTitle}>Ted won’t save this, because:</p>
             <ul>
               {preview.problems.map((problem) => (
                 <li key={`${problem.line}:${problem.column}:${problem.message}`}>
@@ -135,7 +135,7 @@ export function SaveSettingsDialog({
               Save and merge
             </label>
             <p id={`${headingId}-merge-help`} className={styles.modeHelp}>
-              TED creates the pull request and tries to merge it. If {view.defaultBranch} needs a
+              Ted creates the pull request and tries to merge it. If {view.defaultBranch} needs a
               review or passing checks, it stays open.
             </p>
           </div>
@@ -151,8 +151,8 @@ export function SaveSettingsDialog({
               Save as pull request
             </label>
             <p id={`${headingId}-pr-help`} className={styles.modeHelp}>
-              TED creates the pull request and leaves it open for you to review and merge on GitHub,
-              or merge from the save result in TED.
+              Ted creates the pull request and leaves it open for you to review and merge on GitHub,
+              or merge from the save result in Ted.
             </p>
           </div>
         </fieldset>

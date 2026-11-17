@@ -174,7 +174,7 @@ describe('failed CI at Merge', () => {
     expect(step).toEqual({ kind: 'wait', on: 'required-check', autoMerge: false })
   })
 
-  test('each failed check that counts is recorded once, with its name only when TED trusts its app', () => {
+  test('each failed check that counts is recorded once, with its name only when Ted trusts its app', () => {
     const outside = check({ name: 'vendor scan', app: 'some-app', identity: 'run-9:start:end' })
     const first = pull([
       check(),

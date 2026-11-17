@@ -115,7 +115,7 @@ const testOptions = {
 
 const sandboxName = electronSandbox()
 const inSandbox = sandboxName !== undefined
-if (sandboxName === 'TED’s sandbox') {
+if (sandboxName === 'Ted’s sandbox') {
   console.warn('TED_SANDBOX_SKIPPED: the Electron app tests')
 }
 if (sandboxName) {

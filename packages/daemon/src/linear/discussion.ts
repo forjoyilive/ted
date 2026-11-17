@@ -57,7 +57,7 @@ export async function fetchDiscussion(
       }
       if (!connection.pageInfo.hasNextPage) break
       if (page === maxComments / pageSize - 1) {
-        warning = `Older comments may be omitted. TED imports at most ${maxComments} comments and replies.`
+        warning = `Older comments may be omitted. Ted imports at most ${maxComments} comments and replies.`
       }
       const cursor = connection.pageInfo.endCursor
       if (!cursor || cursors.has(cursor)) throw new Error('Missing comment cursor')
@@ -65,7 +65,7 @@ export async function fetchDiscussion(
       after = cursor
     }
   } catch {
-    warning = 'TED couldn’t fetch all Linear comments. The discussion may be incomplete.'
+    warning = 'Ted couldn’t fetch all Linear comments. The discussion may be incomplete.'
   }
 
   const newest = [...comments.values()].sort(
@@ -85,9 +85,9 @@ export async function fetchDiscussion(
     const text = `${header}${parent}\n\n${comment.body}`
     const separator = retained.length === 0 ? 0 : 2
     if (text.length + separator > remaining) {
-      warning = `Some discussion was omitted or shortened. TED imports at most ${maxCharacters.toLocaleString('en-US')} characters of discussion.`
+      warning = `Some discussion was omitted or shortened. Ted imports at most ${maxCharacters.toLocaleString('en-US')} characters of discussion.`
       const available = remaining - separator
-      const marker = '\n[Comment shortened by TED]'
+      const marker = '\n[Comment shortened by Ted]'
       if (available > header.length + parent.length + marker.length + 2) {
         retained.push(text.slice(0, available - marker.length) + marker)
       }

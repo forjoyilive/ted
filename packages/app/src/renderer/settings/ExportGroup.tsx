@@ -108,7 +108,7 @@ export function ExportGroup() {
       </SettingsGroup>
       <p className={styles.help}>
         Attachment names and references are included; attached files and Run chats are not. This
-        export cannot be restored into TED. Known token-shaped secrets and URL credentials are
+        export cannot be restored into Ted. Known token-shaped secrets and URL credentials are
         redacted.
       </p>
       {error && (

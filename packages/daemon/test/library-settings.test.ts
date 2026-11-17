@@ -92,7 +92,7 @@ async function start(options: { healthCheck?: boolean; codex?: boolean } = {}) {
 }
 
 describe('Library settings', () => {
-  test('with no Library every Stage and agent comes from TED’s defaults', async () => {
+  test('with no Library every Stage and agent comes from Ted’s defaults', async () => {
     const client = await start()
     const view = await client.view()
     expect(view.path).toBe(libraryDir())
@@ -328,7 +328,7 @@ describe('Library settings', () => {
 
     const outside = path.join(scratch, 'outside')
     await mkdir(outside)
-    await writeFile(path.join(outside, 'helper.md'), 'not TED’s')
+    await writeFile(path.join(outside, 'helper.md'), 'not Ted’s')
     await mkdir(libraryDir(), { recursive: true })
     await symlink(outside, path.join(libraryDir(), 'agents'))
     const linked = await client.view()
@@ -343,7 +343,7 @@ describe('Library settings', () => {
       expect(refused.status).toBe(400)
     }
     expect(await readdir(outside)).toEqual(['helper.md'])
-    expect(await readFile(path.join(outside, 'helper.md'), 'utf8')).toBe('not TED’s')
+    expect(await readFile(path.join(outside, 'helper.md'), 'utf8')).toBe('not Ted’s')
   })
 
   test('a save after the Library changed on disk is refused', async () => {
@@ -359,7 +359,7 @@ describe('Library settings', () => {
     expect(await libraryFile('workflow.yaml')).toBe('version: 1\nlead: codex\n')
   })
 
-  test('an edit made outside TED is picked up after validation, and an invalid one shows the notice', async () => {
+  test('an edit made outside Ted is picked up after validation, and an invalid one shows the notice', async () => {
     const client = await start()
     await client.view()
     const info = await readDaemonInfo(home)
@@ -453,11 +453,11 @@ describe('Library settings', () => {
     })
   })
 
-  test('only the TED app can change the Library', async () => {
+  test('only the Ted app can change the Library', async () => {
     const client = await start()
     const view = await client.view()
     const cli = api(daemon?.port ?? 0, await tokenFor(home))
-    const refused = { status: 403, body: { error: 'only the TED app can do this' } }
+    const refused = { status: 403, body: { error: 'only the Ted app can do this' } }
     expect(
       await cli.call('POST', '/library/save', { changes: { stages: {} }, version: view.version }),
     ).toEqual(refused)

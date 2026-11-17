@@ -15,13 +15,13 @@ const row = (blockedBy: number[], dropped: number[]) => ({
 })
 
 describe('proposal card text', () => {
-  test('the card says which Task becomes the parent, or that TED creates one', () => {
+  test('the card says which Task becomes the parent, or that Ted creates one', () => {
     const rows = [{ title: 'A', scope: 'A', priority: 'none' as const, blockedBy: [] }]
     expect(parentLine({ rows, firstPiece: { id: 't-12', displayId: 'TED-12' } })).toBe(
       'TED-12 becomes the parent of these Tasks and runs after they merge.',
     )
     expect(parentLine({ rows })).toBe(
-      'TED creates a parent Task for these Tasks. It runs after they merge.',
+      'Ted creates a parent Task for these Tasks. It runs after they merge.',
     )
   })
 

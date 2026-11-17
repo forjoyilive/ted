@@ -55,7 +55,7 @@ test('Node failing to name a dead socket’s errno counts as a lost connection',
 test('other uncaught errors are logged and shown', () => {
   expect(outcome(new TypeError('boom'))).toEqual({
     logged: true,
-    shown: ['TED hit an unexpected error'],
+    shown: ['Ted hit an unexpected error'],
   })
 })
 

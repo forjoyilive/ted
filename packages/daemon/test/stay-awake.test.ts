@@ -123,7 +123,7 @@ describe('the command that keeps the machine awake', () => {
       command: '/usr/bin/systemd-inhibit',
       args: [
         '--what=idle:sleep',
-        '--who=TED',
+        '--who=Ted',
         '--why=Runs are working',
         '--mode=block',
         '/usr/bin/tail',

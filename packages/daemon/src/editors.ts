@@ -263,7 +263,7 @@ export function createEditors(options: EditorsOptions): Editors {
           if (file === undefined) {
             throw new RequestError(
               404,
-              `TED can’t find ${name}. Choose another editor in Settings.`,
+              `Ted can’t find ${name}. Choose another editor in Settings.`,
             )
           }
           program = file

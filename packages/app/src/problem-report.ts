@@ -84,11 +84,11 @@ export function appOnlyReport({
   now: Date
 }): string {
   return [
-    `TED ${version} (${edition})`,
+    `Ted ${version} (${edition})`,
     `Created ${now.toISOString()}`,
     `${os.type()} ${os.release()} ${os.arch()}`,
     '',
-    'The daemon’s report couldn’t be read: TED’s background service didn’t answer.',
+    'The daemon’s report couldn’t be read: Ted’s background service didn’t answer.',
   ].join('\n')
 }
 
@@ -123,7 +123,7 @@ export async function sendProblemReport(
   deps: SendDeps,
 ): Promise<ProblemReportResult> {
   const target = sentryTarget(deps.dsn, { allowLoopbackHttp: deps.allowLoopbackHttp })
-  if (!target) return { sent: false, error: 'TED’s Sentry address isn’t valid.' }
+  if (!target) return { sent: false, error: 'Ted’s Sentry address isn’t valid.' }
   const sentAt = deps.now?.() ?? new Date()
   const eventId = newEventId()
   const { text } = await reportText(deps, request.includeLog)
@@ -151,6 +151,6 @@ export async function sendProblemReport(
     }
     return { sent: false, error: `Sentry turned the report down (HTTP ${answer.status}).` }
   } catch {
-    return { sent: false, error: 'TED couldn’t reach Sentry. Check your internet connection.' }
+    return { sent: false, error: 'Ted couldn’t reach Sentry. Check your internet connection.' }
   }
 }

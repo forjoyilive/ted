@@ -46,7 +46,7 @@ test('worker counts stay as they are up to the busy mark and shrink above it, ne
   ])
 })
 
-test('a Check keeps its workers within the CPUs TED allows it, 2 per worker, never below 1 each', () => {
+test('a Check keeps its workers within the CPUs Ted allows it, 2 per worker, never below 1 each', () => {
   expect(allowedCpus({})).toBeUndefined()
   expect(allowedCpus({ TED_CHECK_CPUS: '' })).toBeUndefined()
   expect(allowedCpus({ TED_CHECK_CPUS: '0' })).toBeUndefined()
@@ -63,7 +63,7 @@ test('a Check keeps its workers within the CPUs TED allows it, 2 per worker, nev
   expect(workersWithin([3, 6], 2)).toEqual([1, 1])
   expect(workersWithin([3], 6)).toEqual([3])
   expect(cpusLine(6, 'node ×3', 'node ×6')).toBe(
-    'TED allows this Check 6 CPUs (TED_CHECK_CPUS, 2 per worker): running node ×3 instead of node ×6, so the rest of the machine stays free for Runs.',
+    'Ted allows this Check 6 CPUs (TED_CHECK_CPUS, 2 per worker): running node ×3 instead of node ×6, so the rest of the machine stays free for Runs.',
   )
 })
 

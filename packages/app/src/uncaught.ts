@@ -32,7 +32,7 @@ export function handleUncaught(error: unknown, sink: UncaughtSink): void {
   sink.log(connection ? 'Lost a connection:' : 'Uncaught exception:', error)
   if (connection || sink.hidden) return
   sink.show(
-    'TED hit an unexpected error',
+    'Ted hit an unexpected error',
     error instanceof Error ? (error.stack ?? error.message) : String(error),
   )
 }

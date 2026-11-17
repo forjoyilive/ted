@@ -119,11 +119,11 @@ export function ResourceUsage({ dispatch }: { dispatch: (action: NavigationActio
       {shown && (
         <section ref={card} className={styles.card} aria-label="Memory breakdown">
           <h3 className={styles.title}>
-            {`Memory used by TED and its agents (${memoryProcessCount(memory)} processes)`}
+            {`Memory used by Ted and its agents (${memoryProcessCount(memory)} processes)`}
           </h3>
           <p className={styles.note}>
             Each process is measured the way Activity Monitor measures it. Most show there as node,
-            claude, codex or TED. CPU is a share of all this computer’s cores: 100% means every core
+            claude, codex or Ted. CPU is a share of all this computer’s cores: 100% means every core
             is in use.
           </p>
           <ul className={styles.parts}>

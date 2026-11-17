@@ -153,7 +153,7 @@ const userMessages = async (client: Client, task: Task) =>
       : []
   })
 
-// What TED wrote to the Task Lead’s input. The stub shows a message it gets in the middle of a
+// What Ted wrote to the Task Lead’s input. The stub shows a message it gets in the middle of a
 // turn only while a tool hook runs, so whether it appears in the Conversation depends on timing.
 const sentToLead = async (client: Client, task: Task) =>
   (await readFile(path.join(home, 'runs', (await leadRun(client, task)).id, 'input.jsonl'), 'utf8'))
@@ -413,7 +413,7 @@ describe('Clarify rounds', () => {
       'the round-answer guidance to reach the Task Lead before leaving Clarify',
     )
     expect(answer).toContain(
-      'TED requests sign-off if the effective Clarify sign-off setting is on',
+      'Ted requests sign-off if the effective Clarify sign-off setting is on',
     )
     expect((await getTask(client, task.id)).stage).toBe('clarify')
     await client.go('guidance-received')
@@ -438,7 +438,7 @@ describe('Clarify rounds', () => {
     await waitForStage(client, task, 'work')
     expect((await comments(client, task)).some((c) => c.kind === 'signoff')).toBe(false)
     expect(await threadLines(client, task)).toContain(
-      'Autopilot is on, so TED skipped the Clarify sign-off',
+      'Autopilot is on, so Ted skipped the Clarify sign-off',
     )
   })
 

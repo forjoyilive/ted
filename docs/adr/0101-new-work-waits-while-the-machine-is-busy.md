@@ -4,7 +4,7 @@ Status: replaced by ADR 0166-new-work-waits-while-the-computer-is-busy.
 
 A fixed `maxWorkingRuns` doesn’t fit every hour. Each working Run’s agent runs installs, typechecks and tests on this machine, and how much those cost changes from minute to minute. With six Tasks working, a 12-core Mac reached a load average of 53. A lower fixed limit would waste the machine when the Runs are only thinking.
 
-The machine setting `adjustRunsToLoad` (off by default; **Start fewer Runs when this computer is busy** in Settings → Limits) makes the pump hold new starts while the machine is busy. `maxWorkingRuns` and every Factory cap stay as they are and are still the most TED runs.
+The machine setting `adjustRunsToLoad` (off by default; **Start fewer Runs when this computer is busy** in Settings → Limits) makes the pump hold new starts while the machine is busy. `maxWorkingRuns` and every Factory cap stay as they are and are still the most Ted runs.
 
 ## The rule
 
@@ -17,7 +17,7 @@ Between the marks the last answer stands. A ratio that isn’t a finite number n
 
 The pump reads the load once per pass, in `fill`, and only when the setting is on and something waits to start. While held, `SlotUse.heldForLoad` is set and `startsNow` skips every entry unless one of these is true:
 
-- **Nothing holds a slot.** The first entry in queue order starts whatever the load is, so a machine that is busy for reasons other than TED still gets one Run at a time. Factory caps still apply to it.
+- **Nothing holds a slot.** The first entry in queue order starts whatever the load is, so a machine that is busy for reasons other than Ted still gets one Run at a time. Factory caps still apply to it.
 - **It is a slot handoff** (ADR 0049). A waiting Task Lead’s first sub-agent starts for the reason it starts over the limit: its Task already held that slot, so it adds no working Run the machine wasn’t already carrying. Under a hold, a Task Lead that waits on several sub-agents gets them one at a time.
 
 Everything else that goes through `startsNow` waits: queued Tasks, sub-agent requests, Planning Runs, Coordinator turns, Automation drafts and Runs, Backlog Tasks that would start on their own, a held Task Lead being started again and a Task Lead being resumed after it ended. Nothing that is already working is stopped, paused or slowed, and a Run that goes from waiting back to working is never held, as before. The disk-full hold, agent pauses and Factory caps are unchanged and are checked first.
@@ -30,7 +30,7 @@ While held, a timer runs the pump again every 15 seconds, so starting resumes wh
 
 ## Tests
 
-Tests never read the real load. `TED_LOAD_FILE` names a file holding the ratio TED should see; `vitest.config.ts` points every test at `packages/daemon/test/fixtures/load.txt`, which holds 0. `startDaemon`’s `load` option (`ratio`, `checkEveryMs`) overrides it.
+Tests never read the real load. `TED_LOAD_FILE` names a file holding the ratio Ted should see; `vitest.config.ts` points every test at `packages/daemon/test/fixtures/load.txt`, which holds 0. `startDaemon`’s `load` option (`ratio`, `checkEveryMs`) overrides it.
 
 ## Considered Options
 
@@ -43,5 +43,5 @@ Tests never read the real load. `TED_LOAD_FILE` names a file holding the ratio T
 ## Consequences
 
 - With the setting on, the number of working Runs settles where the machine’s load sits near the marks, up to `maxWorkingRuns`.
-- Load from other programs holds TED’s new work too, down to one working Run.
+- Load from other programs holds Ted’s new work too, down to one working Run.
 - Process priority for Runs and Checks, and a limit on Checks running at once, are not part of this.

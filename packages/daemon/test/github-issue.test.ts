@@ -120,7 +120,7 @@ describe('reading an issue', () => {
           authorAssociation: 'NONE',
           author: { login: 'drive-by' },
           repository: { nameWithOwner: repo },
-          labels: { totalCount: 2, nodes: [{ name: 'bug' }, { name: 'TED' }] },
+          labels: { totalCount: 2, nodes: [{ name: 'bug' }, { name: 'Ted' }] },
           parent: { url: 'https://github.com/acme/widgets/issues/3' },
           comments: { totalCount: comments.length + 120, nodes: comments },
           subIssues: {
@@ -204,7 +204,7 @@ describe('reading an issue', () => {
         comments: [{ author: '@ghost', maintainer: true, body: 'Confirmed.' }],
         totalComments: 122,
         hiddenComments: 1,
-        labels: ['bug', 'TED'],
+        labels: ['bug', 'Ted'],
         allLabels: true,
         parent: { owner: 'acme', repo: 'widgets', number: 3 },
         subIssues: [
@@ -266,7 +266,7 @@ describe('reading the sub-issue tree', () => {
     expect(reads).not.toContain(9)
     expect(reads).not.toContain(198)
     expect(subIssueNote('acme/widgets#1', 'https://x', tree)[0]).toContain(
-      `- acme/widgets#198: past TED’s limit of ${maxSubIssueTasks} child Tasks or 8 levels.`,
+      `- acme/widgets#198: past Ted’s limit of ${maxSubIssueTasks} child Tasks or 8 levels.`,
     )
   })
 
@@ -286,7 +286,7 @@ describe('reading the sub-issue tree', () => {
     if (tree.state !== 'read') throw new Error('the tree should stay read')
     expect(tree.children.map((c) => c.issue.number)).toEqual([4])
     expect(subIssueNote('acme/widgets#1', 'https://x', tree)).toEqual([
-      'TED didn’t make child Tasks for 1 open sub-issue of GitHub issue acme/widgets#1, or for anything under it:\n- acme/widgets#2: already tracked as NB-8. https://github.com/acme/widgets/issues/2',
+      'Ted didn’t make child Tasks for 1 open sub-issue of GitHub issue acme/widgets#1, or for anything under it:\n- acme/widgets#2: already tracked as NB-8. https://github.com/acme/widgets/issues/2',
     ])
   })
 
@@ -370,9 +370,9 @@ describe('the copied text', () => {
 
     expect(posts.comments.map((c) => c.body.slice(0, 3))).toEqual(['mid', 'new'])
     expect(posts.warnings).toEqual([
-      '147 older comments were left out. TED imports the newest 100 comments.',
-      'The issue’s description was shortened. TED imports at most 20,000 characters of it.',
-      'Some comments were left out. TED imports at most 40,000 characters of comments.',
+      '147 older comments were left out. Ted imports the newest 100 comments.',
+      'The issue’s description was shortened. Ted imports at most 20,000 characters of it.',
+      'Some comments were left out. Ted imports at most 40,000 characters of comments.',
     ])
     const { context, outsiderText } = githubIssueContext(chosen, posts, 'now')
     expect(outsiderText).toBe(false)
@@ -469,7 +469,7 @@ describe('files', () => {
       {
         name: 'log',
         url: `${uploads.origin}/away`,
-        reason: 'GitHub sent the download to a host TED doesn’t download from',
+        reason: 'GitHub sent the download to a host Ted doesn’t download from',
       },
     ])
     expect(uploads.requests.every((r) => r.headers.authorization === undefined)).toBe(true)
@@ -489,8 +489,8 @@ describe('files', () => {
 
     expect(result.files).toHaveLength(20)
     expect(result.unfetched.map((u) => u.reason)).toEqual([
-      'TED takes at most 20 files from an issue',
-      'TED takes at most 20 files from an issue',
+      'Ted takes at most 20 files from an issue',
+      'Ted takes at most 20 files from an issue',
     ])
   })
 })
@@ -707,7 +707,7 @@ describe('a Task made from an issue URL', () => {
     const halfNotes = await client.listComments(halfRead.id)
     expect(halfNotes.map((n) => n.body)).toEqual([
       expect.stringContaining(
-        `TED couldn’t read the sub-issues of GitHub issue ${repo}#30 (at ${repo}#32: the GitHub CLI isn’t signed in), so it created no child Tasks.`,
+        `Ted couldn’t read the sub-issues of GitHub issue ${repo}#30 (at ${repo}#32: the GitHub CLI isn’t signed in), so it created no child Tasks.`,
       ),
     ])
   })

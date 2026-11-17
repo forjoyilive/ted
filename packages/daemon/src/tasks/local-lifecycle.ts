@@ -360,18 +360,18 @@ export function createLocalLifecycle(options: {
     const inTheWay = (what: string, keepIt = '') =>
       new RequestError(
         409,
-        `${task.displayId} can’t start: ${target} is already there and ${what}. TED left it alone. ${keepIt}Move or delete it, then start ${task.displayId} again.`,
+        `${task.displayId} can’t start: ${target} is already there and ${what}. Ted left it alone. ${keepIt}Move or delete it, then start ${task.displayId} again.`,
       )
     if (found.isSymbolicLink()) throw inTheWay('is a link')
     if (!found.isDirectory()) throw inTheWay('is a file')
     await plain(options.worktreesDir, target)
     if ((await readdir(target)).length === 0) return undefined
     const listed = await registered(source.file, target)
-    if (!listed) throw inTheWay(`isn’t a worktree of TED’s ${entry.name} clone`)
+    if (!listed) throw inTheWay(`isn’t a worktree of Ted’s ${entry.name} clone`)
     if (listed.locked) throw inTheWay('is a locked worktree')
     const base = entry.baseBranch ?? (await git.defaultBranch(source.file))
     const changes = await git.workingChanges(target, `origin/${base}`).catch(() => undefined)
-    if (!changes || changes.head !== listed.head) throw inTheWay('is a worktree TED couldn’t read')
+    if (!changes || changes.head !== listed.head) throw inTheWay('is a worktree Ted couldn’t read')
     const on = listed.branch === undefined ? 'no branch' : `branch ${listed.branch}`
     const uncommitted = changes.files.filter((file) => file.uncommitted).length
     if (uncommitted > 0) {

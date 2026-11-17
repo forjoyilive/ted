@@ -428,8 +428,8 @@ export function FactorySettings({
                   <strong>How repo settings are saved</strong>
                   <p>
                     Edit settings marked “In the repo”, then choose{' '}
-                    <strong>Review and save…</strong>. TED creates a pull request: a proposed change
-                    to your repo. The changes must merge before TED can use them.
+                    <strong>Review and save…</strong>. Ted creates a pull request: a proposed change
+                    to your repo. The changes must merge before Ted can use them.
                   </p>
                 </div>
               )}
@@ -1128,7 +1128,7 @@ function RepoCard({
           <label className={styles.label} htmlFor={`${id}-ci`}>
             Pull request CI{' '}
             <Help>
-              Whether TED waits for CI checks on this repo’s pull requests before it merges. Detect
+              Whether Ted waits for CI checks on this repo’s pull requests before it merges. Detect
               decides from the repo when a Task pushes.
             </Help>{' '}
             <Edited when={edited.has('pullRequestCi')} />
@@ -1174,7 +1174,7 @@ function RepoCard({
         <CommandField
           setting="factory.repos.worktree.teardown"
           label="Teardown command"
-          help="Runs before TED removes a worktree. If it fails, TED logs it and removes the worktree anyway."
+          help="Runs before Ted removes a worktree. If it fails, Ted logs it and removes the worktree anyway."
           value={repo.teardown}
           placeholder="None"
           edited={edited.has('teardown')}
@@ -1564,10 +1564,10 @@ function AppEditor({
           Run command{' '}
           <Help>
             {app.kind === 'ios-simulator'
-              ? 'TED passes the Task’s simulator as $TED_SIMULATOR_UDID. Build with xcodebuild -derivedDataPath "$TED_DERIVED_DATA" -packageCachePath "$TED_SWIFTPM_CACHE" so the build stays in the Task’s own folders.'
+              ? 'Ted passes the Task’s simulator as $TED_SIMULATOR_UDID. Build with xcodebuild -derivedDataPath "$TED_DERIVED_DATA" -packageCachePath "$TED_SWIFTPM_CACHE" so the build stays in the Task’s own folders.'
               : app.kind === 'android-emulator'
-                ? 'TED passes the Task’s emulator as $ANDROID_SERIAL and $TED_EMULATOR_SERIAL, and points $GRADLE_USER_HOME at the Task’s own cache folder.'
-                : 'TED passes a free port as $PORT.'}
+                ? 'Ted passes the Task’s emulator as $ANDROID_SERIAL and $TED_EMULATOR_SERIAL, and points $GRADLE_USER_HOME at the Task’s own cache folder.'
+                : 'Ted passes a free port as $PORT.'}
           </Help>
         </label>
         <input
@@ -1583,8 +1583,8 @@ function AppEditor({
             Device{' '}
             <Help>
               {app.kind === 'android-emulator'
-                ? 'The name of an Android virtual device from Android Studio’s Device Manager. TED makes its own copy for each Task, with the same system image and hardware.'
-                : 'The name of an iOS simulator in Xcode, such as iPhone 16. TED makes its own copy for each Task.'}
+                ? 'The name of an Android virtual device from Android Studio’s Device Manager. Ted makes its own copy for each Task, with the same system image and hardware.'
+                : 'The name of an iOS simulator in Xcode, such as iPhone 16. Ted makes its own copy for each Task.'}
             </Help>
           </label>
           <input
