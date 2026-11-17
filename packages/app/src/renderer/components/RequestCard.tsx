@@ -522,7 +522,7 @@ function MoveAnswer({ request, task, lead }: AnswerProps) {
   const suggested = factories.find((f) => f.id === ask?.factoryId)
   const [picked, setFactoryId] = useState<string>()
   const factoryId = picked ?? suggested?.id
-  const { plan, planError } = useMovePlan(task.id, factoryId, task.updatedAt)
+  const { plan, planError } = useMovePlan(task.id, factoryId, task.updatedAt, request.id)
   const chosen = factories.find((f) => f.id === factoryId)
   const asker = ask?.askedBy === 'coordinator' ? 'the Coordinator' : 'the Task Lead'
   const typed = text.trim() !== ''

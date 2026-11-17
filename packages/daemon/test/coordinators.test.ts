@@ -799,9 +799,14 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
 
   await transfer('transfer-t')
   const asked = await waitUntil(moveAsked, 'the second move request')
-  const plan = await s.ok<TaskMovePlan>(
+  const counted = await s.ok<TaskMovePlan>(
     'GET',
     `/tasks/${t.id}/move-plan?factory=${foreign.factoryId}`,
+  )
+  expect(counted.tasks).toMatchObject([{ id: t.id, openRequests: 1 }])
+  const plan = await s.ok<TaskMovePlan>(
+    'GET',
+    `/tasks/${t.id}/move-plan?factory=${foreign.factoryId}&request=${asked.id}`,
   )
   expect(plan.tasks).toMatchObject([{ id: t.id, openRequests: 0 }])
   await s.ok('POST', `/comments/${asked.id}/answer`, {
@@ -817,6 +822,30 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
     kind: 'answered',
     choice: 'Move',
   })
+
+  const u = await s.task('U')
+  await run.call('POST', '/coordinator/transfer', {
+    operation: 'transfer-u',
+    task: { id: u.id, version: (await read(u.id)).version },
+    factory: 'OTHER',
+    reason: 'The user asked to move it',
+  })
+  const askedU = await waitUntil(
+    async () => (await s.comments(u.id)).find((c) => c.move !== undefined),
+    'the move request on U',
+  )
+  await s.ok('POST', `/tasks/${u.id}/move-to-factory`, { factoryId: foreign.factoryId })
+  expect((await s.comments(u.id)).find((c) => c.id === askedU.id)?.answer).toMatchObject({
+    kind: 'withdrawn',
+  })
+  const chatRun = (await s.chat()).runId
+  await waitUntil(
+    async () =>
+      JSON.stringify((await s.ok<RunChat>('GET', `/runs/${chatRun}/chat`)).items).includes(
+        `Your request to move ${u.displayId} was withdrawn`,
+      ),
+    'the Coordinator to hear its request was withdrawn',
+  )
 
   if (!receipt) throw new Error('missing move receipt')
   const legacyReceipt = {

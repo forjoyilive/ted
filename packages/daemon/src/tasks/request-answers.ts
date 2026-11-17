@@ -121,7 +121,11 @@ export interface RequestAnswerPort {
   beforeArchive?(task: StoredTask): void
   archiveNow(task: StoredTask, close: boolean): Task
   archiveAsked(task: StoredTask, options: ArchiveTaskRequest): () => Task
-  movePlanKey(taskId: string, factoryId: string): Promise<{ key: string; refusal?: string }>
+  movePlanKey(
+    taskId: string,
+    factoryId: string,
+    requestId: string,
+  ): Promise<{ key: string; refusal?: string }>
   moveTask(taskId: string, factoryId: string, planKey: string): Promise<TaskMoved>
   tellChat(chatId: string, text: string): Promise<void>
   wake(): void
@@ -723,7 +727,7 @@ export function createRequestAnswers(
     }
     const chosen = request.move
     if (!chosen) throw new RequestError(400, 'choose the Factory to move the Task to')
-    const planned = await movePlanKey(task.id, chosen.factoryId)
+    const planned = await movePlanKey(task.id, chosen.factoryId, comment.id)
     if (planned.refusal !== undefined) throw new RequestError(409, planned.refusal)
     if (planned.key !== chosen.planKey)
       throw new RequestError(

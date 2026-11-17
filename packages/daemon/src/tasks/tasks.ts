@@ -750,7 +750,7 @@ export interface Tasks {
   setParent(ref: string, input: SetTaskParentRequest): Task
   unarchive(ref: string, input?: UnarchiveTaskRequest): Promise<Task>
   reset(ref: string): Promise<Task>
-  movePlan(ref: string, factoryId: string): Promise<TaskMovePlan>
+  movePlan(ref: string, factoryId: string, requestId?: string): Promise<TaskMovePlan>
   moveToFactory(
     ref: string,
     factoryId: string,
@@ -6406,8 +6406,8 @@ export function createTasks(options: {
           archivePlan(task.id, chosen.hierarchyRevision, chosen.children === 'detach')
           return () => archiveHierarchy(task.id, chosen)
         },
-        movePlanKey: async (taskId, factoryId) => {
-          const { plan } = await planMove(taskId, factoryId)
+        movePlanKey: async (taskId, factoryId, requestId) => {
+          const { plan } = await planMove(taskId, factoryId, requestId)
           return {
             key: movePlanKey(plan),
             ...(plan.refusal !== undefined && { refusal: plan.refusal }),
@@ -8909,7 +8909,11 @@ export function createTasks(options: {
     )
   }
 
-  async function planMove(ref: string, factoryId: string): Promise<MovePlanned> {
+  async function planMove(
+    ref: string,
+    factoryId: string,
+    answering?: string,
+  ): Promise<MovePlanned> {
     const root = find(ref)
     const target = store.getFactory(factoryId)
     if (!target) throw new RequestError(404, `no Factory ${factoryId}`)
@@ -8967,7 +8971,7 @@ export function createTasks(options: {
         pullRequests: openPullRequestsOf(member),
         openRequests: store
           .listComments(member.id)
-          .filter((c) => c.kind !== 'note' && c.answer === undefined && !c.move).length,
+          .filter((c) => c.kind !== 'note' && c.answer === undefined && c.id !== answering).length,
         unlinked: [
           ...blockers.map((b) => ({ ...moveRef(find(b.blockerId)), blocks: true })),
           ...blocked.map((id) => ({ ...moveRef(find(id)), blocks: false })),
@@ -8991,8 +8995,12 @@ export function createTasks(options: {
     }
   }
 
-  async function movePlan(ref: string, factoryId: string): Promise<TaskMovePlan> {
-    return (await planMove(ref, factoryId)).plan
+  async function movePlan(
+    ref: string,
+    factoryId: string,
+    requestId?: string,
+  ): Promise<TaskMovePlan> {
+    return (await planMove(ref, factoryId, requestId)).plan
   }
 
   function refuseBusyMove(task: StoredTask): void {
@@ -9164,6 +9172,13 @@ export function createTasks(options: {
         },
       )
     }
+    const withdrawn = members.flatMap((m) =>
+      openRequests(m.id).flatMap((c) =>
+        c.move?.askedBy === 'coordinator' && c.move.chatId !== undefined
+          ? [{ chatId: c.move.chatId, displayId: m.displayId }]
+          : [],
+      ),
+    )
     const moved = store.moveTask({
       moves: members.map((m) => ({ taskId: m.id, factoryId, started: m.stage !== 'backlog' })),
       unlink,
@@ -9172,6 +9187,15 @@ export function createTasks(options: {
       by,
     })
     await store.persisted()
+    for (const ask of withdrawn) {
+      const to = moved.find((m) => m.from === ask.displayId)?.to ?? ask.displayId
+      await options
+        .chats?.()
+        ?.tellChat(
+          ask.chatId,
+          `Your request to move ${ask.displayId} was withdrawn: the user moved it to ${name} as ${to} before answering it.`,
+        )
+    }
     return { members, moved }
   }
 

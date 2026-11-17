@@ -842,6 +842,7 @@ export function useMovePlan(
   taskId: string,
   factoryId: string | undefined,
   version?: string,
+  requestId?: string,
 ): MovePlanLoad {
   const [loaded, setLoaded] = useState<TaskMovePlan>()
   const [planError, setPlanError] = useState<string>()
@@ -850,7 +851,11 @@ export function useMovePlan(
     let current = true
     void version
     setPlanError(undefined)
-    ted.taskMovePlan(taskId, factoryId).then(
+    const loading =
+      requestId === undefined
+        ? ted.taskMovePlan(taskId, factoryId)
+        : ted.taskMovePlan(taskId, factoryId, requestId)
+    loading.then(
       (next) => {
         if (current) setLoaded(next)
       },
@@ -861,7 +866,7 @@ export function useMovePlan(
     return () => {
       current = false
     }
-  }, [taskId, factoryId, version])
+  }, [taskId, factoryId, version, requestId])
   const plan = loaded?.factoryId === factoryId ? loaded : undefined
   return { ...(plan && { plan }), ...(planError !== undefined && { planError }) }
 }
