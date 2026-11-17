@@ -53,7 +53,11 @@ const setup = {
       id: 'release',
       name: 'Release helper',
       about: 'Cuts a release',
-      powers: ['ask', 'read_code'],
+      powers: ['ask', 'read_code', 'run_commands'],
+      commands: [
+        { name: 'test', command: 'pnpm test' },
+        { name: 'lint', command: 'pnpm lint', repo: 'web' },
+      ],
       agent: 'claude',
       model: 'opus',
       instructions: '# Release helper\n',
@@ -338,6 +342,10 @@ for (const [agents, message] of [
   [[{ ...agent, name: ' ' }], 'release’s name is required'],
   [[{ ...agent, agent: undefined }], 'release names a model without a Provider'],
   [[{ ...agent, instructions: '' }], 'release’s instructions are empty'],
+  [[{ ...agent, powers: ['run_commands'] }], 'Run commands in the copy needs Read the code'],
+  [[{ ...agent, powers: ['read_code'] }], 'release lists commands without the run_commands power'],
+  [[{ ...agent, commands: [{ name: 'Test', command: 'x' }] }], 'Test isn’t a command name'],
+  [[{ ...agent, commands: [{ name: 'test', command: ' ' }] }], 'release’s test must be a command'],
 ] as const) {
   rejects(P.parseDesignReviewInput, { ...design, setup: { ...setup, agents } }, message)
 }

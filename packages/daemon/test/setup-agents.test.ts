@@ -12,6 +12,15 @@ const release: SetupAgentProposal = {
   instructions: '# Release helper\n\nHelps cut a release.\n',
 }
 
+const checker: SetupAgentProposal = {
+  id: 'checker',
+  name: 'Checker',
+  about: 'Runs the tests',
+  powers: ['read_code', 'run_commands'],
+  commands: [{ name: 'test', command: 'pnpm test' }],
+  instructions: '# Checker\n',
+}
+
 const migrations: SetupAgentProposal = {
   id: 'migrations',
   name: 'Migrations',
@@ -97,5 +106,34 @@ test('a setup Agent can’t reuse an id an inherited layer defines', () => {
   expect(setupAgentDifferences([release], layer(written), ['coordinator', 'release'])).toEqual([
     'release is already defined in TED’s defaults or the Library; a setup Agent needs an id of its own',
     'migrations is on the branch but not in the approved proposal',
+  ])
+})
+
+test('commands on the branch must be the approved commands', () => {
+  const files = (commands: string[]) =>
+    layer({
+      'agents.yaml': [
+        'checker:',
+        '  name: Checker',
+        '  powers: [read_code, run_commands]',
+        ...commands,
+        '',
+      ].join('\n'),
+      'agents/checker.md': '# Checker\n',
+    })
+  expect(
+    setupAgentDifferences([checker], files(['  commands:', '    test: pnpm test']), []),
+  ).toEqual([])
+  expect(
+    setupAgentDifferences(
+      [checker],
+      files(['  commands:', '    test: pnpm test', '    wipe: rm -rf .']),
+      [],
+    ),
+  ).toEqual([
+    'checker’s commands are test: pnpm test; wipe: rm -rf ., but the approved proposal gives test: pnpm test',
+  ])
+  expect(setupAgentDifferences([checker], files([]), [])).toEqual([
+    'checker’s commands are none, but the approved proposal gives test: pnpm test',
   ])
 })
