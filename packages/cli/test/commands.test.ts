@@ -121,6 +121,15 @@ describe('command definitions', () => {
     expect(() =>
       parseInvocation(['comment', '--attach', 'a.md'], { TED_AUTOMATION: 'run' }),
     ).toThrow(UsageError)
+    const chat = { TED_CHAT: 'chat-1' }
+    expect(parseInvocation(['ask', 'Ship today?', '--choice', 'Yes'], chat).handler).toBe(
+      'chatQuestion',
+    )
+    expect(parseInvocation(['ask', '--round', 'r.json'], chat).handler).toBe('chatRound')
+    expect(parseInvocation(['task', 'propose', '--file', 'p.json'], chat).handler).toBe(
+      'chatProposal',
+    )
+    expect(() => parseInvocation(['ask', 'Ship today?'], {})).toThrow(UsageError)
   })
 
   test('table order has no effect on selection', () => {
