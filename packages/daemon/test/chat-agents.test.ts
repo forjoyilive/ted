@@ -167,6 +167,9 @@ test('a chat runs a repo Agent with the powers it had when the chat started', as
     expect(res.status).toBe(403)
     expect(JSON.stringify(res.body)).toMatch(/Scout doesn’t have the (Manage|Propose) Tasks power/)
   }
+  const command = await run.call('POST', '/chat-commands', { name: 'test' })
+  expect(command.status).toBe(403)
+  expect(JSON.stringify(command.body)).toContain('Run commands in the copy')
 
   await writeFile(path.join(scratch, 'finish'), '')
   await waitUntil(
@@ -302,6 +305,10 @@ test.runIf(process.platform === 'darwin')(
         ],
       }),
     })
+    await waitUntil(
+      async () => (await ok<Coordinator>('GET', `/coordinator-chats/${started.id}`)).started,
+      'the chat to start',
+    )
     const prompt = (await ok<RunWithConversation>('GET', `/runs/${started.runId}`)).run.prompt ?? ''
     expect(prompt).toContain('- ted agent run <name>')
     expect(prompt).toContain('  - stub: `echo hello-from-stub;')

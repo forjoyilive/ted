@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { lstat, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, open, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { ChatCommandResult, ChatCommandState } from '@ted/protocol'
 import type { AgentCommand } from '@ted/protocol/agent-files'
@@ -111,10 +111,19 @@ export function fencedOutput(name: string, how: string, tail: string): string {
   ].join('\n')
 }
 
-async function tailOf(log: string, bytes: number): Promise<string> {
-  const text = await readFile(log).catch(() => Buffer.alloc(0))
-  const tail = text.subarray(Math.max(0, text.length - bytes)).toString('utf8')
-  return redactSecrets(text.length > bytes ? `…${tail}` : tail)
+export async function tailOf(log: string, bytes: number): Promise<string> {
+  const file = await open(log, 'r').catch(() => undefined)
+  if (!file) return ''
+  try {
+    const { size } = await file.stat()
+    const length = Math.min(size, bytes)
+    const buffer = Buffer.alloc(length)
+    const { bytesRead } = await file.read(buffer, 0, length, size - length)
+    const tail = buffer.subarray(0, bytesRead).toString('utf8')
+    return redactSecrets(size > bytes ? `…${tail}` : tail)
+  } finally {
+    await file.close()
+  }
 }
 
 function describe(state: ChatCommandState, exitCode: number | undefined): string {
@@ -237,6 +246,11 @@ export function createChatCommands(options: {
     return { entries, plan: { command, worktree, repo, scope, tmpRoot } satisfies CommandPlan }
   }
 
+  function heldMessage(): string | undefined {
+    const held = store.newWorkHold()
+    return held === undefined ? undefined : `TED isn’t starting new work right now: ${held}`
+  }
+
   async function execute(job: Job): Promise<ChatCommandResult> {
     const { chat, command, abort } = job
     const startedAt = new Date().toISOString()
@@ -269,15 +283,16 @@ export function createChatCommands(options: {
       return job.result
     }
     if (abort.signal.aborted || closed) return finish('stopped', '')
-    const held = store.newWorkHold()
-    if (held !== undefined)
-      return finish('failed', `TED isn’t starting new work right now: ${held}`)
+    const held = heldMessage()
+    if (held !== undefined) return finish('failed', held)
     const problem = await sandboxProblem(sandbox, banners, chat.factory.id)
     if (abort.signal.aborted) return finish('stopped', '')
     if (problem !== undefined) return finish('failed', redactSecrets(problem))
     const release = await options.checkSlots.take({ signal: abort.signal })
     if (!release) return finish('stopped', '')
     try {
+      const heldNow = heldMessage()
+      if (heldNow !== undefined) return finish('failed', heldNow)
       const { entries, plan: planned } = await plan(chat, command)
       if (abort.signal.aborted) return finish('stopped', '')
       await plainFolder(chatSandboxRoot(options.home))
