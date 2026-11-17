@@ -70,7 +70,7 @@ describe('Factory settings sections', () => {
     await addFactory(origin, 'NB')
     const window = await launchApp()
     await window.setViewportSize({ width: 1280, height: 800 })
-    await openFactoryView(window, 'widgets', 'Settings')
+    await sidebar(window).getByRole('button', { name: 'Settings 1', exact: true }).click()
     await window.getByRole('region', { name: 'General', exact: true }).waitFor()
     const jump = window.getByRole('navigation', { name: 'Factory settings' })
     const nav = sidebar(window)

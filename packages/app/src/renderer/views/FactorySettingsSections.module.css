@@ -29,6 +29,24 @@
   display: none;
 }
 
+.scrollTable {
+  overflow-x: auto;
+}
+
+.scrollTable .checkRow {
+  min-width: 720px;
+}
+
+.scrollTable .checkRowRepo,
+.scrollTable .agentRow {
+  min-width: 820px;
+}
+
+.workflowRow {
+  min-width: 932px;
+  grid-template-columns: 128px 72px 76px 60px 104px minmax(160px, 1fr) 68px minmax(0, 1fr);
+}
+
 @container workflow (max-width: 931px) {
   .workflowRow {
     min-width: 0;
@@ -80,24 +98,6 @@
     color: var(--text-caption);
     font-size: var(--text-12);
   }
-}
-
-.scrollTable {
-  overflow-x: auto;
-}
-
-.scrollTable .checkRow {
-  min-width: 720px;
-}
-
-.scrollTable .checkRowRepo,
-.scrollTable .agentRow {
-  min-width: 820px;
-}
-
-.workflowRow {
-  min-width: 932px;
-  grid-template-columns: 128px 72px 76px 60px 104px minmax(160px, 1fr) 68px minmax(0, 1fr);
 }
 
 .checkRow {
