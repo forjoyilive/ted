@@ -23,8 +23,9 @@ const summaries = {
 export function agentDescription(
   agent: Pick<AgentSummary, 'id' | 'source' | 'description'>,
 ): string | undefined {
+  if (agent.description !== undefined) return agent.description
   const builtIn = builtInAgentIds.find((id) => id === agent.id)
-  return agent.source === 'ted' && builtIn !== undefined ? summaries[builtIn] : agent.description
+  return builtIn === undefined ? undefined : summaries[builtIn]
 }
 
 export const builtInCoordinator: AgentSummary = {

@@ -561,14 +561,18 @@ test('with no chats Agents opens New chat: a card for every Agent; a picked Agen
   expect(screen.queryByRole('heading', { name: 'New chat' })).toBeNull()
 })
 
-test('the New Agent card opens this Factory’s Agent files settings', async () => {
+test('an overridden Coordinator keeps its icon and TED’s description; the New Agent card opens this Factory’s Agent files settings', async () => {
   const { a, shown, open } = withCoordinator()
   shown.chats = []
+  a.handle('factoryAgents', () => [{ ...coordinatorAgent, source: 'factory' }, plannerAgent])
   a.handle('factorySettings', settingsView)
   a.handle('homeFolder', () => '/test')
   a.handle('tedFolder', () => ({ path: '/test/', platform: 'darwin' }))
   a.mount()
   const picker = await open('New chat')
+  const card = await within(picker).findByRole('button', { name: /^Coordinator/ })
+  expect(card.textContent).toMatch(/^Coordinator.*Recommends what to do next.*This repo/)
+  expect(card.querySelector('[data-glyph="coordinator"]')).toBeTruthy()
   await user().click(await within(picker).findByRole('button', { name: /New Agent/ }))
   expect(await screen.findByRole('button', { name: 'New Agent…' })).toBeTruthy()
 })

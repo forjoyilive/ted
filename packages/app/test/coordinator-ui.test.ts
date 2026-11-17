@@ -186,6 +186,10 @@ test('Stop keeps unstarted messages visible as Not sent when the Coordinator is 
   const sidebar = window.getByRole('navigation', { name: 'Sidebar' })
   await window.keyboard.press('Meta+1')
   await sidebar.getByRole('button', { name: /^Agents/ }).click()
+  await window
+    .getByRole('region', { name: 'New chat', exact: true })
+    .getByRole('button', { name: /^Coordinator/ })
+    .click()
   const pane = window.getByRole('region', { name: 'Coordinator', exact: true })
   await pane
     .getByRole('textbox', { name: 'Message to the Coordinator' })

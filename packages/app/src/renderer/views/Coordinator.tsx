@@ -34,7 +34,7 @@ import { useCoordinatorChatState, useCoordinatorState } from '../data.ts'
 import { useMessageDraft } from '../message-drafts.ts'
 import { when } from '../plans.ts'
 import { readableError, ted } from '../ted.ts'
-import { AgentHeading } from './AgentPicker.tsx'
+import { AgentDescriptionLine, AgentHeading } from './AgentPicker.tsx'
 import styles from './Coordinator.module.css'
 import { Back, chatRequestItems, LeadSelects, TitleEditor } from './PlanChat.tsx'
 import views from './views.module.css'
@@ -107,11 +107,12 @@ export function CoordinatorStart({
     <>
       <section className={views.pane} aria-label={agent.name}>
         <header className={styles.header}>
-          {onBack && <Back onBack={onBack} label="← All agents" />}
           <div className={styles.titleRow}>
+            {onBack && <Back onBack={onBack} label="← All agents" />}
             <AgentHeading agent={agent} />
             {lead && <LeadSelects lead={lead} onChange={setLead} />}
           </div>
+          <AgentDescriptionLine agent={agent} />
         </header>
         {isCoordinator(agent) ? (
           <div className={styles.intro}>

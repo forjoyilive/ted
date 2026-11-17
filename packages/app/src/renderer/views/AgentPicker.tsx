@@ -55,38 +55,57 @@ function PlusGlyph() {
   )
 }
 
-export function AgentIcon({ agent }: { agent: Pick<AgentSummary, 'id' | 'name' | 'source'> }) {
-  if (agent.source === 'ted' && agent.id === 'coordinator') {
+export function AgentIcon({
+  agent,
+  small = false,
+}: {
+  agent: Pick<AgentSummary, 'id' | 'name'>
+  small?: boolean
+}) {
+  const size = small ? `${styles.icon} ${styles.small}` : styles.icon
+  if (agent.id === 'coordinator') {
     return (
-      <span className={`${styles.icon} ${styles.toneAccent}`}>
+      <span className={`${size} ${styles.toneAccent}`} data-glyph="coordinator">
         <CoordinatorGlyph />
       </span>
     )
   }
-  if (agent.source === 'ted' && agent.id === 'planner') {
+  if (agent.id === 'planner') {
     return (
-      <span className={`${styles.icon} ${styles.toneTesting}`}>
+      <span className={`${size} ${styles.toneTesting}`} data-glyph="planner">
         <PlannerGlyph />
       </span>
     )
   }
   return (
-    <span className={`${styles.icon} ${toneOf(agent.id)}`} aria-hidden="true">
+    <span className={`${size} ${toneOf(agent.id)}`} aria-hidden="true">
       {agent.name.trim().charAt(0).toUpperCase()}
     </span>
   )
 }
 
-export function AgentHeading({ agent }: { agent: AgentSummary }) {
-  const description = agentDescription(agent)
+export function AgentHeading({
+  agent,
+  titleClassName,
+}: {
+  agent: AgentSummary
+  titleClassName?: string | undefined
+}) {
   return (
-    <div className={styles.heading}>
-      <AgentIcon agent={agent} />
-      <div className={styles.headingText}>
-        <h1 className={styles.headingTitle}>{agent.name}</h1>
-        {description !== undefined && <p className={styles.headingDescription}>{description}</p>}
-      </div>
-    </div>
+    <>
+      <AgentIcon agent={agent} small />
+      <h1 className={titleClassName}>{agent.name}</h1>
+    </>
+  )
+}
+
+export function AgentDescriptionLine({ agent }: { agent: AgentSummary }) {
+  const description = agentDescription(agent)
+  if (description === undefined) return null
+  return (
+    <p className={styles.descriptionLine} title={description}>
+      {description}
+    </p>
   )
 }
 

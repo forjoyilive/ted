@@ -59,7 +59,7 @@ import { useStages } from '../stages.tsx'
 import { agentLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { AgentDraftCard } from './AgentDraftCard.tsx'
-import { AgentHeading } from './AgentPicker.tsx'
+import { AgentDescriptionLine, AgentHeading } from './AgentPicker.tsx'
 import { OutsideCommandCard } from './OutsideCommandCard.tsx'
 import styles from './PlanChat.module.css'
 import views from './views.module.css'
@@ -284,16 +284,20 @@ function NewPlanChat({
     <>
       <section className={views.pane} aria-label="New planning chat">
         <header className={styles.header}>
-          <Back onBack={onBack} label={backLabel} />
+          {!picked && <Back onBack={onBack} label={backLabel} />}
           <div className={styles.titleRow}>
             {picked ? (
-              <AgentHeading agent={agent} />
+              <>
+                <Back onBack={onBack} label={backLabel} />
+                <AgentHeading agent={agent} titleClassName={styles.title} />
+              </>
             ) : (
               <h1 className={`${styles.title} ${styles.placeholderTitle}`}>New planning chat</h1>
             )}
             <span className={styles.spacer} />
             {lead && <LeadSelects lead={lead} onChange={setLead} />}
           </div>
+          {picked && <AgentDescriptionLine agent={agent} />}
         </header>
         <div className={styles.intro}>
           <p>
