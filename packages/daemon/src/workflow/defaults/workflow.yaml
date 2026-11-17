@@ -6,6 +6,6 @@ stages:
   clarify: { depth: auto, max_back: 3 }
   design: { gate: true, max_back: 3 }
   work: { max_back: 3 }
-  validate: { max_back: 5, loop_check: 3 }
+  validate: { max_back: 8, loop_check: 3 }
   review: { gate: true, max_back: 3 }
   merge: { enabled: true, gate: false, max_back: 3 }

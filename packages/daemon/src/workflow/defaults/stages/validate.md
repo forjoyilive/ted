@@ -6,7 +6,7 @@ Find out whether the work does what the Task asks, without breaking anything els
 
 ## Before you start
 
-Ted runs Factory checks sequentially and stops at the first failure. When the Task comes from Work, Ted ran them before it left Work, a failure there kept it in Work, and the passing results are at the end of these instructions. When it comes from another Stage, Ted runs them at Validate entry. A failure at entry keeps the Task in Validate and gives you the original output and failure case ID. Checks after it have not run. Investigation, retry and a human decision do not count as send-backs.
+Ted runs Factory checks as Validate’s first step, one after another, and stops at the first failure. They all passed before these instructions reached you, and the results are at the end of these instructions. A failed check sends the Task back to Work with its output and failure case ID instead, and that return counts toward Validate’s limit. A check the human accepted shows as failed and accepted, not passed. Investigation, retry and a human decision do not count as send-backs.
 
 Use `ted failure list`, `ted failure show <id>` and `ted failure obligations` to inspect evidence, decisions and remaining checks. Never treat an accepted failure or a not-run check as passed.
 
@@ -30,7 +30,7 @@ Every required check ran or has an explicit legitimate no-change skip, every fai
 
 ## Send back when
 
-Evidence supports a regression or the human chose Fix in this Task. For a regression, record its assessment, write numbered findings and use `ted outcome back --to work --findings <file>`, with `--review fail` or `--visual fail` for their original results. In a round where Ted says a new finding sends the Task back only if it is P1, say in the file which findings are P1 and which are earlier findings still not fixed, and add `--severity p1`, or `--severity unfixed` when the only blocking findings are earlier ones still not fixed; Ted refuses the send-back without one of them unless it is for a failed check you assessed as a regression, and the other new findings go in your note. Ted applies the existing max_back and loop-check rules to actual send-backs. Keep full reproduction and repair evidence in findings; summarize what remains and whether previous fixes held. At the limit Ted checks progress again unless Loop checks are disabled, and asks the human regardless of the verdict. A pending escalation is not itself another send-back. Never repair code silently inside Validate.
+Evidence supports a regression or the human chose Fix in this Task. For a regression, record its assessment, write numbered findings and use `ted outcome back --to work --findings <file>`, with `--review fail` or `--visual fail` for their original results. In a round where Ted says a new finding sends the Task back only if it is P1, say in the file which findings are P1 and which are earlier findings still not fixed, and add `--severity p1`, or `--severity unfixed` when the only blocking findings are earlier ones still not fixed; Ted refuses the send-back without one of them, and the other new findings go in your note. Every return to Work counts toward max_back and the loop check, failed checks included. Keep full reproduction and repair evidence in findings; summarize what remains and whether previous fixes held. At the limit Ted checks progress again unless Loop checks are disabled, and asks the human regardless of the verdict. A pending escalation is not itself another send-back. Never repair code silently inside Validate.
 
 ## Ask the human when
 

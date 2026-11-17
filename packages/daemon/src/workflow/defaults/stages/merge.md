@@ -2,7 +2,7 @@
 
 ## Goal
 
-Get the Task’s pull requests ready to merge, then hand them to Ted to merge.
+Ted pushed the branch and opened the Task’s pull requests as the Task entered Merge. Get them ready to merge, then hand them to Ted to merge.
 
 ## Steps
 

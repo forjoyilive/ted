@@ -94,7 +94,9 @@ beforeEach(async () => {
       return port.find(taskId)
     },
     backMessage: (_workflow, _to, _from, sendBack) => sendBack.findings,
+    leaveWorkToDiagnose: unexpected,
     diagnoseInValidate: unexpected,
+    stop: unexpected,
     settleDependents: () => {
       effects.push('unblocked')
     },
@@ -1081,6 +1083,82 @@ test.each([
     })
 })
 
+test('the limit question’s Keep going returns the Task to Work counted as round 1, and Stop the Task records that return and stops the Task in Work', async () => {
+  stage('validate')
+  port.gateWorkflow = async () => ({ workflow: loopWorkflow(), layers: [] })
+  port.move = async (task, _resolution, to) => {
+    effects.push(`move:${to}`)
+    return store.changeStage(task.id, to, {
+      stageFile: { layer: 'ted', path: `${to}.md` },
+      layers: [],
+      order: [],
+    })
+  }
+  port.stop = async (id) => {
+    effects.push(`stop:${store.getComment(stopped.id)?.answer?.kind}`)
+    store.stopTask(id, { runs: 0, why: 'human' })
+    return port.find(id)
+  }
+  const limitQuestion = () => {
+    const comment = post({ kind: 'send-back' }, { choices: ['Keep going', 'Stop the Task'] })
+    store.askAboutSendBack({
+      commentId: comment.id,
+      taskId,
+      from: 'validate',
+      to: 'work',
+      findings: 'Typecheck failed',
+      loop: true,
+      checkRunId: 'check-run',
+    })
+    return comment
+  }
+  const stopped = limitQuestion()
+  await answer(stopped, { action: 'answer', choice: 'Stop the Task' })
+  expect(effects).toEqual(['stop:answered', 'move:work'])
+  expect(store.getTask(taskId)).toMatchObject({ stage: 'work', stopped: true })
+  expect(store.listSendBacks(taskId)).toMatchObject([
+    { to: 'work', counted: true, round: 1, checkRunId: 'check-run', cause: 'check' },
+  ])
+  expect(store.getTask(taskId)?.pendingLeadMessages.map((m) => m.text)).toEqual([
+    expect.stringContaining('Typecheck failed'),
+  ])
+
+  effects = []
+  store.resumeTask(taskId, { waitForBlockers: false })
+  stage('validate')
+  const again = limitQuestion()
+  await answer(again, { action: 'answer', choice: 'Keep going' })
+  expect(effects).toEqual(['move:work'])
+  expect(store.listSendBacks(taskId).at(-1)).toMatchObject({
+    to: 'work',
+    counted: true,
+    round: 1,
+    checkRunId: 'check-run',
+    cause: 'check',
+  })
+})
+
+test('Try again on an open failing-Checks question from Work tells the Task Lead to report again', async () => {
+  stage('work')
+  const comment = post({ kind: 'send-back' }, { choices: ['Try again', 'Diagnose in Validate'] })
+  store.askAboutSendBack({
+    commentId: comment.id,
+    taskId,
+    from: 'work',
+    to: 'work',
+    findings: 'Tests failed',
+    loop: false,
+  })
+  const told: string[] = []
+  port.deliverAnswer = async (_task, _comment, text) => {
+    told.push(text)
+  }
+  await answer(comment, { action: 'answer', choice: 'Try again' })
+  expect(store.getComment(comment.id)?.answer).toMatchObject({ choice: 'Try again' })
+  expect(told[0]).toContain('report `ted outcome advance` again')
+  expect(store.getTask(taskId)?.stage).toBe('work')
+})
+
 test('send-back missing metadata is rejected, and non-loop choices are delivered normally', async () => {
   const missing = post({ kind: 'send-back' }, { choices: ['Try again'] })
   await expect(answer(missing, { action: 'answer', choice: 'Try again' })).rejects.toThrow(
@@ -1094,7 +1172,52 @@ test('send-back missing metadata is rejected, and non-loop choices are delivered
   expect(effects).toEqual(['delivered'])
 })
 
-test('Diagnose in Validate on a hand-off Check ask keeps the Task in Validate and runs the checks with diagnosis', async () => {
+test('Diagnose in Validate on the failing-Checks question answers only after the guards pass, then moves the Task', async () => {
+  stage('work')
+  const comment = post({ kind: 'send-back' }, { choices: ['Try again', 'Diagnose in Validate'] })
+  store.askAboutSendBack({
+    commentId: comment.id,
+    taskId,
+    from: 'work',
+    to: 'work',
+    findings: 'Tests failed',
+    loop: false,
+  })
+  port.leaveWorkToDiagnose = async () => {
+    throw new Error('the branch conflicts with main')
+  }
+  await expect(
+    answer(comment, { action: 'answer', choice: 'Diagnose in Validate' }),
+  ).rejects.toThrow('conflicts with main')
+  expect(store.getComment(comment.id)?.answer).toBeUndefined()
+  expect(effects).toEqual([])
+
+  const told: string[] = []
+  port.leaveWorkToDiagnose = async (task) => {
+    effects.push('guards')
+    return async (message) => {
+      effects.push('move:validate')
+      told.push(message)
+      return task
+    }
+  }
+  await answer(comment, {
+    action: 'answer',
+    choice: 'Diagnose in Validate',
+    text: 'Broken on main',
+  })
+  expect(effects).toEqual(['guards', 'move:validate'])
+  expect(store.getComment(comment.id)?.answer).toMatchObject({
+    kind: 'answered',
+    choice: 'Diagnose in Validate',
+    text: 'Broken on main',
+  })
+  expect(told[0]).toContain('with Diagnose in Validate')
+  expect(told[0]).toContain('The human added:\n\nBroken on main')
+  expect(store.listSendBacks(taskId)).toEqual([])
+})
+
+test('Diagnose in Validate on an open limit question from before ADR 0188 keeps the Task in Validate and runs the checks with diagnosis', async () => {
   stage('validate')
   port.gateWorkflow = async () => ({ workflow: loopWorkflow(), layers: [] })
   const run = store.startChecks({

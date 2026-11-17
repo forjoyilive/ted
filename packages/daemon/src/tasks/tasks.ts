@@ -127,6 +127,7 @@ import type {
   UnarchiveTaskRequest,
   ValidateJudgments,
   ValidationObligations,
+  ValidationProgress,
   WaitingRequest,
   WorktreeCommandOutcome,
 } from '@ted/protocol'
@@ -500,11 +501,11 @@ import {
 } from './repos.ts'
 import {
   answerTaskRequest,
-  backToDesignChoice,
   checkBack,
   createRequestAnswers,
   diagnoseChoice,
-  loopChoices,
+  keepGoingChoice,
+  stopTaskChoice,
   tryAgainChoice,
 } from './request-answers.ts'
 import {
@@ -551,7 +552,7 @@ import {
   p1OnlyReviewPrompt,
   subAgentsInValidate,
 } from './validate-settings.ts'
-import { createValidation, type HandOffChecks, StaleCoverageError } from './validation.ts'
+import { createValidation, StaleCoverageError } from './validation.ts'
 import { failureCaseFindings, failureCaseReference } from './validation-report.ts'
 import { type CommandResult, outputTail } from './worktree.ts'
 import { readChanges, type WorktreeReads, worktreeReads } from './worktree-reads.ts'
@@ -876,6 +877,8 @@ const slugLength = 40
 const recordedConflictFiles = 50
 export const suggestedTasksPerLead = 3
 export const maxTasksPerLead = 10
+
+const timesText = (n: number) => `${n} ${n === 1 ? 'time' : 'times'}`
 
 function withoutRepeats(files: readonly Attachment[]): Attachment[] {
   const seen = new Map<string, Attachment>()
@@ -2846,6 +2849,43 @@ export function createTasks(options: {
     )
   }
 
+  async function checkReturn(taskId: string, findings: string, checkRunId: string): Promise<void> {
+    await untilFree(taskId)
+    await holding(find(taskId), async () => {
+      const task = find(taskId)
+      if (!validates(task.stage) || task.archived || task.stopped) return
+      const resolution = await taskWorkflow(task, { fetch: false })
+      const since = visitStart(task)
+      const recorded = store
+        .listSendBacks(taskId)
+        .find((b) => b.checkRunId === checkRunId && validates(b.from) && b.at >= since)
+      if (recorded) {
+        const to = stageWith('handOff')
+        await move(
+          task,
+          resolution,
+          to,
+          backMessage(resolution.workflow, to, stageWith('validates'), recorded),
+        )
+        return
+      }
+      if (
+        store.sendBackAsks(taskId).some((ask) => ask.checkRunId === checkRunId) ||
+        store.loopChecks(taskId).some((check) => check.checkRunId === checkRunId)
+      )
+        return
+      judge(task, 'sent-back', undefined)
+      await sendBack(
+        task,
+        resolution,
+        stageWith('validates'),
+        { outcome: 'back', to: stageWith('handOff'), findings },
+        checkRunId,
+        { counted: true, cause: 'check' },
+      )
+    })
+  }
+
   function handOffAsks(taskId: string): Comment[] {
     const asks = new Set(
       store
@@ -2856,95 +2896,85 @@ export function createTasks(options: {
     return store.listComments(taskId).filter((c) => asks.has(c.id))
   }
 
-  const handOffLeft = (task: StoredTask) => !validates(task.stage) || task.archived
+  const leftWork = (task: StoredTask) => !handsOff(task.stage) || task.archived
 
-  const handOffHalted = (task: StoredTask, lead: string | undefined) =>
-    task.stopped || task.status?.kind === 'failed' || task.leadRunId !== lead
+  async function reportAgain(task: StoredTask): Promise<void> {
+    const text = `# Report the outcome again\n\nTED was running the Factory’s checks to move ${task.displayId} to Validate when it stopped, so it didn’t use their result. The Task is still in Work. Ted now runs the checks when the Task enters Validate: report the outcome again with \`ted outcome advance\` when the work is finished.`
+    if (await deliver(task, text, 'checks-done')) return
+    store.holdLeadMessage(task.id, text)
+    await store.persisted()
+  }
 
-  const handOffCheckRuns = 3
+  async function leaveWorkToDiagnose(
+    task: StoredTask,
+  ): Promise<(message: string) => Promise<Task>> {
+    return leaveWork(task, 'diagnose')
+  }
 
   function diagnoseInValidate(task: StoredTask, message: string): void {
     setChecking(task.id, true)
     inBackground(`run ${task.displayId}’s checks`, () => validation.enter(task.id, message))
   }
 
-  async function handOffChecks(taskId: string, lead: string, message: string): Promise<void> {
-    let handedOver = false
-    try {
-      await execution.local(taskId)
-      for (let attempt = 1; ; attempt++) {
-        const task = find(taskId)
-        const reads = worktreeReads()
-        const coverage = await validation.coverage(task, reads)
-        const started = await validation
-          .begin(
-            task,
-            await gateWorkflow(task, { fetch: false, reads }),
-            'hand-off',
-            undefined,
-            reads,
-          )
-          .catch((error) => {
-            console.error(
-              redactSecrets(`couldn’t start ${task.displayId}’s checks: ${messageOf(error)}`),
-            )
-            return null
-          })
-        if (started === undefined && !handOffHalted(find(taskId), lead)) {
-          handedOver = true
-          await validation.enter(taskId, message)
-          return
-        }
-        const result = started ? await started.done : undefined
-        const checkRun = started
-          ? (store.getCheckRun(started.checkRun.id) ?? started.checkRun)
-          : undefined
-        const current = find(taskId)
-        if (result?.outcome === 'interrupted' || handOffLeft(current)) return
-        if (current.stopped || current.status?.kind === 'failed') return
-        if (handOffHalted(current, lead) || checkRun === undefined) {
-          handedOver = true
-          await validation.enter(taskId, message)
-          return
-        }
-        if (result?.outcome === 'passed') {
-          const now = await validation.coverage(find(taskId), worktreeReads())
-          if (now !== coverage && attempt < handOffCheckRuns) continue
-          handedOver = true
-          await validation.enter(taskId, message, { run: checkRun, coverage })
-          return
-        }
-        const findings = (await failedFindings(current, checkRun)) ?? summary(checkRun.checks)
-        await writeFile(path.join(checkDir(current, checkRun.id), 'findings.md'), findings, {
-          mode: 0o600,
-        })
-        const sent = await holding(current, async () => {
-          const now = find(taskId)
-          if (handOffLeft(now) || handOffHalted(now, lead)) return undefined
-          const resolution = await taskWorkflow(now, { fetch: false })
-          return sendBack(
-            now,
-            resolution,
-            stageWith('validates'),
-            { outcome: 'back', to: stageWith('handOff'), findings },
-            checkRun.id,
-            {
-              handOff: {
-                intro: `# A check failed\n\nTed ran the Factory’s checks when ${now.displayId} entered Validate and one failed, so Ted sent the Task back to Work. This send-back counts toward Validate’s limit.`,
-              },
-            },
-          )
-        })
-        if (sent?.request) {
-          await deliver(
-            find(taskId),
-            `# A check failed\n\nTed ran the Factory’s checks when ${current.displayId} entered Validate and one failed. ${sent.message}\n\n${findings}`,
-          )
-        }
-        return
+  async function leaveWork(
+    task: StoredTask,
+    why: 'diagnose' | 'accept',
+  ): Promise<(message: string, carried?: ValidationProgress) => Promise<Task>> {
+    const accepting = why === 'accept'
+    const refuseHalted = (now: StoredTask) => {
+      if (leftWork(now)) throw new RequestError(409, `${task.displayId} has left Work`)
+      if (now.stopped || now.status?.kind === 'failed') {
+        throw new RequestError(
+          409,
+          `${task.displayId} is stopped or Failed; resume it, then answer this request`,
+        )
       }
-    } finally {
-      if (!handedOver) setChecking(taskId, false)
+    }
+    refuseHalted(task)
+    if (inFlight.is(task.id, 'checking')) {
+      throw new RequestError(
+        409,
+        `Ted is running ${task.displayId}’s checks; answer when they finish`,
+      )
+    }
+    await execution.local(task.id)
+    const reads = worktreeReads()
+    const resolution = await gateWorkflow(task, { reads })
+    const { workflow } = resolution
+    if (
+      !validates(workflow.next(stageWith('handOff'))) ||
+      (!accepting && gateOn(task, workflow, stageWith('handOff')))
+    ) {
+      throw new RequestError(
+        409,
+        `${task.displayId}’s Workflow no longer goes from Work straight to Validate; ${accepting ? 'the Task Lead reports the outcome again instead' : `choose ${tryAgainChoice}`}`,
+      )
+    }
+    await requireObligations(task, undefined, 'validate', false, reads)
+    const conflict = await baseConflict(task)
+    if (conflict) {
+      store.recordBaseConflict(task.id, foundConflict(task, conflict))
+      throw new RequestError(
+        409,
+        `${task.displayId}’s branch conflicts with ${clean(conflict.base, 200)}, so it can’t leave Work yet. ${accepting ? 'The Task Lead resolves the conflict in Work, and Ted runs the checks again on the new code.' : `Choose ${tryAgainChoice} and the Task Lead resolves the conflict in Work.`}`,
+      )
+    }
+    refuseHalted(find(task.id))
+    return (message, carried) => {
+      if (
+        !accepting &&
+        workflow.overnightGates?.includes(stageWith('handOff')) &&
+        !gateSkipped(task)
+      ) {
+        store.gateSkippedOvernight(task.id, stageWith('handOff'))
+      }
+      return move(
+        task,
+        resolution,
+        'validate',
+        `${message}\n\n${nextStageMessage(workflow, 'validate')}`,
+        { ...(carried !== undefined && { carried }) },
+      )
     }
   }
 
@@ -6388,7 +6418,9 @@ export function createTasks(options: {
         move: (task, resolution, next, message, options) =>
           move(task, resolution, next, message, { ...options, waitForSlot: 'answer' }),
         backMessage,
+        leaveWorkToDiagnose,
         diagnoseInValidate,
+        stop: stopByHand,
         settleDependents,
         beforeArchive: (task) => {
           archivePlan(task.id)
@@ -7001,14 +7033,14 @@ export function createTasks(options: {
     given: string | undefined,
     {
       signedOff = false,
-      handOff,
       waitForSlot = false,
       reads,
+      carried,
     }: {
       signedOff?: boolean
-      handOff?: string
       waitForSlot?: boolean | QueuedAfter
       reads?: WorktreeReads
+      carried?: ValidationProgress
     } = {},
   ): Promise<Task> {
     if (
@@ -7041,6 +7073,7 @@ export function createTasks(options: {
       : undefined
     const chosen = mergesHere(next) ? await mergeCommits(task, signedOff) : []
     const moved = store.changeStage(task.id, next, entryFor(resolution, next))
+    if (carried) validation.carryOver(find(task.id), carried)
     for (const { name, commit } of chosen) store.mergeCommitChosen(task.id, name, commit)
     const waitingLead = liveLead(find(task.id))
     const choice = effectiveLead(find(task.id))
@@ -7060,11 +7093,7 @@ export function createTasks(options: {
       await cleanupThen(task.id, resolution.workflow, message)
     } else if (validates(next) && message !== undefined) {
       setChecking(task.id, true)
-      inBackground(`run ${task.displayId}’s checks`, () =>
-        handOff === undefined
-          ? validation.enter(task.id, message)
-          : handOffChecks(task.id, handOff, message),
-      )
+      inBackground(`run ${task.displayId}’s checks`, () => validation.enter(task.id, message))
     } else if (message !== undefined) {
       const told = await deliver(
         task,
@@ -7465,12 +7494,7 @@ export function createTasks(options: {
     from: AgentStageId,
     request: Extract<ReportOutcomeRequest, { outcome: 'back' }>,
     checkRunId?: string,
-    options: {
-      counted?: boolean
-      cause?: SendBackCause
-      conflict?: FoundConflict
-      handOff?: { intro: string }
-    } = {},
+    options: { counted?: boolean; cause?: SendBackCause; conflict?: FoundConflict } = {},
   ): Promise<OutcomeResult & { pending?: boolean }> {
     const { workflow } = resolution
     const to = request.to
@@ -7479,23 +7503,13 @@ export function createTasks(options: {
     const counted = options.counted ?? lastChangesRequested(task) === ''
     const limit = workflow.settings.stages[from]?.max_back
     const count = store.sendBackCount(task.id, from)
+    const loopAt = validates(from) ? workflow.settings.stages.validate?.loop_check : undefined
+    const keepConflict = () => {
+      if (options.conflict !== undefined) store.recordBaseConflict(task.id, options.conflict)
+    }
     if (counted && limit !== undefined && count >= limit) {
+      keepConflict()
       const times = `${count} ${count === 1 ? 'time' : 'times'}`
-      if (validates(from) && options.handOff !== undefined) {
-        const request = askAboutLoop(task, workflow, {
-          to,
-          findings,
-          title: `Validate has sent this Task back ${times}, its limit`,
-          intro: `A check failed when the Task entered Validate, and Validate has reached its send-back limit (${count}). Choose ${diagnoseChoice} when the check fails for a reason outside this Task, such as a test that is already broken on the base branch: the Task stays in Validate and the failure becomes a failure case you can retry, send back to be fixed, or accept.`,
-          handOff: true,
-          ...(checkRunId !== undefined && { checkRunId }),
-        })
-        return {
-          task: publicTask(task.id),
-          message: `Validate has sent this Task back ${times}, its limit, so Ted asked the human instead (request ${request.id}). The Task stays in Validate; Ted sends you their answer.`,
-          request,
-        }
-      }
       if (validates(from)) {
         if (
           workflow.settings.stages.validate?.loop_check !== false &&
@@ -7517,8 +7531,11 @@ export function createTasks(options: {
         const request = askAboutLoop(task, workflow, {
           to,
           findings,
-          title: `Validate has sent this Task back ${times}, its limit`,
-          intro: `Ted couldn’t assess progress. ${workflow.settings.stages.validate?.loop_check === false ? 'Loop checks are disabled.' : 'A Loop check couldn’t start.'} Validate has reached its send-back limit (${count}) and needs your decision.`,
+          title: `Back to Work ${timesText(count)}, the limit`,
+          intro:
+            workflow.settings.stages.validate?.loop_check === false
+              ? ''
+              : 'A Loop check couldn’t start, so Ted couldn’t check whether the rounds are making progress.',
           ...(checkRunId !== undefined && { checkRunId }),
         })
         return {
@@ -7551,13 +7568,7 @@ export function createTasks(options: {
         request,
       }
     }
-    const loopAt = validates(from) ? workflow.settings.stages.validate?.loop_check : undefined
-    if (
-      counted &&
-      options.handOff === undefined &&
-      typeof loopAt === 'number' &&
-      loopRounds(task.id).length + 1 === loopAt
-    ) {
+    if (counted && typeof loopAt === 'number' && count + 1 === loopAt) {
       const started = await startLoopCheck(task, {
         to,
         findings,
@@ -7566,6 +7577,7 @@ export function createTasks(options: {
         ...(checkRunId !== undefined && { checkRunId }),
       })
       if (started) {
+        keepConflict()
         return {
           task: publicTask(task.id),
           message: `This is Validate’s send-back number ${count + 1}, so Ted started a loop check to see whether the rounds are converging. The Task stays in Validate until it answers; Ted sends you the result.`,
@@ -7597,13 +7609,7 @@ export function createTasks(options: {
       ...(options.conflict !== undefined && { conflict: options.conflict }),
     })
     if (signsOffCode(from)) store.resetSendBacks(task.id, stageWith('validates'))
-    const told = backMessage(workflow, to, from, sentBack)
-    const moved = await move(
-      task,
-      resolution,
-      to,
-      options.handOff === undefined ? told : `${options.handOff.intro}\n\n${told}`,
-    )
+    const moved = await move(task, resolution, to, backMessage(workflow, to, from, sentBack))
     return { task: moved, message: `${task.displayId} moved back to ${workflow.name(to)}` }
   }
 
@@ -7629,7 +7635,7 @@ export function createTasks(options: {
       commit === undefined ? [] : [{ name, commit }],
     )
     const rounds = series.flatMap((b, i) =>
-      b.checkRunId === undefined ? [{ round: b.round ?? i + 1, findings: b.findings }] : [],
+      reviewReturn(b) ? [{ round: b.round ?? i + 1, findings: b.findings }] : [],
     )
     const full = { round: series.length + 1, commits, rounds }
     const visit = visitStart(task)
@@ -7860,10 +7866,7 @@ export function createTasks(options: {
         if ((await movedSinceReview(task)) !== undefined) return
         throw new RequestError(409, p1OnlyRefusal(round, from))
       }
-      if (
-        severity === 'unfixed' &&
-        !countedValidateSendBacks(task.id).some((b) => b.checkRunId === undefined)
-      ) {
+      if (severity === 'unfixed' && !countedValidateSendBacks(task.id).some(reviewReturn)) {
         throw new RequestError(409, noEarlierFindingRefusal(round))
       }
     }
@@ -7878,21 +7881,30 @@ export function createTasks(options: {
   ): string {
     const message = backStageMessage(workflow, to, from, sendBack.findings)
     if (!validates(from) || !handsOff(to) || sendBack.round === undefined) return message
+    const failure =
+      sendBack.checkRunId === undefined
+        ? undefined
+        : store.failures
+            .list(sendBack.taskId)
+            .find(
+              (value) =>
+                (value.source.kind === 'factory-check' ||
+                  value.source.kind === 'post-rebase-check') &&
+                value.source.checkRunId === sendBack.checkRunId,
+            )
     return [
       message,
       workRoundText({
         round: sendBack.round,
         cause: sendBack.cause,
         ...(sendBack.limit !== undefined && { limit: sendBack.limit }),
+        ...(failure !== undefined && { failure: shortReference(failure.id) }),
       }),
     ].join('\n\n')
   }
 
-  function loopRounds(taskId: string) {
-    return countedValidateSendBacks(taskId).filter(
-      (b) => b.checkRunId === undefined || store.getCheckRun(b.checkRunId)?.trigger !== 'hand-off',
-    )
-  }
+  const reviewReturn = (sendBack: SendBack) =>
+    sendBack.checkRunId === undefined && sendBack.cause !== 'base-conflict'
 
   function countedValidateSendBacks(taskId: string) {
     const count = store.sendBackCount(taskId, stageWith('validates'))
@@ -7907,6 +7919,28 @@ export function createTasks(options: {
     return rounds.map((findings, i) => `## Round ${i + 1}\n\n${findings.trim()}`).join('\n\n')
   }
 
+  function returnsText(taskId: string, limit: number | undefined): string {
+    const returns = countedValidateSendBacks(taskId)
+    const count = (cause: (b: SendBack) => boolean) => returns.filter(cause).length
+    const parts = [
+      [count(reviewReturn), 'review findings', 'review findings'],
+      [count((b) => b.checkRunId !== undefined), 'a failed check', 'failed checks'],
+      [
+        count((b) => b.cause === 'base-conflict'),
+        'a conflict with the base branch',
+        'conflicts with the base branch',
+      ],
+    ] as const
+    const listed = parts.flatMap(([n, one, many]) =>
+      n === 0 ? [] : [`${n} for ${n === 1 ? one : many}`],
+    )
+    const why =
+      listed.length < 2
+        ? listed.join('')
+        : `${listed.slice(0, -1).join(', ')} and ${listed.at(-1) ?? ''}`
+    return `Validate has sent the Task back to Work ${timesText(returns.length)}${why === '' ? '' : `: ${why}`}.${limit === undefined ? '' : ` Its limit is ${limit}.`}`
+  }
+
   function askAboutLoop(
     task: StoredTask,
     workflow: ResolvedWorkflow,
@@ -7915,20 +7949,12 @@ export function createTasks(options: {
       findings: string
       title: string
       intro: string
-      verdict?: LoopVerdict
       checkRunId?: string
-      handOff?: boolean
     },
   ): Comment {
-    const choices = loopChoices(workflow, input.handOff === true)
-    const recommendation =
-      input.verdict === 'looping' && choices.includes(backToDesignChoice)
-        ? `Recommended: ${backToDesignChoice}. Revisit the approach before another repair.`
-        : input.verdict === 'converging'
-          ? `Recommended: ${tryAgainChoice}. Allow another attempt at the remaining findings.`
-          : input.verdict === 'looping'
-            ? `Recommended: ${tryAgainChoice}. Add guidance to break the repeated pattern.`
-            : `Suggested next step: ${tryAgainChoice} to allow another repair attempt${choices.includes(backToDesignChoice) ? ', or Back to Design to revisit the approach' : ''}.`
+    const limit = workflow.settings.stages.validate?.max_back
+    const held =
+      input.checkRunId === undefined ? 'Validate found more problems to fix' : 'a check failed'
     const request = store.postComment({
       taskId: task.id,
       kind: 'question',
@@ -7936,13 +7962,13 @@ export function createTasks(options: {
       title: input.title,
       purpose: { kind: 'send-back' },
       body: [
-        input.intro,
-        recommendation,
-        input.handOff === true
-          ? 'The check’s output is in the Task’s history.'
-          : 'Full findings are in the Task’s history. Moving on leaves the findings open.',
+        ...(input.intro === '' ? [] : [input.intro]),
+        `${returnsText(task.id, limit)} This time ${held}, and the Task is waiting in Validate for your decision. The findings are in the Task’s history.`,
+        `**${keepGoingChoice}** sends the Task back to Work with these findings and starts the count again.`,
+        `**${stopTaskChoice}** sends the Task back to Work with these findings and stops it, as the Stop button does. When you resume it, the Task Lead starts on the findings and the count starts again.`,
+        'To give the Task Lead guidance instead, reply in your own words. The Task stays in Validate.',
       ].join('\n\n'),
-      choices,
+      choices: [keepGoingChoice, stopTaskChoice],
     })
     store.askAboutSendBack({
       commentId: request.id,
@@ -7960,7 +7986,9 @@ export function createTasks(options: {
     const worktree = task.repos.find((r) => !r.removed)?.worktree
     if (worktree === undefined) return []
     const commits = await Promise.all(
-      loopRounds(task.id).map((b) => git.commitAt(worktree, b.at).catch(() => undefined)),
+      countedValidateSendBacks(task.id).map((b) =>
+        git.commitAt(worktree, b.at).catch(() => undefined),
+      ),
     )
     const head = await git.revParse(worktree, 'HEAD').catch(() => undefined)
     return [...commits, head].map((c, i) => `- Round ${i + 1}: ${c ?? 'unknown'}`)
@@ -7976,7 +8004,7 @@ export function createTasks(options: {
       checkRunId?: string
     },
   ): Promise<boolean> {
-    const rounds = [...loopRounds(task.id).map((b) => b.findings), input.findings]
+    const rounds = [...countedValidateSendBacks(task.id).map((b) => b.findings), input.findings]
     const prompt = [
       await loopCheckInstructions(),
       roundsText(rounds),
@@ -8051,22 +8079,23 @@ export function createTasks(options: {
       return
     }
     const looping = verdict === 'looping'
+    const returns = timesText(check.round - 1)
     const request = askAboutLoop(task, workflow, {
       to: check.to,
       findings: check.findings,
       title: atLimit
-        ? `Validate has sent this Task back ${check.round - 1} ${check.round === 2 ? 'time' : 'times'}, its limit`
+        ? `Back to Work ${returns}, the limit`
         : looping
-          ? 'Validate and Work are going round in circles'
-          : `Validate has sent this Task back ${check.round} times`,
+          ? `Back to Work ${returns} with the same problem`
+          : `Back to Work ${returns}, and Ted couldn’t check progress`,
       intro: looping
-        ? `Work and Validate are repeating the same problem. ${reason}`
+        ? `Ted’s Loop check found that the rounds keep repeating the same problem. ${reason} If you keep going, add guidance that breaks the pattern.`
         : verdict === 'converging'
-          ? `Making progress, but Validate has reached its send-back limit (${check.limit}) and needs your decision. ${reason}`
-          : `Ted couldn’t assess progress: ${reason}. The Task is waiting for your decision.`,
-      verdict,
+          ? `Ted’s Loop check found that the rounds are making progress. ${reason}`
+          : `Ted couldn’t check whether the rounds are making progress: ${reason}.`,
       ...(check.checkRunId !== undefined && { checkRunId: check.checkRunId }),
     })
+    if (check.checkRunId !== undefined) return
     await deliver(
       task,
       `Ted’s loop check ${looping ? 'found Validate’s rounds are looping' : verdict === 'converging' ? 'found progress, but the send-back limit still needs a human decision' : 'gave no verdict'}, so Ted asked the human what to do (request ${request.id}). The Task stays in Validate; Ted sends you their answer.`,
@@ -10801,6 +10830,15 @@ export function createTasks(options: {
         ...(round !== undefined ? [round] : []),
       ].join('\n\n')
     },
+    returnToWork: checkReturn,
+    diagnosing: (task) => {
+      const since = visitStart(task)
+      return store.sendBackAsks(task.id).some((ask) => {
+        const answer = validates(ask.from) ? store.getComment(ask.commentId)?.answer : undefined
+        return answer?.kind === 'answered' && answer.choice === diagnoseChoice && answer.at >= since
+      })
+    },
+    leaveWork: (task) => leaveWork(task, 'accept'),
     apps: startSetupApps,
     fix: applyValidationFix,
     checkFix: (resolution, task) =>
@@ -10943,16 +10981,11 @@ export function createTasks(options: {
       } finally {
         if (message === undefined) setChecking(task.id, false)
       }
-      await handOffChecks(task.id, task.leadRunId ?? '', message)
+      await validation.enter(task.id, message)
     })
   }
   for (const task of handOffsLeftInWork) {
-    inBackground(`tell ${task.displayId}’s Task Lead to report again`, async () => {
-      const text = `# Report again\n\nTed stopped while it ran the Factory’s checks for ${task.displayId}, so the Task is still in Work. Report the outcome again with \`ted outcome advance\`: Ted now moves the Task to Validate and runs the checks there.`
-      if (await deliver(find(task.id), text)) return
-      store.holdLeadMessage(task.id, text)
-      await store.persisted()
-    })
+    inBackground(`tell ${task.displayId}’s Task Lead to report again`, () => reportAgain(task))
   }
 
   for (const check of store.loopChecks().filter((c) => c.verdict === undefined)) {
@@ -12684,7 +12717,6 @@ export function createTasks(options: {
         descriptions: store.descriptionVersions(task.id),
         planTitleOf: (planId) => store.plans.get(planId)?.title,
         factoryNameOf: (id) => store.getFactory(id)?.name,
-        checkRunOf: (id) => store.getCheckRun(id),
       })
     },
 
@@ -12926,7 +12958,7 @@ export function createTasks(options: {
             if (conflict) {
               const findings = `${outcome.findings.trim()}\n\n${conflictChecked(conflict, manyRepos(current))}`
               return sendBack(current, resolution, stage, { ...outcome, findings }, undefined, {
-                counted: false,
+                counted: validates(stage),
                 cause: 'base-conflict',
                 conflict: foundConflict(current, conflict),
               })
@@ -12994,12 +13026,6 @@ export function createTasks(options: {
             })
           }
           const gate = gateOn(current, workflow, stage) && outcome.skip !== true
-          const handOff = !gate && handsOff(stage) && validates(workflow.next(stage))
-          if (handOff) {
-            await execution.local(task.id)
-            const hold = store.newWorkHold()
-            if (hold) throw new RequestError(409, hold)
-          }
           if (!gate) {
             if (
               outcome.skip !== true &&
@@ -13023,15 +13049,15 @@ export function createTasks(options: {
               resolution,
               next,
               next === 'done' ? undefined : nextStageMessage(workflow, next),
-              { reads, ...(handOff && { handOff: runId }) },
+              { reads },
             )
-            if (handOff) {
-              return {
-                task: moved,
-                message: `${task.displayId} moved to ${workflow.name(next)}, where Ted runs the Factory’s checks. If they pass, Ted sends you Validate’s instructions with the results; if one fails, Ted sends the Task back to Work with the output. Wait for Ted’s message.`,
-              }
+            return {
+              task: moved,
+              message:
+                next !== 'done' && validates(next) && handsOff(stage)
+                  ? `${task.displayId} moved to ${workflow.name(next)}. Ted runs the Factory’s checks first. If one fails, the Task comes back to Work and Ted sends you the output; otherwise Ted sends you ${workflow.name(next)}’s instructions.`
+                  : `${task.displayId} moved to ${workflow.name(next)}`,
             }
-            return { task: moved, message: `${task.displayId} moved to ${workflow.name(next)}` }
           }
           const name = hasClarifyRounds(stage)
             ? 'Clarify sign-off'

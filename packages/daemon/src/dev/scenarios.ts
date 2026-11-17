@@ -335,6 +335,12 @@ async function populateScenarios(
       const problem = demoCheckProblem(checks)
       if (problem) throw new Error(problem)
       if (current.stage === target) {
+        if (target === 'merge')
+          await until(
+            async () =>
+              (await observed.task(task.id)).repos.every((r) => r.pullRequest !== undefined),
+            'pull requests at Merge',
+          )
         console.log(`Demo: ${task.displayId} reached ${target} · ${Date.now() - began} ms`)
         return
       }
@@ -375,11 +381,6 @@ async function populateScenarios(
                   advanceWaitMs,
                 )
             }
-            await until(
-              async () =>
-                (await observed.task(task.id)).repos.every((r) => r.pullRequest !== undefined),
-              'draft pull requests',
-            )
           })()
           validations.add(preparation)
           try {

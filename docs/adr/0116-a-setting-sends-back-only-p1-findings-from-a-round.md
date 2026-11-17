@@ -1,5 +1,7 @@
 # A Workflow setting sends a Task back from Validate for a new Finding only if it is P1, from a chosen round
 
+_Changed by ADR 0188-the-checks-run-as-validates-first-step-and-every-return-to-work-counts: the round now counts every return to Work from Validate, failed Checks and verified base conflicts included, so a failed Check moves the round on. There are no Checks before a Task leaves Work, so that line under “What is not affected” no longer applies._
+
 ADR 0107 scopes later Validate rounds to the fixes, but a round still sends the Task back for any blocking Finding in those fixes. A Factory owner who would rather read the remaining Findings at Review than pay for more rounds had no way to say so.
 
 `stages.validate.p1_only_from: <round>` says it. It is off by default and this repo doesn’t set it, because it lowers the review bar on purpose: new Findings that Validate would have had fixed reach Review unfixed.
