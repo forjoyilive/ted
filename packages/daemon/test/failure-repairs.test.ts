@@ -150,8 +150,7 @@ test.each(['archive', 'delete'] as const)(
       title: 'Temporary repair',
     })
     expect((await s.resolve({ kind: 'existing', taskId: repair.id })).status).toBe(200)
-    if (action === 'archive')
-      await s.client.ok('POST', `/tasks/${repair.id}/archive`, { blocked: 'unblock' })
+    if (action === 'archive') await s.client.ok('POST', `/tasks/${repair.id}/archive`, {})
     else {
       const { DaemonClient } = await import('@ted/protocol')
       await new DaemonClient(
@@ -160,7 +159,7 @@ test.each(['archive', 'delete'] as const)(
         {
           appKey: required(ctx.daemon).appToken,
         },
-      ).deleteTask(repair.id, { blocked: 'unblock' })
+      ).deleteTask(repair.id, {})
     }
     const affected = await getTask(s.client, s.current.id)
     expect(affected.status?.kind).toBe('stopped')
@@ -203,43 +202,6 @@ test('approving a queued repair releases a single working-Run slot for ordinary 
     true,
   )
 })
-
-test.each(['archive', 'delete'] as const)(
-  '%s with blocker kept preserves waiting and the original repair identity',
-  async (action) => {
-    const s = await setup()
-    const repair = await s.client.ok<Task>('POST', '/tasks', {
-      factory: 'NB',
-      title: 'Kept repair',
-    })
-    expect((await s.resolve({ kind: 'existing', taskId: repair.id })).status).toBe(200)
-    if (action === 'archive')
-      await s.client.ok('POST', `/tasks/${repair.id}/archive`, { blocked: 'keep' })
-    else {
-      const { DaemonClient } = await import('@ted/protocol')
-      await new DaemonClient(
-        { port: required(ctx.daemon).port, token: '', pid: 0, version: 'test' },
-        '',
-        {
-          appKey: required(ctx.daemon).appToken,
-        },
-      ).deleteTask(repair.id, { blocked: 'keep' })
-    }
-    expect((await getTask(s.client, s.current.id)).blockedBy).toEqual([repair.id])
-    const retained = await s.client.ok<FailureCase[]>('GET', `${s.root}/failures`)
-    expect(retained[0]?.resolutions[0]?.repairTask).toMatchObject({
-      id: repair.id,
-      title: 'Kept repair',
-    })
-    expect((await s.client.ok<TaskBrief>('GET', `${s.root}/brief`)).text).toContain('still waiting')
-    await s.client.ok('DELETE', `${s.root}/blockers/${repair.id}`)
-    expect((await getTask(s.client, s.current.id)).status?.kind).toBe('stopped')
-    expect(
-      (await s.client.ok<ValidationObligations>('GET', `${s.root}/validation-obligations`))
-        .satisfied,
-    ).toBe(false)
-  },
-)
 
 test('Merge uses the same repair remedy without allowing the Task Lead to advance it', async () => {
   const client = await start({

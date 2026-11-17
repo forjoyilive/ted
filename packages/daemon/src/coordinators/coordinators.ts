@@ -128,7 +128,7 @@ const manageTasksCommands = `- ted coordinator tasks [--stage <Stage>]… [--sta
   - “no” (a permission prompt, a simulator ask, the Linear team ask): only the human answers these, in the Inbox.
 - ted coordinator parent <child-id> <parent-id|none> --operation <unique-id> --version <child-version> --hierarchy-revision <revision>: link, reparent or unlink a Task. Read the child first; use its hierarchy.revision. The same-Factory and safe-parent rules apply.
 - ted coordinator resume <id> --operation <unique-id> --version <version> [--message "<text>"]: resume a stopped or failed Task. It goes through the queue, so it starts when a slot is free.
-- ted coordinator archive|unarchive|delete <id>… --operation <unique-id> --versions <JSON mapping each Task ID to its version> [--children archive|detach (archive) or delete|unparent (delete)] [--blocked unblock|keep] [--close-pull-requests]: archive, unarchive or delete Tasks of this Factory, all named in one command. Use delete only when the human said “delete” and named the Tasks or a clear group; for anything else, archive, which can be undone. Unarchive and an archive with nothing to warn about happen at once and return receipts. A delete, or an archive of a Task with an open pull request, Tasks under it, Tasks it blocks or a working Task Lead, returns a confirmation instead: TED shows the human a card in this chat and in their Inbox, and nothing changes until the human clicks Confirm. You cannot confirm it. Pick --children and --blocked as the human asked, or as you’d recommend; the human can change them on the card. Add --close-pull-requests only when the human asked to close them. Tell the human what the card covers and end your turn; the receipts show the result, and you read the Tasks again before your next action.
+- ted coordinator archive|unarchive|delete <id>… --operation <unique-id> --versions <JSON mapping each Task ID to its version> [--children archive|detach (archive) or delete|unparent (delete)] [--close-pull-requests]: archive, unarchive or delete Tasks of this Factory, all named in one command. Use delete only when the human said “delete” and named the Tasks or a clear group; for anything else, archive, which can be undone. Unarchive and an archive with nothing to warn about happen at once and return receipts. Archiving or deleting a Task removes it from the Blocked by of the Tasks it blocks. A delete, or an archive of a Task with an open pull request, Tasks under it or a working Task Lead, returns a confirmation instead: TED shows the human a card in this chat and in their Inbox, and nothing changes until the human clicks Confirm. You cannot confirm it. Pick --children as the human asked, or as you’d recommend; the human can change them on the card. Add --close-pull-requests only when the human asked to close them. Tell the human what the card covers and end your turn; the receipts show the result, and you read the Tasks again before your next action.
 - ted coordinator done <id> --operation <unique-id> --version <version>: move a Task at Merge to Done once GitHub shows every pull request merged. TED reads GitHub itself and refuses while any pull request is not merged; it never merges anything.
 - ted coordinator create --operation <unique-id> [--description "<text>" | --description -] [--parent <id>] [--blocked-by <id>]… [--source <url>] [--priority <priority>] [--clarify-depth <none|few|grilling>] [--provider <provider> [--model <model>] [--effort <effort>]] [--after <id>] [--before <id>] [--neighbours <JSON mapping neighbour IDs to versions>] [--start] "<title>": create a Task in this Factory. It lands in Backlog; add --start only when the human asked for it to start. --description - reads the description from stdin. Parent, blockers and neighbours must be Tasks of this Factory, and a source TED already tracks is refused. The receipt names the new Task; one create makes one Task, so for several Tasks run it once per Task.`
 
@@ -1146,7 +1146,7 @@ export function createCoordinators(options: {
         ...(input.choices !== undefined && { choices: input.choices }),
         text,
         ...(archive && {
-          archive: { closePullRequests: input.closePullRequests === true, blocked: 'unblock' },
+          archive: { closePullRequests: input.closePullRequests === true },
         }),
       },
     }
@@ -1202,7 +1202,7 @@ export function createCoordinators(options: {
     }
   }
   const warns = (t: Omit<CoordinatorConfirmationTask, 'id' | 'displayId' | 'title'>) =>
-    t.descendants.length > 0 || t.blockedTasks.length > 0 || t.pullRequests.length > 0 || t.working
+    t.descendants.length > 0 || t.pullRequests.length > 0 || t.working
   const sameIds = (a: readonly { id: string }[], b: readonly { id: string }[]) =>
     a
       .map((x) => x.id)
@@ -1275,23 +1275,44 @@ export function createCoordinators(options: {
         receipt.text = `Unarchived ${result.displayId}${restored > 0 ? ` and ${restored} ${restored === 1 ? 'Task' : 'Tasks'} archived with it` : ''} · now ${state(snapshot(result))}`
       } else {
         const under = family.descendants.length > 0
-        const blocked = choices.blocked ?? 'unblock'
+        const together =
+          under &&
+          (kind === 'archive' ? choices.children !== 'detach' : choices.children === 'delete')
+        const removing = new Set([
+          task.id,
+          ...(together ? family.descendants.map((d) => d.id) : []),
+        ])
+        const waiting = store
+          .listTasks()
+          .filter(
+            (t) => !t.archived && !removing.has(t.id) && t.blockedBy.some((id) => removing.has(id)),
+          )
+          .map((t) => t.id)
+        const unblockedText = () => {
+          const ids = waiting.flatMap((id) => {
+            const now = store.getTask(id)
+            return now && !now.archived && !now.blockedBy.some((b) => removing.has(b))
+              ? [now.displayId]
+              : []
+          })
+          if (ids.length === 0) return ''
+          const last = ids.pop()
+          return ` · unblocked ${ids.length > 0 ? `${ids.join(', ')} and ${last}` : last}`
+        }
         if (kind === 'archive') {
           const children = choices.children === 'detach' ? 'detach' : 'archive'
           tasks.archive(task.id, {
             closePullRequests: choices.closePullRequests === true,
-            blocked,
             ...(under && { children, hierarchyRevision: family.revision }),
           })
-          receipt.text = `Archived ${task.displayId}${under ? (children === 'detach' ? ' · the Tasks under it were detached' : ' and the Tasks under it') : ''}${choices.closePullRequests ? ' · closed its pull requests' : ''}`
+          receipt.text = `Archived ${task.displayId}${under ? (children === 'detach' ? ' · the Tasks under it were detached' : ' and the Tasks under it') : ''}${choices.closePullRequests ? ' · closed its pull requests' : ''}${unblockedText()}`
         } else {
           const children = choices.children === 'delete' ? 'delete' : 'unparent'
           await tasks.delete(task.id, {
-            blocked,
             ...(under && { children, hierarchyRevision: family.revision }),
           })
           receipt.text = redactSecrets(
-            `Deleted ${task.displayId} “${task.title.slice(0, 200)}”${under ? (children === 'delete' ? ' and the Tasks under it' : ' · the Tasks under it were detached') : ''}`,
+            `Deleted ${task.displayId} “${task.title.slice(0, 200)}”${under ? (children === 'delete' ? ' and the Tasks under it' : ' · the Tasks under it were detached') : ''}${unblockedText()}`,
           )
         }
       }
@@ -2138,15 +2159,10 @@ export function createCoordinators(options: {
       const c = admit(caller)
       return serial(c.factoryId, async () => {
         const current = actor(caller)
+        // The undefined stands where `blocked` was, so operations recorded before TED-528 keep their fingerprint.
         const fingerprint = createHash('sha256')
           .update(
-            JSON.stringify([
-              kind,
-              input.tasks,
-              input.children,
-              input.blocked,
-              input.closePullRequests,
-            ]),
+            JSON.stringify([kind, input.tasks, input.children, undefined, input.closePullRequests]),
           )
           .digest('hex')
         const prefix = `${input.operation}:`
@@ -2184,7 +2200,6 @@ export function createCoordinators(options: {
               ...ref(task),
               ...confirmationFacts(task, kind),
               ...(input.children !== undefined && { children: input.children }),
-              ...(input.blocked !== undefined && { blocked: input.blocked }),
               ...(input.closePullRequests === true && { closePullRequests: true }),
             }),
           )
@@ -2297,8 +2312,6 @@ export function createCoordinators(options: {
             if (other.id === card.id || !card.descendants.some((d) => d.id === other.id)) continue
             const differs =
               (other.descendants.length > 0 && childrenOf(other) !== together) ||
-              (other.blockedTasks.length > 0 &&
-                (other.blocked ?? 'unblock') !== (card.blocked ?? 'unblock')) ||
               (asked.kind === 'archive' &&
                 other.pullRequests.length > 0 &&
                 (other.closePullRequests === true) !== (card.closePullRequests === true))

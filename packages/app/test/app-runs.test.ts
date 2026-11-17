@@ -54,15 +54,14 @@ describe('Archive, Unarchive and Delete', () => {
     return { window, thread, header: thread.locator('header') }
   }
 
-  test('⌘⌫ archives with Keep it blocked, the Task opens read-only, and Unarchive brings it back', async () => {
+  test('⌘⌫ archives and unblocks the Task it blocks, the Task opens read-only, and Unarchive brings it back', async () => {
     const { window, thread, header } = await blockerAndBlocked()
 
     await window.keyboard.press('ControlOrMeta+Backspace')
     const dialog = window.getByRole('dialog', { name: 'Archive NB-1?' })
-    await dialog.getByText('1 Task is blocked by NB-1').waitFor()
-    await dialog.getByText('Highlight search matches').waitFor()
-    expect(await dialog.getByRole('radio', { name: 'Unblock it' }).isChecked()).toBe(true)
-    await dialog.getByRole('radio', { name: 'Keep it blocked' }).check()
+    const unblocks = dialog.getByRole('region', { name: 'Unblocks 1 Task' })
+    await unblocks.getByText('Highlight search matches').waitFor()
+    expect(await dialog.getByRole('radio').count()).toBe(0)
     await dialog.getByRole('button', { name: 'Archive' }).click()
     await dialog.waitFor({ state: 'detached' })
 
@@ -72,8 +71,8 @@ describe('Archive, Unarchive and Delete', () => {
     expect(await thread.getByRole('textbox', { name: 'Comment' }).count()).toBe(0)
     await waitUntil(async () => {
       const tasks = await (await daemonClient()).listTasks().catch(() => [])
-      return tasks.find((t) => t.displayId === 'NB-2')?.activity === 'Blocked by archived NB-1'
-    }, 'NB-2 to read “Blocked by archived NB-1”')
+      return tasks.find((t) => t.displayId === 'NB-2')?.blockedBy.length === 0
+    }, 'NB-2 to be unblocked')
 
     await header.getByRole('button', { name: 'Task actions' }).click()
     const menu = header.page().getByRole('menu', { name: /Task actions/ })

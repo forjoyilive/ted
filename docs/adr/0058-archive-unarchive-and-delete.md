@@ -1,6 +1,6 @@
 # Archive, Unarchive and Delete
 
-Status: accepted. Builds on ADR 0035 (blocked Tasks) and ADR 0048 (pull requests).
+Status: accepted. Builds on ADR 0035 (blocked Tasks) and ADR 0048 (pull requests). ADR 0185-archiving-or-deleting-a-blocker-always-unblocks replaces its “Blocking others” choice.
 
 ## Context
 
