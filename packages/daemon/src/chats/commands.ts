@@ -340,7 +340,7 @@ export function createChatCommands(options: {
       if (result.outcome === 'interrupted') return finish('stopped', output)
       if (result.outcome === 'passed') return finish('passed', output, 0)
       if (result.outcome === 'timed-out')
-        return finish('failed', `${output}\nTED stopped it after ${defaultCheckTimeout}.`)
+        return finish('failed', `${output}\nTed stopped it after ${defaultCheckTimeout}.`)
       return finish('failed', output, result.exitCode)
     } catch (error) {
       if (abort.signal.aborted) return finish('stopped', '')

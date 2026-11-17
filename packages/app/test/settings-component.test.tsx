@@ -441,7 +441,7 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
   await waitFor(() =>
     expect(processRows()).toEqual([
       '123nodeTool or MCP server of TED-487’s Task Lead2.4%64 MB',
-      '456TEDTED app1%200 MB',
+      '456TedTed app1%200 MB',
     ]),
   )
   const processTable = within(screen.getByRole('table', { name: 'Processes' }))
@@ -477,7 +477,7 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
   ])
   expect(processRows()).toEqual([
     '123nodeTool or MCP server of TED-487’s Task Lead2.4%64 MB',
-    '456TEDTED app1%200 MB',
+    '456TedTed app1%200 MB',
   ])
   view.rerender(
     <DeveloperPage
@@ -494,7 +494,7 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
   )
   await waitFor(() =>
     expect(processRows()).toEqual([
-      '456TEDTED app1%200 MB',
+      '456TedTed app1%200 MB',
       '123nodeTool or MCP server of TED-487’s Task Lead2.4%64 MB',
     ]),
   )

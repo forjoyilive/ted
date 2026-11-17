@@ -506,7 +506,7 @@ test('live and saved conversations share Markdown while tool output stays litera
   }
   bridge({ getRunChat: () => chat })
   const view = render(<Conversation runId="r1" />)
-  const command = await screen.findByRole('button', { name: /TED ran.*test.*Exit code 1 · 41s/ })
+  const command = await screen.findByRole('button', { name: /Ted ran.*test.*Exit code 1 · 41s/ })
   await user().click(command)
   expect(screen.getByText('× parses **commands**').tagName).toBe('PRE')
   await screen.findByRole('heading', { name: 'Progress' })
