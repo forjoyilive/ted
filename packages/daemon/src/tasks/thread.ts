@@ -23,6 +23,7 @@ export interface ThreadContext {
   waitingFor: readonly string[]
   descriptions?: readonly DescriptionVersion[]
   planTitleOf?: (planId: string) => string | undefined
+  factoryNameOf?: (factoryId: string) => string | undefined
 }
 
 const planEndLines: Record<string, string> = {
@@ -245,6 +246,18 @@ export function threadEvents(
       case 'v1.TaskReset':
         add(entry, 'edit', 'Task was reset')
         break
+      case 'v1.TaskMovedToFactory': {
+        const factory = (id: unknown) => context.factoryNameOf?.(text(id)) ?? 'another Factory'
+        add(
+          entry,
+          'edit',
+          [
+            `${data.by === 'coordinator' ? 'The Coordinator moved' : 'You moved'} this Task from ${text(data.fromDisplayId)} in ${factory(data.fromFactoryId)} to ${factory(data.factoryId)}`,
+            ...(data.started === true ? ['a fresh Task Lead Run starts from the brief'] : []),
+          ].join(' · '),
+        )
+        break
+      }
       case 'v1.TaskCreated':
       case 'v2.TaskCreated':
         add(

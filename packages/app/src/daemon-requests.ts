@@ -123,6 +123,8 @@ export const forwardedRequests = [
   'archiveDone',
   'deleteTask',
   'resetTask',
+  'taskMovePlan',
+  'moveTaskToFactory',
   'blockTask',
   'unblockTask',
   'getSlots',

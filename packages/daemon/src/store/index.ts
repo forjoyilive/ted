@@ -194,6 +194,7 @@ import {
   conversationTabs,
   coordinatorChats as coordinatorRows,
   deletedTasks,
+  taskMoves,
   events,
   factories,
   factoryLayout as factoryLayoutRows,
@@ -607,6 +608,14 @@ export interface AcceptedLayer {
   acceptedAt: string
 }
 
+export interface MoveTaskInput {
+  moves: { taskId: string; factoryId: string; started: boolean }[]
+  unlink: { taskId: string; blockerId: string }[]
+  leaveParent?: string
+  notes: { taskId: string; body: string }[]
+  by: 'human' | 'coordinator'
+}
+
 export interface NewComment {
   purpose?: RequestPurpose
   taskId: string
@@ -892,6 +901,8 @@ export interface TedStore extends TaskHistory {
   unarchiveTask(taskId: string, input: { queue: boolean; waitForBlockers: boolean }): Task
   deleteTask(taskId: string): void
   resetTask(taskId: string): Task
+  moveTask(input: MoveTaskInput): { id: string; from: string; to: string }[]
+  nextTaskNumber(factoryId: string): number
   blockedBy(blockerId: string): string[]
   openBlockedTasks(): string[]
   queue(): QueuedTask[]
@@ -2900,10 +2911,21 @@ export async function openStore({
     const digits = ref.slice(dash + 1)
     if (dash < 0 || !/^(0|[1-9]\d*)$/.test(digits)) return undefined
     const key = ref.slice(0, dash)
-    return store
-      .query(queryDb(tasks.where({ number: Number(digits) })))
+    const number = Number(digits)
+    const row = store
+      .query(queryDb(tasks.where({ number })))
       .find((row) => factoryKey(row.factoryId) === key)
+    if (row) return row
+    const moved = store
+      .query(queryDb(taskMoves.where({ number })))
+      .find((row) => factoryKey(row.factoryId) === key)
+    return moved ? taskRow(moved.taskId) : undefined
   }
+  const usedNumbers = (factoryId: string) => [
+    ...store.query(queryDb(tasks.select('number').where({ factoryId }))),
+    ...store.query(queryDb(deletedTasks.select('number').where({ factoryId }))),
+    ...store.query(queryDb(taskMoves.select('number').where({ factoryId }))),
+  ]
   const lastCommentAt = (rows: readonly (typeof comments.Type)[]) =>
     rows
       .flatMap((c) => [
@@ -4138,10 +4160,7 @@ export async function openStore({
       children = [],
       notes = [],
     }) {
-      const used = [
-        ...store.query(queryDb(tasks.select('number').where({ factoryId }))),
-        ...store.query(queryDb(deletedTasks.select('number').where({ factoryId }))),
-      ]
+      const used = usedNumbers(factoryId)
       const awaitingSetup =
         !setup &&
         listFactories().find((f) => f.id === factoryId)?.clonedAt === undefined &&
@@ -4359,9 +4378,7 @@ export async function openStore({
       draftRevision,
     }) {
       const currentDraft = draftRevision ? taskDraft(factoryId).draft : null
-      const inFactory = store.query(queryDb(tasks.where({ factoryId })))
-      const deleted = store.query(queryDb(deletedTasks.where({ factoryId })))
-      const used = [...inFactory.map((t) => t.number), ...deleted.map((t) => t.number)]
+      const used = usedNumbers(factoryId)
       const awaitingSetup = listFactories().find((f) => f.id === factoryId)?.clonedAt === undefined
       let number = Math.max(awaitingSetup ? 1 : 0, ...used) + 1
       let rank = nextRank()
@@ -4688,6 +4705,78 @@ export async function openStore({
       updatedQueue(taskId)
       updatedDependents(taskId)
       return task
+    },
+    nextTaskNumber: (factoryId) => Math.max(0, ...usedNumbers(factoryId)) + 1,
+    moveTask({ moves, unlink, leaveParent, notes, by }) {
+      const at = new Date().toISOString()
+      const next = new Map<string, number>()
+      const numberIn = (factoryId: string) => {
+        const number = next.get(factoryId) ?? Math.max(0, ...usedNumbers(factoryId)) + 1
+        next.set(factoryId, number + 1)
+        return number
+      }
+      const planned = moves.map(({ taskId, factoryId, started }) => {
+        const row = requireTaskRow(taskId)
+        checkingTasks.delete(taskId)
+        movingAfterChecks.delete(taskId)
+        return {
+          row,
+          started,
+          factoryId,
+          number: numberIn(factoryId),
+          from: `${factoryKey(row.factoryId)}-${row.number}`,
+        }
+      })
+      const withdrawn = planned.flatMap(({ row, factoryId }) =>
+        openRequestRows(row.id).map((request) => ({ request, factoryId })),
+      )
+      const oldParent = leaveParent === undefined ? undefined : parentRow(leaveParent)?.parentId
+      const posts = notes.map(({ taskId, body }) =>
+        commentPosted({ taskId, kind: 'note', author: { kind: 'ted' }, body }, at),
+      )
+      commit(
+        ...unlink.map(({ taskId, blockerId }) =>
+          events.taskBlockerRemoved({ taskId, blockerId, runId: null, at }),
+        ),
+        ...(leaveParent !== undefined && oldParent !== undefined
+          ? [events.taskParentChanged({ taskId: leaveParent, parentId: null, at })]
+          : []),
+        ...withdrawn.map(({ request, factoryId }) => {
+          const answer: CommentAnswer = { kind: 'withdrawn', at, movedToFactory: factoryId }
+          return events.commentAnswered({ id: request.id, answer: JSON.stringify(answer), at })
+        }),
+        ...planned.flatMap(({ row, started, factoryId, number, from }) => [
+          ...(row.snoozedUntil ? [events.taskSnoozeCleared({ taskId: row.id, at })] : []),
+          events.taskMovedToFactory({
+            taskId: row.id,
+            fromFactoryId: row.factoryId,
+            fromNumber: row.number,
+            fromDisplayId: from,
+            factoryId,
+            number,
+            by,
+            started,
+            checkRunIds: checkRunRows(row.id).map((r) => r.id),
+            at,
+          }),
+        ]),
+        ...posts.flatMap(({ event, attached }) => [event, ...attached]),
+      )
+      for (const { request } of withdrawn) emitComment(request.id)
+      for (const { id } of posts) emitComment(id)
+      for (const { row } of planned) updatedTask(row.id)
+      if (oldParent !== undefined && taskRow(oldParent)) updatedTask(oldParent)
+      for (const { taskId, blockerId } of unlink) {
+        if (taskRow(taskId)) updatedTask(taskId)
+        if (taskRow(blockerId)) updatedTask(blockerId)
+      }
+      updatedQueue()
+      for (const { row } of planned) updatedDependents(row.id)
+      return planned.map(({ row, factoryId, number, from }) => ({
+        id: row.id,
+        from,
+        to: `${factoryKey(factoryId)}-${number}`,
+      }))
     },
     blockedBy: (blockerId) =>
       store.query(queryDb(taskBlockers.where({ blockerId }))).map((row) => row.taskId),

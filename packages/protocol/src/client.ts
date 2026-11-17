@@ -1,4 +1,5 @@
 import { Agent, request as httpRequest, type IncomingMessage } from 'node:http'
+import type { MoveToFactoryRequest, TaskMoved, TaskMovePlan } from './task-move.ts'
 import type { Activity, OpenAppResult } from './activity.ts'
 import type {
   AgentAvailability,
@@ -947,6 +948,17 @@ export class DaemonClient {
 
   resetTask(ref: string): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/reset`, {})
+  }
+
+  taskMovePlan(ref: string, factoryId: string): Promise<TaskMovePlan> {
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/move-plan?factory=${encodeURIComponent(factoryId)}`,
+    )
+  }
+
+  moveTaskToFactory(ref: string, request: MoveToFactoryRequest): Promise<TaskMoved> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/move-to-factory`, request)
   }
 
   async deleteTask(ref: string, options: DeleteTaskRequest = {}): Promise<void> {

@@ -1203,6 +1203,7 @@ export {
   parseUnarchiveTaskRequest,
   parseWriteBriefRequest,
 } from './task-parsers.ts'
+export * from './task-move.ts'
 export * from './test-invocations.ts'
 export {
   effectiveTimeZone,
