@@ -581,13 +581,12 @@ describe('the Validate loop check', () => {
     'a failed Check’s looping verdict asks the human without waking the Task Lead in Validate, and Keep going returns the Check’s output to Work',
     async () => {
       const client = await start(
-        `${validateFlow}stages:\n  validate:\n    max_back: 5\n    loop_check: 1\n    checks:\n      - { name: Tests, run: "echo the export test broke; exit 1" }\n`,
+        `${validateFlow}stages:\n  validate:\n    max_back: 5\n    loop_check: 1\n    checks:\n      - { name: Tests, run: "echo the export test broke; echo '${steps({ say: 'Verdict: looping' }, { endTurn: true }).replaceAll('"', '\\"')}'; exit 1" }\n`,
       )
       const task = await startTask(
         client,
         { everyMessage: [{ endTurn: true }] },
         { run: ['ted', 'outcome', 'advance'] },
-        { say: 'The same failure again.\nVerdict: looping' },
         { endTurn: true },
       )
       const ask = await waitForAsk(client, task)
