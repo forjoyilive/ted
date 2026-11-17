@@ -794,7 +794,7 @@ test('a commit, a Task ID and a worktree path in a Task’s messages are links, 
   expect((await within(file).findByText('second')).closest('[data-target]')).toBeTruthy()
   await user().click(within(file).getByRole('button', { name: '← Task Lead' }))
 
-  await user().click(within(thread()).getByRole('button', { name: 'NB-2' }))
+  await user().click(required(within(thread()).getAllByRole('button', { name: 'NB-2' })[0]))
   expect(await screen.findByRole('heading', { name: 'Other Task' })).toBeTruthy()
 })
 
