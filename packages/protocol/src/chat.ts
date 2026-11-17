@@ -48,6 +48,7 @@ export type ChatItem =
       kind: 'command'
       id: string
       name: string
+      outside?: { command: string; folder: string; always?: true }
       status: 'running' | 'passed' | 'failed' | 'stopped'
       exitCode?: number
       output: string

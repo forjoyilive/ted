@@ -821,25 +821,43 @@ function pullMain(): void {
   if (pull.status !== 0) console.log('Couldn’t fast-forward main here; run git pull yourself.')
 }
 
+export type ReleaseAction =
+  | { action: 'publish' }
+  | { action: 'discard' }
+  | { action: 'build'; version: string }
+  | { refusal: string }
+
+export function releaseAction(args: readonly string[]): ReleaseAction | undefined {
+  const [command, version] = args.filter((arg) => !arg.startsWith('--'))
+  if (command === undefined) return undefined
+  if (command === 'publish') return { action: 'publish' }
+  if (command === 'discard') return { action: 'discard' }
+  const named = command === 'build' ? version : command
+  if (named === undefined) return { refusal: 'pnpm release build needs a version like 1.2.3' }
+  if (parseVersion(named) === undefined) return { refusal: `“${named}” isn’t a version like 1.2.3` }
+  return { action: 'build', version: named }
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2)
-  const named = args.find((arg) => !arg.startsWith('--'))
-  if (!inReleaseCheckout() && (named !== undefined || args.includes('--install'))) {
-    const fresh =
-      named !== undefined && !['publish', 'discard'].includes(named) && !args.includes('--install')
-    if (fresh && parseVersion(named) === undefined) fail(`“${named}” isn’t a version like 1.2.3`)
-    forward(args, fresh)
-  }
-  if (args.includes('--install')) return install()
-  const command = args.find((arg) => !arg.startsWith('--'))
-  if (command === 'publish') return publish()
-  if (command === 'discard') return discard()
-  if (command === undefined) {
-    fail(
-      `usage: pnpm release <version> [--skip-checks] | publish | discard | --install (now ${currentVersion()})`,
+  const installing = args.includes('--install')
+  const chosen = releaseAction(args)
+  if (!installing && chosen !== undefined && 'refusal' in chosen) fail(chosen.refusal)
+  if (!inReleaseCheckout() && (chosen !== undefined || installing)) {
+    forward(
+      args,
+      !installing && chosen !== undefined && 'action' in chosen && chosen.action === 'build',
     )
   }
-  await build(command, args.includes('--skip-checks'))
+  if (installing) return install()
+  if (chosen === undefined || 'refusal' in chosen) {
+    return fail(
+      `usage: pnpm release [build] <version> [--skip-checks] | publish | discard | --install (now ${currentVersion()})`,
+    )
+  }
+  if (chosen.action === 'publish') return publish()
+  if (chosen.action === 'discard') return discard()
+  await build(chosen.version, args.includes('--skip-checks'))
 }
 
 if (import.meta.main) await main()

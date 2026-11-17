@@ -1,0 +1,25 @@
+.card {
+  border-color: var(--status-warning-border);
+}
+
+.name,
+.command,
+.folder {
+  font-family: var(--font-mono);
+  font-size: var(--text-12);
+}
+
+.command {
+  padding: 6px 8px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-control);
+  background: var(--surface-app);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.folder {
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}

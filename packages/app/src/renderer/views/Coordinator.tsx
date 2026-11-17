@@ -24,6 +24,7 @@ import { AutomationCard } from '../components/AutomationCard.tsx'
 import { Button } from '../components/Button.tsx'
 import { ConfirmationCard } from '../components/ConfirmationCard.tsx'
 import { EventLine } from '../components/EventLine.tsx'
+import { OutsideCommandsSection } from '../components/OutsideCommands.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { ChatSection, Composer, runMeta } from '../components/RunChat.tsx'
 import { agentNames } from '../components/RunIcon.tsx'
@@ -150,6 +151,7 @@ export function CoordinatorStart({
       </section>
       <CoordinatorDetails
         agent={agent}
+        factoryId={factory.id}
         tasks={[]}
         provider={
           lead && [agentNames[lead.agent], lead.model, lead.effort].filter(Boolean).join(' · ')
@@ -333,12 +335,14 @@ export function CoordinatorChat({
                   box,
                   send: (message: string) => ted.messageCoordinator(chatId, { text: message }),
                   stopTurn: () => ted.stopCoordinator(chatId),
+                  stopOutside: () => void ted.stopOutsideCommand(chatId),
                 }),
           }}
         />
       </section>
       <CoordinatorDetails
         agent={agent}
+        factoryId={coordinator?.factoryId}
         removed={removed}
         tasks={coordinator?.tasks ?? []}
         provider={
@@ -405,12 +409,14 @@ function chatExtras(
 
 function CoordinatorDetails({
   agent,
+  factoryId,
   removed = false,
   tasks,
   provider,
   onOpenTask,
 }: {
   agent: AgentSummary
+  factoryId: string | undefined
   removed?: boolean
   tasks: readonly Task[]
   provider: string | undefined
@@ -433,6 +439,7 @@ function CoordinatorDetails({
           <AgentCommands commands={shownCommands(agent)} />
         </section>
       )}
+      <OutsideCommandsSection factoryId={factoryId} agent={agent} className={styles.section} />
       <section className={styles.section} aria-label="From">
         <h2>From</h2>
         <AgentSource source={agent.source} />

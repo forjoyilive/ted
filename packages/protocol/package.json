@@ -45,6 +45,7 @@
     "./problem-report": "./src/problem-report.ts",
     "./update": "./src/update.ts",
     "./proposal": "./src/proposal.ts",
+    "./outside-command": "./src/outside-command.ts",
     "./plan": "./src/plan.ts",
     "./agent-files": "./src/agent-files.ts",
     "./setup-agents": "./src/setup-agents.ts",

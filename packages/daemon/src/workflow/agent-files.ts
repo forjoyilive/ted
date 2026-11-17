@@ -12,6 +12,7 @@ import {
   type ResolvedAgent,
   runCommandsNeedsReadCode,
 } from '@ted/protocol/agent-files'
+import { maxOutsideCommands, outsideCommandWords } from '@ted/protocol/outside-command'
 import { isOneOf, isString } from '@ted/protocol/parse'
 import { type AgentKind, agentKindList, agentKinds } from '@ted/protocol/run'
 import { isMap, isScalar, isSeq, LineCounter, type Node, parseDocument } from 'yaml'
@@ -23,6 +24,7 @@ export interface AgentSettings {
   model?: string
   powers?: AgentPower[]
   commands?: AgentCommand[]
+  outside_commands?: AgentCommand[]
   based_on?: string
 }
 
@@ -39,11 +41,12 @@ export interface AgentLayer {
   agentFiles: Readonly<Record<string, string>>
 }
 
-const agentKeys = ['name', 'agent', 'model', 'powers', 'commands', 'based_on']
+const agentKeys = ['name', 'agent', 'model', 'powers', 'commands', 'outside_commands', 'based_on']
 const chatOnlyPowers: readonly AgentPower[] = [
   'manage_tasks',
   'manage_automations',
   'manage_agents',
+  'run_outside',
 ]
 const idRule = `lowercase letters, digits and hyphens, up to ${maxAgentId} characters`
 const powerList = agentPowers.join(', ')
@@ -206,6 +209,11 @@ function checkAgentsYaml(
           if (commands) agent.commands = commands
           break
         }
+        case 'outside_commands': {
+          const commands = checkCommands(node, path, error, true)
+          if (commands) agent.outside_commands = commands
+          break
+        }
       }
     }
     if (agent.powers?.includes('run_commands') && !agent.powers.includes('read_code')) {
@@ -251,13 +259,15 @@ function checkCommands(
   node: Node | null,
   path: string,
   error: (node: Node | null | undefined, message: string) => void,
+  outside = false,
 ): AgentCommand[] | undefined {
   if (isScalar(node) && node.value === null) return []
   if (!isMap(node)) {
     return void error(node, `\`${path}\` must be a map of command names to commands`)
   }
-  if (node.items.length > maxAgentCommands) {
-    error(node, `\`${path}\` has more than ${maxAgentCommands} commands`)
+  const most = outside ? maxOutsideCommands : maxAgentCommands
+  if (node.items.length > most) {
+    error(node, `\`${path}\` has more than ${most} commands`)
     return undefined
   }
   const commands: AgentCommand[] = []
@@ -300,6 +310,12 @@ function checkCommands(
         value ?? key,
         `\`${where}\` must be a command of up to ${maxAgentCommandLength} characters`,
       )
+      ok = false
+      continue
+    }
+    const words = outside ? outsideCommandWords(command) : undefined
+    if (words && 'problem' in words) {
+      error(value ?? key, `\`${where}\` ${words.problem}`)
       ok = false
       continue
     }
@@ -356,14 +372,17 @@ export function resolveAgents(layers: readonly AgentLayer[]): ResolvedAgent[] {
     const text = texts.get(id)
     if (!text || settings.name === undefined) return []
     const commands = settings.commands ?? []
+    const powers = agentPowers.filter((power) => allowedPower(id, power, settings.powers ?? []))
+    const outside = settings.outside_commands ?? []
     return [
       {
         id,
         name: settings.name,
         ...(settings.agent !== undefined && { agent: settings.agent }),
         ...(settings.model !== undefined && { model: settings.model }),
-        powers: agentPowers.filter((power) => allowedPower(id, power, settings.powers ?? [])),
+        powers,
         ...(commands.length > 0 && { commands: commands.map((c) => ({ ...c })) }),
+        ...(outside.length > 0 && { outsideCommands: outside.map((c) => ({ ...c })) }),
         instructions: text.text,
         source,
         path: displayPath(text.kind, `agents/${id}.md`),
