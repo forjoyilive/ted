@@ -4,6 +4,7 @@ import {
   type BusyHold,
   busyHold,
   type CommentBox,
+  type CommentDelivery,
   type GitHubWait,
   type QueuedAfter,
   type RunState,
@@ -82,6 +83,23 @@ export function taskCanResume(facts: TaskFacts): boolean {
     (facts.blockedBy?.length ?? 0) === 0 &&
     !facts.planningInChat
   )
+}
+
+export function taskWakesOnComment(facts: TaskFacts): boolean {
+  const { openRequests: _, ...withoutRequests } = facts
+  return taskCanResume(withoutRequests)
+}
+
+export function commentDelivery(facts: TaskFacts): CommentDelivery | undefined {
+  if (facts.stage === 'done' || facts.archived || facts.stopped || facts.failed) return undefined
+  if (facts.paused !== undefined) return 'paused'
+  if (facts.queue) return waitsForSlot(facts.queue, facts.busy) ? 'queued' : undefined
+  if (facts.leadLive) return 'starting'
+  return undefined
+}
+
+function waitsForSlot(queue: NonNullable<TaskFacts['queue']>, busy: BusyHold | undefined): boolean {
+  return 'place' in queue && (busy === undefined || queue.after !== undefined)
 }
 
 export function leadAskedAtMerge(facts: {
