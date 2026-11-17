@@ -1066,8 +1066,9 @@ async function forceTestError(): Promise<void> {
   }
   if (forcedErrors.includes('renderer')) {
     await windowLoaded.promise
-    const message = JSON.stringify(`Forced error in the renderer (TED_FORCE_ERROR) in ${tedHome()}`)
-    await window?.webContents.executeJavaScript(`setTimeout(() => { throw new Error(${message}) })`)
+    await window?.webContents.executeJavaScript(
+      "setTimeout(() => { throw new Error('Forced error in the renderer (TED_FORCE_ERROR)') })",
+    )
   }
 }
 

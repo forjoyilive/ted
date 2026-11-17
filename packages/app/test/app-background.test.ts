@@ -228,7 +228,7 @@ describe('running in the background', () => {
             exception: {
               values: [
                 expect.objectContaining({
-                  value: 'Forced error in the renderer (TED_FORCE_ERROR) in <path>',
+                  value: 'Forced error in the renderer (TED_FORCE_ERROR)',
                 }),
               ],
             },

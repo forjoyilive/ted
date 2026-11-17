@@ -50,7 +50,7 @@ const posixPath = new RegExp(`${boundary}(?:file://|~)?/${pathChars}`, 'gm')
 const windowsPath = new RegExp(String.raw`${boundary}[A-Za-z]:\\${pathChars}`, 'gm')
 
 const slashToken = new RegExp(
-  String.raw`${boundary}([^\s'"\x60()<>,;]*[/\\][^\s'"\x60()<>,;]*)`,
+  String.raw`${boundary}([^\s'"\x60()<>,;/\\]*[/\\][^\s'"\x60()<>,;]*)`,
   'gm',
 )
 const betweenPaths = /<path>(?:[ \t]+\S+)*[ \t]+<path>/g
@@ -79,8 +79,14 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)
 }
 
+function withoutTrailingSlashes(text: string): string {
+  let end = text.length
+  while (end > 0 && (text.charAt(end - 1) === '/' || text.charAt(end - 1) === '\\')) end--
+  return text.slice(0, end)
+}
+
 function rootForms(root: string): string[] {
-  const trimmed = root.replace(/[/\\]+$/, '')
+  const trimmed = withoutTrailingSlashes(root)
   const url = pathToFileURL(trimmed).href
   return [`${url}/`, `${trimmed}/`, `${trimmed}\\`]
 }
@@ -106,20 +112,45 @@ export function cleanText(text: string, roots: readonly string[], home: string):
   return redactSecrets(result)
 }
 
-const frameLine = /^\s*at (?:(.+?) \((.+)\)|(.+))$/
+const digits = /^\d+$/
+
+interface FrameParts {
+  fn?: string
+  location: string
+}
+
+function frameParts(line: string): FrameParts | undefined {
+  const trimmed = line.trimStart()
+  if (!trimmed.startsWith('at ')) return undefined
+  const rest = trimmed.slice(3)
+  if (rest === '') return undefined
+  const open = rest.indexOf(' (')
+  if (open > 0 && rest.endsWith(')') && rest.length > open + 3) {
+    return { fn: rest.slice(0, open), location: rest.slice(open + 2, -1) }
+  }
+  return { location: rest }
+}
+
+function positionParts(location: string) {
+  let file = location
+  const numbers: string[] = []
+  while (numbers.length < 2) {
+    const at = file.lastIndexOf(':')
+    if (at === -1 || !digits.test(file.slice(at + 1))) break
+    numbers.unshift(file.slice(at + 1))
+    file = file.slice(0, at)
+  }
+  return { file, numbers }
+}
 
 function frameFrom(line: string): CrashFrame | undefined {
-  const match = frameLine.exec(line)
-  if (!match) return undefined
-  const fn = match[1]
-  const location = match[2] ?? match[3] ?? ''
-  const position = /^(.*?)(?::(\d+))?(?::(\d+))?$/.exec(location)
-  const found = position?.[1] ?? location
-  const filename = kept(found) ? found : '<path>'
-  const lineno = position?.[2]
-  const colno = position?.[3]
+  const parts = frameParts(line)
+  if (!parts) return undefined
+  const { file, numbers } = positionParts(parts.location)
+  const filename = kept(file) ? file : '<path>'
+  const [lineno, colno] = numbers
   return {
-    ...(fn !== undefined && { function: fn }),
+    ...(parts.fn !== undefined && { function: parts.fn }),
     filename,
     ...(lineno !== undefined && { lineno: Number(lineno) }),
     ...(colno !== undefined && { colno: Number(colno) }),

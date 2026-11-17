@@ -89,6 +89,21 @@ describe('cleaning', () => {
     )
   })
 
+  test('cleans long runs of slashes and brackets without stalling', () => {
+    const clean = cleanCrash(
+      {
+        source: 'uncaught',
+        type: 'Error',
+        message: `${'/'.repeat(50_000)} ${'a/'.repeat(20_000)}`,
+        stack: `Error\n    at f${' ('.repeat(20_000)}x${':1'.repeat(20_000)})`,
+      },
+      [`/repo${'/'.repeat(50_000)}`],
+      home,
+    )
+    expect(clean.message).toBe('<path>')
+    expect(clean.frames).toHaveLength(1)
+  })
+
   test('cuts the message and reads frames oldest last', () => {
     const clean = cleanCrash(
       {
