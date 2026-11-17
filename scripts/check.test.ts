@@ -19,6 +19,8 @@ import {
   onlyAppChanged,
   parseReport,
   parseRetries,
+  passedFiles,
+  passedInRun,
   runRefusal,
 } from './check.ts'
 import {
@@ -143,6 +145,33 @@ describe('pnpm check --affected', () => {
       { project: 'node', maxWorkers: 3 },
     ])
     expect(groupsFor(1.5, { node: many }, 6)).toEqual([{ project: 'node', maxWorkers: 2 }])
+  })
+
+  test('counts a file as passed only when every test passed on the first try', () => {
+    const file = 'scripts/example.test.ts'
+    expect(passedFiles(parse(report('passed')).report, [])).toEqual([file])
+    expect(passedFiles(parse(report('passed')).report, [`${file} > example works`])).toEqual([])
+    expect(passedFiles(parse(report('passed')).report, ['scripts/other.test.ts > x'])).toEqual([
+      file,
+    ])
+    expect(passedFiles(parse(report('failed'), false).report, [])).toEqual([])
+    const value = report('passed')
+    const suiteError = {
+      ...value,
+      testResults: value.testResults.map((result) => ({ ...result, message: 'afterAll failed' })),
+    }
+    expect(passedFiles(parse(suiteError).report, [])).toEqual([])
+  })
+
+  test('a project whose report has problems or no retry report records no passes', () => {
+    const file = 'scripts/example.test.ts'
+    const valid = { project: 'node', result: parse(report('passed')), retried: [] }
+    expect([...passedInRun([valid])]).toEqual([file])
+    expect([...passedInRun([{ ...valid, retried: undefined }])]).toEqual([])
+    const badTotals = parse({ ...report('passed'), numPassedTests: 2 })
+    expect(badTotals.problems.length).toBeGreaterThan(0)
+    expect([...passedInRun([{ ...valid, result: badTotals }])]).toEqual([])
+    expect([...passedInRun([{ ...valid, result: parse(report('passed'), false) }])]).toEqual([])
   })
 })
 
@@ -482,8 +511,8 @@ describe('check runner integration with stub processes', () => {
       `
         import { runChecks } from ${JSON.stringify(path.join(scripts, 'check.ts'))}
         console.log('RESULT=' + await runChecks(${
-          mode === 'affected'
-            ? "{ testsOnly: true, files: { node: ['scripts/a.test.ts'], electron: [] } }"
+          mode === 'affected' || mode === 'install-failed'
+            ? "{ testsOnly: true, files: { node: ['scripts/a.test.ts'], electron: [] }, onResults: (results) => console.log('RESULTS=' + results.map((r) => r.project + ':' + r.result.problems.length).join(',')) }"
             : busyMachine
               ? '{ quietWait: 1 }'
               : ''
@@ -591,6 +620,7 @@ describe('check runner integration with stub processes', () => {
       expect(measured.lockWaitMs).toBeGreaterThanOrEqual(0)
       expect(measured.artifacts).toEqual({})
       expect(readFileSync(path.join(root, 'commands'), 'utf8')).not.toContain('vitest')
+      expect(output).not.toContain('RESULTS=')
       return
     }
     expect(readFileSync(path.join(root, 'unlocked'), 'utf8')).toBe('yes')
@@ -602,6 +632,7 @@ describe('check runner integration with stub processes', () => {
       expect(commands).not.toContain('typecheck')
       expect(commands).not.toContain('lint')
       expect(output).toContain('== Test (node ×3)')
+      expect(output).toContain('RESULTS=node:0')
       expect(existsSync(path.join(cache, 'ted-test-times.json'))).toBe(false)
       return
     }

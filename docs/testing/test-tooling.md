@@ -47,8 +47,15 @@ How it runs:
 
 - It runs the `electron` and `node` projects as `pnpm check` does, each only when it has files, and no typecheck or lint.
 - Ten or more files take the suite lock and get `pnpm check`’s worker counts. Fewer take one test slot and at most 3 workers per project, like any small run. Both keep to `TED_CHECK_CPUS` when TED runs them as a Check, and scale down on a busy machine (see [Machine load](#machine-load)).
-- It records no passing commit and doesn’t rewrite `ted-test-times.json`. Only a full `pnpm check` does.
+- It records no passing commit for the repo and doesn’t rewrite `ted-test-times.json`. Only a full `pnpm check` does.
 - Inside a sandbox where Electron can’t start (see [Inside a sandbox](#inside-a-sandbox)), it leaves the Electron files out, prints them, and writes `node_modules/.cache/ted-affected-left-out.txt`: the Electron files that were changed or picked by name, to run by hand. A run outside the sandbox deletes the file. TED runs Checks in its sandbox unless the Factory is in Bypass, so on macOS the Task Lead runs the listed files in Validate, 3 per command.
+
+How a rerun skips files that passed:
+
+- After each run, `checkAffected` records in `node_modules/.cache/ted-affected-passes.json` each test file that passed, with the commit it passed on. A file passes when every test in it passed on the first try: a failed test, a suite error or a test that passed on retry keeps it out (`passedFiles` in `scripts/check.ts`). A file that ran and didn’t pass loses its record; files the run didn’t take keep theirs. It records nothing when the worktree had uncommitted or new files at the start, when `HEAD` moved during the run, for a run that stopped before its tests reported (a failed install, for example), or for a project whose report has problems or that has no retry report. It reads only the reports its own run hands back, never the report files left on disk.
+- The next run skips a chosen file that has a record unless the same rule, applied to the changes from that file’s commit to the working tree (uncommitted and new files included), picks it again (`skipPassed` in `scripts/affected.ts`): the test file changed, or app source in its area changed. A file whose commit git can’t find runs. A change to the test runner since a pass doesn’t bring a file back, because the run never takes the “every test” set either.
+- It prints the skipped files grouped by the commit they passed on. `pnpm check --affected --no-skip` runs every chosen file and still records the passes; deleting the record file does the same. `--list` prints the same skip lines without running or recording anything.
+- The Electron files a sandboxed run leaves out are never recorded, so `ted-affected-left-out.txt` lists them every time, as before.
 
 ## Vitest projects and workers
 
