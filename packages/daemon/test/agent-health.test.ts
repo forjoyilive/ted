@@ -235,9 +235,16 @@ describe('Agent health', () => {
       async () => (await getTask(client, a.id))?.status?.kind !== 'paused' || undefined,
       'A to stop being paused',
     )
+    const later = await client.ok<Task>('POST', '/tasks', {
+      title: steps({ endTurn: true }),
+      factory: 'NB',
+    })
+    await client.ok('POST', `/tasks/${later.id}/start`)
     expect((await getTask(client, a.id))?.leadRunId).toBe(firstA)
     expect(await holdsSlot(a.id)).toBe(false)
     expect(await holdsSlot(b.id)).toBe(true)
+    expect(await holdsSlot(later.id)).toBe(false)
+    await client.ok('POST', `/tasks/${later.id}/stop`)
 
     await writeFile(goB, '')
     await waitUntil(async () => {
