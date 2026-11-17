@@ -15,6 +15,7 @@ import type {
   ProposalCreated,
   ProposalInput,
   RoundInput,
+  Run,
   RunSlots,
   StartPlanRequest,
 } from '@ted/protocol'
@@ -102,6 +103,8 @@ export interface Plans {
   runCommand(caller: Caller, name: string): Promise<ChatCommandResult>
   commandResult(caller: Caller, id: string): Promise<ChatCommandResult>
   isPlanRun(runId: string): boolean
+  mayRest(runId: string): boolean
+  runEnv(run: Run): Promise<Record<string, string> | undefined>
   close(): void
 }
 
@@ -1019,6 +1022,16 @@ export function createPlans(options: PlansOptions): Plans {
       return approve(plan, found, request)
     },
     isPlanRun: (runId) => saved.get(runId) !== undefined,
+    mayRest(runId) {
+      const plan = saved.get(runId)
+      return plan?.state === 'started' && plan.resume !== 'queued'
+    },
+    async runEnv(run) {
+      const plan = saved.get(run.id)
+      const factory = plan && factoryOf(plan)
+      if (!plan || !factory) return undefined
+      return envFor(plan, factory, (await plannerSetup(factory)).entries)
+    },
     close() {
       closed = true
       unsubscribe()

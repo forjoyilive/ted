@@ -97,7 +97,7 @@ export function LimitsPage({ settings }: SettingsPageProps) {
         </SettingRow>
         <SettingRow setting="app.limits.sleep-idle">
           <Switch
-            label="End idle Task Lead agents to free memory"
+            label="End idle agents to free memory"
             checked={settings.sleepIdleRunsAfterMinutes !== null}
             onChange={(on) =>
               ted.updateSettings({

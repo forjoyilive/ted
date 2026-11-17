@@ -1,12 +1,20 @@
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Factory, Run, Task } from '@ted/protocol'
+import type { Coordinator, Factory, Run, RunSummary, Task } from '@ted/protocol'
 import type { JsonObject } from '@ted/protocol/parse'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { tryLock } from '../src/lock.ts'
-import { maySleep, type SleepFacts } from '../src/runs/idle-sleep.ts'
+import {
+  maySleep,
+  type Sleeper,
+  type SleepFacts,
+  sleepAfterMs,
+  sleepKind,
+} from '../src/runs/idle-sleep.ts'
+import type { StoredCoordinator } from '../src/store/coordinators.ts'
+import type { StoredPlan } from '../src/store/plans.ts'
 import {
   api,
   assistantTexts,
@@ -222,6 +230,134 @@ test('an idle Task Lead’s agent is ended after the idle time and starts again 
   await expect(readFile(path.join(home, 'runs', run.id, 'asleep.json'), 'utf8')).rejects.toThrow()
 }, 120_000)
 
+// Its own setup: the Lead starts a sub-agent, which the first test has no part of.
+test('an idle sub-agent and then its Lead sleep, stay asleep across a daemon restart, and the sub-agent wakes for ted run send', async () => {
+  let client = await start()
+  await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+  const prompt = path.join(scratch, 'explore.md')
+  await writeFile(
+    prompt,
+    `# Explore\n\n${JSON.stringify({ steps: [{ say: 'First answer' }, { endTurn: true }] })}\n`,
+  )
+  const task = await client.ok<Task>('POST', '/tasks', {
+    title: JSON.stringify({
+      steps: [{ run: ['sh', '-c', `ted run start --prompt-file ${prompt}`] }, { endTurn: true }],
+    }),
+    factory: 'NB',
+    start: true,
+  })
+  const taskRuns = () => client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)
+  const [lead, sub] = await waitUntil(async () => {
+    const runs = await taskRuns()
+    const found = [runs.find((r) => r.role === 'lead'), runs.find((r) => r.role === 'sub-agent')]
+    return found.every((r) => r?.state === 'idle') ? found : undefined
+  }, 'an idle Task Lead and an idle sub-agent')
+  if (!lead || !sub) throw new Error('no Lead or sub-agent')
+  const bothAsleep = (what: string) =>
+    waitUntil(async () => {
+      const runs = await Promise.all(
+        [lead.id, sub.id].map(async (id) => (await client.getRun(id)).run),
+      )
+      return runs.every((run) => run.asleep) ? runs : undefined
+    }, what)
+  const [subStart] = await hostStarts(sub.id)
+
+  ahead = 31 * 60_000
+  await bothAsleep('the sub-agent and then its Lead to be put to sleep')
+  await waitUntil(
+    () =>
+      (!isAlive(Number(subStart?.hostPid)) && !isAlive(Number(subStart?.agentPid))) || undefined,
+    'the sub-agent’s host and agent to exit',
+  )
+
+  await daemon?.stop()
+  client = await start()
+  await bothAsleep('both Runs to stay asleep under a new daemon')
+  expect(await hostStarts(sub.id)).toHaveLength(1)
+
+  const followUp = path.join(scratch, 'follow-up.txt')
+  await writeFile(
+    followUp,
+    JSON.stringify({ steps: [{ say: 'Second answer' }, { endTurn: true }] }),
+  )
+  const short = sub.id.slice(0, 6)
+  await client.ok('POST', `/tasks/${task.id}/comments`, {
+    body: JSON.stringify({
+      steps: [
+        {
+          run: [
+            'sh',
+            '-c',
+            `ted run send ${short} "$(cat ${followUp})" >/dev/null && ted run wait ${short}`,
+          ],
+        },
+        { endTurn: true },
+      ],
+    }),
+  })
+  const waited = await waitUntil(async () => {
+    const said = assistantTexts((await client.getRun(lead.id)).conversation)
+    return said.find((text) => text.includes('Second answer'))
+  }, 'ted run wait to return the woken sub-agent’s answer')
+  expect(JSON.parse(waited)).toMatchObject({ code: 0 })
+  const resumed = (await agentStarts()).at(-1)?.argv ?? []
+  expect(resumed[resumed.indexOf('--resume') + 1]).toBe((await client.getRun(sub.id)).run.sessionId)
+  expect((await agentEnv()).TED_TASK).toBe('NB-1')
+
+  await bothAsleep('both Runs to sleep again')
+  const starts = (await agentStarts()).length
+  await client.ok('POST', `/tasks/${task.id}/stop`)
+  await waitUntil(
+    async () => ((await client.getRun(sub.id)).run.state === 'finished' ? true : undefined),
+    'the sleeping sub-agent to end when its Task is stopped',
+  )
+  expect(await agentStarts()).toHaveLength(starts)
+}, 120_000)
+
+// Its own setup: a Coordinator chat, with no Task.
+test('an idle Coordinator chat sleeps, stays asleep across a daemon restart and wakes for the next message', async () => {
+  let client = await start()
+  const factory = await client.ok<Factory>('POST', '/dev/factories', { repo: origin, key: 'NB' })
+  const chat = await client.ok<Coordinator>('POST', `/factories/${factory.id}/coordinator-chats`, {
+    text: JSON.stringify({ steps: [{ say: 'Hello' }, { endTurn: true }] }),
+    agent: 'claude',
+  })
+  const run = await waitUntil(async () => {
+    const found = (await client.getRun(chat.runId)).run
+    return found.state === 'idle' && found.sessionId !== undefined ? found : undefined
+  }, 'an idle Coordinator Run')
+  const asleep = (what: string) =>
+    waitUntil(async () => (await client.getRun(run.id)).run.asleep || undefined, what)
+  const [first] = await hostStarts(run.id)
+
+  ahead = 31 * 60_000
+  await asleep('the idle Coordinator Run to be put to sleep')
+  await waitUntil(
+    () => (!isAlive(Number(first?.hostPid)) && !isAlive(Number(first?.agentPid))) || undefined,
+    'the host and the agent to exit',
+  )
+  await daemon?.stop()
+  client = await start()
+  await asleep('the Coordinator Run to stay asleep under a new daemon')
+
+  await client.ok('POST', `/coordinator-chats/${chat.id}/messages`, {
+    text: JSON.stringify({ steps: [{ say: 'Back' }, { endTurn: true }] }),
+  })
+  await waitUntil(
+    async () =>
+      assistantTexts((await client.getRun(run.id)).conversation).includes('Back') || undefined,
+    'the woken Coordinator to answer',
+  )
+  expect((await client.ok<Coordinator>('GET', `/coordinator-chats/${chat.id}`)).runId).toBe(run.id)
+  expect(await hostStarts(run.id)).toHaveLength(2)
+  const record = JSON.parse(await readFile(path.join(run.cwd, 'stub-record.json'), 'utf8')) as {
+    argv: string[]
+    env: Record<string, string | undefined>
+  }
+  expect(record.env.TED_CHAT).toBe(chat.id)
+  expect(record.argv[record.argv.indexOf('--resume') + 1]).toBe(run.sessionId)
+}, 120_000)
+
 // Its own daemon: a wake fails only after the stop grace, so this one needs a short grace.
 test('a wake that keeps failing shows a banner until the agent starts', async () => {
   const client = await start({ stopGraceMs: 3_000 })
@@ -280,7 +416,7 @@ test('a wake that keeps failing shows a banner until the agent starts', async ()
   )
 }, 150_000)
 
-test('only a quiet, idle Task Lead with nothing queued may sleep', () => {
+test('only a quiet, idle Run of a kind that can wake again, with nothing queued, may sleep', () => {
   const now = Date.parse('2026-11-16T12:00:00Z')
   const run: Run = {
     id: 'lead',
@@ -292,23 +428,24 @@ test('only a quiet, idle Task Lead with nothing queued may sleep', () => {
     state: 'idle',
     startedAt: new Date(now - 3 * 60 * 60_000).toISOString(),
   }
+  const task = {
+    leadRunId: 'lead',
+    stopped: false,
+    stage: 'work' as const,
+    pendingLeadMessages: [],
+  }
+  const lead: Sleeper = { kind: 'lead', task, workingSubAgents: 0, midWork: false }
   const facts: SleepFacts = {
     run,
-    task: {
-      leadRunId: 'lead',
-      stopped: false,
-      stage: 'work',
-      pendingLeadMessages: [],
-    },
+    sleeper: lead,
     lastOutputAt: new Date(now - 30 * 60_000).toISOString(),
-    liveSubAgents: 0,
     queuedMessages: 0,
-    midWork: false,
     afterMs: 30 * 60_000,
     now,
   }
   expect(maySleep(facts)).toBe(true)
   const refused: Partial<SleepFacts>[] = [
+    { sleeper: undefined },
     { lastOutputAt: new Date(now - 29 * 60_000).toISOString() },
     { run: { ...run, state: 'working' } },
     { run: { ...run, state: 'waiting' } },
@@ -327,13 +464,72 @@ test('only a quiet, idle Task Lead with nothing queued may sleep', () => {
         startedAt: run.startedAt,
       },
     },
-    { task: { ...facts.task, leadRunId: 'newer' } },
-    { task: { ...facts.task, stopped: true } },
-    { task: { ...facts.task, pendingLeadMessages: [{}] } },
-    { liveSubAgents: 1 },
+    { sleeper: { ...lead, task: { ...task, leadRunId: 'newer' } } },
+    { sleeper: { ...lead, task: { ...task, stopped: true } } },
+    { sleeper: { ...lead, task: { ...task, stage: 'done' } } },
+    { sleeper: { ...lead, task: { ...task, pendingLeadMessages: [{}] } } },
+    { sleeper: { ...lead, workingSubAgents: 1 } },
+    { sleeper: { ...lead, midWork: true } },
     { queuedMessages: 1 },
-    { midWork: true },
   ]
   for (const change of refused)
     expect(maySleep({ ...facts, ...change }), JSON.stringify(change)).toBe(false)
+
+  const sub: SleepFacts = {
+    ...facts,
+    run: { ...run, id: 'sub', parentRunId: 'lead' },
+    sleeper: { kind: 'sub-agent', task, parentLive: true },
+  }
+  expect(maySleep(sub)).toBe(true)
+  for (const sleeper of [
+    { kind: 'sub-agent', task, parentLive: false },
+    { kind: 'sub-agent', task: undefined, parentLive: true },
+    { kind: 'sub-agent', task: { ...task, stage: 'backlog' }, parentLive: true },
+  ] satisfies Sleeper[])
+    expect(maySleep({ ...sub, sleeper }), JSON.stringify(sleeper)).toBe(false)
+  expect(maySleep({ ...sub, run })).toBe(false)
+
+  const { taskId: _, ...chatRun } = run
+  const chat: SleepFacts = {
+    ...facts,
+    run: { ...chatRun, id: 'chat' },
+    sleeper: { kind: 'chat', rests: true },
+  }
+  expect(maySleep(chat)).toBe(true)
+  expect(maySleep({ ...chat, sleeper: { kind: 'chat', rests: false } })).toBe(false)
+  expect(maySleep({ ...chat, run: { ...chat.run, taskId: 'task' } })).toBe(false)
+  expect(maySleep({ ...chat, queuedMessages: 1 })).toBe(false)
+})
+
+test('a Run’s kind decides whether it can sleep at all', () => {
+  const run: Run = {
+    id: 'r',
+    agent: 'claude',
+    permissions: 'auto',
+    cwd: '/tmp',
+    state: 'idle',
+    startedAt: '2026-11-16T12:00:00Z',
+  }
+  const none = { coordinators: { forRun: () => undefined }, plans: { get: () => undefined } }
+  expect(sleepKind({ ...run, taskId: 't' }, none)).toBe('lead')
+  expect(sleepKind({ ...run, taskId: 't', parentRunId: 'p' }, none)).toBe('sub-agent')
+  expect(sleepKind(run, none)).toBeUndefined()
+  expect(sleepKind({ ...run, parentRunId: 'p' }, none)).toBeUndefined()
+  const coordinator = { id: 'c', runId: 'r' } as StoredCoordinator
+  expect(sleepKind(run, { ...none, coordinators: { forRun: () => coordinator } })).toBe('chat')
+  expect(
+    sleepKind(run, {
+      ...none,
+      coordinators: { forRun: () => ({ ...coordinator, runId: 'older' }) },
+    }),
+  ).toBeUndefined()
+  expect(sleepKind(run, { ...none, plans: { get: () => ({ id: 'r' }) as StoredPlan } })).toBe(
+    'chat',
+  )
+})
+
+test('while the computer is busy, idle Runs sleep after 2 minutes, or sooner if the setting says so', () => {
+  expect(sleepAfterMs(10, false)).toBe(10 * 60_000)
+  expect(sleepAfterMs(10, true)).toBe(2 * 60_000)
+  expect(sleepAfterMs(1, true)).toBe(60_000)
 })

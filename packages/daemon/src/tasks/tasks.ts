@@ -715,7 +715,7 @@ export interface Tasks {
   resume(ref: string, input?: { comment?: string; attachments?: Attachment[] }): Promise<Task>
   stoppingForQuit(): void
   midWork(taskId: string): boolean
-  leadRunEnv(run: Run): Promise<Record<string, string> | undefined>
+  runEnv(run: Run): Promise<Record<string, string> | undefined>
   tedStops(): TedStoppedTask[]
   answerTedStops(request: AnswerTedStopsRequest): Promise<TedStoppedTask[]>
   move(ref: string, request: MoveTaskRequest): Task
@@ -12036,7 +12036,7 @@ export function createTasks(options: {
     stop: stopByHand,
     resume: resumeByHand,
     stoppingForQuit,
-    leadRunEnv: (run) => leadLifecycle.runEnv(run),
+    runEnv: async (run) => (await leadLifecycle.runEnv(run)) ?? (await subAgents.runEnv(run)),
     midWork(taskId) {
       const task = store.getTask(taskId)
       const lead = task && liveLeadOf(store, task)

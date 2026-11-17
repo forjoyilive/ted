@@ -141,7 +141,7 @@ test('Limits changes how many Checks run at once and turns low priority off', as
   expect(screen.getByText('10 min')).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'End idle agents later' }))
   await user().click(
-    screen.getByRole('switch', { name: 'End idle Task Lead agents to free memory' }),
+    screen.getByRole('switch', { name: 'End idle agents to free memory' }),
   )
   expect(update.mock.calls).toEqual([
     [{ lowPriorityWork: false }],
