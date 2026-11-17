@@ -4,8 +4,10 @@ import { expect, test } from 'vitest'
 import { commitToOrigin, waitUntil } from './helpers.ts'
 import { createExecutionFixture } from './support/execution-fixture.ts'
 import { observe } from './support/execution-observations.ts'
+import { skipInsideTedSandbox } from './support/ted-sandbox.ts'
 
-test('the process fixture carries copy, setup, stop and archive teardown through the local backend', async () => {
+test('the process fixture carries copy, setup, stop and archive teardown through the local backend', async (context) => {
+  skipInsideTedSandbox(context)
   const fixture = await createExecutionFixture()
   try {
     const machine = await fixture.machine('controller')
@@ -45,7 +47,11 @@ test('the process fixture carries copy, setup, stop and archive teardown through
     )
     const repo = started.repos[0]
     if (!repo || !started.leadRunId) throw new Error('missing worktree or Lead')
-    expect(repo.setup?.state).toBe('passed')
+    const setupLog = await readFile(
+      path.join(machine.home, 'logs', 'worktrees', 'LIF-1-widgets-setup.log'),
+      'utf8',
+    ).catch((error: Error) => `no setup log: ${error.message}`)
+    expect(repo.setup?.state, setupLog).toBe('passed')
     expect(await readFile(path.join(repo.worktree, 'stub-setup'), 'utf8')).toBe('fixture-copy\n')
     await waitUntil(async () => (await machine.agentStarts()) === 1, 'one fixture agent start')
     const conversation = await waitUntil(async () => {
