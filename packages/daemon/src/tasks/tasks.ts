@@ -8095,6 +8095,7 @@ export function createTasks(options: {
           : `Ted couldn’t check whether the rounds are making progress: ${reason}.`,
       ...(check.checkRunId !== undefined && { checkRunId: check.checkRunId }),
     })
+    if (check.checkRunId !== undefined) return
     await deliver(
       task,
       `Ted’s loop check ${looping ? 'found Validate’s rounds are looping' : verdict === 'converging' ? 'found progress, but the send-back limit still needs a human decision' : 'gave no verdict'}, so Ted asked the human what to do (request ${request.id}). The Task stays in Validate; Ted sends you their answer.`,
