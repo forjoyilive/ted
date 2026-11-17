@@ -49,6 +49,17 @@ const pathChars = String.raw`[^\s'"\x60()<>,;]+`
 const posixPath = new RegExp(`${boundary}(?:file://|~)?/${pathChars}`, 'gm')
 const windowsPath = new RegExp(String.raw`${boundary}[A-Za-z]:\\${pathChars}`, 'gm')
 
+const slashToken = new RegExp(
+  String.raw`${boundary}([^\s'"\x60()<>,;]*[/\\][^\s'"\x60()<>,;]*)`,
+  'gm',
+)
+const betweenPaths = /<path>(?:[ \t]+\S+)*[ \t]+<path>/g
+const keptPrefixes = ['packages/', 'node:', '<path>', '<anonymous>']
+
+function kept(token: string): boolean {
+  return keptPrefixes.some((prefix) => token.startsWith(prefix))
+}
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`)
 }
@@ -70,7 +81,13 @@ export function cleanText(text: string, roots: readonly string[], home: string):
     result = result.replace(new RegExp(`${homeUrl}${homeTail}`, 'g'), '<path>')
     result = result.replace(new RegExp(`${escapeRegExp(home)}${homeTail}`, 'g'), '<path>')
   }
-  result = result.replace(posixPath, '$1<path>').replace(windowsPath, '$1<path>')
+  result = result
+    .replace(posixPath, '$1<path>')
+    .replace(windowsPath, '$1<path>')
+    .replace(slashToken, (match, before: string, token: string) =>
+      kept(token) ? match : `${before}<path>`,
+    )
+    .replace(betweenPaths, '<path>')
   return redactSecrets(result)
 }
 
@@ -82,7 +99,8 @@ function frameFrom(line: string): CrashFrame | undefined {
   const fn = match[1]
   const location = match[2] ?? match[3] ?? ''
   const position = /^(.*?)(?::(\d+))?(?::(\d+))?$/.exec(location)
-  const filename = position?.[1] ?? location
+  const found = position?.[1] ?? location
+  const filename = kept(found) ? found : '<path>'
   const lineno = position?.[2]
   const colno = position?.[3]
   return {
@@ -90,7 +108,7 @@ function frameFrom(line: string): CrashFrame | undefined {
     filename,
     ...(lineno !== undefined && { lineno: Number(lineno) }),
     ...(colno !== undefined && { colno: Number(colno) }),
-    in_app: !filename.startsWith('<path>') && !filename.startsWith('node:'),
+    in_app: filename.startsWith('packages/'),
   }
 }
 

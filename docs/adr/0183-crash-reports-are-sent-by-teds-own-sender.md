@@ -8,7 +8,7 @@ TED-477 added the `reporting` machine setting and a consent prompt that promises
 
 **A report holds only the error.** It holds the error type, its message, its stack frames, a `part` tag (`main`, `renderer` or `daemon`), the mechanism (`uncaught`, `rejection`, `render` or `gone`), environment (`release` or `dev` from `edition`), release (TED’s version) and the OS name and version. There are no breadcrumbs, log lines, settings, Task details, `server_name` or `user`.
 
-**Paths are removed before anything else is read.** `cleanText` first makes TED’s own code root relative (`packages/daemon/src/tasks/queue.ts:120`; in release the root is `app.asar`), then replaces the home folder and the rest of its path up to a quote, bracket or line end with `<path>`, then any other absolute POSIX, Windows or `file://` path, and finally runs `redactSecrets`. Messages are cut to 500 characters and stacks to 50 frames. Only frames in TED’s code are marked `in_app`.
+**Paths are removed before anything else is read.** `cleanText` first makes TED’s own code root relative (`packages/daemon/src/tasks/queue.ts:120`; in release the root is `app.asar`), then replaces the home folder and the rest of its path up to a quote, bracket or line end with `<path>`, then any other absolute POSIX, Windows or `file://` path. It fails closed after that: any remaining word containing `/` or `\` that doesn’t start with `packages/` or `node:` becomes `<path>`, and the words between two `<path>`s on one line go with them, so a path with spaces leaves nothing behind. Last, it runs `redactSecrets`. A frame whose file isn’t in TED’s code is sent as `<path>`. Messages are cut to 500 characters and stacks to 50 frames. Only frames in TED’s code are marked `in_app`.
 
 **Each process limits itself.** The same error (type, message and top frame) is sent once per process run, and at most 10 reports an hour. A failed send is dropped, never queued, and the reporter never throws.
 
@@ -32,4 +32,5 @@ TED-477 added the `reporting` machine setting and a consent prompt that promises
 
 - Renderer stacks in release point into the minified Vite bundle until source maps are uploaded.
 - Sentry may store the sender’s IP address unless the project’s “Prevent storing of IP addresses” setting is on.
-- Over-redaction is accepted: a message with a home-folder path loses the rest of its line.
+- Over-redaction is accepted: a message with a home-folder path loses the rest of its line, and ordinary words with a slash (`and/or`) become `<path>`.
+- A bare file name without a folder (`notes.md`) can still appear in a message.

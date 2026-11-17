@@ -49,7 +49,17 @@ describe('cleaning', () => {
     expect(cleanText('git clone https://user:pw@example.com/acme/app', roots, home)).not.toMatch(
       /pw|acme/,
     )
-    expect(cleanText('and/or 1 / 2', roots, home)).toBe('and/or 1 / 2')
+    expect(cleanText('/Volumes/My Drive/secret repo/a.ts failed', roots, home)).toBe(
+      '<path> failed',
+    )
+    expect(cleanText('/a/My Secret Name/b.ts', roots, home)).toBe('<path>')
+    expect(cleanText('cannot read src/secret/notes.md here', roots, home)).toBe(
+      'cannot read <path> here',
+    )
+    expect(cleanText('copy <x> from C:\\a\\b to D:\\c', roots, home)).toBe('copy <x> from <path>')
+    expect(cleanText('at packages/daemon/src/a.ts:3:1 failed', roots, home)).toBe(
+      'at packages/daemon/src/a.ts:3:1 failed',
+    )
   })
 
   test('cuts the message and reads frames oldest last', () => {
