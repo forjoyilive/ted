@@ -30,7 +30,6 @@ for (const [address, prefix] of [
 }
 for (const [address, prefix] of [
   ['::', 96],
-  ['::ffff:0:0', 96],
   ['fc00::', 7],
   ['fe80::', 10],
   ['ff00::', 8],
@@ -38,9 +37,9 @@ for (const [address, prefix] of [
   local.addSubnet(address, prefix, 'ipv6')
 }
 
+// BlockList also checks IPv4-mapped IPv6 addresses against the IPv4 rules, and IPv4 addresses
+// against IPv6 rules in mapped form, so a ::ffff:0:0/96 rule would block every IPv4 address.
 export function isPublicAddress(address: string): boolean {
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address)?.[1]
-  if (mapped) return isPublicAddress(mapped)
   const version = isIP(address)
   if (version === 4) return !local.check(address, 'ipv4')
   if (version === 6) return !local.check(address, 'ipv6')
