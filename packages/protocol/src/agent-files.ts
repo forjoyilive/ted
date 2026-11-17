@@ -1,3 +1,4 @@
+import type { AgentKind } from './run.ts'
 import type { LayerKind } from './workflow.ts'
 
 export const agentPowers = ['ask', 'manage_tasks', 'propose_tasks', 'read_code'] as const
@@ -26,7 +27,7 @@ export function isAgentId(id: string): boolean {
 export interface ResolvedAgent {
   id: string
   name: string
-  agent?: string
+  agent?: AgentKind
   model?: string
   powers: AgentPower[]
   instructions: string

@@ -1,0 +1,105 @@
+import { type AgentPower, isAgentId } from './agent-files.ts'
+import { isString, reader, type Untyped } from './parse.ts'
+import type { AgentKind } from './run.ts'
+import type { CommentAnswer, Proposal, ProposalInput, Round, RoundInput } from './task.ts'
+import { parsePostCommentRequest, parseProposalInput, parseRoundInput } from './task-parsers.ts'
+import { RequestValidationError as HttpError } from './validation.ts'
+import type { LayerKind } from './workflow.ts'
+
+export type AgentChatKind = 'coordinator' | 'plan'
+
+export interface AgentSummary {
+  id: string
+  name: string
+  source: LayerKind
+  agent?: AgentKind
+  model?: string
+  powers: AgentPower[]
+}
+
+export interface ChatAgent extends AgentSummary {
+  removed: boolean
+}
+
+export const chatRequestKinds = ['question', 'round', 'proposal'] as const
+
+export type ChatRequestKind = (typeof chatRequestKinds)[number]
+
+export interface ChatRequest {
+  id: string
+  chatId: string
+  runId: string
+  kind: ChatRequestKind
+  title?: string
+  body: string
+  choices?: string[]
+  multiple?: true
+  round?: Round
+  proposal?: Proposal
+  answer?: CommentAnswer
+  createdAt: string
+}
+
+export interface ChatQuestionInput {
+  text: string
+  choices?: string[]
+  multiple?: true
+}
+
+export interface PostChatRequest {
+  question?: ChatQuestionInput
+  round?: RoundInput
+  proposal?: ProposalInput
+  supersedes?: string
+}
+
+export const maxChatQuestionLength = 8000
+
+const read = reader((message) => {
+  throw new HttpError(400, message)
+})
+
+function parseQuestion(value: Untyped): ChatQuestionInput {
+  const body = read.object(value, 'question')
+  const text = read.string(body, 'text', 'question.text must be text').trim()
+  if (text === '' || text.length > maxChatQuestionLength)
+    throw new HttpError(400, `a question has 1–${maxChatQuestionLength} characters`)
+  const checked = parsePostCommentRequest({
+    body: text,
+    ...(body.choices !== undefined && { choices: body.choices }),
+    ...(body.multiple !== undefined && { multiple: body.multiple }),
+  })
+  return {
+    text,
+    ...(checked.choices && { choices: checked.choices }),
+    ...(checked.multiple && { multiple: true as const }),
+  }
+}
+
+export function parsePostChatRequest(value: Untyped): PostChatRequest {
+  const body = read.object(value, 'body', 'body must be a JSON object')
+  const question = read.optional(body, 'question', (object, field) => parseQuestion(object[field]))
+  const round = read.optional(body, 'round', (object, field) => parseRoundInput(object[field]))
+  const proposal = read.optional(body, 'proposal', (object, field) =>
+    parseProposalInput(object[field]),
+  )
+  if ([question, round, proposal].filter((part) => part !== undefined).length !== 1)
+    throw new HttpError(400, 'send one of question, round or proposal')
+  const supersedes = read.optional(body, 'supersedes', (object, field) =>
+    read.string(object, field, 'supersedes must be a request’s ID'),
+  )
+  if (supersedes === '') throw new HttpError(400, 'supersedes must be a request’s ID')
+  return {
+    ...(question && { question }),
+    ...(round && { round }),
+    ...(proposal && { proposal }),
+    ...(supersedes !== undefined && { supersedes }),
+  }
+}
+
+export function parseChatAgentId(value: Untyped): string | undefined {
+  if (value === undefined) return undefined
+  if (!isString(value) || !isAgentId(value))
+    throw new HttpError(400, 'agentId must be an Agent id from this Factory’s Agent files')
+  return value
+}
