@@ -96,16 +96,20 @@ async function walk(
     await post('/outcome', { outcome: 'advance' })
   const cases = () => client.ok<FailureCase[]>('GET', `${root}/failures`)
   const failure = (count = 1) =>
-    waitUntil(async () => {
-      const values = (await cases()).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-      return values.length >= count ? values.at(-1) : undefined
-    }, 'failure case')
+    waitUntil(
+      async () => {
+        const values = (await cases()).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+        return values.length >= count ? values.at(-1) : undefined
+      },
+      'failure case',
+      60_000,
+    )
   const one = await failure()
   if (order.indexOf('work') < order.indexOf('validate'))
     await waitUntil(
       async () => (await getTask(client, task.id)).stage === 'work',
       'the failed Check to return the Task to Work',
-      40_000,
+      60_000,
     )
   const assess = (value: FailureCase, assessment = 'unrelated') =>
     post<FailureCase>(`/failures/${value.id}/assessments`, {

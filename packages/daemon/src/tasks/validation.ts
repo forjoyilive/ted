@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type {
   AgentStageId,
@@ -612,9 +612,9 @@ export function createValidation(options: ValidationOptions) {
     const findings = generatedFailureText(
       (await options.findings(current, checkRun)) ?? summary(checkRun.checks),
     )
-    await writeFile(path.join(options.checkDir(current, checkRun.id), 'findings.md'), findings, {
-      mode: 0o600,
-    })
+    const dir = options.checkDir(current, checkRun.id)
+    await mkdir(dir, { recursive: true, mode: 0o700 })
+    await writeFile(path.join(dir, 'findings.md'), findings, { mode: 0o600 })
     options.setChecking(taskId, false)
     if (options.diagnosing(current)) {
       const failureId = store.failures.progress(taskId)?.failureId
