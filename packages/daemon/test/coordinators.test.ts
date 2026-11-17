@@ -633,11 +633,18 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   const h = (madeH.body as CoordinatorReceipt).taskId ?? ''
   const i = await s.ok<Task>('POST', '/tasks', { factory: 'NB', title: 'I', blockedBy: [h] })
   const j = await s.ok<Task>('POST', '/tasks', { factory: 'NB', title: 'J', blockedBy: [g.id] })
+  const madeK = await run.call('POST', '/coordinator/tasks', {
+    operation: 'create-k',
+    title: 'K',
+    parentId: j.id,
+    blockedBy: [g.id],
+  })
+  const k = (madeK.body as CoordinatorReceipt).taskId ?? ''
   const gj = await removal('archive', [g.id, j.id], {}, 'archive-gj')
   const askedGJ = (gj.body as { confirmation: { id: string } }).confirmation
   expect((await s.chat()).confirmations.find((x) => x.id === askedGJ.id)?.tasks).toMatchObject([
     { id: g.id, blockedTasks: [], blockedTogether: [{ id: i.id }] },
-    { id: j.id, blockedTasks: [] },
+    { id: j.id, blockedTasks: [], blockedTogether: [] },
   ])
   const archivedGJ = await s.ok<Coordinator>('POST', answer(askedGJ.id), { decision: 'confirm' })
   expect(archivedGJ.confirmations.find((x) => x.id === askedGJ.id)?.tasks).toMatchObject([
@@ -648,9 +655,10 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
         text: `Archived ${g.displayId} and the Tasks under it · unblocked ${i.displayId}`,
       },
     },
-    { id: j.id, result: { done: true, text: `Archived ${j.displayId}` } },
+    { id: j.id, result: { done: true, text: `Archived ${j.displayId} and the Tasks under it` } },
   ])
   expect((await taskById(i.id))?.blockedBy).toEqual([])
+  expect((await taskById(k))?.archived).toBeTruthy()
 
   const e2 = await s.ok<Task>('POST', '/tasks', { factory: 'NB', title: 'E2', blockedBy: [q.id] })
   const own = await removal('delete', [p.id, q.id], { children: 'delete' }, 'delete-ac-own')
