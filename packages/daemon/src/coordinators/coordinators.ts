@@ -40,6 +40,7 @@ import type {
   PostChatRequest,
   ProposalCreated,
   RoundAnswer,
+  Run,
   RunMessage,
   RunOutsideCommandRequest,
   RunOutsideCommandResult,
@@ -313,6 +314,8 @@ export interface Coordinators {
     cardId: string,
     answer: AutomationCardAnswer,
   ): Promise<Coordinator>
+  mayRest(runId: string): boolean
+  runEnv(run: Run): Record<string, string> | undefined
   deliveryAllowed(runId: string, admitted: boolean): boolean
   deliveryFinished(runId: string, error?: unknown): void
   messageRemoved(runId: string): void
@@ -1688,6 +1691,24 @@ export function createCoordinators(options: {
       if (store.getRun(runId)) steering.syncQueuedFlag(runId)
       pump()
       return message
+    },
+    mayRest(runId) {
+      const c = saved.forRun(runId)
+      return (
+        !closed &&
+        c?.runId === runId &&
+        c.phase === 'ready' &&
+        c.launch === undefined &&
+        !launching.has(c.id) &&
+        !stopping.has(c.id) &&
+        !held(c.id) &&
+        !changing.has(c.id) &&
+        pending(runId).length === 0
+      )
+    },
+    runEnv(run) {
+      const c = saved.forRun(run.id)
+      return c?.runId === run.id ? chatEnv(c) : undefined
     },
     deliveryAllowed(runId, admitted) {
       if (closed) return false

@@ -66,6 +66,7 @@ import {
   readQueuedInput,
   runFiles,
 } from './host-files.ts'
+import { sleepKind } from './idle-sleep.ts'
 import { grantInput, inputConsumed, inputPending, revokeInput } from './input-permits.ts'
 import {
   initializeLaunchAuthority,
@@ -314,12 +315,7 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
 
   function restFromMarker(runId: string, inputFrom: number): void {
     const run = store.getRun(runId)
-    if (
-      run?.state !== 'idle' ||
-      run.sessionId === undefined ||
-      run.parentRunId !== undefined ||
-      run.taskId === undefined
-    ) {
+    if (run?.state !== 'idle' || run.sessionId === undefined || !sleepKind(run, store)) {
       rmSync(runFiles(path.join(runsDir, runId)).asleep, { force: true })
       return
     }

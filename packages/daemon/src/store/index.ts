@@ -1284,6 +1284,7 @@ export interface TedStore extends TaskHistory {
   holdNewWork(reason: string | undefined): void
   newWorkHold(): string | undefined
   holdWhenBusy(held: BusyHold | undefined): void
+  busyHold(): BusyHold | undefined
   setTaskChecking(taskId: string, on: boolean): void
   setTaskStopping(taskId: string, on: boolean): void
   setTaskMovingAfterChecks(taskId: string, on: boolean): void
@@ -7517,6 +7518,7 @@ export async function openStore({
       updatedTasks(tasksWaitingForSlots())
     },
     newWorkHold: () => newWorkHeld,
+    busyHold: () => heldBusy,
     holdWhenBusy(held) {
       if (JSON.stringify(held) === JSON.stringify(heldBusy)) return
       heldBusy = held
