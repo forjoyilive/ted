@@ -755,7 +755,8 @@
 
 .diffLines {
   max-height: 320px;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   font-family: var(--font-mono);
   font-size: var(--text-12-5);
   line-height: 1.6;
@@ -766,7 +767,8 @@
 .removedLine,
 .gapLine {
   display: flex;
-  white-space: pre;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .addedLine {
@@ -796,6 +798,8 @@
 }
 
 .diffText {
+  flex: 1;
+  min-width: 0;
   padding-right: 12px;
 }
 
