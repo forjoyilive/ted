@@ -86,7 +86,7 @@ test('Coordinator opens from the sidebar, lists a repo Agent with its powers and
       .getByRole('listitem')
       .allTextContents(),
   ).toEqual(['Ask the user', 'Read the code'])
-  await triagerDetails.getByRole('region', { name: 'From' }).getByText('This repo').waitFor()
+  await triagerDetails.getByRole('region', { name: 'Agent' }).getByText('This repo').waitFor()
   await triager.getByRole('button', { name: '← All agents' }).click()
   await picker.getByRole('button', { name: /^Coordinator/ }).click()
   const pane = window.getByRole('region', { name: 'Coordinator', exact: true })

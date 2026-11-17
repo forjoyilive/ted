@@ -6,11 +6,13 @@ import {
   inboxLabel,
   planDetailLine,
   planGroups,
+  planStartedLine,
   planStatusChip,
   plansFailedByFactory,
   planTasksLabel,
   requestState,
   startedDay,
+  when,
 } from '../src/renderer/plans.ts'
 import { plannerAgent } from './support/fixtures.ts'
 
@@ -34,6 +36,19 @@ const round: PlanRequest = {
 }
 
 describe('planning chat text', () => {
+  test('the header keeps the start time after a chat stops or finishes', () => {
+    const plan = {
+      createdAt: '2026-11-09T10:00:00.000Z',
+      finishedAt: '2026-11-10T10:00:00.000Z',
+    }
+    expect(planStartedLine({ ...plan, status: 'waiting' })).toBe(`Started ${when(plan.createdAt)}`)
+    for (const status of ['stopped', 'finished'] as const) {
+      expect(planStartedLine({ ...plan, status })).toBe(
+        `${when(plan.createdAt)} to ${when(plan.finishedAt)}`,
+      )
+    }
+  })
+
   test('a chat is named after the whole first line of the first message, up to 200 characters', () => {
     expect(planTitle('\n  Shared notebooks   with comments\nmore')).toBe(
       'Shared notebooks with comments',
