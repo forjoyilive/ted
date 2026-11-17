@@ -56,31 +56,31 @@ const slashToken = new RegExp(
 const betweenPaths = /<path>(?:[ \t]+\S+)*[ \t]+<path>/g
 const keptPrefixes = ['packages/', 'node:', '<path>', '<anonymous>']
 
-const quotedPath = /(^|[^\w])'(?:<path>|file:\/\/|~?\/|[A-Za-z]:\\)[^\n]*'/gm
-const quotedText = /"([^"\n]*)(?:"|$)|\x60([^\x60\n]*)(?:\x60|$)|(^|[^\w])'([^'\n]*)'/gm
+const openingQuote = /["\x60]|(?<!\w)'/
+const anyQuote = /["'\x60]/
 const pathLike = /^(?:<path>|file:\/\/|~?\/|[A-Za-z]:\\)/
 
-function placeholder(inside: string): string {
-  return pathLike.test(inside) ? '<path>' : '<text>'
+function lastQuoteAfter(line: string, start: number): number {
+  for (let at = line.length - 1; at > start; at--) {
+    if (anyQuote.test(line.charAt(at))) return at
+  }
+  return -1
+}
+
+function withoutQuotedLine(line: string): string {
+  const opening = openingQuote.exec(line)
+  if (!opening) return line
+  const start = opening.index
+  const quote = line.charAt(start)
+  const close = lastQuoteAfter(line, start)
+  const inside = close === -1 ? line.slice(start + 1) : line.slice(start + 1, close)
+  const rest = close === -1 ? '' : line.slice(close + 1)
+  const placeholder = pathLike.test(inside) ? '<path>' : '<text>'
+  return `${line.slice(0, start)}${quote}${placeholder}${quote}${rest}`
 }
 
 function withoutQuotedText(text: string): string {
-  return text
-    .replace(quotedPath, "$1'<path>'")
-    .replace(
-      quotedText,
-      (
-        _match,
-        double: string | undefined,
-        backtick: string | undefined,
-        before: string | undefined,
-        single: string | undefined,
-      ) => {
-        if (double !== undefined) return `"${placeholder(double)}"`
-        if (backtick !== undefined) return `\x60${placeholder(backtick)}\x60`
-        return `${before ?? ''}'${placeholder(single ?? '')}'`
-      },
-    )
+  return text.split('\n').map(withoutQuotedLine).join('\n')
 }
 
 function kept(token: string): boolean {
