@@ -285,10 +285,9 @@ export function IconMark({
       <span
         className={classes('emoji')}
         style={{ ...box, fontSize: Math.round(size * 0.85) }}
+        data-glyph={icon.emoji}
         aria-hidden="true"
-      >
-        {icon.emoji}
-      </span>
+      />
     )
   }
   if (icon?.kind === 'image') {
@@ -302,10 +301,9 @@ export function IconMark({
     <span
       className={classes('letter')}
       style={{ ...box, ...iconColorStyle(icon?.color) }}
+      data-glyph={Array.from(name)[0]}
       aria-hidden="true"
-    >
-      {Array.from(name)[0]}
-    </span>
+    />
   )
 }
 
@@ -321,7 +319,7 @@ export function FactoryName({
   return (
     <span className={styles.named}>
       <FactoryIcon factory={factory} size={14} />
-      {factory.name}
+      <span className={styles.namedText}>{factory.name}</span>
     </span>
   )
 }

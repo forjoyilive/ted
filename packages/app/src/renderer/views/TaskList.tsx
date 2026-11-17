@@ -91,7 +91,7 @@ const columnWidths: Record<ListColumn | 'queue', string> = {
   title: 'minmax(120px, 1fr)',
   children: '104px',
   parent: '80px',
-  factory: '88px',
+  factory: '120px',
   stage: '80px',
   status: '300px',
   'blocked-by': '90px',
