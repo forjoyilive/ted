@@ -853,6 +853,7 @@ export {
   type AutomationHit,
   type CommentHit,
   type ConversationHit,
+  compactId,
   type FactoryHit,
   foldText,
   matchesTerms,
@@ -864,6 +865,8 @@ export {
   searchTerms,
   snippetAround,
   type TaskHit,
+  type TrackerKind,
+  type TrackerMatch,
 } from './search.ts'
 export {
   type Appearance,
