@@ -273,11 +273,13 @@ export function createChatCommands(options: {
     if (held !== undefined)
       return finish('failed', `TED isn’t starting new work right now: ${held}`)
     const problem = await sandboxProblem(sandbox, banners, chat.factory.id)
+    if (abort.signal.aborted) return finish('stopped', '')
     if (problem !== undefined) return finish('failed', redactSecrets(problem))
     const release = await options.checkSlots.take({ signal: abort.signal })
     if (!release) return finish('stopped', '')
     try {
       const { entries, plan: planned } = await plan(chat, command)
+      if (abort.signal.aborted) return finish('stopped', '')
       await plainFolder(chatSandboxRoot(options.home))
       await plainFolder(folder)
       await plainFolder(path.join(folder, 'logs'))
@@ -301,6 +303,7 @@ export function createChatCommands(options: {
           redactSecrets(error instanceof SetupFailed ? message : `TED couldn’t set up: ${message}`),
         )
       }
+      if (abort.signal.aborted) return finish('stopped', '')
       const env = options.env()
       const result = await runTaskCommand({
         label: `\`${command.name}\``,
@@ -347,10 +350,6 @@ export function createChatCommands(options: {
       if (chat.checkout.length === 0) {
         throw new RequestError(409, 'This chat has no copy of the code, so TED can’t run commands')
       }
-      const problem = await sandboxProblem(sandbox, banners, chat.factory.id)
-      if (problem !== undefined) {
-        throw new RequestError(503, `TED runs commands only in its sandbox: ${problem}`)
-      }
       const job: Job = {
         id: randomUUID(),
         chat,
@@ -358,6 +357,16 @@ export function createChatCommands(options: {
         state: 'waiting',
         abort: new AbortController(),
         done: Promise.resolve({ id: '', name, state: 'waiting' }),
+      }
+      jobs.set(job.id, job)
+      const problem = await sandboxProblem(sandbox, banners, chat.factory.id)
+      if (job.abort.signal.aborted || closed) {
+        jobs.delete(job.id)
+        throw new RequestError(409, 'This chat was stopped, so TED didn’t run the command')
+      }
+      if (problem !== undefined) {
+        jobs.delete(job.id)
+        throw new RequestError(503, `TED runs commands only in its sandbox: ${problem}`)
       }
       const before = chains.get(chat.chatId) ?? Promise.resolve()
       job.done = before.then(() => execute(job))
@@ -367,7 +376,6 @@ export function createChatCommands(options: {
         if (chains.get(chat.chatId) === chain) chains.delete(chat.chatId)
         forget(job)
       })
-      jobs.set(job.id, job)
       return answer(job)
     },
     async wait(chatId, id) {
