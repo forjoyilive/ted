@@ -110,13 +110,6 @@ const freshContextSteps = (id: string) =>
 const newCaseSteps =
   'A newly captured context can’t be attached to this failure, because TED can’t tie a later capture to the execution that failed. Run the verification again after `ted failure context` (`ted checks` for a Factory Check); a failure that happens again is a new case to record, assess and ask about.'
 
-export const checkAskRefusal = (changedSince?: string) =>
-  `${
-    changedSince
-      ? `The Task’s code or Checks changed since tested context ${shortReference(changedSince)}, which this assessment is bound to`
-      : 'The tested context this assessment is bound to didn’t test the same code and Checks as the Check run that failed'
-  }, so the human couldn’t accept this failure and TED didn’t ask. Run the Checks again with \`ted checks\`. If the failure happens again, TED records it as a new case: assess it and ask about that one.`
-
 export function leadClosesFailures(workflow: ResolvedWorkflow): boolean {
   return workflow.settings.stages.work?.lead_closes_failures === true
 }
@@ -267,6 +260,85 @@ export function createFailureCases(options: {
       (sourceContext(value.source, context) || sameTestedFor(value.source, own, context))
     )
   }
+  function testedState(
+    task: Task,
+    value: FailureCase,
+    current: FailureContext | null | undefined,
+    observedCi?: { value: string | null | undefined; failures?: readonly string[] },
+  ): 'current' | 'unknown' | 'changed' {
+    const context = tested(task, value.resolutions.at(-1)?.contextId ?? value.contextId)
+    if (!context || !tiedContext(task, value, context)) return 'unknown'
+    if (observedCi) {
+      if (observedCi.value === null) return 'unknown'
+      // A CI case TED recorded at Merge is closed or replaced from the same read by
+      // the Tasks module, so a rerun must not first count as a changed context here.
+      const same =
+        value.source.kind === 'github-ci'
+          ? value.source.checkKey !== undefined ||
+            observedCi.failures?.includes(ciFailureKey(value.source)) === true
+          : observedCi.value === context.ci
+      return same ? 'current' : 'changed'
+    }
+    if (!current) return 'unknown'
+    return sameTestedFor(value.source, current, context) ? 'current' : 'changed'
+  }
+  const checkCase = (value: FailureCase) =>
+    value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check'
+  const sourceCheck = (value: FailureCase) =>
+    value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check'
+      ? (store.getCheckRun(value.source.checkRunId)?.checks[value.source.position] ??
+        value.originalCheck)
+      : value.originalCheck
+  function abandonedRepair(value: FailureCase): boolean {
+    const decision = value.resolutions.at(-1)
+    const repair = decision?.resolution === 'repair' ? decision.repairTask : undefined
+    if (!repair || value.repairProgress?.some((p) => p.requestId === decision?.requestId))
+      return false
+    const link = store
+      .blockers(value.taskId)
+      .find((l) => l.kind === undefined && l.blockerId === repair.id)
+    return !link || (!link.merged && link.ended !== undefined)
+  }
+  function liveRepair(value: FailureCase): boolean {
+    const decision = value.resolutions.at(-1)
+    return (
+      decision?.resolution === 'repair' &&
+      !value.repairProgress?.some((p) => p.requestId === decision.requestId) &&
+      !abandonedRepair(value)
+    )
+  }
+  function replacement(
+    value: FailureCase,
+    values: readonly FailureCase[],
+    current: boolean,
+  ): FailureCase | undefined {
+    if (
+      !value.validation ||
+      closed(value) ||
+      !checkCase(value) ||
+      liveRepair(value) ||
+      (current && acceptedResolution(value))
+    )
+      return undefined
+    const check = sourceCheck(value)
+    if (!check) return undefined
+    const index = values.findIndex((v) => v.id === value.id)
+    return values.findLast((newer, i) => {
+      if (
+        newer.id === value.id ||
+        !checkCase(newer) ||
+        newer.createdAt < value.createdAt ||
+        (newer.createdAt === value.createdAt && i < index)
+      )
+        return false
+      const other = sourceCheck(newer)
+      return (
+        other?.name === check.name &&
+        other.repo === check.repo &&
+        (!current || other.command === check.command)
+      )
+    })
+  }
   const decisionComment = (value: FailureCase) => {
     const decision = value.decisions.at(-1)
     return decision ? store.getComment(decision.commentId) : undefined
@@ -340,29 +412,11 @@ export function createFailureCases(options: {
                 resolution?.resolution === 'repair'
               ? 'unresolved'
               : (resolution?.resolution ?? 'unresolved')
-      const context = tested(task, resolution?.contextId ?? value.contextId)
-      const state = completed
-        ? 'historical'
-        : !context || !tiedContext(task, value, context)
-          ? 'unknown'
-          : observedCi
-            ? observedCi.value === null
-              ? 'unknown'
-              : // A CI case TED recorded at Merge is closed or replaced from the same read by
-                // the Tasks module, so a rerun must not first count as a changed context here.
-                (
-                    value.source.kind === 'github-ci'
-                      ? value.source.checkKey !== undefined ||
-                        observedCi.failures?.includes(ciFailureKey(value.source)) === true
-                      : observedCi.value === context.ci
-                  )
-                ? 'current'
-                : 'changed'
-            : !current
-              ? 'unknown'
-              : sameTestedFor(value.source, current, context)
-                ? 'current'
-                : 'changed'
+      const state = completed ? 'historical' : testedState(task, value, current, observedCi)
+      if (state !== 'historical' && replacement(value, values, state === 'current')) {
+        cases.push({ id: value.id, disposition: 'retried', context: state })
+        continue
+      }
       if (resolution?.resolution === 'accepted' && !value.verifications?.length) {
         const invalid = !acceptedResolution(value)
         if (!completed && !invalid && state !== 'current') {
@@ -541,33 +595,52 @@ export function createFailureCases(options: {
     await options.onHold(task)
     return value
   }
+  function verifyResult(
+    task: Task,
+    id: string,
+    evidence: string,
+    checkRunId?: string,
+    replacedBy?: string,
+  ) {
+    const value = get(task, id)
+    withdraw(value)
+    return store.failures.save(
+      {
+        ...value,
+        verifications: [
+          ...(value.verifications ?? []),
+          {
+            at: new Date().toISOString(),
+            evidence: failureText(evidence),
+            ...(checkRunId && { checkRunId }),
+            ...(replacedBy && { replacedBy }),
+          },
+        ],
+      },
+      'verified',
+    )
+  }
   return {
     pendingDecision,
-    verifyResult(
-      task: Task,
-      id: string,
-      evidence: string,
-      checkRunId?: string,
-      replacedBy?: string,
-    ) {
-      const value = get(task, id)
-      withdraw(value)
-      return store.failures.save(
-        {
-          ...value,
-          verifications: [
-            ...(value.verifications ?? []),
-            {
-              at: new Date().toISOString(),
-              evidence: failureText(evidence),
-              ...(checkRunId && { checkRunId }),
-              ...(replacedBy && { replacedBy }),
-            },
-          ],
-        },
-        'verified',
-      )
+    verifyResult,
+    replaceOlder(task: Task, value: FailureCase, checkRunId: string) {
+      const current = tested(task, value.contextId) ?? null
+      const values = store.failures.list(task.id)
+      for (const previous of values) {
+        if (previous.id === value.id) continue
+        const tied = testedState(task, previous, current) === 'current'
+        if (replacement(previous, values, tied)?.id !== value.id) continue
+        verifyResult(
+          task,
+          previous.id,
+          `A new execution failed; failure ${shortReference(value.id)} now holds this verification.`,
+          checkRunId,
+          value.id,
+        )
+      }
     },
+    sourceCheck,
+    abandonedRepair,
     list: (task: Task) => store.failures.list(task.id),
     get,
     obligations,
@@ -695,14 +768,20 @@ export function createFailureCases(options: {
       const checkFailure =
         value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check'
       const moved = !!bound && !!current && localInputs(bound) !== localInputs(current)
-      if (checkFailure && (unknown || moved))
-        throw new RequestError(409, checkAskRefusal(unknown ? undefined : bound?.id))
-      if (stale && attachable(task, value, current))
+      const untied = checkFailure && (unknown || moved)
+      const replaced = replacement(value, store.failures.list(task.id), !untied && !stale)
+      if (replaced)
+        throw new RequestError(
+          409,
+          `failure ${shortReference(replaced.id)} replaced this case: it failed the same Check later. Assess and ask about that one`,
+        )
+      if (!untied && stale && attachable(task, value, current))
         throw new RequestError(
           409,
           `The Task’s code, Checks or CI changed since tested context ${shortReference(bound.id)}, which this assessment is bound to, so the human could not accept this failure. ${freshContextSteps(value.id)}`,
         )
-      const why = unknown ? cantAccept.unknown : stale ? cantAccept.changed : undefined
+      const why = unknown ? cantAccept.unknown : stale || moved ? cantAccept.changed : undefined
+      const closable = untied && value.validation === true
       return store.postFailureDecision(
         value,
         [
@@ -710,9 +789,11 @@ export function createFailureCases(options: {
           `The Task Lead’s assessment: ${assessmentWords[assessment.assessment]}.`,
           `Recommendation: ${assessment.recommendation}`,
           why
-            ? value.validation
-              ? `${value.source.kind === 'github-ci' ? 'Retry waits for the check to be rerun on GitHub; TED never starts it.' : 'Retry runs the failed step again.'} Fix in this Task sends it back to Work. ${why}`
-              : `Close it as fixed or no longer applicable, with a reason. ${why} If it still happens, write to the Task Lead instead: a failure that happens again is recorded as a new one.`
+            ? closable
+              ? `Retry runs the Checks again. Fix in this Task sends it back to Work. Fixed and No longer applicable close it and need a reason. ${why}`
+              : value.validation
+                ? `${value.source.kind === 'github-ci' ? 'Retry waits for the check to be rerun on GitHub; TED never starts it.' : 'Retry runs the failed step again.'} Fix in this Task sends it back to Work. ${why}`
+                : `Close it as fixed or no longer applicable, with a reason. ${why} If it still happens, write to the Task Lead instead: a failure that happens again is recorded as a new one.`
             : value.validation && value.source.kind === 'github-ci'
               ? 'Retry waits for the check to be rerun on GitHub; TED never starts it. Fix in this Task sends it back to Work. Accept this failure lets the Task go on with it, for this commit and this attempt of the check; it doesn’t count as passed, approve a merge or override a check GitHub requires.'
               : value.validation
@@ -723,6 +804,7 @@ export function createFailureCases(options: {
         ].join('\n\n'),
         !why,
         runId,
+        closable,
       )
     },
     findDecision(commentId: string) {

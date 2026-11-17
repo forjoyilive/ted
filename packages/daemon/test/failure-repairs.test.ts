@@ -173,6 +173,7 @@ test.each(['archive', 'delete'] as const)(
     const brief = await s.client.ok<TaskBrief>('GET', `${s.root}/brief`)
     expect(brief.text).toContain(action === 'archive' ? 'archived' : 'deleted')
     expect(brief.text).toContain('without merging')
+    expect(brief.text).toContain('needs a decision again')
     expect(brief.text).toContain(repair.displayId)
   },
 )

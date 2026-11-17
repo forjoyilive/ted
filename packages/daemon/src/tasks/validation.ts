@@ -126,16 +126,9 @@ export function createValidation(options: ValidationOptions) {
     return evidence.slice(0, Math.max(0, 16_000 - reference.length)) + reference
   }
 
-  function sourceCheck(value: FailureCase) {
-    return value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check'
-      ? (store.getCheckRun(value.source.checkRunId)?.checks[value.source.position] ??
-          value.originalCheck)
-      : value.originalCheck
-  }
-
   function verifyPassed(task: Task, run: CheckRun) {
     for (const prior of store.failures.list(task.id)) {
-      const original = sourceCheck(prior)
+      const original = failures.sourceCheck(prior)
       if (
         (!prior.validation &&
           !(
@@ -152,6 +145,7 @@ export function createValidation(options: ValidationOptions) {
       const decision = prior.resolutions.at(-1)
       if (
         decision?.resolution === 'repair' &&
+        !failures.abandonedRepair(prior) &&
         !prior.repairProgress?.some(
           (p) => p.requestId === decision.requestId && run.startedAt >= p.at,
         )
@@ -422,37 +416,7 @@ export function createValidation(options: ValidationOptions) {
               ...(contextId && { contextId }),
             })
             failureId = value.id
-            for (const previous of store.failures.list(task.id)) {
-              if (
-                previous.id === failureId ||
-                !previous.validation ||
-                previous.verifications?.length ||
-                (previous.source.kind !== 'factory-check' &&
-                  previous.source.kind !== 'post-rebase-check') ||
-                sourceCheck(previous)?.name !== sourceCheck(value)?.name ||
-                sourceCheck(previous)?.repo !== sourceCheck(value)?.repo ||
-                sourceCheck(previous)?.command !== sourceCheck(value)?.command
-              )
-                continue
-              const decision = previous.resolutions.at(-1)
-              if (
-                decision?.resolution === 'repair' &&
-                !previous.repairProgress?.some((p) => p.requestId === decision.requestId)
-              )
-                continue
-              if (
-                decision?.resolution === 'accepted' &&
-                !previous.invalidations.some((i) => i.requestId === decision.requestId)
-              )
-                continue
-              failures.verifyResult(
-                task,
-                previous.id,
-                `A new execution failed; failure ${shortReference(failureId)} now holds this verification.`,
-                checkRun.id,
-                failureId,
-              )
-            }
+            failures.replaceOlder(task, value, checkRun.id)
           }
           store.failures.saveProgress({
             ...current,
@@ -906,7 +870,7 @@ export function createValidation(options: ValidationOptions) {
     const obligations = await failures.obligations(task)
     const current = await currentCoverage(task)
     const progress = store.failures.progress(task.id)
-    const original = sourceCheck(value)
+    const original = failures.sourceCheck(value)
     const decision = value.resolutions.at(-1)
     const incorporation =
       decision?.resolution === 'repair'
