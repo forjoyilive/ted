@@ -499,7 +499,7 @@ test('with no chats Agents opens New chat; the Agent menu lists every Agent with
     within(within(coordinatorDetails).getByRole('region', { name: 'Powers' }))
       .getAllByRole('listitem')
       .map((li) => li.textContent),
-  ).toEqual(['Ask the user', 'Manage Tasks'])
+  ).toEqual(['Ask the user', 'Manage Tasks', 'Manage Agents'])
   expect(within(coordinatorDetails).queryByRole('region', { name: 'Commands' })).toBeNull()
   await user().click(within(pane).getByRole('button', { name: 'What should we work on next?' }))
   await user().selectOptions(agent, 'planner')
