@@ -155,12 +155,10 @@ describe('Checks running at once', () => {
       durationMs: 0,
     })
     expect((await checkRun(client, first))?.waiting).toBeUndefined()
-    const idle = await waitUntil(async () => {
-      const current = await getTask(client, second.id)
-      return current?.runs.every((r) => r.state !== 'working') ? current : undefined
-    }, 'the second Task Lead to end its turn')
-    expect(idle).toMatchObject({ checksActive: true, statuses: [] })
-    expect(idle.status).toBeUndefined()
+    expect(await getTask(client, second.id)).toMatchObject({
+      checksActive: true,
+      markers: [{ kind: 'test-activity', source: 'checks', phase: 'waiting' }],
+    })
     expect(await started(client, second)).toBe(false)
     expect(await client.ok<Activity>('GET', '/activity')).toMatchObject({
       checksRunning: 1,
