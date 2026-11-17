@@ -57,37 +57,14 @@ const betweenPaths = /<path>(?:[ \t]+\S+)*[ \t]+<path>/g
 const keptPrefixes = ['packages/', 'node:', '<path>', '<anonymous>']
 
 const openingQuote = /["\x60]|(?<!\w)'/
-const anyQuote = /["'\x60]/
 const pathLike = /^(?:<path>|file:\/\/|~?\/|[A-Za-z]:\\)/
-
-function isQuoteAt(line: string, at: number): boolean {
-  const char = line.charAt(at)
-  if (!anyQuote.test(char)) return false
-  return char !== "'" || !(/\w/.test(line.charAt(at - 1)) && /\w/.test(line.charAt(at + 1)))
-}
-
-function closingQuote(line: string, start: number): number {
-  const quote = line.charAt(start)
-  let last = -1
-  let reopened = false
-  for (let at = start + 1; at < line.length; at++) {
-    if (!isQuoteAt(line, at)) continue
-    last = at
-    if (line.charAt(at) === quote) reopened = true
-  }
-  return reopened ? last : -1
-}
 
 function withoutQuotedLine(line: string): string {
   const opening = openingQuote.exec(line)
   if (!opening) return line
-  const start = opening.index
-  const quote = line.charAt(start)
-  const close = closingQuote(line, start)
-  const inside = close === -1 ? line.slice(start + 1) : line.slice(start + 1, close)
-  const rest = close === -1 ? '' : line.slice(close + 1)
-  const placeholder = pathLike.test(inside) ? '<path>' : '<text>'
-  return `${line.slice(0, start)}${quote}${placeholder}${quote}${rest}`
+  const quote = line.charAt(opening.index)
+  const placeholder = pathLike.test(line.slice(opening.index + 1)) ? '<path>' : '<text>'
+  return `${line.slice(0, opening.index)}${quote}${placeholder}${quote}`
 }
 
 function withoutQuotedText(text: string): string {

@@ -59,7 +59,7 @@ describe('cleaning', () => {
     )
     expect(cleanText('copy <x> from C:\\a\\b to D:\\c', roots, home)).toBe('copy <x> from <path>')
     expect(cleanText(`Unexpected token 'a', "secret con"... is not valid JSON`, roots, home)).toBe(
-      `Unexpected token '<text>'... is not valid JSON`,
+      `Unexpected token '<text>'`,
     )
     expect(cleanText("open '/Volumes/Private Drive/confidential plan.txt'", roots, home)).toBe(
       "open '<path>'",
@@ -72,14 +72,15 @@ describe('cleaning', () => {
       "open '<path>'",
     )
     expect(cleanText("open '/Users/bob/Bob's Drive/plan.txt' failed", roots, home)).toBe(
-      "open '<path>' failed",
+      "open '<path>'",
     )
     expect(cleanText('read "unclosed secret text', roots, home)).toBe('read "<text>"')
     expect(cleanText(`x ' a "b's secret"`, roots, home)).toBe(`x '<text>'`)
     expect(cleanText(`read "a client's secret`, roots, home)).toBe('read "<text>"')
     expect(cleanText(`read "the clients' secret`, roots, home)).toBe('read "<text>"')
-    expect(cleanText('a "b `c" secret` d', roots, home)).toBe('a "<text>" d')
-    expect(cleanText(`a "one 'two" and 'three "four' end`, roots, home)).toBe(`a "<text>" end`)
+    expect(cleanText('a "b `c" secret` d', roots, home)).toBe('a "<text>"')
+    expect(cleanText(`"a" b 'secret`, roots, home)).toBe('"<text>"')
+    expect(cleanText(`a "one 'two" and 'three "four' end`, roots, home)).toBe(`a "<text>"`)
     expect(cleanText('input"confidential contents" and x`secret snippet`', roots, home)).toBe(
       'input"<text>"',
     )
