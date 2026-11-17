@@ -273,10 +273,16 @@ test(
     if (!failure) throw new Error('no failure')
     const request = await ask(client, task, failure)
     await setGh({ checks: [failing({ id: 'build-2', conclusion: 'SUCCESS' })] })
-    await waitForStage(client, task, 'done')
-    expect((await comments(client, task)).find((c) => c.id === request)?.answer?.kind).toBe(
-      'withdrawn',
+    const answer = await waitUntil(
+      async () => (await comments(client, task)).find((c) => c.id === request)?.answer,
+      'the question to be answered',
     )
+    expect(answer.kind).toBe('withdrawn')
+    await waitUntil(
+      async () => ((await merges()).length > 0 ? true : undefined),
+      'the pull request to be merged',
+    )
+    await waitForStage(client, task, 'done')
     expect(await merges()).toHaveLength(1)
     expect((await resolve(client, task, failure, request, 'accepted')).status).toBe(409)
   },

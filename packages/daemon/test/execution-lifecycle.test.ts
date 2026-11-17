@@ -45,7 +45,11 @@ test('the process fixture carries copy, setup, stop and archive teardown through
     )
     const repo = started.repos[0]
     if (!repo || !started.leadRunId) throw new Error('missing worktree or Lead')
-    expect(repo.setup?.state).toBe('passed')
+    const setupLog = await readFile(
+      path.join(machine.home, 'logs', 'worktrees', 'LIF-1-widgets-setup.log'),
+      'utf8',
+    ).catch((error: Error) => `no setup log: ${error.message}`)
+    expect(repo.setup?.state, setupLog).toBe('passed')
     expect(await readFile(path.join(repo.worktree, 'stub-setup'), 'utf8')).toBe('fixture-copy\n')
     await waitUntil(async () => (await machine.agentStarts()) === 1, 'one fixture agent start')
     const conversation = await waitUntil(async () => {

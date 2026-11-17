@@ -1434,11 +1434,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       const agentPid = (await lastStartRecord(runDir))?.agentPid ?? undefined
       const agent =
         agentPid !== undefined && (await parentOf(agentPid)) === pid ? agentPid : undefined
-      await signalHost(runDir, pid, 'SIGTERM')
+      if (isLockHeld(files.lock)) signal(pid, 'SIGTERM')
       void (async () => {
-        for (let waited = 0; waited < stopGraceMs && isLockHeld(files.lock); waited += pollMs) {
-          await sleep(pollMs)
-        }
+        const deadline = Date.now() + stopGraceMs
+        while (Date.now() < deadline && isLockHeld(files.lock)) await sleep(pollMs)
         if (!(await holdsLock(files.lock, pid))) return
         if (agent !== undefined && (await parentOf(agent)) === pid) signal(agent, 'SIGKILL')
         signal(pid, 'SIGKILL')
