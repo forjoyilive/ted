@@ -127,6 +127,9 @@ describe('A branch that conflicts with its base', () => {
     })
     expect(sendBack?.round).toBeUndefined()
     expect(sendBack?.findings).toMatch(/(<<<FILES [0-9a-f-]{36}>>>)\n- notes\.txt\n\1\n/)
+    const repo = (await getTask(client, task.id)).repos[0]
+    expect(repo?.pullRequest).toBeUndefined()
+    expect(repo?.pushed).toBeUndefined()
     const refused = await output('refused.out')
     expect(refused).toContain('conflicts with main, so Ted kept it in Validate')
     expect(refused).toContain('--cause base-conflict')
