@@ -10,6 +10,7 @@ import {
   taskIsMerged,
   taskMarkers,
   taskStatus,
+  taskStatuses,
   taskWakesOnComment,
 } from '../src/tasks/status.ts'
 
@@ -40,7 +41,7 @@ describe('interrupted Tasks', () => {
     { openRequests: 1 },
     { queue: { place: 1 } },
     { queue: { hold: 'Disk full' } },
-    { tedWorking: true },
+    { checksActive: true },
     { settingUp: true },
     { checking: { name: 'Lint', index: 1, total: 1 } },
     { github: 'ci' },
@@ -98,21 +99,48 @@ describe('taskStatus', () => {
     expect(taskStatus(at({ runs: ['finished'] }))).toBeUndefined()
   })
 
-  test('a working Run or TED work under way makes the Task Working', () => {
+  test('a working Run, worktree setup or Cleanup commands make the Task Working', () => {
     expect(taskStatus(at({ runs: ['idle', 'working'] }))).toEqual({ kind: 'working' })
-    expect(taskStatus(at({ tedWorking: true }))).toEqual({ kind: 'working' })
     expect(taskStatus(at({ settingUp: true }))).toEqual({ kind: 'working' })
     expect(taskActivity(at({ settingUp: true }))).toBe('Setting up the worktree')
-    expect(taskActivity(at({ tedWorking: true, checksWaiting: { place: 2 } }))).toBe(
+    const cleanup = at({ stage: 'cleanup', checksActive: true, cleanupCommandsRunning: true })
+    expect(taskStatus(cleanup)).toEqual({ kind: 'working' })
+    expect(taskStatuses(cleanup)).toEqual(['working'])
+  })
+
+  test('TED’s Checks alone show their chip and no Working status', () => {
+    const running = at({ checksActive: true, checking: { name: 'Tests', index: 1, total: 2 } })
+    const waitingForSlot = at({ checksActive: true, checksWaiting: { place: 2 } })
+    const waitingForTests = at({
+      ...running,
+      testActivity: { running: 0, waiting: 0, checksWaiting: true },
+    })
+    for (const [facts, label] of [
+      [running, 'Running checks'],
+      [waitingForSlot, 'Waiting for checks'],
+      [waitingForTests, 'Waiting for checks'],
+    ] as const) {
+      expect(taskStatus(facts)).toBeUndefined()
+      expect(taskStatuses(facts)).toEqual([])
+      expect(taskCanResume({ ...facts, interrupted: true })).toBe(false)
+      expect(taskMarkers(facts, undefined)).toMatchObject([{ kind: 'test-activity', label }])
+    }
+    expect(taskStatus({ ...running, runs: ['working'] })).toEqual({ kind: 'working' })
+    expect(taskStatus({ ...running, blockedBy: ['NB-2'] })).toEqual({ kind: 'blocked', by: 'NB-2' })
+    expect(taskStatus({ ...running, stage: 'merge', github: 'ci' })).toEqual({
+      kind: 'waiting-for-github',
+      on: 'ci',
+    })
+    expect(taskActivity(at({ checksActive: true, checksWaiting: { place: 2 } }))).toBe(
       'Waiting to run Checks · 2nd',
     )
-    expect(taskActivity(at({ tedWorking: true, movingAfterChecks: true }))).toBe(
+    expect(taskActivity(at({ checksActive: true, movingAfterChecks: true }))).toBe(
       'Running Checks before moving on',
     )
     expect(
       taskActivity(
         at({
-          tedWorking: true,
+          checksActive: true,
           movingAfterChecks: true,
           checking: { name: 'Tests', index: 1, total: 2 },
         }),

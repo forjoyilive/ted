@@ -2243,7 +2243,7 @@ export async function openStore({
       ...(stoppedAt === null &&
         place === 0 &&
         repos.some((r) => !r.removed && r.setup?.state === 'running') && { settingUp: true }),
-      ...((checking || checkingTasks.has(row.id)) && { tedWorking: true }),
+      ...((checking || checkingTasks.has(row.id)) && { checksActive: true }),
       ...(checkingNow && { checking: checkingNow }),
       ...(movingAfterChecks.has(row.id) && { movingAfterChecks: true }),
       testActivity: testInvocationStore.active(row.id),
@@ -2402,6 +2402,7 @@ export async function openStore({
       ...(delivery !== undefined && { commentDelivery: delivery }),
       ...(taskCanResume(facts) && { canResume: true }),
       wakesOnComment: taskWakesOnComment(facts),
+      ...(facts.checksActive && { checksActive: true }),
       tabs,
       runs: live
         .sort(

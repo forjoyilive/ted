@@ -270,6 +270,7 @@ export interface Task {
   commentBox: CommentBox
   commentDelivery?: CommentDelivery
   canResume?: boolean
+  checksActive?: true
   runs: TaskRun[]
   tabs: ConversationTab[]
   repos: TaskRepo[]
