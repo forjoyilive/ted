@@ -574,7 +574,11 @@ test('a Task whose App is being switched reports Opening until the new page is r
   controllers.push(controller)
   await transport.send('first', 'one', 'open')
   await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
-  expect(await controller.state('one')).toEqual({ url: 'http://localhost:3000/', text: 'Ready' })
+  expect(await controller.state('one')).toEqual({
+    url: 'http://localhost:3000/',
+    text: 'Ready',
+    size: 'desktop',
+  })
   let release: (() => void) | undefined
   mocks.sessions[0]?.clearStorageData.mockImplementationOnce(
     () =>
@@ -587,7 +591,11 @@ test('a Task whose App is being switched reports Opening until the new page is r
   expect(await controller.state('one')).toEqual({ url: '', text: 'Opening…', opening: true })
   release?.()
   await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
-  expect(await controller.state('one')).toEqual({ url: 'http://localhost:3000/', text: 'Ready' })
+  expect(await controller.state('one')).toEqual({
+    url: 'http://localhost:3000/',
+    text: 'Ready',
+    size: 'desktop',
+  })
   expect(await controller.state('two')).toEqual({ url: '', text: 'Open a running web App' })
 })
 
