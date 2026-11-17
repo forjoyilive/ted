@@ -143,3 +143,52 @@ test('a save sends the commands trimmed, drops blank rows, and the editor names 
   )
   expect(agentProblem(withCommands([{ name: 'test', command: 'pnpm test' }]), [])).toBeUndefined()
 })
+
+test('the Release recipe starts with its powers and empty commands to fill in, and outside commands must be plain words', () => {
+  const release = newAgentDraft(['release'], 'release')
+  expect(release).toMatchObject({
+    id: 'release-2',
+    added: true,
+    settings: {
+      name: 'Release',
+      powers: ['ask', 'read_code', 'run_commands', 'run_outside'],
+      outsideCommands: [
+        { name: 'build', command: '' },
+        { name: 'publish', command: '' },
+        { name: 'discard', command: '' },
+      ],
+    },
+  })
+  expect(release.instructions).toContain('ted agent run-outside publish')
+  expect(agentProblem(release, [])).toBe('Give the check command something to run.')
+  const filled: AgentDraft = {
+    ...release,
+    settings: {
+      ...release.settings,
+      commands: [{ name: 'check', command: 'pnpm lint' }],
+      outsideCommands: [
+        { name: 'build', command: 'pnpm release <version>' },
+        { name: 'publish', command: 'pnpm release publish && git push' },
+      ],
+    },
+  }
+  expect(agentProblem(filled, [])).toBe(
+    'The outside command publish has `&&`, which isn’t a plain word; outside commands take no quotes or shell characters.',
+  )
+  expect(
+    agentChanges(
+      [
+        {
+          ...filled,
+          settings: {
+            ...filled.settings,
+            outsideCommands: [{ name: 'build', command: ' pnpm release <version> ' }],
+          },
+        },
+      ],
+      [],
+    ),
+  ).toMatchObject([
+    { settings: { outsideCommands: [{ name: 'build', command: 'pnpm release <version>' }] } },
+  ])
+})

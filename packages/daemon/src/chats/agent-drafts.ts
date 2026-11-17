@@ -56,6 +56,11 @@ export function planDraft(input: AgentDraftInput, agents: readonly ResolvedAgent
       `This Factory already has an Agent \`${input.id}\`; to change it, add "change": true`,
     )
   plannerCheck(input.id, input.powers)
+  if (input.powers.includes('run_outside') && !found?.powers.includes('run_outside'))
+    throw new RequestError(
+      403,
+      `A draft can’t give ${agentPowerNames.run_outside}; only the user adds it, in the Agent’s settings`,
+    )
   const draft: AgentDraft = {
     id: input.id,
     name: redactSecrets(input.name),

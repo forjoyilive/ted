@@ -8,6 +8,7 @@ import type {
   SearchField,
   SearchResults,
   TaskHit,
+  TrackerKind,
 } from '@ted/protocol'
 import { matchesTerms, searchTerms } from '@ted/protocol/search'
 import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react'
@@ -44,10 +45,17 @@ interface SearchPaletteProps {
 
 const fieldNotes: Record<SearchField, string | undefined> = {
   id: undefined,
+  tracker: undefined,
   title: undefined,
   description: 'in description',
   'original-request': 'in Original request',
   brief: 'in brief',
+}
+
+const trackerNames: Record<TrackerKind, string> = {
+  linear: 'Linear',
+  github: 'GitHub',
+  sentry: 'Sentry',
 }
 
 const debounceMs = 80
@@ -70,7 +78,9 @@ function StateChip({ state }: { state: TaskHit['state'] }) {
 function taskContent(hit: TaskHit, factories: readonly Factory[], stages: Stages) {
   const meta: string[] = []
   if (hit.state === 'open') meta.push(stages.name(hit.stage, hit.factoryId))
-  const note = fieldNotes[hit.field]
+  const note = hit.tracker
+    ? `${hit.tracker.id} (${trackerNames[hit.tracker.kind]})`
+    : fieldNotes[hit.field]
   if (note !== undefined) meta.push(note)
   return (
     <>

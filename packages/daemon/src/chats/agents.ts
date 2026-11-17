@@ -15,6 +15,11 @@ export function agentSummary(agent: ResolvedAgent | StoredChatAgent): AgentSumma
     powers: [...agent.powers],
     ...(agent.commands &&
       agent.commands.length > 0 && { commands: agent.commands.map((c) => ({ ...c })) }),
+    ...(agent.powers.includes('run_outside') &&
+      agent.outsideCommands &&
+      agent.outsideCommands.length > 0 && {
+        outsideCommands: agent.outsideCommands.map((c) => ({ ...c })),
+      }),
   }
 }
 

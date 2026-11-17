@@ -5,6 +5,7 @@ import {
   busyHold,
   type CommentBox,
   type GitHubWait,
+  type QueuedAfter,
   type RunState,
   type StageId,
   type TaskMarker,
@@ -39,7 +40,7 @@ export interface TaskFacts {
   }
   blockedBy?: readonly string[]
   blockerEnded?: BlockerEnded
-  queue?: { place: number } | { hold: string }
+  queue?: { place: number; after?: QueuedAfter } | { hold: string }
   queuedSubAgents?: readonly { id: string; hold?: string; paused?: string }[]
   busy?: BusyHold
   github?: GitHubWait
@@ -129,7 +130,7 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
     }
   }
   if (facts.queue) {
-    if (facts.busy !== undefined && 'place' in facts.queue) {
+    if (facts.busy !== undefined && 'place' in facts.queue && facts.queue.after === undefined) {
       return { kind: 'queued', hold: busyHold, busy: facts.busy }
     }
     return { kind: 'queued', ...facts.queue }
@@ -332,7 +333,7 @@ export function taskWaitReasons(taskId: string, facts: TaskFacts): TaskWaitReaso
       reason: 'run-slot',
       id: taskId,
       detail:
-        facts.busy !== undefined && 'place' in facts.queue
+        facts.busy !== undefined && 'place' in facts.queue && facts.queue.after === undefined
           ? busyHold
           : 'hold' in facts.queue
             ? facts.queue.hold

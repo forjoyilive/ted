@@ -180,6 +180,12 @@ import type {
 import type { LinearIntakeRequest, LinearIntakeResult } from './linear-intake.ts'
 import type { MemoryUse } from './memory.ts'
 import type { MessageBox, MessageDraftState, SaveMessageDraftRequest } from './message-draft.ts'
+import type {
+  OutsideCommandAllowance,
+  OutsideCommandAnswer,
+  RunOutsideCommandRequest,
+  RunOutsideCommandResult,
+} from './outside-command.ts'
 import type { PeerDetail, PeerInbox, PeerMessage, PeerPage, SendPeerMessage } from './peers.ts'
 import type {
   ChatArchiveExpiry,
@@ -602,6 +608,46 @@ export class DaemonClient {
 
   waitForChatCommand(id: string): Promise<ChatCommandResult> {
     return this.#request('GET', `/chat-commands/${encodeURIComponent(id)}`)
+  }
+
+  runOutsideCommand(input: RunOutsideCommandRequest): Promise<RunOutsideCommandResult> {
+    return this.#request('POST', '/chat-outside-commands', input)
+  }
+
+  answerOutsideCommand(
+    chatId: string,
+    requestId: string,
+    answer: OutsideCommandAnswer,
+  ): Promise<Coordinator> {
+    return this.#request(
+      'POST',
+      `/coordinator-chats/${encodeURIComponent(chatId)}/requests/${encodeURIComponent(requestId)}/outside-command`,
+      answer,
+    )
+  }
+
+  stopOutsideCommand(chatId: string): Promise<Coordinator> {
+    return this.#request(
+      'POST',
+      `/coordinator-chats/${encodeURIComponent(chatId)}/outside-command/stop`,
+    )
+  }
+
+  outsideCommandAllowances(factoryId: string): Promise<OutsideCommandAllowance[]> {
+    return this.#request(
+      'GET',
+      `/factories/${encodeURIComponent(factoryId)}/outside-command-allowances`,
+    )
+  }
+
+  removeOutsideCommandAllowance(
+    factoryId: string,
+    allowanceId: string,
+  ): Promise<OutsideCommandAllowance[]> {
+    return this.#request(
+      'DELETE',
+      `/factories/${encodeURIComponent(factoryId)}/outside-command-allowances/${encodeURIComponent(allowanceId)}`,
+    )
   }
 
   answerChatRequest(

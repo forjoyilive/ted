@@ -494,6 +494,7 @@ export function FactorySettings({
                       <AgentFilesSection
                         layer="factory"
                         folder=".ted/"
+                        factoryId={factory.id}
                         rows={view.agentFiles}
                         draft={draft.agentFiles}
                         loaded={base.draft.agentFiles}

@@ -142,3 +142,7 @@ describe('Plans list', () => {
     ).toEqual(new Set(['f1']))
   })
 })
+
+test('a stopped planning chat’s chip is red', () => {
+  expect(planStatusChip({ status: 'stopped' }).tone).toBe('stopped')
+})

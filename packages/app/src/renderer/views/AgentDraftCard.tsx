@@ -10,6 +10,7 @@ import { fileChange } from '@ted/protocol/diff'
 import { useState } from 'react'
 import { Button } from '../components/Button.tsx'
 import { Markdown } from '../components/Markdown.tsx'
+import grow from '../components/TextGrow.module.css'
 import { dotted } from '../plans.ts'
 import { ago, useNow } from '../requests.ts'
 import { readableError, ted } from '../ted.ts'
@@ -179,7 +180,7 @@ export function AgentDraftCard({
         <label className={styles.group}>
           <span className={styles.label}>Instructions</span>
           <textarea
-            className={styles.instructions}
+            className={`${styles.instructions} ${grow.text}`}
             value={instructions}
             disabled={sending}
             onChange={(event) => setInstructions(event.target.value)}

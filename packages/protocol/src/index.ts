@@ -751,6 +751,20 @@ export {
   parseSaveMessageDraftRequest,
   type SaveMessageDraftRequest,
 } from './message-draft.ts'
+export type {
+  OutsideCommandAllowance,
+  OutsideCommandAnswer,
+  OutsideCommandAsk,
+  RunOutsideCommandRequest,
+  RunOutsideCommandResult,
+} from './outside-command.ts'
+export {
+  outsideArgumentProblem,
+  outsideArgv,
+  outsideCommandWords,
+  parseOutsideCommandAnswer,
+  parseRunOutsideCommandRequest,
+} from './outside-command.ts'
 export { tedHome, tedPaths } from './paths.ts'
 export { parseSendPeerMessage } from './peer-parsers.ts'
 export type {
@@ -839,6 +853,7 @@ export {
   type AutomationHit,
   type CommentHit,
   type ConversationHit,
+  compactId,
   type FactoryHit,
   foldText,
   matchesTerms,
@@ -850,6 +865,8 @@ export {
   searchTerms,
   snippetAround,
   type TaskHit,
+  type TrackerKind,
+  type TrackerMatch,
 } from './search.ts'
 export {
   type Appearance,
@@ -1042,6 +1059,7 @@ export {
   parseSnoozeRequestRequest,
   priorities,
   pullRequestCiModes,
+  type QueuedAfter,
   type ReportCleanupStepRequest,
   type ReportOutcomeRequest,
   type RepoSetupReport,

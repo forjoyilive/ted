@@ -435,6 +435,15 @@ export const commands = [
     options: options(),
   },
   {
+    name: 'agent run-outside',
+    handler: 'agentRunOutside',
+    min: 1,
+    max: 2,
+    help: '  ted agent run-outside <name> [argument]    In a chat whose Agent has outside commands, ask\n                                             Ted to run one on the user’s Mac outside the\n                                             sandbox; the user clicks Run unless they allowed it\n                                             always, and Ted sends the output as a message',
+    callers: 'Coordinator chat Run',
+    options: options(),
+  },
+  {
     name: 'ask',
     handler: 'chatQuestion',
     min: 1,

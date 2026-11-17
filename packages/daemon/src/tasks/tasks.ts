@@ -71,6 +71,7 @@ import type {
   ProposalInput,
   PullRequestChanges,
   PullRequestCiMode,
+  QueuedAfter,
   RecordAppRequest,
   RecordFailureRequest,
   ReportCleanupStepRequest,
@@ -315,6 +316,7 @@ import {
   heldText,
   noConflictFound,
   repairConflictHandOff,
+  repairUncommittedHandOff,
 } from './base-conflict.ts'
 import { createBrowserBroker } from './browser.ts'
 import { createCacheSeeds } from './cache-seeds.ts'
@@ -461,7 +463,14 @@ import {
   type PullRequestTarget,
   type PullRequestTask,
 } from './pull-requests.ts'
-import { type QueueEntry, type QueueSource, queueOrder, type SlotUse, startsNow } from './queue.ts'
+import {
+  continuationFlags,
+  type QueueEntry,
+  type QueueSource,
+  queueOrder,
+  type SlotUse,
+  startsNow,
+} from './queue.ts'
 import { removeInside } from './remove-files.ts'
 import {
   chosenEntries,
@@ -1812,6 +1821,7 @@ export function createTasks(options: {
           agentStartHold(store, nextAgent, nextAgent === run.agent ? run.id : undefined)
         )
           return []
+        const heldAt = continuationHeldAt(task)
         return [
           {
             id,
@@ -1819,10 +1829,17 @@ export function createTasks(options: {
             rank: task.rank,
             priority: task.priority,
             factoryId: task.factoryId,
+            ...(heldAt !== undefined && continuationFlags(heldAt, clock.now())),
           },
         ]
       }),
     )
+  }
+
+  function continuationHeldAt(task: StoredTask): string | undefined {
+    const message = task.pendingLeadMessages.find((m) => m.waitForSlot && m.after !== undefined)
+    if (message) return message.heldAt
+    return queuedAnswers(task.id).at(0)?.answerDelivery?.queuedAt
   }
 
   function queuedAnswers(taskId: string): Comment[] {
@@ -6316,10 +6333,10 @@ export function createTasks(options: {
         liveLead,
         startMerging,
         watchMerge,
-        deliver: (task, text) => deliver(task, text, true),
+        deliver: (task, text) => deliver(task, text, 'answer'),
         pullRequestWork,
         move: (task, resolution, next, message, options) =>
-          move(task, resolution, next, message, { ...options, waitForSlot: true }),
+          move(task, resolution, next, message, { ...options, waitForSlot: 'answer' }),
         backMessage,
         leaveWorkToDiagnose,
         settleDependents,
@@ -6662,7 +6679,11 @@ export function createTasks(options: {
     return inFlight.untilFree(taskId, humanWaitMs)
   }
 
-  async function deliver(task: Task, text: string, waitForSlot = false): Promise<boolean> {
+  async function deliver(
+    task: Task,
+    text: string,
+    waitForSlot: boolean | QueuedAfter = false,
+  ): Promise<boolean> {
     const runId = find(task.id).leadRunId
     const run = runId === undefined ? undefined : store.getRun(runId)
     if (!run || run.state === 'finished') return false
@@ -6670,8 +6691,8 @@ export function createTasks(options: {
     const current = find(task.id)
     const lead = effectiveLead(current)
     const message = `${text}\n\n${overnightGuidance(mode, current.setup)}`
-    if (waitForSlot && run.state !== 'working' && !continuing.has(task.id)) {
-      store.holdLeadMessage(task.id, message, true)
+    if (waitForSlot !== false && run.state !== 'working' && !continuing.has(task.id)) {
+      store.holdLeadMessage(task.id, message, true, waitForSlot === true ? undefined : waitForSlot)
       await store.persisted()
       void pump()
     } else if (
@@ -6696,7 +6717,7 @@ export function createTasks(options: {
       void pump()
       return
     }
-    if (!(await deliver(task, text, true))) store.holdAnswer(comment.id)
+    if (!(await deliver(task, text, 'answer'))) store.holdAnswer(comment.id)
   }
 
   function openTalkRound(commentId: string): { task: StoredTask; round: Comment } {
@@ -6909,7 +6930,7 @@ export function createTasks(options: {
     }: {
       signedOff?: boolean
       checked?: HandOffChecks
-      waitForSlot?: boolean
+      waitForSlot?: boolean | QueuedAfter
       reads?: WorktreeReads
     } = {},
   ): Promise<Task> {
@@ -10146,7 +10167,7 @@ export function createTasks(options: {
     reportNotFound: (task, result) => reportNotFound(factoryOf(task).id, result),
     setChecking,
     isChecking: (id) => inFlight.is(id, 'checking'),
-    deliver: (task, text) => deliver(task, text, true),
+    deliver: (task, text, after) => deliver(task, text, after),
     notify: (task) => sendWaiting(task.id),
     instructions: async (task, resolution, message) => {
       const round = await validateRound(task, resolution.workflow)
@@ -10851,16 +10872,31 @@ export function createTasks(options: {
         const current = store.getTask(task.id)
         if (!current || current.archived || stopping.signal.aborted) return false
         const multiRepo = task.repos.filter((r) => !r.removed).length > 1
-        if (error instanceof HeldRepo && error.held.conflict && mode === 'lead-starting') {
-          const where = multiRepo ? ` in ${error.held.name}` : ''
-          const asked = `Ted asked the Task Lead to merge ${error.held.base} into the Task’s branch${where}, resolve the conflict and commit; fresh validation runs after that.`
+        if (error instanceof HeldRepo && mode === 'lead-starting') {
+          const { held } = error
+          const where = multiRepo ? ` in ${held.name}` : ''
+          const files = held.files.length > 0 ? ` in ${fileList(held.files)}` : ''
+          const [what, asked] = held.conflict
+            ? [
+                `it conflicts with this Task${where}`,
+                `Ted asked the Task Lead to merge ${held.base} into the Task’s branch${where}, resolve the conflict and commit; fresh validation runs after that.`,
+              ]
+            : [
+                `the worktree${where} has uncommitted changes`,
+                'Ted asked the Task Lead to commit them if they are its own work, or say why not; Ted then tries again.',
+              ]
           repairNotice(
             task.id,
             repair.id,
-            `merged, but it conflicts with this Task${where}${error.held.files.length > 0 ? ` in ${fileList(error.held.files)}` : ''}. ${asked}`,
-            `merged, but it conflicts with this Task${where}. ${asked}`,
+            `merged, but ${what}${files}. ${asked}`,
+            `merged, but ${what}. ${asked}`,
           )
-          store.holdLeadMessage(task.id, repairConflictHandOff(repair, error.held, multiRepo))
+          store.holdLeadMessage(
+            task.id,
+            held.conflict
+              ? repairConflictHandOff(repair, held, multiRepo)
+              : repairUncommittedHandOff(repair, held, multiRepo),
+          )
           repairHandOffs.set(task.id, new Date().toISOString())
           await store.persisted()
           return false
@@ -10899,7 +10935,7 @@ export function createTasks(options: {
     if (repairHandOffs.has(task.id))
       throw new RequestError(
         409,
-        `Ted is waiting for you to merge the base branch into ${task.displayId}’s branch and commit. End your turn when the merge is committed; Ted then brings the repair in and runs the Checks itself.`,
+        `Ted is waiting for you to finish what it asked about the merged repair in ${task.displayId}’s worktree: merge and commit, or commit your own uncommitted changes. End your turn when that is committed, or after saying why you can’t with \`ted comment\`; Ted then brings the repair in and runs the Checks itself.`,
       )
   }
 

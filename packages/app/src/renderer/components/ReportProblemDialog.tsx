@@ -5,6 +5,7 @@ import { readableError, ted } from '../ted.ts'
 import { Dialog } from './ArchiveDialogs.tsx'
 import { Button } from './Button.tsx'
 import styles from './ReportProblemDialog.module.css'
+import grow from './TextGrow.module.css'
 
 type Step =
   | { kind: 'compose'; error?: string }
@@ -105,8 +106,7 @@ export function ReportProblemDialog({ onClose }: { onClose: () => void }) {
           <label className={styles.field}>
             <span className={styles.label}>What happened</span>
             <textarea
-              className={styles.input}
-              rows={4}
+              className={`${styles.input} ${styles.description} ${grow.text}`}
               maxLength={maxProblemDescription}
               value={what}
               disabled={sending}

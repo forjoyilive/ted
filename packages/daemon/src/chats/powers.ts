@@ -61,6 +61,22 @@ function shown(command: string): string {
   return line.length > shownCommandLength ? `${line.slice(0, shownCommandLength)}…` : line
 }
 
+export function chatOutsideCommandLines(
+  powers: readonly AgentPower[],
+  commands: readonly AgentCommand[] | undefined,
+): string[] {
+  if (!powers.includes('run_outside')) return []
+  const listed = commands ?? []
+  if (listed.length === 0) return []
+  return [
+    '- ted agent run-outside <name> [argument]: ask Ted to run one of the outside commands below on the user’s Mac, outside the sandbox, in the repo’s local folder. A command written with <slot> takes one argument: letters, digits, dot, dash and underscore only. The first time, the user sees a card with Run; nothing runs until they click it, unless they allowed that command always. One outside command runs at a time in this Factory. After you ask, end your turn: Ted sends you the output, or the user’s refusal, as a message from Ted.',
+    'These commands can push, publish or use the keychain. Ask only for what the user asked you to do, and say in the chat why before you ask.',
+    ...listed.map(
+      (c) => `  - ${c.name}${c.repo ? ` (in ${c.repo})` : ''}: \`${shown(c.command)}\``,
+    ),
+  ]
+}
+
 export function chatCommandLines(
   powers: readonly AgentPower[],
   commands: readonly AgentCommand[] | undefined,

@@ -590,12 +590,16 @@ function NewTaskForm({
   const blockers = blockedBy
     .map((id) => tasks.find((t) => t.id === id))
     .filter((t) => t !== undefined)
+  const merges = `${joinIds(blockers.map((t) => t.displayId))} ${blockers.length === 1 ? 'merges' : 'merge'}`
+  const autoStarts = chosenFactory?.autoStartBacklog === true
   const note =
     start && blockers.length > 0
-      ? `Waits as Blocked until ${joinIds(blockers.map((t) => t.displayId))} ${blockers.length === 1 ? 'merges' : 'merge'}`
+      ? `Waits as Blocked until ${merges}`
       : start
         ? undefined
-        : 'Waits in Backlog until you start it'
+        : autoStarts
+          ? `${blockers.length > 0 ? `Starts when ${merges}` : 'Starts when a slot is free'}: this Factory starts Backlog Tasks automatically`
+          : 'Waits in Backlog until you start it'
   const summary = `Clarify depth ${clarifyDepthLabels[clarifyDepth]}${lead ? ` · Task Lead ${leadSummary(lead)}` : ''}`
 
   return (
@@ -877,7 +881,8 @@ function NewTaskForm({
                   </label>
                   <Help>
                     Checked, the Task goes to Intake as soon as a slot is free. Unchecked, it waits
-                    in Backlog until you start it.
+                    in Backlog until you start it, unless the Factory starts Backlog Tasks
+                    automatically.
                   </Help>
                 </span>
                 {note !== undefined && <span className={styles.note}>{note}</span>}

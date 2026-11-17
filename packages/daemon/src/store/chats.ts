@@ -8,6 +8,8 @@ import type {
   ChatRequestKind,
   CommentAnswer,
   LayerKind,
+  OutsideCommandAllowance,
+  OutsideCommandAsk,
   Proposal,
   Round,
 } from '@ted/protocol'
@@ -15,7 +17,14 @@ import { chatRequestKinds } from '@ted/protocol'
 import { type AgentCommand, type AgentPower, agentPowers } from '@ted/protocol/agent-files'
 import { isArray, isObject, isOneOf, isString, parseJson } from '@ted/protocol/parse'
 import { type AgentKind, agentKinds } from '@ted/protocol/run'
-import { chatAgents, chatCommands, chatRequests, events, type schema } from './schema.ts'
+import {
+  chatAgents,
+  chatCommands,
+  chatRequests,
+  events,
+  outsideCommandAllowances,
+  type schema,
+} from './schema.ts'
 
 export interface StoredChatAgent {
   id: string
@@ -25,6 +34,7 @@ export interface StoredChatAgent {
   model?: string
   powers: AgentPower[]
   commands?: AgentCommand[]
+  outsideCommands?: AgentCommand[]
   instructions: string
 }
 
@@ -41,11 +51,25 @@ export interface ChatCommandRan {
   startedAt: string
   endedAt: string
   tail: string
+  outside?: OutsideRun
+}
+
+export interface OutsideRun {
+  command: string
+  folder: string
+  always?: true
 }
 
 export type ChatAgentEvent =
   | ReturnType<typeof events.chatAgentRecorded>
   | ReturnType<typeof events.chatAgentCommandsRecorded>
+  | ReturnType<typeof events.chatAgentOutsideCommandsRecorded>
+
+export interface AllowanceKey {
+  factoryId: string
+  agentId: string
+  name: string
+}
 
 export interface NewChatRequest {
   chatId: string
@@ -59,6 +83,7 @@ export interface NewChatRequest {
   round?: Round
   proposal?: Proposal
   agentDraft?: AgentDraft
+  outsideCommand?: OutsideCommandAsk
 }
 
 export interface ChatStore {
@@ -76,6 +101,13 @@ export interface ChatStore {
   request(id: string): ChatRequest | undefined
   post(input: NewChatRequest): ChatRequest
   answer(id: string, answer: CommentAnswer): ChatRequest
+  allowances(factoryId: string): OutsideCommandAllowance[]
+  allowance(key: AllowanceKey): OutsideCommandAllowance | undefined
+  allow(
+    key: AllowanceKey,
+    allowed: Pick<OutsideCommandAllowance, 'command' | 'repo' | 'folder'>,
+  ): OutsideCommandAllowance
+  removeAllowance(id: string): void
 }
 
 const layerKinds: readonly LayerKind[] = ['ted', 'library', 'factory']
@@ -131,15 +163,43 @@ export function chatAgentEvents(
     },
     at: new Date().toISOString(),
   })
+  const listed = (commands: readonly AgentCommand[]) =>
+    commands.map((c) => ({ name: c.name, command: c.command, repo: c.repo ?? null }))
   const commands = agent.commands ?? []
-  if (commands.length === 0) return [recorded]
+  const outside = agent.outsideCommands ?? []
   return [
     recorded,
-    events.chatAgentCommandsRecorded({
-      chatId,
-      commands: commands.map((c) => ({ name: c.name, command: c.command, repo: c.repo ?? null })),
-    }),
+    ...(commands.length > 0
+      ? [events.chatAgentCommandsRecorded({ chatId, commands: listed(commands) })]
+      : []),
+    ...(outside.length > 0
+      ? [events.chatAgentOutsideCommandsRecorded({ chatId, commands: listed(outside) })]
+      : []),
   ]
+}
+
+function outsideRunOf(text: string | null): OutsideRun | undefined {
+  if (text === null) return undefined
+  const parsed = parseJson(text)
+  if (!isObject(parsed) || !isString(parsed.command) || !isString(parsed.folder)) return undefined
+  return {
+    command: parsed.command,
+    folder: parsed.folder,
+    ...(parsed.always === true && { always: true as const }),
+  }
+}
+
+function allowanceOf(row: typeof outsideCommandAllowances.Type): OutsideCommandAllowance {
+  return {
+    id: row.id,
+    factoryId: row.factoryId,
+    agentId: row.agentId,
+    name: row.name,
+    command: row.command,
+    repo: row.repo,
+    folder: row.folder,
+    allowedAt: row.allowedAt,
+  }
 }
 
 function stored<T>(text: string | null): T | undefined {
@@ -160,6 +220,7 @@ export function createChatStore(options: {
     const round = stored<Round>(row.round)
     const proposal = stored<Proposal>(row.proposal)
     const agentDraft = stored<AgentDraft>(row.agentDraft)
+    const outsideCommand = stored<OutsideCommandAsk>(row.outsideCommand)
     const answer = stored<CommentAnswer>(row.answer)
     return {
       id: row.id,
@@ -173,6 +234,7 @@ export function createChatStore(options: {
       ...(round && { round }),
       ...(proposal && { proposal }),
       ...(agentDraft && { agentDraft }),
+      ...(outsideCommand && { outsideCommand }),
       ...(answer && { answer }),
       createdAt: row.createdAt,
     }
@@ -186,6 +248,7 @@ export function createChatStore(options: {
       const row = store.query(queryDb(chatAgents.where({ chatId }))).at(0)
       if (!row) return undefined
       const commands = commandsOf(row.commands)
+      const outsideCommands = commandsOf(row.outsideCommands)
       return {
         id: row.agentId,
         name: row.name,
@@ -194,16 +257,20 @@ export function createChatStore(options: {
         ...(row.model !== null && { model: row.model }),
         powers: powersOf(row.powers),
         ...(commands && { commands }),
+        ...(outsideCommands && { outsideCommands }),
         instructions: row.instructions,
       }
     },
     agentRecorded: chatAgentEvents,
-    commandRan(ran) {
+    commandRan({ outside, ...ran }) {
       commit(
         events.chatCommandRan({
           ...ran,
           exitCode: ran.exitCode ?? null,
         }),
+        ...(outside
+          ? [events.chatOutsideCommandRan({ id: ran.id, outside: JSON.stringify(outside) })]
+          : []),
       )
       if (running.get(ran.runId)?.id === ran.id) running.delete(ran.runId)
       options.runChanged(ran.runId)
@@ -216,18 +283,20 @@ export function createChatStore(options: {
     commands(runId) {
       const done = store
         .query(queryDb(chatCommands.where({ runId }).orderBy('startedAt', 'asc')))
-        .map(
-          (row): ChatCommandItem => ({
+        .map((row): ChatCommandItem => {
+          const outside = outsideRunOf(row.outside)
+          return {
             kind: 'command',
             id: row.id,
             name: row.name,
+            ...(outside && { outside }),
             status: isOneOf(row.outcome, commandOutcomes) ? row.outcome : 'failed',
             ...(row.exitCode !== null && { exitCode: row.exitCode }),
             output: row.tail,
             at: row.startedAt,
             endedAt: row.endedAt,
-          }),
-        )
+          }
+        })
       const live = running.get(runId)
       return live && !done.some((item) => item.id === live.id) ? [...done, live] : done
     },
@@ -236,7 +305,7 @@ export function createChatStore(options: {
         .query(queryDb(chatRequests.where({ chatId }).orderBy('createdAt', 'asc')))
         .map(toRequest),
     request,
-    post({ title, choices, multiple, round, proposal, agentDraft, ...input }) {
+    post({ title, choices, multiple, round, proposal, agentDraft, outsideCommand, ...input }) {
       const id = randomUUID()
       commit(
         events.chatRequestPosted({
@@ -252,6 +321,9 @@ export function createChatStore(options: {
         ...(agentDraft === undefined
           ? []
           : [events.chatAgentDraftPosted({ id, draft: JSON.stringify(agentDraft) })]),
+        ...(outsideCommand === undefined
+          ? []
+          : [events.chatOutsideCommandAsked({ id, ask: JSON.stringify(outsideCommand) })]),
       )
       options.changed(input.chatId)
       const posted = request(id)
@@ -264,6 +336,24 @@ export function createChatStore(options: {
       commit(events.chatRequestAnswered({ id, answer: JSON.stringify(answer), at: answer.at }))
       options.changed(found.chatId)
       return request(id) ?? found
+    },
+    allowances: (factoryId) =>
+      store
+        .query(queryDb(outsideCommandAllowances.where({ factoryId }).orderBy('allowedAt', 'asc')))
+        .map(allowanceOf),
+    allowance(key) {
+      const row = store.query(queryDb(outsideCommandAllowances.where({ ...key }))).at(0)
+      return row && allowanceOf(row)
+    },
+    allow(key, allowed) {
+      const before = store.query(queryDb(outsideCommandAllowances.where({ ...key }))).at(0)
+      const id = before?.id ?? randomUUID()
+      const at = new Date().toISOString()
+      commit(events.outsideCommandAllowed({ id, ...key, ...allowed, at }))
+      return { id, ...key, ...allowed, allowedAt: at }
+    },
+    removeAllowance(id) {
+      commit(events.outsideCommandAllowanceRemoved({ id, at: new Date().toISOString() }))
     },
   }
 }

@@ -12,4 +12,4 @@ Before a Task moves past Validate, `requireCoverage` in `packages/daemon/src/tas
 
 ## Tests
 
-`status.test.ts` covers the activity line, `request-answers.test.ts` an approval while the Checks are out of date, `validate-coverage.test.ts` advancing with a changed plan, changed code and a failing Check, and `merge-gate.test.ts` Mark done after the Check plan changed on the default branch.
+`status.test.ts` covers the activity line, `request-answers.test.ts` an approval while the Checks are out of date, `validate-coverage.test.ts` advancing with a changed plan, changed code and a failing Check, and `merge-gate-after-approval.test.ts` Mark done after the Check plan changed on the default branch.

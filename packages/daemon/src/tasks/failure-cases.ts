@@ -694,7 +694,8 @@ export function createFailureCases(options: {
       const unknown = !bound || !tiedContext(task, value, bound)
       const checkFailure =
         value.source.kind === 'factory-check' || value.source.kind === 'post-rebase-check'
-      if (checkFailure && (unknown || stale))
+      const moved = !!bound && !!current && localInputs(bound) !== localInputs(current)
+      if (checkFailure && (unknown || moved))
         throw new RequestError(409, checkAskRefusal(unknown ? undefined : bound?.id))
       if (stale && attachable(task, value, current))
         throw new RequestError(
