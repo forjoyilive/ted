@@ -97,9 +97,9 @@ export function plansFailedByFactory(
   plans: readonly Pick<Plan, 'factoryId' | 'status' | 'archivedAt'>[],
 ): Set<string> {
   return new Set(
-    plans
-      .filter((p) => p.status === 'failed' && p.archivedAt === undefined)
-      .map((p) => p.factoryId),
+    plans.flatMap((p) =>
+      p.status === 'failed' && p.archivedAt === undefined ? [p.factoryId] : [],
+    ),
   )
 }
 

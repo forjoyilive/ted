@@ -160,9 +160,7 @@ async function populateScenarios(
         'done',
         'ci',
         'partlyMerged',
-      ].includes(name)
-        ? { clarifyDepth: 'none' as const }
-        : {}),
+      ].includes(name) && { clarifyDepth: 'none' as const }),
     })
     if (factory === garden.key && name !== 'partlyMerged')
       await client.setTaskRepos(task.id, { set: ['demo/garden'] })

@@ -1,7 +1,7 @@
 import { mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { DatabaseSync, type SQLOutputValue } from 'node:sqlite'
 import type { BackupsSummary, Comment, ConversationEntry, DataStatus, Task } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { type DaemonOptions, type RunningDaemon, startDaemon } from '../src/index.ts'
@@ -79,7 +79,7 @@ async function inEventlog<T>(work: (db: DatabaseSync) => T, dir = storeDir()): P
 
 const eventlogBytes = async () => (await stat(await eventlogPath())).size
 
-interface LogRow {
+interface LogRow extends Record<string, SQLOutputValue> {
   seqNumGlobal: number
   name: string
   argsJson: string
@@ -87,7 +87,7 @@ interface LogRow {
 
 const loggedEvents = (dir?: string) =>
   inEventlog(
-    (db) => db.prepare('SELECT * FROM eventlog ORDER BY seqNumGlobal').all() as unknown as LogRow[],
+    (db) => db.prepare('SELECT * FROM eventlog ORDER BY seqNumGlobal').all() as LogRow[],
     dir,
   )
 

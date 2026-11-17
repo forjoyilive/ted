@@ -521,7 +521,12 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   ).toBe(403)
 
   const d = await s.task('D')
-  const removal = async (kind: string, ids: string[], extra: object = {}, operation = '') =>
+  const removal = async (
+    kind: string,
+    ids: string[],
+    extra: { children?: string } = {},
+    operation = '',
+  ) =>
     run.call('POST', `/coordinator/${kind}`, {
       operation: operation || `${kind}-${ids.join('-')}`,
       tasks: await Promise.all(ids.map(async (id) => ({ id, version: (await read(id)).version }))),

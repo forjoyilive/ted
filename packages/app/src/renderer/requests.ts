@@ -79,9 +79,10 @@ export function briefSections(text: string): { heading: string; body: string }[]
     else if (sections.length === 0) sections.push({ heading: '', lines: [line] })
     else sections.at(-1)?.lines.push(line)
   }
-  return sections
-    .map(({ heading, lines }) => ({ heading, body: lines.join('\n').trim() }))
-    .filter(({ heading, body }) => heading !== '' || body !== '')
+  return sections.flatMap(({ heading, lines }) => {
+    const body = lines.join('\n').trim()
+    return heading !== '' || body !== '' ? [{ heading, body }] : []
+  })
 }
 
 function firstLine(text: string): string {

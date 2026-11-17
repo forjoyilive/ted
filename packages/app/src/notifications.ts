@@ -161,9 +161,14 @@ export function createNotifications(options: NotificationsOptions): Notification
   }
 }
 
+type RecordedLine =
+  | (NoticeToShow & { kind: 'notification' })
+  | { kind: 'closed'; title: string; body: string }
+  | { kind: 'badge'; count: number }
+
 export function recordingNotifier(file: string, onFailed: () => void, failing: boolean): Notifier {
   let lastBadge: number | undefined
-  const write = (line: object) => appendFileSync(file, `${JSON.stringify(line)}\n`)
+  const write = (line: RecordedLine) => appendFileSync(file, `${JSON.stringify(line)}\n`)
   return {
     show(notice) {
       write({ kind: 'notification', ...notice })

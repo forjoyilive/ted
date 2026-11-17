@@ -112,7 +112,8 @@ function boundary(
 export function withIntervalBoundaries<T extends Record<string, (...args: never[]) => unknown>>(
   handlers: T,
 ): T {
-  return Object.fromEntries(
+  // SAFETY: each wrapper keeps its handler's name and arguments and adds rows to its result.
+  return Object.fromEntries<unknown>(
     Object.entries(handlers).map(([name, handler]) => {
       const call = handler as (
         args: Args,
@@ -140,7 +141,7 @@ export function withIntervalBoundaries<T extends Record<string, (...args: never[
         },
       ]
     }),
-  ) as unknown as T
+  ) as T
 }
 
 export function isSubAgentRequested(name: string): boolean {

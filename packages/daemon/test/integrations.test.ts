@@ -55,7 +55,9 @@ async function setGh(state: Record<string, unknown>): Promise<void> {
   await writeFile(statePath, JSON.stringify(state))
 }
 
-async function ghCalls(): Promise<{ args: string[]; env: Record<string, string> }[]> {
+async function ghCalls(): Promise<
+  { args: string[]; env: Record<string, string>; stdin?: string }[]
+> {
   const text = await readFile(logPath, 'utf8').catch(() => '')
   return text
     .split('\n')
@@ -417,7 +419,7 @@ describe('GitHub health', () => {
       args: ['api', 'graphql', '--input', '-'],
       env: { GH_HOST: 'github.kriya.design' },
     })
-    expect(JSON.parse((call as unknown as { stdin: string }).stdin)).toEqual({
+    expect(JSON.parse(call?.stdin ?? '')).toEqual({
       query: 'query($n: Int!) { viewer { login } }',
       variables: { n: 1 },
     })

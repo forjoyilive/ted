@@ -1738,9 +1738,9 @@ export function createCoordinators(options: {
             opening: store.getRun(latest.runId) ? latest.opening : '',
             unsentMessages: [
               ...(latest.unsentMessages ?? []),
-              ...canceled
-                .filter((message) => message.from !== 'ted')
-                .map(({ id, runId, text, at }) => ({ id, runId, text, at })),
+              ...canceled.flatMap(({ from, id, runId, text, at }) =>
+                from === 'ted' ? [] : [{ id, runId, text, at }],
+              ),
             ],
           },
           canceled,

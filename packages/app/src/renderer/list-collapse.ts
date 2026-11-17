@@ -1,4 +1,5 @@
 import type { ListView } from '@ted/protocol'
+import type { JsonObject } from '@ted/protocol/parse'
 import { useState } from 'react'
 
 const storageKey = 'ted.list.collapsed'
@@ -14,7 +15,7 @@ function readStored<T>(name: string, valid: (value: unknown) => value is T): Rec
   }
 }
 
-function writeStored(name: string, value: object) {
+function writeStored(name: string, value: JsonObject) {
   try {
     localStorage.setItem(name, JSON.stringify(value))
   } catch {}

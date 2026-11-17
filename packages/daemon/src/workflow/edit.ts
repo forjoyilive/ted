@@ -223,19 +223,21 @@ export function applyChanges(
     if (hash === undefined) continue
     if (hash === null) {
       const stages: unknown = root.get('stages', true)
-      const map = isMap(stages) ? stages.get(id, true) : undefined
-      if (isMap(map)) {
-        map.delete('based_on')
-        if (map.items.length === 0) (stages as unknown as YAMLMap).delete(id)
+      if (isMap(stages)) {
+        const map = stages.get(id, true)
+        if (isMap(map)) {
+          map.delete('based_on')
+          if (map.items.length === 0) stages.delete(id)
+        }
+        if (stages.items.length === 0) root.delete('stages')
       }
-      if (isMap(stages) && stages.items.length === 0) root.delete('stages')
     } else setKeepingStyle(stageMap(doc, root, id), 'based_on', hash)
   }
   if (changes.checks !== undefined) {
     const removed = new Set(
       changes.repos === undefined
         ? []
-        : current.map((r) => r.was).filter((was) => !changes.repos?.some((r) => r.was === was)),
+        : current.flatMap(({ was }) => (changes.repos?.some((r) => r.was === was) ? [] : [was])),
     )
     const kept = changes.checks.filter((c) => !removed.has(c.repo?.trim() ?? ''))
     writeChecks(doc, root, kept)
@@ -285,7 +287,7 @@ function writeRepos(
     if (repo.was !== undefined && repo.was !== repo.name) renames.set(repo.was, repo.name)
   }
   const removed = new Set(
-    current.map((r) => r.was).filter((was) => !changes.repos.some((r) => r.was === was)),
+    current.flatMap(({ was }) => (changes.repos.some((r) => r.was === was) ? [] : [was])),
   )
   const checks = doc.getIn(['stages', 'validate', 'checks'], true)
   if (isSeq(checks)) {
@@ -344,13 +346,14 @@ function stageMap(doc: Document, root: YAMLMap, id: string): YAMLMap {
 
 function writeChecks(doc: Document, root: YAMLMap, checks: readonly CheckInput[]): void {
   const stages: unknown = root.get('stages', true)
-  const validate = isMap(stages) ? stages.get('validate', true) : undefined
+  const stagesMap = isMap(stages) ? stages : undefined
+  const validate = stagesMap?.get('validate', true)
   const node = isMap(validate) ? validate.get('checks', true) : undefined
   const old = isSeq(node) ? (node.items as unknown[]) : []
   if (checks.length === 0) {
     if (isMap(validate)) {
       validate.delete('checks')
-      if (validate.items.length === 0) (stages as unknown as YAMLMap).delete('validate')
+      if (validate.items.length === 0) stagesMap?.delete('validate')
     }
     return
   }

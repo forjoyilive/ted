@@ -192,9 +192,10 @@ function groupRows<T extends { grouped: Grouped }>(
     headings: readonly (readonly [string, string])[],
     keyOf: (row: T) => string,
   ): InboxGroup<T>[] =>
-    headings
-      .map(([key, label]) => ({ key, label, rows: rows.filter((row) => keyOf(row) === key) }))
-      .filter((group) => group.rows.length > 0)
+    headings.flatMap(([key, label]) => {
+      const matching = rows.filter((row) => keyOf(row) === key)
+      return matching.length > 0 ? [{ key, label, rows: matching }] : []
+    })
   if (grouping === 'kind') return pick(kindHeadings, (row) => row.grouped.kind)
   if (grouping === 'factory-group') {
     const sections = groupSections(layout)

@@ -111,7 +111,7 @@ describe('Task details summaries', () => {
   })
 
   test('Code collapses to the pull request, the branch or the repo count', () => {
-    const task = (repos: TaskRepo[]) => ({ repos }) as unknown as Task
+    const task = (repos: TaskRepo[]) => ({ repos }) as Task
     expect(codeSummary(task([]))).toBe('no worktree yet')
     expect(codeSummary(task([repo({})]))).toBe('nb-1-fix')
     expect(

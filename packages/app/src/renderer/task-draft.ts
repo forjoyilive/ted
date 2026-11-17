@@ -1,4 +1,5 @@
 import type { NewTaskDraft, TaskDraftState } from '@ted/protocol'
+import { isObject } from '@ted/protocol/parse'
 import { agentKinds } from '@ted/protocol/run'
 import { clarifyDepths, efforts, priorities } from '@ted/protocol/task'
 
@@ -237,12 +238,10 @@ export function taskDraftSession(
 }
 
 function recoveryDraft(value: unknown): NewTaskDraft | undefined {
-  const record = (given: unknown): given is Record<string, unknown> =>
-    given !== null && typeof given === 'object' && !Array.isArray(given)
   const strings = (given: unknown) =>
     Array.isArray(given) && given.every((v) => typeof v === 'string')
   if (
-    !record(value) ||
+    !isObject(value) ||
     typeof value.revision !== 'string' ||
     typeof value.title !== 'string' ||
     typeof value.description !== 'string' ||
@@ -252,14 +251,14 @@ function recoveryDraft(value: unknown): NewTaskDraft | undefined {
     !priorities.some((p) => p === value.priority) ||
     !strings(value.blockedBy) ||
     !strings(value.dismissed) ||
-    !record(value.filled) ||
+    !isObject(value.filled) ||
     (value.source !== undefined && typeof value.source !== 'string') ||
     (value.parent !== undefined && typeof value.parent !== 'string') ||
     (value.clarifyDepth !== undefined && !clarifyDepths.some((d) => d === value.clarifyDepth)) ||
     !Array.isArray(value.attachments) ||
     value.attachments.some(
       (file) =>
-        !record(file) ||
+        !isObject(file) ||
         typeof file.hash !== 'string' ||
         typeof file.name !== 'string' ||
         typeof file.mediaType !== 'string' ||
@@ -270,12 +269,14 @@ function recoveryDraft(value: unknown): NewTaskDraft | undefined {
   const lead = value.lead
   if (
     lead !== undefined &&
-    (!record(lead) ||
+    (!isObject(lead) ||
       !agentKinds.some((a) => a === lead.agent) ||
       (lead.model !== undefined && typeof lead.model !== 'string') ||
       (lead.effortMode !== undefined && lead.effortMode !== 'stage') ||
       (lead.effort !== undefined && !efforts.some((e) => e === lead.effort)))
   )
     return undefined
-  return value as unknown as NewTaskDraft
+  const checked: object = value
+  // SAFETY: every NewTaskDraft field was checked above.
+  return checked as NewTaskDraft
 }

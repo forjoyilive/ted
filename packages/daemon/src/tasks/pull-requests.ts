@@ -165,9 +165,9 @@ export function createPullRequests(options: { store: TedStore; gh: Gh }): PullRe
     })
     if (open.length < 2) return
     for (const { target, number } of open) {
-      const others = open
-        .filter((o) => o.target.name !== target.name)
-        .map((o) => `${o.target.repo}#${o.number}`)
+      const others = open.flatMap((o) =>
+        o.target.name === target.name ? [] : [`${o.target.repo}#${o.number}`],
+      )
       await gh
         .run(['pr', 'edit', String(number), '--repo', target.repo, '--body-file', '-'], {
           input: pullRequestBody(task, others),

@@ -1,6 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { defaultMachineSettings } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import {
   androidSize,
@@ -71,12 +72,13 @@ function fakeTools(answers: { avdName: AndroidResult; delete: () => AndroidResul
 }
 
 function emulators(tools: AndroidTools) {
+  const store: Pick<TedStore, 'settings' | 'getTask'> = {
+    settings: () => ({ ...defaultMachineSettings, maxRunningEmulators: 2 }),
+    getTask: () => undefined,
+  }
   return createEmulators({
     dir,
-    store: {
-      settings: () => ({ maxRunningEmulators: 2 }),
-      getTask: () => undefined,
-    } as unknown as TedStore,
+    store: store as TedStore,
     tools,
     supported: true,
     emit() {},

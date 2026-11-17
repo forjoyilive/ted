@@ -14,9 +14,9 @@ export function heldToRelease(
   now: number,
   maxMs = holdAtMostMs,
 ): string[] {
-  return held
-    .filter((r) => !working(r.runId) || now - Date.parse(r.createdAt) >= maxMs)
-    .map((r) => r.id)
+  return held.flatMap((r) =>
+    !working(r.runId) || now - Date.parse(r.createdAt) >= maxMs ? [r.id] : [],
+  )
 }
 
 export function heldUntil(
@@ -24,9 +24,9 @@ export function heldUntil(
   runId: string,
   turnEndedAt: string | undefined,
 ): string[] {
-  return held
-    .filter((r) => r.runId === runId && (turnEndedAt === undefined || r.createdAt <= turnEndedAt))
-    .map((r) => r.id)
+  return held.flatMap((r) =>
+    r.runId === runId && (turnEndedAt === undefined || r.createdAt <= turnEndedAt) ? [r.id] : [],
+  )
 }
 
 export function createHeldRequests(

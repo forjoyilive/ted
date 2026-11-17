@@ -62,7 +62,7 @@ function period(
         samples: working,
       },
     ],
-  } as unknown as FlowPeriod
+  } as FlowPeriod
 }
 
 test('time with an open request is taken out of each Stage visit it overlaps', () => {

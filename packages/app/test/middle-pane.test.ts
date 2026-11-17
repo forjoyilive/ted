@@ -11,9 +11,9 @@ type PaneTask = Pick<Task, 'id' | 'tabs' | 'repos'>
 
 const task = {
   id: 't1',
-  tabs: [{ runId: 'r1', name: 'Reviewer', state: 'working' }],
-  repos: [{ name: 'web', removed: false }],
-} as unknown as PaneTask
+  tabs: [{ runId: 'r1', name: 'Reviewer', agent: 'claude', state: 'working' }],
+  repos: [{ name: 'web' }],
+} as PaneTask
 
 const file = {
   repo: 'web',

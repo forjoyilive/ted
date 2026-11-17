@@ -41,8 +41,11 @@ type Span = [number, number]
 function spans(intervals: readonly FlowInterval[]): Span[] {
   const result: Span[] = []
   const sorted = intervals
-    .map((i): Span => [Date.parse(i.from), Date.parse(i.to)])
-    .filter(([a, b]) => Number.isFinite(a) && Number.isFinite(b) && b > a)
+    .flatMap((i): Span[] => {
+      const a = Date.parse(i.from)
+      const b = Date.parse(i.to)
+      return Number.isFinite(a) && Number.isFinite(b) && b > a ? [[a, b]] : []
+    })
     .sort((x, y) => x[0] - y[0])
   for (const [a, b] of sorted) {
     const last = result.at(-1)

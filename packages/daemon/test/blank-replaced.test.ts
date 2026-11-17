@@ -1,7 +1,7 @@
 import { cp, mkdtemp, readdir, readFile, rename, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { DatabaseSync, type SQLOutputValue } from 'node:sqlite'
 import type { NewTaskDraft } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { blankReplacedText, replacedTextCount } from '../src/store/blank-replaced.ts'
@@ -20,7 +20,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
-interface LogRow {
+interface LogRow extends Record<string, SQLOutputValue> {
   seqNumGlobal: number
   name: string
   argsJson: string
@@ -42,7 +42,7 @@ const loggedEvents = (folder = dir) =>
     (db) =>
       db
         .prepare('SELECT seqNumGlobal, name, argsJson FROM eventlog ORDER BY seqNumGlobal')
-        .all() as unknown as LogRow[],
+        .all() as LogRow[],
     folder,
   )
 
@@ -138,7 +138,7 @@ async function homeWithReplacedText(): Promise<void> {
     return { id, factoryId: factory.id, endedAt, data: JSON.stringify(data) }
   }
   const second = { ...chat, runId: 'run-2', runIds: ['run-2'] }
-  const patch = (set: object) => ({
+  const patch = (set: Partial<Omit<typeof chat, 'phase'>> & { phase?: string }) => ({
     factoryId: factory.id,
     set: JSON.stringify(set),
     unset: [],

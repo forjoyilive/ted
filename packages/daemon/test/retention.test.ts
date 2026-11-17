@@ -374,7 +374,7 @@ describe('which archived Tasks are due for deletion', () => {
 
   test('keeps a Task with an open pull request or a Task it blocks that isn’t archived', () => {
     const pr = (state: 'draft' | 'ready' | 'merged' | 'closed') =>
-      [{ pullRequest: { state } }] as unknown as Task['repos']
+      [{ pullRequest: { state } }] as Task['repos']
     const tasks = [
       task('draft', { ...archived(40), repos: pr('draft') }),
       task('ready', { ...archived(40), repos: pr('ready') }),

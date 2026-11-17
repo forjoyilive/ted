@@ -249,12 +249,8 @@ export function pointTip({
       : v === null
         ? 'No sample'
         : duration(v)
-  const first = {
-    period,
-    label: name,
-    value: shown(value, true),
-    ...(metric === 'completed' ? {} : { note: `from ${tasks(idsOf(bucket, metric).length)}` }),
-  }
+  const first: PointTip['rows'][number] = { period, label: name, value: shown(value, true) }
+  if (metric !== 'completed') first.note = `from ${tasks(idsOf(bucket, metric).length)}`
   if (period === 'previous')
     return {
       heading: `${earlier} · ${label(bucket)}`,
@@ -310,12 +306,10 @@ export function byFactoryCount(
   factoryIds: readonly string[],
 ): { factoryId: string; count: number }[] {
   const factoryOf = new Map(tasks.map((task) => [task.id, task.factoryId]))
-  return factoryIds
-    .map((factoryId) => ({
-      factoryId,
-      count: taskIds.filter((id) => factoryOf.get(id) === factoryId).length,
-    }))
-    .filter((row) => row.count > 0)
+  return factoryIds.flatMap((factoryId) => {
+    const count = taskIds.filter((id) => factoryOf.get(id) === factoryId).length
+    return count > 0 ? [{ factoryId, count }] : []
+  })
 }
 
 function Chart({

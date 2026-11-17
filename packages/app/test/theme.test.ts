@@ -196,9 +196,11 @@ describe('disabled and control styles', () => {
     const faded = (await sources())
       .filter(({ file }) => file.endsWith('.css'))
       .flatMap(({ file, text }) =>
-        [...text.matchAll(/([^{}]*)\{([^}]*)\}/g)]
-          .filter((m) => /disabled/.test(m[1] ?? '') && /(^|\n)\s*opacity:/.test(m[2] ?? ''))
-          .map((m) => `${path.relative(rendererDir, file)} ${(m[1] ?? '').trim()}`),
+        [...text.matchAll(/([^{}]*)\{([^}]*)\}/g)].flatMap((m) =>
+          /disabled/.test(m[1] ?? '') && /(^|\n)\s*opacity:/.test(m[2] ?? '')
+            ? [`${path.relative(rendererDir, file)} ${(m[1] ?? '').trim()}`]
+            : [],
+        ),
       )
 
     expect(faded).toEqual([])
@@ -224,9 +226,9 @@ describe('disabled and control styles', () => {
 
     for (const [file, selector] of controls) {
       const text = await readFile(path.join(rendererDir, file), 'utf8')
-      const bodies = [...text.matchAll(/(?:^|\n)([^{}\n]+) \{([^}]*)\}/g)]
-        .filter((m) => m[1] === selector)
-        .map((m) => m[2] ?? '')
+      const bodies = [...text.matchAll(/(?:^|\n)([^{}\n]+) \{([^}]*)\}/g)].flatMap((m) =>
+        m[1] === selector ? [m[2] ?? ''] : [],
+      )
       expect(
         bodies.some((body) => body.includes('var(--border-control)')),
         `${file} ${selector}`,

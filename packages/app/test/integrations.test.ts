@@ -168,11 +168,11 @@ test('page remedies cross the renderer IPC bridge and open only official instruc
   for (const fix of ['gh-install', 'gh-update', 'git-install']) {
     await window.evaluate(async (fix) => globalThis.window.ted.request('runFix', { fix }), fix)
   }
-  expect(await app.evaluate(() => Reflect.get(globalThis, 'instructionPages'))).toEqual([
-    integrationInstallPages.gh,
-    integrationInstallPages.gh,
-    integrationInstallPages.git,
-  ])
+  expect(
+    await app.evaluate(
+      () => (globalThis as typeof globalThis & { instructionPages: string[] }).instructionPages,
+    ),
+  ).toEqual([integrationInstallPages.gh, integrationInstallPages.gh, integrationInstallPages.git])
   await app.evaluate(
     async (_, moduleUrl) => {
       const { DaemonClient } = process.getBuiltinModule('module').createRequire(moduleUrl)(
@@ -185,5 +185,9 @@ test('page remedies cross the renderer IPC bridge and open only official instruc
   await expect(
     window.evaluate(async () => globalThis.window.ted.request('runFix', { fix: 'gh-install' })),
   ).rejects.toThrow('Unknown integration instructions page')
-  expect(await app.evaluate(() => Reflect.get(globalThis, 'instructionPages'))).toHaveLength(3)
+  expect(
+    await app.evaluate(
+      () => (globalThis as typeof globalThis & { instructionPages: string[] }).instructionPages,
+    ),
+  ).toHaveLength(3)
 })

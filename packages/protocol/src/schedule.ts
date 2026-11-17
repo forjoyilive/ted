@@ -566,7 +566,7 @@ export function describeSchedule(
     case 'weekdays':
       return `Weekdays at ${formatClockTime(schedule.at, format)}${zone}`
     case 'weekly': {
-      const days = weekdays.filter((d) => schedule.days.includes(d)).map((d) => weekdayLabels[d])
+      const days = weekdays.flatMap((d) => (schedule.days.includes(d) ? [weekdayLabels[d]] : []))
       return `${and(days)} at ${formatClockTime(schedule.at, format)}${zone}`
     }
     case 'custom': {
