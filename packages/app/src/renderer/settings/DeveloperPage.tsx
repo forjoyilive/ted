@@ -53,11 +53,16 @@ function usePolled<T>(load: () => Promise<T>, everyMs = refreshMs) {
         })
     }
     void tick()?.finally(() => settled(attempt))
-    const timer = setInterval(tick, everyMs)
+    const poll = () => {
+      if (!document.hidden) void tick()
+    }
+    const timer = setInterval(poll, everyMs)
+    document.addEventListener('visibilitychange', poll)
     return () => {
       stopped = true
       settled(attempt)
       clearInterval(timer)
+      document.removeEventListener('visibilitychange', poll)
     }
   }, [load, everyMs, attempt, settled])
   return {
