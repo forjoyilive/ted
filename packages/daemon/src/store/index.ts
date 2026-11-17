@@ -2921,6 +2921,12 @@ export async function openStore({
       .find((row) => factoryKey(row.factoryId) === key)
     return moved ? taskRow(moved.taskId) : undefined
   }
+  const nextNumber = (factoryId: string) => {
+    const awaitingSetup =
+      listFactories().find((f) => f.id === factoryId)?.clonedAt === undefined &&
+      factoryId !== placeholderFactory.id
+    return Math.max(awaitingSetup ? 1 : 0, ...usedNumbers(factoryId)) + 1
+  }
   const usedNumbers = (factoryId: string) => [
     ...store.query(queryDb(tasks.select('number').where({ factoryId }))),
     ...store.query(queryDb(deletedTasks.select('number').where({ factoryId }))),
@@ -4706,12 +4712,12 @@ export async function openStore({
       updatedDependents(taskId)
       return task
     },
-    nextTaskNumber: (factoryId) => Math.max(0, ...usedNumbers(factoryId)) + 1,
+    nextTaskNumber: (factoryId) => nextNumber(factoryId),
     moveTask({ moves, unlink, leaveParent, notes, by }) {
       const at = new Date().toISOString()
       const next = new Map<string, number>()
       const numberIn = (factoryId: string) => {
-        const number = next.get(factoryId) ?? Math.max(0, ...usedNumbers(factoryId)) + 1
+        const number = next.get(factoryId) ?? nextNumber(factoryId)
         next.set(factoryId, number + 1)
         return number
       }
