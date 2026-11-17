@@ -1,11 +1,16 @@
 import { isModelName, type LayerKind, type WorkflowProblem } from '@ted/protocol'
 import {
+  type AgentCommand,
   type AgentPower,
   agentPowers,
   isAgentId,
+  isCommandRepoName,
+  maxAgentCommandLength,
+  maxAgentCommands,
   maxAgentId,
   maxAgentName,
   type ResolvedAgent,
+  runCommandsNeedsReadCode,
 } from '@ted/protocol/agent-files'
 import { isOneOf, isString } from '@ted/protocol/parse'
 import { type AgentKind, agentKindList, agentKinds } from '@ted/protocol/run'
@@ -17,6 +22,7 @@ export interface AgentSettings {
   agent?: AgentKind
   model?: string
   powers?: AgentPower[]
+  commands?: AgentCommand[]
   based_on?: string
 }
 
@@ -33,7 +39,7 @@ export interface AgentLayer {
   agentFiles: Readonly<Record<string, string>>
 }
 
-const agentKeys = ['name', 'agent', 'model', 'powers', 'based_on']
+const agentKeys = ['name', 'agent', 'model', 'powers', 'commands', 'based_on']
 const idRule = `lowercase letters, digits and hyphens, up to ${maxAgentId} characters`
 const powerList = agentPowers.join(', ')
 
@@ -157,7 +163,8 @@ function checkAgentsYaml(
     const agent: AgentSettings = {}
     for (const entry of value.items) {
       const entryKey = isScalar(entry.key) ? entry.key : null
-      const node = isScalar(entry.value) || isSeq(entry.value) ? entry.value : null
+      const node =
+        isScalar(entry.value) || isSeq(entry.value) || isMap(entry.value) ? entry.value : null
       const name = textOf(entryKey) ?? ''
       const path = `${id}.${name}`
       if (!agentKeys.includes(name)) {
@@ -189,7 +196,15 @@ function checkAgentsYaml(
           if (powers) agent.powers = powers
           break
         }
+        case 'commands': {
+          const commands = checkCommands(node, path, error)
+          if (commands) agent.commands = commands
+          break
+        }
       }
+    }
+    if (agent.powers?.includes('run_commands') && !agent.powers.includes('read_code')) {
+      error(key, `\`${id}\`: ${runCommandsNeedsReadCode}`)
     }
     if (id === 'planner' && agent.powers?.includes('manage_tasks')) {
       error(key, '`planner` can’t have `manage_tasks`; the Planner runs in a planning chat')
@@ -223,6 +238,67 @@ function checkPowers(
     } else if (!powers.includes(value)) powers.push(value)
   }
   return ok ? powers : undefined
+}
+
+function checkCommands(
+  node: Node | null,
+  path: string,
+  error: (node: Node | null | undefined, message: string) => void,
+): AgentCommand[] | undefined {
+  if (isScalar(node) && node.value === null) return []
+  if (!isMap(node)) {
+    return void error(node, `\`${path}\` must be a map of command names to commands`)
+  }
+  if (node.items.length > maxAgentCommands) {
+    error(node, `\`${path}\` has more than ${maxAgentCommands} commands`)
+    return undefined
+  }
+  const commands: AgentCommand[] = []
+  let ok = true
+  for (const pair of node.items) {
+    const key = isScalar(pair.key) ? pair.key : null
+    const name = textOf(key)
+    if (name === undefined || !isAgentId(name)) {
+      error(
+        key,
+        `\`${String(key?.value ?? '')}\` isn’t a command name; a command name is ${idRule}`,
+      )
+      ok = false
+      continue
+    }
+    const where = `${path}.${name}`
+    const value = isScalar(pair.value) || isMap(pair.value) ? pair.value : null
+    let command: string | undefined
+    let repo: string | undefined
+    if (isMap(value)) {
+      for (const entry of value.items) {
+        const entryKey = isScalar(entry.key) ? entry.key : null
+        const field = textOf(entryKey)
+        const scalar = isScalar(entry.value) ? entry.value : null
+        const text = textOf(scalar)
+        if (field === 'command') command = text ?? ''
+        else if (field === 'repo') {
+          if (text === undefined || !isCommandRepoName(text)) {
+            error(scalar ?? entryKey, `\`${where}.repo\` must be a repo name`)
+            ok = false
+          } else repo = text
+        } else {
+          error(entryKey, `unknown key \`${where}.${field ?? ''}\`; a command has command and repo`)
+          ok = false
+        }
+      }
+    } else command = textOf(value)
+    if (command === undefined || command.trim() === '' || command.length > maxAgentCommandLength) {
+      error(
+        value ?? key,
+        `\`${where}\` must be a command of up to ${maxAgentCommandLength} characters`,
+      )
+      ok = false
+      continue
+    }
+    commands.push({ name, command: command.trim(), ...(repo !== undefined && { repo }) })
+  }
+  return ok ? commands : undefined
 }
 
 function textOf(node: Node | null): string | undefined {
@@ -272,20 +348,25 @@ export function resolveAgents(layers: readonly AgentLayer[]): ResolvedAgent[] {
   return [...merged].flatMap(([id, { settings, source }]) => {
     const text = texts.get(id)
     if (!text || settings.name === undefined) return []
+    const commands = settings.commands ?? []
     return [
       {
         id,
         name: settings.name,
         ...(settings.agent !== undefined && { agent: settings.agent }),
         ...(settings.model !== undefined && { model: settings.model }),
-        powers: agentPowers.filter(
-          (power) =>
-            settings.powers?.includes(power) && !(id === 'planner' && power === 'manage_tasks'),
-        ),
+        powers: agentPowers.filter((power) => allowedPower(id, power, settings.powers ?? [])),
+        ...(commands.length > 0 && { commands: commands.map((c) => ({ ...c })) }),
         instructions: text.text,
         source,
         path: displayPath(text.kind, `agents/${id}.md`),
       },
     ]
   })
+}
+
+function allowedPower(id: string, power: AgentPower, powers: readonly AgentPower[]): boolean {
+  if (!powers.includes(power)) return false
+  if (id === 'planner' && power === 'manage_tasks') return false
+  return power !== 'run_commands' || powers.includes('read_code')
 }

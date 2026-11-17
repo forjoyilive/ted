@@ -2,7 +2,13 @@ import type { StageDrift } from './factory-settings.ts'
 import type { AgentKind } from './run.ts'
 import type { LayerKind } from './workflow.ts'
 
-export const agentPowers = ['ask', 'manage_tasks', 'propose_tasks', 'read_code'] as const
+export const agentPowers = [
+  'ask',
+  'manage_tasks',
+  'propose_tasks',
+  'read_code',
+  'run_commands',
+] as const
 
 export type AgentPower = (typeof agentPowers)[number]
 
@@ -11,6 +17,7 @@ export const agentPowerNames: Readonly<Record<AgentPower, string>> = {
   manage_tasks: 'Manage Tasks',
   propose_tasks: 'Propose Tasks',
   read_code: 'Read the code',
+  run_commands: 'Run commands in the copy',
 }
 
 export const builtInAgentIds = ['coordinator', 'planner'] as const
@@ -25,12 +32,32 @@ export function isAgentId(id: string): boolean {
   return id.length <= maxAgentId && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(id)
 }
 
+export const maxAgentCommands = 20
+
+export const maxAgentCommandLength = 2000
+
+export const maxCommandRepoName = 100
+
+export interface AgentCommand {
+  name: string
+  command: string
+  repo?: string
+}
+
+export function isCommandRepoName(name: string): boolean {
+  return name.length <= maxCommandRepoName && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)
+}
+
+export const runCommandsNeedsReadCode =
+  'Run commands in the copy needs Read the code, because the commands run in the chat’s copy of the code'
+
 export interface ResolvedAgent {
   id: string
   name: string
   agent?: AgentKind
   model?: string
   powers: AgentPower[]
+  commands?: AgentCommand[]
   instructions: string
   source: LayerKind
   path: string
@@ -43,6 +70,8 @@ export const agentPowerHelp: Readonly<Record<AgentPower, string>> = {
   propose_tasks: 'A set of Tasks with blockers for you to approve, as the Planner does.',
   read_code:
     'A fresh copy of the default branch for each chat. It is never pushed and is removed when the chat is archived.',
+  run_commands:
+    'TED runs the commands listed below in the chat’s copy, in its sandbox, and returns the output. Needs Read the code.',
 }
 
 export const blankAgentInstructions = `# What this Agent is for
@@ -63,6 +92,7 @@ export interface AgentSettingsInput {
   agent?: AgentKind
   model?: string
   powers?: AgentPower[]
+  commands?: AgentCommand[]
 }
 
 export interface AgentFileChange {
@@ -77,6 +107,7 @@ export interface AgentFileRow {
   agent?: AgentKind
   model?: string
   powers: AgentPower[]
+  commands?: AgentCommand[]
   from: LayerKind
   builtIn: boolean
   own?: { settings?: AgentSettingsInput; instructions?: string; basedOn?: string }

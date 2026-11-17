@@ -1,5 +1,6 @@
 import type { AgentKind, LayerKind } from '@ted/protocol'
 import {
+  type AgentCommand,
   type AgentFileChange,
   type AgentFileRow,
   type AgentSettingsInput,
@@ -19,7 +20,7 @@ export interface AgentFileChanges {
   keepAgentFiles?: readonly string[]
 }
 
-const settingKeys = ['name', 'agent', 'model', 'powers', 'based_on'] as const
+const settingKeys = ['name', 'agent', 'model', 'powers', 'commands', 'based_on'] as const
 
 export function applyAgentChanges(
   after: LayerFiles,
@@ -96,9 +97,25 @@ function writeSettings(root: YAMLMap, id: string, input: AgentSettingsInput): vo
       setOrdered(map, key, seq)
     }
   }
+  if (input.commands === undefined || input.commands.length === 0) map.delete('commands')
+  else setOrdered(map, 'commands', commandsMap(input.commands))
 }
 
-function setOrdered(map: YAMLMap, key: string, value: string | YAMLSeq): void {
+function commandsMap(commands: readonly AgentCommand[]): YAMLMap {
+  const map = new YAMLMap()
+  for (const { name, command, repo } of commands) {
+    if (repo === undefined) map.set(name, command)
+    else {
+      const entry = new YAMLMap()
+      entry.set('command', command)
+      entry.set('repo', repo)
+      map.set(name, entry)
+    }
+  }
+  return map
+}
+
+function setOrdered(map: YAMLMap, key: string, value: string | YAMLSeq | YAMLMap): void {
   const node = map.get(key, true)
   if (isScalar(node) && isString(value)) {
     if (node.value !== value) node.value = value
@@ -143,6 +160,7 @@ export function agentFileRows(
         ...(isOneOf(agent.agent, agentKinds) && { agent: agent.agent }),
         ...(agent.model !== undefined && { model: agent.model }),
         powers: agent.powers,
+        ...(agent.commands && { commands: agent.commands }),
         from: agent.source,
         builtIn: builtInAgentIds.some((id) => id === agent.id),
         ...((settings !== undefined || instructions !== undefined) && {
@@ -181,6 +199,7 @@ function settingsInput(settings: AgentSettings): AgentSettingsInput {
     ...(agent !== undefined && { agent }),
     ...(settings.model !== undefined && { model: settings.model }),
     ...(settings.powers !== undefined && { powers: settings.powers }),
+    ...(settings.commands !== undefined && { commands: settings.commands }),
   }
 }
 
@@ -190,5 +209,6 @@ function resolvedInput(agent: ResolvedAgent): AgentSettingsInput {
     ...(isOneOf(agent.agent, agentKinds) && { agent: agent.agent }),
     ...(agent.model !== undefined && { model: agent.model }),
     powers: agent.powers,
+    ...(agent.commands && { commands: agent.commands }),
   }
 }
