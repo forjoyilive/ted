@@ -49,10 +49,7 @@ const pathChars = String.raw`[^\s'"\x60()<>,;]+`
 const posixPath = new RegExp(`${boundary}(?:file://|~)?/${pathChars}`, 'gm')
 const windowsPath = new RegExp(String.raw`${boundary}[A-Za-z]:\\${pathChars}`, 'gm')
 
-const slashToken = new RegExp(
-  String.raw`${boundary}([^\s'"\x60()<>,;/\\]*[/\\][^\s'"\x60()<>,;]*)`,
-  'gm',
-)
+const separators = /([\s'"\x60()<>,;])/
 const betweenPaths = /<path>(?:[ \t]+\S+)*[ \t]+<path>/g
 const keptPrefixes = ['packages/', 'node:', '<path>', '<anonymous>']
 
@@ -73,6 +70,17 @@ function withoutQuotedText(text: string): string {
 
 function kept(token: string): boolean {
   return keptPrefixes.some((prefix) => token.startsWith(prefix))
+}
+
+function withoutSlashWords(text: string): string {
+  return text
+    .split(separators)
+    .map((piece, at) =>
+      at % 2 === 1 || !(piece.includes('/') || piece.includes('\\')) || kept(piece)
+        ? piece
+        : '<path>',
+    )
+    .join('')
 }
 
 function escapeRegExp(text: string): string {
@@ -102,13 +110,9 @@ export function cleanText(text: string, roots: readonly string[], home: string):
     result = result.replace(new RegExp(`${homeUrl}${homeTail}`, 'g'), '<path>')
     result = result.replace(new RegExp(`${escapeRegExp(home)}${homeTail}`, 'g'), '<path>')
   }
-  result = withoutQuotedText(result)
-    .replace(posixPath, '$1<path>')
-    .replace(windowsPath, '$1<path>')
-    .replace(slashToken, (match, before: string, token: string) =>
-      kept(token) ? match : `${before}<path>`,
-    )
-    .replace(betweenPaths, '<path>')
+  result = withoutSlashWords(
+    withoutQuotedText(result).replace(posixPath, '$1<path>').replace(windowsPath, '$1<path>'),
+  ).replace(betweenPaths, '<path>')
   return redactSecrets(result)
 }
 

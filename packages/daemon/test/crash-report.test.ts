@@ -104,6 +104,24 @@ describe('cleaning', () => {
     expect(clean.frames).toHaveLength(1)
   })
 
+  test('cleans long runs of separators, words and quotes in one pass', () => {
+    const many = 100_000
+    expect(cleanText('='.repeat(many), roots, home)).toBe('='.repeat(many))
+    expect(cleanText(':'.repeat(many), roots, home)).toBe(':'.repeat(many))
+    expect(cleanText('a:'.repeat(many / 2), roots, home)).toBe('a:'.repeat(many / 2))
+    expect(cleanText(`/a ${'x '.repeat(many / 2)}`, roots, home)).toBe(
+      `<path> ${'x '.repeat(many / 2)}`,
+    )
+    expect(cleanText(`${home}/a ${'x '.repeat(many / 2)}`, roots, home)).toBe('<path>')
+    expect(cleanText(`"${'a'.repeat(many)}`, roots, home)).toBe('"<text>"')
+  })
+
+  test('a word with a slash after a bracket is removed too', () => {
+    expect(cleanText('(x)foo/secret and <b>bar\\secret', roots, home)).toBe(
+      '(x)<path> and <b><path>',
+    )
+  })
+
   test('cuts the message and reads frames oldest last', () => {
     const clean = cleanCrash(
       {
