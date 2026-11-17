@@ -8,6 +8,7 @@ import {
   type Banner,
   type Factory,
   type RunChat,
+  type RunSlots,
   type Task,
   tedPaths,
 } from '@ted/protocol'
@@ -218,7 +219,11 @@ describe('Agent health', () => {
 
     await setStub('claude', { signedIn: false })
     await writeFile(goA, '')
-    await waitUntil(async () => (await getTask(client, b.id))?.leadRunId, 'B to take the free slot')
+    const holdsSlot = async (id: string) =>
+      (await client.ok<RunSlots>('GET', '/slots')).holders.some(
+        (h) => h.kind === 'task' && h.taskId === id && h.runs > 0,
+      )
+    await waitUntil(() => holdsSlot(b.id), 'B to take the free slot')
     await waitUntil(
       async () => (await getTask(client, a.id))?.status?.kind === 'paused' || undefined,
       'A to be paused',
@@ -226,8 +231,13 @@ describe('Agent health', () => {
 
     await setStub('claude', { signedIn: true })
     await client.ok('POST', '/agents/health/check')
-    await new Promise((resolve) => setTimeout(resolve, 500))
+    await waitUntil(
+      async () => (await getTask(client, a.id))?.status?.kind !== 'paused' || undefined,
+      'A to stop being paused',
+    )
     expect((await getTask(client, a.id))?.leadRunId).toBe(firstA)
+    expect(await holdsSlot(a.id)).toBe(false)
+    expect(await holdsSlot(b.id)).toBe(true)
 
     await writeFile(goB, '')
     await waitUntil(async () => {

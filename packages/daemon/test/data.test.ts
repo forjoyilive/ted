@@ -11,6 +11,7 @@ import {
   tedPaths,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { displayPath } from '../src/backups.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import {
@@ -388,7 +389,7 @@ describe('daily backups', () => {
       {
         problem: 'daily-backup-failed',
         severity: 'warning',
-        text: `Today’s backup failed: ${path.join(home, 'backups')} isn’t a folder`,
+        text: `Today’s backup failed: ${displayPath(path.join(home, 'backups'))} isn’t a folder`,
         action: { label: 'Open', opens: { kind: 'settings' } },
       },
     ])
