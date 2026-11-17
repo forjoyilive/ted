@@ -2192,7 +2192,7 @@ test('Inbox right-click offers request actions, then Task or plan actions, and n
   expect(screen.queryByRole('dialog')).toBeNull()
   fireEvent.contextMenu(screen.getByText('Automation question'))
   expect(labels()).toEqual(['Snooze…', 'Copy message text'])
-  expect(screen.queryByRole('separator')).toBeNull()
+  expect(within(screen.getByRole('menu')).queryByRole('separator')).toBeNull()
   fireEvent.contextMenu(screen.getByText('Planning question'))
   expect(labels()).toEqual(['Snooze…', 'Copy message text', 'Stop plan', 'Delete plan…'])
   await u.click(screen.getByRole('menuitem', { name: 'Copy message text' }))
