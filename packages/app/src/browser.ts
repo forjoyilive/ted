@@ -95,27 +95,44 @@ export function createTaskBrowsers(
       page.zoom ?? 1,
     )
     page.originalAgent ??= contents.getUserAgent()
-    await applyEmulation(
-      {
-        send: (method, params) => contents.debugger.sendCommand(method, params),
-        reload: () =>
-          new Promise<void>((resolve) => {
-            const done = () => {
-              contents.off('did-stop-loading', done)
-              resolve()
-            }
-            contents.on('did-stop-loading', done)
-            AbortSignal.timeout(timing.reloadMs ?? 15_000).addEventListener('abort', done)
-            contents.reload()
-          }),
-        loaded: () => !['', 'about:blank'].includes(contents.getURL()),
-      },
-      page.emulation,
-      next,
-      page.originalAgent,
-    )
-    page.emulation = next
-    page.inputScale = next.metrics?.scale ?? 1
+    const settle = () => {
+      page.emulation = next
+      page.inputScale = next.metrics?.scale ?? 1
+    }
+    let reloading = false
+    try {
+      await applyEmulation(
+        {
+          send: (method, params) => contents.debugger.sendCommand(method, params),
+          reload: () =>
+            new Promise<void>((resolve, reject) => {
+              reloading = true
+              const done = () => {
+                contents.off('did-stop-loading', done)
+                resolve()
+              }
+              contents.on('did-stop-loading', done)
+              AbortSignal.timeout(timing.reloadMs ?? 15_000).addEventListener('abort', () => {
+                contents.off('did-stop-loading', done)
+                reject(
+                  new Error(
+                    'The page didn’t finish loading at its new size; take a snapshot to check it',
+                  ),
+                )
+              })
+              contents.reload()
+            }),
+          loaded: () => !['', 'about:blank'].includes(contents.getURL()),
+        },
+        page.emulation,
+        next,
+        page.originalAgent,
+      )
+    } catch (error) {
+      if (reloading) settle()
+      throw error
+    }
+    settle()
   }
   let activeTask: string | undefined
   let shown: string | undefined

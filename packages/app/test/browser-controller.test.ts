@@ -917,3 +917,35 @@ test('a phone-sized screenshot that the page can’t draw fails instead of retur
     'Couldn’t capture the page at its preview size; open its preview and try again',
   )
 })
+
+test('a size change whose reload never finishes reports an error instead of success', async () => {
+  const transport = bridge()
+  const window = {
+    isDestroyed: () => false,
+    getContentBounds: () => ({ x: 0, y: 0, width: 2000, height: 2000 }),
+    contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
+  }
+  const controller = createTaskBrowsers(
+    () => window as never,
+    () => transport.client,
+    vi.fn(),
+    electron,
+    { reloadMs: 10 },
+  )
+  controllers.push(controller)
+  await transport.send('open', 'one', 'open')
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(1))
+  const contents = mocks.views[0]?.webContents
+  if (!contents) throw new Error('Missing browser contents')
+  contents.reload.mockImplementationOnce(() => {})
+  await transport.send('size', 'one', 'size', { value: 'mobile' })
+  await vi.waitFor(() => expect(transport.replies).toHaveLength(2))
+  expect(transport.replies[1]?.error).toBe(
+    'The page didn’t finish loading at its new size; take a snapshot to check it',
+  )
+  expect(contents.listenerCount('did-stop-loading')).toBe(0)
+  expect(await controller.state('one')).toMatchObject({ size: 'mobile' })
+  await controller.present('one', { x: 0, y: 0, width: 390, height: 844 }, 1)
+  expect(window.contentView.addChildView).toHaveBeenCalled()
+  expect(contents.reload).toHaveBeenCalledOnce()
+})
