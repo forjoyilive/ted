@@ -262,6 +262,7 @@ describe('button heights', () => {
       ['settings/settings.module.css', 'button', regular],
       ['views/DataScreen.module.css', 'primary', regular],
       ['components/TaskActions.module.css', 'more', small],
+      ['components/AgentChat.module.css', 'more', regular],
       ['components/DiffViews.module.css', 'step', small],
       ['views/Board.module.css', 'start', small],
       ['components/RequestJumpBar.module.css', 'jump', small],

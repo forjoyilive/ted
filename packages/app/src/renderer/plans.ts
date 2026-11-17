@@ -53,12 +53,12 @@ export function planStatusChip(plan: Pick<Plan, 'status' | 'queuePlace' | 'pause
 
 export function planStartedLine(plan: Pick<Plan, 'status' | 'createdAt' | 'finishedAt'>): string {
   if (plan.status === 'finished' && plan.finishedAt !== undefined) {
-    return `Planning chat · finished ${when(plan.finishedAt)}`
+    return `Finished ${when(plan.finishedAt)}`
   }
   if (plan.status === 'stopped' && plan.finishedAt !== undefined) {
-    return `Planning chat · stopped ${when(plan.finishedAt)}`
+    return `Stopped ${when(plan.finishedAt)}`
   }
-  return `Planning chat · started by you ${when(plan.createdAt)}`
+  return `Started ${when(plan.createdAt)}`
 }
 
 export function planGroups(plans: readonly Plan[]): { open: Plan[]; past: Plan[] } {

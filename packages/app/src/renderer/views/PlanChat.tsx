@@ -2,27 +2,27 @@ import type {
   AgentKind,
   AgentSummary,
   AnswerRequest,
-  ChatAgent,
   ChatRequest,
-  Coordinator,
   Effort,
   Factory,
   Plan,
   PlanDetail,
   PlanRequest,
+  RunSummary,
   TaskLead,
 } from '@ted/protocol'
 import { efforts } from '@ted/protocol/task'
 import { type ReactNode, useContext, useEffect, useRef, useState } from 'react'
+import { type ChatState, planChatState } from '../agent-chats.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
+import { builtInPlanner } from '../components/AgentAbout.tsx'
 import {
-  AgentAbout,
-  AgentCommands,
-  AgentPowers,
-  AgentSource,
-  builtInPlanner,
-  shownCommands,
-} from '../components/AgentAbout.tsx'
+  AgentChat,
+  AgentChatDetails,
+  type ChatControls,
+  DetailText,
+  ReadOnlyNote,
+} from '../components/AgentChat.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
 import column from '../components/ChatColumn.module.css'
@@ -32,17 +32,15 @@ import { Markdown } from '../components/Markdown.tsx'
 import { ModelSelect } from '../components/ModelSelect.tsx'
 import { ProposalAnswer, ProposalRows } from '../components/ProposalCard.tsx'
 import { QuestionChoices, type QuestionSelection } from '../components/QuestionChoices.tsx'
-import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { RoundAnswers, RoundQuestions } from '../components/RoundCard.tsx'
-import { type ChatExtra, RunChat, tokenCount } from '../components/RunChat.tsx'
-import { agentNames, RunIcon } from '../components/RunIcon.tsx'
+import { type ChatExtra, RunChat, runMeta, tokenAmount } from '../components/RunChat.tsx'
+import { agentNames } from '../components/RunIcon.tsx'
 import type { ScrollReveal } from '../components/ScrollMemory.tsx'
 import { Select } from '../components/Select.tsx'
-import { StatusChip } from '../components/StatusChip.tsx'
 import { statusLabel } from '../components/TaskStatus.tsx'
 import grow from '../components/TextGrow.module.css'
 import { sendOnEnter } from '../composer-keys.ts'
-import { usePlan, usePlanState, useRunChat } from '../data.ts'
+import { usePlan, usePlanState, useRunChatState } from '../data.ts'
 import { InboxRequestsContext } from '../inbox-requests.ts'
 import { useMessageDraft } from '../message-drafts.ts'
 import {
@@ -70,12 +68,9 @@ export function PlanChatView({
   from,
   switcher,
   agent,
-  onBack,
-  backLabel,
+  controls,
   onOpenPlan,
-  onPlanMore,
   onOpenTask,
-  onDeleted,
 }: {
   factory: Factory
   planId: string | undefined
@@ -83,12 +78,9 @@ export function PlanChatView({
   from?: string
   switcher?: ReactNode
   agent?: AgentSummary | undefined
-  onBack?: (() => void) | undefined
-  backLabel?: string
+  controls: (state: ChatState) => ChatControls
   onOpenPlan: (planId: string) => void
-  onPlanMore: (planId: string) => void
   onOpenTask: (ref: string) => void
-  onDeleted: () => void
 }) {
   if (planId === undefined) {
     return (
@@ -97,8 +89,6 @@ export function PlanChatView({
         {...(from !== undefined && { from })}
         switcher={switcher}
         agent={agent ?? builtInPlanner}
-        onBack={onBack}
-        backLabel={backLabel}
         onStarted={onOpenPlan}
         onOpenPlan={onOpenPlan}
       />
@@ -108,13 +98,11 @@ export function PlanChatView({
     <PlanChat
       key={planId}
       planId={planId}
+      factoryName={factory.name}
       revealRequest={revealRequest}
-      onBack={onBack}
-      {...(backLabel !== undefined && { backLabel })}
+      controls={controls}
       onOpenTask={onOpenTask}
       onOpenPlan={onOpenPlan}
-      onPlanMore={onPlanMore}
-      onDeleted={onDeleted}
     />
   )
 }
@@ -190,22 +178,11 @@ function leadLine(lead: TaskLead | undefined): string {
   return lead ? [agentNames[lead.agent], lead.model, lead.effort].filter(Boolean).join(' · ') : ''
 }
 
-function Back({ onBack, label }: { onBack: (() => void) | undefined; label?: string | undefined }) {
-  if (!onBack || label === undefined) return null
-  return (
-    <ActionButton type="button" className={styles.back} onClick={onBack}>
-      {label}
-    </ActionButton>
-  )
-}
-
 function NewPlanChat({
   factory,
   from,
   switcher,
   agent,
-  onBack,
-  backLabel,
   onStarted,
   onOpenPlan,
 }: {
@@ -213,8 +190,6 @@ function NewPlanChat({
   from?: string
   switcher?: ReactNode
   agent: AgentSummary
-  onBack?: (() => void) | undefined
-  backLabel?: string | undefined
   onStarted: (planId: string) => void
   onOpenPlan: (planId: string) => void
 }) {
@@ -277,7 +252,6 @@ function NewPlanChat({
     <>
       <section className={views.pane} aria-label="New planning chat">
         <header className={styles.header}>
-          <Back onBack={onBack} label={backLabel} />
           <div className={styles.titleRow}>
             <h1 className={`${styles.title} ${styles.placeholderTitle}`}>
               {switcher ? 'New chat' : 'New planning chat'}
@@ -333,358 +307,24 @@ function NewPlanChat({
           </div>
         </div>
       </section>
-      <DetailsPane className={views.detailsPane} aria-label="Planning chat details">
-        <AgentSections agent={agent} provider={leadLine(lead)} />
-        <Section title="Started from">
-          {earlier ? (
+      <AgentChatDetails
+        label="Planning chat details"
+        agent={agent}
+        factoryId={factory.id}
+        provider={leadLine(lead)}
+        startedFrom={
+          earlier ? (
             <FromPlan
               plan={{ fromPlan: { id: earlier.id, title: earlier.title } }}
               onOpenPlan={onOpenPlan}
             />
           ) : (
-            <p className={styles.paneText}>Plan, by you</p>
-          )}
-        </Section>
-        <Section title="Proposed Tasks">
-          <p className={styles.paneMuted}>None yet.</p>
-        </Section>
-      </DetailsPane>
-    </>
-  )
-}
-
-function AgentSections({ agent, provider }: { agent: AgentSummary | ChatAgent; provider: string }) {
-  return (
-    <>
-      <Section title="Agent">
-        <AgentAbout
-          agent={agent}
-          provider={provider}
-          removed={'removed' in agent && agent.removed}
-        />
-      </Section>
-      <Section title="Powers">
-        <AgentPowers powers={agent.powers} />
-      </Section>
-      {shownCommands(agent).length > 0 && (
-        <Section title="Commands">
-          <AgentCommands commands={shownCommands(agent)} />
-        </Section>
-      )}
-      <Section title="From">
-        <AgentSource source={agent.source} />
-      </Section>
-    </>
-  )
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className={styles.paneSection} aria-label={title}>
-      <h2 className={styles.paneHeading}>{title}</h2>
-      {children}
-    </section>
-  )
-}
-
-export function TitleEditor({
-  current,
-  renameSignal = 0,
-  onRename,
-}: {
-  current: string
-  renameSignal?: number
-  onRename: (title: string) => Promise<Coordinator | Plan>
-}) {
-  const [editing, setEditing] = useState(false)
-  const [value, setValue] = useState(current)
-  const [error, setError] = useState<string>()
-  const input = useRef<HTMLInputElement>(null)
-  const title = useRef(current)
-  title.current = current
-
-  useEffect(() => {
-    if (renameSignal === 0) return
-    setValue(title.current)
-    setEditing(true)
-  }, [renameSignal])
-
-  useEffect(() => {
-    if (editing) input.current?.select()
-  }, [editing])
-
-  async function save() {
-    const title = value.trim()
-    if (title === '' || title === current) {
-      setEditing(false)
-      setValue(current)
-      return
-    }
-    try {
-      await onRename(title)
-      setEditing(false)
-      setError(undefined)
-    } catch (failed) {
-      setError(readableError(failed))
-    }
-  }
-
-  if (!editing) {
-    return (
-      <h1 className={styles.title}>
-        <ActionButton
-          type="button"
-          className={styles.titleButton}
-          title="Rename"
-          onClick={() => {
-            setValue(current)
-            setEditing(true)
-          }}
-        >
-          {current}
-        </ActionButton>
-      </h1>
-    )
-  }
-  return (
-    <span className={styles.titleEdit}>
-      <input
-        ref={input}
-        className={styles.titleInput}
-        aria-label="Title"
-        data-arrows
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-        onBlur={() => save()}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter') save()
-          if (event.key === 'Escape') {
-            setEditing(false)
-            setValue(current)
-          }
-        }}
+            <DetailText>Plan, by you</DetailText>
+          )
+        }
+        tasks={{ title: 'Proposed Tasks', body: <DetailText muted>None yet.</DetailText> }}
       />
-      {error !== undefined && (
-        <span className={styles.error} role="alert">
-          {error}
-        </span>
-      )}
-    </span>
-  )
-}
-
-function MoreMenu({
-  plan,
-  onRename,
-  onArchive,
-  onPlanMore,
-  onDeleted,
-}: {
-  plan: Plan
-  onRename: () => void
-  onArchive?: () => void
-  onPlanMore: (planId: string) => void
-  onDeleted: () => void
-}) {
-  const [open, setOpen] = useState(false)
-  const [confirming, setConfirming] = useState(false)
-  const [error, setError] = useState<string>()
-
-  async function remove() {
-    try {
-      await ted.deletePlan(plan.id)
-      onDeleted()
-    } catch (failed) {
-      setError(readableError(failed))
-    }
-  }
-
-  return (
-    <span className={styles.more}>
-      <Button aria-label="More" aria-expanded={open} onClick={() => setOpen(!open)}>
-        ⋯
-      </Button>
-      {open && !confirming && (
-        <div className={styles.menu} role="menu">
-          <ActionButton
-            type="button"
-            role="menuitem"
-            className={styles.menuItem}
-            onClick={() => {
-              setOpen(false)
-              return onRename()
-            }}
-          >
-            Rename…
-          </ActionButton>
-          {planEnded(plan) && (
-            <ActionButton
-              type="button"
-              role="menuitem"
-              className={styles.menuItem}
-              onClick={() => {
-                setOpen(false)
-                onPlanMore(plan.id)
-              }}
-            >
-              Plan more from here…
-            </ActionButton>
-          )}
-          {onArchive && (
-            <ActionButton
-              type="button"
-              role="menuitem"
-              className={styles.menuItem}
-              onClick={() => {
-                setOpen(false)
-                onArchive()
-              }}
-            >
-              Archive
-            </ActionButton>
-          )}
-          <ActionButton
-            type="button"
-            role="menuitem"
-            className={`${styles.menuItem} ${styles.danger}`}
-            onClick={() => setConfirming(true)}
-          >
-            Delete…
-          </ActionButton>
-        </div>
-      )}
-      {open && confirming && (
-        <div className={styles.menu} role="alertdialog" aria-label="Delete this planning chat?">
-          <p className={styles.confirmText}>
-            {planEnded(plan)
-              ? 'Delete this planning chat and its conversation? Tasks it created stay.'
-              : 'Stop the planner and delete this chat and its conversation? Tasks it created stay.'}
-          </p>
-          {error !== undefined && (
-            <p className={styles.error} role="alert">
-              {error}
-            </p>
-          )}
-          <div className={styles.confirmButtons}>
-            <Button
-              onClick={() => {
-                setConfirming(false)
-                setOpen(false)
-              }}
-            >
-              Cancel
-            </Button>
-            <Button variant="danger" onClick={() => remove()}>
-              Delete
-            </Button>
-          </div>
-        </div>
-      )}
-    </span>
-  )
-}
-
-function StartedLine({ plan, onOpenTask }: { plan: Plan; onOpenTask: (ref: string) => void }) {
-  const from = plan.fromTask
-  if (!from || planEnded(plan)) return <>{planStartedLine(plan)}</>
-  return (
-    <>
-      {'Planning chat · started from '}
-      {from.gone === 'deleted' ? (
-        from.displayId
-      ) : (
-        <ActionButton type="button" className={styles.link} onClick={() => onOpenTask(from.id)}>
-          {from.displayId}
-        </ActionButton>
-      )}
-      {` ${when(plan.createdAt)}`}
     </>
-  )
-}
-
-function PlanHeader({
-  plan,
-  onBack,
-  backLabel,
-  onPlanMore,
-  onDeleted,
-  onOpenTask,
-}: {
-  plan: Plan
-  onBack?: (() => void) | undefined
-  backLabel?: string
-  onPlanMore: (planId: string) => void
-  onDeleted: () => void
-  onOpenTask: (ref: string) => void
-}) {
-  const [stopping, setStopping] = useState(false)
-  const [error, setError] = useState<string>()
-  const [renameSignal, setRenameSignal] = useState(0)
-  const archived = plan.archivedAt !== undefined
-  const chip = archived ? { tone: 'neutral' as const, label: 'Archived' } : planStatusChip(plan)
-  const ended = planEnded(plan)
-
-  async function act(action: () => Promise<Plan>) {
-    setStopping(true)
-    setError(undefined)
-    try {
-      await action()
-    } catch (failed) {
-      setError(readableError(failed))
-    } finally {
-      setStopping(false)
-    }
-  }
-
-  return (
-    <header className={styles.header}>
-      <Back onBack={onBack} {...(backLabel !== undefined && { label: backLabel })} />
-      <div className={styles.titleRow}>
-        <TitleEditor
-          current={plan.title}
-          renameSignal={renameSignal}
-          onRename={(title) => ted.renamePlan(plan.id, title)}
-        />
-        <StatusChip tone={chip.tone} {...(chip.glyph && { glyph: chip.glyph })}>
-          {chip.label}
-        </StatusChip>
-        <span className={styles.spacer} />
-        <RunIcon
-          agent={plan.agent}
-          state={
-            plan.status === 'working' || plan.status === 'waiting' || plan.status === 'paused'
-              ? plan.status
-              : plan.status === 'failed'
-                ? 'failed'
-                : 'idle'
-          }
-        />
-        <span className={styles.leadText}>
-          {[agentLabels[plan.agent], plan.model, plan.effort].filter(Boolean).join(' · ')}
-        </span>
-        {!ended && (
-          <Button disabled={stopping} onClick={() => act(() => ted.stopPlan(plan.id))}>
-            Stop
-          </Button>
-        )}
-        <MoreMenu
-          plan={plan}
-          onRename={() => setRenameSignal((n) => n + 1)}
-          {...(!archived && { onArchive: () => act(() => ted.archivePlan(plan.id)) })}
-          onPlanMore={onPlanMore}
-          onDeleted={onDeleted}
-        />
-      </div>
-      <p className={styles.startedLine}>
-        <StartedLine plan={plan} onOpenTask={onOpenTask} />
-        {plan.status === 'failed' && plan.error !== undefined && ` · ${plan.error}`}
-      </p>
-      {error !== undefined && (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      )}
-    </header>
   )
 }
 
@@ -1065,85 +705,25 @@ function extraItems(detail: PlanDetail, onOpenTask: (ref: string) => void): Chat
   return extra
 }
 
-function EndedBar({ plan, onPlanMore }: { plan: Plan; onPlanMore: (planId: string) => void }) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string>()
-  async function act(action: () => Promise<Plan>) {
-    setBusy(true)
-    setError(undefined)
-    try {
-      await action()
-    } catch (failed) {
-      setError(readableError(failed))
-    } finally {
-      setBusy(false)
-    }
-  }
-  const failed = plan.status === 'failed'
-  const archived = plan.archivedAt !== undefined
-  const line = archived
-    ? 'This chat is archived. Unarchive it to write to it again.'
-    : failed
-      ? 'This planning chat failed. Retry resumes the planner where it stopped.'
-      : plan.status === 'stopped'
-        ? 'This planning chat stopped. Resume carries on where it left off.'
-        : 'This planning chat finished. Write to it to carry on, or archive it.'
-  return (
-    <div className={`${styles.endedBar} ${styles.endedRow}`}>
-      <span className={styles.spacer}>{line}</span>
-      {error !== undefined && (
-        <span className={styles.error} role="alert">
-          {error}
-        </span>
-      )}
-      {archived ? (
-        <>
-          <Button onClick={() => onPlanMore(plan.id)}>Plan more from here…</Button>
-          <Button
-            variant="primary"
-            disabled={busy}
-            onClick={() => act(() => ted.unarchivePlan(plan.id))}
-          >
-            Unarchive
-          </Button>
-        </>
-      ) : (
-        plan.status !== 'finished' && (
-          <Button
-            variant="primary"
-            disabled={busy}
-            onClick={() => act(() => ted.resumePlan(plan.id))}
-          >
-            {failed ? 'Retry' : 'Resume'}
-          </Button>
-        )
-      )}
-    </div>
-  )
-}
-
 function PlanChat({
   planId,
+  factoryName,
   revealRequest,
-  onBack,
-  backLabel,
+  controls,
   onOpenTask,
   onOpenPlan,
-  onPlanMore,
-  onDeleted,
 }: {
   planId: string
+  factoryName: string
   revealRequest?: ScrollReveal | undefined
-  onBack?: (() => void) | undefined
-  backLabel?: string
+  controls: (state: ChatState) => ChatControls
   onOpenTask: (ref: string) => void
   onOpenPlan: (planId: string) => void
-  onPlanMore: (planId: string) => void
-  onDeleted: () => void
 }) {
   const inbox = useContext(InboxRequestsContext)
   const resource = usePlanState(planId)
   const detail = resource.value
+  const run = useRunChatState(detail?.plan.runId).value?.run
   if (!detail) {
     return (
       <section className={views.pane} aria-label="Planning chat">
@@ -1161,53 +741,83 @@ function PlanChat({
   const requests = detail.requests.filter((request) => !inbox?.resolved.has(request.id))
   const open = requests.filter((request) => request.kind !== 'note' && request.answer === undefined)
   const ended = planEnded(plan)
+  const state = planChatState(plan)
+  const readOnly = (
+    <ReadOnlyNote>
+      {state.archived
+        ? 'Read only. Unarchive this chat to send a message.'
+        : 'Read only. Plan more from here to carry on.'}
+    </ReadOnlyNote>
+  )
   return (
-    <>
-      <section className={views.pane} aria-label="Planning chat">
-        <PlanHeader
-          plan={plan}
-          {...(backLabel !== undefined && { backLabel })}
-          onBack={onBack}
-          onPlanMore={onPlanMore}
-          onDeleted={onDeleted}
+    <AgentChat
+      label="Planning chat"
+      title={plan.title}
+      onRename={(title) => ted.renamePlan(plan.id, title)}
+      chip={state.archived ? { tone: 'neutral', label: 'Archived' } : planStatusChip(plan)}
+      meta={
+        <>
+          {`${factoryName} · `}
+          <StartedLine plan={plan} onOpenTask={onOpenTask} />
+          {run && ` · ${runMeta(run)}`}
+        </>
+      }
+      alert={plan.status === 'failed' ? plan.error : undefined}
+      banner={endedLine(plan)}
+      controls={controls(state)}
+      details={
+        <PlanPane
+          detail={{ ...detail, requests }}
+          run={run}
           onOpenTask={onOpenTask}
+          onOpenPlan={onOpenPlan}
         />
-        {plan.runId !== undefined ? (
-          <RunChat
-            runId={plan.runId}
-            bar={false}
-            extra={extraItems({ ...detail, requests }, onOpenTask)}
-            requests={open.map((request) => ({
-              id: request.id,
-              label: requestHeading(request).kind,
-              title: request.title ?? request.body,
-            }))}
-            revealRequest={revealRequest}
-            onJumpRequest={(id) => inbox?.select(id)}
-            placeholder="Message the planner…"
-            help="Goes to the planner. While a round is open, this talks it through."
-            {...(ended &&
+      }
+    >
+      {plan.runId !== undefined ? (
+        <RunChat
+          runId={plan.runId}
+          bar={false}
+          extra={extraItems({ ...detail, requests }, onOpenTask)}
+          requests={open.map((request) => ({
+            id: request.id,
+            label: requestHeading(request).kind,
+            title: request.title ?? request.body,
+          }))}
+          revealRequest={revealRequest}
+          onJumpRequest={(id) => inbox?.select(id)}
+          placeholder="Message the planner…"
+          help="Goes to the planner. While a round is open, this talks it through."
+          {...(state.archived
+            ? { readOnly }
+            : ended &&
               (plan.canResume
                 ? {
-                    pinned: <EndedBar plan={plan} onPlanMore={onPlanMore} />,
                     live: true,
                     working: false,
                     interrupt: false,
                     help: 'Sending resumes the planner and gives it your message.',
                     send: (text: string) => ted.resumePlan(plan.id, { message: text }),
                   }
-                : { readOnly: <EndedBar plan={plan} onPlanMore={onPlanMore} /> }))}
-          />
-        ) : (
-          <>
-            <QueuedChat plan={plan} />
-            {ended && <EndedBar plan={plan} onPlanMore={onPlanMore} />}
-          </>
-        )}
-      </section>
-      <PlanPane detail={{ ...detail, requests }} onOpenTask={onOpenTask} onOpenPlan={onOpenPlan} />
-    </>
+                : { readOnly }))}
+        />
+      ) : (
+        <QueuedChat plan={plan} />
+      )}
+    </AgentChat>
   )
+}
+
+function endedLine(plan: Plan): string | undefined {
+  if (plan.archivedAt !== undefined)
+    return 'This chat is archived. Unarchive it to write to it again.'
+  if (plan.status === 'failed')
+    return 'This planning chat failed. Retry resumes the planner where it stopped.'
+  if (plan.status === 'stopped')
+    return 'This planning chat stopped. Resume carries on where it left off.'
+  if (plan.status === 'finished')
+    return 'This planning chat finished. Write to it to carry on, or archive it.'
+  return undefined
 }
 
 function QueuedChat({ plan }: { plan: Plan }) {
@@ -1232,10 +842,12 @@ function QueuedChat({ plan }: { plan: Plan }) {
 
 function PlanPane({
   detail,
+  run,
   onOpenTask,
   onOpenPlan,
 }: {
   detail: PlanDetail
+  run: RunSummary | undefined
   onOpenTask: (ref: string) => void
   onOpenPlan: (planId: string) => void
 }) {
@@ -1243,59 +855,113 @@ function PlanPane({
   const proposal = requests.findLast((r) => r.kind === 'proposal')
   const stages = useStages()
   return (
-    <DetailsPane className={views.detailsPane} aria-label="Planning chat details">
-      <AgentSections agent={plan.chatAgent} provider={leadLine(plan)} />
-      <Section title="Started from">
-        {plan.fromPlan ? (
+    <AgentChatDetails
+      label="Planning chat details"
+      agent={plan.chatAgent}
+      removed={plan.chatAgent.removed}
+      factoryId={plan.factoryId}
+      provider={leadLine(plan)}
+      startedFrom={
+        plan.fromPlan ? (
           <FromPlan plan={plan} onOpenPlan={onOpenPlan} />
         ) : (
           <StartedFrom plan={plan} onOpenTask={onOpenTask} />
-        )}
-      </Section>
-      {tasks.length > 0 ? (
-        <Section title={`Created Tasks · ${tasks.length}`}>
-          <ul className={styles.paneList}>
-            {tasks.map((task) => (
-              <li key={task.id}>
-                <ActionButton
-                  type="button"
-                  className={styles.paneTask}
-                  onClick={() => onOpenTask(task.id)}
-                >
-                  <span className={styles.paneId}>{task.displayId}</span>
-                  {task.title}
-                </ActionButton>
-                <span className={styles.paneMuted}>
-                  {[
-                    stages.name(task.stage, plan.factoryId),
-                    ...(task.blockedBy.length > 0
-                      ? [`Blocked by ${task.blockedBy.join(', ')}`]
-                      : []),
-                  ].join(' · ')}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Section>
+        )
+      }
+      tasks={
+        tasks.length > 0
+          ? {
+              title: `Created Tasks · ${tasks.length}`,
+              body: (
+                <ul className={styles.paneList}>
+                  {tasks.map((task) => (
+                    <li key={task.id}>
+                      <ActionButton
+                        type="button"
+                        className={styles.paneTask}
+                        onClick={() => onOpenTask(task.id)}
+                      >
+                        <span className={styles.paneId}>{task.displayId}</span>
+                        {task.title}
+                      </ActionButton>
+                      <span className={styles.paneMuted}>
+                        {[
+                          stages.name(task.stage, plan.factoryId),
+                          ...(task.blockedBy.length > 0
+                            ? [`Blocked by ${task.blockedBy.join(', ')}`]
+                            : []),
+                        ].join(' · ')}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              ),
+            }
+          : {
+              title: 'Proposed Tasks',
+              body: proposal?.proposal ? (
+                <ol className={styles.paneList}>
+                  {proposal.proposal.rows.map((row, i) => (
+                    <li key={`${row.title}-${row.scope}`} className={styles.paneText}>
+                      {`${i + 1}. ${row.title}`}
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <DetailText muted>
+                  {planEnded(plan)
+                    ? 'None.'
+                    : 'None yet. The planner proposes Tasks after the rounds.'}
+                </DetailText>
+              ),
+            }
+      }
+      run={
+        plan.runId === undefined
+          ? undefined
+          : {
+              agent: plan.agent,
+              state:
+                run?.state === 'working' || run?.state === 'waiting'
+                  ? run.state
+                  : plan.status === 'failed'
+                    ? 'failed'
+                    : 'idle',
+              name: 'Planner',
+              line: [
+                agentLabels[plan.agent],
+                run?.model ?? plan.model,
+                run?.effort ?? plan.effort,
+                run?.state,
+              ]
+                .filter(Boolean)
+                .join(' · '),
+            }
+      }
+      tokens={
+        run?.tokens === undefined
+          ? undefined
+          : [run.credential, tokenAmount(run.tokens)].filter(Boolean).join(' · ')
+      }
+    />
+  )
+}
+
+function StartedLine({ plan, onOpenTask }: { plan: Plan; onOpenTask: (ref: string) => void }) {
+  const from = plan.fromTask
+  if (!from || planEnded(plan)) return <>{planStartedLine(plan)}</>
+  return (
+    <>
+      {'Started from '}
+      {from.gone === 'deleted' ? (
+        from.displayId
       ) : (
-        <Section title="Proposed Tasks">
-          {proposal?.proposal ? (
-            <ol className={styles.paneList}>
-              {proposal.proposal.rows.map((row, i) => (
-                <li key={`${row.title}-${row.scope}`} className={styles.paneText}>
-                  {`${i + 1}. ${row.title}`}
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className={styles.paneMuted}>
-              {planEnded(plan) ? 'None.' : 'None yet. The planner proposes Tasks after the rounds.'}
-            </p>
-          )}
-        </Section>
+        <ActionButton type="button" className={styles.link} onClick={() => onOpenTask(from.id)}>
+          {from.displayId}
+        </ActionButton>
       )}
-      {plan.runId !== undefined && <RunsSection plan={plan} runId={plan.runId} />}
-    </DetailsPane>
+      {` ${when(plan.createdAt)}`}
+    </>
   )
 }
 
@@ -1331,48 +997,5 @@ function StartedFrom({ plan, onOpenTask }: { plan: Plan; onOpenTask: (ref: strin
       )}
       {state.length > 0 && <span className={styles.paneMuted}>{state.join(' · ')}</span>}
     </div>
-  )
-}
-
-function RunsSection({ plan, runId }: { plan: Plan; runId: string }) {
-  const chat = useRunChat(runId)
-  const run = chat?.run
-  return (
-    <>
-      <Section title="Runs">
-        <div className={styles.paneRun}>
-          <RunIcon
-            agent={plan.agent}
-            state={
-              run?.state === 'working' || run?.state === 'waiting'
-                ? run.state
-                : plan.status === 'failed'
-                  ? 'failed'
-                  : 'idle'
-            }
-          />
-          <span className={styles.paneRunText}>
-            <span className={styles.paneText}>Planner</span>
-            <span className={styles.paneMuted}>
-              {[
-                agentLabels[plan.agent],
-                run?.model ?? plan.model,
-                run?.effort ?? plan.effort,
-                run?.state,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
-            </span>
-          </span>
-        </div>
-      </Section>
-      {run?.tokens !== undefined && (
-        <Section title="Tokens">
-          <p className={styles.paneText}>
-            {[run.credential, tokenCount(run.tokens)].filter(Boolean).join(' · ')}
-          </p>
-        </Section>
-      )}
-    </>
   )
 }

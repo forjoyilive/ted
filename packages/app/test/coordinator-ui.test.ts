@@ -81,7 +81,7 @@ test('Coordinator opens from the sidebar, lists a repo Agent with its powers and
       .getByRole('listitem')
       .allTextContents(),
   ).toEqual(['Ask the user', 'Read the code'])
-  await triagerDetails.getByRole('region', { name: 'From' }).getByText('This repo').waitFor()
+  await triagerDetails.getByRole('region', { name: 'Agent' }).getByText('This repo').waitFor()
   await triager.getByRole('combobox', { name: 'Agent' }).selectOption('coordinator')
   const input = pane.getByRole('textbox', { name: 'Message to the Coordinator' })
   await input.fill(

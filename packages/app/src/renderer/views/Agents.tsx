@@ -4,6 +4,10 @@ import {
   type AgentChatRef,
   type AgentChatRow,
   agentChatRows,
+  type ChatActionKind,
+  type ChatState,
+  chatActionLabel,
+  chatActions,
   groupedRows,
   pickChat,
   sameChat,
@@ -12,10 +16,16 @@ import {
 } from '../agent-chats.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
 import { builtInCoordinator, builtInPlanner } from '../components/AgentAbout.tsx'
+import type { ChatControls } from '../components/AgentChat.tsx'
 import dialogs from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
-import { contextMenu, type MenuPosition, useActionMenu } from '../components/ContextMenu.tsx'
+import {
+  contextMenu,
+  type MenuAction,
+  type MenuPosition,
+  useActionMenu,
+} from '../components/ContextMenu.tsx'
 import type { ScrollReveal } from '../components/ScrollMemory.tsx'
 import { Select } from '../components/Select.tsx'
 import { StatusChip } from '../components/StatusChip.tsx'
@@ -133,6 +143,52 @@ export function AgentsView({
     const row = rowOf(ref)
     if (row) setDeleting(row)
   }
+  const [renaming, setRenaming] = useState<{ ref: AgentChatRef; signal: number }>()
+  const openKey = openRef && `${openRef.agent}:${openRef.id}`
+  useEffect(() => {
+    setRenaming((current) =>
+      current && `${current.ref.agent}:${current.ref.id}` !== openKey ? undefined : current,
+    )
+  }, [openKey])
+  const perform = (ref: AgentChatRef, kind: ChatActionKind) => {
+    const coordinator = ref.agent === 'coordinator'
+    switch (kind) {
+      case 'stop':
+        return void act(() => (coordinator ? ted.stopCoordinator(ref.id) : ted.stopPlan(ref.id)))
+      case 'restart':
+        return void act(() => (coordinator ? ted.retryCoordinator(ref.id) : ted.resumePlan(ref.id)))
+      case 'rename':
+        if (!sameChat(openRef, ref)) onOpenChat(ref)
+        setRenaming((current) => ({ ref, signal: (current?.signal ?? 0) + 1 }))
+        return
+      case 'plan-more':
+        return onPlanMore(ref.id)
+      case 'archive':
+        return void archive(ref)
+      case 'unarchive':
+        return void unarchive(ref)
+      case 'delete':
+        return askDelete(ref)
+    }
+  }
+  const menuItems = (state: ChatState): MenuAction[] =>
+    chatActions(state).map(({ kind, divider }) => ({
+      label: chatActionLabel(kind, state),
+      divider,
+      ...(kind === 'delete' && { danger: true }),
+      disabled: busy,
+      action: () => perform(state.ref, kind),
+    }))
+  const openMenu = (at: MenuPosition, state: ChatState) =>
+    rowMenu.open(at, state.archived ? 'Archived chat' : 'Chat', menuItems(state))
+  const controls = (state: ChatState): ChatControls => ({
+    state,
+    busy,
+    error,
+    renameSignal: renaming && sameChat(renaming.ref, state.ref) ? renaming.signal : 0,
+    perform: (kind) => perform(state.ref, kind),
+    openMenu: (at) => openMenu(at, state),
+  })
   const { open: openRows, archived: archivedRows } = splitArchived(rows)
   const openArchived = archivedRows.some((r) => sameChat(r.ref, openRef))
   useEffect(() => {
@@ -142,26 +198,13 @@ export function AgentsView({
 
   const rowFor = (row: AgentChatRow) => {
     const ref = row.ref
-    const archived = row.archivedAt !== undefined
     return (
       <ChatRow
         key={`${ref.agent}:${ref.id}`}
         row={row}
         current={openRef?.agent === ref.agent && openRef.id === ref.id}
         onOpen={() => onOpenChat(ref)}
-        onMenu={(at: MenuPosition) =>
-          rowMenu.open(at, archived ? 'Archived chat' : 'Chat', [
-            archived
-              ? { label: 'Unarchive', disabled: busy, action: () => void unarchive(ref) }
-              : { label: 'Archive', disabled: busy, action: () => void archive(ref) },
-            {
-              label: 'Delete…',
-              danger: true,
-              disabled: busy,
-              action: () => setDeleting(row),
-            },
-          ])
-        }
+        onMenu={(at: MenuPosition) => openMenu(at, row.state)}
       />
     )
   }
@@ -283,10 +326,9 @@ export function AgentsView({
         agent={planner}
         {...(id === undefined &&
           planFrom === undefined && { switcher: switcher(planner ?? builtInPlanner) })}
+        controls={controls}
         onOpenPlan={(opened) => onOpenChat({ agent: 'planner', id: opened })}
-        onPlanMore={onPlanMore}
         onOpenTask={onOpenTask}
-        onDeleted={startPage}
       />
     )
   } else {
@@ -296,13 +338,9 @@ export function AgentsView({
         key={id}
         chatId={id}
         factoryName={factory.name}
-        busy={busy}
-        error={error}
+        controls={controls}
         onOpenTask={onOpenTask}
         onOpenAutomation={onOpenAutomation}
-        onArchive={() => void archive({ agent: 'coordinator', id })}
-        onUnarchive={() => void unarchive({ agent: 'coordinator', id })}
-        onDelete={() => askDelete({ agent: 'coordinator', id })}
       />
     )
   }

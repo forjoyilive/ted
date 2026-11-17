@@ -399,11 +399,16 @@ test('Planning requests stay inline and keep drafts while the chat updates', asy
       factory={factory()}
       planId="p1"
       revealRequest={{ id: 'proposal1' }}
-      onBack={vi.fn()}
+      controls={(state) => ({
+        state,
+        busy: false,
+        error: undefined,
+        renameSignal: 0,
+        perform: vi.fn(),
+        openMenu: vi.fn(),
+      })}
       onOpenTask={vi.fn()}
       onOpenPlan={vi.fn()}
-      onPlanMore={vi.fn()}
-      onDeleted={vi.fn()}
     />,
   )
   const round = await screen.findByRole('region', { name: 'Round 1 from the planner' })

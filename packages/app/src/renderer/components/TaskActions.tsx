@@ -50,7 +50,7 @@ import styles from './TaskActions.module.css'
 
 export const pickBlockerEvent = 'ted:pick-blocker'
 
-function MoreIcon() {
+export function MoreIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden>
       <circle cx="3" cy="7" r="1.2" fill="currentColor" />

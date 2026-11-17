@@ -7,26 +7,8 @@
   border-bottom: 1px solid var(--border-default);
 }
 
-.back {
-  align-self: flex-start;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--text-secondary);
-  font: inherit;
-  font-size: var(--text-13);
-  cursor: pointer;
-}
-
-.back:hover {
-  color: var(--text-primary);
-}
-
-.back:focus-visible,
-.titleButton:focus-visible,
 .link:focus-visible,
-.paneTask:focus-visible,
-.menuItem:focus-visible {
+.paneTask:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
@@ -57,50 +39,6 @@
   color: var(--text-muted);
 }
 
-.titleButton {
-  max-width: 100%;
-  padding: 0;
-  overflow: hidden;
-  border: none;
-  background: none;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: text;
-}
-
-.titleEdit {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.titleInput {
-  padding: 2px 6px;
-  border: 1px solid var(--border-control);
-  border-radius: var(--radius-control);
-  background: var(--surface-card);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: var(--text-19);
-  font-weight: var(--weight-semibold);
-}
-
-.leadText {
-  color: var(--text-secondary);
-  font-size: var(--text-12-5);
-  white-space: nowrap;
-}
-
-.startedLine {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: var(--text-13);
-}
-
 .selects {
   display: flex;
   align-items: center;
@@ -109,60 +47,6 @@
 
 .selects select {
   width: auto;
-}
-
-.more {
-  position: relative;
-}
-
-.menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 10;
-  display: flex;
-  flex-direction: column;
-  min-width: 180px;
-  padding: 4px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-control);
-  background: var(--surface-raised);
-  box-shadow: var(--shadow-popover);
-}
-
-.menuItem {
-  padding: 6px 10px;
-  border: none;
-  border-radius: var(--radius-control);
-  background: none;
-  color: var(--text-primary);
-  font: inherit;
-  font-size: var(--text-13);
-  text-align: left;
-  cursor: pointer;
-}
-
-.menuItem:hover {
-  background: var(--surface-hover);
-}
-
-.danger {
-  color: var(--status-destructive-text);
-}
-
-.confirmText {
-  width: 260px;
-  margin: 6px 8px;
-  color: var(--text-primary);
-  font-size: var(--text-13);
-  line-height: var(--leading-body);
-}
-
-.confirmButtons {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 4px 8px 6px;
 }
 
 .intro {
@@ -380,21 +264,6 @@
   font-size: var(--text-12);
 }
 
-.endedBar {
-  flex-shrink: 0;
-  padding: 16px 22px;
-  border-top: 1px solid var(--border-subtle);
-  background: var(--surface-neutral);
-  color: var(--text-secondary);
-  font-size: var(--text-13);
-}
-
-.endedRow {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
 .queued {
   display: flex;
   flex: 1;
@@ -437,19 +306,6 @@
   font-size: var(--text-13);
 }
 
-.paneSection {
-  margin-bottom: 22px;
-}
-
-.paneHeading {
-  margin: 0 0 8px;
-  color: var(--text-caption);
-  font-size: var(--text-11-5);
-  font-weight: var(--weight-semibold);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
 .paneText {
   margin: 0;
   color: var(--text-primary);
@@ -489,17 +345,6 @@
 .paneId {
   margin-right: 6px;
   color: var(--accent-link);
-}
-
-.paneRun {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-}
-
-.paneRunText {
-  display: flex;
-  flex-direction: column;
 }
 
 .paneFrom {
