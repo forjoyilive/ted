@@ -397,9 +397,9 @@ describe('the shared usage reading', () => {
     const read = sharedUsage({
       now: () => clock,
       read: () => {
-        const next = results[reads] ?? (() => Promise.resolve(usage(reads)))
+        const index = reads
         reads += 1
-        return next()
+        return (results[index] ?? (() => Promise.resolve(usage(index))))()
       },
     })
     return {
