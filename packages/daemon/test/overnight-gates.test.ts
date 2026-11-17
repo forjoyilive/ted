@@ -25,6 +25,7 @@ import {
   ctx,
   getTask,
   lines,
+  mergeAdvance,
   merges,
   readGh,
   run,
@@ -61,7 +62,11 @@ async function begin(
 ): Promise<Task> {
   const task = await client.ok<Task>('POST', '/tasks', {
     title: JSON.stringify({
-      steps: [{ everyMessage: [{ endTurn: true }] }, step, { endTurn: true }],
+      steps: [
+        { everyMessage: [{ run: ['sh', '-c', mergeAdvance] }, { endTurn: true }] },
+        step,
+        { endTurn: true },
+      ],
     }),
     factory: 'NB',
     ...extra,
