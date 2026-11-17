@@ -135,9 +135,9 @@ export function ValidateRounds({
     <div className={styles.validateRounds}>
       <span className={styles.roundSetting} data-setting="factory.workflow.p1-only">
         Send back only for P1 Findings
-        <select
+        <Select
           aria-label="Validate sends back only for P1 Findings"
-          className={styles.cellSelect}
+          controlClassName={styles.cellSelect}
           value={from === false ? 'off' : String(from)}
           onChange={(event) =>
             onStage({
@@ -151,7 +151,7 @@ export function ValidateRounds({
               From round {round}
             </option>
           ))}
-        </select>
+        </Select>
         <Help>
           Off: every blocking Finding sends the Task back to Work. From a round: in that round of
           Validate and every later one, a new Finding sends it back only if it is P1. P1 means lost
