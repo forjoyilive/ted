@@ -34,6 +34,7 @@ import type {
   CoordinatorTaskList,
   CoordinatorTaskQuery,
   CoordinatorTaskSummary,
+  CoordinatorTransfer,
   OutsideCommandAllowance,
   OutsideCommandAnswer,
   PostChatRequest,
@@ -49,6 +50,7 @@ import {
   archiveChoice,
   isTrackerGroupAsk,
   maxOpenAutomationCards,
+  movePlanKey,
   planTitle,
   planTitleLength,
   priorities,
@@ -130,6 +132,7 @@ const manageTasksCommands = `- ted coordinator tasks [--stage <Stage>]… [--sta
 - ted coordinator parent <child-id> <parent-id|none> --operation <unique-id> --version <child-version> --hierarchy-revision <revision>: link, reparent or unlink a Task. Read the child first; use its hierarchy.revision. The same-Factory and safe-parent rules apply.
 - ted coordinator resume <id> --operation <unique-id> --version <version> [--message "<text>"]: resume a stopped or failed Task. It goes through the queue, so it starts when a slot is free.
 - ted coordinator archive|unarchive|delete <id>… --operation <unique-id> --versions <JSON mapping each Task ID to its version> [--children archive|detach (archive) or delete|unparent (delete)] [--close-pull-requests]: archive, unarchive or delete Tasks of this Factory, all named in one command. Use delete only when the human said “delete” and named the Tasks or a clear group; for anything else, archive, which can be undone. Unarchive and an archive with nothing to warn about happen at once and return receipts. Archiving or deleting a Task removes it from the Blocked by of the Tasks it blocks. A delete, or an archive of a Task with an open pull request, Tasks under it or a working Task Lead, returns a confirmation instead: TED shows the human a card in this chat and in their Inbox, and nothing changes until the human clicks Confirm. You cannot confirm it. Pick --children as the human asked, or as you’d recommend; the human can change them on the card. Add --close-pull-requests only when the human asked to close them. Tell the human what the card covers and end your turn; the receipts show the result, and you read the Tasks again before your next action.
+- ted coordinator transfer <id> --factory <Factory key or ID> --operation <unique-id> --version <version>: move a Task of this Factory, with the Tasks under it, to another Factory. Use it only when the human asked to move that Task there. It never happens at once: TED always shows the human a confirmation card in this chat and in their Inbox, with what the move will discard and restart, and nothing changes until the human clicks Confirm. You cannot confirm it. Tell the human what the card covers and end your turn; afterwards the Task has a new ID in the other Factory and you can no longer read or act on it.
 - ted coordinator done <id> --operation <unique-id> --version <version>: move a Task at Merge to Done once GitHub shows every pull request merged. TED reads GitHub itself and refuses while any pull request is not merged; it never merges anything.
 - ted coordinator create --operation <unique-id> [--description "<text>" | --description -] [--parent <id>] [--blocked-by <id>]… [--source <url>] [--priority <priority>] [--clarify-depth <none|few|grilling>] [--provider <provider> [--model <model>] [--effort <effort>]] [--after <id>] [--before <id>] [--neighbours <JSON mapping neighbour IDs to versions>] [--start] "<title>": create a Task in this Factory. It lands in Backlog; add --start only when the human asked for it to start. --description - reads the description from stdin. Parent, blockers and neighbours must be Tasks of this Factory, and a source TED already tracks is refused. The receipt names the new Task; one create makes one Task, so for several Tasks run it once per Task.`
 
@@ -295,6 +298,7 @@ export interface Coordinators {
     kind: CoordinatorRemovalKind,
     input: CoordinatorRemoval,
   ): Promise<CoordinatorRemovalResult>
+  transfer(caller: Caller, input: CoordinatorTransfer): Promise<CoordinatorRemovalResult>
   answerConfirmation(
     chatId: string,
     confirmationId: string,
@@ -1206,7 +1210,7 @@ export function createCoordinators(options: {
     )
   const confirmationFacts = (
     task: Task,
-    kind: 'archive' | 'delete',
+    kind: CoordinatorConfirmation['kind'],
     removed: ReadonlySet<string> = new Set([task.id]),
   ): Omit<CoordinatorConfirmationTask, 'id' | 'displayId' | 'title'> => {
     const all = store.listTasks().filter((t) => t.factoryId === task.factoryId)
@@ -1244,10 +1248,10 @@ export function createCoordinators(options: {
   function whatChanged(
     card: CoordinatorConfirmationTask,
     task: Task,
-    kind: 'archive' | 'delete',
+    kind: CoordinatorConfirmation['kind'],
     removed: ReadonlySet<string>,
   ): string | undefined {
-    if (kind === 'archive' && task.archived) return `${task.displayId} was archived`
+    if (kind !== 'delete' && task.archived) return `${task.displayId} was archived`
     const now = confirmationFacts(task, kind, removed)
     const changes = [
       ...(now.stage !== card.stage
@@ -1357,6 +1361,65 @@ export function createCoordinators(options: {
     save({ ...latest, receipts: latest.receipts.map((r) => (r.id === receipt.id ? receipt : r)) })
     await store.persisted()
     return { receipt, done, ...(refusal !== undefined && { refusal }) }
+  }
+  async function transferNow(
+    chatId: string,
+    factoryId: string,
+    asked: CoordinatorConfirmation,
+    card: CoordinatorConfirmationTask,
+  ): Promise<NonNullable<CoordinatorConfirmationTask['result']>> {
+    const plan = asked.transfer
+    const task = store.getTask(card.id)
+    const refused = (why: string) => ({
+      done: false,
+      text: `Not moved: ${why} after this card was shown. Ask the Coordinator again if you still want it moved.`,
+    })
+    if (!plan || !task || task.factoryId !== factoryId)
+      return refused(`${card.displayId} no longer exists here`)
+    const changed = whatChanged(card, task, 'transfer', new Set([task.id]))
+    if (changed) return refused(changed)
+    const receipt: CoordinatorReceipt = {
+      id: `${asked.operation}:${task.id}`,
+      operation: 'transfer',
+      taskId: task.id,
+      text: 'Action interrupted before its result was saved. Check the Task’s current state before deciding what to do next.',
+      at: new Date().toISOString(),
+      fingerprint: asked.fingerprint,
+      before: snapshot(task),
+    }
+    const opened = requireChat(chatId)
+    save({ ...opened, receipts: [...opened.receipts, receipt] })
+    await store.persisted()
+    let done = false
+    let shown = ''
+    try {
+      const { moved } = await tasks.moveToFactory(
+        task.id,
+        plan.factoryId,
+        'coordinator',
+        movePlanKey(plan),
+      )
+      const to = moved.find((m) => m.id === task.id)?.to ?? task.displayId
+      const under = moved.length - 1
+      const along =
+        under > 0 ? ` ${under === 1 ? 'The Task' : `The ${under} Tasks`} under it moved too.` : ''
+      receipt.text = redactSecrets(
+        `Moved ${task.displayId} to ${plan.factoryName} as ${to}.${along}`,
+      )
+      shown = redactSecrets(`Moved to ${plan.factoryName} as ${to}.${along}`)
+      done = true
+    } catch (error) {
+      receipt.text = redactSecrets(
+        `Couldn’t move ${task.displayId} to ${plan.factoryName}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      shown = receipt.text
+    }
+    const after = store.getTask(task.id)
+    if (after) receipt.after = snapshot(after)
+    const latest = requireChat(chatId)
+    save({ ...latest, receipts: latest.receipts.map((r) => (r.id === receipt.id ? receipt : r)) })
+    await store.persisted()
+    return { done, text: shown }
   }
   const requestChains = new Map<string, Promise<unknown>>()
   function oneRequest<T>(chatId: string, work: () => Promise<T>): Promise<T> {
@@ -2289,6 +2352,63 @@ export function createCoordinators(options: {
         return { receipts }
       })
     },
+    transfer(caller, input) {
+      const c = admit(caller)
+      return serial(c.factoryId, async () => {
+        const current = actor(caller)
+        const fingerprint = createHash('sha256')
+          .update(JSON.stringify(['transfer', input.task, input.factory]))
+          .digest('hex')
+        const prefix = `${input.operation}:`
+        const earlier = current.receipts.filter((r) => r.id.startsWith(prefix))
+        const asked = (current.confirmations ?? []).find((x) => x.operation === input.operation)
+        const used = asked?.fingerprint ?? earlier[0]?.fingerprint
+        if (used !== undefined) {
+          if (used !== fingerprint)
+            throw new RequestError(409, 'operation ID already used for another action')
+          return {
+            receipts: earlier,
+            ...(asked && { confirmation: { id: asked.id, waiting: asked.answer === undefined } }),
+          }
+        }
+        if (current.receipts.some((r) => r.id === input.operation))
+          throw new RequestError(409, 'operation ID already used for another action')
+        const task = target(current, input.task.id)
+        if (version(task) !== input.task.version)
+          throw new RequestError(
+            409,
+            `${task.displayId} changed; read its current state before deciding again`,
+          )
+        const factory =
+          store.getFactory(input.factory) ??
+          store.listFactories().find((f) => f.key === input.factory)
+        if (!factory) throw new RequestError(404, `no Factory ${input.factory}`)
+        if (factory.id === task.factoryId)
+          throw new RequestError(409, `${task.displayId} is already in ${factory.name}`)
+        const plan = await tasks.movePlan(task.id, factory.id)
+        if (plan.refusal !== undefined) throw new RequestError(409, plan.refusal)
+        const confirmation: CoordinatorConfirmation = {
+          id: randomUUID(),
+          kind: 'transfer',
+          transfer: plan,
+          operation: input.operation,
+          fingerprint,
+          askedAt: new Date().toISOString(),
+          tasks: [{ ...ref(task), ...confirmationFacts(task, 'transfer') }],
+        }
+        const kept = (current.confirmations ?? []).filter((x) => x.answer === undefined)
+        const answered = (current.confirmations ?? [])
+          .filter((x) => x.answer !== undefined)
+          .slice(-50)
+        save({
+          ...current,
+          confirmations: [...answered, ...kept, confirmation],
+          taskIds: [...new Set([...current.taskIds, task.id])].slice(-100),
+        })
+        await store.persisted()
+        return { receipts: [], confirmation: { id: confirmation.id, waiting: true } }
+      })
+    },
     answerConfirmation(chatId, id, answer) {
       const { factoryId } = requireChat(chatId)
       notChanging(chatId)
@@ -2297,9 +2417,16 @@ export function createCoordinators(options: {
         const asked = (c.confirmations ?? []).find((x) => x.id === id)
         if (!asked) throw new RequestError(404, 'no such confirmation')
         if (asked.answer) throw new RequestError(409, 'This confirmation was already answered')
-        const allowed = asked.kind === 'archive' ? ['archive', 'detach'] : ['delete', 'unparent']
+        const allowed =
+          asked.kind === 'archive'
+            ? ['archive', 'detach']
+            : asked.kind === 'delete'
+              ? ['delete', 'unparent']
+              : []
         const cards = asked.tasks.map((card) => {
           const chosen = answer.choices?.[card.id] ?? {}
+          if (asked.kind === 'transfer' && Object.keys(chosen).length > 0)
+            throw new RequestError(400, 'A move to another Factory takes no choices')
           if (chosen.children !== undefined && !allowed.includes(chosen.children))
             throw new RequestError(400, `children must be ${allowed.join(' or ')}`)
           if (chosen.closePullRequests !== undefined && asked.kind !== 'archive')
@@ -2322,6 +2449,15 @@ export function createCoordinators(options: {
         update(answered)
         await store.persisted()
         if (answer.decision === 'cancel') return publicChat(requireChat(chatId))
+        if (asked.kind === 'transfer') {
+          const [card] = cards
+          if (card) {
+            const result = await transferNow(chatId, factoryId, asked, card)
+            update({ ...answered, tasks: [{ ...card, result }] })
+            await store.persisted()
+          }
+          return publicChat(requireChat(chatId))
+        }
         const removed = removedBy(cards, asked.kind)
         const verb = asked.kind === 'archive' ? 'archived' : 'deleted'
         const together = asked.kind === 'archive' ? 'archive' : 'delete'

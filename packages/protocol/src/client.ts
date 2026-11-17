@@ -97,6 +97,7 @@ import type {
   CoordinatorRemovalResult,
   CoordinatorStatus,
   CoordinatorTaskQuery,
+  CoordinatorTransfer,
 } from './coordinator.ts'
 import { coordinatorTaskSearch } from './coordinator-parsers.ts'
 import type { CallerInfo, DaemonInfo } from './daemon-info.ts'
@@ -277,6 +278,7 @@ import type {
 } from './task.ts'
 import type { TaskFileContent, TaskFiles } from './task-files.ts'
 import type { SetTaskGatesRequest, TaskGates } from './task-gates.ts'
+import type { MoveToFactoryRequest, TaskMoved, TaskMovePlan } from './task-move.ts'
 import type {
   RegisterTestInvocation,
   TestInvocationRegistration,
@@ -542,6 +544,10 @@ export class DaemonClient {
     input: CoordinatorRemoval,
   ): Promise<CoordinatorRemovalResult> {
     return this.#request('POST', `/coordinator/${kind}`, input)
+  }
+
+  coordinatorTransfer(input: CoordinatorTransfer): Promise<CoordinatorRemovalResult> {
+    return this.#request('POST', '/coordinator/transfer', input)
   }
 
   answerCoordinatorConfirmation(
@@ -949,6 +955,17 @@ export class DaemonClient {
 
   resetTask(ref: string): Promise<Task> {
     return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/reset`, {})
+  }
+
+  taskMovePlan(ref: string, factoryId: string): Promise<TaskMovePlan> {
+    return this.#request(
+      'GET',
+      `/tasks/${encodeURIComponent(ref)}/move-plan?factory=${encodeURIComponent(factoryId)}`,
+    )
+  }
+
+  moveTaskToFactory(ref: string, request: MoveToFactoryRequest): Promise<TaskMoved> {
+    return this.#request('POST', `/tasks/${encodeURIComponent(ref)}/move-to-factory`, request)
   }
 
   async deleteTask(ref: string, options: DeleteTaskRequest = {}): Promise<void> {

@@ -709,6 +709,7 @@ export type CommentAnswer =
     }
   | { kind: 'withdrawn'; at: string; movedTo: StageId }
   | { kind: 'withdrawn'; at: string; archived: true }
+  | { kind: 'withdrawn'; at: string; movedToFactory: string }
   | { kind: 'withdrawn'; at: string; runStopped: true }
   | { kind: 'withdrawn'; at: string; cancelled: true }
   | { kind: 'withdrawn'; at: string; ciReported: true }

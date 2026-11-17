@@ -1,13 +1,16 @@
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import {
   type Comment,
   type Factory,
+  type Run,
   readDaemonInfo,
   type Task,
+  type TaskMoved,
+  type TaskMovePlan,
   type ThreadEvent,
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
@@ -463,4 +466,97 @@ describe('reset', () => {
     expect(versions.map((v) => v.text)).toEqual(['The original request'])
     await writeFile(gate, '')
   })
+})
+
+describe('move to another Factory', () => {
+  test('discards the work, keeps the thread and starts a Task Lead in the new Factory with the old conversation', async () => {
+    const client = await startTed()
+    const otherScratch = await mkdtemp(path.join(tmpdir(), 'ted-origin-'))
+    try {
+      const otherOrigin = await makeOriginRepo(otherScratch)
+      await commitToOrigin(otherScratch, {
+        '.ted/workflow.yaml': 'version: 1\norder: [intake, work, merge]\n',
+      })
+      const gadgets = path.join(otherScratch, 'acme', 'gadgets.git')
+      await rename(otherOrigin, gadgets)
+      const web = await client.ok<Factory>('POST', '/dev/factories', {
+        repo: gadgets,
+        key: 'WEB',
+      })
+      const gate = path.join(scratch, 'gate')
+      const blocker = await create(client, 'Earlier')
+      const task = await create(client, steps(commitFile('first.txt'), { waitFor: gate }), {
+        start: true,
+      })
+      await client.ok('POST', `/tasks/${task.id}/blockers`, { by: blocker.id })
+      const first = await waitFor(client, task, (t) => t.leadRunId !== undefined, 'to start')
+      const runId = first.leadRunId ?? ''
+      const worktree = path.join(home, 'worktrees', task.displayId, 'widgets')
+      await waitUntil(
+        () =>
+          stat(path.join(worktree, 'first.txt')).then(
+            () => true,
+            () => false,
+          ),
+        'the Task Lead to commit',
+      )
+      await client.ok('POST', `/tasks/${task.id}/comments`, { body: 'A note' })
+
+      const own = await client.ok<TaskMovePlan>(
+        'GET',
+        `/tasks/${task.id}/move-plan?factory=${first.factoryId}`,
+      )
+      expect(own.refusal).toBe(`${task.displayId} is already in ${own.factoryName}`)
+      const plan = await client.ok<TaskMovePlan>(
+        'GET',
+        `/tasks/${task.id}/move-plan?factory=${web.id}`,
+      )
+      expect(plan.refusal).toBeUndefined()
+      expect(plan.tasks).toHaveLength(1)
+      expect(plan.tasks[0]).toMatchObject({
+        id: task.id,
+        lands: 'intake',
+        startsLead: true,
+        worktrees: 1,
+        unlinked: [{ id: blocker.id, blocks: true }],
+      })
+      expect(plan.tasks[0]?.newDisplayId.startsWith('WEB-')).toBe(true)
+      const file = api(daemon?.port ?? 0, (await readDaemonInfo(home))?.token ?? '')
+      const body = { factoryId: web.id }
+      expect((await file.call('POST', `/tasks/${task.id}/move-to-factory`, body)).status).toBe(403)
+
+      const result = await client.ok<TaskMoved>('POST', `/tasks/${task.id}/move-to-factory`, body)
+
+      expect(result.moved).toEqual([
+        { id: task.id, from: task.displayId, to: plan.tasks[0]?.newDisplayId },
+      ])
+      const moved = await waitFor(
+        client,
+        task,
+        (t) => t.leadRunId !== undefined && t.leadRunId !== runId && t.repos.length > 0,
+        'to get a Task Lead in the new Factory',
+      )
+      expect(moved).toMatchObject({
+        factoryId: web.id,
+        displayId: plan.tasks[0]?.newDisplayId,
+        stage: 'intake',
+      })
+      expect(moved.blockedBy ?? []).not.toContain(blocker.id)
+      expect((await client.call('GET', `/runs/${runId}`)).status).toBe(200)
+      await expect(stat(worktree)).rejects.toThrow()
+      const comments = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
+      expect(comments.map((c) => c.body)).toContain('A note')
+      const texts = await threadTexts(client, moved)
+      const line = `You moved this Task from ${task.displayId} in ${own.factoryName} to ${web.name} · a fresh Task Lead Run starts from the brief`
+      expect(texts).toContain(line)
+      const byOldId = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.displayId}/events`)
+      expect(byOldId.map((e) => e.text)).toContain(line)
+      const { run: fresh } = await client.ok<{ run: Run }>('GET', `/runs/${moved.leadRunId}`)
+      expect(fresh.prompt).toContain('Picking up after a move to another Factory')
+      expect(fresh.prompt).toContain('## The conversation so far')
+      await writeFile(gate, '')
+    } finally {
+      await rm(otherScratch, { recursive: true, force: true })
+    }
+  }, 90_000)
 })

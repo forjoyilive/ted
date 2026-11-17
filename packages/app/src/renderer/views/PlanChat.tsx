@@ -1317,14 +1317,16 @@ function StartedFrom({ plan, onOpenTask }: { plan: Plan; onOpenTask: (ref: strin
       ? ['Deleted']
       : from.gone === 'archived'
         ? ['Archived']
-        : [
-            ...(from.stage !== undefined ? [stages.name(from.stage, plan.factoryId)] : []),
-            ...(from.status !== undefined
-              ? [statusLabel(from.status)]
-              : from.activity !== undefined
-                ? [from.activity]
-                : []),
-          ]
+        : from.gone === 'moved'
+          ? ['Moved to another Factory']
+          : [
+              ...(from.stage !== undefined ? [stages.name(from.stage, plan.factoryId)] : []),
+              ...(from.status !== undefined
+                ? [statusLabel(from.status)]
+                : from.activity !== undefined
+                  ? [from.activity]
+                  : []),
+            ]
   return (
     <div className={styles.paneFrom}>
       {from.gone === 'deleted' ? (
