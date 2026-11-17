@@ -120,6 +120,21 @@
   list-style: none;
 }
 
+.unblocksHeading {
+  margin: 0;
+  font-size: var(--text-13);
+  font-weight: var(--weight-semibold);
+}
+
+.unblocksList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
 .blockedRow {
   display: flex;
   gap: 8px;

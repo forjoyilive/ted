@@ -627,7 +627,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 | 2 | Partly merged | red | half-filled ring | A multi-repo merge stopped partway. | KRI-52 |
 | 3 | Waiting on you | amber | dot | An Inbox item on the Task is unanswered. The only amber status. | KRI-55 |
 | 4 | Paused · reason | grey | ‖ | The Provider can’t run: usage limit, signed out, not installed, below the minimum version, using an API key instead of the subscription, or offline. | KRI-54, KRI-59 |
-| 5 | Working | blue | spinner arc | Some Run on the Task is working, including a Task Lead waiting only on its sub-agents, `setup` running in a new worktree (“Setting up app · npm ci”), and Checks running. | KRI-55, KRI-58, KRI-60 |
+| 5 | Working | blue | spinner arc | Some Run on the Task is working, including a Task Lead waiting only on its sub-agents, `setup` running in a new worktree (“Setting up app · npm ci”), and a Task’s Cleanup commands running. TED running a Task’s Checks is not Working: no Run holds a slot for them, and the Task shows its Checks chip instead. | KRI-55, KRI-58, KRI-60 |
 | 6 | Stopped | grey | ■ | The human stopped the Task. | KRI-55 |
 | 7 | Blocked | grey | ⊘ | No Run; waiting for another Task to merge. Shown as one “Blocked by NB-44” chip with the ID as a link. | KRI-55, KRI-62 |
 | 8 | Queued · 2nd | blue | clock | Waiting for a slot, with its place in the machine-wide queue. “Queued · disk full” during the disk hold. | KRI-55, KRI-59 |
@@ -725,7 +725,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 - **Blocked mid-flow:** when the Task Lead finds another Task must merge first, it adds the link, writes the brief and stops its Run. The Task stays in its Stage as Blocked, keeping its worktree. When the blocker merges, a fresh Run starts from the brief. (KRI-15, KRI-58)
 - A Task counts as merged only when every pull request has merged and it is in Cleanup or Done. (KRI-52, TED-307)
 - A blocker that would make a cycle is refused, with the cycle named. (KRI-55)
-- Archiving or deleting a Task that blocks others lists those Tasks and asks **Unblock them** (default) or **Keep them blocked**. Kept links show “Blocked by archived NB-12” or “Blocked by deleted NB-35”. (KRI-55, KRI-63)
+- Archiving or deleting a Task that blocks others removes it from their Blocked by, without asking. The confirmation lists those Tasks under “Unblocks N Tasks”. Links kept by earlier versions show “Blocked by archived NB-12” or “Blocked by deleted NB-35” until removed. (KRI-55, KRI-63, TED-528)
 
 ### 6.17 Worktrees and branches
 

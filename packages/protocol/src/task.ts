@@ -157,6 +157,8 @@ export type CommentBox =
   | 'merge-pending'
   | 'archived'
 
+export type CommentDelivery = 'starting' | 'queued' | 'paused'
+
 export interface TaskRun {
   id: string
   agent: AgentKind
@@ -266,7 +268,10 @@ export interface Task {
   activity?: string
   track: TrackStage[]
   commentBox: CommentBox
+  commentDelivery?: CommentDelivery
   canResume?: boolean
+  wakesOnComment?: true
+  checksActive?: true
   runs: TaskRun[]
   tabs: ConversationTab[]
   repos: TaskRepo[]
@@ -281,6 +286,10 @@ export interface Task {
   startedAt?: string
   updatedAt: string
   archived?: TaskArchive
+}
+
+export interface CreatedTask extends Task {
+  reminder?: string
 }
 
 export type ResetRefusal = 'archived' | 'done' | 'merged' | 'not-started'
@@ -440,10 +449,6 @@ export interface PullRequestPreview {
   label: string
 }
 
-export const blockedChoices = ['unblock', 'keep'] as const
-
-export type BlockedChoice = (typeof blockedChoices)[number]
-
 export interface TaskHierarchy {
   parentId: string | null
   childIds: string[]
@@ -471,13 +476,11 @@ export interface ArchiveTaskRequest {
   children?: 'archive' | 'detach'
   hierarchyRevision?: string
   closePullRequests?: boolean
-  blocked?: BlockedChoice
 }
 
 export interface DeleteTaskRequest {
   children?: 'delete' | 'unparent'
   hierarchyRevision?: string
-  blocked?: BlockedChoice
 }
 
 export interface NewTaskDraft {

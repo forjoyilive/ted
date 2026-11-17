@@ -789,7 +789,6 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         operation,
         tasks: args.map((id) => ({ id, version: (versions as Record<string, unknown>)[id] })),
         ...(options.children !== undefined && { children: options.children }),
-        ...(options.blocked !== undefined && { blocked: options.blocked }),
         ...(options['close-pull-requests'] === true && { closePullRequests: true }),
       },
       kind,
@@ -1689,6 +1688,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         })
       })
       console.log(`Created ${task.displayId}  ${printable(task.title)}`)
+      if (task.reminder !== undefined) console.log(printable(task.reminder))
     },
     listTasks: async () => {
       const tasks = await withDaemon(home, (client) => client.listTasks())

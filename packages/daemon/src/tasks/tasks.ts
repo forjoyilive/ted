@@ -23,7 +23,6 @@ import type {
   AssessFailureRequest,
   Attachment,
   BaseConflictFound,
-  BlockedChoice,
   AppRef as BrowserAppRef,
   BrowserCommand,
   BrowserReply,
@@ -37,6 +36,7 @@ import type {
   Comment,
   CommentAnswer,
   CommitChanges,
+  CreatedTask,
   DaemonEvent,
   DeleteTaskRequest,
   DescriptionVersion,
@@ -671,7 +671,7 @@ export interface Tasks {
   ): Promise<FailureCase>
   requestFailureDecision(ref: string, caller: Caller, id: string): Promise<FailureCase>
   resolveFailure(ref: string, id: string, input: ResolveFailureRequest): Promise<FailureCase>
-  create(input: CreateTaskInput, caller?: Caller): Promise<Task>
+  create(input: CreateTaskInput, caller?: Caller): Promise<CreatedTask>
   asanaPreview(input: AsanaImportRequest, caller?: Caller): Promise<AsanaImportPreview>
   importAsana(input: AsanaImportRequest, caller?: Caller): Promise<AsanaImportResult>
   asanaIntake(input: AsanaIntakeRequest, caller?: Caller): Promise<AsanaIntakeResult>
@@ -850,7 +850,8 @@ export interface Tasks {
 const slugLength = 40
 const recordedConflictFiles = 50
 const handOffCheckLimit = 3
-export const maxTasksPerLead = 3
+export const suggestedTasksPerLead = 3
+export const maxTasksPerLead = 10
 
 function withoutRepeats(files: readonly Attachment[]): Attachment[] {
   const seen = new Map<string, Attachment>()
@@ -1335,7 +1336,7 @@ export function createTasks(options: {
     liveRun: (task) => hasLiveRun(find(task.id)),
     openRequests,
     archive(task, why) {
-      settleDependents(task.id, 'unblock')
+      settleDependents(task.id)
       archiveNow(find(task.id), false, why)
       wake()
     },
@@ -6427,6 +6428,16 @@ export function createTasks(options: {
     const task = store.getTask(taskId)
     if (!task || stoppingByHand.has(taskId)) return
     if (!interrupted(task) && !resumesAtMerge(task, answered)) return
+    await resumeEnded(taskId)
+  }
+
+  async function resumeAfterComment(taskId: string): Promise<void> {
+    const task = store.getTask(taskId)
+    if (!task || stoppingByHand.has(taskId) || !wakesOnComment(task)) return
+    await resumeEnded(taskId)
+  }
+
+  async function resumeEnded(taskId: string): Promise<void> {
     if (store.tedStopPending(taskId)) store.answerTedStop(taskId, 'restart')
     store.resumeTask(taskId, { waitForBlockers: unmergedBlockers(taskId).length > 0 })
     await store.persisted()
@@ -6508,7 +6519,6 @@ export function createTasks(options: {
                 choice: archiveChoice,
                 archive: {
                   closePullRequests: comment.archive.pullRequests?.recommend === 'close',
-                  blocked: 'unblock',
                 },
               },
               false,
@@ -6583,6 +6593,7 @@ export function createTasks(options: {
     body: string,
     attachments: readonly Attachment[],
     sendDrafts = true,
+    wakes = true,
   ): Promise<Comment> {
     const posted = store.postComment({
       taskId: task.id,
@@ -6592,7 +6603,10 @@ export function createTasks(options: {
       ...(sendDrafts && task.stage !== 'done' && { lineComments: drafts(task.id) }),
     })
     const run = liveLead(find(task.id))
-    if (!run) return posted
+    if (!run) {
+      if (wakes) await resumeAfterComment(task.id)
+      return store.getComment(posted.id) ?? posted
+    }
     await sendComment(run.id)
     return store.getComment(posted.id) ?? posted
   }
@@ -8325,7 +8339,6 @@ export function createTasks(options: {
     ref: string,
     {
       closePullRequests = false,
-      blocked = 'unblock',
       children: choice = 'archive',
       hierarchyRevision: revision,
     }: ArchiveTaskRequest = {},
@@ -8336,7 +8349,7 @@ export function createTasks(options: {
     for (const id of [...ids].reverse()) {
       const current = find(id)
       if (current.archived) continue
-      settleDependents(id, blocked)
+      settleDependents(id)
       if (store.childrenOf(id).length > 0 && current.startRequested)
         store.setStartRequested(id, false)
       archiveNow(find(id), closePullRequests)
@@ -8414,12 +8427,10 @@ export function createTasks(options: {
     }
   }
 
-  function settleDependents(taskId: string, blocked: BlockedChoice, action = 'archived'): void {
+  function settleDependents(taskId: string, action = 'archived'): void {
     for (const dependent of store.blockedBy(taskId)) {
-      const link = store.blockers(dependent).find((b) => b.blockerId === taskId)
-      const reason = `was ${action} without merging. ${reopened} ${blocked === 'unblock' ? 'Its blocker was removed. Use Resume when ready to reassess the failure.' : 'Its blocker was kept; this Task is still waiting. Choose another repair or remove the blocker in Task details.'}`
-      if (blocked === 'unblock') removeBlockers(dependent, { kind: 'app' }, taskId, reason)
-      else if (!link?.merged) repairNotice(dependent, taskId, reason)
+      const reason = `was ${action} without merging. ${reopened} Its blocker was removed. Use Resume when ready to reassess the failure.`
+      removeBlockers(dependent, { kind: 'app' }, taskId, reason)
     }
   }
 
@@ -8560,7 +8571,7 @@ export function createTasks(options: {
 
   async function remove(ref: string, input: DeleteTaskRequest): Promise<void> {
     const task = find(ref)
-    if (removingFactories.has(task.factoryId)) return removeOne(ref, input)
+    if (removingFactories.has(task.factoryId)) return removeOne(ref)
     const children = descendants(task.id)
     if (children.length > 0) {
       requireHierarchyRevision(task, input.hierarchyRevision)
@@ -8585,7 +8596,7 @@ export function createTasks(options: {
         tellHierarchyChanged(direct)
       }
       if (parent) releaseParent(parent.id, wasBlocked)
-      for (const id of [...ids].reverse()) await removeOne(id, input)
+      for (const id of [...ids].reverse()) await removeOne(id)
     } finally {
       if (parent) releaseParent(parent.id, wasBlocked)
       hierarchyDone()
@@ -8593,14 +8604,14 @@ export function createTasks(options: {
     wake()
   }
 
-  async function removeOne(ref: string, { blocked = 'unblock' }: DeleteTaskRequest): Promise<void> {
+  async function removeOne(ref: string): Promise<void> {
     const task = find(ref)
     if (inFlight.is(task.id, 'deleting'))
       throw new RequestError(409, `${task.displayId} is already being deleted`)
     const deletingDone = inFlight.mark(task.id, 'deleting')
     try {
       options.planning?.()?.taskGone(task.id, 'deleted')
-      settleDependents(task.id, blocked, 'deleted')
+      settleDependents(task.id, 'deleted')
       const unsentFiles = store.messageDraftFiles(task.id)
       if (!find(task.id).archived) archiveNow(find(task.id), false)
       await clearing(task.id)
@@ -8976,11 +8987,11 @@ export function createTasks(options: {
             const task = find(id)
             if (task.archived) pullRequestWork(id, 'close')
             else {
-              settleDependents(id, 'unblock')
+              settleDependents(id)
               archiveNow(find(id), true)
             }
           }
-          await remove(id, { blocked: 'unblock' })
+          await remove(id, {})
         }
       }
     } catch (error) {
@@ -9490,6 +9501,17 @@ export function createTasks(options: {
     }
   }
 
+  function withLeadReminder(task: Task, creatorId: string | undefined): CreatedTask {
+    const creator = creatorId === undefined ? undefined : store.getTask(creatorId)
+    if (!creator || task.createdBy !== 'task-lead') return task
+    const count = store.leadCreatedTasks(creator.id).length
+    if (count <= suggestedTasksPerLead) return task
+    return {
+      ...task,
+      reminder: `${creator.displayId} has now created ${count} Tasks, past the suggested ${suggestedTasksPerLead}. Next time, suggest a planning chat or Split it to the user instead.`,
+    }
+  }
+
   function refuseLeadLimit(task: StoredTask): void {
     if (store.leadCreatedTasks(task.id).length < maxTasksPerLead) return
     throw new RequestError(
@@ -9975,8 +9997,15 @@ export function createTasks(options: {
   }
 
   function interrupted(task: StoredTask): boolean {
+    return task.canResume === true && resumable(task)
+  }
+
+  function wakesOnComment(task: StoredTask): boolean {
+    return task.wakesOnComment === true && resumable(task)
+  }
+
+  function resumable(task: StoredTask): boolean {
     return (
-      task.canResume === true &&
       canStartFresh(task) &&
       !inFlight.is(task.id, 'transition') &&
       !leadLifecycle.pendingRevive(task.id) &&
@@ -11682,8 +11711,8 @@ export function createTasks(options: {
         caller.kind === 'run' && !firing ? store.getRun(caller.runId)?.taskId : undefined
       const key = leadTask ?? (firing && store.automations.check(firing.automationId) && firing.id)
       if (!key) return createTask(input, caller)
-      const next = (checkCreates.get(key) ?? Promise.resolve()).then(() =>
-        createTask(input, caller),
+      const next = (checkCreates.get(key) ?? Promise.resolve()).then(async () =>
+        withLeadReminder(await createTask(input, caller), leadTask),
       )
       const settled = next.then(
         () => undefined,
@@ -12375,7 +12404,7 @@ export function createTasks(options: {
     async coordinatorTell(ref, body) {
       const task = find(ref)
       requireCommentable(task)
-      return humanComment(task, body, [], false)
+      return humanComment(task, body, [], false, false)
     },
 
     setActivity(ref, caller, text) {

@@ -4,6 +4,7 @@ import {
   type BusyHold,
   busyHold,
   type CommentBox,
+  type CommentDelivery,
   type GitHubWait,
   type QueuedAfter,
   type RunState,
@@ -27,7 +28,7 @@ export interface TaskFacts {
   partlyMerged?: { merged: readonly string[]; open: readonly string[] }
   paused?: string
   pausedRuns?: readonly { id: string; reason: string }[]
-  tedWorking?: boolean
+  checksActive?: boolean
   settingUp?: boolean
   checking?: { name: string; index: number; total: number }
   movingAfterChecks?: boolean
@@ -74,7 +75,7 @@ export function taskCanResume(facts: TaskFacts): boolean {
     !facts.leadLive &&
     (facts.openRequests ?? 0) === 0 &&
     !facts.queue &&
-    !facts.tedWorking &&
+    !facts.checksActive &&
     !facts.settingUp &&
     !facts.checking &&
     !facts.github &&
@@ -82,6 +83,23 @@ export function taskCanResume(facts: TaskFacts): boolean {
     (facts.blockedBy?.length ?? 0) === 0 &&
     !facts.planningInChat
   )
+}
+
+export function taskWakesOnComment(facts: TaskFacts): boolean {
+  const { openRequests: _, ...withoutRequests } = facts
+  return taskCanResume(withoutRequests)
+}
+
+export function commentDelivery(facts: TaskFacts): CommentDelivery | undefined {
+  if (facts.stage === 'done' || facts.archived || facts.stopped || facts.failed) return undefined
+  if (facts.paused !== undefined) return 'paused'
+  if (facts.queue) return waitsForSlot(facts.queue, facts.busy) ? 'queued' : undefined
+  if (facts.leadLive) return 'starting'
+  return undefined
+}
+
+function waitsForSlot(queue: NonNullable<TaskFacts['queue']>, busy: BusyHold | undefined): boolean {
+  return 'place' in queue && (busy === undefined || queue.after !== undefined)
 }
 
 export function leadAskedAtMerge(facts: {
@@ -111,9 +129,7 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
     }
   }
   if (facts.paused !== undefined) return { kind: 'paused', reason: facts.paused }
-  if (facts.tedWorking || facts.settingUp || facts.runs.includes('working')) {
-    return { kind: 'working' }
-  }
+  if (working(facts)) return { kind: 'working' }
   if (facts.stopped)
     return {
       kind: 'stopped',
@@ -139,6 +155,14 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
   return undefined
 }
 
+function working(facts: TaskFacts): boolean {
+  return (
+    facts.settingUp === true ||
+    facts.cleanupCommandsRunning === true ||
+    facts.runs.includes('working')
+  )
+}
+
 export function statusWithoutBlocker(
   facts: TaskFacts,
   status: TaskStatus | undefined,
@@ -155,8 +179,7 @@ export function taskStatuses(facts: TaskFacts): TaskStatusKind[] {
     'partly-merged': facts.partlyMerged !== undefined,
     'waiting-on-you': (facts.openRequests ?? 0) > 0 || facts.runs.includes('waiting'),
     paused: facts.paused !== undefined,
-    working:
-      facts.tedWorking === true || facts.settingUp === true || facts.runs.includes('working'),
+    working: working(facts),
     stopped: facts.stopped !== undefined,
     blocked: (facts.blockedBy?.length ?? 0) > 0,
     queued: facts.queue !== undefined,
