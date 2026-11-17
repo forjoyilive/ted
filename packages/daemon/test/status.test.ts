@@ -283,6 +283,10 @@ describe('taskActivity', () => {
     expect(taskActivity(at({ stage: 'design', blockedBy: ['NB-46'] }))).toBe(
       'Starts when NB-46 merges',
     )
+    expect(taskActivity(at({ stage: 'backlog', blockedBy: ['NB-46'] }))).toBe('Blocked by NB-46')
+    expect(
+      taskActivity(at({ stage: 'backlog', blockedBy: ['NB-46'], startsAfterBlockers: true })),
+    ).toBe('Starts when NB-46 merges')
     expect(taskActivity(at({ runs: ['working'] }))).toBeUndefined()
   })
 

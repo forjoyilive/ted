@@ -694,7 +694,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 - The Task Lead posts the pieces as a `proposal` with `ted task propose --file <file>` (title, one-line scope, Priority, blocked-by by row number). The card is the same as a planning chat proposal (13.4). (KRI-19, KRI-60, KRI-55)
 - **Create N Tasks** creates them in Backlog as child Tasks of the original, linked back to it; **Request changes** revises the list. (KRI-19, KRI-60, TED-323)
 - The original Task becomes their parent. It keeps its title, description, thread and history; its Task Lead stops and it waits in its Stage until the children merge. Then TED moves it to Done if it has no commits or changes of its own, or starts its Task Lead again from the brief. Every row, row 1 included, is an ordinary row that can be unchecked or blocked. (TED-323)
-- Blocked pieces start when their blockers merge; the rest wait for the human unless **Start the unblocked ones** is ticked. (KRI-19, KRI-60)
+- Every piece lands in Backlog; the unblocked ones start at once only if **Start the unblocked ones** is ticked. A blocked piece waits for the human, or for **Start Backlog Tasks automatically** once its blockers merge (ADR 0186). (KRI-19, KRI-60)
 - Task details keeps the collapsed **Original request**, and the Task Lead gets it next to the current description at Run start. (KRI-19)
 
 ### 6.14 Review
@@ -1400,7 +1400,7 @@ Figma: KRI-66 Automations and Plans.
 - The card: a one-line title; numbered rows, each with a checkbox (all checked), title, scope, Priority and “blocked by 2”; **Start the unblocked ones** (off by default) with which rows that would start; a comment box; **Request changes** · **Create N Tasks**. (KRI-60, KRI-66)
 - Above the rows, one line says what Create N Tasks does: “NB-41 becomes the parent of these Tasks and runs after they merge.” for a split or a chat started from a Task, otherwise “TED creates a parent Task for these Tasks. It runs after they merge.” (TED-323)
 - **Unchecking a row others are blocked by:** each dependent row warns “⚠ Blocked by row 3, which won’t be created. This Task will have no blocker.” and strikes through its “blocked by 3”. The Task is created with no blocker; it doesn’t take on row 3’s blockers. The button count drops. (KRI-66)
-- Created Tasks land in Backlog and link back to the planning chat. Blocked ones start when their blockers merge; unblocked ones start only if **Start the unblocked ones** was ticked. (KRI-19, KRI-60)
+- Created Tasks land in Backlog and link back to the planning chat. Unblocked ones start only if **Start the unblocked ones** was ticked; blocked ones wait for the human, or for **Start Backlog Tasks automatically** once their blockers merge (ADR 0186). (KRI-19, KRI-60)
 - **Approved** card: green, “approved by you at 14:06”, with Task IDs on each row and blockers named by ID, followed by event lines (“TED created 4 Tasks under NB-41: NB-54, …. NB-41 waits for them to merge.”, “TED stopped NB-41’s Task Lead while its child Tasks are built.”, “Planning Run finished”). A plan not started from a Task creates its parent first, titled with the plan’s title, with the proposal’s summary as its description. (KRI-66, TED-323)
 
 ### 13.5 Plans list and planning chat

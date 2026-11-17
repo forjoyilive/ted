@@ -286,7 +286,12 @@ test('a reset keeps the Task, its Linear consent and its original request, and c
   })
   const read = () => store.listTasks().find((t) => t.id === task.id)
   store.linearSyncAllowed(task.id, 'ACM-7')
-  store.queueTask(task.id, 'intake')
+  store.queueTask(task.id, 'intake', { cause: { cause: 'blockers-merged', blockers: ['NB-1'] } })
+  const queued = store.taskLog(task.id).find((e) => e.name === 'v1.TaskQueued')
+  expect(store.taskLog(task.id).find((e) => e.name === 'v1.TaskStartCause')).toMatchObject({
+    at: queued?.at,
+    data: { cause: 'blockers-merged', blockers: ['NB-1'] },
+  })
   store.startTask({
     taskId: task.id,
     stage: 'intake',

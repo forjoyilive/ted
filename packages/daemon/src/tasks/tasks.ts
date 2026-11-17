@@ -259,6 +259,7 @@ import type {
   NewWorktree,
   RecordedSetup,
   RepoCommit,
+  StartCause,
   StoredFactory,
   StoredTask,
   TedStore,
@@ -698,7 +699,11 @@ export interface Tasks {
   automationStart(ref: string, caller: Caller): Promise<TaskReference>
   newSetupTask(factoryId: string): Promise<Task>
   board(factoryId: string): Promise<FactoryBoard>
-  start(ref: string, request?: import('@ted/protocol').StartTaskRequest): Promise<Task>
+  start(
+    ref: string,
+    request?: import('@ted/protocol').StartTaskRequest,
+    cause?: StartCause,
+  ): Promise<Task>
   moveToBacklog(ref: string): Task
   stop(ref: string): Promise<Task>
   resume(ref: string, input?: { comment?: string; attachments?: Attachment[] }): Promise<Task>
@@ -2176,7 +2181,8 @@ export function createTasks(options: {
           again = true
           return
         }
-        if (await queueStart(task.id, version)) {
+        const cause = current.snoozedUntil ? 'snooze' : 'factory-setting'
+        if (await queueStart(task.id, { version, cause: { cause } })) {
           begin(task.id)
           again = true
           return
@@ -5533,8 +5539,9 @@ export function createTasks(options: {
     tellHierarchyChanged([...existingParents, ...plan.links.map((link) => link.taskId)])
     const startAll = resolution !== undefined && !held && input.start === true
     if (startAll) {
+      const cause: StartCause | undefined = automation && { cause: 'automation' }
       for (const task of created) {
-        await start(task.id).catch((error: unknown) => {
+        await start(task.id, {}, cause).catch((error: unknown) => {
           console.error(redactSecrets(`couldn’t start ${task.displayId}: ${String(error)}`))
         })
       }
@@ -8753,7 +8760,7 @@ export function createTasks(options: {
       }
     })
     if (task.setup) reportSetup(task.factoryId)
-    if (await queueStart(id, undefined, false, true)) {
+    if (await queueStart(id, { keepRank: true })) {
       await pump()
       await beginning.get(id)
     }
@@ -8964,7 +8971,7 @@ export function createTasks(options: {
     )
     for (const member of moved.members) {
       if (member.stage === 'backlog') continue
-      await queueStart(member.id, undefined, false, true)
+      await queueStart(member.id, { keepRank: true })
     }
     await pump()
     wake()
@@ -9250,27 +9257,32 @@ export function createTasks(options: {
   async function start(
     ref: string,
     request: import('@ted/protocol').StartTaskRequest = {},
+    cause?: StartCause,
   ): Promise<Task> {
     const task = live(ref)
     autoStartFailures.delete(task.id)
-    if (!(await queueStart(task.id, undefined, request.prepare))) return publicTask(task.id)
+    if (!(await queueStart(task.id, { prepare: request.prepare === true, cause })))
+      return publicTask(task.id)
     await pump()
     await beginning.get(task.id)
     return publicTask(task.id)
   }
 
-  async function queueAndAnswer(ref: string): Promise<Task> {
+  async function queueAndAnswer(ref: string, cause?: StartCause): Promise<Task> {
     const task = live(ref)
     autoStartFailures.delete(task.id)
-    if (await queueStart(task.id)) void pump()
+    if (await queueStart(task.id, { cause })) void pump()
     return publicTask(task.id)
   }
 
   async function queueStart(
     ref: string,
-    version?: number,
-    prepare = false,
-    keepRank = false,
+    {
+      version,
+      prepare = false,
+      keepRank = false,
+      cause,
+    }: { version?: number; prepare?: boolean; keepRank?: boolean; cause?: StartCause | undefined },
   ): Promise<boolean> {
     const automatic = version !== undefined
     const task = live(ref)
@@ -9341,9 +9353,10 @@ export function createTasks(options: {
           : stage
         store.startAfterPlanning(task.id, again, entryFor(resolution, again as AgentStageId), {
           prepare,
+          cause,
         })
       } else {
-        store.queueTask(task.id, stage, { prepare, keepRank })
+        store.queueTask(task.id, stage, { prepare, keepRank, cause })
       }
     } finally {
       startingDone()
@@ -9717,7 +9730,7 @@ export function createTasks(options: {
     if (!checkAgentCaller(caller, 'start Tasks').check.startTasks) {
       throw new RequestError(403, 'The human turned off “Start the Tasks it creates”.')
     }
-    await queueAndAnswer(task.id)
+    await queueAndAnswer(task.id, { cause: 'automation' })
     store.automations.taskStarted({
       taskId: task.id,
       automationId: automation.link.automationId,
@@ -9877,7 +9890,7 @@ export function createTasks(options: {
     if (input.automation && runsInBypass(resolution)) {
       return holdInBacklog(task.id, input.automation.name)
     }
-    return start(task.id)
+    return start(task.id, {}, input.automation && { cause: 'automation' })
   }
 
   function followUpNote(task: StoredTask): string | undefined {
@@ -10008,8 +10021,12 @@ export function createTasks(options: {
       return
     }
     if (task.stage === 'backlog' && task.startRequested && !task.snoozedUntil) {
+      const blockers = store
+        .blockers(id)
+        .filter((b) => b.merged)
+        .map((b) => b.displayId)
       inBackground(`start ${task.displayId}`, async () => {
-        await start(id)
+        await start(id, {}, { cause: 'blockers-merged', blockers })
       })
     } else if (task.waitsForBlockers && !liveLead(task)) {
       store.requeueAfterBlockers(id)
@@ -11670,7 +11687,7 @@ export function createTasks(options: {
       startNow === true
     ) {
       for (const id of descendants(task.id)) {
-        await queueAndAnswer(id).catch((error: unknown) => {
+        await queueAndAnswer(id, automation && { cause: 'automation' }).catch((error: unknown) => {
           console.error(redactSecrets(`couldn’t start ${find(id).displayId}: ${String(error)}`))
         })
       }
@@ -11678,7 +11695,8 @@ export function createTasks(options: {
     if (!resolution || unmergedBlockers(task.id).length > 0 || automation?.check || githubIntake)
       return task
     if (startNow !== true) return task
-    return startInBackground === true ? queueAndAnswer(task.id) : start(task.id)
+    const cause: StartCause | undefined = automation && { cause: 'automation' }
+    return startInBackground === true ? queueAndAnswer(task.id, cause) : start(task.id, {}, cause)
   }
 
   return {

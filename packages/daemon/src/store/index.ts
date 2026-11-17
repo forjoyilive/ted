@@ -436,6 +436,10 @@ export interface BlockerLink {
 
 export type AfterBlocking = 'backlog' | 'wait'
 
+export type StartCause =
+  | { cause: 'factory-setting' | 'snooze' | 'coordinator' | 'automation' }
+  | { cause: 'blockers-merged'; blockers: readonly string[] }
+
 export interface RepairApproval {
   drafts?: readonly string[]
   startStage?: StageId
@@ -871,7 +875,7 @@ export interface TedStore extends TaskHistory {
   queueTask(
     taskId: string,
     stage: StageId,
-    options?: { prepare?: boolean; keepRank?: boolean },
+    options?: { prepare?: boolean; keepRank?: boolean; cause?: StartCause | undefined },
   ): Task
   moveToBacklog(taskId: string): Task
   needsPlanning(taskId: string, runId: string): Task
@@ -879,7 +883,7 @@ export interface TedStore extends TaskHistory {
     taskId: string,
     stage: StageId,
     entry: NewStageEntry,
-    options?: { prepare?: boolean },
+    options?: { prepare?: boolean; cause?: StartCause | undefined },
   ): Task
   taskSplit(
     taskId: string,
@@ -1839,6 +1843,18 @@ export async function openStore({
       ? [events.taskStartRequestChanged({ taskId, startRequested: false, at })]
       : []
 
+  const startCause = (taskId: string, cause: StartCause | undefined, at: string) =>
+    cause
+      ? [
+          events.taskStartCause({
+            taskId,
+            cause: cause.cause,
+            blockers: cause.cause === 'blockers-merged' ? [...cause.blockers] : [],
+            at,
+          }),
+        ]
+      : []
+
   const commentFiles = (commentId: string): Attachment[] =>
     store
       .query(queryDb(commentAttachments.where({ commentId }).orderBy('position', 'asc')))
@@ -2267,6 +2283,7 @@ export async function openStore({
       ...(pausedReason !== undefined && { paused: pausedReason }),
       ...(waitingOn.length > 0 && { blockedBy: waitingOn }),
       ...(firstEnded !== undefined && { blockerEnded: firstEnded }),
+      ...(row.startRequested && { startsAfterBlockers: true }),
       ...(github !== undefined && { github }),
       ...(mergeWaits && { mergePending: true }),
       ...(autoMergeLeft && { autoMergeLeft: true }),
@@ -4529,6 +4546,7 @@ export async function openStore({
         ...startRequestUsed(taskId, at),
         ...(kept == null ? [events.taskRanked({ taskId, rank, at })] : []),
         events.taskQueued({ taskId, stage, rank, at }),
+        ...startCause(taskId, options?.cause, at),
         ...(options?.prepare || taskRow(taskId)?.preparation !== null
           ? [
               events.taskPreparationChanged({
@@ -4578,6 +4596,7 @@ export async function openStore({
         ...startRequestUsed(taskId, at),
         events.taskRanked({ taskId, rank, at }),
         events.taskStartedAfterPlanning({ taskId, stage, rank, at }),
+        ...startCause(taskId, options?.cause, at),
         ...(options?.prepare || taskRow(taskId)?.preparation !== null
           ? [
               events.taskPreparationChanged({

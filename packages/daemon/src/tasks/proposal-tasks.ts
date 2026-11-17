@@ -43,7 +43,7 @@ export async function createProposalTasks(
       ...options.fields(row),
       blockedBy,
       ...(options.parentId !== undefined && { parentId: options.parentId }),
-      startRequested: blockedBy.length > 0,
+      startRequested: false,
     })
     ids.set(row, made.id)
     created.push({ row, id: made.id, displayId: made.displayId })

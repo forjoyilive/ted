@@ -125,6 +125,11 @@ async function blockerQuestion(client: Client, task: Task, blocker: Task) {
   return question
 }
 
+const startLines = async (client: Client, task: Task) =>
+  (await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`))
+    .map((e) => e.text)
+    .filter((text) => text.startsWith('Task started') || text.startsWith('Started'))
+
 const waitFor = (client: Client, task: Task, check: (t: Task) => boolean, what: string) =>
   waitUntil(async () => {
     const current = await getTask(client, task.id)
@@ -165,7 +170,7 @@ describe('adding a blocker', () => {
       stage: 'backlog',
       blockedBy: [d.id],
       markers: [{ kind: 'blocked-by', by: d.displayId }],
-      activity: `Starts when ${d.displayId} merges`,
+      activity: `Blocked by ${d.displayId}`,
     })
 
     const blocker = await create(client, 'Blocker')
@@ -212,6 +217,11 @@ describe('adding a blocker', () => {
     await client.ok('POST', `/tasks/${queued.id}/start`)
     const started = await waitFor(client, queued, (t) => t.leadRunId !== undefined, 'to start')
     expect(started.markers).toEqual([])
+    expect(await startLines(client, queued)).toEqual([
+      'Task started',
+      `Started because ${blocker.displayId} merged`,
+      'Task started',
+    ])
   })
 
   test('a running Task asks the human before stopping to wait, then resumes from its brief', async () => {
@@ -375,6 +385,7 @@ describe('starting when the blocker merges', () => {
     await client.ok('POST', `/tasks/${blocker.id}/start`)
     await writeFile(gate, '')
     await waitFor(client, task, (t) => t.leadRunId !== undefined, 'to start')
+    expect(await startLines(client, task)).toEqual([`Started because ${blocker.displayId} merged`])
   })
 
   test('removing remaining blockers mid-flow waits for Resume and keeps context', async () => {

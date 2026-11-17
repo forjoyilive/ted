@@ -605,7 +605,7 @@ describe('TedStore', () => {
       const task = await store.createTask({ title: 'Second', blockedBy: [blocker.id] })
 
       expect(task.markers).toEqual([{ kind: 'blocked-by', by: 'DEV-1' }])
-      expect(task.activity).toBe('Starts when DEV-1 merges')
+      expect(task.activity).toBe('Blocked by DEV-1')
       const seen: DaemonEvent[] = []
       store.subscribe((event) => seen.push(event))
       const entry = { layers: [], order: agentStages.map((stage) => ({ stage, enabled: true })) }

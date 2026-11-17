@@ -25,6 +25,7 @@ import {
   readDaemonInfo,
   sizeChoices,
   type Task,
+  type ThreadEvent,
   tedPaths,
   type WaitingRequest,
 } from '@ted/protocol'
@@ -947,6 +948,9 @@ test('start queues a Task through existing slot limits and writes one receipt', 
   const slots = await s.ok<RunSlots>('GET', '/slots')
   expect(slots.working).toBe(1)
   expect(slots.queue.some((q) => q.kind === 'task' && q.taskId === task.id)).toBe(true)
+  const thread = (await s.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)).map((e) => e.text)
+  expect(thread).toContain('Started by the Coordinator')
+  expect(thread).not.toContain('Task started')
 })
 
 test('idle follow-up turns start past the slot limit, including generic chat message paths', async () => {
