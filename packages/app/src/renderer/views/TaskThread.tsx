@@ -604,6 +604,7 @@ export function TaskPanes({
             selected={view?.kind === 'diff' ? view.file : undefined}
             onOpen={openFile}
             onExpandAll={() => showChanges({ kind: 'all', source })}
+            allOpen={all}
             drafts={source === 'local' ? draftsIn : undefined}
             draftTotal={source === 'local' ? drafts.length : 0}
           />

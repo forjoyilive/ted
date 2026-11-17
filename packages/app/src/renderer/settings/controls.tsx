@@ -253,15 +253,21 @@ export function Segmented<T extends string>({
   value,
   options,
   onChange,
+  className,
 }: {
   label: string
   name: string
   value: T | undefined
   options: readonly { value: T; label: string }[]
   onChange: (value: T) => void
+  className?: string | undefined
 }) {
   return (
-    <div className={styles.segmented} role="radiogroup" aria-label={label}>
+    <div
+      className={className === undefined ? styles.segmented : `${styles.segmented} ${className}`}
+      role="radiogroup"
+      aria-label={label}
+    >
       {options.map((option) => (
         <label key={option.value} className={styles.segment}>
           <input

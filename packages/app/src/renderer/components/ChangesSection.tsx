@@ -1,9 +1,11 @@
 import type { ChangesSource, SignOffChanges, TaskChanges } from '@ted/protocol'
 import { type ChangedFile, splitPath } from '../changes.ts'
+import { Segmented } from '../settings/controls.tsx'
 import { Button } from './Button.tsx'
 import styles from './ChangesSection.module.css'
 import { contextMenu, useActionMenu } from './ContextMenu.tsx'
 import { DetailsSection } from './DetailsSection.tsx'
+import { RestartIcon } from './icons.tsx'
 import { Loading } from './Loading.tsx'
 
 export type DraftCount = (file: ChangedFile) => number
@@ -22,6 +24,7 @@ export function ChangesSection({
   selected,
   onOpen,
   onExpandAll,
+  allOpen = false,
   drafts,
   draftTotal = 0,
   source = 'local',
@@ -33,6 +36,7 @@ export function ChangesSection({
   selected?: ChangedFile | undefined
   onOpen: (file: ChangedFile) => void
   onExpandAll?: (() => void) | undefined
+  allOpen?: boolean
   drafts?: DraftCount | undefined
   draftTotal?: number
   source?: ChangesSource
@@ -47,45 +51,49 @@ export function ChangesSection({
       : `${changes.files === 1 ? '1 file' : `${changes.files} files`}${
           draftTotal > 0 ? ` · ${draftTotal === 1 ? '1 draft' : `${draftTotal} drafts`}` : ''
         }`
+  const canExpand = onExpandAll !== undefined && (changes?.files ?? 0) > 0
+  const switching = onSource !== undefined && hasPullRequest
+  const unavailable = changes?.repos.some((r) => r.unavailable) ?? false
   return (
-    <DetailsSection
-      id="changes"
-      summary={count}
-      action={
-        onExpandAll &&
-        (changes?.files ?? 0) > 0 && (
-          <button type="button" className={styles.expandAll} onClick={onExpandAll}>
-            All changes
-          </button>
-        )
-      }
-    >
-      {onSource && (
-        <>
-          <fieldset className={styles.sources} aria-label="Changes source">
-            <Button aria-pressed={source === 'local'} onClick={() => onSource('local')}>
-              Local changes
-            </Button>
-            {hasPullRequest && (
-              <Button
-                aria-pressed={source === 'pull-request'}
-                onClick={() => onSource('pull-request')}
-              >
-                Pull request changes
-              </Button>
-            )}
-          </fieldset>
-          <p className={styles.empty}>
-            {source === 'local'
-              ? 'Includes uncommitted and unpushed work.'
-              : 'Only changes pushed to the PR.'}
-          </p>
-          {source === 'pull-request' && (
-            <Button onClick={refresh}>
-              {changes?.repos.some((r) => r.unavailable) ? 'Retry' : 'Refresh'}
+    <DetailsSection id="changes" summary={count}>
+      {(switching || canExpand) && (
+        <div className={styles.toolbar}>
+          {switching && (
+            <Segmented
+              label="Changes source"
+              name="changes-source"
+              className={styles.sourceSwitch}
+              value={source}
+              options={[
+                { value: 'local', label: 'Local' },
+                { value: 'pull-request', label: 'Pull request' },
+              ]}
+              onChange={onSource}
+            />
+          )}
+          {canExpand && (
+            <Button aria-pressed={allOpen} className={styles.expandAll} onClick={onExpandAll}>
+              All changes
             </Button>
           )}
-        </>
+          {switching && source === 'pull-request' && (
+            <Button
+              className={styles.refresh}
+              aria-label={unavailable ? 'Retry' : 'Refresh'}
+              title={unavailable ? 'Retry' : 'Refresh'}
+              onClick={refresh}
+            >
+              <RestartIcon />
+            </Button>
+          )}
+        </div>
+      )}
+      {switching && (
+        <p className={styles.explain}>
+          {source === 'local'
+            ? 'Everything in the worktree, including uncommitted and unpushed work.'
+            : 'Only what’s been pushed to the pull request.'}
+        </p>
       )}
       {!changes ? (
         <Loading label="Loading changes…" />
