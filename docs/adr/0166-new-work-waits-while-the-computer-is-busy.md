@@ -19,7 +19,7 @@ The daemon makes one `createBusyHold` and hands it to everything that waits, so 
 
 ## What waits
 
-- **Task Lead Runs and sub-agents** in the queue: while held, `startsNow` skips every entry unless nothing holds a slot or it is a slot handoff, as in ADR 0101.
+- **Task Lead Runs and sub-agents** in the queue: while held, `startsNow` skips every entry unless nothing holds a slot or it is a slot handoff, as in ADR 0101. A Task Lead continuing after Checks or an answer doesn’t wait (ADR 0183-work-in-progress-skips-the-busy-hold).
 - **Simulator and emulator boots** an agent asks for (`apps/device-slots.ts`): with a slot free but the computer busy and at least one device of that kind live, the boot waits in the first-come line instead of asking the human to shut a device down; the line boots it when the hold ends. A boot the human starts with ▶ ignores the hold, like other actions signed with the app’s key. The first device of a kind always boots.
 - **Scheduled Checks** wait as before, until `check.runBy` or 4 hours (ADR 0147).
 

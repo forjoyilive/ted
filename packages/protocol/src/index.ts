@@ -1042,6 +1042,7 @@ export {
   parseSnoozeRequestRequest,
   priorities,
   pullRequestCiModes,
+  type QueuedAfter,
   type ReportCleanupStepRequest,
   type ReportOutcomeRequest,
   type RepoSetupReport,

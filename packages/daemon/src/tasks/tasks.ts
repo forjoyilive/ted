@@ -71,6 +71,7 @@ import type {
   ProposalInput,
   PullRequestChanges,
   PullRequestCiMode,
+  QueuedAfter,
   RecordAppRequest,
   RecordFailureRequest,
   ReportCleanupStepRequest,
@@ -461,7 +462,14 @@ import {
   type PullRequestTarget,
   type PullRequestTask,
 } from './pull-requests.ts'
-import { type QueueEntry, type QueueSource, queueOrder, type SlotUse, startsNow } from './queue.ts'
+import {
+  continuationFlags,
+  type QueueEntry,
+  type QueueSource,
+  queueOrder,
+  type SlotUse,
+  startsNow,
+} from './queue.ts'
 import { removeInside } from './remove-files.ts'
 import {
   chosenEntries,
@@ -1812,6 +1820,7 @@ export function createTasks(options: {
           agentStartHold(store, nextAgent, nextAgent === run.agent ? run.id : undefined)
         )
           return []
+        const heldAt = continuationHeldAt(task)
         return [
           {
             id,
@@ -1819,10 +1828,17 @@ export function createTasks(options: {
             rank: task.rank,
             priority: task.priority,
             factoryId: task.factoryId,
+            ...(heldAt !== undefined && continuationFlags(heldAt, clock.now())),
           },
         ]
       }),
     )
+  }
+
+  function continuationHeldAt(task: StoredTask): string | undefined {
+    const message = task.pendingLeadMessages.find((m) => m.waitForSlot && m.after !== undefined)
+    if (message) return message.heldAt
+    return queuedAnswers(task.id).at(0)?.answerDelivery?.queuedAt
   }
 
   function queuedAnswers(taskId: string): Comment[] {
@@ -6316,10 +6332,10 @@ export function createTasks(options: {
         liveLead,
         startMerging,
         watchMerge,
-        deliver: (task, text) => deliver(task, text, true),
+        deliver: (task, text) => deliver(task, text, 'answer'),
         pullRequestWork,
         move: (task, resolution, next, message, options) =>
-          move(task, resolution, next, message, { ...options, waitForSlot: true }),
+          move(task, resolution, next, message, { ...options, waitForSlot: 'answer' }),
         backMessage,
         leaveWorkToDiagnose,
         settleDependents,
@@ -6662,7 +6678,11 @@ export function createTasks(options: {
     return inFlight.untilFree(taskId, humanWaitMs)
   }
 
-  async function deliver(task: Task, text: string, waitForSlot = false): Promise<boolean> {
+  async function deliver(
+    task: Task,
+    text: string,
+    waitForSlot: boolean | QueuedAfter = false,
+  ): Promise<boolean> {
     const runId = find(task.id).leadRunId
     const run = runId === undefined ? undefined : store.getRun(runId)
     if (!run || run.state === 'finished') return false
@@ -6670,8 +6690,8 @@ export function createTasks(options: {
     const current = find(task.id)
     const lead = effectiveLead(current)
     const message = `${text}\n\n${overnightGuidance(mode, current.setup)}`
-    if (waitForSlot && run.state !== 'working' && !continuing.has(task.id)) {
-      store.holdLeadMessage(task.id, message, true)
+    if (waitForSlot !== false && run.state !== 'working' && !continuing.has(task.id)) {
+      store.holdLeadMessage(task.id, message, true, waitForSlot === true ? undefined : waitForSlot)
       await store.persisted()
       void pump()
     } else if (
@@ -6696,7 +6716,7 @@ export function createTasks(options: {
       void pump()
       return
     }
-    if (!(await deliver(task, text, true))) store.holdAnswer(comment.id)
+    if (!(await deliver(task, text, 'answer'))) store.holdAnswer(comment.id)
   }
 
   function openTalkRound(commentId: string): { task: StoredTask; round: Comment } {
@@ -6909,7 +6929,7 @@ export function createTasks(options: {
     }: {
       signedOff?: boolean
       checked?: HandOffChecks
-      waitForSlot?: boolean
+      waitForSlot?: boolean | QueuedAfter
       reads?: WorktreeReads
     } = {},
   ): Promise<Task> {
@@ -10146,7 +10166,7 @@ export function createTasks(options: {
     reportNotFound: (task, result) => reportNotFound(factoryOf(task).id, result),
     setChecking,
     isChecking: (id) => inFlight.is(id, 'checking'),
-    deliver: (task, text) => deliver(task, text, true),
+    deliver: (task, text, after) => deliver(task, text, after),
     notify: (task) => sendWaiting(task.id),
     instructions: async (task, resolution, message) => {
       const round = await validateRound(task, resolution.workflow)

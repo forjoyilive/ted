@@ -19,6 +19,7 @@ import type {
   MessageDraft,
   NewTaskDraft,
   PeerMessage,
+  QueuedAfter,
   TaskDraftState,
   TaskGateOverrides,
   TaskIntervalHistory,
@@ -326,6 +327,8 @@ export interface LeadMessage {
   id: string
   text: string
   waitForSlot?: true
+  after?: QueuedAfter
+  heldAt?: string
 }
 
 export interface CheckWork {
@@ -983,7 +986,7 @@ export interface TedStore extends TaskHistory {
   setTaskLead(taskId: string, lead: TaskLead): Task
   setLeadRestartPending(taskId: string, pending: boolean): void
   tasksWithQueuedContinuations(): string[]
-  holdLeadMessage(taskId: string, text: string, waitForSlot?: boolean): void
+  holdLeadMessage(taskId: string, text: string, waitForSlot?: boolean, after?: QueuedAfter): void
   deliveredLeadMessages(taskId: string, ids: readonly string[]): void
   setTaskAutopilot(taskId: string, choice: AutopilotChoice): Task
   setTaskGates(taskId: string, overrides: TaskGateOverrides): Task
@@ -2117,9 +2120,13 @@ export async function openStore({
     const paused = reads.pauses()
     const held = reads.held(row.id).at(0)
     const taskComments = reads.comments(row.id)
-    const queuedContinuation =
-      pendingMessages.some((message) => message.waitForSlot) ||
-      taskComments.some((comment) => comment.answerHeld && comment.answerQueuedAt !== null)
+    const heldAnswer = taskComments.some(
+      (comment) => comment.answerHeld && comment.answerQueuedAt !== null,
+    )
+    const queuedContinuation = pendingMessages.some((message) => message.waitForSlot) || heldAnswer
+    const queuedAfter =
+      pendingMessages.find((message) => message.waitForSlot && message.after !== undefined)
+        ?.after ?? (heldAnswer ? 'answer' : undefined)
     const place =
       queued || queuedContinuation
         ? (queueActivity.taskPlaces?.find((entry) => entry.id === row.id)?.place ??
@@ -2197,7 +2204,7 @@ export async function openStore({
             ? { hold: `${leadAgent ?? held?.agent} is off. Enable it in Settings → Providers.` }
             : place > 0
               ? newWorkHeld === undefined
-                ? { place }
+                ? { place, ...(queuedAfter !== undefined && { after: queuedAfter }) }
                 : { hold: newWorkHeld }
               : { hold: 'Waiting for a Provider' },
       }),
@@ -5751,16 +5758,22 @@ export async function openStore({
           .map((comment) => comment.taskId),
       ]),
     ],
-    holdLeadMessage(taskId, text, waitForSlot = false) {
+    holdLeadMessage(taskId, text, waitForSlot = false, after) {
       const pending = toTask(requireTaskRow(taskId)).pendingLeadMessages
+      const at = new Date().toISOString()
       commit(
         events.taskLeadMessagesHeld({
           taskId,
           messages: JSON.stringify([
             ...pending,
-            { id: randomUUID(), text, ...(waitForSlot && { waitForSlot: true }) },
+            {
+              id: randomUUID(),
+              text,
+              ...(waitForSlot && { waitForSlot: true }),
+              ...(waitForSlot && after !== undefined && { after, heldAt: at }),
+            },
           ]),
-          at: new Date().toISOString(),
+          at,
         }),
       )
     },
