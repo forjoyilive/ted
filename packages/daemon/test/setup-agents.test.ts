@@ -136,4 +136,15 @@ test('commands on the branch must be the approved commands', () => {
   expect(setupAgentDifferences([checker], files([]), [])).toEqual([
     'checker’s commands are none, but the approved proposal gives test: pnpm test',
   ])
+  const joined: SetupAgentProposal = {
+    ...checker,
+    commands: [{ name: 'lint', command: 'x; test: pnpm test' }],
+  }
+  expect(
+    setupAgentDifferences(
+      [joined],
+      files(['  commands:', '    lint: x', '    test: pnpm test']),
+      [],
+    ),
+  ).toHaveLength(1)
 })

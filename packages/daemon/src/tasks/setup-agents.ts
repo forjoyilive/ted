@@ -51,8 +51,8 @@ export function setupAgentDifferences(
         `${agent.id}’s powers are ${list(powers)}, but the approved proposal gives ${list(agent.powers)}`,
       )
     }
-    const commands = commandLines(settings.commands)
-    if (commands !== commandLines(agent.commands)) {
+    if (commandKey(settings.commands) !== commandKey(agent.commands)) {
+      const commands = commandLines(settings.commands)
       differences.push(
         `${agent.id}’s commands are ${commands || 'none'}, but the approved proposal gives ${commandLines(agent.commands) || 'none'}`,
       )
@@ -76,9 +76,16 @@ export function setupAgentDifferences(
   return differences
 }
 
+function sortedCommands(commands: readonly AgentCommand[] | undefined): AgentCommand[] {
+  return [...(commands ?? [])].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+function commandKey(commands: readonly AgentCommand[] | undefined): string {
+  return JSON.stringify(sortedCommands(commands).map((c) => [c.name, c.command, c.repo ?? null]))
+}
+
 function commandLines(commands: readonly AgentCommand[] | undefined): string {
-  return [...(commands ?? [])]
-    .sort((a, b) => a.name.localeCompare(b.name))
+  return sortedCommands(commands)
     .map((c) => `${c.name}: ${c.command}${c.repo === undefined ? '' : ` (in ${c.repo})`}`)
     .join('; ')
 }
