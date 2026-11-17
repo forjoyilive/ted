@@ -3,6 +3,7 @@ import { isChat } from '@ted/protocol/slots'
 import { type ReactNode, useEffect, useId, useRef } from 'react'
 import { slotCount } from '../slots.ts'
 import { priorityLabels } from '../task-fields.ts'
+import { FactoryIcon } from './FactoryIcon.tsx'
 import { Help } from './Help.tsx'
 import { ordinal } from './TaskStatus.tsx'
 import styles from './WorkingRuns.module.css'
@@ -41,12 +42,14 @@ function Row({
   place,
   title,
   detail,
+  factory,
   trailing,
 }: {
   lead: string
   place?: boolean
   title: string
   detail: string
+  factory?: Factory | undefined
   trailing?: string
 }) {
   return (
@@ -54,7 +57,10 @@ function Row({
       <span className={place ? styles.place : styles.lead}>{lead}</span>
       <span className={styles.text}>
         <span className={styles.title}>{title}</span>
-        <span className={styles.detail}>{detail}</span>
+        <span className={styles.detail}>
+          {factory && <FactoryIcon factory={factory} size={14} className={styles.detailIcon} />}
+          {detail}
+        </span>
       </span>
       {trailing !== undefined && <span className={styles.trailing}>{trailing}</span>}
     </li>
@@ -105,8 +111,8 @@ export function WorkingRunsPopover({
     }
   }, [onClose])
 
-  const name = (factoryId: string) =>
-    factories.find((f) => f.id === factoryId)?.name ?? 'No Factory'
+  const factoryOf = (factoryId: string) => factories.find((f) => f.id === factoryId)
+  const name = (factoryId: string) => factoryOf(factoryId)?.name ?? 'No Factory'
   const cap = (factoryId: string): FactorySlots | undefined =>
     slots.factories.find((f) => f.factoryId === factoryId)
   const factoryLabel = (factoryId: string) => {
@@ -155,6 +161,7 @@ export function WorkingRunsPopover({
                     key={holder.runId}
                     lead={lead(holder)}
                     title={holder.name}
+                    factory={factoryOf(holder.factoryId)}
                     detail={`${factoryLabel(holder.factoryId)} · ${holderRuns(holder)}`}
                     trailing={slotCount(holder.runs)}
                   />
@@ -163,6 +170,7 @@ export function WorkingRunsPopover({
                     key={holder.taskId}
                     lead={holder.displayId}
                     title={holder.title}
+                    factory={factoryOf(holder.factoryId)}
                     detail={`${factoryLabel(holder.factoryId)} · ${holderRuns(holder)}`}
                     trailing={slotCount(holder.runs)}
                   />
@@ -182,6 +190,7 @@ export function WorkingRunsPopover({
                     key={task.taskId}
                     lead={task.displayId}
                     title={task.title}
+                    factory={factoryOf(task.factoryId)}
                     detail={`${name(task.factoryId)} · Running checks`}
                   />
                 ) : (
@@ -190,6 +199,7 @@ export function WorkingRunsPopover({
                     lead={ordinal(task.place)}
                     place
                     title={`${task.displayId} · ${task.title}`}
+                    factory={factoryOf(task.factoryId)}
                     detail={`${name(task.factoryId)} · Waiting to run checks`}
                   />
                 ),
@@ -219,6 +229,7 @@ export function WorkingRunsPopover({
                   key={holder.runId}
                   lead={lead(holder)}
                   title={holder.name}
+                  factory={factoryOf(holder.factoryId)}
                   detail={`${name(holder.factoryId)} · ${holderRuns(holder)}`}
                   trailing="No slot"
                 />
@@ -238,6 +249,7 @@ export function WorkingRunsPopover({
                     lead={ordinal(entry.place)}
                     place
                     title={`${entry.displayId} · ${entry.name}`}
+                    factory={factoryOf(entry.factoryId)}
                     detail={`${name(entry.factoryId)} · Sub-agent`}
                   />
                 ) : entry.kind !== 'task' ? (
@@ -246,6 +258,7 @@ export function WorkingRunsPopover({
                     lead={ordinal(entry.place)}
                     place
                     title={entry.name}
+                    factory={factoryOf(entry.factoryId)}
                     detail={`${name(entry.factoryId)} · ${entry.kind === 'planning' ? 'Planning Run' : entry.kind === 'side-chat' ? 'Side chat' : entry.kind === 'coordinator' ? 'Coordinator Run' : entry.kind === 'automation-draft' ? 'Drafting an Automation prompt' : 'Automation Run'}`}
                   />
                 ) : (
@@ -254,6 +267,7 @@ export function WorkingRunsPopover({
                     lead={ordinal(entry.place)}
                     place
                     title={`${entry.displayId} · ${entry.title}`}
+                    factory={factoryOf(entry.factoryId)}
                     detail={`${name(entry.factoryId)} · ${entry.setup ? 'setup Task' : priorityLabels[entry.priority]}`}
                   />
                 ),

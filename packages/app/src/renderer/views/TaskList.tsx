@@ -29,6 +29,7 @@ import { AutopilotLabel } from '../components/Autopilot.tsx'
 import { Button } from '../components/Button.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
+import { FactoryIcon, FactoryName } from '../components/FactoryIcon.tsx'
 import { Help } from '../components/Help.tsx'
 import markerStyles from '../components/HierarchyMarker.module.css'
 import { ChevronIcon, CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
@@ -90,7 +91,7 @@ const columnWidths: Record<ListColumn | 'queue', string> = {
   title: 'minmax(120px, 1fr)',
   children: '104px',
   parent: '80px',
-  factory: '88px',
+  factory: '120px',
   stage: '80px',
   status: '300px',
   'blocked-by': '90px',
@@ -348,6 +349,7 @@ export function FilterMenu({
             <CheckItem
               key={f.id}
               label={f.name}
+              icon={<FactoryIcon factory={f} size={16} />}
               checked={filters.factories?.includes(f.id) ?? false}
               count={count((c) => ({ ...c, factories: [f.id], factoryGroups: [] }))}
               onChange={() => set('factories', toggled(filters.factories, f.id))}
@@ -594,6 +596,7 @@ export function TaskList({
   const inScope = allTasks ? tasks : tasks.filter((t) => t.factoryId === scope)
   const shown = filterTasks(inScope, view.filters, text, layout)
   const scopedFactories = allTasks ? factories : factories.filter((f) => f.id === scope)
+  const scopeFactory = allTasks ? undefined : scopedFactories[0]
   const stages = useStages().within(scopedFactories.map((f) => f.id))
   const groups = groupTasks(
     shown,
@@ -786,7 +789,7 @@ export function TaskList({
         )
       }
       case 'factory':
-        return factories.find((f) => f.id === task.factoryId)?.name ?? 'No Factory'
+        return <FactoryName factories={factories} factoryId={task.factoryId} />
       case 'stage':
         return stages.name(task.stage, task.factoryId)
       case 'status':
@@ -1030,6 +1033,9 @@ export function TaskList({
     >
       <header className={views.header}>
         <h1 className={views.title}>
+          {scopeFactory && (
+            <FactoryIcon factory={scopeFactory} size={20} className={views.titleIcon} />
+          )}
           {title}
           {breadcrumb !== undefined && (
             <>
@@ -1157,6 +1163,8 @@ export function TaskList({
             </thead>
             {groups.map((group) => {
               const closed = isCollapsed(group)
+              const groupFactory =
+                view.group === 'factory' ? factories.find((f) => f.id === group.key) : undefined
               return (
                 <tbody key={group.key} aria-label={group.label}>
                   {view.group !== 'none' && (
@@ -1212,6 +1220,7 @@ export function TaskList({
                           }}
                         >
                           <ChevronIcon open={!closed} />
+                          {groupFactory && <FactoryIcon factory={groupFactory} size={16} />}
                           <span className={styles.groupLabel}>{group.label}</span>
                           <span className={styles.groupCount}>{group.tasks.length}</span>
                           {group.removed && (

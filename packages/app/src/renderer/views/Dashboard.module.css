@@ -231,6 +231,17 @@
   font-size: var(--text-10);
 }
 
+.legendFactory {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chart .legendFactory i.swatch {
+  margin-right: 0;
+  vertical-align: baseline;
+}
+
 .chart i.swatch {
   display: inline-block;
   width: 9px;

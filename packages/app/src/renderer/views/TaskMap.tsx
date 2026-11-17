@@ -12,6 +12,7 @@ import { blockerMap, linkRefusal, type MapLink } from '../blocker-map.ts'
 import { Button } from '../components/Button.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
+import { FactoryIcon, FactoryName } from '../components/FactoryIcon.tsx'
 import { CloseIcon, PlusIcon } from '../components/icons.tsx'
 import { PriorityIcon } from '../components/PriorityIcon.tsx'
 import { TaskStatusWithSubAgents } from '../components/SubAgentCount.tsx'
@@ -192,7 +193,9 @@ export function TaskMap({
           <PriorityIcon priority={task.priority} />
           <span className={boardStyles.cardId}>{task.displayId}</span>
           {other && (
-            <span className={styles.factory}>{factoryName(factories, task.factoryId)}</span>
+            <span className={styles.factory}>
+              <FactoryName factories={factories} factoryId={task.factoryId} />
+            </span>
           )}
           <span className={styles.stage}>{stages.name(task.stage, task.factoryId)}</span>
         </span>
@@ -270,11 +273,15 @@ export function TaskMap({
         `${drag.over.displayId} will wait for ${drag.from.displayId}`)
       : `Drop on the Task that should wait for ${drag.from.displayId}`)
   const dragRefused = drag?.over !== undefined && refusal(drag.from, drag.over) !== undefined
+  const scopeFactory = factories.find((f) => f.id === factoryId)
 
   return (
     <section className={views.pane} aria-label={title}>
       <header className={views.header}>
         <h1 className={views.title}>
+          {scopeFactory && (
+            <FactoryIcon factory={scopeFactory} size={20} className={views.titleIcon} />
+          )}
           {title}
           <span className={boardStyles.crumbSlash}>/</span>
           <span className={boardStyles.crumb}>Map</span>

@@ -8,6 +8,11 @@
   line-height: 1;
 }
 
+.letter::before,
+.emoji::before {
+  content: attr(data-glyph);
+}
+
 .letter {
   background: var(--accent-subtle);
   color: var(--accent-text);
@@ -29,5 +34,14 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  max-width: 100%;
+  min-width: 0;
   vertical-align: bottom;
+}
+
+.namedText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
