@@ -218,6 +218,21 @@ function readRetries(project: string): string[] | undefined {
 
 type ProjectReport = { report: JsonReport; problems: string[]; ok: boolean }
 
+export type ProjectResult = {
+  project: string
+  result: ProjectReport
+  retried: readonly string[] | undefined
+}
+
+export function passedInRun(results: readonly ProjectResult[]): Set<string> {
+  const passed = new Set<string>()
+  for (const { result, retried } of results) {
+    if (result.problems.length > 0 || retried === undefined) continue
+    for (const file of passedFiles(result.report, retried)) passed.add(file)
+  }
+  return passed
+}
+
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -390,11 +405,13 @@ export async function runChecks({
   quietWait,
   testsOnly = false,
   files,
+  onResults,
 }: {
   appOnly?: boolean
   quietWait?: number
   testsOnly?: boolean
   files?: TestFiles
+  onResults?: (results: ProjectResult[]) => void
 } = {}): Promise<boolean> {
   const measurement = measureCheck(process.env.TED_CHECK_EVIDENCE_DIR, cacheDir)
   let unlock: (() => Promise<void>) | undefined
@@ -430,7 +447,12 @@ export async function runChecks({
     if (busy(load))
       console.log(`\n${busyLine(load, groupText(testGroups), groupText(allowedGroups))}`)
     ok = await checkInParallel(
-      { appOnly, testsOnly, ...(files !== undefined && { files }) },
+      {
+        appOnly,
+        testsOnly,
+        ...(files !== undefined && { files }),
+        ...(onResults && { onResults }),
+      },
       testGroups,
       load,
       measurement,
@@ -446,7 +468,12 @@ export async function runChecks({
 }
 
 async function checkInParallel(
-  scope: { appOnly: boolean; testsOnly: boolean; files?: TestFiles },
+  scope: {
+    appOnly: boolean
+    testsOnly: boolean
+    files?: TestFiles
+    onResults?: (results: ProjectResult[]) => void
+  },
   testGroups: readonly TestGroup[],
   load: number | undefined,
   measurement?: CheckMeasurement,
@@ -499,6 +526,13 @@ async function checkInParallel(
     readReport(group.project, steps[index]?.ok === true),
   )
   const retries = testGroups.map((group) => readRetries(group.project))
+  scope.onResults?.(
+    testGroups.map((group, index) => ({
+      project: group.project,
+      result: reports[index] ?? parseReport('', group.project, false),
+      retried: retries[index],
+    })),
+  )
   for (const [index, step] of steps.slice(0, testGroups.length).entries()) {
     const result = reports[index]
     console.log(`\n== ${step.title} ${result?.ok ? 'passed' : 'failed'}`)
@@ -656,18 +690,18 @@ export async function checkAffected({
     console.log('\nNo affected tests to run.')
     return true
   }
-  for (const project of idleGroups.map((group) => group.project)) {
-    rmSync(reportFile(project), { force: true })
-    rmSync(retryFile(project), { force: true })
-  }
+  let results: ProjectResult[] | undefined
   const ok = await runChecks({
     testsOnly: true,
     ...(files && { files }),
     ...(quietWait !== undefined && { quietWait }),
+    onResults: (found) => {
+      results = found
+    },
   })
-  if (files && commit !== undefined) {
+  if (files && commit !== undefined && results !== undefined) {
     try {
-      recordPasses(affected, files, commit)
+      recordPasses(affected, files, commit, passedInRun(results))
     } catch (error) {
       console.error(`check: Could not record the passed test files: ${String(error)}`)
     }
@@ -689,17 +723,14 @@ function readPasses(affected: Affected): ReturnType<Affected['parsePasses']> {
   }
 }
 
-function recordPasses(affected: Affected, files: TestFiles, commit: string): void {
+function recordPasses(
+  affected: Affected,
+  files: TestFiles,
+  commit: string,
+  passed: ReadonlySet<string>,
+): void {
   if (affected.cleanCommit(root) !== commit) return
-  const ran: string[] = []
-  const passed = new Set<string>()
-  for (const [project, list] of Object.entries(files)) {
-    if (list.length === 0) continue
-    ran.push(...list)
-    const retried = readRetries(project)
-    if (retried === undefined) continue
-    for (const file of passedFiles(readReport(project, true).report, retried)) passed.add(file)
-  }
+  const ran = Object.values(files).flat()
   const merged = affected.mergePasses(readPasses(affected), { commit, ran, passed })
   writeFileSync(passesFile, affected.passesText(merged))
 }
