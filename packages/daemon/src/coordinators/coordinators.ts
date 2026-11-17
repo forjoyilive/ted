@@ -565,7 +565,7 @@ export function createCoordinators(options: {
           ),
         )
       ).every(Boolean)
-    const checkout = present ? kept : await checkOut(checkoutDeps, dir, factory, entries)
+    const checkout = present ? kept : await checkOut(checkoutDeps, dir, factory, entries, 'default')
     if (!present) {
       const latest = saved.get(c.id)
       if (!latest || latest.endedAt !== undefined || held(c.id)) {
@@ -1169,6 +1169,14 @@ export function createCoordinators(options: {
     save({ ...latest, receipts: latest.receipts.map((r) => (r.id === receipt.id ? receipt : r)) })
     await store.persisted()
     return { receipt, done, ...(refusal !== undefined && { refusal }) }
+  }
+  const requestChains = new Map<string, Promise<unknown>>()
+  function oneRequest<T>(chatId: string, work: () => Promise<T>): Promise<T> {
+    const next = (requestChains.get(chatId) ?? Promise.resolve()).catch(() => {}).then(work)
+    requestChains.set(chatId, next)
+    return next.finally(() => {
+      if (requestChains.get(chatId) === next) requestChains.delete(chatId)
+    })
   }
   function serial<T>(factoryId: string, work: () => Promise<T>): Promise<T> {
     const next = (chains.get(factoryId) ?? Promise.resolve()).catch(() => {}).then(work)
@@ -2219,135 +2227,141 @@ export function createCoordinators(options: {
       })
     },
     async ask(caller, input) {
-      const c = currentChat(caller)
-      if (changing.has(c.id) || deleting.has(c.id))
-        throw new RequestError(409, 'The human is changing this chat')
-      const agent = agentOf(c)
-      const kind = input.question ? 'question' : input.round ? 'round' : 'proposal'
-      requirePower(agent, kind === 'proposal' ? 'propose_tasks' : 'ask')
-      const asked = store.chats.requests(c.id)
-      const open = asked.filter((r) => r.answer === undefined)
-      if (input.supersedes !== undefined) {
-        const old = open.find((r) => r.id === input.supersedes)
-        if (!old) throw new RequestError(409, `no open request ${input.supersedes} in this chat`)
-        if (old.kind !== kind) throw new RequestError(400, `a ${kind} can replace only a ${kind}`)
-      }
-      const waiting = open.find((r) => r.id !== input.supersedes)
-      if (waiting)
-        throw new RequestError(
-          409,
-          `your ${waiting.kind} (request ${waiting.id}) is still waiting on the human; wait for their answer, or replace it with --supersedes ${waiting.id}`,
-        )
-      const posted = store.chats.post({
-        chatId: c.id,
-        factoryId: c.factoryId,
-        runId: c.runId,
-        kind,
-        ...(input.question && {
-          ...(input.question.choices && { choices: input.question.choices }),
-          ...(input.question.multiple && { multiple: true as const }),
-        }),
-        ...(input.round && {
-          title: input.round.title,
-          round: {
-            number:
-              asked.filter((r) => r.kind === 'round' && r.answer?.kind !== 'superseded').length +
-              (input.supersedes === undefined ? 1 : 0),
-            questions: input.round.questions,
-          },
-        }),
-        ...(input.proposal && {
-          title: input.proposal.title,
-          proposal: {
-            rows: input.proposal.tasks.map((row) => ({
-              title: row.title,
-              scope: row.scope,
-              ...(row.description !== undefined && { description: row.description }),
-              priority: row.priority ?? 'none',
-              blockedBy: row.blockedBy ?? [],
-            })),
-          },
-        }),
-        body: input.question
-          ? redactSecrets(input.question.text)
-          : ((input.round ?? input.proposal)?.summary ?? ''),
-      })
-      if (input.supersedes !== undefined)
-        store.chats.answer(input.supersedes, {
-          kind: 'superseded',
-          at: posted.createdAt,
-          by: posted.id,
+      return oneRequest(currentChat(caller).id, async () => {
+        const c = currentChat(caller)
+        if (changing.has(c.id) || deleting.has(c.id))
+          throw new RequestError(409, 'The human is changing this chat')
+        const agent = agentOf(c)
+        const kind = input.question ? 'question' : input.round ? 'round' : 'proposal'
+        requirePower(agent, kind === 'proposal' ? 'propose_tasks' : 'ask')
+        const asked = store.chats.requests(c.id)
+        const open = asked.filter((r) => r.answer === undefined)
+        if (input.supersedes !== undefined) {
+          const old = open.find((r) => r.id === input.supersedes)
+          if (!old) throw new RequestError(409, `no open request ${input.supersedes} in this chat`)
+          if (old.kind !== kind) throw new RequestError(400, `a ${kind} can replace only a ${kind}`)
+        }
+        const waiting = open.find((r) => r.id !== input.supersedes)
+        if (waiting)
+          throw new RequestError(
+            409,
+            `your ${waiting.kind} (request ${waiting.id}) is still waiting on the human; wait for their answer, or replace it with --supersedes ${waiting.id}`,
+          )
+        const posted = store.chats.post({
+          chatId: c.id,
+          factoryId: c.factoryId,
+          runId: c.runId,
+          kind,
+          ...(input.question && {
+            ...(input.question.choices && { choices: input.question.choices }),
+            ...(input.question.multiple && { multiple: true as const }),
+          }),
+          ...(input.round && {
+            title: input.round.title,
+            round: {
+              number:
+                asked.filter((r) => r.kind === 'round' && r.answer?.kind !== 'superseded').length +
+                (input.supersedes === undefined ? 1 : 0),
+              questions: input.round.questions,
+            },
+          }),
+          ...(input.proposal && {
+            title: input.proposal.title,
+            proposal: {
+              rows: input.proposal.tasks.map((row) => ({
+                title: row.title,
+                scope: row.scope,
+                ...(row.description !== undefined && { description: row.description }),
+                priority: row.priority ?? 'none',
+                blockedBy: row.blockedBy ?? [],
+              })),
+            },
+          }),
+          body: input.question
+            ? redactSecrets(input.question.text)
+            : ((input.round ?? input.proposal)?.summary ?? ''),
         })
-      await store.persisted()
-      return posted
+        if (input.supersedes !== undefined)
+          store.chats.answer(input.supersedes, {
+            kind: 'superseded',
+            at: posted.createdAt,
+            by: posted.id,
+          })
+        await store.persisted()
+        return posted
+      })
     },
     async answerRequest(chatId, requestId, answer) {
-      const c = requireChat(chatId)
-      notChanging(chatId)
-      const asked = store.chats.request(requestId)
-      if (!asked || asked.chatId !== c.id)
-        throw new RequestError(404, 'no such request in this chat')
-      if (asked.answer) throw new RequestError(409, 'This request is already closed')
-      const factory = requireFactory(c.factoryId)
-      const agent = agentOf(c)
-      if (chatAgentView(agent, await agentsNow(factory)).removed)
-        throw new RequestError(409, removedRefusal(agent))
-      const at = new Date().toISOString()
-      const deliver = (text: string) => {
-        const latest = requireChat(chatId)
-        store.queueRunMessage({ runId: latest.runId, text, from: 'ted' })
-        if (latest.phase === 'ready' || latest.phase === 'queued')
-          save({ ...latest, phase: 'queued' })
-      }
-      if (asked.kind === 'question') {
-        if (answer.action !== 'answer')
-          throw new RequestError(400, 'Answer a question with a choice or a message')
-        const text = answer.text?.trim() ?? ''
-        if (answer.choice !== undefined && !asked.choices?.includes(answer.choice))
-          throw new RequestError(409, `“${answer.choice}” isn’t one of the question’s choices`)
-        if (answer.choices !== undefined && !asked.multiple)
-          throw new RequestError(400, 'This question takes one choice')
-        const outside = answer.choices?.find((x) => !asked.choices?.includes(x))
-        if (outside !== undefined)
-          throw new RequestError(409, `“${outside}” isn’t one of the question’s choices`)
-        if (text === '' && answer.choice === undefined && (answer.choices ?? []).length === 0)
-          throw new RequestError(400, 'Pick a choice or write an answer')
-        const picked = answer.choices ?? (answer.choice !== undefined ? [answer.choice] : [])
-        deliver(
-          [
-            `The human answered your question (request ${asked.id}):`,
-            asked.body,
-            ...(picked.length > 0 ? [`Their choice: ${picked.join('; ')}`] : []),
-            ...(text !== '' ? [`Their words: ${text}`] : []),
-          ].join('\n\n'),
-        )
-        store.chats.answer(asked.id, {
-          kind: 'answered',
-          at,
-          ...(answer.choice !== undefined && { choice: answer.choice }),
-          ...(answer.choices !== undefined && { choices: answer.choices }),
-          ...(text !== '' && { text }),
-        })
-      } else if (asked.kind === 'round') {
-        if (!asked.round) throw new RequestError(409, 'this round has no questions')
-        const answers = roundAnswers(asked.round, answer)
-        deliver(chatRoundAnswerMessage(asked, answers))
-        store.chats.answer(asked.id, { kind: 'answered', at, answers })
-      } else if (answer.action === 'request-changes') {
-        const text = answer.text.trim()
-        if (text === '') throw new RequestError(400, 'Request changes needs your comment')
-        deliver(
-          `The human asked for changes to your proposal “${asked.title ?? ''}”:\n\n${text}\n\nRevise it with \`ted task propose --file <file>\`, then end your turn.`,
-        )
-        store.chats.answer(asked.id, { kind: 'changes-requested', at, text })
-      } else if (answer.action === 'approve') {
-        await approveProposal(c, asked, answer)
-      } else throw new RequestError(400, 'Answer a proposal with Create Tasks or Request changes')
-      await store.persisted()
-      const runId = requireChat(chatId).runId
-      if (store.getRun(runId)) steering.syncQueuedFlag(runId)
-      pump()
-      return publicChat(requireChat(chatId))
+      return oneRequest(chatId, async () => {
+        const c = requireChat(chatId)
+        notChanging(chatId)
+        const asked = store.chats.request(requestId)
+        if (!asked || asked.chatId !== c.id)
+          throw new RequestError(404, 'no such request in this chat')
+        if (asked.answer) throw new RequestError(409, 'This request is already closed')
+        const factory = requireFactory(c.factoryId)
+        const agent = agentOf(c)
+        if (chatAgentView(agent, await agentsNow(factory)).removed)
+          throw new RequestError(409, removedRefusal(agent))
+        if (store.chats.request(requestId)?.answer)
+          throw new RequestError(409, 'This request is already closed')
+        const at = new Date().toISOString()
+        const deliver = (text: string) => {
+          const latest = requireChat(chatId)
+          store.queueRunMessage({ runId: latest.runId, text, from: 'ted' })
+          if (latest.phase === 'ready' || latest.phase === 'queued')
+            save({ ...latest, phase: 'queued' })
+        }
+        if (asked.kind === 'question') {
+          if (answer.action !== 'answer')
+            throw new RequestError(400, 'Answer a question with a choice or a message')
+          const text = answer.text?.trim() ?? ''
+          if (answer.choice !== undefined && !asked.choices?.includes(answer.choice))
+            throw new RequestError(409, `“${answer.choice}” isn’t one of the question’s choices`)
+          if (answer.choices !== undefined && !asked.multiple)
+            throw new RequestError(400, 'This question takes one choice')
+          const outside = answer.choices?.find((x) => !asked.choices?.includes(x))
+          if (outside !== undefined)
+            throw new RequestError(409, `“${outside}” isn’t one of the question’s choices`)
+          if (text === '' && answer.choice === undefined && (answer.choices ?? []).length === 0)
+            throw new RequestError(400, 'Pick a choice or write an answer')
+          const picked = answer.choices ?? (answer.choice !== undefined ? [answer.choice] : [])
+          deliver(
+            [
+              `The human answered your question (request ${asked.id}):`,
+              asked.body,
+              ...(picked.length > 0 ? [`Their choice: ${picked.join('; ')}`] : []),
+              ...(text !== '' ? [`Their words: ${text}`] : []),
+            ].join('\n\n'),
+          )
+          store.chats.answer(asked.id, {
+            kind: 'answered',
+            at,
+            ...(answer.choice !== undefined && { choice: answer.choice }),
+            ...(answer.choices !== undefined && { choices: answer.choices }),
+            ...(text !== '' && { text }),
+          })
+        } else if (asked.kind === 'round') {
+          if (!asked.round) throw new RequestError(409, 'this round has no questions')
+          const answers = roundAnswers(asked.round, answer)
+          deliver(chatRoundAnswerMessage(asked, answers))
+          store.chats.answer(asked.id, { kind: 'answered', at, answers })
+        } else if (answer.action === 'request-changes') {
+          const text = answer.text.trim()
+          if (text === '') throw new RequestError(400, 'Request changes needs your comment')
+          deliver(
+            `The human asked for changes to your proposal “${asked.title ?? ''}”:\n\n${text}\n\nRevise it with \`ted task propose --file <file>\`, then end your turn.`,
+          )
+          store.chats.answer(asked.id, { kind: 'changes-requested', at, text })
+        } else if (answer.action === 'approve') {
+          await approveProposal(c, asked, answer)
+        } else throw new RequestError(400, 'Answer a proposal with Create Tasks or Request changes')
+        await store.persisted()
+        const runId = requireChat(chatId).runId
+        if (store.getRun(runId)) steering.syncQueuedFlag(runId)
+        pump()
+        return publicChat(requireChat(chatId))
+      })
     },
     holdFactoryRemoval(id) {
       removing.add(id)

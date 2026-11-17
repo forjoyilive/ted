@@ -1,4 +1,4 @@
-import { mkdir, rm } from 'node:fs/promises'
+import { lstat, mkdir, realpath, rm } from 'node:fs/promises'
 import path from 'node:path'
 import type { Banners } from '../banners.ts'
 import { ensureClone } from '../factories.ts'
@@ -19,6 +19,7 @@ export async function checkOut(
   folder: string,
   factory: StoredFactory,
   entries: readonly FactoryRepoEntry[],
+  branch: 'base' | 'default' = 'base',
 ): Promise<PlanCheckout[]> {
   await rm(folder, { recursive: true, force: true })
   await mkdir(folder, { recursive: true, mode: 0o700 })
@@ -30,7 +31,8 @@ export async function checkOut(
         entry.primary ? factory : { ...factory, repo: entry.repo, cloneUrl: entry.cloneUrl },
       )
       await git.fetch(clone)
-      const base = entry.baseBranch ?? (await git.defaultBranch(clone))
+      const base =
+        (branch === 'base' ? entry.baseBranch : undefined) ?? (await git.defaultBranch(clone))
       const worktree = path.join(folder, entry.name)
       await git.addScratchWorktree(clone, worktree, `origin/${base}`)
       made.push({ clone, worktree })
@@ -44,7 +46,16 @@ export async function checkOut(
 }
 
 export async function discard(checkout: readonly PlanCheckout[], folder: string): Promise<void> {
+  const stat = await lstat(folder).catch(() => undefined)
+  if (!stat) return
+  const parent = await realpath(path.dirname(folder)).catch(() => undefined)
+  const real = await realpath(folder).catch(() => undefined)
+  if (!stat.isDirectory() || !parent || real !== path.join(parent, path.basename(folder))) {
+    console.error(`not removing ${folder}: it isn’t a plain folder`)
+    return
+  }
   for (const { clone, worktree } of checkout) {
+    if (path.dirname(worktree) !== folder) continue
     await git.removeWorktree(clone, worktree).catch(() => undefined)
   }
   await rm(folder, { recursive: true, force: true }).catch((error) =>

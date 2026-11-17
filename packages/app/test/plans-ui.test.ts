@@ -107,10 +107,7 @@ describe('Planning chats', () => {
       .getByRole('region', { name: 'Agent chats' })
       .getByRole('button', { name: 'New chat' })
       .click()
-    await window
-      .getByRole('radiogroup', { name: 'Agent' })
-      .getByText('Planner', { exact: true })
-      .click()
+    await window.getByRole('combobox', { name: 'Agent' }).selectOption('planner')
     const fresh = window.getByRole('region', { name: 'New planning chat' })
     await fresh.waitFor()
     expect(

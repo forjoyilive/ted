@@ -18,5 +18,5 @@
 .archivedToggle { display: flex; align-items: center; gap: 6px; width: 100%; padding: 12px 14px 6px; border: none; background: none; color: var(--text-caption); font: inherit; font-size: var(--text-11); font-weight: var(--weight-medium); letter-spacing: 0.04em; text-align: left; text-transform: uppercase; cursor: pointer; }
 .archivedToggle:hover { color: var(--text-secondary); }
 .archivedToggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-.agentPick { display: inline-flex; flex-direction: column; gap: 2px; min-width: 0; }
-.agentLine { color: var(--text-tertiary); font-size: var(--text-12); line-height: var(--leading-body); }
+.agentPick { display: contents; }
+.agentLine { order: 1; flex-basis: 100%; color: var(--text-tertiary); font-size: var(--text-12); line-height: var(--leading-body); }
