@@ -3,6 +3,7 @@ import http from 'node:http'
 import type { AddressInfo } from 'node:net'
 import os from 'node:os'
 import type { Post } from '@ted/daemon/sentry'
+import { crashFrom } from '@ted/protocol'
 import { type Json, parseJson } from '@ted/protocol/parse'
 import { describe, expect, test } from 'vitest'
 import {
@@ -57,6 +58,16 @@ describe('cleaning', () => {
       'cannot read <path> here',
     )
     expect(cleanText('copy <x> from C:\\a\\b to D:\\c', roots, home)).toBe('copy <x> from <path>')
+    expect(cleanText(`Unexpected token 'a', "secret con"... is not valid JSON`, roots, home)).toBe(
+      `Unexpected token '<text>', "<text>"... is not valid JSON`,
+    )
+    expect(cleanText("open '/Volumes/Private Drive/confidential plan.txt'", roots, home)).toBe(
+      "open '<path>'",
+    )
+    expect(cleanText('cannot parse `API_KEY=abc and the rest`', roots, home)).toBe(
+      'cannot parse `<text>`',
+    )
+    expect(cleanText("TED can't start", roots, home)).toBe("TED can't start")
     expect(cleanText('at packages/daemon/src/a.ts:3:1 failed', roots, home)).toBe(
       'at packages/daemon/src/a.ts:3:1 failed',
     )
@@ -165,6 +176,16 @@ describe('crashReporter', () => {
     expect(event).not.toHaveProperty('server_name')
     expect(event).not.toHaveProperty('user')
     expect(JSON.stringify(event)).not.toMatch(/bob|acme|ghp_/)
+  })
+
+  test('a thrown value that isn’t an Error is sent without its content', async () => {
+    const { sent, report } = harness()
+    await report(crashFrom('rejection', 'Summarize the secret plan in the repo'))
+    const [, , event] = envelope(sent[0]?.init ?? {})
+    expect(event).toMatchObject({
+      exception: { values: [{ type: 'NonError', value: '<text>' }] },
+    })
+    expect(JSON.stringify(event)).not.toContain('secret')
   })
 
   test('sends nothing while reports are off, and follows the setting at once', async () => {

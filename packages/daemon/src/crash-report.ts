@@ -56,6 +56,25 @@ const slashToken = new RegExp(
 const betweenPaths = /<path>(?:[ \t]+\S+)*[ \t]+<path>/g
 const keptPrefixes = ['packages/', 'node:', '<path>', '<anonymous>']
 
+const quotedRuns: [RegExp, string][] = [
+  [/(^|[^\w])"([^"\n]*)"/gm, '"'],
+  [/(^|[^\w])'([^'\n]*)'/gm, "'"],
+  [/(^|[^\w])\x60([^\x60\n]*)\x60/gm, '\x60'],
+]
+const pathLike = /^(?:<path>|file:\/\/|~?\/|[A-Za-z]:\\)/
+
+function withoutQuotedText(text: string): string {
+  return quotedRuns.reduce(
+    (result, [pattern, quote]) =>
+      result.replace(
+        pattern,
+        (_match, before: string, inside: string) =>
+          `${before}${quote}${pathLike.test(inside) ? '<path>' : '<text>'}${quote}`,
+      ),
+    text,
+  )
+}
+
 function kept(token: string): boolean {
   return keptPrefixes.some((prefix) => token.startsWith(prefix))
 }
@@ -81,7 +100,7 @@ export function cleanText(text: string, roots: readonly string[], home: string):
     result = result.replace(new RegExp(`${homeUrl}${homeTail}`, 'g'), '<path>')
     result = result.replace(new RegExp(`${escapeRegExp(home)}${homeTail}`, 'g'), '<path>')
   }
-  result = result
+  result = withoutQuotedText(result)
     .replace(posixPath, '$1<path>')
     .replace(windowsPath, '$1<path>')
     .replace(slashToken, (match, before: string, token: string) =>

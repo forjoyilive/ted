@@ -39,7 +39,7 @@ test('a renderer crash is cut to size and refused with a bad field', () => {
   expect(() => parseRendererCrash('crash')).toThrow('crash')
 })
 
-test('crashFrom reads an Error or any other thrown value', () => {
+test('crashFrom reads an Error, and keeps no content from any other thrown value', () => {
   const error = new RangeError('too far')
   expect(crashFrom('uncaught', error)).toEqual({
     source: 'uncaught',
@@ -47,10 +47,13 @@ test('crashFrom reads an Error or any other thrown value', () => {
     message: 'too far',
     stack: error.stack,
   })
-  expect(crashFrom('rejection', 'plain text')).toEqual({
+  expect(crashFrom('rejection', 'a prompt with secrets')).toEqual({
     source: 'rejection',
     type: 'NonError',
-    message: 'plain text',
+    message: '<text>',
   })
-  expect(crashFrom('rejection', 42)).toMatchObject({ type: 'NonError', message: '42' })
+  expect(crashFrom('rejection', { prompt: 'secret' })).toMatchObject({
+    type: 'NonError',
+    message: '<text>',
+  })
 })

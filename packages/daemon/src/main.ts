@@ -9,6 +9,7 @@ import { closeInheritedFds } from './inherited-fds.ts'
 import { daemonAlreadyRunningExitCode, tedQuitExitCode } from './launch.ts'
 import { logConsoleTo, openRollingLog, tedLogLimits } from './logs.ts'
 import { QuitMarkedError } from './quit-mark.ts'
+import { redactSecrets } from './redact.ts'
 import { holdAwakeWithOs } from './stay-awake.ts'
 
 closeInheritedFds()
@@ -32,7 +33,7 @@ const reportCrash = crashReporter({
 let crashing = false
 process.on('uncaughtException', (error, origin) => {
   console.error('Uncaught exception:', error)
-  process.stderr.write(`${format(error)}\n`)
+  process.stderr.write(`${redactSecrets(format(error))}\n`)
   if (crashing) process.exit(1)
   crashing = true
   setTimeout(() => process.exit(1), 6000).unref()

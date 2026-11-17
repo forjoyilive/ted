@@ -24,15 +24,7 @@ export function crashFrom(source: CrashSource, error: Untyped): Crash {
       ...(isString(error.stack) && { stack: error.stack }),
     }
   }
-  return { source, type: 'NonError', message: isString(error) ? error : describe(error) }
-}
-
-function describe(value: Untyped): string {
-  try {
-    return String(value)
-  } catch {
-    return 'A value that couldn’t be shown'
-  }
+  return { source, type: 'NonError', message: '<text>' }
 }
 
 export function parseRendererCrash(body: Untyped): Crash {
