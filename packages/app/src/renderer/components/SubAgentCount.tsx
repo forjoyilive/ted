@@ -1,5 +1,11 @@
 import type { Task } from '@ted/protocol'
-import { activeSubAgentCount, activeSubAgentLabel } from '../sub-agents.ts'
+import {
+  activeSubAgentCount,
+  activeSubAgentLabel,
+  subAgentsRunningLabel,
+  subAgentWorking,
+} from '../sub-agents.ts'
+import { SubAgentsIcon } from './icons.tsx'
 import styles from './SubAgentCount.module.css'
 import { TaskStatusChips } from './TaskStatus.tsx'
 
@@ -17,19 +23,24 @@ export function TaskStatusWithSubAgents({
   return (
     <span className={styles.status}>
       <TaskStatusChips task={task} onOpenTask={onOpenTask} />
-      <SubAgentCount count={count} />
+      <SubAgentCount count={count} working={count > 0 && subAgentWorking(task.runs)} />
     </span>
   )
 }
 
-function SubAgentCount({ count }: { count: number }) {
+function SubAgentCount({ count, working }: { count: number; working: boolean }) {
   if (count === 0) return null
+  const label = subAgentsRunningLabel(count)
   return (
     <span
-      className={styles.count}
-      title={`${activeSubAgentLabel(count)}. Started sub-agent Runs that haven’t finished, including idle, waiting and paused Runs.`}
+      role="img"
+      aria-label={label}
+      title={label}
+      data-working={working}
+      className={`${styles.count} ${working ? styles.working : ''}`}
     >
-      {count} {count === 1 ? 'Sub-Agent' : 'Sub-Agents'}
+      <SubAgentsIcon className={styles.icon} />
+      {count}
     </span>
   )
 }

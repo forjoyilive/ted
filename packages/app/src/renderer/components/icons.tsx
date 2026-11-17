@@ -291,6 +291,23 @@ export function BranchIcon({ className }: IconProps) {
   )
 }
 
+export function SubAgentsIcon({ className }: IconProps) {
+  return (
+    <svg className={className} width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path
+        d="M8 4.8v2.7m0 0L3.5 11M8 7.5l4.5 3.5M8 7.5V11"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+      <circle cx="8" cy="3" r="1.8" fill="currentColor" />
+      <circle cx="3.2" cy="12.6" r="1.5" fill="currentColor" />
+      <circle cx="8" cy="12.6" r="1.5" fill="currentColor" />
+      <circle cx="12.8" cy="12.6" r="1.5" fill="currentColor" />
+    </svg>
+  )
+}
+
 export function ChangesIcon({ className }: IconProps) {
   return (
     <TabIcon className={className}>
