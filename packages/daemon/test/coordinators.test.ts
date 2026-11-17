@@ -429,7 +429,11 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   const s = await setup(),
     a = await s.task('A'),
     b = await s.task('B'),
-    { run } = await s.start([{ waitFor: path.join(scratch, 'finish') }, { endTurn: true }])
+    { run } = await s.start([
+      { everyMessage: [{ endTurn: true }] },
+      { waitFor: path.join(scratch, 'finish') },
+      { endTurn: true },
+    ])
   const read = async (id: string) =>
     unpack<CoordinatorTask>((await run.call('GET', `/coordinator/tasks/${id}`)).body)
   await s.ok('PUT', `/tasks/${b.id}/priority`, { priority: 'high' })

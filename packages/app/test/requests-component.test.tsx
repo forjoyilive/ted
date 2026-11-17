@@ -2172,7 +2172,7 @@ test('Inbox right-click offers request actions, then Task or plan actions, and n
     'Archive…',
     'Delete…',
   ])
-  expect(screen.getAllByRole('separator')).toHaveLength(1)
+  expect(within(screen.getByRole('menu')).getAllByRole('separator')).toHaveLength(1)
   await u.click(screen.getByRole('menuitem', { name: 'Copy message text' }))
   expect(copy).toHaveBeenCalledWith('First line\nSecond line')
   expect(props.onOpen).not.toHaveBeenCalled()

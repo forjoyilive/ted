@@ -520,7 +520,8 @@ function MoveAnswer({ request, task, lead }: AnswerProps) {
   const { send: post, comment, commenting, sending, submission, error } = useSending(request, false)
   const factories = useFactories().filter((f) => f.id !== task.factoryId)
   const suggested = factories.find((f) => f.id === ask?.factoryId)
-  const [factoryId, setFactoryId] = useState(suggested?.id)
+  const [picked, setFactoryId] = useState<string>()
+  const factoryId = picked ?? suggested?.id
   const { plan, planError } = useMovePlan(task.id, factoryId, task.updatedAt)
   const chosen = factories.find((f) => f.id === factoryId)
   const asker = ask?.askedBy === 'coordinator' ? 'the Coordinator' : 'the Task Lead'
