@@ -148,6 +148,8 @@ describe('slow requests', () => {
       '/runs/:id/browser',
       '/browser/poll',
       '/sub-agents/:id/wait',
+      '/chat-commands',
+      '/chat-commands/:id',
     ])
   })
 })

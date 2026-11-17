@@ -176,8 +176,8 @@ describe('checking Agent files', () => {
       }),
     ).toEqual([
       'error .ted/agents.yaml 1 1 `helper` needs a `name`',
-      'error .ted/agents.yaml 2 17 unknown power `launch_missiles` in `helper.powers`; the powers are ask, manage_tasks, manage_automations, propose_tasks, read_code, manage_agents, run_commands',
-      'error .ted/agents.yaml 3 3 unknown key `helper.colour`; an Agent has name, agent, model, powers, commands, based_on',
+      'error .ted/agents.yaml 2 17 unknown power `launch_missiles` in `helper.powers`; the powers are ask, manage_tasks, manage_automations, propose_tasks, read_code, manage_agents, run_commands, run_outside',
+      'error .ted/agents.yaml 3 3 unknown key `helper.colour`; an Agent has name, agent, model, powers, commands, outside_commands, based_on',
       'error .ted/agents.yaml 4 1 `Bad_Id` isn’t an Agent id; an Agent id is lowercase letters, digits and hyphens, up to 40 characters',
       'error .ted/agents.yaml 6 1 `scout` has no instructions file; add agents/scout.md',
       'error .ted/agents.yaml 8 10 `scout.agent` must be claude, codex or antigravity',
