@@ -76,6 +76,7 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       '        env:',
       '          STUB_APP_BROWSER: "1"',
       '      - name: Admin',
+      '        preview: mobile',
       `        run: "'${process.execPath}' '${stubApp}'"`,
       '        env:',
       '          STUB_APP_BROWSER: "1"',
@@ -348,6 +349,31 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     .toBe('widgets/Admin')
   await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
   expect((await command({ action: 'snapshot' })).url).toBe(new URL(admin.url ?? '').href)
+  const sizeButton = panel.getByRole('button', { name: /^Preview size:/ })
+  const adminScreen = () =>
+    app?.evaluate(
+      async ({ webContents }, url) =>
+        webContents
+          .getAllWebContents()
+          .find((c) => c.getURL() === url)
+          ?.executeJavaScript(
+            '({width: screen.width, touch: navigator.maxTouchPoints, phone: navigator.userAgent.includes("iPhone")})',
+          ),
+      new URL(admin.url ?? '').href,
+    )
+  await expect
+    .poll(() => sizeButton.getAttribute('aria-label'))
+    .toBe('Preview size: Mobile · 390 × 844')
+  await expect.poll(adminScreen).toEqual({ width: 390, touch: 5, phone: true })
+  await sizeButton.click()
+  await window.getByRole('menuitemradio', { name: /^Landscape/ }).click()
+  await expect.poll(adminScreen).toMatchObject({ width: 844, phone: true })
+  await sizeButton.click()
+  await window.getByRole('menuitemradio', { name: /^Desktop/ }).click()
+  await expect.poll(adminScreen).toMatchObject({ touch: 0, phone: false })
+  await expect
+    .poll(() => panel.locator('[data-preview-size]').getAttribute('data-preview-size'))
+    .toBe('desktop')
   await command({ action: 'open', app: { name: 'Web' } })
   expect(
     await app.evaluate(async ({ webContents }, url) => {

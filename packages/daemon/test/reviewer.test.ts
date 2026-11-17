@@ -311,9 +311,8 @@ describe('the Validate loop check', () => {
       const ask = await waitForAsk(client, task)
       const runs = await client.ok<RunSummary[]>('GET', `/tasks/${task.id}/runs`)
       expect(runs.filter((r) => r.name === 'Loop check · Validate')).toHaveLength(2)
-      expect(ask.body).toContain('Making progress')
-      expect(ask.body).toContain('Recommended: Try again')
-      expect(ask.body).toContain('leaves the findings open')
+      expect(ask.body).toContain('the rounds are making progress')
+      expect(ask.choices).toEqual(['Keep going', 'Stop the Task'])
       expect(ask.body).not.toContain('The export button does nothing.')
       expect(ask.body.length).toBeLessThan(800)
       expect((await getTask(client, task.id)).stage).toBe('validate')
@@ -390,7 +389,7 @@ describe('the Validate loop check', () => {
         'the assessment to ask after restart',
         20_000,
       )
-      expect(ask.body).toContain('Making progress')
+      expect(ask.body).toContain('the rounds are making progress')
       const tasks = await restarted.call('GET', '/tasks')
       expect((tasks.body as Task[]).find((t) => t.id === task.id)?.stage).toBe('validate')
       const history = await restarted.call('GET', `/tasks/${task.id}/events`)
@@ -411,8 +410,11 @@ describe('the Validate loop check', () => {
         const task = await loopTask(client, verdict, 4)
         const ask = await waitForAsk(client, task)
         expect(ask.body).toContain(
-          verdict === 'looping' ? 'Recommended: Back to Design' : 'couldn’t assess progress',
+          verdict === 'looping'
+            ? 'the rounds keep repeating the same problem'
+            : 'Ted couldn’t check whether the rounds are making progress',
         )
+        expect(ask.choices).toEqual(['Keep going', 'Stop the Task'])
         expect(ask.body).not.toContain('The export button does nothing.')
         expect(ask.body).not.toContain('Round 1:')
         expect((await getTask(client, task.id)).stage).toBe('validate')
@@ -433,14 +435,17 @@ describe('the Validate loop check', () => {
       const ask = await waitForAsk(client, task)
       expect(ask).toMatchObject({
         stage: 'validate',
-        title: 'Validate and Work are going round in circles',
-        choices: ['Try again', 'Move to Review anyway'],
+        title: 'Back to Work 2 times with the same problem',
+        choices: ['Keep going', 'Stop the Task'],
       })
       expect(ask.body).not.toContain('Round 1:')
       expect(ask.body).not.toContain('The export button does nothing.')
-      expect(ask.body).toContain('Recommended: Try again')
+      expect(ask.body).toContain('If you keep going, add guidance that breaks the pattern.')
+      expect(ask.body).toContain(
+        'Validate has sent the Task back to Work 2 times: 2 for review findings. Its limit is 5.',
+      )
       expect(ask.body).toContain('history')
-      expect(ask.body.length).toBeLessThan(800)
+      expect(ask.body.length).toBeLessThan(1200)
       const pending = (await threadEvents(client, task)).find(
         (e) => e.text === 'Validate wants to send this Task back to Work',
       )
@@ -471,7 +476,7 @@ describe('the Validate loop check', () => {
 
       await client.ok('POST', `/comments/${ask.id}/answer`, {
         action: 'answer',
-        choice: 'Try again',
+        choice: 'Keep going',
       })
       await waitUntil(
         async () =>
@@ -479,17 +484,17 @@ describe('the Validate loop check', () => {
             (e) =>
               e.text === 'Validate sent this back to Work (round 1 of 5)' && e.at > ask.createdAt,
           ),
-        'the send-back after Try again',
+        'the send-back after Keep going',
         20_000,
       )
       await waitUntil(
         async () =>
           (await userMessages(client, task)).some((m) =>
             m.startsWith(
-              'The human chose Try again, so Validate’s count of send-backs starts over.',
+              'The human chose Keep going, so Validate’s count of returns to Work starts over.',
             ),
           ),
-        'the Task Lead to hear about Try again',
+        'the Task Lead to hear about Keep going',
         20_000,
       )
     },
@@ -526,7 +531,7 @@ describe('the Validate loop check', () => {
   )
 
   test(
-    'loop_check: false sends the third round back as usual; over max_back the loop ask offers Back to Design and Move on anyway',
+    'loop_check: false sends the third round back as usual; over max_back the limit question offers Keep going and Stop the Task, and Stop the Task stops it',
     async () => {
       const client = await start(
         'version: 1\norder: [intake, design, work, validate, review, merge]\nstages:\n  design: { gate: false }\n  validate: { max_back: 3, loop_check: false }\n',
@@ -545,9 +550,13 @@ describe('the Validate loop check', () => {
       })
       const ask = await waitForAsk(client, task)
       expect(ask).toMatchObject({
-        title: 'Validate has sent this Task back 3 times, its limit',
-        choices: ['Try again', 'Back to Design', 'Move to Review anyway'],
+        title: 'Back to Work 3 times, the limit',
+        choices: ['Keep going', 'Stop the Task'],
       })
+      expect(ask.body).toContain(
+        'Validate has sent the Task back to Work 3 times: 3 for review findings. Its limit is 3.',
+      )
+      expect(ask.body).not.toContain('Loop check')
       const texts = (await threadEvents(client, task)).map((e) => e.text)
       expect(texts.some((t) => t.includes('converging'))).toBe(false)
       expect(texts).toContain('Validate sent this back to Work (round 3 of 3)')
@@ -556,55 +565,13 @@ describe('the Validate loop check', () => {
 
       await client.ok('POST', `/comments/${ask.id}/answer`, {
         action: 'answer',
-        choice: 'Move to Review anyway',
+        choice: 'Stop the Task',
       })
-      await waitForStage(client, task, 'review')
-      const moved = await waitUntil(
-        async () => (await userMessages(client, task)).find((m) => m.includes('# Open findings')),
-        'the open Findings to reach the Task Lead',
-        20_000,
-      )
-      expect(moved).toContain('The export button does nothing.')
-      expect(moved).toContain('Ted moved this Task to Review.')
-    },
-    slow,
-  )
-
-  test(
-    'Back to Design moves the Task to Design with the Findings, without counting',
-    async () => {
-      const client = await start(
-        'version: 1\norder: [intake, design, work, validate, review, merge]\nstages:\n  design: { gate: false }\n  validate: { max_back: 1, loop_check: false }\n',
-      )
-      const file = path.join(scratch, 'findings.md')
-      const script = [
-        'f="n-$TED_RUN"; n=$(cat "$f" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$f";',
-        'if [ $n -ge 7 ]; then :;',
-        `elif [ $n -ge 4 ] && [ $((n % 2)) -eq 0 ]; then ted outcome back --to work --findings "${file}";`,
-        'else ted outcome advance; fi',
-      ].join(' ')
-      await writeFile(file, '- The export button does nothing.\n')
-      const run = { run: ['sh', '-c', script] }
-      const task = await startTask(client, { everyMessage: [run, { endTurn: true }] }, run, {
-        endTurn: true,
-      })
-      const ask = await waitForAsk(client, task)
-      await client.ok('POST', `/comments/${ask.id}/answer`, {
-        action: 'answer',
-        choice: 'Back to Design',
-        text: 'Rethink the export flow.',
-      })
-      await waitUntil(
-        async () =>
-          (await userMessages(client, task)).find((m) =>
-            m.startsWith('The human sent this Task back to Design from Validate.'),
-          ),
-        'the Task Lead to hear about Design',
-        20_000,
-      )
-      const texts = (await threadEvents(client, task)).map((e) => e.text)
-      expect(texts).toContain('Validate sent this back to Design')
-      expect((await getTask(client, task.id)).stage).toBe('design')
+      const stopped = await waitUntil(async () => {
+        const current = await getTask(client, task.id)
+        return current.status?.kind === 'stopped' ? current : undefined
+      }, 'the Task to stop')
+      expect(stopped.stage).toBe('work')
     },
     slow,
   )

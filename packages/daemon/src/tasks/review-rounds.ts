@@ -158,14 +158,21 @@ export function workRoundText(input: {
   round: number
   limit?: number
   cause: SendBackCause | undefined
+  failure?: string
 }): string {
-  const { round, limit, cause } = input
+  const { round, limit, cause, failure } = input
   const checks =
-    '- When you report `ted outcome advance`, Ted moves the Task to Validate and runs the Factory’s checks there. If one fails, Ted sends the Task back to Work with the output, and that send-back counts toward Validate’s limit. If a check fails for a reason outside this Task, don’t change unrelated code to make it pass: say so in the Task brief with what shows it.'
+    '- When you report `ted outcome advance`, the Task moves to Validate and Ted runs the Factory’s checks first. If one fails, the Task comes back to Work with the output, and that counts as a send-back.'
+  const id = failure ?? '<id>'
   return [
     `# Send-back ${round}${limit === undefined ? '' : ` of ${limit}`} from Validate`,
     cause === 'check'
-      ? ['- Fix what the failing check reports and nothing else.', checks].join('\n')
+      ? [
+          `- A check failed${failure === undefined ? '' : `: failure case ${failure}`}. If this change caused it, fix what the check reports and nothing else.`,
+          `- If the cause is outside this Task, such as a flaky test or a test already broken on the base branch, add evidence with \`ted failure evidence ${id} --file <json>\`, assess it with \`ted failure assess ${id} --file <json>\`, then run \`ted failure ask ${id}\` so the human can accept it.`,
+          '- Never change code unrelated to this Task to get past a check.',
+          checks,
+        ].join('\n')
       : [
           '- Fix the findings above and nothing else. The next Validate checks only that each one is fixed and that the fix broke nothing: Ted gives its reviewer these findings and the diff since the commit this round reviewed. Every other line you change is reviewed again, so leave refactors and unrelated clean-up out.',
           '- If a finding’s mistake is repeated elsewhere in your change, fix it there too, and add or change a test that would have caught it.',

@@ -14,6 +14,7 @@ import type {
   Task,
 } from '@ted/protocol'
 import { appKinds } from '@ted/protocol/factory-settings'
+import { previewPresets, previewSizeLabel, previewSizeOf } from '@ted/protocol/preview-size'
 import { pullRequestCiModes } from '@ted/protocol/task'
 import {
   memo,
@@ -1545,7 +1546,7 @@ function AppEditor({
             value={app.kind}
             onChange={(event) => {
               const kind = appKinds.find((k) => k === event.target.value) ?? 'web'
-              const { url: _, device: __, ...rest } = app
+              const { url: _, device: __, preview: ___, ...rest } = app
               const device = kind === app.kind ? app.device : undefined
               const kept = device === undefined ? rest : { ...rest, device }
               onChange(kind === 'web' ? { ...app, kind } : { ...kept, kind })
@@ -1614,6 +1615,33 @@ function AppEditor({
               onChange(event.target.value === '' ? rest : { ...app, url: event.target.value })
             }}
           />
+        </div>
+      )}
+      {app.kind === 'web' && (
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor={`${id}-preview`}>
+            Preview size{' '}
+            <Help>
+              The size the App’s preview opens at in a Task. Anyone can switch it while it’s open.
+            </Help>
+          </label>
+          <Select
+            fullWidth
+            id={`${id}-preview`}
+            controlClassName={styles.select}
+            value={app.preview ?? 'desktop'}
+            onChange={(event) => {
+              const { preview: _, ...rest } = app
+              const preview = previewPresets.find((p) => p === event.target.value)
+              onChange(preview === undefined || preview === 'desktop' ? rest : { ...app, preview })
+            }}
+          >
+            {previewPresets.map((preset) => (
+              <option key={preset} value={preset}>
+                {previewSizeLabel(previewSizeOf(preset))}
+              </option>
+            ))}
+          </Select>
         </div>
       )}
       <div className={styles.appActions}>

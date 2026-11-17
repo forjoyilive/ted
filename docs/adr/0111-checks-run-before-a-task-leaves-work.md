@@ -1,5 +1,7 @@
 # Checks run when a Task enters Validate from Work
 
+_Superseded by ADR 0188-the-checks-run-as-validates-first-step-and-every-return-to-work-counts: the Checks now run as Validate’s first step, a failure there is a counted return to Work that also counts toward the Loop check, the limit question offers Keep going and Stop the Task, and nothing is pushed before Merge. There are no `hand-off` Check runs, no Diagnose in Validate and no three-failures question. What follows is the TED-539 version of this ADR, kept as the record._
+
 ADR 0044 ran the Factory’s Checks when a Task entered Validate, and a failure there was a counted send-back to Work. Later a failure at Validate entry stayed in Validate as a failure case for diagnosis (ADR 0095-failure-cases-preserve-results-and-bind-human-decisions, `tasks/validation.ts`), and a regression still cost a counted send-back. About 3 of 137 measured send-backs were only a failed Typecheck or Lint straight after Work reported it was finished.
 
 The first version of this ADR ran those Checks in Work, before the Stage changed, so a failure cost no Stage change, push, draft pull request update or round against `max_back`. Users read that as Work running the tests, though `.ted/workflow.yaml` lists the Checks under Validate and they are validation. TED-539 moved them into Validate and made a failure a counted send-back again, so what the user sees matches the Workflow. The file keeps its name so links to it still work.

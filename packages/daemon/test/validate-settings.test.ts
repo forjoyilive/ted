@@ -238,23 +238,22 @@ describe('stages.validate.p1_only_from', () => {
       ])
       const checkRuns = await client.ok<CheckRun[]>('GET', `/tasks/${task.id}/check-runs`)
       expect(checkRuns.map((r) => [r.trigger, r.outcome])).toEqual([
-        ['hand-off', 'passed'],
-        ['hand-off', 'failed'],
-        ['hand-off', 'passed'],
-        ['hand-off', 'passed'],
-        ['hand-off', 'passed'],
-        ['hand-off', 'passed'],
+        ['validate', 'passed'],
+        ['validate', 'failed'],
+        ['validate', 'passed'],
+        ['validate', 'passed'],
+        ['validate', 'passed'],
+        ['validate', 'passed'],
       ])
       const events = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
-      expect(events.map((e) => e.text)).toContain(
-        'Tests failed in Validate, back to Work (round 2 of 5)',
-      )
       const lines = events.map((e) => e.text).filter((text) => text.includes('sent this back'))
-      expect(lines).toHaveLength(4)
+      expect(lines).toHaveLength(5)
       expect(lines[0]).not.toContain('declared')
-      expect(lines[1]).toMatch(/\(round 3 of 5\).* · P1 declared$/)
-      expect(lines[2]).not.toContain('declared')
-      expect(lines[3]).toMatch(/\(round 5 of 5\).* · earlier Finding unfixed declared$/)
+      expect(lines[1]).toMatch(/\(round 2 of 5\)/)
+      expect(lines[1]).not.toContain('declared')
+      expect(lines[2]).toMatch(/\(round 3 of 5\).* · P1 declared$/)
+      expect(lines[3]).not.toContain('declared')
+      expect(lines[4]).toMatch(/\(round 5 of 5\).* · earlier Finding unfixed declared$/)
 
       const [first, second, third, fourth, fifth, ...more] = await reviewerPrompts(client, task)
       expect(more).toEqual([])
@@ -297,7 +296,7 @@ describe('stages.validate.p1_only_from', () => {
   )
 
   test(
-    'a failed Check the Task Lead assessed as a regression still sends the Task back in those rounds without a severity, and a full review carries Ted’s severity rule',
+    'a failed Check at Validate entry sends the Task back in those rounds without a severity, and a full review carries Ted’s severity rule',
     async () => {
       const count = 'stub-count'
       const client = await start({
@@ -319,19 +318,6 @@ describe('stages.validate.p1_only_from', () => {
       })
       const prompt = await promptFile()
       const reviewed = path.join(scratch, 'reviewed')
-      const handled = path.join(scratch, 'handled')
-      const assessment = path.join(scratch, 'assessment.json')
-      await writeFile(
-        assessment,
-        JSON.stringify({
-          assessment: 'regression',
-          recommendation: 'The Check fails on this Task’s change; repair it in Work.',
-        }),
-      )
-      const regressed = path.join(scratch, 'regressed.md')
-      await writeFile(regressed, '1. The Tests Check fails on this change.\n')
-      const blocker =
-        'ted failure obligations | node -e \'let s="";process.stdin.on("data",(d)=>{s+=d}).on("end",()=>{console.log(JSON.parse(s).blockers.at(-1)??"")})\''
       const brief = path.join(scratch, 'brief.md')
       await writeFile(
         brief,
@@ -347,11 +333,7 @@ describe('stages.validate.p1_only_from', () => {
         client,
         [
           `c=$(cat ${count} 2>/dev/null || echo 0);`,
-          `h=$(cat "${handled}" 2>/dev/null || echo 0);`,
           `if [ -e "${reviewed}" ]; then :;`,
-          `elif [ "$c" -lt 3 ] && [ "$c" -gt "$h" ]; then echo $c > "${handled}";`,
-          `ted failure assess "$(${blocker})" --file "${assessment}";`,
-          `ted outcome back --to work --findings "${regressed}";`,
           `elif [ "$c" -ge 3 ]; then touch "${reviewed}"; ${review(prompt)}`,
           `echo "UNFIXED: $(ted outcome back --to work --findings "${prompt}" --severity unfixed 2>&1)";`,
           'ted outcome advance;',
@@ -458,10 +440,10 @@ describe('a base conflict in a P1-only round', () => {
     const sendBacks = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
     expect(sendBacks.map((b) => [b.from, b.cause, b.counted, b.severity])).toEqual([
       ['validate', 'review', true, undefined],
-      ['validate', 'base-conflict', false, undefined],
+      ['validate', 'base-conflict', true, undefined],
     ])
     const output = await outputWith(client, task, 'NOSEV:')
-    expect(output).toContain('NOSEV: ted: this is Validate round 2')
+    expect(output).toContain('NOSEV: ted: this is Validate round 3')
 
     const [, second, third, ...more] = await reviewerPrompts(client, task)
     expect(more).toEqual([])
@@ -477,7 +459,7 @@ describe('a base conflict in a P1-only round', () => {
     expect(third).not.toContain('An earlier finding that is still not fixed')
 
     const round = userMessages(await leadRun(client, task)).find((m) =>
-      m.includes('# Validate after a base conflict (round 2, limit 5)'),
+      m.includes('# Validate after a base conflict (round 3, limit 5)'),
     )
     expect(round).toContain('This round checks how the conflict was resolved')
     expect(round).toContain('This Factory sets `stages.validate.p1_only_from: 2`')

@@ -31,6 +31,7 @@ export interface DrivenPage {
   revision: string
   error?: string | undefined
   navigate: boolean
+  inputScale?: number
   resize(width: number, height: number): unknown
 }
 
@@ -96,6 +97,7 @@ export async function openGuest(
     proxy?(): Promise<string>
     host(webPreferences: WebPreferences): GuestHost
     created?(page: GuestPage): void
+    beforeLoad?(page: GuestPage): Promise<void>
     gone(page: GuestPage): void
   },
 ): Promise<GuestPage> {
@@ -213,6 +215,8 @@ export async function openGuest(
     check()
     await contents.debugger.sendCommand('Page.setInterceptFileChooserDialog', { enabled: true })
     check()
+    await options.beforeLoad?.(page)
+    check()
     await contents.loadURL(appUrl).catch(() => {
       page.error = 'The page couldn’t load. Reload to try again.'
     })
@@ -293,16 +297,16 @@ export async function runOnPage(
         type: 'mousePressed',
         button: 'left',
         clickCount: 1,
-        x: point.x,
-        y: point.y,
+        x: point.x * (page.inputScale ?? 1),
+        y: point.y * (page.inputScale ?? 1),
       })
       checkPage()
       await contents.send('Input.dispatchMouseEvent', {
         type: 'mouseReleased',
         button: 'left',
         clickCount: 1,
-        x: point.x,
-        y: point.y,
+        x: point.x * (page.inputScale ?? 1),
+        y: point.y * (page.inputScale ?? 1),
       })
     } else {
       await script(

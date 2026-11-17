@@ -1,5 +1,7 @@
+import type { RepoSettingsInput } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
-import { applyChanges } from '../src/workflow/edit.ts'
+import { appDeclarations } from '../src/apps/declared.ts'
+import { applyChanges, repoSettingsFrom } from '../src/workflow/edit.ts'
 import {
   boardStages,
   checkLayer,
@@ -73,14 +75,14 @@ describe('Ted defaults', () => {
     expect(text).not.toMatch(/"title": "[^"]*· \d+ questions"/)
   })
 
-  test('put Gates on Design and Review, Merge on with no Gate, and max_back 3 except Validate 5', async () => {
+  test('put Gates on Design and Review, Merge on with no Gate, and max_back 3 except Validate 8', async () => {
     const { settings } = resolveWorkflow([await defaults()])
 
     expect(settings.stages.design?.gate).toBe(true)
     expect(settings.stages.review?.gate).toBe(true)
     expect(settings.stages.merge).toMatchObject({ enabled: true, gate: false })
     expect(settings.stages.work?.max_back).toBe(3)
-    expect(settings.stages.validate?.max_back).toBe(5)
+    expect(settings.stages.validate?.max_back).toBe(8)
     expect(settings.stages.validate?.loop_check).toBe(3)
     expect(settings.stages.clarify?.depth).toBe('auto')
   })
@@ -134,7 +136,7 @@ describe('layers', () => {
     ])
 
     expect(settings.stages.validate).toMatchObject({
-      max_back: 5,
+      max_back: 8,
       loop_check: 3,
       p1_only_from: false,
       sub_agents: true,
@@ -588,6 +590,16 @@ describe('checking a layer', () => {
       '        kind: command',
       '        electron: true',
       '        run: electron . $TED_ELECTRON_ARGS',
+      '      - name: Mobile',
+      '        run: npm run dev',
+      '        preview: watch',
+      '      - name: Tool',
+      '        kind: command',
+      '        run: tool',
+      '        preview: mobile',
+      '      - name: Shop',
+      '        run: npm run shop',
+      '        preview: tablet',
       '',
     ].join('\n')
     expect(problems({ 'workflow.yaml': apps })).toEqual([
@@ -603,6 +615,8 @@ describe('checking a layer', () => {
       'error .ted/workflow.yaml 21 19 `electron` must be true or false',
       'warning .ted/workflow.yaml 24 9 only a command App can be an Electron app',
       'warning .ted/workflow.yaml 28 9 pass $TED_ELECTRON_ARGS to Electron in `run`, or Ted can’t reach the app or start it in the sandbox',
+      'error .ted/workflow.yaml 36 18 `preview` must be desktop, tablet or mobile',
+      'warning .ted/workflow.yaml 40 9 only a web App has a `preview` size',
     ])
   })
 
@@ -1134,5 +1148,43 @@ describe('Cleanup settings edits', () => {
       enabled: true,
       steps: [{ name: 'Stop stack', instruction: 'Stop it.' }],
     })
+  })
+})
+
+describe('App preview size edits', () => {
+  const stored = [{ repo: 'owner/web', name: 'web', cloneUrl: 'https://github.com/owner/web.git' }]
+  const repo = (apps: RepoSettingsInput['apps']): RepoSettingsInput[] => [
+    { was: 'web', repo: 'owner/web', name: 'web', env: [], copy: [], apps },
+  ]
+
+  test('a web App’s preview size saves, checks clean and reaches the App declaration', () => {
+    const text = applyChanges(
+      'version: 1\n',
+      {
+        repos: repo([
+          { name: 'Site', kind: 'web', run: 'npm run dev', preview: 'mobile' },
+          { name: 'Worker', kind: 'command', run: 'npm run worker', preview: 'tablet' },
+        ]),
+      },
+      [],
+    )
+    const layer = factory({ 'workflow.yaml': text })
+    expect(layer.problems).toEqual([])
+    expect(text).toContain('preview: mobile')
+    expect(text).not.toContain('preview: tablet')
+    expect(repoSettingsFrom(layer.settings, stored)[0]?.apps).toMatchObject([
+      { name: 'Site', preview: 'mobile' },
+      { name: 'Worker' },
+    ])
+    expect(appDeclarations(layer.settings?.repos?.[0]?.apps)).toMatchObject([
+      { name: 'Site', preview: 'mobile' },
+      { name: 'Worker' },
+    ])
+    const cleared = applyChanges(
+      text,
+      { repos: repo([{ was: 0, name: 'Site', kind: 'web', run: 'npm run dev' }]) },
+      repoSettingsFrom(layer.settings, stored),
+    )
+    expect(cleared).not.toContain('preview')
   })
 })

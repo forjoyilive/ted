@@ -43,11 +43,20 @@ export interface CustomRequests {
     repo: string,
     name: string,
     bounds: { x: number; y: number; width: number; height: number },
+    zoom: number,
   ) => Promise<void>
   hideBrowser: (temporary?: boolean) => Promise<void>
-  browserState: (
-    taskId: string,
-  ) => Promise<{ url: string; text: string; opening?: true; blocked?: number } | undefined>
+  browserState: (taskId: string) => Promise<
+    | {
+        url: string
+        text: string
+        opening?: true
+        size?: string
+        sizeByAgent?: true
+        blocked?: number
+      }
+    | undefined
+  >
   externalBrowser: (taskId: string) => Promise<void>
   openAppPreview: (taskId: string, repo: string, name: string) => Promise<void>
   openHostedPreview: (taskId: string, repo: string) => Promise<void>

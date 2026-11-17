@@ -5,7 +5,14 @@ import { createRequire } from 'node:module'
 import path from 'node:path'
 import { createInterface } from 'node:readline'
 import { fileURLToPath } from 'node:url'
-import { type AppRef, type BrowserRequest, edition, type TaskApp, tedEnv } from '@ted/protocol'
+import {
+  type AppRef,
+  type BrowserRequest,
+  edition,
+  type TaskApp,
+  taskOnlyBrowserActions,
+  tedEnv,
+} from '@ted/protocol'
 import { RequestError } from '../errors.ts'
 import { workCommand } from '../priority.ts'
 import { redactSecrets } from '../redact.ts'
@@ -192,6 +199,8 @@ export function createRunBrowsers(options: {
   return {
     async command(runId, app, request) {
       if (closed) throw closedError()
+      if (taskOnlyBrowserActions.includes(request.action))
+        throw new RequestError(400, `${request.action} works only in a Task’s browser; use resize`)
       let helper = helpers.get(runId)
       if (helper?.busy || starting.has(runId))
         throw new RequestError(

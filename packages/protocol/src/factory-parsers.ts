@@ -53,6 +53,7 @@ import {
   type WorktreeCommandInput,
 } from './factory-settings.ts'
 import { isOneOf } from './parse.ts'
+import { previewPresets } from './preview-size.ts'
 import { permissionModes } from './run.ts'
 import { handsOff, isBuiltInStage, isStageId, mergesHere, stageFileId, validates } from './stage.ts'
 import {
@@ -367,6 +368,9 @@ function settingsApp(given: unknown): AppInput {
   }
   const url = optionalText(body.url, 'url')
   const device = optionalText(body.device, 'device')
+  const preview = optionalText(body.preview, 'preview')
+  if (preview !== undefined && !isOneOf(preview, previewPresets))
+    throw new HttpError(400, 'an App’s preview must be desktop, tablet or mobile')
   return {
     ...(typeof was === 'number' && { was }),
     name: text(body.name, 'App name'),
@@ -374,6 +378,7 @@ function settingsApp(given: unknown): AppInput {
     run: text(body.run, 'App run'),
     ...(url !== undefined && { url }),
     ...(device !== undefined && { device }),
+    ...(preview !== undefined && isOneOf(preview, previewPresets) && { preview }),
   }
 }
 

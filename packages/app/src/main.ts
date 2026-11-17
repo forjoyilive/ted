@@ -191,11 +191,12 @@ const requests = {
       app: { repo: app.repo, name: app.name, browser: true },
     })
   },
-  presentBrowser: async (_client, taskId, _repo, _name, bounds) => {
+  presentBrowser: async (_client, taskId, _repo, _name, bounds, zoom) => {
     const rect = bounds
     if (!rect || ![rect.x, rect.y, rect.width, rect.height].every(Number.isFinite))
       throw new Error('Invalid browser view')
-    await taskBrowsers?.present(String(taskId), rect)
+    if (!Number.isFinite(zoom) || zoom < 0.05 || zoom > 1) throw new Error('Invalid browser zoom')
+    await taskBrowsers?.present(String(taskId), rect, zoom)
   },
   hideBrowser: async (_client, temporary) => taskBrowsers?.hide(temporary === true),
   browserState: async (_client, taskId) => taskBrowsers?.state(String(taskId)),
@@ -1222,6 +1223,7 @@ async function start(): Promise<void> {
       })
     },
     { session, WebContentsView },
+    {},
     guestProxyRules(app),
   )
   servePrototypes((file) => supervised.client.readAttachment(file))

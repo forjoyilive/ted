@@ -116,7 +116,9 @@ export interface RequestAnswerPort {
     from: AgentStageId,
     sendBack: SendBack,
   ): string
+  leaveWorkToDiagnose(task: StoredTask): Promise<(message: string) => Promise<Task>>
   diagnoseInValidate(task: StoredTask, message: string): void
+  stop(id: string): Promise<Task>
   settleDependents(id: string): void
   beforeArchive?(task: StoredTask): void
   archiveNow(task: StoredTask, close: boolean): Task
@@ -201,7 +203,9 @@ export function createRequestAnswers(
     deliver,
     move,
     backMessage,
+    leaveWorkToDiagnose,
     diagnoseInValidate,
+    stop,
     settleDependents,
     archiveNow,
     archiveAsked,
@@ -472,17 +476,49 @@ export function createRequestAnswers(
   ): Promise<Comment | undefined> {
     const ask = store.sendBackAsk(comment.id)
     if (!ask) throw new RequestError(409, 'this send-back request has no recorded decision')
+    if (handsOff(ask.from) && handsOff(ask.to) && choice === diagnoseChoice) {
+      const current = find(task.id)
+      const enterValidate = await leaveWorkToDiagnose(current)
+      const answered = answerRequest(task, comment, {
+        kind: 'answered',
+        at,
+        choice,
+        ...(text !== '' && { text }),
+      })
+      if (!liveLead(current)) store.holdAnswer(comment.id)
+      await enterValidate(
+        [
+          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${diagnoseChoice}, so Ted moved this Task to Validate although the checks didn’t pass in Work. Ted runs the checks at entry. A check that fails there is a failure case: assess it as Validate’s instructions say, and the human can then choose Retry, Fix in this Task or Accept this failure.`,
+          ...(text !== '' ? [`The human added:\n\n${text}`] : []),
+        ].join('\n\n'),
+      )
+      return answered
+    }
+    if (handsOff(ask.from) && handsOff(ask.to) && choice === tryAgainChoice) {
+      const answered = answerRequest(task, comment, {
+        kind: 'answered',
+        at,
+        choice,
+        ...(text !== '' && { text }),
+      })
+      await deliverAnswer(
+        task,
+        comment,
+        [
+          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${tryAgainChoice}. The Task stays in Work. Fix what the check reports and nothing else, commit, then report \`ted outcome advance\` again. Ted now runs the Factory’s checks when the Task enters Validate; if one fails, the Task comes back to Work with the output.`,
+          ...(text !== '' ? [`The human added:\n\n${text}`] : []),
+        ].join('\n\n'),
+      )
+      return answered
+    }
     if (!ask.loop || choice === undefined) return undefined
+    if (!(comment.choices ?? []).includes(choice)) return undefined
     const current = find(task.id)
     if (!validates(current.stage)) return undefined
     const reads = worktreeReads()
     const resolution = await gateWorkflow(current, { reads })
     const { workflow } = resolution
     const next = workflow.next(stageWith('validates')) as AgentStageId | 'done'
-    const handOff =
-      ask.checkRunId !== undefined && store.getCheckRun(ask.checkRunId)?.trigger === 'hand-off'
-    const choices = loopChoices(workflow, handOff)
-    if (!choices.includes(choice)) return undefined
     if (choice === diagnoseChoice) {
       const answered = answerRequest(task, comment, {
         kind: 'answered',
@@ -494,17 +530,20 @@ export function createRequestAnswers(
       diagnoseInValidate(
         current,
         [
-          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${diagnoseChoice}, so the Task stays in Validate with the check failing. Ted runs the checks again now. A check that fails is a failure case: assess it as Validate’s instructions say, and the human can then choose Retry, Fix in this Task or Accept this failure.`,
+          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${diagnoseChoice}, so the Task stays in Validate with the check failing. Ted runs the checks again now. A check that fails stays in Validate as a failure case: assess it as Validate’s instructions say, and the human can then choose Retry, Fix in this Task or Accept this failure.`,
           ...(text !== '' ? [`The human added:\n\n${text}`] : []),
         ].join('\n\n'),
       )
       return answered
     }
-    if (choice === tryAgainChoice) checkBack(workflow, stageWith('validates'), ask.to)
+    const stopping = choice === stopTaskChoice
+    const keepGoing = choice === keepGoingChoice || choice === tryAgainChoice
+    const legacy = !keepGoing && !stopping
+    if (legacy && !legacyLoopChoices(workflow).includes(choice)) return undefined
+    if (keepGoing || stopping) checkBack(workflow, stageWith('validates'), ask.to)
     if (choice === backToDesignChoice)
       checkBack(workflow, stageWith('validates'), stageWith('designReview'))
-    if (choice !== tryAgainChoice && choice !== backToDesignChoice)
-      await requireObligations(current, undefined, reads)
+    if (legacy && choice !== backToDesignChoice) await requireObligations(current, undefined, reads)
     const added = text === '' ? '' : `\n\nThe human added:\n\n${text}`
     const answered = answerRequest(task, comment, {
       kind: 'answered',
@@ -512,7 +551,8 @@ export function createRequestAnswers(
       choice,
       ...(text !== '' && { text }),
     })
-    if (choice === tryAgainChoice) {
+    if (stopping && !find(task.id).stopped) await stop(task.id)
+    if (keepGoing || stopping) {
       const limit = workflow.settings.stages.validate?.max_back
       const sentBack = store.recordSendBack({
         taskId: task.id,
@@ -525,11 +565,21 @@ export function createRequestAnswers(
         ...(ask.checkRunId !== undefined && { checkRunId: ask.checkRunId }),
         cause: ask.checkRunId !== undefined ? 'check' : 'review',
       })
+      const back = backMessage(workflow, ask.to, stageWith('validates'), sentBack)
+      if (stopping) {
+        await move(find(task.id), resolution, ask.to, undefined)
+        store.holdLeadMessage(
+          task.id,
+          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${stopTaskChoice}, so Ted moved the Task back to Work and stopped it there. Validate’s count of returns to Work starts over.${added}\n\n${back}`,
+        )
+        await store.persisted()
+        return answered
+      }
       await move(
         current,
         resolution,
         ask.to,
-        `The human chose Try again, so Validate’s count of send-backs starts over.${added}\n\n${backMessage(workflow, ask.to, stageWith('validates'), sentBack)}`,
+        `The human chose ${choice}, so Validate’s count of returns to Work starts over.${added}\n\n${back}`,
       )
     } else if (choice === backToDesignChoice) {
       store.recordSendBack({
@@ -1155,11 +1205,13 @@ function oneLine(text: string, max = 200): string {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line
 }
 
+export const keepGoingChoice = 'Keep going'
+export const stopTaskChoice = 'Stop the Task'
 export const tryAgainChoice = 'Try again'
 export const backToDesignChoice = 'Back to Design'
 export const diagnoseChoice = 'Diagnose in Validate'
 
-export function loopChoices(workflow: ResolvedWorkflow, handOff = false): string[] {
+function legacyLoopChoices(workflow: ResolvedWorkflow): string[] {
   const next = workflow.next(stageWith('validates'))
   const design =
     workflow.stages.includes(stageWith('designReview')) &&
@@ -1168,7 +1220,7 @@ export function loopChoices(workflow: ResolvedWorkflow, handOff = false): string
   return [
     tryAgainChoice,
     ...(design ? [backToDesignChoice] : []),
-    handOff ? diagnoseChoice : `Move to ${stageTitle(next)} anyway`,
+    `Move to ${stageTitle(next)} anyway`,
   ]
 }
 

@@ -15,6 +15,7 @@
     "./task-intervals": "./src/task-intervals.ts",
     "./stage-parts": "./src/stage-parts.ts",
     "./app": "./src/app.ts",
+    "./preview-size": "./src/preview-size.ts",
     "./run": "./src/run.ts",
     "./banner": "./src/banner.ts",
     "./health": "./src/health.ts",

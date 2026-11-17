@@ -218,6 +218,7 @@ export {
   browserViewport,
   browserViewportLimits,
   runOnlyBrowserActions,
+  taskOnlyBrowserActions,
 } from './browser.ts'
 export {
   parseBrowserPollRequest,
@@ -812,6 +813,21 @@ export {
   parseStartPlanRequest,
 } from './plan-parsers.ts'
 export {
+  type PreviewPreset,
+  type PreviewSize,
+  type PreviewZoom,
+  previewDevices,
+  previewDimensions,
+  previewPresets,
+  previewSize,
+  previewSizeLabel,
+  previewSizeOf,
+  previewSizeValue,
+  previewWidthLimits,
+  previewZooms,
+  samePreviewSize,
+} from './preview-size.ts'
+export {
   isReportEmail,
   type ProblemReportRequest,
   type ProblemReportResult,
@@ -1116,6 +1132,7 @@ export {
   type Task,
   type TaskArchive,
   type TaskAsanaSource,
+  type TaskBackToWork,
   type TaskBrief,
   type TaskDefaults,
   type TaskDraftState,

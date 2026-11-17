@@ -15,7 +15,14 @@ const repos = [
     env: [{ name: 'KEY', value: 'value' }],
     copy: ['.env'],
     apps: [
-      { was: 0, name: 'Dev', kind: 'web', run: 'pnpm dev', url: 'http://localhost:3000' },
+      {
+        was: 0,
+        name: 'Dev',
+        kind: 'web',
+        run: 'pnpm dev',
+        url: 'http://localhost:3000',
+        preview: 'mobile',
+      },
       { name: 'Phone', kind: 'android-emulator', run: './gradlew installDebug', device: 'Pixel_8' },
     ],
   },
@@ -293,6 +300,14 @@ rejects(
   'timeout must be a duration',
 )
 rejects(P.parseFactorySettingsChanges, { repos: [] }, 'a Factory has 1 to 10 repos')
+rejects(
+  P.parseFactorySettingsChanges,
+  {
+    ...settings,
+    repos: [{ ...repos[0], apps: [{ name: 'Dev', kind: 'web', run: 'x', preview: 'watch' }] }],
+  },
+  'an App’s preview must be desktop, tablet or mobile',
+)
 rejects(
   P.parseFactorySettingsChanges,
   { ...settings, stages: { work: { gate: 'yes' } } },

@@ -1,0 +1,15 @@
+.custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.custom .width {
+  width: 72px;
+  min-width: 0;
+  flex: 0 0 auto;
+  text-align: right;
+}
+.unit {
+  color: var(--text-tertiary);
+  font-size: var(--text-12);
+}

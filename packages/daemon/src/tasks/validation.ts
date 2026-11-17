@@ -1,4 +1,4 @@
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type {
   AgentStageId,
@@ -10,6 +10,7 @@ import type {
   QueuedAfter,
   ResolveFailureRequest,
   Task,
+  ValidationProgress,
 } from '@ted/protocol'
 import { failureChoices, validationExecution } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
@@ -21,7 +22,7 @@ import type { StoredTask, TedStore } from '../store/index.ts'
 import type { WorkflowResolution } from '../workflow/workflows.ts'
 import { type CheckRunnerResult, type RunnableCheck, runChecks, summary } from './checks.ts'
 import type { CommandLaunch } from './command.ts'
-import { type createFailureCases, generatedFailureText } from './failure-cases.ts'
+import { type createFailureCases, generatedFailureText, sameTested } from './failure-cases.ts'
 import { sameCheckPlan, validationReport } from './validation-report.ts'
 import { type WorktreeReads, worktreeReads } from './worktree-reads.ts'
 
@@ -66,6 +67,11 @@ interface ValidationOptions {
   deliver(task: StoredTask, message: string, after: QueuedAfter): Promise<unknown>
   notify(task: StoredTask): Promise<void>
   instructions(task: StoredTask, resolution: WorkflowResolution, message?: string): Promise<string>
+  returnToWork(taskId: string, findings: string, checkRunId: string): Promise<void>
+  diagnosing(task: Task): boolean
+  leaveWork(
+    task: StoredTask,
+  ): Promise<(message: string, carried: ValidationProgress) => Promise<Task>>
   apps(task: StoredTask): Promise<string | undefined>
   fix(task: StoredTask, value: FailureCase): Promise<void>
   checkFix(resolution: WorkflowResolution, task: StoredTask): void
@@ -80,11 +86,6 @@ export class StaleCoverageError extends RequestError {
       'The checks haven’t run on the Task’s current code, so Ted can’t move it on yet. Ted runs them first when the Task is moved on.',
     )
   }
-}
-
-export interface HandOffChecks {
-  run: CheckRun
-  coverage: string | undefined
 }
 
 export function createValidation(options: ValidationOptions) {
@@ -535,6 +536,12 @@ export function createValidation(options: ValidationOptions) {
         })
         options.setChecking(taskId, false)
         await store.persisted()
+        const unreturned = unreturnedEntryFailure(find(taskId))
+        if (unreturned) {
+          const resolution = await options.workflow(find(taskId))
+          await returnFailedChecks(taskId, unreturned, instructionsWith(taskId, resolution))
+          return false
+        }
         if (validates(task.stage))
           await options.deliver(
             task,
@@ -548,70 +555,110 @@ export function createValidation(options: ValidationOptions) {
     return true
   }
 
-  async function adoptHandOff(
-    task: StoredTask,
-    resolution: WorkflowResolution,
-    { run: checked, coverage: tested }: HandOffChecks,
-    reads: WorktreeReads,
-  ): Promise<boolean> {
-    const plan = await options.plan(task, resolution, undefined, reads)
-    const local = await coverage(task, reads)
+  function carryOver(task: StoredTask, carried: ValidationProgress): void {
+    const saved = store.failures.progress(task.id)
     if (
-      checked.outcome !== 'passed' ||
-      !local ||
-      local !== tested ||
-      sameCheckPlan(checked.checks) !== sameCheckPlan(plan.map((p) => p.check)) ||
-      checked.checks.some((c, i) => c.state === 'skipped' && plan[i]?.check.state !== 'skipped')
+      !validates(task.stage) ||
+      saved?.visit !== carried.visit ||
+      saved.executions.at(-1)?.runId !== carried.executions.at(-1)?.runId
     )
-      return false
-    await failures.obligations(task).catch(() => undefined)
-    verifyPassed(task, checked)
-    store.failures.saveProgress({
-      taskId: task.id,
-      visit: visitStart(task),
-      coverage: local,
-      checks: checked.checks,
-      executions: [{ runId: checked.id, start: 0 }],
-      next: checked.checks.length,
-      pending: false,
-    })
-    await store.persisted()
-    return true
+      return
+    store.failures.saveProgress({ ...saved, visit: visitStart(task) })
   }
 
-  async function validateChecks(
+  const instructionsWith =
+    (taskId: string, resolution: WorkflowResolution, message?: string) => async (text: string) => {
+      const current = find(taskId)
+      const instructions = await options.instructions(current, resolution, message)
+      const apps = current.setup ? await options.apps(current) : undefined
+      return [
+        instructions,
+        ...(text === '' ? [] : [text]),
+        ...(apps === undefined ? [] : [apps]),
+      ].join('\n\n')
+    }
+
+  function unreturnedEntryFailure(task: Task): CheckRun | undefined {
+    const progress = store.failures.progress(task.id)
+    const runId = progress?.executions.at(-1)?.runId
+    const run = runId === undefined ? undefined : store.getCheckRun(runId)
+    if (
+      !validates(task.stage) ||
+      progress?.visit !== visitStart(task) ||
+      run?.trigger !== 'validate' ||
+      run.outcome !== 'failed'
+    )
+      return undefined
+    const diagnosed = store.failures
+      .list(task.id)
+      .some(
+        (value) =>
+          value.source.kind === 'factory-check' &&
+          value.source.checkRunId === run.id &&
+          (value.assessments.length > 0 || value.resolutions.length > 0),
+      )
+    const held =
+      store.sendBackAsks(task.id).some((ask) => ask.checkRunId === run.id) ||
+      store.loopChecks(task.id).some((check) => check.checkRunId === run.id)
+    return diagnosed || held || options.diagnosing(task) ? undefined : run
+  }
+
+  async function returnFailedChecks(
     taskId: string,
-    message?: string,
-    checked?: HandOffChecks,
+    checkRun: CheckRun,
+    withInstructions: (text: string) => Promise<string>,
   ): Promise<void> {
+    const current = find(taskId)
+    const findings = generatedFailureText(
+      (await options.findings(current, checkRun)) ?? summary(checkRun.checks),
+    )
+    const dir = options.checkDir(current, checkRun.id)
+    await mkdir(dir, { recursive: true, mode: 0o700 })
+    await writeFile(path.join(dir, 'findings.md'), findings, { mode: 0o600 })
+    options.setChecking(taskId, false)
+    if (options.diagnosing(current)) {
+      const failureId = store.failures.progress(taskId)?.failureId
+      await options.deliver(
+        find(taskId),
+        await withInstructions(
+          `# A check failed\n\nThe Task stays in Validate. Investigate failure case ${failureId ? shortReference(failureId) : '(see ted failure list)'}, add evidence and assess regression, unrelated or uncertain. A supported regression goes back through \`ted outcome back\`; unrelated or uncertain causes require a human decision. Investigation and retry do not count as send-backs.\n\n${findings}`,
+        ),
+        'checks-done',
+      )
+      return
+    }
+    let problem: string | undefined
+    try {
+      await options.returnToWork(taskId, findings, checkRun.id)
+    } catch (error) {
+      problem = error instanceof Error ? error.message : String(error)
+    }
+    if (problem === undefined) return
+    console.error(redactSecrets(`couldn’t send ${current.displayId} back to Work: ${problem}`))
+    const failureId = store.failures.progress(taskId)?.failureId
+    const reference = failureId ? shortReference(failureId) : '<id>'
+    await options.deliver(
+      find(taskId),
+      await withInstructions(
+        `# A check failed\n\nTED couldn’t send the Task back to Work: ${redactSecrets(problem)}. If this change caused failure case ${reference}, send the Task back with \`ted outcome back\`. If the cause is outside the Task, add evidence, assess it and run \`ted failure ask ${reference}\` so the human can decide.\n\n${findings}`,
+      ),
+      'checks-done',
+    )
+  }
+
+  async function validateChecks(taskId: string, message?: string): Promise<void> {
     options.setChecking(taskId, true)
     try {
       const task = find(taskId)
       const resolution = await options.workflow(find(task.id))
-      const instructions = await options.instructions(task, resolution, message)
-      const withApps = async (text: string) => {
-        const current = find(taskId)
-        const apps = current.setup ? await options.apps(current) : undefined
-        return apps === undefined ? text : `${text}\n\n${apps}`
-      }
-      const reads = worktreeReads()
-      if (checked && (await adoptHandOff(task, resolution, checked, reads))) {
-        await options.deliver(
-          task,
-          await withApps(
-            `${instructions}\n\n# Checks\n\nTed ran the Factory’s checks when the Task entered Validate. None failed:\n\n${summary(checked.run.checks)}`,
-          ),
-          'checks-passed',
-        )
-        return
-      }
-      const started = await beginChecks(task, resolution, 'validate', undefined, reads)
+      const withInstructions = instructionsWith(taskId, resolution, message)
+      const started = await beginChecks(task, resolution, 'validate', undefined, worktreeReads())
       if (!started) {
         const progress = store.failures.progress(taskId)
         const report = progress
-          ? `\n\n# Validation results\n\n${validationReport(progress, store.failures.list(taskId))}`
+          ? `# Validation results\n\n${validationReport(progress, store.failures.list(taskId))}`
           : ''
-        await options.deliver(task, await withApps(instructions + report), 'checks-done')
+        await options.deliver(task, await withInstructions(report), 'checks-done')
         return
       }
       const result = await started.done
@@ -629,23 +676,12 @@ export function createValidation(options: ValidationOptions) {
             : `Ted ran the Factory’s checks before handing you this Stage. None failed:\n\n${summary(checkRun.checks)}`
         await options.deliver(
           current,
-          await withApps(`${instructions}\n\n# Checks\n\n${checksReport}`),
+          await withInstructions(`# Checks\n\n${checksReport}`),
           previousFailures ? 'checks-done' : 'checks-passed',
         )
         return
       }
-      const findings = generatedFailureText(
-        (await options.findings(current, checkRun)) ?? summary(checkRun.checks),
-      )
-      await writeFile(path.join(options.checkDir(current, checkRun.id), 'findings.md'), findings, {
-        mode: 0o600,
-      })
-      const failureId = store.failures.progress(taskId)?.failureId
-      await options.deliver(
-        current,
-        `${instructions}\n\n# A check failed\n\nThe Task stays in Validate. Investigate failure case ${failureId ? shortReference(failureId) : '(see ted failure list)'}, add evidence and assess regression, unrelated or uncertain. A supported regression goes back through \`ted outcome back\`; unrelated or uncertain causes require a human decision. Investigation and retry do not count as send-backs.\n\n${findings}`,
-        'checks-done',
-      )
+      await returnFailedChecks(taskId, checkRun, withInstructions)
     } finally {
       options.setChecking(taskId, false)
     }
@@ -742,6 +778,54 @@ export function createValidation(options: ValidationOptions) {
     }
   }
 
+  async function acceptFromWork(
+    task: StoredTask,
+    value: FailureCase,
+    input: ResolveFailureRequest,
+    sendDrafts: boolean,
+  ) {
+    if (input.resolution !== 'accepted')
+      throw new RequestError(
+        409,
+        'The Task is already in Work, so Accept this failure is the only decision Ted takes here',
+      )
+    if (!failures.latestCheckReturn(task, value))
+      throw new RequestError(
+        409,
+        'Only the failure of the check that last sent the Task back to Work can be accepted from Work',
+      )
+    if (options.isChecking(task.id))
+      throw new RequestError(
+        409,
+        'Checks are still running; wait for their results before deciding this failure',
+      )
+    const enter = await options.leaveWork(task)
+    const tested = value.contextId ? store.failures.context(value.contextId) : undefined
+    const current = tested && (await failures.snapshot(find(task.id)).catch(() => undefined))
+    const progress = store.failures.progress(task.id)
+    if (!tested || !current || !sameTested(tested, current) || progress?.failureId !== value.id)
+      throw new RequestError(
+        409,
+        'The Task’s code changed since this check ran, so Ted can’t accept the failure. Ask the Task Lead to report the outcome again: Ted runs the checks on the new code when the Task enters Validate.',
+      )
+    options.setChecking(task.id, true)
+    let entered = false
+    try {
+      const result = await failures.resolve(task, value.id, input, sendDrafts)
+      const carried = { ...progress, next: progress.next + 1, pending: true }
+      store.failures.saveProgress(carried)
+      await store.persisted()
+      await enter(
+        `The human accepted failure case ${shortReference(value.id)} from Work, so Ted moved the Task to Validate on the same code. The checks go on after the accepted one; the ones that passed on this code don’t run again.`,
+        carried,
+      )
+      entered = true
+      return result
+    } finally {
+      if (!entered) options.setChecking(task.id, false)
+    }
+  }
+
   async function resolveValidationFailure(
     task: StoredTask,
     id: string,
@@ -755,6 +839,7 @@ export function createValidation(options: ValidationOptions) {
         throw new RequestError(400, 'this failure does not support Validate actions')
       return failures.resolve(task, id, input, sendDrafts)
     }
+    if (handsOff(task.stage)) return acceptFromWork(task, value, input, sendDrafts)
     const merging =
       mergesHere(task.stage) &&
       (value.source.kind === 'post-rebase-check' || value.source.kind === 'github-ci')
@@ -1039,7 +1124,8 @@ export function createValidation(options: ValidationOptions) {
           progress.visit !== visitStart(task) ||
           progress.pending ||
           decided ||
-          validationFixes(task).length > 0) &&
+          validationFixes(task).length > 0 ||
+          unreturnedEntryFailure(task) !== undefined) &&
         !options.isChecking(task.id)
       ) {
         options.setChecking(task.id, true)
@@ -1056,6 +1142,7 @@ export function createValidation(options: ValidationOptions) {
     begin: beginChecks,
     coverage,
     enter: validateChecks,
+    carryOver,
     resume: resumeValidation,
     fixes: validationFixes,
     resolve: resolveValidationFailure,

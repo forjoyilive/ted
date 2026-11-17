@@ -8,6 +8,7 @@ import {
   type LayerKind,
   maxCleanupStepName,
   type PullRequestCiMode,
+  previewPresets,
   pullRequestCiModes,
   type StageId,
   type WorkflowProblem,
@@ -836,6 +837,11 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
           }
           case 'device':
             if (!isText(node)) error(node, '`device` must be text')
+            break
+          case 'preview':
+            if (!oneOf(node, [...previewPresets]))
+              error(node, '`preview` must be desktop, tablet or mobile')
+            else if (kind !== 'web') warn(entry.key, 'only a web App has a `preview` size')
             break
           case 'electron': {
             const value = scalar(node)

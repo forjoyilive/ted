@@ -42,10 +42,19 @@
 }
 .open:disabled { color: var(--text-tertiary); cursor: default; }
 .viewport {
+  display: flex;
   flex: 1;
+  align-items: center;
+  justify-content: center;
   min-height: 0;
   overflow: hidden;
   background: var(--surface-pane);
+}
+.framed { background: var(--surface-neutral); }
+.frame { flex-shrink: 0; overflow: hidden; }
+.framed .frame {
+  background: var(--surface-pane);
+  outline: 1px solid var(--border-default);
 }
 .viewport p { padding: 24px; color: var(--text-secondary); }
 .status { border-top: 1px solid var(--border-subtle); }
