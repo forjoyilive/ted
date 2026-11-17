@@ -30,7 +30,17 @@
   color: var(--text-tertiary);
   font-size: var(--text-12);
 }
-.shared { background: var(--surface-inset); }
+.shared { display: flex; gap: 6px; background: var(--surface-inset); }
+.blocked { margin-left: auto; color: var(--text-secondary); white-space: nowrap; }
+.open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-link);
+  font: inherit;
+  cursor: pointer;
+}
+.open:disabled { color: var(--text-tertiary); cursor: default; }
 .viewport {
   flex: 1;
   min-height: 0;

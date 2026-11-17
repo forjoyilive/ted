@@ -2,6 +2,7 @@ import { createInterface } from 'node:readline'
 import { type BrowserRequest, browserViewport, tedEnv } from '@ted/protocol'
 import { app, BrowserWindow, session } from 'electron'
 import { closeGuest, type GuestPage, openGuest, runOnPage } from './browser-page.ts'
+import { guestProxyRules } from './browser-proxy.ts'
 import { openRemote, type RemotePage } from './remote-page.ts'
 
 export interface HelperCommand {
@@ -36,6 +37,7 @@ const send = (reply: HelperReply) => {
 void app.whenReady().then(() => {
   if (process.platform === 'darwin') app.setActivationPolicy('prohibited')
   const ses = session.fromPartition('ted-run-browser')
+  const proxy = guestProxyRules(app)
   let page: GuestPage | undefined
   let remote: RemotePage | undefined
   let size = { width: 1280, height: 800 }
@@ -72,6 +74,7 @@ void app.whenReady().then(() => {
       check()
       const opened = await openGuest(ses, command.url, {
         check,
+        proxy,
         host: (webPreferences) => {
           // A page outside any window can’t be captured or clicked; an offscreen window can.
           const window = new BrowserWindow({

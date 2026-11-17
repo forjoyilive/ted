@@ -32,6 +32,7 @@ export function TaskBrowserView({
   const active = useRef(false)
   const [ready, setReady] = useState(false)
   const [retryOpen, setRetryOpen] = useState(0)
+  const [blocked, setBlocked] = useState(0)
   const running = app?.state === 'running'
   const act = async (request: BrowserRequest) => {
     if (active.current) return
@@ -149,6 +150,7 @@ export function TaskBrowserView({
               return
             }
             setStatus(state.text)
+            setBlocked(state.blocked ?? 0)
             if (!editing.current) setAddress(state.url)
           }
         })
@@ -236,7 +238,26 @@ export function TaskBrowserView({
           Open ↗
         </Button>
       </form>
-      <p className={styles.shared}>Shared with this Task’s agents · Local App only</p>
+      <p className={styles.shared}>
+        Shared with this Task’s agents · Local App, plus images, fonts and media from the web
+        {blocked > 0 && (
+          <span className={styles.blocked}>
+            Blocked {blocked} {blocked === 1 ? 'request' : 'requests'} to other sites ·{' '}
+            <button
+              type="button"
+              className={styles.open}
+              disabled={!ready}
+              onClick={() =>
+                ted
+                  .externalBrowser(task.id)
+                  .catch((error: Error) => setStatus(readableError(error)))
+              }
+            >
+              Open ↗
+            </button>
+          </span>
+        )}
+      </p>
       <div ref={viewport} className={styles.viewport}>
         {!ready && <p>{status}</p>}
       </div>

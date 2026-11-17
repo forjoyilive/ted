@@ -6,6 +6,7 @@ import {
   scriptLiteral,
 } from '@ted/protocol'
 import type { Session, WebContents, WebPreferences } from 'electron'
+import { isOutsideMedia } from './browser-proxy.ts'
 
 export interface GuestHost {
   contents: WebContents
@@ -36,6 +37,7 @@ export interface DrivenPage {
 export interface GuestPage extends GuestHost, DrivenPage {
   url: string
   ready: boolean
+  blocked: number
 }
 
 export function webContentsDriver(contents: WebContents): PageDriver {
@@ -91,6 +93,7 @@ export async function openGuest(
   appUrl: string,
   options: {
     check(): void
+    proxy?(): Promise<string>
     host(webPreferences: WebPreferences): GuestHost
     created?(page: GuestPage): void
     gone(page: GuestPage): void
@@ -118,6 +121,7 @@ export async function openGuest(
     ...host,
     url: appUrl,
     ready: false,
+    blocked: 0,
     revision: randomUUID(),
     navigate: true,
     driver: webContentsDriver(host.contents),
@@ -145,7 +149,9 @@ export async function openGuest(
     callback('')
   })
   contents.on('did-start-navigation', (event) => {
-    if (event.isMainFrame) page.revision = randomUUID()
+    if (!event.isMainFrame) return
+    page.revision = randomUUID()
+    if (!event.isSameDocument) page.blocked = 0
   })
   contents.on('did-navigate', () => {
     page.revision = randomUUID()
@@ -185,14 +191,18 @@ export async function openGuest(
     })
     check()
     // WebTransport bypasses webRequest but refuses proxied connections.
+    const proxyRules = options.proxy ? await options.proxy() : 'socks5://127.0.0.1:9'
+    check()
     await ses.setProxy({
-      proxyRules: 'socks5://127.0.0.1:9',
+      proxyRules,
       proxyBypassRules: `<-loopback>,${origin},${origin.replace(/^http/, 'ws')}`,
     })
     check()
-    ses.webRequest.onBeforeRequest((details, callback) =>
-      callback({ cancel: !allowed(details.url) }),
-    )
+    ses.webRequest.onBeforeRequest((details, callback) => {
+      const pass = allowed(details.url) || isOutsideMedia(details.url, details.resourceType)
+      if (!pass && /^(https?|wss?):/.test(details.url)) page.blocked++
+      callback({ cancel: !pass })
+    })
     await contents.debugger.sendCommand('Page.enable')
     check()
     await contents.debugger.sendCommand('Page.addScriptToEvaluateOnNewDocument', {
