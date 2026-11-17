@@ -41,11 +41,6 @@ export function powerNames(powers: readonly AgentPower[]): string[] {
   return powers.map((power) => agentPowerNames[power])
 }
 
-export function agentLine(agent: Pick<AgentSummary, 'powers' | 'source'>): string {
-  const powers = powerNames(agent.powers)
-  return [...(powers.length > 0 ? powers : ['No powers']), agentSources[agent.source]].join(' · ')
-}
-
 export function AgentAbout({
   agent,
   provider,
@@ -76,10 +71,6 @@ export function AgentPowers({ powers }: { powers: readonly AgentPower[] }) {
       ))}
     </ul>
   )
-}
-
-export function AgentLine({ agent }: { agent: Pick<AgentSummary, 'powers' | 'source'> }) {
-  return <p className={styles.line}>{agentLine(agent)}</p>
 }
 
 export function AgentSource({ source }: { source: LayerKind }) {

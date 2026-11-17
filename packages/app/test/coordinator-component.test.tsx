@@ -488,7 +488,12 @@ test('with no chats Agents opens New chat; the Agent menu lists every Agent with
         .map((o) => o.textContent),
     ).toEqual(['Coordinator', 'Planner', 'Triager']),
   )
-  expect(within(pane).getByText('Ask the user · Manage Tasks · Built in')).toBeTruthy()
+  const coordinatorDetails = screen.getByRole('complementary', { name: 'Coordinator details' })
+  expect(
+    within(within(coordinatorDetails).getByRole('region', { name: 'Powers' }))
+      .getAllByRole('listitem')
+      .map((li) => li.textContent),
+  ).toEqual(['Ask the user', 'Manage Tasks'])
   await user().click(within(pane).getByRole('button', { name: 'What should we work on next?' }))
   await user().selectOptions(agent, 'planner')
   const planning = await screen.findByRole('region', { name: 'New planning chat' })
@@ -499,7 +504,7 @@ test('with no chats Agents opens New chat; the Agent menu lists every Agent with
   )
   await user().selectOptions(within(planning).getByRole('combobox', { name: 'Agent' }), 'triager')
   const back = await screen.findByRole('region', { name: 'Triager' })
-  expect(within(back).getByText('Ask the user · Read the code · This repo')).toBeTruthy()
+  expect(within(back).getByRole('heading', { name: /New chat with Triager/ })).toBeTruthy()
   const details = screen.getByRole('complementary', { name: 'Triager details' })
   expect(
     within(within(details).getByRole('region', { name: 'Powers' }))

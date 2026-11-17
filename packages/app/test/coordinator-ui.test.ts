@@ -73,7 +73,7 @@ test('Coordinator opens from the sidebar, lists a repo Agent with its powers and
     .toEqual(['Coordinator', 'Planner', 'Triager'])
   await picker.selectOption('triager')
   const triager = window.getByRole('region', { name: 'Triager', exact: true })
-  await triager.getByText('Ask the user · Read the code · This repo').waitFor()
+  await triager.getByRole('heading', { name: /New chat with Triager/ }).waitFor()
   const triagerDetails = window.getByRole('complementary', { name: 'Triager details' })
   expect(
     await triagerDetails
