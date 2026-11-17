@@ -3134,15 +3134,20 @@ export function createTasks(options: {
     inBackground(`update ${task.displayId}’s pull requests`, () => next)
   }
 
-  async function chooseMergeCommits(task: StoredTask, signedOff: boolean): Promise<void> {
+  async function mergeCommits(
+    task: StoredTask,
+    signedOff: boolean,
+  ): Promise<{ name: string; commit: string | undefined }[]> {
     const approval = signedOff ? lastApproval(task) : undefined
+    const chosen: { name: string; commit: string | undefined }[] = []
     for (const repo of task.repos) {
       if (repo.removed || repo.pullRequest?.state === 'merged') continue
       const commit = approval
         ? store.approvalBoundCommit(task.id, approval.id, repo.name)
         : await git.headCommit(repo.worktree).catch(() => undefined)
-      store.mergeCommitChosen(task.id, repo.name, commit)
+      chosen.push({ name: repo.name, commit })
     }
+    return chosen
   }
 
   function recordSignOff(taskId: string): void {
@@ -7034,7 +7039,9 @@ export function createTasks(options: {
     const baseNote = firstWorkEntry(next, store.listStageEntries(task.id))
       ? await adoptLatestBase(task)
       : undefined
+    const chosen = mergesHere(next) ? await mergeCommits(task, signedOff) : []
     const moved = store.changeStage(task.id, next, entryFor(resolution, next))
+    for (const { name, commit } of chosen) store.mergeCommitChosen(task.id, name, commit)
     const waitingLead = liveLead(find(task.id))
     const choice = effectiveLead(find(task.id))
     if (next !== 'done' && waitingLead && choice && !sameChoice(choice, waitingLead))
@@ -7046,10 +7053,7 @@ export function createTasks(options: {
         }
       }
     }
-    if (mergesHere(next)) {
-      await chooseMergeCommits(find(task.id), signedOff)
-      pullRequestWork(task.id, 'publish')
-    }
+    if (mergesHere(next)) pullRequestWork(task.id, 'publish')
     if (next === 'done') {
       inBackground(`finish ${task.displayId}`, () => finishing(task, resolution))
     } else if (isCleanup(next) && message !== undefined) {
