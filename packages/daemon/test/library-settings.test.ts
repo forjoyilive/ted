@@ -128,7 +128,7 @@ describe('Library settings', () => {
     ])
     expect(view.agentFiles[0]).toMatchObject({
       name: 'Coordinator',
-      powers: ['ask', 'manage_tasks', 'manage_automations'],
+      powers: ['ask', 'manage_tasks', 'manage_automations', 'manage_agents'],
       inherited: { layer: 'ted', settings: { name: 'Coordinator' } },
     })
   })

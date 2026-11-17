@@ -34,9 +34,13 @@ export interface AgentLayer {
 }
 
 const agentKeys = ['name', 'agent', 'model', 'powers', 'based_on']
+const chatOnlyPowers: readonly AgentPower[] = [
+  'manage_tasks',
+  'manage_automations',
+  'manage_agents',
+]
 const idRule = `lowercase letters, digits and hyphens, up to ${maxAgentId} characters`
 const powerList = agentPowers.join(', ')
-const chatOnlyPowers: readonly AgentPower[] = ['manage_tasks', 'manage_automations']
 
 export function agentFileId(file: string): string | undefined {
   const match = /^agents\/(.+)\.md$/.exec(file)
@@ -192,9 +196,11 @@ function checkAgentsYaml(
         }
       }
     }
-    for (const power of chatOnlyPowers)
-      if (id === 'planner' && agent.powers?.includes(power))
+    for (const power of chatOnlyPowers) {
+      if (id === 'planner' && agent.powers?.includes(power)) {
         error(key, `\`planner\` can’t have \`${power}\`; the Planner runs in a planning chat`)
+      }
+    }
     if (agent.name === undefined && !inherited.defined.includes(id)) {
       error(key, `\`${id}\` needs a \`name\``)
     }

@@ -265,6 +265,12 @@ export type {
 } from './chat.ts'
 export type {
   AgentChatKind,
+  AgentDraft,
+  AgentDraftAnswer,
+  AgentDraftCurrent,
+  AgentDraftFields,
+  AgentDraftInput,
+  AgentDraftPlace,
   AgentSummary,
   ChatAgent,
   ChatQuestionInput,
@@ -273,8 +279,12 @@ export type {
   PostChatRequest,
 } from './chat-agent.ts'
 export {
+  agentDraftPlaces,
   chatRequestKinds,
+  maxAgentDraftSummary,
   maxChatQuestionLength,
+  parseAgentDraftAnswer,
+  parseAgentDraftInput,
   parseChatAgentId,
   parsePostChatRequest,
 } from './chat-agent.ts'

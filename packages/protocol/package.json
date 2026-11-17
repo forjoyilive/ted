@@ -47,6 +47,7 @@
     "./proposal": "./src/proposal.ts",
     "./plan": "./src/plan.ts",
     "./agent-files": "./src/agent-files.ts",
+    "./setup-agents": "./src/setup-agents.ts",
     "./export-file": "./src/export-file.ts",
     "./reference": "./src/reference.ts",
     "./execution-commands": "./src/execution-commands.ts",

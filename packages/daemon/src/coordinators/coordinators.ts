@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { lstat, mkdir, readdir, realpath, rm } from 'node:fs/promises'
 import path from 'node:path'
 import type {
+  AgentDraftAnswer,
   AgentSummary,
   AnswerRequest,
   Automation,
@@ -46,10 +47,17 @@ import {
   planTitleLength,
   priorities,
 } from '@ted/protocol'
-import type { AgentPower } from '@ted/protocol/agent-files'
+import type { AgentPower, ResolvedAgent } from '@ted/protocol/agent-files'
 import { mergesHere } from '@ted/protocol/stage'
 import { AgentDisabledError, agentStartHold } from '../agent-eligibility.ts'
 import type { Banners } from '../banners.ts'
+import {
+  type AgentFileTargets,
+  chosenDraft,
+  draftStillFits,
+  planDraft,
+  saveDraft,
+} from '../chats/agent-drafts.ts'
 import {
   agentSummary,
   builtInAgent,
@@ -60,6 +68,7 @@ import {
 } from '../chats/agents.ts'
 import { checkOut, discard } from '../chats/checkout.ts'
 import {
+  chatAgentCommands,
   chatAskCommands,
   chatProposeCommands,
   checkoutLine,
@@ -143,6 +152,7 @@ export function coordinatorInstructions(
     ...(powers.includes('manage_automations') ? [manageAutomationsCommands] : []),
     ...(powers.includes('ask') ? [chatAskCommands()] : []),
     ...(powers.includes('propose_tasks') ? [chatProposeCommands()] : []),
+    ...(powers.includes('manage_agents') ? [chatAgentCommands()] : []),
   ]
   return [
     role.trim(),
@@ -222,12 +232,20 @@ export function coordinatorTurn(messages: readonly RunMessage[]): string {
 
 export const coordinatorPageSize = 100
 
+export type AgentFilesForChat = Omit<ResolvedAgent, 'path'>
+
 export interface Coordinators {
   chats(factoryId: string): Promise<CoordinatorChatSummary[]>
   get(chatId: string): Promise<Coordinator>
   agents(factoryId: string): Promise<AgentSummary[]>
   ask(caller: Caller, input: PostChatRequest): Promise<ChatRequest>
   answerRequest(chatId: string, requestId: string, answer: AnswerRequest): Promise<Coordinator>
+  answerAgentDraft(
+    chatId: string,
+    requestId: string,
+    answer: AgentDraftAnswer,
+  ): Promise<Coordinator>
+  agentFiles(caller: Caller): Promise<AgentFilesForChat[]>
   statuses(): CoordinatorStatus[]
   start(factoryId: string, input: CoordinatorMessage): Promise<Coordinator>
   message(chatId: string, input: CoordinatorMessage): Promise<Coordinator>
@@ -297,6 +315,7 @@ export function createCoordinators(options: {
   workflows: Pick<Workflows, 'resolve'>
   builtInAgents: readonly StoredChatAgent[]
   automations: CardAutomations
+  agentTargets: AgentFileTargets
   banners: Banners
   reposDir: string
   mkdir?: MakeDirectory
@@ -306,6 +325,11 @@ export function createCoordinators(options: {
     store.chats.agent(c.id) ?? builtInAgent(options.builtInAgents, 'coordinator')
   const agentsNow = async (factory: StoredFactory) =>
     (await workflows.resolve(factory, { fetch: false }).catch(() => undefined))?.workflow.agents
+  const agentFilesOf = async (c: Pick<StoredCoordinator, 'factoryId'>) => {
+    const found = await agentsNow(requireFactory(c.factoryId))
+    if (!found) throw new RequestError(409, 'TED couldn’t read this Factory’s Agent files')
+    return found
+  }
   const openAsked = (c: Pick<StoredCoordinator, 'id'>) =>
     store.chats.requests(c.id).filter((r) => r.answer === undefined)
   const makeDirectory = options.mkdir ?? mkdir
@@ -1231,6 +1255,7 @@ export function createCoordinators(options: {
 
   async function settle(c: StoredCoordinator): Promise<void> {
     await launching.wait(c.id)?.catch(() => {})
+    await requestChains.get(c.id)?.catch(() => {})
     await chains.get(c.factoryId)?.catch(() => {})
     await steering.drain(c.runId)
     for (const runId of (saved.get(c.id) ?? c).runIds) {
@@ -2349,8 +2374,18 @@ export function createCoordinators(options: {
         if (changing.has(c.id) || deleting.has(c.id))
           throw new RequestError(409, 'The human is changing this chat')
         const agent = agentOf(c)
-        const kind = input.question ? 'question' : input.round ? 'round' : 'proposal'
-        requirePower(agent, kind === 'proposal' ? 'propose_tasks' : 'ask')
+        const kind = input.question
+          ? 'question'
+          : input.round
+            ? 'round'
+            : input.proposal
+              ? 'proposal'
+              : 'agent'
+        requirePower(
+          agent,
+          kind === 'proposal' ? 'propose_tasks' : kind === 'agent' ? 'manage_agents' : 'ask',
+        )
+        const draft = input.agent && planDraft(input.agent, await agentFilesOf(c))
         const asked = store.chats.requests(c.id)
         const open = asked.filter((r) => r.answer === undefined)
         if (input.supersedes !== undefined) {
@@ -2394,9 +2429,15 @@ export function createCoordinators(options: {
               })),
             },
           }),
+          ...(draft && {
+            title: draft.current ? `Change to ${draft.current.name}` : `New Agent: ${draft.name}`,
+            agentDraft: draft,
+          }),
           body: input.question
             ? redactSecrets(input.question.text)
-            : ((input.round ?? input.proposal)?.summary ?? ''),
+            : input.agent
+              ? redactSecrets(input.agent.summary ?? '')
+              : ((input.round ?? input.proposal)?.summary ?? ''),
         })
         if (input.supersedes !== undefined)
           store.chats.answer(input.supersedes, {
@@ -2429,6 +2470,8 @@ export function createCoordinators(options: {
           if (latest.phase === 'ready' || latest.phase === 'queued')
             save({ ...latest, phase: 'queued' })
         }
+        if (asked.kind === 'agent')
+          throw new RequestError(400, 'Answer an Agent draft with Create or Dismiss on its card')
         if (asked.kind === 'question') {
           if (answer.action !== 'answer')
             throw new RequestError(400, 'Answer a question with a choice or a message')
@@ -2479,6 +2522,71 @@ export function createCoordinators(options: {
         pump()
         return publicChat(requireChat(chatId))
       })
+    },
+    async answerAgentDraft(chatId, requestId, answer) {
+      return oneRequest(chatId, async () => {
+        const c = requireChat(chatId)
+        notChanging(chatId)
+        const asked = store.chats.request(requestId)
+        if (!asked || asked.chatId !== c.id)
+          throw new RequestError(404, 'no such request in this chat')
+        if (asked.answer) throw new RequestError(409, 'This request is already closed')
+        const draft = asked.agentDraft
+        if (asked.kind !== 'agent' || !draft)
+          throw new RequestError(400, 'This request isn’t an Agent draft')
+        const factory = requireFactory(c.factoryId)
+        const agent = agentOf(c)
+        const current = await agentsNow(factory)
+        if (chatAgentView(agent, current).removed)
+          throw new RequestError(409, removedRefusal(agent))
+        const at = new Date().toISOString()
+        let text: string
+        if (answer.action === 'dismiss') {
+          text = `The human dismissed your Agent draft “${draft.name}” (request ${asked.id}). Nothing was saved.`
+          store.chats.answer(asked.id, { kind: 'denied', at })
+        } else {
+          const chosen = chosenDraft(draft, answer)
+          const fresh =
+            answer.where === 'factory'
+              ? (await workflows.resolve(factory, { fetch: true })).workflow.agents
+              : current
+          if (!fresh) throw new RequestError(409, 'TED couldn’t read this Factory’s Agent files')
+          draftStillFits(draft, fresh)
+          const result = await saveDraft(options.agentTargets, {
+            where: answer.where,
+            factoryId: factory.id,
+            draft,
+            chosen,
+          })
+          const edited =
+            chosen.name !== draft.name ||
+            chosen.instructions !== draft.instructions ||
+            chosen.powers.join() !== draft.powers.join()
+          text = [
+            `The human answered your Agent draft “${draft.name}” (request ${asked.id}): ${result}`,
+            ...(edited
+              ? [
+                  `They edited it first. It was saved as “${chosen.name}” with ${chosen.powers.length === 0 ? 'no powers' : `the powers ${chosen.powers.join(', ')}`}; read it with ted coordinator agents once it applies.`,
+                ]
+              : []),
+          ].join('\n\n')
+          store.chats.answer(asked.id, { kind: 'approved', at, text: result })
+        }
+        const latest = requireChat(chatId)
+        store.queueRunMessage({ runId: latest.runId, text, from: 'ted' })
+        if (latest.phase === 'ready' || latest.phase === 'queued')
+          save({ ...latest, phase: 'queued' })
+        await store.persisted()
+        const runId = requireChat(chatId).runId
+        if (store.getRun(runId)) steering.syncQueuedFlag(runId)
+        pump()
+        return publicChat(requireChat(chatId))
+      })
+    },
+    async agentFiles(caller) {
+      const c = currentChat(caller)
+      requirePower(agentOf(c), 'manage_agents')
+      return (await agentFilesOf(c)).map(({ path: _, ...agent }) => agent)
     },
     holdFactoryRemoval(id) {
       removing.add(id)

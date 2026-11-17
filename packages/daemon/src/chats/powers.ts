@@ -39,6 +39,17 @@ export function chatProposeCommands(): string {
   ].join('\n')
 }
 
+export const agentDraftFormat =
+  'The file is JSON: `id` (lowercase letters, digits and hyphens), `name`, `instructions` (the Agent’s instructions file, in Markdown), `powers` (a list from ask, manage_tasks, manage_automations, propose_tasks, read_code, manage_agents), `"change": true` when it changes an Agent this Factory already has, and an optional one-paragraph `summary` for the human.'
+
+export function chatAgentCommands(): string {
+  return [
+    '- ted coordinator agents: this Factory’s Agents, each with its id, name, where it is defined, its powers and its full instructions.',
+    `- ted coordinator agent-draft --file <file> [--supersedes <request-id>]: draft a new Agent, or a change to one, for the human to create. ${agentDraftFormat} For a change, give the whole new instructions and powers, not only what differs.`,
+    'TED shows the human the draft as a card in this chat and their Inbox. They may edit it, untick powers and pick the Library (every Factory on this Mac) or this Factory (a settings pull request); nothing is saved until they click Create. You can’t save Agent files yourself, and an Agent can’t be given commands from here. After you draft, end your turn: TED sends you what the human did.',
+  ].join('\n')
+}
+
 export function checkoutLine(where: string): string {
   return `${where} Read it as much as you need. Anything you write there is never pushed and is thrown away when this chat is archived or ends.`
 }

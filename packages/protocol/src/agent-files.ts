@@ -8,6 +8,7 @@ export const agentPowers = [
   'manage_automations',
   'propose_tasks',
   'read_code',
+  'manage_agents',
 ] as const
 
 export type AgentPower = (typeof agentPowers)[number]
@@ -18,6 +19,7 @@ export const agentPowerNames: Readonly<Record<AgentPower, string>> = {
   manage_automations: 'Manage Automations',
   propose_tasks: 'Propose Tasks',
   read_code: 'Read the code',
+  manage_agents: 'Manage Agents',
 }
 
 export const builtInAgentIds = ['coordinator', 'planner'] as const
@@ -27,6 +29,8 @@ export type BuiltInAgentId = (typeof builtInAgentIds)[number]
 export const maxAgentId = 40
 
 export const maxAgentName = 60
+
+export const maxAgentDraftInstructions = 20_000
 
 export function isAgentId(id: string): boolean {
   return id.length <= maxAgentId && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(id)
@@ -52,6 +56,8 @@ export const agentPowerHelp: Readonly<Record<AgentPower, string>> = {
   propose_tasks: 'A set of Tasks with blockers for you to approve, as the Planner does.',
   read_code:
     'A fresh copy of the default branch for each chat. It is never pushed and is removed when the chat is archived.',
+  manage_agents:
+    'Drafts of new Agents and changes to Agents, shown as a card. Nothing is saved until you click Create.',
 }
 
 export const blankAgentInstructions = `# What this Agent is for

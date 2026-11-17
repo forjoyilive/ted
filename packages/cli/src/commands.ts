@@ -957,6 +957,24 @@ export const commands = [
     callers: 'Coordinator Run',
   },
   {
+    name: 'coordinator agents',
+    handler: 'coordinatorAgents',
+    options: options(),
+    min: 0,
+    max: 0,
+    help: '  ted coordinator agents                     Read this Factory’s Agents, with their powers and instructions',
+    callers: 'Coordinator Run',
+  },
+  {
+    name: 'coordinator agent-draft',
+    handler: 'chatAgentDraft',
+    options: options('file', 'supersedes'),
+    min: 0,
+    max: 0,
+    help: '  ted coordinator agent-draft --file <file> [--supersedes <request-id>]\n                                             Draft a new Agent or a change to one for the human to create',
+    callers: 'Coordinator Run',
+  },
+  {
     name: 'coordinator create',
     handler: 'coordinatorCreate',
     options: options(

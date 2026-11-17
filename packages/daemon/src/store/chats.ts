@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { queryDb, type Store } from '@livestore/livestore'
 import type {
   AgentChatKind,
+  AgentDraft,
   ChatRequest,
   ChatRequestKind,
   CommentAnswer,
@@ -9,6 +10,7 @@ import type {
   Proposal,
   Round,
 } from '@ted/protocol'
+import { chatRequestKinds } from '@ted/protocol'
 import { type AgentPower, agentPowers } from '@ted/protocol/agent-files'
 import { isArray, isOneOf, isString, parseJson } from '@ted/protocol/parse'
 import { type AgentKind, agentKinds } from '@ted/protocol/run'
@@ -35,6 +37,7 @@ export interface NewChatRequest {
   multiple?: true
   round?: Round
   proposal?: Proposal
+  agentDraft?: AgentDraft
 }
 
 export interface ChatStore {
@@ -52,7 +55,6 @@ export interface ChatStore {
 }
 
 const layerKinds: readonly LayerKind[] = ['ted', 'library', 'factory']
-const requestKinds: readonly ChatRequestKind[] = ['question', 'round', 'proposal']
 
 function powersOf(text: string): AgentPower[] {
   const parsed = parseJson(text)
@@ -103,18 +105,20 @@ export function createChatStore(options: {
     const choices = choicesOf(row.choices)
     const round = stored<Round>(row.round)
     const proposal = stored<Proposal>(row.proposal)
+    const agentDraft = stored<AgentDraft>(row.agentDraft)
     const answer = stored<CommentAnswer>(row.answer)
     return {
       id: row.id,
       chatId: row.chatId,
       runId: row.runId,
-      kind: isOneOf(row.kind, requestKinds) ? row.kind : 'question',
+      kind: isOneOf(row.kind, chatRequestKinds) ? row.kind : 'question',
       ...(row.title !== null && { title: row.title }),
       body: row.body,
       ...(choices && { choices }),
       ...(row.multiple && { multiple: true as const }),
       ...(round && { round }),
       ...(proposal && { proposal }),
+      ...(agentDraft && { agentDraft }),
       ...(answer && { answer }),
       createdAt: row.createdAt,
     }
@@ -143,7 +147,7 @@ export function createChatStore(options: {
         .query(queryDb(chatRequests.where({ chatId }).orderBy('createdAt', 'asc')))
         .map(toRequest),
     request,
-    post({ title, choices, multiple, round, proposal, ...input }) {
+    post({ title, choices, multiple, round, proposal, agentDraft, ...input }) {
       const id = randomUUID()
       commit(
         events.chatRequestPosted({
@@ -156,6 +160,9 @@ export function createChatStore(options: {
           proposal: proposal === undefined ? null : JSON.stringify(proposal),
           at: new Date().toISOString(),
         }),
+        ...(agentDraft === undefined
+          ? []
+          : [events.chatAgentDraftPosted({ id, draft: JSON.stringify(agentDraft) })]),
       )
       options.changed(input.chatId)
       const posted = request(id)
