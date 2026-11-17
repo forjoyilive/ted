@@ -43,6 +43,7 @@ function coordinator(fields: Partial<Coordinator> = {}): Coordinator {
     status: 'ready',
     unsentMessages: [],
     confirmations: [],
+    automationCards: [],
     requests: [],
     chatAgent: coordinatorAgent,
     receipts: [
@@ -493,7 +494,7 @@ test('with no chats Agents opens New chat; the Agent menu lists every Agent with
     within(within(coordinatorDetails).getByRole('region', { name: 'Powers' }))
       .getAllByRole('listitem')
       .map((li) => li.textContent),
-  ).toEqual(['Ask the user', 'Manage Tasks'])
+  ).toEqual(['Ask the user', 'Manage Tasks', 'Manage Automations', 'Manage Agents'])
   await user().click(within(pane).getByRole('button', { name: 'What should we work on next?' }))
   await user().selectOptions(agent, 'planner')
   const planning = await screen.findByRole('region', { name: 'New planning chat' })
@@ -756,4 +757,66 @@ test('a Coordinator confirmation card shows its warnings and sends the human’s
     decision: 'confirm',
     choices: { 'NB-3': { closePullRequests: true, children: 'detach' } },
   })
+})
+
+test('an Automation card shows the draft, offers Start the Tasks it creates for a check, and sends the human’s choice on Create', async () => {
+  const { a, shown, open } = withCoordinator()
+  shown.coordinator = coordinator({
+    automationCards: [
+      {
+        id: 'ac1',
+        kind: 'create',
+        operation: 'op-1',
+        askedAt: createdAt,
+        name: 'Nightly tests',
+        requestHash: 'h',
+        rows: [
+          { label: 'Schedule', value: 'Every day at 3:00' },
+          { label: 'Check command', value: 'pnpm check', long: true },
+        ],
+        nextFirings: [],
+        offersStartTasks: true,
+      },
+      {
+        id: 'ac2',
+        kind: 'edit',
+        operation: 'op-2',
+        askedAt: createdAt,
+        name: 'Morning intake',
+        automationId: 'a1',
+        requestHash: 'h2',
+        rows: [{ label: 'Schedule', before: 'Weekdays at 8:00', value: 'Every day at 7:00' }],
+        nextFirings: [],
+        offersStartTasks: false,
+        answer: {
+          decision: 'confirm',
+          at: createdAt,
+          refused: '“Morning intake” changed after this card was shown',
+        },
+      },
+    ],
+  })
+  const answer = vi.fn(() => shown.coordinator)
+  a.handle('answerAutomationCard', answer)
+  a.mount()
+  const pane = await open()
+  const card = await within(pane).findByRole('region', {
+    name: 'Create Automation “Nightly tests”?',
+  })
+  expect(card.textContent).toContain('pnpm check')
+  expect(card.textContent).toContain('Nothing is saved until you click Create.')
+  const start = within(card).getByRole('checkbox', { name: /Start the Tasks it creates/ })
+  expect((start as HTMLInputElement).checked).toBe(false)
+  await user().click(start)
+  await user().click(within(card).getByRole('button', { name: 'Create' }))
+  expect(answer).toHaveBeenCalledWith('k1', 'ac1', { decision: 'confirm', startTasks: true })
+
+  const refused = within(pane).getByRole('region', { name: 'Save changes to “Morning intake”?' })
+  expect(within(refused).getByRole('row', { name: /Schedule/ }).textContent).toContain(
+    'Weekdays at 8:00',
+  )
+  expect(refused.textContent).toContain(
+    'Not done: “Morning intake” changed after this card was shown. Nothing changed.',
+  )
+  expect(within(refused).queryByRole('button', { name: 'Save' })).toBeNull()
 })

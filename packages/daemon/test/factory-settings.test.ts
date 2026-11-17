@@ -243,7 +243,7 @@ describe('Factory settings', () => {
 
     const after = await client.settings()
     expect(after.agentFiles.map((a) => [a.id, a.from, a.powers])).toEqual([
-      ['coordinator', 'ted', ['ask', 'manage_tasks', 'manage_agents']],
+      ['coordinator', 'ted', ['ask', 'manage_tasks', 'manage_automations', 'manage_agents']],
       ['planner', 'factory', ['ask', 'propose_tasks']],
       ['release-notes', 'factory', ['ask', 'read_code']],
     ])

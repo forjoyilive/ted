@@ -166,6 +166,13 @@ test('a chat runs a repo Agent with the powers it had when the chat started', as
     await run.call('POST', '/coordinator/requests', {
       proposal: { title: 'Pieces', tasks: [{ title: 'One', scope: 'One thing' }] },
     }),
+    await run.call('GET', '/coordinator/automations'),
+    await run.call('GET', '/coordinator/automations/a1'),
+    await run.call('POST', '/coordinator/automation-drafts', {
+      operation: 'op-draft',
+      kind: 'create',
+      fields: { name: 'Daily', prompt: 'Go', schedule: { kind: 'daily', at: '09:00' } },
+    }),
     await run.call('GET', '/coordinator/agents'),
     await run.call('POST', '/coordinator/requests', {
       agent: { id: 'helper', name: 'Helper', instructions: 'Help.', powers: [] },
@@ -174,7 +181,7 @@ test('a chat runs a repo Agent with the powers it had when the chat started', as
   for (const res of refused) {
     expect(res.status).toBe(403)
     expect(JSON.stringify(res.body)).toMatch(
-      /Scout doesn’t have the (Manage Tasks|Propose Tasks|Manage Agents) power/,
+      /Scout doesn’t have the (Manage Tasks|Propose Tasks|Manage Automations|Manage Agents) power/,
     )
   }
 
@@ -272,7 +279,12 @@ test('a Coordinator drafts Agents that only the app creates, in the Library or a
     agent: 'claude',
     text: JSON.stringify({ steps: [{ everyMessage: [{ endTurn: true }] }, { endTurn: true }] }),
   })
-  expect(started.chatAgent.powers).toEqual(['ask', 'manage_tasks', 'manage_agents'])
+  expect(started.chatAgent.powers).toEqual([
+    'ask',
+    'manage_tasks',
+    'manage_automations',
+    'manage_agents',
+  ])
   const chatPath = `/coordinator-chats/${started.id}`
   await waitUntil(async () => (await ok<Coordinator>('GET', chatPath)).started, 'the chat')
   const prompt = (await ok<RunWithConversation>('GET', `/runs/${started.runId}`)).run.prompt ?? ''

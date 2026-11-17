@@ -418,7 +418,9 @@ export function Inbox({
       ]
       const kind = confirmation.requestKind
         ? chatRequestLabels[confirmation.requestKind]
-        : 'Confirmation'
+        : confirmation.automationCard
+          ? 'Automation draft'
+          : 'Confirmation'
       return (
         <button
           type="button"

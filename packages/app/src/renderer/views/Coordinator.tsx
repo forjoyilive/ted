@@ -18,6 +18,7 @@ import {
   builtInCoordinator,
   removedAgentNote,
 } from '../components/AgentAbout.tsx'
+import { AutomationCard } from '../components/AutomationCard.tsx'
 import { Button } from '../components/Button.tsx'
 import { ConfirmationCard } from '../components/ConfirmationCard.tsx'
 import { EventLine } from '../components/EventLine.tsx'
@@ -163,6 +164,7 @@ export function CoordinatorChat({
   busy,
   error,
   onOpenTask,
+  onOpenAutomation,
   onArchive,
   onUnarchive,
   onDelete,
@@ -172,6 +174,7 @@ export function CoordinatorChat({
   busy: boolean
   error: string | undefined
   onOpenTask: (id: string) => void
+  onOpenAutomation: (id: string) => void
   onArchive: () => void
   onUnarchive: () => void
   onDelete: () => void
@@ -282,6 +285,19 @@ export function CoordinatorChat({
                 coordinator?.tasks ?? [],
                 onOpenTask,
               ),
+              ...(coordinator?.automationCards ?? []).map((card) => ({
+                id: card.id,
+                at: card.askedAt,
+                node: (
+                  <AutomationCard
+                    key={`${card.id}:${card.answer?.decision ?? 'open'}`}
+                    chatId={chatId}
+                    card={card}
+                    agentName={agent.name}
+                    onOpenAutomation={onOpenAutomation}
+                  />
+                ),
+              })),
               ...chatRequestItems(
                 chatId,
                 coordinator?.requests ?? [],

@@ -2503,7 +2503,7 @@
       "count": 1
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 5
+      "count": 4
     }
   },
   "packages/daemon/src/store/coordinators.ts": {

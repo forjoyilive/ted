@@ -18,7 +18,11 @@ import type { FactorySettings } from '../factory-settings.ts'
 import type { LibrarySettings } from '../library-settings.ts'
 import { redactSecrets } from '../redact.ts'
 
-const plannerOnlyLacks: readonly AgentPower[] = ['manage_tasks', 'manage_agents']
+const plannerOnlyLacks: readonly AgentPower[] = [
+  'manage_tasks',
+  'manage_automations',
+  'manage_agents',
+]
 
 export function draftHash(agent: AgentDraftFields): string {
   return createHash('sha256')

@@ -40,7 +40,7 @@ export function chatProposeCommands(): string {
 }
 
 export const agentDraftFormat =
-  'The file is JSON: `id` (lowercase letters, digits and hyphens), `name`, `instructions` (the Agent’s instructions file, in Markdown), `powers` (a list from ask, manage_tasks, propose_tasks, read_code, manage_agents), `"change": true` when it changes an Agent this Factory already has, and an optional one-paragraph `summary` for the human.'
+  'The file is JSON: `id` (lowercase letters, digits and hyphens), `name`, `instructions` (the Agent’s instructions file, in Markdown), `powers` (a list from ask, manage_tasks, manage_automations, propose_tasks, read_code, manage_agents), `"change": true` when it changes an Agent this Factory already has, and an optional one-paragraph `summary` for the human.'
 
 export function chatAgentCommands(): string {
   return [

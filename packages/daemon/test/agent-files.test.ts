@@ -27,7 +27,7 @@ describe('TED’s built-in Agents', () => {
       {
         id: 'coordinator',
         name: 'Coordinator',
-        powers: ['ask', 'manage_tasks', 'manage_agents'],
+        powers: ['ask', 'manage_tasks', 'manage_automations', 'manage_agents'],
         source: 'ted',
         path: 'agents/coordinator.md',
       },
@@ -75,6 +75,12 @@ describe('TED’s built-in Agents', () => {
     expect(manage).toContain('ted coordinator tasks')
     expect(manage).toContain('Start means Backlog to Queued')
     expect(manage).not.toContain('ted ask')
+    expect(manage).not.toContain('ted coordinator automation')
+
+    const automations = coordinatorInstructions(role, ['manage_automations'])
+    expect(automations).toContain('ted coordinator automation draft --operation <unique-id>')
+    expect(automations).toContain('You can never turn on “Start the Tasks it creates”')
+    expect(automations).not.toContain('ted coordinator tasks')
 
     const ask = coordinatorInstructions(role, ['ask'])
     expect(ask).toContain('ted ask "<question>"')
@@ -139,7 +145,7 @@ describe('checking Agent files', () => {
       }),
     ).toEqual([
       'error .ted/agents.yaml 1 1 `helper` needs a `name`',
-      'error .ted/agents.yaml 2 17 unknown power `launch_missiles` in `helper.powers`; the powers are ask, manage_tasks, propose_tasks, read_code, manage_agents',
+      'error .ted/agents.yaml 2 17 unknown power `launch_missiles` in `helper.powers`; the powers are ask, manage_tasks, manage_automations, propose_tasks, read_code, manage_agents',
       'error .ted/agents.yaml 3 3 unknown key `helper.colour`; an Agent has name, agent, model, powers, based_on',
       'error .ted/agents.yaml 4 1 `Bad_Id` isn’t an Agent id; an Agent id is lowercase letters, digits and hyphens, up to 40 characters',
       'error .ted/agents.yaml 6 1 `scout` has no instructions file; add agents/scout.md',
@@ -147,19 +153,23 @@ describe('checking Agent files', () => {
     ])
   })
 
-  test('the Planner can’t have Manage Tasks: check reports it and resolving drops it', () => {
+  test('the Planner can’t have Manage Tasks or Manage Automations: check reports it and resolving drops it', () => {
     const files = {
-      'agents.yaml': 'planner:\n  name: Planner\n  powers: [ask, manage_tasks]\n',
+      'agents.yaml':
+        'planner:\n  name: Planner\n  powers: [ask, manage_tasks, manage_automations]\n',
       'agents/planner.md': 'Plan.\n',
     }
     expect(problems(files)).toEqual([
       'error .ted/agents.yaml 1 1 `planner` can’t have `manage_tasks`; the Planner runs in a planning chat',
+      'error .ted/agents.yaml 1 1 `planner` can’t have `manage_automations`; the Planner runs in a planning chat',
     ])
     expect(
       resolveAgents([
         {
           kind: 'factory',
-          agentSettings: { planner: { name: 'Planner', powers: ['ask', 'manage_tasks'] } },
+          agentSettings: {
+            planner: { name: 'Planner', powers: ['ask', 'manage_tasks', 'manage_automations'] },
+          },
           agentFiles: { planner: 'Plan.\n' },
         },
       ])[0]?.powers,
