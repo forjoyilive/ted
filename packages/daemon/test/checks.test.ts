@@ -225,9 +225,9 @@ describe('Checks when Work hands a Task to Validate', () => {
     expect(output.text).not.toContain('ghp_abcdefghij')
   }, 90_000)
 
-  test('at max_back Ted asks the human with Diagnose in Validate instead of a Loop check, and Diagnose keeps the Task in Validate and makes the failure a failure case', async () => {
+  test('at max_back Ted asks the human with Diagnose in Validate instead of a Loop check, a restart waits for the answer, and Diagnose keeps the Task in Validate and makes the failure a failure case', async () => {
     await workflow('      - { name: Tests, run: "echo nope; exit 1" }', {}, 2)
-    const client = await startTed()
+    let client = await startTed()
     const task = await startTask(
       client,
       steps(
@@ -282,6 +282,21 @@ describe('Checks when Work hands a Task to Validate', () => {
         ) || undefined,
       'the Task Lead to hear that Ted asked the human',
     )
+
+    await daemon?.stop()
+    client = await startTed()
+    await sleep(1_500)
+    expect((await checkRuns(client, task)).map((r) => r.trigger)).toEqual([
+      'hand-off',
+      'hand-off',
+      'hand-off',
+    ])
+    expect(await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)).toEqual([])
+    expect((await getTask(client, task.id))?.stage).toBe('validate')
+    await waitUntil(async () => {
+      const current = await getTask(client, task.id)
+      return current?.runs.some((r) => r.id === current.leadRunId && r.state !== 'finished')
+    }, 'the Task Lead to be back after the restart')
 
     await client.ok('POST', `/comments/${question.id}/answer`, {
       action: 'answer',

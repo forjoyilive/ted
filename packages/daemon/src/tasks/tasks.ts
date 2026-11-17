@@ -2864,18 +2864,22 @@ export function createTasks(options: {
             console.error(
               redactSecrets(`couldn’t start ${task.displayId}’s checks: ${messageOf(error)}`),
             )
-            return undefined
+            return null
           })
-        const result = started === undefined ? undefined : await started.done
-        const checkRun =
-          started === undefined
-            ? undefined
-            : (store.getCheckRun(started.checkRun.id) ?? started.checkRun)
+        if (started === undefined && !handOffHalted(find(taskId), lead)) {
+          pullRequestWork(taskId, 'first')
+          handedOver = true
+          await validation.enter(taskId, message)
+          return
+        }
+        const result = started ? await started.done : undefined
+        const checkRun = started
+          ? (store.getCheckRun(started.checkRun.id) ?? started.checkRun)
+          : undefined
         const current = find(taskId)
         if (result?.outcome === 'interrupted' || handOffLeft(current)) return
         if (current.stopped || current.status?.kind === 'failed') return
         if (handOffHalted(current, lead) || checkRun === undefined) {
-          pullRequestWork(taskId, 'first')
           handedOver = true
           await validation.enter(taskId, message)
           return
@@ -2883,7 +2887,7 @@ export function createTasks(options: {
         if (result?.outcome === 'passed') {
           const now = await validation.coverage(find(taskId), worktreeReads())
           if (now !== coverage && attempt < handOffCheckRuns) continue
-          pullRequestWork(taskId, 'first')
+          if (now === coverage) pullRequestWork(taskId, 'first')
           handedOver = true
           await validation.enter(taskId, message, { run: checkRun, coverage })
           return
@@ -10774,7 +10778,15 @@ export function createTasks(options: {
     (task) => validates(task.stage) && !find(task.id).stopped && task.status?.kind !== 'failed',
   )
   const handOffsLeftInWork = unfinishedHandOffs.filter((task) => handsOff(task.stage))
-  validation.recover(new Set(interruptedHandOffs.map((task) => task.id)))
+  validation.recover(
+    new Set([
+      ...interruptedHandOffs.map((task) => task.id),
+      ...store
+        .listTasks()
+        .filter((task) => validates(task.stage) && openSendBackAsk(task) !== undefined)
+        .map((task) => task.id),
+    ]),
+  )
   for (const task of store.listTasks()) {
     if (!isCleanup(task.stage) || find(task.id).stopped || task.archived) continue
     if (openCleanupFailure(task.id)) continue

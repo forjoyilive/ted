@@ -995,12 +995,12 @@ export function createValidation(options: ValidationOptions) {
     })
   }
 
-  function recover(handOffs: ReadonlySet<string> = new Set()) {
+  function recover(skip: ReadonlySet<string> = new Set()) {
     for (const checkRun of store.listCheckRuns().filter((r) => r.finishedAt === undefined)) {
       const task = store.getTask(checkRun.taskId)
       const restart =
         checkRun.trigger === 'validate' &&
-        !handOffs.has(checkRun.taskId) &&
+        !skip.has(checkRun.taskId) &&
         task !== undefined &&
         validates(task.stage) &&
         !pendingRepair(task)
@@ -1022,7 +1022,7 @@ export function createValidation(options: ValidationOptions) {
         decision?.resolution === 'fix'
       if (
         validates(task.stage) &&
-        !handOffs.has(task.id) &&
+        !skip.has(task.id) &&
         !pendingRepair(task) &&
         !task.archived &&
         !store.failures.list(task.id).some((f) => {
