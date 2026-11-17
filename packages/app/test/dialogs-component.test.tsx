@@ -14,7 +14,9 @@ async function formReady() {
   )
 }
 
-async function newTask(options: { tasks?: Task[]; parentId?: string } = {}) {
+async function newTask(
+  options: { tasks?: Task[]; parentId?: string; autoStartBacklog?: boolean } = {},
+) {
   const created = vi.fn(() => task())
   const settings = vi.fn((changes: unknown) => changes)
   const api = bridge({
@@ -26,7 +28,7 @@ async function newTask(options: { tasks?: Task[]; parentId?: string } = {}) {
   const close = vi.fn()
   render(
     <NewTaskDialog
-      factories={[factory()]}
+      factories={[factory({ autoStartBacklog: options.autoStartBacklog ?? false })]}
       tasks={options.tasks ?? []}
       factoryId="f1"
       {...(options.parentId !== undefined && { parentId: options.parentId })}
@@ -80,6 +82,15 @@ test('New Task sends an explicit title and starts by default', async () => {
   expect(created).toHaveBeenCalledWith(
     expect.objectContaining({ title: 'Starts now', start: true }),
   )
+})
+
+test('Start now unchecked says the Task will start when the Factory starts Backlog Tasks automatically', async () => {
+  await newTask({ autoStartBacklog: true })
+  await user().click(screen.getByLabelText('Start now'))
+  expect(
+    screen.getByText('Starts when a slot is free: this Factory starts Backlog Tasks automatically'),
+  ).toBeTruthy()
+  expect(screen.queryByText('Waits in Backlog until you start it')).toBeNull()
 })
 
 test('Create more clears both fields, keeps the dialog open and restores focus; a child keeps its parent', async () => {
