@@ -362,6 +362,13 @@ export {
   parseCoordinatorTaskQuery,
   parseRenameCoordinatorChatRequest,
 } from './coordinator-parsers.ts'
+export {
+  type Crash,
+  type CrashSource,
+  crashFrom,
+  maxCrashType,
+  parseRendererCrash,
+} from './crash-report.ts'
 export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export type {
   CostBucket,

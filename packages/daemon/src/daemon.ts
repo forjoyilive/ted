@@ -198,6 +198,7 @@ export interface DaemonIntegrationsOptions {
 export interface RunningDaemon {
   port: number
   appToken: string
+  reporting(): boolean
   stop(onStep?: (step: DaemonCloseStep) => void): Promise<void>
 }
 
@@ -285,6 +286,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     env: environment.current,
   })
   const openTerminal = given.openTerminal ?? createTerminalOpener({ tmpDir: paths.tmp })
+  let openStore: TedStore | undefined
   const data = createData({
     home: paths.home,
     version: options.version,
@@ -294,6 +296,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
     ...(options.changesetTrim && { changesetTrim: options.changesetTrim }),
     async startServices(opened, emit) {
       const store = options.wrap?.store?.(opened) ?? opened
+      openStore = store
       await environmentRead
       const busy = createBusyHold({
         on: () => store.settings().waitWhenBusy,
@@ -918,6 +921,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         archiveCleanup,
         chatArchiveCleanup,
         async close() {
+          openStore = undefined
           await execution.close()
           const shellsClosed = shells.close()
           await sideChats.close()
@@ -988,6 +992,13 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
   return {
     port,
     appToken,
+    reporting() {
+      try {
+        return openStore?.settings().reporting ?? false
+      } catch {
+        return false
+      }
+    },
     async stop(onStep) {
       await asana.close()
       idle?.cancel()

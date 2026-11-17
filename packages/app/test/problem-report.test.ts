@@ -1,12 +1,7 @@
+import { type Post, sentryTarget } from '@ted/daemon/sentry'
 import { maxProblemDescription } from '@ted/protocol/problem-report'
 import { describe, expect, test } from 'vitest'
-import {
-  feedbackEnvelope,
-  type Post,
-  type SendDeps,
-  sendProblemReport,
-  sentryTarget,
-} from '../src/problem-report.ts'
+import { feedbackEnvelope, type SendDeps, sendProblemReport } from '../src/problem-report.ts'
 
 const dsn = 'https://abc123@o1.ingest.us.sentry.io/42'
 
