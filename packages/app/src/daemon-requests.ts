@@ -24,6 +24,8 @@ export const forwardedRequests = [
   'archiveCoordinatorChat',
   'unarchiveCoordinatorChat',
   'deleteCoordinatorChat',
+  'factoryAgents',
+  'answerChatRequest',
   'listTasks',
   'listComments',
   'postComment',

@@ -18,6 +18,7 @@ import { createAutomations } from './automations/automations.ts'
 import { createBanners } from './banners.ts'
 import { createBusyHold } from './busy.ts'
 import { createChatArchiveCleanup } from './chat-expiry.ts'
+import { builtInAgents } from './chats/agents.ts'
 import { createCheckTries } from './check-tries.ts'
 import type { Clock } from './clock.ts'
 import { createEnvironment, loginShell } from './command-env.ts'
@@ -656,8 +657,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         ...(options.clock && { clock: options.clock }),
         ...automationOptions,
       })
+      const chatBuiltIns = await builtInAgents()
       const createdPlans = createPlans({
         home: paths.home,
+        builtInAgents: chatBuiltIns,
         store,
         runs,
         agents,
@@ -675,6 +678,9 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
       plans = options.wrap?.plans?.(createdPlans) ?? createdPlans
       const createdCoordinators = createCoordinators({
         home: paths.home,
+        builtInAgents: chatBuiltIns,
+        banners,
+        reposDir: paths.repos,
         store,
         runs,
         tasks,
@@ -700,6 +706,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         paths.emulators,
         paths.scratch,
         paths.plans,
+        paths.chatCode,
         paths.automationRuns,
       ]
       const excludeFromBackups =

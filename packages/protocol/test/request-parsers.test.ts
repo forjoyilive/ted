@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import * as P from '../src/index.ts'
-import { type AllFields, rejects, roundTrip, variant } from './parser-cases.ts'
+import { type AllFields, rejects, roundTrip, variant, variants } from './parser-cases.ts'
 
 roundTrip(P.parseAppRef, { name: 'Dev', repo: 'ted' })
 roundTrip(P.parseStartAppRequest, {
@@ -30,6 +30,7 @@ roundTrip(P.parseStartPlanRequest, {
   agent: 'codex',
   model: 'gpt-5.5',
   effort: 'high',
+  agentId: 'planner',
 })
 roundTrip(P.parseRenamePlanRequest, { title: 'New title' })
 roundTrip(P.parseRenameCoordinatorChatRequest, { title: 'Release review' })
@@ -48,9 +49,26 @@ roundTrip(P.parsePostPlanRequest, { round, proposal, supersedes: 'old' })
 roundTrip(P.parseSendPeerMessage, { operation: 'unique', text: 'Coordinate' })
 roundTrip(P.parseCoordinatorMessage, {
   text: 'Coordinate',
+  agentId: 'release-scout',
   agent: 'codex',
   model: 'gpt-5.5',
   effort: 'high',
+})
+variants(P.parsePostChatRequest, [
+  { question: { text: 'Which repo?', choices: ['web', 'api'], multiple: true }, supersedes: 'old' },
+  { round },
+  { proposal, supersedes: 'old' },
+])
+test('parsePostChatRequest takes exactly one request and checks the Agent id rule', () => {
+  expect(() => P.parsePostChatRequest({ round, proposal })).toThrow(
+    'send one of question, round or proposal',
+  )
+  expect(() => P.parsePostChatRequest({})).toThrow('send one of question, round or proposal')
+  expect(() => P.parsePostChatRequest({ question: { text: ' ' } })).toThrow('a question has')
+  expect(() => P.parsePostChatRequest({ question: { text: 'Why?' }, supersedes: '' })).toThrow(
+    'supersedes',
+  )
+  expect(() => P.parseCoordinatorMessage({ text: 'Hi', agentId: 'Not An Id' })).toThrow('agentId')
 })
 const version = 'a'.repeat(64)
 const completeAction: Required<P.CoordinatorAction> = {

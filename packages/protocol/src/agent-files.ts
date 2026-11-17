@@ -28,7 +28,7 @@ export function isAgentId(id: string): boolean {
 export interface ResolvedAgent {
   id: string
   name: string
-  agent?: string
+  agent?: AgentKind
   model?: string
   powers: AgentPower[]
   instructions: string

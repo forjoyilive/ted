@@ -1028,8 +1028,8 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
   async function workerHome(): Promise<string> {
     if (!remoteExecutionOn(env)) throw new UsageError(remoteExecutionOff)
     if (
-      ['TED_RUN', 'TED_RUN_CAPABILITY', 'TED_RUN_TOKEN', 'TED_TASK', 'TED_PLAN'].some((name) =>
-        tedEnv(name, env),
+      ['TED_RUN', 'TED_RUN_CAPABILITY', 'TED_RUN_TOKEN', 'TED_TASK', 'TED_PLAN', 'TED_CHAT'].some(
+        (name) => tedEnv(name, env),
       )
     )
       throw new UsageError('Execution service control is not available inside a Run')
@@ -1834,6 +1834,46 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
           : `a proposal of ${request.proposal?.rows.length ?? 0} rows`
       console.log(
         `${supersedes === undefined ? 'Posted' : `Replaced request ${supersedes} with`} ${what} (request ${request.id}). TED sends you the human’s answer.`,
+      )
+    },
+    chatQuestion: async () => {
+      const text = args.join(' ').trim()
+      if (text === '') throw new UsageError('give the question as text')
+      const choices = options.choice ?? []
+      const supersedes = options.supersedes
+      const request = await withDaemon(home, (client) =>
+        client.postChatRequest({
+          question: {
+            text,
+            ...(choices.length > 0 && { choices }),
+            ...(options.multiple === true && { multiple: true as const }),
+          },
+          ...(supersedes !== undefined && { supersedes }),
+        }),
+      )
+      console.log(
+        `Asked the human (request ${request.id}). End your turn; TED sends you their answer.`,
+      )
+    },
+    chatRound: async () => {
+      const supersedes = options.supersedes
+      const round = await readRound(options.round ?? '')
+      const request = await withDaemon(home, (client) =>
+        client.postChatRequest({ round, ...(supersedes !== undefined && { supersedes }) }),
+      )
+      console.log(
+        `Posted Round ${request.round?.number ?? ''} (request ${request.id}). End your turn; TED sends you the human’s answers.`,
+      )
+    },
+    chatProposal: async () => {
+      if (options.file === undefined) throw new UsageError('give the proposal with --file <file>')
+      const supersedes = options.supersedes
+      const proposal = await readParsedFile(options.file, 'proposal', parseProposalInput)
+      const request = await withDaemon(home, (client) =>
+        client.postChatRequest({ proposal, ...(supersedes !== undefined && { supersedes }) }),
+      )
+      console.log(
+        `Proposed ${request.proposal?.rows.length ?? 0} Tasks (request ${request.id}). End your turn; TED sends you the human’s answer.`,
       )
     },
     planProposal: async () => {

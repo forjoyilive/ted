@@ -1,3 +1,4 @@
+import type { ChatAgent } from './chat-agent.ts'
 import type { AgentKind } from './run.ts'
 import type { CommentAnswer, Effort, Proposal, Round, StageId, TaskStatus } from './task.ts'
 
@@ -76,6 +77,7 @@ export interface Plan {
   canResume?: boolean
   fromPlan?: { id: string; title: string; deleted?: boolean }
   fromTask?: PlanFromTask
+  chatAgent: ChatAgent
 }
 
 export interface ChatArchiveExpiry {
@@ -100,6 +102,7 @@ export interface StartPlanRequest {
   model?: string
   effort?: Effort
   from?: string
+  agentId?: string
 }
 
 export function planTitle(message: string): string {

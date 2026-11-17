@@ -65,6 +65,7 @@ import {
   type ConversationTab,
   type CopySkip,
   type CreatedBy,
+  chatRequestKinds,
   checkLabel,
   type DaemonEvent,
   type DescriptionVersion,
@@ -125,6 +126,7 @@ import {
   type WaitingRequest,
   type WorktreeCommandOutcome,
 } from '@ted/protocol'
+import { isOneOf } from '@ted/protocol/parse'
 import { planTitle as titleFromMessage } from '@ted/protocol/plan'
 import {
   compareStages,
@@ -154,6 +156,7 @@ import {
 import type { OvernightGuard } from '../workflow/resolve.ts'
 import { type AutomationDraftStore, createAutomationDraftStore } from './automation-drafts.ts'
 import { type AutomationStore, createAutomationStore } from './automations.ts'
+import { type ChatStore, createChatStore } from './chats.ts'
 import { checkRunTiming } from './check-timing.ts'
 import {
   type CoordinatorStore,
@@ -179,6 +182,7 @@ import {
   automationTasks,
   banners,
   baseConflicts,
+  chatRequests as chatRequestRows,
   checkBoundaries,
   checkResults,
   checkRuns,
@@ -867,7 +871,7 @@ export interface TedStore extends TaskHistory {
   childTasksCreated(
     taskId: string,
     childIds: readonly string[],
-    from: 'split' | 'plan' | 'plan-task',
+    from: 'split' | 'plan' | 'plan-task' | 'chat',
   ): void
   madeParent(taskId: string): boolean
   parentFinishedWithChildren(taskId: string): void
@@ -1258,6 +1262,7 @@ export interface TedStore extends TaskHistory {
   ): PeerMessage
   sideChats: SideChatStore
   coordinators: CoordinatorStore
+  chats: ChatStore
   testInvocations: TestInvocationStore
   failures: FailureStore
   invalidateFailure(value: FailureCase, note: { title: string; body: string }): void
@@ -3604,23 +3609,44 @@ export async function openStore({
           },
         ]
       })
+    const chatRows = store.query(queryDb(chatRequestRows.where({ answer: null })))
+    const askedIn = Map.groupBy(chatRows, (row) => row.chatId)
     const fromCoordinators = store
       .query(queryDb(coordinatorRows.where({ endedAt: null })))
       .flatMap((row): WaitingRequest[] => {
         if (!factoryIds.has(row.factoryId)) return []
         const chat = JSON.parse(row.data) as StoredCoordinator
-        return (chat.confirmations ?? [])
+        const chatTitle = row.title ?? titleFromMessage(chat.opening)
+        const agentName = chatStore.agent(row.id)?.name ?? 'Coordinator'
+        const confirmations = (chat.confirmations ?? [])
           .filter((c) => c.answer === undefined)
-          .map((c) => ({
+          .map(
+            (c): WaitingRequest => ({
+              source: 'coordinator',
+              id: c.id,
+              chatId: row.id,
+              chatTitle,
+              agentName,
+              factoryId: row.factoryId,
+              createdAt: c.askedAt,
+              headline: confirmationHeadline(c),
+              confirmationKind: c.kind,
+            }),
+          )
+        const asked = (askedIn.get(row.id) ?? []).map(
+          (r): WaitingRequest => ({
             source: 'coordinator',
-            id: c.id,
+            id: r.id,
             chatId: row.id,
-            chatTitle: row.title ?? titleFromMessage(chat.opening),
+            chatTitle,
+            agentName,
             factoryId: row.factoryId,
-            createdAt: c.askedAt,
-            headline: confirmationHeadline(c),
-            confirmationKind: c.kind,
-          }))
+            createdAt: r.createdAt,
+            headline: headlineOf(r.title, r.body),
+            requestKind: isOneOf(r.kind, chatRequestKinds) ? r.kind : 'question',
+          }),
+        )
+        return [...confirmations, ...asked]
       })
     const current = settings()
     return [...fromTasks, ...fromAutomations, ...fromPlans, ...fromCoordinators]
@@ -3775,6 +3801,16 @@ export async function openStore({
     },
   })
 
+  const chatStore = createChatStore({
+    store,
+    commit,
+    changed(chatId) {
+      const chat = coordinatorStore.find(chatId)
+      if (chat) emit({ type: 'coordinator-changed', factoryId: chat.factoryId, chatId })
+      noteActivity()
+    },
+  })
+
   const execution = createExecutionStore({
     store,
     commit,
@@ -3916,6 +3952,7 @@ export async function openStore({
       return row
     },
     coordinators: coordinatorStore,
+    chats: chatStore,
     automations: automationStore,
     plans: planStore,
     testInvocations: testInvocationStore,

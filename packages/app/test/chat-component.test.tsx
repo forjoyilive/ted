@@ -8,7 +8,7 @@ import { TaskActionsMenu } from '../src/renderer/components/TaskActions.tsx'
 import { PlanChatView } from '../src/renderer/views/PlanChat.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, required, user } from './support/component.ts'
-import { createdAt, factory, task } from './support/fixtures.ts'
+import { createdAt, factory, plannerAgent, task } from './support/fixtures.ts'
 
 const lead: RunSummary & { role: 'lead' } = {
   id: 'r1',
@@ -335,6 +335,8 @@ test('Planning requests stay inline and keep drafts while the chat updates', asy
       createdAt,
       lastAt: createdAt,
       createdTasks: 0,
+
+      chatAgent: plannerAgent,
     },
     requests: [
       {

@@ -61,6 +61,7 @@ import type {
   TaskCommit,
 } from './changes.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
+import type { AgentSummary, ChatRequest, PostChatRequest } from './chat-agent.ts'
 import type {
   BaseConflictFound,
   CheckOutput,
@@ -531,6 +532,26 @@ export class DaemonClient {
     return this.#request(
       'POST',
       `/coordinator-chats/${encodeURIComponent(chatId)}/confirmations/${encodeURIComponent(confirmationId)}`,
+      answer,
+    )
+  }
+
+  factoryAgents(factoryId: string): Promise<AgentSummary[]> {
+    return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/agents`)
+  }
+
+  postChatRequest(input: PostChatRequest): Promise<ChatRequest> {
+    return this.#request('POST', '/coordinator/requests', input)
+  }
+
+  answerChatRequest(
+    chatId: string,
+    requestId: string,
+    answer: AnswerRequest,
+  ): Promise<Coordinator> {
+    return this.#request(
+      'POST',
+      `/coordinator-chats/${encodeURIComponent(chatId)}/requests/${encodeURIComponent(requestId)}/answer`,
       answer,
     )
   }

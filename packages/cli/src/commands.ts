@@ -99,7 +99,7 @@ export type Options = {
       : string
 }
 
-type Scope = 'task' | 'automation' | 'plan'
+type Scope = 'task' | 'automation' | 'plan' | 'chat'
 interface CommandDefinition<H extends string = string> {
   name: string
   handler: H
@@ -411,6 +411,29 @@ export const commands = [
     excludes: ['close', 'summary'],
     scope: 'plan',
     options: options('round', 'supersedes'),
+  },
+  {
+    name: 'ask',
+    handler: 'chatRound',
+    min: 0,
+    max: 0,
+    help: '',
+    callers: 'Coordinator chat Run',
+    requires: ['round'],
+    excludes: ['close', 'summary'],
+    scope: 'chat',
+    options: options('round', 'supersedes'),
+  },
+  {
+    name: 'ask',
+    handler: 'chatQuestion',
+    min: 1,
+    max: null,
+    help: '',
+    callers: 'Coordinator chat Run',
+    excludes: ['round', 'close', 'summary'],
+    scope: 'chat',
+    options: options('choice', 'multiple', 'supersedes'),
   },
   {
     name: 'ask',
@@ -1102,6 +1125,16 @@ export const commands = [
     options: options('file', 'supersedes'),
   },
   {
+    name: 'task propose',
+    handler: 'chatProposal',
+    min: 0,
+    max: 0,
+    help: '',
+    callers: 'Coordinator chat Run',
+    scope: 'chat',
+    options: options('file', 'supersedes'),
+  },
+  {
     name: 'task repos set',
     handler: 'reposSet',
     min: 1,
@@ -1396,7 +1429,10 @@ export function parseInvocation(
         : named.some((entry) => entry.name === 'ask' || entry.name === 'task propose') &&
             tedEnv('TED_PLAN', env)
           ? 'plan'
-          : 'task'
+          : named.some((entry) => entry.name === 'ask' || entry.name === 'task propose') &&
+              tedEnv('TED_CHAT', env)
+            ? 'chat'
+            : 'task'
     const selected = named.filter(
       (entry) =>
         (entry.scope === undefined || entry.scope === scope) &&

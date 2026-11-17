@@ -8,13 +8,13 @@ import {
   type ResolvedAgent,
 } from '@ted/protocol/agent-files'
 import { isOneOf, isString } from '@ted/protocol/parse'
-import { agentKindList, agentKinds } from '@ted/protocol/run'
+import { type AgentKind, agentKindList, agentKinds } from '@ted/protocol/run'
 import { isMap, isScalar, isSeq, LineCounter, type Node, parseDocument } from 'yaml'
 import { displayPath } from './display-path.ts'
 
 export interface AgentSettings {
   name?: string
-  agent?: string
+  agent?: AgentKind
   model?: string
   powers?: AgentPower[]
   based_on?: string
@@ -191,6 +191,9 @@ function checkAgentsYaml(
         }
       }
     }
+    if (id === 'planner' && agent.powers?.includes('manage_tasks')) {
+      error(key, '`planner` can’t have `manage_tasks`; the Planner runs in a planning chat')
+    }
     if (agent.name === undefined && !inherited.defined.includes(id)) {
       error(key, `\`${id}\` needs a \`name\``)
     }
@@ -275,7 +278,10 @@ export function resolveAgents(layers: readonly AgentLayer[]): ResolvedAgent[] {
         name: settings.name,
         ...(settings.agent !== undefined && { agent: settings.agent }),
         ...(settings.model !== undefined && { model: settings.model }),
-        powers: agentPowers.filter((power) => settings.powers?.includes(power)),
+        powers: agentPowers.filter(
+          (power) =>
+            settings.powers?.includes(power) && !(id === 'planner' && power === 'manage_tasks'),
+        ),
         instructions: text.text,
         source,
         path: displayPath(text.kind, `agents/${id}.md`),

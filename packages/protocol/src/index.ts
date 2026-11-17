@@ -244,6 +244,21 @@ export type {
   RunSummary,
   SendRunMessageRequest,
 } from './chat.ts'
+export type {
+  AgentChatKind,
+  AgentSummary,
+  ChatAgent,
+  ChatQuestionInput,
+  ChatRequest,
+  ChatRequestKind,
+  PostChatRequest,
+} from './chat-agent.ts'
+export {
+  chatRequestKinds,
+  maxChatQuestionLength,
+  parseChatAgentId,
+  parsePostChatRequest,
+} from './chat-agent.ts'
 export {
   type BaseConflictFound,
   type CheckOutput,

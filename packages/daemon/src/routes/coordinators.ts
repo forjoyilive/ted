@@ -3,12 +3,14 @@ import type { CoordinatorOperation, CoordinatorRemovalKind } from '@ted/protocol
 import {
   type CoordinatorAction,
   type CoordinatorCreate,
+  parseAnswerRequest,
   parseCoordinatorAction,
   parseCoordinatorConfirmationAnswer,
   parseCoordinatorCreate,
   parseCoordinatorMessage,
   parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
+  parsePostChatRequest,
   parseRenameCoordinatorChatRequest,
 } from '@ted/protocol'
 import { RequestError } from '../errors.ts'
@@ -35,7 +37,12 @@ export const coordinatorRoutes: Route[] = [
   {
     method: 'GET',
     path: /^\/factories\/([^/]+)\/coordinator-chats$/,
-    handle: async ({ params: [id = ''] }, { coordinators }) => [200, coordinators.chats(id)],
+    handle: async ({ params: [id = ''] }, { coordinators }) => [200, await coordinators.chats(id)],
+  },
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/agents$/,
+    handle: async ({ params: [id = ''] }, { coordinators }) => [200, await coordinators.agents(id)],
   },
   jsonRoute(parseCoordinatorMessage, {
     method: 'POST',
@@ -52,13 +59,13 @@ export const coordinatorRoutes: Route[] = [
   {
     method: 'GET',
     path: /^\/coordinator-chats\/([^/]+)$/,
-    handle: async ({ params: [id = ''] }, { coordinators }) => [200, coordinators.get(id)],
+    handle: async ({ params: [id = ''] }, { coordinators }) => [200, await coordinators.get(id)],
   },
   {
     method: 'GET',
     path: /^\/coordinator-chats\/([^/]+)\/chat$/,
     handle: async ({ params: [id = ''] }, { coordinators, conversations }) => {
-      coordinators.get(id)
+      await coordinators.get(id)
       return [200, await conversations.coordinatorChat(id)]
     },
   },
@@ -110,6 +117,21 @@ export const coordinatorRoutes: Route[] = [
       return [200, null]
     },
   },
+  jsonRoute(parseAnswerRequest, {
+    method: 'POST',
+    path: /^\/coordinator-chats\/([^/]+)\/requests\/([^/]+)\/answer$/,
+    async handle({ params: [id = '', request = ''], body }, { coordinators }) {
+      return [200, await coordinators.answerRequest(id, request, body)]
+    },
+  }),
+  jsonRoute(parsePostChatRequest, {
+    method: 'POST',
+    path: /^\/coordinator\/requests$/,
+    runToken: true,
+    async handle({ caller, body }, { coordinators }) {
+      return [201, await coordinators.ask(caller, body)]
+    },
+  }),
   jsonRoute(parseCoordinatorConfirmationAnswer, {
     method: 'POST',
     path: /^\/coordinator-chats\/([^/]+)\/confirmations\/([^/]+)$/,

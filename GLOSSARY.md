@@ -199,8 +199,12 @@ The conversational agent for one Factory. It compares current Tasks, briefs and 
 _Avoid_: Foreman, manager, supervisor
 
 **Agent**:
-A kind of helper for a Factory that works outside any one Task, with powers of its own: the built-in Coordinator and Planner, which runs planning chats, and Agents a layer defines. An Agent is defined by its Agent files: its settings in `agents.yaml` and its instructions in `agents/<id>.md`, in TED’s defaults, the Library or `.ted/`. Its powers come from a fixed list: Ask the user, Manage Tasks, Propose Tasks and Read the code. Each Factory’s Agents screen lists every chat with them. Lowercase “agent” still means a Run or its role (see Provider).
+A kind of helper for a Factory that works outside any one Task, with powers of its own: the built-in Coordinator and Planner, which runs planning chats, and Agents a layer defines. An Agent is defined by its Agent files: its settings in `agents.yaml` and its instructions in `agents/<id>.md`, in TED’s defaults, the Library or `.ted/`. Its powers come from a fixed list: Ask the user, Manage Tasks, Propose Tasks and Read the code. The Planner runs in planning chats and every other Agent in Coordinator chats. A chat keeps the Agent as it was when the chat started, so editing or removing an Agent changes only later chats. Each Factory’s Agents screen lists every chat with them. Lowercase “agent” still means a Run or its role (see Provider).
 _Avoid_: Assistant, bot
+
+**Power**:
+One thing an Agent’s chat may do through TED: Ask the user (questions and rounds in the Inbox), Manage Tasks (the Coordinator’s Task actions), Propose Tasks (a proposal that creates Tasks when approved) or Read the code (a fresh checkout of the Factory’s repos). TED checks the first three on every request; Read the code only decides whether the chat gets a checkout.
+_Avoid_: Permission, capability, tool
 
 **Chat**:
 One conversation with an Agent, from its first message until it is deleted: a Coordinator chat or a planning chat. A Factory can have several at once, each with its own title, status, Run and requests. A chat stays open until the user archives it; an archived chat is read only, listed under Archived, and can be unarchived or deleted.
@@ -289,7 +293,7 @@ The View that draws one Factory’s blockers: each Task that waits for another, 
 _Avoid_: Graph, timeline, dependency chart
 
 **Inbox**:
-The Comments from every Factory waiting on the human’s answer: questions, Clarify rounds, design reviews, sign-offs, Task proposals and permission requests. A Comment leaves the Inbox once it is answered or can no longer be answered. A snoozed request is hidden from the Inbox and its counts until the time the human picked, and stays open meanwhile.
+The Comments and chat requests from every Factory waiting on the human’s answer: questions, Clarify rounds, design reviews, sign-offs, Task proposals and permission requests. A Comment leaves the Inbox once it is answered or can no longer be answered. A snoozed request is hidden from the Inbox and its counts until the time the human picked, and stays open meanwhile.
 _Avoid_: Notifications, feed
 
 **Middle pane**:
