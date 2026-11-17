@@ -119,7 +119,7 @@ describe('Library settings', () => {
       .getByText('Applies to every Factory that doesn’t override it, from each Task’s next Stage.')
       .waitFor()
 
-    await window.getByRole('switch', { name: 'Design Sign-Off' }).click()
+    await window.getByRole('switch', { name: 'Design sign-off' }).click()
     await window.getByText('1 unsaved change to the Library').waitFor()
     await window.getByRole('button', { name: 'Edit in Library' }).nth(5).click()
     const editor = window.getByRole('textbox', { name: 'Review Stage file' })

@@ -145,7 +145,7 @@ export async function runChecks(input: {
       check.builtIn === 'ted-settings'
         ? checkSettings(cwd, log, input.libraryDir)
         : runTaskCommand({
-            label: 'this Check',
+            label: 'this check',
             command: { run: check.command, timeoutMs: durationMs(check.timeout) },
             cwd,
             env: {
@@ -312,7 +312,7 @@ export function failureFindings(input: {
         : `failed${check.exitCode !== undefined ? ` with exit code ${check.exitCode}` : ''}`
   return redactSecrets(
     [
-      `1. The Check “${checkLabel(check)}” ${how}.`,
+      `1. The check “${checkLabel(check)}” ${how}.`,
       `Its command: \`${check.command}\``,
       `Checks:\n${summary(input.checks)}`,
       `Last ${findingsLines} lines of its output:`,

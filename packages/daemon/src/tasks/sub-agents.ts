@@ -162,7 +162,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
   }
 
   function describe(run: Run): SubAgent {
-    return { id: run.id, name: run.name ?? 'Sub-Agent', agent: run.agent, state: stateOf(run) }
+    return { id: run.id, name: run.name ?? 'Sub-agent', agent: run.agent, state: stateOf(run) }
   }
 
   function describeRequest(request: SubAgentRequest): SubAgent {
@@ -340,7 +340,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
         if (request) return undefined
         return {
           id: runId,
-          name: 'Sub-Agent',
+          name: 'Sub-agent',
           agent: 'claude',
           state: 'stopped',
           done: true,
@@ -376,7 +376,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
           const request = store.subAgentRequests().find((r) => r.id === runId)
           const current = run ? describe(run) : request ? describeRequest(request) : undefined
           return {
-            ...(current ?? { id: runId, name: 'Sub-Agent', agent: 'claude', state: 'queued' }),
+            ...(current ?? { id: runId, name: 'Sub-agent', agent: 'claude', state: 'queued' }),
             done: false,
           }
         }
@@ -470,7 +470,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
         if (earlier !== undefined) {
           throw new RequestError(
             409,
-            `this Validate visit already has its reviewer (Run ${shortReference(earlier)}), and each visit gets one review. Wait for its Findings with \`ted run wait ${shortReference(earlier)}\`, or send it a follow-up with \`ted run send ${shortReference(earlier)} "<text>"\`.`,
+            `this Validate visit already has its reviewer (Run ${shortReference(earlier)}), and each visit gets one review. Wait for its findings with \`ted run wait ${shortReference(earlier)}\`, or send it a follow-up with \`ted run send ${shortReference(earlier)} "<text>"\`.`,
           )
         }
         const id = crypto.randomUUID()
@@ -514,7 +514,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       const sameAgent = agent === fallback.agent
       const model = input.model ?? (sameAgent ? fallback.model : undefined)
       const effort: Effort | undefined = input.effort ?? (sameAgent ? fallback.effort : undefined)
-      const name = (input.name?.trim() || firstHeading(input.prompt) || 'Sub-Agent').slice(
+      const name = (input.name?.trim() || firstHeading(input.prompt) || 'Sub-agent').slice(
         0,
         maxNameLength,
       )

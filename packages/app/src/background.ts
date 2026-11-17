@@ -351,7 +351,7 @@ const kindLabels: Record<CommentKind, string> = {
   question: 'Question',
   round: 'Clarify round',
   review: 'Design review',
-  signoff: 'Sign-Off',
+  signoff: 'Sign-off',
   permission: 'Permission',
   proposal: 'Proposal',
 }

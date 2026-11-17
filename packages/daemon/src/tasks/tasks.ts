@@ -2484,7 +2484,7 @@ export function createTasks(options: {
     if (movingOn.has(taskId))
       throw new RequestError(
         409,
-        `TED is already running ${find(taskId).displayId}’s Checks before moving it on; try again when they finish`,
+        `TED is already running ${find(taskId).displayId}’s checks before moving it on; try again when they finish`,
       )
     waitingMoves += 1
     const waiting = waitingMoves
@@ -2502,7 +2502,7 @@ export function createTasks(options: {
       return
     }
     const before = find(taskId)
-    inBackground(`move ${before.displayId} on after its Checks`, async () => {
+    inBackground(`move ${before.displayId} on after its checks`, async () => {
       const result = await done.catch(() => undefined)
       if (movingOn.get(taskId) !== waiting) return
       dropWaitingMove(taskId)
@@ -2511,7 +2511,7 @@ export function createTasks(options: {
       if (result?.outcome === 'interrupted') return
       if (result !== undefined && result.outcome !== 'passed') {
         const failureId = store.failures.progress(taskId)?.failureId
-        const failed = `TED ran the Checks before moving ${current.displayId} on, and one failed, so the Task stays in ${stageTitle(current.stage)}.${failureId ? ` The failure is recorded as failure case ${shortReference(failureId)}.` : ''}`
+        const failed = `TED ran the checks before moving ${current.displayId} on, and one failed, so the Task stays in ${stageTitle(current.stage)}.${failureId ? ` The failure is recorded as failure case ${shortReference(failureId)}.` : ''}`
         tedNote(taskId, failed)
         await deliver(
           find(taskId),
@@ -2534,7 +2534,7 @@ export function createTasks(options: {
             : error instanceof Error
               ? error.message
               : String(error)
-        const stuck = `TED ran the Checks before moving ${current.displayId} on, but couldn’t move it: ${redactSecrets(why)}`
+        const stuck = `TED ran the checks before moving ${current.displayId} on, but couldn’t move it: ${redactSecrets(why)}`
         tedNote(taskId, stuck)
         await deliver(find(taskId), stuck)
       }
@@ -2754,7 +2754,7 @@ export function createTasks(options: {
       banners.raise({
         ...ref,
         severity: 'warning',
-        text: `A Check’s command wasn’t found: \`${command}\``,
+        text: `A check’s command wasn’t found: \`${command}\``,
         action: { label: 'Open Factory settings', opens: { kind: 'factory-settings', factoryId } },
       })
     } else if (result.outcome !== 'interrupted') {
@@ -2775,7 +2775,7 @@ export function createTasks(options: {
   async function report(checkRun: CheckRun): Promise<string> {
     const task = find(checkRun.taskId)
     if (checkRun.outcome === 'interrupted') {
-      return `TED stopped before the Checks finished.\n\n${summary(checkRun.checks)}`
+      return `TED stopped before the checks finished.\n\n${summary(checkRun.checks)}`
     }
     return (await failedFindings(task, checkRun)) ?? `Checks passed.\n\n${summary(checkRun.checks)}`
   }
@@ -2858,7 +2858,7 @@ export function createTasks(options: {
     task.stopped || task.status?.kind === 'failed' || task.leadRunId !== lead
 
   async function handOffUnused(task: StoredTask): Promise<void> {
-    const text = `# TED didn’t use the Checks’ result\n\nTED ran the Factory’s Checks to move ${task.displayId} to Validate, but the Task was stopped or its Task Lead changed before they finished, so TED didn’t use their result. The Task is still in Work. Report the outcome again with \`ted outcome advance\` when the work is finished.`
+    const text = `# TED didn’t use the checks’ result\n\nTED ran the Factory’s checks to move ${task.displayId} to Validate, but the Task was stopped or its Task Lead changed before they finished, so TED didn’t use their result. The Task is still in Work. Report the outcome again with \`ted outcome advance\` when the work is finished.`
     if (await deliver(task, text)) return
     store.holdLeadMessage(task.id, text)
     await store.persisted()
@@ -2880,7 +2880,7 @@ export function createTasks(options: {
     if (inFlight.is(task.id, 'checking')) {
       throw new RequestError(
         409,
-        `TED is running ${task.displayId}’s Checks; answer when they finish`,
+        `TED is running ${task.displayId}’s checks; answer when they finish`,
       )
     }
     await execution.local(task.id)
@@ -2966,7 +2966,7 @@ export function createTasks(options: {
           }
           const after = await liveHeads(now)
           if (after.length !== heads.length || after.some((commit, i) => commit !== heads[i])) {
-            return 'the branch changed while the Checks ran'
+            return 'the branch changed while the checks ran'
           }
           const moving = worktreeReads()
           const resolution = await gateWorkflow(now, { fetch: false, reads: moving })
@@ -2975,7 +2975,7 @@ export function createTasks(options: {
             !validates(workflow.next(stageWith('handOff'))) ||
             gateOn(now, workflow, stageWith('handOff'))
           ) {
-            return 'the Workflow changed while the Checks ran'
+            return 'the Workflow changed while the checks ran'
           }
           const still = find(taskId)
           if (leftWork(still)) return undefined
@@ -2997,7 +2997,7 @@ export function createTasks(options: {
         if (problem !== undefined) {
           await deliver(
             find(taskId),
-            `# Still in Work\n\nThe Factory’s Checks passed, but TED didn’t move ${current.displayId} to Validate: ${redactSecrets(problem)}. ${again}`,
+            `# Still in Work\n\nThe Factory’s checks passed, but TED didn’t move ${current.displayId} to Validate: ${redactSecrets(problem)}. ${again}`,
           )
         }
         return
@@ -3007,7 +3007,7 @@ export function createTasks(options: {
         mode: 0o600,
       })
       const failures = handOffFailures(current)
-      const head = `# A Check failed\n\nTED ran the Factory’s Checks before moving ${current.displayId} to Validate and one failed, so the Task stays in Work. This isn’t a send-back and doesn’t count against Validate’s limit.`
+      const head = `# A check failed\n\nTED ran the Factory’s checks before moving ${current.displayId} to Validate and one failed, so the Task stays in Work. This isn’t a send-back and doesn’t count against Validate’s limit.`
       if (failures >= handOffCheckLimit) {
         setChecking(taskId, false)
         cleared = true
@@ -3018,9 +3018,9 @@ export function createTasks(options: {
           purpose: { kind: 'send-back' },
           title: `Checks have failed ${failures} times as ${current.displayId} tried to leave Work`,
           body: [
-            'Each time the Task Lead reported Work finished, TED ran the Factory’s Checks and one failed, so the Task stayed in Work. The last failure’s output is in the Task’s thread.',
-            `**${tryAgainChoice}** keeps the Task in Work: the Task Lead repairs what the Check reports and reports again. Add guidance if you have any.`,
-            `**${diagnoseChoice}** moves the Task to Validate with the Check still failing. TED runs the Checks there and the failure becomes a failure case you can retry, send back to be fixed in this Task, or accept. Choose it when the Check fails for a reason outside this Task, such as a test that is already broken on the base branch.`,
+            'Each time the Task Lead reported Work finished, TED ran the Factory’s checks and one failed, so the Task stayed in Work. The last failure’s output is in the Task’s thread.',
+            `**${tryAgainChoice}** keeps the Task in Work: the Task Lead repairs what the check reports and reports again. Add guidance if you have any.`,
+            `**${diagnoseChoice}** moves the Task to Validate with the check still failing. TED runs the checks there and the failure becomes a failure case you can retry, send back to be fixed in this Task, or accept. Choose it when the check fails for a reason outside this Task, such as a test that is already broken on the base branch.`,
           ].join('\n\n'),
           choices: [tryAgainChoice, diagnoseChoice],
         })
@@ -3035,13 +3035,13 @@ export function createTasks(options: {
         })
         await deliver(
           current,
-          `${head} That is ${failures} failures in this visit to Work, so TED asked the human what to do (request ${request.id}). They can let you try again, or move the Task to Validate with the Check still failing, where the failure is diagnosed and can be accepted. TED refuses an outcome until they answer and sends you their answer. You can keep fixing what the Check reports meanwhile.\n\n${findings}`,
+          `${head} That is ${failures} failures in this visit to Work, so TED asked the human what to do (request ${request.id}). They can let you try again, or move the Task to Validate with the check still failing, where the failure is diagnosed and can be accepted. TED refuses an outcome until they answer and sends you their answer. You can keep fixing what the check reports meanwhile.\n\n${findings}`,
         )
         return
       }
       await deliver(
         current,
-        `${head} Fix what the Check reports and nothing else, commit, then report \`ted outcome advance\` again. This is failure ${failures} of ${handOffCheckLimit} in this visit to Work; at ${handOffCheckLimit} TED asks the human, who can keep the Task in Work or move it to Validate to diagnose the failure there. If the Check fails for a reason outside this Task, don’t change unrelated code to make it pass: say so in the Task brief with what shows it, and report again.\n\n${findings}`,
+        `${head} Fix what the check reports and nothing else, commit, then report \`ted outcome advance\` again. This is failure ${failures} of ${handOffCheckLimit} in this visit to Work; at ${handOffCheckLimit} TED asks the human, who can keep the Task in Work or move it to Validate to diagnose the failure there. If the check fails for a reason outside this Task, don’t change unrelated code to make it pass: say so in the Task brief with what shows it, and report again.\n\n${findings}`,
       )
     } finally {
       if (!handedOver && !cleared) setChecking(taskId, false)
@@ -3972,7 +3972,7 @@ export function createTasks(options: {
       throw new RequestError(
         409,
         store.mergeHistory(task.id).awaitsLead
-          ? `${task.displayId}’s Merge work is already reported; TED takes it from here and tells you if CI or a Check fails`
+          ? `${task.displayId}’s Merge work is already reported; TED takes it from here and tells you if CI or a check fails`
           : `TED merges ${task.displayId}’s pull requests and moves it to Done when they’ve merged; there’s no outcome to report at Merge`,
       )
     }
@@ -4001,8 +4001,8 @@ export function createTasks(options: {
         (mode === 'off'
           ? `Merge is off for this Factory: the human merges ${task.displayId}’s pull requests on GitHub, and TED moves it to Done when it sees the merge. End your turn.`
           : mode === 'gate'
-            ? `TED posts the Merge sign-off for ${task.displayId} once CI passes and merges when the human approves it. End your turn; TED tells you if CI or a Check fails.`
-            : `TED merges ${task.displayId}’s pull requests once CI passes and moves it to Done. End your turn; TED tells you if CI or a Check fails.`) +
+            ? `TED posts the Merge sign-off for ${task.displayId} once CI passes and merges when the human approves it. End your turn; TED tells you if CI or a check fails.`
+            : `TED merges ${task.displayId}’s pull requests once CI passes and moves it to Done. End your turn; TED tells you if CI or a check fails.`) +
         held,
     }
   }
@@ -4045,13 +4045,13 @@ export function createTasks(options: {
       await sendComment(run.id)
       await deliver(
         current,
-        'The human cancelled the merge with that Comment, and it counts as Request changes. TED won’t merge. Decide whether the fix belongs in Work or in Design, write the human’s request into a Findings file, and send the Task back with `ted outcome back --to work --findings <file>` (or `--to design`). The fix passes Validate again and comes back with a new sign-off.',
+        'The human cancelled the merge with that comment, and it counts as Request changes. TED won’t merge. Decide whether the fix belongs in Work or in Design, write the human’s request into a findings file, and send the Task back with `ted outcome back --to work --findings <file>` (or `--to design`). The fix passes Validate again and comes back with a new sign-off.',
       )
     }
     if (stillOn.length > 0) {
       throw new RequestError(
         502,
-        `Your Comment is posted and TED won’t merge, but GitHub’s auto-merge is still on for ${stillOn.join(', ')}, so GitHub may still merge it. TED keeps trying to turn it off.`,
+        `Your comment is posted and TED won’t merge, but GitHub’s auto-merge is still on for ${stillOn.join(', ')}, so GitHub may still merge it. TED keeps trying to turn it off.`,
       )
     }
     return store.getComment(posted.id) ?? posted
@@ -5133,7 +5133,7 @@ export function createTasks(options: {
       )
     }
     if (automation.check) {
-      throw new RequestError(403, 'A Scheduled Check doesn’t import GitHub issues.')
+      throw new RequestError(403, 'A scheduled check doesn’t import GitHub issues.')
     }
     if (input.factory !== undefined && input.factory !== automation.factoryKey) {
       throw new RequestError(
@@ -6077,7 +6077,7 @@ export function createTasks(options: {
       await options.steering.changed(runId)
       await store.persisted()
     } catch (error) {
-      console.error(`couldn’t send a Comment to Run ${runId}; the next Run gets it:`, error)
+      console.error(`couldn’t send a comment to Run ${runId}; the next Run gets it:`, error)
     }
   }
 
@@ -6622,7 +6622,7 @@ export function createTasks(options: {
     if (publicTask(task.id).commentBox === 'merge-pending') {
       throw new RequestError(
         409,
-        `TED is merging ${task.displayId}’s pull requests. Sending a Comment now cancels the merge and counts as Request changes; use Send and cancel merge.`,
+        `TED is merging ${task.displayId}’s pull requests. Sending a comment now cancels the merge and counts as Request changes; use Send and cancel merge.`,
       )
     }
   }
@@ -6799,7 +6799,7 @@ export function createTasks(options: {
 
   function openTalkRound(commentId: string): { task: StoredTask; round: Comment } {
     const round = store.getComment(commentId)
-    if (!round) throw new RequestError(404, `no Comment ${commentId}`)
+    if (!round) throw new RequestError(404, `no comment ${commentId}`)
     if (round.kind !== 'round')
       throw new RequestError(400, 'only a Clarify round can be talked through')
     if (round.answer) throw new RequestError(409, 'this round has already been answered')
@@ -7064,7 +7064,7 @@ export function createTasks(options: {
       await cleanupThen(task.id, resolution.workflow, message)
     } else if (validates(next) && message !== undefined) {
       setChecking(task.id, true)
-      inBackground(`run ${task.displayId}’s Checks`, () =>
+      inBackground(`run ${task.displayId}’s checks`, () =>
         validation.enter(task.id, message, checked),
       )
     } else if (message !== undefined) {
@@ -7297,13 +7297,13 @@ export function createTasks(options: {
       const task = find(taskId)
       if (store.memoryKills(task.id, task.stage, visitStart(task)) >= 2) {
         const check = run.checks[killed.position]
-        const name = check ? checkLabel(check) : 'a Check'
+        const name = check ? checkLabel(check) : 'a check'
         const question = store.postComment({
           taskId: task.id,
           kind: 'question',
           author: { kind: 'ted' },
           title: `This computer ran out of memory again: ${name}`,
-          body: `This computer ran out of memory, so the Check “${name}” was stopped for the second time in this Stage. TED didn’t count either stop as a failure.\n\n**${memoryRetryChoice}** runs it again once memory frees up. **${memoryFailedChoice}** records it as a failed Check, the same as when the code fails it.`,
+          body: `This computer ran out of memory, so the check “${name}” was stopped for the second time in this Stage. TED didn’t count either stop as a failure.\n\n**${memoryRetryChoice}** runs it again once memory frees up. **${memoryFailedChoice}** records it as a failed check, the same as when the code fails it.`,
           choices: [memoryRetryChoice, memoryFailedChoice],
           memoryKill: { checkRunId, position: killed.position },
         })
@@ -7515,7 +7515,7 @@ export function createTasks(options: {
         author: { kind: 'ted' },
         title: `${workflow.name(from)} wants to send this Task back to ${workflow.name(to)} again`,
         purpose: { kind: 'send-back' },
-        body: `${workflow.name(from)} has reached its send-back limit (${count}) and needs your decision. Send it back to ${workflow.name(to)} for another attempt, or keep it in ${stageTitle(from)} to revisit the approach. Full Findings are in the Task’s history.`,
+        body: `${workflow.name(from)} has reached its send-back limit (${count}) and needs your decision. Send it back to ${workflow.name(to)} for another attempt, or keep it in ${stageTitle(from)} to revisit the approach. Full findings are in the Task’s history.`,
         choices: [`Send it back to ${workflow.name(to)}`, `Keep it in ${workflow.name(from)}`],
       })
       store.askAboutSendBack({
@@ -7889,7 +7889,7 @@ export function createTasks(options: {
       input.verdict === 'looping' && choices.includes(backToDesignChoice)
         ? `Recommended: ${backToDesignChoice}. Revisit the approach before another repair.`
         : input.verdict === 'converging'
-          ? `Recommended: ${tryAgainChoice}. Allow another attempt at the remaining Findings.`
+          ? `Recommended: ${tryAgainChoice}. Allow another attempt at the remaining findings.`
           : input.verdict === 'looping'
             ? `Recommended: ${tryAgainChoice}. Add guidance to break the repeated pattern.`
             : `Suggested next step: ${tryAgainChoice} to allow another repair attempt${choices.includes(backToDesignChoice) ? ', or Back to Design to revisit the approach' : ''}.`
@@ -7902,7 +7902,7 @@ export function createTasks(options: {
       body: [
         input.intro,
         recommendation,
-        'Full Findings are in the Task’s history. Moving on leaves the Findings open.',
+        'Full findings are in the Task’s history. Moving on leaves the findings open.',
       ].join('\n\n'),
       choices,
     })
@@ -8009,7 +8009,7 @@ export function createTasks(options: {
         check.to,
         [
           backMessage(workflow, check.to, stageWith('validates'), sentBack),
-          `# Loop check\n\nTED checked Validate’s ${check.round} rounds of Findings and the changes between them. Verdict: converging. ${reason}`,
+          `# Loop check\n\nTED checked Validate’s ${check.round} rounds of findings and the changes between them. Verdict: converging. ${reason}`,
         ].join('\n\n'),
       )
       return
@@ -8380,7 +8380,7 @@ export function createTasks(options: {
     ) {
       throw new RequestError(
         409,
-        `${task.displayId} cannot change its children now. ${task.stage === 'done' ? 'Done parents stay closed; use Unlink and restore for an archived child.' : task.archived ? 'Restore the parent first.' : 'Stop the parent and wait for its Runs, Checks and transitions to finish, then try again.'}`,
+        `${task.displayId} cannot change its children now. ${task.stage === 'done' ? 'Done parents stay closed; use Unlink and restore for an archived child.' : task.archived ? 'Restore the parent first.' : 'Stop the parent and wait for its Runs, checks and transitions to finish, then try again.'}`,
       )
     }
   }
@@ -8502,7 +8502,7 @@ export function createTasks(options: {
   }
 
   const reopened =
-    'The failure it was meant to repair needs a decision again, and if the same Check fails again, the new failure replaces it.'
+    'The failure it was meant to repair needs a decision again, and if the same check fails again, the new failure replaces it.'
 
   function repairNotice(
     taskId: string,
@@ -8814,7 +8814,7 @@ export function createTasks(options: {
     const { id, displayId } = find(ref)
     const checksRunning = () => {
       if (inFlight.is(id, 'checking')) {
-        throw new RequestError(409, `${displayId}’s Checks are running; try again when they finish`)
+        throw new RequestError(409, `${displayId}’s checks are running; try again when they finish`)
       }
     }
     checksRunning()
@@ -9010,7 +9010,7 @@ export function createTasks(options: {
     if (inFlight.is(task.id, 'checking')) {
       throw new RequestError(
         409,
-        `${task.displayId}’s Checks are running; try again when they finish`,
+        `${task.displayId}’s checks are running; try again when they finish`,
       )
     }
     if (inFlight.inHierarchyWork(task.id)) {
@@ -9126,7 +9126,7 @@ export function createTasks(options: {
       if (inFlight.is(member.id, 'checking')) {
         throw new RequestError(
           409,
-          `${member.displayId}’s Checks are running; try again when they finish`,
+          `${member.displayId}’s checks are running; try again when they finish`,
         )
       }
     }
@@ -9706,7 +9706,7 @@ export function createTasks(options: {
       )
     return [
       `# ${heading}`,
-      `${why} An earlier Run worked on it in this worktree and has stopped. Read the Task brief, the Comments since and the branch’s commits to see where it stopped, then carry on with this Stage.`,
+      `${why} An earlier Run worked on it in this worktree and has stopped. Read the Task brief, the comments since and the branch’s commits to see where it stopped, then carry on with this Stage.`,
       ...(brief ? [`## Task brief (version ${brief.version})\n\n${brief.text.trim()}`] : []),
       ...(notes.length > 0
         ? [`## ${brief ? 'Comments since the brief' : 'Comments'}\n\n${notes.join('\n')}`]
@@ -9803,7 +9803,7 @@ export function createTasks(options: {
   function checkAgentCaller(caller: Caller, action: string) {
     const automation = caller.kind === 'run' ? automationCaller(caller) : undefined
     if (!automation?.check) {
-      throw new RequestError(403, `Only a Scheduled Check’s agent Run can ${action}.`)
+      throw new RequestError(403, `Only a scheduled check’s agent Run can ${action}.`)
     }
     const run = store.getRun(automation.link.firingId)
     if (!run || run.state === 'finished') {
@@ -9849,7 +9849,7 @@ export function createTasks(options: {
     if (!automation.check.startTasks) {
       throw new RequestError(
         403,
-        'This Scheduled Check may not start Tasks. The human allows it with “Start the Tasks it creates” in the Automation’s settings; until then the Tasks wait in Backlog.',
+        'This scheduled check may not start Tasks. The human allows it with “Start the Tasks it creates” in the Automation’s settings; until then the Tasks wait in Backlog.',
       )
     }
     const task = automationTask(ref, automation.factoryId)
@@ -10885,13 +10885,13 @@ export function createTasks(options: {
   }
   for (const task of interruptedHandOffs) {
     if (handOffHalted(task, task.leadRunId)) {
-      inBackground(`tell ${task.displayId}’s Task Lead its Checks weren’t used`, () =>
+      inBackground(`tell ${task.displayId}’s Task Lead its checks weren’t used`, () =>
         handOffUnused(task),
       )
       continue
     }
     setChecking(task.id, true)
-    inBackground(`run ${task.displayId}’s Checks again`, () => handOffChecks(task.id))
+    inBackground(`run ${task.displayId}’s checks again`, () => handOffChecks(task.id))
   }
 
   for (const check of store.loopChecks().filter((c) => c.verdict === undefined)) {
@@ -11090,7 +11090,7 @@ export function createTasks(options: {
           if (pr?.checksComplete !== true || pr.checks.some((c) => !c.identity))
             throw new RequestError(
               409,
-              'GitHub Check attempt identity is unavailable or incomplete',
+              'GitHub check attempt identity is unavailable or incomplete',
             )
           for (const check of pr.checks) {
             if (check.state === 'failed' && check.identity)
@@ -11248,7 +11248,7 @@ export function createTasks(options: {
     if (!(validates(task.stage) || mergesHere(task.stage)) || task.archived || task.stopped)
       throw new RequestError(409, 'repair decisions require an active Validate or Merge Task')
     if (inFlight.is(task.id, 'checking'))
-      throw new RequestError(409, 'wait for the running Checks before choosing a repair')
+      throw new RequestError(409, 'wait for the running checks before choosing a repair')
     await failures.obligations(task)
     const current = find(task.id)
     if (failures.get(current, id).resolutions.some((r) => r.requestId === input.requestId))
@@ -11522,7 +11522,7 @@ export function createTasks(options: {
     if (repairHandOffs.has(task.id))
       throw new RequestError(
         409,
-        `TED is waiting for you to finish what it asked about the merged repair in ${task.displayId}’s worktree: merge and commit, or commit your own uncommitted changes. End your turn when that is committed, or after saying why you can’t with \`ted comment\`; TED then brings the repair in and runs the Checks itself.`,
+        `TED is waiting for you to finish what it asked about the merged repair in ${task.displayId}’s worktree: merge and commit, or commit your own uncommitted changes. End your turn when that is committed, or after saying why you can’t with \`ted comment\`; TED then brings the repair in and runs the checks itself.`,
       )
   }
 
@@ -11637,13 +11637,13 @@ export function createTasks(options: {
       if (startNow === true) {
         throw new RequestError(
           403,
-          'A Scheduled Check creates Tasks in Backlog. To start one, create it without --start, then run `ted automation start <Task ID>`.',
+          'A scheduled check creates Tasks in Backlog. To start one, create it without --start, then run `ted automation start <Task ID>`.',
         )
       }
       if (followUp !== undefined || isAsanaSource(sourceUrl, parentRef)) {
         throw new RequestError(
           403,
-          'A Scheduled Check creates plain Tasks; it can’t make a Follow-up or import from Asana.',
+          'A scheduled check creates plain Tasks; it can’t make a Follow-up or import from Asana.',
         )
       }
       const made = store.automations
@@ -11652,7 +11652,7 @@ export function createTasks(options: {
       if (made >= maxTasksPerFiring) {
         throw new RequestError(
           409,
-          `This Run has already created ${maxTasksPerFiring} Tasks, the most a Scheduled Check makes in one firing. Group the remaining failures into those Tasks with \`ted automation note\`.`,
+          `This Run has already created ${maxTasksPerFiring} Tasks, the most a scheduled check makes in one firing. Group the remaining failures into those Tasks with \`ted automation note\`.`,
         )
       }
     }
@@ -11936,7 +11936,7 @@ export function createTasks(options: {
             'verify a Validate failure or an incorporated repair’s Merge failure',
           )
         if (repairedMergeFailure && inFlight.is(task.id, 'checking'))
-          throw new RequestError(409, 'wait for fresh Checks before verifying the repaired failure')
+          throw new RequestError(409, 'wait for fresh checks before verifying the repaired failure')
         if (!evidence.trim()) throw new RequestError(400, 'verification needs fresh evidence')
         if (
           !own &&
@@ -11952,7 +11952,7 @@ export function createTasks(options: {
         )
           throw new RequestError(
             409,
-            'repeat verification after Retry or repair before closing the Finding',
+            'repeat verification after Retry or repair before closing the finding',
           )
         const safeEvidence = failureText(evidence)
         if (value.verifications?.length)
@@ -12726,7 +12726,7 @@ export function createTasks(options: {
         if (inFlight.is(task.id, 'checking')) {
           throw new RequestError(
             409,
-            `TED is running ${task.displayId}’s Checks; wait for their results before reporting an outcome`,
+            `TED is running ${task.displayId}’s checks; wait for their results before reporting an outcome`,
           )
         }
         if (outcome.outcome !== 'ask') {
@@ -12738,7 +12738,7 @@ export function createTasks(options: {
             outcome.severity !== undefined &&
             !validates(task.stage)
           ) {
-            throw new RequestError(400, 'only Validate declares a Finding’s severity')
+            throw new RequestError(400, 'only Validate declares a finding’s severity')
           }
           if (outcome.outcome === 'advance' && outcome.design) {
             if (!postsDesignReview(task.stage)) {
@@ -12772,7 +12772,7 @@ export function createTasks(options: {
             throw new RequestError(
               409,
               handOffAsks(task.id).some((c) => c.id === asked.id)
-                ? `TED asked the human about ${task.displayId}’s failing Checks (request ${asked.id}); wait for their answer before reporting an outcome`
+                ? `TED asked the human about ${task.displayId}’s failing checks (request ${asked.id}); wait for their answer before reporting an outcome`
                 : `TED asked the human whether to keep sending ${task.displayId} back (request ${asked.id}); wait for their answer before reporting an outcome`,
             )
           }
@@ -12946,12 +12946,12 @@ export function createTasks(options: {
             )
             if (started) {
               setChecking(task.id, true)
-              inBackground(`run ${task.displayId}’s Checks`, () =>
+              inBackground(`run ${task.displayId}’s checks`, () =>
                 handOffChecks(task.id, { started, coverage, heads, lead: runId }),
               )
               return {
                 task: publicTask(task.id),
-                message: `TED is running the Factory’s Checks before ${task.displayId} leaves Work. If they pass, TED moves it to Validate; if one fails, it stays in Work and TED sends you the output. Wait for TED’s message.`,
+                message: `TED is running the Factory’s checks before ${task.displayId} leaves Work. If they pass, TED moves it to Validate; if one fails, it stays in Work and TED sends you the output. Wait for TED’s message.`,
               }
             }
           }
@@ -13043,7 +13043,7 @@ export function createTasks(options: {
       const id = taskLead(ref, caller, 'reports outcomes').task.id
       return checksFirst(id, report, () => ({
         task: publicTask(id),
-        message: `TED is running the Checks on ${find(id).displayId}’s current code before moving it on. It moves the Task when they pass and tells you if one fails. End your turn.`,
+        message: `TED is running the checks on ${find(id).displayId}’s current code before moving it on. It moves the Task when they pass and tells you if one fails. End your turn.`,
       }))
     },
 
@@ -13319,25 +13319,25 @@ export function createTasks(options: {
       if (publicTask(task.id).commentBox === 'merge-pending') {
         throw new RequestError(
           409,
-          `TED is merging ${task.displayId}’s pull requests. Sending a Comment now cancels the merge and counts as Request changes; use Send and cancel merge.`,
+          `TED is merging ${task.displayId}’s pull requests. Sending a comment now cancels the merge and counts as Request changes; use Send and cancel merge.`,
         )
       }
       return humanComment(task, '', [])
     },
 
     async runChecks(ref, caller, only) {
-      const { task } = taskLead(ref, caller, 'runs Checks')
+      const { task } = taskLead(ref, caller, 'runs checks')
       refuseDuringRepairHandOff(task)
       if (inFlight.is(task.id, 'transition'))
         throw new RequestError(
           409,
-          `${task.displayId} is already moving; try Checks again when it finishes`,
+          `${task.displayId} is already moving; try checks again when it finishes`,
         )
       if (task.stage === 'backlog' || task.stage === 'done' || task.repos.every((r) => r.removed)) {
-        throw new RequestError(409, `${task.displayId} has no worktree to run Checks in`)
+        throw new RequestError(409, `${task.displayId} has no worktree to run checks in`)
       }
       if (inFlight.is(task.id, 'checking')) {
-        throw new RequestError(409, `TED is already running ${task.displayId}’s Checks`)
+        throw new RequestError(409, `TED is already running ${task.displayId}’s checks`)
       }
       setChecking(task.id, true)
       try {
@@ -13357,18 +13357,18 @@ export function createTasks(options: {
           throw new RequestError(
             404,
             listed.length === 0
-              ? 'this Factory has no Checks'
-              : `no Check named “${only}”; this Factory’s Checks are ${names}`,
+              ? 'this Factory has no checks'
+              : `no check named “${only}”; this Factory’s checks are ${names}`,
           )
         }
         const started = await validation.begin(find(task.id), resolution, 'agent', only, reads)
         if (!started) {
           throw new RequestError(
             409,
-            only === undefined ? 'this Factory has no Checks' : `no Check named “${only}” applies`,
+            only === undefined ? 'this Factory has no checks' : `no check named “${only}” applies`,
           )
         }
-        inBackground(`run ${task.displayId}’s Checks`, () =>
+        inBackground(`run ${task.displayId}’s checks`, () =>
           started.done
             .then(
               () => undefined,
@@ -13385,7 +13385,7 @@ export function createTasks(options: {
 
     async checkRun(id, caller) {
       const checkRun = store.getCheckRun(id)
-      if (!checkRun) throw new RequestError(404, `no Check run ${id}`)
+      if (!checkRun) throw new RequestError(404, `no check run ${id}`)
       if (caller.kind === 'run') ownTask(checkRun.taskId, caller)
       return {
         checkRun,
@@ -13396,7 +13396,7 @@ export function createTasks(options: {
     async checkOutput(id, position) {
       const checkRun = store.getCheckRun(id)
       const check = checkRun?.checks[position]
-      if (!checkRun || !check) throw new RequestError(404, `no Check ${position} in run ${id}`)
+      if (!checkRun || !check) throw new RequestError(404, `no check ${position} in run ${id}`)
       const log = checkLog(find(checkRun.taskId), id, position)
       return { text: await readOutput(log), log }
     },
@@ -13834,7 +13834,7 @@ function editMessage(
 }
 
 function humanMessage(body: string): string {
-  return `The human posted a Comment in this Task’s Thread. This is a message to you, the Task Lead. Answer questions in the Thread with ted comment; for a status question, give a brief progress update, then continue your work.\n\n${body}`
+  return `The human posted a comment in this Task’s Thread. This is a message to you, the Task Lead. Answer questions in the Thread with ted comment; for a status question, give a brief progress update, then continue your work.\n\n${body}`
 }
 
 function flat(text: string): string {
@@ -13868,7 +13868,7 @@ function followUpText(
   const given = title?.trim()
   if (given) return { title: given, description: text }
   const split = titleFromText(text)
-  return split.title ? split : { title: `Follow-Up to ${displayId}`, description: text }
+  return split.title ? split : { title: `Follow-up to ${displayId}`, description: text }
 }
 
 function firstLine(text: string): string {
@@ -13942,7 +13942,7 @@ function joinAnd(items: readonly string[]): string {
 const setupProblem = 'setup-unfinished'
 
 const firstSetupDescription =
-  'Set up TED for this Factory. Read its repos, ask how the human works, try candidate Checks and Apps on the default branch, and propose Factory notes, Stage overrides and `.ted/workflow.yaml` in a design review. Once it’s approved, write the files on this Task’s branch; they merge through Review like any change.'
+  'Set up TED for this Factory. Read its repos, ask how the human works, try candidate checks and Apps on the default branch, and propose Factory notes, Stage overrides and `.ted/workflow.yaml` in a design review. Once it’s approved, write the files on this Task’s branch; they merge through Review like any change.'
 
 const laterSetupDescription =
-  'Propose changes to this Factory’s TED settings in `.ted/`. Read the repos and the current files, ask how the human works now, try changed Checks and Apps on the default branch, and show each change against the current files as a diff in the design review. Once it’s approved, write the changes on this Task’s branch; they merge through Review like any change.'
+  'Propose changes to this Factory’s TED settings in `.ted/`. Read the repos and the current files, ask how the human works now, try changed checks and Apps on the default branch, and show each change against the current files as a diff in the design review. Once it’s approved, write the changes on this Task’s branch; they merge through Review like any change.'

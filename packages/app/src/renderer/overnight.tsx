@@ -34,7 +34,7 @@ export function OvernightNotice() {
       <span className={sections.warnMark} aria-hidden>
         ▲
       </span>{' '}
-      Autopilot is on. Sign-Offs set here are off until you turn it off in{' '}
+      Autopilot is on. Sign-offs set here are off until you turn it off in{' '}
       <button type="button" className={base.link} onClick={openGeneral}>
         Settings → General
       </button>

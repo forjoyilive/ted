@@ -506,7 +506,7 @@ function PermissionRow({
           {` ${answer.text} · ${ago(answer.at, now)}`}
         </p>
       ) : inspect ? (
-        <p className={styles.permissionAnswer}>Awaiting an answer in the original Conversation.</p>
+        <p className={styles.permissionAnswer}>Awaiting an answer in the original conversation.</p>
       ) : (
         <div className={styles.permissionButtons}>
           {error !== undefined && (
@@ -655,7 +655,7 @@ function RunComposer({ run, options }: { run: RunSummary; options: ChatOptions }
       endedPlaceholder={options.endedPlaceholder ?? 'This Run has finished. Its chat is read-only.'}
       help={
         options.help ??
-        'Goes only to this Run. Sub-agent chats can be steered the same way from their tabs. Task Comments and requests are in the Task Lead tab.'
+        'Goes only to this Run. Sub-agent chats can be steered the same way from their tabs. Task comments and requests are in the Task Lead tab.'
       }
       endedNote={options.endedNote}
       interrupt={options.interrupt !== false}

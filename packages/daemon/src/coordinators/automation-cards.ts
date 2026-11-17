@@ -151,7 +151,7 @@ function editCard(
 ): Pick<AutomationCard, 'name' | 'rows' | 'nextFirings' | 'offersStartTasks' | 'edit'> {
   const edit = redactEdit(input)
   if (edit.check !== undefined && !current.check)
-    throw new RequestError(400, 'an agent Automation can’t become a scheduled Check')
+    throw new RequestError(400, 'an agent Automation can’t become a scheduled check')
   const rows: AutomationCardRow[] = []
   const differs = (label: string, before: string, after: string, long?: true) => {
     if (before !== after) rows.push({ label, before, value: after, ...(long && { long }) })

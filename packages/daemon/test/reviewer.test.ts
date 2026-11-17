@@ -313,7 +313,7 @@ describe('the Validate loop check', () => {
       expect(runs.filter((r) => r.name === 'Loop check · Validate')).toHaveLength(2)
       expect(ask.body).toContain('Making progress')
       expect(ask.body).toContain('Recommended: Try again')
-      expect(ask.body).toContain('leaves the Findings open')
+      expect(ask.body).toContain('leaves the findings open')
       expect(ask.body).not.toContain('The export button does nothing.')
       expect(ask.body.length).toBeLessThan(800)
       expect((await getTask(client, task.id)).stage).toBe('validate')
@@ -560,7 +560,7 @@ describe('the Validate loop check', () => {
       })
       await waitForStage(client, task, 'review')
       const moved = await waitUntil(
-        async () => (await userMessages(client, task)).find((m) => m.includes('# Open Findings')),
+        async () => (await userMessages(client, task)).find((m) => m.includes('# Open findings')),
         'the open Findings to reach the Task Lead',
         20_000,
       )

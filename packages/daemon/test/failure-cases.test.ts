@@ -735,7 +735,7 @@ test('a failure notice uses steering at the next tool boundary and retains its T
     return messages.length > 0 ? messages : undefined
   }, 'failure notice received in the Run chat')
   expect(forwarded).toHaveLength(1)
-  expect(forwarded[0]).not.toContain('The human posted a Comment')
+  expect(forwarded[0]).not.toContain('The human posted a comment')
   expect(await client.ok('GET', `${root}/validation-obligations`)).toMatchObject({
     satisfied: false,
   })

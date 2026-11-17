@@ -553,7 +553,7 @@ describe('the Apps’ sandbox', () => {
         JSON.stringify({ steps: [{ run: ['ted', 'run-app', 'API'] }, { endTurn: true }] }),
       )
       const failed = await waitForState(client, task, 'API', 'failed')
-      expect(failed.problem).toContain('can’t sandbox Checks and Apps')
+      expect(failed.problem).toContain('can’t sandbox checks and Apps')
       const started = await client.ok<TaskApp>('POST', `/tasks/${task.id}/apps/start`, {
         name: 'API',
       })

@@ -62,8 +62,8 @@ test('empty Board keeps Workflow columns and New Task and Plan actions', async (
   expect(
     [...document.querySelectorAll('[data-stage]')].map((e) => e.getAttribute('aria-label')),
   ).toEqual(['Backlog', 'Intake', 'Work', 'Review', 'Done'])
-  expect(within(screen.getByRole('region', { name: 'Review' })).getByText('Sign-Off')).toBeTruthy()
-  expect(within(screen.getByRole('region', { name: 'Work' })).queryByText('Sign-Off')).toBeNull()
+  expect(within(screen.getByRole('region', { name: 'Review' })).getByText('Sign-off')).toBeTruthy()
+  expect(within(screen.getByRole('region', { name: 'Work' })).queryByText('Sign-off')).toBeNull()
   const u = user()
   const empty = screen.getByRole('region', { name: 'No Tasks yet' })
   if (!empty) throw new Error('Missing empty Board')
@@ -245,7 +245,7 @@ test('Board Priority filter narrows cards and the card’s Priority icon changes
   expect(document.querySelector('[data-task="NB-2"]')).toBeNull()
   expect(document.querySelector('[data-task="NB-1"]')).toBeTruthy()
   bridgeApi.handle('setPriority', () => undefined)
-  await u.click(screen.getByRole('button', { name: 'Priority: High. Change Priority of NB-1' }))
+  await u.click(screen.getByRole('button', { name: 'Priority: High. Change priority of NB-1' }))
   const menu = await screen.findByRole('menu', { name: 'Priority' })
   await u.click(within(menu).getByRole('menuitemradio', { name: /Low/ }))
   await vi.waitFor(() =>
@@ -433,7 +433,7 @@ test('List and Board keep the user request beside purple running and neutral wai
       expect(chip.querySelector('svg')?.className.baseVal).toContain('spinning')
     }
     expect(screen.getByText('Waiting for tests').className).toContain('neutral')
-    expect(screen.getByText('Running checks').title).toBe('Typecheck · 1 of 2 Checks')
+    expect(screen.getByText('Running checks').title).toBe('Typecheck · 1 of 2 checks')
     expect(screen.getByText('Running tests').title).toBe('2 supported test commands running')
     expect(
       screen.getByText('Waiting for tests').querySelector('svg')?.className.baseVal,

@@ -58,7 +58,7 @@ export async function advance(client: Client, task: Task) {
   expect((await run.call('POST', `/tasks/${task.id}/brief`, { text: brief })).status).toBe(201)
   return waitUntil(async () => {
     const res = await run.call('POST', `/tasks/${task.id}/outcome`, { outcome: 'advance' })
-    return JSON.stringify(res.body).includes('Checks; wait for their results') ? undefined : res
+    return JSON.stringify(res.body).includes('checks; wait for their results') ? undefined : res
   }, 'the Checks to finish')
 }
 
@@ -88,7 +88,7 @@ export const gates = (client: Client, task: Task) =>
 export const row = (view: TaskGates, stage: string) => view.rows.find((r) => r.stage === stage)
 
 export const kept = (stage: string) =>
-  `Autopilot is on, but this Task changes .ted/, so its ${stage} Sign-Off stays on`
+  `Autopilot is on, but this Task changes .ted/, so its ${stage} sign-off stays on`
 
 export async function verifyCurrent(client: Client, task: Task) {
   const token = await lead(client, task)

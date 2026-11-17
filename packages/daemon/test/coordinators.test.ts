@@ -1770,7 +1770,7 @@ test('tell posts a Comment marked as sent through the Coordinator and delivers i
     message: 'Read this when you start.',
   })
   expect((quiet.body as CoordinatorReceipt).text).toContain(
-    `Left a Comment on ${backlog.displayId}`,
+    `Left a comment on ${backlog.displayId}`,
   )
 
   await s.ok('POST', `/tasks/${backlog.id}/archive`)

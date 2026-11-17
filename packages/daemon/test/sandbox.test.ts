@@ -487,7 +487,7 @@ describe('a missing sandbox', () => {
       env: () => process.env,
       program: path.join(outside, 'no-such-sandbox'),
     })
-    expect(await sandbox.problem()).toMatch(/can’t sandbox Checks and Apps/)
+    expect(await sandbox.problem()).toMatch(/can’t sandbox checks and Apps/)
     await expect(sandbox.wrap(['/bin/sh', '-c'], scope())).rejects.toThrow(SandboxUnavailable)
   })
 

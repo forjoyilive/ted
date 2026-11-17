@@ -161,15 +161,15 @@ export function inputProblems(
   }
   const checks = changes.checks ?? []
   for (const check of checks) {
-    if (check.name.trim() === '') add('Every Check needs a name.')
-    else if (check.run.trim() === '') add(`The Check ${check.name.trim()} needs a command.`)
+    if (check.name.trim() === '') add('Every check needs a name.')
+    else if (check.run.trim() === '') add(`The check ${check.name.trim()} needs a command.`)
     const timeout = check.timeout?.trim() ?? ''
     if (timeout !== '' && !/^\d+[smh]$/.test(timeout)) {
-      add(`The Check ${check.name.trim()}’s timeout must be a duration such as 30s, 15m or 1h.`)
+      add(`The check ${check.name.trim()}’s timeout must be a duration such as 30s, 15m or 1h.`)
     }
   }
   if (new Set(checks.map((c) => c.name.trim())).size !== checks.length) {
-    add('Two Checks have the same name.')
+    add('Two checks have the same name.')
   }
   for (const step of changes.cleanup?.steps ?? []) {
     const problem = cleanupStepProblem(step, changes.cleanup?.steps ?? [])

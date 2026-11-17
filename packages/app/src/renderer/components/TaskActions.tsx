@@ -194,7 +194,7 @@ function HistoryItem({ history, close }: { history: TaskHistory; close: () => vo
         role="menuitem"
         className={styles.item}
         aria-disabled
-        title="No earlier Conversations or finished Sub-Agents yet."
+        title="No earlier conversations or finished sub-agents yet."
       >
         <span className={styles.label}>History</span>
         <span className={styles.hint}>Nothing yet</span>
@@ -213,7 +213,7 @@ function HistoryItem({ history, close }: { history: TaskHistory; close: () => vo
           history.onOpen(run.id)
         }}
       >
-        <span>{run.role === 'lead' ? 'Earlier Conversation' : run.name}</span>
+        <span>{run.role === 'lead' ? 'Earlier conversation' : run.name}</span>
         <small>
           {formatDate(run.startedAt, { day: 'numeric', month: 'short', year: 'numeric' })} ·{' '}
           {clockTime(run.startedAt)} · {agentLabels[run.agent]}
@@ -226,13 +226,13 @@ function HistoryItem({ history, close }: { history: TaskHistory; close: () => vo
       {history.loading && <p className={styles.note}>Loading history…</p>}
       {history.earlier.length > 0 && (
         <>
-          <div className={styles.group}>Earlier Conversations</div>
+          <div className={styles.group}>Earlier conversations</div>
           {rows(history.earlier)}
         </>
       )}
       {history.finished.length > 0 && (
         <>
-          <div className={styles.group}>Finished Sub-Agents</div>
+          <div className={styles.group}>Finished sub-agents</div>
           {rows(history.finished)}
         </>
       )}
@@ -507,7 +507,7 @@ export function TaskActionsMenu({
             title="Side chat asks about a Task Lead conversation. This Task has none yet."
           >
             <span className={styles.label}>Side chat</span>
-            <span className={styles.hint}>No Task Lead Conversation yet</span>
+            <span className={styles.hint}>No Task Lead conversation yet</span>
           </ActionButton>
         ))}
       <hr className={styles.separator} />
@@ -665,7 +665,7 @@ export function TaskActionsMenu({
             {priorities.map((priority) => (
               <Choice
                 key={priority}
-                label={priority === 'none' ? 'No Priority' : priorityLabels[priority]}
+                label={priority === 'none' ? 'No priority' : priorityLabels[priority]}
                 checked={task.priority === priority}
                 onChoose={() => act(() => ted.setPriority(task.id, priority))}
               />

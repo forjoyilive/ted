@@ -36,11 +36,11 @@ describe('what the window and menus say about an update', () => {
       version: '1.4.0',
       work,
     })
-    expect(updateChip(finishing({ checks: 2, merges: 0 }))?.label).toBe('Finishing 2 Checks…')
-    expect(updateChip(finishing({ checks: 1, merges: 0 }))?.label).toBe('Finishing 1 Check…')
+    expect(updateChip(finishing({ checks: 2, merges: 0 }))?.label).toBe('Finishing 2 checks…')
+    expect(updateChip(finishing({ checks: 1, merges: 0 }))?.label).toBe('Finishing 1 check…')
     expect(updateChip(finishing({ checks: 0, merges: 1 }))?.label).toBe('Finishing a merge…')
     expect(updateChip(finishing({ checks: 2, merges: 2 }))?.label).toBe(
-      'Finishing 2 Checks and 2 merges…',
+      'Finishing 2 checks and 2 merges…',
     )
     expect(updateChip(finishing({ checks: 0, merges: 0 }))).toEqual({
       label: 'Restarting…',

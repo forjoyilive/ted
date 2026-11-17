@@ -16,7 +16,7 @@ import { ctx, getTask, run, start, useMergeHarness } from './merge-harness.ts'
 useMergeHarness()
 
 const changedMessage =
-  'The Task’s code or Checks changed since this failure was assessed, so it can’t be accepted as it is. Ask the Task Lead to assess it again.'
+  'The Task’s code or checks changed since this failure was assessed, so it can’t be accepted as it is. Ask the Task Lead to assess it again.'
 
 async function setup() {
   const client = await start({ order: 'intake, work, merge' })

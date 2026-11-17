@@ -834,7 +834,7 @@ test('pending answers disable actions and rejected answers preserve text with an
 
 test('a failure decision asks for a reason before Fixed or No longer applicable and shows only the daemon’s refusal', async () => {
   const refusal =
-    'The Task’s code or Checks changed since this failure was assessed, so it can’t be accepted as it is. Ask the Task Lead to assess it again.'
+    'The Task’s code or checks changed since this failure was assessed, so it can’t be accepted as it is. Ask the Task Lead to assess it again.'
   const answer = vi.fn((_id: unknown, request: unknown) => {
     if ((request as { choice?: string }).choice === 'Accept this failure')
       throw new Error(`Error invoking remote method 'ted:request': Error: ${refusal}`)
@@ -1689,7 +1689,7 @@ test('previous review resolves the referenced approval rather than the first sig
     />,
   )
   await user().click(screen.getByRole('button', { name: 'View previously approved review' }))
-  const old = await screen.findByRole('region', { name: 'Sign-Off, read-only' })
+  const old = await screen.findByRole('region', { name: 'Sign-off, read-only' })
   expect(within(old).getByText('The latest approved evidence.')).toBeTruthy()
   expect(within(old).queryByRole('textbox')).toBeNull()
   expect(screen.queryByText('The obsolete evidence.')).toBeNull()
@@ -1787,7 +1787,7 @@ test('previous Review keeps its own Check execution after a second Validate visi
     />,
   )
   await user().click(screen.getByRole('button', { name: 'View previously approved review' }))
-  const history = await screen.findByRole('region', { name: 'Sign-Off, read-only' })
+  const history = await screen.findByRole('region', { name: 'Sign-off, read-only' })
   await waitFor(() => expect(history.textContent).toMatch(/Old Check|New Check/))
   const text = history.textContent ?? ''
   expect({
@@ -1957,7 +1957,7 @@ test('previous Review retains its recorded Check plan and acceptance after later
   )
   expect(await screen.findByText('New Check', { exact: false })).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'View previously approved review' }))
-  const history = await screen.findByRole('region', { name: 'Sign-Off, read-only' })
+  const history = await screen.findByRole('region', { name: 'Sign-off, read-only' })
   await within(history).findByText('Original recommendation')
   expect(history.textContent).toContain('failed, accepted by you')
   expect(history.textContent).toContain('Original decision')
@@ -2321,7 +2321,7 @@ test.each(['working', 'waiting', 'idle', 'paused', 'stopped'] as const)(
         state === 'paused' ? 'Task Lead paused · Usage limit' : `Task Lead ${state}`,
       ),
     ).toBeTruthy()
-    await user().click(screen.getByRole('button', { name: 'Open Conversation' }))
+    await user().click(screen.getByRole('button', { name: 'Open conversation' }))
     expect(open).toHaveBeenCalledWith('current-lead')
     view.rerender(
       <AnsweredCard
@@ -2539,7 +2539,7 @@ test('a dropped repair says fresh Checks close the failure, and a closed case na
   const { rerender } = render(<FailureDetails failure={value} onOpenTask={open} />)
   expect(
     await screen.findByText(
-      'Repair archived without merging. Fresh passing Checks close this failure. If this Task is stopped, use Resume in Task details first.',
+      'Repair archived without merging. Fresh passing checks close this failure. If this Task is stopped, use Resume in Task details first.',
     ),
   ).toBeTruthy()
   rerender(

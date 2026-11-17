@@ -79,7 +79,7 @@ describe('Task details summaries', () => {
       gate: { approveLabel: 'Approve' },
     })
     expect(briefUpdatedLine(written, [gate], now)).toBe(
-      'Updated by the Task Lead at the Review Sign-Off · 31m ago',
+      'Updated by the Task Lead at the Review sign-off · 31m ago',
     )
     expect(briefUpdatedLine(written, [], now)).toBe('Updated by the Task Lead in Review · 31m ago')
     const earlier = { ...gate, createdAt: minutesAgo(40) }
@@ -98,15 +98,15 @@ describe('Task details summaries', () => {
         run({ id: 'r3', state: 'finished', role: 'sub-agent' }),
         run({ id: 'r4', state: 'finished' }),
       ]),
-    ).toBe('Task Lead idle · 0 active Sub-Agents · 3 stopped')
+    ).toBe('Task Lead idle · 0 active sub-agents · 3 stopped')
     expect(
       runsCollapsedSummary([
         run({ state: 'working', onSubAgents: true }),
         run({ id: 'r2', role: 'sub-agent', parentRunId: 'r1', state: 'working' }),
       ]),
-    ).toBe('Task Lead on Sub-Agents · 1 active Sub-Agent')
+    ).toBe('Task Lead on sub-agents · 1 active sub-agent')
     expect(runsCollapsedSummary([run({ state: 'finished' })])).toBe(
-      '0 active Sub-Agents · 1 stopped',
+      '0 active sub-agents · 1 stopped',
     )
   })
 

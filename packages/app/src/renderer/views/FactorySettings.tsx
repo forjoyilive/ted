@@ -779,7 +779,7 @@ const GeneralSection = memo(function GeneralSection({ factory }: { factory: Fact
         <div className={styles.field}>
           <span className={styles.label}>Start Backlog Tasks automatically</span>
           <span className={styles.caption}>
-            Start the next eligible Task when a working-Run slot is free. Uses Priority and manual
+            Start the next eligible Task when a working-Run slot is free. Uses priority and manual
             order, skips blocked Tasks, and gives Queued work precedence.
           </span>
           <span className={styles.caption}>
@@ -964,7 +964,7 @@ const ReposSection = memo(function ReposSection({
             + Add repo
           </ActionButton>
           <Help>
-            Adds a repo through the same Save. Afterwards a New setup Task can set up its Checks and
+            Adds a repo through the same Save. Afterwards a New setup Task can set up its checks and
             Apps.
           </Help>
         </div>

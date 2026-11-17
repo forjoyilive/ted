@@ -142,10 +142,10 @@ describe('Group by', () => {
     expect(shape(groupInbox(rows, 'kind', now))).toEqual([
       ['Blocking a Run', ['b1']],
       ['Questions', ['q1', 'q2']],
-      ['Sign-Offs', ['s1']],
+      ['Sign-offs', ['s1']],
     ])
     expect(shape(groupInbox([row('s1', { kind: 'signoff' })], 'kind', now))).toEqual([
-      ['Sign-Offs', ['s1']],
+      ['Sign-offs', ['s1']],
     ])
   })
 
@@ -258,7 +258,7 @@ describe('Group by', () => {
       ['Urgent', ['urgent1', 'urgent2']],
       ['Medium', ['medium']],
       ['Low', ['low']],
-      ['No Priority', ['none']],
+      ['No priority', ['none']],
       ['Not from a Task', ['plan']],
     ])
   })

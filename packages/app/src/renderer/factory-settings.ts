@@ -437,7 +437,7 @@ export function lastRunText(checkTry: CheckTry, now: number): string {
   switch (checkTry.state) {
     case 'running':
       return checkTry.waiting === true
-        ? 'Waiting for other Checks to finish'
+        ? 'Waiting for other checks to finish'
         : `Running · ${duration(now - Date.parse(checkTry.startedAt))}`
     case 'passed':
       return `✓ ${took}${since}`

@@ -48,13 +48,13 @@ test('a Check run waiting for a place says so instead of Running Checks', () => 
   const checks = run.checks.map((c) => ({ ...c, state: 'waiting' as const }))
   expect(checkRunHeadline({ ...run, checks, waiting: true })).toEqual([
     'run',
-    'Waiting to run Checks',
+    'Waiting to run checks',
   ])
   expect(checkRunHeadline({ ...run, checks, trigger: 'agent', waiting: true })).toEqual([
     'run',
-    'Validate is waiting to run Checks',
+    'Validate is waiting to run checks',
   ])
-  expect(checkRunHeadline({ ...run, checks })).toEqual(['run', 'Running Checks'])
+  expect(checkRunHeadline({ ...run, checks })).toEqual(['run', 'Running checks'])
 })
 
 test('Check output opens the failed output and tabs switch to another Check', async () => {
@@ -80,7 +80,7 @@ test('Check output opens the failed output and tabs switch to another Check', as
 test('blocking findings keep their content in a labelled region', async () => {
   const { Findings } = await import('../src/renderer/components/EventLine.tsx')
   render(<Findings text="The Check “Tests” failed: SearchPanel hangs" />)
-  expect(screen.getByRole('region', { name: 'Blocking Findings' }).textContent).toContain(
+  expect(screen.getByRole('region', { name: 'Blocking findings' }).textContent).toContain(
     'The Check “Tests” failed: SearchPanel hangs',
   )
 })

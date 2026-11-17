@@ -486,7 +486,7 @@ export function RepoRowView({
             onChange={(event) => onName(event.target.value)}
           />
           <Help>
-            A short label for this repo, used for worktree folders and Checks. Lowercase letters,
+            A short label for this repo, used for worktree folders and checks. Lowercase letters,
             digits and -.
           </Help>
           {badName && <span className={styles.keyError}>{badName}</span>}

@@ -481,7 +481,7 @@ describe('TED app', () => {
 
     await window.getByRole('tab', { name: 'Task Lead' }).click()
     const thread = window.getByRole('region', { name: 'Task thread' })
-    await thread.getByText('You steered the Task Lead in its Conversation').waitFor()
+    await thread.getByText('You steered the Task Lead in its conversation').waitFor()
     await thread.getByRole('button', { name: 'View message' }).click()
     await chat.getByText('Keep pinned notes in the order they were pinned.').waitFor()
     reached('message-delivered')

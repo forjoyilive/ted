@@ -60,7 +60,7 @@ export function EditTaskDialog({ task, onClose }: { task: Task; onClose: () => v
   }
 
   const note = hasLiveRun(task)
-    ? 'The Task Lead gets the change as a Comment with the diff.'
+    ? 'The Task Lead gets the change as a comment with the diff.'
     : 'The Task Lead reads the new version when its next Run starts.'
 
   return (

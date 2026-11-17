@@ -66,7 +66,7 @@ export function RequestDock({
           <div className={styles.pointer} role="note" aria-label="Open request">
             <span className={styles.pointerText}>
               <strong>{label}</strong>: {title} has its own form in the thread. This box sends a
-              Comment and doesn’t answer it.
+              comment and doesn’t answer it.
             </span>
             {switcher}
             <button type="button" className={styles.link} onClick={() => onJump(shown.id)}>
@@ -106,7 +106,7 @@ export function RequestDock({
                     className={`${styles.link} ${styles.comment}`}
                     disabled={comment.disabled}
                     aria-busy={comment.pending || undefined}
-                    title="Post this text as a Comment and leave the request open"
+                    title="Post this text as a comment and leave the request open"
                     onClick={comment.send}
                   >
                     Comment without answering

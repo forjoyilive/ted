@@ -22,7 +22,7 @@ import { SetupFailed } from '../tasks/scratch-setup.ts'
 import type { Checkouts } from './checkout.ts'
 
 export const memoryStopMessage =
-  'This computer ran out of memory, so the Scheduled Check was stopped. TED didn’t count it as a failure.'
+  'This computer ran out of memory, so the scheduled check was stopped. TED didn’t count it as a failure.'
 
 export interface ScheduledCheckResult {
   state: AutomationCheckState | 'stopped'
@@ -192,7 +192,7 @@ export function createScheduledChecks(options: {
           checks: [
             {
               check: {
-                name: 'Scheduled Check',
+                name: 'Scheduled check',
                 command: check.command,
                 timeout: check.timeout,
                 state: 'waiting',

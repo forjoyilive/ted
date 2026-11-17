@@ -199,7 +199,7 @@ test('the Coordinator draws its conversation like a Task thread: your messages t
     .closest('li')
   expect(receipt).toBeTruthy()
   expect(within(receipt as HTMLElement).getByRole('button', { name: 'Open Task' })).toBeTruthy()
-  expect(within(pane).queryByText('Earlier Conversation')).toBeNull()
+  expect(within(pane).queryByText('Earlier conversation')).toBeNull()
   expect(within(pane).queryByRole('button', { name: 'Stop response' })).toBeNull()
 
   const card = within(chat).getByRole('region', { name: 'Question from Coordinator' })
@@ -730,7 +730,7 @@ test('Autopilot is switched in Settings → General, not in the sidebar', async 
 
 const notice = () => screen.queryByRole('status', { name: 'Autopilot is on' })
 const noticeText =
-  '▲ Autopilot is on. Sign-Offs set here are off until you turn it off in Settings → General. Setup Tasks and Tasks that change a Factory’s settings still wait for you.'
+  '▲ Autopilot is on. Sign-offs set here are off until you turn it off in Settings → General. Setup Tasks and Tasks that change a Factory’s settings still wait for you.'
 
 function overnight(on: boolean, view: React.ReactNode) {
   const openGeneral = vi.fn()

@@ -7,7 +7,7 @@ export const kindLabels: Record<CommentKind, string> = {
   question: 'Question',
   round: 'Clarify round',
   review: 'Design review',
-  signoff: 'Sign-Off',
+  signoff: 'Sign-off',
   permission: 'Permission',
   proposal: 'Proposal',
 }
@@ -28,7 +28,7 @@ export function poster(request: Comment, task: Task | undefined): string {
   const { author } = request
   if (author.kind === 'ted') return 'TED'
   if (author.kind === 'human') return 'you'
-  return task?.leadRunId === author.runId ? 'the Task Lead' : 'a Sub-Agent'
+  return task?.leadRunId === author.runId ? 'the Task Lead' : 'a sub-agent'
 }
 
 export function age(iso: string, now: number): string {

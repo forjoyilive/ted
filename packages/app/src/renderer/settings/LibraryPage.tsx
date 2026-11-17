@@ -185,7 +185,7 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
                 <span>Stage</span>
                 <span>On</span>
                 <span className={sections.gateHeading}>
-                  Sign-Off
+                  Sign-off
                   <Help>
                     When on, the Task waits for your approval at the end of this Stage before moving
                     on. If the Stage skips itself, its sign-off is skipped too.
@@ -292,10 +292,10 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
               className={base.link}
               onClick={() => dispatch({ type: 'open-settings', section: 'agents' })}
             >
-              Task Lead, Reviewer and Planner are under Providers →
+              Task Lead, reviewer and Planner are under Providers →
             </ActionButton>
             <Help>
-              Permissions, Checks, Apps and repos belong to each Factory, so they aren’t in the
+              Permissions, checks, Apps and repos belong to each Factory, so they aren’t in the
               Library.
             </Help>
           </p>
@@ -400,7 +400,7 @@ function StageLine({
         <span>
           {decides ? (
             <Toggle
-              label={`${name} Sign-Off`}
+              label={`${name} sign-off`}
               checked={stage?.gate ?? row.gate}
               onChange={(gate) => onStage({ gate })}
             />

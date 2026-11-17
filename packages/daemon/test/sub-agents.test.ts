@@ -139,7 +139,7 @@ describe('sub-agents', () => {
     expect(short.run.id).toBe(full.run.id)
 
     const events = await client.ok<{ text: string }[]>('GET', `/tasks/${task.id}/events`)
-    expect(events.map((e) => e.text)).toContain('Sub-Agent “Explore the parser” started · Claude')
+    expect(events.map((e) => e.text)).toContain('Sub-agent “Explore the parser” started · Claude')
   })
 
   test('a Codex sub-agent takes its own name, model and effort; left-out options come from the Task Lead', async () => {
@@ -174,7 +174,7 @@ describe('sub-agents', () => {
     const subs = runs.filter((r) => r.role === 'sub-agent')
     expect(subs.map((r) => [r.name, r.agent, r.model, r.effort]).sort()).toEqual([
       ['Reviewer', 'codex', undefined, 'high'],
-      ['Sub-Agent', 'claude', 'opus', 'low'],
+      ['Sub-agent', 'claude', 'opus', 'low'],
     ])
   })
 
@@ -397,7 +397,7 @@ describe('sub-agents', () => {
     expect(results.map((r) => r.code)).toEqual([1, 1, 1, 1, 1, 1, 0])
     expect(results[0]?.stderr).toMatch(/only the Task Lead changes blockers/)
     expect(results[1]?.stderr).toMatch(/only the Task Lead changes blockers/)
-    expect(results[2]?.stderr).toMatch(/only the Task Lead runs Checks/)
+    expect(results[2]?.stderr).toMatch(/only the Task Lead runs checks/)
     expect(results[3]?.stderr).toMatch(/only the Task Lead writes the Task brief/)
     expect(results[4]?.stderr).toMatch(/only the Task Lead picks the Clarify depth/)
     expect(results[5]?.stderr).toMatch(/only the Task Lead can start and steer sub-agents/)

@@ -80,7 +80,7 @@ export function parseCheckTryRequest(given: unknown): CheckTryRequest {
   const body = record(given)
   const name = text(body.name, 'name').trim()
   const run = text(body.run, 'run').trim()
-  if (name === '' || run === '') throw new HttpError(400, 'A Check needs a name and a command')
+  if (name === '' || run === '') throw new HttpError(400, 'A check needs a name and a command')
   const repo = optionalText(body.repo, 'repo')?.trim() || undefined
   const timeout = optionalText(body.timeout, 'timeout')?.trim() || undefined
   if (timeout !== undefined && !/^\d+[smh]$/.test(timeout)) {
@@ -212,7 +212,7 @@ function checkInput(given: unknown): CheckInput {
   const body = record(given)
   const was = body.was
   if (was !== undefined && (typeof was !== 'number' || !Number.isInteger(was) || was < 0)) {
-    throw new HttpError(400, 'a Check’s was must be a list position')
+    throw new HttpError(400, 'a check’s was must be a list position')
   }
   const repo = optionalText(body.repo, 'Check repo')
   const timeout = optionalText(body.timeout, 'Check timeout')

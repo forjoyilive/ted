@@ -16,7 +16,7 @@ export interface MovePlanView {
 }
 
 export const movePlanKept =
-  'Kept: the title, description and its edits, Comments, questions and answers, attachments, the Task brief, priority, source link, Task Lead field and Autopilot choice.'
+  'Kept: the title, description and its edits, comments, questions and answers, attachments, the Task brief, priority, source link, Task Lead field and Autopilot choice.'
 
 function joinAnd(items: readonly string[]): string {
   if (items.length < 2) return items.join('')

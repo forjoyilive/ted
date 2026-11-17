@@ -179,8 +179,8 @@ test('History expands an earlier conversation inline and reports unavailable ret
   expect(view.queryByRole('button', { name: /^History/ })).toBeNull()
   const history = await openHistory()
   expect(screen.getByRole('menuitem', { name: 'History · 1' })).toBeTruthy()
-  expect(history.getByText('Earlier Conversations')).toBeTruthy()
-  await user().click(history.getByRole('menuitem', { name: /Earlier Conversation/ }))
+  expect(history.getByText('Earlier conversations')).toBeTruthy()
+  await user().click(history.getByRole('menuitem', { name: /Earlier conversation/ }))
   await view.findByText('Yesterday’s exchange.')
   expect(view.getByText('Current exchange.')).toBeTruthy()
   expect(view.getByText('Earlier output no longer kept')).toBeTruthy()
@@ -530,21 +530,21 @@ test('earlier conversations can be reopened repeatedly from History', async () =
   const view = within(await a.open())
   const openEarlier = async () => {
     await user().click(
-      (await openHistory()).getByRole('menuitem', { name: /Earlier Conversation/ }),
+      (await openHistory()).getByRole('menuitem', { name: /Earlier conversation/ }),
     )
     await view.findByText('Yesterday’s exchange.')
   }
   await openEarlier()
-  await user().click(view.getByText(/^Earlier Conversation ·/))
+  await user().click(view.getByText(/^Earlier conversation ·/))
   await openEarlier()
-  expect(required(view.getByText(/^Earlier Conversation ·/).closest('details'))).toHaveProperty(
+  expect(required(view.getByText(/^Earlier conversation ·/).closest('details'))).toHaveProperty(
     'open',
     true,
   )
-  const earlier = within(required(view.getByText(/^Earlier Conversation ·/).closest('details')))
+  const earlier = within(required(view.getByText(/^Earlier conversation ·/).closest('details')))
   expect(earlier.queryByRole('button', { name: /side chat/i })).toBeNull()
-  await user().click(view.getByText(/^Earlier Conversation ·/))
-  expect(required(view.getByText(/^Earlier Conversation ·/).closest('details'))).toHaveProperty(
+  await user().click(view.getByText(/^Earlier conversation ·/))
+  expect(required(view.getByText(/^Earlier conversation ·/).closest('details'))).toHaveProperty(
     'open',
     false,
   )

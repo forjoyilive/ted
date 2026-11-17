@@ -26,7 +26,7 @@ describe('TED app', () => {
     const steps = JSON.stringify({
       steps: [
         { run: ['ted', 'comment', 'Read the brief'] },
-        { run: ['ted', 'status', 'Running Checks · Tests (2 of 3)'] },
+        { run: ['ted', 'status', 'Running checks · Tests (2 of 3)'] },
         { waitFor: go(1) },
         { hook: 'PermissionRequest' },
         { waitFor: go(2) },
@@ -53,14 +53,14 @@ describe('TED app', () => {
     await window.emulateMedia({ reducedMotion: 'reduce' })
     expect(await spin()).toBe('none')
     await window.emulateMedia({ reducedMotion: null })
-    await header.getByText('· Running Checks · Tests (2 of 3)').waitFor()
+    await header.getByText('· Running checks · Tests (2 of 3)').waitFor()
     await header.getByRole('img', { name: 'Claude Code, working' }).waitFor()
     await writeFile(go(1), '')
     await header.getByText('Waiting on you', { exact: true }).waitFor()
     await writeFile(go(2), '')
     await thread.getByText('Asking the questions', { exact: true }).waitFor()
     await header.getByText('Clarify', { exact: true }).waitFor()
-    expect(await header.getByText('· Running Checks').count()).toBe(0)
+    expect(await header.getByText('· Running checks').count()).toBe(0)
 
     const intake = header.getByRole('button', { name: 'Intake, done' })
     await intake.click()
@@ -129,7 +129,7 @@ describe('TED app', () => {
     const passed = thread.getByRole('listitem').filter({ hasText: 'Validate passed' })
     await passed.waitFor({ timeout: 40_000 })
     await passed.getByRole('listitem').filter({ hasText: 'Review · 2 notes' }).waitFor()
-    const card = thread.getByRole('region', { name: 'Sign-Off' })
+    const card = thread.getByRole('region', { name: 'Sign-off' })
     await card.waitFor({ timeout: 40_000 })
     const row = card.getByRole('list', { name: 'Checks' })
     await row.getByRole('button', { name: '✓ Typecheck' }).waitFor()

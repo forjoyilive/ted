@@ -268,7 +268,7 @@ describe('sort and group', () => {
     expect(groupTasks(all, { ...view, group: 'priority' }, factories).map((g) => g.label)).toEqual([
       'Urgent',
       'Low',
-      'No Priority',
+      'No priority',
     ])
     expect(
       groupTasks(all, { ...view, group: 'none' }, factories).map((g) => g.tasks.length),

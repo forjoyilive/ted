@@ -53,7 +53,7 @@ const entries = {
   'app.general.profile': { name: 'Profile', heading: true },
   'app.general.profile.picture': {
     name: 'Profile picture',
-    help: 'Shown beside your Comments. TED keeps it on this computer only.',
+    help: 'Shown beside your comments. TED keeps it on this computer only.',
   },
   'app.general.display': { name: 'Display', heading: true },
   'app.general.display.appearance': { name: 'Appearance' },
@@ -79,7 +79,7 @@ const entries = {
   'app.general.autopilot.mode': {
     name: 'Autopilot across all Factories',
     keywords: 'overnight mode',
-    help: 'Carry started work through Merge without routine questions or sign-offs. It starts no Backlog Tasks; each Factory’s Start Backlog Tasks automatically setting does that. Task overrides take precedence. Enabling also handles waiting routine requests. Permissions, failed Checks needing your decision, setup and Workflow safeguards, missing access or information, and size or split decisions still wait for you.',
+    help: 'Carry started work through Merge without routine questions or sign-offs. It starts no Backlog Tasks; each Factory’s Start Backlog Tasks automatically setting does that. Task overrides take precedence. Enabling also handles waiting routine requests. Permissions, failed checks needing your decision, setup and Workflow safeguards, missing access or information, and size or split decisions still wait for you.',
     detail:
       'Stays on until you turn it off, on this computer only. Turning it off leaves started work running.',
   },
@@ -164,7 +164,7 @@ const entries = {
 
   'app.agents.defaults': {
     name: 'Defaults for each role',
-    keywords: 'Task Lead Reviewer Planner Provider model effort',
+    keywords: 'Task Lead reviewer Planner Provider model effort',
     help: 'Saved in your Library’s workflow.yaml. A Factory can override each one in its own settings.',
     heading: true,
   },
@@ -175,11 +175,11 @@ const entries = {
 
   'app.limits.working-runs': {
     name: 'Max working Runs on this machine',
-    help: 'A new Run starts only when a slot is free. Runs waiting on you, Paused Runs, Apps and Checks don’t take a slot; a Task setting up its worktree does. A Factory’s own max_working_runs can lower it further.',
+    help: 'A new Run starts only when a slot is free. Runs waiting on you, Paused Runs, Apps and checks don’t take a slot; a Task setting up its worktree does. A Factory’s own max_working_runs can lower it further.',
   },
   'app.limits.busy': {
     name: 'Wait to start new work when this computer is busy',
-    help: 'While the CPU is busy or memory is low, TED starts no new Run, sub-agent, simulator or emulator unless none is working, and Scheduled Checks wait. Work already running carries on. The limit above is still the most TED runs at once.',
+    help: 'While the CPU is busy or memory is low, TED starts no new Run, sub-agent, simulator or emulator unless none is working, and scheduled checks wait. Work already running carries on. The limit above is still the most TED runs at once.',
   },
   'app.limits.simulators': {
     name: 'Simulators booted at once',
@@ -192,17 +192,17 @@ const entries = {
   },
   'app.limits.checks': {
     name: 'Checks running at once',
-    help: 'A Task’s Checks run one after another and count as one. When this many Tasks are running Checks, the next waits its turn; a Check you try with Run now in Factory settings waits too. Lowering the limit doesn’t stop Checks that are running.',
+    help: 'A Task’s checks run one after another and count as one. When this many Tasks are running checks, the next waits its turn; a check you try with Run now in Factory settings waits too. Lowering the limit doesn’t stop checks that are running.',
   },
   'app.limits.check-cpus': {
-    name: 'CPU a Check may use',
-    help: 'TED tells each Check how many of this computer’s cores it may use: this share of them, divided between the Checks running at once, and never fewer than 1. A lower share leaves more room for Runs and makes Checks slower.',
+    name: 'CPU a check may use',
+    help: 'TED tells each check how many of this computer’s cores it may use: this share of them, divided between the checks running at once, and never fewer than 1. A lower share leaves more room for Runs and makes checks slower.',
     detail:
-      'TED doesn’t enforce it. A Check’s command has to pass the number, TED_CHECK_CPUS, to its test runner. Applies to Checks started after you change it.',
+      'TED doesn’t enforce it. A check’s command has to pass the number, TED_CHECK_CPUS, to its test runner. Applies to checks started after you change it.',
   },
   'app.limits.scheduled-check-cpus': {
-    name: 'Limit the CPU Scheduled Checks use too',
-    help: 'When this is off, a Scheduled Check isn’t told a number and may use the whole computer. It finishes sooner, but new Runs may wait until it ends.',
+    name: 'Limit the CPU scheduled checks use too',
+    help: 'When this is off, a scheduled check isn’t told a number and may use the whole computer. It finishes sooner, but new Runs may wait until it ends.',
   },
   'app.limits.sleep-idle': {
     name: 'End idle Task Lead agents to free memory',
@@ -215,8 +215,8 @@ const entries = {
     help: 'How long a Task Lead’s agent has done nothing before TED ends it.',
   },
   'app.limits.low-priority': {
-    name: 'Run agents and Checks at low priority',
-    help: 'For agents, Checks, worktree setup and teardown, and Apps an agent starts. On macOS they run at the system’s “utility” priority, so they give way to your other apps and may run slower. On Linux they run at a lower scheduling priority. Apps you start with ▶ and Task shells keep normal priority.',
+    name: 'Run agents and checks at low priority',
+    help: 'For agents, checks, worktree setup and teardown, and Apps an agent starts. On macOS they run at the system’s “utility” priority, so they give way to your other apps and may run slower. On Linux they run at a lower scheduling priority. Apps you start with ▶ and Task shells keep normal priority.',
     detail:
       'Applies to work started after you change it. A Run that is already going keeps its priority.',
   },
@@ -281,7 +281,7 @@ const entries = {
   },
   'app.storage.store': {
     name: 'Store and backups',
-    help: 'The store holds every Task, Comment and Run TED knows about: the event log is its record of every change, and the state database is built from it. Backups are copies of the store.',
+    help: 'The store holds every Task, comment and Run TED knows about: the event log is its record of every change, and the state database is built from it. Backups are copies of the store.',
     heading: true,
   },
   'app.storage.store.event-log': { name: 'Event log' },
@@ -293,11 +293,11 @@ const entries = {
   'app.storage.run-output': { name: 'Delete automatically', heading: true },
   'app.storage.run-output.days': {
     name: 'Delete agent chats',
-    help: 'Only the chats go. The Task, its Comments and its Task brief stay. Counted from when the Task is Done or archived, or for a chat with no Task, from when it ends.',
+    help: 'Only the chats go. The Task, its comments and its Task brief stay. Counted from when the Task is Done or archived, or for a chat with no Task, from when it ends.',
   },
   'app.storage.archived-tasks': {
     name: 'Delete archived Tasks',
-    help: 'The whole Task goes, with its Comments, Task brief and chats. Counted from when it was archived. Done Tasks that aren’t archived stay. This can’t be undone.',
+    help: 'The whole Task goes, with its comments, Task brief and chats. Counted from when it was archived. Done Tasks that aren’t archived stay. This can’t be undone.',
   },
   'app.storage.archived-chats': {
     name: 'Delete archived Agent chats',
@@ -307,7 +307,7 @@ const entries = {
   'app.storage.export.factory': { name: 'Factory' },
   'app.storage.export.format': { name: 'Format' },
   'app.storage.export.save': {
-    name: 'Tasks, Comments, briefs and Run metadata',
+    name: 'Tasks, comments, briefs and Run metadata',
     detail: 'Includes Done and archived Tasks, answers and saved versions.',
   },
   'app.storage.backups': { name: 'Backups', heading: true },
@@ -318,7 +318,7 @@ const entries = {
   },
   'app.developer.memory': {
     name: 'TED’s memory use',
-    help: 'Memory used by TED and everything it started: the app, the daemon and Run hosts, the agents and the tools and MCP servers they run, Checks and Apps. Refreshes every five seconds while this page is open.',
+    help: 'Memory used by TED and everything it started: the app, the daemon and Run hosts, the agents and the tools and MCP servers they run, checks and Apps. Refreshes every five seconds while this page is open.',
     keywords: 'RAM usage daemon app agents Run hosts',
   },
   'app.developer.folder': { name: 'TED’s folder' },
@@ -344,7 +344,7 @@ const entries = {
   },
   'app.developer.processes': {
     name: 'Processes',
-    keywords: 'memory CPU PID Activity Monitor MCP servers agents Checks Apps',
+    keywords: 'memory CPU PID Activity Monitor MCP servers agents checks Apps',
   },
   'app.developer.logs': { name: 'Log', keywords: 'logs daemon log raw output', heading: true },
 
@@ -361,7 +361,7 @@ const entries = {
   'factory.general.auto-start': {
     name: 'Start Backlog Tasks automatically',
     detail:
-      'Start the next eligible Task when a working-Run slot is free. Uses Priority and manual order, skips blocked Tasks, and gives Queued work precedence. Takes effect immediately. Turning this off leaves started Tasks running.',
+      'Start the next eligible Task when a working-Run slot is free. Uses priority and manual order, skips blocked Tasks, and gives Queued work precedence. Takes effect immediately. Turning this off leaves started Tasks running.',
   },
   'factory.intake': {
     name: 'Intake',
@@ -432,16 +432,16 @@ const entries = {
     help: 'The Stage between Merge and Done. Turn it on here; its steps are under Cleanup. It runs only once it has at least one step.',
   },
   'factory.workflow.p1-only': {
-    name: 'Send back only for P1 Findings',
-    help: 'Off: every blocking Finding sends the Task back to Work. From a round: in that round of Validate and every later one, a new Finding sends it back only if it is P1. P1 means lost or corrupted data, a security hole, or broken behaviour the Task asks for. A Finding from an earlier round that is still not fixed sends it back too. Every other new Finding stays unfixed and is listed as a note for you at Review. You get fewer rounds, and problems Validate found can merge if you approve without reading the notes.',
+    name: 'Send back only for P1 findings',
+    help: 'Off: every blocking finding sends the Task back to Work. From a round: in that round of Validate and every later one, a new finding sends it back only if it is P1. P1 means lost or corrupted data, a security hole, or broken behaviour the Task asks for. A finding from an earlier round that is still not fixed sends it back too. Every other new finding stays unfixed and is listed as a note for you at Review. You get fewer rounds, and problems Validate found can merge if you approve without reading the notes.',
   },
   'factory.workflow.validate-sub-agents': {
-    name: 'Other Sub-Agents in Validate',
-    help: 'Off: in Validate the Task Lead can start only TED’s reviewer, one per visit. On: it can also start other sub-agents, for example to run slow tests. Each one takes a working Run, and a sub-agent that reviews the diff adds Findings that can cost another round. The one-reviewer rule stays either way.',
+    name: 'Other sub-agents in Validate',
+    help: 'Off: in Validate the Task Lead can start only TED’s reviewer, one per visit. On: it can also start other sub-agents, for example to run slow tests. Each one takes a working Run, and a sub-agent that reviews the diff adds findings that can cost another round. The one-reviewer rule stays either way.',
   },
   'factory.workflow.lead-closes-failures': {
     name: 'Task Lead closes its own fixed failures',
-    help: 'Off: when a test the Task Lead ran itself failed outside Validate and it recorded the failure, only you can close it, from a question in your Inbox. On: once the Task Lead runs the test again and it passes, it closes the failure itself with that evidence, and you get a line in the thread and no question. TED doesn’t run the test, so you are trusting the Task Lead’s report. Failed Checks and failures found in Validate still need your decision, and only you can accept a failure that still happens.',
+    help: 'Off: when a test the Task Lead ran itself failed outside Validate and it recorded the failure, only you can close it, from a question in your Inbox. On: once the Task Lead runs the test again and it passes, it closes the failure itself with that evidence, and you get a line in the thread and no question. TED doesn’t run the test, so you are trusting the Task Lead’s report. Failed checks and failures found in Validate still need your decision, and only you can accept a failure that still happens.',
   },
   'factory.workflow.commit-titles': {
     name: 'Task Lead writes the merge commit',
@@ -472,7 +472,7 @@ const entries = {
     keywords: 'auto bypass',
     help: 'Permission mode is saved only on this computer, separately for each Factory.',
     detail:
-      'Saved here immediately. Applies to new and restarted Task Leads, sub-agents and reviewers, and new Checks and agent-started Apps. Running processes keep their current permissions; stop them to end existing access. Planning, Automation and Coordinator Runs always use Auto.',
+      'Saved here immediately. Applies to new and restarted Task Leads, sub-agents and reviewers, and new checks and agent-started Apps. Running processes keep their current permissions; stop them to end existing access. Planning, Automation and Coordinator Runs always use Auto.',
     heading: true,
   },
   'factory.permissions.working-run-limit': {

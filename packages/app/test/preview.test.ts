@@ -240,17 +240,17 @@ test('the sidebar counts running and waiting Checks beside the agents', () => {
     busy: { loadRatio: 1.4 },
   }
   expect(runsLine(slots)).toBe(
-    '1 of 6 slots in use · 3 Checks running, 1 waiting · 7 queued · this computer is busy',
+    '1 of 6 slots in use · 3 checks running, 1 waiting · 7 queued · this computer is busy',
   )
   expect(nowLine(slots)).toBe(
-    'Now: 1 of 6 slots in use · 3 Checks running, 1 waiting · 7 queued · this computer is busy',
+    'Now: 1 of 6 slots in use · 3 checks running, 1 waiting · 7 queued · this computer is busy',
   )
   const { busy: _, ...calm } = slots
   expect(runsLine({ ...calm, queued: 0, checks: { ...noChecks, running: 1 } })).toBe(
-    '1 of 6 slots in use · 1 Check running',
+    '1 of 6 slots in use · 1 check running',
   )
   expect(runsLine({ ...calm, queued: 0, checks: { ...noChecks, waiting: 2 } })).toBe(
-    '1 of 6 slots in use · 2 Checks waiting',
+    '1 of 6 slots in use · 2 checks waiting',
   )
 })
 

@@ -501,7 +501,7 @@ export function parseReportOutcomeRequest(body: unknown): ReportOutcomeRequest {
       throw new HttpError(400, `to must be a Stage id, such as ${agentStageIds.join(', ')}`)
     }
     const findings = typeof request.findings === 'string' ? request.findings.trim() : ''
-    if (findings === '') throw new HttpError(400, '`back` needs Findings')
+    if (findings === '') throw new HttpError(400, '`back` needs findings')
     const cause = request.cause
     if (cause !== undefined && !declaredSendBackCauses.includes(cause as DeclaredSendBackCause)) {
       throw new HttpError(400, `cause must be one of ${declaredSendBackCauses.join(', ')}`)
@@ -667,9 +667,9 @@ function setupProposal(value: unknown): SetupProposal {
     const setting = shortText(line.setting, `${stage}’s setting`, 200)
     return { stage, ...(setting !== undefined && { setting }) }
   })
-  const checks = setupList(input.checks, 'Checks').map((check) => {
-    const name = needed(check.name, 'each Check’s name', 80)
-    const passed = passedFlag(check.passed, `the Check ${name}`)
+  const checks = setupList(input.checks, 'checks').map((check) => {
+    const name = needed(check.name, 'each check’s name', 80)
+    const passed = passedFlag(check.passed, `the check ${name}`)
     const reason = shortText(check.reason, `${name}’s reason`, 200)
     if (!passed && reason === undefined) {
       throw new HttpError(400, `${name} failed on the default branch; say why in its reason`)

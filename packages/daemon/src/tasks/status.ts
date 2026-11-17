@@ -216,13 +216,13 @@ function testMarkers(facts: TaskFacts): TaskMarker[] {
     add(
       'checks',
       'waiting',
-      `Waiting for a Check slot · ${ordinal(facts.checksWaiting.place)} in line`,
+      `Waiting for a check slot · ${ordinal(facts.checksWaiting.place)} in line`,
     )
   } else if (facts.checking) {
     const { name, index, total } = facts.checking
     if (facts.testActivity?.checksWaiting)
       add('checks', 'waiting', `${name} · Waiting for a shared test slot`)
-    else add('checks', 'running', `${name} · ${index} of ${total} Checks`)
+    else add('checks', 'running', `${name} · ${index} of ${total} checks`)
   }
   for (const phase of ['running', 'waiting'] as const) {
     const count = facts.testActivity?.[phase] ?? 0
@@ -266,23 +266,23 @@ export function taskActivity(facts: TaskFacts): string | undefined {
   if (facts.waitingOnSimulator) return 'Waiting for a simulator slot'
   if (facts.waitingOnEmulator) return 'Waiting for an emulator slot'
   if (facts.waitingOnPermission === 'lead') return 'The Task Lead is waiting on your permission'
-  if (facts.waitingOnPermission === 'sub-agent') return 'A Sub-Agent is waiting on your permission'
+  if (facts.waitingOnPermission === 'sub-agent') return 'A sub-agent is waiting on your permission'
   if (facts.stopped) return stoppedActivity(facts.stopped)
   if (taskCanResume(facts)) return 'The Task Lead has stopped. Resume to carry on.'
   if (facts.autoMergeLeft) {
     return 'Merge cancelled · GitHub auto-merge is still on; TED keeps trying to turn it off'
   }
   if (facts.movingAfterChecks) {
-    if (!facts.checking) return 'Running Checks before moving on'
+    if (!facts.checking) return 'Running checks before moving on'
     const { name, index, total } = facts.checking
-    return `Running Checks before moving on · ${name} (${index} of ${total})`
+    return `Running checks before moving on · ${name} (${index} of ${total})`
   }
   if (facts.checking) {
     const { name, index, total } = facts.checking
     if (facts.testActivity?.checksWaiting) return `Waiting for a shared test slot · ${name}`
-    return `Running Checks · ${name} (${index} of ${total})`
+    return `Running checks · ${name} (${index} of ${total})`
   }
-  if (facts.checksWaiting) return `Waiting to run Checks · ${ordinal(facts.checksWaiting.place)}`
+  if (facts.checksWaiting) return `Waiting to run checks · ${ordinal(facts.checksWaiting.place)}`
   if (facts.stage !== 'done' && facts.testActivity) {
     const { running, waiting } = facts.testActivity
     if (running > 0 && waiting > 0)

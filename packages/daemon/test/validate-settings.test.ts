@@ -221,7 +221,7 @@ describe('stages.validate.p1_only_from', () => {
       expect(refused).toContain('this is Validate round 2')
       expect(refused).toContain('`stages.validate.p1_only_from: 2`')
       expect(refused).toContain('with `--severity p1`')
-      expect(refused).toContain('An earlier round’s Finding that is still not fixed stays blocking')
+      expect(refused).toContain('An earlier round’s finding that is still not fixed stays blocking')
       expect(refused).toContain('add `--severity unfixed`')
       expect(refused).toContain('`ted outcome advance --review pass --review-notes <n>`')
       expect(output).toContain('PLAIN: ted: in Validate the only sub-agent is TED’s reviewer')
@@ -266,13 +266,13 @@ describe('stages.validate.p1_only_from', () => {
         expect(prompted).toContain(`# Review of the fixes in NB-1, Validate round ${round}`)
         expect(prompted).toContain('## Severity')
         expect(prompted).toContain(
-          'From Validate round 2 this Factory sends a Task back to Work for a new Finding only if it is P1.',
+          'From Validate round 2 this Factory sends a Task back to Work for a new finding only if it is P1.',
         )
         expect(prompted).toContain(
-          'An earlier Finding that is still not fixed stays blocking, whatever its severity',
+          'An earlier finding that is still not fixed stays blocking, whatever its severity',
         )
-        expect(prompted).toContain('new P1 Findings, each with its file')
-        expect(prompted).not.toContain('new blocking Findings in the changed lines')
+        expect(prompted).toContain('new P1 findings, each with its file')
+        expect(prompted).not.toContain('new blocking findings in the changed lines')
       }
 
       const rounds = userMessages(await leadRun(client, task)).filter((m) =>
@@ -282,11 +282,11 @@ describe('stages.validate.p1_only_from', () => {
       for (const round of rounds) {
         expect(round).toContain('This Factory sets `stages.validate.p1_only_from: 2`')
         expect(round).toContain('add `--severity p1` to `ted outcome back`')
-        expect(round).toContain('or `--severity unfixed` when the only blocking Findings')
+        expect(round).toContain('or `--severity unfixed` when the only blocking findings')
         expect(round).toContain(
-          'An earlier round’s Finding that is still not fixed stays blocking, whatever its severity.',
+          'An earlier round’s finding that is still not fixed stays blocking, whatever its severity.',
         )
-        expect(round).not.toContain('A new Finding about code the fixes didn’t touch is a note')
+        expect(round).not.toContain('A new finding about code the fixes didn’t touch is a note')
       }
     },
     slow,
@@ -376,7 +376,7 @@ describe('stages.validate.p1_only_from', () => {
 
       const output = await outputWith(client, task, 'UNFIXED:')
       expect(output).toContain(
-        'no earlier round of Validate sent this Task back with Findings before round 3',
+        'no earlier round of Validate sent this Task back with findings before round 3',
       )
 
       const sendBacks = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
@@ -468,9 +468,9 @@ describe('a base conflict in a P1-only round', () => {
     expect(third).toContain(
       'a conflict resolution that drops or breaks what the base branch changed in the conflicting lines counts as P1 too',
     )
-    expect(third).toContain('End with two lists: P1 Findings in the resolution')
-    expect(third).not.toContain('blocking Findings in the resolution or the changed lines')
-    expect(third).not.toContain('An earlier Finding that is still not fixed')
+    expect(third).toContain('End with two lists: P1 findings in the resolution')
+    expect(third).not.toContain('blocking findings in the resolution or the changed lines')
+    expect(third).not.toContain('An earlier finding that is still not fixed')
 
     const round = userMessages(await leadRun(client, task)).find((m) =>
       m.includes('# Validate after a base conflict (round 2, limit 5)'),
@@ -480,7 +480,7 @@ describe('a base conflict in a P1-only round', () => {
     expect(round).toContain('counts as P1 too')
     expect(round).toContain('no sub-agent that reviews it')
     expect(round).not.toContain('any other sub-agent in Validate')
-    expect(round).not.toContain('A new Finding about code the resolution didn’t touch')
+    expect(round).not.toContain('A new finding about code the resolution didn’t touch')
   }, 150_000)
 })
 
@@ -491,7 +491,7 @@ describe('the texts TED writes for a round', () => {
   test('a conflict round says TED refuses other sub-agents only when it does', () => {
     const plain = conflictRoundText({ round: 1 })
     expect(plain).toContain('TED refuses a second reviewer and any other sub-agent in Validate.')
-    expect(plain).toContain('A new Finding about code the resolution didn’t touch is a note')
+    expect(plain).toContain('A new finding about code the resolution didn’t touch is a note')
     const allowed = conflictRoundText({ round: 1, subAgents: true })
     expect(allowed).toContain('no sub-agent that reviews it')
     expect(allowed).toContain('TED refuses a second reviewer in Validate.')
@@ -505,11 +505,11 @@ describe('the texts TED writes for a round', () => {
       validateRoundText({ round: 3, rounds, scoped: false, baseConflict: true, p1OnlyFrom: 2 }),
       conflictRoundText({ round: 3, p1OnlyFrom: 2 }),
     ]) {
-      expect(text).toContain('a new Finding sends the Task back to Work only if it is P1')
-      expect(text).toContain('An earlier round’s Finding that is still not fixed stays blocking')
+      expect(text).toContain('a new finding sends the Task back to Work only if it is P1')
+      expect(text).toContain('An earlier round’s finding that is still not fixed stays blocking')
       expect(text).toContain('`--severity unfixed`')
       expect(text).not.toContain('a problem anywhere in the change can be blocking')
-      expect(text).not.toContain('is a note, not a blocking Finding, unless it is P1')
+      expect(text).not.toContain('is a note, not a blocking finding, unless it is P1')
     }
     expect(validateRoundText({ round: 3, rounds, scoped: true, p1OnlyFrom: 2 })).not.toContain(
       'counts as P1 too',
@@ -522,21 +522,21 @@ describe('the texts TED writes for a round', () => {
   test('a scoped reviewer prompt asks for blocking Findings, or for P1 Findings under the rule', () => {
     const input = { displayId: 'NB-1', round: 3, rounds, repos, multiRepo: false, added: 'Context' }
     const plain = scopedReviewPrompt(input)
-    expect(plain).toContain('new blocking Findings in the changed lines')
+    expect(plain).toContain('new blocking findings in the changed lines')
     expect(plain).not.toContain('## Severity')
     const p1Only = scopedReviewPrompt({ ...input, p1OnlyFrom: 2 })
     expect(p1Only).toContain('## Severity')
-    expect(p1Only).toContain('each earlier Finding as fixed or not fixed; new P1 Findings')
-    expect(p1Only).not.toContain('new blocking Findings')
+    expect(p1Only).toContain('each earlier finding as fixed or not fixed; new P1 findings')
+    expect(p1Only).not.toContain('new blocking findings')
 
     const conflict = { displayId: 'NB-1', repos, sendBacks: [], found: [], multiRepo: false }
     const resolved = conflictReviewPrompt({ ...conflict, added: 'Context' })
-    expect(resolved).toContain('blocking Findings in the resolution or the changed lines')
+    expect(resolved).toContain('blocking findings in the resolution or the changed lines')
     expect(resolved).not.toContain('## Severity')
     const both = conflictReviewPrompt({ ...conflict, added: 'Context', p1OnlyFrom: 2 })
     expect(both).toContain('## Severity')
-    expect(both).toContain('P1 Findings in the resolution or the changed lines')
-    expect(both).not.toContain('blocking Findings in the resolution')
+    expect(both).toContain('P1 findings in the resolution or the changed lines')
+    expect(both).not.toContain('blocking findings in the resolution')
     expect(both).toContain('keeps both sides’ behaviour')
   })
 

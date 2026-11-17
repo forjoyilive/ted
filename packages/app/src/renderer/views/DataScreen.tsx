@@ -48,7 +48,7 @@ function Updating({ status }: { status: Extract<DataStatus, { state: 'updating' 
     <>
       <h1 className={styles.title}>Updating TED’s data…</h1>
       <p className={styles.body}>
-        TED {status.version} is rebuilding its Tasks and Comments from the event log. Runs keep
+        TED {status.version} is rebuilding its Tasks and comments from the event log. Runs keep
         going in the background.
       </p>
       <div className={styles.progressStack}>

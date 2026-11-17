@@ -54,7 +54,7 @@ test('live slot updates populate Working Runs and Open in List opens the queue',
   await act(async () => a.emit({ type: 'slots-changed', slots: a.state.slots }))
   await user().click(
     screen.getByRole('button', {
-      name: '1 of 1 slot in use · 2 Checks running, 1 waiting · 1 queued',
+      name: '1 of 1 slot in use · 2 checks running, 1 waiting · 1 queued',
     }),
   )
   const dialog = screen.getByRole('dialog', { name: 'Working Runs' })
@@ -71,10 +71,10 @@ test('live slot updates populate Working Runs and Open in List opens the queue',
   expect(within(d.getByRole('region', { name: 'Working' })).queryByText('Coord')).toBeNull()
   const checks = within(d.getByRole('region', { name: 'Checks' }))
   expect(checks.getByText('NB-3', { exact: true })).toBeTruthy()
-  expect(checks.getByText('widgets · Running Checks')).toBeTruthy()
+  expect(checks.getByText('widgets · Running checks')).toBeTruthy()
   expect(checks.getByText('NB-4 · Wait for Checks')).toBeTruthy()
-  expect(checks.getByText('widgets · Waiting to run Checks')).toBeTruthy()
-  expect(checks.getByText('Scheduled Checks')).toBeTruthy()
+  expect(checks.getByText('widgets · Waiting to run checks')).toBeTruthy()
+  expect(checks.getByText('Scheduled checks')).toBeTruthy()
   expect(checks.getByText('1 running')).toBeTruthy()
   expect(checks.queryByText('No slot')).toBeNull()
   expect(d.getByText('NB-2 · Second Task')).toBeTruthy()
@@ -91,7 +91,7 @@ test('empty Working Runs explains no work and Escape closes it', async () => {
   a.mount()
   await user().click(await screen.findByRole('button', { name: '0 of 3 slots in use' }))
   const dialog = screen.getByRole('dialog', { name: 'Working Runs' })
-  expect(within(dialog).getByText('No Runs working. No Checks. Nothing queued.')).toBeTruthy()
+  expect(within(dialog).getByText('No Runs working. No checks. Nothing queued.')).toBeTruthy()
   fireEvent.keyDown(window, { key: 'Escape' })
   expect(screen.queryByRole('dialog')).toBeNull()
 })
@@ -129,12 +129,12 @@ test('Limits updates the machine cap and follows live slot changes', async () =>
   a.mount()
   await a.settings()
   await user().click(screen.getByRole('button', { name: 'Limits' }))
-  await screen.findByText('Now: 1 of 1 slot in use · 2 Checks running, 1 waiting · 1 queued')
+  await screen.findByText('Now: 1 of 1 slot in use · 2 checks running, 1 waiting · 1 queued')
   await user().click(screen.getByRole('button', { name: 'More working Runs' }))
   expect(a.request).toHaveBeenCalledWith('updateSettings', { maxWorkingRuns: 2 })
   a.state.slots = { ...a.state.slots, limit: 2, working: 2, queued: 0, queue: [] }
   await act(async () => a.emit({ type: 'slots-changed', slots: a.state.slots }))
-  expect(screen.getByText('Now: 2 of 2 slots in use · 2 Checks running, 1 waiting')).toBeTruthy()
+  expect(screen.getByText('Now: 2 of 2 slots in use · 2 checks running, 1 waiting')).toBeTruthy()
 })
 
 test('Limits turns off waiting when busy and says when starts are held', async () => {
@@ -160,7 +160,7 @@ test('Limits turns off waiting when busy and says when starts are held', async (
   expect(
     screen
       .getByText(
-        /^Now: 1 of \d+ slots? in use · 2 Checks running, 1 waiting · 1 queued · this computer is busy$/,
+        /^Now: 1 of \d+ slots? in use · 2 checks running, 1 waiting · 1 queued · this computer is busy$/,
       )
       .getAttribute('title'),
   ).toBe('Memory available: 7% · waits below 10%, starts again above 20%')

@@ -204,7 +204,7 @@ describe('Comments into the Task Lead’s Run', () => {
       expect((await comment(client, task, posted.id)).delivered?.runId).toBe(working.leadRunId)
       const chat = await client.ok<RunChat>('GET', `/runs/${working.leadRunId}/chat`)
       const forwarded = chat.items.flatMap((item) =>
-        item.kind === 'ted' && item.text.includes('The human posted a Comment') ? [item.text] : [],
+        item.kind === 'ted' && item.text.includes('The human posted a comment') ? [item.text] : [],
       )
       expect(forwarded).toHaveLength(2)
       expect(forwarded[0]).toContain(posted.body)
@@ -218,7 +218,7 @@ describe('Comments into the Task Lead’s Run', () => {
       ).toBe(true)
       expect(await threadEvents(client, task)).not.toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ text: 'You steered the Task Lead in its Conversation' }),
+          expect.objectContaining({ text: 'You steered the Task Lead in its conversation' }),
         ]),
       )
       await writeFile(finish, '')

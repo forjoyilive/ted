@@ -289,7 +289,7 @@ export function ArchiveDialog({
   const action = does.length === 0 ? '' : ` TED ${does.join(' and ')}.`
   const kept =
     task.repos.length > 0
-      ? 'Comments, the brief, Conversations and the branches are kept.'
+      ? 'Comments, the brief, conversations and the branches are kept.'
       : 'Comments and the brief are kept.'
 
   async function archive() {
@@ -545,10 +545,10 @@ export function DeleteDialog({
     'the Task',
     ...(runs > 0
       ? [
-          `its ${runs === 1 ? 'Run with its Conversation' : `${runs} Runs with their Conversations`}`,
+          `its ${runs === 1 ? 'Run with its conversation' : `${runs} Runs with their conversations`}`,
         ]
       : []),
-    'its Comments',
+    'its comments',
     'its brief',
   ]
 
@@ -672,16 +672,16 @@ export function ResetDialog({ task, onClose }: { task: Task; onClose: () => void
   const worktrees = task.repos.filter((r) => !r.removed)
   const branches = [...new Set(task.repos.map((r) => r.branch))]
   const thread = [
-    'Comments',
+    'comments',
     'questions and answers',
     'the Task brief',
-    'Findings',
+    'findings',
     ...(runs === 0
       ? []
       : [
           runs === 1
-            ? 'the Run with its Conversation'
-            : `its ${runs} Runs with their Conversations`,
+            ? 'the Run with its conversation'
+            : `its ${runs} Runs with their conversations`,
         ]),
   ]
   const lost = [
@@ -701,7 +701,7 @@ export function ResetDialog({ task, onClose }: { task: Task; onClose: () => void
         ]
       : []),
     `The thread: ${joinAnd(thread)}`,
-    'Edits to the description, and files attached in Comments',
+    'Edits to the description, and files attached in comments',
   ]
   const files =
     task.attachments.length === 0
@@ -992,13 +992,13 @@ export function FollowUpDialog({
     <Dialog onClose={() => !submitting.current && !busy && onClose()}>
       {(headingId) => (
         <>
-          <h2 id={headingId} className={styles.heading}>{`Follow-Up to ${task.displayId}?`}</h2>
+          <h2 id={headingId} className={styles.heading}>{`Follow-up to ${task.displayId}?`}</h2>
           <p className={styles.body}>
             {`${task.title}. TED creates a new Task linked to ${task.displayId} that starts from its brief and pull requests. It skips Backlog and waits for a free Run slot. ${task.displayId} stays Done.`}
           </p>
           <textarea
             className={`${styles.text} ${grow.text}`}
-            aria-label="What should the Follow-Up change?"
+            aria-label="What should the follow-up change?"
             placeholder="What should change?"
             value={text}
             onChange={(event) => setText(event.target.value)}
@@ -1018,7 +1018,7 @@ export function FollowUpDialog({
               Cancel
             </Button>
             <Button variant="primary" pending={busy} disabled={busy} onClick={() => followUp()}>
-              Follow-Up
+              Follow-up
             </Button>
           </div>
         </>
@@ -1058,7 +1058,7 @@ export function ArchiveDoneDialog({
         <>
           <h2 id={headingId} className={styles.heading}>{`Archive ${tasks}?`}</h2>
           <p className={styles.body}>
-            They leave the Board and the List. Comments, briefs and Conversations are kept, and you
+            They leave the Board and the List. Comments, briefs and conversations are kept, and you
             can unarchive any of them later.
           </p>
           {error !== undefined && (

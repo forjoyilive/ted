@@ -257,7 +257,7 @@ export function createEmulators(options: {
     })
     throw new RequestError(
       409,
-      `TED couldn’t run the Android SDK’s ${missing.join(', ')}, so it can’t start Android emulator Apps. Install Android Studio with its command-line tools, or set ANDROID_HOME in your shell profile, then press Check again on the banner.`,
+      `TED couldn’t run the Android SDK’s ${missing.join(', ')}, so it can’t start Android emulator Apps. Install Android Studio with its command-line tools, or set ANDROID_HOME in your shell profile, then press check again on the banner.`,
     )
   }
 

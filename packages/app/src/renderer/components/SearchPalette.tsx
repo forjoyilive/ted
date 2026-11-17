@@ -101,7 +101,7 @@ function taskContent(hit: TaskHit, factories: readonly Factory[], stages: Stages
 function commentAuthor(hit: CommentHit): string {
   if (hit.author.kind === 'human') return 'You'
   if (hit.author.kind === 'ted') return 'TED'
-  return hit.leadAuthor ? 'Task Lead' : 'Sub-Agent'
+  return hit.leadAuthor ? 'Task Lead' : 'Sub-agent'
 }
 
 function commentContent(hit: CommentHit, now: number) {
@@ -480,7 +480,7 @@ export function SearchPalette({
               aria-activedescendant={items.length > 0 ? optionId(active) : undefined}
               aria-label={choosing ? choosing.label : 'Search or run a command'}
               placeholder={
-                choosing ? 'Choose…' : 'Search Tasks, Conversations, settings and commands'
+                choosing ? 'Choose…' : 'Search Tasks, conversations, settings and commands'
               }
               value={query}
               spellCheck={false}

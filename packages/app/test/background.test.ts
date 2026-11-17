@@ -55,7 +55,7 @@ describe('menu-bar menu', () => {
             text: 'Claude Code is signed out',
             raisedAt: '2026-11-08T09:00:00.000Z',
           }),
-          banner({ id: 'nb', factoryId: 'nb', text: 'No Checks set up' }),
+          banner({ id: 'nb', factoryId: 'nb', text: 'No checks set up' }),
         ],
         updateReady: '1.4',
       },
