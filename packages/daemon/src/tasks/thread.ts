@@ -10,6 +10,7 @@ import type {
   ValidationSnapshot,
 } from '@ted/protocol'
 import { trackerName } from '@ted/protocol'
+import { type CheckRun, checkFailed, checkLabel } from '@ted/protocol/checks'
 import { isArray, isString, type Untyped } from '@ted/protocol/parse'
 import { stageDisplayName, validates } from '@ted/protocol/stage'
 import { diffTexts } from '../agents/diff.ts'
@@ -25,6 +26,7 @@ export interface ThreadContext {
   descriptions?: readonly DescriptionVersion[]
   planTitleOf?: (planId: string) => string | undefined
   factoryNameOf?: (factoryId: string) => string | undefined
+  checkRunOf?: (checkRunId: string) => CheckRun | undefined
 }
 
 const planEndLines: Record<string, string> = {
@@ -671,10 +673,19 @@ export function threadEvents(
               : ` (round ${data.round})`
         const checkRunId = text(data.checkRunId) || undefined
         const findings = text(data.findings).trim()
+        const handOff = checkRunId === undefined ? undefined : context.checkRunOf?.(checkRunId)
+        const failedCheck =
+          handOff?.trigger === 'hand-off' && validates(handOff.stage)
+            ? handOff.checks.find((c) => checkFailed(c.state))
+            : undefined
         add(
           entry,
           'failure',
-          `${stageTitle(text(data.from))} sent this back to ${stageTitle(text(data.to))}${round}${
+          `${
+            failedCheck
+              ? `${checkLabel(failedCheck)} failed in ${stageTitle(text(data.from))}, back to ${stageTitle(text(data.to))}`
+              : `${stageTitle(text(data.from))} sent this back to ${stageTitle(text(data.to))}`
+          }${round}${
             judgedNow ? reviewedBy(judgedNow) : ''
           }${causes.get(entry.at) === 'base-conflict' ? ' · base conflict' : ''}${severity === 'p1' ? ' · P1 declared' : severity === 'unfixed' ? ' · earlier Finding unfixed declared' : ''}`,
           checkRunId === undefined ? findings : (findings.split(/\n\s*\n/)[0] ?? findings),

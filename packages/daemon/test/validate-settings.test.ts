@@ -218,7 +218,7 @@ describe('stages.validate.p1_only_from', () => {
 
       const output = await outputWith(client, task, 'PLAIN:')
       const refused = output.split('\n').find((line) => line.startsWith('NOSEV: ')) ?? ''
-      expect(refused).toContain('this is Validate round 2')
+      expect(refused).toContain('this is Validate round 3')
       expect(refused).toContain('`stages.validate.p1_only_from: 2`')
       expect(refused).toContain('with `--severity p1`')
       expect(refused).toContain('An earlier round’s finding that is still not fixed stays blocking')
@@ -231,9 +231,10 @@ describe('stages.validate.p1_only_from', () => {
       const sendBacks = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
       expect(sendBacks.map((b) => [b.cause, b.round, b.severity])).toEqual([
         ['review', 1, undefined],
-        ['review', 2, 'p1'],
-        ['review', 3, undefined],
-        ['review', 4, 'unfixed'],
+        ['check', 2, undefined],
+        ['review', 3, 'p1'],
+        ['review', 4, undefined],
+        ['review', 5, 'unfixed'],
       ])
       const checkRuns = await client.ok<CheckRun[]>('GET', `/tasks/${task.id}/check-runs`)
       expect(checkRuns.map((r) => [r.trigger, r.outcome])).toEqual([
@@ -245,22 +246,25 @@ describe('stages.validate.p1_only_from', () => {
         ['hand-off', 'passed'],
       ])
       const events = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
+      expect(events.map((e) => e.text)).toContain(
+        'Tests failed in Validate, back to Work (round 2 of 5)',
+      )
       const lines = events.map((e) => e.text).filter((text) => text.includes('sent this back'))
       expect(lines).toHaveLength(4)
       expect(lines[0]).not.toContain('declared')
-      expect(lines[1]).toMatch(/\(round 2 of 5\).* · P1 declared$/)
+      expect(lines[1]).toMatch(/\(round 3 of 5\).* · P1 declared$/)
       expect(lines[2]).not.toContain('declared')
-      expect(lines[3]).toMatch(/\(round 4 of 5\).* · earlier Finding unfixed declared$/)
+      expect(lines[3]).toMatch(/\(round 5 of 5\).* · earlier Finding unfixed declared$/)
 
       const [first, second, third, fourth, fifth, ...more] = await reviewerPrompts(client, task)
       expect(more).toEqual([])
       expect(first).toContain('# Your instructions from the Task Lead of NB-1')
       expect(first).not.toContain('## Severity')
       for (const [prompted, round] of [
-        [second, 2],
-        [third, 3],
-        [fourth, 4],
-        [fifth, 5],
+        [second, 3],
+        [third, 4],
+        [fourth, 5],
+        [fifth, 6],
       ] as const) {
         expect(prompted).toContain('# Your instructions from Ted')
         expect(prompted).toContain(`# Review of the fixes in NB-1, Validate round ${round}`)

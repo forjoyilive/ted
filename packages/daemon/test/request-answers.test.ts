@@ -95,7 +95,7 @@ beforeEach(async () => {
       return port.find(taskId)
     },
     backMessage: (_workflow, _to, _from, sendBack) => sendBack.findings,
-    leaveWorkToDiagnose: unexpected,
+    diagnoseInValidate: unexpected,
     settleDependents: () => {
       effects.push('unblocked')
     },
@@ -1099,41 +1099,40 @@ test('send-back missing metadata is rejected, and non-loop choices are delivered
   expect(effects).toEqual(['delivered'])
 })
 
-test('Diagnose in Validate on the failing-Checks question answers only after the guards pass, then moves the Task', async () => {
-  stage('work')
-  const comment = post({ kind: 'send-back' }, { choices: ['Try again', 'Diagnose in Validate'] })
+test('Diagnose in Validate on a hand-off Check ask keeps the Task in Validate and runs the checks with diagnosis', async () => {
+  stage('validate')
+  port.gateWorkflow = async () => ({ workflow: loopWorkflow(), layers: [] })
+  const run = store.startChecks({
+    taskId,
+    trigger: 'hand-off',
+    stage: 'validate',
+    checks: [{ name: 'Types', command: 'tsc', timeout: '1m', state: 'waiting' }],
+  })
+  const comment = post(
+    { kind: 'send-back' },
+    { choices: ['Try again', 'Back to Design', 'Diagnose in Validate'] },
+  )
   store.askAboutSendBack({
     commentId: comment.id,
     taskId,
-    from: 'work',
+    from: 'validate',
     to: 'work',
-    findings: 'Tests failed',
-    loop: false,
+    findings: 'Types failed',
+    loop: true,
+    checkRunId: run.id,
   })
-  port.leaveWorkToDiagnose = async () => {
-    throw new Error('the branch conflicts with main')
-  }
-  await expect(
-    answer(comment, { action: 'answer', choice: 'Diagnose in Validate' }),
-  ).rejects.toThrow('conflicts with main')
-  expect(store.getComment(comment.id)?.answer).toBeUndefined()
-  expect(effects).toEqual([])
-
   const told: string[] = []
-  port.leaveWorkToDiagnose = async (task) => {
-    effects.push('guards')
-    return async (message) => {
-      effects.push('move:validate')
-      told.push(message)
-      return task
-    }
+  port.diagnoseInValidate = (_task, message) => {
+    effects.push('diagnose')
+    told.push(message)
   }
   await answer(comment, {
     action: 'answer',
     choice: 'Diagnose in Validate',
     text: 'Broken on main',
   })
-  expect(effects).toEqual(['guards', 'move:validate'])
+  expect(effects).toEqual(['diagnose'])
+  expect(store.getTask(taskId)?.stage).toBe('validate')
   expect(store.getComment(comment.id)?.answer).toMatchObject({
     kind: 'answered',
     choice: 'Diagnose in Validate',
