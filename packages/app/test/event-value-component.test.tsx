@@ -142,7 +142,7 @@ test('Library event refresh preserves a draft until Discard reloads the current 
     }),
   })
   render(<LibraryPage settings={defaultMachineSettings} dispatch={() => undefined} />)
-  const gate = await screen.findByRole('switch', { name: 'Review Sign-Off' })
+  const gate = await screen.findByRole('switch', { name: 'Review sign-off' })
   await user().click(gate)
   expect(gate.getAttribute('aria-checked')).toBe('false')
   version = 'v2'
@@ -252,7 +252,7 @@ test('Library Save loads no second view for its own event, and reloads after one
   const api = bridge({ library: () => onDisk, saveLibrary: () => saving.promise })
   const loads = () => api.request.mock.calls.filter(([name]) => name === 'library').length
   render(<LibraryPage settings={defaultMachineSettings} dispatch={() => undefined} />)
-  const gate = await screen.findByRole('switch', { name: 'Review Sign-Off' })
+  const gate = await screen.findByRole('switch', { name: 'Review sign-off' })
 
   await user().click(gate)
   await user().click(screen.getByRole('button', { name: 'Save' }))

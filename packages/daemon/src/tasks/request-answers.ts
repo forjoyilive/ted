@@ -485,7 +485,7 @@ export function createRequestAnswers(
       if (!liveLead(current)) store.holdAnswer(comment.id)
       await enterValidate(
         [
-          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${diagnoseChoice}, so Ted moved this Task to Validate although the Checks didn’t pass in Work. Ted runs the Checks at entry. A Check that fails there is a failure case: assess it as Validate’s instructions say, and the human can then choose Retry, Fix in this Task or Accept this failure.`,
+          `The human answered “${comment.title ?? firstLine(comment.body)}” with ${diagnoseChoice}, so Ted moved this Task to Validate although the checks didn’t pass in Work. Ted runs the checks at entry. A check that fails there is a failure case: assess it as Validate’s instructions say, and the human can then choose Retry, Fix in this Task or Accept this failure.`,
           ...(text !== '' ? [`The human added:\n\n${text}`] : []),
         ].join('\n\n'),
       )
@@ -548,7 +548,7 @@ export function createRequestAnswers(
       )
     } else {
       pullRequestWork(task.id, 'again')
-      const open = `# Open Findings\n\nThe human chose “${choice}” with Validate’s blocking Findings still open. Put them in the Task brief under “Current state” so the human sees them at ${stageTitle(next)}:\n\n${ask.findings}`
+      const open = `# Open findings\n\nThe human chose “${choice}” with Validate’s blocking findings still open. Put them in the Task brief under “Current state” so the human sees them at ${stageTitle(next)}:\n\n${ask.findings}`
       await move(
         current,
         resolution,
@@ -771,7 +771,7 @@ export function createRequestAnswers(
     const answering = store.getComment(id)
     if (answering && !answering.gate) await untilFree(answering.taskId)
     const comment = store.getComment(id)
-    if (!comment) throw new RequestError(404, `no Comment ${id}`)
+    if (!comment) throw new RequestError(404, `no comment ${id}`)
     if (comment.kind === 'note') throw new RequestError(400, 'a note has nothing to answer')
     const task = find(comment.taskId)
     if (automatic) await automatic.guard(comment)
@@ -944,7 +944,7 @@ export function createRequestAnswers(
             text,
             ...(lines !== undefined ? [lines] : []),
             picksStage
-              ? `Decide whether the fix belongs in Work or in Design, write the human’s request into a Findings file, and send the Task back with \`ted outcome back --to work --findings <file>\` (or \`--to design\`). The fix passes Validate again and comes back with a new sign-off.`
+              ? `Decide whether the fix belongs in Work or in Design, write the human’s request into a findings file, and send the Task back with \`ted outcome back --to work --findings <file>\` (or \`--to design\`). The fix passes Validate again and comes back with a new sign-off.`
               : hasClarifyRounds(comment.stage ?? '')
                 ? 'The Task stays in Clarify. Ask another round about it with `ted ask --round <file>`. When it’s answered, write the Task brief again with `ted brief write`, then run `ted outcome advance` for a new sign-off.'
                 : `The Task stays in ${stageTitle(comment.stage ?? '')}. Make the changes, write the Task brief again with \`ted brief write\`, then run \`ted outcome advance\`.`,

@@ -685,10 +685,8 @@ const diffFlags = ['--no-ext-diff', '--no-textconv', '--no-renames', '--no-color
 async function together<T extends readonly unknown[]>(
   reads: { [K in keyof T]: Promise<T[K]> },
 ): Promise<T> {
-  const settled = await Promise.allSettled(reads)
-  const failed = settled.find((result) => result.status === 'rejected')
-  if (failed) throw failed.reason
-  return settled.map((result) => (result as PromiseFulfilledResult<unknown>).value) as unknown as T
+  await Promise.allSettled(reads)
+  return Promise.all(reads)
 }
 
 export async function workingChanges(

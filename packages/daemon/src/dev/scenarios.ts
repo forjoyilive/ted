@@ -31,8 +31,8 @@ export function demoCheckProblem(runs: readonly CheckRun[]): string | undefined 
   const run = runs.find((r) => r.outcome === 'failed' || r.outcome === 'interrupted')
   if (!run) return undefined
   return run.outcome === 'interrupted'
-    ? `Demo Check run ${run.id} was interrupted: Ted could not run it, so the Task has no Check coverage. The daemon log says why.`
-    : `Demo Check failed: ${JSON.stringify(run)}`
+    ? `Demo check run ${run.id} was interrupted: Ted could not run it, so the Task has no check coverage. The daemon log says why.`
+    : `Demo check failed: ${JSON.stringify(run)}`
 }
 
 interface DemoState {
@@ -160,9 +160,7 @@ async function populateScenarios(
         'done',
         'ci',
         'partlyMerged',
-      ].includes(name)
-        ? { clarifyDepth: 'none' as const }
-        : {}),
+      ].includes(name) && { clarifyDepth: 'none' as const }),
     })
     if (factory === garden.key && name !== 'partlyMerged')
       await client.setTaskRepos(task.id, { set: ['demo/garden'] })
@@ -332,7 +330,7 @@ async function populateScenarios(
       const failed = checks.find((r) => r.outcome === 'failed')
       if (failed)
         throw new Error(
-          `Demo Check failed: ${JSON.stringify(await client.getCheckRun(failed.id))}; ${JSON.stringify(await client.checkOutput(failed.id, 0))}`,
+          `Demo check failed: ${JSON.stringify(await client.getCheckRun(failed.id))}; ${JSON.stringify(await client.checkOutput(failed.id, 0))}`,
         )
       const problem = demoCheckProblem(checks)
       if (problem) throw new Error(problem)
@@ -343,7 +341,7 @@ async function populateScenarios(
       if (current.stage === 'validate')
         await until(
           async () => (await client.listCheckRuns(task.id)).some((r) => r.finishedAt !== undefined),
-          'Validate Checks',
+          'Validate checks',
         )
       const open = (await client.listComments(task.id)).findLast(
         (c) => c.kind !== 'note' && !c.answer,

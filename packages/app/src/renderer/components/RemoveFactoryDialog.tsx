@@ -20,7 +20,7 @@ export function removalLines(summary: FactoryRemoval): string[] {
   lines.push(
     summary.tasks === 0
       ? 'Deletes the Factory from Ted. It has no Tasks.'
-      : `Deletes ${count(summary.tasks, 'Task')} with their Comments, Runs and Conversations from Ted.`,
+      : `Deletes ${count(summary.tasks, 'Task')} with their comments, Runs and conversations from Ted.`,
   )
   const clones =
     summary.clones.length === 0

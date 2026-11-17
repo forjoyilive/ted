@@ -956,7 +956,7 @@ function SourceCard({
               <>
                 Source set.
                 <Help>
-                  Ted copied the title, Priority and branch name from Linear. The issue’s
+                  Ted copied the title, priority and branch name from Linear. The issue’s
                   description goes to the Task Lead as context, and its images and uploaded files
                   come with the Task.
                 </Help>
@@ -1049,7 +1049,7 @@ function AddLinearKey({ onSaved }: { onSaved: () => void }) {
   return (
     <div className={styles.keyNote}>
       <p className={styles.keyText}>
-        Add a Linear API key to fill in the title, Priority and branch from Linear.
+        Add a Linear API key to fill in the title, priority and branch from Linear.
       </p>
       <div className={styles.keyRow}>
         <input

@@ -14,19 +14,19 @@ export function checkRunHeadline(
   const failed = checkRun.checks.find((c) => checkFailed(c.state))
   const stage = stageName(checkRun.stage)
   if (checkRun.trigger === 'agent') {
-    if (checkRun.waiting === true) return ['run', `${stage} is waiting to run Checks`]
-    if (checkRun.finishedAt === undefined) return ['run', `${stage} is running Checks`]
-    return [failed ? 'failure' : 'run', `${stage} ran Checks`]
+    if (checkRun.waiting === true) return ['run', `${stage} is waiting to run checks`]
+    if (checkRun.finishedAt === undefined) return ['run', `${stage} is running checks`]
+    return [failed ? 'failure' : 'run', `${stage} ran checks`]
   }
-  if (checkRun.waiting === true) return ['run', 'Waiting to run Checks']
+  if (checkRun.waiting === true) return ['run', 'Waiting to run checks']
   if (checkRun.finishedAt === undefined) {
     const running = checkRun.checks.findIndex((c) => c.state === 'running')
     const check = checkRun.checks[running]
     return [
       'run',
       check
-        ? `Running Checks · ${checkLabel(check)} (${running + 1} of ${checkRun.checks.length})`
-        : 'Running Checks',
+        ? `Running checks · ${checkLabel(check)} (${running + 1} of ${checkRun.checks.length})`
+        : 'Running checks',
     ]
   }
   if (checkRun.outcome === 'interrupted') return ['quiet', 'Checks stopped before they finished']

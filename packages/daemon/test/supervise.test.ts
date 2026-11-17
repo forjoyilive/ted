@@ -232,7 +232,7 @@ async function fakeDaemon(status: number, body: unknown, holdLock: boolean) {
     JSON.stringify({ port, token: 'file-token', pid, version: '0.0.1' }),
   )
   const requests = () =>
-    lines.filter((l) => l.startsWith('[')).map((l) => JSON.parse(l) as [string, string, string])
+    lines.flatMap((l) => (l.startsWith('[') ? [JSON.parse(l) as [string, string, string]] : []))
   return { fake, decoy, requests }
 }
 

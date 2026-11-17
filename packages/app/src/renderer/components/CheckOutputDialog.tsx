@@ -128,7 +128,7 @@ function RecordedCheckOutput({
       ) : (
         <pre className={`${styles.output} ${text === undefined ? styles.pending : ''}`}>
           {text === undefined ? (
-            <Loading terminal label="Loading Check output…" />
+            <Loading terminal label="Loading check output…" />
           ) : text === '' ? (
             'No output.'
           ) : (

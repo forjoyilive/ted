@@ -194,7 +194,7 @@ export function threadEvents(
   let judged: Record<string, unknown> | undefined
   let declared: string | undefined
   let depthSet = false
-  const splits = new Set(log.filter((e) => e.name === 'v1.TaskSplit').map((e) => e.at))
+  const splits = new Set(log.flatMap((e) => (e.name === 'v1.TaskSplit' ? [e.at] : [])))
   const descriptionChanges = (version: unknown) => {
     const versions = context.descriptions ?? []
     const at = typeof version === 'number' ? version : undefined
@@ -203,12 +203,12 @@ export function threadEvents(
     return before && after ? { changes: diffTexts('Description', before.text, after.text) } : {}
   }
   const edits = new Map(
-    log.filter((e) => e.name === 'v1.TaskEdited').map((e) => [e.at, e.data.version] as const),
+    log.flatMap((e) => (e.name === 'v1.TaskEdited' ? [[e.at, e.data.version] as const] : [])),
   )
   const causes = new Map(
-    log
-      .filter((e) => e.name === 'v1.SendBackCauseRecorded')
-      .map((e) => [e.at, e.data.cause] as const),
+    log.flatMap((e) =>
+      e.name === 'v1.SendBackCauseRecorded' ? [[e.at, e.data.cause] as const] : [],
+    ),
   )
   const startCauses = new Map(
     log.flatMap((e) =>
@@ -301,7 +301,7 @@ export function threadEvents(
         break
       }
       case 'v1.TaskFollowsUp':
-        add(entry, 'edit', `Follow-Up to ${context.displayIdOf(text(data.originalId))}`)
+        add(entry, 'edit', `Follow-up to ${context.displayIdOf(text(data.originalId))}`)
         break
       case 'v1.TaskFollowedUp':
         add(entry, 'done', `You followed up in ${context.displayIdOf(text(data.followUpId))}`)
@@ -625,7 +625,7 @@ export function threadEvents(
         add(
           entry,
           'failure',
-          `This computer ran out of memory, so the Check “${text(data.name)}” was stopped. Ted didn’t count it as a failure: it runs the Check again when memory frees up, or asks you after a second stop in the same Stage.`,
+          `This computer ran out of memory, so the check “${text(data.name)}” was stopped. Ted didn’t count it as a failure: it runs the check again when memory frees up, or asks you after a second stop in the same Stage.`,
           undefined,
           text(data.checkRunId),
         )
@@ -817,7 +817,7 @@ export function threadEvents(
           entry,
           'run',
           data.parentRunId
-            ? `Sub-Agent “${text(data.name)}” started · ${agentLine(data)}`
+            ? `Sub-agent “${text(data.name)}” started · ${agentLine(data)}`
             : `Task Lead started · ${agentLine(data)}`,
         )
         break
@@ -828,7 +828,7 @@ export function threadEvents(
         break
       }
       case 'v1.TaskGatesChanged':
-        add(entry, 'edit', 'You changed this Task’s Sign-Offs')
+        add(entry, 'edit', 'You changed this Task’s sign-offs')
         break
       case 'v1.GateKeptOvernight':
         add(
@@ -836,14 +836,14 @@ export function threadEvents(
           'quiet',
           `Autopilot is on, but ${
             overnightGuardTexts[text(data.reason) as OvernightGuard] ?? overnightGuardTexts.settings
-          }, so its ${stageTitle(text(data.stage))} Sign-Off stays on`,
+          }, so its ${stageTitle(text(data.stage))} sign-off stays on`,
         )
         break
       case 'v1.GateSkippedOvernight':
         add(
           entry,
           'quiet',
-          `Autopilot is on, so Ted skipped the ${stageTitle(text(data.stage))} Sign-Off`,
+          `Autopilot is on, so Ted skipped the ${stageTitle(text(data.stage))} sign-off`,
         )
         break
       case 'v1.TaskLeadSet':
@@ -866,7 +866,7 @@ export function threadEvents(
       case 'v1.AppStarted': {
         const by = text(data.by)
         const starter =
-          by === 'task-lead' ? 'Task Lead' : by === 'sub-agent' ? 'A Sub-Agent' : 'You'
+          by === 'task-lead' ? 'Task Lead' : by === 'sub-agent' ? 'A sub-agent' : 'You'
         const verb = data.restart === true ? 'restarted' : 'started'
         add(entry, 'run', `${starter} ${verb} ${text(data.name)}${appWhere(data)}`)
         break
@@ -941,7 +941,7 @@ export function threadEvents(
           taskId,
           at: entry.at,
           tone: 'edit',
-          text: 'You steered the Task Lead in its Conversation',
+          text: 'You steered the Task Lead in its conversation',
           runId: text(data.runId),
         })
         break
@@ -1013,7 +1013,7 @@ export function threadEvents(
         add(
           entry,
           'run',
-          `Rebased ${text(data.name)} onto ${text(data.onto)} with no conflicts · running Checks again`,
+          `Rebased ${text(data.name)} onto ${text(data.onto)} with no conflicts · running checks again`,
         )
         break
       case 'v1.TaskPushRecordReconciled':

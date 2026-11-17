@@ -374,7 +374,9 @@ describe('Ted app', () => {
     await figma.getByText('Onboarding v2').waitFor()
     await figma.getByRole('button', { name: 'Open ↗' }).click()
     await expect
-      .poll(() => ctx.app?.evaluate(() => (globalThis as unknown as { opened: string[] }).opened))
+      .poll(() =>
+        ctx.app?.evaluate(() => (globalThis as typeof globalThis & { opened: string[] }).opened),
+      )
       .toEqual(['https://www.figma.com/design/abc/Onboarding'])
 
     const worth = card.getByRole('region', { name: 'Worth your eye' })
@@ -481,7 +483,7 @@ describe('Ted app', () => {
 
     await window.getByRole('tab', { name: 'Task Lead' }).click()
     const thread = window.getByRole('region', { name: 'Task thread' })
-    await thread.getByText('You steered the Task Lead in its Conversation').waitFor()
+    await thread.getByText('You steered the Task Lead in its conversation').waitFor()
     await thread.getByRole('button', { name: 'View message' }).click()
     await chat.getByText('Keep pinned notes in the order they were pinned.').waitFor()
     reached('message-delivered')

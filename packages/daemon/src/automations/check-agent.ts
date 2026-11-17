@@ -55,7 +55,7 @@ export function checkAgentPrompt(input: CheckAgentPromptInput): string {
   const result = [
     `Command: ${input.command}`,
     `Result: ${how}, after ${input.duration}`,
-    `Commit: ${input.commit ?? 'unknown'} (the default branch when the Check started)`,
+    `Commit: ${input.commit ?? 'unknown'} (the default branch when the check started)`,
     `Ran while the computer was busy: ${input.ranWhileBusy ? 'yes, so timings may be slow' : 'no'}`,
     `Skipped parts: ${input.skipped.length > 0 ? input.skipped.join('; ') : 'none'}`,
     `Failing test files: ${input.failing.length > 0 ? `\n${input.failing.map((f) => `- ${f}`).join('\n')}` : 'none found in the output'}`,
@@ -68,9 +68,9 @@ export function checkAgentPrompt(input: CheckAgentPromptInput): string {
     ? '- `ted automation start <Task ID>` starts a Task this Run created. Start the ones that are clearly real breaks with a clear fix; leave flaky or unclear ones in Backlog. Starting only queues the Task, so it waits for a free slot.'
     : '- You can’t start Tasks: the human hasn’t ticked “Start the Tasks it creates” for this Automation. Every Task you create waits in Backlog.'
   return [
-    '# You are a Scheduled Check’s agent Run in Ted',
+    '# You are a scheduled check’s agent Run in Ted',
     writingGuidance,
-    `You are the agent step of “${input.name}”, a Scheduled Check in the ${input.factoryName} Factory (repos: ${input.repos.join(', ')}). Ted ran its command as a Check and started you with the result. You run outside any Task.`,
+    `You are the agent step of “${input.name}”, a scheduled check in the ${input.factoryName} Factory (repos: ${input.repos.join(', ')}). Ted ran its command as a check and started you with the result. You run outside any Task.`,
     [
       '## The result',
       '',
@@ -87,7 +87,7 @@ export function checkAgentPrompt(input: CheckAgentPromptInput): string {
     [
       '## Your checkout',
       '',
-      `Ted checked out the same commit the Check tested${at}, copied the Factory’s local files into it and ran its setup. You work inside it. Never commit or push: Ted removes the copy when this Run ends.`,
+      `Ted checked out the same commit the check tested${at}, copied the Factory’s local files into it and ran its setup. You work inside it. Never commit or push: Ted removes the copy when this Run ends.`,
       '',
       '- Rerun a failing test file to see it fail, or to tell a flaky test from a real break. Run at most 3 test files in one test run, and never run the whole suite (`pnpm check` or `pnpm test`): Ted refuses both inside a Run.',
     ].join('\n'),

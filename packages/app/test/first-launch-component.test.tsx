@@ -85,7 +85,7 @@ test('the steps run in order, Back returns, and Skip saves Start at login and re
   await user().click(button('Next'))
   await screen.findByRole('heading', { name: 'How it works' })
   expect(screen.getByText('Step 2 of 4')).toBeTruthy()
-  expect(screen.getByRole('region', { name: 'Approve the work at each Sign-Off' })).toBeTruthy()
+  expect(screen.getByRole('region', { name: 'Approve the work at each sign-off' })).toBeTruthy()
   await user().click(button('Back'))
   await screen.findByRole('heading', { name: 'Get ready to build faster' })
   await user().click(button('Next'))

@@ -102,7 +102,7 @@ describe('Task details in the app', () => {
       .waitFor()
     const terms = await details.locator('dt').allTextContents()
     expect(terms).toContain('Autopilot')
-    expect(terms).not.toContain('Sign-Offs')
+    expect(terms).not.toContain('Sign-offs')
     expect(
       await details
         .getByRole('tablist', { name: 'Task details sections' })

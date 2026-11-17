@@ -14,7 +14,7 @@ const warning: Banner = {
   problem: 'no-checks',
   factoryId: 'f1',
   severity: 'warning',
-  text: 'No Checks set up · Validate relies on the agent alone',
+  text: 'No checks set up · Validate relies on the agent alone',
   raisedAt: createdAt,
 }
 

@@ -408,7 +408,7 @@ describe('Remove a secondary repo', () => {
       changes,
     )
     expect(preview.sideEffects).toContain(
-      'acme/api leaves the Factory with its Apps and Checks. Its clone is deleted once no Factory uses it.',
+      'acme/api leaves the Factory with its Apps and checks. Its clone is deleted once no Factory uses it.',
     )
     const after = preview.files.find((f) => f.path === '.ted/workflow.yaml')
     const gone = after?.lines.filter((l) => l.kind === 'removed').map((l) => l.text) ?? []

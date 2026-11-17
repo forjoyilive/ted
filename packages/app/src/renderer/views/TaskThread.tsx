@@ -523,7 +523,7 @@ export function TaskPanes({
           changes={shownChanges}
           seams={source === 'local' ? seams : {}}
           footer={source === 'local' ? bar : undefined}
-          backLabel={reviewOpen ? '← Back to Sign-Off' : 'Collapse'}
+          backLabel={reviewOpen ? '← Back to sign-off' : 'Collapse'}
           onCollapse={back}
           remote={remoteReader}
           sidebar
@@ -546,7 +546,7 @@ export function TaskPanes({
           seams={source === 'local' ? seams : {}}
           focus={view.focus}
           footer={source === 'local' ? bar : undefined}
-          backLabel={reviewOpen ? '← Back to Sign-Off' : '← Task Lead'}
+          backLabel={reviewOpen ? '← Back to sign-off' : '← Task Lead'}
           onBack={back}
           onOpen={openFile}
           remote={remoteReader}
@@ -970,7 +970,7 @@ export function TaskThread({
               )}
               {task.followUpOf ? (
                 <>
-                  {'  ·  Follow-Up to '}
+                  {'  ·  Follow-up to '}
                   <ActionButton
                     type="button"
                     className={styles.metaLink}
@@ -1089,7 +1089,7 @@ export function TaskThread({
             hidden={showingSubAgent || shownApp !== undefined}
             {...drop.handlers}
           >
-            {drop.dragging && <DropOverlay caption="Files are added to your next Comment" />}
+            {drop.dragging && <DropOverlay caption="Files are added to your next comment" />}
             {stage !== undefined && (
               <p className={styles.filterNote}>
                 Showing {stages.name(stage, task.factoryId)} only ·{' '}

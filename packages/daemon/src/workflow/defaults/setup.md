@@ -18,7 +18,7 @@ Ask too whether anything should happen after a pull request merges, such as a co
 
 ## Design
 
-1. Try each candidate Check on the default branch, in your worktree, before you change anything: run its command and note whether it passed and how long it took. A Check that fails on the default branch is left off the proposal’s settings; list it as failed with the reason.
+1. Try each candidate check on the default branch, in your worktree, before you change anything: run its command and note whether it passed and how long it took. A check that fails on the default branch is left off the proposal’s settings; list it as failed with the reason.
 2. Try to start each App the same way: note its kind, how it became ready and how long that took (for example “ready in 9s at localhost:5174”), then stop it. An App that won’t start is left off; list it as failed with the reason. An `ios-simulator` App that builds with `xcodebuild` must pass `-derivedDataPath "$TED_DERIVED_DATA" -packageCachePath "$TED_SWIFTPM_CACHE"`, because Ted’s sandbox refuses Xcode’s own folders in the home folder.
 3. Post the proposal with `ted outcome advance --design <file>`. Write `summary` as two sentences, and add a `setup` object to the design file:
 
@@ -51,7 +51,7 @@ Ask too whether anything should happen after a pull request merges, such as a co
        ],
        "files": [
          { "path": ".ted/notes.md", "about": "Factory notes: product, repos, running locally, conventions" },
-         { "path": ".ted/workflow.yaml", "about": "repos with worktree setup and Apps, Checks, Stage settings" },
+         { "path": ".ted/workflow.yaml", "about": "repos with worktree setup and Apps, checks, Stage settings" },
          { "path": ".ted/stages/validate.md", "about": "Start the App, sign in, check the main flow" }
        ],
        "defaults": "Left as Ted’s defaults: Providers, permissions Auto, the Mac’s working Run limit."
@@ -67,14 +67,14 @@ Ask too whether anything should happen after a pull request merges, such as a co
 
 ## Work
 
-Write the approved files on this branch and nothing else: `.ted/notes.md`; `.ted/workflow.yaml` with `repos`, the Checks that passed under `stages.validate.checks` (each with the same name and command as in the proposal), `apps`, and the Stage settings, including `stages.cleanup` when the proposal turns Cleanup on; and each Stage override as a full copy of the inherited Stage file, edited for this product. Cleanup is never listed in `order`; turn it on with `enabled: true` and one entry under `steps` per approved step, `{name, instruction}` or `{name, command}` with an optional `timeout` (default `10m`):
+Write the approved files on this branch and nothing else: `.ted/notes.md`; `.ted/workflow.yaml` with `repos`, the checks that passed under `stages.validate.checks` (each with the same name and command as in the proposal), `apps`, and the Stage settings, including `stages.cleanup` when the proposal turns Cleanup on; and each Stage override as a full copy of the inherited Stage file, edited for this product. Cleanup is never listed in `order`; turn it on with `enabled: true` and one entry under `steps` per approved step, `{name, instruction}` or `{name, command}` with an optional `timeout` (default `10m`):
 
 ```yaml
 stages:
   cleanup:
     enabled: true
     steps:
-      - name: Comment on the Asana task
+      - name: comment on the Asana task
         instruction: Post a comment on the Asana task this Task came from, with the merged pull request’s link.
       - name: Stop the preview
         command: ./scripts/preview.sh stop
@@ -92,4 +92,4 @@ Run `ted workflow check` until it passes, commit, then run `ted outcome advance`
 
 ## Validate
 
-Ted runs the Checks from this branch’s `.ted/workflow.yaml` whose name and command match the approved proposal, plus the Ted settings Check, then starts the Apps from this branch whose name, repo and `run` match the approved proposal and tells you how each one started. Confirm each App works the way the proposal says; `ted run-app <App>` reaches the same ones.
+Ted runs the checks from this branch’s `.ted/workflow.yaml` whose name and command match the approved proposal, plus the Ted settings check, then starts the Apps from this branch whose name, repo and `run` match the approved proposal and tells you how each one started. Confirm each App works the way the proposal says; `ted run-app <App>` reaches the same ones.

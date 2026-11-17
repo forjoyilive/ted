@@ -97,15 +97,16 @@ test('only the app can write, and invalid or unavailable Stages are refused', as
     (await file.call('PUT', route, { overrides: { design: false }, revision: initial.revision }))
       .status,
   ).toBe(403)
-  for (const overrides of [{ design: 'false' }, { bogus: true }, { backlog: true }, []]) {
+  for (const overrides of [{ design: 'false' }, { 'Not a Stage': true }, { backlog: true }, []]) {
     expect(
       (await client.call('PUT', route, { overrides, revision: initial.revision })).status,
     ).toBe(400)
   }
-  expect(
-    (await client.call('PUT', route, { overrides: { validate: true }, revision: initial.revision }))
-      .status,
-  ).toBe(409)
+  for (const overrides of [{ validate: true }, { bogus: true }]) {
+    expect(
+      (await client.call('PUT', route, { overrides, revision: initial.revision })).status,
+    ).toBe(409)
+  }
 })
 
 test('Grilling respects editable sign-off overrides; archived Tasks remain locked', async () => {

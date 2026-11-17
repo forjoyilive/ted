@@ -409,8 +409,8 @@ test('Reset lists what is lost and kept for a started Task, and sends the reset'
     'The worktree and any uncommitted work in it',
     'The branch ted/nb-1-sync-notes and its commits, here and on GitHub',
     'Pull request widgets #212, which Ted closes on GitHub',
-    'The thread: Comments, questions and answers, the Task brief and Findings',
-    'Edits to the description, and files attached in Comments',
+    'The thread: comments, questions and answers, the Task brief and findings',
+    'Edits to the description, and files attached in comments',
   ])
   expect(
     within(dialog).getByText(/^Kept: .*the original description and its attachment\.$/),

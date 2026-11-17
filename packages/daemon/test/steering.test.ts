@@ -330,7 +330,7 @@ describe('Steering a working Run', () => {
     }, 'the Task Lead to work')
     const steered = async () =>
       (await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)).filter(
-        (l) => l.text === 'You steered the Task Lead in its Conversation',
+        (l) => l.text === 'You steered the Task Lead in its conversation',
       )
 
     await send(client, runId, 'Do the API first.')

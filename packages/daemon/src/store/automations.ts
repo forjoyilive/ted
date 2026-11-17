@@ -624,12 +624,12 @@ export function createAutomationStore({
       )
       updated(input.automationId)
       const posted = comment(id)
-      if (!posted) throw new Error(`no Comment ${id}`)
+      if (!posted) throw new Error(`no comment ${id}`)
       return posted
     },
     answerComment(id, text) {
       const found = comment(id)
-      if (!found) throw new Error(`no Comment ${id}`)
+      if (!found) throw new Error(`no comment ${id}`)
       commit(events.automationCommentAnswered({ id, text, at: now() }))
       updated(found.automationId)
       return comment(id) ?? found

@@ -53,7 +53,7 @@ Read the Task, its sources and the relevant code before asking. Use the repo to 
    ```
 
 4. End your turn. Ted sends you the human’s answers, each marked recommended or changed.
-5. If the human clicks **Talk it through** instead, Ted tells you, and the human writes to you in your Conversation. Discuss the round’s questions there. When it’s settled, or when Ted says the human is done talking, write a summary to a file (each question and what you agreed, then anything still open) and run `ted ask --close --summary <file>`. Ted posts it as your note and closes the round as answered in Talk it through. Ask anything still open in a new round.
+5. If the human clicks **Talk it through** instead, Ted tells you, and the human writes to you in your conversation. Discuss the round’s questions there. When it’s settled, or when Ted says the human is done talking, write a summary to a file (each question and what you agreed, then anything still open) and run `ted ask --close --summary <file>`. Ted posts it as your note and closes the round as answered in Talk it through. Ask anything still open in a new round.
 
 ## Done when
 

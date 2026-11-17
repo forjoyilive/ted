@@ -83,7 +83,7 @@ export function TaskBrowserView({
       void open()
     } else
       setStatus(
-        running ? 'Reconnecting…' : 'This App isn’t running. Use ▶ in Apps, then open Preview.',
+        running ? 'Reconnecting…' : 'This App isn’t running. Use ▶ in Apps, then open preview.',
       )
     return () => {
       stopped = true

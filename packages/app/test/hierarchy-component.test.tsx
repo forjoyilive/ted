@@ -146,11 +146,14 @@ test('a parent shows nested children, merged progress, who it waits for and arch
     'NB-47',
   ])
 
-  const created = vi.fn()
-  window.addEventListener(newChildTaskEvent, created)
+  const created: CustomEvent[] = []
+  const listener = (event: Event) => {
+    if (event instanceof CustomEvent) created.push(event)
+  }
+  window.addEventListener(newChildTaskEvent, listener)
   await u.click(children.getByRole('button', { name: 'Create child…' }))
-  window.removeEventListener(newChildTaskEvent, created)
-  const [[event] = []] = created.mock.calls as unknown as [CustomEvent][]
+  window.removeEventListener(newChildTaskEvent, listener)
+  const [event] = created
   expect(event?.detail).toEqual({
     parentId: 'p',
     factoryId: 'f1',

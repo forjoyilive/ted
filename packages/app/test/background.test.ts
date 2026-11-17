@@ -55,7 +55,7 @@ describe('menu-bar menu', () => {
             text: 'Claude Code is signed out',
             raisedAt: '2026-11-08T09:00:00.000Z',
           }),
-          banner({ id: 'nb', factoryId: 'nb', text: 'No Checks set up' }),
+          banner({ id: 'nb', factoryId: 'nb', text: 'No checks set up' }),
         ],
         updateReady: '1.4',
       },
@@ -417,11 +417,7 @@ describe('Task merged notifications', () => {
         now,
       ),
     ).toBeUndefined()
-    expect(
-      mergedNotice(
-        { ...merged('2026-11-09T12:00:00Z'), stage: 'merge', merged: undefined } as unknown as Task,
-        now,
-      ),
-    ).toBeUndefined()
+    const { merged: _merged, ...unmerged } = merged('2026-11-09T12:00:00Z')
+    expect(mergedNotice({ ...unmerged, stage: 'merge' }, now)).toBeUndefined()
   })
 })

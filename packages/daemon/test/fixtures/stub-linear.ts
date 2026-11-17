@@ -202,20 +202,18 @@ export async function startStubLinear(
       if (query.includes('TedIntakeMembership')) {
         await account.intakeReady
         const issue = byId(variables?.id)
-        return reply(200, {
-          data: {
-            organization,
-            issue: !issue
-              ? null
-              : {
-                  identifier: issue.identifier,
-                  team: { id: `team-${teamKeyOf(issue)}` },
-                  ...(account.intakeMalformed
-                    ? {}
-                    : { project: issue.projectId ? { id: issue.projectId } : null }),
-                },
-          },
-        })
+        let found: {
+          identifier: string
+          team: { id: string }
+          project?: { id: string } | null
+        } | null = null
+        if (issue) {
+          found = { identifier: issue.identifier, team: { id: `team-${teamKeyOf(issue)}` } }
+          if (!account.intakeMalformed) {
+            found.project = issue.projectId ? { id: issue.projectId } : null
+          }
+        }
+        return reply(200, { data: { organization, issue: found } })
       }
       if (query.includes('TedIssueStates')) {
         const data: Record<string, unknown> = {}

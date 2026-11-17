@@ -322,7 +322,7 @@ describe('in-app updates', () => {
         await mark('restart-clicked')
         await window.getByRole('button', { name: 'Restarting…', exact: true }).waitFor()
         await gate.release()
-        await window.getByRole('button', { name: 'Finishing 1 Check…', exact: true }).waitFor()
+        await window.getByRole('button', { name: 'Finishing 1 check…', exact: true }).waitFor()
         await waitUntil(() => !isAlive(startingPid), 'the worker to stop before handover waits')
         await expect(workerRequest(await executionHome(), 'status')).rejects.toThrow()
         await expect(
@@ -424,13 +424,7 @@ describe('in-app updates', () => {
       failedInstall: 'daemon recovered',
     })
     await expect
-      .poll(() =>
-        window.evaluate(() =>
-          (
-            globalThis as unknown as { ted: { request(name: string): Promise<unknown> } }
-          ).ted.request('connection'),
-        ),
-      )
+      .poll(() => window.evaluate(() => globalThis.window.ted.request('connection')))
       .toEqual({ state: 'connected' })
     const opened = app?.waitForEvent('window')
     await window.evaluate(() => globalThis.window.ted.request('openWorker'))

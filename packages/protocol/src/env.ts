@@ -7,14 +7,14 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_BROWSER_PROFILE: 'Profile folder the daemon gives an Automation Run’s headless browser.',
   TED_CHAT: 'Coordinator chat context for CLI requests from a chat’s Run.',
   TED_CHECK_CPUS:
-    'Logical cores Ted tells a Check command it may use, so a Check leaves room for Runs.',
+    'Logical cores Ted tells a check command it may use, so a check leaves room for Runs.',
   TED_CLAUDE_BIN: false,
   TED_CODEX_BIN: false,
   TED_ANTIGRAVITY_BIN: false,
   TED_REAL_ANTIGRAVITY_BIN: false,
   TED_DEMO: false,
   TED_DEMO_STARTED: false,
-  TED_DERIVED_DATA: 'Task Xcode DerivedData folder supplied to Apps, Checks and worktree commands.',
+  TED_DERIVED_DATA: 'Task Xcode DerivedData folder supplied to Apps, checks and worktree commands.',
   TED_STUB_GH: false,
   TED_STUB_XCRUN: false,
   TED_STUB_ANDROID: false,
@@ -61,7 +61,7 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_RESTART_DELAYS_MS: false,
   TED_RUN: 'Run context for CLI requests and steering boundaries.',
   TED_RUN_CAPABILITY:
-    'Run authentication, or an invocation-bound reporting-only credential for Check commands.',
+    'Run authentication, or an invocation-bound reporting-only credential for check commands.',
   TED_RUN_TOKEN: 'Legacy Run capability name retained for older running hosts.',
   TED_SANDBOX:
     'Marks commands run in Ted’s OS sandbox, so the development app and its tests skip Electron there and the tests use a pass-through sandbox and their own cache folder.',
@@ -76,7 +76,7 @@ export const tedEnvironment: Readonly<Record<string, string | false>> = {
   TED_HOLD_REQUESTS_MS: false,
   TED_STAY_AWAKE: false,
   TED_SWIFTPM_CACHE:
-    'Task Swift package cache folder supplied to Apps, Checks and worktree commands.',
+    'Task Swift package cache folder supplied to Apps, checks and worktree commands.',
   TED_TASK: 'Task context for Run commands and worktree commands.',
   TED_TEST_FILE: false,
   TED_TEST_RUN: false,

@@ -1028,7 +1028,7 @@ test(
         async () =>
           !(await client.read<Task[]>('/tasks'))
             .find((t) => t.id === s.task.id)
-            ?.activity?.startsWith('Running Checks'),
+            ?.activity?.startsWith('Running checks'),
         'Validate recovery to settle',
       )
       const after = await client.read<Comment[]>(`${s.root}/comments`)
@@ -1447,7 +1447,7 @@ test(
       await waitUntil(async () => {
         const runs = await client.read<CheckRun[]>(`${s.root}/check-runs`)
         const task = (await client.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)
-        return runs.at(-1)?.outcome === 'passed' && !task?.activity?.startsWith('Running Checks')
+        return runs.at(-1)?.outcome === 'passed' && !task?.activity?.startsWith('Running checks')
       }, 'remaining verification completes after restart')
       expect((await client.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)?.stage).toBe(
         'validate',

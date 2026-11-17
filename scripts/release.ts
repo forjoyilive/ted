@@ -363,7 +363,7 @@ export function draftNotes(
   const line = (change: Change) =>
     `- ${change.title}${change.pullRequest === undefined ? '' : ` (#${change.pullRequest})`}`
   const section = (heading: string, kind: ChangeKind) => {
-    const lines = changes.filter((change) => changeKind(change) === kind).map(line)
+    const lines = changes.flatMap((change) => (changeKind(change) === kind ? [line(change)] : []))
     return lines.length === 0 ? [] : [`## ${heading}`, '', ...lines, '']
   }
   return [

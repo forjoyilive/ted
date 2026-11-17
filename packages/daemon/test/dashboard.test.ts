@@ -721,7 +721,7 @@ test('unions every observed reason independently and preserves direct/Check test
     { checkRunId: 'check-0', position: 0 },
   ])
   expect(test.samples[0]?.intervals[0]?.contributors[1]?.detail).toContain(
-    'Associated Check check-0',
+    'Associated check check-0',
   )
   expect(flow.previous?.reasons.every((r) => r.samples.length === 0 && r.medianMs === null)).toBe(
     true,
@@ -1095,13 +1095,13 @@ test('Waiting on you sums each completed Task’s requests by Stage, names each 
     byFactory: [{ factoryId: 'nb', totalMs: 12 * hour, taskIds: ['w1'] }],
   })
   expect(waiting.stages.map((s) => [s.stage, s.totalMs / hour, s.kinds])).toEqual([
-    ['review', 6, ['Design Sign-Off', 'Review Sign-Off']],
+    ['review', 6, ['Design sign-off', 'Review sign-off']],
     ['clarify', 4, ['Clarify round', 'Failure decision']],
-    ['design', 2, ['Design Sign-Off']],
+    ['design', 2, ['Design sign-off']],
   ])
   expect(waiting.waits.map((w) => [w.requestId, w.kind, w.stage, w.waitedMs / hour])).toEqual([
-    ['c3', 'Design Sign-Off', 'design', 4],
-    ['c4', 'Review Sign-Off', 'review', 4],
+    ['c3', 'Design sign-off', 'design', 4],
+    ['c4', 'Review sign-off', 'review', 4],
     ['c1', 'Clarify round', 'clarify', 3],
     ['c2', 'Failure decision', 'clarify', 3],
   ])

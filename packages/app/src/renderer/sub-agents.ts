@@ -11,7 +11,7 @@ export function subAgentWorking(
 }
 
 export function activeSubAgentLabel(count: number): string {
-  return `${count} active ${count === 1 ? 'Sub-Agent' : 'Sub-Agents'}`
+  return `${count} active ${count === 1 ? 'sub-agent' : 'sub-agents'}`
 }
 
 export function subAgentsRunningLabel(count: number): string {

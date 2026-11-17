@@ -56,9 +56,9 @@ async function stageReads(client: Client) {
   const library = await client.ok<LibraryView>('GET', '/library')
   const board = await client.ok<FactoryBoard>('GET', `/factories/${factory?.id}/board`)
   const pick = (rows: { id: string; gate: boolean; overnight?: true }[]) =>
-    rows
-      .filter((r) => r.id === 'design' || r.id === 'work')
-      .map(({ id, gate, overnight }) => ({ id, gate, overnight }))
+    rows.flatMap(({ id, gate, overnight }) =>
+      id === 'design' || id === 'work' ? [{ id, gate, overnight }] : [],
+    )
   return [pick(settings.stages), pick(library.stages), pick(board.stages)]
 }
 
@@ -122,7 +122,7 @@ describe('Autopilot turns Sign-offs off', () => {
         await stopsAtDesign(
           client,
           task,
-          'Autopilot is on, but its GitHub issue has text from outsiders, so its Design Sign-Off stays on',
+          'Autopilot is on, but its GitHub issue has text from outsiders, so its Design sign-off stays on',
         )
         return
       }
@@ -144,7 +144,7 @@ describe('Autopilot turns Sign-offs off', () => {
         await stopsAtDesign(
           client,
           task,
-          'Autopilot is on, but Ted couldn’t read this Task’s changes, so its Design Sign-Off stays on',
+          'Autopilot is on, but Ted couldn’t read this Task’s changes, so its Design sign-off stays on',
         )
         return
       }
@@ -159,9 +159,9 @@ describe('Autopilot turns Sign-offs off', () => {
       const all = await client.ok<{ gate?: unknown }[]>('GET', `/tasks/${task.id}/comments`)
       expect(all.filter((c) => c.gate !== undefined)).toEqual([])
       const thread = await lines(client, task)
-      expect(thread).toContain('Autopilot is on, so Ted skipped the Design Sign-Off')
-      expect(thread).toContain('Autopilot is on, so Ted skipped the Review Sign-Off')
-      expect(thread).toContain('Autopilot is on, so Ted skipped the Merge Sign-Off')
+      expect(thread).toContain('Autopilot is on, so Ted skipped the Design sign-off')
+      expect(thread).toContain('Autopilot is on, so Ted skipped the Review sign-off')
+      expect(thread).toContain('Autopilot is on, so Ted skipped the Merge sign-off')
     })
   }, 120_000)
 
@@ -194,7 +194,7 @@ describe('Autopilot turns Sign-offs off', () => {
     await advanceTo(client, task, 'work')
     await advanceTo(client, task, 'validate')
     expect(await gateRequests(client, task)).toEqual([])
-    expect(await lines(client, task)).toContain('Autopilot is on, so Ted skipped the Work Sign-Off')
+    expect(await lines(client, task)).toContain('Autopilot is on, so Ted skipped the Work sign-off')
     await overnight(client, false)
     expect(row(await gates(client, task), 'review')).toMatchObject({ effective: true })
     expect((await gates(client, task)).overrides).toEqual({ work: true })

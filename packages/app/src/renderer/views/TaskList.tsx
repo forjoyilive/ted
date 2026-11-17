@@ -388,7 +388,7 @@ export function FilterMenu({
         {priorities.map((priority: Priority) => (
           <CheckItem
             key={priority}
-            label={priority === 'none' ? 'No Priority' : priorityLabels[priority]}
+            label={priority === 'none' ? 'No priority' : priorityLabels[priority]}
             icon={<PriorityIcon priority={priority} />}
             checked={filters.priorities?.includes(priority) ?? false}
             count={count((c) => ({ ...c, priorities: [priority] }))}
@@ -447,7 +447,7 @@ function DisplayMenu({ view, onChange }: { view: ListView; onChange: (view: List
     <>
       <div className={styles.menuHeading}>
         Sort
-        <Help>Manual is the queue order: Priority, then the rank you set by dragging.</Help>
+        <Help>Manual is the queue order: priority, then the rank you set by dragging.</Help>
       </div>
       <Submenu label={sortLabels[view.sort]} hint={sortHints[view.sort]}>
         {listSorts.map((sort) => (

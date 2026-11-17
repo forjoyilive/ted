@@ -25,7 +25,7 @@ export function TaskConversationTabs({
   if (tabs.length === 0 && shown === undefined) return null
   return (
     <div className={styles.bar}>
-      <div className={styles.tabs} role="tablist" aria-label="Task Lead and Sub-Agents">
+      <div className={styles.tabs} role="tablist" aria-label="Task Lead and sub-agents">
         <ActionButton
           type="button"
           role="tab"

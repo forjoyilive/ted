@@ -1285,7 +1285,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
     },
     automationComment: async () => {
       const body = args.filter((s) => s !== undefined).join(' ') || (await readStdin())
-      if (body.trim() === '') throw new UsageError('give the Comment as text or on stdin')
+      if (body.trim() === '') throw new UsageError('give the comment as text or on stdin')
       const choices = options.choice ?? []
       const comment = await withDaemon(home, (client) =>
         client.postAutomationComment({ body, ...(choices.length > 0 && { choices }) }),
@@ -1318,7 +1318,7 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       const text = args.filter((s) => s !== undefined).join(' ')
       const body = text || (await readStdin())
       if (body.trim() === '' && files.length === 0) {
-        throw new UsageError('give the Comment as text or on stdin')
+        throw new UsageError('give the comment as text or on stdin')
       }
       const choices = options.choice ?? []
       if (files.length > 0 && choices.length > 0) {
@@ -1457,10 +1457,10 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       const to = options.to?.toLowerCase()
       if (to === undefined) throw new UsageError('name the Stage to go back to with --to <Stage>')
       if (options.findings === undefined) {
-        throw new UsageError('give the Findings file with --findings <file>')
+        throw new UsageError('give the findings file with --findings <file>')
       }
       const findings = await readFile(path.resolve(options.findings), 'utf8')
-      if (findings.trim() === '') throw new UsageError('the Findings file is empty')
+      if (findings.trim() === '') throw new UsageError('the findings file is empty')
       const judged = judgments()
       const cause = options.cause
       if (cause !== undefined && !declaredSendBackCauses.includes(cause as DeclaredSendBackCause)) {

@@ -5,6 +5,7 @@ import {
   type BrowserReply,
   type DaemonClient,
   DaemonRequestError,
+  type RunWithConversation,
   type TaskApp,
 } from '@ted/protocol'
 import { afterEach, expect, test, vi } from 'vitest'
@@ -87,9 +88,9 @@ function bridge() {
   let deliver: ((command: BrowserCommand) => void) | undefined
   let rejectPoll: ((error: Error) => void) | undefined
   const replies: (BrowserReply & { id: string })[] = []
-  const client = {
+  const stub: Pick<DaemonClient, 'browserApp' | 'getRun' | 'pollBrowser' | 'replyBrowser'> = {
     browserApp: vi.fn(async () => app),
-    getRun: vi.fn(async () => ({ run: { state: 'working' } })),
+    getRun: vi.fn(async () => ({ run: { state: 'working' } }) as RunWithConversation),
     pollBrowser: vi.fn(
       () =>
         new Promise<BrowserCommand>((resolve, reject) => {
@@ -100,7 +101,8 @@ function bridge() {
     replyBrowser: vi.fn(async (_owner: string, id: string, reply: BrowserReply) => {
       replies.push({ id, ...reply })
     }),
-  } as unknown as DaemonClient
+  }
+  const client = stub as DaemonClient
   return {
     client,
     replies,
@@ -193,12 +195,13 @@ test.each(
 test('broker cancellation reaches a held executor before native input can resume', async () => {
   const broker = createBrowserBroker()
   brokers.push(broker)
-  const client = {
+  const stub: Pick<DaemonClient, 'browserApp' | 'pollBrowser' | 'replyBrowser'> = {
     browserApp: async () => app,
     pollBrowser: async (owner: string) => broker.poll(owner),
     replyBrowser: async (owner: string, id: string, reply: BrowserReply) =>
       broker.reply(owner, id, reply),
-  } as unknown as DaemonClient
+  }
+  const client = stub as DaemonClient
   const controller = createTaskBrowsers(
     () => undefined,
     () => client,

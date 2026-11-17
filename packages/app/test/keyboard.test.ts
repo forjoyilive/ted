@@ -124,7 +124,7 @@ describe('Keyboard shortcuts', () => {
 
     await press(window, 'p')
     const palette = window.getByRole('dialog', { name: 'Search and commands' })
-    await palette.getByRole('combobox', { name: 'Set Priority…' }).waitFor()
+    await palette.getByRole('combobox', { name: 'Set priority…' }).waitFor()
     await window.keyboard.type('High')
     await press(window, 'Enter')
     await palette.waitFor({ state: 'detached' })

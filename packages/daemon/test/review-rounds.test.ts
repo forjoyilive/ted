@@ -214,10 +214,10 @@ describe('Validate rounds', () => {
       const messages = userMessages(await leadRun(client, task))
       const back = messages.find((m) => m.startsWith('Ted moved this Task back to Work.'))
       expect(back).toContain('# Send-back 1 of 5 from Validate')
-      expect(back).toContain('Fix the Findings above and nothing else.')
+      expect(back).toContain('Fix the findings above and nothing else.')
       const round = messages.find((m) => m.includes('# Validate round 2'))
       expect(round).toContain('Validate has sent it back 1 time, and the limit is 5')
-      expect(round).toContain('Ted gives it the earlier Findings and the diff since the commit')
+      expect(round).toContain('Ted gives it the earlier findings and the diff since the commit')
       expect(round).toContain('1. The export button does nothing.')
       expect(messages.filter((m) => m.includes('# Validate round'))).toHaveLength(1)
 
@@ -260,13 +260,13 @@ describe('Validate rounds', () => {
       const messages = userMessages(await leadRun(client, task))
       const back = messages.find((m) => m.startsWith('Ted moved this Task back to Work.'))
       expect(back).toContain('# Send-back 1 of 5 from Validate')
-      expect(back).toContain('Ted runs the Factory’s Checks before the Task leaves Work')
+      expect(back).toContain('Ted runs the Factory’s checks before the Task leaves Work')
       const round = messages.find((m) => m.includes('# Validate round 2'))
       expect(round).toContain('Ted has no finished review from the last round to build on')
       expect(round).toContain('this round reviews the whole change again')
       expect(round).toContain('a problem anywhere in the change can be blocking')
       expect(round).not.toContain('This round checks the fixes.')
-      expect(round).not.toContain('is a note, not a blocking Finding')
+      expect(round).not.toContain('is a note, not a blocking finding')
       expect(round).toContain('1. The export button does nothing.')
     },
     slow,

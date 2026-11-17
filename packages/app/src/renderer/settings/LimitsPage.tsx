@@ -71,8 +71,8 @@ export function LimitsPage({ settings }: SettingsPageProps) {
             value={settings.maxChecksAtOnce}
             min={checkLimits.min}
             max={checkLimits.max}
-            lessLabel="Fewer Checks at once"
-            moreLabel="More Checks at once"
+            lessLabel="Fewer checks at once"
+            moreLabel="More checks at once"
             onChange={(maxChecksAtOnce) => ted.updateSettings({ maxChecksAtOnce })}
           />
         </SettingRow>
@@ -83,14 +83,14 @@ export function LimitsPage({ settings }: SettingsPageProps) {
             max={checkCpuLimits.max}
             step={checkCpuLimits.step}
             format={(percent) => `${percent}%`}
-            lessLabel="Less CPU for a Check"
-            moreLabel="More CPU for a Check"
+            lessLabel="Less CPU for a check"
+            moreLabel="More CPU for a check"
             onChange={(checkCpuPercent) => ted.updateSettings({ checkCpuPercent })}
           />
         </SettingRow>
         <SettingRow setting="app.limits.scheduled-check-cpus">
           <Switch
-            label="Limit the CPU Scheduled Checks use too"
+            label="Limit the CPU scheduled checks use too"
             checked={settings.limitScheduledCheckCpus}
             onChange={(limitScheduledCheckCpus) => ted.updateSettings({ limitScheduledCheckCpus })}
           />
@@ -126,7 +126,7 @@ export function LimitsPage({ settings }: SettingsPageProps) {
         )}
         <SettingRow setting="app.limits.low-priority">
           <Switch
-            label="Run agents and Checks at low priority"
+            label="Run agents and checks at low priority"
             checked={settings.lowPriorityWork}
             onChange={(lowPriorityWork) => ted.updateSettings({ lowPriorityWork })}
           />

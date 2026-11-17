@@ -14,7 +14,7 @@ test('seeding names a Check run Ted could not finish', () => {
   })
   expect(demoCheckProblem([run('a', 'passed'), run('b')])).toBeUndefined()
   expect(demoCheckProblem([run('a', 'passed'), run('b', 'interrupted')])).toContain(
-    'Check run b was interrupted',
+    'Demo check run b was interrupted',
   )
-  expect(demoCheckProblem([run('a', 'failed')])).toContain('Demo Check failed')
+  expect(demoCheckProblem([run('a', 'failed')])).toContain('Demo check failed')
 })

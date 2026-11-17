@@ -61,12 +61,11 @@ export function dateTimeInZone(date: string, time: string, timeZone: string): st
     const fields = dateTimeFields(new Date(sample), timeZone)
     offsets.add(Date.parse(`${fields.date}T${fields.time}:00.000Z`) - sample)
   }
-  const matches = [...offsets]
-    .map((offset) => wall - offset)
-    .filter((at) => {
-      const fields = dateTimeFields(new Date(at), timeZone)
-      return fields.date === date && fields.time === time
-    })
+  const matches = [...offsets].flatMap((offset) => {
+    const at = wall - offset
+    const fields = dateTimeFields(new Date(at), timeZone)
+    return fields.date === date && fields.time === time ? [at] : []
+  })
   if (matches.length === 0)
     throw new Error('That time does not exist in this time zone. Choose another time.')
   return new Date(Math.min(...matches)).toISOString()

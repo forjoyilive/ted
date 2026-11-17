@@ -161,9 +161,11 @@ export async function startStubAsana() {
         path === '/api/1.0/workspaces'
           ? [...workspaces].map(([id, name]) => ({ gid: id, name }))
           : kind === 'workspaces'
-            ? [...projects.values()]
-                .filter((p) => p.workspace === gid && !(query.archived === 'false' && p.archived))
-                .map((p) => ({ gid: p.gid, name: p.name, archived: p.archived === true }))
+            ? [...projects.values()].flatMap((p) =>
+                p.workspace === gid && !(query.archived === 'false' && p.archived)
+                  ? [{ gid: p.gid, name: p.name, archived: p.archived === true }]
+                  : [],
+              )
             : (projects.get(gid)?.sections ?? [])
       if (kind === 'projects' && !projects.has(gid)) {
         res.writeHead(404)

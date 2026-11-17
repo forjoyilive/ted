@@ -260,13 +260,13 @@ export function taskCommands(task: Task): Command[] {
   }
   list.push({
     id: 'set-priority',
-    label: 'Set Priority…',
+    label: 'Set priority…',
     scope: 'task',
     shortcuts: keysFor('set-priority'),
     choices: () =>
       priorities.map((priority) => ({
         id: priority,
-        label: priority === 'none' ? 'No Priority' : priorityLabels[priority],
+        label: priority === 'none' ? 'No priority' : priorityLabels[priority],
         checked: task.priority === priority,
         run: () => ted.setPriority(task.id, priority),
       })),

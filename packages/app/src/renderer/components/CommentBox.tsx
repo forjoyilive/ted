@@ -16,8 +16,8 @@ const maxAttachmentBytes = 25 * 1024 * 1024
 const notes: Partial<Record<BoxState, string>> = {
   paused: 'The Task Lead reads this when it continues.',
   'no-run': 'The Task Lead gets this with the brief when the Task starts.',
-  stopped: 'Send keeps the Task stopped; the next Task Lead Run gets your Comment with the brief.',
-  done: 'This Task is Done and nothing runs on it. Comment only keeps this in the thread; Follow-Up creates a new Task from its brief with this text.',
+  stopped: 'Send keeps the Task stopped; the next Task Lead Run gets your comment with the brief.',
+  done: 'This Task is Done and nothing runs on it. Comment only keeps this in the thread; Follow-up creates a new Task from its brief with this text.',
 }
 
 const placeholders: Partial<Record<BoxState, string>> = {
@@ -155,13 +155,13 @@ export function CommentBox({
     <fieldset ref={composer} className={styles.composer} data-state={state}>
       {cancels && (
         <p className={styles.mergeNote}>
-          The merge is pending. Posting a Comment cancels Ted’s merge and counts as Request changes.
+          The merge is pending. Posting a comment cancels Ted’s merge and counts as Request changes.
           If you then merge the pull request on GitHub, Ted still moves the Task to Done.
         </p>
       )}
       {task.canResume && (
         <p className={styles.resumeNote}>
-          Resume starts a fresh Task Lead Run from the brief and Comments when a slot is free.
+          Resume starts a fresh Task Lead Run from the brief and comments when a slot is free.
         </p>
       )}
       <textarea
@@ -274,7 +274,7 @@ export function CommentBox({
             pending={sending && submission === 'follow-up'}
             onClick={() => send('follow-up')}
           >
-            Follow-Up
+            Follow-up
           </Button>
         )}
       </div>

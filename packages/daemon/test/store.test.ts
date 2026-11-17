@@ -636,9 +636,9 @@ describe('TedStore', () => {
       const seen: DaemonEvent[] = []
       store.subscribe((event) => seen.push(event))
 
-      const updated = store.setActivity(task.id, 'Running Checks · Tests (2 of 3)')
+      const updated = store.setActivity(task.id, 'Running checks · Tests (2 of 3)')
 
-      expect(updated.activity).toBe('Running Checks · Tests (2 of 3)')
+      expect(updated.activity).toBe('Running checks · Tests (2 of 3)')
       expect(seen).toEqual([{ type: 'task-updated', task: updated }])
       store.changeStage(task.id, 'clarify', entry)
       expect(store.getTask(task.id)?.activity).toBeUndefined()

@@ -60,7 +60,7 @@ export function AutopilotField({ task }: { task: Task }) {
       <details>
         <summary>What still needs you?</summary>
         <small>
-          Permissions, failed Checks requiring your decision, setup and Workflow-change safeguards,
+          Permissions, failed checks requiring your decision, setup and Workflow-change safeguards,
           missing access or information, size checks and split proposals.
         </small>
       </details>

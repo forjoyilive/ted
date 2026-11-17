@@ -717,14 +717,14 @@ describe('ted status and ted doctor', () => {
     const status = (await ted(['status'])).stdout
     expect(status).toContain('1 problem:')
     expect(status).toMatch(
-      /Warning {2}widgets {2}No Checks set up · Validate relies on the agent alone {2}\[Open Factory settings\] {2}\(dismissed until /,
+      /Warning {2}widgets {2}No checks set up · Validate relies on the agent alone {2}\[Open Factory settings\] {2}\(dismissed until /,
     )
 
     const doctor = await ted(['doctor'])
     expect(doctor.stdout).toMatch(/[✓!] git \d/)
     expect(doctor.stdout).toMatch(/✓ gh 2\.89\.0 · .*stub-gh\.ts/)
     expect(doctor.stdout).toContain('✓ github.com · signed in as stub-user')
-    expect(doctor.stdout).toContain('No Checks set up · Validate relies on the agent alone')
+    expect(doctor.stdout).toContain('No checks set up · Validate relies on the agent alone')
   })
 
   test('doctor fails when a problem stops work', async () => {

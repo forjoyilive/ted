@@ -14,9 +14,19 @@ import {
 
 setUpAppTests()
 
+type HeldComments = typeof globalThis & {
+  commentsHeld: boolean
+  allowComments: () => void
+  releaseComments: () => void
+}
+
 async function holdComments(app: ElectronApplication, taskId: string): Promise<void> {
   await app.evaluate(({ ipcMain }, taskId) => {
-    const original = Reflect.get(ipcMain, '_invokeHandlers').get('ted:request')
+    const original = (
+      ipcMain as typeof ipcMain & {
+        _invokeHandlers: { get(channel: string): Parameters<typeof ipcMain.handle>[1] }
+      }
+    )._invokeHandlers.get('ted:request')
     let holding = true
     Reflect.set(globalThis, 'commentsHeld', false)
     Reflect.set(globalThis, 'allowComments', () => {
@@ -86,13 +96,13 @@ test('a late Task load cannot put its text and screenshots into another Task’s
   await holdComments(app, first.id)
   await row('First Task question?').click()
   await waitUntil(
-    () => app.evaluate(() => Reflect.get(globalThis, 'commentsHeld')),
+    () => app.evaluate(() => (globalThis as HeldComments).commentsHeld),
     'held Comments',
   )
   await row('Second Task question?').click()
   const thread = window.getByRole('region', { name: 'Task thread' })
   await thread.getByText('Only the second Task', { exact: true }).waitFor()
-  await app.evaluate(() => Reflect.get(globalThis, 'releaseComments')())
+  await app.evaluate(() => (globalThis as HeldComments).releaseComments())
   await flushResponses(window)
   expect(await thread.getByText('Only the first Task', { exact: true }).count()).toBe(0)
   expect(await thread.getByRole('img', { name: 'first-task.png' }).count()).toBe(0)
@@ -116,13 +126,16 @@ test('a late Task load cannot put its text and screenshots into another Task’s
       contents?.send('ted:event', { type: 'connection', connection: { state: 'connected' } })
     })
   await reconnect()
-  await waitUntil(() => app.evaluate(() => Reflect.get(globalThis, 'commentsHeld')), 'held reload')
-  await app.evaluate(() => Reflect.get(globalThis, 'allowComments')())
+  await waitUntil(
+    () => app.evaluate(() => (globalThis as HeldComments).commentsHeld),
+    'held reload',
+  )
+  await app.evaluate(() => (globalThis as HeldComments).allowComments())
   await reconnect()
   await flushResponses(window)
   await client.postComment('NB-2', 'Live update after reconnect')
   await thread.getByText('Live update after reconnect', { exact: true }).waitFor()
-  await app.evaluate(() => Reflect.get(globalThis, 'releaseComments')())
+  await app.evaluate(() => (globalThis as HeldComments).releaseComments())
   await flushResponses(window)
   expect(await thread.getByText('Live update after reconnect', { exact: true }).count()).toBe(1)
   expect(await thread.getByText('Only the first Task', { exact: true }).count()).toBe(0)

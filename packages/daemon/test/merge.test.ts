@@ -254,7 +254,7 @@ describe('Approve and merge', () => {
     const comments = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
     expect(comments.filter((c) => c.kind === 'signoff')).toHaveLength(1)
     expect(await lines(client, task)).toContain(
-      `Rebased ${done.repos[0]?.name} onto main with no conflicts · running Checks again`,
+      `Rebased ${done.repos[0]?.name} onto main with no conflicts · running checks again`,
     )
     expect(await originBranches()).toContain(branch)
   })

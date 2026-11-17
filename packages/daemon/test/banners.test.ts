@@ -249,7 +249,7 @@ describe('banners over the daemon API', () => {
         id: `no-checks:${factory.id}`,
         factoryId: factory.id,
         severity: 'warning',
-        text: 'No Checks set up · Validate relies on the agent alone',
+        text: 'No checks set up · Validate relies on the agent alone',
         action: {
           label: 'Open Factory settings',
           opens: { kind: 'factory-settings', factoryId: factory.id },
@@ -302,7 +302,7 @@ describe('banners over the daemon API', () => {
       action: { label: 'Retry' },
     })
     await expect
-      .poll(() => seen.filter((e) => e.type === 'banner-raised').map((e) => e.banner.id))
+      .poll(() => seen.flatMap((e) => (e.type === 'banner-raised' ? [e.banner.id] : [])))
       .toContain(id)
 
     await expect(ted.actOnBanner(id)).rejects.toThrow(/Couldn’t clone/)

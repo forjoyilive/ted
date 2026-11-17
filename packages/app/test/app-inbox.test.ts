@@ -135,10 +135,10 @@ describe('Inbox and Gates', () => {
     await sidebar(window)
       .getByRole('button', { name: /^Inbox/ })
       .click()
-    const signoff = inbox.getByRole('button').filter({ hasText: 'Sign-Off' })
+    const signoff = inbox.getByRole('button').filter({ hasText: 'Sign-off' })
     await signoff.waitFor()
     await signoff.click()
-    await thread.getByRole('region', { name: 'Sign-Off', exact: true }).waitFor()
+    await thread.getByRole('region', { name: 'Sign-off', exact: true }).waitFor()
     await answer.getByRole('button', { name: 'Approve and merge' }).waitFor()
   })
 
@@ -220,7 +220,7 @@ describe('Inbox and Gates', () => {
     const answered = thread.getByRole('region', { name: 'Clarify round, answered' })
     await answered.getByText(/^Answered in Talk it through · \d+ messages$/).waitFor()
     await thread.getByText('Summary of Talk it through, Round 1: keep both copies.').waitFor()
-    expect(await thread.getByText('You steered the Task Lead in its Conversation').count()).toBe(0)
+    expect(await thread.getByText('You steered the Task Lead in its conversation').count()).toBe(0)
     await answered.getByRole('button', { name: 'Open chat' }).click()
     await thread
       .getByRole('region', { name: 'Run chat' })

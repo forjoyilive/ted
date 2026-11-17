@@ -7,7 +7,7 @@ export const kindLabels: Record<CommentKind, string> = {
   question: 'Question',
   round: 'Clarify round',
   review: 'Design review',
-  signoff: 'Sign-Off',
+  signoff: 'Sign-off',
   permission: 'Permission',
   proposal: 'Proposal',
 }
@@ -28,7 +28,7 @@ export function poster(request: Comment, task: Task | undefined): string {
   const { author } = request
   if (author.kind === 'ted') return 'Ted'
   if (author.kind === 'human') return 'you'
-  return task?.leadRunId === author.runId ? 'the Task Lead' : 'a Sub-Agent'
+  return task?.leadRunId === author.runId ? 'the Task Lead' : 'a sub-agent'
 }
 
 export function age(iso: string, now: number): string {
@@ -79,9 +79,10 @@ export function briefSections(text: string): { heading: string; body: string }[]
     else if (sections.length === 0) sections.push({ heading: '', lines: [line] })
     else sections.at(-1)?.lines.push(line)
   }
-  return sections
-    .map(({ heading, lines }) => ({ heading, body: lines.join('\n').trim() }))
-    .filter(({ heading, body }) => heading !== '' || body !== '')
+  return sections.flatMap(({ heading, lines }) => {
+    const body = lines.join('\n').trim()
+    return heading !== '' || body !== '' ? [{ heading, body }] : []
+  })
 }
 
 function firstLine(text: string): string {

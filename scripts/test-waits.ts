@@ -34,8 +34,7 @@ export function parseWaits(text: string): WaitRecord[] {
 
 function row(name: string, records: WaitRecord[]): WaitRow {
   const waits = records
-    .filter((record) => record.event === 'start')
-    .map((record) => record.waitedMs)
+    .flatMap((record) => (record.event === 'start' ? [record.waitedMs] : []))
     .sort((a, b) => a - b)
   const sum = (values: number[]) => values.reduce((total, value) => total + value, 0)
   return {

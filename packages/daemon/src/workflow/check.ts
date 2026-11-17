@@ -664,21 +664,21 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
     const checks: CheckSettings[] = []
     for (const item of value.items as (Node | null)[]) {
       if (!isMap(item)) {
-        error(item, 'each Check must be a map with a `name` and a `run` command')
+        error(item, 'each check must be a map with a `name` and a `run` command')
         continue
       }
       const check: Partial<CheckSettings> = {}
       for (const entry of entries(item)) {
         if (entry.name === 'name' || entry.name === 'run' || entry.name === 'repo') {
-          if (!isText(entry.value)) error(entry.value, `a Check’s \`${entry.name}\` must be text`)
+          if (!isText(entry.value)) error(entry.value, `a check’s \`${entry.name}\` must be text`)
           else check[entry.name] = scalar(entry.value) as string
         } else if (entry.name === 'timeout') {
           if (!durationValue(entry.value)) error(entry.value, durationMessage)
           else check.timeout = scalar(entry.value) as string
-        } else warn(entry.key, `unknown key \`${entry.name}\` in a Check`)
+        } else warn(entry.key, `unknown key \`${entry.name}\` in a check`)
       }
-      if (check.name === undefined) error(item, 'each Check needs a `name`')
-      else if (check.run === undefined) error(item, 'each Check needs a `run` command')
+      if (check.name === undefined) error(item, 'each check needs a `name`')
+      else if (check.run === undefined) error(item, 'each check needs a `run` command')
       else checks.push(check as CheckSettings)
       checkNodes.set(check as CheckSettings, item)
     }
@@ -964,7 +964,7 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
       if (check.repo === undefined || names.has(check.repo)) continue
       const node = checkNodes.get(check)
       const repoNode = isMap(node) ? (node.get('repo', true) as Node) : node
-      error(repoNode, `the Check’s \`repo: ${check.repo}\` names no entry in \`repos\``)
+      error(repoNode, `the check’s \`repo: ${check.repo}\` names no entry in \`repos\``)
     }
   }
 }

@@ -268,7 +268,7 @@ test('a scheduled Check shows its command and agent step, its history row links 
   render(view('details'))
   await screen.findByRole('heading', { name: 'Nightly tests' })
   expect(screen.getByText('pnpm check')).toBeTruthy()
-  expect(screen.getByText('When the Check fails · Claude')).toBeTruthy()
+  expect(screen.getByText('When the check fails · Claude')).toBeTruthy()
   expect(screen.getByText('Starts the Tasks it creates')).toBeTruthy()
   expect(screen.getByText('Show prompt')).toBeTruthy()
   const row = screen.getByText(/^Failed · 1 failing test file/).closest('td')

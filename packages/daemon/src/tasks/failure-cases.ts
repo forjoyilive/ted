@@ -27,12 +27,14 @@ export function ciFailureKey(source: Extract<FailureSource, { kind: 'github-ci' 
 
 export const failureNoticeTitle = 'Failure acceptance invalidated'
 export const failureRefusedTitle = 'Failure acceptance refused'
-export const mergeFailureNoticeTitle = 'Merge Check failed'
+export const mergeFailureNoticeTitle = 'Merge check failed'
 export const ciFailureNoticeTitle = 'CI failed at Merge'
 export const failureNoticeTitles: readonly (string | undefined)[] = [
   failureNoticeTitle,
   failureRefusedTitle,
   mergeFailureNoticeTitle,
+  // Stored notes posted before the title went lowercase.
+  'Merge Check failed',
   ciFailureNoticeTitle,
 ]
 
@@ -72,18 +74,18 @@ const otherChoices = (validation: boolean) =>
 
 const cantAccept = {
   changed:
-    'This failure can’t be accepted: the Task’s code or Checks changed since it was tested, and Ted can’t tie a later test run to it.',
+    'This failure can’t be accepted: the Task’s code or checks changed since it was tested, and Ted can’t tie a later test run to it.',
   unknown:
     'This failure can’t be accepted: Ted has no record it can verify of what was tested when it happened.',
 }
 
 export const acceptRefusals = {
   changed:
-    'The Task’s code or Checks changed since this failure was assessed, so it can’t be accepted as it is. Ask the Task Lead to assess it again.',
+    'The Task’s code or checks changed since this failure was assessed, so it can’t be accepted as it is. Ask the Task Lead to assess it again.',
   changedForGood: (validation: boolean) =>
-    `The Task’s code or Checks changed since this failure was tested, and Ted can’t tie a later test run to it, so it can’t be accepted any more. ${otherChoices(validation)}`,
+    `The Task’s code or checks changed since this failure was tested, and Ted can’t tie a later test run to it, so it can’t be accepted any more. ${otherChoices(validation)}`,
   unverified:
-    'Ted couldn’t read the Task’s current code, Checks and CI to compare them with what was tested, so this failure can’t be accepted right now. Try again in a moment.',
+    'Ted couldn’t read the Task’s current code, checks and CI to compare them with what was tested, so this failure can’t be accepted right now. Try again in a moment.',
   unknown:
     'Ted has no record it can verify of what was tested when this failure happened, so it can’t be accepted. Ask the Task Lead to record it again with a tested context.',
 }
@@ -101,21 +103,21 @@ function whatFailed(value: FailureCase): string {
     const label = ciFailureLabel(source, false)
     return `Failed: ${label.startsWith('A ') ? `a ${label.slice(2)}` : label}`
   }
-  return `Failed: the ${value.originalCheck?.name ?? 'Factory'} Check`
+  return `Failed: the ${value.originalCheck?.name ?? 'Factory'} check`
 }
 
 const freshContextSteps = (id: string) =>
   `Capture a fresh context with \`ted failure context\`, add evidence that names it with \`ted failure evidence ${shortReference(id)} --file <json>\` (\`{"evidence":"…","contextId":"<new context ID>"}\`), then run \`ted failure assess ${shortReference(id)} --file <json>\` and \`ted failure ask ${shortReference(id)}\`. Evidence without the new contextId leaves the decision bound to the old context.`
 
 const newCaseSteps =
-  'A newly captured context can’t be attached to this failure, because Ted can’t tie a later capture to the execution that failed. Run the verification again after `ted failure context` (`ted checks` for a Factory Check); a failure that happens again is a new case to record, assess and ask about.'
+  'A newly captured context can’t be attached to this failure, because Ted can’t tie a later capture to the execution that failed. Run the verification again after `ted failure context` (`ted checks` for a Factory check); a failure that happens again is a new case to record, assess and ask about.'
 
 export function leadClosesFailures(workflow: ResolvedWorkflow): boolean {
   return workflow.settings.stages.work?.lead_closes_failures === true
 }
 
 export const leadClosesRefusal =
-  'only the human closes a failure recorded outside Validate: assess it with a recommendation of Fixed and run `ted failure ask <id>`. A Factory lets the Task Lead close its own Finding with passing evidence with `stages.work.lead_closes_failures: true` in its `.ted/workflow.yaml`; only the human changes that'
+  'only the human closes a failure recorded outside Validate: assess it with a recommendation of Fixed and run `ted failure ask <id>`. A Factory lets the Task Lead close its own finding with passing evidence with `stages.work.lead_closes_failures: true` in its `.ted/workflow.yaml`; only the human changes that'
 
 export function acceptedResolution(value: FailureCase): boolean {
   const resolution = value.resolutions.at(-1)
@@ -522,13 +524,13 @@ export function createFailureCases(options: {
         !check ||
         !['failed', 'timed-out'].includes(check.state)
       )
-        throw new RequestError(400, 'source must identify a failed or timed-out Check on this Task')
+        throw new RequestError(400, 'source must identify a failed or timed-out check on this Task')
       if ((run.trigger === 'merge') !== (source.kind === 'post-rebase-check'))
         throw new RequestError(400, 'Check source does not match its trigger')
       if (context && context.capturedAt > run.startedAt)
         throw new RequestError(
           409,
-          'context must be captured before Check execution, not borrowed from the current worktree',
+          'context must be captured before check execution, not borrowed from the current worktree',
         )
       originalCheck = {
         ...check,
@@ -704,7 +706,7 @@ export function createFailureCases(options: {
     record,
     recordCheck(task: Task, runId: string, request: RecordFailureRequest) {
       if (request.source.kind !== 'factory-check' && request.source.kind !== 'post-rebase-check')
-        throw new RequestError(400, 'automatic evidence requires a stored Factory Check')
+        throw new RequestError(400, 'automatic evidence requires a stored Factory check')
       return record(task, runId, request, true)
     },
     evidence(task: Task, id: string, runId: string, evidence: string, contextId?: string) {
@@ -793,12 +795,12 @@ export function createFailureCases(options: {
       if (replaced)
         throw new RequestError(
           409,
-          `failure ${shortReference(replaced.id)} replaced this case: it failed the same Check later. Assess and ask about that one`,
+          `failure ${shortReference(replaced.id)} replaced this case: it failed the same check later. Assess and ask about that one`,
         )
       if (!untied && stale && attachable(task, value, current))
         throw new RequestError(
           409,
-          `The Task’s code, Checks or CI changed since tested context ${shortReference(bound.id)}, which this assessment is bound to, so the human could not accept this failure. ${freshContextSteps(value.id)}`,
+          `The Task’s code, checks or CI changed since tested context ${shortReference(bound.id)}, which this assessment is bound to, so the human could not accept this failure. ${freshContextSteps(value.id)}`,
         )
       const why = unknown ? cantAccept.unknown : stale || moved ? cantAccept.changed : undefined
       const closable = untied && value.validation === true
@@ -810,7 +812,7 @@ export function createFailureCases(options: {
           `Recommendation: ${assessment.recommendation}`,
           why
             ? closable
-              ? `Retry runs the Checks again. Fix in this Task sends it back to Work. Fixed and No longer applicable close it and need a reason. ${why}`
+              ? `Retry runs the checks again. Fix in this Task sends it back to Work. Fixed and No longer applicable close it and need a reason. ${why}`
               : value.validation
                 ? `${value.source.kind === 'github-ci' ? 'Retry waits for the check to be rerun on GitHub; Ted never starts it.' : 'Retry runs the failed step again.'} Fix in this Task sends it back to Work. ${why}`
                 : `Close it as fixed or no longer applicable, with a reason. ${why} If it still happens, write to the Task Lead instead: a failure that happens again is recorded as a new one.`
@@ -870,7 +872,7 @@ export function createFailureCases(options: {
           if (!sameTestedFor(value.source, context, current)) {
             refused = {
               value,
-              why: 'the Task’s code, Checks or CI changed since the tested context this decision is bound to.',
+              why: 'the Task’s code, checks or CI changed since the tested context this decision is bound to.',
             }
             throw new RequestError(
               409,

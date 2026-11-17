@@ -91,9 +91,9 @@ function superseded(db: DatabaseSync): number[] {
     lastRead.set(read.runId, row.seqNumGlobal)
     if (read.at !== undefined) lastTimed.set(read.runId, row.seqNumGlobal)
   }
-  return known
-    .filter(({ seq, runId }) => lastRead.get(runId) !== seq && lastTimed.get(runId) !== seq)
-    .map(({ seq }) => seq)
+  return known.flatMap(({ seq, runId }) =>
+    lastRead.get(runId) !== seq && lastTimed.get(runId) !== seq ? [seq] : [],
+  )
 }
 
 // Renumbering assumes one client’s unbroken chain: 1, 2, 3… each pointing at the one before.

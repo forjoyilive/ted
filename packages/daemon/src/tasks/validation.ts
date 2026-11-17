@@ -77,7 +77,7 @@ export class StaleCoverageError extends RequestError {
   constructor() {
     super(
       409,
-      'The Checks haven’t run on the Task’s current code, so Ted can’t move it on yet. Ted runs them first when the Task is moved on.',
+      'The checks haven’t run on the Task’s current code, so Ted can’t move it on yet. Ted runs them first when the Task is moved on.',
     )
   }
 }
@@ -165,7 +165,7 @@ export function createValidation(options: ValidationOptions) {
             c.command === original.command,
         )
       )
-        failures.verifyResult(task, prior.id, `Verification passed in Check run ${run.id}.`, run.id)
+        failures.verifyResult(task, prior.id, `Verification passed in check run ${run.id}.`, run.id)
     }
   }
 
@@ -270,7 +270,7 @@ export function createValidation(options: ValidationOptions) {
       }
       if ((!diagnosing || requested) && progress.next >= plan.length) {
         const next = only === undefined ? 0 : plan.findIndex((p) => p.check.name === only)
-        if (next < 0) throw new RequestError(404, 'no matching Check')
+        if (next < 0) throw new RequestError(404, 'no matching check')
         progress = {
           ...progress,
           next,
@@ -283,7 +283,7 @@ export function createValidation(options: ValidationOptions) {
       if (only !== undefined && progress.checks[start]?.name !== only)
         throw new RequestError(
           409,
-          'run the outstanding Validate Checks in order; the requested Check is not next',
+          'run the outstanding Validate checks in order; the requested check is not next',
         )
       if (start >= plan.length) {
         store.failures.saveProgress({ ...progress, pending: false })
@@ -312,7 +312,7 @@ export function createValidation(options: ValidationOptions) {
     const done = (async () => {
       const release = await options.takeCheckSlot(task.id, checkRun.id).catch((error: unknown) => {
         console.error(
-          redactSecrets(`couldn’t record ${task.displayId}’s Check slot: ${String(error)}`),
+          redactSecrets(`couldn’t record ${task.displayId}’s check slot: ${String(error)}`),
         )
         return undefined
       })
@@ -332,7 +332,7 @@ export function createValidation(options: ValidationOptions) {
           if (current?.executions.at(-1)?.runId === checkRun.id) {
             const checks = [...current.checks]
             const original = checks[start + position]
-            if (!original) throw new Error('missing planned Check')
+            if (!original) throw new Error('missing planned check')
             checks[start + position] = { ...original, ...finished }
             store.failures.saveProgress({
               ...current,
@@ -390,7 +390,7 @@ export function createValidation(options: ValidationOptions) {
         }
       })()
         .catch((error: unknown) => {
-          console.error(`couldn’t run ${task.displayId}’s Checks:`, error)
+          console.error(`couldn’t run ${task.displayId}’s checks:`, error)
           return { outcome: 'interrupted' as const, notFound: [] }
         })
         .finally(release)
@@ -599,7 +599,7 @@ export function createValidation(options: ValidationOptions) {
         await options.deliver(
           task,
           await withApps(
-            `${instructions}\n\n# Checks\n\nTed ran the Factory’s Checks before moving the Task out of Work. None failed:\n\n${summary(checked.run.checks)}`,
+            `${instructions}\n\n# Checks\n\nTed ran the Factory’s checks before moving the Task out of Work. None failed:\n\n${summary(checked.run.checks)}`,
           ),
           'checks-passed',
         )
@@ -625,8 +625,8 @@ export function createValidation(options: ValidationOptions) {
         )
         const checksReport =
           previousFailures && progress
-            ? `Outstanding Checks finished. Earlier failures remain factual:\n\n${validationReport(progress, store.failures.list(taskId))}`
-            : `Ted ran the Factory’s Checks before handing you this Stage. None failed:\n\n${summary(checkRun.checks)}`
+            ? `Outstanding checks finished. Earlier failures remain factual:\n\n${validationReport(progress, store.failures.list(taskId))}`
+            : `Ted ran the Factory’s checks before handing you this Stage. None failed:\n\n${summary(checkRun.checks)}`
         await options.deliver(
           current,
           await withApps(`${instructions}\n\n# Checks\n\n${checksReport}`),
@@ -643,7 +643,7 @@ export function createValidation(options: ValidationOptions) {
       const failureId = store.failures.progress(taskId)?.failureId
       await options.deliver(
         current,
-        `${instructions}\n\n# A Check failed\n\nThe Task stays in Validate. Investigate failure case ${failureId ? shortReference(failureId) : '(see ted failure list)'}, add evidence and assess regression, unrelated or uncertain. A supported regression goes back through \`ted outcome back\`; unrelated or uncertain causes require a human decision. Investigation and retry do not count as send-backs.\n\n${findings}`,
+        `${instructions}\n\n# A check failed\n\nThe Task stays in Validate. Investigate failure case ${failureId ? shortReference(failureId) : '(see ted failure list)'}, add evidence and assess regression, unrelated or uncertain. A supported regression goes back through \`ted outcome back\`; unrelated or uncertain causes require a human decision. Investigation and retry do not count as send-backs.\n\n${findings}`,
         'checks-done',
       )
     } finally {
@@ -759,7 +759,7 @@ export function createValidation(options: ValidationOptions) {
       mergesHere(task.stage) &&
       (value.source.kind === 'post-rebase-check' || value.source.kind === 'github-ci')
     if (!validates(task.stage) && !merging)
-      throw new RequestError(409, 'this Check decision is no longer current')
+      throw new RequestError(409, 'this check decision is no longer current')
     const closingChoice =
       input.resolution === 'fixed' || input.resolution === 'no-longer-applicable'
         ? failureChoices[input.resolution]
@@ -768,7 +768,7 @@ export function createValidation(options: ValidationOptions) {
     if (closing && !store.getComment(input.requestId)?.choices?.includes(closingChoice))
       throw new RequestError(
         409,
-        'use Retry, Fix in this Task or Accept this failure for a Check diagnosis',
+        'use Retry, Fix in this Task or Accept this failure for a check diagnosis',
       )
     if (options.isChecking(task.id))
       throw new RequestError(
@@ -786,7 +786,7 @@ export function createValidation(options: ValidationOptions) {
         input.resolution === 'retry' &&
         store.failures.progress(task.id)?.failureId !== id
       )
-        throw new RequestError(409, 'this failure is not the outstanding Check')
+        throw new RequestError(409, 'this failure is not the outstanding check')
       const result = await failures.resolve(task, id, input, sendDrafts)
       if (input.resolution === 'fix' && !merging) {
         await options.fix(find(task.id), result)
@@ -797,7 +797,7 @@ export function createValidation(options: ValidationOptions) {
       ) {
         const progress = store.failures.progress(task.id)
         if (progress?.failureId !== id)
-          throw new RequestError(409, 'this failure is not the outstanding Check')
+          throw new RequestError(409, 'this failure is not the outstanding check')
         store.failures.saveProgress({
           ...progress,
           next: input.resolution === 'retry' ? progress.next : progress.next + 1,
@@ -806,7 +806,7 @@ export function createValidation(options: ValidationOptions) {
         await store.persisted()
         if (!merging) {
           continuing = true
-          options.background(`continue ${task.displayId}’s Checks`, () => validateChecks(task.id))
+          options.background(`continue ${task.displayId}’s checks`, () => validateChecks(task.id))
         }
       }
       return result
@@ -875,7 +875,7 @@ export function createValidation(options: ValidationOptions) {
     fixedBy?: { id: string; displayId: string; title: string },
   ) {
     if (value.source.kind !== 'factory-check' && value.source.kind !== 'post-rebase-check')
-      throw new RequestError(409, 'only a Check repair can use current Check coverage')
+      throw new RequestError(409, 'only a check repair can use current check coverage')
     const source = store.getCheckRun(value.source.checkRunId)
     const obligations = await failures.obligations(task)
     const current = await currentCoverage(task)
@@ -945,12 +945,12 @@ export function createValidation(options: ValidationOptions) {
     )
       throw new RequestError(
         409,
-        'complete current Checks after repair incorporation or in a fresh Validate visit, and explain why the old Check is now skipped, removed or replaced',
+        'complete current checks after repair incorporation or in a fresh Validate visit, and explain why the old check is now skipped, removed or replaced',
       )
     return failures.verifyResult(
       task,
       value.id,
-      `${evidence}\n\nTask Lead reported repair against Validate visit ${progress.visit}. Current Checks: ${generatedFailureText(summary(progress.checks)) || '(empty plan)'}. Original execution remains failed.`,
+      `${evidence}\n\nTask Lead reported repair against Validate visit ${progress.visit}. Current checks: ${generatedFailureText(summary(progress.checks)) || '(empty plan)'}. Original execution remains failed.`,
       undefined,
       undefined,
       fixedBy,
@@ -967,7 +967,7 @@ export function createValidation(options: ValidationOptions) {
     if (progress && !progress.pending && progress.next < progress.checks.length)
       throw new RequestError(
         409,
-        'A Check failed on the Task’s current code, so Ted can’t move it on. Resolve its failure case first.',
+        'A check failed on the Task’s current code, so Ted can’t move it on. Resolve its failure case first.',
       )
     throw new StaleCoverageError()
   }
@@ -1007,7 +1007,7 @@ export function createValidation(options: ValidationOptions) {
       store.checkSlotBoundary(checkRun.id, 'recovered', new Date().toISOString())
       store.finishChecks(checkRun.id, 'interrupted')
       if (restart) {
-        options.background(`run ${task.displayId}’s Checks again`, () => resumeValidation(task.id))
+        options.background(`run ${task.displayId}’s checks again`, () => resumeValidation(task.id))
       }
     }
 
@@ -1041,7 +1041,7 @@ export function createValidation(options: ValidationOptions) {
         !options.isChecking(task.id)
       ) {
         options.setChecking(task.id, true)
-        options.background(`continue ${task.displayId}’s Validate Checks`, () =>
+        options.background(`continue ${task.displayId}’s Validate checks`, () =>
           resumeValidation(task.id),
         )
       }

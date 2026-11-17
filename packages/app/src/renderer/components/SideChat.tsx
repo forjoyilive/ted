@@ -186,8 +186,8 @@ function RunSideChat({
                       : 'This Side chat’s output is no longer kept.',
                   help:
                     side.chat.run.agent === 'antigravity'
-                      ? 'Uses the starting Conversation snapshot. Antigravity can use built-in tools; see the help beside the tool warning.'
-                      : 'Answers only from the starting Conversation snapshot. It can’t inspect files or change the Task.',
+                      ? 'Uses the starting conversation snapshot. Antigravity can use built-in tools; see the help beside the tool warning.'
+                      : 'Answers only from the starting conversation snapshot. It can’t inspect files or change the Task.',
                   live: side.available && !working && !busy,
                   working: false,
                   interrupt: false,
@@ -223,7 +223,7 @@ function RunSideChat({
                     </div>
                   ) : side.chat.items.length === 0 ? (
                     <div className={styles.notice}>
-                      Ask about this Run. It answers from the Conversation as it was when you opened
+                      Ask about this Run. It answers from the conversation as it was when you opened
                       this Side chat.
                     </div>
                   ) : undefined,

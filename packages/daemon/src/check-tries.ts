@@ -288,7 +288,7 @@ export function createCheckTries(options: {
         factoryId: factory.id,
         subject: 'check-not-found',
         severity: 'warning',
-        text: `A Check’s command wasn’t found: \`${request.run}\``,
+        text: `A check’s command wasn’t found: \`${request.run}\``,
         action: {
           label: 'Open Factory settings',
           opens: { kind: 'factory-settings', factoryId: factory.id },
@@ -313,7 +313,7 @@ export function createCheckTries(options: {
         throw new RequestError(409, `Ted isn’t starting new work right now: ${held}.`)
       }
       if (running.has(factoryId)) {
-        throw new RequestError(409, 'A Check is already running here. Stop it first.')
+        throw new RequestError(409, 'A check is already running here. Stop it first.')
       }
       const placeholder = {
         name: request.name,
@@ -342,7 +342,7 @@ export function createCheckTries(options: {
         const shown = waits ? { ...started, waiting: true } : started
         await update(factoryId, shown)
         placeholder.done = execute(factory, entry, request, started, placeholder.abort, waits)
-          .catch((error: unknown) => console.error('a Check tried from settings failed:', error))
+          .catch((error: unknown) => console.error('a check tried from settings failed:', error))
           .finally(() => {
             if (running.get(factoryId) === placeholder) running.delete(factoryId)
           })

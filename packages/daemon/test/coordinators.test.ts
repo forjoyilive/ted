@@ -521,7 +521,12 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   ).toBe(403)
 
   const d = await s.task('D')
-  const removal = async (kind: string, ids: string[], extra: object = {}, operation = '') =>
+  const removal = async (
+    kind: string,
+    ids: string[],
+    extra: { children?: string } = {},
+    operation = '',
+  ) =>
     run.call('POST', `/coordinator/${kind}`, {
       operation: operation || `${kind}-${ids.join('-')}`,
       tasks: await Promise.all(ids.map(async (id) => ({ id, version: (await read(id)).version }))),
@@ -1770,7 +1775,7 @@ test('tell posts a Comment marked as sent through the Coordinator and delivers i
     message: 'Read this when you start.',
   })
   expect((quiet.body as CoordinatorReceipt).text).toContain(
-    `Left a Comment on ${backlog.displayId}`,
+    `Left a comment on ${backlog.displayId}`,
   )
 
   await s.ok('POST', `/tasks/${backlog.id}/archive`)

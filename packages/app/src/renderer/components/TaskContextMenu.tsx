@@ -106,7 +106,7 @@ export function BulkConfirmDialog({
           )}
           <p className={dialogStyles.body}>
             {kind === 'delete'
-              ? 'This removes the selected Tasks, their Runs and Conversations, Comments and briefs. This can’t be undone. Pull requests and branches stay on GitHub.'
+              ? 'This removes the selected Tasks, their Runs and conversations, comments and briefs. This can’t be undone. Pull requests and branches stay on GitHub.'
               : 'This stops their Runs and Apps and removes their worktrees. Their history stays in Ted.'}
           </p>
           {kind === 'archive' && pullRequests.length > 0 && (
@@ -205,7 +205,7 @@ function BulkTaskMenu({
     items.push({
       label: 'Priority',
       items: priorities.map((priority) => ({
-        label: priority === 'none' ? 'No Priority' : priorityLabels[priority],
+        label: priority === 'none' ? 'No priority' : priorityLabels[priority],
         action: () => each((t) => ted.setPriority(t.id, priority)),
       })),
     })

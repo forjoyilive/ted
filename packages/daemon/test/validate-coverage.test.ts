@@ -108,7 +108,7 @@ async function passing({
     }, 'Validate Checks completed')
     await waitUntil(async () => {
       const value = (await read<Task[]>('/tasks')).find((t) => t.id === task.id)
-      return value && !value.activity?.startsWith('Running Checks') ? value : undefined
+      return value && !value.activity?.startsWith('Running checks') ? value : undefined
     }, 'Check delivery finished')
   }
   if (enterValidate) await settled()
@@ -116,7 +116,7 @@ async function passing({
   const advanceAfterChecks = async () => {
     const result = await advance()
     expect(result.status, JSON.stringify(result.body)).toBe(200)
-    expect(JSON.stringify(result.body)).toContain('running the Checks')
+    expect(JSON.stringify(result.body)).toContain('running the checks')
     await settled()
   }
   return {
@@ -163,7 +163,7 @@ test.each([false, true])(
     expect(await s.stage()).toBe('validate')
     const refused = await s.advance()
     expect(refused.status).toBe(409)
-    expect(JSON.stringify(refused.body)).toContain('A Check failed')
+    expect(JSON.stringify(refused.body)).toContain('A check failed')
   },
 )
 

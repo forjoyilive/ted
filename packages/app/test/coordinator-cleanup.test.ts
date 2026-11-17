@@ -18,10 +18,11 @@ afterEach(() => {
 test('a stalled app close is forced before the hook deadline and the captured home is cleaned', async () => {
   const held = Promise.withResolvers<void>()
   const child = { pid: 987654, exitCode: null } as ChildProcess
-  const app = {
+  const stub: Pick<ElectronApplication, 'process' | 'close'> = {
     process: () => child,
     close: vi.fn(() => held.promise),
-  } as unknown as ElectronApplication
+  }
+  const app = stub as ElectronApplication
   const kill = vi.spyOn(process, 'kill').mockReturnValue(true)
   const report = vi.fn()
   const { stopDaemonIn, killRunHosts, removeHome } = fakeHelpers()
@@ -51,10 +52,11 @@ test('a stalled app close is forced before the hook deadline and the captured ho
 
 test('an already exited app is not killed and a daemon cleanup error remains visible', async () => {
   const child = { pid: 987654, exitCode: 0 } as ChildProcess
-  const app = {
+  const stub: Pick<ElectronApplication, 'process' | 'close'> = {
     process: () => child,
     close: async () => {},
-  } as unknown as ElectronApplication
+  }
+  const app = stub as ElectronApplication
   const kill = vi.spyOn(process, 'kill').mockReturnValue(true)
   const error = new Error('daemon stop failed')
   const { stopDaemonIn, killRunHosts, removeHome } = fakeHelpers()

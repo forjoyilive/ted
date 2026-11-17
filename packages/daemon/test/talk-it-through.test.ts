@@ -301,7 +301,7 @@ describe('Talk it through', () => {
     expect(results[4]).toMatchObject({ code: 0 })
 
     expect(await threadLines(client, task)).not.toContain(
-      'You steered the Task Lead in its Conversation',
+      'You steered the Task Lead in its conversation',
     )
   })
 

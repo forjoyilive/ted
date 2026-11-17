@@ -1,3 +1,5 @@
+import type { JsonObject } from '@ted/protocol/parse'
+
 export interface LinearComment {
   id: string
   body: string
@@ -15,7 +17,7 @@ interface CommentPage {
   }
 }
 
-type Query = <T>(text: string, variables: object) => Promise<T>
+type Query = <T>(text: string, variables: JsonObject) => Promise<T>
 
 const maxComments = 100
 const maxCharacters = 40_000

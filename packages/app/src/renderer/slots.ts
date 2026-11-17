@@ -28,9 +28,9 @@ export function slotsDetail(slots: RunSlots | undefined): string | undefined {
 
 function checksPart({ running, waiting }: RunSlots['checks']): string {
   if (running > 0 && waiting > 0)
-    return ` · ${plural(running, 'Check')} running, ${waiting} waiting`
-  if (running > 0) return ` · ${plural(running, 'Check')} running`
-  if (waiting > 0) return ` · ${plural(waiting, 'Check')} waiting`
+    return ` · ${plural(running, 'check')} running, ${waiting} waiting`
+  if (running > 0) return ` · ${plural(running, 'check')} running`
+  if (waiting > 0) return ` · ${plural(waiting, 'check')} waiting`
   return ''
 }
 

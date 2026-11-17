@@ -78,7 +78,7 @@ function runName(run: ProcessRun): string {
     case 'task-lead':
       return run.task === undefined ? 'a Task Lead' : `${run.task}’s Task Lead`
     case 'sub-agent':
-      return run.task === undefined ? 'a Sub-Agent' : `a Sub-Agent of ${run.task}`
+      return run.task === undefined ? 'a sub-agent' : `a sub-agent of ${run.task}`
     case 'coordinator':
       return 'a Coordinator chat'
     case 'planning':
@@ -106,7 +106,7 @@ export function processName(process: ProcessInfo): string {
     case 'agent-tool':
       return run ? `Tool or MCP server of ${runName(run)}` : 'Tool or MCP server of an agent'
     case 'check':
-      return process.task === undefined ? 'Scheduled Check' : `Check of ${process.task}`
+      return process.task === undefined ? 'Scheduled check' : `Check of ${process.task}`
     case 'app': {
       const app = process.appName === undefined ? 'App' : `App “${process.appName}”`
       return process.task === undefined ? app : `${app} of ${process.task}`

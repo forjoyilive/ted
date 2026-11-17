@@ -181,7 +181,7 @@ export function createWorkflows(options: {
     banners.raise({
       ...ref,
       severity: 'warning',
-      text: 'No Checks set up · Validate relies on the agent alone',
+      text: 'No checks set up · Validate relies on the agent alone',
       action: {
         label: 'Open Factory settings',
         opens: { kind: 'factory-settings', factoryId: factory.id },

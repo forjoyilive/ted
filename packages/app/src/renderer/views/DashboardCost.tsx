@@ -25,7 +25,7 @@ import styles from './Dashboard.module.css'
 export const costKindNames: Record<CostKind, string> = {
   lead: 'Task Leads',
   reviewer: 'Reviewers',
-  'sub-agent': 'Other Sub-Agents',
+  'sub-agent': 'Other sub-agents',
   coordinator: 'Coordinator',
   automation: 'Automations',
   planning: 'Planning chats',

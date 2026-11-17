@@ -297,11 +297,12 @@ export function readDashboard(
     const start = task.transitions.find((e) => isEntryStage(e.stage))
     if (!start || !(Date.parse(start.at) < asOf)) return false
     const ends = [
-      ...task.entries.filter((e) => e.stage === 'done').map((e) => e.at),
+      ...task.entries.flatMap((e) => (e.stage === 'done' ? [e.at] : [])),
       ...task.archives,
-    ]
-      .map(Date.parse)
-      .filter((at) => Number.isFinite(at) && at >= Date.parse(start.at))
+    ].flatMap((text) => {
+      const at = Date.parse(text)
+      return Number.isFinite(at) && at >= Date.parse(start.at) ? [at] : []
+    })
     const end = ends.reduce((a, b) => Math.min(a, b), asOf)
     return end > lower
   })

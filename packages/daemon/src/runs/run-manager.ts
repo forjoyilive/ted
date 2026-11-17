@@ -1421,6 +1421,9 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       const start = await startRecord(runDir)
       if (!start) return false
       const pid = await hostPid(runDir, start)
+      const agentPid = (await lastStartRecord(runDir))?.agentPid ?? undefined
+      const agent =
+        agentPid !== undefined && (await parentOf(agentPid)) === pid ? agentPid : undefined
       if (!(await holdsLock(files.lock, pid)) || !maySleep(runId, quietSince)) return false
       let inputFrom = 0
       try {
@@ -1431,14 +1434,10 @@ export async function startRunManager(options: RunManagerOptions): Promise<RunMa
       writeFileSync(temporary, JSON.stringify({ inputFrom }), { mode: 0o600, flag: 'wx' })
       renameSync(temporary, files.asleep)
       rest(runId, inputFrom)
-      const agentPid = (await lastStartRecord(runDir))?.agentPid ?? undefined
-      const agent =
-        agentPid !== undefined && (await parentOf(agentPid)) === pid ? agentPid : undefined
-      await signalHost(runDir, pid, 'SIGTERM')
+      signal(pid, 'SIGTERM')
       void (async () => {
-        for (let waited = 0; waited < stopGraceMs && isLockHeld(files.lock); waited += pollMs) {
-          await sleep(pollMs)
-        }
+        const deadline = Date.now() + stopGraceMs
+        while (Date.now() < deadline && isLockHeld(files.lock)) await sleep(pollMs)
         if (!(await holdsLock(files.lock, pid))) return
         if (agent !== undefined && (await parentOf(agent)) === pid) signal(agent, 'SIGKILL')
         signal(pid, 'SIGKILL')

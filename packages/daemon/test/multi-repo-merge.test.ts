@@ -355,7 +355,7 @@ test('a repair incorporates every repo before validation and retains all worktre
     'dirty incorporation held',
   )
   expect((await client.ok<{ text: string }>('GET', `${root}/brief`)).text).toContain(
-    'uncommitted changes',
+    'has uncommitted changes',
   )
   expect(
     await Promise.all(

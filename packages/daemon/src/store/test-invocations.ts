@@ -125,8 +125,8 @@ export function createTestInvocationStore({
     register(owner, given) {
       const input = parseRegisterTestInvocation(given)
       if (owner.runId !== undefined && input.checkRunId !== undefined)
-        throw new RequestError(403, 'Runs cannot attribute invocations to Checks')
-      if (!owner.runId && !input.checkRunId) conflict('an invocation needs a Run or Check owner')
+        throw new RequestError(403, 'Runs cannot attribute invocations to checks')
+      if (!owner.runId && !input.checkRunId) conflict('an invocation needs a Run or check owner')
       const normalized = {
         ...input,
         ...(input.label !== undefined && {

@@ -105,10 +105,7 @@ export function createCoordinatorStore(options: {
       const trimmed = { ...kept, receipts: value.receipts.slice(-receiptsKept) }
       const before = find(value.id)
       const { endedAt: _before, title: _oldTitle, ...old } = before ?? {}
-      const change = coordinatorChange(
-        before && (old as Record<string, unknown>),
-        trimmed as unknown as Record<string, unknown>,
-      )
+      const change = coordinatorChange(before && (old as Record<string, unknown>), trimmed)
       const writes = [
         ...(change
           ? [

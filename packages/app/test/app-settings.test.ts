@@ -65,7 +65,9 @@ describe('App Settings', () => {
 
     await window.getByRole('button', { name: /^Show in / }).click()
     await expect
-      .poll(() => ctx.app?.evaluate(() => (globalThis as unknown as { opened: string[] }).opened))
+      .poll(() =>
+        ctx.app?.evaluate(() => (globalThis as typeof globalThis & { opened: string[] }).opened),
+      )
       .toEqual([ctx.home])
   })
 })
@@ -131,7 +133,7 @@ describe('Add Factory', () => {
 })
 
 describe('banners', () => {
-  const noChecks = 'No Checks set up · Validate relies on the agent alone'
+  const noChecks = 'No checks set up · Validate relies on the agent alone'
 
   test('a stops-work Factory banner marks the sidebar row, and Retry clears it', async () => {
     const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
@@ -151,7 +153,7 @@ describe('banners', () => {
     await failed.getByText('Couldn’t clone acme/widgets').waitFor()
     expect(await factoryBanners.locator('[role=alert], [role=status]').allTextContents()).toEqual([
       expect.stringContaining('Couldn’t clone'),
-      expect.stringContaining('No Checks'),
+      expect.stringContaining('No checks'),
     ])
     expect(await failed.getByRole('button', { name: 'Dismiss for 24 hours' }).count()).toBe(0)
     await nav.getByRole('img', { name: 'A problem stops work' }).waitFor()

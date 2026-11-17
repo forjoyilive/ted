@@ -670,7 +670,7 @@ describe('Factory settings', () => {
       )
       const banners = await client.ok<Banner[]>('GET', '/banners')
       expect(banners.map((b) => b.text)).toContain(
-        'acme/api was added · a New setup Task can set up its Checks and Apps',
+        'acme/api was added · a New setup Task can set up its checks and Apps',
       )
       expect(banners.some((b) => b.problem === 'clone-failed')).toBe(false)
     } finally {

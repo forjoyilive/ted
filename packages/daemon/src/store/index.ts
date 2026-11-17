@@ -1490,7 +1490,7 @@ export async function openStore({
       .map((entry) => entry.revision)
     return {
       draft: row?.draft ? (JSON.parse(row.draft) as NewTaskDraft) : null,
-      ...(row?.clearedRevision ? { clearedRevision: row.clearedRevision } : {}),
+      ...(row?.clearedRevision && { clearedRevision: row.clearedRevision }),
       ...(clearedRevisions.length > 0 && { clearedRevisions }),
     }
   }
@@ -2908,7 +2908,7 @@ export async function openStore({
   }
   const requireCheckRun = (id: string) => {
     const row = store.query(queryDb(checkRuns.where({ id }))).at(0)
-    if (!row) throw new Error(`no Check run ${id}`)
+    if (!row) throw new Error(`no check run ${id}`)
     return toCheckRun(row)
   }
   const updatedCheckRun = (id: string): CheckRun => {
@@ -3069,7 +3069,7 @@ export async function openStore({
   }
   const requireComment = (id: string) => {
     const comment = getComment(id)
-    if (!comment) throw new Error(`no Comment ${id}`)
+    if (!comment) throw new Error(`no comment ${id}`)
     return comment
   }
   const treeTaskEvents = (
@@ -6577,7 +6577,7 @@ export async function openStore({
     checkKilledForMemory(checkRunId, position, { lowestMemory, durationMs }) {
       const run = requireCheckRun(checkRunId)
       const check = run.checks[position]
-      if (!check) throw new Error(`Check run ${checkRunId} has no Check ${position}`)
+      if (!check) throw new Error(`Check run ${checkRunId} has no check ${position}`)
       commit(
         events.checkKilledForMemory({
           taskId: run.taskId,

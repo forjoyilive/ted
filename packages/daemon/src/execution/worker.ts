@@ -121,6 +121,9 @@ export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv
       operations.allow(false)
     }
   }
+  const changeStatus = (change: Partial<WorkerStatus>) => {
+    status = { ...status, ...change }
+  }
   const connect = () => Promise.all([report(), sync()]).then(() => undefined)
   async function report(): Promise<void> {
     while (abort && !abort.signal.aborted && saved) {
@@ -128,32 +131,30 @@ export async function createExecutionWorker(home: string, env: NodeJS.ProcessEnv
       try {
         const observed = await readiness(saved.capacity)
         if (signal.aborted) return
-        status = { ...status, readiness: observed }
+        changeStatus({ readiness: observed })
         await executionRequest(
           saved.endpoint,
           '/heartbeat',
           { ...executionHello(), grantId: saved.credential.grantId, readiness: observed },
           { key: identity.key, cert: saved.credential.certificate, signal },
         )
-        status = {
-          ...status,
+        changeStatus({
           state: 'connected',
           message: 'Connected. Reporting readiness; remote Task execution comes later.',
-        }
+        })
       } catch (error) {
         if (signal.aborted) return
         if (error instanceof ExecutionRefused) {
           await writePrivate(root, 'refused', 'Fresh pairing requires user approval.\n')
           abort.abort()
-          status = { ...status, state: 'refused', message: error.message }
+          changeStatus({ state: 'refused', message: error.message })
           return
         }
-        status = {
-          ...status,
+        changeStatus({
           state: 'disconnected',
           message:
             'Controller unreachable. Check both Macs are awake, Ted is running on the main Mac, and both are on the same reachable local network.',
-        }
+        })
         await delay(2000, undefined, { signal }).catch(() => undefined)
       }
     }

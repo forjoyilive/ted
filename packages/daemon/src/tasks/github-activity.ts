@@ -65,9 +65,9 @@ export function checkList(
   pr: Pick<RemotePullRequest, 'url'>,
   checks: readonly RemoteCheck[],
 ): string {
-  const names = checks
-    .filter((c) => trustedCheck(pr, c))
-    .map((c) => clean(c.name, 200) || 'unnamed check')
+  const names = checks.flatMap((c) =>
+    trustedCheck(pr, c) ? [clean(c.name, 200) || 'unnamed check'] : [],
+  )
   const outside = checks.length - names.length
   const items = [...names, ...(outside > 0 ? [outsideCount(outside)] : [])]
   return items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
@@ -317,8 +317,8 @@ export function activityMessage(
     ...(conflict
       ? [
           atWork
-            ? 'To resolve a merge conflict, bring in the latest base branch, resolve the conflicts, run the Checks and commit.'
-            : 'A merge conflict is resolved in Work: bring in the latest base branch, resolve the conflicts, run the Checks and commit. When the conflict is the only thing to change, add `--cause base-conflict` to that command; Ted then records the send-back as a base conflict and doesn’t count it against the limit.',
+            ? 'To resolve a merge conflict, bring in the latest base branch, resolve the conflicts, run the checks and commit.'
+            : 'A merge conflict is resolved in Work: bring in the latest base branch, resolve the conflicts, run the checks and commit. When the conflict is the only thing to change, add `--cause base-conflict` to that command; Ted then records the send-back as a base conflict and doesn’t count it against the limit.',
         ]
       : []),
     ...(review

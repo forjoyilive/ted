@@ -394,27 +394,22 @@ export function createExecutionController(options: {
         ...(identity && { controllerPin: identity.pin }),
         ...(problem && { problem }),
         addresses: localExecutionAddresses(),
-        pending: [...pending.values()]
-          .filter((p) => Date.parse(p.expiresAt) > now())
-          .map(({ id, name, publicKey, expiresAt, readiness }) => ({
-            id,
-            name,
-            publicKey,
-            expiresAt,
-            readiness,
-          })),
+        pending: [...pending.values()].flatMap(({ id, name, publicKey, expiresAt, readiness }) =>
+          Date.parse(expiresAt) > now() ? [{ id, name, publicKey, expiresAt, readiness }] : [],
+        ),
         machines: store.pairing
           .grants()
-          .map((g) => ({
-            ...g,
-            connected:
-              !g.revokedAt &&
-              !disabled.has(g.id) &&
-              (sessions.has(g.id) || now() - (lastSeen.get(g.id) ?? 0) < 10_000),
-            ...(snapshots.get(g.id)
-              ? { readiness: snapshots.get(g.id) as ExecutionReadiness }
-              : {}),
-          }))
+          .map((g) => {
+            const readiness = snapshots.get(g.id)
+            return {
+              ...g,
+              connected:
+                !g.revokedAt &&
+                !disabled.has(g.id) &&
+                (sessions.has(g.id) || now() - (lastSeen.get(g.id) ?? 0) < 10_000),
+              ...(readiness && { readiness }),
+            }
+          })
           .map((m) => {
             const operations = m.revokedAt
               ? undefined

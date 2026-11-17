@@ -297,7 +297,7 @@ function testSample(
                 {
                   id: invocation.id,
                   detail: invocation.checkRunId
-                    ? `Associated Check ${invocation.checkRunId}, position ${invocation.position}; overlapping command time is also counted in Running Checks`
+                    ? `Associated check ${invocation.checkRunId}, position ${invocation.position}; overlapping command time is also counted in Running checks`
                     : `Direct Run ${invocation.runId ? shortReference(invocation.runId) : 'unknown'}`,
                   start: iso(start),
                   end: iso(report.at),
@@ -360,7 +360,7 @@ function testSample(
     }
   if (missingReports > 256)
     sample.notices.push(
-      `${missingReports - 256} additional unreported Check references omitted (limit 256).`,
+      `${missingReports - 256} additional unreported check references omitted (limit 256).`,
     )
   if (facts.invocations.length >= 256)
     sample.notices.push(

@@ -12,7 +12,7 @@ import {
 } from '../src/renderer/inbox.ts'
 
 const item = (id: string, factoryId = 'nb') =>
-  ({ request: { id }, task: { id: `t-${id}`, factoryId } }) as unknown as InboxItem
+  ({ request: { id }, task: { id: `t-${id}`, factoryId } }) as InboxItem
 
 const factories = [
   { id: 'nb', name: 'Notebook' },
@@ -40,7 +40,7 @@ describe('Inbox chips', () => {
       ],
     }
     const items = [item('a'), item('b', 'ms'), item('c', 'docs')]
-    const questions = [{ id: 'q', factoryId: 'docs' }] as unknown as AutomationRequest[]
+    const questions = [{ id: 'q', factoryId: 'docs' }] as AutomationRequest[]
     expect(inboxChips(items, three, questions, [], layout)).toEqual([
       { label: 'All', count: 4 },
       { groupId: 'g1', label: 'Clients', count: 3 },
@@ -55,7 +55,7 @@ describe('Inbox chips', () => {
 
 describe('Automation questions', () => {
   test('count in All and in their Factory’s chip', () => {
-    const questions = [{ id: 'q', factoryId: 'ms' }] as unknown as AutomationRequest[]
+    const questions = [{ id: 'q', factoryId: 'ms' }] as AutomationRequest[]
     expect(inboxChips([item('a')], factories, questions)).toEqual([
       { label: 'All', count: 2 },
       { factoryId: 'nb', label: 'Notebook', count: 1 },
@@ -142,10 +142,10 @@ describe('Group by', () => {
     expect(shape(groupInbox(rows, 'kind', now))).toEqual([
       ['Blocking a Run', ['b1']],
       ['Questions', ['q1', 'q2']],
-      ['Sign-Offs', ['s1']],
+      ['Sign-offs', ['s1']],
     ])
     expect(shape(groupInbox([row('s1', { kind: 'signoff' })], 'kind', now))).toEqual([
-      ['Sign-Offs', ['s1']],
+      ['Sign-offs', ['s1']],
     ])
   })
 
@@ -258,7 +258,7 @@ describe('Group by', () => {
       ['Urgent', ['urgent1', 'urgent2']],
       ['Medium', ['medium']],
       ['Low', ['low']],
-      ['No Priority', ['none']],
+      ['No priority', ['none']],
       ['Not from a Task', ['plan']],
     ])
   })

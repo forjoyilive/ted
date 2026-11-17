@@ -59,7 +59,7 @@ const plural = (count: number, one: string, many: string) => (count === 1 ? one 
 
 function finishingLabel({ checks, merges }: UpdateWork): string {
   const named = [
-    ...(checks > 0 ? [`${checks} ${plural(checks, 'Check', 'Checks')}`] : []),
+    ...(checks > 0 ? [`${checks} ${plural(checks, 'check', 'checks')}`] : []),
     ...(merges === 1 && checks === 0 ? ['a merge'] : []),
     ...(merges > 0 && !(merges === 1 && checks === 0)
       ? [`${merges} ${plural(merges, 'merge', 'merges')}`]

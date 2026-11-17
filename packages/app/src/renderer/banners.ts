@@ -38,9 +38,10 @@ export function settingsStopsWork(banners: readonly Banner[]): boolean {
 }
 
 export function nextReturn(banners: readonly Banner[], now = new Date()): number | undefined {
-  const times = banners
-    .map((b) => (b.dismissedUntil === undefined ? Number.NaN : Date.parse(b.dismissedUntil)))
-    .filter((t) => t > now.getTime())
+  const times = banners.flatMap((b) => {
+    const t = b.dismissedUntil === undefined ? Number.NaN : Date.parse(b.dismissedUntil)
+    return t > now.getTime() ? [t] : []
+  })
   return times.length === 0 ? undefined : Math.min(...times)
 }
 

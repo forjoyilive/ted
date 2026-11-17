@@ -17,7 +17,7 @@ const task = (preview?: { url: string; label: string }) =>
         },
       },
     ],
-  }) as unknown as Task
+  }) as Task
 
 const app = (fields: Partial<TaskApp>): TaskApp => ({
   repo: 'app',
@@ -144,13 +144,15 @@ describe('iOS simulator Apps', () => {
     expect(simulatorsLine(booted(3))).toBe('Simulators 3 of 3 booted')
     expect(simulatorsLine(booted(0))).toBeUndefined()
     expect(simulatorsLine({ ...booted(1), supported: false })).toBeUndefined()
-    const slots = {
+    const slots: RunSlots = {
       working: 4,
       limit: 6,
       queued: 2,
+      holders: [],
+      queue: [],
       factories: [],
       checks: noChecks,
-    } as unknown as RunSlots
+    }
     expect(nowLine(slots, booted(1))).toBe(
       'Now: 4 of 6 slots in use · 2 queued · 1 of 3 simulators booted',
     )
@@ -198,13 +200,15 @@ describe('Android emulator Apps', () => {
     expect(needsSlot(phone({}), running(2))).toBe(true)
     expect(emulatorsLine(running(2))).toBe('Emulators 2 of 2 running')
     expect(emulatorsLine(running(0))).toBeUndefined()
-    const slots = {
+    const slots: RunSlots = {
       working: 4,
       limit: 6,
       queued: 2,
+      holders: [],
+      queue: [],
       factories: [],
       checks: noChecks,
-    } as unknown as RunSlots
+    }
     expect(nowLine(slots, undefined, running(1))).toBe(
       'Now: 4 of 6 slots in use · 2 queued · 1 of 2 emulators running',
     )
@@ -240,17 +244,17 @@ test('the sidebar counts running and waiting Checks beside the agents', () => {
     busy: { loadRatio: 1.4 },
   }
   expect(runsLine(slots)).toBe(
-    '1 of 6 slots in use · 3 Checks running, 1 waiting · 7 queued · this computer is busy',
+    '1 of 6 slots in use · 3 checks running, 1 waiting · 7 queued · this computer is busy',
   )
   expect(nowLine(slots)).toBe(
-    'Now: 1 of 6 slots in use · 3 Checks running, 1 waiting · 7 queued · this computer is busy',
+    'Now: 1 of 6 slots in use · 3 checks running, 1 waiting · 7 queued · this computer is busy',
   )
   const { busy: _, ...calm } = slots
   expect(runsLine({ ...calm, queued: 0, checks: { ...noChecks, running: 1 } })).toBe(
-    '1 of 6 slots in use · 1 Check running',
+    '1 of 6 slots in use · 1 check running',
   )
   expect(runsLine({ ...calm, queued: 0, checks: { ...noChecks, waiting: 2 } })).toBe(
-    '1 of 6 slots in use · 2 Checks waiting',
+    '1 of 6 slots in use · 2 checks waiting',
   )
 })
 

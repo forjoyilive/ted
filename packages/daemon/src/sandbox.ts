@@ -82,7 +82,7 @@ export function createSandbox(options: {
     return (options.unixSockets ?? (() => readFile('/proc/net/unix', 'utf8')))().catch(
       (error: unknown) => {
         throw new SandboxUnavailable(
-          `Ted couldn’t list this machine’s Unix sockets, so it can’t sandbox Checks and Apps or worktree setup and teardown: ${error instanceof Error ? error.message : String(error)}`,
+          `Ted couldn’t list this machine’s Unix sockets, so it can’t sandbox checks and Apps or worktree setup and teardown: ${error instanceof Error ? error.message : String(error)}`,
         )
       },
     )
@@ -104,7 +104,7 @@ export function createSandbox(options: {
     }
     const found = await program()
     if (found === undefined) {
-      return 'bwrap (bubblewrap) isn’t installed, so Ted can’t sandbox Checks and Apps or worktree setup and teardown. Install the bubblewrap package.'
+      return 'bwrap (bubblewrap) isn’t installed, so Ted can’t sandbox checks and Apps or worktree setup and teardown. Install the bubblewrap package.'
     }
     const args =
       platform === 'darwin'
@@ -128,7 +128,7 @@ export function createSandbox(options: {
       return undefined
     }
     const name = platform === 'darwin' ? 'sandbox-exec' : 'bwrap'
-    return `${name} doesn’t work on this machine, so Ted can’t sandbox Checks and Apps or worktree setup and teardown${result.output === '' ? '' : `: ${result.output}`}`
+    return `${name} doesn’t work on this machine, so Ted can’t sandbox checks and Apps or worktree setup and teardown${result.output === '' ? '' : `: ${result.output}`}`
   }
 
   return {

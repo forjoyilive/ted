@@ -119,7 +119,7 @@ const running = (client: Client, task: Task) =>
 const waitingAt = (client: Client, task: Task, place: string) =>
   waitUntil(
     async () =>
-      (await getTask(client, task.id))?.activity === `Waiting to run Checks · ${place}` ||
+      (await getTask(client, task.id))?.activity === `Waiting to run checks · ${place}` ||
       undefined,
     `${task.displayId} to wait ${place} for its Checks`,
     20_000,
@@ -148,7 +148,7 @@ describe('Checks running at once', () => {
     await running(client, first)
     const reset = await client.call('POST', `/tasks/${first.id}/reset`)
     expect(reset.status).toBe(409)
-    expect(JSON.stringify(reset.body)).toContain('Checks are running')
+    expect(JSON.stringify(reset.body)).toContain('checks are running')
     const otherDir = await mkdtemp(path.join(tmpdir(), 'ted-check-cap-other-'))
     try {
       const gadgets = path.join(otherDir, 'acme', 'gadgets.git')
@@ -158,7 +158,7 @@ describe('Checks running at once', () => {
         factoryId: web.id,
       })
       expect(move.status).toBe(409)
-      expect(JSON.stringify(move.body)).toContain(`${first.displayId}’s Checks are running`)
+      expect(JSON.stringify(move.body)).toContain(`${first.displayId}’s checks are running`)
       expect(await getTask(client, parent.id)).toMatchObject({ factoryId: client.factory.id })
       expect(await getTask(client, first.id)).toMatchObject({
         factoryId: client.factory.id,
@@ -203,7 +203,7 @@ describe('Checks running at once', () => {
     expect((await finished(client, first)).outcome).toBe('passed')
     await running(client, second)
     expect((await checkRun(client, second))?.waiting).toBeUndefined()
-    expect((await getTask(client, second.id))?.activity).toBe('Running Checks · Wait (1 of 1)')
+    expect((await getTask(client, second.id))?.activity).toBe('Running checks · Wait (1 of 1)')
     await expect
       .poll(() => client.ok<Activity>('GET', '/activity'))
       .toMatchObject({ checksRunning: 1, checksWaiting: 0 })

@@ -109,7 +109,7 @@ test('cleanup reports delayed shutdown and home removal, retaining the host and 
 
     releaseHome.resolve()
     await cleanup
-    expect(progress.filter((event) => event.state === 'start').map((event) => event.step)).toEqual([
+    expect(progress.flatMap((event) => (event.state === 'start' ? [event.step] : []))).toEqual([
       'daemon',
       'daemon.services',
       'run-hosts',
