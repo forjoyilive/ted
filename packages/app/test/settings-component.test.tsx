@@ -585,6 +585,11 @@ test('Record a CPU profile asks for one profile at a time and shows where it was
 test('resource readings refresh while Developer mode is visible and stop when hidden', async () => {
   const { DeveloperPage } = await import('../src/renderer/settings/DeveloperPage.tsx')
   let cpuPercent = 12.5
+  let hidden = false
+  const show = (visible: boolean) => {
+    hidden = !visible
+    document.dispatchEvent(new Event('visibilitychange'))
+  }
   const diagnostics = vi.fn(() => ({
     memory: { totalBytes: 1024 ** 3, availableBytes: 512 * 1024 ** 2 },
     runs: [
@@ -599,11 +604,13 @@ test('resource readings refresh while Developer mode is visible and stop when hi
     ],
     processes: [],
   }))
-  bridge({
+  const app = bridge({
     tedFolder: () => ({ path: '/test/', platform: 'darwin' }),
     getDiagnostics: diagnostics,
     readDaemonLog: () => ({ text: '', truncated: false }),
   })
+  const memoryReads = () => app.request.mock.calls.filter(([name]) => name === 'memoryUse').length
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
   vi.useFakeTimers()
   try {
     const view = render(
@@ -620,12 +627,22 @@ test('resource readings refresh while Developer mode is visible and stop when hi
     expect(screen.getByText('37.8%')).toBeTruthy()
     expect(screen.queryByText('12.5%')).toBeNull()
     expect(diagnostics).toHaveBeenCalledTimes(2)
+    expect(memoryReads()).toBe(2)
+
+    show(false)
+    await act(async () => vi.advanceTimersByTimeAsync(20_000))
+    expect(diagnostics).toHaveBeenCalledTimes(2)
+    expect(memoryReads()).toBe(2)
+    await act(async () => show(true))
+    expect(diagnostics).toHaveBeenCalledTimes(3)
+    expect(memoryReads()).toBe(3)
 
     view.rerender(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
     await act(async () => vi.advanceTimersByTimeAsync(10_000))
     expect(screen.queryByRole('region', { name: 'Diagnostics' })).toBeNull()
-    expect(diagnostics).toHaveBeenCalledTimes(2)
+    expect(diagnostics).toHaveBeenCalledTimes(3)
   } finally {
+    Reflect.deleteProperty(document, 'hidden')
     vi.useRealTimers()
   }
 })

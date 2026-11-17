@@ -12,12 +12,13 @@ import {
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { createAgents } from '../src/agents/index.ts'
-import { classifyProcesses } from '../src/diagnostics.ts'
+import { classifyProcesses, sharedUsage } from '../src/diagnostics.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { runFiles } from '../src/runs/host-files.ts'
 import { parsedOutput } from '../src/runs/parsed-output.ts'
 import { createRunOutput } from '../src/runs/run-output.ts'
+import type { TedStore } from '../src/store/index.ts'
 import {
   api,
   killRunHosts,
@@ -383,5 +384,62 @@ describe('token use from agent output', () => {
     } finally {
       await rm(home, { recursive: true, force: true })
     }
+  })
+})
+
+describe('the shared usage reading', () => {
+  const usage = (cpuPercent: number) => ({ cpuPercent }) as ProcessUsage
+  const sourcesFor = () => ({ home, store: {} as TedStore })
+
+  function counted(results: Array<() => Promise<ProcessUsage>>) {
+    let clock = 0
+    let reads = 0
+    const read = sharedUsage({
+      now: () => clock,
+      read: () => {
+        const index = reads
+        reads += 1
+        return (results[index] ?? (() => Promise.resolve(usage(index))))()
+      },
+    })
+    return {
+      read,
+      reads: () => reads,
+      advance: (ms: number) => {
+        clock += ms
+      },
+    }
+  }
+
+  test('reuses a reading for 10 seconds after it finishes', async () => {
+    const shared = counted([])
+    const sources = sourcesFor()
+    expect(await shared.read(sources)).toEqual(usage(0))
+    shared.advance(5_000)
+    expect(await shared.read(sources)).toEqual(usage(0))
+    expect(shared.reads()).toBe(1)
+    shared.advance(5_000)
+    expect(await shared.read(sources)).toEqual(usage(1))
+    expect(shared.reads()).toBe(2)
+  })
+
+  test('callers who ask while a reading runs share it', async () => {
+    let finish: (value: ProcessUsage) => void = () => {}
+    const shared = counted([() => new Promise((resolve) => (finish = resolve))])
+    const sources = sourcesFor()
+    const first = shared.read(sources)
+    const second = shared.read(sources)
+    finish(usage(7))
+    expect(await Promise.all([first, second])).toEqual([usage(7), usage(7)])
+    expect(shared.reads()).toBe(1)
+  })
+
+  test('a failed reading is not kept, and each store has its own', async () => {
+    const shared = counted([() => Promise.reject(new Error('footprint timed out'))])
+    const sources = sourcesFor()
+    await expect(shared.read(sources)).rejects.toThrow('footprint timed out')
+    expect(await shared.read(sources)).toEqual(usage(1))
+    expect(await shared.read(sourcesFor())).toEqual(usage(2))
+    expect(shared.reads()).toBe(3)
   })
 })
