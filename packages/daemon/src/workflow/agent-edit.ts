@@ -22,6 +22,7 @@ export interface AgentFileChanges {
 
 const settingKeys = [
   'name',
+  'description',
   'agent',
   'model',
   'powers',
@@ -91,6 +92,7 @@ function writeSettings(root: YAMLMap, id: string, input: AgentSettingsInput): vo
   else root.set(id, map)
   const values: [string, string | readonly string[] | undefined][] = [
     ['name', input.name],
+    ['description', input.description],
     ['agent', input.agent],
     ['model', input.model],
     ['powers', input.powers],
@@ -168,6 +170,7 @@ export function agentFileRows(
       return {
         id: agent.id,
         name: agent.name,
+        ...(agent.description !== undefined && { description: agent.description }),
         ...(isOneOf(agent.agent, agentKinds) && { agent: agent.agent }),
         ...(agent.model !== undefined && { model: agent.model }),
         powers: agent.powers,
@@ -208,6 +211,7 @@ function settingsInput(settings: AgentSettings): AgentSettingsInput {
     : undefined
   return {
     ...(settings.name !== undefined && { name: settings.name }),
+    ...(settings.description !== undefined && { description: settings.description }),
     ...(agent !== undefined && { agent }),
     ...(settings.model !== undefined && { model: settings.model }),
     ...(settings.powers !== undefined && { powers: settings.powers }),
@@ -219,6 +223,7 @@ function settingsInput(settings: AgentSettings): AgentSettingsInput {
 function resolvedInput(agent: ResolvedAgent): AgentSettingsInput {
   return {
     name: agent.name,
+    ...(agent.description !== undefined && { description: agent.description }),
     ...(isOneOf(agent.agent, agentKinds) && { agent: agent.agent }),
     ...(agent.model !== undefined && { model: agent.model }),
     powers: agent.powers,
