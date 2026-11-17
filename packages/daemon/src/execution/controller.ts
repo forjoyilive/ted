@@ -325,7 +325,7 @@ export function createExecutionController(options: {
       })
     })
     listening.on('error', () => {
-      problem = 'Execution listener failed. Restart TED and check the local address and port.'
+      problem = 'Execution listener failed. Restart Ted and check the local address and port.'
       options.onProblem?.(problem)
     })
     server = listening
@@ -347,7 +347,7 @@ export function createExecutionController(options: {
           await listen(saved)
         } catch {
           problem =
-            'Could not restore execution listener. Check this Mac’s local address and restart TED.'
+            'Could not restore execution listener. Check this Mac’s local address and restart Ted.'
           options.onProblem?.(problem)
         }
     },

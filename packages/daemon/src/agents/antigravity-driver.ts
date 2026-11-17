@@ -145,7 +145,7 @@ export const drive: DriveAgent = ({ input, cwd, send, stop, emit }) => {
     const init = await rpc.request('initialize', {
       protocolVersion: 1,
       clientCapabilities: {},
-      clientInfo: { name: 'ted', title: 'TED', version: plan.clientVersion },
+      clientInfo: { name: 'ted', title: 'Ted', version: plan.clientVersion },
     })
     if (init.protocolVersion !== 1)
       throw new Error('Antigravity requires an unsupported protocol version')
@@ -252,7 +252,7 @@ export const drive: DriveAgent = ({ input, cwd, send, stop, emit }) => {
           JSON.stringify({
             jsonrpc: '2.0',
             id: message.id,
-            error: { code: -32601, message: 'TED does not provide this capability' },
+            error: { code: -32601, message: 'Ted does not provide this capability' },
           }),
         )
     },

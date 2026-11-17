@@ -162,7 +162,7 @@ test('local clone, create, copy and removal use handles and refuse a linked Task
     env: {},
   })
   expect(refused.outcome).toBe('failed')
-  expect(refused.problem).toContain('TED didn’t run setup:')
+  expect(refused.problem).toContain('Ted didn’t run setup:')
   await expect(readFile(path.join(file, 'stub-refused'))).rejects.toThrow()
   expect(store.listBanners().some((b) => b.problem === 'sandbox-unavailable')).toBe(true)
   await local.remove(made.handle)
@@ -293,7 +293,7 @@ test('a start removes a clean leftover worktree and its branch, leaves one with 
 
   await mkdir(target)
   await writeFile(path.join(target, 'keep'), 'untouched')
-  await expect(local.clear(clone, entry)).rejects.toThrow('isn’t a worktree of TED’s widgets clone')
+  await expect(local.clear(clone, entry)).rejects.toThrow('isn’t a worktree of Ted’s widgets clone')
   expect(await readFile(path.join(target, 'keep'), 'utf8')).toBe('untouched')
 
   const outside = path.join(home, 'outside')

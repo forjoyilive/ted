@@ -19,7 +19,7 @@ const use: MemoryUse = {
 
 test('ted dev memory prints the total, each kind of process and the store’s size on disk', () => {
   expect(formatMemoryUse(use).split('\n')).toEqual([
-    'TED is using 5.2 GB.',
+    'Ted is using 5.2 GB.',
     '  Agents’ tools and MCP servers: 1.5 GB, 12 processes',
     '  Agents: 2.3 GB, 7 processes',
     '  Daemon and Run hosts: 1.4 GB, 8 processes (daemon 900 MB: JavaScript heap 330 MB, store and buffers 240 MB)',
@@ -41,7 +41,7 @@ test('the one-line summary adds Checks, Apps, the app and other commands when th
       app: { count: 4, bytes: 590 * mb },
     }),
   ).toBe(
-    '2.4 GB · Agents 350 MB · Checks 300 MB · Apps 200 MB · Daemon and Run hosts 975 MB · TED app 590 MB · Other commands 40 MB',
+    '2.4 GB · Agents 350 MB · Checks 300 MB · Apps 200 MB · Daemon and Run hosts 975 MB · Ted app 590 MB · Other commands 40 MB',
   )
 })
 

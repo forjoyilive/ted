@@ -188,7 +188,7 @@ describe('watching free disk space', () => {
     expect(moved.runs[0]?.agent).toBe('codex')
   })
 
-  test('a disk that is already full when TED starts holds queued work from the first moment', async () => {
+  test('a disk that is already full when Ted starts holds queued work from the first moment', async () => {
     free = 1e9
     const client = await start()
     const created = await client.ok<Task>('POST', '/tasks', { title: 'Held', factory: 'NB' })
@@ -198,7 +198,7 @@ describe('watching free disk space', () => {
 })
 
 describe('a store write that fails on a full disk', () => {
-  test('shows that TED can’t save until a write succeeds again', async () => {
+  test('shows that Ted can’t save until a write succeeds again', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'ted-store-'))
     const store = await openStore({ directory: dir })
     try {
@@ -218,7 +218,7 @@ describe('a store write that fails on a full disk', () => {
       disk.writeFailed()
       expect(disk.cantSave()).toBe(true)
       expect(banners.list().map((b) => [b.problem, b.severity, b.text])).toEqual([
-        ['store-write-failed', 'stops-work', 'TED can’t save changes: disk full'],
+        ['store-write-failed', 'stops-work', 'Ted can’t save changes: disk full'],
       ])
       expect(seen.map((e) => e.type)).toEqual(['banner-raised'])
 

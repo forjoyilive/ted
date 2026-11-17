@@ -308,7 +308,7 @@ test('a Coordinator drafts Agents that only the app creates, in the Library or a
   const listed = await run.call('GET', '/coordinator/agents')
   expect(listed.status).toBe(200)
   expect(listed.body.context).toMatch(/^<<<AGENT FILES [0-9a-f-]+>>>/)
-  expect(listed.body.context).toContain('You are the Coordinator for one TED Factory')
+  expect(listed.body.context).toContain('You are the Coordinator for one Ted Factory')
 
   const token = `sk-${'a'.repeat(30)}`
   const draft = {
@@ -532,7 +532,7 @@ test.runIf(process.platform === 'darwin')(
 
     await waitUntil(() => existsSync(file('sleeper.code')), 'the commands to run', 90_000)
     const stub = await readFile(file('stub'), 'utf8')
-    expect(stub).toContain('TED ran `stub` in this chat’s copy: it failed with exit code 3.')
+    expect(stub).toContain('Ted ran `stub` in this chat’s copy: it failed with exit code 3.')
     expect(stub).toMatch(/<<<COMMAND OUTPUT [a-f0-9-]+>>>\nhello-from-stub\n/)
     expect((await readFile(file('stub.code'), 'utf8')).trim()).toBe('3')
     expect(await readFile(file('deploy'), 'utf8')).toContain(

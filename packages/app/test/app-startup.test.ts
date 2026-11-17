@@ -150,7 +150,7 @@ loadedTest(
           return menu ? walk(menu) : []
         }),
       )
-      .toContain('Quit TED completely')
+      .toContain('Quit Ted completely')
     await expect
       .poll(() => readFile(path.join(ctx.home, 'logs', 'app-startup.log'), 'utf8'))
       .toContain('background-ready')

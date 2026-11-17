@@ -11,7 +11,7 @@ import type { TrackerSeen } from '../../store/index.ts'
 export class TrackerWait extends Error {
   readonly waitMs: number
   constructor(waitMs: number) {
-    super('the tracker asked TED to wait')
+    super('the tracker asked Ted to wait')
     this.waitMs = waitMs
   }
 }

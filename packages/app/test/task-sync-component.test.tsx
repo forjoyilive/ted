@@ -14,7 +14,7 @@ test('a merged Asana parent shows whether it waits on Tasks, needs an answer or 
   )
   const text = (state: string) =>
     drawn.container.querySelector(`[data-task-sync="${state}"]`)?.textContent
-  expect(text('waiting-children')).toContain('Their TED Tasks complete them on merging')
+  expect(text('waiting-children')).toContain('Their Ted Tasks complete them on merging')
   expect(text('needs-answer')).toContain('Waiting for your answer')
   expect(text('needs-answer')).toContain('Answer the question in this Task’s thread.')
   expect(text('left-open')).toContain('Left open in Asana')

@@ -557,7 +557,7 @@ export function createPlans(options: PlansOptions): Plans {
       throw new RequestError(409, `${factory.name} is still cloning. Plan once it’s ready.`)
     }
     if (store.newWorkHold() !== undefined) {
-      throw new RequestError(507, 'The disk is full, so TED isn’t starting new Runs')
+      throw new RequestError(507, 'The disk is full, so Ted isn’t starting new Runs')
     }
   }
 
@@ -617,7 +617,7 @@ export function createPlans(options: PlansOptions): Plans {
       throw new RequestError(409, 'this planning chat has stopped, so it can’t get your answer')
     }
     if (store.newWorkHold() !== undefined) {
-      throw new RequestError(507, 'The disk is full, so TED isn’t sending work to Runs')
+      throw new RequestError(507, 'The disk is full, so Ted isn’t sending work to Runs')
     }
     await runs.send(run.id, text)
   }
@@ -721,7 +721,7 @@ export function createPlans(options: PlansOptions): Plans {
     }
     if (plan.state !== 'started' || plan.resume === 'queued') continue
     const run = store.getRun(plan.id)
-    if (!run) fail(plan.id, 'TED stopped before this Run started.')
+    if (!run) fail(plan.id, 'Ted stopped before this Run started.')
     else if (run.state === 'finished') {
       ended(run.id, run.ended?.how === 'stopped', run.ended?.errorLines ?? [])
     }

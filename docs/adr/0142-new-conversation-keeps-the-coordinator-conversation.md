@@ -9,7 +9,7 @@ Status: changed by ADR 0171-each-coordinator-chat-has-its-own-id and ADR 0178-ag
 - The saved copy keeps only Runs that started, ends on the last of them, and is stored `ready` with no launch, no error and no unsent messages. Messages the Coordinator hadn’t read are deleted in the same commit, and open confirmation cards are saved as canceled, so the Inbox (which reads only live Coordinators) never holds a card for a saved conversation. A conversation with no started Run is deleted as before.
 - **Continue** (`POST …/conversations/:id/continue`) saves the live conversation the same way and, in the same commit, `v1.CoordinatorConversationContinued` and `v1.CoordinatorChanged` make the chosen one live again. Its last Run is stopped, so the next message starts a new Run with the saved history through the existing replacement path.
 - **Delete** (`DELETE …/conversations/:id`) removes the folders with the same checks Factory removal uses, then `v1.CoordinatorConversationDeleted` deletes the row, its Runs, Run messages and drafts. Removing a Factory deletes its saved conversations the same way.
-- Retention keeps a saved conversation’s Run output (`runOutputEnd` checks `store.coordinators.savedForRun`). TED never removes a saved conversation on its own.
+- Retention keeps a saved conversation’s Run output (`runOutputEnd` checks `store.coordinators.savedForRun`). Ted never removes a saved conversation on its own.
 - Every route is the app’s: none sets `runToken` or `fileToken`. Reset, Continue and Delete hold the same per-Factory lock, so they never run at once.
 - “Tasks in this conversation” lists the most recently added Task first. A Task keeps the place it got when first added.
 

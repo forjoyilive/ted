@@ -103,7 +103,7 @@ test('Quit’s forced stop ends the daemon, Run hosts and their agents, and foll
   expect(outsider.child.signalCode).toBeNull()
 })
 
-test('after Quit no ted command starts TED until the app clears the mark', async () => {
+test('after Quit no ted command starts Ted until the app clears the mark', async () => {
   await markQuit(home)
   const saved = process.env[runTokenEnv]
   try {

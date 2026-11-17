@@ -30,7 +30,7 @@ const check = {
 } as const
 roundTrip(P.parseCreateAutomationRequest, {
   ...core,
-  factory: 'TED',
+  factory: 'Ted',
   template: 'linear',
   runNow: true,
   check,
@@ -44,7 +44,7 @@ roundTrip(P.parseEditAutomationRequest, {
 })
 roundTrip(P.parseAutomationCheck, check)
 roundTrip(P.parseDraftAutomationPromptRequest, {
-  factory: 'TED',
+  factory: 'Ted',
   request: 'Draft',
   name: 'Daily',
   prompt: 'Existing prompt',

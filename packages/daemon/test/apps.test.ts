@@ -275,7 +275,7 @@ describe('Apps', () => {
     const res = await client.call('POST', `/tasks/${task.id}/apps/start`, { name: 'Fixed' })
     expect(res.status).toBe(409)
     expect((res.body as { error: string }).error).toBe(
-      `Port ${taken} is taken, so TED couldn’t start Fixed. Stop whatever uses it, or remove \`port:\` from the App in workflow.yaml.`,
+      `Port ${taken} is taken, so Ted couldn’t start Fixed. Stop whatever uses it, or remove \`port:\` from the App in workflow.yaml.`,
     )
     expect(await appNamed(client, task, 'Fixed')).toMatchObject({
       state: 'failed',
@@ -366,7 +366,7 @@ describe('Apps', () => {
     }, 'ted run-app to give up')
     expect(result?.code).toBe(1)
     expect(JSON.stringify(result)).toContain(
-      'Slow was removed from the Factory’s settings while TED waited for it',
+      'Slow was removed from the Factory’s settings while Ted waited for it',
     )
 
     const stopped = await client.ok<TaskApp>('POST', `/tasks/${task.id}/apps/stop`, {

@@ -89,7 +89,7 @@ export function LinearGroup({
             API key
           </label>
           <Help>
-            A personal API key from Linear’s Settings → Security & access. TED keeps it in{' '}
+            A personal API key from Linear’s Settings → Security & access. Ted keeps it in{' '}
             {status?.keyring === 'secret-service' ? 'your keyring' : 'the macOS Keychain'}.
           </Help>
         </div>
@@ -207,7 +207,7 @@ function TeamsRow({
     <TrackerGroupsRow
       title={`Linear teams for Automations in ${factory.name}`}
       labelFor={fieldId}
-      help="TED syncs a Task an Automation made only when its issue is in one of these Linear teams. The first time an Automation makes a Task from another team, TED asks you in the Inbox. For a single Task, open its menu and choose Sync with Linear."
+      help="Ted syncs a Task an Automation made only when its issue is in one of these Linear teams. The first time an Automation makes a Task from another team, Ted asks you in the Inbox. For a single Task, open its menu and choose Sync with Linear."
       allowed={listed}
       declined={declined[factory.id] ?? []}
       allowLabel={(team) => `Allow ${team} for Automations in ${factory.name}`}
@@ -261,7 +261,7 @@ function StatusLine({ status, keyFile }: { status: LinearStatus; keyFile: string
         <>
           {line('bad', 'No keyring found on this computer')}
           <p className={styles.explain}>
-            TED keeps the key in the Secret Service, and none is running. Type the key, then save it
+            Ted keeps the key in the Secret Service, and none is running. Type the key, then save it
             in {keyFile}, which only you can read.
           </p>
         </>

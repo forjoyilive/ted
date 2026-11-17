@@ -663,7 +663,7 @@ describe('Factory settings: Checks', () => {
     expect(await readFile(path.join(outside, 'worktrees', 'app', 'keep.txt'), 'utf8')).toBe('keep')
   })
 
-  test('only the TED app can run a Check', async () => {
+  test('only the Ted app can run a Check', async () => {
     const client = await start()
     const fileToken = api(daemon?.port ?? 0, await tokenFor(home))
     const res = await fileToken.call('POST', `/factories/${client.factory.id}/checks/try`, {

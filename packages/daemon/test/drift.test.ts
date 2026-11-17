@@ -237,7 +237,7 @@ describe('Drift in Factory settings', () => {
     })
   })
 
-  test('Merge with an agent is refused without drift, and only the TED app can ask for it', async () => {
+  test('Merge with an agent is refused without drift, and only the Ted app can ask for it', async () => {
     const client = await start()
     const refused = await client.call(
       'POST',

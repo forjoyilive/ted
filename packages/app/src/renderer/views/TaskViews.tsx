@@ -14,7 +14,7 @@ export function SetupPanel({ factory, setup }: { factory: Factory; setup: RepoSe
       <h2 className={setupStyles.heading}>
         Setting up {factory.name}
         <Help>
-          TED clones each repo into its own folder. New Tasks wait in Queued until every clone is
+          Ted clones each repo into its own folder. New Tasks wait in Queued until every clone is
           done.
         </Help>
       </h2>

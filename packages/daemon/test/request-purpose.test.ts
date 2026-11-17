@@ -69,7 +69,7 @@ test('explicit purposes survive replay independently of the request’s wording 
   expect(store.listOpenRequests().map((c) => c.purpose)).toEqual(purposes)
 })
 
-test('legacy wording is normalized only for TED’s questions, and explicit ordinary purpose wins', async () => {
+test('legacy wording is normalized only for Ted’s questions, and explicit ordinary purpose wins', async () => {
   store.startRun({ id: 'old-run', taskId, agent: 'claude', prompt: 'Old', cwd: directory })
   const cases: { input: Partial<NewComment>; purpose: RequestPurpose }[] = [
     {

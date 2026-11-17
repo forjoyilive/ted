@@ -53,13 +53,13 @@ const entries = {
   'app.general.profile': { name: 'Profile', heading: true },
   'app.general.profile.picture': {
     name: 'Profile picture',
-    help: 'Shown beside your comments. TED keeps it on this computer only.',
+    help: 'Shown beside your comments. Ted keeps it on this computer only.',
   },
   'app.general.display': { name: 'Display', heading: true },
   'app.general.display.appearance': { name: 'Appearance' },
   'app.general.display.text-size': {
     name: 'Text size',
-    detail: 'Changes text throughout TED. Terminal font size is separate.',
+    detail: 'Changes text throughout Ted. Terminal font size is separate.',
   },
   'app.general.display.terminal-font-size': {
     name: 'Terminal font size',
@@ -68,7 +68,7 @@ const entries = {
   'app.general.date-and-time': { name: 'Date and time', heading: true },
   'app.general.date-and-time.time-format': {
     name: 'Time format',
-    detail: 'Used throughout TED.',
+    detail: 'Used throughout Ted.',
   },
   'app.general.date-and-time.time-zone': {
     name: 'Time zone',
@@ -90,16 +90,16 @@ const entries = {
   },
   'app.general.startup': { name: 'Startup and quitting', heading: true },
   'app.general.startup.login': {
-    name: 'Start TED in the background when you log in',
-    help: 'TED starts with no window, so notifications and Automations work. It keeps running until you choose Quit TED completely.',
+    name: 'Start Ted in the background when you log in',
+    help: 'Ted starts with no window, so notifications and Automations work. It keeps running until you choose Quit Ted completely.',
   },
   'app.general.startup.quit': {
     name: 'When you quit with work running',
-    help: 'Work running means Runs going or Automations on. Keeping TED running in the background lets them carry on with no window open.',
+    help: 'Work running means Runs going or Automations on. Keeping Ted running in the background lets them carry on with no window open.',
   },
   'app.general.startup.tray': {
     name: 'Show tray icon',
-    help: 'Shows TED’s waiting count and problems in the system tray. Some desktops, such as stock GNOME, don’t show tray icons.',
+    help: 'Shows Ted’s waiting count and problems in the system tray. Some desktops, such as stock GNOME, don’t show tray icons.',
     platform: 'linux',
   },
   'app.general.startup.stay-awake': {
@@ -115,7 +115,7 @@ const entries = {
   'app.general.editor': { name: 'Editor and command line', heading: true },
   'app.general.editor.editor': {
     name: 'Editor',
-    help: 'Open in editor opens the Task’s worktree, or a file at a line from a diff, in this editor. TED lists the editors it finds on your login shell’s PATH.',
+    help: 'Open in editor opens the Task’s worktree, or a file at a line from a diff, in this editor. Ted lists the editors it finds on your login shell’s PATH.',
   },
   'app.general.editor.custom-command': { name: 'Custom command' },
   'app.general.editor.ted-command': {
@@ -129,7 +129,7 @@ const entries = {
   'app.general.about': { name: 'About and updates', heading: true },
   'app.general.about.licenses': {
     name: 'Third-party licenses',
-    help: 'The open-source code TED is built from, and the license for each part.',
+    help: 'The open-source code Ted is built from, and the license for each part.',
   },
 
   'app.notifications.send': { name: 'Send a notification for', heading: true },
@@ -170,7 +170,7 @@ const entries = {
   },
   'app.agents.restart-idle-runs': {
     name: 'Restart idle Runs onto new Provider versions',
-    help: 'When a Provider updates, TED restarts each idle Run on the new version and resumes its conversation. Working Runs restart once they go idle.',
+    help: 'When a Provider updates, Ted restarts each idle Run on the new version and resumes its conversation. Working Runs restart once they go idle.',
   },
 
   'app.limits.working-runs': {
@@ -179,16 +179,16 @@ const entries = {
   },
   'app.limits.busy': {
     name: 'Wait to start new work when this computer is busy',
-    help: 'While the CPU is busy or memory is low, TED starts no new Run, sub-agent, simulator or emulator unless none is working, and scheduled checks wait. Work already running carries on. The limit above is still the most TED runs at once.',
+    help: 'While the CPU is busy or memory is low, Ted starts no new Run, sub-agent, simulator or emulator unless none is working, and scheduled checks wait. Work already running carries on. The limit above is still the most Ted runs at once.',
   },
   'app.limits.simulators': {
     name: 'Simulators booted at once',
-    help: 'iOS simulator Apps share these slots. When they’re all taken, TED asks which simulator to shut down; it never shuts one down on its own to make room.',
+    help: 'iOS simulator Apps share these slots. When they’re all taken, Ted asks which simulator to shut down; it never shuts one down on its own to make room.',
     platform: 'mac',
   },
   'app.limits.emulators': {
     name: 'Android emulators running at once',
-    help: 'Android emulator Apps share these slots, separately from iOS simulators. When they’re all taken, TED asks which emulator to shut down; it never shuts one down on its own to make room.',
+    help: 'Android emulator Apps share these slots, separately from iOS simulators. When they’re all taken, Ted asks which emulator to shut down; it never shuts one down on its own to make room.',
   },
   'app.limits.checks': {
     name: 'Checks running at once',
@@ -196,9 +196,9 @@ const entries = {
   },
   'app.limits.check-cpus': {
     name: 'CPU a check may use',
-    help: 'TED tells each check how many of this computer’s cores it may use: this share of them, divided between the checks running at once, and never fewer than 1. A lower share leaves more room for Runs and makes checks slower.',
+    help: 'Ted tells each check how many of this computer’s cores it may use: this share of them, divided between the checks running at once, and never fewer than 1. A lower share leaves more room for Runs and makes checks slower.',
     detail:
-      'TED doesn’t enforce it. A check’s command has to pass the number, TED_CHECK_CPUS, to its test runner. Applies to checks started after you change it.',
+      'Ted doesn’t enforce it. A check’s command has to pass the number, TED_CHECK_CPUS, to its test runner. Applies to checks started after you change it.',
   },
   'app.limits.scheduled-check-cpus': {
     name: 'Limit the CPU scheduled checks use too',
@@ -206,13 +206,13 @@ const entries = {
   },
   'app.limits.sleep-idle': {
     name: 'End idle Task Lead agents to free memory',
-    help: 'A Task Lead that is only waiting keeps its agent and the tools the agent started in memory, about 1 GB each. With this on, TED ends an idle Task Lead’s agent and starts it again, in the same conversation, when there is something for it to do.',
+    help: 'A Task Lead that is only waiting keeps its agent and the tools the agent started in memory, about 1 GB each. With this on, Ted ends an idle Task Lead’s agent and starts it again, in the same conversation, when there is something for it to do.',
     detail:
       'The first message after a wait takes a few seconds longer. Anything the agent left running in the background ends with it.',
   },
   'app.limits.sleep-idle-after': {
     name: 'End an agent after it has been idle for',
-    help: 'How long a Task Lead’s agent has done nothing before TED ends it.',
+    help: 'How long a Task Lead’s agent has done nothing before Ted ends it.',
   },
   'app.limits.low-priority': {
     name: 'Run agents and checks at low priority',
@@ -223,18 +223,18 @@ const entries = {
 
   'app.integrations.github': {
     name: 'GitHub',
-    help: 'TED uses the GitHub CLI’s own login and never reads its token. One row for each host your Factories use.',
+    help: 'Ted uses the GitHub CLI’s own login and never reads its token. One row for each host your Factories use.',
     heading: true,
   },
   'app.integrations.github.sync': {
     name: 'Keep issues up to date',
-    help: 'When a Task comes from an issue in one of its Factory’s repos, TED comments on the issue when work starts, links it from each pull request, and comments and closes it once every pull request merges. It writes as your GitHub account, so what it writes can be public. If someone closes the issue on GitHub, TED archives a Task that hasn’t started, or asks you.',
+    help: 'When a Task comes from an issue in one of its Factory’s repos, Ted comments on the issue when work starts, links it from each pull request, and comments and closes it once every pull request merges. It writes as your GitHub account, so what it writes can be public. If someone closes the issue on GitHub, Ted archives a Task that hasn’t started, or asks you.',
     keywords: 'github issue sync close comment fixes',
   },
   'app.integrations.git': { name: 'Git', heading: true },
   'app.integrations.linear': {
     name: 'Linear',
-    help: 'TED uses the key to fill in a Task from a pasted Linear issue URL and to keep that issue’s status in step with the Task. It never gives the key to an agent.',
+    help: 'Ted uses the key to fill in a Task from a pasted Linear issue URL and to keep that issue’s status in step with the Task. It never gives the key to an agent.',
     heading: true,
   },
   'app.integrations.linear.key': {
@@ -243,7 +243,7 @@ const entries = {
   },
   'app.integrations.linear.sync': {
     name: 'Sync status with Linear',
-    help: 'When a Task comes from a Linear issue, TED moves the issue to In Progress when the Task starts, to In Review at the Review sign-off and to Done when it merges, and links the pull requests. If someone closes the issue in Linear, TED archives a Task that hasn’t started, or asks you.',
+    help: 'When a Task comes from a Linear issue, Ted moves the issue to In Progress when the Task starts, to In Review at the Review sign-off and to Done when it merges, and links the pull requests. If someone closes the issue in Linear, Ted archives a Task that hasn’t started, or asks you.',
   },
   'app.integrations.asana': {
     name: 'Asana',
@@ -252,7 +252,7 @@ const entries = {
   },
   'app.integrations.asana.sync': {
     name: 'Task Sync',
-    help: 'For each Task allowed to sync, TED comments on its Asana task with each pull request it opens, and completes the Asana task once they all merge. When a task is completed in Asana, TED archives its Task or asks you.',
+    help: 'For each Task allowed to sync, Ted comments on its Asana task with each pull request it opens, and completes the Asana task once they all merge. When a task is completed in Asana, Ted archives its Task or asks you.',
   },
 
   'app.library.workflow': { name: 'Workflow', heading: true },
@@ -281,7 +281,7 @@ const entries = {
   },
   'app.storage.store': {
     name: 'Store and backups',
-    help: 'The store holds every Task, comment and Run TED knows about: the event log is its record of every change, and the state database is built from it. Backups are copies of the store.',
+    help: 'The store holds every Task, comment and Run Ted knows about: the event log is its record of every change, and the state database is built from it. Backups are copies of the store.',
     heading: true,
   },
   'app.storage.store.event-log': { name: 'Event log' },
@@ -317,30 +317,30 @@ const entries = {
     help: 'Shows a compact CPU and memory readout at the bottom left of the main screen, with detailed Run and daemon process readings and logs here. Readings refresh every two seconds while visible.',
   },
   'app.developer.memory': {
-    name: 'TED’s memory use',
-    help: 'Memory used by TED and everything it started: the app, the daemon and Run hosts, the agents and the tools and MCP servers they run, checks and Apps. Refreshes every five seconds while this page is open.',
+    name: 'Ted’s memory use',
+    help: 'Memory used by Ted and everything it started: the app, the daemon and Run hosts, the agents and the tools and MCP servers they run, checks and Apps. Refreshes every five seconds while this page is open.',
     keywords: 'RAM usage daemon app agents Run hosts',
   },
-  'app.developer.folder': { name: 'TED’s folder' },
+  'app.developer.folder': { name: 'Ted’s folder' },
   'app.developer.report': {
     name: 'Copy report',
-    help: 'Copies TED’s version, your Runs and the end of the daemon’s log to the clipboard, for you to paste into a bug report. Nothing is uploaded. TED sends no telemetry.',
+    help: 'Copies Ted’s version, your Runs and the end of the daemon’s log to the clipboard, for you to paste into a bug report. Nothing is uploaded. Ted sends no telemetry.',
   },
   'app.developer.profile': {
     name: 'Record a CPU profile',
     keywords:
-      'Records where TED’s background process spends its time and saves a .cpuprofile file in TED’s folder, under logs/profiles. Open it in Chrome DevTools or VS Code. The file lists TED’s own functions and file paths, with no Task content, prompts or tokens. TED keeps the newest five. Nothing is uploaded.',
+      'Records where Ted’s background process spends its time and saves a .cpuprofile file in Ted’s folder, under logs/profiles. Open it in Chrome DevTools or VS Code. The file lists Ted’s own functions and file paths, with no Task content, prompts or tokens. Ted keeps the newest five. Nothing is uploaded.',
   },
   'app.developer.onboarding': {
     name: 'Show onboarding again',
     detail:
-      'Shows the first-launch steps from the start the next time TED opens, and gives the next Factory added the setup guide. Factories, Tasks and settings stay as they are.',
-    keywords: 'first launch welcome set up TED reset guide',
+      'Shows the first-launch steps from the start the next time Ted opens, and gives the next Factory added the setup guide. Factories, Tasks and settings stay as they are.',
+    keywords: 'first launch welcome set up Ted reset guide',
   },
   'app.developer.diagnostics': { name: 'Diagnostics', heading: true },
   'app.developer.diagnostics.memory': {
     name: 'System memory usage',
-    help: 'Memory in use across this computer, including other apps. This is separate from the memory used by TED’s processes below.',
+    help: 'Memory in use across this computer, including other apps. This is separate from the memory used by Ted’s processes below.',
   },
   'app.developer.processes': {
     name: 'Processes',
@@ -371,7 +371,7 @@ const entries = {
   'factory.intake.github': {
     name: 'GitHub intake',
     detail:
-      'Choose which GitHub issues Automations can bring into this Factory: any open issue in its repos, or only issues with a label you name. TED reads each issue itself and refuses the rest. Tasks you create yourself aren’t affected.',
+      'Choose which GitHub issues Automations can bring into this Factory: any open issue in its repos, or only issues with a label you name. Ted reads each issue itself and refuses the rest. Tasks you create yourself aren’t affected.',
     heading: true,
   },
   'factory.intake.github.scope': {
@@ -400,7 +400,7 @@ const entries = {
   'factory.repos.merge-method': { name: 'Merge method' },
   'factory.repos.pull-request-ci': {
     name: 'Pull request CI',
-    help: 'Whether TED waits for CI checks on this repo’s pull requests before it merges.',
+    help: 'Whether Ted waits for CI checks on this repo’s pull requests before it merges.',
     keywords: 'ci checks wait merge github actions',
   },
   'factory.repos.worktree': { name: 'Worktree', heading: true },
@@ -410,7 +410,7 @@ const entries = {
   },
   'factory.repos.worktree.teardown': {
     name: 'Teardown command',
-    help: 'Runs before TED removes a worktree. If it fails, TED logs it and removes the worktree anyway.',
+    help: 'Runs before Ted removes a worktree. If it fails, Ted logs it and removes the worktree anyway.',
   },
   'factory.repos.env': {
     name: 'Environment variables',
@@ -437,19 +437,19 @@ const entries = {
   },
   'factory.workflow.validate-sub-agents': {
     name: 'Other sub-agents in Validate',
-    help: 'Off: in Validate the Task Lead can start only TED’s reviewer, one per visit. On: it can also start other sub-agents, for example to run slow tests. Each one takes a working Run, and a sub-agent that reviews the diff adds findings that can cost another round. The one-reviewer rule stays either way.',
+    help: 'Off: in Validate the Task Lead can start only Ted’s reviewer, one per visit. On: it can also start other sub-agents, for example to run slow tests. Each one takes a working Run, and a sub-agent that reviews the diff adds findings that can cost another round. The one-reviewer rule stays either way.',
   },
   'factory.workflow.lead-closes-failures': {
     name: 'Task Lead closes its own fixed failures',
-    help: 'Off: when a test the Task Lead ran itself failed outside Validate and it recorded the failure, only you can close it, from a question in your Inbox. On: once the Task Lead runs the test again and it passes, it closes the failure itself with that evidence, and you get a line in the thread and no question. TED doesn’t run the test, so you are trusting the Task Lead’s report. Failed checks and failures found in Validate still need your decision, and only you can accept a failure that still happens.',
+    help: 'Off: when a test the Task Lead ran itself failed outside Validate and it recorded the failure, only you can close it, from a question in your Inbox. On: once the Task Lead runs the test again and it passes, it closes the failure itself with that evidence, and you get a line in the thread and no question. Ted doesn’t run the test, so you are trusting the Task Lead’s report. Failed checks and failures found in Validate still need your decision, and only you can accept a failure that still happens.',
   },
   'factory.workflow.commit-titles': {
     name: 'Task Lead writes the merge commit',
-    help: 'On: at Merge the Task Lead gives each pull request a Conventional Commits title, such as “fix(app): keep the sidebar open (TED-12)”, and a short description. TED uses them as the merge commit’s subject and body. If the Task Lead writes none, TED keeps the Task’s title and GitHub’s own merge message. Off: TED keeps the Task’s title and GitHub’s merge message.',
+    help: 'On: at Merge the Task Lead gives each pull request a Conventional Commits title, such as “fix(app): keep the sidebar open (TED-12)”, and a short description. Ted uses them as the merge commit’s subject and body. If the Task Lead writes none, Ted keeps the Task’s title and GitHub’s own merge message. Off: Ted keeps the Task’s title and GitHub’s merge message.',
   },
   'factory.checks': {
     name: 'Checks',
-    help: 'Commands TED runs at Validate, one after another, before the agent’s own checks. Run now tries one on the base branch in a scratch worktree.',
+    help: 'Commands Ted runs at Validate, one after another, before the agent’s own checks. Run now tries one on the base branch in a scratch worktree.',
     heading: true,
   },
   'factory.agent-files': {
@@ -489,7 +489,7 @@ const entries = {
   'factory.cleanup': {
     name: 'Cleanup',
     keywords: 'after merge steps commands',
-    help: 'Steps that run after a Task’s pull requests merge and before it moves to Done. TED runs the command steps itself, then the Task Lead does the instruction steps.',
+    help: 'Steps that run after a Task’s pull requests merge and before it moves to Done. Ted runs the command steps itself, then the Task Lead does the instruction steps.',
     heading: true,
   },
   'factory.cleanup.enabled': {

@@ -405,7 +405,7 @@ test('a Check failure stays acceptable with later evidence on the same code, and
   const asked2 = await s.request(changed)
   expect(s.comment(asked2.decisions.at(-1)?.commentId)).toMatchObject({
     choices: ['Fixed', 'No longer applicable'],
-    body: expect.stringContaining('TED can’t tie a later test run to it'),
+    body: expect.stringContaining('Ted can’t tie a later test run to it'),
   })
   s.evidence(changed, 'Looked at the new commit', (await s.capture()).id)
   const asked3 = await s.request(changed)
@@ -433,7 +433,7 @@ test('a Check failure asked about after only the CI reading changed gets a card 
   const asked = await s.request(value)
   expect(s.comment(asked.decisions.at(-1)?.commentId)).toMatchObject({
     choices: ['Fixed', 'No longer applicable'],
-    body: expect.stringContaining('TED can’t tie a later test run to it'),
+    body: expect.stringContaining('Ted can’t tie a later test run to it'),
   })
 })
 
@@ -442,7 +442,7 @@ test('accepting a failure with no tested context says so and tells the Task Lead
   const asked = await s.request(await s.record())
   expect(s.comment(asked.decisions.at(-1)?.commentId)).toMatchObject({
     choices: ['Fixed', 'No longer applicable'],
-    body: expect.stringContaining('TED has no record it can verify of what was tested'),
+    body: expect.stringContaining('Ted has no record it can verify of what was tested'),
   })
   expect(await refusalText(() => s.resolve(asked))).toBe(acceptRefusals.unknown)
   expect(s.notes('Failure acceptance refused')[0]?.body).toContain('is a new case')
@@ -677,7 +677,7 @@ test('a new failure replaces an older case of the same Check only when the comma
   expect(s.store.getTask(repair.id)?.archived).toBeUndefined()
 })
 
-test('asking about a Validate Check failure TED can’t tie to the current code offers Fixed and No longer applicable instead of Accept', async () => {
+test('asking about a Validate Check failure Ted can’t tie to the current code offers Fixed and No longer applicable instead of Accept', async () => {
   const s = await checkCases()
   const { value } = await s.fail('pnpm check')
   s.worktree.head = 'head-2'

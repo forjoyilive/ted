@@ -276,7 +276,7 @@ const answer = (comment: Comment | undefined, choice: string) =>
   store.answerComment(comment?.id ?? '', { kind: 'answered', at: new Date().toISOString(), choice })
 const completions = () => writes.filter((w) => w.kind === 'complete').map((w) => w.gid)
 
-test('the Task Sync state follows permission, the switch, the connection and what TED did', () => {
+test('the Task Sync state follows permission, the switch, the connection and what Ted did', () => {
   const base: AsanaSyncFacts = {
     allowed: true,
     allowedAccount: '100',
@@ -312,7 +312,7 @@ test('the Task Sync state follows permission, the switch, the connection and wha
   expect(mentions(`https://example.com/${prUrl(1)}`, prUrl(1))).toBe(false)
   expect(mentions(`(${prUrl(1)})`, prUrl(1))).toBe(true)
   expect(asanaComment('Fix checkout totals', { url: prUrl(7), title: 'acme/notes#7' })).toBe(
-    `TED opened a pull request for this task: Fix checkout totals (acme/notes#7) ${prUrl(7)}`,
+    `Ted opened a pull request for this task: Fix checkout totals (acme/notes#7) ${prUrl(7)}`,
   )
   expect(
     asanaComment('x'.repeat(5000), { url: prUrl(7), title: 'acme/notes#7' }).length,
@@ -431,7 +431,7 @@ test('completion in Asana archives an idle Task with nothing under it, a child t
       .filter((c) => c.kind === 'note')
       .map((c) => c.body),
   ).toContain(
-    `TED archived ${child.displayId}, a Task under this one, because its Asana task was marked complete.`,
+    `Ted archived ${child.displayId}, a Task under this one, because its Asana task was marked complete.`,
   )
 
   const completed = asana.get('702')
@@ -566,7 +566,7 @@ test('turning Task Sync off while a read is in flight sends neither the completi
   expect(sync(later)).toMatchObject({ state: 'off', linked: 0 })
 })
 
-test('a merged parent waits on items with TED Tasks without asking, asks about items without one, keeps its question across a restart, and each answer covers only the items it listed', async () => {
+test('a merged parent waits on items with Ted Tasks without asking, asks about items without one, keeps its question across a restart, and each answer covers only the items it listed', async () => {
   const tree = imported(
     { gid: '1001', subtasks: ['1002'], syncAccount: '100', importedChildren: ['1002', '1004'] },
     { gid: '1002', parent: '1001', syncAccount: '100' },
@@ -683,7 +683,7 @@ test('unreadable items, items below a completed item and a tree over the limit a
   expect(blind?.choices).toEqual([asanaAddChoice, asanaCompleteChoice, asanaLeaveOpenChoice])
   expect(listed(blind)).toEqual([
     ['1202', 'new', undefined],
-    ['1202', 'unreadable', 'Asana didn’t let TED read it (no access)'],
+    ['1202', 'unreadable', 'Asana didn’t let Ted read it (no access)'],
   ])
   expect(blind?.asanaUnfinished?.items[1]?.name).toBe('Items under Exports')
   const [limit] = asking(huge)

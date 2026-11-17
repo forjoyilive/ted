@@ -58,7 +58,7 @@ export function parseSetupAgents(value: Untyped, fail: Fail): SetupAgentProposal
       )
     }
     if (isOneOf(id, builtInAgentIds)) {
-      fail(`${id} is one of TED’s own Agents; setup can’t propose it`, 'id')
+      fail(`${id} is one of Ted’s own Agents; setup can’t propose it`, 'id')
     }
     if (seen.has(id)) fail(`the setup proposal suggests ${id} twice`, 'id')
     seen.add(id)
@@ -66,7 +66,7 @@ export function parseSetupAgents(value: Untyped, fail: Fail): SetupAgentProposal
     const about = text(row, 'about', `what ${id} is for`, maxAbout, fail)
     const powers = read.list(row, 'powers', `${id}’s powers must be a list`).map((power) => {
       if (!isOneOf(power, agentPowers)) {
-        fail(`${id} asks for a power TED doesn’t have; use ${agentPowers.join(', ')}`, 'powers')
+        fail(`${id} asks for a power Ted doesn’t have; use ${agentPowers.join(', ')}`, 'powers')
       }
       return power
     })

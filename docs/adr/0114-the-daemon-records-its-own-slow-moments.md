@@ -42,7 +42,7 @@ The monitor keeps counts by second for one hour, in memory only. `GET /diagnosti
 
 One profile runs at a time; a second request is refused with `409`. The profile is written to `TED_HOME/logs/profiles/daemon-<UTC date>-<time>.cpuprofile` with mode `0600`. `logs` and `profiles` must each be a plain folder, checked with `lstat`, and the file is opened with `O_EXCL` and `O_NOFOLLOW`. After writing, the oldest files matching that name are deleted until five remain; other files in the folder are left alone. The folder is inside `logs`, so it counts under Conversations and logs in Settings → Storage.
 
-A `.cpuprofile` holds, for each function V8 sampled, its name, script URL (a file path), line and column, plus sample counts and times. It holds no argument values, no source text and no heap contents. The paths name TED’s install folder, which can include the user’s name.
+A `.cpuprofile` holds, for each function V8 sampled, its name, script URL (a file path), line and column, plus sample counts and times. It holds no argument values, no source text and no heap contents. The paths name Ted’s install folder, which can include the user’s name.
 
 Recording a profile is not new work, so `store.newWorkHold()` does not apply and the route works while the store is opening or a data screen is up. If the inspector is missing or refuses, the route answers `501` with the reason. The packaged app turns the `nodeCliInspect` fuse off, which stops `--inspect` and SIGUSR1; the in-process session still works there. This was checked by recording a profile with the installed 0.1.8 app’s binary run as Node (Electron 45.2.3, Node 24.22.2).
 

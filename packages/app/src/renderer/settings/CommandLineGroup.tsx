@@ -18,7 +18,7 @@ function commandDetail(status: CommandLineStatus | undefined): ReactNode {
   if (status === undefined) return undefined
   switch (status.state) {
     case 'unavailable':
-      return 'Only an installed copy of TED can install it.'
+      return 'Only an installed copy of Ted can install it.'
     case 'package':
       return 'Installed by your package.'
     case 'not-installed':
@@ -101,7 +101,7 @@ function UpdateRow() {
 
   return (
     <SettingRow
-      title={`TED ${tedVersion}`}
+      title={`Ted ${tedVersion}`}
       {...(status.state === 'ready' && { help: 'Restarting doesn’t stop Runs.' })}
       {...(detail !== undefined && { detail })}
     >

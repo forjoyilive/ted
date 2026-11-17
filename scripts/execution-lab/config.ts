@@ -79,7 +79,7 @@ export function parseConfig(value: unknown): LabConfig {
       )
     )
       throw new Error(
-        'configuration and reports must be outside installations and personal TED homes',
+        'configuration and reports must be outside installations and personal Ted homes',
       )
   }
   return config

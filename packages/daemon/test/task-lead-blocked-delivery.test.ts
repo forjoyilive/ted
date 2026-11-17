@@ -67,7 +67,7 @@ describe('Stage effort', () => {
       await client.ok('POST', `/runs/${run.id}/interrupt`)
       await waitUntil(async () => {
         const input = await readFile(path.join(ctx.home, 'runs', run.id, 'input.jsonl'), 'utf8')
-        return input.includes('TED moved this Task to Work')
+        return input.includes('Ted moved this Task to Work')
       }, 'Stage instructions appended before acceptance')
       expect((await client.getRun(run.id)).run.state).toBe('idle')
       expect(await userMessages(client, run.id)).not.toContain(firstText)

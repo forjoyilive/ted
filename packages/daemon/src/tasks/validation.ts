@@ -77,7 +77,7 @@ export class StaleCoverageError extends RequestError {
   constructor() {
     super(
       409,
-      'The checks haven’t run on the Task’s current code, so TED can’t move it on yet. TED runs them first when the Task is moved on.',
+      'The checks haven’t run on the Task’s current code, so Ted can’t move it on yet. Ted runs them first when the Task is moved on.',
     )
   }
 }
@@ -599,7 +599,7 @@ export function createValidation(options: ValidationOptions) {
         await options.deliver(
           task,
           await withApps(
-            `${instructions}\n\n# Checks\n\nTED ran the Factory’s checks when the Task entered Validate. None failed:\n\n${summary(checked.run.checks)}`,
+            `${instructions}\n\n# Checks\n\nTed ran the Factory’s checks when the Task entered Validate. None failed:\n\n${summary(checked.run.checks)}`,
           ),
           'checks-passed',
         )
@@ -626,7 +626,7 @@ export function createValidation(options: ValidationOptions) {
         const checksReport =
           previousFailures && progress
             ? `Outstanding checks finished. Earlier failures remain factual:\n\n${validationReport(progress, store.failures.list(taskId))}`
-            : `TED ran the Factory’s checks before handing you this Stage. None failed:\n\n${summary(checkRun.checks)}`
+            : `Ted ran the Factory’s checks before handing you this Stage. None failed:\n\n${summary(checkRun.checks)}`
         await options.deliver(
           current,
           await withApps(`${instructions}\n\n# Checks\n\n${checksReport}`),
@@ -967,7 +967,7 @@ export function createValidation(options: ValidationOptions) {
     if (progress && !progress.pending && progress.next < progress.checks.length)
       throw new RequestError(
         409,
-        'A check failed on the Task’s current code, so TED can’t move it on. Resolve its failure case first.',
+        'A check failed on the Task’s current code, so Ted can’t move it on. Resolve its failure case first.',
       )
     throw new StaleCoverageError()
   }

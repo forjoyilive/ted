@@ -318,7 +318,7 @@ export function failureReason(error: unknown, dir: string): string {
   const where = displayPath(dir)
   if (code === 'ENOTDIR' || code === 'EEXIST') return `${where} isn’t a folder`
   if (code === 'ENOSPC') return 'the disk is full'
-  if (code === 'EACCES' || code === 'EPERM') return `TED can’t write to ${where}`
+  if (code === 'EACCES' || code === 'EPERM') return `Ted can’t write to ${where}`
   return error instanceof Error ? error.message : String(error)
 }
 

@@ -64,7 +64,7 @@ test('ted export writes either format, defaults to JSON, refuses replacement and
   }
 })
 
-test('invalid export arguments fail before starting TED', async () => {
+test('invalid export arguments fail before starting Ted', async () => {
   const home = await mkdtemp(path.join(tmpdir(), 'ted-cli-export-args-'))
   try {
     for (const args of [

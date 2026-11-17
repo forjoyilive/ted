@@ -273,7 +273,7 @@ describe('Sending after sign-off', () => {
 })
 
 describe('Cancelling when GitHub won’t turn auto-merge off', () => {
-  test('the cancel fails closed and TED keeps trying until auto-merge is off', async () => {
+  test('the cancel fails closed and Ted keeps trying until auto-merge is off', async () => {
     const client = await start({
       files: ci,
       merge: {
@@ -298,7 +298,7 @@ describe('Cancelling when GitHub won’t turn auto-merge off', () => {
     const stuck = await getTask(client, task.id)
     expect(stuck.repos[0]?.pullRequest?.autoMerge).toBeDefined()
     expect(stuck.activity).toBe(
-      'Merge cancelled · GitHub auto-merge is still on; TED keeps trying to turn it off',
+      'Merge cancelled · GitHub auto-merge is still on; Ted keeps trying to turn it off',
     )
 
     await setGh({ disableAutoFails: false })

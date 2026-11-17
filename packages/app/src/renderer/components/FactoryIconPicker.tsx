@@ -426,7 +426,7 @@ function UploadTab({
         }}
       />
       <span className={styles.hint}>
-        PNG, JPEG, WebP or GIF, up to 1 MB. TED crops it to the centre square and keeps a small
+        PNG, JPEG, WebP or GIF, up to 1 MB. Ted crops it to the centre square and keeps a small
         copy.
       </span>
     </section>
@@ -441,14 +441,14 @@ export async function squareIcon(file: Blob): Promise<string> {
   try {
     bitmap = await createImageBitmap(file)
   } catch {
-    throw new Error('TED couldn’t read that image.')
+    throw new Error('Ted couldn’t read that image.')
   }
   const side = Math.min(bitmap.width, bitmap.height)
   const canvas = document.createElement('canvas')
   canvas.width = factoryIconImageSide
   canvas.height = factoryIconImageSide
   const context = canvas.getContext('2d')
-  if (context === null) throw new Error('TED couldn’t read that image.')
+  if (context === null) throw new Error('Ted couldn’t read that image.')
   context.imageSmoothingQuality = 'high'
   context.drawImage(
     bitmap,
@@ -463,6 +463,6 @@ export async function squareIcon(file: Blob): Promise<string> {
   )
   bitmap.close()
   const dataUrl = canvas.toDataURL('image/png')
-  if (!dataUrl.startsWith(factoryIconImagePrefix)) throw new Error('TED couldn’t read that image.')
+  if (!dataUrl.startsWith(factoryIconImagePrefix)) throw new Error('Ted couldn’t read that image.')
   return dataUrl
 }

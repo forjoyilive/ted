@@ -110,12 +110,12 @@ async function settings(): Promise<MachineSettings> {
   return appClient(info, process.env.TED_APP_TOKEN).getSettings()
 }
 
-const setUp = (window: Page) => window.getByRole('main', { name: 'Set up TED' })
+const setUp = (window: Page) => window.getByRole('main', { name: 'Set up Ted' })
 const welcome = (window: Page) => window.getByRole('main', { name: 'Get ready to build faster' })
 const row = (window: Page, name: string) => setUp(window).getByRole('group', { name })
 const sidebar = (window: Page) => window.getByRole('navigation', { name: 'Sidebar' })
 const startAtLogin = (window: Page) =>
-  window.getByRole('checkbox', { name: 'Start TED in the background when you log in' })
+  window.getByRole('checkbox', { name: 'Start Ted in the background when you log in' })
 const nextButton = (window: Page) => window.getByRole('button', { name: 'Next' })
 const nextHelp = 'Next needs Git and at least one Provider ready.'
 
@@ -174,7 +174,7 @@ describe('first launch', () => {
     expect(await completed.getByText('Show onboarding again').count()).toBe(0)
     await completed.getByRole('switch', { name: 'Developer mode' }).click()
     await completed.getByRole('button', { name: 'Show on next open' }).click()
-    await completed.getByText('Onboarding will show the next time TED opens.').waitFor()
+    await completed.getByText('Onboarding will show the next time Ted opens.').waitFor()
     await completed.getByRole('button', { name: 'Undo' }).click()
     await expect.poll(settings).toMatchObject({ onboardingOnNextOpen: false })
     await completed.getByRole('button', { name: 'Show on next open' }).click()

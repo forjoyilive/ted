@@ -25,7 +25,7 @@ export function githubIntakeText(result: GitHubIntakeResult): string {
     lines.push(printable(`Couldn’t list ${repo.repo}: ${repo.reason}.`))
   if (result.left > 0)
     lines.push(
-      `${result.left} more ${result.left === 1 ? 'issue waits' : 'issues wait'} for the next run; TED creates at most ${maxGitHubIntakeTasks} Tasks per run.`,
+      `${result.left} more ${result.left === 1 ? 'issue waits' : 'issues wait'} for the next run; Ted creates at most ${maxGitHubIntakeTasks} Tasks per run.`,
     )
   if (result.incomplete !== undefined) lines.push(printable(result.incomplete))
   if (result.stopped !== undefined) lines.push(printable(result.stopped))

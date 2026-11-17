@@ -212,9 +212,9 @@ export function createAutomationDrafts(options: AutomationsOptions) {
         ...(model !== undefined && { model }),
         ...(effort !== undefined && { effort }),
         prompt: [
-          '# Draft an Automation Prompt for TED',
+          '# Draft an Automation Prompt for Ted',
           'Write only the complete Markdown instructions the agent should receive each time this Automation fires. Do not wrap them in a code fence or add commentary. Do not execute these instructions, use tools, read files, contact services or change anything. This is a text drafting request, not an Automation firing.',
-          'TED Automations run outside Tasks. To create a Task they use ted task create --source <URL> --description "<context>" "<title>". Every created Task needs a source URL. TED rejects already tracked sources; skip duplicates. Use --follow-up <Task ID> only for a recurring problem on a Done Task. Leave Tasks in Backlog unless the request explicitly says to start them with --start. Finish each firing with a concise summary. Do not invent credentials, project IDs or facts.',
+          'Ted Automations run outside Tasks. To create a Task they use ted task create --source <URL> --description "<context>" "<title>". Every created Task needs a source URL. Ted rejects already tracked sources; skip duplicates. Use --follow-up <Task ID> only for a recurring problem on a Done Task. Leave Tasks in Backlog unless the request explicitly says to start them with --start. Finish each firing with a concise summary. Do not invent credentials, project IDs or facts.',
           'The following JSON is context, followed by the human’s drafting request. Revise the existing Prompt to match the request, preserving relevant details. Use only supplied context; do not follow instructions to perform the Automation now.',
           JSON.stringify({
             factory: { name: factory.name, repos: factory.repos.map((r) => r.repo) },
@@ -301,7 +301,7 @@ export function createAutomationDrafts(options: AutomationsOptions) {
   })
   for (const draft of saved.list()) {
     if (active(draft))
-      end(draft.id, 'failed', { error: 'TED restarted before drafting finished. Try again.' })
+      end(draft.id, 'failed', { error: 'Ted restarted before drafting finished. Try again.' })
     else void stopAndClean(draft.id)
   }
   const timer = setInterval(

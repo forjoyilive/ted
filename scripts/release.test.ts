@@ -71,8 +71,8 @@ describe('check output', () => {
         startTime: 1_000,
         endTime: 61_000,
         assertionResults: [
-          { fullName: 'TED app launches', status: 'passed' },
-          { fullName: 'TED app quits', status: 'failed' },
+          { fullName: 'Ted app launches', status: 'passed' },
+          { fullName: 'Ted app quits', status: 'failed' },
         ],
       },
     ],
@@ -83,7 +83,7 @@ describe('check output', () => {
   })
 
   test('names the failed tests with their file', () => {
-    expect(failedTests(report)).toEqual(['packages/app/test/app.test.ts > TED app quits'])
+    expect(failedTests(report)).toEqual(['packages/app/test/app.test.ts > Ted app quits'])
   })
 
   test('the summary starts at Vitest’s Test Files line', () => {
@@ -301,6 +301,8 @@ describe('release notes', () => {
   test('a Major section is empty until it has text outside comments', () => {
     expect(majorEmpty('## Major\n\n<!-- x -->\n\n## Fixes\n\n- a\n')).toBe(true)
     expect(majorEmpty('## Major\n\nOnly this.')).toBe(false)
+    expect(majorEmpty('## Major\n\n<!-- a -->\nText\n<!-- b -->\n')).toBe(false)
+    expect(majorEmpty('## Major\n\n<!-- never closed\n')).toBe(false)
     expect(majorEmpty('## Features\n\n- a\n')).toBe(false)
   })
 })
@@ -317,7 +319,7 @@ describe('Claude’s release notes', () => {
       ],
       '1.2.0',
     )
-    expect(prompt).toContain('TED 1.2.0')
+    expect(prompt).toContain('Ted 1.2.0')
     expect(prompt).toContain(
       '- [feature?] Show Factory groups (#431) — touches packages/app, packages/daemon',
     )

@@ -27,8 +27,8 @@ export function WorkerWindow() {
     <main className={styles.worker} data-loaded={status !== undefined}>
       <h1>Use this Mac as a worker</h1>
       <p>
-        Connect to one controlling TED. Its Tasks and approvals stay on that computer. This worker
-        has separate storage from independent TED Factories here.
+        Connect to one controlling Ted. Its Tasks and approvals stay on that computer. This worker
+        has separate storage from independent Ted Factories here.
       </p>
       <ExecutionHelp worker />
       {(problem || resource.error) && (
@@ -115,12 +115,12 @@ export function WorkerWindow() {
             >
               Start worker
             </Button>
-            <Button onClick={() => act(() => ted.quit())}>Quit TED completely</Button>
+            <Button onClick={() => act(() => ted.quit())}>Quit Ted completely</Button>
           </div>
         </div>
       </SettingsGroup>
       <p className={styles.notice}>
-        Closing this window keeps the worker running. After logout or reboot, open TED in worker
+        Closing this window keeps the worker running. After logout or reboot, open Ted in worker
         mode or use CLI Start.
       </p>
     </main>

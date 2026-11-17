@@ -4,7 +4,7 @@ Status: accepted (KRI-248). Builds on ADR 0037, ADR 0073 and ADR 0090.
 
 ## Context
 
-TED copies a Linear issue’s title and description when the human pastes its link into New Task, and when an Automation runs `ted task create --source`. Images in the description are links to `uploads.linear.app`, and Linear signs them so they expire after about five minutes. By the time a Task Lead reads the description the link is usually dead, and files attached to the issue were never read at all.
+Ted copies a Linear issue’s title and description when the human pastes its link into New Task, and when an Automation runs `ted task create --source`. Images in the description are links to `uploads.linear.app`, and Linear signs them so they expire after about five minutes. By the time a Task Lead reads the description the link is usually dead, and files attached to the issue were never read at all.
 
 ## Decision
 
@@ -12,7 +12,7 @@ TED copies a Linear issue’s title and description when the human pastes its li
 - **Which.** Every URL in the description on a Linear upload host (Markdown images and links, and bare URLs), then the issue’s `attachments` whose URL is on that host. Other attachments, such as pull request links, stay links. At most 20 files per issue; the rest go in the note below.
 - **Where the key goes.** Downloads go only to `https://uploads.linear.app` or the origin of the configured Linear API URL (the stub in tests). Redirects are followed by hand, at most three, and only to those origins; any other target fails the download without a request to it.
 - **Checks.** Each file is streamed to a temporary file in `TED_HOME/attachments` under the 25 MB attachment cap, then saved by content hash like any attachment (`Attachments.saveFile`). PNG, JPEG, GIF, WebP and PDF are named by their first bytes; SVG only if it starts like SVG. A file that says it is an image or PDF but isn’t, HTML, or a malformed type is stored as `application/octet-stream`, so the app shows it as a chip.
-- **On the Task.** The files become the Task’s own attachments (`v1.TaskAttachmentAdded` in the Task’s creating commit), so the Task Lead gets their paths under “Attached files”, the details pane lists them and Original request shows the images. The Linear description stored on the Task’s source has each fetched link replaced by the file’s path; everything else in it is unchanged. A file whose download failed, was over the cap, or whose stored copy is gone by Create, is listed in one TED note on the Task, and its link stays in the description and is listed in the note. A failure never blocks creating the Task.
+- **On the Task.** The files become the Task’s own attachments (`v1.TaskAttachmentAdded` in the Task’s creating commit), so the Task Lead gets their paths under “Attached files”, the details pane lists them and Original request shows the images. The Linear description stored on the Task’s source has each fetched link replaced by the file’s path; everything else in it is unchanged. A file whose download failed, was over the cap, or whose stored copy is gone by Create, is listed in one Ted note on the Task, and its link stays in the description and is listed in the note. A failure never blocks creating the Task.
 - **New Task.** The lookup returns the files (`LinearIssue.files`) and the failures (`LinearIssue.unfetched`); the dialog shows the images under the source card and names what couldn’t be fetched.
 
 ## Considered Options

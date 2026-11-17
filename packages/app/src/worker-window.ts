@@ -45,7 +45,7 @@ export function createWorkerWindow(enabled: boolean, hidden = false) {
         height: 850,
         minWidth: 560,
         minHeight: 500,
-        title: 'TED · Worker',
+        title: 'Ted · Worker',
         show: !hidden,
         webPreferences: {
           preload: path.join(import.meta.dirname, 'preload.cjs'),

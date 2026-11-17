@@ -104,14 +104,14 @@ test('a started Task with children lists what is lost, what moves with it and th
       { displayId: 'NB-16', note: 'stays in Backlog' },
     ],
     leavesParent:
-      'NB-14 is a child of NB-2. It leaves NB-2, which stops waiting for it. TED notes this on both Tasks.',
+      'NB-14 is a child of NB-2. It leaves NB-2, which stops waiting for it. Ted notes this on both Tasks.',
     unlinked: [{ displayId: 'NB-9', note: 'blocks NB-14' }],
     changesHeading: 'What is lost',
     changes: [
       'The worktree and any uncommitted work in it',
       'The branch ted/nb-14-offline-editing and its commits, here and on GitHub',
       'The same for NB-15, which moves with it',
-      'Pull request notebook #212, which TED closes on GitHub',
+      'Pull request notebook #212, which Ted closes on GitHub',
       'Its open request is withdrawn from your Inbox',
       'Repos becomes Website’s: api, api-docs',
     ],

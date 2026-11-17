@@ -198,8 +198,8 @@ describe('Checks when Work hands a Task to Validate', () => {
 
     const messages = await leadMessages(client, task)
     const failed = messages.find((m) => m.startsWith('# A check failed')) ?? ''
-    expect(failed).toContain('so TED sent the Task back to Work')
-    expect(failed).toContain('TED moved this Task back to Work')
+    expect(failed).toContain('so Ted sent the Task back to Work')
+    expect(failed).toContain('Ted moved this Task back to Work')
     expect(failed).toContain('# Send-back 1 of 5 from Validate')
     expect(failed).toContain('\n102\n')
     expect(failed).not.toContain('\n101\n')
@@ -208,7 +208,7 @@ describe('Checks when Work hands a Task to Validate', () => {
     expect(failed).toMatch(/Full output: .*checks.*2\.log/)
     const passed = messages.find((m) => m.includes('None failed')) ?? ''
     expect(passed).toContain('✓ Typecheck\n✓ Tests\n✓ Lint')
-    expect(passed).toContain('TED moved this Task to Validate')
+    expect(passed).toContain('Ted moved this Task to Validate')
     expect(passed).toContain('when the Task entered Validate')
 
     const events = await threadEvents(client, task)
@@ -225,7 +225,7 @@ describe('Checks when Work hands a Task to Validate', () => {
     expect(output.text).not.toContain('ghp_abcdefghij')
   }, 90_000)
 
-  test('at max_back TED asks the human with Diagnose in Validate instead of a Loop check, and Diagnose keeps the Task in Validate and makes the failure a failure case', async () => {
+  test('at max_back Ted asks the human with Diagnose in Validate instead of a Loop check, and Diagnose keeps the Task in Validate and makes the failure a failure case', async () => {
     await workflow('      - { name: Tests, run: "echo nope; exit 1" }', {}, 2)
     const client = await startTed()
     const task = await startTask(
@@ -280,7 +280,7 @@ describe('Checks when Work hands a Task to Validate', () => {
         (await leadMessages(client, task)).some(
           (m) => m.startsWith('# A check failed') && m.includes(`request ${question.id}`),
         ) || undefined,
-      'the Task Lead to hear that TED asked the human',
+      'the Task Lead to hear that Ted asked the human',
     )
 
     await client.ok('POST', `/comments/${question.id}/answer`, {
@@ -557,7 +557,7 @@ describe('Checks at Validate', () => {
 
     await waitUntil(async () => {
       const all = await leadMessages(client, task)
-      return all.some((m) => m.includes('TED moved this Task to Validate')) || undefined
+      return all.some((m) => m.includes('Ted moved this Task to Validate')) || undefined
     }, 'the Validate instructions')
     expect(await checkRuns(client, task)).toEqual([])
     const banners = await client.ok<Banner[]>('GET', '/banners')
@@ -610,7 +610,7 @@ describe('Checks at Validate', () => {
     await expect.poll(() => client.ok('GET', '/update/work')).toEqual({ checks: 0, merges: 0 })
   })
 
-  test('a Task whose changes touch .ted/ gets the TED settings Check', async () => {
+  test('a Task whose changes touch .ted/ gets the Ted settings Check', async () => {
     await workflow('      - { name: Typecheck, run: "echo typed" }')
     const client = await startTed()
     const task = await startTask(
@@ -626,7 +626,7 @@ describe('Checks at Validate', () => {
     const [run] = await finishedRuns(client, task, 1)
     expect(states(run)).toEqual([
       ['Typecheck', 'passed'],
-      ['TED settings', 'failed'],
+      ['Ted settings', 'failed'],
     ])
     expect(run?.checks[1]).toMatchObject({ command: 'ted workflow check', builtIn: 'ted-settings' })
     const output = await client.ok<{ text: string }>(
@@ -895,7 +895,7 @@ describe('the Checks’ environment', () => {
     }
   }, 90_000)
 
-  test('Checks run in the login shell and environment TED read at start, not the daemon’s own, and a fresh read doesn’t make their coverage stale', async () => {
+  test('Checks run in the login shell and environment Ted read at start, not the daemon’s own, and a fresh read doesn’t make their coverage stale', async () => {
     const loginBin = path.join(scratch, 'login-bin')
     await mkdir(loginBin)
     await writeFile(path.join(loginBin, 'login-tool'), '#!/bin/sh\nprintf %s "$1"\n')
@@ -1071,7 +1071,7 @@ describe('the Checks’ sandbox', () => {
   )
 
   test.runIf(process.platform === 'darwin')(
-    'the Checks TED runs before Validate are sandboxed too, since they run the code the agent wrote',
+    'the Checks Ted runs before Validate are sandboxed too, since they run the code the agent wrote',
     async (context) => {
       skipInsideTedSandbox(context)
       await workflow(escapeCheck([path.join(home, 'planted')]))

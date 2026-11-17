@@ -30,7 +30,7 @@ describe('what the window and menus say about an update', () => {
     })
   })
 
-  test('while TED waits on Checks and merges the chip says what it’s finishing', () => {
+  test('while Ted waits on Checks and merges the chip says what it’s finishing', () => {
     const finishing = (work: UpdateWork): UpdateStatus => ({
       state: 'finishing',
       version: '1.4.0',
@@ -77,13 +77,13 @@ describe('what the window and menus say about an update', () => {
   })
 
   test('About and updates says where the update stands', () => {
-    expect(aboutLine(ready())).toBe('Update ready: TED 1.4.0.')
+    expect(aboutLine(ready())).toBe('Update ready: Ted 1.4.0.')
     expect(aboutLine({ state: 'checking' })).toBe('Checking for updates…')
-    expect(aboutLine({ state: 'up-to-date' })).toBe('TED is up to date.')
-    expect(aboutLine({ state: 'downloading', version: '1.4.0' })).toBe('Downloading TED 1.4.0…')
-    expect(aboutLine({ state: 'failed', version: '1.4.0' })).toBe('Update to TED 1.4.0 failed.')
+    expect(aboutLine({ state: 'up-to-date' })).toBe('Ted is up to date.')
+    expect(aboutLine({ state: 'downloading', version: '1.4.0' })).toBe('Downloading Ted 1.4.0…')
+    expect(aboutLine({ state: 'failed', version: '1.4.0' })).toBe('Update to Ted 1.4.0 failed.')
     expect(aboutLine({ state: 'unavailable' })).toBe(
-      'Only an installed copy of TED updates itself.',
+      'Only an installed copy of Ted updates itself.',
     )
     expect(aboutLine({ state: 'idle' })).toBeUndefined()
   })
@@ -168,7 +168,7 @@ describe('restarting to update', () => {
     expect(calls).toEqual(['install'])
   })
 
-  test('an error while installing is a failed update, and TED takes the daemon back', async () => {
+  test('an error while installing is a failed update, and Ted takes the daemon back', async () => {
     const { emit, updates, resumed } = setUp()
     emit({ kind: 'downloaded', version: '1.4.0' })
     await updates.restart()
@@ -271,7 +271,7 @@ describe('electron-updater', () => {
     return updater
   }
 
-  test('reads only TED’s GitHub releases, downloads on its own and never goes back a version', () => {
+  test('reads only Ted’s GitHub releases, downloads on its own and never goes back a version', () => {
     const updater = fakeAutoUpdater()
     electronUpdateSource(updater, { installOnQuit: true })(() => undefined)
     expect(updater.feeds).toEqual([{ provider: 'github', owner: 'forjoyilive', repo: 'ted' }])

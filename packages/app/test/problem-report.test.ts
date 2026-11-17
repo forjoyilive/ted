@@ -48,7 +48,7 @@ test('a feedback envelope holds the header, the feedback event and the report at
       dsn,
       description: 'The Board froze.',
       email: '',
-      report: 'TED 1.2.3\nDaemon log\nline é',
+      report: 'Ted 1.2.3\nDaemon log\nline é',
       environment: 'release',
       release: '1.2.3',
     }),
@@ -72,12 +72,12 @@ test('a feedback envelope holds the header, the feedback event and the report at
   expect(event.contexts.feedback).not.toHaveProperty('contact_email')
   expect(JSON.parse(lines[3] ?? '')).toEqual({
     type: 'attachment',
-    length: Buffer.byteLength('TED 1.2.3\nDaemon log\nline é'),
+    length: Buffer.byteLength('Ted 1.2.3\nDaemon log\nline é'),
     filename: 'report.txt',
     content_type: 'text/plain',
     attachment_type: 'event.attachment',
   })
-  expect(lines.slice(4).join('\n')).toBe('TED 1.2.3\nDaemon log\nline é\n')
+  expect(lines.slice(4).join('\n')).toBe('Ted 1.2.3\nDaemon log\nline é\n')
 })
 
 describe('sendProblemReport', () => {
@@ -107,7 +107,7 @@ describe('sendProblemReport', () => {
   test('posts one redacted envelope and returns its event ID', async () => {
     const { given, posts, asked, sent } = deps(
       { ok: true, status: 200 },
-      'TED 1.2.3\ntoken ghp_abcdefghijklmnopqrstuvwxyz0123456789',
+      'Ted 1.2.3\ntoken ghp_abcdefghijklmnopqrstuvwxyz0123456789',
     )
     const result = await sendProblemReport(
       {
@@ -141,7 +141,7 @@ describe('sendProblemReport', () => {
   test('with the daemon not answering, sends what the app knows', async () => {
     const { given, sent } = deps({ ok: true, status: 200 }, undefined)
     await sendProblemReport({ description: 'x', email: '', includeLog: true }, given)
-    expect(sent()).toContain('TED 1.2.3 (dev)')
+    expect(sent()).toContain('Ted 1.2.3 (dev)')
     expect(sent()).toContain('The daemon’s report couldn’t be read')
   })
 
@@ -178,12 +178,12 @@ describe('sendProblemReport', () => {
     })
     expect(await sendProblemReport(request, deps(new Error('offline'), 'r').given)).toEqual({
       sent: false,
-      error: 'TED couldn’t reach Sentry. Check your internet connection.',
+      error: 'Ted couldn’t reach Sentry. Check your internet connection.',
     })
     const bad = deps({ ok: true, status: 200 }, 'r')
     expect(
       await sendProblemReport(request, { ...bad.given, dsn: 'http://k@sentry.example.com/1' }),
-    ).toEqual({ sent: false, error: 'TED’s Sentry address isn’t valid.' })
+    ).toEqual({ sent: false, error: 'Ted’s Sentry address isn’t valid.' })
     expect(bad.posts).toEqual([])
   })
 })

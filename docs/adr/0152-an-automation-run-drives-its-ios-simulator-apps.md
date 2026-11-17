@@ -12,7 +12,7 @@ ADR 0151 gave an Automation Run input for its Android emulator Apps through `ted
 
 ## Considered Options
 
-- **A TED-built XCUITest runner.** Rejected: it needs an Xcode build on each Mac and far more code than calling `idb`.
+- **A Ted-built XCUITest runner.** Rejected: it needs an Xcode build on each Mac and far more code than calling `idb`.
 - **Separate `ted simulator …` commands.** Rejected for the same reason as in ADR 0151.
 
 ## Consequences

@@ -27,7 +27,7 @@ export function silentReason(ms: number): string {
 }
 
 export function revivedMessage(reason: string): string {
-  return `Your process ${reason}, so TED resumed your session. Check where you were, then carry on with this Stage.`
+  return `Your process ${reason}, so Ted resumed your session. Check where you were, then carry on with this Stage.`
 }
 
 export function freshAfterFailure(
@@ -36,7 +36,7 @@ export function freshAfterFailure(
   if (entry.kind === 'retried') {
     return {
       heading: 'Picking up after a failure',
-      why: 'The Task Lead stopped twice in 30 minutes, and the human asked TED to try again.',
+      why: 'The Task Lead stopped twice in 30 minutes, and the human asked Ted to try again.',
     }
   }
   const reason = entry.failure.reason
@@ -44,7 +44,7 @@ export function freshAfterFailure(
     heading: 'Picking up after a crash',
     why:
       entry.failure.resumeFailed === true
-        ? `The last Task Lead Run ${reason} and TED couldn’t resume its session.`
+        ? `The last Task Lead Run ${reason} and Ted couldn’t resume its session.`
         : `The last Task Lead Run ${reason}.`,
   }
 }
@@ -61,10 +61,10 @@ export function failedAsk(
   const resumeFailed = since.some((e) => e.resumeFailed)
   const tried =
     first?.recovery === 'resume' && !resumeFailed
-      ? 'TED resumed the session'
+      ? 'Ted resumed the session'
       : first?.recovery === 'resume'
-        ? 'TED couldn’t resume the session, so it started a fresh Task Lead Run from the brief'
-        : 'TED started a fresh Task Lead Run from the brief'
+        ? 'Ted couldn’t resume the session, so it started a fresh Task Lead Run from the brief'
+        : 'Ted started a fresh Task Lead Run from the brief'
   const minutes = first ? Math.round((now - Date.parse(first.at)) / 60_000) : 0
   const later =
     minutes === 0 ? 'less than a minute' : minutes === 1 ? 'a minute' : `${minutes} minutes`

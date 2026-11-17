@@ -125,7 +125,7 @@ const routes: Route[] = [
     method: 'POST',
     path: /^\/dev\/runs$/,
     async handle({ body }, { runs, agents, disk, store }) {
-      if (disk.held()) throw new HttpError(507, 'The disk is full, so TED isn’t starting new Runs')
+      if (disk.held()) throw new HttpError(507, 'The disk is full, so Ted isn’t starting new Runs')
       return [
         201,
         await runs.start({

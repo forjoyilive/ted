@@ -114,12 +114,12 @@ export async function readPullRequestChanges(
               'GitHub did not provide a text patch. This may be a binary file or a diff GitHub omitted.',
           }
         } else if (size > maxPatchBytes || bytes > maxSnapshotBytes) {
-          parsed = { hunks: [], unavailable: 'This patch exceeds TED’s display limit.' }
+          parsed = { hunks: [], unavailable: 'This patch exceeds Ted’s display limit.' }
         } else {
           parsed = parsePatch(patch)
           const rows = parsed.hunks.flatMap((h) => h.rows)
           if (rows.length > remainingRows) {
-            parsed = { hunks: [], unavailable: 'This patch exceeds TED’s display limit.' }
+            parsed = { hunks: [], unavailable: 'This patch exceeds Ted’s display limit.' }
           } else {
             remainingRows -= rows.length
             const added = rows.filter((r) => r.kind === 'added').length

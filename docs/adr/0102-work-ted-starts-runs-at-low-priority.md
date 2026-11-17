@@ -1,4 +1,4 @@
-# The work TED starts runs at low priority
+# The work Ted starts runs at low priority
 
 Several Tasks working at once fill every core with agents, installs, typechecks and tests, and the rest of the computer gets slow. The `lowPriorityWork` machine setting (Settings → Limits, on by default) starts that work at a priority below the human’s own apps.
 
@@ -9,7 +9,7 @@ Several Tasks working at once fill every core with agents, installs, typechecks 
 
 macOS gets the clamp instead of `nice`, not as well as it, because niceness doesn’t change how macOS shares out the processor (measured below) and a second program would add a step for nothing.
 
-It is used at the three places TED starts Task work:
+It is used at the three places Ted starts Task work:
 
 - the Run host (`runs/run-manager.ts`), so the agent CLI and every command it runs inherit the priority. Task Leads, sub-agents, Planning, Coordinator and Automation Runs all start through this one host spawn;
 - `runWorktreeCommand` (`tasks/worktree.ts`), which runs Checks, worktree `setup` and `teardown`, and the Factory settings Run now;
@@ -17,7 +17,7 @@ It is used at the three places TED starts Task work:
 
 An App the human starts with ▶, Restart or the sign-off Preview row, the Task shell, the daemon, the Electron app, and the `git` and `gh` calls the daemon makes for itself stay at normal priority.
 
-Both programs set the priority and then become the command in the same process, so the process ID, the process group and the sandbox wrapper under it are unchanged, and nothing can start before the priority applies. Every child process inherits it. The path is absolute and chosen by the daemon; a repo’s `worktree.env` can’t change which program runs. If the program isn’t there, TED logs once and starts the work at normal priority; a start never fails because of this.
+Both programs set the priority and then become the command in the same process, so the process ID, the process group and the sandbox wrapper under it are unchanged, and nothing can start before the priority applies. Every child process inherits it. The path is absolute and chosen by the daemon; a repo’s `worktree.env` can’t change which program runs. If the program isn’t there, Ted logs once and starts the work at normal priority; a start never fails because of this.
 
 A daemon that is itself already lowered still works: a second utility clamp leaves the work at utility, and `nice -n 10` adds 10 to the daemon’s own niceness. One oddity: under a daemon clamped to background, `taskpolicy -c utility` puts the work at utility, which is above the daemon.
 
@@ -62,7 +62,7 @@ So utility work is not kept on the efficiency cores: with cores free it runs as 
 
 ## Timeouts the lowered work is under
 
-None is changed. With cores free nothing is slower. Under heavy competing load from outside TED (the ten-times case), these could be reached:
+None is changed. With cores free nothing is slower. Under heavy competing load from outside Ted (the ten-times case), these could be reached:
 
 - a Check’s `timeout`, default 10 minutes: a Check that normally takes more than about a minute;
 - worktree `setup` and `teardown`, default 15 minutes: an install that normally takes more than about 90 seconds;
@@ -72,9 +72,9 @@ None is changed. With cores free nothing is slower. Under heavy competing load f
 
 These are short enough to matter only if the hosts themselves were starved: the Run and App hosts wait 2 seconds for their lock, and the Run manager waits 10 seconds for a revived or replaced host’s start record.
 
-TED’s own lowered work doesn’t compete with itself this way; it all sits in the same class. The ten-times case needs normal-priority work from outside TED on every core.
+Ted’s own lowered work doesn’t compete with itself this way; it all sits in the same class. The ten-times case needs normal-priority work from outside Ted on every core.
 
 ## Consequences
 
 - Anything new that starts Task work goes through `workCommand` with the setting.
-- Tests read a process’s scheduler priority (`ps -o pri=`, 20 under the clamp, 31 normally) on macOS and its niceness on Linux, and compare with their own, because TED’s own Runs run tests lowered.
+- Tests read a process’s scheduler priority (`ps -o pri=`, 20 under the clamp, 31 normally) on macOS and its niceness on Linux, and compare with their own, because Ted’s own Runs run tests lowered.

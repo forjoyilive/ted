@@ -4,7 +4,7 @@ Status: accepted (KRI-104)
 
 ## Context
 
-Spec 2.4, 6.2, 6.3 and 11.3: the human pastes a Linear issue URL into the New Task dialog, and TED fills in the title, Priority and branch from Linear with the Linear API key, the only secret TED stores. The key lives in the OS keyring, never in Electron’s `safeStorage`, and never reaches an agent. Without a key, or when the fetch fails, the Task is still created, with the link as its source.
+Spec 2.4, 6.2, 6.3 and 11.3: the human pastes a Linear issue URL into the New Task dialog, and Ted fills in the title, Priority and branch from Linear with the Linear API key, the only secret Ted stores. The key lives in the OS keyring, never in Electron’s `safeStorage`, and never reaches an agent. Without a key, or when the fetch fails, the Task is still created, with the link as its source.
 
 ## Decision
 
@@ -20,7 +20,7 @@ Spec 2.4, 6.2, 6.3 and 11.3: the human pastes a Linear issue URL into the New Ta
 
 - **Electron `safeStorage` in the main process.** It works only in Electron’s main process, so the daemon and `ted` couldn’t read the key, and on Linux without a keyring it uses a hardcoded password.
 - **Fall back to the file without asking.** Simpler, but a user who expects the key in a keyring would find it in a plain file. The spec asks for consent.
-- **Let the client send the fetched issue with the create request.** Saves a fetch, but then any client could set a branch name and Linear fields TED never saw from Linear.
+- **Let the client send the fetched issue with the create request.** Saves a fetch, but then any client could set a branch name and Linear fields Ted never saw from Linear.
 - **Store the lookup state on the Task.** A failed fetch is a moment’s fact; the Task keeps only what it was created with.
 
 ## Consequences

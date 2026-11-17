@@ -138,7 +138,7 @@ const originBranches = async () =>
   (await run('git', ['for-each-ref', '--format=%(refname)', 'refs/heads'], { cwd: origin })).stdout
 
 describe('Pushing and pull requests', () => {
-  test('TED pushes at Validate, opens one draft pull request, pushes on the pass and at sign-off and marks it ready', async () => {
+  test('Ted pushes at Validate, opens one draft pull request, pushes on the pass and at sign-off and marks it ready', async () => {
     const client = await start()
     const task = await walkToSignoff(client, true)
 

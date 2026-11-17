@@ -173,7 +173,7 @@ test.runIf(process.platform === 'darwin')(
 test('a new Task’s cache starts as a clone of the Factory’s seed, which the Task can’t change', async (context) => {
   context.skip(
     !(await filesClone(home, [path.join(home, 'seeds'), path.join(home, 'sandbox')])),
-    'this file system can’t clone files, so TED keeps no seed',
+    'this file system can’t clone files, so Ted keeps no seed',
   )
   const realSandbox = process.platform === 'darwin' && !insideTedSandbox
   const seeds = path.join(home, 'seeds')
@@ -229,7 +229,7 @@ test('missing sandbox fails setup with a report, still starts the Task Lead and 
   const { client, task, worktree } = await start('touch stub-setup', 'touch stub-teardown')
   expect(task.repos[0]?.setup?.state).toBe('failed')
   await expect(readFile(path.join(worktree, 'stub-setup'))).rejects.toThrow()
-  expect(await log('setup')).toContain('TED didn’t run setup:')
+  expect(await log('setup')).toContain('Ted didn’t run setup:')
   expect(await log('setup')).toContain('no-such-sandbox')
   const banners = await client.ok<Banner[]>('GET', '/banners')
   expect(banners.some((b) => b.problem === 'sandbox-unavailable')).toBe(true)
@@ -241,7 +241,7 @@ test('missing sandbox fails setup with a report, still starts the Task Lead and 
   expect(await readdir(path.join(home, 'sandbox', 'NB-1'))).toEqual([])
   const archived = await archive(client, task)
   expect(archived?.repos[0]?.removed?.teardown?.outcome).toBe('failed')
-  expect(await log('teardown')).toContain('TED didn’t run teardown:')
+  expect(await log('teardown')).toContain('Ted didn’t run teardown:')
   await expect(readdir(worktree)).rejects.toThrow()
 })
 
@@ -263,12 +263,12 @@ test.each([false, true])(
       return run.conversation.length > 0 ? run.conversation : undefined
     }, 'the preparation failure report')
     expect(conversation[0]?.line).toContain('# Setup failed')
-    expect(conversation[0]?.line).toContain('TED didn’t run setup:')
+    expect(conversation[0]?.line).toContain('Ted didn’t run setup:')
     expect(conversation[0]?.line).toContain('EEXIST')
-    if (!unwritableLog) expect(await log('setup')).toContain('TED didn’t run setup:')
+    if (!unwritableLog) expect(await log('setup')).toContain('Ted didn’t run setup:')
     const archived = await archive(client, task)
     expect(archived.repos[0]?.removed?.teardown?.outcome).toBe('failed')
-    expect(await log('teardown')).toContain('TED didn’t run teardown:')
+    expect(await log('teardown')).toContain('Ted didn’t run teardown:')
     await expect(readdir(worktree)).rejects.toThrow()
   },
 )

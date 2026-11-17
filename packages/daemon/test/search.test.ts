@@ -176,7 +176,7 @@ describe('search over the store', () => {
     expect(results.tasks[1]?.snippet).toContain('accénts')
   })
 
-  test('finds Comment text from humans, agents and TED, with the Task named', async () => {
+  test('finds Comment text from humans, agents and Ted, with the Task named', async () => {
     const { notebook } = await twoFactories()
     const task = await store.createTask({ title: 'Offline editing', factoryId: notebook.id })
     store.postComment({
@@ -184,7 +184,7 @@ describe('search over the store', () => {
       body: 'Please keep a local cache',
       author: { kind: 'human' },
     })
-    store.postComment({ taskId: task.id, body: 'TED paused: cache full', author: { kind: 'ted' } })
+    store.postComment({ taskId: task.id, body: 'Ted paused: cache full', author: { kind: 'ted' } })
     store.postComment({ taskId: task.id, body: 'Nothing here', author: { kind: 'ted' } })
 
     const results = search(store, { query: 'CACHE' })
@@ -195,7 +195,7 @@ describe('search over the store', () => {
 
     expect(results.tasks).toEqual([])
     expect(results.comments.map((c) => [c.author.kind, c.snippet, c.displayId])).toEqual([
-      ['ted', 'TED paused: cache full', task.displayId],
+      ['ted', 'Ted paused: cache full', task.displayId],
       ['human', 'Please keep a local cache', task.displayId],
     ])
     expect(results.comments[0]?.taskTitle).toBe('Offline editing')
@@ -510,7 +510,7 @@ describe('GET /search', () => {
         kind: 'tool',
         runId: hit.runId,
       })
-      expect((await client.search('Working in TED')).conversations).toEqual([])
+      expect((await client.search('Working in Ted')).conversations).toEqual([])
       await client.stopTask(task.id)
       const logPath = path.join(home, 'runs', hit.runId, 'host.log')
       const log = await readFile(logPath, 'utf8')

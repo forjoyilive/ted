@@ -176,13 +176,13 @@ describe('Sign-offs', () => {
     await waitForIdle(client, task)
     expect((await commandResults(client, task)).at(-1)).toMatchObject({
       code: 0,
-      stdout: 'Waiting for the human at the Design sign-off. TED sends you their answer.\n',
+      stdout: 'Waiting for the human at the Design sign-off. Ted sends you their answer.\n',
     })
     expect((await getTask(client, task.id)).stage).toBe('design')
 
     for (const action of [{ action: 'approve' }, { action: 'request-changes', text: 'No.' }]) {
       const res = await client.fileToken.call('POST', `/comments/${request.id}/answer`, action)
-      expect(res).toEqual({ status: 403, body: { error: 'only the TED app can do this' } })
+      expect(res).toEqual({ status: 403, body: { error: 'only the Ted app can do this' } })
     }
     expect((await inbox(client)).map((i) => i.request.id)).toEqual([request.id])
 
@@ -200,7 +200,7 @@ describe('Sign-offs', () => {
       'the Work instructions to reach the Task Lead',
     )
     expect(work).toMatch(
-      /^The human approved the Design sign-off and added:\n\nUse the existing sync queue\.\n\nTED moved this Task to Work\./,
+      /^The human approved the Design sign-off and added:\n\nUse the existing sync queue\.\n\nTed moved this Task to Work\./,
     )
     expect(work).toContain('# Work')
   })
@@ -372,7 +372,7 @@ describe('Sign-offs', () => {
     const prompt = (resumed as Run & { prompt?: string }).prompt ?? ''
     expect(prompt).toContain('the human answered')
     expect(prompt).toContain('approved')
-    expect(prompt).toContain('TED moved this Task to Work.')
+    expect(prompt).toContain('Ted moved this Task to Work.')
     expect(prompt).toContain('# Work')
     const answered = (await comments(client, task)).find((c) => c.id === request.id)
     expect(answered?.answer?.kind).toBe('approved')
@@ -413,7 +413,7 @@ describe('Sign-offs', () => {
     }, 'the resumed Run')
     const prompt = (resumed as Run & { prompt?: string }).prompt ?? ''
     expect(prompt).toContain('the human answered')
-    expect(prompt).toContain('TED moved this Task to Work.')
+    expect(prompt).toContain('Ted moved this Task to Work.')
     expect(prompt).toContain('# Work')
     expect((await getTask(client, task.id)).statuses).not.toContain('failed')
   })
@@ -527,12 +527,12 @@ describe('outcomes', () => {
     ).toContain('The sync test fails on a clash.')
     expect((await getTask(client, task.id)).stage).toBe('work')
     const backMessage = (await userMessages(client, task)).find((m) =>
-      m.startsWith('TED moved this Task back to Design.'),
+      m.startsWith('Ted moved this Task back to Design.'),
     )
     expect(backMessage).toContain('The sync test fails on a clash.')
     await waitForIdle(client, task)
     expect((await commandResults(client, task)).at(-1)?.stdout).toBe(
-      'Work has sent this Task back 1 time, its limit, so TED asked the human instead. TED sends you their answer.\n',
+      'Work has sent this Task back 1 time, its limit, so Ted asked the human instead. Ted sends you their answer.\n',
     )
 
     await client.ok('POST', `/comments/${request.id}/answer`, {
@@ -752,10 +752,10 @@ describe('custom Stages', () => {
     ])
     expect(entries[1]?.stageFile).toEqual({ layer: 'factory', path: '.ted/stages/security.md' })
     const messages = await userMessages(client, task)
-    expect(messages.find((m) => m.startsWith('TED moved this Task to Security.'))).toContain(
+    expect(messages.find((m) => m.startsWith('Ted moved this Task to Security.'))).toContain(
       'Look for secrets in the change.',
     )
-    expect(messages.some((m) => m.startsWith('TED moved this Task to Release notes.'))).toBe(true)
+    expect(messages.some((m) => m.startsWith('Ted moved this Task to Release notes.'))).toBe(true)
     const history = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
     expect(history.some((e) => e.text.startsWith('Release notes sent this back to Work'))).toBe(
       true,
@@ -822,7 +822,7 @@ describe('custom Stages', () => {
     expect((await comments(client, task)).filter((c) => c.gate)).toEqual([])
     const history = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.id}/events`)
     expect(history.map((e) => e.text)).toContain(
-      'Autopilot is on, so TED skipped the Release checklist sign-off',
+      'Autopilot is on, so Ted skipped the Release checklist sign-off',
     )
   }, 120_000)
 })

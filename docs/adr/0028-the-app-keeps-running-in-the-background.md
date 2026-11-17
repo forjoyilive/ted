@@ -1,6 +1,6 @@
 # The app keeps running in the background, and quitting it ends the daemon
 
-Closing the window hides it; the app process stays alive with its menu-bar icon (tray on Linux) and its event stream to the daemon, so the daemon never goes idle while the app runs. Quit asks the daemon to stop: the app calls `POST /shutdown`, which stops every active Run, answers, and then the daemon exits. With work running, Quit first follows the setting **When you quit with work running** (`quitWithWorkRunning`: `ask`, `keep-running`, `stop`). `keep-running` hides every window and the Dock icon and leaves the app, the daemon and the Runs going; **Quit TED completely** from the menu goes through the same decision.
+Closing the window hides it; the app process stays alive with its menu-bar icon (tray on Linux) and its event stream to the daemon, so the daemon never goes idle while the app runs. Quit asks the daemon to stop: the app calls `POST /shutdown`, which stops every active Run, answers, and then the daemon exits. With work running, Quit first follows the setting **When you quit with work running** (`quitWithWorkRunning`: `ask`, `keep-running`, `stop`). `keep-running` hides every window and the Dock icon and leaves the app, the daemon and the Runs going; **Quit Ted completely** from the menu goes through the same decision.
 
 The menu-bar menu, the app menu and the Linux window title read one summary from the daemon, `Activity` (`GET /activity`): how many requests wait on the human, Runs working, active and queued, and Automations on. `TedStore` works it out from the store and emits `activity-changed` only when it changes. Until the Inbox, the queue and Automations exist, “waiting” counts Runs in the `waiting` state and the queue and Automations count zero; the tickets that add them change `TedStore.activity()` and nothing else.
 
@@ -19,5 +19,5 @@ When `TED_HOME` is set, Electron’s profile (and so its single-instance lock) l
 ## Consequences
 
 - Quitting the app with nothing running now ends the daemon too; before, it lingered for the idle timeout.
-- A new kind of work that should keep TED alive (queued Runs, Automations) is counted in `TedStore.activity()`; the quit dialog and menus pick it up.
+- A new kind of work that should keep Ted alive (queued Runs, Automations) is counted in `TedStore.activity()`; the quit dialog and menus pick it up.
 - The menu-bar icon, menus and dialog need a manual check on macOS and Linux; the automated tests cover the logic and the Electron app menu.

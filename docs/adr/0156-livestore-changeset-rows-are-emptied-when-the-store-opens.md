@@ -1,6 +1,6 @@
 # LiveStore’s changeset rows are emptied when the store opens
 
-LiveStore writes one row to `__livestore_session_changeset` in the state database for every event it applies: the SQLite session changeset that undoes it. Nothing in TED trims the table. On one machine it held 87,818 rows taking 178 MB of a 272 MB state database, and it grows by about 27 MB a day.
+LiveStore writes one row to `__livestore_session_changeset` in the state database for every event it applies: the SQLite session changeset that undoes it. Nothing in Ted trims the table. On one machine it held 87,818 rows taking 178 MB of a 272 MB state database, and it grows by about 27 MB a day.
 
 This changes only the state database, which is derived from the event log. No event is touched, so ADR 0010 stands.
 
@@ -12,9 +12,9 @@ From LiveStore 0.5.0’s source (`@livestore/common`):
 - `getEventsSince` in `leader-thread/eventlog.ts` reads them at boot to attach a changeset to each pending event. A missing row becomes `unset`, which the client session treats like no changeset.
 - The client session’s own rollback uses changesets it made itself, in memory, not these rows.
 
-TED opens LiveStore with `makeAdapter` and file storage only (`packages/daemon/src/store/index.ts`), with no sync backend, so no rebase and no rollback can happen.
+Ted opens LiveStore with `makeAdapter` and file storage only (`packages/daemon/src/store/index.ts`), with no sync backend, so no rebase and no rollback can happen.
 
-## What TED does
+## What Ted does
 
 `trimChangesets` in `packages/daemon/src/store/trim-changesets.ts`, called by `data.ts` before `openStore`, while the store is closed and only when `checkStore` says `current` and no output drop is about to rebuild the state. When the table and its index take 20 MB or more (read from SQLite’s `dbstat`), it deletes every row and runs `VACUUM`. It never drops the table: LiveStore would then treat the state as incomplete and rebuild it.
 
@@ -33,6 +33,6 @@ Measured on a copy of that machine’s store, rebuilt with the current schema: t
 
 ## Consequences
 
-- Revisit this before TED adds a sync backend or upgrades LiveStore: with a backend the rows are needed for rebases, and a new LiveStore version may read them elsewhere.
+- Revisit this before Ted adds a sync backend or upgrades LiveStore: with a backend the rows are needed for rebases, and a new LiveStore version may read them elsewhere.
 - Between opens the table grows as before; the space comes back at the next open of the daemon.
 - The first open after a rebuild opens the store twice. The second open reads the state that the first one built, so it takes seconds, not the rebuild’s time.

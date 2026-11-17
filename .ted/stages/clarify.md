@@ -12,8 +12,8 @@ The Task is already clear: a small, specific change with one obvious reading. Po
 
 Read the Task, its sources and the relevant code before asking. Use the repo to settle facts; ask the human about choices that affect behaviour, scope or how success will be checked.
 
-1. Check the Task’s size first. If it won’t fit in one pull request per repo, ask the human what to do: `ted clarify too-big "<why>" --settle "<point>" --settle "<point>"`, where the text says why it’s too big and each `--settle` names something a plan must decide. End your turn. TED offers the human Split it, Plan it outside TED and Grill anyway, and sends you their choice:
-   - **Split it:** post the pieces with `ted task propose --file <file>`. Prefer small slices that each deliver a verifiable result across the layers they need. Each piece’s description states its success criteria; dependencies name work that must merge first. The file is JSON: a short `title`, an optional `summary`, and `tasks`, one row per piece, each with a `title`, a one-line `scope`, an optional `description`, a `priority` (urgent, high, medium, low or none) and `blockedBy`, the row numbers that must merge first. When the human approves, every row becomes a new child Task of this Task in Backlog, and this Task stops and waits for them to merge. When they have, TED finishes this Task unless it has work of its own, so cover all of its work in the rows. For example:
+1. Check the Task’s size first. If it won’t fit in one pull request per repo, ask the human what to do: `ted clarify too-big "<why>" --settle "<point>" --settle "<point>"`, where the text says why it’s too big and each `--settle` names something a plan must decide. End your turn. Ted offers the human Split it, Plan it outside Ted and Grill anyway, and sends you their choice:
+   - **Split it:** post the pieces with `ted task propose --file <file>`. Prefer small slices that each deliver a verifiable result across the layers they need. Each piece’s description states its success criteria; dependencies name work that must merge first. The file is JSON: a short `title`, an optional `summary`, and `tasks`, one row per piece, each with a `title`, a one-line `scope`, an optional `description`, a `priority` (urgent, high, medium, low or none) and `blockedBy`, the row numbers that must merge first. When the human approves, every row becomes a new child Task of this Task in Backlog, and this Task stops and waits for them to merge. When they have, Ted finishes this Task unless it has work of its own, so cover all of its work in the rows. For example:
 
      ```json
      {
@@ -26,8 +26,8 @@ Read the Task, its sources and the relevant code before asking. Use the repo to 
      }
      ```
 
-   - **Plan it outside TED:** TED posts your reason and what a plan must settle, moves the Task to Backlog and stops your Run.
-   - **Grill anyway:** the Task stays whole and TED sets the depth to grilling.
+   - **Plan it outside Ted:** Ted posts your reason and what a plan must settle, moves the Task to Backlog and stops your Run.
+   - **Grill anyway:** the Task stays whole and Ted sets the depth to grilling.
 2. Unless the human already chose a Clarify depth, pick one and say why in one line: `ted clarify depth <none|few|grilling> "<why>"`.
    - **None** when nothing is unclear. Record the result in the Task brief as described below, then run `ted outcome advance`.
    - **Few** when one round would settle it, however many questions that round needs.
@@ -52,15 +52,15 @@ Read the Task, its sources and the relevant code before asking. Use the repo to 
    }
    ```
 
-4. End your turn. TED sends you the human’s answers, each marked recommended or changed.
-5. If the human clicks **Talk it through** instead, TED tells you, and the human writes to you in your conversation. Discuss the round’s questions there. When it’s settled, or when TED says the human is done talking, write a summary to a file (each question and what you agreed, then anything still open) and run `ted ask --close --summary <file>`. TED posts it as your note and closes the round as answered in Talk it through. Ask anything still open in a new round.
+4. End your turn. Ted sends you the human’s answers, each marked recommended or changed.
+5. If the human clicks **Talk it through** instead, Ted tells you, and the human writes to you in your conversation. Discuss the round’s questions there. When it’s settled, or when Ted says the human is done talking, write a summary to a file (each question and what you agreed, then anything still open) and run `ted ask --close --summary <file>`. Ted posts it as your note and closes the round as answered in Talk it through. Ask anything still open in a new round.
 
 ## Done when
 
 Use the Task brief’s existing headings: put observable acceptance criteria under Goal, agreed decisions and exclusions under Decisions so far, and unresolved questions under Open questions. Carry forward only decisions supported by the request or the human’s answers; label proposals as proposals.
 
 - **Few:** the one round is answered. Write the brief, then run `ted outcome advance`.
-- **Grilling:** nothing is left open. Write the brief, then run `ted outcome advance`. The effective Clarify sign-off setting applies at every depth. When it is on, TED posts the brief to the human as the sign-off: Approve moves the Task on; Request changes means another round. When it is off, TED moves the Task on without sign-off.
+- **Grilling:** nothing is left open. Write the brief, then run `ted outcome advance`. The effective Clarify sign-off setting applies at every depth. When it is on, Ted posts the brief to the human as the sign-off: Approve moves the Task on; Request changes means another round. When it is off, Ted moves the Task on without sign-off.
 
 ## Ask the human when
 

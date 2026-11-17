@@ -9,9 +9,9 @@ export const downloadUrl = `${releasesUrl}/latest`
 
 const newIssueBodies = {
   copied:
-    'What happened, and what did you expect?\n\n\n\nDiagnostic report (TED copied it to your clipboard; paste it here):\n\n',
+    'What happened, and what did you expect?\n\n\n\nDiagnostic report (Ted copied it to your clipboard; paste it here):\n\n',
   missing:
-    'What happened, and what did you expect?\n\n\n\nTED couldn’t make a diagnostic report because its background service didn’t answer.\n',
+    'What happened, and what did you expect?\n\n\n\nTed couldn’t make a diagnostic report because its background service didn’t answer.\n',
 }
 
 export function newIssueUrl(reportCopied: boolean): string {

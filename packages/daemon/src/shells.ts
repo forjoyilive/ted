@@ -353,7 +353,7 @@ export function createShells(options: ShellsOptions): Shells {
       ...target.env,
       TERM: 'xterm-256color',
       COLORTERM: 'truecolor',
-      TERM_PROGRAM: 'TED',
+      TERM_PROGRAM: 'Ted',
     }
     const child = pty.spawn(program(), ['-l'], {
       name: 'xterm-256color',

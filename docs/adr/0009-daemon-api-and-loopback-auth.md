@@ -10,7 +10,7 @@ The lock is an exclusive SQLite transaction on `daemon-lock.db`, opened with Nod
 
 ## Considered Options
 
-- **A pid file created exclusively, taken over when its pid is dead.** Rejected after review: taking over a stale file means reading, checking and deleting it, and two starters can interleave those steps so both win, at every level of takeover lock added on top. A pid reused after a reboot also looks alive, so TED would refuse to start.
+- **A pid file created exclusively, taken over when its pid is dead.** Rejected after review: taking over a stale file means reading, checking and deleting it, and two starters can interleave those steps so both win, at every level of takeover lock added on top. A pid reused after a reboot also looks alive, so Ted would refuse to start.
 
 ## Consequences
 

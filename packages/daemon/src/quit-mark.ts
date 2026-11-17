@@ -4,7 +4,7 @@ import { tedPaths } from '@ted/protocol'
 
 export class QuitMarkedError extends Error {
   constructor() {
-    super('TED was quit; not starting until the app opens again')
+    super('Ted was quit; not starting until the app opens again')
   }
 }
 

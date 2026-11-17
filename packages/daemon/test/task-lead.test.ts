@@ -225,7 +225,7 @@ describe('Model unavailable', () => {
       const [question] = await waitUntil(async () => {
         const comments = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
         return comments.length > 0 ? comments : undefined
-      }, 'TED’s question')
+      }, 'Ted’s question')
       expect(question).toMatchObject({ kind: 'question', author: { kind: 'ted' } })
       expect(question?.body).toContain('unavailable-9')
       expect(question?.body).toContain('Use the default model')
@@ -339,7 +339,7 @@ describe('Model unavailable', () => {
     await waitUntil(async () => {
       const comments = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
       return comments.some((c) => c.kind === 'question') || undefined
-    }, 'TED’s question')
+    }, 'Ted’s question')
 
     await client.ok('POST', `/tasks/${task.id}/lead/use-default-model`)
     await waitUntil(async () => {

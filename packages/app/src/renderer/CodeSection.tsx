@@ -51,8 +51,8 @@ function PullRequestLine({ task, repo }: { task: Task; repo: TaskRepo }) {
   const failed = repo.pushFailed && (
     <p className={styles.setup} title={repo.pushFailed.message}>
       {pr
-        ? 'Couldn’t push the latest commits. TED tries again when Validate passes.'
-        : 'Couldn’t push this branch. TED tries again when Validate passes.'}
+        ? 'Couldn’t push the latest commits. Ted tries again when Validate passes.'
+        : 'Couldn’t push this branch. Ted tries again when Validate passes.'}
     </p>
   )
   if (pr) {

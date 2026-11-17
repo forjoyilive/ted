@@ -25,7 +25,7 @@ afterEach(async () => {
   await cleanup()
 })
 
-test('a second daemon on the same TED home is refused while the first runs', async () => {
+test('a second daemon on the same Ted home is refused while the first runs', async () => {
   daemon = await startDaemon({ home, version: '9.9.9' })
 
   await expect(startDaemon({ home, version: '9.9.9' })).rejects.toBeInstanceOf(

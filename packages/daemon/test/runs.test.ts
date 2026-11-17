@@ -409,7 +409,7 @@ describe('Runs across daemon restarts', () => {
     const settled = await waitUntil(async () => {
       const { run: now } = await client.getRun(run.id)
       return now.state !== 'idle' ? now.state : undefined
-    }, 'TED to notice the old host is gone')
+    }, 'Ted to notice the old host is gone')
     await sleep(500)
 
     expect(settled).toBe('finished')

@@ -257,7 +257,7 @@ describe('Plan in chat from a Task', () => {
       `The plan created ${cache?.displayId}, ${sync?.displayId} and ${badge?.displayId}. This Task waits for them to merge.`,
     )
     expect(lines).toContain(
-      'The plan was approved. TED stopped the Task Lead while the Tasks it created are built.',
+      'The plan was approved. Ted stopped the Task Lead while the Tasks it created are built.',
     )
     expect((await getTask(client, task.id)).activity).not.toBe('Planning in chat')
   })
@@ -281,7 +281,7 @@ describe('Plan in chat from a Task', () => {
     const told = await leadHears(client, task, 'was archived without an approved plan')
     expect(told).toContain('ted clarify too-big')
     expect(await threadLines(client, task)).toContain(
-      'Planning chat archived without approval. TED told the Task Lead to ask its size question again.',
+      'Planning chat archived without approval. Ted told the Task Lead to ask its size question again.',
     )
     const after = await getTask(client, task.id)
     expect(after.stage).toBe('clarify')
@@ -347,7 +347,7 @@ describe('Plan in chat from a Task', () => {
     expect(standalone.requests.at(-1)).toMatchObject({
       kind: 'note',
       author: 'ted',
-      body: `Unlinked this chat from ${task.displayId} because it was archived. The chat carries on as a standalone plan, and TED creates a new parent Task for the Tasks it creates.`,
+      body: `Unlinked this chat from ${task.displayId} because it was archived. The chat carries on as a standalone plan, and Ted creates a new parent Task for the Tasks it creates.`,
     })
 
     const approved = await client.ok<PlanRequest>('POST', `/plan-requests/${request.id}/answer`, {

@@ -977,7 +977,7 @@ export async function prepareIncorporation(
     worktree,
     ...noHooks,
     '-c',
-    'user.name=TED',
+    'user.name=Ted',
     '-c',
     'user.email=ted@localhost',
     '-c',
@@ -1104,9 +1104,9 @@ export async function commitAndPush(
     const identity = await run(['var', 'GIT_COMMITTER_IDENT']).then(
       () => ({}),
       () => ({
-        GIT_AUTHOR_NAME: 'TED',
+        GIT_AUTHOR_NAME: 'Ted',
         GIT_AUTHOR_EMAIL: 'ted@localhost',
-        GIT_COMMITTER_NAME: 'TED',
+        GIT_COMMITTER_NAME: 'Ted',
         GIT_COMMITTER_EMAIL: 'ted@localhost',
       }),
     )
@@ -1141,7 +1141,7 @@ export async function commitAndPush(
       .filter((line) => /^(fatal|error|remote:|!)/i.test(line))
       .slice(-3)
       .join('\n')
-    throw new GitError(redactSecrets(`saving TED settings failed${reason ? `: ${reason}` : ''}`))
+    throw new GitError(redactSecrets(`saving Ted settings failed${reason ? `: ${reason}` : ''}`))
   } finally {
     await rm(scratch, { recursive: true, force: true })
   }

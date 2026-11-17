@@ -1,8 +1,8 @@
-# TED’s copy of anti-slop
+# Ted’s copy of anti-slop
 
 Source: [dmmulroy/anti-slop](https://github.com/dmmulroy/anti-slop), commit `13909c9`, its `src/` folder. MIT licence, kept in `LICENSE` here; `vendor/eslint-stylistic/` carries its own.
 
-This is TED’s own copy. Change it when TED’s rules need it; there is no plan to follow upstream. Changes since the copy:
+This is Ted’s own copy. Change it when Ted’s rules need it; there is no plan to follow upstream. Changes since the copy:
 
 - Formatted with Biome and its imports sorted (layout only).
 

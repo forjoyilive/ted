@@ -153,7 +153,7 @@ describe('Linear', () => {
   test('bulk intake needs a saved scope in the connected workspace and stops when the scope changes', () => {
     const factory = { id: 'f', name: 'Notebook' }
     expect(() => linearIntakeHold(settingsStore(), factory, () => false)).toThrow(
-      'TED imports Linear work in bulk only from Notebook’s Linear intake scope. Choose a Linear Team or Project in Factory settings → Linear intake first.',
+      'Ted imports Linear work in bulk only from Notebook’s Linear intake scope. Choose a Linear Team or Project in Factory settings → Linear intake first.',
     )
     const store = settingsStore({ linearIntakeScopes: { f: scope } })
     let gone = false
@@ -170,7 +170,7 @@ describe('Linear', () => {
     gone = false
     store.set({ linearIntakeScopes: { f: { ...scope, id: 'project-two' } } })
     expect(() => hold.unchanged()).toThrow(
-      'Notebook’s Linear intake scope changed during the import. TED stopped; the next run uses the new scope.',
+      'Notebook’s Linear intake scope changed during the import. Ted stopped; the next run uses the new scope.',
     )
   })
 })
@@ -195,7 +195,7 @@ describe('GitHub', () => {
         comments: [],
         totalComments: 0,
         hiddenComments: 0,
-        labels: ['bug', 'Ready for TED'],
+        labels: ['bug', 'Ready for Ted'],
         allLabels: true,
         subIssues: [],
         subIssuesComplete: true,
@@ -236,25 +236,25 @@ describe('GitHub', () => {
   })
 
   test('each refusal says which rule the issue broke', () => {
-    const label = { label: 'ready for TED' }
+    const label = { label: 'ready for Ted' }
     expect(refusal({ state: 'outside-factory' }, undefined)).toBe(
       'acme/widgets#7 isn’t in one of this Factory’s repos (acme/widgets, acme/gadgets). Leave it for another Factory.',
     )
     expect(refusal(found({ state: 'closed' }), undefined)).toContain('is closed on GitHub')
     expect(refusal(found({ labels: ['bug'] }), label)).toBe(
-      'acme/widgets#7 doesn’t have the label "ready for TED", which this Factory’s GitHub intake requires. Leave it until a maintainer adds the label.',
+      'acme/widgets#7 doesn’t have the label "ready for Ted", which this Factory’s GitHub intake requires. Leave it until a maintainer adds the label.',
     )
     expect(refusal(found({ labels: ['bug'], allLabels: false }), label)).toContain(
       'couldn’t read all of acme/widgets#7’s labels',
     )
   })
 
-  test('an issue TED can’t read is refused', () => {
+  test('an issue Ted can’t read is refused', () => {
     expect(refusal({ state: 'unreadable', reason: 'signed-out' }, undefined)).toContain(
       'the GitHub CLI isn’t signed in',
     )
     expect(refusal(undefined, undefined)).toBe(
-      'TED can’t read GitHub here, so it can’t check acme/widgets#7 against this Factory’s GitHub intake. Leave it.',
+      'Ted can’t read GitHub here, so it can’t check acme/widgets#7 against this Factory’s GitHub intake. Leave it.',
     )
   })
 
@@ -377,7 +377,7 @@ describe('Asana', () => {
         gid === '9' ? tracked : undefined,
       ),
     ).toThrow(
-      'Fix login sits under NB-4, which TED already tracks. Add it to that tree from the app instead.',
+      'Fix login sits under NB-4, which Ted already tracks. Add it to that tree from the app instead.',
     )
   })
 
@@ -390,7 +390,7 @@ describe('Asana', () => {
     gone = false
     store.set({ asanaIntakeScopes: { f: { ...scope, project: { gid: '3', name: 'Other' } } } })
     expect(() => hold.unchanged()).toThrow(
-      'Notebook’s Asana intake choice changed during the import. TED stopped; the next run uses the new choice.',
+      'Notebook’s Asana intake choice changed during the import. Ted stopped; the next run uses the new choice.',
     )
   })
 
@@ -404,7 +404,7 @@ describe('Asana', () => {
         followUpSourceUrl: 'https://app.asana.com/0/0/10',
       }),
     ).toThrow(
-      'An Automation can’t make a Follow-up of Asana work. TED imports each Asana task once; leave it for the existing Task.',
+      'An Automation can’t make a Follow-up of Asana work. Ted imports each Asana task once; leave it for the existing Task.',
     )
   })
 })
@@ -421,7 +421,7 @@ test('the prompt’s intake lines follow each Factory’s Linear and GitHub sett
   expect(github).toContain('GitHub intake: only issues with the label "ready".')
   expect(intakeLines(store, 'other')).toEqual([
     'Linear intake scope: Unscoped. Your instructions may search all Linear teams and projects.',
-    'GitHub intake: any open issue in this Factory’s repos. TED refuses an issue that is closed, outside this Factory’s repos, or a sub-issue of an issue this Factory already tracks.',
+    'GitHub intake: any open issue in this Factory’s repos. Ted refuses an issue that is closed, outside this Factory’s repos, or a sub-issue of an issue this Factory already tracks.',
   ])
 })
 

@@ -1,5 +1,5 @@
 // Ported from agent-orchestrator (Apache-2.0): chatdriver/codexappserver/normalize.go and
-// commanddetail/command.go. TED changed: TypeScript, reads TED’s stored Conversation lines,
+// commanddetail/command.go. Ted changed: TypeScript, reads Ted’s stored Conversation lines,
 // keeps userMessage items and builds diff lines.
 import type { ChatDiff, ConversationEntry } from '@ted/protocol'
 import type { AgentChat, AgentChatEntry } from './agent.ts'

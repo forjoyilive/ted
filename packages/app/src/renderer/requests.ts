@@ -26,7 +26,7 @@ export function summary(request: Comment): string | undefined {
 
 export function poster(request: Comment, task: Task | undefined): string {
   const { author } = request
-  if (author.kind === 'ted') return 'TED'
+  if (author.kind === 'ted') return 'Ted'
   if (author.kind === 'human') return 'you'
   return task?.leadRunId === author.runId ? 'the Task Lead' : 'a sub-agent'
 }

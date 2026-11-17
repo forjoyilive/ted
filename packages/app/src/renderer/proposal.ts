@@ -32,5 +32,5 @@ export function createLabel(count: number): string {
 export function parentLine(proposal: Proposal): string {
   return proposal.firstPiece
     ? `${proposal.firstPiece.displayId} becomes the parent of these Tasks and runs after they merge.`
-    : 'TED creates a parent Task for these Tasks. It runs after they merge.'
+    : 'Ted creates a parent Task for these Tasks. It runs after they merge.'
 }

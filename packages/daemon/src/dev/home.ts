@@ -52,7 +52,7 @@ async function checkDemoLinks(home: string, directory = home): Promise<void> {
 }
 
 export async function checkDemoHome(home: string): Promise<DemoManifest | undefined> {
-  if (edition !== 'dev') throw new Error('Demo data is available only in TED Dev.')
+  if (edition !== 'dev') throw new Error('Demo data is available only in Ted Dev.')
   const resolved = path.resolve(home)
   const protectedHomes = ['.ted', '.ted-dev'].map((name) => path.join(homedir(), name))
   const localTrials = fileURLToPath(
@@ -73,7 +73,7 @@ export async function checkDemoHome(home: string): Promise<DemoManifest | undefi
     ) ||
     (!inTrials && protectedPaths.some((p) => candidate.startsWith(`${p}${path.sep}`)))
   ) {
-    throw new Error('Choose a separate demo home, outside the TED and TED Dev homes.')
+    throw new Error('Choose a separate demo home, outside the Ted and Ted Dev homes.')
   }
   let current = path.parse(resolved).root
   for (const part of resolved.slice(current.length).split(path.sep).filter(Boolean)) {

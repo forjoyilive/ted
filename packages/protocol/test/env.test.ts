@@ -9,7 +9,7 @@ import {
   tedEnvironment,
 } from '../src/env.ts'
 
-test('release accepts only reviewed TED inputs; Dev keeps every test hook', () => {
+test('release accepts only reviewed Ted inputs; Dev keeps every test hook', () => {
   for (const [name, reason] of Object.entries(tedEnvironment)) {
     const env = { [name]: 'provided' }
     expect(tedEnv(name, env, 'dev'), name).toBe('provided')
@@ -96,7 +96,7 @@ test('the guard catches new direct, computed, aliased and destructured reads', (
   expect(rawReads("process.env.TED_TASK = 'NB-1'")).toEqual([])
 })
 
-test('runtime TED environment reads use the central policy and name classified inputs', () => {
+test('runtime Ted environment reads use the central policy and name classified inputs', () => {
   const root = path.resolve(import.meta.dirname, '../../..')
   const findings: string[] = []
   for (const file of globSync('packages/*/src/**/*.{ts,tsx,cjs}', { cwd: root })) {

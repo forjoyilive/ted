@@ -4,6 +4,6 @@ The app had a **Restart** action for a Run in four places: the Task’s actions 
 
 **All four are removed.** The human gets a Task Lead going again with **Stop Task** and then the action that starts the Task again. A sub-agent’s Run can only be stopped from the app; its Task Lead starts another when it needs one (ADR 0049).
 
-**The restart itself stays.** TED still restarts a Run when the Task Lead’s model or effort changes (ADR 0027) and when idle Runs move to a new agent version (ADR 0067), through `RunManager.restart` and `Conversations.restart`. `POST /runs/:id/restart` and `DaemonClient.restartRun` stay too, because the daemon’s tests use the route to make a restart happen; the renderer no longer forwards it, so `restartRun` is gone from `forwardedRequests`.
+**The restart itself stays.** Ted still restarts a Run when the Task Lead’s model or effort changes (ADR 0027) and when idle Runs move to a new agent version (ADR 0067), through `RunManager.restart` and `Conversations.restart`. `POST /runs/:id/restart` and `DaemonClient.restartRun` stay too, because the daemon’s tests use the route to make a restart happen; the renderer no longer forwards it, so `restartRun` is gone from `forwardedRequests`.
 
 A Start button for a stopped sub-agent was considered and left out: a stopped sub-agent is a finished Run, and continuing one from the app would need its own rules for the queue and for Validate’s one reviewer (ADR 0030, ADR 0108).

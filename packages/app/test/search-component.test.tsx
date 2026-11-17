@@ -157,7 +157,7 @@ test('the open Task’s palette Delete command opens its dialog and Cancel keeps
   await u.type(within(palette).getByRole('combobox'), 'Delete')
   await u.click(within(palette).getByRole('option', { name: 'Delete…' }))
   const dialog = await screen.findByRole('dialog', { name: 'Delete NB-1?' })
-  expect(within(dialog).getByText(/Sync notes\. TED removes/)).toBeTruthy()
+  expect(within(dialog).getByText(/Sync notes\. Ted removes/)).toBeTruthy()
   expect(screen.queryByRole('dialog', { name: 'Search and commands' })).toBeNull()
   await u.click(within(dialog).getByRole('button', { name: 'Cancel' }))
   expect(screen.queryByRole('dialog')).toBeNull()

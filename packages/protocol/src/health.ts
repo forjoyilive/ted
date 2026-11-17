@@ -161,4 +161,4 @@ export function planChip(
 export const antigravityTermsUrl = 'https://antigravity.google/terms'
 
 export const antigravityPlanNotice =
-  'Google’s terms say that using Antigravity through other software, such as TED, on a Google plan can get your account suspended. In Settings → Providers, choose to use your plan anyway or switch Antigravity to an API key.'
+  'Google’s terms say that using Antigravity through other software, such as Ted, on a Google plan can get your account suspended. In Settings → Providers, choose to use your plan anyway or switch Antigravity to an API key.'

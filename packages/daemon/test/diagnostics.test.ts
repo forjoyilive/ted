@@ -63,14 +63,14 @@ test('each process is classified by the nearest Run host, Check or App above it'
   const classified = classifyProcesses(
     [
       row(1, 0, 'launchd'),
-      row(10, 1, 'TED'),
-      row(11, 10, 'TED'),
+      row(10, 1, 'Ted'),
+      row(11, 10, 'Ted'),
       row(12, 11, 'claude'),
       row(13, 12),
       row(14, 13, 'java'),
       row(20, 10, 'sandbox-exec'),
       row(21, 20, 'vitest'),
-      row(30, 1, 'TED'),
+      row(30, 1, 'Ted'),
       row(31, 30, 'electron'),
       row(40, 10, 'git'),
       row(41, 10, 'ps'),
@@ -186,7 +186,7 @@ describe('Diagnostics', () => {
     const client = await start()
     const run = await client.startRun([{ say: 'raw hello' }, { endTurn: true }], cwd)
     await mkdir(tedPaths(home).logs, { recursive: true })
-    await appendFile(tedPaths(home).daemonLog, 'TED daemon 9.9.9 listening\n')
+    await appendFile(tedPaths(home).daemonLog, 'Ted daemon 9.9.9 listening\n')
 
     const raw = await waitUntil(async () => {
       const { body } = await client.call('GET', `/runs/${run.id}/raw`)
@@ -195,7 +195,7 @@ describe('Diagnostics', () => {
     expect(raw.text.split('\n')[0]).toMatch(/^\{"t":"start"/)
 
     const log = await client.call('GET', '/logs/daemon')
-    expect(log.body).toEqual({ text: 'TED daemon 9.9.9 listening\n', truncated: false })
+    expect(log.body).toEqual({ text: 'Ted daemon 9.9.9 listening\n', truncated: false })
   })
 
   test('shows only the end of a long log', async () => {
@@ -216,7 +216,7 @@ describe('Diagnostics', () => {
     expect((await client.call('GET', '/logs/daemon')).body).toEqual({ text: '', truncated: false })
   })
 
-  test('raw output is only for Runs TED knows', async () => {
+  test('raw output is only for Runs Ted knows', async () => {
     const client = await start()
 
     expect((await client.call('GET', '/runs/nope/raw')).status).toBe(404)
@@ -237,9 +237,9 @@ describe('Diagnostics', () => {
 
     expect(status).toBe(200)
     const { text } = body as { text: string }
-    expect(text).toContain('TED 9.9.9')
+    expect(text).toContain('Ted 9.9.9')
     expect(text).toContain(run.id)
-    expect(text).toContain('opened <TED home>/store')
+    expect(text).toContain('opened <Ted home>/store')
     expect(text).not.toContain(home)
     expect(text).not.toContain('"steps"')
     expect(text).toContain('fatal: https://[redacted]@github.com/k/n.git')
@@ -250,7 +250,7 @@ describe('Diagnostics', () => {
     const { text: short } = withoutLog.body as { text: string }
     expect(short).toContain(run.id)
     expect(short).toContain('Daemon log and process command lines left out')
-    expect(short).not.toContain('opened <TED home>/store')
+    expect(short).not.toContain('opened <Ted home>/store')
     expect(short).not.toMatch(/^\d+ \(parent \d+\) (?!·)/m)
   })
 

@@ -164,7 +164,7 @@ describe('in-app updates', () => {
       .getByRole('button', { name: /^Settings/ })
       .last()
       .click()
-    await window.getByText('Update ready: TED 99.0.0.').waitFor()
+    await window.getByText('Update ready: Ted 99.0.0.').waitFor()
     await window.getByRole('button', { name: 'Check for updates' }).waitFor()
     await window.getByRole('button', { name: 'Restart to update' }).waitFor()
   })
@@ -395,7 +395,7 @@ describe('in-app updates', () => {
     }
   })
 
-  test('a failed install shows the warning banner with Download, and TED comes back', async () => {
+  test('a failed install shows the warning banner with Download, and Ted comes back', async () => {
     latest = { version: '99.0.0', failInstall: true }
     await startExecutionService(await executionHome(), fixtureEnvironment(home))
     cliWorker = true

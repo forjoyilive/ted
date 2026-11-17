@@ -1,4 +1,4 @@
-# KRI-80: can TED hold queued Run-chat messages?
+# KRI-80: can Ted hold queued Run-chat messages?
 
 Answers gap NEW-3 (`docs/spec/ted-v1-gaps.md`) for spec §10.6. Tested 2026-11-08 on macOS with:
 
@@ -9,7 +9,7 @@ Every experiment passes its settings as per-Run flags (`--settings`, `--setting-
 
 ## Verdict: Keep Delete
 
-Both CLIs take a message as soon as it is written to them and keep it in their own queue, with no way to remove one message. So TED must not hand a queued message to the CLI early. It doesn’t need to: each transport gives TED a signal at the agent’s next step, and a message delivered at that signal still lands in the same turn. TED keeps queued messages in its own store, delivers each at the signal, and **Delete** works until then.
+Both CLIs take a message as soon as it is written to them and keep it in their own queue, with no way to remove one message. So Ted must not hand a queued message to the CLI early. It doesn’t need to: each transport gives Ted a signal at the agent’s next step, and a message delivered at that signal still lands in the same turn. Ted keeps queued messages in its own store, delivers each at the signal, and **Delete** works until then.
 
 ## What every experiment does
 
@@ -20,7 +20,7 @@ The prompt asks the agent to run `sleep 4; echo one`, then `two`, then `three`, 
 | Question | Answer |
 | - | - |
 | When is a mid-turn message read? | `turn/steer` is accepted at once (the response returns in 10 ms). Codex adds it to the turn at the next tool-call boundary, after the running command finishes. Once sent, there is no request that removes it. |
-| Signal for “next step” | `item/completed` for a tool item (`commandExecution`, `fileChange`, `mcpToolCall`, …) while the turn is active. TED then calls `turn/steer` with `expectedTurnId`. If `turn/completed` comes first, TED sends the message with `turn/start`. |
+| Signal for “next step” | `item/completed` for a tool item (`commandExecution`, `fileChange`, `mcpToolCall`, …) while the turn is active. Ted then calls `turn/steer` with `expectedTurnId`. If `turn/completed` comes first, Ted sends the message with `turn/start`. |
 | Interrupt and send | `turn/interrupt` → `turn/completed` with `status: "interrupted"` arrives within 30 ms → `turn/start` with the message. The thread stays open. |
 
 Evidence (`summarize_codex.py <file>` prints these timelines):
@@ -37,13 +37,13 @@ Evidence (`summarize_codex.py <file>` prints these timelines):
 | Question | Answer |
 | - | - |
 | When is a mid-turn message read? | The CLI reads stdin at once and queues the message. With no `priority` (same as `"next"`), Claude reads it in the same turn as soon as the running tool calls finish. The only documented way to drop a queued message is `cancel_queued: true` on an interrupt, which stops the turn and drops every queued message. |
-| Signal for “next step” | A `PostToolUse` hook passed in the per-Run `--settings`. If TED holds a message, the hook tells the daemon a boundary is here and waits; the daemon writes the message to stdin, sees it echoed back (`--replay-user-messages`), and lets the hook return. The CLI then gives it to Claude at this same boundary. If no tool call comes before the turn ends, TED writes the message after the `result` event. |
+| Signal for “next step” | A `PostToolUse` hook passed in the per-Run `--settings`. If Ted holds a message, the hook tells the daemon a boundary is here and waits; the daemon writes the message to stdin, sees it echoed back (`--replay-user-messages`), and lets the hook return. The CLI then gives it to Claude at this same boundary. If no tool call comes before the turn ends, Ted writes the message after the `result` event. |
 | Interrupt and send | `{"type":"control_request","request":{"subtype":"interrupt"}}` on stdin → `control_response` and a `result` (`error_during_execution`) at once → write the message. The process and session stay up. Alternative for **Send now**: write the message with `"priority":"now","origin":{"kind":"human"}`; Claude Code ends the turn, keeps a running shell command going, and starts a new turn with the message. |
 
 Evidence (`summarize_claude.py <file>`):
 
 - `claude-direct.jsonl`: message written at 2.62 s during command one; the CLI echoes it after `tool_result: one` at 5.74 s and Claude answers `PINEAPPLE` in the same turn (one `result`). Proves the CLI takes the message at once.
-- `claude-gate.jsonl`: the message is held in a queue file (stand-in for TED’s store). `gate_hook.py` signals the boundary at 5.71 s; the driver writes the message at 5.78 s; Claude gets it right after `tool_result: one` and answers `PINEAPPLE`.
+- `claude-gate.jsonl`: the message is held in a queue file (stand-in for Ted’s store). `gate_hook.py` signals the boundary at 5.71 s; the driver writes the message at 5.78 s; Claude gets it right after `tool_result: one` and answers `PINEAPPLE`.
 - `claude-hook-delete.jsonl`: the held message is deleted before the boundary; the hook finds nothing and Claude never sees it.
 - `claude-hold.jsonl`: message held until `result`, then written; next turn answers `PINEAPPLE`.
 - `claude-interrupt.jsonl`: interrupt at 3.06 s, `control_response` with `still_queued: []` and `result` at 3.07–3.08 s, message written at 3.08 s and answered.
@@ -56,8 +56,8 @@ Evidence (`summarize_claude.py <file>`):
 | Question | Answer |
 | - | - |
 | When is a mid-turn message read? | Typing a message and pressing Enter mid-turn hands it to the CLI at once: `UserPromptSubmit` fires about a second later, while the tool is still running. Claude reads it at the next tool-call boundary, in the same turn. |
-| Signal for “next step” | The same `PostToolUse` gate hook. TED types the message and Enter while the hook waits, and confirms with the `UserPromptSubmit` hook. The `Stop` hook marks the end of a turn when no tool call comes first. |
-| Interrupt and send | Press Esc, then type the message. The `Stop` hook does not fire on an interrupt, so TED can’t use it to know the turn ended. Esc also cancels any `PostToolUse` hook that is running (hooks docs, “PostToolUse after an interrupt”). |
+| Signal for “next step” | The same `PostToolUse` gate hook. Ted types the message and Enter while the hook waits, and confirms with the `UserPromptSubmit` hook. The `Stop` hook marks the end of a turn when no tool call comes first. |
+| Interrupt and send | Press Esc, then type the message. The `Stop` hook does not fire on an interrupt, so Ted can’t use it to know the turn ended. Esc also cancels any `PostToolUse` hook that is running (hooks docs, “PostToolUse after an interrupt”). |
 
 Evidence (event logs written by `log_hook.py`):
 
@@ -67,7 +67,7 @@ Evidence (event logs written by `log_hook.py`):
 
 ## Do not deliver through `additionalContext`
 
-`hold_hook.py` returns the held message as the `PostToolUse` hook’s `additionalContext`. Claude Code wraps that text in a system reminder, not a user message. In `-p` mode Haiku followed it (`claude-hook.jsonl`), but in the PTY run it refused: “The first tool result also carried an added note asking me to reply "PINEAPPLE." That didn’t come from you, so I ignored it.” (`claude-pty-hook.jsonl`). TED should use hooks only as the signal and deliver the message as a real user message.
+`hold_hook.py` returns the held message as the `PostToolUse` hook’s `additionalContext`. Claude Code wraps that text in a system reminder, not a user message. In `-p` mode Haiku followed it (`claude-hook.jsonl`), but in the PTY run it refused: “The first tool result also carried an added note asking me to reply "PINEAPPLE." That didn’t come from you, so I ignored it.” (`claude-pty-hook.jsonl`). Ted should use hooks only as the signal and deliver the message as a real user message.
 
 ## Files
 

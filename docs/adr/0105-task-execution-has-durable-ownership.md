@@ -1,6 +1,6 @@
 # Task execution has durable ownership
 
-Status: shelved (TED-256). Remote execution is on hold. The code is kept but hidden behind `TED_REMOTE_EXECUTION=on`, which only TED Dev reads. Don’t build new work on it or treat it as required. Only the parts every Task uses stay current: `tasks/execution.ts` records a local assignment before a Task starts work, and the shipped events and tables stay.
+Status: shelved (TED-256). Remote execution is on hold. The code is kept but hidden behind `TED_REMOTE_EXECUTION=on`, which only Ted Dev reads. Don’t build new work on it or treat it as required. Only the parts every Task uses stay current: `tasks/execution.ts` records a local assignment before a Task starts work, and the shipped events and tables stay.
 
 The approved cross-machine plan for TED-97 keeps one controlling Mac authoritative for Tasks, the Board, Inbox, queue and Workflow decisions. Trusted Macs on a private network or VPN will execute Tasks. Ownership belongs to a Task rather than an individual Run: after automatic placement before first execution, its Runs, sub-agents and Checks stay on that machine. There is no migration or automatic failover.
 

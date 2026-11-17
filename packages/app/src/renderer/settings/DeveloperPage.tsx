@@ -130,7 +130,7 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
         <SettingRow
           setting="app.developer.folder"
           detail={
-            folderProblem ?? folder?.path ?? <Loading compact label="Loading TED’s folder…" />
+            folderProblem ?? folder?.path ?? <Loading compact label="Loading Ted’s folder…" />
           }
         >
           <Button
@@ -152,7 +152,7 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
         </SettingRow>
         <SettingRow
           setting="app.developer.profile"
-          help={`Records where TED’s background process spends its time for ${profileSeconds.default} seconds and saves a .cpuprofile file in TED’s folder, under logs/profiles. Open it in Chrome DevTools or VS Code. The file lists TED’s own functions and file paths, with no Task content, prompts or tokens. TED keeps the newest five. Nothing is uploaded.`}
+          help={`Records where Ted’s background process spends its time for ${profileSeconds.default} seconds and saves a .cpuprofile file in Ted’s folder, under logs/profiles. Open it in Chrome DevTools or VS Code. The file lists Ted’s own functions and file paths, with no Task content, prompts or tokens. Ted keeps the newest five. Nothing is uploaded.`}
           {...(profile.status !== undefined && { detail: profile.status })}
         >
           <Button disabled={profile.recording} onClick={profile.record}>
@@ -167,7 +167,7 @@ export function DeveloperPage({ settings }: SettingsPageProps) {
             <SettingRow
               setting="app.developer.onboarding"
               {...(settings.onboardingOnNextOpen
-                ? { detail: 'Onboarding will show the next time TED opens.' }
+                ? { detail: 'Onboarding will show the next time Ted opens.' }
                 : settings.guideNextFactory && {
                     detail: 'The next Factory you add gets the setup guide.',
                   })}

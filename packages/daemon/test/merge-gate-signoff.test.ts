@@ -31,7 +31,7 @@ const mergeSignoff = (client: Client, task: Task) =>
   )
 
 describe('Merge sign-off', () => {
-  test('TED posts the Merge sign-off only once CI passes, Autopilot approves the waiting request when turned on, and Merge merges at once', async () => {
+  test('Ted posts the Merge sign-off only once CI passes, Autopilot approves the waiting request when turned on, and Merge merges at once', async () => {
     const client = await start({
       files: ci,
       workflow: ['stages:', '  merge: { gate: true }'],
@@ -82,7 +82,7 @@ describe('Merge sign-off', () => {
     expect(done.repos[0]?.pullRequest?.state).toBe('merged')
     expect(await merges()).toHaveLength(1)
     expect(await lines(client, task)).not.toContain(
-      'Autopilot is on, so TED skipped the Merge sign-off',
+      'Autopilot is on, so Ted skipped the Merge sign-off',
     )
   })
 
@@ -99,7 +99,7 @@ describe('Merge sign-off', () => {
       return current.stage === 'merge' && current.status?.kind === 'waiting-for-github'
     }, 'Waiting for CI')
     expect(await lines(client, task)).toContain(
-      'Autopilot is on, so TED skipped the Merge sign-off',
+      'Autopilot is on, so Ted skipped the Merge sign-off',
     )
     await client.ok('PATCH', '/settings', { overnightMode: false })
     const { rows } = await client.ok<TaskGates>('GET', `/tasks/${task.id}/gates`)

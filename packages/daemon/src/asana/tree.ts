@@ -115,11 +115,11 @@ export async function readAsanaTree(input: {
     const counted = [...nodes.values()].filter(needsDetail).length
     const atLeast = next.length > 0 ? 'at least ' : ''
     if (nodes.size > maxListed)
-      tooBig = `This item has more than ${maxListed} items under it. TED imports at most ${maxAsanaImportTasks} Tasks at a time.`
+      tooBig = `This item has more than ${maxListed} items under it. Ted imports at most ${maxAsanaImportTasks} Tasks at a time.`
     else if (counted > maxAsanaImportTasks)
-      tooBig = `This item and the unfinished items under it make ${atLeast}${counted} Tasks. TED imports at most ${maxAsanaImportTasks} at a time.`
+      tooBig = `This item and the unfinished items under it make ${atLeast}${counted} Tasks. Ted imports at most ${maxAsanaImportTasks} at a time.`
     else if ((next[0]?.depth ?? 0) > maxAsanaImportDepth)
-      tooBig = `This item’s subtasks go more than ${maxAsanaImportDepth} levels deep. TED imports at most ${maxAsanaImportDepth} levels.`
+      tooBig = `This item’s subtasks go more than ${maxAsanaImportDepth} levels deep. Ted imports at most ${maxAsanaImportDepth} levels.`
     level = next
   }
   if (tooBig !== undefined) return { rootGid: rootNode.gid, nodes, tooBig }
@@ -139,7 +139,7 @@ export async function readAsanaTree(input: {
       }
     }
     const partly = (what: string) => (error: unknown) => {
-      node.partial = [...(node.partial ?? []), `TED couldn’t copy ${what}: ${reasonOf(error)}`]
+      node.partial = [...(node.partial ?? []), `Ted couldn’t copy ${what}: ${reasonOf(error)}`]
     }
     try {
       const discussion = await comments(read, node.gid)
@@ -316,7 +316,7 @@ async function comments(
     comments: taken,
     ...(shortened.any && { cut: true }),
     ...(cut && {
-      warning: `TED copied the first ${taken.length} comments from Asana; read the rest there.`,
+      warning: `Ted copied the first ${taken.length} comments from Asana; read the rest there.`,
     }),
   }
 }
@@ -362,14 +362,14 @@ async function attachments(
       ...own.slice(maxAsanaFiles).map((a) => ({
         name: a.name,
         url: a.viewUrl,
-        reason: `TED takes at most ${maxAsanaFiles} files from an item`,
+        reason: `Ted takes at most ${maxAsanaFiles} files from an item`,
       })),
       ...(listed.more
         ? [
             {
               name: 'more files',
               url: `https://app.asana.com/0/0/${gid}/f`,
-              reason: 'Asana listed more files than TED reads',
+              reason: 'Asana listed more files than Ted reads',
             },
           ]
         : []),
@@ -393,11 +393,11 @@ export async function each<T>(
 
 export function reasonOf(error: unknown): string {
   if (error instanceof AsanaReadError) {
-    if (error.status === 403) return 'Asana didn’t let TED read it (no access)'
+    if (error.status === 403) return 'Asana didn’t let Ted read it (no access)'
     if (error.status === 404) return 'Asana couldn’t find it'
     return error.message
   }
-  return 'TED couldn’t read it from Asana'
+  return 'Ted couldn’t read it from Asana'
 }
 
 export function oneLine(text: string): string {

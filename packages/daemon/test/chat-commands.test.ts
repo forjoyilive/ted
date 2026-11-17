@@ -23,7 +23,7 @@ const runner: StoredChatAgent = {
 test('a command runs only when the Agent has the power and lists the name', () => {
   expect(findCommand(runner, 'test')).toEqual({ name: 'test', command: 'pnpm test' })
   expect(() => findCommand(runner, 'deploy')).toThrow(
-    '`deploy` isn’t one of Runner’s commands, so TED refused it. Its commands are test.',
+    '`deploy` isn’t one of Runner’s commands, so Ted refused it. Its commands are test.',
   )
   expect(() => findCommand({ ...runner, powers: ['read_code'] }, 'test')).toThrow(
     'Runner doesn’t have the Run commands in the copy power',
@@ -64,7 +64,7 @@ test('output goes back fenced as data with a fresh marker', () => {
   expect(first.endsWith(`<<<END COMMAND OUTPUT ${first.match(marker)?.[1]}>>>`)).toBe(true)
 })
 
-test('without a working sandbox TED refuses and raises sandbox-unavailable', async () => {
+test('without a working sandbox Ted refuses and raises sandbox-unavailable', async () => {
   const raised: { problem: string; factoryId?: string }[] = []
   const commands = createChatCommands({
     home: '/ted',
@@ -88,7 +88,7 @@ test('without a working sandbox TED refuses and raises sandbox-unavailable', asy
       },
       'test',
     ),
-  ).rejects.toThrow('TED runs commands only in its sandbox: sandbox-exec doesn’t work')
+  ).rejects.toThrow('Ted runs commands only in its sandbox: sandbox-exec doesn’t work')
   expect(raised).toMatchObject([{ problem: 'sandbox-unavailable', factoryId: 'f1' }])
   commands.close()
 })
@@ -128,7 +128,7 @@ test('a disk hold that starts while a command waits for a Check slot stops it', 
   )
   expect(result).toMatchObject({ state: 'failed' })
   expect(ran).toMatchObject([
-    { outcome: 'failed', tail: 'TED isn’t starting new work right now: the disk is full' },
+    { outcome: 'failed', tail: 'Ted isn’t starting new work right now: the disk is full' },
   ])
   commands.close()
 })

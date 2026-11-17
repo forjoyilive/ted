@@ -160,7 +160,7 @@ describe('creating the setup Task', () => {
     const banner = (await banners(client)).find((b) => b.problem === 'setup-unfinished')
     expect(banner).toMatchObject({
       severity: 'warning',
-      text: 'Setup isn’t finished · Tasks use TED’s defaults until WD-1 merges',
+      text: 'Setup isn’t finished · Tasks use Ted’s defaults until WD-1 merges',
       action: { label: 'Open WD-1', opens: { kind: 'task', taskId: setup.id } },
     })
     await writeFile(hold, '')
@@ -192,7 +192,7 @@ describe('creating the setup Task', () => {
     expect((await banners(client)).some((b) => b.problem === 'setup-unfinished')).toBe(false)
   })
 
-  test('an empty repo, whose Workflow TED can’t read yet, still gets its setup Task started', async () => {
+  test('an empty repo, whose Workflow Ted can’t read yet, still gets its setup Task started', async () => {
     const bare = path.join(scratch, 'acme', 'widgets.git')
     await rm(bare, { recursive: true, force: true })
     await execFileAsync('git', ['init', '--bare', '--quiet', '--initial-branch=main', bare])
@@ -300,7 +300,7 @@ describe('the proposal', () => {
         { path: '.ted/workflow.yaml', about: 'Checks and Stage settings' },
         { path: '.ted/stages/validate.md', about: 'How to check Widgets' },
       ],
-      defaults: 'Left as TED’s defaults: agents and permissions.',
+      defaults: 'Left as Ted’s defaults: agents and permissions.',
     },
   })
 
@@ -469,7 +469,7 @@ describe('the proposal', () => {
           r.checks.every((c) => c.state !== 'waiting' && c.state !== 'running'),
         )
       }, 'the Validate Checks')
-      expect(checkRun.checks.map((c) => c.name)).toEqual(['Unit', 'TED settings'])
+      expect(checkRun.checks.map((c) => c.name)).toEqual(['Unit', 'Ted settings'])
       expect(await readFile(refused, 'utf8')).toContain(
         'sneaky is on the branch but not in the approved proposal',
       )
@@ -477,7 +477,7 @@ describe('the proposal', () => {
       const web = await waitUntil(async () => {
         const apps = await client.ok<TaskApp[]>('GET', `/tasks/${setup.id}/apps`)
         return apps.find((a) => a.name === 'Web' && a.state === 'running') && apps
-      }, 'TED to start the proposed App')
+      }, 'Ted to start the proposed App')
       expect(web.map((a) => a.name)).toEqual(['Web'])
       expect(existsSync(path.join(scratch, 'sneaky-app'))).toBe(false)
       expect(existsSync(path.join(scratch, 'changed-app'))).toBe(false)
@@ -544,8 +544,8 @@ describe('the proposal', () => {
       const t = await getTask(client, task.id)
       if (t.stage !== 'design' || t.runs[0]?.state !== 'idle') return undefined
       const text = JSON.stringify((await client.getRun(t.leadRunId ?? '')).conversation)
-      return text.includes('# Design') && text.includes('proposes TED settings') ? text : undefined
+      return text.includes('# Design') && text.includes('proposes Ted settings') ? text : undefined
     }, 'Design to finish its turn')
-    expect(said).toContain('only a setup Task proposes TED settings')
+    expect(said).toContain('only a setup Task proposes Ted settings')
   }, 30_000)
 })

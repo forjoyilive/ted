@@ -19,13 +19,13 @@ export function removalLines(summary: FactoryRemoval): string[] {
   if (summary.runs > 0) lines.push(`Stops ${count(summary.runs, 'Run')}.`)
   lines.push(
     summary.tasks === 0
-      ? 'Deletes the Factory from TED. It has no Tasks.'
-      : `Deletes ${count(summary.tasks, 'Task')} with their comments, Runs and conversations from TED.`,
+      ? 'Deletes the Factory from Ted. It has no Tasks.'
+      : `Deletes ${count(summary.tasks, 'Task')} with their comments, Runs and conversations from Ted.`,
   )
   const clones =
     summary.clones.length === 0
       ? ''
-      : `TED’s ${summary.clones.length === 1 ? 'clone' : 'clones'} of ${joinAnd(summary.clones)}`
+      : `Ted’s ${summary.clones.length === 1 ? 'clone' : 'clones'} of ${joinAnd(summary.clones)}`
   const worktrees = summary.worktrees === 0 ? '' : count(summary.worktrees, 'worktree')
   if (worktrees !== '' && clones !== '') {
     lines.push(`Runs teardown, then deletes ${worktrees} and ${clones}.`)

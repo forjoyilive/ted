@@ -191,7 +191,7 @@ export function createData(options: DataOptions): Data {
         dataDir: displayPath(paths.home),
         ...(restore && { restore }),
       })
-      console.error(`the store has events this TED doesn't know: ${check.unknownEvents.join(', ')}`)
+      console.error(`the store has events this Ted doesn't know: ${check.unknownEvents.join(', ')}`)
       return
     }
 
@@ -482,16 +482,16 @@ export function createData(options: DataOptions): Data {
   }
 
   function unavailable(): RequestError {
-    if (status.state === 'failed') return new RequestError(503, 'TED couldn’t update its data')
+    if (status.state === 'failed') return new RequestError(503, 'Ted couldn’t update its data')
     if (status.state === 'needs-newer') {
       return new RequestError(
         503,
         status.lastOpenedBy
-          ? `This data needs TED ${majorMinor(status.lastOpenedBy)} or later`
-          : 'This data needs a newer TED',
+          ? `This data needs Ted ${majorMinor(status.lastOpenedBy)} or later`
+          : 'This data needs a newer Ted',
       )
     }
-    return new RequestError(503, 'TED is updating its data')
+    return new RequestError(503, 'Ted is updating its data')
   }
 
   async function activeRuns(): Promise<string[]> {
@@ -519,7 +519,7 @@ export function createData(options: DataOptions): Data {
       const backup: Backup | undefined = await backups.find(name)
       if (!backup) throw new RequestError(404, `no backup ${name}`)
       if (busy || status.state === 'opening' || status.state === 'updating') {
-        throw new RequestError(409, 'TED is busy with its data. Try again in a moment.')
+        throw new RequestError(409, 'Ted is busy with its data. Try again in a moment.')
       }
       const running = await activeRuns()
       if (running.length > 0 && !stopRuns) {
@@ -552,7 +552,7 @@ export function createData(options: DataOptions): Data {
         if (!services) {
           throw new RequestError(
             500,
-            `Restored ${name}, but TED couldn’t open it: ${unavailable().message}. Your data from before the restore is in backup ${saved?.name}.`,
+            `Restored ${name}, but Ted couldn’t open it: ${unavailable().message}. Your data from before the restore is in backup ${saved?.name}.`,
           )
         }
         return { restored: name, saved: saved?.name ?? '', stoppedRuns: running.length }
@@ -566,7 +566,7 @@ export function createData(options: DataOptions): Data {
     },
     async open() {
       await openData({ backUp: true }).catch(async (error: unknown) => {
-        console.error('opening TED’s data failed:', error)
+        console.error('opening Ted’s data failed:', error)
         setStatus(await failedStatus(error instanceof Error ? error.message : String(error)))
       })
       firstOpen.resolve()

@@ -142,7 +142,7 @@ export function createAsana(options: AsanaOptions) {
         redirectUri,
         error:
           error instanceof CredentialCleanupError
-            ? 'Asana is disconnected, but old keyring credentials could not be deleted. Unlock or restore your keyring; TED will retry cleanup without restoring the account.'
+            ? 'Asana is disconnected, but old keyring credentials could not be deleted. Unlock or restore your keyring; Ted will retry cleanup without restoring the account.'
             : error instanceof KeyringUnavailableError
               ? error.reason === 'locked'
                 ? 'Unlock your keyring, then try again.'
@@ -347,7 +347,7 @@ export function createAsana(options: AsanaOptions) {
     query: Record<string, string> = {},
   ): Promise<Record<string, unknown>> {
     if (!/^\/[a-z_]+(\/\d{1,32}(\/[a-z_]+)?)?$/.test(path))
-      throw new AsanaReadError('TED asked Asana for an unexpected path')
+      throw new AsanaReadError('Ted asked Asana for an unexpected path')
     const { access } = await accessToken().catch((error: unknown) => {
       throw new AsanaReadError(error instanceof Error ? error.message : 'Couldn’t read Asana')
     })
@@ -375,7 +375,7 @@ export function createAsana(options: AsanaOptions) {
       throw new AsanaReadError(error instanceof Error ? error.message : 'Couldn’t reach Asana')
     })
     if (user.gid !== account)
-      throw new AsanaReadError('A different Asana account is connected now, so TED sent nothing.')
+      throw new AsanaReadError('A different Asana account is connected now, so Ted sent nothing.')
     try {
       return await request(
         new URL(`/api/1.0${path}?opt_fields=gid`, api).href,
@@ -397,14 +397,14 @@ export function createAsana(options: AsanaOptions) {
     }
   }
   function taskGid(gid: string): string {
-    if (!/^\d{1,32}$/.test(gid)) throw new AsanaReadError('TED asked Asana for an unexpected task')
+    if (!/^\d{1,32}$/.test(gid)) throw new AsanaReadError('Ted asked Asana for an unexpected task')
     return gid
   }
   return {
     read,
     async comment(gid: string, text: string, account: string): Promise<void> {
       if (text.length === 0 || text.length > maxAsanaCommentLength)
-        throw new AsanaReadError('TED tried to post a comment of an unexpected length')
+        throw new AsanaReadError('Ted tried to post a comment of an unexpected length')
       await write('POST', `/tasks/${taskGid(gid)}/stories`, { text }, account)
     },
     async complete(gid: string, account: string): Promise<void> {
@@ -470,7 +470,7 @@ export function createAsana(options: AsanaOptions) {
             url = new URL(req.url ?? '/', redirectUri)
           } catch {
             res.writeHead(400)
-            res.end('Invalid authorization response. Return to TED.')
+            res.end('Invalid authorization response. Return to Ted.')
             return
           }
           const current = session
@@ -490,7 +490,7 @@ export function createAsana(options: AsanaOptions) {
             url.searchParams.has('code') === url.searchParams.has('error')
           ) {
             res.writeHead(400)
-            res.end('Invalid or expired authorization response. Return to TED.')
+            res.end('Invalid or expired authorization response. Return to Ted.')
             return
           }
           const code = url.searchParams.get('code')
@@ -499,7 +499,7 @@ export function createAsana(options: AsanaOptions) {
           server.close()
           res.once('finish', () => server.closeAllConnections())
           res.once('close', () => server.closeAllConnections())
-          res.end('Authorization response received. Return to TED to see the result.')
+          res.end('Authorization response received. Return to Ted to see the result.')
           if (!code || code.length > 8192 || url.searchParams.has('error')) {
             notice = 'Authorization was denied or canceled. Connect to try again.'
             release()
@@ -547,7 +547,7 @@ export function createAsana(options: AsanaOptions) {
           })
         } catch {
           throw new ConnectionError(
-            'The Asana callback port is busy. Close another TED instance using this edition and try again.',
+            'The Asana callback port is busy. Close another Ted instance using this edition and try again.',
           )
         }
         if (generation !== started) {

@@ -160,11 +160,11 @@ test('a Run whose host.log is gone still answers, with no Conversation', async (
     kind: 'ted',
     id: 'output-not-kept',
     title: 'Output no longer kept',
-    text: 'TED no longer keeps this Run’s output, so its messages and tool calls can’t be shown.',
+    text: 'Ted no longer keeps this Run’s output, so its messages and tool calls can’t be shown.',
   })
 })
 
-test('lines an older TED saved as v2.RunOutputRead stay out of the state database, and the Conversation comes from host.log', async () => {
+test('lines an older Ted saved as v2.RunOutputRead stay out of the state database, and the Conversation comes from host.log', async () => {
   let client = await start()
   const run = await client.startRun([{ say: 'hello' }, { say: 'world' }, { endTurn: true }], cwd)
   await idle(client, run.id)

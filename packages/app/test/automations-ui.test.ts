@@ -265,7 +265,7 @@ describe('Automations in the app', () => {
       await form
         .getByLabel('What should this Automation do?')
         .fill(
-          'Find unassigned bugs in Linear and create Tasks in Backlog. Skip issues TED already tracks.',
+          'Find unassigned bugs in Linear and create Tasks in Backlog. Skip issues Ted already tracks.',
         )
       await window.setViewportSize({ width: 1200, height: 1450 })
       await window.screenshot({ path: process.env.TED_DRAFT_SCREENSHOT })

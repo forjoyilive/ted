@@ -395,7 +395,7 @@ export function AutomationDialog({
               </label>
               <span className={styles.hint}>required</span>
               <Help>
-                Runs in a fresh worktree on the tip of the default branch, as a check in TED’s
+                Runs in a fresh worktree on the tip of the default branch, as a check in Ted’s
                 sandbox, after the repo’s setup.
               </Help>
             </span>
@@ -455,8 +455,8 @@ export function AutomationDialog({
               </label>
               <Help>
                 An agent reads the result in a copy of the same commit, reruns failing tests, and
-                creates or notes Tasks. If it can’t start, fails or ends without reporting, TED
-                creates one Task per failing test file instead. Never: TED always does that.
+                creates or notes Tasks. If it can’t start, fails or ends without reporting, Ted
+                creates one Task per failing test file instead. Never: Ted always does that.
               </Help>
             </span>
             <Select
@@ -481,7 +481,7 @@ export function AutomationDialog({
               </label>
               <span className={styles.hint}>required</span>
               <Help>
-                Markdown. The agent gets it each time the Automation fires, after TED’s own
+                Markdown. The agent gets it each time the Automation fires, after Ted’s own
                 instructions.
               </Help>
             </span>
@@ -646,7 +646,7 @@ export function AutomationDialog({
             </label>
             <Help>
               Each Run gets a fresh copy of the default branch and can start the Factory’s Apps
-              there. TED removes it when the Run ends.
+              there. Ted removes it when the Run ends.
             </Help>
           </div>
         )}

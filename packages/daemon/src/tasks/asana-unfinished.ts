@@ -77,7 +77,7 @@ export async function readSubtree(input: {
         continue
       }
       const capped = !listed.complete && input.spent() >= maxSubtreeRequests
-      if (!listed.complete && !capped) unread(node, 'Asana listed more items than TED reads')
+      if (!listed.complete && !capped) unread(node, 'Asana listed more items than Ted reads')
       for (const row of listed.rows) {
         const parsed = nodeFrom(row, node.depth + 1, node.gid)
         if (!parsed || seen.has(parsed.gid)) continue
@@ -194,20 +194,20 @@ function reasonText(item: AsanaUnfinishedItem): string {
     case 'new':
       return 'added in Asana after the import'
     case 'skipped':
-      return 'TED didn’t import it'
+      return 'Ted didn’t import it'
     case 'archived':
       return `its Task ${item.detail ?? ''} was archived without merging`
     case 'unreadable':
-      return item.detail ?? 'TED couldn’t read it from Asana'
+      return item.detail ?? 'Ted couldn’t read it from Asana'
     case 'over-limit':
-      return `the items under it go past ${maxAsanaImportTasks} items or ${maxAsanaImportDepth} levels, so TED couldn’t check them all`
+      return `the items under it go past ${maxAsanaImportTasks} items or ${maxAsanaImportDepth} levels, so Ted couldn’t check them all`
   }
 }
 
 export function unfinishedText(items: readonly AsanaUnfinishedItem[]): string {
   const choices = unfinishedChoices(items)
   return [
-    'This Task merged, but its Asana task has unfinished items under it that no TED Task is working on, so TED hasn’t completed it in Asana.',
+    'This Task merged, but its Asana task has unfinished items under it that no Ted Task is working on, so Ted hasn’t completed it in Asana.',
     items.map((item) => `- ${item.name}: ${reasonText(item)}. ${item.url}`).join('\n'),
     [
       ...(choices.includes(asanaAddChoice)
@@ -215,9 +215,9 @@ export function unfinishedText(items: readonly AsanaUnfinishedItem[]): string {
             `**${asanaAddChoice}** imports the new items as Tasks under this one; each completes its own Asana task when it merges.`,
           ]
         : []),
-      `**${asanaCompleteChoice}** completes this Task’s Asana task once no other TED Task under it is still open.`,
+      `**${asanaCompleteChoice}** completes this Task’s Asana task once no other Ted Task under it is still open.`,
       `**${asanaLeaveOpenChoice}** leaves it open.`,
     ].join(' '),
-    'TED never completes the items under it. If another unfinished item appears, TED asks again.',
+    'Ted never completes the items under it. If another unfinished item appears, Ted asks again.',
   ].join('\n\n')
 }

@@ -150,7 +150,7 @@ test('Limits turns off waiting when busy and says when starts are held', async (
   const help = screen.getAllByRole('button', { name: 'Help' })[2] as HTMLElement
   await user().hover(help)
   expect(screen.getByRole('tooltip').textContent).toMatch(
-    /Work already running carries on\. The limit above is still the most TED runs at once\.$/,
+    /Work already running carries on\. The limit above is still the most Ted runs at once\.$/,
   )
   await user().unhover(help)
   await user().click(control)

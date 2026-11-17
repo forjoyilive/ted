@@ -216,7 +216,7 @@ describe('the design review', () => {
     expect((await getTask(client, task.id)).stage).toBe('design')
   })
 
-  test('TED refuses a design review with the wrong kind of file, a link that isn’t Figma, or outside Design', async () => {
+  test('Ted refuses a design review with the wrong kind of file, a link that isn’t Figma, or outside Design', async () => {
     const client = await start()
     const notHtml = await designFile('a.json', { prototype: at('welcome.png') })
     const textShot = await designFile('b.json', { screenshots: [at('notes.txt')] })

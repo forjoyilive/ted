@@ -96,7 +96,7 @@ if MODE == "direct":
     except SystemExit:
         pass
 elif MODE in ("hook", "hook-delete"):
-    rec("--", {"note": "TED queues the message", "file": QUEUE_FILE})
+    rec("--", {"note": "Ted queues the message", "file": QUEUE_FILE})
     open(QUEUE_FILE, "w").write(STEER)
     if MODE == "hook-delete":
         time.sleep(1)
@@ -104,11 +104,11 @@ elif MODE in ("hook", "hook-delete"):
         rec("--", {"note": "human deletes the queued message"})
     wait_for(is_result)
 elif MODE == "gate":
-    rec("--", {"note": "TED queues the message", "file": QUEUE_FILE})
+    rec("--", {"note": "Ted queues the message", "file": QUEUE_FILE})
     open(QUEUE_FILE, "w").write(STEER)
     while not os.path.exists(QUEUE_FILE + ".boundary"):
         time.sleep(0.05)
-    rec("--", {"note": "hook reports a tool-call boundary; TED writes the message"})
+    rec("--", {"note": "hook reports a tool-call boundary; Ted writes the message"})
     send(user(STEER))
     time.sleep(0.3)
     open(QUEUE_FILE + ".delivered", "w").close()

@@ -301,7 +301,7 @@ test('an answer or a Comment restarts a Task Lead stopped while it waited, unles
   expect(after.find((c) => c.kind === 'question')?.answer).toBeUndefined()
 })
 
-test('after a quit TED offers the Tasks that were working, restarts the chosen ones and leaves the rest', async () => {
+test('after a quit Ted offers the Tasks that were working, restarts the chosen ones and leaves the rest', async () => {
   const client = await startTed()
   const restarted = await create(client, steps({ waitFor: '/never' }), { start: true })
   const left = await create(client, steps({ waitFor: '/never' }), { start: true })
@@ -350,12 +350,12 @@ test('after a quit TED offers the Tasks that were working, restarts the chosen o
   const lines = async (id: string) =>
     ((await reopened.call('GET', `/tasks/${id}/events`)).body as ThreadEvent[]).map((e) => e.text)
   expect(await lines(left.id)).toEqual(
-    expect.arrayContaining(['TED stopped the Task Lead when it quit', 'You left the Task stopped']),
+    expect.arrayContaining(['Ted stopped the Task Lead when it quit', 'You left the Task stopped']),
   )
   expect(await lines(restarted.id)).toEqual(
-    expect.arrayContaining(['TED stopped the Task Lead when it quit', 'You resumed the Task']),
+    expect.arrayContaining(['Ted stopped the Task Lead when it quit', 'You resumed the Task']),
   )
-  expect(await lines(byHand.id)).not.toContain('TED stopped the Task Lead when it quit')
+  expect(await lines(byHand.id)).not.toContain('Ted stopped the Task Lead when it quit')
   expect((await reopened.call('POST', `/tasks/${left.id}/resume`, {})).status).toBe(200)
 })
 
@@ -384,7 +384,7 @@ test('a working Task Lead ended while the daemon was down is offered at the next
   )
   expect(offered.stoppedAt).toBe(exit.at)
   const events = (await reopened.call('GET', `/tasks/${task.id}/events`)).body as ThreadEvent[]
-  expect(events.map((e) => e.text)).toContain('The Task Lead was stopped when TED went down')
+  expect(events.map((e) => e.text)).toContain('The Task Lead was stopped when Ted went down')
 })
 
 describe('Stop', () => {
@@ -565,7 +565,7 @@ describe('Resume', () => {
 })
 
 describe('the idle Task Lead', () => {
-  test('is nudged once, then TED asks with its last message and Nudge again', async () => {
+  test('is nudged once, then Ted asks with its last message and Nudge again', async () => {
     const clock = new ManualClock()
     const client = await startTed({ nudgeAfterMs: 100, clock })
     const task = await create(
@@ -605,7 +605,7 @@ describe('the idle Task Lead', () => {
         const found = (await comments(client, task)).find((c) => c.kind === 'question')
         return found
       },
-      'TED to ask',
+      'Ted to ask',
     )
     const current = await getTask(client, task.id)
     const runId = current.leadRunId ?? ''
@@ -620,7 +620,7 @@ describe('the idle Task Lead', () => {
     expect(asked.body).toContain('I’ll check the empty template next.')
     expect(current.status?.kind).toBe('waiting-on-you')
     expect((await threadEvents(client, task)).map((e) => e.text)).toContain(
-      `TED nudged the Task Lead: “${nudge}”`,
+      `Ted nudged the Task Lead: “${nudge}”`,
     )
     clock.advance(300)
     expect((await comments(client, task)).filter((c) => c.kind === 'question')).toHaveLength(1)

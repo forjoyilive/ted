@@ -35,7 +35,7 @@ const lock = await waitForLock(files.lock, 2_000)
 if (!lock) throw new Error(`another host already runs ${runDir}`)
 if (quitMarkedSync(homeOfRunDir(runDir))) {
   lock.release()
-  throw new Error('TED was quit; this Run doesn’t start until the app opens again')
+  throw new Error('Ted was quit; this Run doesn’t start until the app opens again')
 }
 
 const earlierStarts = (() => {

@@ -70,15 +70,15 @@ type_line(PROMPT)
 wait_event("PreToolUse")
 drain(1)
 if MODE == "hook":
-    note("TED queues the message in its store")
+    note("Ted queues the message in its store")
     open(QUEUE_FILE, "w").write(STEER)
     wait_event("Stop")
 elif MODE == "gate":
-    note("TED queues the message in its store")
+    note("Ted queues the message in its store")
     open(QUEUE_FILE, "w").write(STEER)
     while not os.path.exists(QUEUE_FILE + ".boundary"):
         drain(0.05)
-    note("hook reports a tool-call boundary; TED types the message")
+    note("hook reports a tool-call boundary; Ted types the message")
     type_line(STEER)
     wait_event("UserPromptSubmit", n=2, timeout=10)
     open(QUEUE_FILE + ".delivered", "w").close()

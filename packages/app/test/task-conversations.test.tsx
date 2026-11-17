@@ -173,7 +173,7 @@ test('History expands an earlier conversation inline and reports unavailable ret
     kind: 'ted',
     id: 'output-not-kept',
     title: 'Earlier output no longer kept',
-    text: 'TED kept only the newest part of this Run’s output.',
+    text: 'Ted kept only the newest part of this Run’s output.',
   })
   const view = within(await a.open())
   expect(view.queryByRole('button', { name: /^History/ })).toBeNull()

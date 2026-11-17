@@ -58,10 +58,10 @@ test('a request the working Task Lead posts is held until released, then follows
   expect(store.waiting().map((r) => r.id)).toEqual([request.id])
 })
 
-test('notes, TED’s requests and requests from an idle Run post at once', () => {
+test('notes, Ted’s requests and requests from an idle Run post at once', () => {
   const posted = [
     store.postComment({ taskId, body: 'A note', author: lead }),
-    store.postComment({ taskId, kind: 'question', body: 'From TED', author: { kind: 'ted' } }),
+    store.postComment({ taskId, kind: 'question', body: 'From Ted', author: { kind: 'ted' } }),
   ]
   store.recordRunOutput('lead', { toOffset: 2, state: 'idle' })
   posted.push(store.postComment({ taskId, kind: 'question', body: 'Idle', author: lead }))

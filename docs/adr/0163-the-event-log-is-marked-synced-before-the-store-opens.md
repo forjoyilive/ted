@@ -1,6 +1,6 @@
 # The event log is marked synced before the store opens
 
-LiveStore keeps every event above the sync backend’s head in memory, as events still to be pushed. TED has no sync backend, so the head stayed at 0 and the daemon held every event it had ever committed: on one machine 91,637 events, about 250 MB of JavaScript heap, read again at every start. The engine also lets its heap grow in proportion to what is live, so the daemon’s footprint was higher still.
+LiveStore keeps every event above the sync backend’s head in memory, as events still to be pushed. Ted has no sync backend, so the head stayed at 0 and the daemon held every event it had ever committed: on one machine 91,637 events, about 250 MB of JavaScript heap, read again at every start. The engine also lets its heap grow in proportion to what is live, so the daemon’s footprint was higher still.
 
 This changes one number in a LiveStore table in the event log file. No event is touched, so ADR 0010 stands.
 
@@ -12,7 +12,7 @@ From LiveStore 0.5.0’s source (`@livestore/common`):
 - Only a pull from a sync backend moves the head (`updateBackendHead`), and only a push to one sends `pending`.
 - A state rebuild reads the event log itself, not `pending`.
 
-## What TED does
+## What Ted does
 
 `markEventsSynced` in `packages/daemon/src/store/sync-head.ts`, called by `openStore` before LiveStore starts, while the store is closed. It sets `head` to the newest event’s `seqNumGlobal`, up or down. Down matters: `store/drop-output.ts` renumbers the events into a shorter chain, and a restored backup can be older than the head. A failure is logged through `redactSecrets` and the store opens as before, with every event in memory.
 
@@ -35,5 +35,5 @@ The JavaScript heap after the open fell from 500 MB to 91 MB. The store then sav
 
 ## Consequences
 
-- Revisit this before TED adds a sync backend or upgrades LiveStore: with a backend, events at or below the head are never pushed, and a new LiveStore version may read the row differently. ADR 0156 has the same condition.
+- Revisit this before Ted adds a sync backend or upgrades LiveStore: with a backend, events at or below the head are never pushed, and a new LiveStore version may read the row differently. ADR 0156 has the same condition.
 - After a rebuild the daemon still holds memory the rebuild used once, until it restarts. Rebuilding in a separate process would remove it.

@@ -7,21 +7,21 @@ A Task’s worktree is made by `git worktree add` before `v1.TaskStarted` record
 **A start looks at the path first.** Before the branch name is picked, `clear` in `tasks/local-lifecycle.ts` checks `TED_HOME/worktrees/<TASK-ID>/<name>`:
 
 - Nothing there, or an empty plain folder: the start goes on.
-- A link or a file: the start stops. TED never follows or removes it.
-- A plain folder that is a worktree of this repo’s clone at exactly that path, with nothing uncommitted and a `HEAD` with no commits beyond `origin/<base>`: TED removes it with `git worktree remove --force` and deletes its branch with the same guarded `update-ref`, then starts fresh. Nothing is lost: the only files that go are ones git ignores, which copy and `setup` make again.
-- The same, when a removed worktree is being made again (unarchive, a changed Repos field) and the leftover is on the Task’s recorded branch: TED removes the worktree and keeps the branch, commits included.
-- A worktree with uncommitted files, with commits beyond the base on any other branch, one that is locked or one TED can’t read, and any other folder with something in it: the start stops and nothing is deleted.
+- A link or a file: the start stops. Ted never follows or removes it.
+- A plain folder that is a worktree of this repo’s clone at exactly that path, with nothing uncommitted and a `HEAD` with no commits beyond `origin/<base>`: Ted removes it with `git worktree remove --force` and deletes its branch with the same guarded `update-ref`, then starts fresh. Nothing is lost: the only files that go are ones git ignores, which copy and `setup` make again.
+- The same, when a removed worktree is being made again (unarchive, a changed Repos field) and the leftover is on the Task’s recorded branch: Ted removes the worktree and keeps the branch, commits included.
+- A worktree with uncommitted files, with commits beyond the base on any other branch, one that is locked or one Ted can’t read, and any other folder with something in it: the start stops and nothing is deleted.
 
 “A worktree of this clone at that path” means both directions agree: `git worktree list --porcelain -z` in the clone lists the path (compared by real path), and the folder’s `.git` is a regular file whose `gitdir:` resolves to a folder directly inside the clone’s `.git/worktrees`. Uncommitted files are read with `workingChanges`, the scratch-index reader (ADR 0079), never `git status` in the worktree. Every folder is checked as a plain folder inside `TED_HOME/worktrees` first, as for any other worktree step.
 
-**The human is told.** A start that fails still puts the Task back in Backlog, and now also posts one TED note in the Task’s thread with the reason (redacted, one line, not repeated while it is the newest Comment). For a folder in the way the reason names the folder, what is in it and what to do: move or delete it, then start again. When TED removes a leftover it says so in a note too.
+**The human is told.** A start that fails still puts the Task back in Backlog, and now also posts one Ted note in the Task’s thread with the reason (redacted, one line, not repeated while it is the newest Comment). For a folder in the way the reason names the folder, what is in it and what to do: move or delete it, then start again. When Ted removes a leftover it says so in a note too.
 
 `git worktree add` for a new Task now runs `git worktree prune` first, as the restore path already did, so a leftover folder the human deleted by hand doesn’t block the start either.
 
 ## Considered Options
 
-- **Adopt the leftover as the Task’s worktree.** Rejected: a worktree from a start that was killed may be half checked out, has an old base, and has no copy or `setup` record, so the Task would start from a state TED can’t describe. Removing a clean one and starting fresh gives the same result as a first start.
-- **Remove a leftover that has work in it, or move it aside.** Rejected: TED has no record of who put the work there. It is the human’s to keep or delete.
+- **Adopt the leftover as the Task’s worktree.** Rejected: a worktree from a start that was killed may be half checked out, has an old base, and has no copy or `setup` record, so the Task would start from a state Ted can’t describe. Removing a clean one and starting fresh gives the same result as a first start.
+- **Remove a leftover that has work in it, or move it aside.** Rejected: Ted has no record of who put the work there. It is the human’s to keep or delete.
 - **Delete the numbered branches earlier failed starts left in the clone.** Not done here. They hold no commits of their own and block nothing; new starts no longer add to them.
 - **A banner or a FAILED ask for a folder in the way.** Rejected: nothing is running and the Task is in Backlog, which is where a Task that couldn’t start already goes (ADR 0016). The thread note and the answer to the start request carry the reason.
 

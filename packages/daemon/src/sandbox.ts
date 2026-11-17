@@ -82,7 +82,7 @@ export function createSandbox(options: {
     return (options.unixSockets ?? (() => readFile('/proc/net/unix', 'utf8')))().catch(
       (error: unknown) => {
         throw new SandboxUnavailable(
-          `TED couldn’t list this machine’s Unix sockets, so it can’t sandbox checks and Apps or worktree setup and teardown: ${error instanceof Error ? error.message : String(error)}`,
+          `Ted couldn’t list this machine’s Unix sockets, so it can’t sandbox checks and Apps or worktree setup and teardown: ${error instanceof Error ? error.message : String(error)}`,
         )
       },
     )
@@ -100,11 +100,11 @@ export function createSandbox(options: {
   async function setUp(): Promise<string | undefined> {
     if (ready !== undefined) return undefined
     if (platform !== 'darwin' && platform !== 'linux') {
-      return `TED can’t sandbox commands on ${platform}`
+      return `Ted can’t sandbox commands on ${platform}`
     }
     const found = await program()
     if (found === undefined) {
-      return 'bwrap (bubblewrap) isn’t installed, so TED can’t sandbox checks and Apps or worktree setup and teardown. Install the bubblewrap package.'
+      return 'bwrap (bubblewrap) isn’t installed, so Ted can’t sandbox checks and Apps or worktree setup and teardown. Install the bubblewrap package.'
     }
     const args =
       platform === 'darwin'
@@ -120,7 +120,7 @@ export function createSandbox(options: {
         bindFds = options.bindFds ?? (await helpText(found, options.env())).includes('--bind-fd')
         if (!bindFds) {
           console.error(
-            'bwrap on this machine has no --bind-fd, so TED checks the Task’s folders by path before bwrap opens them',
+            'bwrap on this machine has no --bind-fd, so Ted checks the Task’s folders by path before bwrap opens them',
           )
         }
       }
@@ -128,7 +128,7 @@ export function createSandbox(options: {
       return undefined
     }
     const name = platform === 'darwin' ? 'sandbox-exec' : 'bwrap'
-    return `${name} doesn’t work on this machine, so TED can’t sandbox checks and Apps or worktree setup and teardown${result.output === '' ? '' : `: ${result.output}`}`
+    return `${name} doesn’t work on this machine, so Ted can’t sandbox checks and Apps or worktree setup and teardown${result.output === '' ? '' : `: ${result.output}`}`
   }
 
   return {
@@ -250,7 +250,7 @@ async function sandboxPaths(
     const outer = open.find((other) => other !== dir && inside(other, dir))
     if (outer !== undefined) {
       throw new SandboxUnavailable(
-        `${dir} sits inside ${outer}, so TED won’t sandbox a command with both open`,
+        `${dir} sits inside ${outer}, so Ted won’t sandbox a command with both open`,
       )
     }
   }
@@ -279,7 +279,7 @@ async function allowedSockets(
     if (expanded === undefined || !expanded.startsWith('/') || expanded.includes('\0')) {
       console.error(
         redactSecrets(
-          `sandbox_sockets entry ${entry} isn’t an absolute path here, so TED skips it`,
+          `sandbox_sockets entry ${entry} isn’t an absolute path here, so Ted skips it`,
         ),
       )
       continue
@@ -455,7 +455,7 @@ async function openPinned(dir: string, paths: SandboxPaths): Promise<FileHandle>
     const checked = await plainFolderStats(paths.tedHome, paths.tedHome, dir)
     if (opened.dev !== checked.dev || opened.ino !== checked.ino) {
       throw new SandboxUnavailable(
-        `${dir} changed while TED opened it, so TED won’t sandbox a command in it`,
+        `${dir} changed while Ted opened it, so Ted won’t sandbox a command in it`,
       )
     }
     return handle
@@ -500,7 +500,7 @@ function folderParts(home: string, given: string, dir: string): string[] {
       : undefined
   const parts = relative?.split(path.sep).filter((part) => part !== '') ?? []
   if (relative === undefined || parts.length === 0 || parts.includes('..')) {
-    throw new SandboxUnavailable(`${dir} isn’t inside TED’s folder`)
+    throw new SandboxUnavailable(`${dir} isn’t inside Ted’s folder`)
   }
   return parts
 }
@@ -524,11 +524,11 @@ async function plainFolderStats(
     }
     if (!found?.isDirectory() || found.isSymbolicLink()) {
       throw new SandboxUnavailable(
-        `${current} isn’t a plain folder, so TED won’t sandbox a command in it`,
+        `${current} isn’t a plain folder, so Ted won’t sandbox a command in it`,
       )
     }
   }
-  if (found === undefined) throw new SandboxUnavailable(`${dir} isn’t inside TED’s folder`)
+  if (found === undefined) throw new SandboxUnavailable(`${dir} isn’t inside Ted’s folder`)
   return found
 }
 

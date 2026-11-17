@@ -61,10 +61,10 @@ export function cleanupCommandsText(
       : `${head}. Its last lines:\n\n\`\`\`\n${r.output}\n\`\`\``
   })
   return [
-    '# Cleanup commands TED ran',
+    '# Cleanup commands Ted ran',
     lines.join('\n'),
     failed.length > 0
-      ? 'A failed command counts as a failed Cleanup step, and TED has already recorded it. Find out why it failed: you may run it again by hand in the worktree to see more. Don’t report it with `ted cleanup report`. Say what you found and what the user should change in your note.'
+      ? 'A failed command counts as a failed Cleanup step, and Ted has already recorded it. Find out why it failed: you may run it again by hand in the worktree to see more. Don’t report it with `ted cleanup report`. Say what you found and what the user should change in your note.'
       : '',
     instructionsLeft > 0
       ? 'Now do the instruction steps.'

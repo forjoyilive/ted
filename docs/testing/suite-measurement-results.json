@@ -1246,7 +1246,7 @@
           "failures": [
             {
               "file": "packages/app/test/app-background.test.ts",
-              "name": "running in the background closing the window keeps TED running, and the window still gets updates",
+              "name": "running in the background closing the window keeps Ted running, and the window still gets updates",
               "messages": [
                 "electronApplication.firstWindow: Timeout 60000ms exceeded while waiting for event \"window\"",
                 "electronApplication.firstWindow: Timeout 60000ms exceeded while waiting for event \"window\""
@@ -1302,7 +1302,7 @@
             },
             {
               "file": "packages/app/test/app-crashes.test.ts",
-              "name": "daemon crashes three crashes in ten minutes stop restarts and raise the banner; its menu copies a report and restarts TED",
+              "name": "daemon crashes three crashes in ten minutes stop restarts and raise the banner; its menu copies a report and restarts Ted",
               "messages": [
                 "electronApplication.firstWindow: Timeout 60000ms exceeded while waiting for event \"window\"",
                 "electronApplication.firstWindow: Timeout 60000ms exceeded while waiting for event \"window\""
@@ -1310,7 +1310,7 @@
             },
             {
               "file": "packages/app/test/app-frame.test.ts",
-              "name": "TED app frame the Appearance setting switches the theme at once, from the app or the daemon",
+              "name": "Ted app frame the Appearance setting switches the theme at once, from the app or the daemon",
               "messages": [
                 "electronApplication.firstWindow: Timeout 60000ms exceeded while waiting for event \"window\"",
                 "electronApplication.firstWindow: Timeout 60000ms exceeded while waiting for event \"window\""
@@ -1318,7 +1318,7 @@
             },
             {
               "file": "packages/app/test/app-frame.test.ts",
-              "name": "TED app frame the Appearance setting applies when the app starts",
+              "name": "Ted app frame the Appearance setting applies when the app starts",
               "messages": [
                 "electronApplication.firstWindow: Timeout 60000ms exceeded while waiting for event \"window\"",
                 "electronApplication.firstWindow: Timeout 60000ms exceeded while waiting for event \"window\""
@@ -1326,7 +1326,7 @@
             },
             {
               "file": "packages/app/test/app-frame.test.ts",
-              "name": "TED app frame fonts and styles load under the renderer’s content security policy",
+              "name": "Ted app frame fonts and styles load under the renderer’s content security policy",
               "messages": [
                 "electronApplication.firstWindow: Timeout 60000ms exceeded while waiting for event \"window\"",
                 "electronApplication.firstWindow: Timeout 60000ms exceeded while waiting for event \"window\""
@@ -1462,7 +1462,7 @@
             }
           ],
           "passedOnRetry": [
-            "packages/app/test/app-background.test.ts > running in the background started with --background, TED runs with no window",
+            "packages/app/test/app-background.test.ts > running in the background started with --background, Ted runs with no window",
             "packages/app/test/automations-ui.test.ts > Automations in the app a failed Run shows Retry on the newest failed row only, and Duplicate makes an off copy"
           ]
         },
@@ -1858,7 +1858,7 @@
             }
           ],
           "passedOnRetry": [
-            "packages/app/test/app-task.test.ts > TED app quitting with nothing running ends the app and TED’s background process"
+            "packages/app/test/app-task.test.ts > Ted app quitting with nothing running ends the app and Ted’s background process"
           ]
         },
         "node": {
@@ -2244,7 +2244,7 @@
             }
           ],
           "passedOnRetry": [
-            "packages/app/test/app.test.ts > TED app a Run opens in a Conversation tab with its chat, takes messages, and the tab persists"
+            "packages/app/test/app.test.ts > Ted app a Run opens in a Conversation tab with its chat, takes messages, and the tab persists"
           ]
         },
         "node": {
@@ -2556,17 +2556,17 @@
         "at": "2026-11-11T23:29:12.792Z",
         "ok": false,
         "failures": [
-          "packages/app/test/app-background.test.ts > running in the background closing the window keeps TED running, and the window still gets updates",
+          "packages/app/test/app-background.test.ts > running in the background closing the window keeps Ted running, and the window still gets updates",
           "packages/app/test/app-background.test.ts > running in the background with Keep running remembered, Quit leaves the Run going; with Stop it, Quit ends it all",
           "packages/app/test/app-background.test.ts > running in the background the app menu shows what’s waiting and running, and its items open the right place",
           "packages/app/test/app-background.test.ts > running in the background when macOS asks for approval, the row says so and opens Login Items",
           "packages/app/test/app-board.test.ts > Board dragging up a column changes rank, and across Priority groups the Priority",
           "packages/app/test/app-board.test.ts > Board a Comment on a Done Task offers Comment only and Follow up, which opens the linked Task",
           "packages/app/test/app-crashes.test.ts > daemon crashes killing the daemon shows the Reconnecting bar and turns actions off while the Run keeps going; the restarted daemon picks the Run back up",
-          "packages/app/test/app-crashes.test.ts > daemon crashes three crashes in ten minutes stop restarts and raise the banner; its menu copies a report and restarts TED",
-          "packages/app/test/app-frame.test.ts > TED app frame the Appearance setting switches the theme at once, from the app or the daemon",
-          "packages/app/test/app-frame.test.ts > TED app frame the Appearance setting applies when the app starts",
-          "packages/app/test/app-frame.test.ts > TED app frame fonts and styles load under the renderer’s content security policy",
+          "packages/app/test/app-crashes.test.ts > daemon crashes three crashes in ten minutes stop restarts and raise the banner; its menu copies a report and restarts Ted",
+          "packages/app/test/app-frame.test.ts > Ted app frame the Appearance setting switches the theme at once, from the app or the daemon",
+          "packages/app/test/app-frame.test.ts > Ted app frame the Appearance setting applies when the app starts",
+          "packages/app/test/app-frame.test.ts > Ted app frame fonts and styles load under the renderer’s content security policy",
           "packages/app/test/app-frame.test.ts > New Task dialog ⌘N and C open it with the current Factory selected and the description focused",
           "packages/app/test/app-resume-interrupted.test.ts > Resume after a full quit Resume continues without Stop Task first",
           "packages/app/test/app-runs.test.ts > Working Runs a nearly full disk shows a warning whose Open Storage shows what uses the space",
@@ -2588,7 +2588,7 @@
         ],
         "problems": [],
         "passedOnRetry": [
-          "packages/app/test/app-background.test.ts > running in the background started with --background, TED runs with no window",
+          "packages/app/test/app-background.test.ts > running in the background started with --background, Ted runs with no window",
           "packages/app/test/automations-ui.test.ts > Automations in the app a failed Run shows Retry on the newest failed row only, and Duplicate makes an off copy"
         ]
       },
@@ -2603,7 +2603,7 @@
         ],
         "problems": [],
         "passedOnRetry": [
-          "packages/app/test/app-task.test.ts > TED app quitting with nothing running ends the app and TED’s background process"
+          "packages/app/test/app-task.test.ts > Ted app quitting with nothing running ends the app and Ted’s background process"
         ]
       },
       {
@@ -2615,10 +2615,10 @@
         ],
         "problems": [],
         "passedOnRetry": [
-          "packages/app/test/app.test.ts > TED app a Run opens in a Conversation tab with its chat, takes messages, and the tab persists"
+          "packages/app/test/app.test.ts > Ted app a Run opens in a Conversation tab with its chat, takes messages, and the tab persists"
         ]
       }
     ]
   },
-  "recurringReport": "== Most frequently observed test failures (last 9 runs; 1 incomplete)\n  2 runs  packages/app/test/banners-component.test.tsx > Add Factory repo-access and key errors prevent submission\n  2 runs  packages/app/test/coordinator-ui.test.ts > Stop keeps unstarted messages visible as Not sent when the Coordinator is reopened\n  2 runs  packages/daemon/test/integrations.test.ts > GitHub health signing out raises an app-wide banner whose Fix opens gh auth login, and signing in clears it\n  1 run  packages/app/test/app-background.test.ts > running in the background closing the window keeps TED running, and the window still gets updates\n  1 run  packages/app/test/app-background.test.ts > running in the background the app menu shows what’s waiting and running, and its items open the right place\n  1 run  packages/app/test/app-background.test.ts > running in the background when macOS asks for approval, the row says so and opens Login Items\n  1 run  packages/app/test/app-background.test.ts > running in the background with Keep running remembered, Quit leaves the Run going; with Stop it, Quit ends it all\n  1 run  packages/app/test/app-board.test.ts > Board a Comment on a Done Task offers Comment only and Follow up, which opens the linked Task\n  1 run  packages/app/test/app-board.test.ts > Board dragging up a column changes rank, and across Priority groups the Priority\n  1 run  packages/app/test/app-crashes.test.ts > daemon crashes killing the daemon shows the Reconnecting bar and turns actions off while the Run keeps going; the restarted daemon picks the Run back up\n  Incomplete runs may have unreported failures.\n== Tests that failed, then passed on retry (last 9 runs)\n  1 run  packages/app/test/app-background.test.ts > running in the background started with --background, TED runs with no window\n  1 run  packages/app/test/app-background.test.ts > running in the background the app menu shows what’s waiting and running, and its items open the right place\n  1 run  packages/app/test/app-task.test.ts > TED app quitting with nothing running ends the app and TED’s background process\n  1 run  packages/app/test/app.test.ts > TED app a Run opens in a Conversation tab with its chat, takes messages, and the tab persists\n  1 run  packages/app/test/automations-ui.test.ts > Automations in the app a failed Run shows Retry on the newest failed row only, and Duplicate makes an off copy\n  1 run  packages/app/test/linear.test.ts > New Task dialog with a Linear URL a late inline key save preserves newer draft edits after dismissing the source\n  1 run  packages/app/test/new-task-submission.test.ts > a pending key save respects the draft lifecycle during Create more\n  1 run  packages/app/test/notifications-app.test.ts > notifications and badges a Task notification opens its selected request in the Inbox from All Tasks\n  1 run  packages/app/test/plans-ui.test.ts > Planning chats the Plans list groups chats, Retry clears the red dot, Plan more from here builds on a past chat, and Delete removes one\n  1 run  packages/app/test/task-content-isolation.test.ts > a late Task load cannot put its text and screenshots into another Task’s thread"
+  "recurringReport": "== Most frequently observed test failures (last 9 runs; 1 incomplete)\n  2 runs  packages/app/test/banners-component.test.tsx > Add Factory repo-access and key errors prevent submission\n  2 runs  packages/app/test/coordinator-ui.test.ts > Stop keeps unstarted messages visible as Not sent when the Coordinator is reopened\n  2 runs  packages/daemon/test/integrations.test.ts > GitHub health signing out raises an app-wide banner whose Fix opens gh auth login, and signing in clears it\n  1 run  packages/app/test/app-background.test.ts > running in the background closing the window keeps Ted running, and the window still gets updates\n  1 run  packages/app/test/app-background.test.ts > running in the background the app menu shows what’s waiting and running, and its items open the right place\n  1 run  packages/app/test/app-background.test.ts > running in the background when macOS asks for approval, the row says so and opens Login Items\n  1 run  packages/app/test/app-background.test.ts > running in the background with Keep running remembered, Quit leaves the Run going; with Stop it, Quit ends it all\n  1 run  packages/app/test/app-board.test.ts > Board a Comment on a Done Task offers Comment only and Follow up, which opens the linked Task\n  1 run  packages/app/test/app-board.test.ts > Board dragging up a column changes rank, and across Priority groups the Priority\n  1 run  packages/app/test/app-crashes.test.ts > daemon crashes killing the daemon shows the Reconnecting bar and turns actions off while the Run keeps going; the restarted daemon picks the Run back up\n  Incomplete runs may have unreported failures.\n== Tests that failed, then passed on retry (last 9 runs)\n  1 run  packages/app/test/app-background.test.ts > running in the background started with --background, Ted runs with no window\n  1 run  packages/app/test/app-background.test.ts > running in the background the app menu shows what’s waiting and running, and its items open the right place\n  1 run  packages/app/test/app-task.test.ts > Ted app quitting with nothing running ends the app and Ted’s background process\n  1 run  packages/app/test/app.test.ts > Ted app a Run opens in a Conversation tab with its chat, takes messages, and the tab persists\n  1 run  packages/app/test/automations-ui.test.ts > Automations in the app a failed Run shows Retry on the newest failed row only, and Duplicate makes an off copy\n  1 run  packages/app/test/linear.test.ts > New Task dialog with a Linear URL a late inline key save preserves newer draft edits after dismissing the source\n  1 run  packages/app/test/new-task-submission.test.ts > a pending key save respects the draft lifecycle during Create more\n  1 run  packages/app/test/notifications-app.test.ts > notifications and badges a Task notification opens its selected request in the Inbox from All Tasks\n  1 run  packages/app/test/plans-ui.test.ts > Planning chats the Plans list groups chats, Retry clears the red dot, Plan more from here builds on a past chat, and Delete removes one\n  1 run  packages/app/test/task-content-isolation.test.ts > a late Task load cannot put its text and screenshots into another Task’s thread"
 }

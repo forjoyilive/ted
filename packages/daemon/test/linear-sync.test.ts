@@ -94,7 +94,7 @@ const waiting = (steps: string) =>
 
 const mergeOff = ['stages:', '  merge: { enabled: false }']
 
-describe('TED → Linear', () => {
+describe('Ted → Linear', () => {
   test('the issue moves to In Progress, gets the pull request once, In Review at sign-off, and Done when merged', async () => {
     const client = await startWithLinear({ workflow: mergeOff })
 
@@ -125,7 +125,7 @@ describe('TED → Linear', () => {
     expect(thread).toContain('Moved NOTE-1 to Done in Linear')
   })
 
-  test('with sync off or no key, TED doesn’t touch Linear', async () => {
+  test('with sync off or no key, Ted doesn’t touch Linear', async () => {
     const clock = new ManualClock()
     const client = await startWithLinear({ daemon: { clock } })
     await client.ok('PATCH', '/settings', { linearSync: false })
@@ -170,7 +170,7 @@ describe('TED → Linear', () => {
   })
 })
 
-describe('Linear → TED', () => {
+describe('Linear → Ted', () => {
   test('a canceled issue archives a Task that hasn’t started, saying why', async () => {
     const client = await startWithLinear()
     const task = await client.ok<Task>('POST', '/tasks', {
@@ -188,7 +188,7 @@ describe('Linear → TED', () => {
 
     expect(archived.stage).toBe('backlog')
     expect(await lines(client, task)).toContain(
-      'TED archived this Task · NOTE-1 was marked Canceled in Linear',
+      'Ted archived this Task · NOTE-1 was marked Canceled in Linear',
     )
     expect(moves()).toEqual([])
   })
@@ -227,7 +227,7 @@ describe('Linear → TED', () => {
 
     expect((await getTask(client, theirs.id)).archived).toBeUndefined()
     expect(await lines(client, theirs)).not.toContain(
-      'TED archived this Task · NOTE-1 was marked Canceled in Linear',
+      'Ted archived this Task · NOTE-1 was marked Canceled in Linear',
     )
   })
 
@@ -373,7 +373,7 @@ describe('Tasks an Automation made', () => {
     return { client, task }
   }
 
-  test('outside the allowed teams, TED writes nothing and acts on nothing until the human lets it', async () => {
+  test('outside the allowed teams, Ted writes nothing and acts on nothing until the human lets it', async () => {
     const { client, task } = await fromAutomation()
     await seenAfterNow()
     expect(moves()).toEqual([])
@@ -399,7 +399,7 @@ describe('Tasks an Automation made', () => {
 
     expect(allowed.linearSync).toBe('on')
     await waitUntil(() => issue().state === 'In Progress' || undefined, 'In Progress')
-    expect(await lines(client, task)).toContain('You let TED sync this Task with NOTE-1 in Linear')
+    expect(await lines(client, task)).toContain('You let Ted sync this Task with NOTE-1 in Linear')
   })
 
   test('a Task made with the token in daemon.json waits for the human too', async () => {
@@ -422,7 +422,7 @@ describe('Tasks an Automation made', () => {
     expect(byApp.linearSync).toBe('on')
   })
 
-  test('in a team the human allowed for the Factory, TED syncs at once', async () => {
+  test('in a team the human allowed for the Factory, Ted syncs at once', async () => {
     const { client, task } = await fromAutomation()
     await client.ok('PATCH', '/settings', { linearSyncTeams: { [task.factoryId]: ['note'] } })
 
@@ -519,7 +519,7 @@ describe('Tasks an Automation made', () => {
     await waitUntil(() => issue().state === 'Done' || undefined, 'NOTE-1 to catch up to Done')
     expect(issue('NOTE-2').state).toBe('Todo')
     expect(await lines(client, done)).toContain(
-      'You let TED sync NOTE issues with Linear for Automations in this Factory',
+      'You let Ted sync NOTE issues with Linear for Automations in this Factory',
     )
     expect((await getTask(client, moved.id)).linearSync).toBe('ask')
 
@@ -528,7 +528,7 @@ describe('Tasks an Automation made', () => {
     expect((await getTask(client, fresh?.id ?? '')).linearSync).toBe('ask')
   })
 
-  test('Not now stops TED asking about that team in that Factory, and Settings can still allow it', async () => {
+  test('Not now stops Ted asking about that team in that Factory, and Settings can still allow it', async () => {
     const client = await startForAutomations()
     const [first] = await automationMakes(client, '09:00', [url])
     const ask = await firstAsk(client)

@@ -265,7 +265,7 @@ export async function incorporates(method: RepairMethod) {
   if (conflict) {
     const handedOff = await waitUntil(
       async () => {
-        const body = (await notes()).find((b) => b.includes('TED asked the Task Lead to merge'))
+        const body = (await notes()).find((b) => b.includes('Ted asked the Task Lead to merge'))
         return body
       },
       'conflict handed to the Task Lead',
@@ -329,7 +329,7 @@ export async function incorporates(method: RepairMethod) {
   }
   if (method === 'dirty-worktree') {
     const handedOff = await waitUntil(
-      async () => (await notes()).find((b) => b.includes('TED asked the Task Lead to commit them')),
+      async () => (await notes()).find((b) => b.includes('Ted asked the Task Lead to commit them')),
       'uncommitted changes handed to the Task Lead',
       validateWaitMs,
     )
@@ -358,7 +358,7 @@ export async function incorporates(method: RepairMethod) {
     const history = await s.client.ok<FailureCase[]>('GET', `${s.root}/failures`)
     expect(history[0]?.repairProgress).toBeUndefined()
     expect((await s.client.ok<TaskBrief>('GET', `${s.root}/brief`)).text).toContain(
-      'has uncommitted changes. The Task Lead left them uncommitted. TED can’t bring the repair in over them. Resume to have the Task Lead try again.',
+      'has uncommitted changes. The Task Lead left them uncommitted. Ted can’t bring the repair in over them. Resume to have the Task Lead try again.',
     )
     const { rm } = await import('node:fs/promises')
     expect(await readFile(path.join(affectedWorktree, 'local-draft.txt'), 'utf8')).toBe(

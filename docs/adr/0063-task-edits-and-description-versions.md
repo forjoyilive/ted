@@ -17,7 +17,7 @@ Spec 6.1 and 6.4 let the human edit a Task’s title and description at any time
 
 ## Considered Options
 
-- **Store the edit as a TED Comment.** The thread would show it twice (as the Comment and as the event line), and a Comment can’t be withdrawn if the Run ends before reading it.
+- **Store the edit as a Ted Comment.** The thread would show it twice (as the Comment and as the event line), and a Comment can’t be withdrawn if the Run ends before reading it.
 - **Put the full before and after texts in the task log.** It duplicates every version, and the log is read on every thread load.
 
 ## Consequences

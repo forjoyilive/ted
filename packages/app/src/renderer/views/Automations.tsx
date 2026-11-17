@@ -871,7 +871,7 @@ export function AutomationView({
               {automation.check.command}
             </pre>
             <p className={styles.detailNote}>
-              Runs as a check on the tip of the default branch, in TED’s sandbox · times out after{' '}
+              Runs as a check on the tip of the default branch, in Ted’s sandbox · times out after{' '}
               {automation.check.timeout}
             </p>
             <p className={styles.detailNote}>
@@ -885,7 +885,7 @@ export function AutomationView({
           <Details title="Agent step">
             <p className={styles.detailText}>
               {automation.check.agentStep === 'never'
-                ? 'Never · TED creates one Task per failing test file'
+                ? 'Never · Ted creates one Task per failing test file'
                 : [
                     automation.check.agentStep === 'always'
                       ? 'After every run'
@@ -1349,7 +1349,7 @@ export function AutomationRunView({
             {apps.length === 0 || run.state === 'finished' ? (
               <p className={styles.detailNote}>
                 {run.state === 'finished'
-                  ? 'TED stopped this Run’s Apps when it ended.'
+                  ? 'Ted stopped this Run’s Apps when it ended.'
                   : 'None started yet.'}
               </p>
             ) : (

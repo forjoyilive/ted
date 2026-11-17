@@ -162,7 +162,7 @@ describe('access check', () => {
       text: 'You can read acme/readonly but not push to it.',
       fixes: [{ kind: 'check-again' }],
     })
-    expect(readOnly.problem?.detail).toContain('the GitHub account TED uses')
+    expect(readOnly.problem?.detail).toContain('the GitHub account Ted uses')
 
     const missing = await check(client, { remote: 'acme/nope' })
     expect(missing.problem).toMatchObject({
@@ -208,7 +208,7 @@ describe('access check', () => {
     const result = await check(client, { folder })
     expect(result).toMatchObject({ ok: true, repo: 'acme/widgets', folder })
     expect(result.notes).toEqual([
-      'Has TED settings already. They’ll be used, and the setup Task will wait in Backlog.',
+      'Has Ted settings already. They’ll be used, and the setup Task will wait in Backlog.',
     ])
   })
 
@@ -230,13 +230,13 @@ describe('access check', () => {
     const asSecond = await check(client, { remote: 'acme/widgets' }, false)
     expect(asSecond).toMatchObject({
       ok: true,
-      notes: ['Also used by Factory Widgets. TED shares one clone between them.'],
+      notes: ['Also used by Factory Widgets. Ted shares one clone between them.'],
     })
   })
 })
 
 describe('adding a Factory', () => {
-  test('from a folder: clones into TED’s repos and never writes to the folder', async () => {
+  test('from a folder: clones into Ted’s repos and never writes to the folder', async () => {
     const client = await start()
     const folder = await userFolder()
     const before = await snapshot(folder)

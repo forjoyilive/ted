@@ -64,7 +64,7 @@ export async function stage(): Promise<string> {
     `${JSON.stringify(
       {
         name: 'ted',
-        productName: 'TED',
+        productName: 'Ted',
         version: root.version,
         description: 'Runs software factories: agents carry development tasks through a workflow.',
         author: 'Kriya Design LLC',
@@ -134,5 +134,5 @@ export function rewriteSpecifiers(
 }
 
 if (import.meta.main) {
-  console.log(`Staged TED in ${await stage()}`)
+  console.log(`Staged Ted in ${await stage()}`)
 }

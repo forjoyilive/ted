@@ -17,7 +17,7 @@ const problems = (files: LayerFiles) =>
     [p.severity, p.file, p.line, p.column, p.message].join(' '),
   )
 
-describe('TED’s built-in Agents', () => {
+describe('Ted’s built-in Agents', () => {
   test('are the Coordinator and the Planner, with their powers and instructions files', async () => {
     const layer = await readDefaultLayer()
     expect(layer.problems).toEqual([])
@@ -43,12 +43,12 @@ describe('TED’s built-in Agents', () => {
     expect(workflow.agent('planner')?.instructions).toMatch(/^# You are the planner/)
   })
 
-  test('chat prompts put the Agent’s instructions inside TED’s own text', async () => {
+  test('chat prompts put the Agent’s instructions inside Ted’s own text', async () => {
     const workflow = resolveWorkflow([await readDefaultLayer()])
     const builtIn = workflow.agent('coordinator')
     const coordinator = coordinatorInstructions(builtIn?.instructions ?? '', builtIn?.powers ?? [])
     expect(coordinator).toMatch(
-      /^# You are the Coordinator for one TED Factory\nHelp the human compare Tasks/,
+      /^# You are the Coordinator for one Ted Factory\nHelp the human compare Tasks/,
     )
     expect(coordinator).toContain('Act only on a request from the human in THIS conversation.')
 
@@ -67,7 +67,7 @@ describe('TED’s built-in Agents', () => {
   test('a chat’s preamble lists only the commands its powers allow', () => {
     const role = 'Watch the releases.'
     const none = coordinatorInstructions(role, [])
-    expect(none).toContain('You have no TED commands in this chat.')
+    expect(none).toContain('You have no Ted commands in this chat.')
     for (const text of ['ted coordinator', 'ted ask', 'ted task propose', 'working folder'])
       expect(none).not.toContain(text)
 
@@ -123,7 +123,7 @@ describe('TED’s built-in Agents', () => {
       { name: 'web-lint', command: 'pnpm lint', repo: 'web' },
     ]
     const runs = coordinatorInstructions(role, ['read_code', 'run_commands'], where, commands)
-    expect(runs).toContain('- ted agent run <name>: TED runs one of the commands below')
+    expect(runs).toContain('- ted agent run <name>: Ted runs one of the commands below')
     expect(runs).toContain('  - test: `pnpm vitest run packages/protocol`')
     expect(runs).toContain('  - web-lint (in web): `pnpm lint`')
     expect(runs).toContain('run repo code other than through ted agent run')
@@ -328,7 +328,7 @@ describe('checking Agent files', () => {
       }),
     ).toEqual([
       'error .ted/agents/scout.md 1 1 the instructions file is empty',
-      'warning .ted/agents/stray.md 1 1 No agents.yaml lists `stray`, so TED ignores this file. Add `stray` to agents.yaml to use it.',
+      'warning .ted/agents/stray.md 1 1 No agents.yaml lists `stray`, so Ted ignores this file. Add `stray` to agents.yaml to use it.',
     ])
   })
 })
