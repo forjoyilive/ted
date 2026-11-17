@@ -592,7 +592,8 @@ describe('Checks at Validate', () => {
       return current?.activity?.includes('Tests') ? current : undefined
     }, 'the Checks to start')
     expect(running.activity).toBe('Running Checks · Tests (2 of 3)')
-    expect(running.status).toEqual({ kind: 'working' })
+    expect(running.status).toBeUndefined()
+    expect(running.checksActive).toBe(true)
     await expect
       .poll(async () => {
         const slots = await client.ok<{ holders: { taskId: string }[] }>('GET', '/slots')

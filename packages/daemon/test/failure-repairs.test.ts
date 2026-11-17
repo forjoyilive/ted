@@ -181,7 +181,8 @@ test.each(['archive', 'delete'] as const)(
       const t = await getTask(s.client, s.current.id)
       return t.leadRunId !== s.current.leadRunId &&
         t.runs.find((r) => r.id === t.leadRunId)?.state === 'idle' &&
-        !t.statuses.includes('working')
+        !t.statuses.includes('working') &&
+        !t.checksActive
         ? t
         : undefined
     }, 'a resumed Task Lead')
@@ -395,10 +396,10 @@ test('Merge uses the same repair remedy without allowing the Task Lead to advanc
   expect((await replacement.call('POST', `${root}/outcome`, { outcome: 'advance' })).status).toBe(
     409,
   )
-  await waitUntil(
-    async () => !(await getTask(client, task.id)).statuses.includes('working') || undefined,
-    'TED to finish the Merge Checks before verifying',
-  )
+  await waitUntil(async () => {
+    const current = await getTask(client, task.id)
+    return (!current.statuses.includes('working') && !current.checksActive) || undefined
+  }, 'TED to finish the Merge Checks before verifying')
   expect(
     (
       await replacement.call('POST', `${root}/failures/${failure.id}/verification`, {

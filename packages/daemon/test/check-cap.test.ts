@@ -155,7 +155,7 @@ describe('Checks running at once', () => {
       durationMs: 0,
     })
     expect((await checkRun(client, first))?.waiting).toBeUndefined()
-    expect((await getTask(client, second.id))?.status).toEqual({ kind: 'working' })
+    expect((await getTask(client, second.id))?.status).toBeUndefined()
     expect(await started(client, second)).toBe(false)
     expect(await client.ok<Activity>('GET', '/activity')).toMatchObject({
       checksRunning: 1,
