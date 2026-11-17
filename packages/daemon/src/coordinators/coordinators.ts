@@ -1180,19 +1180,34 @@ export function createCoordinators(options: {
     message ? `${coordinatorLine}\n\n${message}` : coordinatorLine
   const stageText = (stage: string) => stage.charAt(0).toUpperCase() + stage.slice(1)
   const ref = (t: Task) => ({ id: t.id, displayId: t.displayId, title: t.title.slice(0, 200) })
+  const unblockedBy = (removing: ReadonlySet<string>, selected: readonly string[]) =>
+    store
+      .listTasks()
+      .filter(
+        (t) =>
+          !t.archived &&
+          !removing.has(t.id) &&
+          !selected.includes(t.id) &&
+          t.blockedBy.some((id) => removing.has(id)),
+      )
   const confirmationFacts = (
     task: Task,
     kind: 'archive' | 'delete',
+    selected: readonly string[] = [task.id],
   ): Omit<CoordinatorConfirmationTask, 'id' | 'displayId' | 'title'> => {
     const all = store.listTasks().filter((t) => t.factoryId === task.factoryId)
     const byId = new Map(all.map((t) => [t.id, t]))
+    const under = tasks.hierarchyPreview(task.id).descendants.map((d) => d.id)
     return {
       stage: task.stage,
-      descendants: tasks.hierarchyPreview(task.id).descendants.flatMap((d) => {
-        const child = byId.get(d.id)
+      descendants: under.flatMap((id) => {
+        const child = byId.get(id)
         return child && (kind === 'delete' || !child.archived) ? [ref(child)] : []
       }),
-      blockedTasks: all.filter((t) => !t.archived && t.blockedBy.includes(task.id)).map(ref),
+      blockedTasks: unblockedBy(new Set([task.id]), selected).map(ref),
+      ...(under.length > 0 && {
+        blockedTogether: unblockedBy(new Set([task.id, ...under]), selected).map(ref),
+      }),
       pullRequests: task.repos.flatMap((r) =>
         r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged'
           ? [{ repo: r.name, number: r.pullRequest.number }]
@@ -1216,15 +1231,19 @@ export function createCoordinators(options: {
     card: CoordinatorConfirmationTask,
     task: Task,
     kind: 'archive' | 'delete',
+    selected: readonly string[],
   ): string | undefined {
     if (kind === 'archive' && task.archived) return `${task.displayId} was archived`
-    const now = confirmationFacts(task, kind)
+    const now = confirmationFacts(task, kind, selected)
     const changes = [
       ...(now.stage !== card.stage
         ? [`${task.displayId} moved from ${stageText(card.stage)} to ${stageText(now.stage)}`]
         : []),
       ...(!sameIds(now.descendants, card.descendants) ? ['the Tasks under it changed'] : []),
-      ...(!sameIds(now.blockedTasks, card.blockedTasks) ? ['the Tasks it blocks changed'] : []),
+      ...(!sameIds(now.blockedTasks, card.blockedTasks) ||
+      !sameIds(now.blockedTogether ?? [], card.blockedTogether ?? [])
+        ? ['the Tasks it blocks changed']
+        : []),
       ...(now.pullRequests
         .map((p) => `${p.repo}#${p.number}`)
         .sort()
@@ -1246,6 +1265,7 @@ export function createCoordinators(options: {
     choices: CoordinatorConfirmationTask | CoordinatorRemoval,
     receiptId: string,
     fingerprint: string,
+    selected: readonly string[],
     guard?: () => string | undefined,
   ): Promise<{ receipt: CoordinatorReceipt; done: boolean; refusal?: string }> {
     const receipt: CoordinatorReceipt = {
@@ -1282,12 +1302,7 @@ export function createCoordinators(options: {
           task.id,
           ...(together ? family.descendants.map((d) => d.id) : []),
         ])
-        const waiting = store
-          .listTasks()
-          .filter(
-            (t) => !t.archived && !removing.has(t.id) && t.blockedBy.some((id) => removing.has(id)),
-          )
-          .map((t) => t.id)
+        const waiting = unblockedBy(removing, selected).map((t) => t.id)
         const unblockedText = () => {
           const ids = waiting.flatMap((id) => {
             const now = store.getTask(id)
@@ -2198,7 +2213,11 @@ export function createCoordinators(options: {
           const cards = found.map(
             (task): CoordinatorConfirmationTask => ({
               ...ref(task),
-              ...confirmationFacts(task, kind),
+              ...confirmationFacts(
+                task,
+                kind,
+                found.map((t) => t.id),
+              ),
               ...(input.children !== undefined && { children: input.children }),
               ...(input.closePullRequests === true && { closePullRequests: true }),
             }),
@@ -2237,6 +2256,7 @@ export function createCoordinators(options: {
             input,
             `${prefix}${task.id}`,
             fingerprint,
+            found.map((t) => t.id),
             kind === 'archive'
               ? () => {
                   const latest = store.getTask(task.id)
@@ -2292,7 +2312,12 @@ export function createCoordinators(options: {
         const ownChange = (card: CoordinatorConfirmationTask) => {
           const task = store.getTask(card.id)
           if (!task || task.factoryId !== factoryId) return `${card.displayId} no longer exists`
-          return whatChanged(card, task, asked.kind)
+          return whatChanged(
+            card,
+            task,
+            asked.kind,
+            cards.map((c) => c.id),
+          )
         }
         const refusal = (card: CoordinatorConfirmationTask) => {
           const own = ownChange(card)
@@ -2370,6 +2395,7 @@ export function createCoordinators(options: {
               card,
               `${asked.operation}:${task.id}`,
               asked.fingerprint,
+              cards.map((c) => c.id),
               () => refusal(card),
             )
             result = done.refusal

@@ -82,10 +82,14 @@ function CardTask({
   const id = task.displayId
   const ending = kind === 'archive' ? 'archived' : 'deleted'
   const under = task.descendants.length
-  const blocked = task.blockedTasks.length
   const together = kind === 'archive' ? 'archive' : 'delete'
   const apart = kind === 'archive' ? 'detach' : 'unparent'
   const children = choices.children ?? (kind === 'archive' ? 'archive' : 'unparent')
+  const unblocks =
+    under > 0 && children === together
+      ? (task.blockedTogether ?? task.blockedTasks)
+      : task.blockedTasks
+  const blocked = unblocks.length
   const prs = task.pullRequests.map((p) => `${p.repo} #${p.number}`).join(', ')
   return (
     <li className={styles.task} data-confirmation-task={task.id}>
@@ -151,7 +155,12 @@ function CardTask({
                 />
               </fieldset>
             )}
-            {blocked > 0 && <UnblocksList blocker={id} tasks={task.blockedTasks} />}
+            {blocked > 0 && (
+              <UnblocksList
+                blocker={under > 0 && children === together ? `${id} and the Tasks under it` : id}
+                tasks={unblocks}
+              />
+            )}
           </div>
         )
       )}

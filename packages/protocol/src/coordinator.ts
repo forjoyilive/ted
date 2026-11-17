@@ -108,6 +108,7 @@ export interface CoordinatorConfirmationTask extends ConfirmationTaskRef, Confir
   stage: StageId
   descendants: ConfirmationTaskRef[]
   blockedTasks: ConfirmationTaskRef[]
+  blockedTogether?: ConfirmationTaskRef[]
   pullRequests: { repo: string; number: number }[]
   working: boolean
   result?: { done: boolean; text: string }

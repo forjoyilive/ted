@@ -624,7 +624,35 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   expect((await taskById(a.id))?.archived).toBeFalsy()
   expect(await s.waitingIds()).not.toContain(askedA.id)
 
-  await s.ok('POST', '/tasks', { factory: 'NB', title: 'E2', blockedBy: [q.id] })
+  const g = await s.task('G')
+  const madeH = await run.call('POST', '/coordinator/tasks', {
+    operation: 'create-h',
+    title: 'H',
+    parentId: g.id,
+  })
+  const h = (madeH.body as CoordinatorReceipt).taskId ?? ''
+  const i = await s.ok<Task>('POST', '/tasks', { factory: 'NB', title: 'I', blockedBy: [h] })
+  const j = await s.ok<Task>('POST', '/tasks', { factory: 'NB', title: 'J', blockedBy: [g.id] })
+  const gj = await removal('archive', [g.id, j.id], {}, 'archive-gj')
+  const askedGJ = (gj.body as { confirmation: { id: string } }).confirmation
+  expect((await s.chat()).confirmations.find((x) => x.id === askedGJ.id)?.tasks).toMatchObject([
+    { id: g.id, blockedTasks: [], blockedTogether: [{ id: i.id }] },
+    { id: j.id, blockedTasks: [] },
+  ])
+  const archivedGJ = await s.ok<Coordinator>('POST', answer(askedGJ.id), { decision: 'confirm' })
+  expect(archivedGJ.confirmations.find((x) => x.id === askedGJ.id)?.tasks).toMatchObject([
+    {
+      id: g.id,
+      result: {
+        done: true,
+        text: `Archived ${g.displayId} and the Tasks under it · unblocked ${i.displayId}`,
+      },
+    },
+    { id: j.id, result: { done: true, text: `Archived ${j.displayId}` } },
+  ])
+  expect((await taskById(i.id))?.blockedBy).toEqual([])
+
+  const e2 = await s.ok<Task>('POST', '/tasks', { factory: 'NB', title: 'E2', blockedBy: [q.id] })
   const own = await removal('delete', [p.id, q.id], { children: 'delete' }, 'delete-ac-own')
   const askedOwn = (own.body as { confirmation: { id: string } }).confirmation
   const refusedOwn = await s.ok<Coordinator>('POST', answer(askedOwn.id), {
@@ -645,21 +673,19 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   expect(await taskById(q.id)).toBeDefined()
   const cascade = await removal('delete', [p.id, q.id], { children: 'delete' }, 'delete-ac')
   const askedAC = (cascade.body as { confirmation: { id: string } }).confirmation
-  await s.ok('POST', '/tasks', { factory: 'NB', title: 'E3', blockedBy: [q.id] })
+  const e3 = await s.ok<Task>('POST', '/tasks', { factory: 'NB', title: 'E3', blockedBy: [q.id] })
   const refusedAC = await s.ok<Coordinator>('POST', answer(askedAC.id), { decision: 'confirm' })
   expect(refusedAC.confirmations.find((x) => x.id === askedAC.id)?.tasks).toMatchObject([
     {
       id: p.id,
-      result: {
-        done: false,
-        text: expect.stringContaining(`${q.displayId}, which is under it, changed`),
-      },
+      result: { done: false, text: expect.stringContaining('the Tasks it blocks changed') },
     },
     { id: q.id, result: { done: false, text: expect.stringContaining('the Tasks it blocks') } },
   ])
   expect(await taskById(p.id)).toBeDefined()
   expect(await taskById(q.id)).toBeDefined()
 
+  for (const e of [e2, e3]) await s.ok('DELETE', `/tasks/${e.id}/blockers/${q.id}`)
   await s.ok('POST', '/tasks', { factory: 'NB', title: 'E', blockedBy: [d.id] })
   const answered = await s.ok<Coordinator>('POST', answer(askedAD.id), {
     decision: 'confirm',
