@@ -832,7 +832,7 @@ test('pending answers disable actions and rejected answers preserve text with an
 
 test('a failure decision asks for a reason before Fixed or No longer applicable and shows only the daemon’s refusal', async () => {
   const refusal =
-    'The Task’s code or Checks changed since this failure was assessed, so it can’t be accepted as it is. Ask the Task Lead to assess it again.'
+    'The Task’s code or checks changed since this failure was assessed, so it can’t be accepted as it is. Ask the Task Lead to assess it again.'
   const answer = vi.fn((_id: unknown, request: unknown) => {
     if ((request as { choice?: string }).choice === 'Accept this failure')
       throw new Error(`Error invoking remote method 'ted:request': Error: ${refusal}`)

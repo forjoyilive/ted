@@ -68,7 +68,7 @@ test('the help says what each setting trades', async () => {
     'A finding from an earlier round that is still not fixed sends it back too.',
   )
   expect(screen.getByRole('tooltip').textContent).toContain(
-    'Every other new Finding stays unfixed and is listed as a note for you at Review.',
+    'Every other new finding stays unfixed and is listed as a note for you at Review.',
   )
   expect(screen.getByRole('tooltip').textContent).toContain(
     'problems Validate found can merge if you approve without reading the notes',
@@ -79,7 +79,7 @@ test('the help says what each setting trades', async () => {
       .getAllByRole('tooltip')
       .map((tip) => tip.textContent)
       .join('\n'),
-  ).toContain('a sub-agent that reviews the diff adds Findings that can cost another round')
+  ).toContain('a sub-agent that reviews the diff adds findings that can cost another round')
 })
 
 type Closes = Pick<StageDraft, 'leadClosesFailures'>

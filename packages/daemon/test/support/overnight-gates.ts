@@ -88,7 +88,7 @@ export const gates = (client: Client, task: Task) =>
 export const row = (view: TaskGates, stage: string) => view.rows.find((r) => r.stage === stage)
 
 export const kept = (stage: string) =>
-  `Autopilot is on, but this Task changes .ted/, so its ${stage} Sign-Off stays on`
+  `Autopilot is on, but this Task changes .ted/, so its ${stage} sign-off stays on`
 
 export async function verifyCurrent(client: Client, task: Task) {
   const token = await lead(client, task)

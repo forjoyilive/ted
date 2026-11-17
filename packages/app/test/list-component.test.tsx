@@ -373,7 +373,7 @@ test('right-click uses all selected Tasks; an unselected row and the Priority ic
   menu = await screen.findByRole('menu', { name: 'Priority' })
   const options = within(menu).getAllByRole('menuitemradio')
   expect(options.map((option) => option.textContent)).toEqual([
-    'No Priority0',
+    'No priority0',
     'Urgent1',
     'High2',
     'Medium3',

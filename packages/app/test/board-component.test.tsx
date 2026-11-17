@@ -433,7 +433,7 @@ test('List and Board keep the user request beside purple running and neutral wai
       expect(chip.querySelector('svg')?.className.baseVal).toContain('spinning')
     }
     expect(screen.getByText('Waiting for tests').className).toContain('neutral')
-    expect(screen.getByText('Running checks').title).toBe('Typecheck · 1 of 2 Checks')
+    expect(screen.getByText('Running checks').title).toBe('Typecheck · 1 of 2 checks')
     expect(screen.getByText('Running tests').title).toBe('2 supported test commands running')
     expect(
       screen.getByText('Waiting for tests').querySelector('svg')?.className.baseVal,

@@ -266,10 +266,10 @@ describe('stages.validate.p1_only_from', () => {
         expect(prompted).toContain(`# Review of the fixes in NB-1, Validate round ${round}`)
         expect(prompted).toContain('## Severity')
         expect(prompted).toContain(
-          'From Validate round 2 this Factory sends a Task back to Work for a new Finding only if it is P1.',
+          'From Validate round 2 this Factory sends a Task back to Work for a new finding only if it is P1.',
         )
         expect(prompted).toContain(
-          'An earlier Finding that is still not fixed stays blocking, whatever its severity',
+          'An earlier finding that is still not fixed stays blocking, whatever its severity',
         )
         expect(prompted).toContain('new P1 findings, each with its file')
         expect(prompted).not.toContain('new blocking findings in the changed lines')
@@ -470,7 +470,7 @@ describe('a base conflict in a P1-only round', () => {
     )
     expect(third).toContain('End with two lists: P1 findings in the resolution')
     expect(third).not.toContain('blocking findings in the resolution or the changed lines')
-    expect(third).not.toContain('An earlier Finding that is still not fixed')
+    expect(third).not.toContain('An earlier finding that is still not fixed')
 
     const round = userMessages(await leadRun(client, task)).find((m) =>
       m.includes('# Validate after a base conflict (round 2, limit 5)'),
