@@ -110,6 +110,13 @@
   font-weight: var(--weight-medium);
 }
 
+.choiceTag {
+  display: inline-block;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
 .option.selected .tag {
   background: var(--surface-card);
 }

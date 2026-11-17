@@ -11,3 +11,7 @@
   color: var(--text-secondary);
   white-space: pre-line;
 }
+
+.space {
+  word-spacing: 4px;
+}
