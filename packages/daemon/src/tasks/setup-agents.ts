@@ -6,9 +6,16 @@ export type AgentLayerRead = Pick<CheckedLayer, 'files' | 'agentSettings' | 'age
 export function setupAgentDifferences(
   approved: readonly SetupAgentProposal[],
   layer: AgentLayerRead,
+  inherited: readonly string[],
 ): string[] {
   const wanted = new Map(approved.map((agent) => [agent.id, agent]))
-  const differences: string[] = []
+  const differences: string[] = approved.flatMap((agent) =>
+    inherited.includes(agent.id)
+      ? [
+          `${agent.id} is already defined in TED’s defaults or the Library; a setup Agent needs an id of its own`,
+        ]
+      : [],
+  )
   const written = new Set([
     ...Object.keys(layer.agentSettings),
     ...Object.keys(layer.files).flatMap((file) => {

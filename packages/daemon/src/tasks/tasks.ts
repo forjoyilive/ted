@@ -2558,7 +2558,11 @@ export function createTasks(options: {
         'TED couldn’t read valid settings in .ted/ on this branch to compare its Agents with the approved setup proposal; run `ted workflow check`',
       )
     }
-    const differences = setupAgentDifferences(approved.agents, read.layer)
+    const differences = setupAgentDifferences(
+      approved.agents,
+      read.layer,
+      inheritedFrom(await workflows.inherited()).agents?.defined ?? [],
+    )
     if (differences.length > 0) {
       throw new RequestError(
         409,

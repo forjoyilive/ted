@@ -42,13 +42,13 @@ const written = {
 
 test('Agent files that match the approved Agents pass', () => {
   expect(layer(written).problems).toEqual([])
-  expect(setupAgentDifferences([release, migrations], layer(written))).toEqual([])
-  expect(setupAgentDifferences([], layer({}))).toEqual([])
+  expect(setupAgentDifferences([release, migrations], layer(written), [])).toEqual([])
+  expect(setupAgentDifferences([], layer({}), [])).toEqual([])
 })
 
 test('a removed Agent left on the branch is refused', () => {
   const kept = keptSetupAgents([release, migrations], ['migrations'])
-  expect(setupAgentDifferences(kept, layer(written))).toEqual([
+  expect(setupAgentDifferences(kept, layer(written), [])).toEqual([
     'migrations is on the branch but not in the approved proposal',
   ])
 })
@@ -72,7 +72,7 @@ test('every way the files can differ from the approved Agents is named', () => {
     'agents/migrations.md': '# Migrations\n',
     'agents/extra.md': '# Extra\n',
   })
-  expect(setupAgentDifferences([release, migrations], changed)).toEqual([
+  expect(setupAgentDifferences([release, migrations], changed, [])).toEqual([
     'extra is on the branch but not in the approved proposal',
     'release’s name is “Releases”, not “Release helper”',
     'release’s powers are ask, manage_tasks, read_code, but the approved proposal gives ask, read_code',
@@ -83,12 +83,19 @@ test('every way the files can differ from the approved Agents is named', () => {
 })
 
 test('Agent files with no approved Agents are refused', () => {
-  expect(setupAgentDifferences([], layer(written))).toEqual([
+  expect(setupAgentDifferences([], layer(written), [])).toEqual([
     '.ted/agents.yaml is on the branch, but the approved proposal has no Agents',
     'migrations is on the branch but not in the approved proposal',
     'release is on the branch but not in the approved proposal',
   ])
-  expect(setupAgentDifferences([release], layer({}))).toEqual([
+  expect(setupAgentDifferences([release], layer({}), [])).toEqual([
     'release is approved but missing from .ted/agents.yaml',
+  ])
+})
+
+test('a setup Agent can’t reuse an id an inherited layer defines', () => {
+  expect(setupAgentDifferences([release], layer(written), ['coordinator', 'release'])).toEqual([
+    'release is already defined in TED’s defaults or the Library; a setup Agent needs an id of its own',
+    'migrations is on the branch but not in the approved proposal',
   ])
 })

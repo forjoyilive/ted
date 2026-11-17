@@ -371,6 +371,7 @@
 }
 
 .agentCheck {
+  align-self: start;
   margin: 2px 0 0;
 }
 
