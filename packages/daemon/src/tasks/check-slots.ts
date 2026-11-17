@@ -1,3 +1,13 @@
+import os from 'node:os'
+
+export function checkCpus(cores: number, running: number, percent: number): number {
+  return Math.max(1, Math.floor((cores * percent) / 100 / Math.max(1, running)))
+}
+
+export function checkCpusEnv(cpus: number) {
+  return { TED_CHECK_CPUS: String(cpus) }
+}
+
 export type CheckSlotBoundary = 'entered' | 'acquired' | 'canceled'
 
 export interface CheckSlotRequest {
@@ -9,6 +19,7 @@ export interface CheckSlotRequest {
 export interface CheckSlots {
   take(input: CheckSlotRequest): Promise<(() => void) | undefined>
   full(): boolean
+  cpus(): number
   recheck(): void
   watch(listener: (places: ReadonlyMap<string, number>) => void): void
 }
@@ -18,7 +29,12 @@ interface Waiter {
   start: () => void
 }
 
-export function createCheckSlots(options: { limit: () => number }): CheckSlots {
+export function createCheckSlots(options: {
+  limit: () => number
+  cpuPercent: () => number
+  cores?: () => number
+}): CheckSlots {
+  const cores = options.cores ?? os.availableParallelism
   const line: Waiter[] = []
   let running = 0
   let listener: ((places: ReadonlyMap<string, number>) => void) | undefined
@@ -107,6 +123,7 @@ export function createCheckSlots(options: { limit: () => number }): CheckSlots {
       })
     },
     full,
+    cpus: () => checkCpus(cores(), running, options.cpuPercent()),
     recheck,
     watch(next) {
       listener = next

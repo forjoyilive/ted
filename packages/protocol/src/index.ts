@@ -146,6 +146,25 @@ export type {
 } from './automation.ts'
 export { automationTemplateIds, checkAgentSteps, scheduledCheckPrompt } from './automation.ts'
 export {
+  type AutomationCard,
+  type AutomationCardAnswer,
+  type AutomationCardKind,
+  type AutomationCardResult,
+  type AutomationCardRow,
+  type AutomationDraftBody,
+  type AutomationDraftRequest,
+  type AutomationDraftResult,
+  automationCardHeadline,
+  automationCardKinds,
+  automationDraftLimits,
+  draftBody,
+  maxOpenAutomationCards,
+} from './automation-card.ts'
+export {
+  parseAutomationCardAnswer,
+  parseAutomationDraftRequest,
+} from './automation-card-parsers.ts'
+export {
   parseAnswerAutomationRequest,
   parseAutomationCheck,
   parseAutomationCommentRequest,
@@ -244,6 +263,36 @@ export type {
   RunSummary,
   SendRunMessageRequest,
 } from './chat.ts'
+export type {
+  AgentChatKind,
+  AgentDraft,
+  AgentDraftAnswer,
+  AgentDraftCurrent,
+  AgentDraftFields,
+  AgentDraftInput,
+  AgentDraftPlace,
+  AgentSummary,
+  ChatAgent,
+  ChatCommandResult,
+  ChatCommandState,
+  ChatQuestionInput,
+  ChatRequest,
+  ChatRequestKind,
+  PostChatRequest,
+  RunChatCommandRequest,
+} from './chat-agent.ts'
+export {
+  agentDraftPlaces,
+  chatCommandStates,
+  chatRequestKinds,
+  maxAgentDraftSummary,
+  maxChatQuestionLength,
+  parseAgentDraftAnswer,
+  parseAgentDraftInput,
+  parseChatAgentId,
+  parsePostChatRequest,
+  parseRunChatCommandRequest,
+} from './chat-agent.ts'
 export {
   type BaseConflictFound,
   type CheckOutput,
@@ -301,6 +350,7 @@ export type {
   CoordinatorTaskList,
   CoordinatorTaskQuery,
   CoordinatorTaskSummary,
+  RenameCoordinatorChatRequest,
 } from './coordinator.ts'
 export {
   coordinatorTaskSearch,
@@ -310,6 +360,7 @@ export {
   parseCoordinatorMessage,
   parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
+  parseRenameCoordinatorChatRequest,
 } from './coordinator-parsers.ts'
 export { type CallerInfo, type DaemonInfo, readDaemonInfo } from './daemon-info.ts'
 export type {
@@ -380,6 +431,9 @@ export type {
   Diagnostics,
   LogText,
   ProcessInfo,
+  ProcessKind,
+  ProcessRun,
+  ProcessRunRole,
   ProcessUsage,
   RunDiagnostics,
   TokenUse,
@@ -522,6 +576,7 @@ export {
   type LibraryView,
   type MergeSettingsRequest,
   maxCleanupStepName,
+  type PullRequestCiFound,
   type RenameFactoryRequest,
   type RepoLocalFolder,
   type RepoSettingsInput,
@@ -708,6 +763,7 @@ export type {
 } from './peers.ts'
 export type { PostPlanRequest, RenamePlanRequest, ResumePlanRequest } from './plan.ts'
 export {
+  type ChatArchiveExpiry,
   openPlanRequest,
   type Plan,
   type PlanDetail,
@@ -799,6 +855,7 @@ export {
   type Appearance,
   appearances,
   archivedTaskDayLimits,
+  checkCpuLimits,
   checkLimits,
   defaultFactoryNotifications,
   defaultMachineSettings,
@@ -806,6 +863,7 @@ export {
   type FactoryNotifications,
   factoryNotifications,
   firstFactoryNotifications,
+  idleRunSleepLimits,
   type MachineSettings,
   type Profile,
   type QuitChoice,
@@ -855,12 +913,14 @@ export {
 export type {
   BusyHold,
   ChatKind,
+  CheckingTask,
   FactorySlots,
   QueuedForSlot,
   RunSlots,
+  SlotChecks,
   SlotHolder,
 } from './slots.ts'
-export { busyHold, busyMarks, chatKinds, isChat } from './slots.ts'
+export { busyHold, busyMarks, chatKinds, isChat, noChecks } from './slots.ts'
 export {
   type ProfileRequest,
   type ProfileResult,
@@ -976,10 +1036,12 @@ export {
   type ProposalRow,
   type ProposalRowInput,
   type PullRequestAdvice,
+  type PullRequestCiMode,
   type PullRequestPreview,
   parseSetTaskSnoozeRequest,
   parseSnoozeRequestRequest,
   priorities,
+  pullRequestCiModes,
   type ReportCleanupStepRequest,
   type ReportOutcomeRequest,
   type RepoSetupReport,

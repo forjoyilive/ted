@@ -270,7 +270,7 @@ Rules:
 - `order` is all or nothing: the most specific layer that has one wins outright. (KRI-12)
 - `stages.<id>` settings and `lead`, `reviewer`, `planner` merge key by key across layers. (KRI-12, KRI-53)
 - A Stage file in a more specific layer replaces the one with the same id as a whole. (KRI-12)
-- Every Workflow setting, including Sign-offs and whether Design is on, can be set in the Library and per Factory. Factory-only keys: `repos` (with `apps`, `merge_method`, `worktree`), Checks and `max_working_runs`. Permission mode is machine-local per Factory (7.8); a legacy `permissions` key is advisory only. (KRI-12, KRI-53, KRI-57)
+- Every Workflow setting, including Sign-offs and whether Design is on, can be set in the Library and per Factory. Factory-only keys: `repos` (with `apps`, `merge_method`, `pull_request_ci`, `worktree`), Checks and `max_working_runs`. Permission mode is machine-local per Factory (7.8); a legacy `permissions` key is advisory only. (KRI-12, KRI-53, KRI-57)
 - Any Task TED creates to change `.ted/` (setup, drift merge) has the Review sign-off forced on. Setup also forces the Design sign-off. (KRI-22, KRI-58)
 
 ### 4.5 `workflow.yaml`
@@ -321,6 +321,7 @@ A new Task follows Stage effort settings unless the human explicitly chooses its
 | `remote` | secondary repos only | Any GitHub remote form. TED matches repos by owner/repo. Left out on the primary entry, which is the repo the file sits in; a primary `remote` that names another repo is ignored with a warning. |
 | `base_branch` | no | Branch Task branches start from and pull requests target. Default: the repo’s GitHub default branch. |
 | `merge_method` | no | `squash` (default), `merge`, `rebase` (KRI-52). |
+| `pull_request_ci` | no | `auto` (default: TED decides at each push), `none` (never wait for CI on pull requests), `required` (always wait). `none` can’t skip a required status check (ADR 0178). |
 | `worktree.setup` | no | A command, or `{run, timeout}`. Runs once in a new worktree, after copying files, before any Run uses it. Default timeout 15m. |
 | `worktree.teardown` | no | A command, or `{run, timeout}`. Runs before TED removes a worktree. A failure is logged and removal goes on. |
 | `worktree.env` | no | Map of plain strings, set for every Run, Check, App, shell, `setup` and `teardown` in that repo’s worktree. Committed, so no secrets. |

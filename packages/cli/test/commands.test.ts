@@ -121,6 +121,15 @@ describe('command definitions', () => {
     expect(() =>
       parseInvocation(['comment', '--attach', 'a.md'], { TED_AUTOMATION: 'run' }),
     ).toThrow(UsageError)
+    const chat = { TED_CHAT: 'chat-1' }
+    expect(parseInvocation(['ask', 'Ship today?', '--choice', 'Yes'], chat).handler).toBe(
+      'chatQuestion',
+    )
+    expect(parseInvocation(['ask', '--round', 'r.json'], chat).handler).toBe('chatRound')
+    expect(parseInvocation(['task', 'propose', '--file', 'p.json'], chat).handler).toBe(
+      'chatProposal',
+    )
+    expect(() => parseInvocation(['ask', 'Ship today?'], {})).toThrow(UsageError)
   })
 
   test('table order has no effect on selection', () => {
@@ -665,7 +674,7 @@ describe('commands merged from the latest base', () => {
           runtime,
         ),
       ).toBe(2)
-      expect(await runCli(['coordinator', 'tasks', '--stage', 'queued'], runtime)).toBe(2)
+      expect(await runCli(['coordinator', 'tasks', '--stage', 'Queued!'], runtime)).toBe(2)
       expect(requests.slice(4)).toEqual([
         { url: '/peers?offset=3', body: undefined },
         { url: '/peers/inbox?offset=4', body: undefined },

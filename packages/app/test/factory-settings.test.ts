@@ -1,4 +1,8 @@
-import type { FactorySettingsView, RepoSettingsInput } from '@ted/protocol/factory-settings'
+import type {
+  FactorySettingsView,
+  PullRequestCiFound,
+  RepoSettingsInput,
+} from '@ted/protocol/factory-settings'
 import { describe, expect, test } from 'vitest'
 import {
   changeCount,
@@ -17,6 +21,7 @@ import {
   unsavedSummary,
 } from '../src/renderer/factory-settings.ts'
 import { markdownBlocks, markdownSpans } from '../src/renderer/markdown.ts'
+import { ciFoundText } from '../src/renderer/pull-request-ci.ts'
 
 const app: RepoSettingsInput = {
   was: 'app',
@@ -80,6 +85,7 @@ describe('Factory settings save bar', () => {
 })
 
 const view: FactorySettingsView = {
+  agentFiles: [],
   factoryId: 'f1',
   repo: 'kriya/app',
   defaultBranch: 'main',
@@ -298,6 +304,45 @@ describe('Factory notes preview', () => {
       { kind: 'text', text: ' ' },
       { kind: 'strong', text: 'first' },
       { kind: 'text', text: '.' },
+    ])
+  })
+})
+
+describe('Pull request CI row', () => {
+  const when = () => '2h ago'
+  const found = (signals: PullRequestCiFound['signals']): PullRequestCiFound => ({
+    signals,
+    task: 'NB-4',
+    at: '2026-11-16T10:00:00.000Z',
+  })
+
+  test('says what TED found and when, and whether the setting overrides it', () => {
+    expect(ciFoundText(undefined, 'auto', when)).toBe(
+      'Not checked yet. TED checks when a Task first pushes to this repo.',
+    )
+    expect(ciFoundText(found([]), 'auto', when)).toBe(
+      'None found when NB-4 pushed, 2h ago. TED doesn’t wait for CI on this repo’s pull requests.',
+    )
+    expect(ciFoundText(found(['recent-pull-requests']), 'none', when)).toBe(
+      'Found when NB-4 pushed, 2h ago: recent pull requests had checks. This setting overrides it.',
+    )
+    expect(ciFoundText(found(['required-checks']), 'none', when)).toContain(
+      'TED still waits for the required check',
+    )
+  })
+
+  test('changing it counts as an edit, and Detect is the same as no value', () => {
+    const before: RepoSettingsInput = {
+      repo: 'acme/app',
+      name: 'app',
+      was: 'app',
+      env: [],
+      copy: [],
+      apps: [],
+    }
+    expect([...editedFields({ ...before, pullRequestCi: 'auto' }, [before])]).toEqual([])
+    expect([...editedFields({ ...before, pullRequestCi: 'none' }, [before])]).toEqual([
+      'pullRequestCi',
     ])
   })
 })

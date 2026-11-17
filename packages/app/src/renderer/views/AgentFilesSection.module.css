@@ -1,0 +1,108 @@
+.agents {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.table {
+  overflow-x: auto;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.2fr) minmax(160px, 2fr) minmax(110px, 1fr) 88px minmax(
+      150px,
+      auto
+    );
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 0 14px;
+}
+
+.powers {
+  color: var(--text-secondary);
+}
+
+.newRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.caption,
+.hint {
+  margin: 0;
+  color: var(--text-caption);
+  font-size: var(--text-12);
+}
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 14px 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.short {
+  max-width: 320px;
+}
+
+.twoFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 320px));
+  gap: 16px;
+}
+
+.powerList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.power {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.power > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.powerName {
+  font-size: var(--text-13);
+}
+
+.commandList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.dimmed {
+  opacity: 0.6;
+}
+
+.command {
+  display: grid;
+  grid-template-columns: minmax(100px, 160px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  max-width: 720px;
+}

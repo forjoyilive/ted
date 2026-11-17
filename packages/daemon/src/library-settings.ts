@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import {
   type AgentChoiceInput,
@@ -33,6 +33,8 @@ import {
 import { RequestError } from './errors.ts'
 import type { TedStore } from './store/index.ts'
 import { resolveAgentChoices } from './workflow/agent-choices.ts'
+import { agentFileRows, applyAgentChanges } from './workflow/agent-edit.ts'
+import { agentFileId, resolveAgents } from './workflow/agent-files.ts'
 import { type CheckedLayer, checkLayer, type LayerFiles } from './workflow/check.ts'
 import { driftView, findDrift } from './workflow/drift.ts'
 import { applyChanges } from './workflow/edit.ts'
@@ -71,7 +73,11 @@ interface Base {
   own: CheckedLayer
 }
 
-const knownFile = (file: string) => file === 'workflow.yaml' || stageFileId(file) !== undefined
+const knownFile = (file: string) =>
+  file === 'workflow.yaml' ||
+  file === 'agents.yaml' ||
+  stageFileId(file) !== undefined ||
+  agentFileId(file) !== undefined
 
 const library = (files: LayerFiles) => checkLayer({ kind: 'library', files })
 
@@ -140,6 +146,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
       Object.keys(changes.stages ?? {}).length > 0 ||
       Object.keys(changes.agents ?? {}).length > 0
     if (touchesYaml) after['workflow.yaml'] = applyChanges(base.text, changes, [], basedOn)
+    applyAgentChanges(after, changes, resolveAgents([base.defaults]))
     const errors = library(after).problems.filter((p) => p.severity === 'error')
     if (errors.length > 0) return { problems: errors, files: {} }
     const writes: Record<string, string | null> = {}
@@ -249,14 +256,38 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
       version: base.version,
       stages: stageRows(base),
       agents: agentRows(base),
+      agentFiles: agentFileRows([base.defaults], base.own),
       problems: base.problems,
       ...(problem && { invalid: problem }),
     }
   }
 
+  async function plainTarget(name: string): Promise<string> {
+    const parts = name.split('/')
+    let folder = libraryDir
+    for (const part of [undefined, ...parts.slice(0, -1)]) {
+      if (part !== undefined) folder = path.join(folder, part)
+      const found = await lstat(folder).catch(() => undefined)
+      if (found && !found.isDirectory()) {
+        throw new RequestError(
+          400,
+          `${path.relative(libraryDir, folder) || 'The Library folder'} isn’t a plain folder, so TED won’t save into it.`,
+        )
+      }
+    }
+    const file = path.join(folder, parts.at(-1) ?? '')
+    const target = await lstat(file).catch(() => undefined)
+    if (target && !target.isFile()) {
+      throw new RequestError(400, `${name} isn’t a plain file, so TED won’t replace it.`)
+    }
+    return file
+  }
+
   async function write(files: Record<string, string | null>): Promise<void> {
+    const targets = new Map<string, string>()
+    for (const name of Object.keys(files)) targets.set(name, await plainTarget(name))
     for (const [name, text] of Object.entries(files)) {
-      const file = path.join(libraryDir, ...name.split('/'))
+      const file = targets.get(name) ?? path.join(libraryDir, ...name.split('/'))
       if (text === null) {
         await rm(file, { force: true })
         continue
@@ -318,7 +349,7 @@ export function createLibrarySettings(options: LibrarySettingsOptions): LibraryS
 }
 
 function fileOrder(a: string, b: string): number {
-  const rank = (name: string) => (name === 'workflow.yaml' ? 0 : 1)
+  const rank = (name: string) => (name === 'workflow.yaml' ? 0 : name === 'agents.yaml' ? 1 : 2)
   return rank(a) - rank(b) || a.localeCompare(b)
 }
 

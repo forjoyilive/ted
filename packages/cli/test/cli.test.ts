@@ -796,6 +796,38 @@ describe('ted workflow check', () => {
     ])
   })
 
+  test('reports a bad agents.yaml and an Agent with no instructions file', async () => {
+    await writeLayer({
+      'agents.yaml': [
+        'scout:',
+        '  name: Scout',
+        '  powers: [read_code, deploy]',
+        'helper:',
+        '  role: helps',
+        '',
+      ].join('\n'),
+      'agents/helper.md': 'Help.\n',
+    })
+
+    const failure = await ted(['workflow', 'check']).then(
+      () => undefined,
+      (error: { code: number; stdout: string }) => error,
+    )
+
+    expect(failure?.code).toBe(1)
+    expect(failure?.stdout.split('\n')).toEqual([
+      '.ted/agents.yaml:1:1: error: `scout` has no instructions file; add agents/scout.md',
+      '.ted/agents.yaml:3:23: error: unknown power `deploy` in `scout.powers`; the powers are ask, manage_tasks, manage_automations, propose_tasks, read_code, manage_agents, run_commands',
+      '.ted/agents.yaml:4:1: error: `helper` needs a `name`',
+      '.ted/agents.yaml:5:3: error: unknown key `helper.role`; an Agent has name, agent, model, powers, commands, based_on',
+      '4 errors',
+      '',
+    ])
+    expect((await ted(['workflow', 'check', '.ted/agents/helper.md'])).stdout.trim()).toBe(
+      'No problems in .ted/agents/helper.md',
+    )
+  })
+
   test('accepts the Validate round settings and rejects a P1-only round below 2', async () => {
     await writeLayer({
       'workflow.yaml': 'version: 1\nstages:\n  validate: { p1_only_from: 3, sub_agents: true }\n',

@@ -30,6 +30,7 @@ import type {
   BrowserRequest,
   BrowserResult,
   BusyHold,
+  CheckingTask,
   CheckRun,
   CheckRunReport,
   ClarifyDepth,
@@ -69,6 +70,7 @@ import type {
   ProposalCreated,
   ProposalInput,
   PullRequestChanges,
+  PullRequestCiMode,
   RecordAppRequest,
   RecordFailureRequest,
   ReportCleanupStepRequest,
@@ -80,6 +82,7 @@ import type {
   Run,
   RunMessage,
   RunSlots,
+  SaveSettingsResult,
   SendBack,
   SendBackCause,
   SetClarifyDepthRequest,
@@ -91,6 +94,7 @@ import type {
   SignOffChanges,
   SimulatorSlots,
   SizeCheckInput,
+  SlotChecks,
   SlotHolder,
   SnoozedRequest,
   StageId,
@@ -162,6 +166,7 @@ import {
   sizeChoices,
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
+import { keptSetupAgents } from '@ted/protocol/setup-agents'
 import {
   bindsApproval,
   handsOff,
@@ -305,7 +310,11 @@ import {
   baseCheckTimeoutMs,
   conflictChecked,
   conflictRefusal,
+  fileList,
+  HeldRepo,
+  heldText,
   noConflictFound,
+  repairConflictHandOff,
 } from './base-conflict.ts'
 import { createBrowserBroker } from './browser.ts'
 import { createCacheSeeds } from './cache-seeds.ts'
@@ -423,6 +432,7 @@ import {
   chooseMethod,
   defaultHost,
   deleteBranch,
+  expectsCi,
   nextStep,
   type PullRequestRead,
   type PullRequestRef,
@@ -491,6 +501,7 @@ import {
   pickDepth,
   roundAnswerSummary,
 } from './rounds.ts'
+import { setupAgentDifferences } from './setup-agents.ts'
 import { clashMessage, sourceClash, sourceKey } from './sources.ts'
 import {
   afterPlanningWhy,
@@ -545,7 +556,7 @@ export interface PlanApproval {
 export interface PlanEnd {
   planId: string
   planTitle: string
-  outcome: 'stopped' | 'failed' | 'deleted'
+  outcome: 'stopped' | 'failed' | 'deleted' | 'archived'
 }
 
 export interface CreateTaskInput
@@ -668,6 +679,8 @@ export interface Tasks {
   stop(ref: string): Promise<Task>
   resume(ref: string, input?: { comment?: string; attachments?: Attachment[] }): Promise<Task>
   stoppingForQuit(): void
+  midWork(taskId: string): boolean
+  leadRunEnv(run: Run): Promise<Record<string, string> | undefined>
   tedStops(): TedStoppedTask[]
   answerTedStops(request: AnswerTedStopsRequest): Promise<TedStoppedTask[]>
   move(ref: string, request: MoveTaskRequest): Task
@@ -883,6 +896,11 @@ export function createTasks(options: {
   emulators?: Omit<EmulatorOptions, 'dir' | 'banners'> & { dir?: string }
   saveAttachment?: (file: string, name: string, mediaType: string) => Promise<Attachment>
   planning?: () => TaskPlanning | undefined
+  setPullRequestCi?: (
+    factoryId: string,
+    repo: string,
+    mode: PullRequestCiMode,
+  ) => Promise<SaveSettingsResult>
   sandbox: Sandbox
   checkSlots: CheckSlots
 }): Tasks {
@@ -2276,7 +2294,31 @@ export function createTasks(options: {
         const cap = use.caps[factoryId]
         return cap === undefined ? [] : [{ factoryId, cap, working: use.byFactory[factoryId] ?? 0 }]
       }),
+      checks: checksNow(),
       ...(heldBusy !== undefined && { busy: heldBusy }),
+    }
+  }
+
+  function checksNow(): SlotChecks {
+    const { running, waiting, scheduled } = store.checkWork()
+    const tasks = store.tasksIn(new Set([...running, ...waiting.keys()]))
+    const shown = tasks
+      .map((task): CheckingTask => {
+        const place = waiting.get(task.id)
+        return {
+          taskId: task.id,
+          displayId: task.displayId,
+          title: task.title,
+          factoryId: task.factoryId,
+          ...(place !== undefined && { place }),
+        }
+      })
+      .sort((a, b) => (a.place ?? 0) - (b.place ?? 0))
+    return {
+      running: running.length + scheduled.running,
+      waiting: waiting.size + scheduled.waiting,
+      tasks: shown,
+      scheduled: { ...scheduled },
     }
   }
 
@@ -2462,7 +2504,7 @@ export function createTasks(options: {
   const checkLog = (task: Task, checkRunId: string, position: number) =>
     path.join(checkDir(task, checkRunId), `${position + 1}.log`)
 
-  async function approvedSetup(task: StoredTask) {
+  async function setupLayer(task: StoredTask) {
     const factory = factoryOf(task)
     const primary = task.repos.find((r) => !r.removed && sameRepo(r.repo, factory.repo))
     if (!primary) return undefined
@@ -2474,8 +2516,11 @@ export function createTasks(options: {
       primaryRepo: factory.repo,
       inherited: inheritedFrom(await workflows.inherited()),
     })
-    if (!layer.valid) return undefined
-    const proposal = store
+    return { primary, layer }
+  }
+
+  function approvedSetupProposal(task: StoredTask) {
+    const approval = store
       .listComments(task.id)
       .findLast(
         (c) =>
@@ -2483,8 +2528,51 @@ export function createTasks(options: {
           postsDesignReview(c.stage ?? '') &&
           c.answer?.kind === 'approved' &&
           c.design?.setup,
-      )?.design?.setup
-    return proposal && { primary, settings: layer.settings, proposal }
+      )
+    const proposal = approval?.design?.setup
+    const answer = approval?.answer
+    if (!proposal || answer?.kind !== 'approved') return undefined
+    return {
+      proposal,
+      agents: keptSetupAgents(proposal.agents ?? [], answer.removedAgents ?? []),
+    }
+  }
+
+  async function approvedSetup(task: StoredTask) {
+    const read = await setupLayer(task)
+    if (!read?.layer.valid) return undefined
+    const approved = approvedSetupProposal(task)
+    return approved && { primary: read.primary, settings: read.layer.settings, ...approved }
+  }
+
+  async function requireSetupAgents(task: StoredTask): Promise<void> {
+    if (!task.setup) return
+    const approved = approvedSetupProposal(task)
+    if (!approved) {
+      throw new RequestError(409, 'the setup proposal hasn’t been approved yet')
+    }
+    const read = await setupLayer(task)
+    if (!read?.layer.valid) {
+      throw new RequestError(
+        409,
+        'TED couldn’t read valid settings in .ted/ on this branch to compare its Agents with the approved setup proposal; run `ted workflow check`',
+      )
+    }
+    const differences = setupAgentDifferences(
+      approved.agents,
+      read.layer,
+      inheritedFrom(await workflows.inherited()).agents?.defined ?? [],
+    )
+    if (differences.length > 0) {
+      throw new RequestError(
+        409,
+        `The Agent files on this branch don’t match the approved setup proposal:\n\n${differences
+          .map((d) => `- ${d}`)
+          .join(
+            '\n',
+          )}\n\nWrite exactly the approved Agents to .ted/agents.yaml and .ted/agents/<id>.md, and nothing else.`,
+      )
+    }
   }
 
   async function approvedSetupChecks(task: StoredTask): Promise<CheckSettings[]> {
@@ -2924,6 +3012,7 @@ export function createTasks(options: {
 
   const baseTips = new Map<string, string>()
   const baseNotes = new Map<string, string>()
+  const repairHandOffs = new Map<string, string>()
   const baseTipKey = (taskId: string, repo: string) => `${taskId}\n${repo}`
 
   function foundConflict(task: StoredTask, conflict: BaseConflict): FoundConflict {
@@ -3627,7 +3716,7 @@ export function createTasks(options: {
           ...target,
           number: pr.number,
           expectedHead: pr.signedOff ?? '',
-          hasCi: repo.pushed?.ci ?? true,
+          hasCi: expectsCi(repoEntry(order, repo)?.pullRequestCi, repo.pushed),
           method: method as MergeMethod,
           ...(message && { message }),
         },
@@ -4300,7 +4389,9 @@ export function createTasks(options: {
     stallAfterMs,
     local: (id) => execution.local(id),
     beforeLeadStart: async (id) =>
-      (await incorporateRepairs(find(id))) ? taskWorkflow(find(id), { fetch: false }) : undefined,
+      (await incorporateRepairs(find(id), 'lead-starting'))
+        ? taskWorkflow(find(id), { fetch: false })
+        : undefined,
     afterLeadStart: (id) => {
       baseNotes.delete(id)
       scheduleRepairChecks(id)
@@ -5777,22 +5868,26 @@ export function createTasks(options: {
     }
   }
 
-  function scheduleRepairChecks(taskId: string): void {
+  function scheduleRepairChecks(
+    taskId: string,
+    mode: 'lead-live' | 'after-hand-off' = 'lead-live',
+  ): void {
     const task = find(taskId)
     if (
+      (mode === 'lead-live' && repairHandOffs.has(taskId)) ||
       inFlight.is(taskId, 'checking') ||
       task.archived ||
       task.stopped ||
       task.waitsForBlockers ||
       !(validates(task.stage) || mergesHere(task.stage)) ||
-      !validation.pendingRepair(task)
+      (mode === 'lead-live' && !validation.pendingRepair(task))
     )
       return
     setChecking(taskId, true)
     inBackground(`revalidate ${task.displayId} after its repair`, async () => {
       try {
         await execution.local(taskId)
-        if (!(await incorporateRepairs(find(taskId)))) return
+        if (!(await incorporateRepairs(find(taskId), mode))) return
         const current = find(taskId)
         if (current.archived || current.stopped || current.waitsForBlockers) return
         if (validates(current.stage)) await validation.enter(taskId)
@@ -6217,6 +6312,7 @@ export function createTasks(options: {
           requireObligations(task, undefined, target, false, reads),
         checksThen: (taskId, action) => checksThen(taskId, action),
         bindApproval,
+        requireSetupAgents,
         liveLead,
         startMerging,
         watchMerge,
@@ -6261,6 +6357,7 @@ export function createTasks(options: {
         stopLeadForChildren,
         waitForChildren,
         ...(options.planning && { planning: options.planning }),
+        ...(options.setPullRequestCi && { setPullRequestCi: options.setPullRequestCi }),
       },
       automatic ? { guard: (comment) => guardAutopilotAnswer(comment, expectedLead) } : undefined,
     )(id, request, sendDrafts, mark)
@@ -8214,7 +8311,12 @@ export function createTasks(options: {
     return publicTask(task.id)
   }
 
-  function repairNotice(taskId: string, blockerId: string, explanation: string): void {
+  function repairNotice(
+    taskId: string,
+    blockerId: string,
+    explanation: string,
+    forBrief = explanation,
+  ): void {
     const repair = store.failures
       .list(taskId)
       .flatMap((f) => f.resolutions)
@@ -8227,7 +8329,10 @@ export function createTasks(options: {
     if (brief)
       store.writeBrief({
         taskId,
-        text: brief.replace('## Current state', `## Current state\n\n${body}\n`),
+        text: brief.replace(
+          '## Current state',
+          `## Current state\n\n${body.replace(explanation, forBrief)}\n`,
+        ),
       })
   }
 
@@ -9883,6 +9988,24 @@ export function createTasks(options: {
     finished: leadLifecycle.finished,
   })
 
+  function retryAfterHandOff(run: Run, at: string | undefined): void {
+    if (run.taskId === undefined) return
+    const since = repairHandOffs.get(run.taskId)
+    const task = store.getTask(run.taskId)
+    if (since === undefined || task?.leadRunId !== run.id || (at !== undefined && at < since))
+      return
+    repairHandOffs.delete(task.id)
+    inBackground(`bring the repair into ${task.displayId} after its Task Lead’s turn`, async () => {
+      while (inFlight.is(task.id, 'checking')) await untilChecksIdle(task.id)
+      scheduleRepairChecks(task.id, 'after-hand-off')
+    })
+  }
+
+  runs.observe({
+    turnEnded: retryAfterHandOff,
+    finished: (run) => retryAfterHandOff(run, undefined),
+  })
+
   health.onReady((agent) => {
     leadLifecycle.ready(agent)
     for (const run of store.liveRuns()) {
@@ -10016,6 +10139,7 @@ export function createTasks(options: {
         checkWaits.delete(taskId)
       }
     },
+    checkCpus: () => options.checkSlots.cpus(),
     checkLog,
     checkDir,
     findings: failedFindings,
@@ -10146,7 +10270,10 @@ export function createTasks(options: {
   }
   for (const task of store.listTasks()) {
     const lead = task.leadRunId && store.getRun(task.leadRunId)
-    if (lead && lead.state !== 'finished') scheduleRepairChecks(task.id)
+    if (!lead || lead.state === 'finished') continue
+    if (!awaitsIncorporation(task.id)) scheduleRepairChecks(task.id)
+    else if (lead.state === 'idle') scheduleRepairChecks(task.id, 'after-hand-off')
+    else repairHandOffs.set(task.id, new Date().toISOString())
   }
   for (const task of interruptedHandOffs) {
     if (handOffHalted(task, task.leadRunId)) {
@@ -10193,7 +10320,11 @@ export function createTasks(options: {
   const reportSetupSoon = coalesced((factoryId: string) => {
     if (!closed) reportSetup(factoryId)
   })
+  const publishSlotsSoon = coalesced(() => {
+    if (!closed) void publishSlots()
+  })
   const stopPumping = store.subscribe((event) => {
+    if (event.type === 'activity-changed') publishSlotsSoon()
     if (
       event.type === 'comment-updated' ||
       event.type === 'task-updated' ||
@@ -10571,7 +10702,11 @@ export function createTasks(options: {
     return failures.get(find(task.id), id)
   }
 
-  async function incorporateRepairs(task: StoredTask): Promise<boolean> {
+  async function incorporateRepairs(
+    task: StoredTask,
+    mode: 'lead-starting' | 'lead-live' | 'after-hand-off',
+  ): Promise<boolean> {
+    if (mode === 'lead-starting') repairHandOffs.delete(task.id)
     let incorporated = false
     for (const value of store.failures.list(task.id)) {
       const decision = value.resolutions.at(-1)
@@ -10654,7 +10789,23 @@ export function createTasks(options: {
                 )
             }
           }
-          prepared.push({ repo, onto, ...(await git.prepareIncorporation(repo.worktree, onto)) })
+          try {
+            prepared.push({ repo, onto, ...(await git.prepareIncorporation(repo.worktree, onto)) })
+          } catch (error) {
+            if (
+              error instanceof git.IncorporationConflictError ||
+              error instanceof git.UncommittedChangesError
+            )
+              throw new HeldRepo({
+                name: repo.name,
+                base,
+                tip: onto,
+                worktree: repo.worktree,
+                files: error.files,
+                conflict: error instanceof git.IncorporationConflictError,
+              })
+            throw error
+          }
         }
         const current = store.getTask(task.id)
         if (!current || current.archived || current.stopped || stopping.signal.aborted) return false
@@ -10699,11 +10850,28 @@ export function createTasks(options: {
       } catch (error) {
         const current = store.getTask(task.id)
         if (!current || current.archived || stopping.signal.aborted) return false
-        repairNotice(
-          task.id,
-          repair.id,
-          `merged, but incorporation is held: ${redactSecrets(textOf(error))}. Resolve this before validation and use Resume to try again.`,
-        )
+        const multiRepo = task.repos.filter((r) => !r.removed).length > 1
+        if (error instanceof HeldRepo && error.held.conflict && mode === 'lead-starting') {
+          const where = multiRepo ? ` in ${error.held.name}` : ''
+          const asked = `TED asked the Task Lead to merge ${error.held.base} into the Task’s branch${where}, resolve the conflict and commit; fresh validation runs after that.`
+          repairNotice(
+            task.id,
+            repair.id,
+            `merged, but it conflicts with this Task${where}${error.held.files.length > 0 ? ` in ${fileList(error.held.files)}` : ''}. ${asked}`,
+            `merged, but it conflicts with this Task${where}. ${asked}`,
+          )
+          store.holdLeadMessage(task.id, repairConflictHandOff(repair, error.held, multiRepo))
+          repairHandOffs.set(task.id, new Date().toISOString())
+          await store.persisted()
+          return false
+        }
+        const [explanation, forBrief] =
+          error instanceof HeldRepo
+            ? heldText(error.held, multiRepo, mode === 'after-hand-off')
+            : [
+                `merged, but incorporation is held: ${redactSecrets(textOf(error))}. Resolve this before validation and use Resume to try again.`,
+              ]
+        repairNotice(task.id, repair.id, explanation, forBrief)
         store.stopTask(task.id, { runs: find(task.id).runs.length, why: 'repair-incorporation' })
         await stopRepairLead(task.id)
         await store.persisted()
@@ -10712,6 +10880,27 @@ export function createTasks(options: {
     }
     await store.persisted()
     return incorporated
+  }
+
+  function awaitsIncorporation(taskId: string): boolean {
+    return store.failures.list(taskId).some((value) => {
+      const decision = value.resolutions.at(-1)
+      return (
+        decision?.resolution === 'repair' &&
+        decision.repairTask !== undefined &&
+        !value.verifications?.length &&
+        !value.repairProgress?.some((p) => p.requestId === decision.requestId) &&
+        store.isMerged(decision.repairTask.id)
+      )
+    })
+  }
+
+  function refuseDuringRepairHandOff(task: StoredTask): void {
+    if (repairHandOffs.has(task.id))
+      throw new RequestError(
+        409,
+        `TED is waiting for you to merge the base branch into ${task.displayId}’s branch and commit. End your turn when the merge is committed; TED then brings the repair in and runs the Checks itself.`,
+      )
   }
 
   async function stopRepairLead(taskId: string) {
@@ -11265,6 +11454,25 @@ export function createTasks(options: {
     stop: stopByHand,
     resume: resumeByHand,
     stoppingForQuit,
+    leadRunEnv: (run) => leadLifecycle.runEnv(run),
+    midWork(taskId) {
+      const task = store.getTask(taskId)
+      const lead = task && liveLeadOf(store, task)
+      return (
+        inFlight.busy(taskId, [
+          'transition',
+          'held',
+          'starting',
+          'checking',
+          'deleting',
+          'hierarchy',
+          'stoppingForBlockers',
+          'removingWorktrees',
+        ]) ||
+        leadLifecycle.applying(taskId) ||
+        (task !== undefined && lead !== undefined && tedWorkingFor(task, lead))
+      )
+    },
     tedStops: () => store.tedStops(),
     answerTedStops,
 
@@ -11875,6 +12083,7 @@ export function createTasks(options: {
             `${task.displayId} changed Stage while this outcome waited; read the Task again before reporting`,
           )
         }
+        if (outcome.outcome === 'advance') refuseDuringRepairHandOff(task)
         if (task.stage === 'backlog' || task.stage === 'done') {
           throw new RequestError(409, `${task.displayId} isn’t in a Stage that has an outcome`)
         }
@@ -12051,6 +12260,9 @@ export function createTasks(options: {
               store.recordBaseConflict(task.id, foundConflict(current, conflict))
               throw new RequestError(409, conflictRefusal(current, conflict, manyRepos(current)))
             }
+          }
+          if (current.setup && (handsOff(stage) || signsOffCode(stage))) {
+            await requireSetupAgents(current)
           }
           const moved = validates(stage) ? await movedSinceReview(current) : undefined
           if (moved !== undefined) throw new RequestError(409, moved)
@@ -12482,6 +12694,7 @@ export function createTasks(options: {
 
     async runChecks(ref, caller, only) {
       const { task } = taskLead(ref, caller, 'runs Checks')
+      refuseDuringRepairHandOff(task)
       if (inFlight.is(task.id, 'transition'))
         throw new RequestError(
           409,

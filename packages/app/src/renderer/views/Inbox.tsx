@@ -10,6 +10,7 @@ import type {
 } from '@ted/protocol'
 import { factoryNotifications } from '@ted/protocol/settings'
 import { Fragment, type ReactNode, useContext, useLayoutEffect, useRef, useState } from 'react'
+import { chatRequestLabels } from '../agent-chats.ts'
 import dialogStyles from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
@@ -319,7 +320,7 @@ export function Inbox({
   useLayoutEffect(() => {
     if (showAnswered) return
     before.current = all
-    if (next === null) onClear()
+    if (next === null || next?.kind === 'plan' || next?.kind === 'coordinator') onClear()
     else next?.open()
   })
 
@@ -334,7 +335,7 @@ export function Inbox({
     if (row.kind === 'plan') {
       const item = row.item
       const { request, plan } = item
-      const where = [plan.title, ...factoryPart(plan.factoryId)]
+      const where = ['Planner', plan.title, ...factoryPart(plan.factoryId)]
       return (
         <button
           type="button"
@@ -410,7 +411,16 @@ export function Inbox({
     }
     if (row.kind === 'coordinator') {
       const confirmation = row.item
-      const where = ['Coordinator', ...factoryPart(confirmation.factoryId)]
+      const where = [
+        confirmation.agentName,
+        confirmation.chatTitle,
+        ...factoryPart(confirmation.factoryId),
+      ]
+      const kind = confirmation.requestKind
+        ? chatRequestLabels[confirmation.requestKind]
+        : confirmation.automationCard
+          ? 'Automation draft'
+          : 'Confirmation'
       return (
         <button
           type="button"
@@ -418,12 +428,14 @@ export function Inbox({
           aria-current={confirmation.id === selected ? 'true' : undefined}
           data-nav-item
           data-snooze-request={confirmation.id}
-          data-confirmation-request={confirmation.id}
-          {...requestMenu(confirmation.id, 'Coordinator', confirmation.headline)}
+          {...(confirmation.requestKind === undefined && {
+            'data-confirmation-request': confirmation.id,
+          })}
+          {...requestMenu(confirmation.id, confirmation.agentName, confirmation.headline)}
           onClick={() => onOpenConfirmation?.(confirmation)}
         >
           <span className={styles.top}>
-            <span className={styles.kind}>Confirmation</span>
+            <span className={styles.kind}>{kind}</span>
             {mark(confirmation.factoryId)}
             <span className={ageClass}>{age(confirmation.createdAt, now)}</span>
           </span>

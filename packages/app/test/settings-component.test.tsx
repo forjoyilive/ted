@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { defaultMachineSettings } from '@ted/protocol/settings'
+import { noChecks } from '@ted/protocol/slots'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test, vi } from 'vitest'
 import { AboutGroup, CommandLineGroup } from '../src/renderer/settings/CommandLineGroup.tsx'
@@ -108,13 +109,21 @@ test('quit choice, login, Stay Awake and reporting switches send machine setting
 test('Limits changes how many Checks run at once and turns low priority off', async () => {
   const update = vi.fn()
   bridge({
-    getSlots: () => ({ limit: 6, working: 0, queued: 0, holders: [], queue: [], factories: [] }),
+    getSlots: () => ({
+      limit: 6,
+      working: 0,
+      queued: 0,
+      holders: [],
+      queue: [],
+      factories: [],
+      checks: noChecks,
+    }),
     simulators: () => ({ supported: false }),
     emulators: () => ({ supported: false }),
     updateSettings: update,
   })
   render(<LimitsPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
-  await screen.findByText('Now: 0 slots in use · limit 6')
+  await screen.findByText('Now: 0 of 6 slots in use')
   const toggle = screen.getByRole('switch', { name: 'Run agents and Checks at low priority' })
   expect(toggle.getAttribute('aria-checked')).toBe('true')
   expect(screen.getByText(/Applies to work started after you change it/)).toBeTruthy()
@@ -122,10 +131,27 @@ test('Limits changes how many Checks run at once and turns low priority off', as
   expect(screen.getByText('Checks running at once')).toBeTruthy()
   await user().click(screen.getByRole('button', { name: 'More Checks at once' }))
   await user().click(screen.getByRole('button', { name: 'Fewer Checks at once' }))
+  expect(screen.getByText('CPU a Check may use')).toBeTruthy()
+  expect(screen.getByText('50%')).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'More CPU for a Check' }))
+  await user().click(screen.getByRole('button', { name: 'Less CPU for a Check' }))
+  const scheduled = screen.getByRole('switch', { name: 'Limit the CPU Scheduled Checks use too' })
+  expect(scheduled.getAttribute('aria-checked')).toBe('true')
+  await user().click(scheduled)
+  expect(screen.getByText('10 min')).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'End idle agents later' }))
+  await user().click(
+    screen.getByRole('switch', { name: 'End idle Task Lead agents to free memory' }),
+  )
   expect(update.mock.calls).toEqual([
     [{ lowPriorityWork: false }],
     [{ maxChecksAtOnce: 3 }],
     [{ maxChecksAtOnce: 1 }],
+    [{ checkCpuPercent: 60 }],
+    [{ checkCpuPercent: 40 }],
+    [{ limitScheduledCheckCpus: false }],
+    [{ sleepIdleRunsAfterMinutes: 15 }],
+    [{ sleepIdleRunsAfterMinutes: null }],
   ])
 })
 
@@ -370,19 +396,30 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
           pid: 123,
           ppid: 1,
           command: 'node',
-          owner: 'daemon',
+          owner: { runId: 'run-123456' },
+          kind: 'agent-tool',
+          run: { runId: 'run-123456', agent: 'claude', role: 'task-lead', task: 'TED-487' },
           cpuPercent: 2.4,
           memoryBytes: 64 * 1024 * 1024,
         },
       ],
     }),
+    appProcesses: () => [
+      {
+        pid: 456,
+        ppid: 1,
+        command: 'TED',
+        owner: 'app',
+        kind: 'ted-app',
+        cpuPercent: 1,
+        memoryBytes: 200 * 1024 * 1024,
+      },
+    ],
     readDaemonLog: () => ({ text: 'TED daemon 123 listening', truncated: false }),
     readRunOutput: () => ({ text: 'from the stub', truncated: false }),
   })
   const view = render(<DeveloperPage settings={defaultMachineSettings} dispatch={vi.fn()} />)
-  await screen.findByText(
-    '2.3 GB · Daemon 900 MB · App 590 MB · 2 Run hosts 150 MB · 2 agents 700 MB',
-  )
+  await screen.findByText('2.3 GB · Agents 700 MB · Daemon and Run hosts 1.0 GB · TED app 590 MB')
   expect(screen.queryByRole('region', { name: 'Diagnostics' })).toBeNull()
   expect(screen.queryByRole('region', { name: 'Logs' })).toBeNull()
   expect(screen.queryByText('Show onboarding again')).toBeNull()
@@ -396,6 +433,76 @@ test('Developer mode controls Diagnostics, logs and Show onboarding again', asyn
     />,
   )
   await screen.findByText('TED daemon 123 listening')
+  const processRows = () =>
+    within(screen.getByRole('table', { name: 'Processes' }))
+      .getAllByRole('row')
+      .slice(1)
+      .map((row) => row.textContent)
+  await waitFor(() =>
+    expect(processRows()).toEqual([
+      '123nodeTool or MCP server of TED-487’s Task Lead2.4%64 MB',
+      '456TEDTED app1%200 MB',
+    ]),
+  )
+  const processTable = within(screen.getByRole('table', { name: 'Processes' }))
+  expect(processTable.getByRole('columnheader', { name: 'CPU' }).getAttribute('aria-sort')).toBe(
+    'descending',
+  )
+  await user().click(processTable.getByRole('button', { name: 'Memory' }))
+  await user().click(processTable.getByRole('button', { name: 'Memory' }))
+  await user().click(
+    within(screen.getByRole('table', { name: 'Runs' })).getByRole('button', { name: 'Tokens in' }),
+  )
+  const chosen = {
+    runs: { column: 'tokensIn', direction: 'descending' },
+    processes: { column: 'memory', direction: 'ascending' },
+  } as const
+  expect(api.request.mock.calls.filter(([name]) => name === 'updateSettings').slice(-3)).toEqual([
+    [
+      'updateSettings',
+      {
+        diagnosticsSort: {
+          ...defaultMachineSettings.diagnosticsSort,
+          processes: { column: 'memory', direction: 'descending' },
+        },
+      },
+    ],
+    [
+      'updateSettings',
+      {
+        diagnosticsSort: { ...defaultMachineSettings.diagnosticsSort, processes: chosen.processes },
+      },
+    ],
+    ['updateSettings', { diagnosticsSort: chosen }],
+  ])
+  expect(processRows()).toEqual([
+    '123nodeTool or MCP server of TED-487’s Task Lead2.4%64 MB',
+    '456TEDTED app1%200 MB',
+  ])
+  view.rerender(
+    <DeveloperPage
+      settings={{
+        ...defaultMachineSettings,
+        developerMode: true,
+        diagnosticsSort: {
+          ...defaultMachineSettings.diagnosticsSort,
+          processes: { column: 'memory', direction: 'descending' },
+        },
+      }}
+      dispatch={vi.fn()}
+    />,
+  )
+  await waitFor(() =>
+    expect(processRows()).toEqual([
+      '456TEDTED app1%200 MB',
+      '123nodeTool or MCP server of TED-487’s Task Lead2.4%64 MB',
+    ]),
+  )
+  expect(
+    within(screen.getByRole('table', { name: 'Processes' }))
+      .getByRole('columnheader', { name: 'Memory' })
+      .getAttribute('aria-sort'),
+  ).toBe('descending')
   await user().click(screen.getByRole('button', { name: 'Show on next open' }))
   expect(api.request).toHaveBeenCalledWith('updateSettings', {
     onboardingOnNextOpen: true,
@@ -567,6 +674,7 @@ test('App settings navigation selects real pages and Factory settings leaves the
       { id: 'backlog', name: 'Backlog', inOrder: true, enabled: true, gate: false, from: 'ted' },
     ],
     agents: [],
+    agentFiles: [],
     problems: [],
   }))
   a.handle('tedFolder', () => ({ path: '/test/', platform: 'darwin' }))
@@ -670,7 +778,15 @@ test('an asynchronous settings switch acknowledges activation and blocks repeat 
   const update = vi.fn(() => completion.promise)
   bridge({
     updateSettings: update,
-    getSlots: () => ({ limit: 6, working: 0, queued: 0, holders: [], queue: [], factories: [] }),
+    getSlots: () => ({
+      limit: 6,
+      working: 0,
+      queued: 0,
+      holders: [],
+      queue: [],
+      factories: [],
+      checks: noChecks,
+    }),
     simulators: () => ({ supported: false }),
     emulators: () => ({ supported: false }),
   })

@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from 'node:util'
+import { isObject, type Untyped } from '@ted/protocol/parse'
 
 export const receiptsKept = 100
 
@@ -9,10 +10,13 @@ export interface CoordinatorChange {
 }
 
 type Fields = Record<string, unknown>
+
+const itemId = (item: Untyped) => (isObject(item) ? item.id : undefined)
 type ListChange = { put: unknown[]; keep: number }
 
 const listFields: Record<string, (item: unknown) => unknown> = {
-  receipts: (item) => (item as { id: string }).id,
+  receipts: (item) => itemId(item),
+  automationCards: (item) => itemId(item),
   taskIds: (item) => item,
 }
 

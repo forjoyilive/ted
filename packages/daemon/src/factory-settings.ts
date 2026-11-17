@@ -21,6 +21,8 @@ import {
   type InvalidSettings,
   type LayerKind,
   type MergeSettingsRequest,
+  type PullRequestCiFound,
+  type PullRequestCiMode,
   type RepoSettingsInput,
   type RepoSettingsView,
   type SaveSettingsRequest,
@@ -29,7 +31,9 @@ import {
   type SettingsSource,
   type StageDrift,
   type StageRowView,
+  settingsInput,
   type Task,
+  type TaskRepo,
   type WorkflowProblem,
 } from '@ted/protocol'
 import { fileChange } from '@ted/protocol/diff'
@@ -64,8 +68,11 @@ import {
   readPullRequests,
 } from './tasks/merge.ts'
 import { parsePullRequestUrl } from './tasks/pull-requests.ts'
+import { sameRepo } from './tasks/repos.ts'
 import type { CreateTaskInput } from './tasks/tasks.ts'
 import { resolveAgentChoices } from './workflow/agent-choices.ts'
+import { agentFileRows, applyAgentChanges } from './workflow/agent-edit.ts'
+import { agentFileId, resolveAgents } from './workflow/agent-files.ts'
 import {
   type CheckedLayer,
   checkLayer,
@@ -96,6 +103,11 @@ export interface FactorySettings {
   preview(factoryId: string, changes: FactorySettingsChanges): Promise<SettingsPreview>
   save(factoryId: string, request: SaveSettingsRequest): Promise<SaveSettingsResult>
   merge(factoryId: string, request: MergeSettingsRequest): Promise<SaveSettingsResult>
+  setPullRequestCi(
+    factoryId: string,
+    repo: string,
+    mode: PullRequestCiMode,
+  ): Promise<SaveSettingsResult>
   forget(factoryId: string): void
   mergeInherited(factoryId: string, stage: AgentStageId): Promise<Task>
   close(): Promise<void>
@@ -131,7 +143,11 @@ interface Base {
 }
 
 const knownFile = (file: string) =>
-  file === 'workflow.yaml' || file === 'notes.md' || stageFileId(file) !== undefined
+  file === 'workflow.yaml' ||
+  file === 'notes.md' ||
+  file === 'agents.yaml' ||
+  stageFileId(file) !== undefined ||
+  agentFileId(file) !== undefined
 
 function ignoredStageFiles(files: readonly string[], base: Base): string[] {
   const { order } = resolveWorkflow([...base.inherited, base.own])
@@ -143,6 +159,21 @@ function ignoredStageFiles(files: readonly string[], base: Base): string[] {
 }
 
 export const settingsTitle = 'Update TED settings'
+
+export function lastCiFound(
+  tasks: readonly { displayId: string; repos: readonly Pick<TaskRepo, 'repo' | 'pushed'>[] }[],
+  repo: string,
+): PullRequestCiFound | undefined {
+  let found: PullRequestCiFound | undefined
+  for (const task of tasks) {
+    for (const r of task.repos) {
+      if (!r.pushed || !sameRepo(r.repo, repo)) continue
+      if (found && found.at >= r.pushed.at) continue
+      found = { signals: r.pushed.ciSignals, task: task.displayId, at: r.pushed.at }
+    }
+  }
+  return found
+}
 const closeWaitMs = 2000
 
 export function createFactorySettings(options: FactorySettingsOptions): FactorySettings {
@@ -340,6 +371,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
       else after['notes.md'] = changes.notes
     }
     after['workflow.yaml'] = applyChanges(base.text, changes, base.repos, basedOn)
+    applyAgentChanges(after, changes, resolveAgents(base.inherited))
     const checked = checkLayer({
       kind: 'factory',
       files: after,
@@ -595,19 +627,22 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
     }
   }
 
-  return {
+  const api: FactorySettings = {
     async view(factoryId, { refresh = 'background' } = {}) {
       const factory = find(factoryId)
       const base = await load(factory, { fetch: refresh === 'first', resolve: true })
       if (refresh === 'background') refreshLater(factory, base.commit)
+      const pushes = store.listTasks().filter((t) => t.factoryId === factoryId)
       const repos: RepoSettingsView[] = await Promise.all(
         base.repos.map(async (repo, i) => {
           const folder = await localFolder(repo)
+          const found = lastCiFound(pushes, repo.repo)
           return {
             ...repo,
             was: repo.was ?? repo.name,
             primary: i === 0,
             ...(folder && { localFolder: folder }),
+            ...(found && { ciFound: found }),
           }
         }),
       )
@@ -650,6 +685,7 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         cleanup,
         tries: await options.checkTries.list(factory.id),
         agents: agentRows(base),
+        agentFiles: agentFileRows(base.inherited, base.own),
         permissions: factoryPermissions(store, factory.id),
         repoPermissions: base.settings?.permissions === 'bypass' ? 'bypass' : 'auto',
         ...(base.settings?.max_working_runs !== undefined && {
@@ -834,7 +870,18 @@ export function createFactorySettings(options: FactorySettingsOptions): FactoryS
         sleep(closeWaitMs, undefined, { ref: false }),
       ])
     },
+    async setPullRequestCi(factoryId, repo, mode) {
+      const view = await api.view(factoryId, { refresh: 'first' })
+      if (!view.repos.some((r) => sameRepo(r.repo, repo))) {
+        throw new RequestError(404, `${repo} isn’t one of this Factory’s repos`)
+      }
+      const repos = view.repos.map((r) =>
+        sameRepo(r.repo, repo) ? { ...settingsInput(r), pullRequestCi: mode } : settingsInput(r),
+      )
+      return api.save(factoryId, { changes: { repos }, mode: 'merge', version: view.version })
+    },
   }
+  return api
 }
 
 export function storedRepos(
@@ -923,7 +970,9 @@ function fenced(language: string, text: string): string {
 }
 
 function fileOrder(a: string, b: string): number {
-  const rank = (name: string) => (name === 'workflow.yaml' ? 0 : name === 'notes.md' ? 2 : 1)
+  const ranks = ['workflow.yaml', 'agents.yaml']
+  const rank = (name: string) =>
+    ranks.includes(name) ? ranks.indexOf(name) : name === 'notes.md' ? 3 : 2
   return rank(a) - rank(b) || a.localeCompare(b)
 }
 

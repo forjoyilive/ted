@@ -1,7 +1,6 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
-import { stripTypeScriptTypes } from 'node:module'
+import { mkdir, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { gitEnv } from '../command-env.ts'
@@ -53,12 +52,10 @@ export async function prepareDemoBinaries(home: string): Promise<void> {
     await writeFile(temporary, source, { flag: 'wx', mode: 0o700 })
     await rename(temporary, path.join(bin, `${name}.mjs`))
   }
-  const source = await readFile(new URL('../../test/fixtures/stub-gh.ts', import.meta.url), 'utf8')
-  await executable('stub-gh', stripTypeScriptTypes(source))
-  for (const agent of ['claude', 'codex']) {
-    const fixture = new URL(`../../test/fixtures/stub-${agent}.ts`, import.meta.url)
+  for (const stub of ['gh', 'claude', 'codex']) {
+    const fixture = new URL(`../../test/fixtures/stub-${stub}.ts`, import.meta.url)
     await executable(
-      `stub-${agent}`,
+      `stub-${stub}`,
       `#!/usr/bin/env node
 import { enableCompileCache } from 'node:module'
 enableCompileCache(${JSON.stringify(path.join(home, 'module-cache'))})

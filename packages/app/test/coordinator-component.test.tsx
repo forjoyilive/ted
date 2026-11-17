@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import type {
+  ChatRequest,
   Coordinator,
   CoordinatorChatSummary,
   CoordinatorStatus,
+  MessageBox,
   Plan,
   RunChat,
 } from '@ted/protocol'
@@ -14,7 +16,14 @@ import { LibraryPage } from '../src/renderer/settings/LibraryPage.tsx'
 import { FactorySettings } from '../src/renderer/views/FactorySettings.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, deferred, expandFactory, user } from './support/component.ts'
-import { createdAt, factory, settingsView, task } from './support/fixtures.ts'
+import {
+  coordinatorAgent,
+  createdAt,
+  factory,
+  plannerAgent,
+  settingsView,
+  task,
+} from './support/fixtures.ts'
 
 const nav = () => screen.getByRole('navigation', { name: 'Sidebar' })
 const continuation =
@@ -28,11 +37,15 @@ function coordinator(fields: Partial<Coordinator> = {}): Coordinator {
     runIds: ['r1', 'r2'],
     started: true,
     opening: 'What should we work on next?',
+    title: 'What should we work on next?',
     startedAt: createdAt,
     lead: { agent: 'claude' },
     status: 'ready',
     unsentMessages: [],
     confirmations: [],
+    automationCards: [],
+    requests: [],
+    chatAgent: coordinatorAgent,
     receipts: [
       {
         id: 'op1',
@@ -92,6 +105,7 @@ function summary(fields: Partial<CoordinatorChatSummary> = {}): CoordinatorChatS
     lastAt: createdAt,
     taskCount: 0,
     waiting: false,
+    chatAgent: coordinatorAgent,
     ...fields,
   }
 }
@@ -114,6 +128,17 @@ function withCoordinator() {
     statuses: [],
   }
   a.handle('coordinatorChats', () => shown.chats)
+  a.handle('factoryAgents', () => [
+    coordinatorAgent,
+    {
+      id: 'triager',
+      name: 'Triager',
+      source: 'factory',
+      powers: ['ask', 'read_code', 'run_commands'],
+      commands: [{ name: 'test', command: 'pnpm vitest run' }],
+    },
+    plannerAgent,
+  ])
   a.handle('coordinator', (id) =>
     id === ended.id
       ? coordinator({
@@ -141,8 +166,20 @@ function withCoordinator() {
   return { a, shown, open, changed }
 }
 
-test('the Coordinator draws its conversation like a Task thread: your messages to the Coordinator, TED’s continuation and receipts as event lines', async () => {
-  const { a, open } = withCoordinator()
+test('the Coordinator draws its conversation like a Task thread: your messages to the Coordinator, TED’s continuation and receipts as event lines, and its questions as cards you answer', async () => {
+  const { a, shown, open } = withCoordinator()
+  const question: ChatRequest = {
+    id: 'q1',
+    chatId: 'k1',
+    runId: 'r2',
+    kind: 'question',
+    body: 'Which repo first?',
+    choices: ['widgets', 'gadgets'],
+    createdAt,
+  }
+  shown.coordinator = coordinator({ requests: [question] })
+  const answered = vi.fn(() => shown.coordinator)
+  a.handle('answerChatRequest', answered)
   a.mount()
   const pane = await open()
   const chat = await within(pane).findByRole('region', { name: 'Run chat' })
@@ -164,6 +201,14 @@ test('the Coordinator draws its conversation like a Task thread: your messages t
   expect(within(receipt as HTMLElement).getByRole('button', { name: 'Open Task' })).toBeTruthy()
   expect(within(pane).queryByText('Earlier Conversation')).toBeNull()
   expect(within(pane).queryByRole('button', { name: 'Stop response' })).toBeNull()
+
+  const card = within(chat).getByRole('region', { name: 'Question from Coordinator' })
+  expect(within(card).getByText('Which repo first?')).toBeTruthy()
+  await user().click(within(card).getByRole('radio', { name: 'gadgets' }))
+  await user().click(within(card).getByRole('button', { name: /Send/ }))
+  await vi.waitFor(() =>
+    expect(answered).toHaveBeenCalledWith('k1', 'q1', { action: 'answer', choice: 'gadgets' }),
+  )
 })
 
 test('the Coordinator composer sends on Enter, queues while working and stops with the Run chat’s ■', async () => {
@@ -209,29 +254,43 @@ test('the Coordinator composer sends on Enter, queues while working and stops wi
   expect(stop).toHaveBeenCalledWith('k1')
 })
 
-test('New chat opens the start page and leaves the open chat running; an ended chat opens read only and can be continued or deleted', async () => {
+test('a chat is renamed by clicking its title; New chat leaves the open chat running; an archived chat opens read only and can be unarchived or deleted', async () => {
   const { a, shown, open } = withCoordinator()
   shown.chats = [summary(), ended]
-  const continued = vi.fn(() => coordinator({ id: ended.id }))
+  const unarchived = vi.fn(() => coordinator({ id: ended.id }))
+  const archived = vi.fn(() => coordinator({ endedAt: createdAt }))
   const deleted = vi.fn(() => null)
-  a.handle('continueCoordinatorChat', continued)
+  const renamed = vi.fn(() => coordinator({ title: 'Release review' }))
+  a.handle('unarchiveCoordinatorChat', unarchived)
+  a.handle('archiveCoordinatorChat', archived)
   a.handle('deleteCoordinatorChat', deleted)
+  a.handle('renameCoordinatorChat', renamed)
   a.mount()
-  await open()
+  const chat = await open()
+  await user().click(
+    await within(chat).findByRole('button', { name: 'What should we work on next?' }),
+  )
+  const title = within(chat).getByRole('textbox', { name: 'Title' })
+  await user().clear(title)
+  await user().type(title, 'Release review{Enter}')
+  await vi.waitFor(() => expect(renamed).toHaveBeenCalledWith('k1', 'Release review'))
+  await user().click(within(chat).getByRole('button', { name: 'Archive' }))
+  await vi.waitFor(() => expect(archived).toHaveBeenCalledWith('k1'))
+
   const list = screen.getByRole('region', { name: 'Agent chats' })
   await user().click(within(list).getByRole('button', { name: 'New chat' }))
   expect(screen.queryByRole('dialog')).toBeNull()
-  const picker = screen.getByRole('region', { name: 'New chat' })
-  await user().click(within(picker).getByRole('button', { name: /^Coordinator/ }))
-  const start = screen.getByRole('region', { name: 'Coordinator' })
+  const start = await screen.findByRole('region', { name: 'Coordinator' })
   expect(await within(start).findByText('What needs your attention in widgets?')).toBeTruthy()
   expect(a.request).not.toHaveBeenCalledWith('stopCoordinator', expect.anything())
 
+  expect(within(list).queryByRole('button', { name: /Archive what merged/ })).toBeNull()
+  await user().click(within(list).getByRole('button', { name: /Archived · 1/ }))
   await user().click(within(list).getByRole('button', { name: /Archive what merged/ }))
   const pane = await screen.findByRole('region', { name: 'Coordinator' })
   expect(await within(pane).findByText('Start with NB-1.')).toBeTruthy()
   expect(
-    await within(pane).findByText('Read only. Continue this chat to send a message.'),
+    await within(pane).findByText('Read only. Unarchive this chat to send a message.'),
   ).toBeTruthy()
   expect(within(pane).queryByRole('textbox')).toBeNull()
   const details = screen.getByRole('complementary', { name: 'Coordinator details' })
@@ -249,8 +308,8 @@ test('New chat opens the start page and leaves the open chat running; an ended c
   await user().click(within(dialog).getByRole('button', { name: 'Cancel' }))
   expect(deleted).not.toHaveBeenCalled()
 
-  await user().click(within(pane).getByRole('button', { name: 'Continue' }))
-  await vi.waitFor(() => expect(continued).toHaveBeenCalledWith('k0'))
+  await user().click(within(pane).getByRole('button', { name: 'Unarchive' }))
+  await vi.waitFor(() => expect(unarchived).toHaveBeenCalledWith('k0'))
 
   await user().click(within(pane).getByRole('button', { name: 'Delete…' }))
   await user().click(
@@ -276,6 +335,7 @@ test('Agents lists two Coordinator chats and a planning chat in one list, newest
     lastAt: later(3),
     runId: 'p1',
     createdTasks: 0,
+    chatAgent: plannerAgent,
   }
   a.handle('listPlans', () => [plan])
   a.handle('getPlan', () => ({ plan, requests: [], tasks: [] }))
@@ -339,22 +399,30 @@ test('Agents lists two Coordinator chats and a planning chat in one list, newest
   expect(within(list).getByRole('heading', { name: 'Planner · 1' })).toBeTruthy()
 })
 
-test('the chat list names the Agent and status, marks a chat that waits for you, and its right-click menu offers Delete, plus Continue on an ended chat', async () => {
+test('the chat list names the Agent and status, marks a chat that waits for you, lists archived chats in their own section, and its right-click menu offers Archive or Unarchive and Delete', async () => {
   const { a, shown, open } = withCoordinator()
   shown.coordinator = coordinator({ status: 'working' })
   shown.chats = [summary({ status: 'working', waiting: true }), ended]
-  const continued = vi.fn(() => coordinator({ id: ended.id }))
+  const unarchived = vi.fn(() => coordinator({ id: ended.id }))
+  const archived = vi.fn(() => coordinator({ endedAt: createdAt }))
   const deleted = vi.fn(() => null)
-  a.handle('continueCoordinatorChat', continued)
+  a.handle('unarchiveCoordinatorChat', unarchived)
+  a.handle('archiveCoordinatorChat', archived)
   a.handle('deleteCoordinatorChat', deleted)
   a.mount()
   await open()
   const list = screen.getByRole('region', { name: 'Agent chats' })
   const row = (name: RegExp) => within(list).getByRole('button', { name })
   await within(list).findByRole('button', { name: /What should we work on next\?/ })
+  await user().click(within(list).getByRole('button', { name: /Archived · 1/ }))
   expect(within(row(/What should we work on next\?/)).getByText('Coordinator')).toBeTruthy()
   expect(within(row(/What should we work on next\?/)).getByText('Waiting on you')).toBeTruthy()
-  expect(within(row(/Archive what merged/)).getByText('Ended')).toBeTruthy()
+  expect(within(row(/Archive what merged/)).getAllByText(/Archived/).length).toBeGreaterThan(0)
+  expect(
+    within(screen.getByRole('region', { name: 'Archived chats' })).getByRole('button', {
+      name: /Archive what merged/,
+    }),
+  ).toBeTruthy()
   expect(
     within(row(/What should we work on next\?/)).getByRole('img', { name: 'Waiting for you' }),
   ).toBeTruthy()
@@ -368,22 +436,27 @@ test('the chat list names the Agent and status, marks a chat that waits for you,
     within(current)
       .getAllByRole('menuitem')
       .map((i) => i.textContent),
-  ).toEqual(['Delete…'])
-  await user().click(within(current).getByRole('menuitem', { name: 'Delete…' }))
+  ).toEqual(['Archive', 'Delete…'])
+  await user().click(within(current).getByRole('menuitem', { name: 'Archive' }))
+  await vi.waitFor(() => expect(archived).toHaveBeenCalledWith('k1'))
+
+  fireEvent.contextMenu(row(/What should we work on next\?/))
+  const again = await screen.findByRole('menu', { name: 'Chat' })
+  await user().click(within(again).getByRole('menuitem', { name: 'Delete…' }))
   const stop = await screen.findByRole('dialog')
   expect(stop.textContent).toContain('The Coordinator stops this chat’s reply')
   await user().click(within(stop).getByRole('button', { name: 'Delete' }))
   await vi.waitFor(() => expect(deleted).toHaveBeenCalledWith('k1'))
 
   fireEvent.contextMenu(row(/Archive what merged/))
-  const menu = await screen.findByRole('menu', { name: 'Ended chat' })
+  const menu = await screen.findByRole('menu', { name: 'Archived chat' })
   expect(
     within(menu)
       .getAllByRole('menuitem')
       .map((i) => i.textContent),
-  ).toEqual(['Continue', 'Delete…'])
-  await user().click(within(menu).getByRole('menuitem', { name: 'Continue' }))
-  await vi.waitFor(() => expect(continued).toHaveBeenCalledWith('k0'))
+  ).toEqual(['Unarchive', 'Delete…'])
+  await user().click(within(menu).getByRole('menuitem', { name: 'Unarchive' }))
+  await vi.waitFor(() => expect(unarchived).toHaveBeenCalledWith('k0'))
 })
 
 test('leaving the Coordinator and coming back shows the same conversation', async () => {
@@ -401,24 +474,66 @@ test('leaving the Coordinator and coming back shows the same conversation', asyn
   expect(within(chat).getByText('What should we work on next?')).toBeTruthy()
 })
 
-test('with no chats Agents opens the start page, and sending to the Coordinator starts a chat', async () => {
+test('with no chats Agents opens New chat; the Agent menu lists every Agent with its powers and source, switching it keeps the message, and sending starts a chat with the chosen Agent', async () => {
   const { a, shown, open } = withCoordinator()
   shown.chats = []
   const started = vi.fn(() => coordinator())
   a.handle('startCoordinatorChat', started)
+  a.handle('messageDraft', (box) => ({
+    draft:
+      (box as MessageBox).kind === 'new-plan' ? { text: 'An older plan', attachments: [] } : null,
+  }))
   a.mount()
-  const picker = await open('New chat')
-  expect(within(picker).getByRole('button', { name: /^Planner/ })).toBeTruthy()
-  await user().click(within(picker).getByRole('button', { name: /^Coordinator/ }))
-  const pane = await screen.findByRole('region', { name: 'Coordinator' })
+  const pane = await open('Coordinator')
   await within(pane).findByRole('heading', { name: /What needs your attention/ })
+  const agent = within(pane).getByRole('combobox', { name: 'Agent' })
+  expect(agent).toHaveProperty('value', 'coordinator')
+  await vi.waitFor(() =>
+    expect(
+      within(agent)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['Coordinator', 'Planner', 'Triager']),
+  )
+  const coordinatorDetails = screen.getByRole('complementary', { name: 'Coordinator details' })
+  expect(
+    within(within(coordinatorDetails).getByRole('region', { name: 'Powers' }))
+      .getAllByRole('listitem')
+      .map((li) => li.textContent),
+  ).toEqual(['Ask the user', 'Manage Tasks', 'Manage Automations', 'Manage Agents'])
+  expect(within(coordinatorDetails).queryByRole('region', { name: 'Commands' })).toBeNull()
   await user().click(within(pane).getByRole('button', { name: 'What should we work on next?' }))
-  const box = within(pane).getByRole('textbox', { name: 'Message to the Coordinator' })
+  await user().selectOptions(agent, 'planner')
+  const planning = await screen.findByRole('region', { name: 'New planning chat' })
+  await vi.waitFor(() =>
+    expect(
+      within(planning).getByRole('textbox', { name: 'What do you want to plan?' }),
+    ).toHaveProperty('value', 'What should we work on next?'),
+  )
+  await user().selectOptions(within(planning).getByRole('combobox', { name: 'Agent' }), 'triager')
+  const back = await screen.findByRole('region', { name: 'Triager' })
+  expect(within(back).getByRole('heading', { name: /New chat with Triager/ })).toBeTruthy()
+  const details = screen.getByRole('complementary', { name: 'Triager details' })
+  expect(
+    within(within(details).getByRole('region', { name: 'Powers' }))
+      .getAllByRole('listitem')
+      .map((li) => li.textContent),
+  ).toEqual(['Ask the user', 'Read the code', 'Run commands in the copy'])
+  const commands = within(within(details).getByRole('region', { name: 'Commands' }))
+  expect(commands.getByText('test')).toBeTruthy()
+  expect(commands.getByText('pnpm vitest run')).toBeTruthy()
+  expect(
+    within(within(details).getByRole('region', { name: 'From' })).getByText('This repo'),
+  ).toBeTruthy()
+  expect(within(details).queryByRole('heading', { name: 'Tasks in this chat' })).toBeNull()
+  const box = within(back).getByRole('textbox', { name: 'Message to Triager' })
+  await vi.waitFor(() => expect(box).toHaveProperty('value', 'What should we work on next?'))
   fireEvent.keyDown(box, { key: 'Enter' })
   await vi.waitFor(() =>
     expect(started).toHaveBeenCalledWith('f1', {
       text: 'What should we work on next?',
       agent: 'claude',
+      agentId: 'triager',
     }),
   )
   expect(await screen.findByText('Start with NB-1.')).toBeTruthy()
@@ -431,9 +546,7 @@ test('a start that answers after New chat was clicked leaves the new start page 
   const answer = deferred<Coordinator>()
   a.handle('startCoordinatorChat', () => answer.promise)
   a.mount()
-  const picker = await open('New chat')
-  await user().click(within(picker).getByRole('button', { name: /^Coordinator/ }))
-  const pane = await screen.findByRole('region', { name: 'Coordinator' })
+  const pane = await open('Coordinator')
   await within(pane).findByRole('heading', { name: /What needs your attention/ })
   await user().click(within(pane).getByRole('button', { name: 'What should we work on next?' }))
   fireEvent.keyDown(within(pane).getByRole('textbox', { name: 'Message to the Coordinator' }), {
@@ -449,9 +562,9 @@ test('a start that answers after New chat was clicked leaves the new start page 
   )
   expect(await screen.findByText('Start with NB-1.')).toBeTruthy()
   await user().click(within(list).getByRole('button', { name: 'New chat' }))
-  expect(await screen.findByRole('region', { name: 'New chat' })).toBeTruthy()
+  expect(await screen.findByRole('heading', { name: 'New chat' })).toBeTruthy()
   await act(async () => answer.resolve(coordinator()))
-  expect(screen.getByRole('region', { name: 'New chat' })).toBeTruthy()
+  expect(screen.getByRole('heading', { name: 'New chat' })).toBeTruthy()
   expect(screen.queryByText('Start with NB-1.')).toBeNull()
 })
 
@@ -654,4 +767,66 @@ test('a Coordinator confirmation card shows its warnings and sends the human’s
     decision: 'confirm',
     choices: { 'NB-3': { closePullRequests: true, children: 'detach' } },
   })
+})
+
+test('an Automation card shows the draft, offers Start the Tasks it creates for a check, and sends the human’s choice on Create', async () => {
+  const { a, shown, open } = withCoordinator()
+  shown.coordinator = coordinator({
+    automationCards: [
+      {
+        id: 'ac1',
+        kind: 'create',
+        operation: 'op-1',
+        askedAt: createdAt,
+        name: 'Nightly tests',
+        requestHash: 'h',
+        rows: [
+          { label: 'Schedule', value: 'Every day at 3:00' },
+          { label: 'Check command', value: 'pnpm check', long: true },
+        ],
+        nextFirings: [],
+        offersStartTasks: true,
+      },
+      {
+        id: 'ac2',
+        kind: 'edit',
+        operation: 'op-2',
+        askedAt: createdAt,
+        name: 'Morning intake',
+        automationId: 'a1',
+        requestHash: 'h2',
+        rows: [{ label: 'Schedule', before: 'Weekdays at 8:00', value: 'Every day at 7:00' }],
+        nextFirings: [],
+        offersStartTasks: false,
+        answer: {
+          decision: 'confirm',
+          at: createdAt,
+          refused: '“Morning intake” changed after this card was shown',
+        },
+      },
+    ],
+  })
+  const answer = vi.fn(() => shown.coordinator)
+  a.handle('answerAutomationCard', answer)
+  a.mount()
+  const pane = await open()
+  const card = await within(pane).findByRole('region', {
+    name: 'Create Automation “Nightly tests”?',
+  })
+  expect(card.textContent).toContain('pnpm check')
+  expect(card.textContent).toContain('Nothing is saved until you click Create.')
+  const start = within(card).getByRole('checkbox', { name: /Start the Tasks it creates/ })
+  expect((start as HTMLInputElement).checked).toBe(false)
+  await user().click(start)
+  await user().click(within(card).getByRole('button', { name: 'Create' }))
+  expect(answer).toHaveBeenCalledWith('k1', 'ac1', { decision: 'confirm', startTasks: true })
+
+  const refused = within(pane).getByRole('region', { name: 'Save changes to “Morning intake”?' })
+  expect(within(refused).getByRole('row', { name: /Schedule/ }).textContent).toContain(
+    'Weekdays at 8:00',
+  )
+  expect(refused.textContent).toContain(
+    'Not done: “Morning intake” changed after this card was shown. Nothing changed.',
+  )
+  expect(within(refused).queryByRole('button', { name: 'Save' })).toBeNull()
 })

@@ -226,6 +226,29 @@ function ToolRow({
   )
 }
 
+export function commandMeta(item: Extract<ChatItem, { kind: 'command' }>, now: number): string {
+  const took = elapsed(item.at, item.endedAt === undefined ? now : Date.parse(item.endedAt))
+  if (item.status === 'running') return `running · ${took}`
+  if (item.status === 'stopped') return `Stopped · ${took}`
+  if (item.status === 'passed') return `Passed · ${took}`
+  return item.exitCode === undefined ? `Failed · ${took}` : `Exit code ${item.exitCode} · ${took}`
+}
+
+function CommandRow({ item, now }: { item: Extract<ChatItem, { kind: 'command' }>; now: number }) {
+  return (
+    <Collapsible
+      label={item.status === 'running' ? 'TED is running' : 'TED ran'}
+      mono={item.name}
+      meta={commandMeta(item, now)}
+      tone={item.status === 'failed' ? 'failed' : undefined}
+    >
+      {item.status !== 'running' && (
+        <pre className={styles.output}>{item.output.trim() === '' ? 'No output' : item.output}</pre>
+      )}
+    </Collapsible>
+  )
+}
+
 function AgentMessage({
   item,
   run,
@@ -537,6 +560,8 @@ const ChatRow = memo(function ChatRow({ item, run, now, options }: ChatRowProps)
       return <ToolRow item={item} now={now} open={options.matchItemId === item.id} />
     case 'permission':
       return <PermissionRow item={item} now={now} inspect={options.inspect} />
+    case 'command':
+      return <CommandRow item={item} now={now} />
   }
 }, sameRow)
 
@@ -770,7 +795,9 @@ export function ChatTimeline({
   const run = chat?.run
   const rows = toolGroups(conversationRows(items, options.extra ?? [], run?.startedAt ?? ''))
   const ticking = useTicking(
-    items.some((item) => item.kind === 'tool' && item.status === 'running'),
+    items.some(
+      (item) => (item.kind === 'tool' || item.kind === 'command') && item.status === 'running',
+    ),
   )
   const now = useNow()
   const [chosen, setChosen] = useState<ReadonlyMap<string, boolean>>(new Map())
@@ -785,7 +812,11 @@ export function ChatTimeline({
       <ChatRow
         item={item}
         run={run}
-        now={item.kind === 'tool' && item.status === 'running' ? ticking : now}
+        now={
+          (item.kind === 'tool' || item.kind === 'command') && item.status === 'running'
+            ? ticking
+            : now
+        }
         options={options}
       />
     </div>

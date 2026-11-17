@@ -461,7 +461,12 @@ test('no checks after ten minutes asks once, Keep waiting resets the clock, and 
   await watcher.cycle(id, waiting)
   const first = question()
   if (!first) throw new Error('no CI question')
-  expect(first.choices).toContain('Merge anyway')
+  expect(first.choices).toEqual([
+    'Send to Task Lead',
+    'Keep waiting',
+    'Merge anyway',
+    'Merge, and don’t wait for CI on widgets again',
+  ])
   await watcher.cycle(id, waiting)
   expect(store.listComments(id)).toHaveLength(1)
   store.answerComment(first.id, {
@@ -483,6 +488,29 @@ test('no checks after ten minutes asks once, Keep waiting resets the clock, and 
     at: new Date(now).toISOString(),
   })
   expect(await watcher.cycle(id, waiting)).toBe('done')
+})
+
+test('Merge and don’t wait again merges, and isn’t offered when the base requires a check', async () => {
+  ci()
+  now += 600_001
+  await watcher.cycle(id, read())
+  const asked = question()
+  if (!asked) throw new Error('no CI question')
+  store.answerComment(asked.id, {
+    kind: 'answered',
+    choice: 'Merge, and don’t wait for CI on widgets again',
+    at: new Date(now).toISOString(),
+  })
+  expect(await watcher.cycle(id, read())).toBe('done')
+})
+
+test('a base that requires a check never offers Merge and don’t wait again', async () => {
+  ci()
+  store.branchPushed(id, 'widgets', { commit: head, ci: true, ciSignals: ['required-checks'] })
+  store.pullRequestSignedOff(id, 'widgets', head)
+  now += 600_001
+  await watcher.cycle(id, read())
+  expect(question()?.choices).toEqual(['Send to Task Lead', 'Keep waiting', 'Merge anyway'])
 })
 
 test('CI stuck is noticed while review is missing and is withdrawn when CI reports', async () => {

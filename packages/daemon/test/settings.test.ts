@@ -325,6 +325,24 @@ describe('settings and Factories over the daemon API', () => {
     expect((await ted.getSettings()).deleteArchivedAfterDays).toBe(365)
     await ted.updateSettings({ deleteArchivedAfterDays: null })
     expect((await ted.getSettings()).deleteArchivedAfterDays).toBeNull()
+
+    expect((await ted.getSettings()).sleepIdleRunsAfterMinutes).toBe(10)
+    await ted.updateSettings({ sleepIdleRunsAfterMinutes: 1440 })
+    expect((await ted.getSettings()).sleepIdleRunsAfterMinutes).toBe(1440)
+    await expect(ted.updateSettings({ sleepIdleRunsAfterMinutes: 0 })).rejects.toThrow(
+      'sleepIdleRunsAfterMinutes must be null or a whole number from 1 to 1440',
+    )
+    await ted.updateSettings({ sleepIdleRunsAfterMinutes: null })
+    expect((await ted.getSettings()).sleepIdleRunsAfterMinutes).toBeNull()
+
+    expect((await ted.getSettings()).deleteArchivedChatsAfterDays).toBeNull()
+    await ted.updateSettings({ deleteArchivedChatsAfterDays: 30 })
+    expect((await ted.getSettings()).deleteArchivedChatsAfterDays).toBe(30)
+    await expect(ted.updateSettings({ deleteArchivedChatsAfterDays: 0.5 })).rejects.toThrow(
+      'deleteArchivedChatsAfterDays',
+    )
+    await ted.updateSettings({ deleteArchivedChatsAfterDays: null })
+    expect((await ted.getSettings()).deleteArchivedChatsAfterDays).toBeNull()
   })
 
   test('a client turns Start at login and Stay Awake off and on', async () => {

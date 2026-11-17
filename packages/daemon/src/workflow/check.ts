@@ -7,9 +7,13 @@ import {
   isModelName,
   type LayerKind,
   maxCleanupStepName,
+  type PullRequestCiMode,
+  pullRequestCiModes,
   type StageId,
   type WorkflowProblem,
 } from '@ted/protocol'
+import { builtInAgentIds } from '@ted/protocol/agent-files'
+import { isOneOf } from '@ted/protocol/parse'
 import {
   handsOff,
   hasClarifyRounds,
@@ -23,6 +27,15 @@ import {
   validates,
 } from '@ted/protocol/stage'
 import { isMap, isScalar, isSeq, LineCounter, type Node, parseDocument, type YAMLMap } from 'yaml'
+import {
+  type AgentSettings,
+  checkAgentFiles,
+  type InheritedAgents,
+  inheritedAgents,
+} from './agent-files.ts'
+import { displayPath } from './display-path.ts'
+
+export { displayPath }
 
 export type LayerFiles = Record<string, string | null>
 
@@ -83,6 +96,7 @@ export interface RepoSettings {
   remote?: string
   base_branch?: string
   merge_method?: string
+  pull_request_ci?: PullRequestCiMode
   worktree?: {
     setup?: WorktreeCommand
     teardown?: WorktreeCommand
@@ -110,6 +124,8 @@ export interface CheckedLayer {
   files: LayerFiles
   settings: WorkflowSettings
   stageFiles: Partial<Record<AgentStageId, string>>
+  agentSettings: Record<string, AgentSettings>
+  agentFiles: Record<string, string>
   notes?: string
   problems: WorkflowProblem[]
   valid: boolean
@@ -118,6 +134,7 @@ export interface CheckedLayer {
 export interface InheritedStages {
   files: readonly string[]
   order?: readonly string[]
+  agents?: InheritedAgents
 }
 
 export function inheritedFrom(below: readonly CheckedLayer[]): InheritedStages {
@@ -127,7 +144,7 @@ export function inheritedFrom(below: readonly CheckedLayer[]): InheritedStages {
     for (const id of Object.keys(layer.stageFiles)) files.add(id)
     if (layer.settings.order) order = layer.settings.order
   }
-  return { files: [...files], ...(order && { order }) }
+  return { files: [...files], ...(order && { order }), agents: inheritedAgents(below) }
 }
 
 const allStageIds: readonly string[] = ['backlog', ...agentStageIds, 'done']
@@ -142,10 +159,6 @@ const repoName = /^[a-z0-9-]+$/
 const githubRemote =
   /^(?:(?:https?|ssh|git):\/\/(?:[^@/]+@)?github\.com(?::\d+)?\/|git@github\.com:|github\.com\/)?([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?\/?$/
 const factoryOnly = '` can only be set in a Factory’s .ted/workflow.yaml'
-
-export function displayPath(kind: LayerKind, file: string): string {
-  return kind === 'factory' ? `.ted/${file}` : file
-}
 
 export function githubRepoOf(remote: string): string | undefined {
   const match = githubRemote.exec(remote.trim())
@@ -236,10 +249,21 @@ export function checkLayer(input: {
       message: `\`${id}\` has no Stage file; add stages/${id}.md`,
     })
   }
+  const { agentSettings, agentFiles } = checkAgentFiles({
+    kind,
+    files,
+    inherited:
+      input.inherited?.agents ??
+      (kind === 'ted'
+        ? { defined: [], instructed: [] }
+        : { defined: builtInAgentIds, instructed: builtInAgentIds }),
+    problems,
+  })
   const yamlFile = displayPath(kind, 'workflow.yaml')
-  const rank = (p: WorkflowProblem) => (p.file === yamlFile ? 0 : 1)
+  const agentsFile = displayPath(kind, 'agents.yaml')
+  const rank = (p: WorkflowProblem) => (p.file === yamlFile ? 0 : p.file === agentsFile ? 1 : 2)
   problems.sort(
-    (a, b) => rank(a) - rank(b) || (rank(a) === 0 ? a.line - b.line || a.column - b.column : 0),
+    (a, b) => rank(a) - rank(b) || (rank(a) < 2 ? a.line - b.line || a.column - b.column : 0),
   )
 
   const notes = kind === 'factory' ? files['notes.md'] : undefined
@@ -248,6 +272,8 @@ export function checkLayer(input: {
     files,
     settings,
     stageFiles,
+    agentSettings,
+    agentFiles,
     ...(typeof notes === 'string' && { notes }),
     problems,
     valid: !problems.some((p) => p.severity === 'error'),
@@ -732,6 +758,12 @@ function checkWorkflowYaml(text: string, context: Context): WorkflowSettings {
             error(node, '`merge_method` must be squash, merge or rebase')
           else repo.merge_method = scalar(node) as string
           break
+        case 'pull_request_ci': {
+          const mode = scalar(node)
+          if (isOneOf(mode, pullRequestCiModes)) repo.pull_request_ci = mode
+          else error(node, '`pull_request_ci` must be auto, none or required')
+          break
+        }
         case 'worktree': {
           const worktree = checkWorktree(node)
           if (worktree) repo.worktree = worktree

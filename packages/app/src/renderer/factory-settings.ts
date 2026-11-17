@@ -15,6 +15,7 @@ import type {
 import { agentRoles, cleanupStepProblem, settingsInput } from '@ted/protocol/factory-settings'
 import type { PermissionMode } from '@ted/protocol/run'
 import type { AgentStageId, ClarifyDepth, StageId } from '@ted/protocol/task'
+import { type AgentDraft, agentChangedFiles, agentChanges, agentDrafts } from './agent-files.ts'
 import { ago } from './requests.ts'
 import type { FactorySectionId } from './settings-search.ts'
 
@@ -22,6 +23,7 @@ export type RepoField =
   | 'name'
   | 'baseBranch'
   | 'mergeMethod'
+  | 'pullRequestCi'
   | 'setup'
   | 'teardown'
   | 'env'
@@ -32,6 +34,7 @@ const fields: RepoField[] = [
   'name',
   'baseBranch',
   'mergeMethod',
+  'pullRequestCi',
   'setup',
   'teardown',
   'env',
@@ -51,6 +54,8 @@ function value(repo: RepoSettingsInput, field: RepoField): unknown {
       return repo.baseBranch?.trim() || undefined
     case 'mergeMethod':
       return repo.mergeMethod ?? 'squash'
+    case 'pullRequestCi':
+      return repo.pullRequestCi ?? 'auto'
     case 'setup':
     case 'teardown': {
       const run = repo[field]?.run.trim() ?? ''
@@ -134,6 +139,8 @@ export interface SettingsDraft {
   checks: CheckInput[]
   cleanup: CleanupDraft
   agents: Record<AgentRole, AgentChoiceInput | null>
+  agentFiles: AgentDraft[]
+  keepAgentFiles: string[]
   permissions: PermissionMode
   maxWorkingRuns: string
   notes: string
@@ -215,6 +222,8 @@ export function settingsDraft(view: FactorySettingsView): SettingsDraft {
     checks: view.checks.map((check) => ({ ...check })),
     cleanup: cleanupDraft(view.cleanup),
     agents,
+    agentFiles: agentDrafts(view.agentFiles),
+    keepAgentFiles: [],
     permissions: view.permissions,
     maxWorkingRuns: view.maxWorkingRuns === undefined ? '' : String(view.maxWorkingRuns),
     notes: view.notes,
@@ -304,6 +313,10 @@ export function settingsChanges(
     changes.agents ??= {}
     changes.agents[role] = draft.agents[role]
   }
+  const agentFiles = agentChanges(draft.agentFiles, loaded.agentFiles)
+  if (agentFiles.length > 0) changes.agentFiles = agentFiles
+  const keptAgents = draft.keepAgentFiles.filter((id) => !loaded.keepAgentFiles.includes(id))
+  if (keptAgents.length > 0) changes.keepAgentFiles = keptAgents
   const limit = limitValue(draft.maxWorkingRuns)
   if (limit !== limitValue(loaded.maxWorkingRuns)) changes.maxWorkingRuns = limit
   if (draft.notes !== loaded.notes) changes.notes = draft.notes
@@ -349,7 +362,16 @@ export function unsavedChanges(draft: SettingsDraft, loaded: SettingsDraft): Uns
   if (yaml > 0 || overrides) files.push('.ted/workflow.yaml')
   for (const [id] of stageFiles) files.push(`.ted/stages/${id}.md`)
   if (changes.notes !== undefined) files.push('.ted/notes.md')
-  return { count: yaml + stageFiles.length + (changes.notes !== undefined ? 1 : 0), files }
+  const agents = agentChangedFiles(changes.agentFiles ?? [], '.ted/')
+  if (changes.keepAgentFiles && !agents.includes('.ted/agents.yaml')) {
+    agents.unshift('.ted/agents.yaml')
+  }
+  files.push(...agents)
+  const agentCount = (changes.agentFiles?.length ?? 0) + (changes.keepAgentFiles?.length ?? 0)
+  return {
+    count: yaml + stageFiles.length + (changes.notes !== undefined ? 1 : 0) + agentCount,
+    files,
+  }
 }
 
 export function unsavedSections(
@@ -363,6 +385,7 @@ export function unsavedSections(
   if (changes.checks) sections.add('checks')
   if (changes.cleanup) sections.add('cleanup')
   if (changes.agents) sections.add('agents')
+  if (changes.agentFiles || changes.keepAgentFiles) sections.add('agent-files')
   if (changes.maxWorkingRuns !== undefined) sections.add('permissions')
   if (changes.notes !== undefined) sections.add('notes')
   return sections

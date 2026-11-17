@@ -7,6 +7,7 @@ import { PermissionsSection } from '../src/renderer/views/FactorySettingsSection
 import { bridge, user } from './support/component.ts'
 
 const view: FactorySettingsView = {
+  agentFiles: [],
   factoryId: 'factory',
   repo: 'acme/widgets',
   defaultBranch: 'main',

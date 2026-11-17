@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
+  type Automation,
   type Comment,
   type Coordinator,
   type CoordinatorChatSummary,
@@ -12,8 +13,11 @@ import {
   type CoordinatorTask,
   type CoordinatorTaskList,
   coordinatorTaskSearch,
+  DaemonClient,
+  draftBody,
   type Factory,
   type LineComment,
+  parseAutomationDraftRequest,
   type RunChat,
   type RunMessage,
   type RunSlots,
@@ -24,6 +28,7 @@ import {
   tedPaths,
   type WaitingRequest,
 } from '@ted/protocol'
+import type { JsonObject } from '@ted/protocol/parse'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import { coordinatorLine } from '../src/coordinators/coordinators.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
@@ -171,9 +176,17 @@ test('one conversation per Factory; scoped reads include fresh briefs and Commen
   await rename(otherOrigin, renamed)
   await s.ok('POST', '/dev/factories', { repo: renamed, key: 'OTHER' })
   const other = await s.task('Other Task', 'OTHER')
+  await mkdir(path.join(home, 'library', 'agents'), { recursive: true })
+  await writeFile(
+    path.join(home, 'library', 'agents', 'coordinator.md'),
+    '# You are the Coordinator for one TED Factory\nKeep answers to three lines.\n',
+  )
   const { c, run } = await s.start()
   const conversation = await s.ok<RunWithConversation>('GET', `/runs/${c.runId}`)
   expect(conversation.run.prompt).toContain('## Write clearly for the user')
+  expect(conversation.run.prompt).toContain('Keep answers to three lines.')
+  expect(conversation.run.prompt).not.toContain('Help the human compare Tasks')
+  expect(conversation.run.prompt).toContain('ted coordinator tasks [--stage <Stage>]')
   const list = unpack<{ tasks: Task[] }>((await run.call('GET', '/coordinator/tasks')).body)
   expect(list.tasks.map((t) => t.id)).toEqual([task.id])
   const badge = await s.task('Offline badge')
@@ -240,7 +253,8 @@ test('Coordinator tokens cannot use generic reads, mutations, or human-only acti
     ['POST', `/tasks/${task.id}/outcome`],
     ['POST', `${s.base}/messages`],
     ['POST', s.chats],
-    ['POST', `${s.base}/continue`],
+    ['POST', `${s.base}/archive`],
+    ['POST', `${s.base}/unarchive`],
     ['DELETE', s.base],
   ] as const) {
     expect(
@@ -261,8 +275,153 @@ test('Coordinator tokens cannot use generic reads, mutations, or human-only acti
   expect((await file.call('POST', `${s.base}/messages`, { text: 'bypass' })).status).toBe(403)
   expect((await file.call('POST', s.chats, { text: 'bypass' })).status).toBe(403)
   expect((await file.call('DELETE', s.base)).status).toBe(403)
+  expect((await file.call('POST', `${s.base}/archive`, {})).status).toBe(403)
   expect((await file.call('POST', `/coordinator/tasks/${task.id}/start`, {})).status).toBe(403)
 })
+
+test('the Coordinator drafts Automations as cards that only the app carries out', async () => {
+  const s = await setup()
+  const { c, run } = await s.start()
+  const automations = () => s.ok<Automation[]>('GET', '/automations')
+  const draft = (operation: string, kind: string, extra: JsonObject) =>
+    run.call('POST', '/coordinator/automation-drafts', { operation, kind, ...extra })
+  const cards = async () => (await s.chat()).automationCards
+  const answer = (cardId: string, body: JsonObject) =>
+    s.ok<Coordinator>('POST', `${s.base}/automation-cards/${cardId}`, body)
+  const weekdays = { kind: 'weekdays', at: '08:00' }
+
+  const info = await readDaemonInfo(home)
+  if (!info) throw new Error('missing daemon connection')
+  const file = api(s.port, info.token)
+  const body = { name: 'Sneaky', prompt: 'Go', schedule: weekdays }
+  for (const caller of [run, file]) {
+    expect((await caller.call('POST', '/automations', body)).status).toBe(403)
+    expect((await caller.call('PATCH', '/automations/x', { name: 'N' })).status).toBe(403)
+    expect((await caller.call('DELETE', '/automations/x')).status).toBe(403)
+    expect(
+      (await caller.call('POST', `${s.base}/automation-cards/x`, { decision: 'confirm' })).status,
+    ).toBe(403)
+  }
+
+  const fields = {
+    name: 'Morning intake',
+    prompt: 'Pull my new Linear issues. Key ghp_abcdefghijklmnopqrstuvwxyz0123',
+    schedule: weekdays,
+    on: false,
+  }
+  const runClient = new DaemonClient(info, s.tokens.issue(c.runId))
+  const drafted = await runClient.draftAutomation(
+    draftBody(parseAutomationDraftRequest({ operation: 'op-create', kind: 'create', fields })),
+  )
+  const cardId = drafted.card.id
+  expect((await draft('op-create', 'create', { fields })).body).toEqual({
+    card: { id: cardId, waiting: true },
+  })
+  expect(
+    (await draft('op-create', 'create', { fields: { ...fields, name: 'Other' } })).status,
+  ).toBe(409)
+  expect(await automations()).toEqual([])
+  const [card] = await cards()
+  expect(card).toMatchObject({ id: cardId, kind: 'create', name: 'Morning intake' })
+  expect(card?.create?.prompt).toBe('Pull my new Linear issues. Key [redacted]')
+  expect(card?.rows.find((r) => r.label === 'Schedule')?.value).toMatch(/weekday/i)
+  expect(card?.nextFirings).toHaveLength(3)
+  expect(card?.offersStartTasks).toBe(false)
+  expect(
+    (await s.ok<WaitingRequest[]>('GET', '/inbox/waiting')).find((w) => w.id === cardId),
+  ).toMatchObject({
+    source: 'coordinator',
+    chatId: c.id,
+    headline: 'Create Automation “Morning intake”?',
+    automationCard: 'create',
+  })
+  expect(
+    (
+      await s.client.call('POST', `${s.base}/automation-cards/${cardId}`, {
+        decision: 'confirm',
+        startTasks: true,
+      })
+    ).status,
+  ).toBe(400)
+
+  await answer(cardId, { decision: 'confirm' })
+  const [created] = await automations()
+  expect(created).toMatchObject({
+    name: 'Morning intake',
+    prompt: 'Pull my new Linear issues. Key [redacted]',
+    schedule: weekdays,
+    on: false,
+  })
+  expect((await cards())[0]?.answer).toMatchObject({
+    decision: 'confirm',
+    automationId: created?.id,
+  })
+  expect(await s.waitingIds()).not.toContain(cardId)
+  const listed = unpack<{ automations: Automation[] }>(
+    (await run.call('GET', '/coordinator/automations')).body,
+  )
+  expect(listed.automations.map((a) => a.name)).toEqual(['Morning intake'])
+
+  const check = await draft('op-check', 'create', {
+    fields: {
+      name: 'Nightly tests',
+      schedule: { kind: 'daily', at: '03:00' },
+      on: false,
+      check: { command: 'pnpm check' },
+    },
+  })
+  const checkCard = (check.body as { card: { id: string } }).card.id
+  expect((await cards()).find((x) => x.id === checkCard)?.offersStartTasks).toBe(true)
+  await answer(checkCard, { decision: 'confirm', startTasks: true })
+  expect((await automations()).find((a) => a.name === 'Nightly tests')?.check?.startTasks).toBe(
+    true,
+  )
+
+  const id = created?.id ?? ''
+  const edit = await draft('op-edit', 'edit', {
+    automation: id,
+    fields: { schedule: { kind: 'daily', at: '07:00' } },
+  })
+  const editCard = (edit.body as { card: { id: string } }).card.id
+  expect((await cards()).find((x) => x.id === editCard)?.rows).toEqual([
+    expect.objectContaining({ label: 'Schedule', before: created?.scheduleText }),
+  ])
+  expect(
+    (await draft('op-same', 'edit', { automation: id, fields: { schedule: weekdays } })).status,
+  ).toBe(400)
+  await s.ok('PATCH', `/automations/${id}`, { name: 'Renamed by hand' })
+  await answer(editCard, { decision: 'confirm' })
+  expect((await cards()).find((x) => x.id === editCard)?.answer?.refused).toBe(
+    '“Morning intake” changed after this card was shown',
+  )
+  expect((await automations()).find((a) => a.id === id)?.schedule).toEqual(weekdays)
+
+  const remove = await draft('op-delete', 'delete', { automation: id })
+  const removeCard = (remove.body as { card: { id: string } }).card.id
+  await answer(removeCard, { decision: 'cancel' })
+  expect((await automations()).some((a) => a.id === id)).toBe(true)
+  const again = await draft('op-delete-2', 'delete', { automation: id })
+  await answer((again.body as { card: { id: string } }).card.id, { decision: 'confirm' })
+  expect((await automations()).some((a) => a.id === id)).toBe(false)
+
+  const secretModel = await draft('op-model', 'create', {
+    fields: { ...fields, model: `sk-${'a'.repeat(24)}` },
+  })
+  expect(secretModel.status).toBe(400)
+  expect(JSON.stringify(secretModel.body)).toContain('model looks like a secret')
+  const open: string[] = []
+  for (let n = 0; n < 20; n++) {
+    const made = await draft(`op-open-${n}`, 'create', { fields: { ...fields, name: `Open ${n}` } })
+    open.push((made.body as { card: { id: string } }).card.id)
+  }
+  expect((await draft('op-open-20', 'create', { fields })).status).toBe(409)
+  await s.ok('POST', `${s.base}/archive`, {})
+  const after = await cards()
+  for (const id of open) expect(after.find((x) => x.id === id)?.answer?.decision).toBe('cancel')
+  const waiting = await s.waitingIds()
+  expect(open.some((id) => waiting.includes(id))).toBe(false)
+  expect((await automations()).some((a) => a.name.startsWith('Open '))).toBe(false)
+}, 90_000)
 
 test('actions reject stale state and cross-Factory neighbours; moves and creates retry receipts after a restart', async () => {
   const s = await setup(),
@@ -881,11 +1040,28 @@ test('two open chats keep their own receipts and confirmations; deleting one lea
     { factoryId: s.factory.id, status: 'working' },
   ])
 
+  const archivedA = await s.ok<Coordinator>('POST', `${aPath}/archive`)
+  expect(archivedA.endedAt).toBeDefined()
+  expect(archivedA.confirmations[0]?.answer?.decision).toBe('cancel')
+  expect(await s.waitingIds()).not.toContain(cardA.id)
+  expect((await s.client.call('POST', `${aPath}/messages`, { text: 'more' })).status).toBe(409)
+  expect((await a.run.call('GET', '/coordinator/tasks')).status).toBe(403)
+  expect(
+    (await s.ok<CoordinatorChatSummary[]>('GET', s.chats)).find((c) => c.id === a.c.id),
+  ).toMatchObject({ waiting: false, endedAt: archivedA.endedAt })
+  await waitUntil(
+    async () =>
+      (await s.ok<RunWithConversation>('GET', `/runs/${a.c.runId}`)).run.state === 'finished' ||
+      undefined,
+    'chat A’s Run to stop',
+  )
+
   await s.ok('DELETE', aPath)
   expect((await s.client.call('GET', aPath)).status).toBe(404)
   expect((await a.run.call('GET', '/coordinator/tasks')).status).toBe(403)
   expect((await s.client.call('GET', `/runs/${a.c.runId}/chat`)).status).toBe(404)
   expect(existsSync(path.join(home, 'coordinators', a.c.runId))).toBe(false)
+  expect(existsSync(path.join(home, 'runs', a.c.runId))).toBe(true)
   expect(await s.waitingIds()).not.toContain(cardA.id)
   expect((await s.ok<Task[]>('GET', '/tasks')).map((t) => t.id)).toContain(one.id)
   expect((await read(bPath)).status).toBe('working')
@@ -895,7 +1071,7 @@ test('two open chats keep their own receipts and confirmations; deleting one lea
   await waitUntil(async () => (await read(bPath)).status === 'ready', 'chat B to finish')
 }, 60_000)
 
-test('a conversation saved before chats is an ended chat that can be read, continued and deleted', async () => {
+test('a conversation saved before chats is an archived chat that can be read, unarchived, archived again and deleted', async () => {
   const s = await setup()
   const { c } = await s.start([{ say: 'Saved advice' }, { endTurn: true }])
   await waitUntil(async () => (await s.chat()).status === 'ready', 'the first reply')
@@ -944,14 +1120,23 @@ test('a conversation saved before chats is an ended chat that can be read, conti
     endedAt,
     runIds: [c.runId],
   })
+  expect((await client.call('PATCH', '/coordinator-chats/saved-1', { title: '   ' })).status).toBe(
+    400,
+  )
+  expect(
+    await ok<Coordinator>('PATCH', '/coordinator-chats/saved-1', { title: '  Saved   review ' }),
+  ).toMatchObject({ title: 'Saved review', endedAt })
+  expect(await ok<CoordinatorChatSummary[]>('GET', s.chats)).toMatchObject([
+    { id: 'saved-1', title: 'Saved review' },
+  ])
   const kept = await ok<RunChat>('GET', '/coordinator-chats/saved-1/chat')
   expect(kept.items.some((i) => i.kind === 'agent' && i.text === 'Saved advice')).toBe(true)
   expect(
     (await client.call('POST', '/coordinator-chats/saved-1/messages', { text: 'Too early' }))
       .status,
-  ).toBe(404)
+  ).toBe(409)
 
-  const continued = await ok<Coordinator>('POST', '/coordinator-chats/saved-1/continue')
+  const continued = await ok<Coordinator>('POST', '/coordinator-chats/saved-1/unarchive')
   expect(continued).toMatchObject({ id: 'saved-1', status: 'ready', runIds: [c.runId] })
   expect(continued.endedAt).toBeUndefined()
   await ok('POST', '/coordinator-chats/saved-1/messages', {
@@ -966,6 +1151,11 @@ test('a conversation saved before chats is an ended chat that can be read, conti
     async () => (await ok<Coordinator>('GET', '/coordinator-chats/saved-1')).status === 'ready',
     'the continued chat to settle',
   )
+  const again = await ok<Coordinator>('POST', '/coordinator-chats/saved-1/archive')
+  expect(again.endedAt).toBeDefined()
+  expect(
+    (await client.call('POST', '/coordinator-chats/saved-1/messages', { text: 'Archived' })).status,
+  ).toBe(409)
 
   await ok('DELETE', '/coordinator-chats/saved-1')
   expect(await ok('GET', s.chats)).toEqual([])

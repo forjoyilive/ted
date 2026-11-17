@@ -204,7 +204,13 @@ export function MenuButton({
   const ref = usePopover(open, close)
   return (
     <div ref={ref} className={styles.menuAnchor}>
-      <Button aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+      <Button
+        variant="quiet"
+        className={styles.menuTrigger}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
         {icon}
         {label}
         {badge !== undefined && badge > 0 && <span className={styles.badge}>{badge}</span>}

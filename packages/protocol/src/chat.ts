@@ -44,6 +44,16 @@ export type ChatItem =
   | { kind: 'interrupted'; id: string; at: string }
   | { kind: 'ted'; id: string; title: string; text: string; at?: string }
   | { kind: 'permission'; id: string; request: Comment; at: string }
+  | {
+      kind: 'command'
+      id: string
+      name: string
+      status: 'running' | 'passed' | 'failed' | 'stopped'
+      exitCode?: number
+      output: string
+      at: string
+      endedAt?: string
+    }
 
 export type RunRole = 'lead' | 'sub-agent' | 'run' | 'side-chat'
 

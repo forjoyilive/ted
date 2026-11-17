@@ -1,4 +1,6 @@
+import type { AutomationCard } from './automation-card.ts'
 import type { RunMessage } from './chat.ts'
+import type { ChatAgent, ChatRequest } from './chat-agent.ts'
 import type {
   BlockedChoice,
   ClarifyDepth,
@@ -52,6 +54,7 @@ export interface Coordinator {
   runIds: string[]
   started: boolean
   opening: string
+  title: string
   startedAt: string
   endedAt?: string
   lead: TaskLead
@@ -60,7 +63,10 @@ export interface Coordinator {
   unsentMessages: RunMessage[]
   receipts: CoordinatorReceipt[]
   confirmations: CoordinatorConfirmation[]
+  automationCards: AutomationCard[]
+  requests: ChatRequest[]
   tasks: Task[]
+  chatAgent: ChatAgent
 }
 
 export interface CoordinatorChatSummary {
@@ -73,6 +79,7 @@ export interface CoordinatorChatSummary {
   endedAt?: string
   taskCount: number
   waiting: boolean
+  chatAgent: ChatAgent
 }
 
 export interface CoordinatorRemoval {
@@ -129,8 +136,13 @@ export interface CoordinatorStatus {
   status: Coordinator['status']
 }
 
+export interface RenameCoordinatorChatRequest {
+  title: string
+}
+
 export interface CoordinatorMessage {
   text: string
+  agentId?: string
   agent?: TaskLead['agent']
   model?: string
   effort?: TaskLead['effort']

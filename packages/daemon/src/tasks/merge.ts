@@ -1,4 +1,10 @@
-import { type GitHubWait, type MergeMethod, mergeMethods } from '@ted/protocol'
+import {
+  type GitHubWait,
+  type MergeMethod,
+  mergeMethods,
+  type PullRequestCiMode,
+  type TaskPush,
+} from '@ted/protocol'
 import type { Gh } from '../github/gh.ts'
 
 export interface MergeTarget {
@@ -125,6 +131,15 @@ export function failingChecks(pr: RemotePullRequest, options: CiOptions = {}): R
 
 export function acceptedFailing(pr: RemotePullRequest, options: CiOptions = {}): RemoteCheck[] {
   return relevantChecks(pr).filter((c) => c.state === 'failed' && acceptedCheck(c, options))
+}
+
+export function expectsCi(
+  mode: PullRequestCiMode | undefined,
+  pushed: TaskPush | undefined,
+): boolean {
+  if (mode === 'required') return true
+  if (mode === 'none') return pushed?.ciSignals.includes('required-checks') === true
+  return pushed?.ci ?? true
 }
 
 export function ciState(

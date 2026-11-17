@@ -3,6 +3,7 @@ import {
   type ChatItem,
   type ConversationHit,
   matchesTerms,
+  planTitle,
   searchLimits,
   searchTerms,
   snippetAround,
@@ -81,7 +82,7 @@ export async function searchConversations(
                   factoryId: coordinator.factoryId,
                   chatId: coordinator.id,
                   ref: 'Coordinator',
-                  title: coordinator.opening || 'Coordinator',
+                  title: coordinator.title ?? (planTitle(coordinator.opening) || 'Coordinator'),
                 }
               : undefined
     if (!owner || !factories.has(owner.factoryId)) continue

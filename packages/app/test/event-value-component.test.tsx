@@ -134,6 +134,7 @@ test('Library event refresh preserves a draft until Discard reloads the current 
       path: '/library',
       version,
       agents: [],
+      agentFiles: [],
       problems: [],
       stages: [
         { id: 'review', name: 'Review', inOrder: true, enabled: true, gate: true, from: 'ted' },
@@ -242,6 +243,7 @@ test('Library Save loads no second view for its own event, and reloads after one
     path: '/library',
     version,
     agents: [],
+    agentFiles: [],
     problems: [],
     stages: [{ id: 'review', name: 'Review', inOrder: true, enabled: true, gate, from: 'ted' }],
   })

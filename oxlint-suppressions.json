@@ -166,9 +166,6 @@
     }
   },
   "packages/app/src/renderer/agent-chats.ts": {
-    "anti-slop/no-array-filter-map": {
-      "count": 1
-    },
     "anti-slop/no-runtime-typeof": {
       "count": 4
     },
@@ -719,7 +716,7 @@
       "count": 1
     },
     "anti-slop/no-known-value-widening": {
-      "count": 11
+      "count": 9
     }
   },
   "packages/app/src/renderer/requests.ts": {
@@ -995,9 +992,6 @@
     }
   },
   "packages/app/src/renderer/views/PlanChat.tsx": {
-    "anti-slop/no-unknown-returns": {
-      "count": 1
-    },
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 2
     }
@@ -2283,7 +2277,7 @@
       "count": 2
     },
     "anti-slop/no-unknown-parameters": {
-      "count": 13
+      "count": 12
     },
     "anti-slop/no-unknown-returns": {
       "count": 1
@@ -2509,7 +2503,7 @@
       "count": 1
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 5
+      "count": 4
     }
   },
   "packages/daemon/src/store/coordinators.ts": {
@@ -2895,13 +2889,13 @@
       "count": 1
     },
     "anti-slop/no-runtime-typeof": {
-      "count": 5
+      "count": 2
     },
     "anti-slop/no-unknown-parameters": {
       "count": 3
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 5
+      "count": 3
     }
   },
   "packages/daemon/src/tasks/request-answers.ts": {

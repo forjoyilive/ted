@@ -8,6 +8,7 @@ import type {
   MemoryUse,
   ProblemReportRequest,
   ProblemReportResult,
+  ProcessInfo,
   ProcessUsage,
   RunFixRequest,
   RunFixResult,
@@ -62,6 +63,7 @@ export interface CustomRequests {
   copyReport: () => Promise<void>
   memoryUse: () => Promise<MemoryUse>
   resourceUsage: () => Promise<ProcessUsage>
+  appProcesses: () => Promise<ProcessInfo[]>
   tedFolder: () => Promise<{ path: string; platform: string }>
   showTedFolder: () => Promise<void>
   showBackupInFolder: (name: string) => Promise<void>

@@ -1,3 +1,5 @@
+import type { AutomationCardKind } from './automation-card.ts'
+import type { ChatRequestKind } from './chat-agent.ts'
 import type { CommentKind } from './task.ts'
 
 interface WaitingBase {
@@ -26,7 +28,11 @@ export type WaitingRequest =
   | (WaitingBase & {
       source: 'coordinator'
       chatId: string
-      confirmationKind: 'archive' | 'delete'
+      chatTitle: string
+      agentName: string
+      confirmationKind?: 'archive' | 'delete'
+      automationCard?: AutomationCardKind
+      requestKind?: ChatRequestKind
     })
 
 export type SnoozedRequest = WaitingRequest & { snoozedUntil: string }

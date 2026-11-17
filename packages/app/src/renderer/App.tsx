@@ -143,7 +143,6 @@ import { Inbox } from './views/Inbox.tsx'
 import { NewTaskDialog } from './views/NewTaskDialog.tsx'
 import { NoFactories } from './views/NoFactories.tsx'
 import { Stub } from './views/OtherViews.tsx'
-import { PlanChatView } from './views/PlanChat.tsx'
 import { saveListView, TaskList } from './views/TaskList.tsx'
 import { TaskMap } from './views/TaskMap.tsx'
 import { TaskPanes } from './views/TaskThread.tsx'
@@ -848,27 +847,6 @@ export function App({ start }: { start?: AppStart | undefined }) {
           },
         })
       }
-      const planFactory =
-        navigation.planId === undefined
-          ? undefined
-          : factories.find((factory) => factory.id === navigation.lastFactoryId)
-      const planned =
-        planFactory && navigation.planId ? (
-          <PlanChatView
-            key={navigation.planId}
-            factory={planFactory}
-            planId={navigation.planId}
-            revealRequest={revealRequest}
-            backLabel="← Inbox"
-            onBack={() => dispatch({ type: 'open', screen })}
-            onDeleted={() => dispatch({ type: 'open', screen })}
-            onOpenTask={openTaskByRef}
-            onOpenPlan={(planId) =>
-              dispatch({ type: 'open-plan', factoryId: planFactory.id, planId })
-            }
-            onPlanMore={(from) => dispatch({ type: 'open-plan', factoryId: planFactory.id, from })}
-          />
-        ) : undefined
       return (
         <Inbox
           items={inbox}
@@ -928,7 +906,6 @@ export function App({ start }: { start?: AppStart | undefined }) {
           onNewTask={() => openNewTask()}
         >
           {opened ??
-            planned ??
             (navigation.automation?.runId === undefined
               ? undefined
               : automationRun(navigation.automation.id, navigation.automation.runId))}
@@ -1126,6 +1103,9 @@ export function App({ start }: { start?: AppStart | undefined }) {
               onNewPlan={openPlans}
               onPlanMore={(from) => dispatch({ type: 'open-plan', factoryId: factory.id, from })}
               onOpenTask={openTaskByRef}
+              onOpenAutomation={(automationId) =>
+                dispatch({ type: 'open-automation', automationId, factoryId: factory.id })
+              }
             />
           )
         return <Stub title={`${name} · ${factoryViewTitles[screen.view]}`} banners={view.banners} />
