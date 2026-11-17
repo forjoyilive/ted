@@ -273,13 +273,13 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
   await writeFile(path.join(scratch, 'second'), '')
 
   const coordinator = await chat([{ waitFor: path.join(scratch, 'coordinator') }], 'coordinator')
-  await waitUntil(
-    async () =>
-      (await ok<Coordinator>('GET', `/coordinator-chats/${coordinator.id}`)).status === 'working' ||
-      undefined,
-    'the Coordinator chat to work',
-  )
-  const powerless = await api(port, tokens.issue(coordinator.runId)).call(
+  const working = await waitUntil(async () => {
+    const latest = await ok<Coordinator>('GET', `/coordinator-chats/${coordinator.id}`)
+    if (latest.status !== 'working') return undefined
+    const run = await app.call('GET', `/runs/${latest.runId}`)
+    return run.status === 200 ? latest : undefined
+  }, 'the Coordinator chat’s Run to start')
+  const powerless = await api(port, tokens.issue(working.runId)).call(
     'POST',
     '/chat-outside-commands',
     { name: 'build', argument: '1.0.0' },
