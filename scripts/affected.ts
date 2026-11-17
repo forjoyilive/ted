@@ -289,27 +289,16 @@ export function readRepo(
   return { graph: importGraph(sources, files, packages), tests, electron }
 }
 
-export const maxAffectedFiles = 60
-
 export interface Chosen {
-  tier: 'affected' | 'direct' | 'named'
   run: Pick[]
   full: number
   left: number
 }
 
-export function chooseTier(
-  selection: Selection,
-  testCount: number,
-  max = maxAffectedFiles,
-): Chosen {
-  const everything = selection.all !== undefined
-  const full = everything ? testCount : selection.picks.length
-  if (!everything && full <= max) return { tier: 'affected', run: selection.picks, full, left: 0 }
-  const direct = selection.picks.filter((pick) => pick.kind !== 'through')
-  if (direct.length <= max) return { tier: 'direct', run: direct, full, left: full - direct.length }
-  const named = direct.filter((pick) => pick.kind !== 'imports')
-  return { tier: 'named', run: named, full, left: full - named.length }
+export function chooseTests(selection: Selection, testCount: number): Chosen {
+  const full = selection.all !== undefined ? testCount : selection.picks.length
+  const run = selection.picks.filter((pick) => pick.kind === 'changed' || pick.kind === 'app')
+  return { run, full, left: full - run.length }
 }
 
 const files = (count: number) => `${count} file${count === 1 ? '' : 's'}`
@@ -319,27 +308,21 @@ export function selectionText(
   chosen: Chosen,
   base: string,
   electron: ReadonlySet<string>,
-  max = maxAffectedFiles,
 ): string {
   const width = Math.max(0, ...chosen.run.map((pick) => pick.file.length))
   const rows = chosen.run.map(
     (pick) =>
       `  ${electron.has(pick.file) ? 'electron' : 'node    '}  ${pick.file.padEnd(width)}  ${pick.why}`,
   )
-  if (chosen.tier === 'affected')
-    return chosen.full === 0
-      ? `Affected tests since ${base}: none.`
-      : [`Affected tests since ${base}: ${files(chosen.full)}`, ...rows].join('\n')
+  if (chosen.full === 0) return `Affected tests since ${base}: none.`
+  if (chosen.left === 0)
+    return [`Affected tests since ${base}: ${files(chosen.full)}`, ...rows].join('\n')
   const what =
     selection.all !== undefined
       ? `every test (${files(chosen.full)}), because ${selection.all}`
       : files(chosen.full)
-  const tier =
-    chosen.tier === 'direct'
-      ? 'the changed test files, the test files that import a changed file directly and the Electron app tests for the changed app source'
-      : `the changed test files and the Electron app tests for the changed app source, because the test files that import a changed file directly come to more than ${max} as well`
   return [
-    `Affected tests since ${base}: ${what}. That is more than ${max}, so this run takes ${files(chosen.run.length)}: ${tier}. The scheduled full check covers the other ${chosen.left}.`,
+    `Affected tests since ${base}: ${what}. This run takes ${files(chosen.run.length)}: the changed test files and the Electron app tests for the changed app source. The scheduled full check covers the other ${chosen.left}.`,
     ...rows,
   ].join('\n')
 }
@@ -351,16 +334,9 @@ export function leftOutText(
 ): string | undefined {
   const skipped = run.filter((pick) => electron.has(pick.file))
   if (skipped.length === 0) return undefined
-  const named = skipped.filter((pick) => pick.kind === 'changed' || pick.kind === 'app')
-  const others = skipped.length - named.length
   return [
     `${sandbox} can’t start Electron, so the Affected tests Check left the Electron app tests out.`,
-    named.length > 0
-      ? 'Run these outside the sandbox, at most 3 files per command: pnpm vitest run <files>'
-      : 'None of them was changed or is named after a changed file, so none needs a run by hand.',
-    ...named.map((pick) => `  ${pick.file}  ${pick.why}`),
-    ...(others > 0
-      ? [`Also left out: ${files(others)} that only import${others === 1 ? 's' : ''} changed code.`]
-      : []),
+    'Run these outside the sandbox, at most 3 files per command: pnpm vitest run <files>',
+    ...skipped.map((pick) => `  ${pick.file}  ${pick.why}`),
   ].join('\n')
 }

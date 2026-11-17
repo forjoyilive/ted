@@ -27,7 +27,7 @@ export function appState() {
     layout: { items: [] },
     tasks: [],
     inbox: [],
-    settings: { ...defaultMachineSettings, firstLaunchDone: true },
+    settings: { ...defaultMachineSettings, firstLaunchDone: true, reportingAsked: true },
     slots: {
       limit: 3,
       working: 0,

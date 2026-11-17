@@ -468,6 +468,8 @@ test('first-launch Git identity copy waits for the clipboard and exposes errors 
       settings={defaultMachineSettings}
       startAtLogin={false}
       onStartAtLogin={vi.fn()}
+      reporting
+      onReporting={vi.fn()}
       footer={() => null}
     />,
   )

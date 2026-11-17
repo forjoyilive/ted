@@ -156,7 +156,12 @@ describe('first launch', () => {
     await startAtLogin(again).setChecked(true)
     await again.getByRole('button', { name: 'Skip' }).click()
     await sidebar(again).waitFor()
-    await expect.poll(settings).toMatchObject({ firstLaunchDone: true, startAtLogin: true })
+    await expect.poll(settings).toMatchObject({
+      firstLaunchDone: true,
+      startAtLogin: true,
+      reporting: true,
+      reportingAsked: true,
+    })
     await expect.poll(loginLines).toEqual(['on'])
 
     const completed = await relaunch()

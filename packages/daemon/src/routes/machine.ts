@@ -441,6 +441,8 @@ export const settingParsers: {
   },
   firstLaunchDone: onOff('firstLaunchDone'),
   onboardingOnNextOpen: onOff('onboardingOnNextOpen'),
+  reporting: onOff('reporting'),
+  reportingAsked: onOff('reportingAsked'),
   guideNextFactory: onOff('guideNextFactory'),
   linearIntakeScopes(value) {
     if (
