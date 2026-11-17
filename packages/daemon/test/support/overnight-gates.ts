@@ -4,7 +4,16 @@ import type { Json, JsonObject } from '@ted/protocol/parse'
 import { expect } from 'vitest'
 import { loadRunTokens } from '../../src/run-token.ts'
 import { api, waitUntil } from '../helpers.ts'
-import { brief, type Client, commitStep, ctx, getTask, merges, run } from '../merge-harness.ts'
+import {
+  brief,
+  type Client,
+  commitStep,
+  ctx,
+  getTask,
+  mergeAdvance,
+  merges,
+  run,
+} from '../merge-harness.ts'
 
 export const settingsStep = {
   run: [
@@ -21,7 +30,11 @@ export async function begin(
 ): Promise<Task> {
   const task = await client.ok<Task>('POST', '/tasks', {
     title: JSON.stringify({
-      steps: [{ everyMessage: [{ endTurn: true }] }, step, { endTurn: true }],
+      steps: [
+        { everyMessage: [{ run: ['sh', '-c', mergeAdvance] }, { endTurn: true }] },
+        step,
+        { endTurn: true },
+      ],
     }),
     factory: 'NB',
     ...extra,
