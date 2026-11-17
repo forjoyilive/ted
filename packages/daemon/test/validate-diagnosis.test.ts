@@ -362,7 +362,14 @@ test('a Workflow without earlier Work refuses Fix and retains the decision', asy
 })
 
 function backInValidate(store: Awaited<ReturnType<typeof openStore>>, taskId: string) {
-  store.changeStage(taskId, 'validate')
+  const { stageFile, layers } = required(
+    store.listStageEntries(taskId).findLast((e) => e.stage === 'validate'),
+  )
+  store.changeStage(taskId, 'validate', {
+    ...(stageFile && { stageFile }),
+    layers,
+    order: required(store.recordedStages(taskId)),
+  })
   const visit = required(store.listStageEntries(taskId).at(-1)?.at)
   store.failures.saveProgress({ ...required(store.failures.progress(taskId)), visit })
 }
@@ -820,19 +827,33 @@ test(
           (f) => f.source.kind === 'factory-check' && f.source.checkRunId === run.id,
         )
       }, 'reconstructed failure case')
-      const obligations = await waitUntil(async () => {
-        const value = await client.read<ValidationObligations>(`${s.root}/validation-obligations`)
-        return value.progress?.pending === false ? value : undefined
-      }, 'recovered diagnosis hold')
+      const backs = await waitUntil(async () => {
+        const values = await client.read<SendBack[]>(`${s.root}/send-backs`)
+        return values.length >= 2 ? values : undefined
+      }, 'the recovered failure to return the Task to Work')
+      expect(backs).toHaveLength(2)
+      expect(backs.at(-1)).toMatchObject({
+        from: 'validate',
+        to: 'work',
+        counted: true,
+        cause: 'check',
+        checkRunId: run.id,
+      })
+      expect((await client.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)?.stage).toBe(
+        'work',
+      )
+      const obligations = await client.read<ValidationObligations>(
+        `${s.root}/validation-obligations`,
+      )
       if (kind === 'unsafe output') {
         expect(recovered.evidence).toContain('[unsafe or invalid link omitted]')
         expect(recovered.evidence).toContain(recoveredLog)
         expect(recovered.evidence).not.toContain('token=fixture')
       }
+      expect(obligations.progress?.pending).toBe(false)
       expect(obligations.progress?.failureId).toBe(recovered.id)
       expect(obligations.progress?.checks.map((c) => c.state)).toEqual(['failed', 'not-run'])
       expect(obligations.satisfied).toBe(false)
-      expect(await client.read<SendBack[]>(`${s.root}/send-backs`)).toHaveLength(1)
       expect((await client.read<CheckRun[]>(`${s.root}/check-runs`)).at(-1)).toEqual(finished)
     })
   },
