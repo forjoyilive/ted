@@ -659,6 +659,24 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   ])
   expect((await taskById(i.id))?.blockedBy).toEqual([])
   expect((await taskById(k))?.archived).toBeTruthy()
+  const x = await s.task('X')
+  await run.call('POST', '/coordinator/tasks', {
+    operation: 'create-y',
+    title: 'Y',
+    parentId: x.id,
+  })
+  const z = await s.task('Z')
+  const xz = await removal('archive', [x.id, z.id], {}, 'archive-xz')
+  const askedXZ = (xz.body as { confirmation: { id: string } }).confirmation
+  await s.ok('POST', `/tasks/${z.id}/delete`, {})
+  const answeredXZ = await s.ok<Coordinator>('POST', answer(askedXZ.id), { decision: 'confirm' })
+  expect(answeredXZ.confirmations.find((c) => c.id === askedXZ.id)).toMatchObject({
+    answer: { decision: 'confirm' },
+    tasks: [
+      { id: x.id, result: { done: true } },
+      { id: z.id, result: { done: false, text: expect.stringContaining('no longer exists') } },
+    ],
+  })
 
   const e2 = await s.ok<Task>('POST', '/tasks', { factory: 'NB', title: 'E2', blockedBy: [q.id] })
   const own = await removal('delete', [p.id, q.id], { children: 'delete' }, 'delete-ac-own')

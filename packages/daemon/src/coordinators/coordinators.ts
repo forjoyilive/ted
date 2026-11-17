@@ -1198,7 +1198,8 @@ export function createCoordinators(options: {
     new Set(
       picks.flatMap(({ id, children }) => [
         id,
-        ...((kind === 'archive' ? children !== 'detach' : children === 'delete')
+        ...(store.getTask(id) &&
+        (kind === 'archive' ? children !== 'detach' : children === 'delete')
           ? tasks.hierarchyPreview(id).descendants.map((d) => d.id)
           : []),
       ]),
@@ -2305,7 +2306,6 @@ export function createCoordinators(options: {
             throw new RequestError(400, 'closePullRequests only applies to archive')
           return { ...card, ...chosen }
         })
-        const removed = removedBy(cards, asked.kind)
         if (store.snoozed().some((r) => r.id === id)) store.snoozeRequest(id, null)
         const answered: CoordinatorConfirmation = {
           ...asked,
@@ -2322,6 +2322,7 @@ export function createCoordinators(options: {
         update(answered)
         await store.persisted()
         if (answer.decision === 'cancel') return publicChat(requireChat(chatId))
+        const removed = removedBy(cards, asked.kind)
         const verb = asked.kind === 'archive' ? 'archived' : 'deleted'
         const together = asked.kind === 'archive' ? 'archive' : 'delete'
         const sweeps = (card: CoordinatorConfirmationTask) =>
