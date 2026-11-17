@@ -29,6 +29,7 @@ import {
   sandboxReasons,
   skipInsideTedSandbox,
 } from '../packages/daemon/test/support/ted-sandbox.ts'
+import { scriptLiteral } from '../packages/protocol/src/script-literal.ts'
 import {
   executeScenario,
   runValidation,
@@ -402,8 +403,8 @@ test('scenario timeout stops its owned subprocess group', async () => {
   holdTimeouts()
   const ready = path.join(root, 'child-ready')
   const stopped = path.join(root, 'child-stopped')
-  const childSource = `const fs = require('node:fs'); process.on('SIGTERM', () => { fs.writeFileSync(${JSON.stringify(stopped)}, 'stopped'); process.exit(0) }); fs.writeFileSync(${JSON.stringify(ready)}, 'ready'); setInterval(() => {}, 1000)`
-  const parentSource = `require('node:child_process').spawn(process.execPath, ['-e', ${JSON.stringify(childSource)}], { stdio: 'inherit' }); setInterval(() => {}, 1000)`
+  const childSource = `const fs = require('node:fs'); process.on('SIGTERM', () => { fs.writeFileSync(${scriptLiteral(stopped)}, 'stopped'); process.exit(0) }); fs.writeFileSync(${scriptLiteral(ready)}, 'ready'); setInterval(() => {}, 1000)`
+  const parentSource = `require('node:child_process').spawn(process.execPath, ['-e', ${scriptLiteral(childSource)}], { stdio: 'inherit' }); setInterval(() => {}, 1000)`
   const result = executeScenario({
     argv: [process.execPath, '-e', parentSource],
     cwd: root,

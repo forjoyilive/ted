@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
+import { scriptLiteral } from '@ted/protocol'
 import { afterEach, expect, test } from 'vitest'
 import { prepareElectron, resolveElectron } from './support/electron-installation.ts'
 
@@ -96,11 +97,11 @@ test.each(['ready', 'failed'])(
     const helper = fileURLToPath(new URL('./support/electron-installation.ts', import.meta.url))
     await writeFile(
       path.join(home, 'setup.ts'),
-      `import { prepareElectron } from ${JSON.stringify(helper)}; export default async () => { await prepareElectron(${JSON.stringify(home)}) }`,
+      `import { prepareElectron } from ${scriptLiteral(helper)}; export default async () => { await prepareElectron(${scriptLiteral(home)}) }`,
     )
     await writeFile(
       path.join(home, 'native.test.ts'),
-      `import { test, expect } from ${JSON.stringify(vitestApi)}; import { resolveElectron } from ${JSON.stringify(helper)}; const executable = resolveElectron(${JSON.stringify(home)}); test('retained native main path', () => expect(executable).toBe(${JSON.stringify(path.join(home, 'dist', 'electron'))}))`,
+      `import { test, expect } from ${scriptLiteral(vitestApi)}; import { resolveElectron } from ${scriptLiteral(helper)}; const executable = resolveElectron(${scriptLiteral(home)}); test('retained native main path', () => expect(executable).toBe(${scriptLiteral(path.join(home, 'dist', 'electron'))}))`,
     )
     await writeFile(
       path.join(home, 'vitest.config.ts'),
