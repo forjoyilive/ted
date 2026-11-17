@@ -590,7 +590,7 @@ describe('move to another Factory', () => {
       expect(texts).toContain(line)
       const byOldId = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.displayId}/events`)
       expect(byOldId.map((e) => e.text)).toContain(line)
-      const fresh = await client.ok<Run>('GET', `/runs/${moved.leadRunId}`)
+      const { run: fresh } = await client.ok<{ run: Run }>('GET', `/runs/${moved.leadRunId}`)
       expect(fresh.prompt).toContain('Picking up after a move to another Factory')
       expect(fresh.prompt).toContain('## The conversation so far')
       await writeFile(gate, '')
