@@ -1,5 +1,12 @@
 import type { ProcessUsage } from '@ted/protocol'
-import { memoryParts, memoryProcessCount, memorySize, memoryTotal } from '@ted/protocol/memory'
+import {
+  agentBreakdown,
+  agentsPartLabel,
+  memoryParts,
+  memoryProcessCount,
+  memorySize,
+  memoryTotal,
+} from '@ted/protocol/memory'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { besideAnchor } from '../menu-tooltip.ts'
 import type { NavigationAction } from '../navigation.ts'
@@ -87,6 +94,7 @@ export function ResourceUsage({ dispatch }: { dispatch: (action: NavigationActio
   const parts = memory ? memoryParts(memory) : []
   const total = memory ? memoryTotal(memory) : 0
   const largest = Math.max(1, ...parts.map((part) => part.bytes))
+  const agents = memory ? agentBreakdown(memory) : []
 
   return (
     <section
@@ -133,6 +141,9 @@ export function ResourceUsage({ dispatch }: { dispatch: (action: NavigationActio
                   {part.label} <span className={styles.count}>· {part.count}</span>
                 </span>
                 <span className={styles.size}>{memorySize(part.bytes)}</span>
+                {part.label === agentsPartLabel && agents.length > 0 && (
+                  <span className={styles.kinds}>{agents.join(' · ')}</span>
+                )}
                 <span className={styles.meter}>
                   <span
                     className={styles.fill}

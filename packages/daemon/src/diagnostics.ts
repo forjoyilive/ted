@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import {
+  type AgentRunCount,
   type Diagnostics,
   type LogText,
   type MemoryGroup,
@@ -223,6 +224,23 @@ function memoryOf(owned: readonly ProcessInfo[], store: MemoryUse['store']): Mem
   }
 }
 
+export function countAgentRuns(
+  owned: readonly ProcessInfo[],
+  live: readonly Pick<Run, 'id' | 'state'>[],
+): AgentRunCount[] {
+  const states = new Map(live.map((run) => [run.id, run.state]))
+  const counts: AgentRunCount[] = []
+  for (const row of owned) {
+    if (row.kind !== 'agent' || row.run === undefined) continue
+    const { role } = row.run
+    const working = states.get(row.run.runId) === 'working'
+    const found = counts.find((count) => count.role === role && count.working === working)
+    if (found) found.count += 1
+    else counts.push({ role, working, count: 1 })
+  }
+  return counts
+}
+
 export async function processUsage(
   sources: Pick<DiagnosticsSources, 'home' | 'store'>,
 ): Promise<ProcessUsage> {
@@ -232,7 +250,11 @@ export async function processUsage(
     storeFileSizes(tedPaths(sources.home).store),
   ])
   const asleep = live.filter((run) => run.asleep).length
-  const memory = { ...memoryOf(owned, store), ...(asleep > 0 && { asleepRuns: asleep }) }
+  const memory = {
+    ...memoryOf(owned, store),
+    agentRuns: countAgentRuns(owned, live),
+    ...(asleep > 0 && { asleepRuns: asleep }),
+  }
   return {
     cpuPercent: owned.reduce((sum, p) => sum + p.cpuPercent, 0),
     memoryBytes: memoryTotal(memory),

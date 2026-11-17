@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest'
 import type { ProcessInfo } from '../src/diagnostics.ts'
-import { processName } from '../src/memory.ts'
+import { agentBreakdown, type MemoryUse, processName } from '../src/memory.ts'
 
 const row = { pid: 1, ppid: 0, cpuPercent: 0, memoryBytes: 0, command: 'node' }
 
@@ -36,4 +36,40 @@ test('each process is named so it can be found in Activity Monitor', () => {
     'App “Ted Dev” of TED-479',
   )
   expect(named({ owner: 'daemon', kind: 'other' })).toBe('Other Ted command')
+})
+
+test('the agent breakdown names each kind of Run in order, leaving out kinds with none', () => {
+  const none = { count: 0, bytes: 0 }
+  const use: MemoryUse = {
+    daemon: { bytes: 0, heapBytes: 0, externalBytes: 0 },
+    hosts: none,
+    agents: none,
+    agentTools: none,
+    checks: none,
+    apps: none,
+    other: none,
+    store: { eventLogBytes: 0, stateBytes: 0 },
+  }
+  expect(agentBreakdown(use)).toEqual([])
+  expect(
+    agentBreakdown({
+      ...use,
+      agentRuns: [
+        { role: 'run', working: true, count: 1 },
+        { role: 'automation', working: true, count: 2 },
+        { role: 'side-chat', working: true, count: 1 },
+        { role: 'planning', working: true, count: 1 },
+        { role: 'task-lead', working: true, count: 1 },
+      ],
+    }),
+  ).toEqual(['1 Task Lead', '2 chats', '2 Automations', '1 other Run'])
+  expect(
+    agentBreakdown({
+      ...use,
+      agentRuns: [
+        { role: 'automation', working: false, count: 1 },
+        { role: 'sub-agent', working: false, count: 2 },
+      ],
+    }),
+  ).toEqual(['2 sub-agents', '1 Automation', '3 idle'])
 })
