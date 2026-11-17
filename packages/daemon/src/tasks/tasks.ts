@@ -23,7 +23,6 @@ import type {
   AssessFailureRequest,
   Attachment,
   BaseConflictFound,
-  BlockedChoice,
   AppRef as BrowserAppRef,
   BrowserCommand,
   BrowserReply,
@@ -158,6 +157,9 @@ import {
   maxLinearIntakeTasks,
   memoryFailedChoice,
   memoryRetryChoice,
+  movePlanKey,
+  moveRefusal,
+  moveRefusals,
   parseAsanaTaskUrl,
   parseGitHubIssueUrl,
   parseLinearUrl,
@@ -166,6 +168,11 @@ import {
   runOnlyBrowserActions,
   type SetPullRequestTitleRequest,
   sizeChoices,
+  type TaskMoved,
+  type TaskMovePlan,
+  type TaskMovePlanTask,
+  type TaskMovePullRequest,
+  type TaskMoveRef,
 } from '@ted/protocol'
 import { shortReference } from '@ted/protocol/reference'
 import { keptSetupAgents } from '@ted/protocol/setup-agents'
@@ -247,6 +254,7 @@ import type {
   FoundConflict,
   LoopCheck,
   LoopVerdict,
+  MoveTaskInput,
   NewTask,
   NewWorktree,
   RecordedSetup,
@@ -553,7 +561,7 @@ export interface TaskPlanning {
     id: string
     title: string
   }>
-  taskGone(taskId: string, reason: 'archived' | 'deleted' | 'reset'): void
+  taskGone(taskId: string, reason: 'archived' | 'deleted' | 'reset' | 'moved'): void
 }
 
 export interface PlanApproval {
@@ -725,6 +733,13 @@ export interface Tasks {
   setParent(ref: string, input: SetTaskParentRequest): Task
   unarchive(ref: string, input?: UnarchiveTaskRequest): Promise<Task>
   reset(ref: string): Promise<Task>
+  movePlan(ref: string, factoryId: string): Promise<TaskMovePlan>
+  moveToFactory(
+    ref: string,
+    factoryId: string,
+    by: 'human' | 'coordinator',
+    planKey?: string,
+  ): Promise<TaskMoved>
   delete(ref: string, options: DeleteTaskRequest): Promise<void>
   removeFactoryTasks(factoryId: string, options: { closePullRequests: boolean }): Promise<void>
   removeFactorySeed(factoryId: string): Promise<void>
@@ -1327,7 +1342,7 @@ export function createTasks(options: {
     liveRun: (task) => hasLiveRun(find(task.id)),
     openRequests,
     archive(task, why) {
-      settleDependents(task.id, 'unblock')
+      settleDependents(task.id)
       archiveNow(find(task.id), false, why)
       wake()
     },
@@ -4518,12 +4533,7 @@ export function createTasks(options: {
     return publicTask(task.id)
   }
 
-  async function agentChangeNote(
-    task: StoredTask,
-    run: Run,
-    agent: AgentKind,
-    unread: readonly RunMessage[],
-  ): Promise<string> {
+  async function carriedConversation(task: StoredTask, run: Run, to: string): Promise<string[]> {
     const items = chatItems({
       run,
       prompt: store.runPrompt(run.id),
@@ -4533,7 +4543,6 @@ export function createTasks(options: {
       preamble: await preambleText().catch(() => ''),
     })
     const { text, cut, leftOut } = conversationText(items)
-    const name = agentShortNames[agent]
     if (cut) {
       const middle =
         leftOut > 0
@@ -4541,16 +4550,27 @@ export function createTasks(options: {
           : ''
       tedNote(
         task.id,
-        `Part of the conversation was left out. It was too long to pass to ${name} whole, so the new Task Lead got the Task brief, the start of the conversation and the newest part${middle}.`,
+        `Part of the conversation was left out. It was too long to pass to ${to} whole, so the new Task Lead got the Task brief, the start of the conversation and the newest part${middle}.`,
       )
       await store.persisted()
     }
+    return text === '' ? [] : [`## The conversation so far\n\n${text}`]
+  }
+
+  async function agentChangeNote(
+    task: StoredTask,
+    run: Run,
+    agent: AgentKind,
+    unread: readonly RunMessage[],
+  ): Promise<string> {
+    const name = agentShortNames[agent]
+    const conversation = await carriedConversation(task, run, name)
     return [
       fromTheBrief(task, {
         heading: 'Picking up after an agent change',
         why: `The human switched this Task’s Task Lead from ${agentShortNames[run.agent]} to ${name}.`,
       }),
-      ...(text !== '' ? [`## The conversation so far\n\n${text}`] : []),
+      ...conversation,
       ...(unread.length > 0
         ? [
             `## Messages the old Task Lead hadn’t read\n\n${unread
@@ -5836,7 +5856,10 @@ export function createTasks(options: {
       store.failures.list(task.id).some((f) => f.resolutions.at(-1)?.resolution === 'repair')
     const note = repairBrief
       ? freshRunNote(current)
-      : (pickUp ?? (resumeSession === undefined ? pendingPickUp(current) : undefined))
+      : (pickUp ??
+        (resumeSession === undefined
+          ? ((await movedPickUp(current)) ?? pendingPickUp(current))
+          : undefined))
     const followUp = resumeSession === undefined ? followUpNote(current) : undefined
     const waiting = waitingForRun(task.id)
     const since = sinceLastRun(task.id, waiting, resumeSession === undefined && note === undefined)
@@ -6502,7 +6525,6 @@ export function createTasks(options: {
                 choice: archiveChoice,
                 archive: {
                   closePullRequests: comment.archive.pullRequests?.recommend === 'close',
-                  blocked: 'unblock',
                 },
               },
               false,
@@ -8323,7 +8345,6 @@ export function createTasks(options: {
     ref: string,
     {
       closePullRequests = false,
-      blocked = 'unblock',
       children: choice = 'archive',
       hierarchyRevision: revision,
     }: ArchiveTaskRequest = {},
@@ -8334,7 +8355,7 @@ export function createTasks(options: {
     for (const id of [...ids].reverse()) {
       const current = find(id)
       if (current.archived) continue
-      settleDependents(id, blocked)
+      settleDependents(id)
       if (store.childrenOf(id).length > 0 && current.startRequested)
         store.setStartRequested(id, false)
       archiveNow(find(id), closePullRequests)
@@ -8412,12 +8433,10 @@ export function createTasks(options: {
     }
   }
 
-  function settleDependents(taskId: string, blocked: BlockedChoice, action = 'archived'): void {
+  function settleDependents(taskId: string, action = 'archived'): void {
     for (const dependent of store.blockedBy(taskId)) {
-      const link = store.blockers(dependent).find((b) => b.blockerId === taskId)
-      const reason = `was ${action} without merging. ${reopened} ${blocked === 'unblock' ? 'Its blocker was removed. Use Resume when ready to reassess the failure.' : 'Its blocker was kept; this Task is still waiting. Choose another repair or remove the blocker in Task details.'}`
-      if (blocked === 'unblock') removeBlockers(dependent, { kind: 'app' }, taskId, reason)
-      else if (!link?.merged) repairNotice(dependent, taskId, reason)
+      const reason = `was ${action} without merging. ${reopened} Its blocker was removed. Use Resume when ready to reassess the failure.`
+      removeBlockers(dependent, { kind: 'app' }, taskId, reason)
     }
   }
 
@@ -8558,7 +8577,7 @@ export function createTasks(options: {
 
   async function remove(ref: string, input: DeleteTaskRequest): Promise<void> {
     const task = find(ref)
-    if (removingFactories.has(task.factoryId)) return removeOne(ref, input)
+    if (removingFactories.has(task.factoryId)) return removeOne(ref)
     const children = descendants(task.id)
     if (children.length > 0) {
       requireHierarchyRevision(task, input.hierarchyRevision)
@@ -8583,7 +8602,7 @@ export function createTasks(options: {
         tellHierarchyChanged(direct)
       }
       if (parent) releaseParent(parent.id, wasBlocked)
-      for (const id of [...ids].reverse()) await removeOne(id, input)
+      for (const id of [...ids].reverse()) await removeOne(id)
     } finally {
       if (parent) releaseParent(parent.id, wasBlocked)
       hierarchyDone()
@@ -8591,14 +8610,14 @@ export function createTasks(options: {
     wake()
   }
 
-  async function removeOne(ref: string, { blocked = 'unblock' }: DeleteTaskRequest): Promise<void> {
+  async function removeOne(ref: string): Promise<void> {
     const task = find(ref)
     if (inFlight.is(task.id, 'deleting'))
       throw new RequestError(409, `${task.displayId} is already being deleted`)
     const deletingDone = inFlight.mark(task.id, 'deleting')
     try {
       options.planning?.()?.taskGone(task.id, 'deleted')
-      settleDependents(task.id, blocked, 'deleted')
+      settleDependents(task.id, 'deleted')
       const unsentFiles = store.messageDraftFiles(task.id)
       if (!find(task.id).archived) archiveNow(find(task.id), false)
       await clearing(task.id)
@@ -8676,7 +8695,7 @@ export function createTasks(options: {
         browserApps.delete(id)
         await clearing(id)
         const last = find(id)
-        await removeBranches(last)
+        await removeBranches(last, 'reset')
         await lifecycle.cleanFolders(await execution.local(id))
         const runIds = store.taskRunList(id).map((r) => r.id)
         const files = [...store.taskFiles(id), ...store.messageDraftFiles(id)]
@@ -8700,12 +8719,304 @@ export function createTasks(options: {
     return publicTask(id)
   }
 
-  async function removeBranches(task: StoredTask): Promise<void> {
+  interface MovePlanned {
+    plan: TaskMovePlan
+    root: StoredTask
+    members: StoredTask[]
+    unlink: { taskId: string; blockerId: string }[]
+  }
+
+  function moveRef(task: Pick<Task, 'id' | 'displayId' | 'title'>): TaskMoveRef {
+    return { id: task.id, displayId: task.displayId, title: task.title }
+  }
+
+  function trackerName(task: Task): string | undefined {
+    if (!task.source) return undefined
+    if (task.source.asana) return 'Asana'
+    if (task.source.github) return 'GitHub'
+    return parseLinearUrl(task.source.url) ? 'Linear' : undefined
+  }
+
+  function openPullRequestsOf(task: StoredTask): TaskMovePullRequest[] {
+    return task.repos.flatMap((r) =>
+      r.pullRequest && r.pullRequest.state !== 'closed' && r.pullRequest.state !== 'merged'
+        ? [{ repo: r.repo, number: r.pullRequest.number }]
+        : [],
+    )
+  }
+
+  async function planMove(ref: string, factoryId: string): Promise<MovePlanned> {
+    const root = find(ref)
+    const target = store.getFactory(factoryId)
+    if (!target) throw new RequestError(404, `no Factory ${factoryId}`)
+    const members: StoredTask[] = []
+    const visit = (task: StoredTask) => {
+      members.push(task)
+      for (const child of store.childrenOf(task.id)) visit(find(child))
+    }
+    visit(root)
+    const inMove = new Set(members.map((m) => m.id))
+    const refusal = (): string | undefined => {
+      if (root.factoryId === target.id) return `${root.displayId} is already in ${target.name}`
+      for (const member of members) {
+        const refused = moveRefusal(publicTask(member.id))
+        if (refused === undefined) continue
+        return member.id === root.id
+          ? `${root.displayId} ${moveRefusals[refused]}, so it can’t move`
+          : `${member.displayId} is under ${root.displayId} and ${moveRefusals[refused]}, so it can’t move, and ${root.displayId} can’t move without it. Detach ${member.displayId} first, then try again.`
+      }
+      const everyTask = store.listTasks()
+      for (const member of members) {
+        if (!member.source) continue
+        const clash = sourceClash(everyTask, target.id, member.source.url)
+        if (clash) {
+          return `${target.name} already tracks ${member.displayId}’s source as ${clash.task.displayId}, so ${member.displayId} can’t move there`
+        }
+      }
+      return undefined
+    }
+    const refused = refusal()
+    const resolution = await resolveWorkflow(target)
+    const repos = factoryRepos(resolution.workflow, target).map((entry) => entry.name)
+    const lands = resolution.workflow.next('backlog') ?? 'backlog'
+    const first = store.nextTaskNumber(target.id)
+    const unlink: MovePlanned['unlink'] = []
+    const tasks = members.map((member, index): TaskMovePlanTask => {
+      const blockers = store
+        .blockers(member.id)
+        .filter((b) => b.kind === undefined && !inMove.has(b.blockerId))
+      const blocked = store.blockedBy(member.id).filter((id) => !inMove.has(id))
+      unlink.push(
+        ...blockers.map((b) => ({ taskId: member.id, blockerId: b.blockerId })),
+        ...blocked.map((id) => ({ taskId: id, blockerId: member.id })),
+      )
+      const started = member.stage !== 'backlog'
+      const tracker = trackerName(member)
+      return {
+        ...moveRef(member),
+        newDisplayId: `${target.key}-${first + index}`,
+        stage: member.stage,
+        lands: started ? lands : 'backlog',
+        startsLead: started,
+        worktrees: member.repos.filter((r) => !r.removed).length,
+        branches: [...new Set(member.repos.map((r) => r.branch))],
+        pullRequests: openPullRequestsOf(member),
+        openRequests: store
+          .listComments(member.id)
+          .filter((c) => c.kind !== 'note' && c.answer === undefined).length,
+        unlinked: [
+          ...blockers.map((b) => ({ ...moveRef(find(b.blockerId)), blocks: true })),
+          ...blocked.map((id) => ({ ...moveRef(find(id)), blocks: false })),
+        ],
+        ...(tracker !== undefined && { trackerSync: tracker }),
+      }
+    })
+    const parent = root.parentId === undefined ? undefined : store.getTask(root.parentId)
+    return {
+      root,
+      members,
+      unlink,
+      plan: {
+        factoryId: target.id,
+        factoryName: target.name,
+        repos,
+        tasks,
+        ...(parent && { leavesParent: moveRef(parent) }),
+        ...(refused !== undefined && { refusal: refused }),
+      },
+    }
+  }
+
+  async function movePlan(ref: string, factoryId: string): Promise<TaskMovePlan> {
+    return (await planMove(ref, factoryId)).plan
+  }
+
+  function refuseBusyMove(task: StoredTask): void {
+    if (inFlight.is(task.id, 'checking')) {
+      throw new RequestError(
+        409,
+        `${task.displayId}’s checks are running; try again when they finish`,
+      )
+    }
+    if (inFlight.inHierarchyWork(task.id)) {
+      throw new RequestError(409, `${task.displayId} is being deleted, reset or moved`)
+    }
+  }
+
+  function holdingAll<T>(list: readonly StoredTask[], work: () => Promise<T>): Promise<T> {
+    const [first, ...rest] = list
+    return first ? holding(first, () => holdingAll(rest, work)) : work()
+  }
+
+  function sameMembers(a: readonly StoredTask[], b: readonly StoredTask[]): boolean {
+    const ids = new Set(a.map((t) => t.id))
+    return a.length === b.length && b.every((t) => ids.has(t.id))
+  }
+
+  async function discardForMove(task: StoredTask): Promise<void> {
+    const id = task.id
+    if (task.stage === 'backlog' && task.runs.length === 0 && task.repos.length === 0) return
+    const done = inFlight.mark(id, 'deleting')
+    try {
+      const current = find(id)
+      if (!current.stopped) store.stopTask(id, { runs: current.runs.length, why: 'human' })
+      dropWaitingMove(id)
+      await mergeWatcher.settled(id)
+      await pullRequestQueue.get(id)
+      if (moveRefusal(publicTask(id)) === 'merged') {
+        throw new RequestError(409, `${task.displayId} has a merged pull request`)
+      }
+      if (openPullRequestsOf(find(id)).length > 0) {
+        pullRequestWork(id, 'close')
+        await pullRequestQueue.get(id)
+      }
+      const left = openPullRequestsOf(find(id))
+      if (left.length > 0 || moveRefusal(publicTask(id)) === 'merged') {
+        throw new RequestError(
+          409,
+          `TED couldn’t close ${left.map((r) => `${r.repo}#${r.number}`).join(', ') || 'a merged pull request'}, so ${task.displayId} wasn’t moved. It is stopped and nothing was discarded.`,
+        )
+      }
+      options.planning?.()?.taskGone(id, 'moved')
+      browser.cancel(id)
+      browserApps.delete(id)
+      await clearing(id)
+      const last = find(id)
+      await removeBranches(last, 'moved')
+      await lifecycle.cleanFolders(await execution.local(id))
+      failures.forget(id)
+      autoStartFailures.delete(id)
+      continuationFailures.delete(id)
+      for (const key of runUploads) if (key.startsWith(`${id}:`)) runUploads.delete(key)
+      for (const repo of last.repos) baseTips.delete(baseTipKey(id, repo.name))
+    } finally {
+      done()
+    }
+  }
+
+  async function moveToFactory(
+    ref: string,
+    factoryId: string,
+    by: 'human' | 'coordinator',
+    planKey?: string,
+  ): Promise<TaskMoved> {
+    const first = await planMove(ref, factoryId)
+    if (first.plan.refusal !== undefined) throw new RequestError(409, first.plan.refusal)
+    for (const member of first.members) refuseBusyMove(member)
+    for (const member of first.members) await untilFree(member.id)
+    const moved = await holdingAll(
+      first.members.map((m) => find(m.id)),
+      async () => {
+        const parentId = first.root.parentId
+        const affected = [
+          ...first.members.map((m) => m.id),
+          ...(parentId === undefined ? [] : [parentId]),
+        ]
+        requireHierarchyIdle(affected)
+        const hierarchyDone = inFlight.mark(affected, 'hierarchy')
+        try {
+          return await moveHeld(first, factoryId, by, planKey)
+        } finally {
+          hierarchyDone()
+        }
+      },
+    )
+    for (const member of moved.members) {
+      if (member.stage === 'backlog') continue
+      await queueStart(member.id, undefined, false, true)
+    }
+    await pump()
+    wake()
+    return { task: publicTask(first.root.id), moved: moved.moved }
+  }
+
+  async function moveHeld(
+    first: MovePlanned,
+    factoryId: string,
+    by: 'human' | 'coordinator',
+    planKey: string | undefined,
+  ): Promise<{ members: StoredTask[]; moved: TaskMoved['moved'] }> {
+    const changed = (planned: MovePlanned) =>
+      !sameMembers(planned.members, first.members) ||
+      (planKey !== undefined && movePlanKey(planned.plan) !== planKey)
+    const ready = await planMove(first.root.id, factoryId)
+    if (ready.plan.refusal !== undefined) throw new RequestError(409, ready.plan.refusal)
+    if (changed(ready)) {
+      throw new RequestError(
+        409,
+        `${first.root.displayId} or a Task under it changed since the move was shown, so nothing was moved. Look at the move again.`,
+      )
+    }
+    for (const member of ready.members) {
+      if (inFlight.is(member.id, 'checking')) {
+        throw new RequestError(
+          409,
+          `${member.displayId}’s checks are running; try again when they finish`,
+        )
+      }
+    }
+    for (const member of ready.members) await discardForMove(member)
+    const { plan, root, members, unlink } = await planMove(first.root.id, factoryId)
+    if (plan.refusal !== undefined) throw new RequestError(409, plan.refusal)
+    if (!sameMembers(members, first.members)) {
+      throw new RequestError(
+        409,
+        `The Tasks under ${root.displayId} changed during the move, so it stopped. They are stopped in their Factory; try the move again.`,
+      )
+    }
+    const name = plan.factoryName
+    const to = new Map(plan.tasks.map((t) => [t.id, t.newDisplayId]))
+    const notes: MoveTaskInput['notes'] = []
+    for (const planned of plan.tasks) {
+      if (planned.unlinked.length > 0) {
+        notes.push({
+          taskId: planned.id,
+          body: `Moving to ${name} removed the blocker links with ${joinIds(planned.unlinked.map((t) => t.displayId))}.`,
+        })
+      }
+    }
+    for (const { taskId, blockerId } of unlink) {
+      const moved = to.has(taskId) ? taskId : blockerId
+      const other = moved === taskId ? blockerId : taskId
+      const from = plan.tasks.find((t) => t.id === moved)
+      if (!from) continue
+      notes.push({
+        taskId: other,
+        body:
+          moved === blockerId
+            ? `${from.displayId} moved to ${name} as ${from.newDisplayId}, so it no longer blocks this Task.`
+            : `${from.displayId} moved to ${name} as ${from.newDisplayId}, so this Task no longer blocks it.`,
+      })
+    }
+    if (plan.leavesParent) {
+      notes.push(
+        {
+          taskId: root.id,
+          body: `Moving to ${name} took this Task out from under ${plan.leavesParent.displayId}.`,
+        },
+        {
+          taskId: plan.leavesParent.id,
+          body: `${root.displayId} moved to ${name} as ${to.get(root.id)}, so it is no longer under this Task and this Task doesn’t wait for it.`,
+        },
+      )
+    }
+    const moved = store.moveTask({
+      moves: members.map((m) => ({ taskId: m.id, factoryId, started: m.stage !== 'backlog' })),
+      unlink,
+      ...(plan.leavesParent && { leaveParent: root.id }),
+      notes,
+      by,
+    })
+    await store.persisted()
+    return { members, moved }
+  }
+
+  async function removeBranches(task: StoredTask, verb: 'reset' | 'moved'): Promise<void> {
     const gh = options.gh
     const refuse = (where: string, branch: string, error: unknown) =>
       new RequestError(
         409,
-        `TED couldn’t delete the branch ${branch} ${where}, so ${task.displayId} wasn’t reset: ${redactSecrets(error instanceof Error ? error.message : String(error))}. It is stopped and its thread is kept.`,
+        `TED couldn’t delete the branch ${branch} ${where}, so ${task.displayId} wasn’t ${verb}: ${redactSecrets(error instanceof Error ? error.message : String(error))}. It is stopped and its thread is kept.`,
       )
     for (const repo of task.repos) {
       if (gh && (repo.pushed || repo.pullRequest)) {
@@ -8746,11 +9057,11 @@ export function createTasks(options: {
             const task = find(id)
             if (task.archived) pullRequestWork(id, 'close')
             else {
-              settleDependents(id, 'unblock')
+              settleDependents(id)
               archiveNow(find(id), true)
             }
           }
-          await remove(id, { blocked: 'unblock' })
+          await remove(id, {})
         }
       }
     } catch (error) {
@@ -9102,6 +9413,21 @@ export function createTasks(options: {
     }
   }
 
+  async function movedPickUp(task: StoredTask): Promise<string | undefined> {
+    const request = store.freshRunRequest(task.id)
+    if (request?.kind !== 'moved' || !request.pending) return undefined
+    const run = store.taskRunList(task.id).find((r) => r.parentRunId === undefined)
+    const conversation = run ? await carriedConversation(task, run, 'the new Task Lead') : []
+    return [fromTheBrief(task, movedReason(task, request.from)), ...conversation].join('\n\n')
+  }
+
+  function movedReason(task: StoredTask, from: string) {
+    return {
+      heading: 'Picking up after a move to another Factory',
+      why: `This Task moved from ${from} to ${task.displayId}, in the ${factoryOf(task).name} Factory. TED removed the old worktree, branch and pull requests, so the work starts again from this Factory’s repos. Anything the brief or the conversation says about files, commits or pull requests refers to the old Factory.`,
+    }
+  }
+
   function pendingPickUp(task: StoredTask): string | undefined {
     return store.freshRunRequest(task.id)?.pending ? freshRunNote(task) : undefined
   }
@@ -9116,6 +9442,7 @@ export function createTasks(options: {
     if (last?.kind === 'retried' || last?.kind === 'failure') {
       return fromTheBrief(task, freshAfterFailure(last))
     }
+    if (last?.kind === 'moved') return fromTheBrief(task, movedReason(task, last.from))
     if (last?.kind === 'unarchived') {
       return fromTheBrief(task, {
         heading: 'Picking up after unarchiving',
@@ -11709,6 +12036,8 @@ export function createTasks(options: {
     unarchive,
     delete: remove,
     reset,
+    movePlan,
+    moveToFactory,
     removeFactoryTasks,
     removeFactorySeed: (factoryId) => seeds.remove(factoryId),
 
@@ -12070,6 +12399,7 @@ export function createTasks(options: {
         waitingFor: unmergedBlockers(task.id).map((b) => b.displayId),
         descriptions: store.descriptionVersions(task.id),
         planTitleOf: (planId) => store.plans.get(planId)?.title,
+        factoryNameOf: (id) => store.getFactory(id)?.name,
       })
     },
 

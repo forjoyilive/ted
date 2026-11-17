@@ -182,7 +182,6 @@ test('parseCoordinatorRemoval keeps every field and refuses choices that don’t
       { id: 'TED-2', version },
     ],
     children: 'detach',
-    blocked: 'keep',
     closePullRequests: true,
   }
   expect(P.parseCoordinatorRemoval(body, 'archive')).toEqual(body)
@@ -194,19 +193,31 @@ test('parseCoordinatorRemoval keeps every field and refuses choices that don’t
   ).toEqual({ ...body, children: 'unparent', closePullRequests: undefined })
   expect(() => P.parseCoordinatorRemoval(body, 'delete')).toThrow('children must be')
   expect(() => P.parseCoordinatorRemoval({ ...body, children: undefined }, 'unarchive')).toThrow(
-    'blocked must be',
+    'only applies to archive',
   )
   expect(() => P.parseCoordinatorRemoval({ ...body, tasks: [] }, 'archive')).toThrow('tasks lists')
   expect(() =>
     P.parseCoordinatorRemoval({ ...body, tasks: [body.tasks[0], body.tasks[0]] }, 'archive'),
   ).toThrow('name each Task once')
 })
+test('parseCoordinatorTransfer keeps every field', () => {
+  const body: Required<P.CoordinatorTransfer> = {
+    operation: 'transfer-1',
+    task: { id: 'TED-1', version },
+    factory: 'WEB',
+  }
+  expect(P.parseCoordinatorTransfer(body)).toEqual(body)
+  expect(P.parseCoordinatorTransfer({ ...body, factory: ' WEB ' })).toEqual(body)
+  expect(() => P.parseCoordinatorTransfer({ ...body, factory: ' ' })).toThrow('factory must be')
+  expect(() => P.parseCoordinatorTransfer({ ...body, task: { id: 'TED-1' } })).toThrow('version')
+  expect(() => P.parseCoordinatorTransfer({ ...body, operation: 'a b' })).toThrow('operation')
+})
 test('parseCoordinatorConfirmationAnswer keeps every field', () => {
   const body: Required<P.CoordinatorConfirmationAnswer> = {
     decision: 'confirm',
     choices: {
-      'TED-1': { children: 'archive', blocked: 'unblock', closePullRequests: true },
-      'TED-2': { children: 'delete', blocked: 'keep' },
+      'TED-1': { children: 'archive', closePullRequests: true },
+      'TED-2': { children: 'delete' },
     },
   }
   expect(P.parseCoordinatorConfirmationAnswer(body)).toEqual(body)

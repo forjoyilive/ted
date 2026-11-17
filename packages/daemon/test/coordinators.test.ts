@@ -551,10 +551,24 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
     ).status,
   ).toBe(409)
 
+  const childC = await taskById(createReceipt.taskId ?? '')
+  if (!childC) throw new Error('missing C')
   const archiveB = await removal('archive', [b.id])
-  const askedB = (archiveB.body as { confirmation: { id: string; waiting: boolean } }).confirmation
-  expect(askedB.waiting).toBe(true)
-  expect((await taskById(b.id))?.archived).toBeFalsy()
+  expect(archiveB.body).toMatchObject({
+    receipts: [
+      {
+        operation: 'archive',
+        taskId: b.id,
+        text: `Archived ${b.displayId} · unblocked ${childC.displayId}`,
+      },
+    ],
+  })
+  expect(archiveB.body).not.toHaveProperty('confirmation')
+  expect((await taskById(childC.id))?.blockedBy).toEqual([])
+  const archiveA = await removal('archive', [a.id])
+  const askedA = (archiveA.body as { confirmation: { id: string; waiting: boolean } }).confirmation
+  expect(askedA.waiting).toBe(true)
+  expect((await taskById(a.id))?.archived).toBeFalsy()
   const p = await s.task('P')
   const madeQ = await run.call('POST', '/coordinator/tasks', {
     operation: 'create-q',
@@ -564,6 +578,13 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   expect(madeQ.status).toBe(201)
   const q = await taskById((madeQ.body as CoordinatorReceipt).taskId ?? '')
   if (!q) throw new Error('missing Q')
+  const madeR = await run.call('POST', '/coordinator/tasks', {
+    operation: 'create-r',
+    title: 'R',
+    parentId: q.id,
+  })
+  expect(madeR.status).toBe(201)
+  const r = (madeR.body as CoordinatorReceipt).taskId ?? ''
   const f = await s.task('F')
   await removal('archive', [f.id])
   expect((await taskById(f.id))?.archived).toBeTruthy()
@@ -577,38 +598,92 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   const deleteAD = await run.call('POST', '/coordinator/delete', adInput)
   const askedAD = (deleteAD.body as { confirmation: { id: string } }).confirmation
   const cards = (await s.chat()).confirmations
-  expect(cards.find((c) => c.id === askedB.id)).toMatchObject({
+  expect(cards.find((card) => card.id === askedA.id)).toMatchObject({
     kind: 'archive',
-    tasks: [{ id: b.id, blockedTasks: [{ id: createReceipt.taskId }] }],
+    tasks: [{ id: a.id, descendants: [{ id: childC.id }], blockedTasks: [] }],
   })
   expect(cards.find((c) => c.id === askedAD.id)).toMatchObject({
     kind: 'delete',
     tasks: [
-      { id: p.id, children: 'delete', descendants: [{ id: q.id }] },
+      { id: p.id, children: 'delete', descendants: [{ id: q.id }, { id: r }] },
       { id: d.id, descendants: [] },
       { id: f.id },
     ],
   })
   const waiting = await s.ok<WaitingRequest[]>('GET', '/inbox/waiting')
   expect(waiting.filter((w) => w.source === 'coordinator')).toMatchObject([
-    { id: askedB.id, headline: `Archive ${b.displayId}?` },
+    { id: askedA.id, headline: `Archive ${a.displayId}?` },
     {
       id: askedAD.id,
       headline: `Delete 3 Tasks? ${p.displayId}, ${d.displayId}, ${f.displayId}`,
     },
   ])
   const answer = (id: string) => `${s.base}/confirmations/${id}`
-  expect((await run.call('POST', answer(askedB.id), { decision: 'confirm' })).status).toBe(403)
-  await s.ok('POST', answer(askedB.id), { decision: 'cancel' })
-  expect((await taskById(b.id))?.archived).toBeFalsy()
-  expect(await s.waitingIds()).not.toContain(askedB.id)
+  expect((await run.call('POST', answer(askedA.id), { decision: 'confirm' })).status).toBe(403)
+  await s.ok('POST', answer(askedA.id), { decision: 'cancel' })
+  expect((await taskById(a.id))?.archived).toBeFalsy()
+  expect(await s.waitingIds()).not.toContain(askedA.id)
 
-  await s.ok('POST', '/tasks', { factory: 'NB', title: 'E2', blockedBy: [q.id] })
+  const g = await s.task('G')
+  const madeH = await run.call('POST', '/coordinator/tasks', {
+    operation: 'create-h',
+    title: 'H',
+    parentId: g.id,
+  })
+  const h = (madeH.body as CoordinatorReceipt).taskId ?? ''
+  const i = await s.ok<Task>('POST', '/tasks', { factory: 'NB', title: 'I', blockedBy: [h] })
+  const j = await s.ok<Task>('POST', '/tasks', { factory: 'NB', title: 'J', blockedBy: [g.id] })
+  const madeK = await run.call('POST', '/coordinator/tasks', {
+    operation: 'create-k',
+    title: 'K',
+    parentId: j.id,
+    blockedBy: [g.id],
+  })
+  const k = (madeK.body as CoordinatorReceipt).taskId ?? ''
+  const gj = await removal('archive', [g.id, j.id], {}, 'archive-gj')
+  const askedGJ = (gj.body as { confirmation: { id: string } }).confirmation
+  expect((await s.chat()).confirmations.find((x) => x.id === askedGJ.id)?.tasks).toMatchObject([
+    { id: g.id, blockedTasks: [], blockedTogether: [{ id: i.id }] },
+    { id: j.id, blockedTasks: [], blockedTogether: [] },
+  ])
+  const archivedGJ = await s.ok<Coordinator>('POST', answer(askedGJ.id), { decision: 'confirm' })
+  expect(archivedGJ.confirmations.find((x) => x.id === askedGJ.id)?.tasks).toMatchObject([
+    {
+      id: g.id,
+      result: {
+        done: true,
+        text: `Archived ${g.displayId} and the Tasks under it · unblocked ${i.displayId}`,
+      },
+    },
+    { id: j.id, result: { done: true, text: `Archived ${j.displayId} and the Tasks under it` } },
+  ])
+  expect((await taskById(i.id))?.blockedBy).toEqual([])
+  expect((await taskById(k))?.archived).toBeTruthy()
+  const x = await s.task('X')
+  await run.call('POST', '/coordinator/tasks', {
+    operation: 'create-y',
+    title: 'Y',
+    parentId: x.id,
+  })
+  const z = await s.task('Z')
+  const xz = await removal('archive', [x.id, z.id], {}, 'archive-xz')
+  const askedXZ = (xz.body as { confirmation: { id: string } }).confirmation
+  await s.ok('POST', `/tasks/${z.id}/delete`, {})
+  const answeredXZ = await s.ok<Coordinator>('POST', answer(askedXZ.id), { decision: 'confirm' })
+  expect(answeredXZ.confirmations.find((c) => c.id === askedXZ.id)).toMatchObject({
+    answer: { decision: 'confirm' },
+    tasks: [
+      { id: x.id, result: { done: true } },
+      { id: z.id, result: { done: false, text: expect.stringContaining('no longer exists') } },
+    ],
+  })
+
+  const e2 = await s.ok<Task>('POST', '/tasks', { factory: 'NB', title: 'E2', blockedBy: [q.id] })
   const own = await removal('delete', [p.id, q.id], { children: 'delete' }, 'delete-ac-own')
   const askedOwn = (own.body as { confirmation: { id: string } }).confirmation
   const refusedOwn = await s.ok<Coordinator>('POST', answer(askedOwn.id), {
     decision: 'confirm',
-    choices: { [q.id]: { blocked: 'keep' } },
+    choices: { [q.id]: { children: 'unparent' } },
   })
   expect(refusedOwn.confirmations.find((x) => x.id === askedOwn.id)?.tasks).toMatchObject([
     {
@@ -624,21 +699,19 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   expect(await taskById(q.id)).toBeDefined()
   const cascade = await removal('delete', [p.id, q.id], { children: 'delete' }, 'delete-ac')
   const askedAC = (cascade.body as { confirmation: { id: string } }).confirmation
-  await s.ok('POST', '/tasks', { factory: 'NB', title: 'E3', blockedBy: [q.id] })
+  const e3 = await s.ok<Task>('POST', '/tasks', { factory: 'NB', title: 'E3', blockedBy: [q.id] })
   const refusedAC = await s.ok<Coordinator>('POST', answer(askedAC.id), { decision: 'confirm' })
   expect(refusedAC.confirmations.find((x) => x.id === askedAC.id)?.tasks).toMatchObject([
     {
       id: p.id,
-      result: {
-        done: false,
-        text: expect.stringContaining(`${q.displayId}, which is under it, changed`),
-      },
+      result: { done: false, text: expect.stringContaining('the Tasks it blocks changed') },
     },
     { id: q.id, result: { done: false, text: expect.stringContaining('the Tasks it blocks') } },
   ])
   expect(await taskById(p.id)).toBeDefined()
   expect(await taskById(q.id)).toBeDefined()
 
+  for (const e of [e2, e3]) await s.ok('DELETE', `/tasks/${e.id}/blockers/${q.id}`)
   await s.ok('POST', '/tasks', { factory: 'NB', title: 'E', blockedBy: [d.id] })
   const answered = await s.ok<Coordinator>('POST', answer(askedAD.id), {
     decision: 'confirm',
@@ -669,6 +742,62 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
       { operation: 'delete', taskId: p.id },
       { operation: 'delete', taskId: f.id },
     ],
+  })
+
+  const t = await s.task('T')
+  const transfer = async (operation: string, factory = 'OTHER') =>
+    run.call('POST', '/coordinator/transfer', {
+      operation,
+      task: { id: t.id, version: (await read(t.id)).version },
+      factory,
+    })
+  expect((await transfer('transfer-own', 'NB')).status).toBe(409)
+  expect((await transfer('transfer-nowhere', 'NOPE')).status).toBe(404)
+  const toCancel = (await transfer('transfer-t-cancel')).body as {
+    confirmation: { id: string; waiting: boolean }
+  }
+  expect(toCancel.confirmation.waiting).toBe(true)
+  expect(await taskById(t.id)).toMatchObject({ factoryId: t.factoryId, displayId: t.displayId })
+  await s.ok('POST', answer(toCancel.confirmation.id), { decision: 'cancel' })
+  expect(await taskById(t.id)).toMatchObject({ factoryId: t.factoryId, displayId: t.displayId })
+  const stale = (await transfer('transfer-t-stale')).body as { confirmation: { id: string } }
+  const earlier = await s.task('Earlier')
+  await s.ok('POST', `/tasks/${t.id}/blockers`, { by: earlier.id })
+  const refusedStale = await s.ok<Coordinator>('POST', answer(stale.confirmation.id), {
+    decision: 'confirm',
+  })
+  expect(
+    refusedStale.confirmations.find((c) => c.id === stale.confirmation.id)?.tasks,
+  ).toMatchObject([
+    {
+      id: t.id,
+      result: { done: false, text: expect.stringMatching(/changed/) },
+    },
+  ])
+  expect(await taskById(t.id)).toMatchObject({ factoryId: t.factoryId, displayId: t.displayId })
+  await s.ok('DELETE', `/tasks/${t.id}/blockers/${earlier.id}`)
+  const toMove = (await transfer('transfer-t')).body as { confirmation: { id: string } }
+  const askedT = toMove.confirmation
+  expect((await s.chat()).confirmations.find((c) => c.id === askedT.id)).toMatchObject({
+    kind: 'transfer',
+    transfer: {
+      factoryId: foreign.factoryId,
+      tasks: [{ id: t.id, newDisplayId: expect.stringMatching(/^OTHER-\d+$/) }],
+    },
+    tasks: [{ id: t.id, displayId: t.displayId }],
+  })
+  expect(await s.waitingIds()).toContain(askedT.id)
+  expect((await run.call('POST', answer(askedT.id), { decision: 'confirm' })).status).toBe(403)
+  const transferred = await s.ok<Coordinator>('POST', answer(askedT.id), { decision: 'confirm' })
+  expect(transferred.confirmations.find((c) => c.id === askedT.id)?.tasks).toMatchObject([
+    {
+      id: t.id,
+      result: { done: true, text: expect.stringMatching(/^Moved to .+ as OTHER-\d+\.$/) },
+    },
+  ])
+  expect(await taskById(t.id)).toMatchObject({
+    factoryId: foreign.factoryId,
+    displayId: expect.stringMatching(/^OTHER-\d+$/),
   })
 
   if (!receipt) throw new Error('missing move receipt')

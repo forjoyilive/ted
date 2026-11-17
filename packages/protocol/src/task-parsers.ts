@@ -35,9 +35,7 @@ import {
   type AnswerRequest,
   type AnswerTedStopsRequest,
   agentStageIds,
-  type BlockedChoice,
   type BlockTaskRequest,
-  blockedChoices,
   type CancelMergeRequest,
   type CloseRoundRequest,
   type CreateTaskRequest,
@@ -1075,7 +1073,6 @@ export function parseDeleteTaskRequest(value: unknown): DeleteTaskRequest {
   if (body?.children !== undefined && body.children !== 'delete' && body.children !== 'unparent')
     throw new HttpError(400, 'children must be delete or unparent')
   return {
-    blocked: blockedChoice(body),
     ...(body?.children !== undefined && { children: body.children }),
     ...(body?.hierarchyRevision !== undefined && {
       hierarchyRevision: hierarchyRevision(body.hierarchyRevision),
@@ -1162,7 +1159,6 @@ export function parseArchiveTaskRequest(value: unknown): ArchiveTaskRequest {
   return {
     closePullRequests: close === true,
     ...(children !== undefined && { children }),
-    blocked: blockedChoice(body),
     ...(body?.hierarchyRevision !== undefined && {
       hierarchyRevision: hierarchyRevision(body.hierarchyRevision),
     }),
@@ -1290,13 +1286,6 @@ export function parseSetClarifyDepthRequest(value: unknown): SetClarifyDepthRequ
 }
 
 const maxActivityLength = 200
-function blockedChoice(body: Record<string, unknown> | null): BlockedChoice {
-  const value = body?.blocked
-  if (value === undefined) return 'unblock'
-  const choice = blockedChoices.find((c) => c === value)
-  if (!choice) throw new HttpError(400, `blocked must be ${blockedChoices.join(' or ')}`)
-  return choice
-}
 
 export function parseDesignFileSpec(value: unknown, what: string): DesignFileSpec {
   if (typeof value === 'string') return { path: value }

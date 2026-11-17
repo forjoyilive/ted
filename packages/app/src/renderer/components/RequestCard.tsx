@@ -24,6 +24,7 @@ import {
   useCheckRuns,
   useComments,
   useEmulators,
+  useFactories,
   useSimulators,
   useTasks,
   useThreadEvents,
@@ -64,6 +65,7 @@ import { Markdown } from './Markdown.tsx'
 import { PreviewRow } from './PreviewRow.tsx'
 import { ProposalAnswer, ProposalRows } from './ProposalCard.tsx'
 import { isSeveral, QuestionChoices, type QuestionSelection } from './QuestionChoices.tsx'
+import { ReferenceText } from './References.tsx'
 import styles from './RequestCard.module.css'
 import { RequestSnoozeLine } from './RequestSnooze.tsx'
 import { RoundAnswers, RoundQuestions, roundTally } from './RoundCard.tsx'
@@ -512,7 +514,7 @@ function ArchiveAnswer({ request, task, lead }: AnswerProps) {
   const advice = request.archive?.pullRequests
   const [close, setClose] = useState(advice?.recommend === 'close')
   const [dialog, setDialog] = useState(false)
-  const asksUser = under.length > 0 || blocked.length > 0
+  const asksUser = under.length > 0
   const typed = text.trim() !== ''
 
   async function send(answer: AnswerRequest) {
@@ -535,7 +537,12 @@ function ArchiveAnswer({ request, task, lead }: AnswerProps) {
           tasks={under}
         />
       )}
-      {blocked.length > 0 && <TaskNames heading={`Blocked by ${task.displayId}`} tasks={blocked} />}
+      {blocked.length > 0 && (
+        <TaskNames
+          heading={`Unblocks ${blocked.length} ${blocked.length === 1 ? 'Task' : 'Tasks'}`}
+          tasks={blocked}
+        />
+      )}
       {prs.length > 0 && !asksUser && (
         <label className={dialogStyles.check}>
           <input
@@ -1106,7 +1113,9 @@ export function RequestCard({
         <PreviouslyApprovedSignOff id={changes.since} task={task} />
       )}
       {!readOnly && request.answer === undefined && <RequestSnoozeLine requestId={request.id} />}
-      <h2 className={styles.title}>{headline(request)}</h2>
+      <h2 className={styles.title}>
+        <ReferenceText text={headline(request)} />
+      </h2>
       {rows && <MergeRows rows={rows} taskId={task.id} />}
       {rows && changes && <MergeChangesLine changes={changes} />}
       {changes && !rows && <ChangesBlock changes={changes} current={taskChanges} />}
@@ -1269,12 +1278,16 @@ export function RequestCard({
   )
 }
 
+function FactoryName({ id }: { id: string }) {
+  return useFactories().find((f) => f.id === id)?.name ?? 'another Factory'
+}
+
 function answerLine(
   request: Comment,
   newer: Comment | undefined,
   task: Task,
   stages: Stages,
-): { mark: string; tone: string; text: string } | undefined {
+): { mark: string; tone: string; text: string; factoryId?: string } | undefined {
   const { answer } = request
   if (!answer) return undefined
   if (request.autopilotAnswered)
@@ -1387,6 +1400,14 @@ function answerLine(
           mark: '–',
           tone: 'neutral',
           text: 'Withdrawn · the Task was archived before you answered',
+        }
+      }
+      if ('movedToFactory' in answer) {
+        return {
+          mark: '–',
+          tone: 'neutral',
+          text: 'Withdrawn · the Task moved to ',
+          factoryId: answer.movedToFactory,
         }
       }
       return {
@@ -1550,7 +1571,9 @@ export function AnsweredCard({
       </div>
       {permission ? (
         <>
-          <h2 className={styles.title}>{headline(request)}</h2>
+          <h2 className={styles.title}>
+            <ReferenceText text={headline(request)} />
+          </h2>
           {shown !== undefined && shown !== '' && <Markdown text={shown} />}
           <PermissionCommand request={request} />
           {request.simulator && (
@@ -1563,7 +1586,9 @@ export function AnsweredCard({
           )}
         </>
       ) : (
-        <p className={styles.answeredTitle}>{headline(request)}</p>
+        <p className={styles.answeredTitle}>
+          <ReferenceText text={headline(request)} />
+        </p>
       )}
       {request.answer?.kind === 'answered' && request.answer.answers && (
         <RoundAnswers request={request} answers={request.answer.answers} />
@@ -1581,7 +1606,10 @@ export function AnsweredCard({
           <span className={styles[line.tone]} aria-hidden>
             {line.mark}
           </span>
-          <span className={styles.answerText}>{line.text}</span>
+          <span className={styles.answerText}>
+            {line.text}
+            {line.factoryId !== undefined && <FactoryName id={line.factoryId} />}
+          </span>
           <span className={styles.answerAge}>{ago(request.answer.at, now)}</span>
         </div>
       )}

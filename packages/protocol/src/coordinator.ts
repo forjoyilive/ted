@@ -2,7 +2,6 @@ import type { AutomationCard } from './automation-card.ts'
 import type { RunMessage } from './chat.ts'
 import type { ChatAgent, ChatRequest } from './chat-agent.ts'
 import type {
-  BlockedChoice,
   ClarifyDepth,
   Comment,
   DescriptionVersion,
@@ -17,6 +16,7 @@ import type {
   TaskLead,
   TaskStatusKind,
 } from './task.ts'
+import type { TaskMovePlan } from './task-move.ts'
 
 export type CoordinatorTaskState = Pick<
   Task,
@@ -32,9 +32,16 @@ export type CoordinatorOperation =
   | 'parent'
   | 'done'
   | 'create'
+  | 'transfer'
   | CoordinatorRemovalKind
 
 export type CoordinatorRemovalKind = 'archive' | 'unarchive' | 'delete'
+
+export interface CoordinatorTransfer {
+  operation: string
+  task: { id: string; version: string }
+  factory: string
+}
 
 export interface CoordinatorReceipt {
   id: string
@@ -86,7 +93,6 @@ export interface CoordinatorRemoval {
   operation: string
   tasks: { id: string; version: string }[]
   children?: 'archive' | 'detach' | 'delete' | 'unparent'
-  blocked?: BlockedChoice
   closePullRequests?: boolean
 }
 
@@ -103,7 +109,6 @@ export interface ConfirmationTaskRef {
 
 export interface ConfirmationChoices {
   children?: 'archive' | 'detach' | 'delete' | 'unparent'
-  blocked?: BlockedChoice
   closePullRequests?: boolean
 }
 
@@ -111,6 +116,7 @@ export interface CoordinatorConfirmationTask extends ConfirmationTaskRef, Confir
   stage: StageId
   descendants: ConfirmationTaskRef[]
   blockedTasks: ConfirmationTaskRef[]
+  blockedTogether?: ConfirmationTaskRef[]
   pullRequests: { repo: string; number: number }[]
   working: boolean
   result?: { done: boolean; text: string }
@@ -118,7 +124,8 @@ export interface CoordinatorConfirmationTask extends ConfirmationTaskRef, Confir
 
 export interface CoordinatorConfirmation {
   id: string
-  kind: 'archive' | 'delete'
+  kind: 'archive' | 'delete' | 'transfer'
+  transfer?: TaskMovePlan
   operation: string
   fingerprint: string
   askedAt: string

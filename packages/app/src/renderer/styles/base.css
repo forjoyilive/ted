@@ -50,6 +50,11 @@ pre {
   }
 }
 
+[data-chat-item][data-found] {
+  border-radius: 8px;
+  animation: setting-found-around 2.2s ease-out;
+}
+
 [data-setting][data-found] {
   border-radius: 8px;
   animation: setting-found-inside 2.2s ease-out;

@@ -24,3 +24,8 @@
 .link code {
   color: inherit;
 }
+
+.out {
+  margin-left: 1px;
+  font-size: 0.8em;
+}

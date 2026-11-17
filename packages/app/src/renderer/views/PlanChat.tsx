@@ -34,7 +34,7 @@ import { ProposalAnswer, ProposalRows } from '../components/ProposalCard.tsx'
 import { QuestionChoices, type QuestionSelection } from '../components/QuestionChoices.tsx'
 import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { RoundAnswers, RoundQuestions } from '../components/RoundCard.tsx'
-import { type ChatExtra, RunChat, tokenCount } from '../components/RunChat.tsx'
+import { type ChatExtra, PersonMessage, RunChat, tokenCount } from '../components/RunChat.tsx'
 import { agentNames, RunIcon } from '../components/RunIcon.tsx'
 import type { ScrollReveal } from '../components/ScrollMemory.tsx'
 import { Select } from '../components/Select.tsx'
@@ -59,6 +59,7 @@ import { useStages } from '../stages.tsx'
 import { agentLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { AgentDraftCard } from './AgentDraftCard.tsx'
+import { AgentDescriptionLine, AgentHeading } from './AgentPicker.tsx'
 import { OutsideCommandCard } from './OutsideCommandCard.tsx'
 import styles from './PlanChat.module.css'
 import views from './views.module.css'
@@ -68,7 +69,7 @@ export function PlanChatView({
   planId,
   revealRequest,
   from,
-  switcher,
+  picked = false,
   agent,
   onBack,
   backLabel,
@@ -81,7 +82,7 @@ export function PlanChatView({
   planId: string | undefined
   revealRequest?: ScrollReveal | undefined
   from?: string
-  switcher?: ReactNode
+  picked?: boolean
   agent?: AgentSummary | undefined
   onBack?: (() => void) | undefined
   backLabel?: string
@@ -95,7 +96,7 @@ export function PlanChatView({
       <NewPlanChat
         factory={factory}
         {...(from !== undefined && { from })}
-        switcher={switcher}
+        picked={picked}
         agent={agent ?? builtInPlanner}
         onBack={onBack}
         backLabel={backLabel}
@@ -190,7 +191,13 @@ function leadLine(lead: TaskLead | undefined): string {
   return lead ? [agentNames[lead.agent], lead.model, lead.effort].filter(Boolean).join(' · ') : ''
 }
 
-function Back({ onBack, label }: { onBack: (() => void) | undefined; label?: string | undefined }) {
+export function Back({
+  onBack,
+  label,
+}: {
+  onBack: (() => void) | undefined
+  label?: string | undefined
+}) {
   if (!onBack || label === undefined) return null
   return (
     <ActionButton type="button" className={styles.back} onClick={onBack}>
@@ -202,7 +209,7 @@ function Back({ onBack, label }: { onBack: (() => void) | undefined; label?: str
 function NewPlanChat({
   factory,
   from,
-  switcher,
+  picked,
   agent,
   onBack,
   backLabel,
@@ -211,7 +218,7 @@ function NewPlanChat({
 }: {
   factory: Factory
   from?: string
-  switcher?: ReactNode
+  picked: boolean
   agent: AgentSummary
   onBack?: (() => void) | undefined
   backLabel?: string | undefined
@@ -277,15 +284,20 @@ function NewPlanChat({
     <>
       <section className={views.pane} aria-label="New planning chat">
         <header className={styles.header}>
-          <Back onBack={onBack} label={backLabel} />
+          {!picked && <Back onBack={onBack} label={backLabel} />}
           <div className={styles.titleRow}>
-            <h1 className={`${styles.title} ${styles.placeholderTitle}`}>
-              {switcher ? 'New chat' : 'New planning chat'}
-            </h1>
-            {switcher}
+            {picked ? (
+              <>
+                <Back onBack={onBack} label={backLabel} />
+                <AgentHeading agent={agent} titleClassName={styles.title} />
+              </>
+            ) : (
+              <h1 className={`${styles.title} ${styles.placeholderTitle}`}>New planning chat</h1>
+            )}
             <span className={styles.spacer} />
             {lead && <LeadSelects lead={lead} onChange={setLead} />}
           </div>
+          {picked && <AgentDescriptionLine agent={agent} />}
         </header>
         <div className={styles.intro}>
           <p>
@@ -1214,10 +1226,7 @@ function QueuedChat({ plan }: { plan: Plan }) {
   return (
     <div className={styles.queued}>
       <div className={styles.queuedBody}>
-        <div className={styles.bubble}>
-          <span className={styles.bubbleHead}>{`You · ${clockTime(plan.createdAt)}`}</span>
-          <p className={styles.bubbleText}>{plan.message}</p>
-        </div>
+        <PersonMessage when={clockTime(plan.createdAt)} text={plan.message} />
         <p className={styles.waitNote}>
           {plan.status === 'queued'
             ? (plan.paused ?? 'Your message is kept. The planner is starting.')
@@ -1308,14 +1317,16 @@ function StartedFrom({ plan, onOpenTask }: { plan: Plan; onOpenTask: (ref: strin
       ? ['Deleted']
       : from.gone === 'archived'
         ? ['Archived']
-        : [
-            ...(from.stage !== undefined ? [stages.name(from.stage, plan.factoryId)] : []),
-            ...(from.status !== undefined
-              ? [statusLabel(from.status)]
-              : from.activity !== undefined
-                ? [from.activity]
-                : []),
-          ]
+        : from.gone === 'moved'
+          ? ['Moved to another Factory']
+          : [
+              ...(from.stage !== undefined ? [stages.name(from.stage, plan.factoryId)] : []),
+              ...(from.status !== undefined
+                ? [statusLabel(from.status)]
+                : from.activity !== undefined
+                  ? [from.activity]
+                  : []),
+            ]
   return (
     <div className={styles.paneFrom}>
       {from.gone === 'deleted' ? (

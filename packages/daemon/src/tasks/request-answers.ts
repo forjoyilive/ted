@@ -116,7 +116,7 @@ export interface RequestAnswerPort {
     sendBack: SendBack,
   ): string
   leaveWorkToDiagnose(task: StoredTask): Promise<(message: string) => Promise<Task>>
-  settleDependents(id: string, choice: 'unblock'): void
+  settleDependents(id: string): void
   beforeArchive?(task: StoredTask): void
   archiveNow(task: StoredTask, close: boolean): Task
   archiveAsked(task: StoredTask, options: ArchiveTaskRequest): () => Task
@@ -961,7 +961,7 @@ export function createRequestAnswers(
           ...(text !== '' && { text }),
         })
         if (choice === trackerArchiveChoice && !find(task.id).archived) {
-          settleDependents(task.id, 'unblock')
+          settleDependents(task.id)
           archiveNow(find(task.id), false)
           wake()
         }
