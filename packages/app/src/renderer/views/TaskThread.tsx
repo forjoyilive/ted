@@ -71,6 +71,7 @@ import { DetailsPane } from '../components/ResizableSidebar.tsx'
 import { Diff } from '../components/RunChat.tsx'
 import { RunsSection, runIconState } from '../components/RunsSection.tsx'
 import type { ScrollReveal } from '../components/ScrollMemory.tsx'
+import { useOptionList } from '../components/Select.tsx'
 import { RunWithSideChat } from '../components/SideChat.tsx'
 import { StageTrack } from '../components/StageTrack.tsx'
 import { TalkThrough } from '../components/TalkThrough.tsx'
@@ -1454,6 +1455,7 @@ function FieldSelect({
   options: readonly (readonly [string, string])[]
   onChange: (value: string) => void
 }) {
+  const { control, list } = useOptionList()
   return (
     <span className={styles.fieldSelect}>
       <span aria-hidden>{text}</span>
@@ -1463,6 +1465,7 @@ function FieldSelect({
         className={styles.fieldSelectControl}
         value={value}
         onChange={(event) => onChange(event.target.value)}
+        {...control}
       >
         {options.map(([option, name]) => (
           <option key={option} value={option}>
@@ -1470,6 +1473,7 @@ function FieldSelect({
           </option>
         ))}
       </select>
+      {list}
     </span>
   )
 }
