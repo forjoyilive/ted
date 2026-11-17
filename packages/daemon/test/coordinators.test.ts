@@ -838,14 +838,6 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   expect((await s.comments(u.id)).find((c) => c.id === askedU.id)?.answer).toMatchObject({
     kind: 'withdrawn',
   })
-  const chatRun = (await s.chat()).runId
-  await waitUntil(
-    async () =>
-      JSON.stringify((await s.ok<RunChat>('GET', `/runs/${chatRun}/chat`)).items).includes(
-        `Your request to move ${u.displayId} was withdrawn`,
-      ),
-    'the Coordinator to hear its request was withdrawn',
-  )
 
   if (!receipt) throw new Error('missing move receipt')
   const legacyReceipt = {
@@ -858,6 +850,14 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
   }
   await writeFile(path.join(scratch, 'finish'), '')
   await waitUntil(async () => (await s.chat()).status === 'ready', 'Coordinator to finish its turn')
+  const chatRun = (await s.chat()).runId
+  await waitUntil(
+    async () =>
+      JSON.stringify((await s.ok<RunChat>('GET', `/runs/${chatRun}/chat`)).items).includes(
+        `Your request to move ${u.displayId} was withdrawn`,
+      ),
+    'the Coordinator to hear its request was withdrawn',
+  )
   await daemon?.stop()
   const store = await openStore({ directory: tedPaths(home).store })
   let deliveredId = ''

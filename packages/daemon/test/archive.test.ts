@@ -581,7 +581,7 @@ describe('move to another Factory', () => {
       })
       const shown = await client.ok<TaskMovePlan>(
         'GET',
-        `/tasks/${task.id}/move-plan?factory=${web.id}`,
+        `/tasks/${task.id}/move-plan?factory=${web.id}&request=${asked.id}`,
       )
       expect(movePlanKey(shown)).toBe(movePlanKey(plan))
       await client.ok('POST', `/comments/${asked.id}/answer`, {
