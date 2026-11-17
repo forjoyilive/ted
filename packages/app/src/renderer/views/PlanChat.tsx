@@ -51,6 +51,7 @@ import { ago, clockTime, useNow } from '../requests.ts'
 import { useStages } from '../stages.tsx'
 import { agentLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
+import { AgentDraftCard } from './AgentDraftCard.tsx'
 import styles from './PlanChat.module.css'
 import views from './views.module.css'
 
@@ -706,12 +707,15 @@ function OneLiner({
       </div>
     )
   }
-  const showLabel = request.kind === 'proposal' ? 'Show' : 'Show answers'
+  const showLabel =
+    request.kind === 'proposal' || request.kind === 'agent' ? 'Show' : 'Show answers'
   const answered = request.answer?.kind === 'answered' ? request.answer : undefined
+  const saved = request.kind === 'agent' ? approved?.text : undefined
   const canShow =
     !pending &&
     (((request.kind === 'round' || request.kind === 'question') && answered !== undefined) ||
-      request.kind === 'proposal')
+      request.kind === 'proposal' ||
+      saved !== undefined)
   return (
     <div className={pending ? `${styles.line} ${styles.pending}` : styles.line}>
       <div className={styles.lineHead}>
@@ -736,6 +740,12 @@ function OneLiner({
               ...(answered.text !== undefined ? [answered.text] : []),
             ].join(' · ')}
           </p>
+        </div>
+      )}
+      {open && saved !== undefined && (
+        <div className={styles.changes}>
+          {request.title !== undefined && <p>{request.title}</p>}
+          <Markdown text={saved} />
         </div>
       )}
       {open && request.kind === 'proposal' && request.proposal && (
@@ -978,7 +988,11 @@ export function chatRequestItems(
     at: request.createdAt,
     node:
       request.answer === undefined && answerable ? (
-        <ChatRequestCard chatId={chatId} request={request} agentName={agentName} />
+        request.kind === 'agent' ? (
+          <AgentDraftCard chatId={chatId} request={request} agentName={agentName} />
+        ) : (
+          <ChatRequestCard chatId={chatId} request={request} agentName={agentName} />
+        )
       ) : (
         <OneLiner
           request={request}

@@ -6,7 +6,7 @@ export const coordinatorAgent: ChatAgent = {
   id: 'coordinator',
   name: 'Coordinator',
   source: 'ted',
-  powers: ['ask', 'manage_tasks'],
+  powers: ['ask', 'manage_tasks', 'manage_agents'],
   removed: false,
 }
 

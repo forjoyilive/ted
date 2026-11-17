@@ -9,7 +9,7 @@ import styles from './AgentAbout.module.css'
 
 const about = {
   coordinator:
-    'Compares this Factory’s Tasks and recommends what to do next. When you ask, it starts, moves, tells or answers Tasks; deletes and risky archives wait for your confirmation.',
+    'Compares this Factory’s Tasks and recommends what to do next. When you ask, it starts, moves, tells or answers Tasks; deletes and risky archives wait for your confirmation. It can also draft Agents for you to create.',
   planner:
     'Reads the repos, talks a large piece of work through with you in rounds, then proposes Tasks. Nothing is created until you approve the proposal.',
 } satisfies Record<BuiltInAgentId, string>
@@ -18,7 +18,7 @@ export const builtInCoordinator: AgentSummary = {
   id: 'coordinator',
   name: 'Coordinator',
   source: 'ted',
-  powers: ['ask', 'manage_tasks'],
+  powers: ['ask', 'manage_tasks', 'manage_agents'],
 }
 
 export const builtInPlanner: AgentSummary = {

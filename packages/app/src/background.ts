@@ -360,6 +360,7 @@ const chatRequestLabels: Record<ChatRequestKind, string> = {
   question: 'Question',
   round: 'Round',
   proposal: 'Proposal',
+  agent: 'Agent draft',
 }
 
 export function inboxNotice(request: WaitingRequest): ProblemNotice {
