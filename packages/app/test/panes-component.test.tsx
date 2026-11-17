@@ -607,6 +607,7 @@ test.each(['response-first', 'event-first'] as const)(
     let plans: PlanInboxItem[] = [{ plan: detail.plan, request: required(detail.requests[0]) }]
     a.handle('planInbox', () => plans)
     a.handle('getPlan', () => detail)
+    a.handle('factoryAgents', () => [plannerAgent])
     const chat: RunChat = {
       run: {
         id: 'planner',

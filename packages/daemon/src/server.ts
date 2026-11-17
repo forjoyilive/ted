@@ -270,6 +270,7 @@ async function handle(
             /^\/coordinator\/tasks(?:\?[^#]{0,2000})?$/.test(url))) ||
         (req.method === 'POST' &&
           (url === '/coordinator/tasks' ||
+            url === '/coordinator/requests' ||
             /^\/coordinator\/(archive|unarchive|delete)$/.test(url) ||
             /^\/coordinator\/tasks\/[^/]+\/(start|move|tell|answer|resume|parent|done)$/.test(url)))
       if (!coordinatorTool && !ownBoundary && !(req.method === 'GET' && url === '/caller')) {

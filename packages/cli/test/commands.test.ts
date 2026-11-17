@@ -674,7 +674,7 @@ describe('commands merged from the latest base', () => {
           runtime,
         ),
       ).toBe(2)
-      expect(await runCli(['coordinator', 'tasks', '--stage', 'queued'], runtime)).toBe(2)
+      expect(await runCli(['coordinator', 'tasks', '--stage', 'Queued!'], runtime)).toBe(2)
       expect(requests.slice(4)).toEqual([
         { url: '/peers?offset=3', body: undefined },
         { url: '/peers/inbox?offset=4', body: undefined },
