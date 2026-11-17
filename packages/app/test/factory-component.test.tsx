@@ -537,6 +537,7 @@ test('Factory drift offers merge and inherited choices; Library drift offers def
 test('Agent defaults save a Library override and reset it to the TED default', async () => {
   const { AgentDefaults } = await import('../src/renderer/settings/AgentDefaults.tsx')
   let library: import('@ted/protocol').LibraryView = {
+    agentFiles: [],
     path: '/test/library',
     version: 'v1',
     stages: [],
@@ -702,6 +703,7 @@ test('Factory drift counts lead to Keep mine staging the actual parent draft', a
 test('Library drift counts and the TED-default explanation lead to a saved Keep mine draft', async () => {
   const a = appState()
   const library: import('@ted/protocol').LibraryView = {
+    agentFiles: [],
     path: '/test/library',
     version: 'v1',
     problems: [],

@@ -20,6 +20,7 @@ export const factorySections = [
   ['workflow', 'Workflow'],
   ['checks', 'Checks'],
   ['cleanup', 'Cleanup'],
+  ['agent-files', 'Agents'],
   ['agents', 'Providers'],
   ['permissions', 'Permissions'],
   ['notifications', 'Notifications'],
@@ -254,6 +255,16 @@ const entries = {
     help: 'Turns Cleanup on for every Factory that doesn’t say otherwise. A Factory runs it only once it has at least one step, set in that Factory’s settings under Cleanup.',
   },
   'app.library.stage-files': { name: 'Stage files', heading: true },
+  'app.library.agents': {
+    name: 'Agents',
+    keywords: 'coordinator planner chat powers instructions agents.yaml',
+    help: 'Agents every Factory gets, saved in the Library’s agents.yaml and agents/. Override copies a built-in Agent into the Library.',
+    heading: true,
+  },
+  'app.library.agents.new': {
+    name: 'New Agent',
+    keywords: 'add create custom agent blank',
+  },
 
   'app.storage.space': { name: 'Space used', heading: true },
   'app.storage.worktrees': {
@@ -433,6 +444,16 @@ const entries = {
     name: 'Checks',
     help: 'Commands TED runs at Validate, one after another, before the agent’s own checks. Run now tries one on the base branch in a scratch worktree.',
     heading: true,
+  },
+  'factory.agent-files': {
+    name: 'Agents',
+    keywords: 'coordinator planner chat powers instructions agents.yaml',
+    help: 'The Agents you can start chats with in this Factory, saved in .ted/agents.yaml and .ted/agents/. Override copies an inherited Agent into .ted/ for this Factory.',
+    heading: true,
+  },
+  'factory.agent-files.new': {
+    name: 'New Agent',
+    keywords: 'add create custom agent blank',
   },
   'factory.agents': {
     name: 'Providers',

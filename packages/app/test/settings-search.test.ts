@@ -64,6 +64,26 @@ test('the Providers page is found by its name and by “agent”', () => {
   }
 })
 
+test('the Agents page is found in Factory settings and in the Library', () => {
+  expect(find('agents powers')).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        id: 'factory.agent-files',
+        where: 'widgets › Settings',
+        target: expect.objectContaining({ kind: 'factory', section: 'agent-files' }),
+      }),
+      expect.objectContaining({
+        id: 'app.library.agents',
+        where: 'Settings › Library',
+        target: { kind: 'app', section: 'library' },
+      }),
+    ]),
+  )
+  expect(find('new agent').map((hit) => hit.id)).toEqual(
+    expect.arrayContaining(['factory.agent-files.new', 'app.library.agents.new']),
+  )
+})
+
 test('a name match comes first, a setting before a heading with the same words', () => {
   expect(find('autopilot').map((hit) => hit.name)).toEqual([
     'Autopilot across all Factories',

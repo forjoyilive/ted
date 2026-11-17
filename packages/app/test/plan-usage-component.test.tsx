@@ -87,7 +87,13 @@ test('usage below the warning threshold remains visible and follows live reports
 
 test('empty, API-key and offline states are explicit; settings navigation uses the existing Agents page', async () => {
   const a = appState()
-  a.handle('library', () => ({ version: 'v1', agents: [], stages: [], problems: [] }))
+  a.handle('library', () => ({
+    version: 'v1',
+    agents: [],
+    agentFiles: [],
+    stages: [],
+    problems: [],
+  }))
   a.mount()
   const u = user()
   await u.click(await screen.findByRole('button', { name: 'Usage' }))

@@ -1,3 +1,4 @@
+import type { AgentFileChange, AgentFileRow } from './agent-files.ts'
 import type { PermissionMode } from './run.ts'
 import type {
   AgentStageId,
@@ -87,6 +88,8 @@ export interface FactorySettingsChanges {
   checks?: CheckInput[]
   cleanup?: CleanupSettingsInput
   agents?: Partial<Record<AgentRole, AgentChoiceInput | null>>
+  agentFiles?: AgentFileChange[]
+  keepAgentFiles?: string[]
   permissions?: PermissionMode
   maxWorkingRuns?: number | null
   notes?: string
@@ -267,6 +270,7 @@ export interface FactorySettingsView {
   cleanup: CleanupSettingsInput
   tries: CheckTry[]
   agents: AgentRowView[]
+  agentFiles: AgentFileRow[]
   permissions: PermissionMode
   repoPermissions?: PermissionMode
   maxWorkingRuns?: number
@@ -357,6 +361,8 @@ export interface LibraryChanges {
   stageFiles?: Partial<Record<AgentStageId, string | null>>
   keepStageFiles?: AgentStageId[]
   agents?: Partial<Record<AgentRole, AgentChoiceInput | null>>
+  agentFiles?: AgentFileChange[]
+  keepAgentFiles?: string[]
 }
 
 export interface LibraryStageRow {
@@ -404,6 +410,7 @@ export interface LibraryView {
   version: string
   stages: LibraryStageRow[]
   agents: LibraryAgentRow[]
+  agentFiles: AgentFileRow[]
   problems: WorkflowProblem[]
   invalid?: LibraryInvalid
 }

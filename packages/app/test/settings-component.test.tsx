@@ -668,6 +668,7 @@ test('App settings navigation selects real pages and Factory settings leaves the
       { id: 'backlog', name: 'Backlog', inOrder: true, enabled: true, gate: false, from: 'ted' },
     ],
     agents: [],
+    agentFiles: [],
     problems: [],
   }))
   a.handle('tedFolder', () => ({ path: '/test/', platform: 'darwin' }))

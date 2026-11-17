@@ -85,3 +85,13 @@ export function rememberLayer(
     remember({ hash: stageFileHash(text), layer: layer.kind, stage, text, tedVersion })
   }
 }
+
+export function agentDriftView(found: FoundAgentDrift): StageDrift {
+  return {
+    basedOn: found.basedOn,
+    current: found.current,
+    layer: found.layer,
+    diffOf: 'yours',
+    diff: fileChange(`agents/${found.agent}.md`, found.own, found.inherited).lines,
+  }
+}

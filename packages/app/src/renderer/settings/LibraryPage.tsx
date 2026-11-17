@@ -33,6 +33,7 @@ import {
 } from '../library.ts'
 import { OvernightNotice } from '../overnight.tsx'
 import { readableError, ted } from '../ted.ts'
+import { AgentFilesSection } from '../views/AgentFilesSection.tsx'
 import base from '../views/FactorySettings.module.css'
 import sections from '../views/FactorySettingsSections.module.css'
 import {
@@ -153,7 +154,7 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
   return (
     <SettingsPage
       title="Library"
-      help={`Your own Workflow settings and Stage files, kept in ${view?.path ?? '~/.ted/library'}. Every Factory inherits them unless it overrides them in .ted/. Stage effort applies at Stage entry unless the Task has its own effort.`}
+      help={`Your own Workflow settings, Stage files and Agents, kept in ${view?.path ?? '~/.ted/library'}. Every Factory inherits them unless it overrides them in .ted/. Stage effort applies at Stage entry unless the Task has its own effort.`}
       subtitle={libraryLine}
     >
       {!view && !error && <Skeleton shape="settings" label="Loading Library…" />}
@@ -258,6 +259,31 @@ export function LibraryPage({ dispatch }: SettingsPageProps) {
                   : [],
               )}
             </div>
+          </section>
+
+          <section className={styles.group} aria-labelledby="library-agents">
+            <h2 id="library-agents" className={styles.groupLabel} data-setting="app.library.agents">
+              Agents
+            </h2>
+            <AgentFilesSection
+              layer="library"
+              folder=""
+              rows={view.agentFiles}
+              draft={draft.agentFiles}
+              loaded={loaded.agentFiles}
+              kept={draft.keepAgentFiles}
+              newSetting="app.library.agents.new"
+              onDraft={(change) => setDraft((d) => d && { ...d, agentFiles: change(d.agentFiles) })}
+              onKeep={(id) =>
+                setDraft(
+                  (d) =>
+                    d &&
+                    (d.keepAgentFiles.includes(id)
+                      ? d
+                      : { ...d, keepAgentFiles: [...d.keepAgentFiles, id] }),
+                )
+              }
+            />
           </section>
 
           <p className={styles.agentsLink}>
