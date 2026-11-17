@@ -78,6 +78,11 @@ describe('a Comment on a Task whose Task Lead ended', () => {
   test('says where a Comment waiting for a Run goes next', () => {
     expect(commentDelivery(at({ leadLive: true }))).toBe('starting')
     expect(commentDelivery(at({ queue: { place: 2 } }))).toBe('queued')
+    expect(commentDelivery(at({ queue: { hold: 'claude is off.' } }))).toBeUndefined()
+    expect(commentDelivery(at({ queue: { place: 1 }, busy: { loadRatio: 2 } }))).toBeUndefined()
+    expect(
+      commentDelivery(at({ queue: { place: 1, after: 'answer' }, busy: { loadRatio: 2 } })),
+    ).toBe('queued')
     expect(commentDelivery(at({ queue: { place: 1 }, paused: 'Usage limit' }))).toBe('paused')
     expect(commentDelivery(at({ interrupted: true, openRequests: 1 }))).toBeUndefined()
     expect(

@@ -9744,7 +9744,7 @@ export function createTasks(options: {
   }
 
   function wakesOnComment(task: StoredTask): boolean {
-    return task.wakesOnComment && resumable(task)
+    return task.wakesOnComment === true && resumable(task)
   }
 
   function resumable(task: StoredTask): boolean {

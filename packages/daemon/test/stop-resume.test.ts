@@ -265,6 +265,9 @@ test('an answer or a Comment restarts a Task Lead stopped while it waited, unles
     expect(res.status).toBe(201)
     return res.body as Comment
   }
+  const before = await tasks()
+  expect(before.find((t) => t.id === commented.id)).toMatchObject({ wakesOnComment: true })
+  expect(before.find((t) => t.id === byHand.id)).not.toHaveProperty('wakesOnComment')
   const stoppedNote = await post(byHand.id, 'Is this still going?')
   expect(stoppedNote.delivered).toBeUndefined()
   await answer(task.id, 'Use /v2/notes.')

@@ -93,9 +93,13 @@ export function taskWakesOnComment(facts: TaskFacts): boolean {
 export function commentDelivery(facts: TaskFacts): CommentDelivery | undefined {
   if (facts.stage === 'done' || facts.archived || facts.stopped || facts.failed) return undefined
   if (facts.paused !== undefined) return 'paused'
-  if (facts.queue) return 'queued'
+  if (facts.queue) return waitsForSlot(facts.queue, facts.busy) ? 'queued' : undefined
   if (facts.leadLive) return 'starting'
   return undefined
+}
+
+function waitsForSlot(queue: NonNullable<TaskFacts['queue']>, busy: BusyHold | undefined): boolean {
+  return 'place' in queue && (busy === undefined || queue.after !== undefined)
 }
 
 export function leadAskedAtMerge(facts: {

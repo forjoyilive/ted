@@ -408,7 +408,6 @@ export interface StoredTask extends Task {
   startRequested: boolean
   waitsForBlockers: boolean
   stopped: boolean
-  wakesOnComment: boolean
 }
 
 export interface SeenStageFile {
@@ -2401,7 +2400,7 @@ export async function openStore({
       commentBox: commentBox(facts, status),
       ...(delivery !== undefined && { commentDelivery: delivery }),
       ...(taskCanResume(facts) && { canResume: true }),
-      wakesOnComment: taskWakesOnComment(facts),
+      ...(taskWakesOnComment(facts) && { wakesOnComment: true as const }),
       ...(facts.checksActive && { checksActive: true }),
       tabs,
       runs: live
@@ -2464,7 +2463,6 @@ export async function openStore({
     startRequested: __,
     waitsForBlockers: ___,
     stopped: ____,
-    wakesOnComment: _________,
     ...task
   }: StoredTask): Task => task
 

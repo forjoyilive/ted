@@ -62,6 +62,15 @@ test('an undelivered Comment says what happens to it next', async () => {
   expect(await within(thread).findByText('Waits for Codex to come back')).toBeTruthy()
 })
 
+test('the comment box says Send starts a Task Lead that ended while it waited', async () => {
+  const thread = await openTask(appState(), { commentBox: 'no-run', wakesOnComment: true })
+  const box = required(within(thread).getByRole('textbox', { name: 'Comment' }).closest('fieldset'))
+  await user().hover(within(box).getByRole('button', { name: 'Help' }))
+  expect(
+    await within(box).findByText('Send starts the Task Lead, and it gets this with the brief.'),
+  ).toBeTruthy()
+})
+
 test('Task back links restore Board, List and All Tasks', async () => {
   const a = appState()
   await openTask(a)
