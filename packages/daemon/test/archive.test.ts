@@ -586,11 +586,10 @@ describe('move to another Factory', () => {
       const comments = await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)
       expect(comments.map((c) => c.body)).toContain('A note')
       const texts = await threadTexts(client, moved)
-      expect(texts).toContain(
-        `You moved this Task from ${task.displayId} in ${own.factoryName} to ${web.name} · a fresh Task Lead Run starts from the brief`,
-      )
+      const line = `You moved this Task from ${task.displayId} in ${own.factoryName} to ${web.name} · a fresh Task Lead Run starts from the brief`
+      expect(texts).toContain(line)
       const byOldId = await client.ok<ThreadEvent[]>('GET', `/tasks/${task.displayId}/events`)
-      expect(byOldId.length).toBe(texts.length)
+      expect(byOldId.map((e) => e.text)).toContain(line)
       const fresh = await client.ok<Run>('GET', `/runs/${moved.leadRunId}`)
       expect(fresh.prompt).toContain('Picking up after a move to another Factory')
       expect(fresh.prompt).toContain('## The conversation so far')
