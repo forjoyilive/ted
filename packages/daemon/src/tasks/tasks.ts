@@ -367,6 +367,7 @@ import {
   cleanupNoBack,
   cleanupProgress,
   cleanupRestartNote,
+  entersMerge,
 } from './cleanup.ts'
 import { cleanupCommandsText, runCleanupCommands } from './cleanup-commands.ts'
 import { coalesced } from './coalesced.ts'
@@ -1590,16 +1591,35 @@ export function createTasks(options: {
     )
   }
 
-  async function requestCommit(
+  async function requestCommits(
     task: StoredTask,
     workflow: ResolvedWorkflow,
-  ): Promise<{ name: string; commit: string } | undefined> {
-    const { repo } = primaryRepo(task, workflow)
-    if (!repo) return undefined
-    return git.headCommit(repo.worktree).then(
-      (commit) => ({ name: repo.name, commit }),
-      () => undefined,
+  ): Promise<{ name: string; commit: string }[]> {
+    const { repo: primary } = primaryRepo(task, workflow)
+    const live = task.repos.filter((r) => !r.removed)
+    const ordered = primary ? [primary, ...live.filter((r) => r.name !== primary.name)] : live
+    const heads = await Promise.all(
+      ordered.map((repo) =>
+        git.headCommit(repo.worktree).then(
+          (commit) => [{ name: repo.name, commit }],
+          () => [],
+        ),
+      ),
     )
+    return heads.flat()
+  }
+
+  async function approvedCommit(
+    task: StoredTask,
+    comment: Comment,
+    repo: TaskRepo,
+    base: string,
+  ): Promise<string | undefined> {
+    const requested = store.gateRequestCommit(task.id, comment.id, repo.name)
+    if (requested === undefined) return undefined
+    const changes = await git.workingChanges(repo.worktree, `origin/${base}`)
+    const same = changes.head === requested && !changes.files.some((f) => f.uncommitted)
+    return same ? changes.head : undefined
   }
 
   async function bindApproval(
@@ -1607,20 +1627,23 @@ export function createTasks(options: {
     comment: Comment,
     workflow: ResolvedWorkflow,
   ): Promise<void> {
-    if (!bindsApproval(comment.stage ?? '')) return
-    const { repo, baseBranch } = primaryRepo(task, workflow)
-    if (!repo) return
-    let commit = repo.pullRequest?.signedOff
-    if (signsOffCode(comment.stage ?? '')) {
-      const requested = store.gateRequestCommit(task.id, comment.id)
-      commit = await (async () => {
-        const base = `origin/${baseBranch ?? (await git.defaultBranch(repo.worktree))}`
-        const changes = await git.workingChanges(repo.worktree, base)
-        const same = changes.head === requested && !changes.files.some((f) => f.uncommitted)
-        return same ? changes.head : undefined
-      })().catch(() => undefined)
+    const stage = comment.stage ?? ''
+    const toMerge = entersMerge(stage, workflow.next(stage), workflow.stages)
+    if (!bindsApproval(stage) && !toMerge) return
+    const { repo: primary } = primaryRepo(task, workflow)
+    if (!signsOffCode(stage) && !toMerge) {
+      const commit = primary?.pullRequest?.signedOff
+      if (primary && commit !== undefined)
+        store.gateApprovalBound(task.id, comment.id, primary.name, commit)
+      return
     }
-    if (commit !== undefined) store.gateApprovalBound(task.id, comment.id, repo.name, commit)
+    const targets = await pullRequestTargets(task)
+    for (const target of targets) {
+      const repo = task.repos.find((r) => r.name === target.name)
+      if (!repo) continue
+      const commit = await approvedCommit(task, comment, repo, target.base).catch(() => undefined)
+      if (commit !== undefined) store.gateApprovalBound(task.id, comment.id, repo.name, commit)
+    }
   }
 
   function gateKept(task: Task): boolean {
@@ -3208,21 +3231,22 @@ export function createTasks(options: {
     }
   }
 
-  function pullRequestWork(
-    taskId: string,
-    what: 'first' | 'again' | 'ready' | 'close' | 'reopen' | 'signoff',
-  ): void {
+  function pullRequestWork(taskId: string, what: 'publish' | 'close' | 'reopen'): void {
     const prs = pullRequests
     if (!prs) return
     const task = find(taskId)
     const work = async () => {
       if (what === 'close') return prs.close(taskId)
       if (what === 'reopen') return prs.reopen(taskId)
-      if (what === 'signoff') return recordSignOff(taskId)
       const current = find(taskId)
-      const targets = await pullRequestTargets(current)
-      if (what === 'ready') await prs.ready(pullRequestTask(current), targets)
-      else await prs.push(pullRequestTask(current), targets, what)
+      if (!mergesHere(current.stage)) return
+      const since = visitStart(current)
+      const targets = (await pullRequestTargets(current)).flatMap((target) => {
+        const commit = store.chosenMergeCommit(taskId, target.name, since)
+        return commit === undefined || commit === null ? [] : [{ ...target, commit }]
+      })
+      await prs.publish(pullRequestTask(current), targets)
+      recordSignOff(taskId)
     }
     const next = (pullRequestQueue.get(taskId) ?? Promise.resolve()).then(work)
     const settled = next.catch(() => undefined)
@@ -3233,11 +3257,29 @@ export function createTasks(options: {
     inBackground(`update ${task.displayId}’s pull requests`, () => next)
   }
 
+  async function chooseMergeCommits(task: StoredTask, signedOff: boolean): Promise<void> {
+    const approval = signedOff ? lastApproval(task) : undefined
+    for (const repo of task.repos) {
+      if (repo.removed || repo.pullRequest?.state === 'merged') continue
+      const commit = approval
+        ? store.approvalBoundCommit(task.id, approval.id, repo.name)
+        : await git.headCommit(repo.worktree).catch(() => undefined)
+      store.mergeCommitChosen(task.id, repo.name, commit)
+    }
+  }
+
   function recordSignOff(taskId: string): void {
-    for (const repo of find(taskId).repos) {
+    const task = find(taskId)
+    const since = visitStart(task)
+    for (const repo of task.repos) {
       const pr = repo.pullRequest
       if (repo.removed || !pr || pr.state === 'merged' || pr.state === 'closed') continue
-      const valid = pr.state === 'ready' && !repo.pushFailed && repo.pushed !== undefined
+      const chosen = store.chosenMergeCommit(taskId, repo.name, since)
+      const valid =
+        pr.state === 'ready' &&
+        !repo.pushFailed &&
+        repo.pushed !== undefined &&
+        (chosen === undefined || repo.pushed.commit === chosen)
       store.pullRequestSignedOff(taskId, repo.name, valid ? repo.pushed?.commit : undefined)
     }
   }
@@ -3709,7 +3751,14 @@ export function createTasks(options: {
             !inFlight.is(taskId, 'checking') &&
             validation.pendingRepair(current)
           const onlyMergedOutside = !canAct() && !repair
-          if (canWatch() || repair) {
+          const publishing = await unpublished(taskId)
+          if (publishing !== undefined) {
+            if (publishing.kind === 'lost' && canAct()) {
+              next = await mergeSendBack(taskId, publishing.findings, undefined, true)
+            } else if (publishing.kind === 'publish' && canWatch()) {
+              pullRequestWork(taskId, 'publish')
+            }
+          } else if (canWatch() || repair) {
             next = await mergeWatcher
               .cycle(taskId, read, { onlyMergedOutside })
               .catch((error: unknown) => {
@@ -3742,6 +3791,39 @@ export function createTasks(options: {
         watchDone()
       }
     })
+  }
+
+  async function unpublished(
+    taskId: string,
+  ): Promise<{ kind: 'publish' } | { kind: 'lost'; findings: string } | undefined> {
+    const task = taskNow(taskId)
+    if (!pullRequests || !task || !mergesHere(task.stage)) return undefined
+    const since = visitStart(task)
+    const targets = await pullRequestTargets(task)
+    let pending = false
+    for (const target of targets) {
+      const repo = task.repos.find((r) => r.name === target.name)
+      if (!repo || repo.pullRequest?.state === 'merged') continue
+      const chosen = store.chosenMergeCommit(task.id, repo.name, since)
+      if (chosen === undefined) continue
+      if (chosen === null) {
+        return {
+          kind: 'lost',
+          findings: `${repo.repo} changed after the human signed it off: its branch has commits or uncommitted changes the sign-off didn’t cover, so Ted didn’t push it. Bring the Task back through Validate for a new sign-off.`,
+        }
+      }
+      const published =
+        repo.pushed !== undefined &&
+        repo.pushed.at >= since &&
+        !repo.pushFailed &&
+        repo.pullRequest?.state === 'ready'
+      if (published) continue
+      const ahead = await git
+        .commitsAhead(repo.worktree, `origin/${target.base}`, chosen)
+        .catch(() => 1)
+      if (ahead > 0) pending = true
+    }
+    return pending ? { kind: 'publish' } : undefined
   }
 
   async function mergeTargets(
@@ -3877,8 +3959,10 @@ export function createTasks(options: {
     const repos: SignOffChanges['repos'] = []
     for (const target of targets) {
       const repo = current.repos.find((r) => r.name === target.name)
-      const to = repo?.pullRequest?.signedOff ?? repo?.pushed?.commit
-      const approved = store.signedOffCommit(task.id, target.name, approvedAt)
+      const to = await git.headCommit(target.worktree).catch(() => undefined)
+      const approved =
+        store.approvalBoundCommit(task.id, approval.id, target.name) ??
+        store.signedOffCommit(task.id, target.name, approvedAt)
       if (approved === undefined || to === undefined) continue
       const base = repo?.pullRequest?.base ?? target.base
       const baseTip = await git
@@ -6386,7 +6470,6 @@ export function createTasks(options: {
         startMerging,
         watchMerge,
         deliver: (task, text) => deliver(task, text, 'answer'),
-        pullRequestWork,
         move: (task, resolution, next, message, options) =>
           move(task, resolution, next, message, { ...options, waitForSlot: 'answer' }),
         backMessage,
@@ -7053,10 +7136,9 @@ export function createTasks(options: {
         }
       }
     }
-    if (validates(next)) pullRequestWork(task.id, 'first')
-    if (mergesHere(next) && !signedOff) {
-      pullRequestWork(task.id, 'ready')
-      pullRequestWork(task.id, 'signoff')
+    if (mergesHere(next)) {
+      await chooseMergeCommits(find(task.id), signedOff)
+      pullRequestWork(task.id, 'publish')
     }
     if (next === 'done') {
       inBackground(`finish ${task.displayId}`, () => finishing(task, resolution))
@@ -12971,10 +13053,7 @@ export function createTasks(options: {
               })
             }
             const next = workflow.next(stage) as AgentStageId | 'done'
-            if (validates(stage)) {
-              judge(current, 'passed', outcome.judged)
-              pullRequestWork(task.id, 'again')
-            }
+            if (validates(stage)) judge(current, 'passed', outcome.judged)
             const moved = await move(
               current,
               resolution,
@@ -13007,9 +13086,10 @@ export function createTasks(options: {
             ? await signOffChanges(current, outcome.changes?.trim())
             : undefined
           const design = outcome.design
-          const requestedFor = signsOffCode(stage)
-            ? await requestCommit(current, workflow)
-            : undefined
+          const requestedFor =
+            signsOffCode(stage) || entersMerge(stage, workflow.next(stage), workflow.stages)
+              ? await requestCommits(current, workflow)
+              : []
           const kept = workflow.overnightKept
           if (kept?.stages.includes(stage) && !gateKept(current)) {
             store.gateKeptOvernight(task.id, stage, kept.reason)
@@ -13024,12 +13104,8 @@ export function createTasks(options: {
             ...(design && { attachments: designFiles(design) }),
             ...(design && hasDesign(storedDesign(design)) && { design: storedDesign(design) }),
           })
-          if (requestedFor) {
-            store.gateRequestedFor(task.id, request.id, requestedFor.name, requestedFor.commit)
-          }
-          if (validates(stage)) pullRequestWork(task.id, 'again')
-          if (signsOffCode(stage) || mergesHere(workflow.next(stage))) {
-            pullRequestWork(task.id, 'ready')
+          for (const requested of requestedFor) {
+            store.gateRequestedFor(task.id, request.id, requested.name, requested.commit)
           }
           return {
             task: publicTask(task.id),

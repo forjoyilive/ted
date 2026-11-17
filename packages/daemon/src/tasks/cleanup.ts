@@ -44,6 +44,10 @@ export function cleanupMoveTarget<T extends string>(
   return { next: to }
 }
 
+export function entersMerge(from: string, to: string, stages: readonly string[]): boolean {
+  return !mergesHere(from) && mergesHere(cleanupMoveTarget(from, to, stages).next)
+}
+
 export function cleanupProgress(
   steps: readonly CleanupStep[],
   reports: readonly CleanupStepReport[],

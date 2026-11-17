@@ -39,6 +39,7 @@ import { isEarlierStage, type ResolvedWorkflow } from '../workflow/resolve.ts'
 import { backStageMessage, nextStageMessage, stageTitle } from '../workflow/workflow.ts'
 import type { WorkflowResolution } from '../workflow/workflows.ts'
 import { answerMessage } from './answer-message.ts'
+import { entersMerge } from './cleanup.ts'
 import { type createFailureCases, failureText } from './failure-cases.ts'
 import { leadPending, mergeAnywayChoice, noCiAgainRepo, sendToLeadChoice } from './merge-watcher.ts'
 import { checkPreparationWorkflow } from './preparation.ts'
@@ -102,7 +103,6 @@ export interface RequestAnswerPort {
   startMerging(task: StoredTask, workflow: ResolvedWorkflow): void
   watchMerge(id: string): void
   deliver(task: Task, text: string): Promise<boolean>
-  pullRequestWork(id: string, reason: 'signoff' | 'again'): void
   move(
     task: StoredTask,
     resolution: WorkflowResolution,
@@ -199,7 +199,6 @@ export function createRequestAnswers(
     startMerging,
     watchMerge,
     deliver,
-    pullRequestWork,
     move,
     backMessage,
     leaveWorkToDiagnose,
@@ -547,7 +546,6 @@ export function createRequestAnswers(
         `The human sent this Task back to Design from Validate.${added}\n\n${backStageMessage(workflow, stageWith('designReview'), stageWith('validates'), ask.findings)}`,
       )
     } else {
-      pullRequestWork(task.id, 'again')
       const open = `# Open findings\n\nThe human chose “${choice}” with Validate’s blocking findings still open. Put them in the Task brief under “Current state” so the human sees them at ${stageTitle(next)}:\n\n${ask.findings}`
       await move(
         current,
@@ -993,8 +991,7 @@ export function createRequestAnswers(
             )
             return
           }
-          const signedOff = mergesHere(to)
-          if (signedOff) pullRequestWork(task.id, 'signoff')
+          const signedOff = entersMerge(from.stage, to, using.workflow.stages)
           await move(
             from,
             using,

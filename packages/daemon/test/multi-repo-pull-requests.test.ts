@@ -7,7 +7,12 @@ import type { TaskRepo } from '@ted/protocol'
 import { afterEach, beforeEach, expect, test } from 'vitest'
 import type { Gh } from '../src/github/gh.ts'
 import type { StoredTask, TedStore } from '../src/store/index.ts'
-import { createPullRequests, type PullRequestTarget } from '../src/tasks/pull-requests.ts'
+import {
+  createPullRequests,
+  type PullRequests,
+  type PullRequestTarget,
+  type PullRequestTask,
+} from '../src/tasks/pull-requests.ts'
 
 const run = promisify(execFile)
 const env = {
@@ -119,6 +124,16 @@ function fakeStore(names: string[], onReconciled?: () => void, onRead?: () => vo
 
 const branch = 'ted/nb-1-notes'
 
+async function publish(prs: PullRequests, task: PullRequestTask, targets: PullRequestTarget[]) {
+  const chosen = await Promise.all(
+    targets.map(async (target) => {
+      const head = await run('git', ['rev-parse', 'HEAD'], { cwd: target.worktree })
+      return { ...target, commit: head.stdout.trim() }
+    }),
+  )
+  await prs.publish(task, chosen)
+}
+
 async function commitIn(folder: string, file: string): Promise<string> {
   await writeFile(path.join(folder, file), file)
   await run('git', ['add', '-A'], { cwd: folder, env })
@@ -164,20 +179,23 @@ function fakeGh() {
   return { gh, calls }
 }
 
-test('a multi-repo Task gets one draft pull request per repo with commits, each linking the others', async () => {
+test('a multi-repo Task gets one ready pull request per repo with commits, each linking the others', async () => {
   const targets = [await repoWith('api', 1), await repoWith('web', 2), await repoWith('docs', 0)]
   const { store, repos } = fakeStore(['api', 'web', 'docs'])
   const { gh, calls } = fakeGh()
   const prs = createPullRequests({ store, gh })
   const task = { id: 't', displayId: 'NB-1', title: 'Offline notes', goal: 'Edit notes offline.' }
 
-  await prs.push(task, targets, 'first')
+  await publish(prs, task, targets)
 
-  expect(repos.get('api')?.pullRequest).toMatchObject({ number: 10, state: 'draft' })
-  expect(repos.get('web')?.pullRequest).toMatchObject({ number: 11, state: 'draft' })
+  expect(repos.get('api')?.pullRequest).toMatchObject({ number: 10, state: 'ready' })
+  expect(repos.get('web')?.pullRequest).toMatchObject({ number: 11, state: 'ready' })
   expect(repos.get('docs')?.pullRequest).toBeUndefined()
   expect(repos.get('docs')?.pushed).toBeUndefined()
-  expect(calls.filter((c) => c.args[1] === 'create')).toHaveLength(2)
+  const creates = calls.filter((c) => c.args[1] === 'create')
+  expect(creates).toHaveLength(2)
+  expect(creates.some((c) => c.args.includes('--draft'))).toBe(false)
+  expect(calls.filter((c) => c.args[1] === 'ready')).toEqual([])
 
   const edits = calls.filter((c) => c.args[1] === 'edit')
   expect(edits.map((c) => [c.args[2], c.args[4]])).toEqual([
@@ -189,37 +207,55 @@ test('a multi-repo Task gets one draft pull request per repo with commits, each 
   expect(edits[1]?.input).toContain('acme/api#10')
   expect(edits[1]?.input).toContain('Edit notes offline.')
 
-  await prs.push(task, targets, 'again')
+  await publish(prs, task, targets)
   expect(calls.filter((c) => c.args[1] === 'create')).toHaveLength(2)
-
-  await prs.ready(task, targets)
-  expect(calls.filter((c) => c.args[1] === 'ready').map((c) => c.args.slice(2))).toEqual([
-    ['10', '--repo', 'acme/api'],
-    ['11', '--repo', 'acme/web'],
-  ])
 })
 
-test('a draft whose latest commits can’t be pushed stays a draft at sign-off', async () => {
+test('publish pushes the chosen commit, not the worktree’s newer HEAD', async () => {
+  const api = await repoWith('api', 1)
+  const { store, repos } = fakeStore(['api'])
+  const prs = createPullRequests({ store, gh: fakeGh().gh })
+  const approved = (await run('git', ['rev-parse', 'HEAD'], { cwd: api.worktree })).stdout.trim()
+  await commitIn(api.worktree, 'unapproved.txt')
+
+  await prs.publish({ id: 't', displayId: 'NB-1', title: 'Offline notes' }, [
+    { ...api, commit: approved },
+  ])
+
+  expect(repos.get('api')?.pushed?.commit).toBe(approved)
+  expect(await remoteTip('api')).toBe(approved)
+})
+
+test('an old draft is pushed and marked ready, and one whose push fails stays a draft', async () => {
   const targets = [await repoWith('api', 1), await repoWith('web', 1)]
   const { store, repos } = fakeStore(['api', 'web'])
   const { gh, calls } = fakeGh()
   const prs = createPullRequests({ store, gh })
   const task = { id: 't', displayId: 'NB-1', title: 'Offline notes' }
-  await prs.push(task, targets, 'first')
+  store.pullRequestOpened('t', 'api', {
+    number: 3,
+    url: 'https://github.com/acme/api/pull/3',
+    base: 'main',
+  })
+  store.pullRequestOpened('t', 'web', {
+    number: 4,
+    url: 'https://github.com/acme/web/pull/4',
+    base: 'main',
+  })
 
   await writeFile(path.join(dir, 'api.git', 'hooks', 'pre-receive'), '#!/bin/sh\nexit 1\n', {
     mode: 0o755,
   })
-  const api = targets[0]?.worktree ?? ''
-  await writeFile(path.join(api, 'later.txt'), 'later')
-  await run('git', ['add', '-A'], { cwd: api, env })
-  await run('git', ['commit', '-m', 'later'], { cwd: api, env })
+  await publish(prs, task, targets)
 
-  await prs.ready(task, targets)
-  expect(calls.filter((c) => c.args[1] === 'ready').map((c) => c.args[4])).toEqual(['acme/web'])
+  expect(calls.filter((c) => c.args[1] === 'create')).toEqual([])
+  expect(calls.filter((c) => c.args[1] === 'ready').map((c) => c.args.slice(2))).toEqual([
+    ['4', '--repo', 'acme/web'],
+  ])
   expect(repos.get('api')?.pullRequest?.state).toBe('draft')
   expect(repos.get('api')?.pushFailed?.message).toContain('git push failed')
   expect(repos.get('web')?.pullRequest?.state).toBe('ready')
+  expect(repos.get('web')?.pushed?.commit).toBe(await remoteTip('web'))
 })
 
 test('Ted pushes to the Factory’s URL and ignores the repo’s own git config', async () => {
@@ -250,10 +286,10 @@ test('Ted pushes to the Factory’s URL and ignores the repo’s own git config'
   const { gh } = fakeGh()
   const prs = createPullRequests({ store, gh })
 
-  await prs.push({ id: 't', displayId: 'NB-1', title: 'Offline notes' }, [api], 'first')
+  await publish(prs, { id: 't', displayId: 'NB-1', title: 'Offline notes' }, [api])
 
   expect(repos.get('api')?.pushFailed).toBeUndefined()
-  expect(repos.get('api')?.pullRequest?.state).toBe('draft')
+  expect(repos.get('api')?.pullRequest?.state).toBe('ready')
   const pushed = await run('git', ['rev-parse', 'refs/heads/ted/nb-1-notes'], {
     cwd: path.join(dir, 'api.git'),
   })
@@ -267,11 +303,11 @@ test('a remote branch ahead of Ted’s recorded push is pushed past when the pus
   const { store, repos, reconciled } = fakeStore(['api'])
   const prs = createPullRequests({ store, gh: fakeGh().gh })
   const task = { id: 't', displayId: 'NB-1', title: 'Offline notes' }
-  await prs.push(task, [api], 'first')
+  await publish(prs, task, [api])
 
   const landed = await commitIn(api.worktree, 'landed.txt')
   await run('git', ['push', api.url, `HEAD:refs/heads/${branch}`], { cwd: api.worktree, env })
-  await prs.push(task, [api], 'again')
+  await publish(prs, task, [api])
 
   expect(repos.get('api')?.pushFailed).toBeUndefined()
   expect(repos.get('api')?.pushed?.commit).toBe(landed)
@@ -280,7 +316,7 @@ test('a remote branch ahead of Ted’s recorded push is pushed past when the pus
   await run('git', ['push', api.url, `HEAD:refs/heads/${branch}`], { cwd: api.worktree, env })
   const unrecorded = await remoteTip('api')
   const head = await commitIn(api.worktree, 'reviewed.txt')
-  await prs.push(task, [api], 'again')
+  await publish(prs, task, [api])
 
   expect(repos.get('api')?.pushFailed).toBeUndefined()
   expect(repos.get('api')?.pushed?.commit).toBe(head)
@@ -293,14 +329,14 @@ test('a remote branch with commits the pushed commit lacks is refused and left a
   const { store, repos, reconciled } = fakeStore(['api'])
   const prs = createPullRequests({ store, gh: fakeGh().gh })
   const task = { id: 't', displayId: 'NB-1', title: 'Offline notes' }
-  await prs.push(task, [api], 'first')
+  await publish(prs, task, [api])
   const recorded = repos.get('api')?.pushed?.commit
 
   const other = await otherClone('api')
   const foreign = await commitIn(other, 'foreign.txt')
   await run('git', ['push', api.url, `HEAD:refs/heads/${branch}`], { cwd: other, env })
   const head = await commitIn(api.worktree, 'mine.txt')
-  await prs.push(task, [api], 'again')
+  await publish(prs, task, [api])
 
   const message = repos.get('api')?.pushFailed?.message ?? ''
   expect(message).toContain(foreign.slice(0, 8))
@@ -320,13 +356,13 @@ test('a remote branch that moves again while Ted recovers is not overwritten', a
   })
   const prs = createPullRequests({ store, gh: fakeGh().gh })
   const task = { id: 't', displayId: 'NB-1', title: 'Offline notes' }
-  await prs.push(task, [api], 'first')
+  await publish(prs, task, [api])
 
   const ahead = await commitIn(api.worktree, 'ahead.txt')
   await run('git', ['push', api.url, `HEAD:refs/heads/${branch}`], { cwd: api.worktree, env })
   const other = await otherClone('api')
   await commitIn(api.worktree, 'reviewed.txt')
-  await prs.push(task, [api], 'again')
+  await publish(prs, task, [api])
 
   expect(reconciled).toHaveLength(1)
   expect(repos.get('api')?.pushFailed?.message).toContain('git push failed')
@@ -346,13 +382,13 @@ test('a worktree that gains a commit during a push gets only the commit Ted read
   })
   const prs = createPullRequests({ store, gh: fakeGh().gh })
   const task = { id: 't', displayId: 'NB-1', title: 'Offline notes' }
-  await prs.push(task, [api], 'first')
+  await publish(prs, task, [api])
 
   await commitIn(api.worktree, 'ahead.txt')
   await run('git', ['push', api.url, `HEAD:refs/heads/${branch}`], { cwd: api.worktree, env })
   const read = await commitIn(api.worktree, 'reviewed.txt')
   reads = 0
-  await prs.push(task, [api], 'again')
+  await publish(prs, task, [api])
 
   const later = await run('git', ['rev-parse', 'HEAD'], { cwd: api.worktree })
   expect(later.stdout.trim()).not.toBe(read)

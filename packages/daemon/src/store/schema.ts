@@ -2710,6 +2710,15 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  mergeCommitChosen: Events.synced({
+    name: 'v1.MergeCommitChosen',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      name: Schema.String,
+      commit: Schema.NullOr(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   gateApprovalBound: Events.synced({
     name: 'v1.GateApprovalBound',
     schema: Schema.Struct({
@@ -4425,6 +4434,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
     task(args, { commentId: args.commentId, name: args.name, commit: args.commit }),
   'v1.GateApprovalBound': (args) =>
     task(args, { commentId: args.commentId, name: args.name, commit: args.commit }),
+  'v1.MergeCommitChosen': (args) => task(args, { name: args.name, commit: args.commit }),
   'v1.MergeCanceled': (args) => task(args, { commentId: args.commentId }),
   'v1.TaskMarkedDone': (args) => task(args),
   'v2.TaskMarkedDone': (args) => task(args, { by: args.by }),
@@ -4788,6 +4798,8 @@ const materializers = counted(
       'v1.GateRequestedFor': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.GateApprovalBound': ({ taskId, at }) =>
+        tasks.update({ changedAt: at }).where({ id: taskId }),
+      'v1.MergeCommitChosen': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
       'v1.BaseBranchAdopted': ({ taskId, at }) =>
         tasks.update({ changedAt: at }).where({ id: taskId }),
