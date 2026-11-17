@@ -151,6 +151,26 @@ describe('CI detection at push', () => {
     expect((await detect(own, sha)).ci).toBe(false)
   })
 
+  test('checks on base branch commits, such as a deploy build, don’t mean CI', async () => {
+    const sha = await commit({ 'README.md': 'hi' })
+    const deployChecks = {
+      ref: {
+        target: { history: { nodes: [{ statusCheckRollup: { state: 'SUCCESS' } }] } },
+      },
+    }
+    const firstPullRequest = silentGh(
+      {},
+      { data: { repository: { ...deployChecks, pullRequests: { nodes: [] } } } },
+    )
+    expect(await detect(firstPullRequest, sha)).toEqual({ ci: false, ciSignals: [] })
+    const merged = pulls([{ head: 'ted/tbw-1', rollup: null }])
+    const later = silentGh(
+      {},
+      { data: { repository: { ...deployChecks, ...merged.data.repository } } },
+    )
+    expect(await detect(later, sha)).toEqual({ ci: false, ciSignals: [] })
+  })
+
   test('a workflow limited to other branches doesn’t count', async () => {
     const mainOnly = await commit({
       '.github/workflows/deploy.yml': 'on:\n  push:\n    branches: [main]\n',
