@@ -5,7 +5,7 @@ import { expect, test, vi } from 'vitest'
 import { SearchPalette } from '../src/renderer/components/SearchPalette.tsx'
 import { appState } from './support/app.tsx'
 import { bridge, user } from './support/component.ts'
-import { createdAt, factory, task } from './support/fixtures.ts'
+import { createdAt, factory, plannerAgent, task } from './support/fixtures.ts'
 
 function open(found: Partial<SearchResults> = {}, current: boolean | Task = false) {
   const context = {
@@ -204,7 +204,9 @@ test('App opens the planning chat selected in search with that plan’s content'
     agent: 'claude' as const,
     status: 'queued' as const,
     createdAt,
+    lastAt: createdAt,
     createdTasks: 0,
+    chatAgent: plannerAgent,
   }
   a.handle('listPlans', () => [plan])
   a.handle('getPlan', (id) => {

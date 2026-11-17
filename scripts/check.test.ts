@@ -568,6 +568,7 @@ describe('check runner integration with stub processes', () => {
         ...process.env,
         PATH: `${root}${path.delimiter}${process.env.PATH}`,
         TED_CHECK_EVIDENCE_DIR: root,
+        TED_CHECK_CPUS: '',
         ...(busyMachine && { TED_TEST_LOAD: '2' }),
       },
       encoding: 'utf8',
