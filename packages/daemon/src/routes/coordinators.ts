@@ -13,9 +13,11 @@ import {
   parseCoordinatorMessage,
   parseCoordinatorRemoval,
   parseCoordinatorTaskQuery,
+  parseOutsideCommandAnswer,
   parsePostChatRequest,
   parseRenameCoordinatorChatRequest,
   parseRunChatCommandRequest,
+  parseRunOutsideCommandRequest,
 } from '@ted/protocol'
 import type { AgentFilesForChat } from '../coordinators/coordinators.ts'
 import { RequestError } from '../errors.ts'
@@ -147,6 +149,42 @@ export const coordinatorRoutes: Route[] = [
     path: /^\/coordinator-chats\/([^/]+)\/requests\/([^/]+)\/agent$/,
     async handle({ params: [id = '', request = ''], body }, { coordinators }) {
       return [200, await coordinators.answerAgentDraft(id, request, body)]
+    },
+  }),
+  jsonRoute(parseOutsideCommandAnswer, {
+    method: 'POST',
+    path: /^\/coordinator-chats\/([^/]+)\/requests\/([^/]+)\/outside-command$/,
+    async handle({ params: [id = '', request = ''], body }, { coordinators }) {
+      return [200, await coordinators.answerOutsideCommand(id, request, body)]
+    },
+  }),
+  {
+    method: 'POST',
+    path: /^\/coordinator-chats\/([^/]+)\/outside-command\/stop$/,
+    handle: async ({ params: [id = ''] }, { coordinators }) => [
+      200,
+      await coordinators.stopOutside(id),
+    ],
+  },
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/outside-command-allowances$/,
+    handle: async ({ params: [id = ''] }, { coordinators }) => [200, coordinators.allowances(id)],
+  },
+  {
+    method: 'DELETE',
+    path: /^\/factories\/([^/]+)\/outside-command-allowances\/([^/]+)$/,
+    handle: async ({ params: [id = '', allowance = ''] }, { coordinators }) => [
+      200,
+      await coordinators.removeAllowance(id, allowance),
+    ],
+  },
+  jsonRoute(parseRunOutsideCommandRequest, {
+    method: 'POST',
+    path: /^\/chat-outside-commands$/,
+    runToken: true,
+    async handle({ caller, body }, { coordinators }) {
+      return [200, await coordinators.runOutside(caller, body)]
     },
   }),
   {

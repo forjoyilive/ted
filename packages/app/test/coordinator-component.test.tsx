@@ -830,3 +830,95 @@ test('an Automation card shows the draft, offers Start the Tasks it creates for 
   )
   expect(within(refused).queryByRole('button', { name: 'Save' })).toBeNull()
 })
+
+test('an outside command card shows the exact command and folder, and only Run with the tick allows it always; the chat line stops it and the details pane removes an allowance', async () => {
+  const { a, shown, open } = withCoordinator()
+  const releaseAgent = {
+    id: 'release',
+    name: 'Release',
+    source: 'factory' as const,
+    powers: ['ask' as const, 'run_outside' as const],
+    outsideCommands: [
+      { name: 'build', command: 'pnpm release <version>' },
+      { name: 'publish', command: 'pnpm release publish' },
+    ],
+    removed: false,
+  }
+  const asked: ChatRequest = {
+    id: 'q1',
+    chatId: 'k1',
+    runId: 'r2',
+    kind: 'outside-command',
+    title: 'Run build outside the sandbox?',
+    body: '',
+    outsideCommand: {
+      name: 'build',
+      command: 'pnpm release <version>',
+      argument: '1.2.3',
+      folder: '/Users/me/Apps/ted',
+      repo: 'acme/ted',
+    },
+    createdAt,
+  }
+  shown.coordinator = coordinator({ chatAgent: releaseAgent, requests: [asked] })
+  shown.chat = {
+    ...conversation(),
+    items: [
+      ...conversation().items,
+      {
+        kind: 'command',
+        id: 'c1',
+        name: 'publish',
+        status: 'running',
+        output: 'Uploading TED-1.2.3.dmg',
+        at: createdAt,
+        outside: { command: 'pnpm release publish', folder: '/Users/me/Apps/ted' },
+      },
+    ],
+  }
+  const allowance = {
+    id: 'al1',
+    factoryId: 'f1',
+    agentId: 'release',
+    name: 'build',
+    command: 'pnpm release <version>',
+    repo: 'acme/ted',
+    folder: '/Users/me/Apps/ted',
+    allowedAt: createdAt,
+  }
+  a.handle('outsideCommandAllowances', () => [allowance])
+  const answer = vi.fn(() => shown.coordinator)
+  const stop = vi.fn(() => shown.coordinator)
+  const remove = vi.fn(() => [])
+  a.handle('answerOutsideCommand', answer)
+  a.handle('stopOutsideCommand', stop)
+  a.handle('removeOutsideCommandAllowance', remove)
+  a.mount()
+  const pane = await open('Release')
+  const card = await within(pane).findByRole('region', { name: 'Outside command from Release' })
+  expect(card.querySelector('[data-command]')?.textContent).toBe('pnpm release 1.2.3')
+  expect(card.textContent).toContain('/Users/me/Apps/ted')
+  expect(card.textContent).toContain('It can push, publish and use your keychain.')
+  await user().click(within(card).getByRole('checkbox', { name: /Always allow this command/ }))
+  await user().click(within(card).getByRole('button', { name: 'Run' }))
+  expect(answer).toHaveBeenCalledWith('k1', 'q1', { run: true, always: true })
+
+  const line = pane.querySelector('[data-outside-command="publish"]')
+  expect(line?.textContent).toBe('pnpm release publish in /Users/me/Apps/ted')
+  expect(pane.textContent).toContain('Uploading TED-1.2.3.dmg')
+  expect(pane.textContent).toContain('Outside the sandbox')
+  const row = line?.parentElement
+  if (!(row instanceof HTMLElement)) throw new Error('no outside command row')
+  await user().click(within(row).getByRole('button', { name: 'Stop' }))
+  expect(stop).toHaveBeenCalledWith('k1')
+
+  const details = screen.getByRole('region', { name: 'Outside commands' })
+  expect(details.querySelector('[data-outside-command="build"]')?.textContent).toContain(
+    'Always allowed',
+  )
+  expect(details.querySelector('[data-outside-command="publish"]')?.textContent).toContain(
+    'Asks each time',
+  )
+  await user().click(within(details).getByRole('button', { name: 'Remove' }))
+  expect(remove).toHaveBeenCalledWith('f1', 'al1')
+})

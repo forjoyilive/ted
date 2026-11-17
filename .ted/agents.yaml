@@ -1,0 +1,10 @@
+release:
+  name: Release
+  powers: [ask, read_code, run_commands, run_outside]
+  commands:
+    typecheck: pnpm typecheck
+    lint: pnpm lint
+  outside_commands:
+    build: pnpm release build <version>
+    publish: pnpm release publish
+    discard: pnpm release discard

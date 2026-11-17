@@ -18,12 +18,26 @@ import {
   pickSigningIdentity,
   publishRefusal,
   type ReleaseRecord,
+  releaseAction,
   releaseFiles,
   signingRefusal,
   websiteRelease,
 } from './release.ts'
 
 describe('release versions', () => {
+  test('a build takes only a version, so its argument can never pick publish or discard', () => {
+    expect(releaseAction(['build', '1.2.3'])).toEqual({ action: 'build', version: '1.2.3' })
+    expect(releaseAction(['1.2.3', '--skip-checks'])).toEqual({ action: 'build', version: '1.2.3' })
+    expect(releaseAction(['build', 'publish'])).toEqual({
+      refusal: '“publish” isn’t a version like 1.2.3',
+    })
+    expect(releaseAction(['build', 'discard'])).toMatchObject({ refusal: expect.any(String) })
+    expect(releaseAction(['build'])).toMatchObject({ refusal: expect.any(String) })
+    expect(releaseAction(['publish'])).toEqual({ action: 'publish' })
+    expect(releaseAction(['discard'])).toEqual({ action: 'discard' })
+    expect(releaseAction(['--install'])).toBeUndefined()
+  })
+
   test('reads plain versions only', () => {
     expect(parseVersion('1.4.0')).toEqual([1, 4, 0])
     expect(parseVersion('v1.4.0')).toBeUndefined()

@@ -59,6 +59,7 @@ import { useStages } from '../stages.tsx'
 import { agentLabels } from '../task-fields.ts'
 import { readableError, ted } from '../ted.ts'
 import { AgentDraftCard } from './AgentDraftCard.tsx'
+import { OutsideCommandCard } from './OutsideCommandCard.tsx'
 import styles from './PlanChat.module.css'
 import views from './views.module.css'
 
@@ -1002,6 +1003,8 @@ export function chatRequestItems(
       request.answer === undefined && answerable ? (
         request.kind === 'agent' ? (
           <AgentDraftCard chatId={chatId} request={request} agentName={agentName} />
+        ) : request.kind === 'outside-command' ? (
+          <OutsideCommandCard chatId={chatId} request={request} agentName={agentName} />
         ) : (
           <ChatRequestCard chatId={chatId} request={request} agentName={agentName} />
         )
