@@ -322,7 +322,7 @@ describe('in-app updates', () => {
         await mark('restart-clicked')
         await window.getByRole('button', { name: 'Restarting…', exact: true }).waitFor()
         await gate.release()
-        await window.getByRole('button', { name: 'Finishing 1 Check…', exact: true }).waitFor()
+        await window.getByRole('button', { name: 'Finishing 1 check…', exact: true }).waitFor()
         await waitUntil(() => !isAlive(startingPid), 'the worker to stop before handover waits')
         await expect(workerRequest(await executionHome(), 'status')).rejects.toThrow()
         await expect(
