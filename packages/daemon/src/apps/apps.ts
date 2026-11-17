@@ -6,6 +6,7 @@ import https from 'node:https'
 import net from 'node:net'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
+import tls from 'node:tls'
 import { fileURLToPath } from 'node:url'
 import { stripVTControlCharacters } from 'node:util'
 import {
@@ -37,6 +38,7 @@ import { type Sandbox, type SandboxScope, SandboxUnavailable } from '../sandbox.
 import { signalGroup, signalProcess } from '../signal.ts'
 import type { TedStore } from '../store/index.ts'
 import { removeInside } from '../tasks/remove-files.ts'
+import { certificateErrorCode } from '../tls-trust.ts'
 import { isReservedEnvName } from '../workflow/check.ts'
 import type { AppDeclaration } from './declared.ts'
 import type { SimulatorApp } from './device-slots.ts'
@@ -1004,13 +1006,20 @@ export function createApps(options: AppsOptions): Apps {
       }
       const readyUrl = instance.url ?? instance.debugUrl
       if (instance.readyAt === undefined && instance.ready === 'url' && readyUrl && started) {
-        if (await answers(readyUrl)) {
+        const answer = await answers(readyUrl)
+        if (answer.kind === 'ready') {
           instance.readyAt = new Date().toISOString()
           await writeInstance(dir, instance)
           changed(taskId)
-        } else if (Date.now() - Date.parse(instance.startedAt) > readyTimeoutMs) {
+        } else if (
+          answer.kind === 'untrusted' ||
+          Date.now() - Date.parse(instance.startedAt) > readyTimeoutMs
+        ) {
           const where = readyUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')
-          const problem = `it didn’t answer at ${where} within ${minutes(readyTimeoutMs)}`
+          const problem =
+            answer.kind === 'untrusted'
+              ? `it answered over HTTPS with a certificate this Mac doesn’t trust (${answer.reason}). Use a certificate from a trusted authority, such as one made with mkcert, or serve the App over http.`
+              : `it didn’t answer at ${where} within ${minutes(readyTimeoutMs)}`
           stopping.add(key)
           void stopHost(key, dir).catch(() => undefined)
           while (await hostAlive(dir)) await sleep(50)
@@ -1441,14 +1450,28 @@ export function electronEnv(
   return { TED_ELECTRON_ARGS: args.join(' '), TED_ELECTRON_HIDDEN: '1' }
 }
 
-function answers(url: string): Promise<boolean> {
+type Answer = { kind: 'ready' } | { kind: 'waiting' } | { kind: 'untrusted'; reason: string }
+let trustedCertificates: string[] | undefined
+function answers(url: string): Promise<Answer> {
   return new Promise((resolve) => {
-    const get = url.startsWith('https:') ? https.get : http.get
-    const request = get(url, { timeout: 1_000, rejectUnauthorized: false }, (response) => {
+    const respond = (response: http.IncomingMessage) => {
       response.resume()
-      resolve((response.statusCode ?? 500) < 500)
-    })
+      resolve({ kind: (response.statusCode ?? 500) < 500 ? 'ready' : 'waiting' })
+    }
+    trustedCertificates ??= [
+      ...tls.getCACertificates('default'),
+      ...tls.getCACertificates('system'),
+    ]
+    const request = url.startsWith('https:')
+      ? https.get(url, { timeout: 1_000, ca: trustedCertificates }, respond)
+      : http.get(url, { timeout: 1_000 }, respond)
     request.once('timeout', () => request.destroy())
-    request.once('error', () => resolve(false))
+    request.once('error', (error) =>
+      resolve(
+        certificateErrorCode(error)
+          ? { kind: 'untrusted', reason: error.message.split(';')[0] ?? error.message }
+          : { kind: 'waiting' },
+      ),
+    )
   })
 }

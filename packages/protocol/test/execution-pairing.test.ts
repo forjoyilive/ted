@@ -37,7 +37,9 @@ const offer = {
   ...executionHello(),
   address: '192.168.1.2',
   port: 47443,
+  pairingPort: 51234,
   controllerPin: 'a'.repeat(64),
+  controllerCertificate: '-----BEGIN CERTIFICATE-----\ncontroller',
   secret: 'b'.repeat(64),
   expiresAt: '2026-11-11T00:05:00.000Z',
 }
@@ -66,6 +68,16 @@ test('execution request parsers preserve every defined field and omit unrelated 
   })
   const pair = { details: JSON.stringify(offer), capacity: 4 }
   expect(parseWorkerPairRequest({ ...pair, extra: 'discard' })).toEqual(pair)
+  const { controllerCertificate: _, pairingPort: __, ...older } = offer
+  expect(() => parseWorkerPairRequest({ details: JSON.stringify(older), capacity: 4 })).toThrow(
+    'These pairing details are from an older TED. Create new details on the main Mac.',
+  )
+  expect(() =>
+    parseWorkerPairRequest({
+      details: JSON.stringify({ ...offer, controllerCertificate: 'not a certificate' }),
+      capacity: 4,
+    }),
+  ).toThrow('Pairing details are invalid')
   const cert = {
     grantId: 'grant-1',
     certificate: '-----BEGIN CERTIFICATE-----\nfixture',
