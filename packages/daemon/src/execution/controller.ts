@@ -432,9 +432,11 @@ export function createExecutionController(options: {
         }
       })
     },
-    cancelEnrollment() {
-      offer = undefined
-      expirePending()
+    cancelEnrollment(): Promise<void> {
+      return serial(async () => {
+        offer = undefined
+        expirePending()
+      })
     },
     createEnrollment(): Promise<ExecutionOffer> {
       return serial(async () => {

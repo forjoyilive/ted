@@ -1,9 +1,11 @@
 import { spawn } from 'node:child_process'
-import { mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import net from 'node:net'
+import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
   DaemonClient,
+  type ExecutionEndpoint,
   enrollmentLifetimeMs,
   executionHello,
   readDaemonInfo,
@@ -13,6 +15,7 @@ import {
 import { expect, test } from 'vitest'
 import { productWorker } from '../../../scripts/execution-lab/product-worker.ts'
 import { createEnvironment, executionEnvironment } from '../src/command-env.ts'
+import { createExecutionController } from '../src/execution/controller.ts'
 import { privateDirectory, readPrivate } from '../src/execution/files.ts'
 import { createExecutionReadiness } from '../src/execution/readiness.ts'
 import { startExecutionService } from '../src/execution/service.ts'
@@ -328,6 +331,45 @@ test('pairing across isolated processes refuses untrusted peers and preserves ap
     await fixture.close()
   }
 }, 180_000)
+
+test('a cancel sent while pairing details are being created closes their pairing listener', async () => {
+  const home = await realpath(await mkdtemp(path.join(tmpdir(), 'ted-pairing-cancel-')))
+  let saved: ExecutionEndpoint | undefined
+  const controller = createExecutionController({
+    home,
+    enabled: true,
+    store: {
+      pairing: {
+        endpoint: () => saved,
+        configure: (endpoint) => {
+          saved = endpoint
+        },
+        grants: () => [],
+        approve() {},
+        forgetFactory() {},
+        revoke() {},
+      },
+      persisted: async () => {},
+      newWorkHold: () => undefined,
+    },
+    repos: async () => [],
+  })
+  try {
+    await controller.configure({ address: '127.0.0.1', port: await freeExecutionPort() })
+    const creating = controller.createEnrollment()
+    const cancelling = controller.cancelEnrollment()
+    const cancelled = await creating
+    await cancelling
+    expect(await accepts(cancelled.address, cancelled.pairingPort)).toBe(false)
+    const live = await controller.createEnrollment()
+    expect(await accepts(live.address, live.pairingPort)).toBe(true)
+    await controller.cancelEnrollment()
+    expect(await accepts(live.address, live.pairingPort)).toBe(false)
+  } finally {
+    await controller.close()
+    await rm(home, { recursive: true, force: true })
+  }
+})
 
 test('CLI Pair replaces a still-valid saved controller after process Stop and requires fresh approval', async () => {
   const fixture = await createExecutionFixture()
