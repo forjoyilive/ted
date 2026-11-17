@@ -43,6 +43,7 @@ import { ArchiveDoneDialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
 import { contextMenu } from '../components/ContextMenu.tsx'
 import { EmptyState } from '../components/EmptyState.tsx'
+import { FactoryIcon } from '../components/FactoryIcon.tsx'
 import { HierarchyMarker } from '../components/HierarchyMarker.tsx'
 import { CloseIcon, PlusIcon, SearchIcon } from '../components/icons.tsx'
 import { PriorityButton } from '../components/PriorityMenu.tsx'
@@ -594,6 +595,7 @@ export function Board({
     <section className={views.pane} aria-label={title}>
       <header className={views.header}>
         <h1 className={views.title}>
+          {factory && <FactoryIcon factory={factory} size={20} className={views.titleIcon} />}
           {title}
           <span className={styles.crumbSlash}>/</span>
           <span className={styles.crumb}>Board</span>

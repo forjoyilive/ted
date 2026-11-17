@@ -44,6 +44,7 @@ import { openMovedTaskEvent } from './components/ArchiveDialogs.tsx'
 import { BannerStack } from './components/BannerStack.tsx'
 import { buttonPosition } from './components/ContextMenu.tsx'
 import { EditorPickerHost } from './components/EditorPicker.tsx'
+import { FactoryColorsProvider } from './components/FactoryIcon.tsx'
 import { FindBar } from './components/FindBar.tsx'
 import { GuideCard } from './components/GuideCard.tsx'
 import { NotificationOfferBanner } from './components/NotificationOffer.tsx'
@@ -1277,14 +1278,16 @@ export function App({ start }: { start?: AppStart | undefined }) {
       {connection.state === 'reconnecting' && <ReconnectingBar />}
       <ProfileProvider settings={settings}>
         <StagesProvider factoryIds={factories.map((f) => f.id)}>
-          <OvernightContext value={overnight}>
-            <ArmedContext value={armed}>
-              <SnoozedContext value={snoozed}>
-                <SidebarLayout className={styles.app}>{content}</SidebarLayout>
-                <RequestSnoozeHost />
-              </SnoozedContext>
-            </ArmedContext>
-          </OvernightContext>
+          <FactoryColorsProvider factories={factories}>
+            <OvernightContext value={overnight}>
+              <ArmedContext value={armed}>
+                <SnoozedContext value={snoozed}>
+                  <SidebarLayout className={styles.app}>{content}</SidebarLayout>
+                  <RequestSnoozeHost />
+                </SnoozedContext>
+              </ArmedContext>
+            </OvernightContext>
+          </FactoryColorsProvider>
         </StagesProvider>
       </ProfileProvider>
     </div>

@@ -63,6 +63,7 @@ import { ChangeList } from './ChangesSection.tsx'
 import { CheckOutputDialog } from './CheckOutputDialog.tsx'
 import { ChecksRow } from './ChecksRow.tsx'
 import { DesignReviewContent, removedAgentsDraft } from './DesignReview.tsx'
+import { FactoryName as NamedFactory } from './FactoryIcon.tsx'
 import { FactoryPicker } from './FactoryPicker.tsx'
 import {
   FailureRequestDetails,
@@ -1390,7 +1391,12 @@ export function RequestCard({
 }
 
 function FactoryName({ id }: { id: string }) {
-  return useFactories().find((f) => f.id === id)?.name ?? 'another Factory'
+  const factories = useFactories()
+  return factories.some((f) => f.id === id) ? (
+    <NamedFactory factories={factories} factoryId={id} />
+  ) : (
+    'another Factory'
+  )
 }
 
 function answerLine(

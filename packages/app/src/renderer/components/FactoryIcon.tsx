@@ -103,7 +103,30 @@ import {
   Wrench,
   Zap,
 } from 'lucide-react'
+import { createContext, type ReactNode, useContext, useMemo } from 'react'
+import { factoryColors, ownColor } from '../factory-colors.ts'
 import styles from './FactoryIcon.module.css'
+
+const FactoryColors = createContext<ReadonlyMap<string, FactoryIconColor>>(new Map())
+
+export function FactoryColorsProvider({
+  factories,
+  children,
+}: {
+  factories: readonly Factory[]
+  children: ReactNode
+}) {
+  const colors = useMemo(() => factoryColors(factories), [factories])
+  return <FactoryColors value={colors}>{children}</FactoryColors>
+}
+
+export function useFactoryColors(): (
+  factory: Pick<Factory, 'id' | 'icon'> | undefined,
+) => FactoryIconColor {
+  const colors = useContext(FactoryColors)
+  return (factory) =>
+    factory === undefined ? 'gray' : (ownColor(factory.icon) ?? colors.get(factory.id) ?? 'blue')
+}
 
 export const factoryIconSymbolShapes: Record<FactoryIconSymbol, LucideIcon> = {
   box: Box,
@@ -217,11 +240,19 @@ export function FactoryIcon({
   size = 18,
   className,
 }: {
-  factory: Pick<Factory, 'name' | 'icon'>
+  factory: Pick<Factory, 'id' | 'name' | 'icon'>
   size?: number
   className?: string | undefined
 }) {
-  return <IconMark icon={factory.icon} name={factory.name} size={size} className={className} />
+  const color = useFactoryColors()(factory)
+  return (
+    <IconMark
+      icon={factory.icon ?? { kind: 'letter', color }}
+      name={factory.name}
+      size={size}
+      className={className}
+    />
+  )
 }
 
 export function IconMark({

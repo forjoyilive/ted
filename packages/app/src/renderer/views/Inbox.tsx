@@ -487,13 +487,19 @@ export function Inbox({
     </button>
   )
 
-  const active = [
-    ...(view.grouping === 'none' ? [] : [`Grouped by ${inboxGroupingLabels[view.grouping]}`]),
-    ...(view.grouping !== 'none' && view.order.groupsReversed ? ['Groups descending'] : []),
-    ...(view.order.oldestFirst ? ['Oldest first'] : []),
-    ...(groupName === undefined ? [] : [groupName]),
-    ...(factoryId === undefined ? [] : [factoryName(factories, factoryId)]),
-    ...(showAnswered ? ['Answered'] : []),
+  const active: { key: string; shown: ReactNode }[] = [
+    ...(view.grouping === 'none'
+      ? []
+      : [{ key: 'grouping', shown: `Grouped by ${inboxGroupingLabels[view.grouping]}` }]),
+    ...(view.grouping !== 'none' && view.order.groupsReversed
+      ? [{ key: 'reversed', shown: 'Groups descending' }]
+      : []),
+    ...(view.order.oldestFirst ? [{ key: 'oldest', shown: 'Oldest first' }] : []),
+    ...(groupName === undefined ? [] : [{ key: 'group', shown: groupName }]),
+    ...(factoryId === undefined
+      ? []
+      : [{ key: 'factory', shown: <FactoryName factories={factories} factoryId={factoryId} /> }]),
+    ...(showAnswered ? [{ key: 'answered', shown: 'Answered' }] : []),
   ]
   const clear = () => {
     view.reset()
@@ -620,7 +626,14 @@ export function Inbox({
           </div>
           {active.length > 0 && (
             <div className={styles.summary}>
-              <span className={styles.summaryText}>{active.join(' · ')}</span>
+              <span className={styles.summaryText}>
+                {active.map((part, index) => (
+                  <Fragment key={part.key}>
+                    {index > 0 && ' · '}
+                    {part.shown}
+                  </Fragment>
+                ))}
+              </span>
               <button type="button" className={styles.clear} onClick={clear}>
                 Clear
               </button>

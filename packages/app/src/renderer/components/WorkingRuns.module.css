@@ -126,6 +126,11 @@
   font-size: var(--text-12);
 }
 
+.detailIcon {
+  margin-right: 4px;
+  vertical-align: -3px;
+}
+
 .trailing {
   flex-shrink: 0;
   color: var(--text-tertiary);

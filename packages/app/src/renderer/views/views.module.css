@@ -47,6 +47,11 @@
   line-height: var(--leading-tight);
 }
 
+.titleIcon {
+  margin-right: 8px;
+  vertical-align: -4px;
+}
+
 .listHeader {
   min-height: 46px;
   padding: 0 14px;
