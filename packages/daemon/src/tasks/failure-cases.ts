@@ -58,7 +58,10 @@ const localInputs = (context: FailureContext) =>
   ])
 
 export function sameTestedFor(source: FailureSource, a: FailureContext, b: FailureContext) {
-  if (source.kind !== 'github-ci') return sameTested(a, b)
+  if (source.kind !== 'github-ci') {
+    const noPullRequest = a.ci === undefined || b.ci === undefined
+    return noPullRequest ? localInputs(a) === localInputs(b) : sameTested(a, b)
+  }
   const key = ciFailureKey(source)
   return (
     localInputs(a) === localInputs(b) &&
@@ -278,7 +281,7 @@ export function createFailureCases(options: {
         value.source.kind === 'github-ci'
           ? value.source.checkKey !== undefined ||
             observedCi.failures?.includes(ciFailureKey(value.source)) === true
-          : observedCi.value === context.ci
+          : context.ci === undefined || observedCi.value === context.ci
       return same ? 'current' : 'changed'
     }
     if (!current) return 'unknown'

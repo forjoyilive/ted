@@ -18,6 +18,7 @@ import {
   start,
   toSignoff,
   useMergeHarness,
+  waitForPullRequest,
   waitForStage,
 } from './merge-harness.ts'
 
@@ -43,6 +44,7 @@ async function atMerge(merge: GhMerge, checks: Check[]) {
   const { task, signoff } = await toSignoff(client)
   await approve(client, signoff)
   await waitForStage(client, task, 'merge')
+  await waitForPullRequest(client, task.id)
   const state = await readGh()
   await writeFile(
     ctx.ghState,

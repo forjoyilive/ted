@@ -256,8 +256,12 @@ test('Merge uses the same repair remedy without allowing the Task Lead to advanc
   await approve(client, signoff)
   const current = await waitUntil(async () => {
     const t = await getTask(client, task.id)
-    return t.stage === 'merge' && t.runs[0]?.state === 'idle' ? t : undefined
-  }, 'Merge lead')
+    return t.stage === 'merge' &&
+      t.runs[0]?.state === 'idle' &&
+      t.repos[0]?.pullRequest?.signedOff !== undefined
+      ? t
+      : undefined
+  }, 'Merge lead and the published pull request')
   const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
   const lead = api(required(ctx.daemon).port, tokens.issue(required(current.leadRunId)))
   const root = `/tasks/${task.id}`
@@ -320,11 +324,12 @@ test('Merge uses the same repair remedy without allowing the Task Lead to advanc
   })
   await client.ok('POST', `/tasks/${repairId}/start`)
   const repairSignoff = await reviewSignoff(client, repairId)
-  const repairRepo = required((await getTask(client, repairId)).repos[0])
+  expect((await getTask(client, repairId)).repos[0]?.pullRequest).toBeUndefined()
   const state = JSON.parse(await readFile(ctx.ghState, 'utf8'))
+  const number = 7 + Object.keys(state.heads ?? {}).length
   state.merge.prs = {
     ...state.merge.prs,
-    [required(repairRepo.pullRequest).number]: { origin: ctx.origin, updateBase: true, checks: [] },
+    [number]: { origin: ctx.origin, updateBase: true, checks: [] },
   }
   await writeFile(ctx.ghState, JSON.stringify(state))
   await approve(client, repairSignoff)

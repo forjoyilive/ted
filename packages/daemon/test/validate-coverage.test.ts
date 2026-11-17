@@ -228,11 +228,8 @@ test('a new Check added after an empty plan still must run', async () => {
 
 test('CI completion alone preserves completed local Check coverage', async () => {
   const s = await passing({ pullRequest: true })
-  await waitUntil(
-    async () =>
-      (await s.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)?.repos[0]?.pullRequest,
-    'fixture PR',
-  )
+  const tasks = await s.read<Task[]>('/tasks')
+  expect(tasks.find((t) => t.id === s.task.id)?.repos[0]?.pullRequest).toBeUndefined()
   await s.obligations()
   expect((await s.call('/checks')).status).toBe(201)
   await s.settled()
@@ -250,11 +247,8 @@ test('CI completion alone preserves completed local Check coverage', async () =>
 
 test('passing later-stage Checks can refresh changed local coverage', async () => {
   const s = await passing({ pullRequest: true })
-  await waitUntil(
-    async () =>
-      (await s.read<Task[]>('/tasks')).find((t) => t.id === s.task.id)?.repos[0]?.pullRequest,
-    'fixture PR',
-  )
+  const tasks = await s.read<Task[]>('/tasks')
+  expect(tasks.find((t) => t.id === s.task.id)?.repos[0]?.pullRequest).toBeUndefined()
   await s.obligations()
   expect((await s.call('/checks')).status).toBe(201)
   await s.settled()

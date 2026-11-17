@@ -72,8 +72,6 @@ async function decide({ client, task, check }: Awaited<ReturnType<typeof begin>>
       const ready = {
         validate: value.stage === 'validate',
         idle: value.runs.find((run) => run.id === value.leadRunId)?.state === 'idle',
-        published:
-          value.repos.length > 0 && value.repos.every((repo) => repo.pullRequest && repo.pushed),
         recorded,
         settled: !value.statuses.includes('working') && !value.checksActive,
       }
@@ -85,7 +83,7 @@ async function decide({ client, task, check }: Awaited<ReturnType<typeof begin>>
       })
       return Object.values(ready).every(Boolean) ? value : undefined
     },
-    'idle Validate Lead, published revision and failure evidence',
+    'idle Validate Lead and failure evidence',
     validateWaitMs,
   ).catch((error) => {
     throw new Error(`${String(error)}; last setup state: ${last}`)
@@ -193,10 +191,10 @@ export async function incorporates(method: RepairMethod) {
   expect((await s.resolve({ kind: 'existing', taskId: repair.id })).status).toBe(200)
   const state = JSON.parse(await readFile(ctx.ghState, 'utf8'))
   const repairRepo = required((await getTask(s.client, repair.id)).repos[0])
-  state.merge.prs = {
-    ...state.merge.prs,
-    [required(repairRepo.pullRequest).number]: { origin: ctx.origin, updateBase: true },
-  }
+  expect(repairRepo.pullRequest).toBeUndefined()
+  // With `pr.numbered`, the stub gh numbers the next pull request 7 plus those it has opened.
+  const number = 7 + Object.keys(state.heads ?? {}).length
+  state.merge.prs = { ...state.merge.prs, [number]: { origin: ctx.origin, updateBase: true } }
   const { writeFile } = await import('node:fs/promises')
   await writeFile(ctx.ghState, JSON.stringify(state))
   const affectedWorktree = required(s.current.repos[0]).worktree
@@ -216,7 +214,6 @@ export async function incorporates(method: RepairMethod) {
   if (method === 'squash') {
     const entered = path.join(ctx.scratch, 'merge-entered')
     const release = path.join(ctx.scratch, 'merge-release')
-    const number = required(repairRepo.pullRequest).number
     state.merge.prs[number].updateBase = false
     state.mergeGate = { entered, release }
     await writeFile(ctx.ghState, JSON.stringify(state))
