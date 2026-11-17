@@ -31,11 +31,14 @@ stages:
       - name: Stop leftovers
         instruction: >-
           Stop anything this Task started that Ted doesn’t track. End a Ted Dev daemon
-          started with this worktree’s TED_HOME
-          (`kill $(node -p 'require("./node_modules/.cache/ted-home/daemon.json").pid')`
-          when that file exists), any Electron, browser or other process left running
-          from the worktree, and temp files or folders the Task made outside the
-          worktree. Ted stops the Task’s Apps and simulators and removes the worktree
+          started with this worktree’s TED_HOME (`node_modules/.cache/ted-home`):
+          `daemon.json` there names a PID, but the file can outlive the daemon and the
+          PID can belong to another process by now, so kill it only after `ps` shows
+          that PID is a Ted daemon using this exact TED_HOME. When you can’t confirm
+          that, don’t kill it; report the step failed and say why. Also end any
+          Electron, browser or other process left running from the worktree, after
+          confirming the same way that it is one, and remove temp files or folders
+          the Task made outside the worktree. Ted stops the Task’s Apps and simulators and removes the worktree
           itself; leave those. Never touch `~/.ted`, `~/.ted-dev` or the user’s own
           checkout. Report skipped when there was nothing to stop.
       - name: Comment on the linked issue
