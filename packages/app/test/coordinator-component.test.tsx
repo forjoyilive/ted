@@ -489,7 +489,7 @@ test('the chat list names the Agent and status, marks a chat that waits for you,
     within(current)
       .getAllByRole('menuitem')
       .map((i) => i.textContent),
-  ).toEqual(['Rename…', 'Archive', 'Delete…'])
+  ).toEqual(['Stop', 'Rename…', 'Archive', 'Delete…'])
   await user().click(within(current).getByRole('menuitem', { name: 'Archive' }))
   await vi.waitFor(() => expect(archived).toHaveBeenCalledWith('k1'))
 
