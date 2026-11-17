@@ -1,7 +1,13 @@
 import { mkdtemp, readFile, rm, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { agentStageIds, type RunChat, readDaemonInfo, tedPaths } from '@ted/protocol'
+import {
+  agentStageIds,
+  type RunChat,
+  readDaemonInfo,
+  type TaskGitHubSource,
+  tedPaths,
+} from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { searchConversations } from '../src/conversation-search.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
@@ -64,6 +70,89 @@ describe('search over the store', () => {
 
     expect(results.tasks.map((t) => t.displayId)).toEqual([ms.displayId, nb.displayId])
     expect(results.tasks[0]).toMatchObject({ field: 'id', state: 'open', factoryId: site.id })
+  })
+
+  test('any common form of a Task ID or number puts that Task first, even when done', async () => {
+    const { notebook } = await twoFactories()
+    const tasks = []
+    for (let i = 1; i <= 15; i++) {
+      tasks.push(await store.createTask({ title: `Note ${i}`, factoryId: notebook.id }))
+    }
+    const exact = tasks[14]
+    if (!exact) throw new Error('no Task 15')
+    store.changeStage(exact.id, 'done', entry)
+    const mention = await store.createTask({ title: 'Mentions 15', factoryId: notebook.id })
+
+    for (const query of ['NB-15', 'nb-15', 'NB15', 'nb 15', '15', '#15']) {
+      const results = search(store, { query, factoryId: notebook.id })
+      expect(results.tasks[0], query).toMatchObject({
+        displayId: 'NB-15',
+        state: 'done',
+        field: 'id',
+      })
+    }
+    const byNumber = search(store, { query: '15', factoryId: notebook.id })
+    expect(byNumber.tasks.map((t) => t.displayId)).toEqual(['NB-15', mention.displayId])
+    const partial = search(store, { query: 'NB1', factoryId: notebook.id })
+    expect(partial.tasks.map((t) => t.displayId)).toEqual(
+      expect.arrayContaining(['NB-1', 'NB-10', 'NB-15']),
+    )
+  })
+
+  test('finds Tasks by the Linear key, GitHub issue number or Sentry short ID they came from', async () => {
+    const { notebook } = await twoFactories()
+    const own = await store.createTask({ title: 'Own Task', factoryId: notebook.id })
+    const github: TaskGitHubSource = {
+      repo: 'acme/notebook',
+      number: own.number,
+      title: 'Crash',
+      state: 'open',
+      locked: false,
+      comments: 0,
+      hiddenComments: 0,
+      importedAt: new Date().toISOString(),
+      context: '',
+      outsiderText: false,
+    }
+    const fromGitHub = await store.createTask({
+      title: 'From GitHub',
+      factoryId: notebook.id,
+      source: { url: `https://github.com/acme/notebook/issues/${own.number}`, github },
+    })
+    const fromLinear = await store.createTask({
+      title: 'From Linear',
+      factoryId: notebook.id,
+      source: {
+        url: 'https://linear.app/acme/issue/KRI-154',
+        linear: { identifier: 'KRI-154', title: 'x' },
+      },
+    })
+    const fromSentry = await store.createTask({
+      title: 'From Sentry',
+      factoryId: notebook.id,
+      source: { url: 'https://sentry.io/issues/1', sentry: { shortId: 'NOTES-APP-4F' } },
+    })
+
+    const first = (query: string) => search(store, { query, factoryId: notebook.id }).tasks[0]
+    expect(first('KRI-154')).toMatchObject({
+      taskId: fromLinear.id,
+      field: 'tracker',
+      tracker: { kind: 'linear', id: 'KRI-154' },
+    })
+    expect(first('kri154')).toMatchObject({ taskId: fromLinear.id })
+    expect(first('notes-app-4f')).toMatchObject({
+      taskId: fromSentry.id,
+      tracker: { kind: 'sentry', id: 'NOTES-APP-4F' },
+    })
+    const hash = search(store, { query: `#${own.number}`, factoryId: notebook.id })
+    expect(hash.tasks.slice(0, 2)).toMatchObject([
+      { taskId: own.id, field: 'id' },
+      {
+        taskId: fromGitHub.id,
+        field: 'tracker',
+        tracker: { kind: 'github', id: `#${own.number}` },
+      },
+    ])
   })
 
   test('finds words in title, every description version, and the brief, ignoring accents', async () => {
