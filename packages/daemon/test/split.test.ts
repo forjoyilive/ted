@@ -333,7 +333,7 @@ describe('Split it', () => {
     expect(await threadLines(client, sync)).toContain(`Split from ${task.displayId}`)
   })
 
-  test('Start the unblocked ones starts them; Request changes sends the text to the Task Lead; the parent finishes when one child merged and the other is archived', async () => {
+  test('Start the unblocked ones starts them; Request changes sends the text to the Task Lead; a blocked piece waits in Backlog until the Factory starts Backlog Tasks; the parent finishes when the others merged and one is archived', async () => {
     const client = await start()
     const two = await client.file(
       'two.json',
@@ -346,6 +346,7 @@ describe('Split it', () => {
             scope: 'The second part.',
             description: steps({ endTurn: true }),
           },
+          { title: 'Third piece', scope: 'The third part.', description: toDone, blockedBy: [1] },
         ],
       }),
     )
@@ -387,23 +388,39 @@ describe('Split it', () => {
     }, 'the first child to merge')
     expect((await getTask(client, task.id)).stage).toBe('clarify')
     await client.ok('POST', `/tasks/${piece?.id}/archive`, {})
+    const third = (await allTasks(client)).find((t) => t.title === 'Third piece')
+    if (!third) throw new Error('no Third piece')
+    expect(third.stage).toBe('backlog')
+    expect((await getTask(client, task.id)).stage).toBe('clarify')
+    const [factory] = await client.ok<Factory[]>('GET', '/factories')
+    await client.ok('PUT', `/factories/${factory?.id}/auto-start-backlog`, { enabled: true })
+    await waitUntil(
+      async () => (await getTask(client, third.id)).stage === 'done' || undefined,
+      'the blocked piece to start and merge',
+    )
+    expect(await threadLines(client, third)).toContain(
+      'Started because Start Backlog Tasks automatically is on',
+    )
+    expect(await threadLines(client, third)).not.toContain('Task started')
     const parent = await waitUntil(async () => {
       const now = await getTask(client, task.id)
       return now.stage === 'done' ? now : undefined
-    }, 'the parent to finish once its last unfinished child is archived')
+    }, 'the parent to finish once every child merged or was archived')
     expect(parent.runs.filter((r) => r.state !== 'finished')).toEqual([])
     expect(
       (await allTasks(client))
         .filter((t) => t.parentId === task.id)
+        .sort((a, b) => a.title.localeCompare(b.title))
         .map((t) => [t.title, t.stage, t.archived !== undefined]),
     ).toEqual([
       ['First piece', 'done', false],
       ['Second piece', 'intake', true],
+      ['Third piece', 'done', false],
     ])
     expect(await threadLines(client, task)).toContain(
       'Every Task under this one has merged and it had no work of its own, so TED finished it.',
     )
-  })
+  }, 90_000)
 
   test('proposals are checked: rows in range, no cycles, at least two rows, Task Lead only', async () => {
     const client = await start()

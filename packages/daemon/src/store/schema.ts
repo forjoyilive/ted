@@ -2014,6 +2014,15 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  taskStartCause: Events.synced({
+    name: 'v1.TaskStartCause',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      cause: Schema.String,
+      blockers: Schema.Array(Schema.String),
+      at: Schema.String,
+    }),
+  }),
   taskDequeued: Events.synced({
     name: 'v1.TaskDequeued',
     schema: Schema.Struct({ taskId: Schema.String, at: Schema.String }),
@@ -4196,6 +4205,7 @@ const taskLogEntries: Record<string, (args: Args) => Logged> = {
   'v1.TaskRetried': (args) => task(args),
   'v1.RunRevived': (args) => task(args, { runId: args.runId }),
   'v1.TaskQueued': (args) => task(args, { stage: args.stage }),
+  'v1.TaskStartCause': (args) => task(args, { cause: args.cause, blockers: args.blockers }),
   'v1.TaskMovedToBacklog': (args) => task(args),
   'v1.TaskArchived': (args) => task(args),
   'v2.TaskArchived': (args) => task(args, { closing: args.closing, branches: args.branches }),
@@ -4811,6 +4821,7 @@ const materializers = counted(
         taskQueue.insert({ taskId, rank, queuedAt: at }).onConflict('taskId', 'replace'),
         tasks.update({ stage }).where({ id: taskId }),
       ],
+      'v1.TaskStartCause': () => [],
       'v1.TaskDequeued': ({ taskId }) => taskQueue.delete().where({ taskId }),
       'v1.TaskMovedToBacklog': ({ taskId }) => [
         taskQueue.delete().where({ taskId }),

@@ -10,6 +10,7 @@ import type {
   ValidationSnapshot,
 } from '@ted/protocol'
 import { trackerName } from '@ted/protocol'
+import { isArray, isString, type Untyped } from '@ted/protocol/parse'
 import { stageDisplayName, validates } from '@ted/protocol/stage'
 import { diffTexts } from '../agents/diff.ts'
 import type { LoggedEvent, TedStore } from '../store/index.ts'
@@ -209,6 +210,20 @@ export function threadEvents(
       .filter((e) => e.name === 'v1.SendBackCauseRecorded')
       .map((e) => [e.at, e.data.cause] as const),
   )
+  const startCauses = new Map(
+    log.flatMap((e) =>
+      e.name === 'v1.TaskStartCause'
+        ? [[e.at, startLine(e.data.cause, e.data.blockers)] as const]
+        : [],
+    ),
+  )
+  let automationStart: number | undefined
+  const addStart = (entry: LoggedEvent, plain: string, causedSuffix = '') => {
+    const caused = startCauses.get(entry.at)
+    automationStart = caused?.automation ? lines.length : undefined
+    if (caused === undefined) return add(entry, 'edit', plain)
+    return add(entry, 'run', `${caused.line}${causedSuffix}`)
+  }
   const add = (
     entry: LoggedEvent,
     tone: ThreadEventTone,
@@ -277,9 +292,14 @@ export function threadEvents(
           `The Task Lead created ${context.displayIdOf(text(data.createdId))}${data.child === true ? ' as a child of this Task' : ''}`,
         )
         break
-      case 'v1.TaskStartedByAutomation':
-        add(entry, 'run', `The Automation “${text(data.name)}” started this Task`)
+      case 'v1.TaskStartedByAutomation': {
+        const line = `The Automation “${text(data.name)}” started this Task`
+        const started = automationStart === undefined ? undefined : lines[automationStart]
+        automationStart = undefined
+        if (started) started.text = line
+        else add(entry, 'run', line)
         break
+      }
       case 'v1.TaskFollowsUp':
         add(entry, 'edit', `Follow-Up to ${context.displayIdOf(text(data.originalId))}`)
         break
@@ -340,7 +360,11 @@ export function threadEvents(
         add(entry, 'edit', 'Moved to Backlog to be planned outside TED')
         break
       case 'v1.TaskStartedAfterPlanning':
-        add(entry, 'edit', `Task started again after planning · ${stageTitle(text(data.stage))}`)
+        addStart(
+          entry,
+          `Task started again after planning · ${stageTitle(text(data.stage))}`,
+          ` · after planning · ${stageTitle(text(data.stage))}`,
+        )
         break
       case 'v1.TaskEdited': {
         if (splits.has(entry.at)) break
@@ -368,10 +392,11 @@ export function threadEvents(
         add(entry, 'edit', 'Task snoozed')
         break
       case 'v1.TaskSnoozeCleared':
+        if (startCauses.get(entry.at)?.snooze) break
         add(entry, 'edit', 'Snooze cleared')
         break
       case 'v1.TaskQueued':
-        add(entry, 'edit', 'Task started')
+        addStart(entry, 'Task started')
         break
       case 'v1.TaskMovedToBacklog':
         add(entry, 'edit', 'Task moved back to Backlog')
@@ -1017,6 +1042,22 @@ function gitHubSummary(notices: unknown): string {
         : [],
     ),
   )
+}
+
+const startCauseLines = new Map([
+  ['factory-setting', 'Started because Start Backlog Tasks automatically is on'],
+  ['snooze', 'Started because its snooze ended'],
+  ['coordinator', 'Started by the Coordinator'],
+  ['automation', 'Started by an Automation'],
+])
+
+function startLine(cause: Untyped, blockers: Untyped) {
+  const merged = isArray(blockers) ? blockers.filter(isString).filter((id) => id !== '') : []
+  const line =
+    cause === 'blockers-merged'
+      ? `Started because ${merged.length > 0 ? joinAnd(merged) : 'its blockers'} merged`
+      : ((isString(cause) ? startCauseLines.get(cause) : undefined) ?? 'Task started')
+  return { line, snooze: cause === 'snooze', automation: cause === 'automation' }
 }
 
 function joinAnd(items: readonly string[]): string {

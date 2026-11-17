@@ -193,3 +193,42 @@ test('snooze changes are recorded without embedding an unformatted time in the t
     { tone: 'edit', text: 'Snooze cleared' },
   ])
 })
+
+test('a start with a cause shows the cause in place of Task started, once', () => {
+  const started = (minute: number, cause: string, blockers: string[] = []) => [
+    entry('v1.TaskQueued', minute, { stage: 'intake' }),
+    entry('v1.TaskStartCause', minute, { cause, blockers }),
+  ]
+  expect(
+    lines([
+      entry('v1.TaskQueued', 1, { stage: 'intake' }),
+      ...started(2, 'factory-setting'),
+      entry('v1.TaskSnoozed', 3, { until: '2099-11-11T03:45:00.000Z' }),
+      entry('v1.TaskSnoozeCleared', 4),
+      ...started(4, 'snooze'),
+      ...started(5, 'blockers-merged', ['TED-480']),
+      ...started(6, 'blockers-merged', ['TED-480', 'TED-481']),
+      ...started(7, 'blockers-merged', ['TED-1', 'TED-2', 'TED-3']),
+      ...started(8, 'blockers-merged'),
+      ...started(9, 'coordinator'),
+      ...started(10, 'automation'),
+      entry('v1.TaskStartedByAutomation', 11, { name: 'Nightly triage' }),
+      ...started(12, 'automation'),
+      entry('v1.TaskStartedAfterPlanning', 13, { stage: 'clarify' }),
+      entry('v1.TaskStartCause', 13, { cause: 'factory-setting', blockers: [] }),
+    ]).map(({ text }) => text),
+  ).toEqual([
+    'Task started',
+    'Started because Start Backlog Tasks automatically is on',
+    'Task snoozed',
+    'Started because its snooze ended',
+    'Started because TED-480 merged',
+    'Started because TED-480 and TED-481 merged',
+    'Started because TED-1, TED-2 and TED-3 merged',
+    'Started because its blockers merged',
+    'Started by the Coordinator',
+    'The Automation “Nightly triage” started this Task',
+    'Started by an Automation',
+    'Started because Start Backlog Tasks automatically is on · after planning · Clarify',
+  ])
+})

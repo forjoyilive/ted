@@ -853,7 +853,7 @@ const proposalQuestion = () =>
     },
   )
 
-test('proposal approval creates every row as a child of this Task, which waits, and starts only unblocked pieces', async () => {
+test('proposal approval creates every row as a child of this Task, which waits, and starts only unblocked pieces; a blocked piece gets no start request', async () => {
   const before = store.getTask(taskId)
   const comment = proposalQuestion()
   await answer(comment, { action: 'approve', proposal: { startUnblocked: true } })
@@ -871,6 +871,7 @@ test('proposal approval creates every row as a child of this Task, which waits, 
   const dependent = pieces.find((t) => t.title === 'A dependent piece')
   const independent = pieces.find((t) => t.title === 'An independent piece')
   expect(dependent && store.blockers(dependent.id).map((b) => b.blockerId)).toEqual([first?.id])
+  expect(dependent && store.getTask(dependent.id)?.startRequested).toBe(false)
   expect(effects).toEqual([
     `stop-lead:${taskId}:1 Tasks`,
     `wait-for-children:${taskId}`,
