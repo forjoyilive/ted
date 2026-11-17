@@ -267,6 +267,7 @@ export interface Task {
   track: TrackStage[]
   commentBox: CommentBox
   canResume?: boolean
+  checksActive?: true
   runs: TaskRun[]
   tabs: ConversationTab[]
   repos: TaskRepo[]

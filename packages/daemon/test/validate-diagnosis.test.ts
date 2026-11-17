@@ -772,7 +772,7 @@ test.each(
     )
     await waitUntil(async () => {
       const task = (await client.read<Task[]>('/tasks')).find((value) => value.id === s.task.id)
-      return task && !task.statuses.includes('working') ? task : undefined
+      return task && !task.statuses.includes('working') && !task.checksActive ? task : undefined
     }, 'replacement Merge Checks to release the Task')
     const response = await lead.call('POST', `${s.root}/failures/${saved.id}/verification`, {
       evidence: 'The repair replaced Tests with Repaired export; the complete current plan passed.',

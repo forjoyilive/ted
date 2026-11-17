@@ -627,7 +627,7 @@ A Task shows one status at a time, or none, chosen by precedence (highest first)
 | 2 | Partly merged | red | half-filled ring | A multi-repo merge stopped partway. | KRI-52 |
 | 3 | Waiting on you | amber | dot | An Inbox item on the Task is unanswered. The only amber status. | KRI-55 |
 | 4 | Paused · reason | grey | ‖ | The Provider can’t run: usage limit, signed out, not installed, below the minimum version, using an API key instead of the subscription, or offline. | KRI-54, KRI-59 |
-| 5 | Working | blue | spinner arc | Some Run on the Task is working, including a Task Lead waiting only on its sub-agents, `setup` running in a new worktree (“Setting up app · npm ci”), and Checks running. | KRI-55, KRI-58, KRI-60 |
+| 5 | Working | blue | spinner arc | Some Run on the Task is working, including a Task Lead waiting only on its sub-agents, `setup` running in a new worktree (“Setting up app · npm ci”), and a Task’s Cleanup commands running. TED running a Task’s Checks is not Working: no Run holds a slot for them, and the Task shows its Checks chip instead. | KRI-55, KRI-58, KRI-60 |
 | 6 | Stopped | grey | ■ | The human stopped the Task. | KRI-55 |
 | 7 | Blocked | grey | ⊘ | No Run; waiting for another Task to merge. Shown as one “Blocked by NB-44” chip with the ID as a link. | KRI-55, KRI-62 |
 | 8 | Queued · 2nd | blue | clock | Waiting for a slot, with its place in the machine-wide queue. “Queued · disk full” during the disk hold. | KRI-55, KRI-59 |
