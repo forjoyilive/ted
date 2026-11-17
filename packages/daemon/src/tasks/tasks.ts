@@ -3213,7 +3213,7 @@ export function createTasks(options: {
     return {
       id: task.id,
       displayId: task.displayId,
-      title: task.title,
+      title: store.pullRequestTitle(task.id)?.title ?? task.title,
       ...(goal !== undefined && goal !== '' && { goal }),
       ...(task.source?.url !== undefined && { sourceUrl: task.source.url }),
       ...(task.source?.sentry && { fixes: task.source.sentry.shortId }),
@@ -3799,6 +3799,10 @@ export function createTasks(options: {
     const task = taskNow(taskId)
     if (!pullRequests || !task || !mergesHere(task.stage)) return undefined
     const since = visitStart(task)
+    const chosenAny = task.repos.some(
+      (r) => !r.removed && store.chosenMergeCommit(task.id, r.name, since) !== undefined,
+    )
+    if (!chosenAny) return undefined
     const targets = await pullRequestTargets(task)
     let pending = false
     for (const target of targets) {
@@ -13180,13 +13184,20 @@ export function createTasks(options: {
       const problem = commitTitleProblem(input.title, task.displayId)
       if (problem) throw new RequestError(400, problem)
       const prs = pullRequests
-      const open = task.repos.some(
+      await pullRequestQueue.get(task.id)
+      const repos = find(task.id).repos.filter((r) => !r.removed)
+      const open = repos.some(
         (r) =>
-          !r.removed &&
           r.pullRequest !== undefined &&
           r.pullRequest.state !== 'closed' &&
           r.pullRequest.state !== 'merged',
       )
+      if (prs && !open && repos.some((r) => r.pushFailed)) {
+        throw new RequestError(
+          409,
+          `Ted couldn’t push ${task.displayId}’s branch or open its pull request yet and tries again on its next merge check; run \`ted task pr\` again once the pull request is open`,
+        )
+      }
       if (!prs || !open) {
         throw new RequestError(409, `${task.displayId} has no open pull request to title`)
       }
