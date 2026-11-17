@@ -632,6 +632,10 @@ test('hovering the sidebar memory figure shows what makes it up and opens every 
         daemon: { bytes: 900 * mb, heapBytes: 0, externalBytes: 0 },
         hosts: { count: 2, bytes: 100 * mb },
         agents: { count: 2, bytes: 700 * mb },
+        agentRuns: [
+          { role: 'task-lead', working: true, count: 1 },
+          { role: 'sub-agent', working: false, count: 1 },
+        ],
         agentTools: { count: 5, bytes: 400 * mb },
         checks: { count: 3, bytes: 300 * mb },
         apps: none,
@@ -655,7 +659,7 @@ test('hovering the sidebar memory figure shows what makes it up and opens every 
       .map((item) => item.textContent),
   ).toEqual([
     'Agents’ tools and MCP servers · 5400 MB',
-    'Agents · 2700 MB',
+    'Agents · 2700 MB1 Task Lead · 1 sub-agent · 1 idle',
     'Checks · 3300 MB',
     'Daemon and Run hosts · 31000 MB',
     'Ted app · 4200 MB',

@@ -12,7 +12,7 @@ import {
 } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { createAgents } from '../src/agents/index.ts'
-import { classifyProcesses, sharedUsage } from '../src/diagnostics.ts'
+import { classifyProcesses, countAgentRuns, sharedUsage } from '../src/diagnostics.ts'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import { loadRunTokens } from '../src/run-token.ts'
 import { runFiles } from '../src/runs/host-files.ts'
@@ -100,6 +100,41 @@ test('each process is classified by the nearest Run host, Check or App above it'
   ])
 })
 
+test('agent processes are counted by their Run’s role and whether it is working', () => {
+  const agent = (pid: number, runId: string, role: 'task-lead' | 'sub-agent') => ({
+    pid,
+    ppid: 1,
+    cpuPercent: 0,
+    memoryBytes: 1,
+    command: 'claude',
+    owner: { runId },
+    kind: 'agent' as const,
+    run: { runId, agent: 'claude' as const, role },
+  })
+  expect(
+    countAgentRuns(
+      [
+        agent(1, 'a', 'task-lead'),
+        agent(2, 'b', 'task-lead'),
+        agent(3, 'c', 'task-lead'),
+        agent(4, 'd', 'sub-agent'),
+        { ...agent(5, 'a', 'task-lead'), kind: 'agent-tool' },
+        { ...agent(6, 'a', 'task-lead'), kind: 'run-host' },
+      ],
+      [
+        { id: 'a', state: 'working' },
+        { id: 'b', state: 'idle' },
+        { id: 'c', state: 'working' },
+        { id: 'd', state: 'waiting' },
+      ],
+    ),
+  ).toEqual([
+    { role: 'task-lead', working: true, count: 2 },
+    { role: 'task-lead', working: false, count: 1 },
+    { role: 'sub-agent', working: false, count: 1 },
+  ])
+})
+
 describe('Diagnostics', () => {
   test('lists each Run with its processes, CPU, memory and token use', async (context) => {
     skipInsideTedSandbox(context, sandboxReasons.processes)
@@ -154,6 +189,7 @@ describe('Diagnostics', () => {
     const memory = (await client.call('GET', '/diagnostics/memory')).body as MemoryUse
     expect(memory.hosts.count).toBe(1)
     expect(memory.agents.count).toBe(1)
+    expect(memory.agentRuns).toMatchObject([{ role: 'run', count: 1 }])
     for (const bytes of [
       memory.daemon.bytes,
       memory.daemon.heapBytes,

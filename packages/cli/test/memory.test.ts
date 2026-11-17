@@ -54,3 +54,18 @@ test('asleep Runs are counted apart, in the printout and in the summary', () => 
   )
   expect(memorySummary({ ...use, asleepRuns: 9 })).toMatch(/ · 9 Runs asleep$/)
 })
+
+test('the Agents count is broken down by kind of Run, with how many are idle', () => {
+  const agentRuns: MemoryUse['agentRuns'] = [
+    { role: 'task-lead', working: true, count: 3 },
+    { role: 'task-lead', working: false, count: 2 },
+    { role: 'sub-agent', working: true, count: 1 },
+    { role: 'coordinator', working: false, count: 1 },
+  ]
+  expect(formatMemoryUse({ ...use, agentRuns }).split('\n')[2]).toBe(
+    '  Agents: 2.3 GB, 7 processes (5 Task Leads, 1 sub-agent, 1 chat, 3 idle)',
+  )
+  expect(memorySummary({ ...use, agentRuns })).toContain(
+    ' · Agents 2.3 GB (5 Task Leads, 1 sub-agent, 1 chat, 3 idle) · ',
+  )
+})
