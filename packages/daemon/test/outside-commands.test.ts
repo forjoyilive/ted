@@ -236,6 +236,7 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
     async () => (await ran()).includes(`${folder}|release publish`) || undefined,
     'the publish',
   )
+  await writeFile(path.join(scratch, 'published'), '')
   await waitUntil(
     async () =>
       JSON.stringify(await items(first.id)).includes(
@@ -243,7 +244,6 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
       ) || undefined,
     'the publish result to reach the chat',
   )
-  await writeFile(path.join(scratch, 'published'), '')
   const allowed = await ok<OutsideCommandAllowance[]>(
     'GET',
     `/factories/${factory.id}/outside-command-allowances`,
@@ -318,13 +318,13 @@ test('the Release Agent builds and publishes after the user clicks Run, and Alwa
     run: false,
     always: false,
   })
+  await writeFile(path.join(scratch, 'third'), '')
   await waitUntil(
     async () =>
       JSON.stringify(await items(third.id)).includes('The user chose not to run') || undefined,
     'the refusal to reach the chat',
   )
   expect((await ran()).some((l) => l.includes('1.2.5'))).toBe(false)
-  await writeFile(path.join(scratch, 'third'), '')
 
   const id = allowed[0]?.id ?? ''
   expect(await ok('DELETE', `/factories/${factory.id}/outside-command-allowances/${id}`)).toEqual(
