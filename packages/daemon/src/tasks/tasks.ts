@@ -5539,8 +5539,9 @@ export function createTasks(options: {
     tellHierarchyChanged([...existingParents, ...plan.links.map((link) => link.taskId)])
     const startAll = resolution !== undefined && !held && input.start === true
     if (startAll) {
+      const cause: StartCause | undefined = automation && { cause: 'automation' }
       for (const task of created) {
-        await start(task.id).catch((error: unknown) => {
+        await start(task.id, {}, cause).catch((error: unknown) => {
           console.error(redactSecrets(`couldn’t start ${task.displayId}: ${String(error)}`))
         })
       }
@@ -9848,7 +9849,7 @@ export function createTasks(options: {
     if (input.automation && runsInBypass(resolution)) {
       return holdInBacklog(task.id, input.automation.name)
     }
-    return start(task.id)
+    return start(task.id, {}, input.automation && { cause: 'automation' })
   }
 
   function followUpNote(task: StoredTask): string | undefined {
