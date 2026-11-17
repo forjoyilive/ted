@@ -316,6 +316,7 @@ import {
   heldText,
   noConflictFound,
   repairConflictHandOff,
+  repairUncommittedHandOff,
 } from './base-conflict.ts'
 import { createBrowserBroker } from './browser.ts'
 import { createCacheSeeds } from './cache-seeds.ts'
@@ -10871,16 +10872,31 @@ export function createTasks(options: {
         const current = store.getTask(task.id)
         if (!current || current.archived || stopping.signal.aborted) return false
         const multiRepo = task.repos.filter((r) => !r.removed).length > 1
-        if (error instanceof HeldRepo && error.held.conflict && mode === 'lead-starting') {
-          const where = multiRepo ? ` in ${error.held.name}` : ''
-          const asked = `TED asked the Task Lead to merge ${error.held.base} into the Task’s branch${where}, resolve the conflict and commit; fresh validation runs after that.`
+        if (error instanceof HeldRepo && mode === 'lead-starting') {
+          const { held } = error
+          const where = multiRepo ? ` in ${held.name}` : ''
+          const files = held.files.length > 0 ? ` in ${fileList(held.files)}` : ''
+          const [what, asked] = held.conflict
+            ? [
+                `it conflicts with this Task${where}`,
+                `TED asked the Task Lead to merge ${held.base} into the Task’s branch${where}, resolve the conflict and commit; fresh validation runs after that.`,
+              ]
+            : [
+                `the worktree${where} has uncommitted changes`,
+                'TED asked the Task Lead to commit them if they are its own work, or say why not; TED then tries again.',
+              ]
           repairNotice(
             task.id,
             repair.id,
-            `merged, but it conflicts with this Task${where}${error.held.files.length > 0 ? ` in ${fileList(error.held.files)}` : ''}. ${asked}`,
-            `merged, but it conflicts with this Task${where}. ${asked}`,
+            `merged, but ${what}${files}. ${asked}`,
+            `merged, but ${what}. ${asked}`,
           )
-          store.holdLeadMessage(task.id, repairConflictHandOff(repair, error.held, multiRepo))
+          store.holdLeadMessage(
+            task.id,
+            held.conflict
+              ? repairConflictHandOff(repair, held, multiRepo)
+              : repairUncommittedHandOff(repair, held, multiRepo),
+          )
           repairHandOffs.set(task.id, new Date().toISOString())
           await store.persisted()
           return false
@@ -10919,7 +10935,7 @@ export function createTasks(options: {
     if (repairHandOffs.has(task.id))
       throw new RequestError(
         409,
-        `TED is waiting for you to merge the base branch into ${task.displayId}’s branch and commit. End your turn when the merge is committed; TED then brings the repair in and runs the Checks itself.`,
+        `TED is waiting for you to finish what it asked about the merged repair in ${task.displayId}’s worktree: merge and commit, or commit your own uncommitted changes. End your turn when that is committed, or after saying why you can’t with \`ted comment\`; TED then brings the repair in and runs the Checks itself.`,
       )
   }
 

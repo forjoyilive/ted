@@ -47,7 +47,7 @@ export function planStatusChip(plan: Pick<Plan, 'status' | 'queuePlace' | 'pause
     case 'finished':
       return { tone: 'success', label: 'Finished' }
     case 'stopped':
-      return { tone: 'neutral', glyph: 'stopped', label: 'Stopped' }
+      return { tone: 'stopped', glyph: 'stopped', label: 'Stopped' }
   }
 }
 
@@ -113,6 +113,7 @@ export function requestHeading(request: AskedRequest): RequestHeading {
   if (request.kind === 'question') return { kind: 'Question' }
   if (request.kind === 'round') return { kind: `Round ${request.round?.number ?? ''}` }
   if (request.kind === 'agent') return { kind: 'Agent draft' }
+  if (request.kind === 'outside-command') return { kind: 'Outside command' }
   const count = request.proposal?.rows.length ?? 0
   return { kind: 'Proposal', detail: `${count} ${count === 1 ? 'Task' : 'Tasks'}` }
 }
@@ -124,6 +125,9 @@ export function requestState(request: AskedRequest, latest: boolean): string {
   if (request.kind === 'agent' && answer.kind === 'approved')
     return `saved by you at ${clockTime(answer.at)}`
   if (request.kind === 'agent' && answer.kind === 'denied') return 'dismissed'
+  if (request.kind === 'outside-command' && answer.kind === 'approved')
+    return `run by you at ${clockTime(answer.at)}`
+  if (request.kind === 'outside-command' && answer.kind === 'denied') return 'not run'
   if (answer.kind === 'approved') return `approved by you at ${clockTime(answer.at)}`
   if (answer.kind === 'superseded') return 'Superseded'
   if (answer.kind === 'changes-requested') return latest ? 'changes requested' : 'Superseded'

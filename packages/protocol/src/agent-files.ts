@@ -10,6 +10,7 @@ export const agentPowers = [
   'read_code',
   'manage_agents',
   'run_commands',
+  'run_outside',
 ] as const
 
 export type AgentPower = (typeof agentPowers)[number]
@@ -22,7 +23,10 @@ export const agentPowerNames: Readonly<Record<AgentPower, string>> = {
   read_code: 'Read the code',
   manage_agents: 'Manage Agents',
   run_commands: 'Run commands in the copy',
+  run_outside: 'Run outside commands',
 }
+
+export const chatOnlyAgentPowers: readonly AgentPower[] = ['run_outside']
 
 export const builtInAgentIds = ['coordinator', 'planner'] as const
 
@@ -64,6 +68,7 @@ export interface ResolvedAgent {
   model?: string
   powers: AgentPower[]
   commands?: AgentCommand[]
+  outsideCommands?: AgentCommand[]
   instructions: string
   source: LayerKind
   path: string
@@ -82,6 +87,8 @@ export const agentPowerHelp: Readonly<Record<AgentPower, string>> = {
     'Drafts of new Agents and changes to Agents, shown as a card. Nothing is saved until you click Create.',
   run_commands:
     'TED runs the commands listed below in the chat’s copy, in its sandbox, and returns the output. Needs Read the code.',
+  run_outside:
+    'Runs the outside commands listed below on this Mac, outside the sandbox, in the repo’s local folder. Each run needs your Run click unless you allowed that command always.',
 }
 
 export const blankAgentInstructions = `# What this Agent is for
@@ -103,6 +110,7 @@ export interface AgentSettingsInput {
   model?: string
   powers?: AgentPower[]
   commands?: AgentCommand[]
+  outsideCommands?: AgentCommand[]
 }
 
 export interface AgentFileChange {
@@ -118,6 +126,7 @@ export interface AgentFileRow {
   model?: string
   powers: AgentPower[]
   commands?: AgentCommand[]
+  outsideCommands?: AgentCommand[]
   from: LayerKind
   builtIn: boolean
   own?: { settings?: AgentSettingsInput; instructions?: string; basedOn?: string }

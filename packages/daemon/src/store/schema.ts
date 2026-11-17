@@ -1103,6 +1103,7 @@ export const chatAgents = State.SQLite.table({
     powers: State.SQLite.text(),
     instructions: State.SQLite.text(),
     commands: State.SQLite.text({ nullable: true }),
+    outsideCommands: State.SQLite.text({ nullable: true }),
   },
 })
 
@@ -1124,6 +1125,22 @@ export const chatCommands = State.SQLite.table({
     startedAt: State.SQLite.text(),
     endedAt: State.SQLite.text(),
     tail: State.SQLite.text(),
+    outside: State.SQLite.text({ nullable: true }),
+  },
+})
+
+export const outsideCommandAllowances = State.SQLite.table({
+  name: 'outsideCommandAllowances',
+  indexes: [{ name: 'idx_outsideCommandAllowances_factoryId', columns: ['factoryId'] }],
+  columns: {
+    id: State.SQLite.text({ primaryKey: true }),
+    factoryId: State.SQLite.text(),
+    agentId: State.SQLite.text(),
+    name: State.SQLite.text(),
+    command: State.SQLite.text(),
+    repo: State.SQLite.text(),
+    folder: State.SQLite.text(),
+    allowedAt: State.SQLite.text(),
   },
 })
 
@@ -1146,6 +1163,7 @@ export const chatRequests = State.SQLite.table({
     round: State.SQLite.text({ nullable: true }),
     proposal: State.SQLite.text({ nullable: true }),
     agentDraft: State.SQLite.text({ nullable: true }),
+    outsideCommand: State.SQLite.text({ nullable: true }),
     answer: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
@@ -1454,6 +1472,44 @@ export const events = {
   chatAgentDraftPosted: Events.synced({
     name: 'v1.ChatAgentDraftPosted',
     schema: Schema.Struct({ id: Schema.String, draft: Schema.String }),
+  }),
+  chatAgentOutsideCommandsRecorded: Events.synced({
+    name: 'v1.ChatAgentOutsideCommandsRecorded',
+    schema: Schema.Struct({
+      chatId: Schema.String,
+      commands: Schema.Array(
+        Schema.Struct({
+          name: Schema.String,
+          command: Schema.String,
+          repo: Schema.NullOr(Schema.String),
+        }),
+      ),
+    }),
+  }),
+  chatOutsideCommandAsked: Events.synced({
+    name: 'v1.ChatOutsideCommandAsked',
+    schema: Schema.Struct({ id: Schema.String, ask: Schema.String }),
+  }),
+  chatOutsideCommandRan: Events.synced({
+    name: 'v1.ChatOutsideCommandRan',
+    schema: Schema.Struct({ id: Schema.String, outside: Schema.String }),
+  }),
+  outsideCommandAllowed: Events.synced({
+    name: 'v1.OutsideCommandAllowed',
+    schema: Schema.Struct({
+      id: Schema.String,
+      factoryId: Schema.String,
+      agentId: Schema.String,
+      name: Schema.String,
+      command: Schema.String,
+      repo: Schema.String,
+      folder: Schema.String,
+      at: Schema.String,
+    }),
+  }),
+  outsideCommandAllowanceRemoved: Events.synced({
+    name: 'v1.OutsideCommandAllowanceRemoved',
+    schema: Schema.Struct({ id: Schema.String, at: Schema.String }),
   }),
   chatRequestAnswered: Events.synced({
     name: 'v1.ChatRequestAnswered',
@@ -5563,6 +5619,7 @@ const materializers = counted(
         chatAgents.delete().where({ factoryId }),
         chatCommands.delete().where({ factoryId }),
         chatRequests.delete().where({ factoryId }),
+        outsideCommandAllowances.delete().where({ factoryId }),
       ],
       'v1.WorkflowLayerAccepted': ({ layer, files, version, at }) =>
         workflowLayers
@@ -5825,6 +5882,18 @@ const materializers = counted(
         }),
       'v1.ChatAgentDraftPosted': ({ id, draft }) =>
         chatRequests.update({ agentDraft: draft }).where({ id }),
+      'v1.ChatAgentOutsideCommandsRecorded': ({ chatId, commands }) =>
+        chatAgents.update({ outsideCommands: JSON.stringify(commands) }).where({ chatId }),
+      'v1.ChatOutsideCommandAsked': ({ id, ask }) =>
+        chatRequests.update({ outsideCommand: ask }).where({ id }),
+      'v1.ChatOutsideCommandRan': ({ id, outside }) =>
+        chatCommands.update({ outside }).where({ id }),
+      'v1.OutsideCommandAllowed': ({ at, ...allowance }) =>
+        outsideCommandAllowances
+          .insert({ ...allowance, allowedAt: at })
+          .onConflict('id', 'replace'),
+      'v1.OutsideCommandAllowanceRemoved': ({ id }) =>
+        outsideCommandAllowances.delete().where({ id }),
       'v1.ChatRequestAnswered': ({ id, answer }) => [
         chatRequests.update({ answer }).where({ id }),
         requestSnoozes.delete().where({ requestId: id }),
@@ -5988,6 +6057,7 @@ const state = State.SQLite.makeState({
     coordinatorChats,
     chatAgents,
     chatCommands,
+    outsideCommandAllowances,
     chatRequests,
     sideChats,
     requestSnoozes,

@@ -687,3 +687,34 @@ test('a Task waiting after its Checks says so, with its place in the hover title
   const chip = await screen.findByText('Queued · Checks passed, waiting for a slot')
   expect(chip.title).toBe('2nd in the queue')
 })
+
+test('Stopped is red, Snoozed is amber and Ready for Work stays green', async () => {
+  api()
+  const p = props()
+  render(
+    <Board
+      {...p}
+      tasks={[
+        task({ status: { kind: 'stopped' }, statuses: ['stopped'], stage: 'work' }),
+        task({
+          id: 'NB-2',
+          displayId: 'NB-2',
+          status: { kind: 'stopped', prepared: true },
+          statuses: ['stopped'],
+          stage: 'work',
+        }),
+        task({
+          id: 'NB-3',
+          displayId: 'NB-3',
+          status: { kind: 'waiting-on-you', snoozedUntil: '2026-11-11T09:00:00Z' },
+          statuses: ['waiting-on-you'],
+          stage: 'work',
+        }),
+      ]}
+    />,
+  )
+  await screen.findByRole('region', { name: 'Work' })
+  expect(screen.getByText('Stopped').className).toContain('stopped')
+  expect(screen.getByText('Ready for Work').className).toContain('success')
+  expect(screen.getByText(/^Snoozed until/).className).toContain('snoozed')
+})

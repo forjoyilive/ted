@@ -9,13 +9,16 @@ import {
   agentPowers,
   maxAgentCommands,
 } from '@ted/protocol/agent-files'
+import { maxOutsideCommands } from '@ted/protocol/outside-command'
 import { agentKinds } from '@ted/protocol/run'
-import { useId, useRef, useState } from 'react'
+import { type ReactNode, useId, useRef, useState } from 'react'
 import {
   type AgentDraft,
   agentFileEdited,
   agentIdFrom,
   agentProblem,
+  agentRecipes,
+  agentRecipeText,
   newAgentDraft,
   overrideDraft,
   resolvedChoice,
@@ -23,7 +26,14 @@ import {
 import { ActionButton } from '../components/ActionButton.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
+import {
+  buttonPosition,
+  ContextMenu,
+  MenuItems,
+  type MenuPosition,
+} from '../components/ContextMenu.tsx'
 import { ModelSelect } from '../components/ModelSelect.tsx'
+import { AllowanceList, useAllowances } from '../components/OutsideCommands.tsx'
 import { Select } from '../components/Select.tsx'
 import grow from '../components/TextGrow.module.css'
 import type { SettingId } from '../settings-search.ts'
@@ -43,6 +53,7 @@ interface Line {
 export function AgentFilesSection({
   layer,
   folder,
+  factoryId,
   rows,
   draft,
   loaded,
@@ -53,6 +64,7 @@ export function AgentFilesSection({
 }: {
   layer: 'factory' | 'library'
   folder: string
+  factoryId?: string
   rows: readonly AgentFileRow[]
   draft: readonly AgentDraft[]
   loaded: readonly AgentDraft[]
@@ -62,6 +74,7 @@ export function AgentFilesSection({
   onKeep: (id: string) => void
 }) {
   const [open, setOpen] = useState<AgentDraft>()
+  const [recipeMenu, setRecipeMenu] = useState<MenuPosition>()
   const lines: Line[] = [
     ...rows.flatMap((row): Line[] => {
       const own = draft.find((a) => a.id === row.id && !a.added)
@@ -95,6 +108,7 @@ export function AgentFilesSection({
             line={line}
             layer={layer}
             folder={folder}
+            factoryId={factoryId}
             open={line.own !== undefined && open === line.own}
             edited={agentFileEdited(draft, loaded, line.id)}
             kept={kept.includes(line.id)}
@@ -121,18 +135,34 @@ export function AgentFilesSection({
       </div>
       <div className={styles.newRow} data-setting={newSetting}>
         <Button
-          onClick={() => {
-            const own = newAgentDraft([...ids, ...draft.map((a) => a.id)])
-            onDraft((agents) => [...agents, own])
-            setOpen(own)
-          }}
+          aria-haspopup="menu"
+          onClick={(event) => setRecipeMenu(buttonPosition(event.currentTarget))}
         >
           New Agent…
         </Button>
         <span className={styles.caption}>
-          Starts from the Blank recipe. Saved as {folder}agents.yaml and {folder}
+          Starts from a recipe. Saved as {folder}agents.yaml and {folder}
           agents/&lt;id&gt;.md.
         </span>
+        {recipeMenu && (
+          <ContextMenu at={recipeMenu} label="Recipes" onClose={() => setRecipeMenu(undefined)}>
+            <MenuItems
+              items={agentRecipes.map((recipe) => ({
+                label: agentRecipeText[recipe].name,
+                hint: agentRecipeText[recipe].help,
+                action: () => {
+                  const own = newAgentDraft([...ids, ...draft.map((a) => a.id)], recipe)
+                  onDraft((agents) => [...agents, own])
+                  setOpen(own)
+                },
+              }))}
+              choose={(item) => {
+                setRecipeMenu(undefined)
+                return item.action?.()
+              }}
+            />
+          </ContextMenu>
+        )}
       </div>
     </div>
   )
@@ -161,6 +191,7 @@ function AgentLine({
   line,
   layer,
   folder,
+  factoryId,
   open,
   edited,
   kept,
@@ -174,6 +205,7 @@ function AgentLine({
   line: Line
   layer: LayerKind
   folder: string
+  factoryId: string | undefined
   open: boolean
   edited: boolean
   kept: boolean
@@ -253,6 +285,7 @@ function AgentLine({
           own={own}
           row={row}
           folder={folder}
+          factoryId={factoryId}
           problem={problem}
           onChange={(next) => onChange(own, next)}
         />
@@ -261,16 +294,118 @@ function AgentLine({
   )
 }
 
+function CommandList({
+  legend,
+  what,
+  active,
+  commands,
+  max,
+  placeholder,
+  hint,
+  onChange,
+}: {
+  legend: string
+  what: string
+  active: boolean
+  commands: readonly AgentCommand[]
+  max: number
+  placeholder: string
+  hint: ReactNode
+  onChange: (next: AgentCommand[]) => void
+}) {
+  const rowKeys = useRef<string[]>([])
+  const nextKey = useRef(0)
+  while (rowKeys.current.length < commands.length) rowKeys.current.push(`row-${nextKey.current++}`)
+  rowKeys.current.length = commands.length
+  const label = what.charAt(0).toUpperCase() + what.slice(1)
+  const setCommand = (index: number, change: Partial<AgentCommand>) =>
+    onChange(commands.map((c, i) => (i === index ? { ...c, ...change } : c)))
+  return (
+    <fieldset className={`${styles.commandList} ${active ? '' : styles.dimmed}`}>
+      <legend className={base.label}>{legend}</legend>
+      <p className={styles.hint}>{hint}</p>
+      {commands.map((command, index) => (
+        <div key={rowKeys.current[index]} className={styles.command}>
+          <input
+            aria-label={`${label} ${index + 1} name`}
+            className={`${base.input} ${base.mono}`}
+            value={command.name}
+            placeholder="test"
+            spellCheck={false}
+            onChange={(event) => setCommand(index, { name: event.target.value })}
+          />
+          <input
+            aria-label={`${label} ${index + 1}`}
+            className={`${base.input} ${base.mono}`}
+            value={command.command}
+            placeholder={placeholder}
+            spellCheck={false}
+            onChange={(event) => setCommand(index, { command: event.target.value })}
+          />
+          <ActionButton
+            type="button"
+            className={base.link}
+            aria-label={`Remove ${what} ${index + 1}`}
+            onClick={() => {
+              rowKeys.current.splice(index, 1)
+              onChange(commands.filter((_, i) => i !== index))
+            }}
+          >
+            Remove
+          </ActionButton>
+        </div>
+      ))}
+      <div>
+        <Button
+          disabled={commands.length >= max}
+          onClick={() => onChange([...commands, { name: '', command: '' }])}
+        >
+          {`Add ${what}`}
+        </Button>
+      </div>
+    </fieldset>
+  )
+}
+
+function AllowedAlways({
+  factoryId,
+  agentId,
+  className,
+}: {
+  factoryId: string
+  agentId: string
+  className: string | undefined
+}) {
+  const { value, refresh } = useAllowances(factoryId)
+  if (!value.some((a) => a.agentId === agentId)) return null
+  return (
+    <div className={className}>
+      <span className={base.label}>Allowed always on this Mac</span>
+      <p className={styles.hint}>
+        These outside commands run without a card. Remove one to be asked again.
+      </p>
+      <AllowanceList
+        factoryId={factoryId}
+        agentId={agentId}
+        allowances={value}
+        onChange={(next) => void refresh(async () => next)}
+      />
+    </div>
+  )
+}
+
 function AgentEditor({
   own,
   row,
   folder,
+  factoryId,
   problem,
   onChange,
 }: {
   own: AgentDraft
   row: AgentFileRow | undefined
   folder: string
+  factoryId: string | undefined
   problem: string | undefined
   onChange: (next: AgentDraft) => void
 }) {
@@ -293,13 +428,9 @@ function AgentEditor({
   }
   const powers = settings.powers ?? row?.inherited?.settings.powers ?? []
   const commands = settings.commands ?? row?.inherited?.settings.commands ?? []
-  const rowKeys = useRef<string[]>([])
-  const nextKey = useRef(0)
-  while (rowKeys.current.length < commands.length) rowKeys.current.push(`row-${nextKey.current++}`)
-  rowKeys.current.length = commands.length
-  const setCommand = (index: number, change: Partial<AgentCommand>) =>
-    set({ commands: commands.map((c, i) => (i === index ? { ...c, ...change } : c)) })
+  const outsideCommands = settings.outsideCommands ?? row?.inherited?.settings.outsideCommands ?? []
   const runs = powers.includes('run_commands')
+  const outside = powers.includes('run_outside')
   const inherited = row?.inherited?.settings
   const resolved = resolvedChoice(settings, inherited)
   const inheritedModel = settings.model === undefined ? resolved.model : undefined
@@ -409,54 +540,46 @@ function AgentEditor({
           </label>
         ))}
       </fieldset>
-      <fieldset className={`${styles.commandList} ${runs ? '' : styles.dimmed}`}>
-        <legend className={base.label}>Commands</legend>
-        <p className={styles.hint}>
-          A chat runs one with <code className={base.mono}>ted agent run &lt;name&gt;</code>. TED
-          runs it in the chat’s copy, after the repo’s setup and in the sandbox, with no arguments
-          from the agent.
-          {runs ? '' : ' Turn on Run commands in the copy to use them.'}
-        </p>
-        {commands.map((command, index) => (
-          <div key={rowKeys.current[index]} className={styles.command}>
-            <input
-              aria-label={`Command ${index + 1} name`}
-              className={`${base.input} ${base.mono}`}
-              value={command.name}
-              placeholder="test"
-              spellCheck={false}
-              onChange={(event) => setCommand(index, { name: event.target.value })}
-            />
-            <input
-              aria-label={`Command ${index + 1}`}
-              className={`${base.input} ${base.mono}`}
-              value={command.command}
-              placeholder="pnpm test"
-              spellCheck={false}
-              onChange={(event) => setCommand(index, { command: event.target.value })}
-            />
-            <ActionButton
-              type="button"
-              className={base.link}
-              aria-label={`Remove command ${index + 1}`}
-              onClick={() => {
-                rowKeys.current.splice(index, 1)
-                set({ commands: commands.filter((_, i) => i !== index) })
-              }}
-            >
-              Remove
-            </ActionButton>
-          </div>
-        ))}
-        <div>
-          <Button
-            disabled={commands.length >= maxAgentCommands}
-            onClick={() => set({ commands: [...commands, { name: '', command: '' }] })}
-          >
-            Add command
-          </Button>
-        </div>
-      </fieldset>
+      <CommandList
+        legend="Commands"
+        what="command"
+        active={runs}
+        commands={commands}
+        max={maxAgentCommands}
+        placeholder="pnpm test"
+        hint={
+          <>
+            A chat runs one with <code className={base.mono}>ted agent run &lt;name&gt;</code>. TED
+            runs it in the chat’s copy, after the repo’s setup and in the sandbox, with no arguments
+            from the agent.
+            {runs ? '' : ' Turn on Run commands in the copy to use them.'}
+          </>
+        }
+        onChange={(next) => set({ commands: next })}
+      />
+      <CommandList
+        legend="Outside commands"
+        what="outside command"
+        active={outside}
+        commands={outsideCommands}
+        max={maxOutsideCommands}
+        placeholder="pnpm release build <version>"
+        hint={
+          <>
+            A chat asks for one with{' '}
+            <code className={base.mono}>ted agent run-outside &lt;name&gt; [argument]</code>. TED
+            runs it on this Mac, outside the sandbox, in the repo’s local folder, and only after you
+            click Run on its card, unless you allowed it always. Plain words only, no quotes or
+            shell characters, and at most one argument slot written{' '}
+            <code className={base.mono}>&lt;name&gt;</code>.
+            {outside ? '' : ' Turn on Run outside commands to use them.'}
+          </>
+        }
+        onChange={(next) => set({ outsideCommands: next })}
+      />
+      {factoryId !== undefined && outsideCommands.length > 0 && (
+        <AllowedAlways factoryId={factoryId} agentId={own.id} className={styles.commandList} />
+      )}
       <div className={styles.field}>
         <label className={base.label} htmlFor={`${id}-instructions`}>
           Instructions
