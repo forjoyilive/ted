@@ -1,6 +1,16 @@
 import type { CoordinatorChatSummary, Plan } from '@ted/protocol'
 import { expect, test } from 'vitest'
-import { agentChatRows, groupedRows, pickChat, splitArchived } from '../src/renderer/agent-chats.ts'
+import {
+  agentChatRows,
+  type ChatState,
+  chatActionLabel,
+  chatActions,
+  coordinatorChatState,
+  groupedRows,
+  pickChat,
+  planChatState,
+  splitArchived,
+} from '../src/renderer/agent-chats.ts'
 import { coordinatorAgent, plannerAgent } from './support/fixtures.ts'
 
 const coordinator = (fields: Partial<CoordinatorChatSummary>): CoordinatorChatSummary => ({
@@ -142,4 +152,62 @@ test('Agents opens the chat last open in the Factory, else the newest, else noth
     agent: 'coordinator',
     id: 'c1',
   })
+})
+
+const menu = (state: ChatState) =>
+  chatActions(state).map(
+    ({ kind, divider }) => `${divider ? '— ' : ''}${chatActionLabel(kind, state)}`,
+  )
+
+test('every chat’s ⋯ menu comes from one list: Stop, Resume or Retry first, then Rename, then Archive and Delete; archived chats offer Unarchive and Delete', () => {
+  expect(menu(coordinatorChatState(coordinator({ status: 'working' })))).toEqual([
+    'Stop',
+    '— Rename…',
+    '— Archive',
+    'Delete…',
+  ])
+  expect(menu(coordinatorChatState(coordinator({ status: 'ready' })))).toEqual([
+    'Rename…',
+    '— Archive',
+    'Delete…',
+  ])
+  expect(menu(coordinatorChatState(coordinator({ status: 'failed' })))).toEqual([
+    'Retry',
+    '— Rename…',
+    '— Archive',
+    'Delete…',
+  ])
+  expect(
+    menu(
+      coordinatorChatState(
+        coordinator({ status: 'failed', chatAgent: { ...coordinatorAgent, removed: true } }),
+      ),
+    ),
+  ).toEqual(['Rename…', '— Archive', 'Delete…'])
+  expect(menu(coordinatorChatState(coordinator({ endedAt: '2026-11-10T10:00:00.000Z' })))).toEqual([
+    'Unarchive',
+    '— Delete…',
+  ])
+  expect(menu(planChatState(plan({ status: 'waiting' })))).toEqual([
+    'Stop',
+    '— Rename…',
+    '— Archive',
+    'Delete…',
+  ])
+  expect(menu(planChatState(plan({ status: 'stopped' })))).toEqual([
+    'Resume',
+    '— Rename…',
+    'Plan more from here…',
+    '— Archive',
+    'Delete…',
+  ])
+  expect(menu(planChatState(plan({ status: 'finished' })))).toEqual([
+    'Rename…',
+    'Plan more from here…',
+    '— Archive',
+    'Delete…',
+  ])
+  expect(
+    menu(planChatState(plan({ status: 'stopped', archivedAt: '2026-11-10T10:00:00.000Z' }))),
+  ).toEqual(['Unarchive', '— Plan more from here…', 'Delete…'])
 })

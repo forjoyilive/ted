@@ -24,6 +24,7 @@ export function bridge(given: Record<string, Handler>) {
     getAsana: () => ({ state: 'unconfigured', configured: false, redirectUri: '' }),
     tedStops: () => [],
     listTasks: () => [],
+    listFactories: () => [],
     guides: () => [],
     memoryUse: () => ({
       daemon: { bytes: 900 * 1024 ** 2, heapBytes: 0, externalBytes: 0 },

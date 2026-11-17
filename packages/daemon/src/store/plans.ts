@@ -22,7 +22,7 @@ export interface PlanCheckout {
   worktree: string
 }
 
-export type PlanTaskGone = 'archived' | 'deleted' | 'reset'
+export type PlanTaskGone = 'archived' | 'deleted' | 'reset' | 'moved'
 
 export interface PlanTaskLink {
   taskId: string

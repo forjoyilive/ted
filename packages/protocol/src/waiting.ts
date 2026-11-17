@@ -30,7 +30,7 @@ export type WaitingRequest =
       chatId: string
       chatTitle: string
       agentName: string
-      confirmationKind?: 'archive' | 'delete'
+      confirmationKind?: 'archive' | 'delete' | 'transfer'
       automationCard?: AutomationCardKind
       requestKind?: ChatRequestKind
     })

@@ -744,6 +744,62 @@ test('actions reject stale state and cross-Factory neighbours; moves and creates
     ],
   })
 
+  const t = await s.task('T')
+  const transfer = async (operation: string, factory = 'OTHER') =>
+    run.call('POST', '/coordinator/transfer', {
+      operation,
+      task: { id: t.id, version: (await read(t.id)).version },
+      factory,
+    })
+  expect((await transfer('transfer-own', 'NB')).status).toBe(409)
+  expect((await transfer('transfer-nowhere', 'NOPE')).status).toBe(404)
+  const toCancel = (await transfer('transfer-t-cancel')).body as {
+    confirmation: { id: string; waiting: boolean }
+  }
+  expect(toCancel.confirmation.waiting).toBe(true)
+  expect(await taskById(t.id)).toMatchObject({ factoryId: t.factoryId, displayId: t.displayId })
+  await s.ok('POST', answer(toCancel.confirmation.id), { decision: 'cancel' })
+  expect(await taskById(t.id)).toMatchObject({ factoryId: t.factoryId, displayId: t.displayId })
+  const stale = (await transfer('transfer-t-stale')).body as { confirmation: { id: string } }
+  const earlier = await s.task('Earlier')
+  await s.ok('POST', `/tasks/${t.id}/blockers`, { by: earlier.id })
+  const refusedStale = await s.ok<Coordinator>('POST', answer(stale.confirmation.id), {
+    decision: 'confirm',
+  })
+  expect(
+    refusedStale.confirmations.find((c) => c.id === stale.confirmation.id)?.tasks,
+  ).toMatchObject([
+    {
+      id: t.id,
+      result: { done: false, text: expect.stringMatching(/changed/) },
+    },
+  ])
+  expect(await taskById(t.id)).toMatchObject({ factoryId: t.factoryId, displayId: t.displayId })
+  await s.ok('DELETE', `/tasks/${t.id}/blockers/${earlier.id}`)
+  const toMove = (await transfer('transfer-t')).body as { confirmation: { id: string } }
+  const askedT = toMove.confirmation
+  expect((await s.chat()).confirmations.find((c) => c.id === askedT.id)).toMatchObject({
+    kind: 'transfer',
+    transfer: {
+      factoryId: foreign.factoryId,
+      tasks: [{ id: t.id, newDisplayId: expect.stringMatching(/^OTHER-\d+$/) }],
+    },
+    tasks: [{ id: t.id, displayId: t.displayId }],
+  })
+  expect(await s.waitingIds()).toContain(askedT.id)
+  expect((await run.call('POST', answer(askedT.id), { decision: 'confirm' })).status).toBe(403)
+  const transferred = await s.ok<Coordinator>('POST', answer(askedT.id), { decision: 'confirm' })
+  expect(transferred.confirmations.find((c) => c.id === askedT.id)?.tasks).toMatchObject([
+    {
+      id: t.id,
+      result: { done: true, text: expect.stringMatching(/^Moved to .+ as OTHER-\d+\.$/) },
+    },
+  ])
+  expect(await taskById(t.id)).toMatchObject({
+    factoryId: foreign.factoryId,
+    displayId: expect.stringMatching(/^OTHER-\d+$/),
+  })
+
   if (!receipt) throw new Error('missing move receipt')
   const legacyReceipt = {
     ...receipt,
