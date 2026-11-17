@@ -361,10 +361,10 @@ test('a round question that allows several answers sends every ticked choice', a
     questions: [
       {
         question: 'Which views?',
-        choices: ['Board', 'List', 'Map'],
+        choices: ['Board', 'List', 'Map\nPins Tasks on a map.'],
         recommended: 'Board; Map',
         multiple: true,
-        recommendedChoices: ['Board', 'Map'],
+        recommendedChoices: ['Board', 'Map\nPins Tasks on a map.'],
       },
     ],
   }
@@ -379,7 +379,10 @@ test('a round question that allows several answers sends every ticked choice', a
   const f = within(screen.getByRole('group', { name: /Which views/ }))
   expect(f.getByText('Pick any that apply.')).toBeTruthy()
   expect(f.queryAllByRole('radio')).toHaveLength(0)
-  expect(f.getAllByText('Recommended')).toHaveLength(2)
+  expect(f.getAllByText('Recommended').map((tag) => tag.parentElement?.textContent)).toEqual([
+    'Board Recommended',
+    'Map Recommended',
+  ])
   const submit = screen.getByRole('button', { name: 'Submit answers' }) as HTMLButtonElement
   expect(submit.disabled).toBe(false)
   await u.click(f.getByRole('checkbox', { name: /^Map/ }))
