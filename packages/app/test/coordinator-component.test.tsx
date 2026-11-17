@@ -371,6 +371,26 @@ test('a chat’s header has Stop while it works, Archive and a ⋯ menu like a T
   await vi.waitFor(() => expect(retry).toHaveBeenCalledWith('k1'))
 })
 
+test('while one chat’s Stop is still answering, another chat’s ⋯ menu stays usable', async () => {
+  const { a, shown, open } = withCoordinator()
+  shown.coordinator = coordinator({ status: 'working' })
+  shown.chats = [
+    summary({ status: 'working', lastAt: later(2) }),
+    summary({ id: 'k2', title: 'Clear the Validate backlog', lastAt: later(1) }),
+  ]
+  const stopping = deferred<Coordinator>()
+  a.handle('stopCoordinator', () => stopping.promise)
+  a.mount()
+  const pane = await open()
+  await user().click(await within(pane).findByRole('button', { name: 'Stop' }))
+  const list = screen.getByRole('region', { name: 'Agent chats' })
+  fireEvent.contextMenu(within(list).getByRole('button', { name: /Clear the Validate backlog/ }))
+  const menu = await screen.findByRole('menu', { name: 'Chat' })
+  for (const item of within(menu).getAllByRole('menuitem'))
+    expect((item as HTMLButtonElement).disabled, item.textContent ?? '').toBe(false)
+  await act(async () => stopping.resolve(shown.coordinator))
+})
+
 test('Agents lists two Coordinator chats and a planning chat in one list, newest first, and each row opens its own conversation', async () => {
   const { a, shown, open } = withCoordinator()
   const second = summary({ id: 'k2', title: 'Clear the Validate backlog', lastAt: later(2) })

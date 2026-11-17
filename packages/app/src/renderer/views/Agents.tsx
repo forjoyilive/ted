@@ -150,25 +150,27 @@ export function AgentsView({
       current && `${current.ref.agent}:${current.ref.id}` !== openKey ? undefined : current,
     )
   }, [openKey])
-  const perform = (ref: AgentChatRef, kind: ChatActionKind) => {
+  const perform = (ref: AgentChatRef, kind: ChatActionKind): Promise<boolean> | undefined => {
     const coordinator = ref.agent === 'coordinator'
     switch (kind) {
       case 'stop':
-        return void act(() => (coordinator ? ted.stopCoordinator(ref.id) : ted.stopPlan(ref.id)))
+        return act(() => (coordinator ? ted.stopCoordinator(ref.id) : ted.stopPlan(ref.id)))
       case 'restart':
-        return void act(() => (coordinator ? ted.retryCoordinator(ref.id) : ted.resumePlan(ref.id)))
+        return act(() => (coordinator ? ted.retryCoordinator(ref.id) : ted.resumePlan(ref.id)))
       case 'rename':
         if (!sameChat(openRef, ref)) onOpenChat(ref)
         setRenaming((current) => ({ ref, signal: (current?.signal ?? 0) + 1 }))
         return
       case 'plan-more':
-        return onPlanMore(ref.id)
+        onPlanMore(ref.id)
+        return
       case 'archive':
-        return void archive(ref)
+        return archive(ref)
       case 'unarchive':
-        return void unarchive(ref)
+        return unarchive(ref)
       case 'delete':
-        return askDelete(ref)
+        askDelete(ref)
+        return
     }
   }
   const menuItems = (state: ChatState): MenuAction[] =>
@@ -176,7 +178,6 @@ export function AgentsView({
       label: chatActionLabel(kind, state),
       divider,
       ...(kind === 'delete' && { danger: true }),
-      disabled: busy,
       action: () => perform(state.ref, kind),
     }))
   const openMenu = (at: MenuPosition, state: ChatState) =>
