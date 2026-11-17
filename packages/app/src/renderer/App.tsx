@@ -49,6 +49,7 @@ import { NotificationOfferBanner } from './components/NotificationOffer.tsx'
 import { PlanUsage } from './components/PlanUsage.tsx'
 import { ReconnectingBar } from './components/ReconnectingBar.tsx'
 import { RemoveFactoryDialog } from './components/RemoveFactoryDialog.tsx'
+import { ReportingDialog } from './components/ReportingDialog.tsx'
 import { ReportProblemDialog } from './components/ReportProblemDialog.tsx'
 import { RequestSnoozeHost } from './components/RequestSnooze.tsx'
 import { resizeSidebarFromKey, SidebarLayout } from './components/ResizableSidebar.tsx'
@@ -1203,6 +1204,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
         />
       )}
       <RestartStoppedDialog />
+      <ReportingDialog />
       {asking && (
         <SetupNoticeDialog
           task={asking.request.task}

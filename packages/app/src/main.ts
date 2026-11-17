@@ -1018,8 +1018,8 @@ async function startSettings(daemon: DaemonClient, first: boolean): Promise<Mach
   let loaded = await daemon.getSettings()
   if (first && loaded.onboardingOnNextOpen && loaded.firstLaunchDone)
     loaded = await daemon.updateSettings({ firstLaunchDone: false })
-  if (skipFirstLaunch && !loaded.firstLaunchDone)
-    loaded = await daemon.updateSettings({ firstLaunchDone: true })
+  if (skipFirstLaunch && !(loaded.firstLaunchDone && loaded.reportingAsked))
+    loaded = await daemon.updateSettings({ firstLaunchDone: true, reportingAsked: true })
   return loaded
 }
 
