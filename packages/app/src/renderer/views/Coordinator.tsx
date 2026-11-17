@@ -13,6 +13,7 @@ import { coordinatorStatus } from '../agent-chats.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
 import {
   AgentAbout,
+  AgentLine,
   AgentPowers,
   AgentSource,
   builtInCoordinator,
@@ -111,6 +112,7 @@ export function CoordinatorStart({
         </header>
         {isCoordinator(agent) ? (
           <div className={styles.intro}>
+            {switcher && <AgentLine agent={agent} />}
             <h2>What needs your attention in {factory.name}?</h2>
             <p>
               I can compare Tasks, recommend next work, and start or reorder Tasks when you ask.
@@ -121,6 +123,7 @@ export function CoordinatorStart({
           </div>
         ) : (
           <div className={styles.intro}>
+            {switcher && <AgentLine agent={agent} />}
             <h2>{`New chat with ${agent.name} in ${factory.name}`}</h2>
           </div>
         )}

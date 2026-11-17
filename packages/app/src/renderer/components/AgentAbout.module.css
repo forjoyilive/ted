@@ -6,3 +6,4 @@
 .powers { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; color: var(--text-primary); font-size: var(--text-13); }
 .none { margin: 0; color: var(--text-caption); font-size: var(--text-13); }
 .source { margin: 0; color: var(--text-primary); font-size: var(--text-13); }
+.line { margin: 0 0 8px; color: var(--text-tertiary); font-size: var(--text-12); line-height: var(--leading-body); }

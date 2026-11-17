@@ -78,6 +78,10 @@ export function AgentPowers({ powers }: { powers: readonly AgentPower[] }) {
   )
 }
 
+export function AgentLine({ agent }: { agent: Pick<AgentSummary, 'powers' | 'source'> }) {
+  return <p className={styles.line}>{agentLine(agent)}</p>
+}
+
 export function AgentSource({ source }: { source: LayerKind }) {
   return <p className={styles.source}>{agentSources[source]}</p>
 }

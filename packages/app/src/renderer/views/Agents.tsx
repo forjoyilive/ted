@@ -11,7 +11,7 @@ import {
   useAgentsView,
 } from '../agent-chats.ts'
 import { ActionButton } from '../components/ActionButton.tsx'
-import { agentLine, builtInCoordinator, builtInPlanner } from '../components/AgentAbout.tsx'
+import { builtInCoordinator, builtInPlanner } from '../components/AgentAbout.tsx'
 import dialogs from '../components/ArchiveDialogs.module.css'
 import { Dialog } from '../components/ArchiveDialogs.tsx'
 import { Button } from '../components/Button.tsx'
@@ -457,15 +457,12 @@ function AgentSwitch({
   }
   const shown = agents.some((a) => a.id === current.id) ? agents : [current, ...agents]
   return (
-    <span className={styles.agentPick}>
-      <Select aria-label="Agent" value={current.id} onChange={(event) => pick(event.target.value)}>
-        {shown.map((agent) => (
-          <option key={agent.id} value={agent.id}>
-            {agent.name}
-          </option>
-        ))}
-      </Select>
-      <span className={styles.agentLine}>{agentLine(current)}</span>
-    </span>
+    <Select aria-label="Agent" value={current.id} onChange={(event) => pick(event.target.value)}>
+      {shown.map((agent) => (
+        <option key={agent.id} value={agent.id}>
+          {agent.name}
+        </option>
+      ))}
+    </Select>
   )
 }

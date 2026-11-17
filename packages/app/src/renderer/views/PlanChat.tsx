@@ -15,7 +15,13 @@ import type {
 import { efforts } from '@ted/protocol/task'
 import { type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
-import { AgentAbout, AgentPowers, AgentSource, builtInPlanner } from '../components/AgentAbout.tsx'
+import {
+  AgentAbout,
+  AgentLine,
+  AgentPowers,
+  AgentSource,
+  builtInPlanner,
+} from '../components/AgentAbout.tsx'
 import { AgentOptions } from '../components/AgentOptions.tsx'
 import { Button } from '../components/Button.tsx'
 import column from '../components/ChatColumn.module.css'
@@ -279,6 +285,7 @@ function NewPlanChat({
           </div>
         </header>
         <div className={styles.intro}>
+          {switcher && <AgentLine agent={agent} />}
           <p>
             {`Describe the piece of work. The planner reads ${factory.name}’s repos, asks questions in rounds,`}
             <br />
