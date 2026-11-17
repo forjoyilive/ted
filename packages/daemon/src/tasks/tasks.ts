@@ -13024,7 +13024,12 @@ export function createTasks(options: {
             leadsToMerge &&
             workflow.stages.includes(stageWith('merges')) &&
             workflow.settings.stages.merge?.gate !== true
-          if (mergesOnApproval) await pullRequestQueue.get(task.id)
+          const readies = signsOffCode(stage) || mergesHere(workflow.next(stage))
+          if (mergesOnApproval) {
+            if (validates(stage)) pullRequestWork(task.id, 'again')
+            if (readies) pullRequestWork(task.id, 'ready')
+            await pullRequestQueue.get(task.id)
+          }
           const noCi = mergesOnApproval ? reposWithoutCi(find(task.id), resolution) : []
           const design = outcome.design
           const requestedFor = signsOffCode(stage)
@@ -13051,9 +13056,9 @@ export function createTasks(options: {
           if (requestedFor) {
             store.gateRequestedFor(task.id, request.id, requestedFor.name, requestedFor.commit)
           }
-          if (validates(stage)) pullRequestWork(task.id, 'again')
-          if (signsOffCode(stage) || mergesHere(workflow.next(stage))) {
-            pullRequestWork(task.id, 'ready')
+          if (!mergesOnApproval) {
+            if (validates(stage)) pullRequestWork(task.id, 'again')
+            if (readies) pullRequestWork(task.id, 'ready')
           }
           return {
             task: publicTask(task.id),
