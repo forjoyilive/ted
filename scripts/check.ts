@@ -599,7 +599,7 @@ export async function checkAffected({
     const changed = affected.changedSince(root, base)
     const repo = affected.readRepo(root, changed)
     const selection = affected.affectedTests({ changed, ...repo })
-    const chosen = affected.chooseTier(selection, repo.tests.length)
+    const chosen = affected.chooseTests(selection, repo.tests.length)
     console.log(`\n${affected.selectionText(selection, chosen, base, repo.electron)}`)
     const sandbox = affected.electronSandbox()
     const leftOut = sandbox && affected.leftOutText(chosen.run, repo.electron, sandbox)

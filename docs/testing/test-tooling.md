@@ -36,21 +36,19 @@ Every test counts as affected when the change touches what the test runner is ma
 
 How much of it runs:
 
-- Up to 60 files (`maxAffectedFiles`), the whole set runs.
-- Over 60, or when every test is affected, the run drops the test files that reach a changed file only through other files. What is left is the changed test files, the test files that import a changed file directly, and the app area and smoke set tests.
-- If that is still over 60, it drops the direct importers too and runs the changed test files and the app tests, however many they are.
-- `chooseTier` in `scripts/affected.ts` makes the choice. The command prints which set it took, each file with its reason, and how many files it left to the scheduled full check (the Scheduled Check that runs `pnpm check`).
-- The limit is there because nearly every daemon test starts the daemon in-process and the app’s Electron tests import the daemon’s test helpers: a change to most files in `packages/daemon/src` reaches 270 or more test files, and a change to `packages/protocol/src` reaches all of them. Without the limit the Check would run for 20 to 30 minutes before a Task leaves Work and again at Validate entry.
+- The run takes the changed test files and the app area and smoke set tests, however many they are. The test files that only import a changed file, directly or through other files, are counted and left to the scheduled full check (the Scheduled Check that runs `pnpm check`).
+- `chooseTests` in `scripts/affected.ts` makes the choice. The command prints each file it runs with its reason, and how many files it left to the scheduled full check.
+- The importers are left out because nearly every daemon test starts the daemon in-process and the app’s Electron tests import the daemon’s test helpers: a change to most files in `packages/daemon/src` reaches 270 or more test files, and a change to `packages/protocol/src` reaches all of them. With the direct importers in the run (up to 60 files), 182 Check runs on Nov 15 and 16, 2026 took 6.1 hours, a run alone averaged 35 seconds and one beside 3 or 4 other Check runs 366 seconds. A change that breaks a test it didn’t touch is now found by the scheduled full check, not before the Task leaves Work.
 - When git can’t say what changed, it runs every test.
 - With nothing affected (docs only, for example) it says so and passes.
-- The Check’s timeout in `.ted/workflow.yaml` is 60 minutes. In the last full run the 60 slowest test files took 95 minutes of file time on the `node` project and 21 on `electron`. With half the usual workers (load per core 1.5, or a Check allowed 6 CPUs: 3 and 2) that is 32 minutes, and a run of ten or more files can first wait about 25 minutes behind someone’s full `pnpm check`. An average 60 files take 22 minutes with one worker. The default of 10 minutes is too short for either.
+- The Check’s timeout in `.ted/workflow.yaml` is 60 minutes. In the last full run the 60 slowest test files took 95 minutes of file time on the `node` project and 21 on `electron`. With half the usual workers (load per core 1.5, or a Check allowed 6 CPUs: 3 and 2) that is 32 minutes, and a run of ten or more files can first wait about 25 minutes behind someone’s full `pnpm check`. A Task that changes many test files still runs them all (one changed 187 and took 18 to 29 minutes a run), so the default of 10 minutes is too short.
 
 How it runs:
 
 - It runs the `electron` and `node` projects as `pnpm check` does, each only when it has files, and no typecheck or lint.
 - Ten or more files take the suite lock and get `pnpm check`’s worker counts. Fewer take one test slot and at most 3 workers per project, like any small run. Both keep to `TED_CHECK_CPUS` when TED runs them as a Check, and scale down on a busy machine (see [Machine load](#machine-load)).
 - It records no passing commit and doesn’t rewrite `ted-test-times.json`. Only a full `pnpm check` does.
-- Inside a sandbox where Electron can’t start (see [Inside a sandbox](#inside-a-sandbox)), it leaves the Electron files out, prints them, and writes `node_modules/.cache/ted-affected-left-out.txt`: the Electron files that were changed or picked by name, to run by hand, and how many others were left out. A run outside the sandbox deletes the file. TED runs Checks in its sandbox unless the Factory is in Bypass, so on macOS the Task Lead runs the listed files in Validate, 3 per command.
+- Inside a sandbox where Electron can’t start (see [Inside a sandbox](#inside-a-sandbox)), it leaves the Electron files out, prints them, and writes `node_modules/.cache/ted-affected-left-out.txt`: the Electron files that were changed or picked by name, to run by hand. A run outside the sandbox deletes the file. TED runs Checks in its sandbox unless the Factory is in Bypass, so on macOS the Task Lead runs the listed files in Validate, 3 per command.
 
 ## Vitest projects and workers
 
