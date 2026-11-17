@@ -211,7 +211,7 @@ test('a dummy operation runs once through lost messages, restarts of either serv
     await worker.request('stop')
     const saved = JSON.parse(await readPrivate(worker.home, 'pairing.json')) as {
       endpoint: { address: string; port: number; controllerPin: string }
-      credential: { grantId: string; certificate: string }
+      credential: { grantId: string; certificate: string; ca: string }
     }
     const key = await readPrivate(worker.home, 'worker-key.pem')
     const beat = {
@@ -221,7 +221,8 @@ test('a dummy operation runs once through lost messages, restarts of either serv
     }
     for (let attempt = 0; attempt < 12; attempt++) {
       const dropped = new AbortController()
-      await executionRequest(saved.endpoint, '/heartbeat', beat, {
+      const target = { ...saved.endpoint, controllerCertificate: saved.credential.ca }
+      await executionRequest(target, '/heartbeat', beat, {
         key,
         cert: saved.credential.certificate,
         signal: dropped.signal,

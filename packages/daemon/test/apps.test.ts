@@ -82,6 +82,29 @@ async function start(logBytes?: number) {
 
 type Client = Awaited<ReturnType<typeof start>>
 
+async function selfSignedCertificate(): Promise<Record<string, string>> {
+  const folder = await mkdtemp(path.join(scratch, 'tls-'))
+  await execFileAsync('/usr/bin/openssl', [
+    'req',
+    '-x509',
+    '-newkey',
+    'rsa:2048',
+    '-nodes',
+    '-days',
+    '1',
+    '-subj',
+    '/CN=localhost',
+    '-keyout',
+    path.join(folder, 'key.pem'),
+    '-out',
+    path.join(folder, 'cert.pem'),
+  ])
+  return {
+    'tls/key.pem': await readFile(path.join(folder, 'key.pem'), 'utf8'),
+    'tls/cert.pem': await readFile(path.join(folder, 'cert.pem'), 'utf8'),
+  }
+}
+
 const appsYaml = (extra = '') =>
   [
     'version: 1',
@@ -266,8 +289,16 @@ describe('Apps', () => {
           `        run: ${runStub}`,
           '        env:',
           '          STUB_APP_LINES: "3000"',
+          '      - name: Secure',
+          `        run: ${runStub}`,
+          `        url: "https://localhost:\${PORT}"`,
+          '        ready: url',
+          '        env:',
+          '          STUB_APP_TLS_KEY: tls/key.pem',
+          '          STUB_APP_TLS_CERT: tls/cert.pem',
         ].join('\n'),
       ),
+      ...(await selfSignedCertificate()),
     })
     const client = await start(4096)
     const task = await taskWithWorktree(client)
@@ -297,6 +328,14 @@ describe('Apps', () => {
     expect(sizes.reduce((sum, size) => sum + size, 0)).toBeLessThanOrEqual(4096)
     expect(log.truncated).toBe(true)
     expect(log.text).not.toContain('line 00001')
+
+    await client.ok('POST', `/tasks/${task.id}/apps/start`, { name: 'Secure' })
+    const untrusted =
+      'it answered over HTTPS with a certificate this Mac doesn’t trust (self-signed certificate). Use a certificate from a trusted authority, such as one made with mkcert, or serve the App over http.'
+    expect(await waitForState(client, task, 'Secure', 'failed')).toMatchObject({
+      problem: untrusted,
+    })
+    await eventText(client, task, `Secure couldn’t start: ${untrusted}`)
   })
 
   test('a Run starts only its own Task’s Apps, only the human stops or restarts them, and the human’s ▶ asks first until they choose Always for that App in this Factory, which a Run can’t choose', async () => {

@@ -23,6 +23,7 @@ import {
   remoteExecutionOff,
   requireExecutionCompatibility,
 } from '@ted/protocol'
+import { isString } from '@ted/protocol/parse'
 import { RequestError } from '../errors.ts'
 import type { TedStore } from '../store/index.ts'
 import {
@@ -84,6 +85,8 @@ export function createExecutionController(options: {
     root = path.join(options.home, 'execution-controller')
   const now = options.now ?? Date.now
   let server: https.Server | undefined,
+    pairing: { server: https.Server; port: number; sockets: Set<TLSSocket> } | undefined,
+    offerTimer: NodeJS.Timeout | undefined,
     identity: ExecutionIdentity | undefined,
     endpoint: ExecutionEndpoint | undefined,
     problem: string | undefined
@@ -121,6 +124,56 @@ export function createExecutionController(options: {
       row.finish(410, { error: 'Pairing expired. Create new details on the main Mac.' })
     }
     pending.clear()
+    closePairing()
+  }
+  function closePairing(destroy = false): void {
+    clearTimeout(offerTimer)
+    offerTimer = undefined
+    const open = pairing
+    pairing = undefined
+    if (!open) return
+    open.server.close()
+    if (destroy) for (const socket of open.sockets) socket.destroy()
+  }
+  function closePairingWhenDone(): void {
+    if (!offer && pending.size === 0) closePairing()
+  }
+  async function openPairing(at: ExecutionEndpoint, authority: ExecutionIdentity): Promise<number> {
+    if (pairing) return pairing.port
+    const sockets = new Set<TLSSocket>()
+    const listening = https.createServer(
+      {
+        key: authority.key,
+        cert: authority.cert,
+        minVersion: 'TLSv1.3',
+        maxVersion: 'TLSv1.3',
+        handshakeTimeout: 10_000,
+      },
+      (req, res) => respond(req, res, enroll),
+    )
+    limit(listening)
+    listening.on('secureConnection', (socket) => {
+      sockets.add(socket)
+      socket.once('close', () => sockets.delete(socket))
+    })
+    await new Promise<void>((resolve, reject) => {
+      listening.once('error', reject)
+      listening.listen(0, at.address, () => {
+        listening.removeListener('error', reject)
+        resolve()
+      })
+    })
+    const address = listening.address()
+    if (!address || isString(address)) {
+      listening.close()
+      throw new RequestError(500, 'Could not open the pairing listener')
+    }
+    if (pairing || closed || endpoint !== at) {
+      listening.close()
+      throw new RequestError(409, 'The execution listener changed; create pairing details again')
+    }
+    pairing = { server: listening, port: address.port, sockets }
+    return address.port
   }
   async function scopesExist(scopes: ExecutionGrant['scopes']): Promise<boolean> {
     const repos = (await options.repos()).filter((r) => !unavailableFactories.has(r.factoryId))
@@ -142,58 +195,61 @@ export function createExecutionController(options: {
       )
     return grant
   }
+  async function enroll(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (closed) throw new RequestError(503, 'Execution listener is closing')
+    if (req.method !== 'POST' || req.url !== '/enroll')
+      throw new RequestError(404, 'No such execution operation')
+    if (now() - attemptsSince > 60_000) {
+      attempts = 0
+      attemptsSince = now()
+    }
+    if (++attempts > 20 || enrollmentBusy || pending.size > 0)
+      throw new RequestError(429, 'Pairing is busy. Try again shortly.')
+    const input = parseExecutionEnrollment(await body(req))
+    requireExecutionCompatibility(input)
+    const active = offer
+    if (
+      !active ||
+      active.expiresAt <= now() ||
+      !timingSafeEqual(Buffer.from(active.secret), Buffer.from(input.secret))
+    )
+      throw new RequestError(410, 'Pairing details expired or already used')
+    enrollmentBusy = true
+    try {
+      const publicKey = await csrPin(root, input.csr)
+      if (offer !== active || active.expiresAt <= now())
+        throw new RequestError(410, 'Pairing expired')
+      offer = undefined
+      const id = randomUUID()
+      const row: Pending = {
+        id,
+        name: input.name,
+        publicKey,
+        expiresAt: new Date(active.expiresAt).toISOString(),
+        readiness: input.readiness,
+        csr: input.csr,
+        approving: false,
+        finish: (code, value) => answer(res, code, value),
+        timer: setTimeout(
+          () => {
+            pending.delete(id)
+            answer(res, 410, { error: 'Pairing expired. Create new details on the main Mac.' })
+          },
+          Math.max(1, active.expiresAt - now()),
+        ),
+      }
+      pending.set(id, row)
+      res.once('close', () => {
+        clearTimeout(row.timer)
+        if (pending.get(id) === row) pending.delete(id)
+        closePairingWhenDone()
+      })
+    } finally {
+      enrollmentBusy = false
+    }
+  }
   async function route(req: IncomingMessage, res: ServerResponse): Promise<void> {
     if (closed) throw new RequestError(503, 'Execution listener is closing')
-    if (req.method === 'POST' && req.url === '/enroll') {
-      if (now() - attemptsSince > 60_000) {
-        attempts = 0
-        attemptsSince = now()
-      }
-      if (++attempts > 20 || enrollmentBusy || pending.size > 0)
-        throw new RequestError(429, 'Pairing is busy. Try again shortly.')
-      const input = parseExecutionEnrollment(await body(req))
-      requireExecutionCompatibility(input)
-      const active = offer
-      if (
-        !active ||
-        active.expiresAt <= now() ||
-        !timingSafeEqual(Buffer.from(active.secret), Buffer.from(input.secret))
-      )
-        throw new RequestError(410, 'Pairing details expired or already used')
-      enrollmentBusy = true
-      try {
-        const publicKey = await csrPin(root, input.csr)
-        if (offer !== active || active.expiresAt <= now())
-          throw new RequestError(410, 'Pairing expired')
-        offer = undefined
-        const id = randomUUID()
-        const row: Pending = {
-          id,
-          name: input.name,
-          publicKey,
-          expiresAt: new Date(active.expiresAt).toISOString(),
-          readiness: input.readiness,
-          csr: input.csr,
-          approving: false,
-          finish: (code, value) => answer(res, code, value),
-          timer: setTimeout(
-            () => {
-              pending.delete(id)
-              answer(res, 410, { error: 'Pairing expired. Create new details on the main Mac.' })
-            },
-            Math.max(1, active.expiresAt - now()),
-          ),
-        }
-        pending.set(id, row)
-        res.once('close', () => {
-          clearTimeout(row.timer)
-          if (pending.get(id) === row) pending.delete(id)
-        })
-      } finally {
-        enrollmentBusy = false
-      }
-      return
-    }
     const commands = options.commands
     const syncing = req.url === '/sync' && commands !== undefined
     if (req.method !== 'POST' || (req.url !== '/heartbeat' && !syncing))
@@ -266,6 +322,30 @@ export function createExecutionController(options: {
       if (active.size === 0) sessions.delete(grant.id)
     })
   }
+  function respond(
+    req: IncomingMessage,
+    res: ServerResponse,
+    handle: (req: IncomingMessage, res: ServerResponse) => Promise<void>,
+  ): void {
+    handle(req, res).catch((error: unknown) => {
+      const code = error instanceof RequestError ? error.status : 400
+      if (code === 403) res.once('finish', () => req.socket.end())
+      answer(res, code, {
+        error:
+          code === 403
+            ? 'Execution access refused; pairing or approval is required'
+            : error instanceof RequestError
+              ? error.message
+              : 'Invalid or incompatible execution message',
+      })
+    })
+  }
+  function limit(listening: https.Server): void {
+    listening.maxConnections = 32
+    listening.requestTimeout = 15_000
+    listening.headersTimeout = 10_000
+    listening.keepAliveTimeout = 1000
+  }
   async function listen(next: ExecutionEndpoint): Promise<void> {
     const addresses = Object.values(networkInterfaces())
       .flatMap((e) => e ?? [])
@@ -275,6 +355,7 @@ export function createExecutionController(options: {
     if (server) {
       if (endpoint?.address === next.address && endpoint.port === next.port) return
       offer = undefined
+      closePairing(true)
       expirePending()
       for (const socket of sockets) socket.destroy()
       const activeServer = server
@@ -289,30 +370,14 @@ export function createExecutionController(options: {
         cert: identity.cert,
         ca: identity.cert,
         requestCert: true,
-        rejectUnauthorized: false,
+        rejectUnauthorized: true,
         minVersion: 'TLSv1.3',
         maxVersion: 'TLSv1.3',
         handshakeTimeout: 10_000,
       },
-      (req, res) => {
-        void route(req, res).catch((error: unknown) => {
-          const code = error instanceof RequestError ? error.status : 400
-          if (code === 403) res.once('finish', () => req.socket.end())
-          answer(res, code, {
-            error:
-              code === 403
-                ? 'Execution access refused; pairing or approval is required'
-                : error instanceof RequestError
-                  ? error.message
-                  : 'Invalid or incompatible execution message',
-          })
-        })
-      },
+      (req, res) => respond(req, res, route),
     )
-    listening.maxConnections = 32
-    listening.requestTimeout = 15_000
-    listening.headersTimeout = 10_000
-    listening.keepAliveTimeout = 1000
+    limit(listening)
     listening.on('secureConnection', (socket) => {
       sockets.add(socket)
       socket.once('close', () => sockets.delete(socket))
@@ -371,21 +436,38 @@ export function createExecutionController(options: {
       offer = undefined
       expirePending()
     },
-    createEnrollment(): ExecutionOffer {
-      if (!server || !endpoint || !identity || closed)
-        throw new RequestError(409, 'Configure the local execution listener first')
-      if (store.newWorkHold())
-        throw new RequestError(507, 'New work is held while storage is unavailable')
-      expirePending()
-      offer = { secret: randomBytes(32).toString('hex'), expiresAt: now() + enrollmentLifetimeMs }
-      return {
-        ...endpoint,
-        ...executionHello(),
-        controllerPin: identity.pin,
-        secret: offer.secret,
-        expiresAt: new Date(offer.expiresAt).toISOString(),
-      }
+    createEnrollment(): Promise<ExecutionOffer> {
+      return serial(async () => {
+        const at = endpoint,
+          authority = identity
+        if (!server || !at || !authority || closed)
+          throw new RequestError(409, 'Configure the local execution listener first')
+        if (store.newWorkHold())
+          throw new RequestError(507, 'New work is held while storage is unavailable')
+        offer = undefined
+        expirePending()
+        const pairingPort = await openPairing(at, authority)
+        const created = {
+          secret: randomBytes(32).toString('hex'),
+          expiresAt: now() + enrollmentLifetimeMs,
+        }
+        offer = created
+        offerTimer = setTimeout(() => {
+          if (offer === created) offer = undefined
+          expirePending()
+        }, enrollmentLifetimeMs)
+        return {
+          ...at,
+          ...executionHello(),
+          pairingPort,
+          controllerPin: authority.pin,
+          controllerCertificate: authority.cert,
+          secret: created.secret,
+          expiresAt: new Date(created.expiresAt).toISOString(),
+        }
+      })
     },
+
     async list(): Promise<ExecutionMachines> {
       if (!options.enabled)
         return { disabled: true, addresses: [], pending: [], machines: [], repos: [] }
@@ -500,6 +582,7 @@ export function createExecutionController(options: {
     async close() {
       closed = true
       offer = undefined
+      closePairing(true)
       expirePending()
       for (const socket of sockets) socket.destroy()
       const activeServer = server

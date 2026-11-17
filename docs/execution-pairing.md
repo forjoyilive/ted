@@ -26,12 +26,17 @@ this release labels model access unverified and never runs a paid request to che
 1. On the main Mac, open **Settings → Machines**. Choose its local Wi-Fi/Ethernet
    address reachable from the other Mac and the listener port (default 47443).
 2. Choose **Create pairing details**, then **Copy pairing details**. Details work
-   once and expire after five minutes. Keep them private.
+   once and expire after five minutes. Keep them private. While they are live, TED
+   also listens for pairing on a second, randomly chosen port on the same address;
+   the details name it, and it closes once they are used, cancelled or expire.
 3. On the execution Mac, open **Settings → Machines → Use this Mac as a worker**.
    Alternatively launch TED with `--worker` to open directly into worker mode.
 4. Paste the complete details, choose working Run capacity and choose
-   **Connect to controller**. The connection uses the controller identity in those
-   details; an identity mismatch stops it before enrollment material is sent.
+   **Connect to controller**. The details carry the controller’s certificate, and
+   the execution Mac trusts exactly that certificate: a mismatch stops the TLS
+   handshake before enrollment material is sent. Details from an older TED, which
+   lack the certificate, are refused; create new ones on the main Mac. A Mac already
+   paired keeps using the certificate it saved when it paired.
 5. Compare the worker identity on both screens. On the main Mac, select the exact
    existing repos the worker may access and choose **Approve pairing**. Nothing is
    selected by default. Repos added later are excluded. Only the controller’s app

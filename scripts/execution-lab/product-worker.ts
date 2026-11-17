@@ -61,7 +61,7 @@ export async function productWorker(
       const status = await workerRequest(home, 'status')
       if (!status.readiness) throw new Error('Worker has not reported readiness')
       try {
-        await executionRequest(offer, '/enroll', {
+        await executionRequest({ ...offer, port: offer.pairingPort }, '/enroll', {
           ...executionHello(),
           protocol: 999,
           name: 'Lab version refusal',

@@ -62,10 +62,19 @@ test('pairing across isolated processes refuses untrusted peers and preserves ap
     await expect(
       worker.request('pair', { details: JSON.stringify({ ...offer, protocol: 999 }), capacity: 2 }),
     ).rejects.toThrow()
-    await expect(executionRequest(offer, '/execution/approve', {})).rejects.toThrow()
+    expect(await accepts(offer.address, offer.pairingPort)).toBe(true)
+    await expect(executionRequest(offer, '/execution/approve', {})).rejects.toThrow(
+      /certificate|handshake|socket hang up|ECONNRESET|EPIPE/i,
+    )
     await expect(
       executionRequest(offer, '/heartbeat', { ...executionHello(), grantId: 'unapproved' }),
-    ).rejects.toThrow()
+    ).rejects.toThrow(/certificate|handshake|socket hang up|ECONNRESET|EPIPE/i)
+    await expect(
+      executionRequest({ ...offer, port: offer.pairingPort }, '/heartbeat', {
+        ...executionHello(),
+        grantId: 'unapproved',
+      }),
+    ).rejects.toThrow('No such execution operation')
     const attempted = {
       ...executionHello(),
       secret: offer.secret,
@@ -75,7 +84,10 @@ test('pairing across isolated processes refuses untrusted peers and preserves ap
     }
     for (const incompatible of [{ protocol: 999 }, { edition: 'release' }, { capabilities: [] }]) {
       await expect(
-        executionRequest(offer, '/enroll', { ...attempted, ...incompatible }),
+        executionRequest({ ...offer, port: offer.pairingPort }, '/enroll', {
+          ...attempted,
+          ...incompatible,
+        }),
       ).rejects.toThrow()
     }
     expect(
@@ -112,6 +124,7 @@ test('pairing across isolated processes refuses untrusted peers and preserves ap
     expect((await controller.client.executionMachines()).machines).toEqual([])
     await controller.client.cancelExecutionEnrollment()
     await worker.state('refused')
+    expect(await accepts(fresh.address, fresh.pairingPort)).toBe(false)
     await controller.control({ executionClockOffsetMs: 0 })
     await observe('pairing-expiry', {
       expiredEnrollment: 'refused',
@@ -146,7 +159,16 @@ test('pairing across isolated processes refuses untrusted peers and preserves ap
       grantId: grant.id,
       readiness: { capacity: 3 },
     })
+    await waitUntil(
+      async () => !(await accepts(valid.address, valid.pairingPort)),
+      'pairing listener closed after approval',
+    )
     const persisted = await readPrivate(worker.home, 'pairing.json')
+    expect(Object.keys(JSON.parse(persisted).endpoint).sort()).toEqual([
+      'address',
+      'controllerPin',
+      'port',
+    ])
     const credential = JSON.parse(persisted).credential as { certificate: string }
     await expect(
       new DaemonClient(
@@ -354,6 +376,16 @@ test('CLI Pair replaces a still-valid saved controller after process Stop and re
     const review = await pendingPairing(first)
     const oldGrant = await first.client.approveExecution({ id: review.id, scopes: [originalScope] })
     await worker.state('connected')
+    await worker.request('pair', {
+      details: JSON.stringify({
+        ...replacement.offer,
+        controllerPin: original.offer.controllerPin,
+        controllerCertificate: original.offer.controllerCertificate,
+      }),
+      capacity: 2,
+    })
+    expect((await worker.state('refused')).message).toContain('identity')
+    expect((await second.client.executionMachines()).pending).toEqual([])
     await cli('stop')
     await cli('pair', JSON.stringify(replacement.offer))
     const pending = await pendingPairing(second)
