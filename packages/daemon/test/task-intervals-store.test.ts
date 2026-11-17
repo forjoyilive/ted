@@ -221,7 +221,8 @@ test('retains blocker overlap while stopped and clips working at archive and Don
   expect(history.lifecycle).toEqual(
     expect.arrayContaining([
       { at: at(4), event: 'v2.TaskArchived' },
-      { at: at(7), event: 'v3.TaskStageEntered' },
+      { at: at(7), event: 'v1.TaskStageChanged' },
+      { at: at(7), event: 'v4.TaskStageEntered' },
     ]),
   )
 })
