@@ -586,7 +586,13 @@ describe('blockers while the agent can’t run', () => {
     await block(client, running, blocker)
     await waitFor(client, running, (t) => t.status?.kind === 'blocked', 'to be Blocked')
     await client.ok('POST', `/tasks/${blocker.id}/start`)
-    await waitFor(client, blocker, (t) => t.leadRunId !== undefined, 'to start')
+    const started = await waitFor(client, blocker, (t) => t.leadRunId !== undefined, 'to start')
+    // Moving Date.now ahead before the Run host writes its start record expires the
+    // daemon's start deadline (stopGraceMs in run-manager.ts) and drops NB-1's Run.
+    await waitUntil(
+      async () => (await client.getRun(started.leadRunId ?? '')).conversation.length > 0,
+      `${blocker.displayId}’s Run to print its first line`,
+    )
 
     await signedIn(false)
     const realNow = Date.now
