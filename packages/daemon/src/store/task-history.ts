@@ -106,19 +106,30 @@ export function createTaskHistory(
         .filter((e) => e.name === 'v1.GateApprovalBound' && e.data.commit === commit)
         .map((e) => String(e.data.commentId))
     },
-    gateRequestCommits(taskId: string, commentId: string): Map<string, string> {
-      const commits = new Map<string, string>()
-      for (const e of read(taskId)) {
-        if (e.name !== 'v1.GateRequestedFor' || e.data.commentId !== commentId) continue
-        const { name, commit } = e.data
-        if (isString(name) && isString(commit) && !commits.has(name)) commits.set(name, commit)
-      }
-      return commits
+    gateRequestCommit(taskId: string, commentId: string, repo: string): string | undefined {
+      const commit = read(taskId).find(
+        (e) =>
+          e.name === 'v1.GateRequestedFor' &&
+          e.data.commentId === commentId &&
+          e.data.name === repo,
+      )?.data.commit
+      return isString(commit) ? commit : undefined
     },
-    gateRequestCommit(taskId: string, commentId: string): string | undefined {
-      return read(taskId).find(
-        (e) => e.name === 'v1.GateRequestedFor' && e.data.commentId === commentId,
-      )?.data.commit as string | undefined
+    approvalBoundCommit(taskId: string, commentId: string, repo: string): string | undefined {
+      const commit = read(taskId).find(
+        (e) =>
+          e.name === 'v1.GateApprovalBound' &&
+          e.data.commentId === commentId &&
+          e.data.name === repo,
+      )?.data.commit
+      return isString(commit) ? commit : undefined
+    },
+    chosenMergeCommit(taskId: string, repo: string, since: string): string | null | undefined {
+      const chosen = read(taskId).findLast(
+        (e) => e.name === 'v1.MergeCommitChosen' && e.at >= since && e.data.name === repo,
+      )
+      if (!chosen) return undefined
+      return isString(chosen.data.commit) ? chosen.data.commit : null
     },
     overnightGateHistory(
       taskId: string,

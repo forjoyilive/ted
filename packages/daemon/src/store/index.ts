@@ -764,7 +764,6 @@ export interface TedStore extends TaskHistory {
     taskId: string,
     name: string,
     pullRequest: { number: number; url: string; base: string },
-    ready?: boolean,
   ): void
   pullRequestMarkedReady(taskId: string, name: string): void
   pullRequestClosed(taskId: string, name: string): void
@@ -866,6 +865,7 @@ export interface TedStore extends TaskHistory {
   gateSkippedOvernight(taskId: string, stage: AgentStageId): void
   gateApprovalBound(taskId: string, commentId: string, name: string, commit: string): void
   gateRequestedFor(taskId: string, commentId: string, name: string, commit: string): void
+  mergeCommitChosen(taskId: string, name: string, commit: string | undefined): void
   gateKeptOvernight(taskId: string, stage: AgentStageId, reason: OvernightGuard): void
   createdByAutomation(taskId: string): boolean
   mergeCanceled(taskId: string, commentId: string): void
@@ -1287,6 +1287,7 @@ export interface TedStore extends TaskHistory {
   holdNewWork(reason: string | undefined): void
   newWorkHold(): string | undefined
   holdWhenBusy(held: BusyHold | undefined): void
+  busyHold(): BusyHold | undefined
   setTaskChecking(taskId: string, on: boolean): void
   setTaskStopping(taskId: string, on: boolean): void
   setTaskMovingAfterChecks(taskId: string, on: boolean): void
@@ -5291,11 +5292,17 @@ export async function openStore({
       )
       updatedTask(taskId)
     },
-    pullRequestOpened(taskId, name, { number, url, base }, ready = false) {
-      const at = new Date().toISOString()
-      const opened = events.pullRequestOpened({ taskId, name, number, url, base, at })
-      if (ready) commit(opened, events.pullRequestMarkedReady({ taskId, name, at }))
-      else commit(opened)
+    pullRequestOpened(taskId, name, { number, url, base }) {
+      commit(
+        events.pullRequestOpened({
+          taskId,
+          name,
+          number,
+          url,
+          base,
+          at: new Date().toISOString(),
+        }),
+      )
       updatedTask(taskId)
     },
     pullRequestMarkedReady(taskId, name) {
@@ -5730,6 +5737,16 @@ export async function openStore({
           commentId,
           name,
           commit: requested,
+          at: new Date().toISOString(),
+        }),
+      )
+    },
+    mergeCommitChosen(taskId, name, chosen) {
+      commit(
+        events.mergeCommitChosen({
+          taskId,
+          name,
+          commit: chosen ?? null,
           at: new Date().toISOString(),
         }),
       )
@@ -7541,6 +7558,7 @@ export async function openStore({
       updatedTasks(tasksWaitingForSlots())
     },
     newWorkHold: () => newWorkHeld,
+    busyHold: () => heldBusy,
     holdWhenBusy(held) {
       if (JSON.stringify(held) === JSON.stringify(heldBusy)) return
       heldBusy = held

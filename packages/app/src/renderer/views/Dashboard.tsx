@@ -22,7 +22,7 @@ import {
   useState,
 } from 'react'
 import { ActionButton } from '../components/ActionButton.tsx'
-import { FactoryIcon } from '../components/FactoryIcon.tsx'
+import { FactoryIcon, useFactoryColors } from '../components/FactoryIcon.tsx'
 import { CloseIcon } from '../components/icons.tsx'
 import { LoadingError, Skeleton } from '../components/Loading.tsx'
 import { Select } from '../components/Select.tsx'
@@ -333,6 +333,8 @@ function Chart({
   const frame = useRef<HTMLDivElement>(null)
   const tip = useRef<HTMLDivElement>(null)
   const tipId = useId()
+  const colorOf = useFactoryColors()
+  const factoryColor = (f: Factory | undefined) => `var(--factory-icon-${colorOf(f)}-fg)`
   useLayoutEffect(() => {
     const box = frame.current
     const card = tip.current
@@ -430,12 +432,16 @@ function Chart({
   return (
     <div className={styles.chart} ref={frame}>
       <div className={styles.legend}>
-        {data.factoryIds.map((id) => (
-          <span key={id}>
-            <i className={styles.swatch} style={{ background: factoryColor(factory(id)) }} />
-            {factory(id)?.name ?? 'Removed Factory'}
-          </span>
-        ))}
+        {data.factoryIds.map((id) => {
+          const shown = factory(id)
+          return (
+            <span key={id} className={styles.legendFactory}>
+              <i className={styles.swatch} style={{ background: factoryColor(shown) }} />
+              {shown && <FactoryIcon factory={shown} size={14} />}
+              {shown?.name ?? 'Removed Factory'}
+            </span>
+          )
+        })}
         {data.previous && (
           <span>
             <i className={styles.previousKey} />
@@ -545,18 +551,19 @@ function Chart({
               {row.note && <div className={styles.tooltipNote}>{row.note}</div>}
             </Fragment>
           ))}
-          {factoryRows.map((row) => (
-            <div key={row.factoryId} className={styles.tooltipRow}>
-              <span>
-                <i
-                  className={styles.swatch}
-                  style={{ background: factoryColor(factory(row.factoryId)) }}
-                />
-                {factory(row.factoryId)?.name ?? 'Removed Factory'}
-              </span>
-              <strong>{row.count}</strong>
-            </div>
-          ))}
+          {factoryRows.map((row) => {
+            const shown = factory(row.factoryId)
+            return (
+              <div key={row.factoryId} className={styles.tooltipRow}>
+                <span className={styles.legendFactory}>
+                  <i className={styles.swatch} style={{ background: factoryColor(shown) }} />
+                  {shown && <FactoryIcon factory={shown} size={14} />}
+                  {shown?.name ?? 'Removed Factory'}
+                </span>
+                <strong>{row.count}</strong>
+              </div>
+            )
+          })}
           {details.change && <div className={styles.tooltipChange}>{details.change}</div>}
         </div>
       )}
@@ -1274,11 +1281,6 @@ function Sample({
   )
 }
 
-const factoryColor = (factory: Factory | undefined) => {
-  const icon = factory?.icon
-  return `var(--factory-icon-${icon && 'color' in icon && icon.color ? icon.color : 'blue'}-fg)`
-}
-
 function FactoriesMenu({
   factories,
   layout,
@@ -1401,6 +1403,7 @@ function ByFactory({
   select: (sample: DashboardSelection) => void
 }) {
   const heading = useId()
+  const colorOf = useFactoryColors()
   const total = data.current.taskIds.length
   const previous = new Map<string, DashboardFactoryPeriod>(
     (data.previous?.byFactory ?? []).map((row) => [row.factoryId, row]),
@@ -1491,7 +1494,10 @@ function ByFactory({
                 <td>
                   <span
                     className={styles.share}
-                    style={{ width: `${share * 120}px`, background: factoryColor(factory) }}
+                    style={{
+                      width: `${share * 120}px`,
+                      background: `var(--factory-icon-${colorOf(factory)}-fg)`,
+                    }}
                   />
                   <span className={styles.caption}>
                     {cell(`${Math.round(share * 100)}%`, of('completed', row.taskIds))}

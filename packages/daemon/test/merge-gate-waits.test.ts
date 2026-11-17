@@ -15,6 +15,7 @@ import {
   start,
   toSignoff,
   useMergeHarness,
+  waitForPullRequest,
   waitForStage,
 } from './merge-harness.ts'
 import { eventWait } from './support/event-wait.ts'
@@ -159,12 +160,8 @@ describe('CI stuck', () => {
     const { task, signoff } = await toSignoff(client, {}, clock)
     await approve(client, signoff)
     await waitForStage(client, task, 'merge')
-    const pushed = (
-      await waitUntil(
-        async () => (await getTask(client, task.id)).repos[0]?.pushed,
-        'the push at Merge entry',
-      )
-    ).at
+    const merging = await waitForPullRequest(client, task.id)
+    const pushed = merging.repos[0]?.pushed?.at
     const entries = await client.ok<StageEntry[]>('GET', `/tasks/${task.id}/stage-entries`)
     const entered = entries.findLast((entry) => entry.stage === 'merge')?.at
     if (!pushed || !entered) throw new Error('missing Merge entry or push time')

@@ -1,7 +1,8 @@
 import { readFile, rm, writeFile } from 'node:fs/promises'
-import type { Banner, Task } from '@ted/protocol'
+import { type Banner, type Task, tedPaths } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { startDaemon } from '../src/index.ts'
+import { loadRunTokens } from '../src/run-token.ts'
 import { api, stubClaudePath, waitUntil } from './helpers.ts'
 import {
   approve,
@@ -10,29 +11,20 @@ import {
   ctx,
   getTask,
   ghCalls,
+  heldLeadSteps,
   lines,
   quietGuard,
   setGh,
   start,
   toSignoff,
   useMergeHarness,
+  waitForPullRequest,
 } from './merge-harness.ts'
 
 useMergeHarness()
 
-const mergeOff = ['stages:', '  merge: { enabled: false }']
-
-async function atMergeOff(client: Client) {
-  const { task, signoff } = await toSignoff(client)
-  await approve(client, signoff)
-  await waitUntil(
-    async () => (await getTask(client, task.id)).repos[0]?.pullRequest,
-    'the pull request opened at Merge entry',
-  )
-  return task
-}
-
-function guardedSteps(client: Client, guard = quietGuard(client)): string {
+function guardedSteps(client: Client): string {
+  const guard = quietGuard(client)
   const outcome = `out=$(ted outcome advance 2>&1) || case "$out" in *"asked for changes"*) ted outcome back --to work --findings '${client.findingsFile}';; esac`
   const script = [guard, commitStep.run[2], `ted brief write --file '${client.briefFile}'`, outcome]
   const each = [{ run: ['sh', '-c', script.join('\n')] }, { endTurn: true }]
@@ -44,6 +36,15 @@ function guardedSteps(client: Client, guard = quietGuard(client)): string {
     ],
   })
 }
+
+async function atMerge(client: Client): Promise<Task> {
+  const { task, signoff } = await toSignoff(client, { title: heldLeadSteps(client) })
+  await approve(client, signoff)
+  await waitForPullRequest(client, task.id)
+  return task
+}
+
+const mergeOff = { order: 'intake, work, validate, review' }
 
 type Caller = Pick<Client, 'call'>
 
@@ -90,8 +91,8 @@ const failingCheck = {
 
 describe('Watching GitHub', () => {
   test('a hosted preview is stored on the pull request; a failing CI check, then review comments and a merge conflict, each reach the open Task Lead once; a pull request closed on GitHub is recorded and the archived Task says so', async () => {
-    const client = await start({ workflow: mergeOff })
-    const task = await atMergeOff(client)
+    const client = await start(mergeOff)
+    const task = await atMerge(client)
     const lead = await leadOf(client, task)
 
     await setGh({
@@ -207,8 +208,8 @@ describe('Watching GitHub', () => {
   })
 
   test('an outside contributor’s comment isn’t sent to the Task Lead; the thread says so', async () => {
-    const client = await start({ workflow: mergeOff })
-    const task = await atMergeOff(client)
+    const client = await start(mergeOff)
+    const task = await atMerge(client)
     const lead = await leadOf(client, task)
     await setGh({
       threads: [
@@ -258,18 +259,24 @@ describe('Watching GitHub', () => {
   })
 
   test('GitHub activity waits for explicit Resume after quit, then reaches the fresh Task Lead', async () => {
-    const client = await start({
-      merge: { mergeState: 'BLOCKED', reviewDecision: 'REVIEW_REQUIRED' },
+    const client = await start()
+    const task = await atMerge(client)
+    const first = await leadOf(client, task)
+    await waitUntil(
+      async () => (await client.getRun(first)).run.state === 'idle',
+      'the Merge Task Lead to go idle',
+    )
+    const token = (await loadRunTokens(tedPaths(ctx.home).runTokenKey)).issue(first)
+    const back = await api(ctx.daemon?.port ?? 0, token).call('POST', `/tasks/${task.id}/outcome`, {
+      outcome: 'back',
+      to: 'work',
+      findings: 'Keep the current work.',
     })
-    const backFromMerge = `ted task list | grep -q "^$TED_TASK  Merge  " && ted outcome back --to work --findings '${client.findingsFile}' >/dev/null 2>&1`
-    const guard = `[ -e '${client.mergingFile}' ] && { ${backFromMerge}; exit 0; }`
-    const { task, signoff } = await toSignoff(client, { title: guardedSteps(client, guard) })
-    await approve(client, signoff)
+    expect(back.status, JSON.stringify(back.body)).toBe(200)
     await waitUntil(async () => {
       const current = await getTask(client, task.id)
       return current.stage === 'work' && current.repos[0]?.pullRequest?.state === 'ready'
-    }, 'the Task back in Work with its pull request open')
-    const first = await leadOf(client, task)
+    }, 'the send-back to Work with the pull request still open')
     expect((await client.call('POST', '/shutdown', {})).status).toBe(200)
     await ctx.daemon?.stop()
     const daemon = await startDaemon({
@@ -429,10 +436,8 @@ describe('Watching GitHub', () => {
     const two = await toSignoff(client)
     expect((await getTask(client, two.task.id)).repos[0]?.pullRequest).toBeUndefined()
     await approve(client, two.signoff)
-    await waitUntil(
-      async () => (await getTask(client, two.task.id)).repos[0]?.pullRequest?.number === 8,
-      'the second pull request opened at Merge entry',
-    )
+    const second = await waitForPullRequest(client, two.task.id)
+    expect(second.repos[0]?.pullRequest?.number).toBe(8)
 
     const before = (await readCalls()).length
     await waitUntil(async () => (await readCalls()).length >= before + 4, 'four polls')

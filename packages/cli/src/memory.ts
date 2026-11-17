@@ -1,16 +1,26 @@
 import type { MemoryUse } from '@ted/protocol'
-import { daemonPartLabel, memoryParts, memorySize, memoryTotal } from '@ted/protocol/memory'
+import {
+  agentBreakdown,
+  agentsPartLabel,
+  daemonPartLabel,
+  memoryParts,
+  memorySize,
+  memoryTotal,
+} from '@ted/protocol/memory'
 
 const processes = (count: number) => `${count} ${count === 1 ? 'process' : 'processes'}`
 
 export function formatMemoryUse(use: MemoryUse): string {
   const { bytes, heapBytes, externalBytes } = use.daemon
+  const agents = agentBreakdown(use)
   return [
     `Ted is using ${memorySize(memoryTotal(use))}.`,
     ...memoryParts(use).map((part) =>
       part.label === daemonPartLabel
         ? `  ${part.label}: ${memorySize(part.bytes)}, ${processes(part.count)} (daemon ${memorySize(bytes)}: JavaScript heap ${memorySize(heapBytes)}, store and buffers ${memorySize(externalBytes)})`
-        : `  ${part.label}: ${memorySize(part.bytes)}, ${processes(part.count)}`,
+        : part.label === agentsPartLabel && agents.length > 0
+          ? `  ${part.label}: ${memorySize(part.bytes)}, ${processes(part.count)} (${agents.join(', ')})`
+          : `  ${part.label}: ${memorySize(part.bytes)}, ${processes(part.count)}`,
     ),
     ...(use.asleepRuns
       ? [

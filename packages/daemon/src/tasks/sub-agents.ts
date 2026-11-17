@@ -39,6 +39,7 @@ export interface SubAgents {
     input: { name: string; prompt: string; choice: ReviewerChoice; purpose: ReviewerPurpose },
   ): string | undefined
   result(runId: string): Promise<SubAgentWait>
+  runEnv(run: Run): Promise<Record<string, string> | undefined>
   reviewed(runId: string): boolean
   visitReviewer(task: StoredTask): string | undefined
   queued(): QueueEntry[]
@@ -576,6 +577,13 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
         },
         end: () => setWaiting(leadRunId, -1),
       })
+    },
+    async runEnv(run) {
+      if (run.parentRunId === undefined || run.taskId === undefined) return undefined
+      const task = store.getTask(run.taskId)
+      const repo = task?.repos.find((r) => !r.removed)
+      if (!task || !repo) return undefined
+      return { ...(await deps.envFor(task, repo)), TED_TASK: task.displayId }
     },
     async result(runId) {
       for (;;) {

@@ -39,6 +39,7 @@ import { isEarlierStage, type ResolvedWorkflow } from '../workflow/resolve.ts'
 import { backStageMessage, nextStageMessage, stageTitle } from '../workflow/workflow.ts'
 import type { WorkflowResolution } from '../workflow/workflows.ts'
 import { answerMessage } from './answer-message.ts'
+import { entersMerge } from './cleanup.ts'
 import { type createFailureCases, failureText } from './failure-cases.ts'
 import { leadPending, mergeAnywayChoice, noCiAgainRepo, sendToLeadChoice } from './merge-watcher.ts'
 import { checkPreparationWorkflow } from './preparation.ts'
@@ -107,7 +108,7 @@ export interface RequestAnswerPort {
     resolution: WorkflowResolution,
     next: AgentStageId | 'done',
     message: string | undefined,
-    options?: { reads?: WorktreeReads },
+    options?: { signedOff?: boolean; reads?: WorktreeReads },
   ): Promise<Task>
   backMessage(
     workflow: ResolvedWorkflow,
@@ -1041,6 +1042,7 @@ export function createRequestAnswers(
             )
             return
           }
+          const signedOff = entersMerge(from.stage, to, using.workflow.stages)
           await move(
             from,
             using,
@@ -1048,7 +1050,7 @@ export function createRequestAnswers(
             to === 'done'
               ? undefined
               : `${approved}${text === '' ? ' ' : ''}${nextStageMessage(using.workflow, to)}`,
-            reads !== undefined ? { reads } : {},
+            { signedOff, ...(reads !== undefined && { reads }) },
           )
         }
         if (stale) {

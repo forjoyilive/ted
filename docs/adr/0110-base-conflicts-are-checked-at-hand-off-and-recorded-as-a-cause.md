@@ -22,14 +22,14 @@ What was avoidable is where the conflict was found. A Task’s first Work visit 
 - At Work the message names the base commit and the conflicting files, one name a line between two `<<<FILES <nonce>>>>` lines that it calls data from the repo, and tells the Task Lead to merge that commit, resolve, run the tests and Checks the conflict touches, commit and report again. No Stage changes and no send-back is recorded.
 - At Validate and Review the message tells the Task Lead to send the Task back to Work with `--cause base-conflict`. This happens before the sign-off is posted or the Task reaches Merge, so the human doesn’t sign off a branch that can’t merge.
 
-A fetch or test-merge that fails (offline, a history Ted can’t read) lets the outcome through; the poller and the merge watcher still catch the conflict later. A branch that is behind but merges cleanly passes: GitHub merges it, and the `BEHIND` rebase at Merge is unchanged.
+The test-merge reads only the worktree and the fetched base tip, so it needs no pull request. Since TED-542 no pull request exists before Merge (ADR 0048), and this check at Work, Validate and Review is the only conflict check before the human signs off. A fetch or test-merge that fails (offline, a history Ted can’t read) lets the outcome through; the merge watcher still catches the conflict at Merge. A branch that is behind but merges cleanly passes: GitHub merges it, and the `BEHIND` rebase at Merge is unchanged.
 
 **A send-back carries its cause.** `base-conflict` is one more value of the cause ADR 0109 records: `store.recordSendBack({ cause })` commits `v1.SendBackCauseRecorded` beside the unchanged `v2.TaskSentBack`, and `SendBack.cause` carries it to clients. That event has a Task log entry, which the thread reads to end the line with “· base conflict”.
 
 - The merge watcher sets it on both of its conflict send-backs. They still count toward Merge’s `max_back`, which is the only limit on a Task that keeps conflicting at Merge.
 - From Validate or Review, the Task Lead names it with `ted outcome back --to work --cause base-conflict`. Ted records the cause only when its own test-merge finds the conflict. It then appends the base commit and the conflicting files to the Findings and does not count the send-back toward `max_back` or the Loop check, because a moved base says nothing about whether review rounds are converging. If Ted finds no conflict, it is an ordinary send-back and the reply says so. After the human asked for changes at the Gate the flag is ignored. A verified conflict also goes back from Validate while a failure case is open without a regression assessment: a Check result on a branch that can’t merge says little, and the next Validate visit runs the Checks again. The obligations check on `advance` still runs before the test-merge, and in Validate the check that `HEAD` is the reviewed commit (ADR 0107) runs after it.
 
-The poller’s conflict notice outside Work now names the flag.
+The poller’s conflict notice outside Work now names the flag. Since TED-542 that notice can reach the Task Lead only for a pull request left open after a send-back from Merge (ADR 0048).
 
 ## Not done here
 

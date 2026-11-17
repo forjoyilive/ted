@@ -5,6 +5,7 @@ import {
   DaemonClient,
   type DaemonInfo,
   type DataStatus,
+  type Run,
   remoteExecutionOn,
   tedEnv,
   tedPaths,
@@ -866,22 +867,50 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         conversations,
         versionsFile: path.join(paths.home, 'agent-versions.json'),
       })
-      runs.envSource((run) => tasks.leadRunEnv(run))
+      runs.envSource(async (run) => {
+        if (run.taskId !== undefined) return tasks.runEnv(run)
+        if (store.coordinators.forRun(run.id)?.runId === run.id) return coordinators.runEnv(run)
+        if (store.plans.get(run.id) !== undefined) return plans.runEnv(run)
+        return undefined
+      })
       const wakeBanners = new Map<string, string>()
+      const wakeSubject = (run: Run) => {
+        const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
+        if (task) {
+          const who =
+            run.parentRunId === undefined
+              ? `${task.displayId}’s Task Lead`
+              : `${task.displayId}’s sub-agent “${run.name ?? 'Sub-agent'}”`
+          return {
+            factoryId: task.factoryId,
+            who,
+            action: { label: 'Open Task', opens: { kind: 'task' as const, taskId: task.id } },
+          }
+        }
+        const chat = store.coordinators.forRun(run.id)
+        if (chat?.runId === run.id)
+          return {
+            factoryId: chat.factoryId,
+            who: `The Coordinator chat “${chat.title ?? 'Coordinator'}”`,
+          }
+        const plan = store.plans.get(run.id)
+        if (plan) return { factoryId: plan.factoryId, who: `The planning chat “${plan.title}”` }
+        return undefined
+      }
       runs.observe({
         wakeFailed(run, failures, reason) {
-          const task = run.taskId === undefined ? undefined : store.getTask(run.taskId)
-          if (!task || failures < 2) return
-          wakeBanners.set(run.id, task.factoryId)
+          const subject = wakeSubject(run)
+          if (!subject || failures < 2) return
+          wakeBanners.set(run.id, subject.factoryId)
           banners.raiseUnsaved({
             problem: 'run-wake-failed',
             subject: run.id,
-            factoryId: task.factoryId,
+            factoryId: subject.factoryId,
             severity: 'warning',
             text: redactSecrets(
-              `${task.displayId}’s Task Lead couldn’t be started again after it was idle, and Ted keeps trying: ${reason.split('\n')[0] ?? ''}`,
+              `${subject.who} couldn’t be started again after it was idle, and Ted keeps trying: ${reason.split('\n')[0] ?? ''}`,
             ),
-            action: { label: 'Open Task', opens: { kind: 'task', taskId: task.id } },
+            ...(subject.action && { action: subject.action }),
           })
         },
         woke(run) {
@@ -895,6 +924,10 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         store,
         runs,
         midWork: (taskId) => tasks.midWork(taskId),
+        chatRests: (run) =>
+          store.coordinators.forRun(run.id)?.runId === run.id
+            ? coordinators.mayRest(run.id)
+            : plans.mayRest(run.id),
         ...options.idleSleep,
       })
       if (options.checkAgentsOnStart) {

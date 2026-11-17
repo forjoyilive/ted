@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { describe, expect, test } from 'vitest'
@@ -9,6 +9,7 @@ import {
   launchApp,
   openFactoryView,
   openSettings,
+  run,
   settingsNav,
   setUpAppTests,
   sidebar,
@@ -16,6 +17,22 @@ import {
 } from './app-harness.ts'
 
 setUpAppTests()
+
+async function pushFiles(origin: string, files: Record<string, string>): Promise<void> {
+  const work = path.join(ctx.home, 'seed-files')
+  const git = (...args: string[]) =>
+    run('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', ...args], {
+      cwd: work,
+    })
+  await run('git', ['clone', origin, work])
+  for (const [name, text] of Object.entries(files)) {
+    await mkdir(path.dirname(path.join(work, name)), { recursive: true })
+    await writeFile(path.join(work, name), text)
+  }
+  await git('add', '.')
+  await git('commit', '-m', 'Stage files')
+  await git('push', 'origin', 'main')
+}
 
 describe('Factory settings sections', () => {
   test('permission mode confirms and saves on this computer without a settings pull request', async () => {
@@ -44,11 +61,20 @@ describe('Factory settings sections', () => {
     await permissions.getByText('Auto is on.').waitFor()
   })
 
-  test('switching pages scrolls only the settings, never the app frame', async () => {
-    await addFactory(await makeOriginRepo(path.join(ctx.home, 'origin')), 'NB')
+  test('switching pages scrolls only the settings, and a narrow Workflow never scrolls sideways', async () => {
+    const origin = await makeOriginRepo(path.join(ctx.home, 'origin'))
+    await pushFiles(origin, {
+      '.ted/workflow.yaml': 'version: 1\nstages:\n  clarify: { based_on: abcdef0 }\n',
+      '.ted/stages/clarify.md': `# Clarify\n\n${'Ask the human what the Task means before anything is built. '.repeat(12)}\n`,
+    })
+    await addFactory(origin, 'NB')
     const window = await launchApp()
     await window.setViewportSize({ width: 1280, height: 800 })
-    await openFactoryView(window, 'widgets', 'Settings')
+    await sidebar(window)
+      .getByRole('article', { name: 'widgets', exact: true })
+      .getByRole('button', { name: 'Views' })
+      .click()
+    await sidebar(window).getByRole('button', { name: 'Settings 1', exact: true }).click()
     await window.getByRole('region', { name: 'General', exact: true }).waitFor()
     const jump = window.getByRole('navigation', { name: 'Factory settings' })
     const nav = sidebar(window)
@@ -77,6 +103,18 @@ describe('Factory settings sections', () => {
         await window.keyboard.press('Tab')
       }
     }
+
+    await jump.getByRole('button', { name: /^Workflow/ }).click()
+    const workflow = window.getByRole('region', { name: 'Workflow', exact: true })
+    const drift = workflow.getByRole('region', { name: 'Clarify drift' })
+    await drift.getByRole('button', { name: 'Keep mine' }).waitFor()
+    const sideways = (element: HTMLElement | SVGElement) =>
+      [element, ...element.querySelectorAll('*')].filter(
+        (e) => e.clientWidth > 0 && e.scrollWidth > e.clientWidth + 1,
+      ).length
+    expect(await workflow.evaluate(sideways)).toBe(0)
+    const edit = await workflow.getByRole('button', { name: 'Edit file' }).first().boundingBox()
+    expect(edit && edit.x + edit.width).toBeLessThanOrEqual(900)
     await window.setViewportSize({ width: 1280, height: 800 })
 
     for (const section of ['Workflow', 'Factory notes', 'Danger zone']) {

@@ -172,7 +172,9 @@ test(
           steps: [{ everyMessage: each }, { run: ['ted', 'task', 'repos', 'add', 'api'] }, ...each],
         }),
       })
-      expect((await getTask(client, task.id)).repos).toHaveLength(2)
+      const signedOff = (await getTask(client, task.id)).repos
+      expect(signedOff).toHaveLength(2)
+      expect(signedOff.every((r) => r.pullRequest === undefined)).toBe(true)
       await commitToOrigin(ctx.scratch, { 'base-only': 'Base regression.\n' })
       await approve(client, signoff)
       const failure = await failed(client, task)

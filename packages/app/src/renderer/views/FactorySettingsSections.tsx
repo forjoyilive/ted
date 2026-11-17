@@ -454,88 +454,90 @@ function StageRow({
           )}{' '}
           <Edited when={edited.size > 0 || cleanup?.edited === true} />
         </span>
-        <span>
-          {row.id === 'done' ? (
-            dash
-          ) : fixed ? (
-            <span className={styles.always} title={`${name} can’t be turned off`}>
-              Always on
-            </span>
-          ) : row.custom ? (
-            <InOrder name={name} />
-          ) : cleanup ? (
-            <Toggle label={`${name} on`} checked={cleanup.enabled} onChange={cleanup.onEnabled} />
-          ) : (
-            <Toggle
-              label={`${name} on`}
-              checked={stage?.enabled ?? row.enabled}
-              disabled={!row.inOrder}
-              {...(!row.inOrder && { title: `${name} isn’t in this Factory’s order` })}
-              onChange={(enabled) => onStage({ enabled })}
-            />
-          )}
-        </span>
-        <span>
-          {decides ? (
-            <Toggle
-              label={`${name} sign-off`}
-              checked={stage?.gate ?? row.gate}
-              onChange={(gate) => onStage({ gate })}
-            />
-          ) : (
-            dash
-          )}
-        </span>
-        <span>
-          {decides ? (
-            <input
-              aria-label={`${name} send-backs`}
-              className={styles.numberInput}
-              inputMode="numeric"
-              value={stage?.maxBack ?? ''}
-              onChange={(event) => {
-                const text = event.target.value.replace(/\D/g, '')
-                if (text !== '') onStage({ maxBack: Number(text) })
-              }}
-            />
-          ) : (
-            dash
-          )}
-        </span>
-        <span>
-          {hasClarifyRounds(row.id) ? (
-            <Select
-              fullWidth
-              aria-label="Clarify depth"
-              controlClassName={styles.cellSelect}
-              value={stage?.depth ?? 'auto'}
-              onChange={(event) => onStage({ depth: event.target.value as ClarifyDepth })}
-            >
-              {Object.entries(depthNames).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </Select>
-          ) : (
-            dash
-          )}
-        </span>
-        <span>
-          {agent ? (
-            <StageEffort
-              stage={name}
-              value={stage?.effort}
-              inherited={row.inheritedEffort}
-              source={row.inheritedEffortFrom}
-              onChange={(effort) => onStage({ effort })}
-            />
-          ) : (
-            dash
-          )}
-        </span>
-        <span>
-          <FromChip layer={from} />
+        <span className={styles.cells}>
+          <Cell label="On">
+            {row.id === 'done' ? (
+              dash
+            ) : fixed ? (
+              <span className={styles.always} title={`${name} can’t be turned off`}>
+                Always on
+              </span>
+            ) : row.custom ? (
+              <InOrder name={name} />
+            ) : cleanup ? (
+              <Toggle label={`${name} on`} checked={cleanup.enabled} onChange={cleanup.onEnabled} />
+            ) : (
+              <Toggle
+                label={`${name} on`}
+                checked={stage?.enabled ?? row.enabled}
+                disabled={!row.inOrder}
+                {...(!row.inOrder && { title: `${name} isn’t in this Factory’s order` })}
+                onChange={(enabled) => onStage({ enabled })}
+              />
+            )}
+          </Cell>
+          <Cell label="Sign-off">
+            {decides ? (
+              <Toggle
+                label={`${name} sign-off`}
+                checked={stage?.gate ?? row.gate}
+                onChange={(gate) => onStage({ gate })}
+              />
+            ) : (
+              dash
+            )}
+          </Cell>
+          <Cell label="Send-backs">
+            {decides ? (
+              <input
+                aria-label={`${name} send-backs`}
+                className={styles.numberInput}
+                inputMode="numeric"
+                value={stage?.maxBack ?? ''}
+                onChange={(event) => {
+                  const text = event.target.value.replace(/\D/g, '')
+                  if (text !== '') onStage({ maxBack: Number(text) })
+                }}
+              />
+            ) : (
+              dash
+            )}
+          </Cell>
+          <Cell label="Clarify depth">
+            {hasClarifyRounds(row.id) ? (
+              <Select
+                fullWidth
+                aria-label="Clarify depth"
+                controlClassName={styles.cellSelect}
+                value={stage?.depth ?? 'auto'}
+                onChange={(event) => onStage({ depth: event.target.value as ClarifyDepth })}
+              >
+                {Object.entries(depthNames).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+            ) : (
+              dash
+            )}
+          </Cell>
+          <Cell label="Task Lead effort">
+            {agent ? (
+              <StageEffort
+                stage={name}
+                value={stage?.effort}
+                inherited={row.inheritedEffort}
+                source={row.inheritedEffortFrom}
+                onChange={(effort) => onStage({ effort })}
+              />
+            ) : (
+              dash
+            )}
+          </Cell>
+          <Cell label="From">
+            <FromChip layer={from} />
+          </Cell>
         </span>
         <span className={styles.actions}>
           {row.id === 'backlog' && <span className={styles.always}>Always first</span>}
@@ -627,6 +629,17 @@ interface CleanupRow {
   steps: number
   onEnabled: (enabled: boolean) => void
   onSteps: () => void
+}
+
+function Cell({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <span className={styles.cell}>
+      <span className={styles.cellLabel} aria-hidden>
+        {label}
+      </span>
+      {children}
+    </span>
+  )
 }
 
 function stepsLabel(steps: number): string {

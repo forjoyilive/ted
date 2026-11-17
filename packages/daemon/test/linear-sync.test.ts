@@ -22,6 +22,7 @@ import {
   start,
   toSignoff,
   useMergeHarness,
+  waitForPullRequest,
   waitForStage,
 } from './merge-harness.ts'
 import { eventWait } from './support/event-wait.ts'
@@ -101,11 +102,9 @@ describe('Ted → Linear', () => {
     const { task, signoff } = await toSignoff(client, { source: url })
     await waitUntil(() => issue().state === 'In Progress' || undefined, 'In Progress')
     expect((await getTask(client, task.id)).repos[0]?.pullRequest).toBeUndefined()
+    expect(account().attachments ?? []).toEqual([])
     await approve(client, signoff)
-    const pr = await waitUntil(
-      async () => (await getTask(client, task.id)).repos[0]?.pullRequest,
-      'the pull request opened at Merge entry',
-    )
+    const pr = (await waitForPullRequest(client, task.id)).repos[0]?.pullRequest
     await waitUntil(() => (account().attachments?.length ?? 0) > 0, 'the pull request link')
     await waitUntil(() => issue().state === 'In Review' || undefined, 'In Review')
     await seenAfterNow()

@@ -1,13 +1,7 @@
+import type { SendBack } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
-import {
-  getTask,
-  lines,
-  merges,
-  run,
-  start,
-  useMergeHarness,
-  waitForStage,
-} from './merge-harness.ts'
+import { waitUntil } from './helpers.ts'
+import { getTask, lines, merges, start, useMergeHarness, waitForStage } from './merge-harness.ts'
 import {
   advance,
   advanceTo,
@@ -16,7 +10,6 @@ import {
   gates,
   kept,
   lateSettingsCommit,
-  mergeCard,
   open,
   overnight,
   row,
@@ -68,7 +61,7 @@ describe('Autopilot and a Task that changes .ted/', () => {
     expect(all.filter((c) => c.gate !== undefined)).toEqual([])
   })
 
-  test('a Review approval given after the worktree moved on binds nothing', async () => {
+  test('a Review approval given after the worktree moved on binds nothing, so Ted pushes nothing and sends the Task back to Validate', async () => {
     const client = await start(open)
     await overnight(client, true)
     const task = await begin(client, {}, settingsStep)
@@ -79,14 +72,19 @@ describe('Autopilot and a Task that changes .ted/', () => {
     const [review] = await gateRequests(client, task)
     const repo = (await getTask(client, task.id)).repos[0]
     expect(repo?.pushed).toBeUndefined()
-    const head = await run('git', ['rev-parse', 'HEAD'], { cwd: repo?.worktree ?? '' })
-    const requested = head.stdout.trim()
     await lateSettingsCommit(repo?.worktree ?? '')
     await verifyCurrent(client, task)
 
     await client.ok('POST', `/comments/${review?.request.id}/answer`, { action: 'approve' })
-    await mergeCard(client, task)
+    const back = await waitUntil(async () => {
+      const backs = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
+      return backs.find((b) => b.from === 'merge')
+    }, 'the send-back from Merge')
+    expect(back).toMatchObject({ to: 'validate' })
+    expect(back.findings).toContain('changed after the human signed it off')
     expect(await merges()).toEqual([])
-    expect((await getTask(client, task.id)).repos[0]?.pullRequest?.signedOff).toBe(requested)
+    const current = await getTask(client, task.id)
+    expect(current.repos[0]?.pushed).toBeUndefined()
+    expect(current.repos[0]?.pullRequest).toBeUndefined()
   })
 })

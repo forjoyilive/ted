@@ -2466,7 +2466,7 @@
       "count": 5
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 5
+      "count": 4
     }
   },
   "packages/daemon/src/store/task-intervals.ts": {
@@ -2645,11 +2645,14 @@
     }
   },
   "packages/daemon/src/tasks/pull-requests.ts": {
+    "anti-slop/no-runtime-typeof": {
+      "count": 2
+    },
     "anti-slop/no-unknown-parameters": {
       "count": 3
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 2
+      "count": 3
     }
   },
   "packages/daemon/src/tasks/request-answers.ts": {

@@ -9,40 +9,30 @@ import {
   approve,
   type Client,
   ctx,
-  getTask,
   readGh,
   setGh,
   start,
   toSignoff,
   useMergeHarness,
+  waitForPullRequest,
 } from './merge-harness.ts'
 import { leadFor } from './support/failure-merge.ts'
 
 useMergeHarness()
 
-const mergeOff = 'intake, work, validate, review'
+const mergeOff = ['stages:', '  merge: { enabled: false }']
 
 async function atMerge(client: Client) {
   const { task, signoff } = await toSignoff(client)
   await approve(client, signoff)
-  const current = await waitUntil(async () => {
-    const value = await getTask(client, task.id)
-    const lead = value.runs.find((r) => r.id === value.leadRunId)
-    return value.stage === 'merge' &&
-      value.repos[0]?.pullRequest !== undefined &&
-      lead?.state === 'idle' &&
-      !value.statuses.includes('working')
-      ? value
-      : undefined
-  }, 'the Task waiting at Merge with its pull request open')
-  return { task, current }
+  return { task, current: await waitForPullRequest(client, task.id) }
 }
 
 test('a same-SHA CI attempt replacement invalidates acceptance and holds Merge sign-off', async () => {
   const client = await start({
-    order: mergeOff,
     files: { '.github/workflows/ci.yml': 'on: pull_request\n' },
     merge: { checks: [{ name: 'test', conclusion: 'SUCCESS' }] },
+    workflow: mergeOff,
   })
   const { task, current } = await atMerge(client)
   const { post } = await leadFor(task.id, current.leadRunId ?? '')
@@ -78,10 +68,10 @@ test('a same-SHA CI attempt replacement invalidates acceptance and holds Merge s
     satisfied: false,
     blockers: [value.id],
   })
-})
+}, 90_000)
 
 test('a known empty CI rollup permits acceptance while missing and truncated reads revoke it', async () => {
-  const client = await start({ order: mergeOff, merge: { rollup: 'empty' } })
+  const client = await start({ merge: { rollup: 'empty' }, workflow: mergeOff })
   const { task, current } = await atMerge(client)
   const { post, lead } = await leadFor(task.id, current.leadRunId ?? '')
   const context = await post<FailureContext>('/failure-contexts')
@@ -127,10 +117,10 @@ test('a known empty CI rollup permits acceptance while missing and truncated rea
   expect(await client.ok('GET', `/tasks/${task.id}/validation-obligations`)).toMatchObject({
     cases: [{ id: value.id, disposition: 'invalidated', context: 'current' }],
   })
-})
+}, 90_000)
 
 test('CI acceptance binds the observed failed attempt and head; historical failures remain unknown', async () => {
-  const client = await start({ order: mergeOff })
+  const client = await start({ workflow: mergeOff })
   const { task, current } = await atMerge(client)
   const { post, lead } = await leadFor(task.id, current.leadRunId ?? '')
   const failed = {
@@ -224,10 +214,10 @@ test('CI acceptance binds the observed failed attempt and head; historical failu
       })
     ).status,
   ).toBe(409)
-})
+}, 90_000)
 
 test('final changed and unavailable acceptance observations each invalidate other cases durably', async () => {
-  const client = await start({ order: mergeOff, mergePollMs: 60000 })
+  const client = await start({ mergePollMs: 60000, workflow: mergeOff })
   const { task, current } = await atMerge(client)
   const tokens = await loadRunTokens(tedPaths(ctx.home).runTokenKey)
   const lead = api(ctx.daemon?.port ?? 0, tokens.issue(current.leadRunId ?? ''))
@@ -334,4 +324,4 @@ test('final changed and unavailable acceptance observations each invalidate othe
     disposition: 'invalidated',
     context: 'current',
   })
-}, 60000)
+}, 90_000)

@@ -205,14 +205,14 @@ const entries = {
     help: 'When this is off, a scheduled check isn’t told a number and may use the whole computer. It finishes sooner, but new Runs may wait until it ends.',
   },
   'app.limits.sleep-idle': {
-    name: 'End idle Task Lead agents to free memory',
-    help: 'A Task Lead that is only waiting keeps its agent and the tools the agent started in memory, about 1 GB each. With this on, Ted ends an idle Task Lead’s agent and starts it again, in the same conversation, when there is something for it to do.',
+    name: 'End idle agents to free memory',
+    help: 'An agent that is only waiting (a Task Lead, a sub-agent, or a Coordinator or planning chat) keeps itself and the tools it started in memory, about 1 GB each. With this on, Ted ends an idle agent and starts it again, in the same conversation, when there is something for it to do.',
     detail:
-      'The first message after a wait takes a few seconds longer. Anything the agent left running in the background ends with it.',
+      'The first message after a wait takes a few seconds longer. Anything the agent left running in the background ends with it. While new work waits because the computer is busy, Ted ends idle agents after 2 minutes.',
   },
   'app.limits.sleep-idle-after': {
     name: 'End an agent after it has been idle for',
-    help: 'How long a Task Lead’s agent has done nothing before Ted ends it.',
+    help: 'How long an agent has done nothing before Ted ends it.',
   },
   'app.limits.low-priority': {
     name: 'Run agents and checks at low priority',

@@ -293,8 +293,8 @@ export async function commitAt(worktree: string, at: string): Promise<string | u
   return out === '' ? undefined : out
 }
 
-export async function commitsAhead(worktree: string, base: string): Promise<number> {
-  const out = await git(worktree, ...noHooks, 'rev-list', '--count', `${base}..HEAD`, '--')
+export async function commitsAhead(worktree: string, base: string, head = 'HEAD'): Promise<number> {
+  const out = await git(worktree, ...noHooks, 'rev-list', '--count', `${base}..${head}`, '--')
   return Number.parseInt(out, 10) || 0
 }
 

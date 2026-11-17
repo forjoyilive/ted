@@ -17,9 +17,6 @@ import { approve, ctx, getTask, run, start, toSignoff } from '../merge-harness.t
 
 const validateWaitMs = 60_000
 
-export const nextPullRequest = (state: { heads?: Record<string, string> }) =>
-  7 + Object.keys(state.heads ?? {}).length
-
 export function required<T>(value: T | undefined): T {
   if (value === undefined) throw new Error('missing test fixture')
   return value
@@ -75,7 +72,6 @@ async function decide({ client, task, check }: Awaited<ReturnType<typeof begin>>
       const ready = {
         validate: value.stage === 'validate',
         idle: value.runs.find((run) => run.id === value.leadRunId)?.state === 'idle',
-        unpublished: value.repos.length > 0 && value.repos.every((repo) => !repo.pullRequest),
         recorded,
         settled: !value.statuses.includes('working') && !value.checksActive,
       }
@@ -87,7 +83,7 @@ async function decide({ client, task, check }: Awaited<ReturnType<typeof begin>>
       })
       return Object.values(ready).every(Boolean) ? value : undefined
     },
-    'idle Validate Lead, no pull request yet and failure evidence',
+    'idle Validate Lead and failure evidence',
     validateWaitMs,
   ).catch((error) => {
     throw new Error(`${String(error)}; last setup state: ${last}`)
@@ -195,11 +191,10 @@ export async function incorporates(method: RepairMethod) {
   expect((await s.resolve({ kind: 'existing', taskId: repair.id })).status).toBe(200)
   const state = JSON.parse(await readFile(ctx.ghState, 'utf8'))
   const repairRepo = required((await getTask(s.client, repair.id)).repos[0])
-  const repairNumber = nextPullRequest(state)
-  state.merge.prs = {
-    ...state.merge.prs,
-    [repairNumber]: { origin: ctx.origin, updateBase: true },
-  }
+  expect(repairRepo.pullRequest).toBeUndefined()
+  // With `pr.numbered`, the stub gh numbers the next pull request 7 plus those it has opened.
+  const number = 7 + Object.keys(state.heads ?? {}).length
+  state.merge.prs = { ...state.merge.prs, [number]: { origin: ctx.origin, updateBase: true } }
   const { writeFile } = await import('node:fs/promises')
   await writeFile(ctx.ghState, JSON.stringify(state))
   const affectedWorktree = required(s.current.repos[0]).worktree
@@ -219,7 +214,7 @@ export async function incorporates(method: RepairMethod) {
   if (method === 'squash') {
     const entered = path.join(ctx.scratch, 'merge-entered')
     const release = path.join(ctx.scratch, 'merge-release')
-    state.merge.prs[repairNumber].updateBase = false
+    state.merge.prs[number].updateBase = false
     state.mergeGate = { entered, release }
     await writeFile(ctx.ghState, JSON.stringify(state))
     const approval = approve(s.client, signoff)

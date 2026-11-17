@@ -47,7 +47,6 @@ export interface MergePort {
     toValidate?: boolean,
     options?: { cause?: SendBackCause },
   ): Promise<MergeCycle>
-  openMissing?(id: string): Promise<boolean>
   finish(id: string): Promise<MergeCycle>
   postGate(
     task: StoredTask,
@@ -456,9 +455,6 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
     const task = find(taskId)
     if (port.busy(taskId)) return 'busy'
     if (task.stage === 'done') return watchOnlyCycle(taskId, read)
-    if (mergesHere(task.stage) && !task.archived && !onlyMergedOutside) {
-      if (await port.openMissing?.(taskId)) return 'wait'
-    }
     if (mergesHere(task.stage) && !task.archived && (await mergedOutside(taskId, read)))
       return finishMerge(taskId)
     if (onlyMergedOutside) return 'wait'
@@ -517,7 +513,7 @@ export function createMergeWatcher(options: MergeWatcherOptions) {
         taskId,
         needsSignOff(
           unsigned,
-          `Ted has no signed-off commit for ${unsigned.name}: its branch couldn’t be pushed at sign-off.`,
+          `Ted has no signed-off commit for ${unsigned.name}: its branch changed after the sign-off, or its pull request didn’t get the signed-off commit.`,
         ),
         undefined,
         true,

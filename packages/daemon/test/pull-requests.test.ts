@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { Factory, InboxItem, Task, TaskRepo } from '@ted/protocol'
+import type { Comment, Factory, InboxItem, Task, TaskRepo } from '@ted/protocol'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { type RunningDaemon, startDaemon } from '../src/index.ts'
 import {
@@ -73,12 +73,7 @@ async function start() {
     '.gitignore': 'stub-*\n',
     '.ted/workflow.yaml': 'version: 1\norder: [intake, work, validate, review]\n',
   })
-  daemon = await startDaemon({
-    home,
-    version: '9.9.9',
-    claudeBin: stubClaudePath,
-    mergePollMs: 100,
-  })
+  daemon = await startDaemon({ home, version: '9.9.9', claudeBin: stubClaudePath })
   const client = api(daemon.port, { appKey: daemon.appToken })
   const ok = async <T>(method: string, route: string, body?: unknown): Promise<T> => {
     const res = await client.call(method, route, body)
@@ -121,32 +116,30 @@ async function walkToSignoff(client: Client, withCommits: boolean, extra = {}) {
   })
   await client.ok('POST', `/tasks/${task.id}/start`)
   const item = await waitUntil(async () => {
-    const [found] = await client.ok<InboxItem[]>('GET', '/inbox')
-    return found?.request.kind === 'signoff' ? found : undefined
+    const [item] = await client.ok<InboxItem[]>('GET', '/inbox')
+    return item?.request.kind === 'signoff' ? item : undefined
   }, 'the Review sign-off')
   return { task, signoff: item.request }
 }
 
-async function toMerge(client: Client, withCommits: boolean, extra = {}) {
-  const { task, signoff } = await walkToSignoff(client, withCommits, extra)
-  await client.ok('POST', `/comments/${signoff.id}/answer`, { action: 'approve' })
-  return task
-}
+const taskOf = async (client: Client, task: Task): Promise<Task | undefined> =>
+  (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)
 
-async function withReadyPullRequest(client: Client, extra = {}) {
-  const task = await toMerge(client, true, extra)
+const repoOf = async (client: Client, task: Task): Promise<TaskRepo | undefined> =>
+  (await taskOf(client, task))?.repos[0]
+
+const approve = (client: Client, signoff: Comment) =>
+  client.ok('POST', `/comments/${signoff.id}/answer`, { action: 'approve' })
+
+async function toPullRequest(client: Client): Promise<Task> {
+  const { task, signoff } = await walkToSignoff(client, true)
+  await approve(client, signoff)
   await waitUntil(
     async () => (await repoOf(client, task))?.pullRequest?.state === 'ready',
     'the pull request to be ready',
   )
   return task
 }
-
-const repoOf = async (client: Client, task: Task): Promise<TaskRepo | undefined> =>
-  (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.repos[0]
-
-const stageOf = async (client: Client, task: Task) =>
-  (await client.ok<Task[]>('GET', '/tasks')).find((t) => t.id === task.id)?.stage
 
 const ghCalls = async () =>
   (await readFile(ghLog, 'utf8').catch(() => ''))
@@ -161,29 +154,30 @@ const originBranches = async () =>
   (await run('git', ['for-each-ref', '--format=%(refname)', 'refs/heads'], { cwd: origin })).stdout
 
 describe('Pushing and pull requests', () => {
-  test('nothing reaches GitHub before Merge; Merge entry pushes the approved commit and opens one ready pull request', async () => {
+  test('Ted pushes nothing before Merge, then pushes the signed-off commit and opens one ready pull request', async () => {
     const client = await start()
     const { task, signoff } = await walkToSignoff(client, true)
-    const before = await repoOf(client, task)
-    expect(before?.pushed).toBeUndefined()
-    expect(before?.pullRequest).toBeUndefined()
-    expect((await ghCalls()).filter((c) => c.args[0] === 'pr')).toEqual([])
-    expect(await originBranches()).not.toContain('ted/')
-    const approved = (
-      await run('git', ['rev-parse', 'HEAD'], { cwd: before?.worktree ?? '' })
-    ).stdout.trim()
 
-    await client.ok('POST', `/comments/${signoff.id}/answer`, { action: 'approve' })
+    const signedOff = await repoOf(client, task)
+    expect(signedOff?.pullRequest).toBeUndefined()
+    expect(signedOff?.pushed).toBeUndefined()
+    expect(await originBranches()).not.toContain('ted/')
+    expect(await prCalls('create')).toEqual([])
+
+    await approve(client, signoff)
     const repo = await waitUntil(async () => {
       const found = await repoOf(client, task)
-      return found?.pullRequest?.state === 'ready' ? found : undefined
-    }, 'the pull request to be ready')
-    expect(await stageOf(client, task)).toBe('merge')
-    expect(repo.pullRequest).toMatchObject({
+      return found?.pullRequest?.state === 'ready' && found.pullRequest.signedOff
+        ? found
+        : undefined
+    }, 'the pull request to be ready and signed off')
+    expect((await taskOf(client, task))?.stage).toBe('merge')
+    expect(repo.pullRequest).toEqual({
       number: 7,
       url: 'https://github.com/acme/widgets/pull/7',
       base: 'main',
       state: 'ready',
+      signedOff: repo.pushed?.commit,
     })
 
     const creates = await prCalls('create')
@@ -197,15 +191,14 @@ describe('Pushing and pull requests', () => {
     expect(flag('--title')).toBe(task.title)
     expect(create?.stdin).toContain('Let notes be edited offline.')
     expect(create?.stdin).toContain(task.displayId)
+
     expect(await prCalls('ready')).toEqual([])
 
     const pushed = (
       await run('git', ['rev-parse', `refs/heads/${repo.branch}`], { cwd: origin })
     ).stdout.trim()
-    expect(pushed).toBe(approved)
     expect(repo.pushed?.commit).toBe(pushed)
     expect(repo.pushed).toMatchObject({ ci: false, ciSignals: [] })
-    expect(repo.pullRequest?.signedOff).toBe(approved)
     const ahead = (
       await run('git', ['rev-list', '--count', `main..refs/heads/${repo.branch}`], { cwd: origin })
     ).stdout.trim()
@@ -226,7 +219,11 @@ describe('Pushing and pull requests', () => {
         await client.call('POST', '/tasks', { title: 'Crash', factory: 'NB', ...body }),
       ).toEqual({ status: 400, body: { error } })
     }
-    const task = await toMerge(client, true, { source: url, sentryId: 'NOTEBOOK-1A' })
+    const { task, signoff } = await walkToSignoff(client, true, {
+      source: url,
+      sentryId: 'NOTEBOOK-1A',
+    })
+    await approve(client, signoff)
     expect(task.source).toEqual({ url, sentry: { shortId: 'NOTEBOOK-1A' } })
 
     const [create] = await waitUntil(async () => {
@@ -237,10 +234,12 @@ describe('Pushing and pull requests', () => {
     expect(create?.stdin).toContain(url)
   })
 
-  test('a Task with no commits gets no push and no pull request, and finishes', async () => {
+  test('a Task with no commits gets no push and no pull request', async () => {
     const client = await start()
-    const task = await toMerge(client, false)
-    await waitUntil(async () => (await stageOf(client, task)) === 'done', 'the Task to finish')
+    const { task, signoff } = await walkToSignoff(client, false)
+    await approve(client, signoff)
+    await waitUntil(async () => (await taskOf(client, task))?.stage === 'merge', 'Merge')
+    await new Promise((resolve) => setTimeout(resolve, 500))
     const repo = await repoOf(client, task)
     expect(repo?.pullRequest).toBeUndefined()
     expect(repo?.pushed).toBeUndefined()
@@ -250,7 +249,7 @@ describe('Pushing and pull requests', () => {
 
   test('Archive closes the Task’s open pull requests when asked', async () => {
     const client = await start()
-    const task = await withReadyPullRequest(client)
+    const task = await toPullRequest(client)
     await client.ok('POST', `/tasks/${task.id}/archive`, { closePullRequests: true })
     await waitUntil(
       async () => (await repoOf(client, task))?.pullRequest?.state === 'closed',
@@ -264,7 +263,7 @@ describe('Pushing and pull requests', () => {
 
   test('Remove Factory closes open pull requests when asked and keeps the branches', async () => {
     const client = await start()
-    await withReadyPullRequest(client)
+    await toPullRequest(client)
     const [factory] = await client.ok<Factory[]>('GET', '/factories')
     const summary = await client.ok<{ openPullRequests: number }>(
       'GET',
@@ -283,7 +282,7 @@ describe('Pushing and pull requests', () => {
 
   test('Remove Factory leaves open pull requests alone when not asked', async () => {
     const client = await start()
-    await withReadyPullRequest(client)
+    await toPullRequest(client)
     const [factory] = await client.ok<Factory[]>('GET', '/factories')
     await client.ok('POST', `/factories/${factory?.id}/remove`, {
       key: 'NB',
@@ -295,7 +294,7 @@ describe('Pushing and pull requests', () => {
 
   test('Archive names the pull requests it closed, and Unarchive reopens them', async () => {
     const client = await start()
-    const task = await withReadyPullRequest(client)
+    const task = await toPullRequest(client)
     await client.ok('POST', `/tasks/${task.id}/archive`, { closePullRequests: true })
     await waitUntil(
       async () =>
@@ -319,46 +318,24 @@ describe('Pushing and pull requests', () => {
     ])
   })
 
-  test('a failed push at Merge entry is recorded without its credentials, holds the Task at Merge and is retried', async () => {
+  test('a failed push is recorded on the repo without its credentials', async () => {
     const client = await start()
-    const hook = path.join(origin, 'hooks', 'pre-receive')
     await writeFile(
-      hook,
+      path.join(origin, 'hooks', 'pre-receive'),
       '#!/bin/sh\necho "denied for https://user:hunter2secret@example.com" >&2\nexit 1\n',
       { mode: 0o755 },
     )
     const { task, signoff } = await walkToSignoff(client, true)
-    const worktree = (await repoOf(client, task))?.worktree ?? ''
-    const approved = (await run('git', ['rev-parse', 'HEAD'], { cwd: worktree })).stdout.trim()
-    await client.ok('POST', `/comments/${signoff.id}/answer`, { action: 'approve' })
-    const failed = await waitUntil(async () => {
-      const found = await repoOf(client, task)
-      return found?.pushFailed ? found.pushFailed : undefined
-    }, 'the push to fail')
-    expect(failed.message).toContain('git push failed')
-    expect(failed.message).not.toContain('hunter2secret')
-    await waitUntil(async () => {
-      const again = (await repoOf(client, task))?.pushFailed
-      return again && again.at !== failed.at ? again : undefined
-    }, 'the merge watcher to try the push again')
-    expect(await stageOf(client, task)).toBe('merge')
-    expect((await repoOf(client, task))?.pullRequest).toBeUndefined()
-    expect(await prCalls('create')).toEqual([])
-    const refused = await waitUntil(async () => {
-      const res = await client.call('POST', `/tasks/${task.id}/mark-done`)
-      return JSON.stringify(res.body).includes('commits with no pull request yet') ? res : undefined
-    }, 'Mark done to refuse the repo with no pull request')
-    expect(refused.status).toBe(409)
-
-    await rm(hook)
+    expect((await repoOf(client, task))?.pushFailed).toBeUndefined()
+    await approve(client, signoff)
     const repo = await waitUntil(async () => {
       const found = await repoOf(client, task)
-      return found?.pullRequest?.state === 'ready' ? found : undefined
-    }, 'the retried push to open the pull request')
-    expect(repo.pushFailed).toBeUndefined()
-    expect(repo.pushed?.commit).toBe(approved)
-    expect(repo.pullRequest?.signedOff).toBe(approved)
-    expect((await prCalls('create')).flatMap((c) => c.args)).not.toContain('--draft')
-    expect(await stageOf(client, task)).toBe('merge')
+      return found?.pushFailed ? found : undefined
+    }, 'the push to fail')
+    expect(repo.pushFailed?.message).toContain('git push failed')
+    expect(repo.pushFailed?.message).not.toContain('hunter2secret')
+    expect(repo.pullRequest).toBeUndefined()
+    expect(await prCalls('create')).toEqual([])
+    expect((await taskOf(client, task))?.stage).toBe('merge')
   })
 })

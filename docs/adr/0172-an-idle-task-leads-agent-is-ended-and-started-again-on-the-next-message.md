@@ -36,3 +36,5 @@ Every live Run keeps its whole process tree: the Run host (30 to 60 MB), the age
 - **A `v1.RunSlept` event and a new Run state.** Rejected: nothing in the state database depends on it (ADR 0157), and a new state would touch every place that reads `idle`.
 - **Sleep sub-agents, Coordinator, side-chat, planning and Automation Runs too.** Left out for now. The wake is in `RunManager`, so it would work for them, but each owner has its own rules about idle Runs (a reviewer whose report is being read, an Automation that ends when idle, a planning chat’s worktrees), and each needs its own conditions in `maySleep` and its own test.
 - **Antigravity.** Left out: its driver refuses to resume when the CLI doesn’t advertise `sessionCapabilities.resume`, which is only known once it runs.
+
+Amended by ADR 0187-idle-sub-agents-and-chats-sleep-too-and-sooner-while-the-computer-is-busy: sub-agents and Coordinator and planning chats sleep too, only a working sub-agent keeps a Task Lead awake, each kind rebuilds its own environment for a wake, and the idle time is 2 minutes while the busy hold is on.

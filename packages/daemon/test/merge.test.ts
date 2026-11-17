@@ -1,5 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises'
-import type { CheckRun, Comment, Task } from '@ted/protocol'
+import type { CheckRun, Comment, SendBack, Task } from '@ted/protocol'
 import { tedPaths } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import { loadRunTokens } from '../src/run-token.ts'
@@ -20,6 +20,7 @@ import {
   start,
   toSignoff,
   useMergeHarness,
+  waitForPullRequest,
   waitForStage,
 } from './merge-harness.ts'
 import { eventWait } from './support/event-wait.ts'
@@ -30,35 +31,24 @@ describe('Approve and merge', () => {
   test('with no CI, Ted merges at once, deletes the branch, removes the worktree and releases blocked Tasks', async () => {
     const client = await start()
     const { task, signoff } = await toSignoff(client)
-    expect(signoff.gate).toEqual({ approveLabel: 'Approve and merge' })
+    expect(signoff.gate).toEqual({ approveLabel: 'Approve and merge', noCi: ['widgets'] })
     const blocked = await client.ok<Task>('POST', '/tasks', {
       title: JSON.stringify({ steps: [{ endTurn: true }] }),
       factory: 'NB',
       start: true,
       blockedBy: [task.id],
     })
-    expect((await getTask(client, task.id)).repos[0]?.pushed).toBeUndefined()
-    expect((await ghCalls()).filter((c) => c.args[0] === 'pr')).toEqual([])
+    const repo = (await getTask(client, task.id)).repos[0]
+    if (!repo) throw new Error('no repo')
+    const signedOff = (
+      await run('git', ['rev-parse', 'HEAD'], { cwd: repo.worktree })
+    ).stdout.trim()
 
     await approve(client, signoff)
     const done = await waitForStage(client, task, 'done')
-    const repo = done.repos[0]
-    if (!repo?.pushed) throw new Error('no push')
-    const [create] = (await ghCalls()).filter((c) => c.args[0] === 'pr' && c.args[1] === 'create')
-    expect(create?.args).not.toContain('--draft')
-    expect((await ghCalls()).filter((c) => c.args[0] === 'pr' && c.args[1] === 'ready')).toEqual([])
 
     expect(await merges()).toEqual([
-      [
-        'pr',
-        'merge',
-        '7',
-        '--repo',
-        'acme/widgets',
-        '--squash',
-        '--match-head-commit',
-        repo.pushed.commit,
-      ],
+      ['pr', 'merge', '7', '--repo', 'acme/widgets', '--squash', '--match-head-commit', signedOff],
     ])
     const deletes = (await ghCalls()).filter((c) => c.args.includes('DELETE'))
     expect(deletes.map((c) => c.args.at(-1))).toEqual([
@@ -120,6 +110,7 @@ describe('Approve and merge', () => {
     })
     await approve(client, signoff)
     await waitForStage(client, task, 'merge')
+    await waitForPullRequest(client, task.id)
     const reads = async () =>
       (await ghCalls()).filter((c) => c.args[0] === 'api' && c.args[1] === 'graphql').length
     const before = await reads()
@@ -275,21 +266,23 @@ describe('Merging only what the human signed off', () => {
       { cwd },
     )
 
-  test('Ted merges the signed-off commit, never a commit the Task Lead made after it', async () => {
+  test('a commit made between the sign-off and the approval is never pushed or merged: the Task goes back to Validate', async () => {
     const client = await start()
     const { task, signoff } = await toSignoff(client)
     const before = (await getTask(client, task.id)).repos[0]
-    const head = await run('git', ['rev-parse', 'HEAD'], { cwd: before?.worktree ?? '' })
-    const signedOff = head.stdout.trim()
     await commitIn(before?.worktree ?? '', 'late.txt')
 
     await approve(client, signoff)
-    const done = await waitForStage(client, task, 'done')
+    const back = await waitUntil(async () => {
+      const backs = await client.ok<SendBack[]>('GET', `/tasks/${task.id}/send-backs`)
+      return backs.find((b) => b.from === 'merge')
+    }, 'the send-back from Merge')
 
-    const [merge] = await merges()
-    expect(merge?.at(-1)).toBe(signedOff)
-    expect(done.repos[0]?.pullRequest?.signedOff).toBe(signedOff)
-    expect(await branchHead(done.repos[0]?.branch ?? '')).toBe(signedOff)
+    expect(back).toMatchObject({ to: 'validate' })
+    expect(back.findings).toContain('changed after the human signed it off')
+    expect(await merges()).toEqual([])
+    expect((await getTask(client, task.id)).repos[0]?.pushed).toBeUndefined()
+    expect(await originBranches()).not.toContain(before?.branch ?? 'ted/')
   })
 })
 

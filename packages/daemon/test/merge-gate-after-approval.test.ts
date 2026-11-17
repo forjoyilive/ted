@@ -85,6 +85,7 @@ describe('Re-sign-off', () => {
     await client.ok('POST', `/tasks/${task.id}/start`)
     const first = await mergeSignoffOrReview(client, task, 1)
     expect(first.gate?.changes).toBeUndefined()
+    expect((await getTask(client, task.id)).repos[0]?.pullRequest).toBeUndefined()
     await approve(client, first)
     await waitUntil(async () => {
       const text = await lines(client, task)

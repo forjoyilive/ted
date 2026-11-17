@@ -1,15 +1,15 @@
 # The Checks run as Validate’s first step and every return to Work counts
 
-Status: accepted (TED-540). Supersedes ADR 0111-checks-run-before-a-task-leaves-work. Changes ADR 0044, ADR 0048, ADR 0055, ADR 0110 and ADR 0116.
+Status: accepted (TED-540). Supersedes ADR 0111-checks-run-before-a-task-leaves-work. Changes ADR 0044, ADR 0055, ADR 0110 and ADR 0116.
 
 ADR 0111 ran the Checks when the Task Lead reported `ted outcome advance` at Work, before the Stage changed. Two things went wrong with that in use.
 
 - **The Task showed as Work while its tests ran.** The Task Lead had finished, but the Task stayed in Work for as long as the Checks took, often many minutes. The user couldn’t tell a Task still being written from one being tested.
 - **Returns to Work counted inconsistently.** A failed hand-off Check was not a send-back and counted toward nothing; a failed Check at Validate entry was a failure case, counted only if the Task Lead called it a regression or the user chose Fix in this Task; a base conflict found in Validate was a send-back that didn’t count; a reviewer’s Findings counted. A Task could go back to Work many times and still show round 1, and `max_back` stopped bounding how long a Task went round.
 
-TED-539 then rewrote ADR 0111 while this ADR was being built: Work moved the Task to Validate first and ran the hand-off Checks there. A failure was a counted send-back with cause `check` but stayed out of the Loop check, the limit question offered **Diagnose in Validate** in place of “Move to … anyway”, and the branch was still pushed as a draft once the Checks passed. This ADR replaces that version too: a failed Check counts toward the Loop check like any other return, the limit question offers only Keep going and Stop the Task, and nothing is pushed before Merge.
+TED-539 then rewrote ADR 0111 while this ADR was being built: Work moved the Task to Validate first and ran the hand-off Checks there. A failure was a counted send-back with cause `check` but stayed out of the Loop check, the limit question offered **Diagnose in Validate** in place of “Move to … anyway”, and the branch was still pushed as a draft once the Checks passed. This ADR replaces that version too: a failed Check counts toward the Loop check like any other return, and the limit question offers only Keep going and Stop the Task.
 
-ADR 0048 also pushed the branch and opened a draft pull request at Validate entry. With every Check and review round now a return to Work, that would push and update a pull request on GitHub for each round, before anyone had decided the work was ready.
+ADR 0048 also pushed the branch and opened a draft pull request at Validate entry. With every Check and review round now a return to Work, that would push and update a pull request on GitHub for each round, before anyone had decided the work was ready. TED-542, also built meanwhile, moved the push to Merge entry.
 
 ## Decision
 
@@ -35,9 +35,7 @@ The round number is the count of returns in the current series plus one. `review
 
 **The header shows the count.** From the first return on, the Task header shows “Back to Work 3 of 8” in its meta row, in every Stage, until the count starts again. With no limit set it reads “Back to Work 3”. At 0 it is hidden.
 
-**The branch is pushed and the pull request opened at Merge entry.** Ted no longer pushes at Validate entry, when Validate passes, or at the Validate Gate. When the Task enters Merge, Ted pushes every repo with commits and opens its pull request ready for review, with no `--draft`; a draft that already exists is pushed and marked ready (`gh pr ready`). Then it records the sign-off. Review works from the local diff, as the Changes section already shows it. With Merge off, the Task’s pull requests are pushed and opened when it leaves Review, so the user has them to merge on GitHub.
-
-Merge can’t finish before each repo with commits has a pull request. The merge watcher and `ted task done` treat such a repo as not merged, and the merge watcher retries a failed push on its next pass; the old retry was at the next Validate pass, which no longer comes. `mode: 'first' | 'again'` stays for the pushes after a send-back from Merge.
+**The branch is pushed and the pull request opened at Merge entry.** This is ADR 0048 as TED-542 changed it; this ADR relies on it and changes nothing in it. Nothing is pushed while the Task is in Work, Validate or Review, so the Check and review rounds above put nothing on GitHub, and Review works from the local diff, as the Changes section already shows it. ADR 0048 has the details: which commit Ted pushes, the ready pull request, the retry of a failed push at Merge, and the return to Validate when the branch changed after the sign-off.
 
 **Tasks in flight when this ships.** Counts recorded so far carry over as they are. A hand-off Check run that is running or interrupted at upgrade is marked interrupted and not run again; the Task Lead is told to report again, at once if its Run is live, else as a held message. An open “Checks have failed 3 times” question can still be answered with **Try again** or **Diagnose in Validate**. Open draft pull requests stay as drafts and are marked ready at Merge entry. The `hand-off` trigger stays readable in Check run history. Tasks that ran TED-539’s version keep working: a `hand-off` Check run left unfinished in Validate is marked interrupted at start and the Validate Checks run again under this ADR’s rules. An open limit question with TED-539’s choices still takes them: Try again works as Keep going, Back to Design as before, and Diagnose in Validate keeps the Task in Validate and runs the Checks again. For the rest of that Validate visit a failed Check stays in Validate as a failure case for the Task Lead to assess, as it did under TED-539, instead of returning to Work. No shipped event changes; a new versioned event is added only where an existing one can’t carry what is needed.
 
