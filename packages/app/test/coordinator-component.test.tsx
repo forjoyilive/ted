@@ -280,6 +280,8 @@ test('a chat is renamed by clicking its title; New chat leaves the open chat run
   const list = screen.getByRole('region', { name: 'Agent chats' })
   await user().click(within(list).getByRole('button', { name: 'New chat' }))
   expect(screen.queryByRole('dialog')).toBeNull()
+  const picker = await screen.findByRole('region', { name: 'New chat' })
+  await user().click(await within(picker).findByRole('button', { name: /^Coordinator/ }))
   const start = await screen.findByRole('region', { name: 'Coordinator' })
   expect(await within(start).findByText('What needs your attention in widgets?')).toBeTruthy()
   expect(a.request).not.toHaveBeenCalledWith('stopCoordinator', expect.anything())
@@ -474,7 +476,7 @@ test('leaving the Coordinator and coming back shows the same conversation', asyn
   expect(within(chat).getByText('What should we work on next?')).toBeTruthy()
 })
 
-test('with no chats Agents opens New chat; the Agent menu lists every Agent with its powers and source, switching it keeps the message, and sending starts a chat with the chosen Agent', async () => {
+test('with no chats Agents opens New chat: a card for every Agent; a picked Agent’s chat has ← All agents, the typed message moves to the next Agent picked, and sending starts a chat with that Agent', async () => {
   const { a, shown, open } = withCoordinator()
   shown.chats = []
   const started = vi.fn(() => coordinator())
@@ -484,17 +486,25 @@ test('with no chats Agents opens New chat; the Agent menu lists every Agent with
       (box as MessageBox).kind === 'new-plan' ? { text: 'An older plan', attachments: [] } : null,
   }))
   a.mount()
-  const pane = await open('Coordinator')
-  await within(pane).findByRole('heading', { name: /What needs your attention/ })
-  const agent = within(pane).getByRole('combobox', { name: 'Agent' })
-  expect(agent).toHaveProperty('value', 'coordinator')
+  const picker = await open('New chat')
+  const cards = within(picker).getByRole('list', { name: 'Agents' })
   await vi.waitFor(() =>
     expect(
-      within(agent)
-        .getAllByRole('option')
-        .map((o) => o.textContent),
-    ).toEqual(['Coordinator', 'Planner', 'Triager']),
+      within(cards)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual([
+      expect.stringMatching(/^Coordinator.*Recommends what to do next.*Built in.*Claude Code$/),
+      expect.stringMatching(/^Planner.*proposes Tasks.*Built in/),
+      expect.stringMatching(/Triager.*This repo/),
+      expect.stringMatching(/New Agent.*Agent files/),
+    ]),
   )
+  await user().click(within(cards).getByRole('button', { name: /^Coordinator/ }))
+  const pane = await screen.findByRole('region', { name: 'Coordinator' })
+  await within(pane).findByRole('heading', { name: /What needs your attention/ })
+  expect(within(pane).getByRole('heading', { name: 'Coordinator' })).toBeTruthy()
+  expect(within(pane).queryByRole('combobox', { name: 'Agent' })).toBeNull()
   const coordinatorDetails = screen.getByRole('complementary', { name: 'Coordinator details' })
   expect(
     within(within(coordinatorDetails).getByRole('region', { name: 'Powers' }))
@@ -503,14 +513,25 @@ test('with no chats Agents opens New chat; the Agent menu lists every Agent with
   ).toEqual(['Ask the user', 'Manage Tasks', 'Manage Automations', 'Manage Agents'])
   expect(within(coordinatorDetails).queryByRole('region', { name: 'Commands' })).toBeNull()
   await user().click(within(pane).getByRole('button', { name: 'What should we work on next?' }))
-  await user().selectOptions(agent, 'planner')
+  await user().click(within(pane).getByRole('button', { name: '← All agents' }))
+  await user().click(
+    within(await screen.findByRole('region', { name: 'New chat' })).getByRole('button', {
+      name: /^Planner/,
+    }),
+  )
   const planning = await screen.findByRole('region', { name: 'New planning chat' })
+  expect(within(planning).getByRole('heading', { name: 'Planner' })).toBeTruthy()
   await vi.waitFor(() =>
     expect(
       within(planning).getByRole('textbox', { name: 'What do you want to plan?' }),
     ).toHaveProperty('value', 'What should we work on next?'),
   )
-  await user().selectOptions(within(planning).getByRole('combobox', { name: 'Agent' }), 'triager')
+  await user().click(within(planning).getByRole('button', { name: '← All agents' }))
+  await user().click(
+    within(await screen.findByRole('region', { name: 'New chat' })).getByRole('button', {
+      name: /Triager/,
+    }),
+  )
   const back = await screen.findByRole('region', { name: 'Triager' })
   expect(within(back).getByRole('heading', { name: /New chat with Triager/ })).toBeTruthy()
   const details = screen.getByRole('complementary', { name: 'Triager details' })
@@ -540,13 +561,31 @@ test('with no chats Agents opens New chat; the Agent menu lists every Agent with
   expect(screen.queryByRole('heading', { name: 'New chat' })).toBeNull()
 })
 
+test('an overridden Coordinator keeps its icon and TED’s description; the New Agent card opens this Factory’s Agent files settings', async () => {
+  const { a, shown, open } = withCoordinator()
+  shown.chats = []
+  a.handle('factoryAgents', () => [{ ...coordinatorAgent, source: 'factory' }, plannerAgent])
+  a.handle('factorySettings', settingsView)
+  a.handle('homeFolder', () => '/test')
+  a.handle('tedFolder', () => ({ path: '/test/', platform: 'darwin' }))
+  a.mount()
+  const picker = await open('New chat')
+  const card = await within(picker).findByRole('button', { name: /^Coordinator/ })
+  expect(card.textContent).toMatch(/^Coordinator.*Recommends what to do next.*This repo/)
+  expect(card.querySelector('[data-glyph="coordinator"]')).toBeTruthy()
+  await user().click(await within(picker).findByRole('button', { name: /New Agent/ }))
+  expect(await screen.findByRole('button', { name: 'New Agent…' })).toBeTruthy()
+})
+
 test('a start that answers after New chat was clicked leaves the new start page open', async () => {
   const { a, shown, open, changed } = withCoordinator()
   shown.chats = []
   const answer = deferred<Coordinator>()
   a.handle('startCoordinatorChat', () => answer.promise)
   a.mount()
-  const pane = await open('Coordinator')
+  const picker = await open('New chat')
+  await user().click(await within(picker).findByRole('button', { name: /^Coordinator/ }))
+  const pane = await screen.findByRole('region', { name: 'Coordinator' })
   await within(pane).findByRole('heading', { name: /What needs your attention/ })
   await user().click(within(pane).getByRole('button', { name: 'What should we work on next?' }))
   fireEvent.keyDown(within(pane).getByRole('textbox', { name: 'Message to the Coordinator' }), {
