@@ -721,7 +721,7 @@ test('unions every observed reason independently and preserves direct/Check test
     { checkRunId: 'check-0', position: 0 },
   ])
   expect(test.samples[0]?.intervals[0]?.contributors[1]?.detail).toContain(
-    'Associated Check check-0',
+    'Associated check check-0',
   )
   expect(flow.previous?.reasons.every((r) => r.samples.length === 0 && r.medianMs === null)).toBe(
     true,

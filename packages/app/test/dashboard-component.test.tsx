@@ -320,7 +320,7 @@ test('Overview figures open the Tasks behind them, durations slowest first', asy
   const longest = screen.getByRole('region', { name: 'Longest waits on you' })
   const longestRows = within(longest).getAllByRole('button')
   expect(longestRows.map((row) => row.textContent)).toEqual([
-    'NB-1 Review Sign-Off1d',
+    'NB-1 Review sign-off1d',
     'NB-2 Clarify round4h',
     'NB-1 Question2h',
   ])

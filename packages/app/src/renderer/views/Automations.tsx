@@ -545,7 +545,7 @@ function totalsLine(detail: AutomationDetail): string {
     history.filter((r) => r.result.kind === kind).length
   const parts = [
     count('passed') > 0 ? `${count('passed')} passed` : undefined,
-    count('check-failed') > 0 ? `${count('check-failed')} Check failures` : undefined,
+    count('check-failed') > 0 ? `${count('check-failed')} check failures` : undefined,
     count('failed') > 0 ? `${count('failed')} failed` : undefined,
     count('skipped') > 0 ? `${count('skipped')} skipped` : undefined,
     count('stopped') > 0 ? `${count('stopped')} stopped` : undefined,

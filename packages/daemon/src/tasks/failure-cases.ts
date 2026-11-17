@@ -103,7 +103,7 @@ function whatFailed(value: FailureCase): string {
     const label = ciFailureLabel(source, false)
     return `Failed: ${label.startsWith('A ') ? `a ${label.slice(2)}` : label}`
   }
-  return `Failed: the ${value.originalCheck?.name ?? 'Factory'} Check`
+  return `Failed: the ${value.originalCheck?.name ?? 'Factory'} check`
 }
 
 const freshContextSteps = (id: string) =>

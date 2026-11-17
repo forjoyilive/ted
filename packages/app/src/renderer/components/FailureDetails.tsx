@@ -79,7 +79,7 @@ export function FailureDetails({
       ? failure.source.finding
       : failure.source.kind === 'github-ci'
         ? ciFailureLabel(failure.source)
-        : `The ${failure.originalCheck?.name ?? 'Factory'} Check`
+        : `The ${failure.originalCheck?.name ?? 'Factory'} check`
   const additions = failure.additions.slice(0, requestId ? assessment?.evidenceCount : undefined)
   const entries = 1 + additions.length
   return (

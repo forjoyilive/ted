@@ -221,7 +221,7 @@ describe('stages.validate.p1_only_from', () => {
       expect(refused).toContain('this is Validate round 2')
       expect(refused).toContain('`stages.validate.p1_only_from: 2`')
       expect(refused).toContain('with `--severity p1`')
-      expect(refused).toContain('An earlier round’s Finding that is still not fixed stays blocking')
+      expect(refused).toContain('An earlier round’s finding that is still not fixed stays blocking')
       expect(refused).toContain('add `--severity unfixed`')
       expect(refused).toContain('`ted outcome advance --review pass --review-notes <n>`')
       expect(output).toContain('PLAIN: ted: in Validate the only sub-agent is TED’s reviewer')
@@ -284,9 +284,9 @@ describe('stages.validate.p1_only_from', () => {
         expect(round).toContain('add `--severity p1` to `ted outcome back`')
         expect(round).toContain('or `--severity unfixed` when the only blocking findings')
         expect(round).toContain(
-          'An earlier round’s Finding that is still not fixed stays blocking, whatever its severity.',
+          'An earlier round’s finding that is still not fixed stays blocking, whatever its severity.',
         )
-        expect(round).not.toContain('A new Finding about code the fixes didn’t touch is a note')
+        expect(round).not.toContain('A new finding about code the fixes didn’t touch is a note')
       }
     },
     slow,
@@ -480,7 +480,7 @@ describe('a base conflict in a P1-only round', () => {
     expect(round).toContain('counts as P1 too')
     expect(round).toContain('no sub-agent that reviews it')
     expect(round).not.toContain('any other sub-agent in Validate')
-    expect(round).not.toContain('A new Finding about code the resolution didn’t touch')
+    expect(round).not.toContain('A new finding about code the resolution didn’t touch')
   }, 150_000)
 })
 
@@ -491,7 +491,7 @@ describe('the texts TED writes for a round', () => {
   test('a conflict round says TED refuses other sub-agents only when it does', () => {
     const plain = conflictRoundText({ round: 1 })
     expect(plain).toContain('TED refuses a second reviewer and any other sub-agent in Validate.')
-    expect(plain).toContain('A new Finding about code the resolution didn’t touch is a note')
+    expect(plain).toContain('A new finding about code the resolution didn’t touch is a note')
     const allowed = conflictRoundText({ round: 1, subAgents: true })
     expect(allowed).toContain('no sub-agent that reviews it')
     expect(allowed).toContain('TED refuses a second reviewer in Validate.')
@@ -505,8 +505,8 @@ describe('the texts TED writes for a round', () => {
       validateRoundText({ round: 3, rounds, scoped: false, baseConflict: true, p1OnlyFrom: 2 }),
       conflictRoundText({ round: 3, p1OnlyFrom: 2 }),
     ]) {
-      expect(text).toContain('a new Finding sends the Task back to Work only if it is P1')
-      expect(text).toContain('An earlier round’s Finding that is still not fixed stays blocking')
+      expect(text).toContain('a new finding sends the Task back to Work only if it is P1')
+      expect(text).toContain('An earlier round’s finding that is still not fixed stays blocking')
       expect(text).toContain('`--severity unfixed`')
       expect(text).not.toContain('a problem anywhere in the change can be blocking')
       expect(text).not.toContain('is a note, not a blocking finding, unless it is P1')

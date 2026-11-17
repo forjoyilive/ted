@@ -221,7 +221,7 @@ function testMarkers(facts: TaskFacts): TaskMarker[] {
     const { name, index, total } = facts.checking
     if (facts.testActivity?.checksWaiting)
       add('checks', 'waiting', `${name} · Waiting for a shared test slot`)
-    else add('checks', 'running', `${name} · ${index} of ${total} Checks`)
+    else add('checks', 'running', `${name} · ${index} of ${total} checks`)
   }
   for (const phase of ['running', 'waiting'] as const) {
     const count = facts.testActivity?.[phase] ?? 0

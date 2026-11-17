@@ -397,7 +397,7 @@ describe('sub-agents', () => {
     expect(results.map((r) => r.code)).toEqual([1, 1, 1, 1, 1, 1, 0])
     expect(results[0]?.stderr).toMatch(/only the Task Lead changes blockers/)
     expect(results[1]?.stderr).toMatch(/only the Task Lead changes blockers/)
-    expect(results[2]?.stderr).toMatch(/only the Task Lead runs Checks/)
+    expect(results[2]?.stderr).toMatch(/only the Task Lead runs checks/)
     expect(results[3]?.stderr).toMatch(/only the Task Lead writes the Task brief/)
     expect(results[4]?.stderr).toMatch(/only the Task Lead picks the Clarify depth/)
     expect(results[5]?.stderr).toMatch(/only the Task Lead can start and steer sub-agents/)

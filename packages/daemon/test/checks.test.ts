@@ -1202,7 +1202,7 @@ describe('the Checks’ sandbox', () => {
         return texts.length >= 2 ? texts : undefined
       }, 'the ted checks result')
       expect(results[1]?.code).not.toBe(0)
-      expect(results[1]?.stderr).toContain('can’t sandbox Checks and Apps')
+      expect(results[1]?.stderr).toContain('can’t sandbox checks and Apps')
       expect(await checkRuns(client, task)).toEqual([])
       const banners = await client.ok<Banner[]>('GET', '/banners')
       expect(banners.find((b) => b.problem === 'sandbox-unavailable')).toMatchObject({

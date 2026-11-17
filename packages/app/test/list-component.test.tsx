@@ -371,7 +371,7 @@ test('right-click uses all selected Tasks; an unselected row and the Priority ic
   expect(screen.queryByRole('menu', { name: '2 selected Tasks' })).toBeNull()
   fireEvent.keyDown(menu, { key: 'Escape' })
   expect(screen.queryByRole('menu', { name: 'Task actions · NB-2' })).toBeNull()
-  await u.click(screen.getByRole('button', { name: 'Priority: High. Change Priority of NB-2' }))
+  await u.click(screen.getByRole('button', { name: 'Priority: High. Change priority of NB-2' }))
   menu = await screen.findByRole('menu', { name: 'Priority' })
   const options = within(menu).getAllByRole('menuitemradio')
   expect(options.map((option) => option.textContent)).toEqual([
@@ -392,7 +392,7 @@ test('right-click uses all selected Tasks; an unselected row and the Priority ic
   await vi.waitFor(() => expect(a.request).toHaveBeenCalledWith('setPriority', 'NB-2', 'urgent'))
   await vi.waitFor(() => expect(screen.queryByRole('menu', { name: 'Priority' })).toBeNull())
   expect(screen.queryByRole('region', { name: 'Task thread' })).toBeNull()
-  await u.click(screen.getByRole('button', { name: 'Priority: Low. Change Priority of NB-1' }))
+  await u.click(screen.getByRole('button', { name: 'Priority: Low. Change priority of NB-1' }))
   await u.click(
     within(await screen.findByRole('menu', { name: 'Priority' })).getByRole('menuitemradio', {
       name: /Medium/,

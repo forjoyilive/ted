@@ -119,7 +119,7 @@ export function dashboardFixture(empty = false): DashboardReport {
               {
                 stage: 'review',
                 totalMs: 24 * hour,
-                kinds: ['Review Sign-Off'],
+                kinds: ['Review sign-off'],
                 samples: [{ taskId: 't1', waitedMs: 24 * hour }],
               },
               {
@@ -138,7 +138,7 @@ export function dashboardFixture(empty = false): DashboardReport {
               {
                 taskId: 't1',
                 requestId: 'c1',
-                kind: 'Review Sign-Off',
+                kind: 'Review sign-off',
                 stage: 'review',
                 waitedMs: 24 * hour,
               },
@@ -399,7 +399,7 @@ function flowPeriod(empty: boolean, period: DashboardPeriod): FlowPeriod {
                     endSource: 'reported wait-end',
                     detail:
                       reason === 'test-lock'
-                        ? 'Associated Check check-1, position 0; overlapping command time is also counted in Running Checks'
+                        ? 'Associated check check-1, position 0; overlapping command time is also counted in Running checks'
                         : 'Recorded boundary',
                   },
                 ],

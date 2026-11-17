@@ -217,7 +217,7 @@ describe('Validate rounds', () => {
       expect(back).toContain('Fix the findings above and nothing else.')
       const round = messages.find((m) => m.includes('# Validate round 2'))
       expect(round).toContain('Validate has sent it back 1 time, and the limit is 5')
-      expect(round).toContain('TED gives it the earlier Findings and the diff since the commit')
+      expect(round).toContain('TED gives it the earlier findings and the diff since the commit')
       expect(round).toContain('1. The export button does nothing.')
       expect(messages.filter((m) => m.includes('# Validate round'))).toHaveLength(1)
 

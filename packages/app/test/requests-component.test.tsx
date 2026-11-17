@@ -2540,7 +2540,7 @@ test('a dropped repair says fresh Checks close the failure, and a closed case na
   const { rerender } = render(<FailureDetails failure={value} onOpenTask={open} />)
   expect(
     await screen.findByText(
-      'Repair archived without merging. Fresh passing Checks close this failure. If this Task is stopped, use Resume in Task details first.',
+      'Repair archived without merging. Fresh passing checks close this failure. If this Task is stopped, use Resume in Task details first.',
     ),
   ).toBeTruthy()
   rerender(
