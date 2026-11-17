@@ -411,7 +411,7 @@ export function skippedText(skipped: readonly Skipped[], record: string): string
   for (const { file, commit } of skipped)
     byCommit.set(commit, [...(byCommit.get(commit) ?? []), file])
   return [
-    `Skipped ${files(skipped.length)} that passed before, because nothing since picks them again:`,
+    `Skipped ${files(skipped.length)} that passed before, because nothing since picks ${skipped.length === 1 ? 'it' : 'them'} again:`,
     ...[...byCommit].flatMap(([commit, list]) => [
       `  passed on ${commit.slice(0, 9)}:`,
       ...list.map((file) => `    ${file}`),

@@ -584,6 +584,9 @@ describe('a rerun skips files that passed before', () => {
 
   test('the command names each skipped file, its commit and how to run it anyway', () => {
     expect(skippedText([], 'record.json')).toBeUndefined()
+    expect(skippedText([{ file: 'x.test.ts', commit: a }], 'record.json')).toContain(
+      'Skipped 1 file that passed before, because nothing since picks it again:',
+    )
     expect(
       skippedText(
         [
