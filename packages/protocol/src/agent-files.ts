@@ -7,6 +7,7 @@ export const agentPowers = [
   'manage_tasks',
   'propose_tasks',
   'read_code',
+  'manage_agents',
   'run_commands',
 ] as const
 
@@ -17,6 +18,7 @@ export const agentPowerNames: Readonly<Record<AgentPower, string>> = {
   manage_tasks: 'Manage Tasks',
   propose_tasks: 'Propose Tasks',
   read_code: 'Read the code',
+  manage_agents: 'Manage Agents',
   run_commands: 'Run commands in the copy',
 }
 
@@ -27,6 +29,8 @@ export type BuiltInAgentId = (typeof builtInAgentIds)[number]
 export const maxAgentId = 40
 
 export const maxAgentName = 60
+
+export const maxAgentDraftInstructions = 20_000
 
 export function isAgentId(id: string): boolean {
   return id.length <= maxAgentId && /^[a-z0-9]+(-[a-z0-9]+)*$/.test(id)
@@ -70,6 +74,8 @@ export const agentPowerHelp: Readonly<Record<AgentPower, string>> = {
   propose_tasks: 'A set of Tasks with blockers for you to approve, as the Planner does.',
   read_code:
     'A fresh copy of the default branch for each chat. It is never pushed and is removed when the chat is archived.',
+  manage_agents:
+    'Drafts of new Agents and changes to Agents, shown as a card. Nothing is saved until you click Create.',
   run_commands:
     'TED runs the commands listed below in the chat’s copy, in its sandbox, and returns the output. Needs Read the code.',
 }

@@ -691,6 +691,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         home: paths.home,
         builtInAgents: chatBuiltIns,
         commands: chatCommands,
+        agentTargets: { library, factory: factorySettings },
         banners,
         reposDir: paths.repos,
         store,

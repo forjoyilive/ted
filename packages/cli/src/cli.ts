@@ -41,6 +41,7 @@ import {
   minGhVersion,
   ownershipLine,
   parseAddFailureEvidenceRequest,
+  parseAgentDraftInput,
   parseAsanaTaskUrl,
   parseAssessFailureRequest,
   parseBrowserRequest,
@@ -1969,6 +1970,20 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         JSON.stringify(
           await withDaemon(home, (client) => client.coordinatorTask(args[0] ?? '', page)),
         ),
+      )
+    },
+    coordinatorAgents: async () => {
+      console.log(JSON.stringify(await withDaemon(home, (client) => client.coordinatorAgents())))
+    },
+    chatAgentDraft: async () => {
+      if (options.file === undefined) throw new UsageError('give the draft with --file <file>')
+      const supersedes = options.supersedes
+      const agent = await readParsedFile(options.file, 'Agent draft', parseAgentDraftInput)
+      const request = await withDaemon(home, (client) =>
+        client.postChatRequest({ agent, ...(supersedes !== undefined && { supersedes }) }),
+      )
+      console.log(
+        `Drafted ${request.title ?? 'the Agent'} (request ${request.id}). End your turn; TED sends you what the human did.`,
       )
     },
     coordinatorCreate: async () => {

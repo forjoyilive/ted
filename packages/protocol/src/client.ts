@@ -62,6 +62,7 @@ import type {
 } from './changes.ts'
 import type { RunChat, RunMessage, RunSummary } from './chat.ts'
 import type {
+  AgentDraftAnswer,
   AgentSummary,
   ChatCommandResult,
   ChatRequest,
@@ -544,6 +545,22 @@ export class DaemonClient {
 
   factoryAgents(factoryId: string): Promise<AgentSummary[]> {
     return this.#request('GET', `/factories/${encodeURIComponent(factoryId)}/agents`)
+  }
+
+  coordinatorAgents(): Promise<{ context: string }> {
+    return this.#request('GET', '/coordinator/agents')
+  }
+
+  answerAgentDraft(
+    chatId: string,
+    requestId: string,
+    answer: AgentDraftAnswer,
+  ): Promise<Coordinator> {
+    return this.#request(
+      'POST',
+      `/coordinator-chats/${encodeURIComponent(chatId)}/requests/${encodeURIComponent(requestId)}/agent`,
+      answer,
+    )
   }
 
   postChatRequest(input: PostChatRequest): Promise<ChatRequest> {

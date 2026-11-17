@@ -40,6 +40,7 @@ export interface AgentLayer {
 }
 
 const agentKeys = ['name', 'agent', 'model', 'powers', 'commands', 'based_on']
+const chatOnlyPowers: readonly AgentPower[] = ['manage_tasks', 'manage_agents']
 const idRule = `lowercase letters, digits and hyphens, up to ${maxAgentId} characters`
 const powerList = agentPowers.join(', ')
 
@@ -206,8 +207,10 @@ function checkAgentsYaml(
     if (agent.powers?.includes('run_commands') && !agent.powers.includes('read_code')) {
       error(key, `\`${id}\`: ${runCommandsNeedsReadCode}`)
     }
-    if (id === 'planner' && agent.powers?.includes('manage_tasks')) {
-      error(key, '`planner` can’t have `manage_tasks`; the Planner runs in a planning chat')
+    for (const power of chatOnlyPowers) {
+      if (id === 'planner' && agent.powers?.includes(power)) {
+        error(key, `\`planner\` can’t have \`${power}\`; the Planner runs in a planning chat`)
+      }
     }
     if (agent.name === undefined && !inherited.defined.includes(id)) {
       error(key, `\`${id}\` needs a \`name\``)
@@ -367,6 +370,6 @@ export function resolveAgents(layers: readonly AgentLayer[]): ResolvedAgent[] {
 
 function allowedPower(id: string, power: AgentPower, powers: readonly AgentPower[]): boolean {
   if (!powers.includes(power)) return false
-  if (id === 'planner' && power === 'manage_tasks') return false
+  if (id === 'planner' && chatOnlyPowers.includes(power)) return false
   return power !== 'run_commands' || powers.includes('read_code')
 }

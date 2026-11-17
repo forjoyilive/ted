@@ -1145,6 +1145,7 @@ export const chatRequests = State.SQLite.table({
     multiple: State.SQLite.boolean({ default: false }),
     round: State.SQLite.text({ nullable: true }),
     proposal: State.SQLite.text({ nullable: true }),
+    agentDraft: State.SQLite.text({ nullable: true }),
     answer: State.SQLite.text({ nullable: true }),
     createdAt: State.SQLite.text(),
   },
@@ -1449,6 +1450,10 @@ export const events = {
       proposal: Schema.NullOr(Schema.String),
       at: Schema.String,
     }),
+  }),
+  chatAgentDraftPosted: Events.synced({
+    name: 'v1.ChatAgentDraftPosted',
+    schema: Schema.Struct({ id: Schema.String, draft: Schema.String }),
   }),
   chatRequestAnswered: Events.synced({
     name: 'v1.ChatRequestAnswered',
@@ -5818,6 +5823,8 @@ const materializers = counted(
           choices: choices === null ? null : JSON.stringify(choices),
           createdAt: at,
         }),
+      'v1.ChatAgentDraftPosted': ({ id, draft }) =>
+        chatRequests.update({ agentDraft: draft }).where({ id }),
       'v1.ChatRequestAnswered': ({ id, answer }) => [
         chatRequests.update({ answer }).where({ id }),
         requestSnoozes.delete().where({ requestId: id }),
