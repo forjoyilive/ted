@@ -68,6 +68,15 @@ describe('cleaning', () => {
       'cannot parse `<text>`',
     )
     expect(cleanText("TED can't start", roots, home)).toBe("TED can't start")
+    expect(cleanText("open '/Volumes/Bob's Drive/confidential plan.txt'", roots, home)).toBe(
+      "open '<path>'",
+    )
+    expect(cleanText("open '/Users/bob/Bob's Drive/plan.txt' failed", roots, home)).toBe(
+      "open '<path>' failed",
+    )
+    expect(cleanText('input"confidential contents" and x`secret snippet`', roots, home)).toBe(
+      'input"<text>" and x`<text>`',
+    )
     expect(cleanText('at packages/daemon/src/a.ts:3:1 failed', roots, home)).toBe(
       'at packages/daemon/src/a.ts:3:1 failed',
     )

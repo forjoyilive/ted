@@ -56,10 +56,11 @@ const slashToken = new RegExp(
 const betweenPaths = /<path>(?:[ \t]+\S+)*[ \t]+<path>/g
 const keptPrefixes = ['packages/', 'node:', '<path>', '<anonymous>']
 
+const quotedPath = /(^|[^\w])'(?:<path>|file:\/\/|~?\/|[A-Za-z]:\\)[^\n]*'/gm
 const quotedRuns: [RegExp, string][] = [
-  [/(^|[^\w])"([^"\n]*)"/gm, '"'],
+  [/()"([^"\n]*)"/g, '"'],
+  [/()\x60([^\x60\n]*)\x60/g, '\x60'],
   [/(^|[^\w])'([^'\n]*)'/gm, "'"],
-  [/(^|[^\w])\x60([^\x60\n]*)\x60/gm, '\x60'],
 ]
 const pathLike = /^(?:<path>|file:\/\/|~?\/|[A-Za-z]:\\)/
 
@@ -71,7 +72,7 @@ function withoutQuotedText(text: string): string {
         (_match, before: string, inside: string) =>
           `${before}${quote}${pathLike.test(inside) ? '<path>' : '<text>'}${quote}`,
       ),
-    text,
+    text.replace(quotedPath, "$1'<path>'"),
   )
 }
 
