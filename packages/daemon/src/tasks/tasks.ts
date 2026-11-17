@@ -3163,11 +3163,17 @@ export function createTasks(options: {
   function recordSignOff(taskId: string): void {
     const task = find(taskId)
     if (!mergesHere(task.stage)) return
+    const approved = approvedCommits(task)
     for (const repo of task.repos) {
       const pr = repo.pullRequest
       if (repo.removed || !pr || pr.state === 'merged' || pr.state === 'closed') continue
-      const valid = pr.state === 'ready' && !repo.pushFailed && repo.pushed !== undefined
-      const commit = valid ? repo.pushed?.commit : undefined
+      const pushed = repo.pushed?.commit
+      const valid =
+        pr.state === 'ready' &&
+        !repo.pushFailed &&
+        pushed !== undefined &&
+        (approved === undefined || approved.get(repo.name) === pushed)
+      const commit = valid ? pushed : undefined
       if (pr.signedOff !== commit) store.pullRequestSignedOff(taskId, repo.name, commit)
     }
   }

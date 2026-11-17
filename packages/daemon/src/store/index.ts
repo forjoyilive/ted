@@ -2067,6 +2067,16 @@ export async function openStore({
         () => store.query(queryDb(taskAttachments.orderBy('at', 'asc'))),
         (r) => r.taskId,
       ),
+      sendBacks: rows(
+        (taskId) => store.query(queryDb(sendBacks.where({ taskId }).orderBy('at', 'asc'))),
+        () => store.query(queryDb(sendBacks.orderBy('at', 'asc'))),
+        (r) => r.taskId,
+      ),
+      sendBackResets: rows(
+        (taskId) => store.query(queryDb(sendBackResets.where({ taskId }).orderBy('at', 'asc'))),
+        () => store.query(queryDb(sendBackResets.orderBy('at', 'asc'))),
+        (r) => r.taskId,
+      ),
       pauses: once(() => pauses()),
       queue: once(() => queue()),
       settings: once(() => settings()),
@@ -2086,6 +2096,21 @@ export async function openStore({
     const reads = count > readEveryTaskFrom ? taskReads(true) : undefined
     const at = stateCommits
     return () => (stateCommits === at ? reads : undefined)
+  }
+
+  const backToWork = (taskId: string, reads: TaskReads): TaskBackToWork | undefined => {
+    const since = reads
+      .sendBackResets(taskId)
+      .findLast((reset) => validates(reset.stage as StageId))?.at
+    const returns = reads
+      .sendBacks(taskId)
+      .filter(
+        (b) => b.counted && validates(b.fromStage as StageId) && (since === undefined || b.at > since),
+      )
+    const limit = returns.at(-1)?.limit ?? undefined
+    return returns.length === 0
+      ? undefined
+      : { count: returns.length, ...(limit !== undefined && { limit }) }
   }
 
   let noteTaskWait = (_taskId: string, _facts: TaskFacts) => {}
@@ -2393,6 +2418,7 @@ export async function openStore({
                   ? 'planning'
                   : 'human'
     const linearSync = linearSyncOf(row, source, reads)
+    const returns = backToWork(row.id, reads)
     const asanaSync = asanaSyncFor(
       { id: row.id, factoryId: row.factoryId, archived: archivedAt !== null },
       source,
@@ -2509,6 +2535,7 @@ export async function openStore({
         },
       }),
       ...(merged && { merged }),
+      ...(returns !== undefined && { backToWork: returns }),
       updatedAt,
       ...(archivedAt !== null && { archived: { at: archivedAt, ended: ended() } }),
     }
@@ -6626,6 +6653,7 @@ export async function openStore({
           at: new Date().toISOString(),
         }),
       )
+      if (taskRow(taskId)) updatedTask(taskId)
     },
     sendBackCount(taskId, stage) {
       const since = store
