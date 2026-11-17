@@ -672,3 +672,22 @@ test('with Nest child Tasks on, a child reorders among its siblings and a top-le
     expect(a.request).toHaveBeenCalledWith('moveTask', 'NB-4', { before: 'NB-1' }),
   )
 })
+
+test('the Blocked by link in a row opens the blocker, not the row’s Task', async () => {
+  const a = appState()
+  a.state.tasks = [
+    task({
+      title: 'Export notes',
+      blockedBy: ['NB-2'],
+      status: { kind: 'blocked', by: 'NB-2' },
+    }),
+    task({ id: 'NB-2', displayId: 'NB-2', title: 'Sync notes', rank: 2 }),
+  ]
+  a.mount()
+  const u = user()
+  await u.click(await screen.findByRole('button', { name: 'All Tasks' }))
+  const row = required(document.querySelector<HTMLElement>('[data-task="NB-1"]'))
+  await u.click(within(row).getByRole('button', { name: 'NB-2' }))
+  expect(await screen.findByRole('heading', { level: 1, name: 'Sync notes' })).toBeTruthy()
+  expect(screen.queryByRole('heading', { level: 1, name: 'Export notes' })).toBeNull()
+})
