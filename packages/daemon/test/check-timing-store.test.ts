@@ -147,3 +147,47 @@ test('repeated recovery after another stop keeps the first unknown boundary', as
     detectedAt: '2026-11-11T12:00:01.000Z',
   })
 })
+
+test('an instruction Check keeps its fields and change key after reopening, and a missing report can start again', async () => {
+  const instruction = {
+    name: 'Docs drift',
+    instruction: 'Check the docs.',
+    fix: true,
+    agent: 'claude',
+    effort: 'high',
+    timeout: '20m',
+    state: 'waiting' as const,
+  }
+  const reused = { ...instruction, name: 'Review', state: 'passed' as const, notRerun: true }
+  const run = store.startChecks({
+    taskId,
+    trigger: 'validate',
+    stage: 'validate',
+    checks: [instruction, check, reused],
+  })
+  store.checkStarted(run.id, 0)
+  store.checkReportMissing(run.id, 0, 'it ended without a result line')
+  store.checkStarted(run.id, 0)
+  store.recordCheckChangeKey(run.id, 0, 'key-1')
+  expect(store.passedChangeKey(taskId, 'Docs drift')).toBeUndefined()
+  store.checkFinished(run.id, 0, { state: 'passed', durationMs: 10 })
+  store.finishChecks(run.id, 'passed')
+  await store.close()
+  store = await openStore({ directory: dir })
+
+  expect(store.passedChangeKey(taskId, 'Docs drift')).toBe('key-1')
+  expect(store.passedChangeKey(taskId, 'Types')).toBeUndefined()
+  const [docs, types, review] = store.getCheckRun(run.id)?.checks ?? []
+  expect(docs).toEqual({
+    name: 'Docs drift',
+    instruction: 'Check the docs.',
+    fix: true,
+    agent: 'claude',
+    effort: 'high',
+    timeout: '20m',
+    state: 'passed',
+    durationMs: 10,
+  })
+  expect(types).toMatchObject({ name: 'Types', command: 'tsc', state: 'not-run' })
+  expect(review).toMatchObject({ name: 'Review', state: 'passed', notRerun: true })
+})
