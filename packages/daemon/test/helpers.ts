@@ -10,6 +10,7 @@ import { promisify } from 'node:util'
 import {
   type ConversationEntry,
   DaemonClient,
+  type DaemonEvent,
   type DaemonInfo,
   type Run,
   type RunWithConversation,
@@ -243,7 +244,7 @@ export function api(port: number, auth: string | { appKey: string }) {
     return { status: res.status, body: JSON.parse(res.body) }
   }
   return {
-    async subscribe(changed: () => void): Promise<() => void> {
+    async subscribe(changed: (event: DaemonEvent) => void): Promise<() => void> {
       const client =
         typeof auth === 'string'
           ? new DaemonClient({ port, token: auth, pid: 0, version: 'test' })

@@ -1,7 +1,9 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { tedPaths } from '@ted/protocol'
 import { expect, test } from 'vitest'
-import { commitToOrigin, waitUntil } from './helpers.ts'
+import { openStore } from '../src/store/index.ts'
+import { commitToOrigin, hostsStarted, waitUntil } from './helpers.ts'
 import {
   approve,
   ctx,
@@ -27,6 +29,7 @@ import {
   polls,
   rebased,
   resolve,
+  restart,
   runs,
 } from './support/merge-check-decisions.ts'
 
@@ -162,16 +165,19 @@ test(
 )
 
 test(
-  'checks changed on main while a Task waits in Merge run again; the banner says why it waits, a failure holds the merge, and a passing Retry merges',
+  'a restarted daemon runs Merge checks for progress reset to pending and says when the code changed under them; checks changed on main while a Task waits in Merge run again; the banner says why it waits, a failure holds the merge, and a passing Retry merges',
   async () => {
     const settings = ['stages:', '  merge:', '    gate: false', '  validate:', '    checks:']
-    const client = await start({
+    const armed = path.join(ctx.scratch, 'touch-armed')
+    const released = path.join(ctx.scratch, 'touch-released')
+    const touch = `      - { name: Touch, run: "test -e changed-while-checking || test ! -e '${armed}' || { touch changed-while-checking; while [ ! -e '${released}' ]; do sleep 0.1; done; }" }`
+    let client = await start({
       files: { '.github/workflows/ci.yml': 'on: pull_request\n' },
       merge: {
         mergeState: 'BLOCKED',
         checks: [{ name: 'Required', status: 'IN_PROGRESS', required: true }],
       },
-      workflow: [...settings, ...checks],
+      workflow: [...settings, ...checks, touch],
     })
     const { task, signoff } = await toSignoff(client)
     await approve(client, signoff)
@@ -181,6 +187,58 @@ test(
     }, 'the merge to wait for CI')
     expect(await runs(client, task)).toEqual([])
 
+    await hostsStarted(ctx.home)
+    await ctx.daemon?.stop()
+    ctx.daemon = undefined
+    const store = await openStore({ directory: tedPaths(ctx.home).store })
+    const progress = store.failures.progress(task.id)
+    if (!progress) throw new Error('missing saved Check progress')
+    store.failures.saveProgress({
+      taskId: task.id,
+      visit: progress.visit,
+      checks: progress.checks.map(({ name, repo, command, timeout, builtIn }) => ({
+        name,
+        ...(repo !== undefined && { repo }),
+        command,
+        timeout,
+        ...(builtIn !== undefined && { builtIn }),
+        state: 'not-run',
+      })),
+      executions: [],
+      next: 0,
+      pending: true,
+    })
+    await store.persisted()
+    await store.close()
+    await writeFile(armed, '')
+    client = await restart(client)
+    const reasons: string[] = []
+    const unsubscribe = await client.subscribe((event) => {
+      if (event.type === 'task-updated' && event.task.id === task.id && event.task.mergeHeld)
+        reasons.push(event.task.mergeHeld)
+    })
+    await waitUntil(
+      async () => (await runs(client, task)).length === 1,
+      'a Merge check run from the pending progress',
+    )
+    await writeFile(released, '')
+    await waitUntil(
+      async () =>
+        reasons.includes('The Task’s code changed while the checks ran, so Ted runs them again.'),
+      'the code-changed reason on the Task',
+    )
+    unsubscribe()
+    await waitUntil(async () => {
+      const t = await getTask(client, task.id)
+      const done = await runs(client, task)
+      return (
+        done.length === 2 &&
+        done.every((r) => r.outcome === 'passed') &&
+        !t.markers.some((m) => m.kind === 'test-activity' && m.source === 'checks')
+      )
+    }, 'the Merge checks to pass on the changed code')
+    expect(await merges()).toEqual([])
+
     const passes = path.join(ctx.scratch, 'added-check-passes')
     const fails = path.join(ctx.scratch, 'added-check-fails')
     await commitToOrigin(ctx.scratch, {
@@ -189,6 +247,7 @@ test(
         'order: [intake, work, validate, review, merge]',
         ...settings,
         ...checks,
+        touch,
         `      - { name: Added, run: "test -e '${passes}' || { while [ ! -e '${fails}' ]; do sleep 0.1; done; exit 1; }" }`,
         '',
       ].join('\n'),
@@ -198,7 +257,7 @@ test(
       mergeState: 'CLEAN',
       checks: [{ name: 'Required', status: 'COMPLETED', conclusion: 'SUCCESS', required: true }],
     })
-    await waitUntil(async () => (await runs(client, task)).length === 1, 'a Merge check run')
+    await waitUntil(async () => (await runs(client, task)).length === 3, 'a Merge check run')
     const running = await waitUntil(
       async () => (await getTask(client, task.id)).mergeHeld,
       'the checks-running reason on the Task',
@@ -222,9 +281,12 @@ test(
     expect((await resolve(client, task, failure, request, 'retry')).status).toBe(200)
     await waitForStage(client, task, 'done')
     expect(await merges()).toHaveLength(1)
+    const first = ['Prefix', 'First', 'Later', 'Touch']
     expect((await runs(client, task)).map((r) => [r.outcome, r.checks.map((c) => c.name)])).toEqual(
       [
-        ['failed', ['Prefix', 'First', 'Later', 'Added']],
+        ['passed', first],
+        ['passed', first],
+        ['failed', [...first, 'Added']],
         ['passed', ['Added']],
       ],
     )
