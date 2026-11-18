@@ -2104,7 +2104,7 @@ export function createTasks(options: {
       return [
         {
           id: task.id,
-          kind: 'task' as const,
+          kind: 'continuation' as const,
           rank: -1,
           factoryId: task.factoryId,
           ...queuePlace(task),
@@ -2129,7 +2129,7 @@ export function createTasks(options: {
         : [
             {
               id: taskId,
-              kind: 'task' as const,
+              kind: 'continuation' as const,
               rank: -1,
               factoryId,
               ...placedTask(taskId),
@@ -2272,7 +2272,7 @@ export function createTasks(options: {
     const sourceOf = new Map(
       sources.flatMap((source) => source.queued().map((q) => [q.id, source] as const)),
     )
-    for (const entry of startsNow<QueueEntry>([...revives, ...held, ...ready()], use)) {
+    for (const entry of startsNow<QueueEntry>(queueOrder([...revives, ...held, ...ready()]), use)) {
       if (inFlight.inHierarchyWork(entry.id) || unfinishedChildren(entry.id)) continue
       if (reviveIds.has(entry.id)) {
         inBackground('resume a Task Lead session', () => leadLifecycle.beginRevive(entry.id))
@@ -2289,7 +2289,7 @@ export function createTasks(options: {
       try {
         const { use } = await slotUse([task.factoryId])
         if (version !== backlogVersion) return
-        const before = [...revivesReady(), ...heldReady(), ...ready()]
+        const before = queueOrder<QueueEntry>([...revivesReady(), ...heldReady(), ...ready()])
         if (!startsNow([...before, entry], use).some((q) => q.id === entry.id)) continue
         const current = find(task.id)
         if (current.preparation === 'ready') {
@@ -9881,9 +9881,7 @@ export function createTasks(options: {
           !backlogEligible(live(task.id), true) ||
           !startsNow(
             [
-              ...revivesReady(),
-              ...heldReady(),
-              ...ready(),
+              ...queueOrder<QueueEntry>([...revivesReady(), ...heldReady(), ...ready()]),
               {
                 id: current.id,
                 kind: 'task',

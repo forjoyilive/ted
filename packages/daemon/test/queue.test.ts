@@ -87,6 +87,24 @@ describe('queueOrder', () => {
     ])
   })
 
+  test('a held or revived Task Lead in a lower-ranked Stage waits behind a queued Task in a higher one', () => {
+    const ordered = queueOrder([
+      { id: 'held-work', kind: 'continuation', rank: -1, factoryId: 'nb', stageRank: 0 },
+      { id: 'revived-work', kind: 'continuation', rank: -1, factoryId: 'nb', stageRank: 0 },
+      { ...task('queued-merge', 'none', 7), stageRank: 1 },
+      { ...task('new-work', 'urgent', 0), stageRank: 0 },
+    ])
+    expect(ordered.map((entry) => entry.id)).toEqual([
+      'queued-merge',
+      'held-work',
+      'revived-work',
+      'new-work',
+    ])
+    expect(
+      startsNow(ordered, { limit: 2, working: 1, byFactory: {}, caps: {} }).map((e) => e.id),
+    ).toEqual(['queued-merge'])
+  })
+
   test('skipping the busy hold doesn’t move a new Task ahead of continuations', () => {
     const order = queueOrder([
       task('new-urgent', 'urgent', 0),
