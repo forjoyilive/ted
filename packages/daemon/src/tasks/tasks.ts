@@ -8170,7 +8170,7 @@ export function createTasks(options: {
           ? `Validate sent this Task back to Work ${returns} without getting closer to done`
           : `Back to Work ${returns}, and Ted couldn’t check progress`,
       intro: looping
-        ? `Ted’s Loop check found that the rounds keep repeating the same problem. ${reason} If you keep going, add guidance that breaks the pattern.`
+        ? `Ted’s Loop check found that the rounds aren’t getting closer to done. ${reason} If you keep going, add guidance that breaks the pattern.`
         : verdict === 'converging'
           ? `Ted’s Loop check found that the rounds are making progress. ${reason}`
           : `Ted couldn’t check whether the rounds are making progress: ${reason}.`,
