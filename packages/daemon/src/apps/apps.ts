@@ -960,21 +960,27 @@ export function createApps(options: AppsOptions): Apps {
     instance: Instance & { waitingFor: string },
   ): Promise<'waiting' | 'launched' | 'ended'> {
     await restored
+    const key = keyOf(taskId, instance.repo, instance.name)
     const end = async (how: 'stopped' | 'failed', problem?: string) => {
-      const current = await readInstance(dir)
-      if (!current || current.ended) return 'ended' as const
-      if (current.waitingFor !== instance.waitingFor) return 'waiting' as const
-      current.ended = {
-        at: new Date().toISOString(),
-        how,
-        ...(problem !== undefined && { problem }),
-      }
-      await writeInstance(dir, current)
-      if (problem !== undefined) {
-        thread.appStartFailed({ taskId, repo: instance.repo, name: instance.name, problem })
-      }
-      changed(taskId)
-      return 'ended' as const
+      // stopHost holds this key's turn while it awaits the follower, so waiting for the turn here
+      // could deadlock; try again on the next poll instead.
+      if (busy.has(key)) return 'waiting' as const
+      return serial(key, async () => {
+        const current = await readInstance(dir)
+        if (!current || current.ended) return 'ended' as const
+        if (current.waitingFor !== instance.waitingFor) return 'waiting' as const
+        current.ended = {
+          at: new Date().toISOString(),
+          how,
+          ...(problem !== undefined && { problem }),
+        }
+        await writeInstance(dir, current)
+        if (problem !== undefined) {
+          thread.appStartFailed({ taskId, repo: instance.repo, name: instance.name, problem })
+        }
+        changed(taskId)
+        return 'ended' as const
+      })
     }
     const looked = await options.task(taskId).catch((error: Error) => error)
     const taskGone = looked instanceof RequestError && looked.status === 404
