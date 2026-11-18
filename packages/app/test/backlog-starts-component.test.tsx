@@ -53,7 +53,15 @@ test('a Backlog row says it starts automatically only when nothing else holds it
   const backlog = task({ factoryId: 'a', stage: 'backlog' })
   expect(startsOnItsOwn(backlog, starts)).toBe(true)
   expect(startsOnItsOwn({ ...backlog, factoryId: 'c' }, starts)).toBe(false)
-  expect(startsOnItsOwn({ ...backlog, blockedBy: ['x'] }, starts)).toBe(false)
+  expect(startsOnItsOwn({ ...backlog, blockedBy: ['x'] }, starts)).toBe(true)
+  expect(startsOnItsOwn({ ...backlog, blockedBy: ['x'], openBlockers: ['DEV-1'] }, starts)).toBe(
+    false,
+  )
+  expect(startsOnItsOwn({ ...backlog, statuses: ['stopped'] }, starts)).toBe(false)
+  expect(startsOnItsOwn({ ...backlog, statuses: ['failed'] }, starts)).toBe(false)
+  expect(startsOnItsOwn({ ...backlog, snoozedUntil: '2026-11-20T09:00:00.000Z' }, starts)).toBe(
+    false,
+  )
   expect(startsOnItsOwn({ ...backlog, createdBy: 'task-lead' }, starts)).toBe(false)
   expect(startsOnItsOwn({ ...backlog, stage: 'work' }, starts)).toBe(false)
   const automation = { ...backlog, createdBy: 'automation' as const }
@@ -113,7 +121,7 @@ test('the menu saves the switch and each choice at once, a choice made while off
   expect(api.request.mock.calls.filter(([name]) => name === 'setBacklogStarts')).toHaveLength(5)
 })
 
-test('the menu keeps the switch usable after a failed save and shows why', async () => {
+test('the menu disables the switch and scope buttons while saving, keeps them usable after a failed save and shows why', async () => {
   const pending = deferred<never>()
   bridge({ setBacklogStarts: () => pending.promise })
   render(<BacklogStartsMenu starts={noBacklogStarts} factories={factories} layout={layout} />)
@@ -122,7 +130,11 @@ test('the menu keeps the switch usable after a failed save and shows why', async
   })
   await user().click(toggle)
   expect(toggle.disabled).toBe(true)
+  const scope = within(screen.getByRole('radiogroup', { name: 'Start from' }))
+  const scopes = scope.getAllByRole<HTMLInputElement>('radio')
+  expect(scopes.map((radio) => radio.disabled)).toEqual([true, true])
   await act(async () => pending.reject(new Error('Couldn’t save')))
+  expect(scopes.map((radio) => radio.disabled)).toEqual([false, false])
   expect(screen.getByRole('alert').textContent).toBe('Couldn’t save')
   expect(toggle.disabled).toBe(false)
   expect(toggle.getAttribute('aria-checked')).toBe('false')

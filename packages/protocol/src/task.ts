@@ -250,6 +250,7 @@ export interface Task {
   lead?: TaskLead
   stageEffort?: Effort
   blockedBy: string[]
+  openBlockers?: string[]
   parentId?: string
   childIds?: string[]
   attachments: Attachment[]
