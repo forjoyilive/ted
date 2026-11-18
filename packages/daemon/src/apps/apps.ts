@@ -971,6 +971,7 @@ export function createApps(options: AppsOptions): Apps {
       return end('stopped')
     }
     const { task, repo, app } = found
+    if (closed) return 'waiting'
     if (store.newWorkHold() !== undefined) {
       devicesFor(app.kind).list(instance.waitingFor, simApp(taskId, task, repo.name, app))
       return 'waiting'
@@ -981,7 +982,8 @@ export function createApps(options: AppsOptions): Apps {
     )
     if (got.state === 'pending') return 'waiting'
     const current = await readInstance(dir)
-    if (!current || current.ended || current.waitingFor !== instance.waitingFor) return 'ended'
+    if (!current || current.ended) return 'ended'
+    if (current.waitingFor !== instance.waitingFor) return 'waiting'
     if (got.state === 'denied') {
       return end(
         'failed',
@@ -1020,7 +1022,7 @@ export function createApps(options: AppsOptions): Apps {
       })
     } finally {
       marked?.unmark()
-      pool.endTurn(key)
+      if (!closed) pool.endTurn(key)
       readyFrom.delete(key)
     }
   }
