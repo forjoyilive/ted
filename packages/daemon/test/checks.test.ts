@@ -72,6 +72,11 @@ async function startTed(load?: Parameters<typeof startDaemon>[0]['load']) {
 
 type Client = Awaited<ReturnType<typeof startTed>>
 
+async function stopTed() {
+  await daemon?.stop()
+  daemon = undefined
+}
+
 const steps = (...list: unknown[]) => JSON.stringify({ steps: list })
 const advance = { run: ['ted', 'outcome', 'advance'] }
 
@@ -462,7 +467,7 @@ describe('Instruction Checks at Validate', () => {
     expect(back).toContain('I looked.\nResult: pass')
   }, 120_000)
 
-  test('an instruction Check with no report asks the user, and the question and the waiting Check survive a restart: Try again starts a new agent, Count it as failed is a failed Check; Run now runs one on a chosen Task without a failure case', async () => {
+  test('an instruction Check with no report asks the user, and the question and the waiting Check survive a restart, which asks again when the question is gone: Try again starts a new agent, Count it as failed is a failed Check; Run now runs one on a chosen Task without a failure case', async () => {
     await workflow(
       instructionCheck('Silent', steps({ say: 'I looked around.' }, { endTurn: true })),
     )
@@ -530,8 +535,7 @@ describe('Instruction Checks at Validate', () => {
       ).length
     expect(await agentsStarted()).toBe(1)
     await hostsStarted(home)
-    await daemon?.stop()
-    daemon = undefined
+    await stopTed()
     client = await startTed()
     const [waiting, ...rerun] = await checkRuns(client, task)
     expect(rerun).toEqual([])
@@ -544,11 +548,33 @@ describe('Instruction Checks at Validate', () => {
     expect(await agentsStarted()).toBe(1)
     expect((await getTask(client, task.id))?.stage).toBe('validate')
 
-    await client.ok('POST', `/comments/${first?.id}/answer`, {
+    await stopTed()
+    const stopped = await openStore({ directory: tedPaths(home).store })
+    stopped.answerComment(first?.id ?? '', {
+      kind: 'withdrawn',
+      at: new Date().toISOString(),
+      cancelled: true,
+    })
+    await stopped.persisted()
+    await stopped.close()
+    client = await startTed()
+    const asked = await question(2)
+    expect(asked).toMatchObject({
+      title: first?.title,
+      body: first?.body,
+      choices: ['Try again', 'Count it as failed'],
+    })
+    expect((await checkRuns(client, task)).map((r) => [r.id, r.finishedAt])).toEqual([
+      [waiting?.id, undefined],
+    ])
+    expect(await agentsStarted()).toBe(1)
+    expect((await getTask(client, task.id))?.stage).toBe('validate')
+
+    await client.ok('POST', `/comments/${asked?.id}/answer`, {
       action: 'answer',
       choice: 'Try again',
     })
-    const second = await question(2)
+    const second = await question(3)
     expect(await agentsStarted()).toBe(2)
     expect((await checkRuns(client, task)).map((r) => [r.id === waiting?.id, r.outcome])).toEqual([
       [true, 'interrupted'],

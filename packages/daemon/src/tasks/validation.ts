@@ -1366,7 +1366,7 @@ export function createValidation(options: ValidationOptions) {
     taskId: string,
     run: CheckRun,
     missing: NonNullable<CheckRunnerResult['missing']>,
-    asked: string,
+    asked: string | undefined,
   ): Promise<void> {
     try {
       const next = await options.reportMissing(taskId, run.id, missing, asked)
@@ -1403,9 +1403,8 @@ export function createValidation(options: ValidationOptions) {
     for (const checkRun of store.listCheckRuns().filter((r) => r.finishedAt === undefined)) {
       const task = store.getTask(checkRun.taskId)
       const awaited = task && !skip.has(task.id) ? awaitedReport(task) : undefined
-      const asked =
-        task && awaited?.run.id === checkRun.id ? options.reportAsked(task.id) : undefined
-      if (task && awaited && asked !== undefined) {
+      if (task && awaited?.run.id === checkRun.id) {
+        const asked = options.reportAsked(task.id)
         options.setChecking(task.id, true)
         options.background(`wait for the answer about ${task.displayId}’s instruction check`, () =>
           answerAfterRestart(task.id, awaited.run, awaited.missing, asked),

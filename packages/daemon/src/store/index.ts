@@ -6756,8 +6756,14 @@ export async function openStore({
       return updatedCheckRun(checkRunId)
     },
     awaitedReport(checkRunId) {
+      const started = new Set(
+        store
+          .query(queryDb(checkBoundaries.where({ checkRunId, kind: 'start' })))
+          .map((boundary) => boundary.position),
+      )
       const row = checkResultRows(checkRunId).find(
-        (result) => result.noReport !== null && result.state === 'running',
+        (result) =>
+          result.noReport !== null && result.state === 'running' && !started.has(result.position),
       )
       if (!row || row.noReport === null) return undefined
       return { position: row.position, reason: row.noReport, durationMs: row.noReportMs ?? 0 }
