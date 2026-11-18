@@ -99,6 +99,7 @@ export function createTaskBrowsers(
     const settle = () => {
       page.emulation = next
       page.inputScale = next.metrics?.scale ?? 1
+      page.touch = next.device !== undefined
     }
     let reloading = false
     try {

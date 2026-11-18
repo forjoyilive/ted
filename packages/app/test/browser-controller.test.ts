@@ -582,6 +582,7 @@ test('a Task whose App is being switched reports Opening until the new page is r
     url: 'http://localhost:3000/',
     text: 'Ready',
     size: 'desktop',
+    blocked: 0,
   })
   let release: (() => void) | undefined
   mocks.sessions[0]?.clearStorageData.mockImplementationOnce(
@@ -599,6 +600,7 @@ test('a Task whose App is being switched reports Opening until the new page is r
     url: 'http://localhost:3000/',
     text: 'Ready',
     size: 'desktop',
+    blocked: 0,
   })
   expect(await controller.state('two')).toEqual({ url: '', text: 'Open a running web App' })
 })
@@ -808,7 +810,7 @@ test('lifecycle teardown stops retained workers even after the guest was cancele
   expect(ses.closeAllConnections).toHaveBeenCalledOnce()
 })
 
-test('a size command emulates a phone, scales clicks with the zoom and captures the full page', async () => {
+test('a size command emulates a phone, sends clicks as taps scaled with the zoom and captures the full page', async () => {
   const transport = bridge()
   const upload = vi.fn(async (_owner: string, _id: string, _bytes: Uint8Array) => {})
   Object.assign(transport.client, { uploadBrowserCapture: upload })
@@ -852,6 +854,9 @@ test('a size command emulates a phone, scales clicks with the zoom and captures 
     },
   ])
   expect(sent('Emulation.setTouchEmulationEnabled')).toEqual([{ enabled: true, maxTouchPoints: 5 }])
+  expect(sent('Emulation.setEmitTouchEventsForMouse')).toEqual([
+    { enabled: true, configuration: 'mobile' },
+  ])
   expect(sent('Emulation.setUserAgentOverride')[0]).toMatchObject({ platform: 'iPhone' })
   expect(contents.reload).toHaveBeenCalledOnce()
   expect(await controller.state('one')).toMatchObject({ size: 'mobile', sizeByAgent: true })
@@ -863,7 +868,11 @@ test('a size command emulates a phone, scales clicks with the zoom and captures 
   const ref = (transport.replies[2]?.result?.text ?? '').split(' ')[0]
   await transport.send('click', 'one', 'click', { ref })
   await vi.waitFor(() => expect(transport.replies).toHaveLength(4))
-  expect(sent('Input.dispatchMouseEvent')[0]).toMatchObject({ x: 5, y: 5 })
+  expect(sent('Input.dispatchTouchEvent')).toEqual([
+    { type: 'touchStart', touchPoints: [{ x: 5, y: 5 }] },
+    { type: 'touchEnd', touchPoints: [] },
+  ])
+  expect(sent('Input.dispatchMouseEvent')).toEqual([])
 
   contents.debugger.sendCommand.mockImplementation(async (method: string) =>
     method === 'Page.captureScreenshot' ? { data: Buffer.from('phone').toString('base64') } : {},
@@ -876,6 +885,7 @@ test('a size command emulates a phone, scales clicks with the zoom and captures 
   await vi.waitFor(() => expect(transport.replies.some((r) => r.id === 'desktop')).toBe(true))
   expect(sent('Emulation.clearDeviceMetricsOverride')).toHaveLength(1)
   expect(sent('Emulation.setTouchEmulationEnabled').at(-1)).toEqual({ enabled: false })
+  expect(sent('Emulation.setEmitTouchEventsForMouse').at(-1)).toEqual({ enabled: false })
   expect(sent('Emulation.setUserAgentOverride').at(-1)).toEqual({ userAgent: 'Electron desktop' })
   expect(contents.reload).toHaveBeenCalledTimes(2)
   const state = await controller.state('one')

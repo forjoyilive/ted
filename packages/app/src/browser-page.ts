@@ -32,6 +32,7 @@ export interface DrivenPage {
   error?: string | undefined
   navigate: boolean
   inputScale?: number
+  touch?: boolean
   resize(width: number, height: number): unknown
 }
 
@@ -293,21 +294,32 @@ export async function runOnPage(
       )
       checkPage()
       inputStarted = true
-      await contents.send('Input.dispatchMouseEvent', {
-        type: 'mousePressed',
-        button: 'left',
-        clickCount: 1,
-        x: point.x * (page.inputScale ?? 1),
-        y: point.y * (page.inputScale ?? 1),
-      })
-      checkPage()
-      await contents.send('Input.dispatchMouseEvent', {
-        type: 'mouseReleased',
-        button: 'left',
-        clickCount: 1,
-        x: point.x * (page.inputScale ?? 1),
-        y: point.y * (page.inputScale ?? 1),
-      })
+      const x = point.x * (page.inputScale ?? 1)
+      const y = point.y * (page.inputScale ?? 1)
+      if (page.touch) {
+        await contents.send('Input.dispatchTouchEvent', {
+          type: 'touchStart',
+          touchPoints: [{ x, y }],
+        })
+        checkPage()
+        await contents.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      } else {
+        await contents.send('Input.dispatchMouseEvent', {
+          type: 'mousePressed',
+          button: 'left',
+          clickCount: 1,
+          x,
+          y,
+        })
+        checkPage()
+        await contents.send('Input.dispatchMouseEvent', {
+          type: 'mouseReleased',
+          button: 'left',
+          clickCount: 1,
+          x,
+          y,
+        })
+      }
     } else {
       await script(
         `(() => { ${lookup} if (!(e instanceof HTMLInputElement || e instanceof HTMLTextAreaElement) || e.disabled || e.readOnly) throw Error('Choose an editable text field'); if(e instanceof HTMLInputElement && !['text','search','email','url','tel','password','number'].includes(e.type)) throw Error('Choose a text field'); check(); e.focus(); check(); const proto=e instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto,'value').set.call(e,${scriptLiteral(value ?? '')}); check(); e.dispatchEvent(new Event('input',{bubbles:true})); check(); e.dispatchEvent(new Event('change',{bubbles:true})); })()`,

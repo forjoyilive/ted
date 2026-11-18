@@ -365,12 +365,62 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     .poll(() => sizeButton.getAttribute('aria-label'))
     .toBe('Preview size: Mobile · 390 × 844')
   await expect.poll(adminScreen).toEqual({ width: 390, touch: 5, phone: true })
+  const adminPage = new URL(admin.url ?? '').href
+  const onAdmin = (script: string) =>
+    app?.evaluate(
+      async ({ webContents }, { url, script }) =>
+        webContents
+          .getAllWebContents()
+          .find((c) => c.getURL() === url)
+          ?.executeJavaScript(script),
+      { url: adminPage, script },
+    )
+  const addTarget = (event: 'touchend' | 'click') =>
+    onAdmin(`(() => {
+      globalThis.hits = 0
+      const target = document.createElement('div')
+      target.setAttribute('role', 'button')
+      target.textContent = 'Tap target'
+      target.style.cssText = 'position:fixed;left:0;top:0;width:120px;height:80px;z-index:2147483647'
+      target.addEventListener('${event}', () => globalThis.hits++)
+      document.body.append(target)
+    })()`)
+  const clickTargetAsAgent = async () => {
+    const ref = (await command({ action: 'snapshot' })).text?.match(
+      /([^\s]+) button Tap target/,
+    )?.[1]
+    if (!ref) throw new Error('Tap target missing from snapshot')
+    await command({ action: 'click', ref })
+  }
+  await addTarget('touchend')
+  await app.evaluate(({ webContents }, url) => {
+    const page = webContents.getAllWebContents().find((c) => c.getURL() === url)
+    // sendInputEvent skips Chromium's touch emulation; a mouse event sent this way never answers.
+    for (const type of ['mousePressed', 'mouseReleased'])
+      void page?.debugger
+        .sendCommand('Input.dispatchMouseEvent', {
+          type,
+          x: 5,
+          y: 5,
+          button: 'left',
+          clickCount: 1,
+        })
+        .catch(() => {})
+  }, adminPage)
+  await expect.poll(() => onAdmin('globalThis.hits')).toBe(1)
+  await clickTargetAsAgent()
+  await expect.poll(() => onAdmin('globalThis.hits')).toBe(2)
   await sizeButton.click()
   await window.getByRole('menuitemradio', { name: /^Landscape/ }).click()
   await expect.poll(adminScreen).toMatchObject({ width: 844, phone: true })
   await sizeButton.click()
   await window.getByRole('menuitemradio', { name: /^Desktop/ }).click()
   await expect.poll(adminScreen).toMatchObject({ touch: 0, phone: false })
+  await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
+  await expect.poll(() => onAdmin('document.readyState')).toBe('complete')
+  await addTarget('click')
+  await clickTargetAsAgent()
+  await expect.poll(() => onAdmin('globalThis.hits')).toBe(1)
   await expect
     .poll(() => panel.locator('[data-preview-size]').getAttribute('data-preview-size'))
     .toBe('desktop')
