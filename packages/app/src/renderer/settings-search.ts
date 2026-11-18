@@ -461,7 +461,8 @@ const entries = {
   },
   'factory.checks': {
     name: 'Checks',
-    help: 'Commands Ted runs at Validate, one after another, before the agent’s own checks. Run now tries one on the base branch in a scratch worktree.',
+    keywords: 'commands instruction checks agent may fix validate run now',
+    help: 'Checks run at Validate. Instruction Checks that may fix run first, then the commands one after another, then the other Instruction Checks.',
     heading: true,
   },
   'factory.agent-files': {
