@@ -9,6 +9,7 @@ const script = (...steps: unknown[]) => JSON.stringify({ steps })
 const idle = { endTurn: true }
 // One advance fetches and test-merges every repo of the Task; it took 13.9 s beside other test runs.
 const advanceWaitMs = 60_000
+const checksWaitMs = 180_000
 const round = {
   title: 'Choose the first release',
   questions: [
@@ -288,9 +289,22 @@ async function populateScenarios(
         advanceWaitMs,
       )
   }
+  async function checksSettled(task: Task) {
+    await until(
+      async () => {
+        if ((await observed.task(task.id)).checksActive) return false
+        const problem = demoCheckProblem(await client.listCheckRuns(task.id))
+        if (problem) throw new Error(problem)
+        return true
+      },
+      `${task.displayId}’s checks to finish`,
+      checksWaitMs,
+    )
+  }
   async function command(task: Task, ...args: string[]) {
     const prefix: unknown[] = []
     if (args[0] === 'outcome' && args[1] === 'advance') {
+      await checksSettled(task)
       const current = await observed.task(task.id)
       if (current.stage === 'clarify' && current.clarifyDepth === 'auto')
         prefix.push({
@@ -344,11 +358,7 @@ async function populateScenarios(
         console.log(`Demo: ${task.displayId} reached ${target} · ${Date.now() - began} ms`)
         return
       }
-      if (current.stage === 'validate')
-        await until(
-          async () => (await client.listCheckRuns(task.id)).some((r) => r.finishedAt !== undefined),
-          'Validate checks',
-        )
+      if (current.stage === 'validate') await checksSettled(current)
       const open = (await client.listComments(task.id)).findLast(
         (c) => c.kind !== 'note' && !c.answer,
       )
@@ -364,6 +374,7 @@ async function populateScenarios(
             const count = target === 'validate' ? 1 : target === 'review' ? 2 : 3
             const brief = await readFile(path.join(home, 'inputs', 'brief.md'), 'utf8')
             for (let n = 0; n < count; n++) {
+              await checksSettled(task)
               const { stage } = await observed.task(task.id)
               await checkedSteps(
                 task,
