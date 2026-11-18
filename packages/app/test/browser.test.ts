@@ -343,7 +343,14 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   await startGuestWorker(app, otherPage)
   const otherTraffic = await guestWorkerTraffic(otherPage)
   await panel.getByRole('combobox', { name: 'Web App' }).click()
-  await window.getByRole('option', { name: 'Admin' }).click()
+  await window
+    .getByRole('listbox', { name: 'Web App' })
+    .getByRole('option', { name: 'Admin' })
+    .click()
+  await window
+    .getByRole('dialog', { name: 'Run Admin outside the sandbox?' })
+    .getByRole('button', { name: 'Run', exact: true })
+    .click()
   const admin = await waitUntil(
     async () =>
       (await client.listApps(task.id)).find((a) => a.name === 'Admin' && a.state === 'running'),
