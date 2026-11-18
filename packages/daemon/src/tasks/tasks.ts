@@ -4673,37 +4673,28 @@ export function createTasks(options: {
     asked: Comment,
     answer: () => void,
   ): Promise<void> {
-    let answered = false
-    try {
-      await leadLifecycle.restartFromBrief(
-        task.id,
-        async (unread) =>
-          [
-            fromTheBrief(find(task.id), {
-              heading: 'Picking up after getting stuck',
-              why: `The previous Task Lead kept stopping without asking the human anything, even after Ted nudged it. The human chose to restart from the brief, so you don’t have that conversation. Ted told the human: “${oneLine(asked.body, 500)}” If you need the human to decide or do something, ask with \`ted outcome ask "<question>"\`.`,
-            }),
-            ...(unread.length > 0
-              ? [
-                  `## Messages the old Task Lead hadn’t read\n\n${unread
-                    .map((m) => `${m.from === 'ted' ? 'Ted' : 'The user'}: ${m.text.trim()}`)
-                    .join('\n\n')}`,
-                ]
-              : []),
-          ].join('\n\n'),
-        () => {
-          answer()
-          answered = true
-        },
-      )
-    } catch (error) {
-      if (answered && liveLead(find(task.id))) postIdleQuestion(task.id, asked.body)
-      else if (answered) {
-        store.resumeTask(task.id, { waitForBlockers: unmergedBlockers(task.id).length > 0 })
-        void pump()
-      }
-      throw error
-    }
+    await leadLifecycle.restartFromBrief(
+      task.id,
+      async (unread) =>
+        [
+          fromTheBrief(find(task.id), {
+            heading: 'Picking up after getting stuck',
+            why: `The previous Task Lead kept stopping without asking the human anything, even after Ted nudged it. The human chose to restart from the brief, so you don’t have that conversation. Ted told the human: “${oneLine(asked.body, 500)}” If you need the human to decide or do something, ask with \`ted outcome ask "<question>"\`.`,
+          }),
+          ...(unread.length > 0
+            ? [
+                `## Messages the old Task Lead hadn’t read\n\n${unread
+                  .map((m) => `${m.from === 'ted' ? 'Ted' : 'The user'}: ${m.text.trim()}`)
+                  .join('\n\n')}`,
+              ]
+            : []),
+        ].join('\n\n'),
+      answer,
+      {
+        askAgain: () => postIdleQuestion(task.id, asked.body),
+        waitsForBlockers: () => unmergedBlockers(task.id).length > 0,
+      },
+    )
   }
 
   async function useDefaultModel(ref: string): Promise<Task> {

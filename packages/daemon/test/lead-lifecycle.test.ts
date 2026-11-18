@@ -192,6 +192,13 @@ function finishLead(id = 'lead', resumeFailed = false): Run {
   if (!run) throw new Error('missing Run')
   return run
 }
+function stopLead(id: string): void {
+  store.recordRunOutput(id, {
+    toOffset: store.runReadOffset(id) + 1,
+    state: 'finished',
+    ending: { how: 'stopped', at: new Date().toISOString(), errorLines: [] },
+  })
+}
 function killForMemory(id = 'lead', lowestMemory = 0.04): void {
   store.recordRunOutput(id, {
     toOffset: store.runReadOffset(id) + 1,
@@ -609,6 +616,72 @@ test('an Agent switch keeps the old Run until the new agent is ready', async () 
   await Promise.all(work)
   expect(stopped).toEqual(['lead'])
   expect(store.runPrompt('fresh-0')).toContain('Keep me')
+  lifecycle.close()
+})
+
+test('a replacement held after the old Run stopped starts later with its pick-up note and unread messages', async () => {
+  startLead()
+  store.recordRunOutput('lead', { toOffset: 1, state: 'idle' })
+  store.setTaskLead(taskId, { agent: 'claude' })
+  store.queueRunMessage({ runId: 'lead', text: 'Keep me' })
+  let ready = true
+  const { lifecycle, runs, starts, stopped, work } = harness({
+    health: { ready: async () => ready, check: async () => [], limited: () => {} },
+  })
+  runs.stop = async (id) => {
+    stopped.push(id)
+    stopLead(id)
+    ready = false
+  }
+  advance(1000)
+  await lifecycle.restartNow(taskId)
+  await Promise.all(work)
+  expect(stopped).toEqual(['lead'])
+  expect(starts).toEqual([])
+  expect(store.heldRuns()).toMatchObject([
+    { taskId, agent: 'claude', pickUp: expect.stringContaining('Switched from codex to claude') },
+  ])
+  expect(store.runMessages('lead').filter((m) => m.queued)).toHaveLength(1)
+
+  store.setTaskLead(taskId, { agent: 'codex' })
+  ready = true
+  await lifecycle.resume(taskId)
+  await Promise.all(work)
+  expect(store.getRun('fresh-0')).toMatchObject({ agent: 'codex' })
+  expect(store.runPrompt('fresh-0')).toContain('Switched from codex to claude')
+  expect(store.runPrompt('fresh-0')).toContain('Keep me')
+  expect(store.runMessages('lead').filter((m) => m.queued)).toEqual([])
+  expect(store.heldRuns()).toEqual([])
+  lifecycle.close()
+})
+
+test('Restart from the brief queues a fresh Run when the launch fails after the old Run stopped', async () => {
+  startLead()
+  store.recordRunOutput('lead', { toOffset: 1, state: 'idle' })
+  let woken = 0
+  const asked: string[] = []
+  const { lifecycle, runs, stopped, work } = harness({ wake: () => woken++ })
+  runs.stop = async (id) => {
+    stopped.push(id)
+    stopLead(id)
+  }
+  runs.start = async () => {
+    throw new Error('The Run host did not start')
+  }
+  const failed = { askAgain: () => asked.push('asked'), waitsForBlockers: () => false }
+  await expect(
+    lifecycle.restartFromBrief(
+      taskId,
+      async () => 'Picking up after getting stuck',
+      () => {},
+      failed,
+    ),
+  ).rejects.toThrow('The Run host did not start')
+  await Promise.all(work)
+  expect(stopped).toEqual(['lead'])
+  expect(asked).toEqual([])
+  expect(store.queue().map((q) => q.id)).toContain(taskId)
+  expect(woken).toBeGreaterThan(0)
   lifecycle.close()
 })
 
