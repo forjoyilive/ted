@@ -19,9 +19,9 @@ export {
   type BootedSimulator,
   type DevicePlatform,
   devicePlatform,
+  deviceSlotLimits,
+  devicesLine,
   deviceWords,
-  emulatorSlotLimits,
-  emulatorsLine,
   isDeviceApp,
   isEmulatorApp,
   isLoopbackUrl,
@@ -30,8 +30,6 @@ export {
   type SimulatorAsk,
   type SimulatorSlots,
   type StartAppRequest,
-  simulatorSlotLimits,
-  simulatorsLine,
   type TaskApp,
 } from './app.ts'
 export {

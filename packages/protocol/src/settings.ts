@@ -99,8 +99,8 @@ export interface MachineSettings {
   reviewUnvettedTasks: boolean
   maxWorkingRuns: number
   waitWhenBusy: boolean
-  maxBootedSimulators: number
-  maxRunningEmulators: number
+  maxRunningDevices: number
+  buildDeviceAppsOneAtATime: boolean
   runOutputDays: number
   deleteArchivedAfterDays: number | null
   deleteArchivedChatsAfterDays: number | null
@@ -163,8 +163,8 @@ export const defaultMachineSettings: MachineSettings = {
   reviewUnvettedTasks: true,
   maxWorkingRuns: 6,
   waitWhenBusy: true,
-  maxBootedSimulators: 3,
-  maxRunningEmulators: 2,
+  maxRunningDevices: 2,
+  buildDeviceAppsOneAtATime: true,
   runOutputDays: 7,
   deleteArchivedAfterDays: null,
   deleteArchivedChatsAfterDays: null,

@@ -7,7 +7,7 @@ import type {
   ListFilters,
   Task,
 } from '@ted/protocol'
-import { emulatorsLine, simulatorsLine } from '@ted/protocol/app'
+import { devicesLine } from '@ted/protocol/app'
 import { runsPaused } from '@ted/protocol/health'
 import { allTasksScope } from '@ted/protocol/list-view'
 import { agentKinds } from '@ted/protocol/run'
@@ -267,9 +267,9 @@ export function App({ start }: { start?: AppStart | undefined }) {
   const slots = useSlots()
   const drift = useDrift()
   const simulators = useSimulators()
-  const simulatorsFooter = simulators && simulatorsLine(simulators)
   const emulators = useEmulators()
-  const emulatorsFooter = emulators && emulatorsLine(emulators)
+  const deviceSlots = simulators?.supported === true ? simulators : emulators
+  const devicesFooter = deviceSlots && devicesLine(deviceSlots)
   const [runsOpen, setRunsOpen] = useState(false)
   const [usageOpen, setUsageOpen] = useState(false)
   const closeUsage = useCallback(() => setUsageOpen(false), [])
@@ -1354,8 +1354,7 @@ export function App({ start }: { start?: AppStart | undefined }) {
           settingsProblem={settingsStopsWork(banners)}
           footer={{
             ...(slots !== undefined && { runs: runsLine(slots) }),
-            ...(simulatorsFooter !== undefined && { simulators: simulatorsFooter }),
-            ...(emulatorsFooter !== undefined && { emulators: emulatorsFooter }),
+            ...(devicesFooter !== undefined && { devices: devicesFooter }),
             ...(failedTasks.length > 0 && { failed: `${failedTasks.length} failed` }),
             ...pausedFooter(agentHealth),
             ...(settings?.overnightMode && { overnight: 'Autopilot is on' }),

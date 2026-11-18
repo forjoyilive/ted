@@ -12,6 +12,7 @@ import {
   parseWmSize,
   screenBounds,
 } from '../src/apps/android-screen.ts'
+import { createDevicePool } from '../src/apps/device-pool.ts'
 import { type AndroidResult, type AndroidTools, createEmulators } from '../src/apps/emulators.ts'
 import type { TedStore } from '../src/store/index.ts'
 
@@ -73,7 +74,7 @@ function fakeTools(answers: { avdName: AndroidResult; delete: () => AndroidResul
 
 function emulators(tools: AndroidTools) {
   const store: Pick<TedStore, 'settings' | 'getTask'> = {
-    settings: () => ({ ...defaultMachineSettings, maxRunningEmulators: 2 }),
+    settings: () => defaultMachineSettings,
     getTask: () => undefined,
   }
   return createEmulators({
@@ -81,6 +82,7 @@ function emulators(tools: AndroidTools) {
     store: store as TedStore,
     tools,
     supported: true,
+    pool: createDevicePool({ limit: () => 2, oneAtATime: () => false }),
     emit() {},
     appLive: async () => false,
     stopApp: async () => {},

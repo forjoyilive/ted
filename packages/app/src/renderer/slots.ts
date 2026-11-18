@@ -49,15 +49,12 @@ export function nowLine(
   simulators?: SimulatorSlots,
   emulators?: SimulatorSlots,
 ): string {
-  const booted =
-    simulators?.supported === true
-      ? ` · ${simulators.booted.length} of ${simulators.limit} simulator${simulators.limit === 1 ? '' : 's'} booted`
-      : ''
+  const devices = simulators?.supported === true ? simulators : emulators
   const running =
-    emulators?.supported === true
-      ? ` · ${emulators.booted.length} of ${emulators.limit} emulator${emulators.limit === 1 ? '' : 's'} running`
+    devices?.supported === true
+      ? ` · ${devices.booted.length} of ${devices.limit} simulators and emulators running`
       : ''
-  return `Now: ${counts(slots)}${booted}${running}`
+  return `Now: ${counts(slots)}${running}`
 }
 
 export function factoryCapLine(slots: RunSlots | undefined, factoryId: string): string | undefined {

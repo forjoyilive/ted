@@ -21,6 +21,7 @@ import {
   parseWmSize,
   screenBounds,
 } from './android-screen.ts'
+import type { DevicePool } from './device-pool.ts'
 import {
   createDeviceSlots,
   type DeviceDriver,
@@ -201,6 +202,7 @@ export function createEmulators(options: {
   banners?: Banners
   idle?: IdleTimer
   busy?: () => Promise<boolean>
+  pool: DevicePool
   emit(event: DaemonEvent): void
   appLive(taskId: string, repo: string, name: string): Promise<boolean>
   stopApp(taskId: string, repo: string, name: string): Promise<void>
@@ -447,7 +449,6 @@ export function createEmulators(options: {
 
   const driver: DeviceDriver<DeviceRecord> = {
     words: { noun: 'emulator', article: 'an', live: 'running', platform: 'android' },
-    limit: () => store.settings().maxRunningEmulators,
     event: (emulators) => ({ type: 'emulators-changed', emulators }),
     slotId: (record) => record.serial,
     isLive: isRunning,
@@ -485,6 +486,7 @@ export function createEmulators(options: {
     store,
     supported,
     driver,
+    pool: options.pool,
     ...(options.idle !== undefined && { idle: options.idle }),
     ...(options.busy !== undefined && { busy: options.busy }),
     emit: options.emit,

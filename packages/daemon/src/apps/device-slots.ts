@@ -13,6 +13,7 @@ import type {
 import { RequestError } from '../errors.ts'
 import type { IdleTimer } from '../idle.ts'
 import type { TedStore } from '../store/index.ts'
+import type { DevicePool, PoolMember, TurnHolder } from './device-pool.ts'
 
 export interface SimulatorApp {
   taskId: string
@@ -63,7 +64,6 @@ export interface DeviceShutDown {
 
 export interface DeviceDriver<R extends SlotRecord> {
   readonly words: DeviceWords
-  limit(): number
   event(slots: SimulatorSlots): DaemonEvent
   slotId(record: R): string | undefined
   isLive(record: R): boolean
@@ -112,7 +112,7 @@ export interface DeviceSlots<R extends SlotRecord> {
   close(): Promise<void>
 }
 
-const lineTicket = 'line:'
+export const lineTicket = 'line:'
 
 export const slug = (name: string) =>
   name
@@ -125,6 +125,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
   store: DeviceSlotsStore
   supported: boolean
   driver: DeviceDriver<R>
+  pool: DevicePool
   idle?: IdleTimer
   emit(event: DaemonEvent): void
   appLive(taskId: string, repo: string, name: string): Promise<boolean>
@@ -133,17 +134,17 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
   idleMs?: number
   busy?: () => Promise<boolean>
 }): DeviceSlots<R> {
-  const { dir, store, supported, driver } = options
+  const { dir, store, supported, driver, pool } = options
   const { noun, article, live } = driver.words
   const pollMs = options.pollMs ?? 3_000
   const idleMs = options.idleMs ?? 30 * 60_000
   const file = path.join(dir, 'devices.json')
   const records = new Map<string, R>(Object.entries(readRecords<R>(file)))
-  let queue: Promise<unknown> = Promise.resolve()
   let releaseIdle: (() => void) | undefined
   let closed = false
   let refreshing: Promise<void> | undefined
-  const line: string[] = []
+  const line = pool.line
+  const humanTickets = new Set<string>()
   const saving = new Set<Promise<void>>()
 
   const keyOf = (taskId: string, repo: string, name: string) => `${taskId}/${repo}/${slug(name)}`
@@ -151,15 +152,16 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
     records.get(keyOf(taskId, repo, name))
   const isLive = (record: R) => driver.isLive(record)
   const liveRecords = () => [...records.values()].filter(isLive)
-  const liveCount = () => liveRecords().length
+  const liveCount = () => pool.liveCount()
   const ownerOf = (record: R) =>
     store.getTask(record.taskId)?.displayId ?? record.owner ?? record.taskId
 
-  function serial<T>(work: () => Promise<T>): Promise<T> {
-    const next = queue.catch(() => undefined).then(work)
-    queue = next
-    return next
-  }
+  const serial = <T>(work: () => Promise<T>): Promise<T> => pool.serial(work)
+  const holderOf = (app: SimulatorApp): TurnHolder => ({
+    key: keyOf(app.taskId, app.repo, app.name),
+    displayId: app.displayId,
+    app: app.name,
+  })
 
   async function save(): Promise<void> {
     await mkdir(dir, { recursive: true, mode: 0o700 })
@@ -168,44 +170,71 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
     await rename(tmp, file)
   }
 
-  const limit = () => driver.limit()
+  const limit = () => pool.limit()
   const heldBusy = async (record: R) =>
     !isLive(record) && liveCount() > 0 && ((await options.busy?.()) ?? false)
 
+  function ownLive(): BootedSimulator[] {
+    return liveRecords().map((r) => {
+      const task = store.getTask(r.taskId)
+      return {
+        udid: driver.slotId(r) as string,
+        taskId: r.taskId,
+        displayId: task?.displayId ?? r.owner ?? r.taskId,
+        title: task?.title ?? '',
+        repo: r.repo,
+        app: r.name,
+        device: r.device,
+        lastUsedAt: r.lastUsedAt,
+        recording: driver.recording(r),
+        ...(driver.words.platform !== undefined && { platform: driver.words.platform }),
+      }
+    })
+  }
+
   function slots(): SimulatorSlots {
-    const list: BootedSimulator[] = liveRecords()
-      .map((r) => {
-        const task = store.getTask(r.taskId)
-        return {
-          udid: driver.slotId(r) as string,
-          taskId: r.taskId,
-          displayId: task?.displayId ?? r.owner ?? r.taskId,
-          title: task?.title ?? '',
-          repo: r.repo,
-          app: r.name,
-          device: r.device,
-          lastUsedAt: r.lastUsedAt,
-          recording: driver.recording(r),
-        }
-      })
-      .sort((a, b) => a.lastUsedAt.localeCompare(b.lastUsedAt))
+    const list = pool.live().sort((a, b) => a.lastUsedAt.localeCompare(b.lastUsedAt))
     return { supported, limit: limit(), booted: list }
   }
 
-  function changed(): void {
-    if (liveCount() > 0) releaseIdle ??= options.idle?.hold()
-    else {
-      releaseIdle?.()
-      releaseIdle = undefined
-    }
+  function notify(): void {
     options.emit(driver.event(slots()))
     const tasks = new Set([...records.values()].map((r) => r.taskId))
     for (const taskId of tasks) options.emit({ type: 'apps-changed', taskId })
   }
 
+  function changed(): void {
+    if (liveRecords().length > 0) releaseIdle ??= options.idle?.hold()
+    else {
+      releaseIdle?.()
+      releaseIdle = undefined
+    }
+    pool.changed()
+  }
+
   async function fresh(): Promise<void> {
     if (await driver.refreshLive([...records.values()])) changed()
   }
+
+  const recordAt = (slotId: string) => liveRecords().find((r) => driver.slotId(r) === slotId)
+
+  const member: PoolMember = {
+    live: ownLive,
+    async fresh() {
+      if (supported && !closed && records.size > 0) await fresh()
+    },
+    owns: (slotId) => recordAt(slotId) !== undefined,
+    async shutDownFor(slotId, forTask) {
+      const target = recordAt(slotId)
+      if (!target) throw new RequestError(409, `That ${noun} isn’t ${live} any more`)
+      const owner = ownerOf(target)
+      pool.endTurn(keyOf(target.taskId, target.repo, target.name))
+      await shutDown(target, { for: forTask })
+      return owner
+    },
+    notify,
+  }
+  pool.join(member)
 
   async function ensure(app: SimulatorApp): Promise<R> {
     const existing = recordOf(app.taskId, app.repo, app.name)
@@ -263,17 +292,22 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
     return record
   }
 
-  function shutDownChoice(id: string, requester: R): R {
-    const target = liveRecords().find((r) => driver.slotId(r) === id)
-    if (!target) throw new RequestError(409, `That ${noun} isn’t ${live} any more`)
-    if (driver.recording(target)) {
+  function shutDownChoice(id: string, requester: R): string {
+    const target = pool.find(id)
+    if (!target) {
+      throw new RequestError(409, 'That simulator or emulator has already shut down')
+    }
+    if (target.recording) {
+      const kind = target.platform === 'android' ? 'emulator' : 'simulator'
       throw new RequestError(
         409,
-        `${ownerOf(target)}’s ${noun} is recording, so it can’t be shut down`,
+        `${target.displayId}’s ${kind} is recording, so it can’t be shut down`,
       )
     }
-    if (target === requester) throw new RequestError(409, `Pick another ${noun} to shut down`)
-    return target
+    if (id === driver.slotId(requester)) {
+      throw new RequestError(409, `Pick another ${noun} to shut down`)
+    }
+    return id
   }
 
   function touch(record: R): void {
@@ -298,6 +332,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
   async function refresh(): Promise<void> {
     if (!supported || closed || records.size === 0) return
     refreshing ??= serial(async () => {
+      if (closed) return
       await fresh()
       await idleCheck()
     })
@@ -312,14 +347,20 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
     const record = recordOf(app.taskId, app.repo, app.name)
     if (!record) return { state: 'gone' }
     if (!line.includes(ticket)) line.push(ticket)
-    if (line[0] !== ticket || liveCount() >= limit()) return { state: 'pending' }
+    const blocked = () =>
+      (!isLive(record) && (line[0] !== ticket || liveCount() >= limit())) ||
+      !pool.turnFree(holderOf(app).key)
+    if (blocked()) return { state: 'pending' }
     return serial(async () => {
-      await fresh()
-      if (line[0] !== ticket) return { state: 'pending' } as const
-      if (liveCount() >= limit() && !isLive(record)) return { state: 'pending' } as const
-      if (await heldBusy(record)) return { state: 'pending' } as const
+      await pool.fresh(member)
+      if (blocked()) return { state: 'pending' } as const
+      if (!humanTickets.has(ticket) && (await heldBusy(record))) {
+        return { state: 'pending' } as const
+      }
+      pool.takeTurn(holderOf(app))
       if (!isLive(record)) await boot(record)
-      line.shift()
+      line.splice(line.indexOf(ticket), 1)
+      humanTickets.delete(ticket)
       return { state: 'granted', udid: driver.slotId(record) as string } as const
     })
   }
@@ -334,35 +375,37 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
     return serial(async () => {
       await driver.check(app.factoryId)
       const record = await ensure(app)
-      await fresh()
+      await pool.fresh(member)
+      const queued = () => {
+        const ticket = `${lineTicket}${randomUUID()}`
+        line.push(ticket)
+        if (by === 'human') humanTickets.add(ticket)
+        return { waiting: ticket }
+      }
+      const turn = () => pool.startTurn(holderOf(app))
       if (isLive(record)) {
+        if (!pool.takeTurn(holderOf(app))) return queued()
         touch(record)
         return granted(record)
       }
       if (liveCount() < limit()) {
-        if (by !== 'human' && (await heldBusy(record))) {
-          const ticket = `${lineTicket}${randomUUID()}`
-          line.push(ticket)
-          return { waiting: ticket }
-        }
+        if (by !== 'human' && (await heldBusy(record))) return queued()
+        if (!turn()) return queued()
         await boot(record)
         return granted(record)
       }
-      if (by === 'automation') {
-        const ticket = `${lineTicket}${randomUUID()}`
-        line.push(ticket)
-        return { waiting: ticket }
-      }
+      if (by === 'automation') return queued()
       if (by === 'human' || runId === undefined) {
         if (chosen === undefined) {
           throw new RequestError(
             409,
             limit() === 1
-              ? `The only ${noun} slot is taken. Choose ${article} ${noun} to shut down, then run ${app.name} again.`
-              : `All ${limit()} ${noun}s are ${live}. Choose one to shut down, then run ${app.name} again.`,
+              ? `The only simulator or emulator slot is taken. Choose one to shut down, then run ${app.name} again.`
+              : `All ${limit()} simulators and emulators are running. Choose one to shut down, then run ${app.name} again.`,
           )
         }
-        await shutDown(shutDownChoice(chosen, record), { for: app.displayId })
+        await pool.shutDownFor(shutDownChoice(chosen, record), app.displayId)
+        if (!turn()) return queued()
         await boot(record)
         return granted(record)
       }
@@ -378,10 +421,10 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
       const comment = store.requestSimulator({
         taskId: app.taskId,
         runId,
-        title: `${app.name} needs ${article} ${noun} · ${ask.booted.length} of ${ask.limit} ${live}`,
+        title: `${app.name} needs ${article} ${noun} · ${ask.booted.length} of ${ask.limit} running`,
         body: [
           reason?.trim() ?? '',
-          `Pick one to shut down, or deny and ${who} carries on without ${app.name}.`,
+          `Pick a simulator or emulator to shut down, or deny and ${who} carries on without ${app.name}.`,
         ]
           .filter((text) => text !== '')
           .join(' '),
@@ -400,21 +443,23 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
     if (answer) {
       const id = driver.slotId(record)
       if (id === undefined) return { state: 'gone' }
-      if (answer.kind === 'approved') return { state: 'granted', udid: id }
-      if (answer.kind === 'withdrawn' && 'slotFreed' in answer) {
-        return { state: 'granted', udid: id }
+      const freed =
+        answer.kind === 'approved' || (answer.kind === 'withdrawn' && 'slotFreed' in answer)
+      if (freed) {
+        return pool.takeTurn(holderOf(app)) ? { state: 'granted', udid: id } : { state: 'pending' }
       }
       if (answer.kind === 'denied') {
         return { state: 'denied', ...(answer.text !== undefined && { text: answer.text }) }
       }
       return { state: 'gone' }
     }
-    if (liveCount() >= limit()) return { state: 'pending' }
+    if (liveCount() >= limit() || !pool.turnFree(holderOf(app).key)) return { state: 'pending' }
     return serial(async () => {
       if (store.getComment(commentId)?.answer) return { state: 'pending' } as const
-      await fresh()
+      await pool.fresh(member)
       if (liveCount() >= limit() && !isLive(record)) return { state: 'pending' } as const
       if (await heldBusy(record)) return { state: 'pending' } as const
+      if (!pool.takeTurn(holderOf(app))) return { state: 'pending' } as const
       if (!isLive(record)) await boot(record)
       store.answerPermission(commentId, {
         kind: 'withdrawn',
@@ -429,6 +474,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
     if (commentId.startsWith(lineTicket)) {
       const at = line.indexOf(commentId)
       if (at !== -1) line.splice(at, 1)
+      humanTickets.delete(commentId)
       return
     }
     if (store.getComment(commentId)?.answer) return
@@ -456,7 +502,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
         },
         async hasRoom() {
           const record = requester()
-          await fresh()
+          await pool.fresh(member)
           return isLive(record) || liveCount() < limit()
         },
         async boot() {
@@ -465,11 +511,8 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
         },
         async shutDown(id) {
           const record = requester()
-          const target = shutDownChoice(id, record)
-          const owner = ownerOf(target)
           const forTask = store.getTask(comment.taskId)?.displayId ?? comment.taskId
-          await shutDown(target, { for: forTask })
-          return owner
+          return pool.shutDownFor(shutDownChoice(id, record), forTask)
         },
       })
     })
@@ -516,6 +559,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
     async close() {
       closed = true
       if (timer) clearInterval(timer)
+      await serial(async () => undefined)
       await driver.close?.()
       await Promise.all(saving)
       releaseIdle?.()
