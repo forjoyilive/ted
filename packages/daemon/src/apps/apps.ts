@@ -971,6 +971,7 @@ export function createApps(options: AppsOptions): Apps {
       return end('stopped')
     }
     const { task, repo, app } = found
+    if (closed) return 'waiting'
     if (store.newWorkHold() !== undefined) {
       devicesFor(app.kind).list(instance.waitingFor, simApp(taskId, task, repo.name, app))
       return 'waiting'
@@ -1021,7 +1022,7 @@ export function createApps(options: AppsOptions): Apps {
       })
     } finally {
       marked?.unmark()
-      pool.endTurn(key)
+      if (!closed) pool.endTurn(key)
       readyFrom.delete(key)
     }
   }
