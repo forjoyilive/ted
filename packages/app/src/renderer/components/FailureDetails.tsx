@@ -3,6 +3,7 @@ import { ciFailureLabel, validationExecution } from '@ted/protocol/failures'
 import { shortReference } from '@ted/protocol/reference'
 import { useState } from 'react'
 import { useCheckRuns, useFailures, useTasks, useValidationObligations } from '../data.ts'
+import { useStages } from '../stages.tsx'
 import { CheckOutputDialog } from './CheckOutputDialog.tsx'
 import { ChecksRow } from './ChecksRow.tsx'
 import styles from './RequestCard.module.css'
@@ -94,6 +95,9 @@ export function FailureDetails({
         <>
           <h3 className={styles.sectionHeading}>Recommendation</h3>
           <p className={styles.sectionBody}>{assessment.recommendation}</p>
+          {assessment.repairTask && !decision?.repairTask && (
+            <NamedRepair id={assessment.repairTask} onOpenTask={onOpenTask} />
+          )}
         </>
       )}
       {decision?.repairTask && (
@@ -145,6 +149,32 @@ export function FailureDetails({
           : 'Accepting covers only this failure. It doesn’t count as passed or approve a merge.'}
       </p>
     </section>
+  )
+}
+
+function NamedRepair({
+  id,
+  onOpenTask,
+}: {
+  id: string
+  onOpenTask?: ((id: string) => void) | undefined
+}) {
+  const stages = useStages()
+  const repair = useTasks().find((t) => t.id === id)
+  if (!repair) return null
+  const state = repair.archived ? 'Archived' : stages.name(repair.stage, repair.factoryId)
+  return (
+    <p className={styles.sectionBody}>
+      Repair:{' '}
+      {onOpenTask ? (
+        <button type="button" className={styles.showRequest} onClick={() => onOpenTask(id)}>
+          {repair.displayId} · {repair.title}
+        </button>
+      ) : (
+        `${repair.displayId} · ${repair.title}`
+      )}{' '}
+      · {state}
+    </p>
   )
 }
 

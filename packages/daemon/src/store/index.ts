@@ -96,6 +96,7 @@ import {
   type MachineSettings,
   type MemoryKillAsk,
   type MergeMethod,
+  namedRepairChoice,
   noBacklogStarts,
   type PermissionMode,
   type Priority,
@@ -4112,7 +4113,11 @@ export async function openStore({
           id: request.requestId,
           answer: JSON.stringify({
             kind: 'answered',
-            choice: 'Wait for a repair Task',
+            choice:
+              failure.decisions.find((d) => d.commentId === request.requestId)?.repairTask?.id ===
+                repair.id && request.repair?.kind === 'existing'
+                ? namedRepairChoice(repair.displayId)
+                : failureChoices.repair,
             text: [`Waiting for ${repair.displayId}: ${repair.title}`, request.reason]
               .filter(Boolean)
               .join('\n\n'),
@@ -4209,6 +4214,22 @@ export async function openStore({
       const at = new Date().toISOString()
       const assessment = value.assessments.at(-1)
       if (!assessment) throw new Error('a failure decision needs an assessment')
+      const stage = taskRow(value.taskId)?.stage ?? ''
+      const repairOffered = validates(stage) || mergesHere(stage)
+      const namedRow = assessment.repairTask ? taskRow(assessment.repairTask) : undefined
+      const named =
+        repairOffered &&
+        namedRow &&
+        namedRow.factoryId === taskRow(value.taskId)?.factoryId &&
+        namedRow.archivedAt === null &&
+        namedRow.stage !== 'done'
+          ? toTask(namedRow)
+          : undefined
+      const repairTask = named && {
+        id: named.id,
+        displayId: named.displayId,
+        title: named.title,
+      }
       const { id, event, attached } = commentPosted(
         {
           taskId: value.taskId,
@@ -4222,16 +4243,18 @@ export async function openStore({
             ...(value.validation && closable
               ? [failureChoices.fixed, failureChoices['no-longer-applicable']]
               : []),
-          ].filter(
-            (choice) =>
-              (canAccept || choice !== failureChoices.accepted) &&
-              (!value.validation ||
-                !handsOff(taskRow(value.taskId)?.stage ?? '') ||
-                choice === failureChoices.accepted) &&
-              (choice !== 'Wait for a repair Task' ||
-                validates(taskRow(value.taskId)?.stage ?? '') ||
-                mergesHere(taskRow(value.taskId)?.stage ?? '')),
-          ),
+          ]
+            .filter(
+              (choice) =>
+                (canAccept || choice !== failureChoices.accepted) &&
+                (!value.validation || !handsOff(stage) || choice === failureChoices.accepted) &&
+                (choice !== failureChoices.repair || repairOffered),
+            )
+            .flatMap((choice) =>
+              choice === failureChoices.repair && repairTask
+                ? [namedRepairChoice(repairTask.displayId), choice]
+                : [choice],
+            ),
           purpose: { kind: 'failure' },
           author: { kind: 'ted' },
         },
@@ -4246,6 +4269,7 @@ export async function openStore({
             commentId: id,
             assessmentId: assessment.id,
             ...(assessment.contextId && { contextId: assessment.contextId }),
+            ...(repairTask && { repairTask }),
           },
         ],
       }

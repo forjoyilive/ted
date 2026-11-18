@@ -98,9 +98,11 @@ export function parseAssessFailureRequest(value: Untyped): AssessFailureRequest 
     ['regression', 'unrelated', 'uncertain'],
     'unknown failure assessment',
   )
+  const repairTask = read.optional(body, 'repairTask', failureString)
   const input: AssessFailureRequest = {
     assessment,
     recommendation: failureString(body, 'recommendation'),
+    ...(repairTask !== undefined && { repairTask }),
   }
   return input
 }

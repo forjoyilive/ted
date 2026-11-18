@@ -47,6 +47,7 @@ beforeEach(async () => {
     holding: async (_task, work) => work(),
     holdingSignoff: async (_task, work) => work(),
     failures: { findDecision: () => undefined, resolve: unexpected },
+    waitForRepair: unexpected,
     humanComment: unexpected,
     answerRunPermission: unexpected,
     withSimulatorRequest: async (_comment, work) =>

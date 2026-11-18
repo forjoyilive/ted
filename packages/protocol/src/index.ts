@@ -633,6 +633,7 @@ export type * from './failures.ts'
 export {
   ciFailureLabel,
   failureChoices,
+  namedRepairChoice,
   validateFailureChoices,
   validationExecution,
 } from './failures.ts'

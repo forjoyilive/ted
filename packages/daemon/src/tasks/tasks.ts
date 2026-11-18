@@ -6672,6 +6672,10 @@ export function createTasks(options: {
         find,
         holding,
         failures: { findDecision: failures.findDecision, resolve: validation.resolve },
+        waitForRepair: async (taskId, failureId, input) => {
+          await untilChecksReported(taskId)
+          return holdingSignoff(find(taskId), () => waitForRepair(find(taskId), failureId, input))
+        },
         holdingSignoff,
         humanComment,
         answerRunPermission: (runId, generation, reply) =>
