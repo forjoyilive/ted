@@ -448,7 +448,13 @@ describe('iOS simulator Apps', () => {
         (await apps(client, builder)).find((a) => a.name === 'Watch' && a.simulator?.booted),
       'NB-2’s Watch to boot and take the build turn',
     )
-    const second = await taskWithWorktree(client, runAppTitle)
+    const said = path.join(scratch, 'run-app.err')
+    const second = await taskWithWorktree(
+      client,
+      JSON.stringify({
+        steps: [{ run: ['sh', '-c', `ted run-app iPhone 2> '${said}'`] }, { endTurn: true }],
+      }),
+    )
     const request = await simulatorRequest(client, second)
     const nb1 = request.simulator?.booted.find((b) => b.displayId === 'NB-1')
 
@@ -467,12 +473,18 @@ describe('iOS simulator Apps', () => {
       waitingOn: { displayId: 'NB-2', app: 'Watch' },
     })
 
+    const building = 'Waiting for NB-2’s Watch to finish building…'
+    await waitUntil(
+      async () => (await readFile(said, 'utf8').catch(() => '')).includes(building),
+      'ted run-app to say whose build it waits for',
+    )
     await client.ok('POST', `/tasks/${builder.id}/apps/stop`, { name: 'Watch' })
     const result = await leadResult(client, second)
     expect(result.code).toBe(0)
-    expect(result.stderr.split('\n').filter((l) => l.includes('Waiting for'))).toEqual([
+    const lines = (await readFile(said, 'utf8')).split('\n')
+    expect(lines.filter((l) => l.includes('Waiting for'))).toEqual([
       'Every simulator and emulator slot is taken, so Ted asked the human which one to shut down. Waiting for an answer…',
-      'Waiting for NB-2’s Watch to finish building…',
+      building,
     ])
   })
 
