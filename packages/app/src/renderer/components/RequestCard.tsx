@@ -11,6 +11,7 @@ import type {
 } from '@ted/protocol'
 import { failureChoices, validateFailureChoices } from '@ted/protocol/failures'
 import {
+  answerKind,
   archiveChoice,
   isTrackerGroupAsk,
   keepArchiveChoice,
@@ -861,6 +862,8 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
   const needsReason = selectedChoice !== undefined && reasonChoices.includes(selectedChoice)
   const repairing = questionChoices && selectedChoice === 'Wait for a repair Task'
   const failure = isFailure(request)
+  const kind = answerKind(request)
+  const textRefused = kind === 'choice-only' && typed
   const failureChoice = failure && questionChoices
   const boxLabel = !failureChoice
     ? undefined
@@ -876,7 +879,7 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
       (several
         ? !other || typed
         : selectedChoice !== undefined
-          ? !needsReason || typed
+          ? !textRefused && (!needsReason || typed)
           : other && typed)
     : typed
 
@@ -934,7 +937,7 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
           multiple={several}
           selection={selection}
           onSelect={setSelection}
-          allowOther={!isTrackerGroupAsk(request)}
+          allowOther={kind === 'open'}
           disabled={sending}
           {...(failure && failureWords)}
         />
@@ -960,13 +963,15 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
                   ? 'Comment, or say why you’re denying…'
                   : request.design || request.gate
                     ? 'Comment, or say what to change…'
-                    : questionChoices
-                      ? other
-                        ? failure
-                          ? 'Ask a question or add context…'
-                          : 'Your answer…'
-                        : 'Add to this answer…'
-                      : 'Comment to the Task Lead…'
+                    : kind === 'choice-only'
+                      ? 'Comment…'
+                      : questionChoices
+                        ? other
+                          ? failure
+                            ? 'Ask a question or add context…'
+                            : 'Your answer…'
+                          : 'Add to this answer…'
+                        : 'Comment to the Task Lead…'
           }
           value={text}
           disabled={sending}
@@ -980,6 +985,11 @@ function QuestionAnswer({ request, task, onOpenRun, lead }: AnswerProps) {
               : sendOnEnter(pressEnter, () => true)(event)
           }
         />
+      )}
+      {textRefused && (
+        <p className={styles.caption}>
+          This question takes only its buttons. Send the text with Comment without answering.
+        </p>
       )}
       {needsReason && (
         <p className={styles.caption}>A reason is required. Confirming closes this failure.</p>
@@ -1401,7 +1411,7 @@ export function RequestCard({
           choices={request.choices ?? []}
           selection={undefined}
           onSelect={() => {}}
-          allowOther={!isTrackerGroupAsk(request)}
+          allowOther={answerKind(request) === 'open'}
           disabled
           {...(failure && failureWords)}
         />
