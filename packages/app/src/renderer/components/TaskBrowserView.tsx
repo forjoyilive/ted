@@ -9,7 +9,7 @@ import {
   previewSizeValue,
 } from '@ted/protocol/preview-size'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useConnection, useTaskApps } from '../data.ts'
+import { useBrowserHistory, useConnection, useTaskApps } from '../data.ts'
 import { previewFrame } from '../preview-frame.ts'
 import { readableError, ted } from '../ted.ts'
 import type { ShownApp } from './AppsSection.tsx'
@@ -64,6 +64,12 @@ export function TaskBrowserView({
   const [retryOpen, setRetryOpen] = useState(0)
   const [blocked, setBlocked] = useState(0)
   const [history, setHistory] = useState({ back: false, forward: false })
+  const navigations = useRef(0)
+  useBrowserHistory(task.id, (event) => {
+    if (event.app.repo !== shown.repo || event.app.name !== shown.name) return
+    navigations.current++
+    setHistory({ back: event.canGoBack, forward: event.canGoForward })
+  })
   const [confirming, setConfirming] = useState<TaskApp>()
   const running = app?.state === 'running'
   const idle = running ? undefined : idleText(app)
@@ -93,6 +99,7 @@ export function TaskBrowserView({
     note.current = undefined
     setCommand(request.action)
     setBusy(true)
+    const navigated = navigations.current
     try {
       const result = await ted.browserCommand(task.id, {
         ...request,
@@ -100,9 +107,12 @@ export function TaskBrowserView({
       })
       if (result.attachment) setCapture(result.attachment)
       if (result.url) setAddress(result.url)
-      if (result.canGoBack !== undefined && result.canGoForward !== undefined)
-        setHistory({ back: result.canGoBack, forward: result.canGoForward })
-      else void readHistory()
+      // A navigation event can arrive before the command’s reply, which goes through the daemon.
+      if (navigations.current === navigated) {
+        if (result.canGoBack !== undefined && result.canGoForward !== undefined)
+          setHistory({ back: result.canGoBack, forward: result.canGoForward })
+        else void readHistory()
+      }
       setStatus(
         result.attachment ? 'Screenshot saved to Task attachments' : (result.text ?? 'Ready'),
       )

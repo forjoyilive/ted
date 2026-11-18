@@ -1221,12 +1221,21 @@ async function start(): Promise<void> {
   taskBrowsers = createTaskBrowsers(
     () => window,
     () => supervised.client,
-    (taskId, app) => {
-      sendToRenderer({
-        type: 'browser-open',
-        taskId,
-        app: { repo: app.repo, name: app.name, browser: true },
-      })
+    (notice) => {
+      if (notice.type === 'select')
+        sendToRenderer({
+          type: 'browser-open',
+          taskId: notice.taskId,
+          app: { repo: notice.app.repo, name: notice.app.name, browser: true },
+        })
+      else
+        sendToRenderer({
+          type: 'browser-history',
+          taskId: notice.taskId,
+          app: { repo: notice.app.repo, name: notice.app.name },
+          canGoBack: notice.canGoBack,
+          canGoForward: notice.canGoForward,
+        })
     },
     { session, WebContentsView },
     {},

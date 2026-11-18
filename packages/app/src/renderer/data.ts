@@ -221,6 +221,21 @@ export function useBrowserOpen(
   )
 }
 
+export function useBrowserHistory(
+  taskId: string,
+  changed: (event: Extract<TedEvent, { type: 'browser-history' }>) => void,
+) {
+  const current = useRef(changed)
+  current.current = changed
+  useEffect(
+    () =>
+      ted.onEvent((event) => {
+        if (event.type === 'browser-history' && event.taskId === taskId) current.current(event)
+      }),
+    [taskId],
+  )
+}
+
 export function useMenuCommands(
   command: (command: import('../background.ts').MenuCommand) => void,
 ) {

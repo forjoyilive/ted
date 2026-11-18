@@ -6,4 +6,18 @@ if (typeof HTMLCanvasElement !== 'undefined') {
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(() => null)
 }
 
+// jsdom has no ResizeObserver; the sidebar's Factory list watches its size.
+// Defined, not stubbed, so vi.unstubAllGlobals() after each test keeps it.
+if (typeof HTMLElement !== 'undefined' && !('ResizeObserver' in globalThis)) {
+  Object.defineProperty(globalThis, 'ResizeObserver', {
+    configurable: true,
+    writable: true,
+    value: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  })
+}
+
 installDrawCounter()

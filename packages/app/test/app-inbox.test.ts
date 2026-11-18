@@ -376,7 +376,11 @@ describe('Full Inbox', () => {
       .poll(headlines, { timeout: 30_000 })
       .toEqual(['Site question?', 'Urgent question?', 'Low question?'])
     const weight = (text: string) =>
-      inbox.getByText(text, { exact: true }).evaluate((el) => getComputedStyle(el).fontWeight)
+      inbox
+        .getByRole('button')
+        .filter({ has: window.getByText(text, { exact: true }) })
+        .locator('[data-title]')
+        .evaluate((el) => getComputedStyle(el).fontWeight)
     expect(await weight('Low question?')).toBe('600')
 
     const chip = (name: string) => inbox.getByRole('button', { name, exact: true })

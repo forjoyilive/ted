@@ -371,7 +371,9 @@ export function Inbox({
       const { request, task } = item
       const where = [
         task.displayId,
-        task.title,
+        <span key="headline" data-headline>
+          {headline(request)}
+        </span>,
         stages.name(request.stage ?? task.stage, task.factoryId),
         ...factoryPart(task.factoryId),
       ]
@@ -385,7 +387,7 @@ export function Inbox({
           aria-current={request.id === selected ? 'true' : undefined}
           {...requestMenu(
             request.id,
-            `${task.displayId} · ${headline(request)}`,
+            `${task.displayId} · ${task.title}`,
             request.body || request.title || '',
             taskActions(task),
           )}
@@ -400,10 +402,10 @@ export function Inbox({
             <span className={ageClass}>{age(request.answer?.at ?? request.createdAt, now)}</span>
           </span>
           <span
-            data-headline
+            data-title
             className={unread ? `${styles.headline} ${styles.unread}` : styles.headline}
           >
-            {headline(request)}
+            {task.title}
           </span>
           <span className={styles.where}>{joined(where)}</span>
           {until(row.request.id)}
@@ -414,7 +416,9 @@ export function Inbox({
       const confirmation = row.item
       const where = [
         confirmation.agentName,
-        confirmation.chatTitle,
+        <span key="headline" data-headline>
+          {confirmation.headline}
+        </span>,
         ...factoryPart(confirmation.factoryId),
       ]
       const kind = confirmation.requestKind
@@ -440,8 +444,8 @@ export function Inbox({
             {mark(confirmation.factoryId)}
             <span className={ageClass}>{age(confirmation.createdAt, now)}</span>
           </span>
-          <span data-headline className={`${styles.headline} ${styles.unread}`}>
-            {confirmation.headline}
+          <span data-title className={`${styles.headline} ${styles.unread}`}>
+            {confirmation.chatTitle}
           </span>
           <span className={styles.where}>{joined(where)}</span>
           {until(row.request.id)}
