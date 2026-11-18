@@ -956,14 +956,16 @@ test('a size command emulates a phone, sends clicks as taps scaled with the zoom
     method === 'Page.captureScreenshot' ? { data: Buffer.from('phone').toString('base64') } : {},
   )
   const script = contents.executeJavaScriptInIsolatedWorld.getMockImplementation()
-  contents.executeJavaScriptInIsolatedWorld.mockImplementation(async (world, scripts) =>
-    scripts[0]?.code === 'devicePixelRatio' ? 2 : script?.(world, scripts),
-  )
+  contents.executeJavaScriptInIsolatedWorld.mockImplementation(async (world, scripts) => {
+    if (scripts[0]?.code === 'devicePixelRatio') return 2
+    if (scripts[0]?.code === 'visualViewport ? visualViewport.scale : 1') return 0.5
+    return script?.(world, scripts)
+  })
   await transport.send('shot', 'one', 'screenshot')
   await vi.waitFor(() => expect(upload).toHaveBeenCalledOnce())
   expect(Buffer.from(upload.mock.calls[0]?.[2] ?? []).toString()).toBe('phone')
   expect(sent('Page.captureScreenshot')).toEqual([
-    { format: 'png', clip: { x: 0, y: 0, width: 390, height: 844, scale: 0.5 } },
+    { format: 'png', clip: { x: 0, y: 0, width: 780, height: 1688, scale: 0.25 } },
   ])
   expect(contents.capturePage).toHaveBeenCalledWith(undefined, {
     stayHidden: true,
