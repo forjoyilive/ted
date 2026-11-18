@@ -198,3 +198,54 @@ test('a Cleanup with only commands runs the unfinished ones again after a stop, 
   await client.ok('POST', `/tasks/${task.id}/delete`, {})
   await expect(readdir(logs)).rejects.toMatchObject({ code: 'ENOENT' })
 })
+
+test('a Task entering Cleanup while the computer is busy gets its Task Lead turn, while a new Task stays held', async () => {
+  let ratio = 0
+  const client = await start({
+    workflow: [
+      'stages:',
+      '  cleanup:',
+      '    enabled: true',
+      '    steps:',
+      '      - name: Post note',
+      '        instruction: |',
+      `          ${leadRuns("ted cleanup report 'Post note' done 'Posted' && ted outcome advance")}`,
+    ],
+    daemon: { load: { ratio: () => ratio, memoryAvailable: () => 1, checkEveryMs: 50 } },
+  })
+  const { task, signoff } = await toSignoff(client)
+  const never = path.join(ctx.scratch, 'never')
+  const working = await client.ok<Task>('POST', '/tasks', {
+    title: JSON.stringify({ steps: [{ waitFor: never }, { endTurn: true }] }),
+    factory: 'NB',
+    start: true,
+  })
+  await waitUntil(
+    async () => (await getTask(client, working.id)).runs[0]?.state === 'working' || undefined,
+    'another Task Lead to hold a working-Run slot',
+  )
+  ratio = 3
+  const held = await client.ok<Task>('POST', '/tasks', {
+    title: JSON.stringify({ steps: [{ endTurn: true }] }),
+    factory: 'NB',
+    start: true,
+  })
+  await waitUntil(
+    async () => ((await getTask(client, held.id)).status?.kind === 'queued' ? true : undefined),
+    'the new Task to wait in the queue',
+  )
+  expect((await getTask(client, held.id)).status).toMatchObject({
+    kind: 'queued',
+    hold: 'computer is busy',
+  })
+
+  await approve(client, signoff)
+  await waitForStage(client, task, 'done')
+
+  expect(await lines(client, task)).toContain('Cleanup step “Post note”: done')
+  expect((await getTask(client, held.id)).status).toMatchObject({
+    kind: 'queued',
+    hold: 'computer is busy',
+  })
+  expect((await getTask(client, held.id)).runs).toEqual([])
+}, 90_000)

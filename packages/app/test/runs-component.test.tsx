@@ -160,7 +160,7 @@ test('Limits turns off waiting when busy and says when starts are held', async (
   expect(
     screen
       .getByText(
-        /^Now: 1 of \d+ slots? in use · 2 checks running, 1 waiting · 1 queued · this computer is busy$/,
+        /^Now: 1 of \d+ slots? in use · 2 checks running, 1 waiting · 1 queued · computer is busy$/,
       )
       .getAttribute('title'),
   ).toBe('Memory available: 7% · waits below 10%, starts again above 20%')

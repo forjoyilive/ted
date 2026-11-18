@@ -118,7 +118,7 @@ export type TaskStatus =
   | { kind: 'working' }
   | { kind: 'stopped'; at?: string; prepared?: true }
   | { kind: 'blocked'; by: string; ended?: BlockerEnded }
-  | { kind: 'queued'; place: number; after?: QueuedAfter }
+  | { kind: 'queued'; place: number }
   | { kind: 'queued'; hold: string; busy?: BusyHold }
   | { kind: 'waiting-for-github'; on: GitHubWait }
 

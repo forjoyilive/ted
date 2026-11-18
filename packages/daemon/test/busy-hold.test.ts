@@ -106,7 +106,7 @@ test('while this computer is busy a second Task stays queued, and starts once th
   expect(b.leadRunId).toBeUndefined()
   expect(b.status).toEqual({
     kind: 'queued',
-    hold: 'this computer is busy',
+    hold: 'computer is busy',
     busy: { loadRatio: 2 },
   })
   expect(await slotsOf(client)).toMatchObject({
@@ -132,7 +132,7 @@ test('while this computer is busy a second Task stays queued, and starts once th
   )
   expect((await getTask(client, b.id)).status).toEqual({
     kind: 'queued',
-    hold: 'this computer is busy',
+    hold: 'computer is busy',
     busy: { memoryAvailable: 0.05 },
   })
   memory = 0.15
@@ -163,7 +163,7 @@ test('a subscribed client hears slots-changed when the hold starts', async () =>
 
   const c = await startTask(client, 'C')
 
-  expect(c.status).toMatchObject({ kind: 'queued', hold: 'this computer is busy' })
+  expect(c.status).toMatchObject({ kind: 'queued', hold: 'computer is busy' })
   await waitUntil(
     () => client.events.some((e) => e.type === 'slots-changed' && e.slots.busy !== undefined),
     'slots-changed with the hold',
@@ -273,7 +273,6 @@ test('an answered Task Lead skips the busy hold but still waits for the working-
   expect((await getTask(client, lead.id)).status).toEqual({
     kind: 'queued',
     place: 1,
-    after: 'answer',
   })
   await client.ok('PATCH', '/settings', { maxWorkingRuns: 6 })
   await waitUntil(async () => {
@@ -303,7 +302,7 @@ test('turning the setting off starts what the load was holding', async () => {
   ratio = 3
   await startTask(client, workingUntil(never()))
   const b = await startTask(client, workingUntil(never()))
-  expect(b.status).toMatchObject({ kind: 'queued', hold: 'this computer is busy' })
+  expect(b.status).toMatchObject({ kind: 'queued', hold: 'computer is busy' })
 
   await client.ok('PATCH', '/settings', { waitWhenBusy: false })
 
