@@ -1,4 +1,11 @@
-import type { BusyHold, RunSlots, SimulatorSlots, Task, TaskStatus } from '@ted/protocol'
+import type {
+  BusyHold,
+  DeviceWait,
+  RunSlots,
+  SimulatorSlots,
+  Task,
+  TaskStatus,
+} from '@ted/protocol'
 import { busyHold, busyMarks, isChat } from '@ted/protocol/slots'
 import { plural } from './words.ts'
 
@@ -55,6 +62,14 @@ export function nowLine(
       ? ` · ${devices.booted.length} of ${devices.limit} simulators and emulators running`
       : ''
   return `Now: ${counts(slots)}${running}`
+}
+
+export function deviceWaitText(wait: DeviceWait, machine: string): string {
+  if (wait.kind === 'answer') return 'Waiting for your answer'
+  if (wait.kind === 'build') return `Waiting for ${wait.displayId}’s build`
+  if (wait.kind === 'device') return 'Waiting for a free device'
+  if (wait.kind === 'busy') return `Waiting while ${machine} is busy`
+  return 'Waiting for the Apps ahead'
 }
 
 export function factoryCapLine(slots: RunSlots | undefined, factoryId: string): string | undefined {

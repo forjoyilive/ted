@@ -14,6 +14,17 @@ export interface TurnHolder {
   app: string
 }
 
+export interface PoolWaiter {
+  key: string
+  taskId: string
+  displayId: string
+  repo: string
+  app: string
+  device: string
+  platform?: 'android'
+  asking: boolean
+}
+
 export interface DevicePool {
   limit(): number
   serial<T>(work: () => Promise<T>): Promise<T>
@@ -25,6 +36,9 @@ export interface DevicePool {
   shutDownFor(slotId: string, forTask: string): Promise<string>
   changed(): void
   readonly line: string[]
+  wait(id: string, waiter: PoolWaiter): void
+  unwait(id: string): void
+  waiters(): PoolWaiter[]
   takeTurn(holder: TurnHolder): boolean
   startTurn(holder: TurnHolder): boolean
   turnFree(key: string): boolean
@@ -44,12 +58,16 @@ export function createDevicePool(options: {
   const now = options.now ?? Date.now
   const members: PoolMember[] = []
   const line: string[] = []
+  const waiters = new Map<string, PoolWaiter>()
   let queue: Promise<unknown> = Promise.resolve()
   let turn: (TurnHolder & { at: number }) | undefined
 
   const live = () => members.flatMap((m) => m.live())
   const current = () => {
-    if (turn !== undefined && now() - turn.at >= turnMs) turn = undefined
+    if (turn !== undefined && now() - turn.at >= turnMs) {
+      turn = undefined
+      queueMicrotask(notifyWaiters)
+    }
     return turn
   }
   const turnFree = (key: string) => {
@@ -58,9 +76,17 @@ export function createDevicePool(options: {
     return held === undefined || held.key === key
   }
 
+  const notifyWaiters = () => {
+    if (waiters.size === 0) return
+    for (const member of members) member.notify()
+  }
+
   const takeTurn = (holder: TurnHolder) => {
     if (!turnFree(holder.key)) return false
-    if (options.oneAtATime()) turn = { ...holder, at: now() }
+    if (!options.oneAtATime()) return true
+    const changed = turn?.key !== holder.key
+    turn = { ...holder, at: now() }
+    if (changed) notifyWaiters()
     return true
   }
 
@@ -92,11 +118,23 @@ export function createDevicePool(options: {
       for (const member of members) member.notify()
     },
     line,
+    wait(id, waiter) {
+      if (waiters.get(id)?.asking === waiter.asking) return
+      waiters.set(id, waiter)
+      for (const member of members) member.notify()
+    },
+    unwait(id) {
+      if (!waiters.delete(id)) return
+      for (const member of members) member.notify()
+    },
+    waiters: () => [...waiters.values()],
     takeTurn,
     startTurn: (holder) => !options.oneAtATime() || (line.length === 0 && takeTurn(holder)),
     turnFree,
     endTurn(key) {
-      if (turn?.key === key) turn = undefined
+      if (turn?.key !== key) return
+      turn = undefined
+      notifyWaiters()
     },
     holder: () => (options.oneAtATime() ? current() : undefined),
   }

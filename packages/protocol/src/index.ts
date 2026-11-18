@@ -18,6 +18,7 @@ export {
   appStates,
   type BootedSimulator,
   type DevicePlatform,
+  type DeviceWait,
   devicePlatform,
   deviceSlotLimits,
   devicesLine,
@@ -31,6 +32,7 @@ export {
   type SimulatorSlots,
   type StartAppRequest,
   type TaskApp,
+  type WaitingDevice,
 } from './app.ts'
 export {
   type AppAuth,

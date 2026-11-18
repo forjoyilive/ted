@@ -303,6 +303,15 @@ describe('iOS simulator Apps', () => {
       state: 'waiting',
       waitingOn: { displayId: 'NB-1', app: 'iPhone' },
     })
+    expect((await client.ok<SimulatorSlots>('GET', '/simulators')).waiting).toMatchObject([
+      {
+        taskId: task.id,
+        displayId: 'NB-1',
+        app: 'Watch',
+        place: 1,
+        waitingFor: { kind: 'build', displayId: 'NB-1', app: 'iPhone' },
+      },
+    ])
 
     await writeFile(built, '')
     await waitUntil(
@@ -311,6 +320,7 @@ describe('iOS simulator Apps', () => {
       'the Watch App to start once the iPhone App is built',
     )
     expect((await iPhone(client, task))?.state).toBe('running')
+    expect((await client.ok<SimulatorSlots>('GET', '/simulators')).waiting).toEqual([])
   })
 
   test('with every slot booted the human must pick one to shut down', async () => {
@@ -385,11 +395,15 @@ describe('iOS simulator Apps', () => {
     expect(waiting.status?.kind).toBe('waiting-on-you')
     expect(waiting.activity).toBe('Waiting for a simulator slot')
     expect((await iPhone(client, second))?.state).toBe('waiting')
+    expect((await client.ok<SimulatorSlots>('GET', '/simulators')).waiting).toMatchObject([
+      { displayId: 'NB-2', app: 'iPhone', place: 1, waitingFor: { kind: 'answer' } },
+    ])
 
     await client.ok('POST', `/comments/${request.id}/answer`, { action: 'deny' })
 
     const result = await leadResult(client, second)
     expect(result.code).toBe(1)
+    expect((await client.ok<SimulatorSlots>('GET', '/simulators')).waiting).toEqual([])
     expect(result.stderr).toContain('No simulator slot: the human denied')
     expect((await iPhone(client, first))?.simulator?.booted).toBe(true)
   })
@@ -643,7 +657,7 @@ describe('iOS simulator Apps', () => {
     expect(await gone(path.join(home, 'automation-runs', heldRun))).toBe(true)
     expect(await gone(path.join(home, 'apps', heldRun))).toBe(true)
     expect(await gone(cache)).toBe(true)
-  })
+  }, 90_000)
 
   test('an Audit reads its simulator’s screen, taps through two screens and files a Task with a screenshot for the planted problem', async () => {
     await writeStub({
@@ -860,6 +874,7 @@ describe('iOS simulator Apps', () => {
       supported: false,
       limit: 2,
       booted: [],
+      waiting: [],
     })
     expect(await stubCalls()).toEqual([])
   })

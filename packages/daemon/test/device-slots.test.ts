@@ -62,6 +62,7 @@ function setup(
   const shutDowns: DeviceShutDown[] = []
   const comments = new Map<string, Comment>()
   const boots: string[] = []
+  const events: DaemonEvent[] = []
   let made = 0
   const driver: DeviceDriver<FakeRecord> = {
     words: options.android
@@ -116,7 +117,9 @@ function setup(
     supported: true,
     driver,
     pool,
-    emit: () => undefined,
+    emit: (event) => {
+      events.push(event)
+    },
     appLive: async (taskId) => options.appLive?.has(taskId) ?? false,
     stopApp: async () => undefined,
     pollMs: 60 * 60_000,
@@ -124,7 +127,7 @@ function setup(
     ...(options.busy !== undefined && { busy: async () => options.busy?.() ?? false }),
   })
   opened.push(slots)
-  return { slots, pool, live, boots, recording, stopped, shutDowns, comments }
+  return { slots, pool, live, boots, recording, stopped, shutDowns, comments, events }
 }
 
 test('a free slot boots the device and a live one is reused', async () => {
@@ -302,6 +305,56 @@ test('one App builds at a time across kinds, and the next goes when the turn end
 
   const again = await android.slots.acquire(app('t1', 'android'), 'human', {})
   expect(again).toHaveProperty('waiting')
+})
+
+test('the waiting list says what each App waits for and updates when the build turn ends', async () => {
+  const { slots, pool, events } = setup({ oneAtATime: true })
+  await slots.acquire(app('t1'), 'human', {})
+  const queued = await slots.acquire(app('t2'), 'automation', {})
+  if (!('waiting' in queued)) throw new Error('expected to wait')
+  expect(slots.slots().waiting).toMatchObject([
+    { taskId: 't2', app: 'ios', place: 1, waitingFor: { kind: 'build', displayId: 'T1' } },
+  ])
+
+  events.length = 0
+  pool.endTurn('t1/widgets/ios')
+  const sent = events.flatMap((e) => (e.type === 'simulators-changed' ? [e.simulators] : []))
+  expect(sent.at(-1)?.waiting).toMatchObject([{ taskId: 't2', waitingFor: { kind: 'device' } }])
+
+  slots.withdraw(queued.waiting)
+  expect(slots.slots().waiting).toEqual([])
+})
+
+test('a build turn that runs out updates what the waiting App waits for', async () => {
+  let now = 0
+  const pool = createDevicePool({
+    limit: () => 1,
+    oneAtATime: () => true,
+    turnMs: 60_000,
+    now: () => now,
+  })
+  const { slots, events } = setup({ pool })
+  await slots.acquire(app('t1'), 'human', {})
+  const queued = await slots.acquire(app('t2'), 'automation', {})
+  if (!('waiting' in queued)) throw new Error('expected to wait')
+
+  events.length = 0
+  now += 60_000
+  expect(await slots.wait(queued.waiting, app('t2'))).toEqual({ state: 'pending' })
+  await Promise.resolve()
+  const sent = events.flatMap((e) => (e.type === 'simulators-changed' ? [e.simulators] : []))
+  expect(sent.at(-1)?.waiting).toMatchObject([{ taskId: 't2', waitingFor: { kind: 'device' } }])
+})
+
+test('Apps that ask the human and Apps in line are listed in the order they asked', async () => {
+  const { slots } = setup()
+  await slots.acquire(app('t1'), 'human', {})
+  await slots.acquire(app('t2'), 'task-lead', { runId: 'r2' })
+  await slots.acquire(app('t3'), 'automation', {})
+  expect(slots.slots().waiting).toMatchObject([
+    { taskId: 't2', place: 1, waitingFor: { kind: 'answer' } },
+    { taskId: 't3', place: 2, waitingFor: { kind: 'device' } },
+  ])
 })
 
 test('with one build at a time off, two Apps start together', async () => {
