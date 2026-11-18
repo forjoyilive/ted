@@ -189,6 +189,7 @@ test(
 
     await hostsStarted(ctx.home)
     await ctx.daemon?.stop()
+    ctx.daemon = undefined
     const store = await openStore({ directory: tedPaths(ctx.home).store })
     const progress = store.failures.progress(task.id)
     if (!progress) throw new Error('missing saved Check progress')
