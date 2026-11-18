@@ -384,6 +384,28 @@ describe('starting when the blocker merges', () => {
     expect(stays.markers).toEqual([])
   })
 
+  test('a removal recorded before a restart still starts the Task as removed, not merged', async () => {
+    let client = await startTed()
+    const blocker = await create(client, 'Never started')
+    const task = await create(client, steps({ endTurn: true }), {
+      start: true,
+      blockedBy: [blocker.id],
+    })
+    await daemon?.stop()
+    daemon = undefined
+    const store = await openStore({ directory: tedPaths(home).store })
+    try {
+      store.removeBlocker(task.id, blocker.id)
+      store.setBlockersRemoved(task.id, true)
+    } finally {
+      await store.close()
+    }
+
+    client = await openTed()
+    await waitFor(client, task, (t) => t.leadRunId !== undefined, 'to start after the restart')
+    expect(await startLines(client, task)).toEqual(['Started because its blockers were removed'])
+  })
+
   test('starting a blocked Backlog Task by hand waits for the blocker', async () => {
     const client = await startTed()
     const gate = path.join(scratch, 'gate')
@@ -793,6 +815,15 @@ test('parent events survive replay and keep hierarchy dependency effects separat
     store.setStartRequested(parent.id, true)
     expect(store.getTask(parent.id)).toMatchObject({ stopped: false, startRequested: true })
     expect(store.queue()).toEqual([])
+    store.setBlockersRemoved(parent.id, true)
+    await store.close()
+    store = await openStore({ directory })
+    expect(store.blockersRemoved(parent.id)).toBe(true)
+    expect(store.openBlockedTasks()).toContain(parent.id)
+    store.queueTask(parent.id, 'intake', { cause: { cause: 'blockers-removed' } })
+    expect(store.blockersRemoved(parent.id)).toBe(false)
+    expect(store.getTask(parent.id)).toMatchObject({ startRequested: false })
+    store.dequeue(parent.id)
     await store.close()
     store = await openStore({ directory })
     expect(store.getTask(child.id)).toMatchObject({ parentId: parent.id })

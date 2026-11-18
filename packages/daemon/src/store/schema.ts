@@ -107,6 +107,7 @@ export const tasks = State.SQLite.table({
     leadRestartPending: State.SQLite.boolean({ default: false }),
     startRequested: State.SQLite.boolean({ default: false }),
     waitsForBlockers: State.SQLite.boolean({ default: false }),
+    blockersRemoved: State.SQLite.boolean({ default: false }),
     stage: State.SQLite.text({ default: 'backlog' }),
     branch: State.SQLite.text({ nullable: true }),
     worktree: State.SQLite.text({ nullable: true }),
@@ -1793,6 +1794,14 @@ export const events = {
     schema: Schema.Struct({
       taskId: Schema.String,
       startRequested: Schema.Boolean,
+      at: Schema.String,
+    }),
+  }),
+  taskBlockersRemovedChanged: Events.synced({
+    name: 'v1.TaskBlockersRemovedChanged',
+    schema: Schema.Struct({
+      taskId: Schema.String,
+      removed: Schema.Boolean,
       at: Schema.String,
     }),
   }),
@@ -4871,6 +4880,8 @@ const materializers = counted(
       'v1.RequestSnoozeCleared': ({ requestId }) => requestSnoozes.delete().where({ requestId }),
       'v1.TaskStartRequestChanged': ({ taskId, startRequested }) =>
         tasks.update({ startRequested }).where({ id: taskId }),
+      'v1.TaskBlockersRemovedChanged': ({ taskId, removed }) =>
+        tasks.update({ blockersRemoved: removed }).where({ id: taskId }),
       'v1.TaskWaitingForBlockers': ({ taskId }) => [
         taskQueue.delete().where({ taskId }),
         tasks.update({ waitsForBlockers: true }).where({ id: taskId }),
@@ -5223,6 +5234,7 @@ const materializers = counted(
             leadRestartPending: false,
             startRequested: false,
             waitsForBlockers: false,
+            blockersRemoved: false,
             snoozedUntil: null,
             stoppedAt: null,
             stoppedRuns: null,
@@ -5314,6 +5326,7 @@ const materializers = counted(
             leadRestartPending: false,
             startRequested: false,
             waitsForBlockers: false,
+            blockersRemoved: false,
             snoozedUntil: null,
             stoppedAt: null,
             stoppedRuns: null,

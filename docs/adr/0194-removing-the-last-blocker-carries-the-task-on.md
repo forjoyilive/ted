@@ -6,7 +6,7 @@ ADR 0046 stopped a Task when the user removed its last blocker, because the spec
 
 ## Decision
 
-**When the user removes or archives the last unmerged blocker of a Task that was waiting for it, Ted carries the Task on, as it does when the blocker merges.** `removeBlockers` and `releaseParent` in `tasks/tasks.ts` call `wakeTask` with the reason `removed`:
+**When the user removes or archives the last unmerged blocker of a Task that was waiting for it, Ted carries the Task on, as it does when the blocker merges.** `removeBlockers` and `releaseParent` in `tasks/tasks.ts` mark the Task with `v1.TaskBlockersRemovedChanged` before they call `wakeTask`, which reads the mark to choose the reason `removed`. The mark is stored, so it holds across a daemon restart and while a parent’s own work is checked, and `openBlockedTasks` lists every Task that holds it, so the startup wake reaches it. It is cleared in the commit that requeues or starts the Task, when the Task is blocked again, stopped, archived or Done, and by `v1.TaskReset` and `v1.TaskMovedToFactory` (TED-633):
 
 - A Task waiting mid-flow goes back into the queue with `v2.TaskRequeuedAfterBlockers` (`why: removed`). The thread reads “Blockers removed · carrying on”, and the fresh Task Lead Run’s pick-up note says the user removed the blockers.
 - A Backlog Task created with Start now starts, with the start cause `blockers-removed` (“Started because its blockers were removed”). A Backlog Task created without Start now stays in Backlog.
