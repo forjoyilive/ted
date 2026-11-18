@@ -2854,6 +2854,7 @@ export function createTasks(options: {
     taskId: string,
     checkRunId: string,
     missing: NonNullable<CheckRunnerResult['missing']>,
+    asked?: string,
   ): Promise<'retry' | 'failed' | 'interrupted'> {
     const wait = new AbortController()
     instructionWaits.set(taskId, wait)
@@ -2862,46 +2863,68 @@ export function createTasks(options: {
       const task = find(taskId)
       const run = store.getCheckRun(checkRunId)
       const fixing = missing.check.fix === true && run?.trigger === 'validate'
-      const question = store.postComment({
-        taskId: task.id,
-        kind: 'question',
-        author: { kind: 'ted' },
-        title: `An instruction check didn’t report: ${missing.check.name}`,
-        body: [
-          `The instruction check “${missing.check.name}” has no report: ${missing.reason}. Ted didn’t count it as passed or failed, and the Task waits in ${stageTitle(task.stage)}.`,
-          ...(fixing
-            ? [
-                'Its agent could fix what it found. Any commits it made stay on the branch, and any edits it didn’t commit are left in the worktree.',
-              ]
-            : []),
-          `**${memoryRetryChoice}** starts a new agent for this check. **${memoryFailedChoice}** records it as a failed check, the same as when the agent reports a failure.`,
-        ].join('\n\n'),
-        choices: [memoryRetryChoice, memoryFailedChoice],
-        purpose: { kind: 'check-report' },
-      })
-      await store.persisted()
-      const choice = await new Promise<string | undefined>((resolve) => {
-        reportAnswers.set(question.id, resolve)
-        if (signal.aborted) resolve(undefined)
-        else signal.addEventListener('abort', () => resolve(undefined), { once: true })
-      })
-      reportAnswers.delete(question.id)
-      if (choice === undefined) {
-        const open = store.getComment(question.id)
-        if (open && !open.answer && !stopping.signal.aborted) {
-          answerRequest(find(task.id), open, {
-            kind: 'withdrawn',
-            at: new Date().toISOString(),
-            cancelled: true,
-          })
-          await store.persisted()
-        }
-        return 'interrupted'
-      }
-      return choice === memoryFailedChoice ? 'failed' : 'retry'
+      const question = asked === undefined ? undefined : store.getComment(asked)
+      if (asked !== undefined && (!question || question.answer)) return 'interrupted'
+      return await reportAnswer(
+        task,
+        signal,
+        question ?? (await askCheckReport(task, missing, fixing)),
+      )
     } finally {
       if (instructionWaits.get(taskId) === wait) instructionWaits.delete(taskId)
     }
+  }
+
+  async function askCheckReport(
+    task: StoredTask,
+    missing: NonNullable<CheckRunnerResult['missing']>,
+    fixing: boolean,
+  ): Promise<Comment> {
+    const question = store.postComment({
+      taskId: task.id,
+      kind: 'question',
+      author: { kind: 'ted' },
+      title: `An instruction check didn’t report: ${missing.check.name}`,
+      body: [
+        `The instruction check “${missing.check.name}” has no report: ${missing.reason}. Ted didn’t count it as passed or failed, and the Task waits in ${stageTitle(task.stage)}.`,
+        ...(fixing
+          ? [
+              'Its agent could fix what it found. Any commits it made stay on the branch, and any edits it didn’t commit are left in the worktree.',
+            ]
+          : []),
+        `**${memoryRetryChoice}** starts a new agent for this check. **${memoryFailedChoice}** records it as a failed check, the same as when the agent reports a failure.`,
+      ].join('\n\n'),
+      choices: [memoryRetryChoice, memoryFailedChoice],
+      purpose: { kind: 'check-report' },
+    })
+    await store.persisted()
+    return question
+  }
+
+  async function reportAnswer(
+    task: StoredTask,
+    signal: AbortSignal,
+    question: Comment,
+  ): Promise<'retry' | 'failed' | 'interrupted'> {
+    const choice = await new Promise<string | undefined>((resolve) => {
+      reportAnswers.set(question.id, resolve)
+      if (signal.aborted) resolve(undefined)
+      else signal.addEventListener('abort', () => resolve(undefined), { once: true })
+    })
+    reportAnswers.delete(question.id)
+    if (choice === undefined) {
+      const open = store.getComment(question.id)
+      if (open && !open.answer && !stopping.signal.aborted) {
+        answerRequest(find(task.id), open, {
+          kind: 'withdrawn',
+          at: new Date().toISOString(),
+          cancelled: true,
+        })
+        await store.persisted()
+      }
+      return 'interrupted'
+    }
+    return choice === memoryFailedChoice ? 'failed' : 'retry'
   }
 
   async function answerCheckReport(
@@ -11070,6 +11093,8 @@ export function createTasks(options: {
     memoryKilled: checkKilledForMemory,
     runInstruction: runInstructionCheck,
     reportMissing: checkReportMissing,
+    reportAsked: (taskId) =>
+      openRequests(taskId).find((comment) => comment.purpose?.kind === 'check-report')?.id,
     takeCheckSlot: async (taskId, checkRunId) => {
       const wait = new AbortController()
       checkWaits.set(taskId, wait)
@@ -11132,7 +11157,10 @@ export function createTasks(options: {
 
   for (const task of store.listTasks()) {
     for (const comment of openRequests(task.id)) {
-      if (comment.memoryKill || comment.purpose?.kind === 'check-report')
+      if (
+        comment.memoryKill ||
+        (comment.purpose?.kind === 'check-report' && !validation.awaitsReport(task.id))
+      )
         answerRequest(task, comment, {
           kind: 'withdrawn',
           at: new Date().toISOString(),

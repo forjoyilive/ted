@@ -798,6 +798,7 @@ export const checkResults = State.SQLite.table({
     effort: State.SQLite.text({ nullable: true }),
     notRerun: State.SQLite.boolean({ nullable: true }),
     noReport: State.SQLite.text({ nullable: true }),
+    noReportMs: State.SQLite.integer({ nullable: true }),
     changeKey: State.SQLite.text({ nullable: true }),
   },
 })
@@ -2833,6 +2834,7 @@ export const events = {
       checkRunId: Schema.String,
       position: Schema.Number,
       reason: Schema.String,
+      durationMs: Schema.Number,
       at: Schema.String,
     }),
   }),
@@ -5443,8 +5445,10 @@ const materializers = counted(
       ],
       'v1.CheckChangeKeyRecorded': ({ checkRunId, position, key }) =>
         checkResults.update({ changeKey: key }).where({ id: `${checkRunId}:${position}` }),
-      'v1.CheckReportMissing': ({ checkRunId, position, reason }) => [
-        checkResults.update({ noReport: reason }).where({ id: `${checkRunId}:${position}` }),
+      'v1.CheckReportMissing': ({ checkRunId, position, reason, durationMs }) => [
+        checkResults
+          .update({ noReport: reason, noReportMs: durationMs })
+          .where({ id: `${checkRunId}:${position}` }),
         checkBoundaries.delete().where({ id: `${checkRunId}:start:${position}` }),
       ],
       'v1.CheckSlotEntered': ({ checkRunId, at }) =>

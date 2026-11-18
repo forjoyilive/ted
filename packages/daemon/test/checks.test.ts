@@ -460,11 +460,11 @@ describe('Instruction Checks at Validate', () => {
     expect(back).toContain('I looked.\nResult: pass')
   }, 120_000)
 
-  test('an instruction Check with no report asks the user: Try again starts a new agent, Count it as failed is a failed Check; Run now runs one on a chosen Task without a failure case', async () => {
+  test('an instruction Check with no report asks the user, and the question and the waiting Check survive a restart: Try again starts a new agent, Count it as failed is a failed Check; Run now runs one on a chosen Task without a failure case', async () => {
     await workflow(
       instructionCheck('Silent', steps({ say: 'I looked around.' }, { endTurn: true })),
     )
-    const client = await startTed()
+    let client = await startTed()
     const task = await startTask(client, committingLead())
     const question = (n: number) =>
       waitUntil(
@@ -522,17 +522,41 @@ describe('Instruction Checks at Validate', () => {
     expect(output.text).toContain('Fine.\nResult: pass')
     expect(await client.ok<FailureCase[]>('GET', `/tasks/${task.id}/failures`)).toEqual([])
 
+    const agentsStarted = async () =>
+      (await threadEvents(client, task)).filter((e) =>
+        e.text.startsWith('Sub-agent “Check · Silent” started'),
+      ).length
+    expect(await agentsStarted()).toBe(1)
+    await hostsStarted(home)
+    await daemon?.stop()
+    daemon = undefined
+    client = await startTed()
+    const [waiting, ...rerun] = await checkRuns(client, task)
+    expect(rerun).toEqual([])
+    expect(waiting?.finishedAt).toBeUndefined()
+    expect(
+      (await client.ok<Comment[]>('GET', `/tasks/${task.id}/comments`)).find(
+        (c) => c.id === first?.id,
+      )?.answer,
+    ).toBeUndefined()
+    expect(await agentsStarted()).toBe(1)
+    expect((await getTask(client, task.id))?.stage).toBe('validate')
+
     await client.ok('POST', `/comments/${first?.id}/answer`, {
       action: 'answer',
       choice: 'Try again',
     })
     const second = await question(2)
-    expect((await checkRuns(client, task)).map((r) => r.finishedAt)).toEqual([undefined])
+    expect(await agentsStarted()).toBe(2)
+    expect((await checkRuns(client, task)).map((r) => [r.id === waiting?.id, r.outcome])).toEqual([
+      [true, 'interrupted'],
+      [false, undefined],
+    ])
     await client.ok('POST', `/comments/${second?.id}/answer`, {
       action: 'answer',
       choice: 'Count it as failed',
     })
-    const [failed] = await finishedRuns(client, task, 1)
+    const [, failed] = await finishedRuns(client, task, 2)
     expect(failed?.outcome).toBe('failed')
     expect(failed?.checks[0]).toMatchObject({
       state: 'failed',

@@ -1174,7 +1174,14 @@ export interface TedStore extends TaskHistory {
     result: { state: CheckState; exitCode?: number; durationMs: number },
   ): CheckRun
   recordCheckChangeKey(checkRunId: string, position: number, key: string): void
-  checkReportMissing(checkRunId: string, position: number, reason: string): CheckRun
+  checkReportMissing(
+    checkRunId: string,
+    position: number,
+    missing: { reason: string; durationMs: number },
+  ): CheckRun
+  awaitedReport(
+    checkRunId: string,
+  ): { position: number; reason: string; durationMs: number } | undefined
   passedChangeKey(taskId: string, name: string): string | undefined
   finishChecks(checkRunId: string, outcome: CheckRunOutcome): CheckRun
   getCheckRun(id: string): CheckRun | undefined
@@ -6719,7 +6726,7 @@ export async function openStore({
         events.checkChangeKeyRecorded({ checkRunId, position, key, at: new Date().toISOString() }),
       )
     },
-    checkReportMissing(checkRunId, position, reason) {
+    checkReportMissing(checkRunId, position, { reason, durationMs }) {
       const run = requireCheckRun(checkRunId)
       commit(
         events.checkReportMissing({
@@ -6727,10 +6734,18 @@ export async function openStore({
           checkRunId,
           position,
           reason,
+          durationMs,
           at: new Date().toISOString(),
         }),
       )
       return updatedCheckRun(checkRunId)
+    },
+    awaitedReport(checkRunId) {
+      const row = checkResultRows(checkRunId).find(
+        (result) => result.noReport !== null && result.state === 'running',
+      )
+      if (!row || row.noReport === null) return undefined
+      return { position: row.position, reason: row.noReport, durationMs: row.noReportMs ?? 0 }
     },
     passedChangeKey(taskId, name) {
       for (const row of [...checkRunRows(taskId)].reverse()) {

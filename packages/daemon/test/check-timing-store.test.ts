@@ -166,7 +166,14 @@ test('an instruction Check keeps its fields and change key after reopening, and 
     checks: [instruction, check, reused],
   })
   store.checkStarted(run.id, 0)
-  store.checkReportMissing(run.id, 0, 'it ended without a result line')
+  store.checkReportMissing(run.id, 0, { reason: 'it ended without a result line', durationMs: 7 })
+  await store.close()
+  store = await openStore({ directory: dir })
+  expect(store.awaitedReport(run.id)).toEqual({
+    position: 0,
+    reason: 'it ended without a result line',
+    durationMs: 7,
+  })
   store.checkStarted(run.id, 0)
   store.recordCheckChangeKey(run.id, 0, 'key-1')
   expect(store.passedChangeKey(taskId, 'Docs drift')).toBeUndefined()
