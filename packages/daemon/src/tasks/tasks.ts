@@ -4632,22 +4632,38 @@ export function createTasks(options: {
     ].join('\n\n')
   }
 
-  async function restartFromBrief(task: StoredTask, asked: string): Promise<void> {
-    await leadLifecycle.restartFromBrief(task.id, async (unread) =>
-      [
-        fromTheBrief(find(task.id), {
-          heading: 'Picking up after getting stuck',
-          why: `The previous Task Lead kept stopping without asking the human anything, even after Ted nudged it. The human chose to restart from the brief, so you don’t have that conversation. Ted told the human: “${oneLine(asked, 500)}” If you need the human to decide or do something, ask with \`ted outcome ask "<question>"\`.`,
-        }),
-        ...(unread.length > 0
-          ? [
-              `## Messages the old Task Lead hadn’t read\n\n${unread
-                .map((m) => `${m.from === 'ted' ? 'Ted' : 'The user'}: ${m.text.trim()}`)
-                .join('\n\n')}`,
-            ]
-          : []),
-      ].join('\n\n'),
-    )
+  async function restartFromBrief(
+    task: StoredTask,
+    asked: Comment,
+    answer: () => void,
+  ): Promise<void> {
+    let answered = false
+    try {
+      await leadLifecycle.restartFromBrief(
+        task.id,
+        async (unread) =>
+          [
+            fromTheBrief(find(task.id), {
+              heading: 'Picking up after getting stuck',
+              why: `The previous Task Lead kept stopping without asking the human anything, even after Ted nudged it. The human chose to restart from the brief, so you don’t have that conversation. Ted told the human: “${oneLine(asked.body, 500)}” If you need the human to decide or do something, ask with \`ted outcome ask "<question>"\`.`,
+            }),
+            ...(unread.length > 0
+              ? [
+                  `## Messages the old Task Lead hadn’t read\n\n${unread
+                    .map((m) => `${m.from === 'ted' ? 'Ted' : 'The user'}: ${m.text.trim()}`)
+                    .join('\n\n')}`,
+                ]
+              : []),
+          ].join('\n\n'),
+        () => {
+          answer()
+          answered = true
+        },
+      )
+    } catch (error) {
+      if (answered) postIdleQuestion(task.id, asked.body)
+      throw error
+    }
   }
 
   async function useDefaultModel(ref: string): Promise<Task> {
@@ -10562,18 +10578,24 @@ export function createTasks(options: {
     const said = spoke && agent.agentTextFrom(spoke.line)
     const reason = said === undefined ? undefined : stuckReason(said)
     const stopped = `It stopped again after ${nudgeSteps.length} nudges without asking you anything`
+    postIdleQuestion(
+      task.id,
+      reason !== undefined
+        ? `${reason}\n\n${stopped}.`
+        : said === undefined
+          ? `${stopped}, and it wrote no message.`
+          : `${stopped} or saying why. Its last message:\n\n> ${oneLine(said, 500)}`,
+    )
+  }
+
+  function postIdleQuestion(taskId: string, body: string): void {
     store.postComment({
-      taskId: task.id,
+      taskId,
       kind: 'question',
       author: { kind: 'ted' },
       title: idleTitle,
       purpose: { kind: 'idle-run' },
-      body:
-        reason !== undefined
-          ? `${reason}\n\n${stopped}.`
-          : said === undefined
-            ? `${stopped}, and it wrote no message.`
-            : `${stopped} or saying why. Its last message:\n\n> ${oneLine(said, 500)}`,
+      body,
       choices: [nudgeAgainChoice, restartFromBriefChoice],
     })
   }

@@ -326,23 +326,37 @@ export function createLeadLifecycle(options: LeadLifecycleOptions) {
   async function restartFromBrief(
     taskId: string,
     note: (unread: readonly RunMessage[]) => Promise<string>,
+    starting: () => void,
   ): Promise<void> {
     const task = find(taskId)
     const run = liveLead(task)
-    if (task.stopped || task.archived || !run)
-      throw new RequestError(409, `${task.displayId} has no running Task Lead to restart`)
-    if (run.state === 'working')
-      throw new RequestError(409, `${task.displayId}’s Task Lead is working again`)
-    if (applying.has(taskId))
-      throw new RequestError(409, `${task.displayId}’s Task Lead is already restarting`)
-    const agent = effectiveLead(task)?.agent ?? run.agent
-    const off = agentStartHold(store, agent, agent === run.agent ? run.id : undefined)
-    if (off !== undefined) throw new RequestError(409, off)
-    if (store.newWorkHold() !== undefined)
-      throw new RequestError(409, 'Ted isn’t starting new work right now')
+    const agent = effectiveLead(task)?.agent ?? run?.agent
+    const refusal = () => {
+      const now = find(taskId)
+      const live = liveLead(now)
+      if (now.stopped || now.archived || !live || live.id !== run?.id || !agent)
+        return `${now.displayId} has no running Task Lead to restart`
+      if (live.state === 'working') return `${now.displayId}’s Task Lead is working again`
+      if (applying.has(taskId)) return `${now.displayId}’s Task Lead is already restarting`
+      return (
+        agentStartHold(store, agent, agent === live.agent ? live.id : undefined) ??
+        (store.newWorkHold() !== undefined ? 'Ted isn’t starting new work right now' : undefined)
+      )
+    }
+    const before = refusal()
+    if (before !== undefined || !run || !agent)
+      throw new RequestError(409, before ?? `${task.displayId} has no running Task Lead to restart`)
+    if (!(await health.ready(agent)))
+      throw new RequestError(
+        409,
+        `${agentShortNames[agent]} isn’t ready. Check Settings → Providers.`,
+      )
+    const after = refusal()
+    if (after !== undefined) throw new RequestError(409, after)
     applying.add(taskId)
     try {
-      if (!(await freshLead(task, run, agent, note)))
+      starting()
+      if (!(await freshLead(find(taskId), run, agent, note)))
         throw new RequestError(
           409,
           `${agentShortNames[agent]} isn’t ready. Check Settings → Providers.`,

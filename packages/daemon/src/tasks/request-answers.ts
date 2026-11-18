@@ -132,7 +132,7 @@ export interface RequestAnswerPort {
   tellChat(chatId: string, text: string): Promise<void>
   wake(): void
   sendNudge(task: StoredTask, run: Run): Promise<void>
-  restartFromBrief(task: StoredTask, asked: string): Promise<void>
+  restartFromBrief(task: StoredTask, asked: Comment, answer: () => void): Promise<void>
   useDefaultModel(id: string): Promise<Task>
   linesText(comment: Comment): string | undefined
   gateName(comment: Comment): string
@@ -1135,14 +1135,18 @@ export function createRequestAnswers(
         return answered
       }
       if (comment.purpose?.kind === 'idle-run' && choice === restartFromBriefChoice) {
-        const answered = answerRequest(task, comment, {
-          kind: 'answered',
-          at,
-          choice,
-          ...(text !== '' && { text }),
+        const answered: Comment[] = []
+        await restartFromBrief(find(task.id), comment, () => {
+          answered.push(
+            answerRequest(task, comment, {
+              kind: 'answered',
+              at,
+              choice,
+              ...(text !== '' && { text }),
+            }),
+          )
         })
-        await restartFromBrief(find(task.id), comment.body)
-        return answered
+        return answered[0] ?? store.getComment(comment.id) ?? comment
       }
       const aboutModel = comment.purpose?.kind === 'model'
       if (comment.purpose?.kind === 'model' && choice === useDefaultChoice) {
