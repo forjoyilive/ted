@@ -981,7 +981,8 @@ export function createApps(options: AppsOptions): Apps {
     )
     if (got.state === 'pending') return 'waiting'
     const current = await readInstance(dir)
-    if (!current || current.ended || current.waitingFor !== instance.waitingFor) return 'ended'
+    if (!current || current.ended) return 'ended'
+    if (current.waitingFor !== instance.waitingFor) return 'waiting'
     if (got.state === 'denied') {
       return end(
         'failed',

@@ -47,6 +47,7 @@ function setup(
     pool?: DevicePool
     android?: boolean
     oneAtATime?: boolean
+    beforeBoot?: () => Promise<void>
   } = {},
 ) {
   const pool =
@@ -87,6 +88,7 @@ function setup(
     },
     refreshLive: async () => false,
     async boot(record) {
+      await options.beforeBoot?.()
       boots.push(record.id)
       live.add(record.id)
     },
@@ -305,6 +307,42 @@ test('one App builds at a time across kinds, and the next goes when the turn end
 
   const again = await android.slots.acquire(app('t1', 'android'), 'human', {})
   expect(again).toHaveProperty('waiting')
+})
+
+test('a place in line withdrawn while its device boots is not granted and leaves the next App in line', async () => {
+  let paused = false
+  let booting: () => void = () => undefined
+  let resume: () => void = () => undefined
+  const started = new Promise<void>((resolve) => {
+    booting = resolve
+  })
+  const { slots, pool, live } = setup({
+    oneAtATime: true,
+    beforeBoot: () =>
+      paused
+        ? new Promise<void>((resolve) => {
+            resume = resolve
+            booting()
+          })
+        : Promise.resolve(),
+  })
+  await slots.acquire(app('t1'), 'human', {})
+  const first = await slots.acquire(app('t2'), 'automation', {})
+  const second = await slots.acquire(app('t3'), 'automation', {})
+  if (!('waiting' in first) || !('waiting' in second)) throw new Error('expected to wait')
+  pool.endTurn('t1/widgets/ios')
+  live.delete('dev-1')
+
+  paused = true
+  const granting = slots.wait(first.waiting, app('t2'))
+  await started
+  slots.withdraw(first.waiting)
+  resume()
+
+  expect(await granting).toEqual({ state: 'gone' })
+  expect(pool.line).toEqual([second.waiting])
+  expect(pool.holder()).toBeUndefined()
+  expect(slots.slots().waiting).toMatchObject([{ taskId: 't3' }])
 })
 
 test('the waiting list says what each App waits for and updates when the build turn ends', async () => {

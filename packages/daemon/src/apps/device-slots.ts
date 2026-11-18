@@ -402,9 +402,15 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
       if (!humanTickets.has(ticket) && (await heldBusy(record))) {
         return { state: 'pending' } as const
       }
+      if (withdrawn.has(ticket)) return { state: 'gone' } as const
       pool.takeTurn(holderOf(app))
       if (!isLive(record)) await boot(record)
-      line.splice(line.indexOf(ticket), 1)
+      if (withdrawn.has(ticket)) {
+        pool.endTurn(holderOf(app).key)
+        return { state: 'gone' } as const
+      }
+      const at = line.indexOf(ticket)
+      if (at !== -1) line.splice(at, 1)
       humanTickets.delete(ticket)
       pool.unwait(ticket)
       return { state: 'granted', udid: driver.slotId(record) as string } as const
