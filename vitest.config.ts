@@ -71,6 +71,7 @@ const tedSandbox = process.env.TED_SANDBOX === '1'
 
 const testOptions = {
   testTimeout: 30_000,
+  hookTimeout: 30_000,
   expect: { poll: { timeout: 10_000 } },
   maxWorkers: workers,
   globalSetup: [here('./packages/daemon/test/support/global-setup.ts')],
