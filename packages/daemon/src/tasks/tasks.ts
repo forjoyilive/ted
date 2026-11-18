@@ -10575,7 +10575,6 @@ export function createTasks(options: {
         .map((b) => b.displayId)
       const cause: StartCause =
         why === 'removed' ? { cause: 'blockers-removed' } : { cause: 'blockers-merged', blockers }
-      store.setBlockersRemoved(id, false)
       inBackground(`start ${task.displayId}`, async () => {
         await start(id, {}, cause)
       })

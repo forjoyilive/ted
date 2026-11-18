@@ -1905,6 +1905,11 @@ export async function openStore({
       ? [events.taskStartRequestChanged({ taskId, startRequested: false, at })]
       : []
 
+  const blockersRemovedUsed = (taskId: string, at: string) =>
+    taskRow(taskId)?.blockersRemoved
+      ? [events.taskBlockersRemovedChanged({ taskId, removed: false, at })]
+      : []
+
   const startCause = (taskId: string, cause: StartCause | undefined, at: string) =>
     cause
       ? [
@@ -4669,6 +4674,7 @@ export async function openStore({
         ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
         ...(taskRow(taskId)?.stoppedAt !== null ? [events.taskResumed({ taskId, rank, at })] : []),
         ...startRequestUsed(taskId, at),
+        ...blockersRemovedUsed(taskId, at),
         ...(kept == null ? [events.taskRanked({ taskId, rank, at })] : []),
         events.taskQueued({ taskId, stage, rank, at }),
         ...startCause(taskId, options?.cause, at),
@@ -4719,6 +4725,7 @@ export async function openStore({
       commit(
         ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
         ...startRequestUsed(taskId, at),
+        ...blockersRemovedUsed(taskId, at),
         events.taskRanked({ taskId, rank, at }),
         events.taskStartedAfterPlanning({ taskId, stage, rank, at }),
         ...startCause(taskId, options?.cause, at),
@@ -5084,9 +5091,7 @@ export async function openStore({
       const at = new Date().toISOString()
       commit(
         events.taskRequeuedAfterBlockersV2({ taskId, rank, why, at }),
-        ...(taskRow(taskId)?.blockersRemoved
-          ? [events.taskBlockersRemovedChanged({ taskId, removed: false, at })]
-          : []),
+        ...blockersRemovedUsed(taskId, at),
       )
       const task = updatedTask(taskId)
       updatedQueue(taskId)
