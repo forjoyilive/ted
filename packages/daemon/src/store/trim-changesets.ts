@@ -22,7 +22,7 @@ export const trimChangesetsAtBytes = 20 * 1024 * 1024
 const table = '__livestore_session_changeset'
 const index = 'idx_session_changeset_id'
 
-// ADR 0156: LiveStore reads these rows only to roll back events after a sync backend rebases,
+// LiveStore reads these rows only to roll back events after a sync backend rebases,
 // and Ted has no sync backend. Call only while the store is closed.
 export async function trimChangesets(
   directory: string,

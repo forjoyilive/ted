@@ -1,7 +1,0 @@
-# Side chats answer from an isolated Conversation snapshot
-
-A Side chat answers questions about one Task Lead Run without steering it. It owns a separate agent conversation, uses the source’s agent/model/effort, and receives a fixed, secret-redacted snapshot at creation. Native session forks can inherit tool authority and differ between agents; sub-agents report back to their parent. Instead, Side chats use the existing tool-free launch mode, an empty private working folder, no Run capability and app-only controls. Global steering never delivers their input.
-
-`side-chats/side-chats.ts` owns the association and every turn through `Tasks.addQueueSource`. The store records metadata and input receipts; snapshot text stays in `runs/<id>/side-chat-context.txt`, bounded to 200 KiB with omissions shown. The first queued question carries that snapshot as quoted context. Later questions resume the Side chat’s own session. A completed host stops before releasing its slot, so idle chats consume no working slot and their files can expire with their Task through `runOutputEnd` and `pruneRunOutput`. No side-chat code deletes Run folders.
-
-A new versioned event records each metadata change. The original Run never receives side questions or automatic reports. Retrying an acknowledged but interrupted question is an explicit new delivery; recovery does not automatically repeat it. A missing or changed snapshot fails closed, rather than taking a newer snapshot. Only Task Lead Runs have Side chats; other Run types, multiple Side chats and CLI control are later work.

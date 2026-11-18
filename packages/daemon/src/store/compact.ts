@@ -22,7 +22,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-// ADR 0099: keeps what the materializers read (runId, toOffset, the last entry’s `at`)
+// Keeps what the materializers read (runId, toOffset, the last entry’s `at`)
 // and drops the lines. Anything that isn’t exactly the shipped shape comes back unchanged.
 function compactedArgs(name: string, argsJson: string): string {
   if (name !== v1.name && name !== v2.name) return argsJson
