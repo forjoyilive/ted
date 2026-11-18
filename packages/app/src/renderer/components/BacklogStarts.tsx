@@ -1,5 +1,6 @@
 import type { BacklogStarts, Factory, FactoryLayout, Task } from '@ted/protocol'
 import { backlogStartFactories } from '@ted/protocol/backlog-starts'
+import { parseGitHubIssueUrl } from '@ted/protocol/github-issue'
 import { useState } from 'react'
 import { arrange } from '../factory-layout.ts'
 import { Segmented, Switch } from '../settings/controls.tsx'
@@ -188,7 +189,7 @@ export function BacklogStartsMenu({
         starts={starts}
         factories={factories}
         layout={layout}
-        disabled={!starts.enabled || saving}
+        disabled={saving}
         onChange={save}
       />
       {onOpenSettings !== undefined && (
@@ -209,7 +210,11 @@ export function startsOnItsOwn(task: Task, startsIn: (factoryId: string) => bool
     task.setup === undefined &&
     task.blockedBy.length === 0 &&
     task.createdBy !== 'task-lead' &&
-    !(task.createdBy === 'automation' && task.source?.url.includes('github.com') === true) &&
+    !(
+      task.createdBy === 'automation' &&
+      task.source !== undefined &&
+      parseGitHubIssueUrl(task.source.url) !== undefined
+    ) &&
     startsIn(task.factoryId)
   )
 }

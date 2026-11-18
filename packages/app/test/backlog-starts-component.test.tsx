@@ -2,7 +2,7 @@
 import type { BacklogStarts, FactoryLayout } from '@ted/protocol'
 import { noBacklogStarts } from '@ted/protocol/backlog-starts'
 import { defaultMachineSettings } from '@ted/protocol/settings'
-import { act, render, screen, within } from '@testing-library/react'
+import { act, render, screen, waitFor, within } from '@testing-library/react'
 import { expect, test } from 'vitest'
 import {
   BacklogStartsMenu,
@@ -56,9 +56,22 @@ test('a Backlog row says it starts automatically only when nothing else holds it
   expect(startsOnItsOwn({ ...backlog, blockedBy: ['x'] }, starts)).toBe(false)
   expect(startsOnItsOwn({ ...backlog, createdBy: 'task-lead' }, starts)).toBe(false)
   expect(startsOnItsOwn({ ...backlog, stage: 'work' }, starts)).toBe(false)
+  const automation = { ...backlog, createdBy: 'automation' as const }
+  expect(
+    startsOnItsOwn(
+      { ...automation, source: { url: 'https://github.com/acme/widgets/issues/7' } },
+      starts,
+    ),
+  ).toBe(false)
+  expect(
+    startsOnItsOwn(
+      { ...automation, source: { url: 'https://example.com/github.com/acme/widgets/issues/7' } },
+      starts,
+    ),
+  ).toBe(true)
 })
 
-test('the menu saves the switch and each choice at once, and a ticked group covers its Factories', async () => {
+test('the menu saves the switch and each choice at once, a choice made while off stays off, and a ticked group covers its Factories', async () => {
   const saved: BacklogStarts[] = []
   const api = bridge({
     setBacklogStarts: (starts) => {
@@ -70,10 +83,13 @@ test('the menu saves the switch and each choice at once, and a ticked group cove
     <BacklogStartsMenu starts={noBacklogStarts} factories={factories} layout={layout} />,
   )
   const list = () => screen.getByRole('radiogroup', { name: 'Start from' })
-  expect(screen.getByRole<HTMLInputElement>('checkbox', { name: /Personal site/ }).disabled).toBe(
-    true,
-  )
-  await user().click(screen.getByRole('switch', { name: 'Start Backlog Tasks automatically' }))
+  await user().click(screen.getByRole('checkbox', { name: /Personal site/ }))
+  expect(saved.at(-1)).toEqual({ ...noBacklogStarts, factoryIds: ['c'] })
+  const toggle = screen.getByRole<HTMLButtonElement>('switch', {
+    name: 'Start Backlog Tasks automatically',
+  })
+  await waitFor(() => expect(toggle.disabled).toBe(false))
+  await user().click(toggle)
   expect(saved.at(-1)).toEqual(on())
 
   rerender(<BacklogStartsMenu starts={on()} factories={factories} layout={layout} />)
@@ -94,7 +110,7 @@ test('the menu saves the switch and each choice at once, and a ticked group cove
 
   await user().click(within(list()).getByRole('radio', { name: 'All Factories' }))
   expect(saved.at(-1)).toEqual(on({ groupIds: ['g1'], all: true }))
-  expect(api.request.mock.calls.filter(([name]) => name === 'setBacklogStarts')).toHaveLength(4)
+  expect(api.request.mock.calls.filter(([name]) => name === 'setBacklogStarts')).toHaveLength(5)
 })
 
 test('the menu keeps the switch usable after a failed save and shows why', async () => {

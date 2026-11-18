@@ -299,7 +299,7 @@ function BacklogStartsGroup({ settings }: Pick<SettingsPageProps, 'settings'>) {
             starts={starts}
             factories={factories}
             layout={layout}
-            disabled={!starts.enabled || saving}
+            disabled={saving}
             onChange={save}
           />
         </div>
