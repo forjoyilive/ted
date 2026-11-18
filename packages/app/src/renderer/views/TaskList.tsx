@@ -956,6 +956,8 @@ export function TaskList({
         ].join(' ')}
         {...dragHandlers(nest, group, index)}
         onClick={(event) => {
+          if (event.target instanceof Element && event.target.closest('[data-selection-hit]'))
+            return
           if (select(task, event)) return
           setSelected([])
           setAnchor(task.id)
@@ -964,15 +966,17 @@ export function TaskList({
         onKeyDown={(event) => onRowKeyDown(event, task)}
       >
         <td className={`${styles.cell} ${styles.selectionCell}`}>
-          <input
-            type="checkbox"
-            className={styles.selectionCheckbox}
-            data-selection-box
-            aria-label={`Select ${task.displayId}`}
-            checked={isSelected}
-            onClick={(event) => event.stopPropagation()}
-            onChange={() => toggle(task.id)}
-          />
+          <label className={styles.selectionHit} data-selection-hit>
+            <input
+              type="checkbox"
+              className={styles.selectionCheckbox}
+              data-selection-box
+              aria-label={`Select ${task.displayId}`}
+              checked={isSelected}
+              onClick={(event) => event.stopPropagation()}
+              onChange={() => toggle(task.id)}
+            />
+          </label>
         </td>
         {queueMode && (
           <td className={styles.queueCell}>
@@ -1224,38 +1228,40 @@ export function TaskList({
                   {view.group !== 'none' && (
                     <tr className={styles.groupRow}>
                       <th>
-                        <input
-                          type="checkbox"
-                          className={styles.selectionCheckbox}
-                          data-selection-box
-                          aria-label={`Select all ${group.label} Tasks`}
-                          aria-checked={
-                            group.tasks.some((t) => selected.includes(t.id)) &&
-                            !group.tasks.every((t) => selected.includes(t.id))
-                              ? 'mixed'
-                              : undefined
-                          }
-                          checked={
-                            group.tasks.length > 0 &&
-                            group.tasks.every((t) => selected.includes(t.id))
-                          }
-                          ref={(input) => {
-                            if (input)
-                              input.indeterminate =
-                                group.tasks.some((t) => selected.includes(t.id)) &&
-                                !group.tasks.every((t) => selected.includes(t.id))
-                          }}
-                          disabled={group.tasks.length === 0}
-                          onChange={() => {
-                            const ids = new Set(group.tasks.map((t) => t.id))
-                            const all = group.tasks.every((t) => selected.includes(t.id))
-                            setSelected((current) =>
-                              all
-                                ? current.filter((id) => !ids.has(id))
-                                : [...new Set([...current, ...ids])],
-                            )
-                          }}
-                        />
+                        <label className={styles.groupSelectionHit}>
+                          <input
+                            type="checkbox"
+                            className={styles.selectionCheckbox}
+                            data-selection-box
+                            aria-label={`Select all ${group.label} Tasks`}
+                            aria-checked={
+                              group.tasks.some((t) => selected.includes(t.id)) &&
+                              !group.tasks.every((t) => selected.includes(t.id))
+                                ? 'mixed'
+                                : undefined
+                            }
+                            checked={
+                              group.tasks.length > 0 &&
+                              group.tasks.every((t) => selected.includes(t.id))
+                            }
+                            ref={(input) => {
+                              if (input)
+                                input.indeterminate =
+                                  group.tasks.some((t) => selected.includes(t.id)) &&
+                                  !group.tasks.every((t) => selected.includes(t.id))
+                            }}
+                            disabled={group.tasks.length === 0}
+                            onChange={() => {
+                              const ids = new Set(group.tasks.map((t) => t.id))
+                              const all = group.tasks.every((t) => selected.includes(t.id))
+                              setSelected((current) =>
+                                all
+                                  ? current.filter((id) => !ids.has(id))
+                                  : [...new Set([...current, ...ids])],
+                              )
+                            }}
+                          />
+                        </label>
                         <ActionButton
                           type="button"
                           className={styles.groupHead}

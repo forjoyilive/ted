@@ -432,7 +432,8 @@ test('group checkboxes prepare Tasks with a one-time notice and keep bulk Resume
   a.handle('startTask', start)
   a.handle('resumeTask', vi.fn())
   const main = within(screen.getByRole('main'))
-  await u.click(main.getByRole('checkbox', { name: 'Select all Backlog Tasks' }))
+  const around = (name: string) => required(main.getByRole('checkbox', { name }).closest('label'))
+  await u.click(around('Select all Backlog Tasks'))
   const bar = () => within(screen.getByRole('toolbar', { name: 'Selected Tasks' }))
   expect(bar().getByText('3 selected')).toBeTruthy()
   await u.click(main.getByRole('button', { name: /^Backlog/ }))
@@ -453,7 +454,7 @@ test('group checkboxes prepare Tasks with a one-time notice and keep bulk Resume
   await u.click(bar().getByRole('button', { name: 'Prepare' }))
   expect(screen.queryByRole('dialog')).toBeNull()
   expect(start).toHaveBeenCalledTimes(6)
-  await u.click(main.getByRole('checkbox', { name: 'Select NB-1' }))
+  await u.click(around('Select NB-1'))
   expect(
     main.getByRole('checkbox', { name: 'Select all Backlog Tasks' }).getAttribute('aria-checked'),
   ).toBe('mixed')
