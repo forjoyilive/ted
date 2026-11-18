@@ -905,9 +905,6 @@
     }
   },
   "packages/app/src/renderer/views/FactorySettingsSections.tsx": {
-    "anti-slop/no-unknown-parameters": {
-      "count": 2
-    },
     "anti-slop/require-safety-comment-for-type-assertion": {
       "count": 7
     }
@@ -2763,7 +2760,7 @@
       "count": 1
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 56
+      "count": 52
     }
   },
   "packages/daemon/src/workflow/drift.ts": {
@@ -2785,7 +2782,7 @@
       "count": 1
     },
     "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 21
+      "count": 19
     }
   },
   "packages/daemon/src/workflow/fetches.ts": {
@@ -3920,7 +3917,7 @@
       "count": 34
     },
     "anti-slop/no-unknown-parameters": {
-      "count": 36
+      "count": 35
     },
     "anti-slop/no-unsafe-dictionary-type": {
       "count": 4

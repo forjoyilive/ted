@@ -162,6 +162,12 @@ export interface RequestAnswerPort {
     choice: string | undefined,
     text: string,
   ): Promise<Comment>
+  answerCheckReport(
+    task: StoredTask,
+    comment: Comment,
+    choice: string | undefined,
+    text: string,
+  ): Promise<Comment>
   setPullRequestCi?(
     factoryId: string,
     repo: string,
@@ -225,6 +231,7 @@ export function createRequestAnswers(
     trackerConsents,
     answerCleanupFailure,
     answerMemoryKill,
+    answerCheckReport,
   } = port
   const answerRequest = (
     task: Task,
@@ -926,6 +933,9 @@ export function createRequestAnswers(
     }
     if (comment.purpose?.kind === 'memory-kill' && request.action === 'answer') {
       return answerMemoryKill(find(task.id), comment, request.choice, text)
+    }
+    if (comment.purpose?.kind === 'check-report' && request.action === 'answer') {
+      return answerCheckReport(find(task.id), comment, request.choice, text)
     }
     if (comment.purpose?.kind === 'asana-missing' && request.action === 'answer') {
       return answerAsanaMissing(task, comment, request.choice, text)

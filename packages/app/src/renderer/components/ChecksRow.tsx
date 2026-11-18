@@ -1,5 +1,11 @@
-import { type CheckResult, checkFailed, checkLabel } from '@ted/protocol/checks'
+import {
+  type CheckResult,
+  checkFailed,
+  checkLabel,
+  isInstructionResult,
+} from '@ted/protocol/checks'
 import type { Judgment } from '@ted/protocol/task'
+import { duration } from '../factory-settings.ts'
 import styles from './ChecksRow.module.css'
 
 const glyphs: Record<CheckResult['state'], string> = {
@@ -32,6 +38,23 @@ export function checkDetail(check: CheckResult): string | undefined {
     default:
       return undefined
   }
+}
+
+export function instructionDetail(check: CheckResult, accepted: boolean): string {
+  const kind = check.fix === true ? 'instruction · may fix' : 'instruction'
+  const state =
+    check.notRerun === true
+      ? 'not rerun: the Task’s own changes are the same as when it passed'
+      : accepted && checkFailed(check.state)
+        ? 'failed, accepted by you'
+        : check.noReport !== undefined
+          ? `no report: ${check.noReport}`
+          : checkDetail(check)
+  const took =
+    check.durationMs !== undefined && check.notRerun !== true
+      ? duration(check.durationMs)
+      : undefined
+  return [kind, state, took].filter((part) => part !== undefined).join(' · ')
 }
 
 const tone = (check: CheckResult) =>
@@ -70,6 +93,37 @@ export function ChecksRow({
   return (
     <ul className={styles.row} aria-label="Checks">
       {checks.map((check, position) => {
+        const key = `${check.name}:${check.repo ?? ''}:${check.builtIn ?? ''}`
+        if (isInstructionResult(check)) {
+          const reported =
+            check.notRerun !== true &&
+            check.state !== 'skipped' &&
+            check.state !== 'not-run' &&
+            check.state !== 'waiting'
+          return (
+            <li key={key} className={`${styles.check} ${tone(check)}`}>
+              <span className={styles.glyph}>{glyphs[check.state]}</span>
+              {checkLabel(check)}
+              <span className={styles.detail}>
+                {' · '}
+                {instructionDetail(check, accepted.includes(position))}
+              </span>
+              {reported && (
+                <>
+                  <span className={styles.detail}> · </span>
+                  <button
+                    type="button"
+                    className={styles.output}
+                    title={`Open ${checkLabel(check)}’s report`}
+                    onClick={() => onOpen(position)}
+                  >
+                    Report
+                  </button>
+                </>
+              )}
+            </li>
+          )
+        }
         const detail =
           accepted.includes(position) && checkFailed(check.state)
             ? 'failed, accepted by you'
@@ -84,10 +138,7 @@ export function ChecksRow({
           </>
         )
         return (
-          <li
-            key={`${check.name}:${check.repo ?? ''}:${check.builtIn ?? ''}`}
-            className={`${styles.check} ${tone(check)}`}
-          >
+          <li key={key} className={`${styles.check} ${tone(check)}`}>
             {ran ? (
               <button
                 type="button"

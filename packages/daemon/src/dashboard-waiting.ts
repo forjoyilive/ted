@@ -12,6 +12,7 @@ const questionKinds: Readonly<Record<string, string>> = {
   'failed-run': 'Failed Run',
   'cleanup-failure': 'Cleanup failure',
   'memory-kill': 'Out of memory',
+  'check-report': 'Instruction check without a report',
   'idle-run': 'Idle Run',
   'ci-stuck': 'Stuck CI',
   model: 'Model unavailable',

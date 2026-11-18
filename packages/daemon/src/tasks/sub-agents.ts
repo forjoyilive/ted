@@ -38,6 +38,11 @@ export interface SubAgents {
     task: StoredTask,
     input: { name: string; prompt: string; choice: ReviewerChoice; purpose: ReviewerPurpose },
   ): string | undefined
+  requestForCheck(
+    task: StoredTask,
+    input: { name: string; prompt: string; choice: ReviewerChoice },
+  ): string | undefined
+  cancelForCheck(runId: string): Promise<void>
   result(runId: string): Promise<SubAgentWait>
   runEnv(run: Run): Promise<Record<string, string> | undefined>
   reviewed(runId: string): boolean
@@ -102,6 +107,8 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
   let allocating: Promise<unknown> = Promise.resolve()
   let closed = false
 
+  const forCheck = (id: string) => store.reviewerOf(id)?.purpose === 'instruction-check'
+
   function drop(id: string): void {
     if (startingNow.has(id)) cancelled.add(id)
     store.dropSubAgentRequest(id)
@@ -146,7 +153,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     const request = run ? undefined : store.subAgentRequests().find((r) => r.id === runId)
     const parent = run?.parentRunId ?? request?.parentRunId
     if (!run && !request) throw new RequestError(404, `no sub-agent ${runId}`)
-    if (parent !== caller.runId) {
+    if (parent !== caller.runId || forCheck(runId)) {
       throw new RequestError(403, `sub-agent ${runId} wasn’t started by this Run`)
     }
     const callerRun = store.getRun(caller.runId)
@@ -232,7 +239,9 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     const task = find(request.taskId)
     const parent = store.getRun(request.parentRunId)
     const repo = task.repos.find((r) => !r.removed)
-    if (!parent || parent.state === 'finished' || !repo || task.archived) {
+    const detached = forCheck(request.id)
+    const parentEnded = (run: Run | undefined) => !detached && (!run || run.state === 'finished')
+    if (!parent || parentEnded(parent) || !repo || task.archived) {
       drop(request.id)
       return
     }
@@ -240,9 +249,9 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     const current = find(task.id)
     if (
       cancelled.has(request.id) ||
-      current.stopped ||
+      (!detached && current.stopped) ||
       current.archived ||
-      store.getRun(parent.id)?.state === 'finished'
+      parentEnded(store.getRun(parent.id))
     ) {
       drop(request.id)
       return
@@ -255,6 +264,7 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     const cwd = request.ownWorktree ? await ownWorktree(task, repo, request.name, reviewed) : shared
     const fromTed =
       store.reviewerOf(request.id)?.purpose === 'loop-check' ||
+      detached ||
       store.p1OnlyReview(request.id) ||
       store.reviewScopes(task.id).some((s) => s.runId === request.id && s.scope !== 'full')
     const prompt = fromTed
@@ -401,10 +411,10 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       setImmediate(() => {
         if (closed) return
         for (const request of store.subAgentRequests()) {
-          if (request.parentRunId === parentId) drop(request.id)
+          if (request.parentRunId === parentId && !forCheck(request.id)) drop(request.id)
         }
         for (const child of store.listRuns()) {
-          if (child.parentRunId === parentId && child.state !== 'finished') {
+          if (child.parentRunId === parentId && child.state !== 'finished' && !forCheck(child.id)) {
             deps.inBackground('stop a sub-agent whose Task Lead stopped', () => runs.stop(child.id))
           }
         }
@@ -428,6 +438,16 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
     { stopped, lastLines }: { stopped: boolean; lastLines: string[] },
   ) {
     if (run.parentRunId === undefined || stopped || closed) return
+    if (forCheck(run.id)) {
+      store.failRun(
+        run.id,
+        [
+          'The sub-agent’s process ended before it finished its turn.',
+          ...lastLines.slice(-10),
+        ].join('\n'),
+      )
+      return
+    }
     const error = [
       'The sub-agent’s process ended before it finished its turn.',
       ...lastLines.slice(-10),
@@ -446,7 +466,8 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
 
   for (const request of store.subAgentRequests()) {
     const parent = store.getRun(request.parentRunId)
-    if (!parent || parent.state === 'finished') store.dropSubAgentRequest(request.id)
+    if (!parent || parent.state === 'finished' || forCheck(request.id))
+      store.dropSubAgentRequest(request.id)
   }
 
   return {
@@ -622,6 +643,42 @@ export function createSubAgents(deps: SubAgentDeps): SubAgents {
       })
       deps.pump()
       return id
+    },
+    requestForCheck(task, { name, prompt, choice }) {
+      const parentId = task.leadRunId
+      if (parentId === undefined || store.getRun(parentId) === undefined || task.archived)
+        return undefined
+      const id = crypto.randomUUID()
+      store.chooseReviewer({
+        runId: id,
+        taskId: task.id,
+        stage: task.stage,
+        purpose: 'instruction-check',
+        agent: choice.lead.agent,
+        ...(choice.unavailable !== undefined && { unavailable: choice.unavailable }),
+      })
+      store.requestSubAgent({
+        id,
+        taskId: task.id,
+        parentRunId: parentId,
+        name,
+        agent: choice.lead.agent,
+        ...(choice.lead.model !== undefined && { model: choice.lead.model }),
+        ...(choice.lead.effort !== undefined && { effort: choice.lead.effort }),
+        prompt,
+        ownWorktree: false,
+      })
+      deps.pump()
+      return id
+    },
+    async cancelForCheck(runId) {
+      if (!forCheck(runId)) return
+      if (store.subAgentRequests().some((r) => r.id === runId)) {
+        drop(runId)
+        return
+      }
+      const run = store.getRun(runId)
+      if (run && run.state !== 'finished') await runs.stop(runId)
     },
     async send(runId, caller, text) {
       const { run, request } = ownSubAgent(runId, caller)

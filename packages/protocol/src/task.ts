@@ -757,6 +757,7 @@ export type RequestPurpose =
         | 'asana-unfinished'
         | 'cleanup-failure'
         | 'memory-kill'
+        | 'check-report'
         | 'archive'
         | 'move'
         | 'idle-run'
@@ -786,6 +787,7 @@ export function answerKind(comment: Pick<Comment, 'linearTeam' | 'purpose'>): An
     case 'asana-unfinished':
       return 'choice-only'
     case 'memory-kill':
+    case 'check-report':
     case 'cleanup-failure':
       return 'choice-and-note'
     default:

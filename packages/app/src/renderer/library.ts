@@ -33,6 +33,7 @@ export function libraryDraft(view: LibraryView): SettingsDraft {
     stageFiles,
     keepStageFiles: [],
     checks: [],
+    instructionChecks: [],
     cleanup: { enabled: false, steps: [] },
     agents,
     agentFiles: agentDrafts(view.agentFiles),

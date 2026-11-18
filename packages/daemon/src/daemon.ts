@@ -449,6 +449,7 @@ export async function startDaemon(options: DaemonOptions): Promise<RunningDaemon
         emit,
         env: environment.current,
         ...(options.scratchMaxAgeMs !== undefined && { maxAgeMs: options.scratchMaxAgeMs }),
+        instructions: () => started?.instructionTries,
       })
       const factorySettings = createFactorySettings({
         store,

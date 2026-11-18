@@ -32,6 +32,7 @@ import type {
   CheckingTask,
   CheckRun,
   CheckRunReport,
+  CheckTryTask,
   ClarifyDepth,
   Comment,
   CommentAnswer,
@@ -150,6 +151,7 @@ import {
   commitTitle,
   commitTitleProblem,
   declaredSendBackCauses,
+  defaultInstructionCheckTimeout,
   isChat,
   isLoopbackUrl,
   isTrackerClosedQuestion,
@@ -221,6 +223,7 @@ import { type AsanaRead, type AsanaTree, readAsanaTree, retryingRead } from '../
 import { maxTasksPerFiring } from '../automations/check-failures.ts'
 import type { Banners } from '../banners.ts'
 import { type Busy, createBusyHold } from '../busy.ts'
+import type { InstructionTries } from '../check-tries.ts'
 import { type Clock, clockWait, systemClock, type Timer } from '../clock.ts'
 import { loginShell, worktreeCommandEnv } from '../command-env.ts'
 import type { FileStore } from '../downloads.ts'
@@ -277,12 +280,14 @@ import type {
 import { messageOf } from '../text.ts'
 import { resolveAgentChoices } from '../workflow/agent-choices.ts'
 import {
+  type AgentChoice,
   type CheckSettings,
   type CleanupStep,
   checkLayer,
   githubRepoOf,
   inheritedFrom,
   isCommandStep,
+  isInstructionCheck,
   type WorkflowSettings,
 } from '../workflow/check.ts'
 import { readGitLayer } from '../workflow/layers.ts'
@@ -420,6 +425,12 @@ import {
   byHuman,
   waiting as waitingItems,
 } from './inbox.ts'
+import {
+  changeKey,
+  createInstructionChecks,
+  type InstructionCheck,
+  type InstructionRepo,
+} from './instruction-checks.ts'
 import {
   type AutomationIntake,
   asanaIntakeHold,
@@ -836,6 +847,7 @@ export interface Tasks {
   setRepos(ref: string, caller: Caller, request: SetTaskReposRequest): Promise<TaskReposResult>
   repoSetup(ref: string, repo: string, caller: Caller): Promise<RepoSetupReport>
   runChecks(ref: string, caller: Caller, only?: string): Promise<CheckRun>
+  instructionTries: InstructionTries
   checkRun(id: string, caller: Caller): Promise<CheckRunReport>
   checkOutput(id: string, position: number): Promise<{ text: string; log: string }>
   wake(factoryId?: string): void
@@ -1076,6 +1088,8 @@ export function createTasks(options: {
   const checkWaits = new Map<string, AbortController>()
   const memoryWaits = new Map<string, AbortController>()
   const memoryAnswers = new Map<string, (choice: string | undefined) => void>()
+  const instructionWaits = new Map<string, AbortController>()
+  const reportAnswers = new Map<string, (choice: string | undefined) => void>()
   options.checkSlots.watch((places) => store.setChecksWaiting(places))
   const checksIdle = new Map<string, (() => void)[]>()
   function setChecking(taskId: string, on: boolean): void {
@@ -2708,8 +2722,8 @@ export function createTasks(options: {
     const passed = new Set(
       proposal.checks.filter((c) => c.passed).map((c) => key(c.name, c.command, c.repo)),
     )
-    return (settings.stages.validate?.checks ?? []).filter((c) =>
-      passed.has(key(c.name, c.run, c.repo)),
+    return (settings.stages.validate?.checks ?? []).filter(
+      (c) => c.run !== undefined && passed.has(key(c.name, c.run, c.repo)),
     )
   }
 
@@ -2762,15 +2776,9 @@ export function createTasks(options: {
       : `# Apps\n\nTed started the approved Apps from this branch:\n\n${lines.join('\n')}`
   }
 
-  async function checkPlan(
-    task: StoredTask,
-    resolution: WorkflowResolution,
-    only?: string,
-    reads?: WorktreeReads,
-  ): Promise<RunnableCheck[]> {
-    const factory = factoryOf(task)
-    const entries = factoryRepos(resolution.workflow, factory)
-    const repos = await Promise.all(
+  async function checkRepos(task: StoredTask, resolution: WorkflowResolution) {
+    const entries = factoryRepos(resolution.workflow, factoryOf(task))
+    return Promise.all(
       task.repos
         .filter((r) => !r.removed)
         .map(async (r) => {
@@ -2783,6 +2791,17 @@ export function createTasks(options: {
           }
         }),
     )
+  }
+
+  async function checkPlan(
+    task: StoredTask,
+    resolution: WorkflowResolution,
+    only?: string,
+    reads?: WorktreeReads,
+    commandsOnly?: boolean,
+  ): Promise<RunnableCheck[]> {
+    const entries = factoryRepos(resolution.workflow, factoryOf(task))
+    const repos = await checkRepos(task, resolution)
     return planChecks({
       checks: task.setup
         ? await approvedSetupChecks(task)
@@ -2791,7 +2810,144 @@ export function createTasks(options: {
       primary: entries[0]?.name ?? '',
       ...(only !== undefined && !validates(task.stage) && { only }),
       ...(reads !== undefined && { reads }),
+      ...(commandsOnly === true && { commandsOnly: true }),
+      changeKey: (check) => changeKey(repos, check),
+      passedKey: (name) => store.passedChangeKey(task.id, name),
     })
+  }
+
+  async function runInstructionCheck(
+    task: StoredTask,
+    input: {
+      checkRunId: string
+      position: number
+      check: InstructionCheck
+      mayFix: boolean
+      log: string
+    },
+  ) {
+    const wait = new AbortController()
+    instructionWaits.set(task.id, wait)
+    try {
+      const resolution = await taskWorkflow(find(task.id), { fetch: false })
+      const repos: InstructionRepo[] = await checkRepos(task, resolution)
+      const outcome = await instructionChecks.run({
+        task,
+        check: input.check,
+        repos,
+        folders: repos.length > 1,
+        mayFix: input.mayFix,
+        log: input.log,
+        signal: AbortSignal.any([stopping.signal, wait.signal]),
+      })
+      if (outcome.kind === 'finished' && outcome.state === 'passed') {
+        const key = await changeKey(repos, input.check)
+        if (key !== undefined) store.recordCheckChangeKey(input.checkRunId, input.position, key)
+      }
+      return outcome
+    } finally {
+      if (instructionWaits.get(task.id) === wait) instructionWaits.delete(task.id)
+    }
+  }
+
+  async function checkReportMissing(
+    taskId: string,
+    checkRunId: string,
+    missing: NonNullable<CheckRunnerResult['missing']>,
+    asked?: string,
+  ): Promise<'retry' | 'failed' | 'interrupted'> {
+    const wait = new AbortController()
+    instructionWaits.set(taskId, wait)
+    const signal = AbortSignal.any([stopping.signal, wait.signal])
+    try {
+      const task = find(taskId)
+      const run = store.getCheckRun(checkRunId)
+      const fixing = missing.check.fix === true && run?.trigger === 'validate'
+      const question = asked === undefined ? undefined : store.getComment(asked)
+      if (asked !== undefined && (!question || question.answer)) return 'interrupted'
+      return await reportAnswer(
+        task,
+        signal,
+        question ?? (await askCheckReport(task, missing, fixing)),
+      )
+    } finally {
+      if (instructionWaits.get(taskId) === wait) instructionWaits.delete(taskId)
+    }
+  }
+
+  async function askCheckReport(
+    task: StoredTask,
+    missing: NonNullable<CheckRunnerResult['missing']>,
+    fixing: boolean,
+  ): Promise<Comment> {
+    const question = store.postComment({
+      taskId: task.id,
+      kind: 'question',
+      author: { kind: 'ted' },
+      title: `An instruction check didn’t report: ${missing.check.name}`,
+      body: [
+        `The instruction check “${missing.check.name}” has no report: ${missing.reason}. Ted didn’t count it as passed or failed, and the Task waits in ${stageTitle(task.stage)}.`,
+        ...(fixing
+          ? [
+              'Its agent could fix what it found. Any commits it made stay on the branch, and any edits it didn’t commit are left in the worktree.',
+            ]
+          : []),
+        `**${memoryRetryChoice}** starts a new agent for this check. **${memoryFailedChoice}** records it as a failed check, the same as when the agent reports a failure.`,
+      ].join('\n\n'),
+      choices: [memoryRetryChoice, memoryFailedChoice],
+      purpose: { kind: 'check-report' },
+    })
+    await store.persisted()
+    return question
+  }
+
+  async function reportAnswer(
+    task: StoredTask,
+    signal: AbortSignal,
+    question: Comment,
+  ): Promise<'retry' | 'failed' | 'interrupted'> {
+    const choice = await new Promise<string | undefined>((resolve) => {
+      reportAnswers.set(question.id, resolve)
+      if (signal.aborted) resolve(undefined)
+      else signal.addEventListener('abort', () => resolve(undefined), { once: true })
+    })
+    reportAnswers.delete(question.id)
+    if (choice === undefined) {
+      const open = store.getComment(question.id)
+      if (open && !open.answer && !stopping.signal.aborted) {
+        answerRequest(find(task.id), open, {
+          kind: 'withdrawn',
+          at: new Date().toISOString(),
+          cancelled: true,
+        })
+        await store.persisted()
+      }
+      return 'interrupted'
+    }
+    return choice === memoryFailedChoice ? 'failed' : 'retry'
+  }
+
+  async function answerCheckReport(
+    task: StoredTask,
+    comment: Comment,
+    choice: string | undefined,
+    text: string,
+  ): Promise<Comment> {
+    if (choice !== memoryRetryChoice && choice !== memoryFailedChoice)
+      throw new RequestError(400, `answer with ${memoryRetryChoice} or ${memoryFailedChoice}`)
+    const open = store.getComment(comment.id)
+    if (open?.answer) throw new RequestError(409, 'this request has already been answered')
+    if (!reportAnswers.has(comment.id))
+      throw new RequestError(409, 'Ted is no longer waiting for this answer')
+    const answered = answerRequest(
+      task,
+      comment,
+      { kind: 'answered', at: new Date().toISOString(), choice, ...(text !== '' && { text }) },
+      drafts(task.id),
+    )
+    await store.persisted()
+    reportAnswers.get(comment.id)?.(choice)
+    return store.getComment(answered.id) ?? answered
   }
 
   function reportAutoMode(factoryId: string, signal: AutoModeSignal): void {
@@ -2838,10 +2994,34 @@ export function createTasks(options: {
 
   async function report(checkRun: CheckRun): Promise<string> {
     const task = find(checkRun.taskId)
-    if (checkRun.outcome === 'interrupted') {
-      return `Ted stopped before the checks finished.\n\n${summary(checkRun.checks)}`
-    }
-    return (await failedFindings(task, checkRun)) ?? `Checks passed.\n\n${summary(checkRun.checks)}`
+    const text =
+      checkRun.outcome === 'interrupted'
+        ? `Ted stopped before the checks finished.\n\n${summary(checkRun.checks)}`
+        : ((await failedFindings(task, checkRun)) ??
+          `Checks passed.\n\n${summary(checkRun.checks)}`)
+    if (checkRun.trigger !== 'agent' || checkRun.checks.some((c) => c.instruction !== undefined))
+      return text
+    const listed = await instructionListing(task)
+    return listed === undefined ? text : `${text}\n\n${listed}`
+  }
+
+  async function instructionListing(task: StoredTask): Promise<string | undefined> {
+    const resolution = await taskWorkflow(find(task.id), { fetch: false })
+    const listed = task.setup ? [] : (resolution.workflow.settings.stages.validate?.checks ?? [])
+    const instructions = listed.filter(isInstructionCheck)
+    if (instructions.length === 0) return undefined
+    return [
+      'Instruction Checks run at Validate. Ted starts an agent for each one; one that may fix runs before the commands, the others after them:',
+      ...instructions.map((check) =>
+        [
+          `- ${check.name}${check.fix === true ? ' (may fix)' : ''}`,
+          ...check.instruction
+            .trim()
+            .split('\n')
+            .map((line) => (line.trim() === '' ? '' : `  ${line}`)),
+        ].join('\n'),
+      ),
+    ].join('\n\n')
   }
 
   async function applyValidationFix(task: StoredTask, value: FailureCase): Promise<void> {
@@ -4248,10 +4428,26 @@ export function createTasks(options: {
     inBackground: (what, work) => inBackground(what, work),
   })
 
-  async function reviewerFor(task: StoredTask): Promise<ReviewerChoice> {
+  const instructionChecks = createInstructionChecks({
+    store,
+    subAgents,
+    choose: (task, check) =>
+      reviewerFor(task, {
+        ...(check.agent !== undefined && { agent: check.agent }),
+        ...(check.model !== undefined && { model: check.model }),
+        ...(check.effort !== undefined && { effort: check.effort }),
+      }),
+  })
+
+  async function reviewerFor(task: StoredTask, own: AgentChoice = {}): Promise<ReviewerChoice> {
     const { settings } = (await taskWorkflow(find(task.id), { fetch: false })).workflow
     const lead = task.lead ?? leadFrom(settings)
-    const setting = settings.reviewer
+    const setting =
+      own.agent !== undefined
+        ? own
+        : own.model !== undefined || own.effort !== undefined
+          ? { ...settings.reviewer, ...own }
+          : settings.reviewer
     const tuned = {
       ...(setting?.model !== undefined && { model: setting.model }),
       ...(setting?.effort !== undefined && { effort: setting.effort as Effort }),
@@ -6528,6 +6724,7 @@ export function createTasks(options: {
         trackerConsents,
         answerCleanupFailure,
         answerMemoryKill,
+        answerCheckReport,
         withSimulatorRequest: (comment, work) => apps.withSimulatorRequest(comment, work),
         mergeSendBack: (id, findings) =>
           mergeSendBack(id, findings, undefined, false, { counted: false }),
@@ -9444,6 +9641,7 @@ export function createTasks(options: {
     if (store.heldRuns().some((h) => h.taskId === taskId)) store.releaseTaskRun(taskId)
     checkWaits.get(taskId)?.abort()
     memoryWaits.get(taskId)?.abort()
+    instructionWaits.get(taskId)?.abort()
     settingUp.get(taskId)?.abort()
     for (const [key, cancel] of repoSetups) if (key.startsWith(`${taskId}:`)) cancel.abort()
     await beginning.get(taskId)?.catch(() => undefined)
@@ -10420,6 +10618,7 @@ export function createTasks(options: {
       dropWaitingMove(task.id)
       checkWaits.get(task.id)?.abort()
       memoryWaits.get(task.id)?.abort()
+      instructionWaits.get(task.id)?.abort()
       subAgents.dropFor(task.id)
       settingUp.get(task.id)?.abort()
       await beginning.get(task.id)?.catch(() => undefined)
@@ -10892,6 +11091,10 @@ export function createTasks(options: {
     lowPriority: () => store.settings().lowPriorityWork,
     memory,
     memoryKilled: checkKilledForMemory,
+    runInstruction: runInstructionCheck,
+    reportMissing: checkReportMissing,
+    reportAsked: (taskId) =>
+      openRequests(taskId).find((comment) => comment.purpose?.kind === 'check-report')?.id,
     takeCheckSlot: async (taskId, checkRunId) => {
       const wait = new AbortController()
       checkWaits.set(taskId, wait)
@@ -10945,9 +11148,19 @@ export function createTasks(options: {
 
   leadLifecycle.restoreHealth()
 
+  for (const run of store.listRuns()) {
+    if (run.state !== 'finished' && store.reviewerOf(run.id)?.purpose === 'instruction-check')
+      inBackground('stop an instruction check’s agent left from before Ted restarted', () =>
+        runs.stop(run.id),
+      )
+  }
+
   for (const task of store.listTasks()) {
     for (const comment of openRequests(task.id)) {
-      if (comment.memoryKill)
+      if (
+        comment.memoryKill ||
+        (comment.purpose?.kind === 'check-report' && !validation.awaitsReport(task.id))
+      )
         answerRequest(task, comment, {
           kind: 'withdrawn',
           at: new Date().toISOString(),
@@ -13517,6 +13730,75 @@ export function createTasks(options: {
       return humanComment(task, '', [])
     },
 
+    instructionTries: {
+      async tasks(factoryId) {
+        const found: CheckTryTask[] = []
+        for (const listed of store.listTasks()) {
+          if (
+            listed.factoryId !== factoryId ||
+            listed.archived ||
+            listed.stage === 'backlog' ||
+            listed.stage === 'done' ||
+            listed.leadRunId === undefined
+          )
+            continue
+          const assigned = store.execution.assignment(listed.id)
+          if (assigned && assigned.machineId !== store.execution.localMachineId) continue
+          const task = find(listed.id)
+          const resolution = await taskWorkflow(task, { fetch: false }).catch(() => undefined)
+          if (!resolution) continue
+          const repos = await checkRepos(task, resolution).catch(() => [])
+          const changed = await Promise.all(
+            repos.map((r) =>
+              git.workingChanges(r.worktree, `origin/${r.baseBranch}`).then(
+                (c) => c.files.length > 0,
+                () => false,
+              ),
+            ),
+          )
+          if (changed.some(Boolean))
+            found.push({ id: task.id, displayId: task.displayId, title: task.title })
+        }
+        return found
+      },
+      async run(factoryId, request, log, signal) {
+        const task = find(request.taskId)
+        if (task.factoryId !== factoryId)
+          throw new RequestError(404, `${task.displayId} isn’t in this Factory`)
+        await execution.local(task.id)
+        const resolution = await taskWorkflow(find(task.id), { fetch: false })
+        const repos = await checkRepos(task, resolution)
+        const check: InstructionCheck = {
+          name: request.name,
+          instruction: request.instruction,
+          ...(request.fix === true && { fix: true }),
+          ...(request.agent !== undefined && { agent: request.agent }),
+          ...(request.model !== undefined && { model: request.model }),
+          ...(request.effort !== undefined && { effort: request.effort }),
+          timeout: request.timeout ?? defaultInstructionCheckTimeout,
+          state: 'waiting',
+        }
+        const outcome = await instructionChecks.run({
+          task: find(task.id),
+          check,
+          repos,
+          folders: repos.length > 1,
+          mayFix: false,
+          log,
+          signal: AbortSignal.any([stopping.signal, signal]),
+        })
+        const taskDisplayId = task.displayId
+        if (outcome.kind === 'interrupted') return { state: 'stopped', taskDisplayId }
+        if (outcome.kind === 'missing')
+          return {
+            state: outcome.reason.startsWith('timed out') ? 'timed-out' : 'failed',
+            taskDisplayId,
+            noReport: outcome.reason,
+          }
+        return { state: outcome.state, taskDisplayId }
+      },
+    },
+
     async runChecks(ref, caller, only) {
       const { task } = taskLead(ref, caller, 'runs checks')
       refuseDuringRepairHandOff(task)
@@ -13561,9 +13843,14 @@ export function createTasks(options: {
         }
         const started = await validation.begin(find(task.id), resolution, 'agent', only, reads)
         if (!started) {
+          const instructions = only === undefined ? await instructionListing(task) : undefined
           throw new RequestError(
             409,
-            only === undefined ? 'this Factory has no checks' : `no check named “${only}” applies`,
+            instructions !== undefined && only === undefined
+              ? `this Factory has no command checks to run here.\n\n${instructions}`
+              : only === undefined
+                ? 'this Factory has no checks'
+                : `no check named “${only}” applies`,
           )
         }
         inBackground(`run ${task.displayId}’s checks`, () =>

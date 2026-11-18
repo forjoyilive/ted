@@ -201,6 +201,7 @@ export const forwardedRequests = [
   'tryCheck',
   'stopCheckTry',
   'checkTryOutput',
+  'checkTryTasks',
   'setRepoLocalFolder',
   'clearRepoLocalFolder',
   'agentAvailability',

@@ -199,7 +199,7 @@ test(
       checks: progress.checks.map(({ name, repo, command, timeout, builtIn }) => ({
         name,
         ...(repo !== undefined && { repo }),
-        command,
+        ...(command !== undefined && { command }),
         timeout,
         ...(builtIn !== undefined && { builtIn }),
         state: 'not-run',

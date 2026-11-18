@@ -1,6 +1,7 @@
+import type { CheckRun } from '@ted/protocol'
 import { describe, expect, test } from 'vitest'
 import type { LoggedEvent } from '../src/store/index.ts'
-import { threadEvents } from '../src/tasks/thread.ts'
+import { runNowAgents, threadEvents } from '../src/tasks/thread.ts'
 
 let seq = 0
 const at = (minute: number) => `2026-11-08T10:${String(minute).padStart(2, '0')}:00.000Z`
@@ -131,6 +132,45 @@ describe('event lines', () => {
     ).toEqual([
       { tone: 'run', text: 'Task Lead started · Codex · gpt-5 · high effort' },
       { tone: 'edit', text: 'Task Lead set to Claude' },
+    ])
+  })
+
+  test('a Run now agent on the Task leaves no line, and a Validate instruction Check’s agent does', () => {
+    const sub = (minute: number, runId: string) =>
+      entry('v5.RunStarted', minute, {
+        runId,
+        agent: 'codex',
+        model: null,
+        effort: null,
+        parentRunId: 'lead',
+        name: 'Check · Docs drift',
+      })
+    const log = [sub(2, 'validate'), sub(5, 'try'), sub(6, 'explore')]
+    const checkRuns: Pick<CheckRun, 'checks' | 'startedAt' | 'finishedAt'>[] = [
+      {
+        startedAt: at(1),
+        finishedAt: at(3),
+        checks: [
+          { name: 'Docs drift', instruction: 'Fix the docs.', timeout: '20m', state: 'passed' },
+        ],
+      },
+    ]
+    const runNow = runNowAgents(
+      log,
+      (runId) => (runId === 'explore' ? undefined : 'instruction-check'),
+      checkRuns,
+    )
+    expect([...runNow]).toEqual(['try'])
+    expect(
+      threadEvents('t1', log, {
+        comments: [],
+        displayIdOf: (id) => id,
+        waitingFor: [],
+        runNowAgents: runNow,
+      }).map(({ text }) => text),
+    ).toEqual([
+      'Sub-agent “Check · Docs drift” started · Codex',
+      'Sub-agent “Check · Docs drift” started · Codex',
     ])
   })
 

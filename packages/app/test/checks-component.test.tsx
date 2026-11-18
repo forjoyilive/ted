@@ -259,3 +259,47 @@ test('accepted failures keep their failing glyph and explicit label', () => {
   expect(screen.getByRole('button', { name: /✗Tests.*failed, accepted by you/ })).toBeTruthy()
   expect(screen.getByText('· not run')).toBeTruthy()
 })
+
+test('instruction Checks show their kind, duration, report, not-rerun note and missing report', async () => {
+  const open = vi.fn()
+  render(
+    <ChecksRow
+      checks={[
+        {
+          name: 'Docs drift',
+          instruction: 'Fix stale docs.',
+          fix: true,
+          timeout: '20m',
+          state: 'passed',
+          durationMs: 182_000,
+        },
+        {
+          name: 'Copy',
+          instruction: 'Check the UI text.',
+          timeout: '20m',
+          state: 'passed',
+          notRerun: true,
+        },
+        {
+          name: 'Names',
+          instruction: 'Check names.',
+          timeout: '20m',
+          state: 'failed',
+          durationMs: 4_000,
+          noReport: 'it ended without a result line',
+        },
+      ]}
+      onOpen={open}
+    />,
+  )
+  const items = screen.getAllByRole('listitem').map((item) => item.textContent)
+  expect(items.slice(0, 3)).toEqual([
+    '✓Docs drift · instruction · may fix · 3m 02s · Report',
+    '✓Copy · instruction · not rerun: the Task’s own changes are the same as when it passed',
+    '✗Names · instruction · no report: it ended without a result line · 4s · Report',
+  ])
+  const reports = screen.getAllByRole('button', { name: 'Report' })
+  expect(reports).toHaveLength(2)
+  await user().click(reports[1] as HTMLElement)
+  expect(open).toHaveBeenCalledWith(2)
+})

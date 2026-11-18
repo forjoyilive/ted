@@ -263,9 +263,14 @@ test('Workflow and notes stay staged across pages while confirmed permissions sa
   await page('Checks')
   expect(screen.queryByRole('switch', { name: 'Design sign-off' })).toBeNull()
   expect(screen.getByText('How repo settings are saved')).toBeTruthy()
-  expect(
-    (screen.getByRole('textbox', { name: 'Typecheck command' }) as HTMLInputElement).value,
-  ).toBe('npm run typecheck')
+  await u.click(
+    within(screen.getByRole('listitem', { name: 'Typecheck' })).getByRole('button', {
+      name: 'Edit',
+    }),
+  )
+  expect((screen.getByRole('textbox', { name: 'Command' }) as HTMLInputElement).value).toBe(
+    'npm run typecheck',
+  )
   expect(screen.getByText('1 unsaved change to .ted/workflow.yaml')).toBeTruthy()
   await page('Permissions')
   await u.click(screen.getByRole('button', { name: 'Enable Bypass…' }))
@@ -392,10 +397,9 @@ test('repo settings explain saving and let the user retry merging without losing
     expect(handle.getAttribute('draggable')).toBe('false')
   }
   await page('Checks')
-  const command = screen.getByRole('textbox', { name: 'Typecheck command' })
-  const savedCommand = (command as HTMLInputElement).value
-  fireEvent.change(command, { target: { value: 'must not become a draft' } })
-  expect(command).toHaveProperty('value', savedCommand)
+  const typecheck = within(screen.getByRole('listitem', { name: 'Typecheck' }))
+  for (const name of ['Edit', 'Drag to reorder, or use the arrow keys'])
+    expect(typecheck.getByRole('button', { name }).closest('fieldset')?.disabled).toBe(true)
   expect(screen.queryByRole('button', { name: 'Review and save…' })).toBeNull()
 
   expect(api.request).toHaveBeenCalledWith('mergeFactorySettings', 'f1', {

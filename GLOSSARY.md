@@ -89,8 +89,12 @@ How much questioning Clarify does on a Task: none, a few simple questions in one
 _Avoid_: Tier, level
 
 **Check**:
-A command a Factory lists for Validate, which Ted runs itself as Validate’s first step, every time a Task enters Validate; it passes when the command exits cleanly. A failure is a return to Work: the Task Lead in Work fixes it, or asks the human to accept it when the cause is outside the Task. The machine runs the checks of only so many Tasks at once; the others wait their turn.
+A command or an instruction a Factory lists for Validate, which Ted runs itself as Validate’s first step, every time a Task enters Validate. A command Check passes when the command exits cleanly; an Instruction Check passes when its agent reports a pass. A failure is a return to Work: the Task Lead in Work fixes it, or asks the human to accept it when the cause is outside the Task. The machine runs the command Checks of only so many Tasks at once; the others wait their turn.
 _Avoid_: Test (when meaning the command), CI job
+
+**Instruction Check**:
+A Check written as a plain-language instruction, which a fresh agent Ted starts carries out on the Task’s changes and reports as pass or fail. One that may fix what it finds edits and commits on the Task’s branch and runs before the command Checks; the others only report and run after them. A passed one runs again only when the Task’s own changes have changed. When its agent gives no result, Ted asks the human to try again or count it as failed.
+_Avoid_: Agent check, AI check, review step
 
 **Finding**:
 Something Validate found wrong with a Task’s work. A blocking finding sends the Task back to Work; a note carries forward to Review.

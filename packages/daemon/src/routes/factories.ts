@@ -340,6 +340,11 @@ export const factoryRoutes: Route[] = [
       return [200, await checkTries.start(id, body)]
     },
   }),
+  {
+    method: 'GET',
+    path: /^\/factories\/([^/]+)\/checks\/try\/tasks$/,
+    handle: async ({ params: [id = ''] }, { checkTries }) => [200, await checkTries.tasks(id)],
+  },
   jsonRoute(parseStopCheckTryRequest, {
     method: 'POST',
     path: /^\/factories\/([^/]+)\/checks\/try\/stop$/,

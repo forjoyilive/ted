@@ -9,13 +9,14 @@ import {
   type CleanupSettingsInput,
   cleanupStepProblem,
   type FactorySettingsChanges,
+  type InstructionCheckInput,
   isCleanupCommand,
   previewPresets,
   type RepoSettingsInput,
   type WorkflowProblem,
   type WorktreeCommandInput,
 } from '@ted/protocol'
-import { Document, isMap, isScalar, isSeq, parseDocument, type YAMLMap, YAMLSeq } from 'yaml'
+import { Document, isMap, isScalar, isSeq, parseDocument, YAMLMap, YAMLSeq } from 'yaml'
 import {
   githubRepoOf,
   isReservedEnvName,
@@ -163,15 +164,24 @@ export function inputProblems(
     }
   }
   const checks = changes.checks ?? []
+  const instructions = changes.instructionChecks ?? []
   for (const check of checks) {
     if (check.name.trim() === '') add('Every check needs a name.')
     else if (check.run.trim() === '') add(`The check ${check.name.trim()} needs a command.`)
+  }
+  for (const check of instructions) {
+    if (check.name.trim() === '') add('Every check needs a name.')
+    else if (check.instruction.trim() === '')
+      add(`The instruction check ${check.name.trim()} needs an instruction.`)
+  }
+  for (const check of [...checks, ...instructions]) {
     const timeout = check.timeout?.trim() ?? ''
     if (timeout !== '' && !/^\d+[smh]$/.test(timeout)) {
       add(`The check ${check.name.trim()}’s timeout must be a duration such as 30s, 15m or 1h.`)
     }
   }
-  if (new Set(checks.map((c) => c.name.trim())).size !== checks.length) {
+  const names = [...checks, ...instructions].map((c) => c.name.trim())
+  if (new Set(names).size !== names.length) {
     add('Two checks have the same name.')
   }
   for (const step of changes.cleanup?.steps ?? []) {
@@ -236,14 +246,14 @@ export function applyChanges(
       }
     } else setKeepingStyle(stageMap(doc, root, id), 'based_on', hash)
   }
-  if (changes.checks !== undefined) {
+  if (changes.checks !== undefined || changes.instructionChecks !== undefined) {
     const removed = new Set(
       changes.repos === undefined
         ? []
         : current.flatMap(({ was }) => (changes.repos?.some((r) => r.was === was) ? [] : [was])),
     )
-    const kept = changes.checks.filter((c) => !removed.has(c.repo?.trim() ?? ''))
-    writeChecks(doc, root, kept)
+    const kept = changes.checks?.filter((c) => !removed.has(c.repo?.trim() ?? ''))
+    writeChecks(doc, root, kept, changes.instructionChecks)
   }
   if (changes.cleanup !== undefined) writeCleanup(doc, root, changes.cleanup)
   for (const role of agentRoles) {
@@ -347,30 +357,66 @@ function stageMap(doc: Document, root: YAMLMap, id: string): YAMLMap {
   return map
 }
 
-function writeChecks(doc: Document, root: YAMLMap, checks: readonly CheckInput[]): void {
+const instructionKeys = ['instruction', 'fix', 'agent', 'model', 'effort']
+const commandKeys = ['run', 'repo']
+
+function writeChecks(
+  doc: Document,
+  root: YAMLMap,
+  commands: readonly CheckInput[] | undefined,
+  instructions: readonly InstructionCheckInput[] | undefined,
+): void {
   const stages: unknown = root.get('stages', true)
   const stagesMap = isMap(stages) ? stages : undefined
   const validate = stagesMap?.get('validate', true)
   const node = isMap(validate) ? validate.get('checks', true) : undefined
-  const old = isSeq(node) ? (node.items as unknown[]) : []
-  if (checks.length === 0) {
+  const old = isSeq(node) ? node.items.map((item) => (isMap(item) ? item : undefined)) : []
+  const kept = old.filter((item) => item !== undefined)
+  const flow = old.length === 0 || kept.some((item) => item.flow === true)
+  const reuse = (was: number | undefined) => {
+    const found = was === undefined ? undefined : old[was]
+    if (found) return found
+    const map = new YAMLMap()
+    map.flow = flow
+    return map
+  }
+  const commandItems =
+    commands === undefined
+      ? kept.filter((item) => !item.has('instruction'))
+      : commands.map((check) => {
+          const map = reuse(check.was)
+          for (const key of instructionKeys) map.delete(key)
+          setKeepingStyle(map, 'name', check.name.trim())
+          setKeepingStyle(map, 'run', check.run.trim())
+          setOrDelete(map, 'repo', check.repo?.trim() || undefined)
+          setOrDelete(map, 'timeout', check.timeout?.trim() || undefined)
+          return map
+        })
+  const instructionItems =
+    instructions === undefined
+      ? kept.filter((item) => item.has('instruction'))
+      : instructions.map((check) => {
+          const map = reuse(check.was)
+          if (check.instruction.includes('\n')) map.flow = false
+          for (const key of commandKeys) map.delete(key)
+          setKeepingStyle(map, 'name', check.name.trim())
+          setKeepingStyle(map, 'instruction', check.instruction.trim())
+          if (check.fix === true) setKeepingStyle(map, 'fix', true)
+          else map.delete('fix')
+          setOrDelete(map, 'timeout', check.timeout?.trim() || undefined)
+          setOrDelete(map, 'agent', check.agent?.trim() || undefined)
+          setOrDelete(map, 'model', check.model?.trim() || undefined)
+          setOrDelete(map, 'effort', check.effort?.trim() || undefined)
+          return map
+        })
+  const items = [...commandItems, ...instructionItems]
+  if (items.length === 0) {
     if (isMap(validate)) {
       validate.delete('checks')
       if (validate.items.length === 0) stagesMap?.delete('validate')
     }
     return
   }
-  const flow = old.length === 0 || old.some((item) => isMap(item) && item.flow === true)
-  const items = checks.map((check) => {
-    const found = check.was === undefined ? undefined : old[check.was]
-    const map = isMap(found) ? found : (doc.createNode({}) as YAMLMap)
-    if (!isMap(found)) map.flow = flow
-    setKeepingStyle(map, 'name', check.name.trim())
-    setKeepingStyle(map, 'run', check.run.trim())
-    setOrDelete(map, 'repo', check.repo?.trim() || undefined)
-    setOrDelete(map, 'timeout', check.timeout?.trim() || undefined)
-    return map
-  })
   if (isSeq(node)) node.items = items
   else {
     const seq = new YAMLSeq()
