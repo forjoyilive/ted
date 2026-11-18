@@ -315,7 +315,9 @@ export async function checkRefusedNames(
       { url, script },
     )
   if (reload) {
-    await guestScript('globalThis.beforeReload = true')
+    await expect
+      .poll(() => guestScript('globalThis.beforeReload = true').catch(() => false))
+      .toBe(true)
     await reload()
     await expect
       .poll(() =>

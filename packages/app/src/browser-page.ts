@@ -225,6 +225,7 @@ export async function openGuest(
       page.error = 'The page couldn’t load. Reload to try again.'
     })
     check()
+    contents.navigationHistory.clear()
     page.ready = true
     return page
   } catch (error) {

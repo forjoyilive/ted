@@ -120,6 +120,17 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
       throw error
     })
   const command = (request: BrowserRequest) => client.browserCommand(task.id, request)
+  const backButton = panel.getByRole('button', { name: 'Back', exact: true })
+  const forwardButton = panel.getByRole('button', { name: 'Forward', exact: true })
+  expect(await backButton.isDisabled()).toBe(true)
+  expect(await forwardButton.isDisabled()).toBe(true)
+  await command({ action: 'navigate', value: new URL('?second', running.url).href })
+  await expect.poll(() => backButton.isEnabled()).toBe(true)
+  expect(await forwardButton.isDisabled()).toBe(true)
+  await backButton.click()
+  await expect.poll(() => forwardButton.isEnabled()).toBe(true)
+  await expect.poll(() => backButton.isDisabled()).toBe(true)
+  await panel.getByRole('status').filter({ hasText: 'Ready' }).waitFor()
   await checkRefusedNames(app, panel, new URL(running.url ?? '').href, () =>
     command({ action: 'reload' }),
   )
@@ -324,12 +335,6 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
     .poll(() => panel.getByRole('textbox', { name: 'App address' }).inputValue())
     .toBe(firstPage)
   expect((await command({ action: 'snapshot' })).text).toContain('Clicked')
-  await client.startApp(task.id, { name: 'Admin' })
-  const admin = await waitUntil(
-    async () =>
-      (await client.listApps(task.id)).find((a) => a.name === 'Admin' && a.state === 'running'),
-    'Admin App',
-  )
   const otherPage = new URL(otherApp.url ?? '').href
   await app.evaluate(async ({ webContents }, url) => {
     await webContents
@@ -342,7 +347,20 @@ test('Preview embeds a shared isolated browser; agents click, fill and capture w
   await startGuestWorker(app, firstPage)
   await startGuestWorker(app, otherPage)
   const otherTraffic = await guestWorkerTraffic(otherPage)
-  await command({ action: 'open', app: { name: 'Admin' } })
+  await panel.getByRole('combobox', { name: 'Web App' }).click()
+  await window
+    .getByRole('listbox', { name: 'Web App' })
+    .getByRole('option', { name: 'Admin' })
+    .click()
+  await window
+    .getByRole('dialog', { name: 'Run Admin outside the sandbox?' })
+    .getByRole('button', { name: 'Run', exact: true })
+    .click()
+  const admin = await waitUntil(
+    async () =>
+      (await client.listApps(task.id)).find((a) => a.name === 'Admin' && a.state === 'running'),
+    'Admin App started from the Web App list',
+  )
   await expect.poll(async () => (await guestWorkerTraffic(firstPage)).connections).toBe(0)
   const stoppedTraffic = await guestWorkerTraffic(firstPage)
   await expect

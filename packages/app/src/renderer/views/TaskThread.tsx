@@ -1058,6 +1058,7 @@ export function TaskThread({
               shown={shownApp}
               onBack={() => onCloseApp?.()}
               onLog={() => onOpenApp?.({ repo: shownApp.repo, name: shownApp.name })}
+              onSwitch={(next) => onOpenApp?.({ ...next, browser: true })}
             />
           ) : shownApp !== undefined ? (
             <AppLogView
