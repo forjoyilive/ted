@@ -1251,7 +1251,7 @@ test('Diagnose in Validate on the failing-Checks question answers only after the
   expect(store.listSendBacks(taskId)).toEqual([])
 })
 
-test('Diagnose in Validate on an open limit question from before ADR 0188 keeps the Task in Validate and runs the checks with diagnosis', async () => {
+test('Diagnose in Validate on an open limit question from before checks became the first step of Validate keeps the Task in Validate and runs the checks with diagnosis', async () => {
   stage('validate')
   port.gateWorkflow = async () => ({ workflow: loopWorkflow(), layers: [] })
   const run = store.startChecks({

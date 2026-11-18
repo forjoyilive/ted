@@ -104,8 +104,7 @@ More to read:
 
 - [`GLOSSARY.md`](GLOSSARY.md): the words Ted uses, such as Factory, Task, Stage, Run and Check.
 - [`AGENTS.md`](AGENTS.md): the rules for changing the code, written for agents and useful for people.
-- [`docs/adr/`](docs/adr): the architecture decisions and the reasons for them.
-- [`docs/spec/ted-v1-spec.md`](docs/spec/ted-v1-spec.md): the v1 spec.
+- [`docs/agents/`](docs/agents): the rules for each area of the code, and the reasons for them.
 - [`docs/testing/test-tooling.md`](docs/testing/test-tooling.md): how the tests share a machine.
 
 ## Contributing

@@ -2,7 +2,7 @@ import { closeSync, fstatSync, readdirSync, readFileSync } from 'node:fs'
 import { tedEnv } from '@ted/protocol'
 
 // On Linux, Node's spawn closes only close-on-exec descriptors, and Electron's main
-// process holds many without the flag, so the daemon would inherit them (ADR 0011).
+// process holds many without the flag, so the daemon would inherit them.
 const envName = 'TED_INHERITED_FDS'
 const oCloexec = 0o2000000
 

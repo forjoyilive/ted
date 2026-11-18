@@ -3,7 +3,7 @@ import { keyCommands } from '../src/renderer/commands.ts'
 import { keyBindings, keysFor, shortcutSheet } from '../src/renderer/keymap.ts'
 import { keySequences } from '../src/renderer/shortcuts.ts'
 
-const specShortcuts = [
+const expectedShortcuts = [
   '⌘K',
   '⌘N',
   'C',
@@ -46,7 +46,7 @@ const specShortcuts = [
 ]
 
 describe('the shortcut sheet', () => {
-  test('lists every shortcut in spec §10.11 under its section', () => {
+  test('lists every shortcut under its section', () => {
     const sheet = shortcutSheet()
     expect(sheet.map((s) => s.title)).toEqual([
       'Global',
@@ -56,7 +56,7 @@ describe('the shortcut sheet', () => {
       'Filter',
     ])
     const shown = sheet.flatMap((s) => s.rows.flatMap((r) => r.keys))
-    for (const keys of specShortcuts) expect(shown).toContain(keys)
+    for (const keys of expectedShortcuts) expect(shown).toContain(keys)
   })
 
   test('the sheet and the command registry read the same keys', () => {

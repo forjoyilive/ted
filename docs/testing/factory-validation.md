@@ -37,7 +37,7 @@ stages:
         timeout: 20m
 ```
 
-Ted sets `TED_CHECK_CPUS` for every Check command: the number of logical cores the Check may use, which is a share of the computer’s cores (**CPU a Check may use** in Settings → Limits, half by default) divided by the Check runs running when it starts. A Scheduled Check gets it too unless **Limit the CPU Scheduled Checks use too** is turned off there. Ted doesn’t enforce it. Pass it to the test runner so a Check leaves room for Runs, for example `vitest run --maxWorkers=$TED_CHECK_CPUS`, `jest --maxWorkers=$TED_CHECK_CPUS` or `make -j$TED_CHECK_CPUS`. A Check that fills the computer makes new Runs wait until it ends (ADR 0171-ted-tells-a-check-how-many-cpus-it-may-use).
+Ted sets `TED_CHECK_CPUS` for every Check command: the number of logical cores the Check may use, which is a share of the computer’s cores (**CPU a Check may use** in Settings → Limits, half by default) divided by the Check runs running when it starts. A Scheduled Check gets it too unless **Limit the CPU Scheduled Checks use too** is turned off there. Ted doesn’t enforce it. Pass it to the test runner so a Check leaves room for Runs, for example `vitest run --maxWorkers=$TED_CHECK_CPUS`, `jest --maxWorkers=$TED_CHECK_CPUS` or `make -j$TED_CHECK_CPUS`. A Check that fills the computer makes new Runs wait until it ends.
 
 Choose the command that fits the project: a full suite, a focused suite or a script that selects tests. A Check runs in its selected repo’s Task worktree; omitting `repo` selects the primary repo. Checks for repos absent from the Task or unchanged from the base branch are skipped. Check configuration chooses commands, not a universal test-file budget.
 
@@ -45,7 +45,7 @@ Use the Factory settings’ Workflow section to edit Validate’s Stage file, st
 
 Ted resolves built-in defaults, then the user’s Library, then the Factory. A more specific Stage file replaces the inherited file in full; Workflow settings merge by key. The Factory layer comes from `.ted/` on the primary repo’s remote default branch and is resolved at Stage entry, so editing a Task’s working copy does not immediately change its active instructions. Validate a proposed layer with `ted workflow check` before committing it.
 
-Other existing controls include `reviewer` (agent, model and effort), `stages.validate.max_back`, `loop_check`, `p1_only_from` and `sub_agents`. See the [Workflow settings table](../spec/ted-v1-spec.md#45-workflowyaml) for their meanings and allowed layers. Checks are Factory-specific; the Library can supply shared Stage instructions and other Workflow settings.
+Other existing controls include `reviewer` (agent, model and effort), `stages.validate.max_back`, `loop_check`, `p1_only_from` and `sub_agents`. `packages/daemon/src/workflow/check.ts` defines their allowed values and layers. Checks are Factory-specific; the Library can supply shared Stage instructions and other Workflow settings.
 
 ## What Ted itself enforces
 
@@ -53,6 +53,6 @@ The general [Check runner](../../packages/daemon/src/tasks/checks.ts) runs confi
 
 The built-in [Validate Stage](../../packages/daemon/src/workflow/defaults/stages/validate.md) asks for relevant extra tests following the repo’s rules, independent code and security review, and applicable visual verification. It specifies no three-file limit, pnpm requirement or repo test-lock policy.
 
-Some validation behavior is enforced by Ted regardless of Stage wording: unresolved failure cases and remaining Checks hold advancement; only the user can accept a failure; one reviewer is allowed per Validate visit; and reviewed commits must still match when advancing. Stage customization does not bypass these safeguards. The [validation spec](../spec/ted-v1-spec.md#8-validation) and [failure-case policy](../spec/failure-cases.md) describe the general behavior.
+Some validation behavior is enforced by Ted regardless of Stage wording: unresolved failure cases and remaining Checks hold advancement; only the user can accept a failure; one reviewer is allowed per Validate visit; and reviewed commits must still match when advancing. Stage customization does not bypass these safeguards. [`docs/agents/validate-and-checks.md`](../agents/validate-and-checks.md) has the rules for Checks, Validate and Failure cases.
 
 This Factory chooses Typecheck, Lint and Affected tests as Checks in [.ted/workflow.yaml](../../.ted/workflow.yaml). Affected tests is `pnpm check --affected`, a script in this repo that runs the test files a Task changed and the Electron app tests named after changed app source; [This repo’s test tooling](test-tooling.md#affected-tests) says how it chooses. It leaves the test files that only import changed code to a Scheduled Check that runs the full `pnpm check`. The Task Lead no longer picks test files: its custom Validate file has it run only the Electron app tests that Ted’s sandbox kept the Check from running. That combination is a choice for developing Ted, and another Factory can choose a different test strategy using the existing controls.

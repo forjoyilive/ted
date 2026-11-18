@@ -314,7 +314,7 @@ export function createData(options: DataOptions): Data {
     await takeDaily()
   }
 
-  // ADR 0122: once per home, a store that needs no rebuild still gets its replaced Run output
+  // Once per home, a store that needs no rebuild still gets its replaced Run output
   // events dropped, which makes it rebuild.
   async function owesOutputDrop(): Promise<boolean> {
     const mark = await readOutputDrop(paths.store)
@@ -330,7 +330,7 @@ export function createData(options: DataOptions): Data {
     return false
   }
 
-  // ADR 0156: a rebuild writes a changeset row for every event, and LiveStore keeps the state
+  // A rebuild writes a changeset row for every event, and LiveStore keeps the state
   // database in memory, so the store is closed, trimmed and opened again before services start.
   async function rebuiltStateIsLarge(): Promise<boolean> {
     const { stateBytes } = await storeFileSizes(paths.store)
@@ -413,7 +413,7 @@ export function createData(options: DataOptions): Data {
     }
   }
 
-  // ADR 0158: once per home, blank the text of old events a later event replaces.
+  // Once per home, blank the text of old events a later event replaces.
   async function blankReplaced(dataFrom: string | undefined, backedUp: boolean): Promise<boolean> {
     const mark = await readReplacedText(paths.store)
     if (mark && (mark.state === 'done' || mark.by === version)) return backedUp
