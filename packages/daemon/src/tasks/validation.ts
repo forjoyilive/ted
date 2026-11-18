@@ -153,9 +153,9 @@ export function createValidation(options: ValidationOptions) {
   }
 
   async function failureEvidence(task: Task, run: CheckRun, position: number) {
-    const evidence = generatedFailureText(
-      (await options.findings(task, run)) ?? summary(run.checks),
-    )
+    const findings = await options.findings(task, run)
+    const evidence = generatedFailureText(findings ?? summary(run.checks))
+    if (findings !== undefined && evidence.length <= 16_000) return evidence
     const reference = `\n\nFull output: ${options.checkLog(task, run.id, position)}`
     return evidence.slice(0, Math.max(0, 16_000 - reference.length)) + reference
   }
