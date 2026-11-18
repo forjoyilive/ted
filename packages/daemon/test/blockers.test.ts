@@ -145,7 +145,7 @@ const userMessages = async (client: Client, runId: string) =>
   })
 
 describe('adding a blocker', () => {
-  test('a blocker that would make a cycle is refused, naming the cycle; a Backlog Task stays in Backlog and shows the blocker as a marker; removing the last blocker by hand never starts a Task', async () => {
+  test('a blocker that would make a cycle is refused, naming the cycle; a Backlog Task stays in Backlog and shows the blocker as a marker; removing the last blocker by hand leaves a Task created without Start now in Backlog', async () => {
     const client = await startTed()
     const a = await create(client, 'A')
     const b = await create(client, 'B', { blockedBy: [a.id] })
@@ -174,7 +174,7 @@ describe('adding a blocker', () => {
     })
 
     const blocker = await create(client, 'Blocker')
-    const task = await create(client, 'Task', { start: true, blockedBy: [blocker.id] })
+    const task = await create(client, 'Task', { blockedBy: [blocker.id] })
 
     const res = await client.call('DELETE', `/tasks/${task.id}/blockers/${blocker.displayId}`)
 
@@ -355,7 +355,7 @@ describe('adding a blocker', () => {
 })
 
 describe('starting when the blocker merges', () => {
-  test('a Task created with Start now starts; one created without stays in Backlog', async () => {
+  test('a Task created with Start now starts; one created without stays in Backlog; removing the blocker by hand starts one created with Start now', async () => {
     const client = await startTed()
     const gate = path.join(scratch, 'gate')
     const blocker = await create(client, doneWhen(gate), { start: true })
@@ -365,6 +365,16 @@ describe('starting when the blocker merges', () => {
     })
     const later = await create(client, 'Later', { start: false, blockedBy: [blocker.id] })
     expect(meant.stage).toBe('backlog')
+    const unblocked = await create(client, steps({ endTurn: true }), {
+      start: true,
+      blockedBy: [blocker.id],
+    })
+
+    await client.ok('DELETE', `/tasks/${unblocked.id}/blockers/${blocker.displayId}`)
+    await waitFor(client, unblocked, (t) => t.leadRunId !== undefined, 'to start once unblocked')
+    expect(await startLines(client, unblocked)).toEqual([
+      'Started because its blockers were removed',
+    ])
 
     await writeFile(gate, '')
     await waitFor(client, meant, (t) => t.leadRunId !== undefined, 'to start')
@@ -388,8 +398,8 @@ describe('starting when the blocker merges', () => {
     expect(await startLines(client, task)).toEqual([`Started because ${blocker.displayId} merged`])
   })
 
-  test('removing remaining blockers mid-flow waits for Resume and keeps context', async () => {
-    let client = await startTed()
+  test('removing remaining blockers mid-flow carries on from the brief; a Task stopped by hand stays stopped', async () => {
+    const client = await startTed()
     const gate = path.join(scratch, 'gate')
     const briefFile = path.join(scratch, 'brief.md')
     await writeFile(
@@ -413,6 +423,7 @@ describe('starting when the blocker merges', () => {
       ),
       { start: true },
     )
+    const stoppedByHand = await create(client, steps({ endTurn: true }), { start: true })
     const first = await waitFor(
       client,
       task,
@@ -430,47 +441,37 @@ describe('starting when the blocker merges', () => {
     await client.ok('DELETE', `/tasks/${task.id}/blockers/${other.displayId}`)
     expect((await getTask(client, task.id)).status?.kind).toBe('blocked')
     await block(client, task, other)
-
-    const stopped = await client.ok<Task>('DELETE', `/tasks/${task.id}/blockers`)
-    expect(stopped).toMatchObject({
-      stage: 'work',
-      blockedBy: [],
-      runs: [],
-      status: { kind: 'stopped' },
-      commentBox: 'stopped',
-      activity: 'Its blockers are gone. Resume to carry on.',
-    })
-    expect(stopped.leadRunId).toBe(runId)
-    expect((await client.getRun(runId)).run.state).toBe('finished')
-
     await client.ok('POST', `/tasks/${task.id}/comments`, { body: 'Keep the old endpoint.' })
-    await client.ok('POST', `/tasks/${blocker.id}/start`)
-    await writeFile(gate, '')
-    await waitFor(client, blocker, (t) => t.stage === 'done', 'to merge after manual removal')
 
-    await daemon?.stop()
-    daemon = undefined
-    client = await openTed()
-    const stillStopped = await getTask(client, task.id)
-    expect(stillStopped.status?.kind).toBe('stopped')
-    expect(stillStopped.runs).toEqual([])
-    expect(stillStopped.leadRunId).toBe(runId)
-    expect(await readFile(unfinished, 'utf8')).toBe('unfinished parser\n')
-
-    await client.ok('POST', `/tasks/${task.id}/resume`, {})
+    const unblocked = await client.ok<Task>('DELETE', `/tasks/${task.id}/blockers`)
+    expect(unblocked.blockedBy).toEqual([])
+    expect(unblocked.status?.kind).not.toBe('stopped')
     const fresh = await waitFor(
       client,
       task,
       (t) => t.leadRunId !== undefined && t.leadRunId !== runId,
-      'to start a fresh Run only after Resume',
+      'to start a fresh Run without Resume',
     )
-    expect(fresh.stage).toBe('work')
     const { prompt } = (await client.getRun(fresh.leadRunId ?? '')).run as { prompt?: string }
-    expect(prompt).toContain('# Picking up after a stop')
+    expect(prompt).toContain('# Picking up after a blocker')
+    expect(prompt).toContain('The human removed the blockers this Task waited for')
     expect(prompt).toContain('Parser half done.')
     expect(prompt).toContain('Keep the old endpoint.')
     expect((await client.getRun(runId)).run.state).toBe('finished')
     expect(await readFile(unfinished, 'utf8')).toBe('unfinished parser\n')
+
+    await waitFor(client, stoppedByHand, (t) => t.runs[0]?.state === 'idle', 'to go idle')
+    await client.ok('POST', `/tasks/${stoppedByHand.id}/stop`)
+    await waitFor(
+      client,
+      stoppedByHand,
+      (t) => t.status?.kind === 'stopped' && t.runs.length === 0,
+      'to stop',
+    )
+    await block(client, stoppedByHand, other)
+    await client.ok('DELETE', `/tasks/${stoppedByHand.id}/blockers/${other.displayId}`)
+    const stillStopped = await getTask(client, stoppedByHand.id)
+    expect(stillStopped).toMatchObject({ blockedBy: [], runs: [], status: { kind: 'stopped' } })
   })
 
   test('a blocker in another Factory works', async () => {
@@ -798,7 +799,14 @@ test('hierarchy API persists nested links, refuses stale and cyclic edits, and c
   await block(client, child, leaf)
   await app.archiveTask(leaf.id)
   expect((await getTask(client, child.id)).blockedBy).toEqual([])
-  expect((await getTask(client, child.id)).runs).toEqual([])
+  await waitFor(client, child, (t) => t.leadRunId !== undefined, 'to carry on once unblocked')
+  await client.ok('POST', `/tasks/${child.id}/stop`)
+  await waitFor(
+    client,
+    child,
+    (t) => t.status?.kind === 'stopped' && t.runs.length === 0,
+    'to stop by hand',
+  )
   expect((await getTask(client, leaf.id)).parentId).toBe(child.id)
   await app.unarchiveTask(leaf.id)
   expect((await getTask(client, child.id)).markers).toEqual(
@@ -847,15 +855,16 @@ test('hierarchy API persists nested links, refuses stale and cyclic edits, and c
   await client.ok('POST', `/tasks/${deletionParent.id}/start`)
   await app.deleteTask(deletionChild.id)
   expect(await app.taskHierarchy(deletionParent.id)).toMatchObject({ childIds: [] })
-  expect((await getTask(client, deletionParent.id)).runs).toEqual([])
-  await client.ok('POST', `/tasks/${deletionParent.id}/start`)
   const restarted = await waitFor(
     client,
     deletionParent,
     (task) => task.runs[0]?.state === 'idle',
-    'to start only on the explicit request',
+    'to start once its last child is deleted',
   )
   expect(restarted.status?.kind).not.toBe('stopped')
+  expect(await startLines(client, deletionParent)).toEqual([
+    'Started because its blockers were removed',
+  ])
 
   const family = await create(client, 'Family')
   const kid = await create(client, 'Kid')
@@ -1180,9 +1189,8 @@ test('a queued parent is held before launch; Coordinator edits share app safety 
   expect((await getTask(client, parent.id)).status?.kind).toBe('blocked')
   expect((await getTask(client, parent.id)).runs).toEqual([])
   await app.archiveTask(child.id)
-  expect((await getTask(client, parent.id)).status?.kind).toBe('stopped')
+  expect((await getTask(client, parent.id)).status?.kind).toBe('queued')
   await app.unarchiveTask(child.id)
-  await client.ok('POST', `/tasks/${parent.id}/resume`, {})
   expect((await getTask(client, parent.id)).runs).toEqual([])
   const newParent = await create(client, 'New parent')
   await expect(parentOf(app, newParent, holder)).rejects.toThrow('Stop the parent')
@@ -1299,7 +1307,14 @@ test('a queued parent is held before launch; Coordinator edits share app safety 
   expect(errors).toEqual([])
   expect(JSON.parse(output.join(''))).toMatchObject({ operation: 'parent', taskId: child.id })
   expect((await app.taskHierarchy(child.id)).parentId).toBeNull()
-  expect((await getTask(client, parent.id)).runs).toEqual([])
+  await waitFor(client, parent, (t) => t.leadRunId !== undefined, 'to carry on once unlinked')
+  await client.ok('POST', `/tasks/${parent.id}/stop`)
+  await waitFor(
+    client,
+    parent,
+    (t) => t.status?.kind === 'stopped' && t.runs.length === 0,
+    'to stop by hand',
+  )
   const queuedChildGate = path.join(scratch, 'queued-child-finish')
   const queuedChild = await create(client, doneWhen(queuedChildGate))
   await parentOf(app, queuedChild, parent)

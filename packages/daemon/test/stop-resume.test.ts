@@ -528,7 +528,7 @@ describe('Resume', () => {
     expect(res.body.error).toBe('NB-1 isn’t stopped')
   })
 
-  test('removing the last blocker from a Task waiting mid-flow leaves it Stopped until Resume', async () => {
+  test('removing the last blocker from a Task waiting mid-flow carries it on with a fresh Run, without Resume', async () => {
     const client = await startTed()
     const blocker = await create(client, 'Blocker')
     const task = await create(
@@ -547,14 +547,9 @@ describe('Resume', () => {
       'to be Blocked',
     )
 
-    await client.ok('DELETE', `/tasks/${task.id}/blockers/${blocker.displayId}`)
+    const after = await client.ok<Task>('DELETE', `/tasks/${task.id}/blockers/${blocker.displayId}`)
+    expect(after.status?.kind).not.toBe('stopped')
 
-    const after = await getTask(client, task.id)
-    expect(after.status?.kind).toBe('stopped')
-    expect(after.runs).toEqual([])
-    expect(after.leadRunId).toBe(blocked.leadRunId)
-
-    await client.ok('POST', `/tasks/${task.id}/resume`, {})
     await waitFor(
       client,
       task,

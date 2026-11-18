@@ -8,7 +8,7 @@ Every parent and child remains a normal Task, with its own Workflow, Task Lead a
 
 `Task.parentId` and `Task.childIds` expose hierarchy. `Task.blockedBy` continues to mean manually added blockers. Internally, `TedStore.blockers` combines manual links with links marked `kind: 'child'`. An archived child satisfies only its hierarchy dependency; it remains unmerged and any manual blocker still applies. The store derives status and activity from the combined unfinished dependencies.
 
-The existing queue holds parents for direct children, which in turn wait for their children. Children start independently through that same queue. A queued parent leaves the queue to wait when linked to an unfinished child. Queue selection, recovery and Stage advancement also guard against unfinished children. A child merging wakes its parent through the existing blocker wake mechanism. Removing or waiving the last dependency by hand requires an explicit start or resume.
+The existing queue holds parents for direct children, which in turn wait for their children. Children start independently through that same queue. A queued parent leaves the queue to wait when linked to an unfinished child. Queue selection, recovery and Stage advancement also guard against unfinished children. A child merging wakes its parent through the existing blocker wake mechanism. Removing or waiving the last dependency by hand carries the parent on as a merge would, unless it was stopped by hand or needs the user (ADR 0194-removing-the-last-blocker-carries-the-task-on).
 
 ## Read and edit interfaces
 

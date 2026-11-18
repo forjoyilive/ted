@@ -145,8 +145,10 @@ test('fresh Run requests use event order when timestamps match and preserve reas
   const notices = [{ key: 'ci', sig: 'failed', kind: 'ci', where: 'widgets' }]
   store.gitHubActivityQueued(id, notices)
   expect(store.freshRunRequest(id)).toEqual({ kind: 'github', pending: true, notices })
-  store.requeueAfterBlockers(id)
-  expect(store.freshRunRequest(id)).toEqual({ kind: 'blockers', pending: true })
+  store.requeueAfterBlockers(id, 'merged')
+  expect(store.freshRunRequest(id)).toEqual({ kind: 'blockers', removed: false, pending: true })
+  store.requeueAfterBlockers(id, 'removed')
+  expect(store.freshRunRequest(id)).toEqual({ kind: 'blockers', removed: true, pending: true })
   store.startAfterPlanning(id, 'work', entry)
   expect(store.freshRunRequest(id)).toEqual({ kind: 'planning', pending: true })
   store.archiveTask(id)

@@ -589,6 +589,15 @@ export function threadEvents(
       case 'v1.TaskRequeuedAfterBlockers':
         add(entry, 'run', 'Blockers merged · Task queued to carry on')
         break
+      case 'v2.TaskRequeuedAfterBlockers':
+        add(
+          entry,
+          'run',
+          data.why === 'removed'
+            ? 'Blockers removed · carrying on'
+            : 'Blockers merged · Task queued to carry on',
+        )
+        break
       case 'v1.TaskPreparationChanged':
         if (data.state === 'preparing') add(entry, 'run', 'Preparing through Design')
         break
@@ -1098,6 +1107,7 @@ const startCauseLines = new Map([
   ['snooze', 'Started because its snooze ended'],
   ['coordinator', 'Started by the Coordinator'],
   ['automation', 'Started by an Automation'],
+  ['blockers-removed', 'Started because its blockers were removed'],
 ])
 
 function startLine(cause: Untyped, blockers: Untyped) {
