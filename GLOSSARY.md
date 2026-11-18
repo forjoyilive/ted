@@ -109,7 +109,7 @@ The highest severity of a finding: the change loses or corrupts data, opens a se
 _Avoid_: Critical, blocker, severity 1
 
 **Failure case**:
-A record of one failure, its evidence, the Task Lead’s assessment and the human’s decision. Accepting a failure case allows that failure in its tested context; the original result stays failed.
+A record of one failure, its evidence, the Task Lead’s assessment and any choice to fix it or decision by the user. Only the user can accept a failure case, allowing that failure in its tested context; the original result stays failed.
 _Avoid_: Passed failure, ignored check
 
 **Factory setup**:
