@@ -1,7 +1,7 @@
 import type { Coordinator, Factory, FactoryGroup, FactoryLayout } from '@ted/protocol'
 import { factoryGroupNameMax } from '@ted/protocol/factory'
 import type { LucideIcon } from 'lucide-react'
-import { Inbox, LayoutDashboard, ListTodo, Settings } from 'lucide-react'
+import { ChevronRight, Gauge, Inbox, LayoutDashboard, ListTodo, Settings } from 'lucide-react'
 import type { DragEvent, ReactNode, RefObject } from 'react'
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
@@ -62,6 +62,7 @@ interface SidebarProps {
   badges?: Readonly<Record<string, FactoryBadges>>
   settingsProblem?: boolean
   footer?: SidebarFooter
+  busy?: string
   runsOpen?: boolean
   onOpenRuns?: () => void
   devicesOpen?: boolean
@@ -289,6 +290,7 @@ export function Sidebar({
   badges = {},
   settingsProblem = false,
   footer = {},
+  busy,
   runsOpen = false,
   onOpenRuns,
   devicesOpen = false,
@@ -921,6 +923,18 @@ export function Sidebar({
               </ActionButton>
             )}
           </footer>
+        )}
+        {busy !== undefined && (
+          <ActionButton
+            type="button"
+            className={styles.busy}
+            title={busy}
+            onClick={() => dispatch({ type: 'open-settings', section: 'limits' })}
+          >
+            <Gauge size={14} strokeWidth={2} aria-hidden="true" />
+            <span className={styles.busyLabel}>Computer is busy · new work waits</span>
+            <ChevronRight size={12} strokeWidth={2} aria-hidden="true" />
+          </ActionButton>
         )}
         {usage}
         {developerMode && <ResourceUsage dispatch={dispatch} />}

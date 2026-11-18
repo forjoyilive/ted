@@ -147,9 +147,6 @@ export function taskStatus(facts: TaskFacts): TaskStatus | undefined {
   }
   if (facts.queue) {
     if ('hold' in facts.queue) return { kind: 'queued', hold: facts.queue.hold }
-    if (facts.busy !== undefined && !facts.queue.skipsBusy) {
-      return { kind: 'queued', hold: busyHold, busy: facts.busy }
-    }
     return { kind: 'queued', place: facts.queue.place }
   }
   if (facts.github) return { kind: 'waiting-for-github', on: facts.github }

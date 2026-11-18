@@ -227,8 +227,7 @@ describe('taskStatus', () => {
     const busy = { memoryAvailable: 0.07 }
     expect(taskStatus(at({ stage: 'intake', queue: { place: 2 }, busy }))).toEqual({
       kind: 'queued',
-      hold: 'computer is busy',
-      busy,
+      place: 2,
     })
     expect(taskStatus(at({ stage: 'intake', queue: { hold: 'disk full' }, busy }))).toEqual({
       kind: 'queued',

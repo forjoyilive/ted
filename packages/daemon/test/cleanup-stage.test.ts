@@ -242,7 +242,7 @@ test('Tasks in Cleanup get their Task Lead turn while the computer is busy, whet
   )
   expect((await getTask(client, held.id)).status).toMatchObject({
     kind: 'queued',
-    hold: 'computer is busy',
+    place: expect.any(Number),
   })
 
   await approve(client, signoff)
@@ -252,7 +252,7 @@ test('Tasks in Cleanup get their Task Lead turn while the computer is busy, whet
   expect((await getTask(client, task.id)).leadRunId).toBe(idle.leadRunId)
   expect((await getTask(client, held.id)).status).toMatchObject({
     kind: 'queued',
-    hold: 'computer is busy',
+    place: expect.any(Number),
   })
 
   await setGh({ merged: false })
@@ -276,7 +276,7 @@ test('Tasks in Cleanup get their Task Lead turn while the computer is busy, whet
   expect((await getTask(client, ended.task.id)).leadRunId).not.toBe(stopped.leadRunId)
   expect((await getTask(client, held.id)).status).toMatchObject({
     kind: 'queued',
-    hold: 'computer is busy',
+    place: expect.any(Number),
   })
   expect((await getTask(client, held.id)).runs).toEqual([])
 }, 150_000)
