@@ -798,6 +798,17 @@ export function createFailureCases(options: {
       if (closed(value)) throw new RequestError(409, 'this case is closed; record a new failure')
       if (acceptedResolution(value))
         throw new RequestError(409, 'this failure already has current acceptance')
+      const repair =
+        request.repairTask === undefined ? undefined : store.getTask(request.repairTask)
+      if (request.repairTask !== undefined) {
+        if (!repair || repair.factoryId !== task.factoryId || repair.id === task.id)
+          throw new RequestError(409, 'name another Task in this Factory as the repair Task')
+        if (repair.archived || repair.stage === 'done')
+          throw new RequestError(
+            409,
+            `${repair.displayId} is ${repair.archived ? 'archived' : 'done'}; name an open repair Task`,
+          )
+      }
       withdraw(value)
       const contextId = value.additions.at(-1)?.contextId ?? value.contextId
       if (value.validation)
@@ -805,7 +816,7 @@ export function createFailureCases(options: {
           taskId: task.id,
           author: { kind: 'run', runId },
           title: 'Failure assessment',
-          body: `Failure ${shortReference(value.id)}\n\nAssessment: ${request.assessment}\n\nRecommendation: ${recommendation}`,
+          body: `Failure ${shortReference(value.id)}\n\nAssessment: ${request.assessment}\n\nRecommendation: ${recommendation}${repair ? `\n\nRepair: ${repair.displayId}` : ''}`,
         })
       return store.failures.save(
         {
@@ -814,8 +825,10 @@ export function createFailureCases(options: {
             ...value.assessments,
             {
               id: randomUUID(),
-              ...request,
+              assessment: request.assessment,
               recommendation,
+              choice: request.choice,
+              ...(repair && { repairTask: repair.id }),
               runId,
               evidenceCount: value.additions.length,
               ...(contextId && { contextId }),

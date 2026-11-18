@@ -337,9 +337,10 @@ for (const source of [
   roundTrip(P.parseRecordFailureRequest, { source, evidence: 'Evidence', contextId: 'context' })
 roundTrip(P.parseAddFailureEvidenceRequest, { evidence: 'More evidence', contextId: 'context' })
 roundTrip(P.parseAssessFailureRequest, {
-  assessment: 'regression',
-  recommendation: 'Fix this',
-  choice: 'fix',
+  assessment: 'unrelated',
+  recommendation: 'Wait for TED-639',
+  choice: 'repair',
+  repairTask: 'TED-639',
 })
 roundTrip(P.parseResolveFailureRequest, {
   requestId: 'request',
@@ -446,6 +447,11 @@ rejects(
   P.parseAssessFailureRequest,
   { assessment: 'unrelated', recommendation: 'Accept it' },
   'choice must be the recommended decision',
+)
+rejects(
+  P.parseAssessFailureRequest,
+  { assessment: 'unrelated', recommendation: 'Wait', choice: 'repair', repairTask: '' },
+  'repairTask must be nonempty text',
 )
 rejects(P.parseResolveFailureRequest, { resolution: 'other' }, 'unknown failure resolution')
 for (const body of [null, [], 'text', 0])

@@ -38,7 +38,7 @@ describe('which tests a change needs', () => {
       onlyAppChanged([
         'packages/app/test/board-component.test.tsx',
         'packages/app/src/main.ts',
-        'docs/spec/ted-v1-spec.md',
+        'docs/environment.md',
         'AGENTS.md',
       ]),
     ).toBe(true)
@@ -52,7 +52,7 @@ describe('which tests a change needs', () => {
     ['the repo’s config', ['packages/app/src/main.ts', 'vitest.config.ts']],
     ['the lockfile', ['packages/app/src/main.ts', 'pnpm-lock.yaml']],
     ['the check script', ['packages/app/src/main.ts', 'scripts/check.ts']],
-    ['docs alone', ['docs/adr/0001-workflow-needs-ted.md', 'AGENTS.md']],
+    ['docs alone', ['docs/agents/tasks.md', 'AGENTS.md']],
     ['nothing', []],
   ])('a change that touches %s needs every test', (_, files) => {
     expect(onlyAppChanged(files)).toBe(false)

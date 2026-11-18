@@ -26,7 +26,7 @@ The [version-tagged changelog](https://raw.githubusercontent.com/anthropics/clau
 
 Only `claude --version` and `claude --help` were executed. Installed help lists `--bare` separately, identifies `CLAUDE_CODE_SIMPLE=1`, and describes Anthropic auth as `ANTHROPIC_API_KEY` or `apiKeyHelper` via `--settings`, excluding OAuth/keychain. No prompt was sent, credentials inspected, login changed, or billed inference run. Help text establishes the advertised interface, not successful subscription authentication.
 
-Static inspection of [the Claude launcher](../../packages/daemon/src/agents/claude.ts) shows `-p` with streaming input/output and no `--bare`. The launcher also installs hooks, which bare mode would disable. [ADR 0004](../adr/0004-drive-official-agent-clis-under-the-users-login.md) and [spec 7.11](../spec/ted-v1-spec.md) require preserving subscription login and opting out if bare becomes the default.
+Static inspection of [the Claude launcher](../../packages/daemon/src/agents/claude.ts) shows `-p` with streaming input/output and no `--bare`. The launcher also installs hooks, which bare mode would disable. ADR 0004 and spec 7.11 require preserving subscription login and opting out if bare becomes the default.
 
 **Inference:** no evidence currently requires a launcher flag change because of a new default. Neither the inspected docs nor installed help exposes a documented `--no-bare`; do not invent an opt-out or assume `CLAUDE_CODE_SIMPLE=0` will override a future default.
 

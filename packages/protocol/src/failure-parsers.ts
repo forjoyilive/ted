@@ -105,10 +105,12 @@ export function parseAssessFailureRequest(value: Untyped): AssessFailureRequest 
     failureChoiceKeys,
     `choice must be the recommended decision: ${failureChoiceKeys.join(', ')}`,
   )
+  const repairTask = read.optional(body, 'repairTask', failureString)
   const input: AssessFailureRequest = {
     assessment,
     recommendation: failureString(body, 'recommendation'),
     choice,
+    ...(repairTask !== undefined && { repairTask }),
   }
   return input
 }
