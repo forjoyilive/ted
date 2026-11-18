@@ -4,6 +4,7 @@ import { afterEach, expect, test } from 'vitest'
 import {
   fixedHosts,
   type GuestLogin,
+  heldLookups,
   isOutsideMedia,
   isPublicAddress,
   startGuestProxy,
@@ -285,7 +286,7 @@ test('a refusal counts for the page that made the request, even when its lookup 
   expect(counted).toEqual(['first'])
 })
 
-test('a fixed host list resolves only the names it lists, to valid addresses', async () => {
+test('a fixed host list resolves only the names it lists, and holds a held name until released', async () => {
   const lookup = fixedHosts(
     'private.example=10.0.0.1, Public.example=93.184.216.34,bad.example=nope',
   )
@@ -293,4 +294,10 @@ test('a fixed host list resolves only the names it lists, to valid addresses', a
   expect(await lookup('public.example')).toEqual([{ address: '93.184.216.34', family: 4 }])
   expect(await lookup('bad.example')).toEqual([])
   expect(await lookup('other.example')).toEqual([])
+  const held = heldLookups()
+  const holding = fixedHosts('held.example=held', held)('Held.example')
+  expect(held.waiting).toEqual(['held.example'])
+  held.release()
+  expect(await holding).toEqual([])
+  expect(held.waiting).toEqual([])
 })

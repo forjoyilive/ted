@@ -338,6 +338,58 @@ export async function checkRefusedNames(
   await expect.poll(() => panel.textContent()).toContain('Blocked 2 requests to other sites')
 }
 
+export async function checkHeldRefusal(
+  app: ElectronApplication,
+  panel: import('playwright').Locator,
+  url: string,
+  navigate: (url: string) => Promise<object>,
+  blocked: () => Promise<number | undefined>,
+) {
+  const guestScript = (url: string, script: string) =>
+    app.evaluate(
+      async ({ webContents }, { url, script }) => {
+        const guest = webContents.getAllWebContents().find((c) => c.getURL() === url)
+        if (!guest) throw new Error('No guest')
+        return guest.executeJavaScript(script)
+      },
+      { url, script },
+    )
+  const loaded = (url: string) =>
+    expect.poll(() => guestScript(url, 'document.readyState').catch(() => '')).toBe('complete')
+  const next = new URL('?after-held', url).href
+  await navigate(next)
+  await loaded(next)
+  expect(await blocked()).toBe(0)
+  await guestScript(
+    next,
+    `globalThis.heldImage = new Image(); heldImage.src = ${scriptLiteral('http://held.example/art.png')}; true`,
+  )
+  await expect
+    .poll(() => app.evaluate(() => globalThis.tedHeldLookups?.waiting ?? []))
+    .toEqual(['held.example'])
+  await navigate(url)
+  await loaded(url)
+  expect(
+    await app.evaluate(async () => {
+      globalThis.tedHeldLookups?.release()
+      await new Promise((resolve) => setImmediate(resolve))
+      return globalThis.tedHeldLookups?.waiting
+    }),
+  ).toEqual([])
+  expect(await blocked()).toBe(0)
+  expect(
+    await guestScript(
+      url,
+      `new Promise((resolve) => {
+        const image = new Image(); image.onload = () => resolve('loaded'); image.onerror = () => resolve('refused');
+        image.src = ${scriptLiteral('http://private.example/art.png?after-held')};
+      })`,
+    ),
+  ).toBe('refused')
+  expect(await blocked()).toBe(1)
+  await expect.poll(() => panel.textContent()).toContain('Blocked 1 request to other sites')
+}
+
 export async function checkWorkerMedia(
   app: ElectronApplication,
   panel: import('playwright').Locator,
@@ -352,7 +404,7 @@ export async function checkWorkerMedia(
       },
       { url, script },
     )
-  const before = Number((await panel.textContent())?.match(/Blocked (\d+) requests/)?.[1] ?? 0)
+  const before = Number((await panel.textContent())?.match(/Blocked (\d+) requests?/)?.[1] ?? 0)
   const passed = scriptLiteral('http://private.example/art.png?through-worker')
   const fetched = scriptLiteral('http://private.example/art.png?from-worker')
   try {
