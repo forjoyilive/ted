@@ -6,9 +6,11 @@ The default demo home is `~/.ted-dev-demo`. It never seeds `~/.ted` (installed T
 
 `pnpm ted dev seed` builds the same data without opening a window. A completed seed is reused, including any changes you make while exploring. Quit the demo app and run `pnpm ted dev seed --reset` to rebuild it. Seeding and reuse refuse symlinks in the demo’s data; reset also refuses unrecognized nonempty folders. An interrupted or outdated seed requires explicit reset.
 
+A seed leaves the demo’s stub Runs running, so the app opens with them in place, and marks the demo as quit, so a stub Run’s `ted` call can’t start the daemon again; the demo app’s Quit does the same. Opening the app clears the mark. To stop everything a demo home has running (its daemon, Run hosts, stub agents and Apps) while keeping its data, quit the demo app and run `pnpm ted dev stop`. A demo whose Runs were stopped needs `pnpm ted dev seed --reset` before the app opens it again.
+
 The first seed prepares the data through real Ted workflows and can take a minute, especially alongside other tests. Later launches and screenshot runs use the saved demo instead of preparing it again. Sequential, read-only UI checks can reuse that saved demo; tests that change its data need their own demo home so they do not affect another check. The seeder’s own tests use fresh homes to verify creation and explicit reset.
 
-The demo uses local bare Git repos and the test stubs for agents, GitHub, the keyring and simulators. It needs no provider credentials or external services. Working examples wait for an explicit action; Automations are disabled after their sample history is collected. Quitting the demo preserves its detached stub Runs so reopening keeps the examples in place.
+The demo uses local bare Git repos and the test stubs for agents, GitHub, the keyring and simulators. It needs no provider credentials or external services. Working examples wait for an explicit action; Automations are disabled after their sample history is collected. Quitting the demo preserves its detached stub Runs so reopening keeps the examples in place; `pnpm ted dev stop` ends them.
 
 To capture the Board, Inbox, a Task thread and Settings in both themes:
 

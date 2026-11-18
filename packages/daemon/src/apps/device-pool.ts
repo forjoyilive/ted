@@ -42,6 +42,7 @@ export interface DevicePool {
   waiter(id: string): PoolWaiter | undefined
   takeTurn(holder: TurnHolder): boolean
   startTurn(holder: TurnHolder): boolean
+  restoreTurn(holder: TurnHolder, at: number): void
   turnFree(key: string): boolean
   endTurn(key: string): void
   holder(): TurnHolder | undefined
@@ -141,6 +142,11 @@ export function createDevicePool(options: {
     waiter: (id) => waiters.get(id),
     takeTurn,
     startTurn: (holder) => !options.oneAtATime() || (line.length === 0 && takeTurn(holder)),
+    restoreTurn(holder, at) {
+      builds.set(holder.key, at)
+      if (options.oneAtATime() && (turn === undefined || turn.at < at)) turn = { ...holder, at }
+      buildsNow()
+    },
     turnFree,
     endTurn(key) {
       builds.delete(key)
