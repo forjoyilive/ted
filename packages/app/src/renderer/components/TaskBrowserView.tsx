@@ -381,7 +381,8 @@ export function TaskBrowserView({
         />
       </form>
       <p className={styles.shared}>
-        Shared with this Task’s agents · Local App, plus images, fonts and media from the web
+        Shared with this Task’s agents · Local App, plus media, read-only data and YouTube from the
+        web
         {blocked > 0 && (
           <span className={styles.blocked}>
             Blocked {blocked} {blocked === 1 ? 'request' : 'requests'} to other sites ·{' '}
