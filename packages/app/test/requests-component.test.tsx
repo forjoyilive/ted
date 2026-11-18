@@ -1177,7 +1177,7 @@ test('Filter holds Group by, the order choices, the Factory chips and Answered; 
     const headlines = () =>
       [...view.container.querySelectorAll('[data-headline]')].map((el) => el.textContent)
     const headings = () =>
-      [...view.container.querySelectorAll('ul [aria-expanded]')].map((el) => [
+      [...view.container.querySelectorAll('ul > li > button[aria-expanded]')].map((el) => [
         el.textContent,
         el.getAttribute('aria-expanded'),
       ])
@@ -1223,7 +1223,7 @@ test('Filter holds Group by, the order choices, the Factory chips and Answered; 
     view.unmount()
     render(<Inbox {...all} />)
     const again = () =>
-      [...document.querySelectorAll('ul [aria-expanded]')].map((el) => [
+      [...document.querySelectorAll('ul > li > button[aria-expanded]')].map((el) => [
         el.textContent,
         el.getAttribute('aria-expanded'),
       ])
@@ -2347,6 +2347,7 @@ test('Inbox right-click offers request actions, then Task or plan actions, and n
     'Snooze…',
     'Copy message text',
     'Stop Task',
+    'Priority ›',
     'Copy Task ID',
     'Archive…',
     'Delete…',
