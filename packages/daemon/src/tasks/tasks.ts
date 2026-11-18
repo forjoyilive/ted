@@ -504,6 +504,7 @@ import {
   type QueueSource,
   queueOrder,
   type SlotUse,
+  stageQueue,
   startsNow,
 } from './queue.ts'
 import { removeInside } from './remove-files.ts'
@@ -1088,6 +1089,7 @@ export function createTasks(options: {
   const repoSetups = new Map<string, AbortController>()
   const changingRepos = new Map<string, Promise<TaskReposResult>>()
   const caps = new Map<string, number | undefined>()
+  const stageSettings = new Map<string, WorkflowSettings['stages']>()
   const listeners = new Set<(event: DaemonEvent) => void>()
   const mergeWaits = new Map<string, AbortController>()
   const mergeUrgent = new Set<string>()
@@ -1460,7 +1462,20 @@ export function createTasks(options: {
 
   function remember(factoryId: string, resolution: WorkflowResolution): WorkflowResolution {
     caps.set(factoryId, resolution.workflow.settings.max_working_runs)
+    stageSettings.set(factoryId, resolution.workflow.settings.stages)
     return resolution
+  }
+
+  function queuePlace(task: StoredTask): Pick<QueueEntry, 'stageRank' | 'skipsBusy'> {
+    const { rank, skipsBusy } = stageQueue(stageSettings.get(task.factoryId) ?? {}, task.stage)
+    return { stageRank: rank, ...(skipsBusy && { skipsBusy: true as const }) }
+  }
+
+  function placedQueue(): QueueEntry[] {
+    return store.queue().map((entry) => {
+      const task = taskNow(entry.id)
+      return task ? { ...entry, ...queuePlace(task) } : entry
+    })
   }
 
   async function resolveWorkflow(
@@ -1868,7 +1883,7 @@ export function createTasks(options: {
     queueOrder<QueueEntry>([
       ...subAgents.queued(),
       ...continuationsReady(),
-      ...runnable(store.queue()).filter((q) => q.factoryId === undefined || cloned(q.factoryId)),
+      ...runnable(placedQueue()).filter((q) => q.factoryId === undefined || cloned(q.factoryId)),
       ...sources.flatMap((source) =>
         source
           .queued()
@@ -1922,7 +1937,7 @@ export function createTasks(options: {
             rank: task.rank,
             priority: task.priority,
             factoryId: task.factoryId,
-            ...(isCleanup(task.stage) && { skipsBusy: true as const }),
+            ...queuePlace(task),
             ...(heldAt !== undefined && continuationFlags(heldAt, clock.now())),
           },
         ]
@@ -2089,18 +2104,18 @@ export function createTasks(options: {
       return [
         {
           id: task.id,
-          kind: 'task' as const,
+          kind: 'continuation' as const,
           rank: -1,
           factoryId: task.factoryId,
-          ...(isCleanup(task.stage) && { skipsBusy: true as const }),
+          ...queuePlace(task),
         },
       ]
     })
   }
 
-  function cleanupStage(taskId: string): boolean {
+  function placedTask(taskId: string): Pick<QueueEntry, 'stageRank' | 'skipsBusy'> {
     const task = taskNow(taskId)
-    return task !== undefined && isCleanup(task.stage)
+    return task ? queuePlace(task) : {}
   }
 
   function revivesReady(): QueueEntry[] {
@@ -2114,10 +2129,10 @@ export function createTasks(options: {
         : [
             {
               id: taskId,
-              kind: 'task' as const,
+              kind: 'continuation' as const,
               rank: -1,
               factoryId,
-              ...(cleanupStage(taskId) && { skipsBusy: true as const }),
+              ...placedTask(taskId),
             },
           ],
     )
@@ -2237,22 +2252,27 @@ export function createTasks(options: {
           factoryId: task.factoryId,
         })),
     )
-    const revives = revivesReady()
-    const held = heldReady()
+    const waitingRevives = revivesReady()
+    const waitingHeld = heldReady()
     const queued = ready()
-    const waiting = queued.length + held.length + revives.length + automatic.length > 0
+    const waiting =
+      queued.length + waitingHeld.length + waitingRevives.length + automatic.length > 0
     await checkBusy(waiting)
     if (closed || !waiting) return
     const { use } = await slotUse(
-      [...revives, ...held, ...queued, ...automatic].flatMap((q) => q.factoryId ?? []),
+      [...waitingRevives, ...waitingHeld, ...queued, ...automatic].flatMap(
+        (q) => q.factoryId ?? [],
+      ),
     )
     if (closed || store.newWorkHold() !== undefined) return
+    const revives = revivesReady()
+    const held = heldReady()
     const heldIds = new Set(held.map((h) => h.id))
     const reviveIds = new Set(revives.map((r) => r.id))
     const sourceOf = new Map(
       sources.flatMap((source) => source.queued().map((q) => [q.id, source] as const)),
     )
-    for (const entry of startsNow<QueueEntry>([...revives, ...held, ...ready()], use)) {
+    for (const entry of startsNow<QueueEntry>(queueOrder([...revives, ...held, ...ready()]), use)) {
       if (inFlight.inHierarchyWork(entry.id) || unfinishedChildren(entry.id)) continue
       if (reviveIds.has(entry.id)) {
         inBackground('resume a Task Lead session', () => leadLifecycle.beginRevive(entry.id))
@@ -2269,7 +2289,7 @@ export function createTasks(options: {
       try {
         const { use } = await slotUse([task.factoryId])
         if (version !== backlogVersion) return
-        const before = [...revivesReady(), ...heldReady(), ...ready()]
+        const before = queueOrder<QueueEntry>([...revivesReady(), ...heldReady(), ...ready()])
         if (!startsNow([...before, entry], use).some((q) => q.id === entry.id)) continue
         const current = find(task.id)
         if (current.preparation === 'ready') {
@@ -2322,7 +2342,7 @@ export function createTasks(options: {
     const ordered = queueOrder<QueueEntry>([
       ...subAgents.queued(),
       ...continuationsReady(true),
-      ...store.queue(),
+      ...placedQueue(),
       ...sources.flatMap((source) => source.queued()),
     ])
     for (const entry of ordered) {
@@ -2333,7 +2353,13 @@ export function createTasks(options: {
     store.setQueueActivity({
       taskPlaces: ordered.flatMap((entry, index) =>
         entry.kind === 'task' || entry.kind === 'setup-task' || entry.kind === 'continuation'
-          ? [{ id: entry.id, place: index + 1 }]
+          ? [
+              {
+                id: entry.id,
+                place: index + 1,
+                ...(entry.skipsBusy && { skipsBusy: true as const }),
+              },
+            ]
           : [],
       ),
       queuedTasks: leadLifecycle.pendingRecoveryTaskIds(),
@@ -2372,7 +2398,7 @@ export function createTasks(options: {
     const ordered = queueOrder<QueueEntry>([
       ...subAgents.queued(),
       ...continuationsReady(true),
-      ...store.queue(),
+      ...placedQueue(),
       ...sources.flatMap((source) => source.queued()),
     ])
     const byId = new Map(candidates.map((t) => [t.id, t]))
@@ -3378,6 +3404,11 @@ export function createTasks(options: {
       })
       await prs.publish(pullRequestTask(current), targets)
       recordSignOff(taskId)
+      const published = find(taskId).repos.filter((r) => targets.some((t) => t.name === r.name))
+      if (published.some((r) => r.pushFailed)) return
+      mergeUrgent.add(taskId)
+      mergeWaits.get(taskId)?.abort()
+      if (inFlight.is(taskId, 'merging')) watch?.kick()
     }
     const next = (pullRequestQueue.get(taskId) ?? Promise.resolve()).then(work)
     const settled = next.catch(() => undefined)
@@ -6667,6 +6698,10 @@ export function createTasks(options: {
         find,
         holding,
         failures: { findDecision: failures.findDecision, resolve: validation.resolve },
+        waitForRepair: async (taskId, failureId, input) => {
+          await untilChecksReported(taskId)
+          return holdingSignoff(find(taskId), () => waitForRepair(find(taskId), failureId, input))
+        },
         holdingSignoff,
         humanComment,
         answerRunPermission: (runId, generation, reply) =>
@@ -9850,9 +9885,7 @@ export function createTasks(options: {
           !backlogEligible(live(task.id), true) ||
           !startsNow(
             [
-              ...revivesReady(),
-              ...heldReady(),
-              ...ready(),
+              ...queueOrder<QueueEntry>([...revivesReady(), ...heldReady(), ...ready()]),
               {
                 id: current.id,
                 kind: 'task',
@@ -13945,7 +13978,10 @@ export function createTasks(options: {
     wake(factoryId) {
       if (closed) return
       continuationFailures.clear()
-      if (factoryId !== undefined) caps.delete(factoryId)
+      if (factoryId !== undefined) {
+        caps.delete(factoryId)
+        stageSettings.delete(factoryId)
+      }
       void pump()
       const live = new Set(store.liveRuns().flatMap((run) => run.taskId ?? []))
       for (const { id } of store.taskOutlines()) {

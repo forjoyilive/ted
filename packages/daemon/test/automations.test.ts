@@ -1313,9 +1313,19 @@ test('Automation Runs use auto permissions even when the Factory is set to bypas
     if (agent === 'claude') {
       expect(argv[argv.indexOf('--permission-mode') + 1]).toBe('auto')
     } else {
-      expect(argv).toEqual(
-        expect.arrayContaining(['sandbox_mode="workspace-write"', 'approval_policy="on-request"']),
-      )
+      if (process.platform === 'darwin') {
+        expect(argv).toEqual(
+          expect.arrayContaining(['default_permissions="ted"', 'approval_policy="on-request"']),
+        )
+        expect(argv.find((arg) => arg.startsWith('permissions='))).toContain('extends=":workspace"')
+      } else {
+        expect(argv).toEqual(
+          expect.arrayContaining([
+            'sandbox_mode="workspace-write"',
+            'approval_policy="on-request"',
+          ]),
+        )
+      }
       expect(argv.join(' ')).not.toContain('danger-full-access')
     }
   }

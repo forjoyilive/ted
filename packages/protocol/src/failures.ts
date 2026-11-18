@@ -56,6 +56,11 @@ export interface RecordFailureRequest {
 export interface AssessFailureRequest {
   assessment: 'regression' | 'unrelated' | 'uncertain'
   recommendation: string
+  repairTask?: string
+}
+
+export function namedRepairChoice(displayId: string): string {
+  return `Wait for ${displayId}`
 }
 
 export interface FailureAssessment extends AssessFailureRequest {
@@ -88,6 +93,7 @@ export interface FailureDecision {
   commentId: string
   assessmentId: string
   contextId?: string
+  repairTask?: { id: string; displayId: string; title: string }
 }
 
 export interface FailureCase {

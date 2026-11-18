@@ -1696,11 +1696,6 @@
       "count": 3
     }
   },
-  "packages/daemon/src/dev/demo.ts": {
-    "anti-slop/require-safety-comment-for-type-assertion": {
-      "count": 2
-    }
-  },
   "packages/daemon/src/dev/home.ts": {
     "anti-slop/no-runtime-typeof": {
       "count": 1

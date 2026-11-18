@@ -1068,6 +1068,88 @@ test('a Factory with Inbox items off has its requests marked as not counted', as
   expect(onOpenNotifications).toHaveBeenCalledOnce()
 })
 
+test('an Inbox row shows its Task’s or chat’s title large, with the request’s headline in the line below', () => {
+  const props = inboxProps()
+  const view = render(
+    <Inbox
+      {...props}
+      items={[{ task: task(), request: comment({ id: 'q' }) }]}
+      confirmations={[
+        {
+          source: 'coordinator',
+          id: 'c1',
+          factoryId: 'f1',
+          createdAt,
+          headline: 'Archive NB-3?',
+          chatId: 'k1',
+          chatTitle: 'Plan the release',
+          agentName: 'Coordinator',
+          confirmationKind: 'archive',
+        },
+      ]}
+    />,
+  )
+  const row = (headline: string) => {
+    const line = [...view.container.querySelectorAll('[data-headline]')].find(
+      (el) => el.textContent === headline,
+    )
+    const button = line?.closest('button')
+    return {
+      title: button?.querySelector('[data-title]')?.textContent,
+      below: line?.parentElement?.textContent,
+    }
+  }
+  const taskRow = row('Use the default?')
+  expect(taskRow.title).toBe('Sync notes')
+  expect(taskRow.below).toMatch(/^NB-1 · Use the default\? · \S/)
+  expect(row('Archive NB-3?')).toEqual({
+    title: 'Plan the release',
+    below: 'Coordinator · Archive NB-3?',
+  })
+})
+
+test('the Inbox priority mark and the item’s menu change the Task’s priority without opening it', async () => {
+  const props = inboxProps()
+  const api = bridge({ setPriority: () => undefined })
+  const item = { task: task(), request: comment({ id: 'c1', body: 'A question?' }) }
+  const view = render(<Inbox {...props} items={[item]} />)
+  const u = user()
+  const mark = () => screen.getByRole('button', { name: /^Priority: .*Change priority of NB-1$/ })
+  const pick = async (name: string) => {
+    const menu = await screen.findByRole('menu', { name: 'Priority' })
+    await u.click(within(menu).getByRole('menuitemradio', { name: new RegExp(name) }))
+    await waitFor(() => expect(screen.queryByRole('menu', { name: 'Priority' })).toBeNull())
+  }
+
+  await u.click(mark())
+  await pick('High')
+  expect(api.request).toHaveBeenCalledWith('setPriority', 'NB-1', 'high')
+
+  view.rerender(<Inbox {...props} items={[{ ...item, task: task({ priority: 'high' }) }]} />)
+  expect(mark().getAttribute('aria-label')).toBe('Priority: High. Change priority of NB-1')
+  fireEvent.contextMenu(mark())
+  expect(screen.queryByRole('menu', { name: /^NB-1 · / })).toBeNull()
+  await pick('Urgent')
+  expect(api.request).toHaveBeenCalledWith('setPriority', 'NB-1', 'urgent')
+
+  fireEvent.contextMenu(screen.getByRole('button', { name: /A question\?/ }))
+  const itemMenu = await screen.findByRole('menu', { name: /^NB-1 · / })
+  await u.click(within(itemMenu).getByRole('menuitem', { name: 'Priority' }))
+  await pick('Low')
+  expect(api.request).toHaveBeenCalledWith('setPriority', 'NB-1', 'low')
+  expect(props.onOpen).not.toHaveBeenCalled()
+
+  view.rerender(
+    <Inbox
+      {...props}
+      items={[
+        { ...item, task: task({ archived: { at: createdAt, ended: { kind: 'never-started' } } }) },
+      ]}
+    />,
+  )
+  expect(screen.queryByRole('button', { name: /^Priority: / })).toBeNull()
+})
+
 test('Filter holds Group by, the order choices, the Factory chips and Answered; headings count, collapse and are remembered', async () => {
   const props = inboxProps()
   const question = {
@@ -1095,7 +1177,7 @@ test('Filter holds Group by, the order choices, the Factory chips and Answered; 
     const headlines = () =>
       [...view.container.querySelectorAll('[data-headline]')].map((el) => el.textContent)
     const headings = () =>
-      [...view.container.querySelectorAll('ul [aria-expanded]')].map((el) => [
+      [...view.container.querySelectorAll('ul > li > button[aria-expanded]')].map((el) => [
         el.textContent,
         el.getAttribute('aria-expanded'),
       ])
@@ -1141,7 +1223,7 @@ test('Filter holds Group by, the order choices, the Factory chips and Answered; 
     view.unmount()
     render(<Inbox {...all} />)
     const again = () =>
-      [...document.querySelectorAll('ul [aria-expanded]')].map((el) => [
+      [...document.querySelectorAll('ul > li > button[aria-expanded]')].map((el) => [
         el.textContent,
         el.getAttribute('aria-expanded'),
       ])
@@ -1418,6 +1500,68 @@ test('Validate failure decisions display evidence and send the selected action',
   )
   expect(await screen.findByText(/This failure can’t be accepted/)).toBeTruthy()
   expect(screen.queryByRole('radio', { name: 'Accept this failure' })).toBeNull()
+})
+
+test('a repair Task the Task Lead named is its own decision choice and shows on the card', async () => {
+  const { answer, handle } = requestApi()
+  const openTask = vi.fn<(id: string) => void>()
+  handle('listTasks', () => [
+    task(),
+    task({ id: 'repair-1', displayId: 'NB-2', number: 2, title: 'Fix the restart test' }),
+  ])
+  handle('listFailures', () => [
+    {
+      id: 'failure-1',
+      taskId: 'NB-1',
+      validation: true,
+      source: { kind: 'finding', runId: 'run-1', finding: 'Restart test' },
+      recordedBy: 'run-1',
+      provenance: 'task-lead-reported',
+      evidence: 'Fails the same way on main.',
+      createdAt,
+      contextId: 'context-1',
+      additions: [],
+      invalidations: [],
+      resolutions: [],
+      assessments: [
+        {
+          id: 'assessment-1',
+          runId: 'run-1',
+          at: createdAt,
+          assessment: 'unrelated',
+          recommendation: 'Wait for NB-2, which fixes the restart test.',
+          repairTask: 'repair-1',
+        },
+      ],
+      decisions: [
+        {
+          commentId: 'request-1',
+          assessmentId: 'assessment-1',
+          repairTask: { id: 'repair-1', displayId: 'NB-2', title: 'Fix the restart test' },
+        },
+      ],
+    },
+  ])
+  render(
+    <RequestCard
+      request={comment({
+        id: 'request-1',
+        kind: 'question',
+        choices: ['Retry', 'Fix in this Task', 'Wait for NB-2', 'Wait for a repair Task'],
+      })}
+      task={task()}
+      onOpenTask={openTask}
+    />,
+  )
+  await user().click(await screen.findByRole('button', { name: 'NB-2 · Fix the restart test' }))
+  expect(openTask).toHaveBeenCalledWith('repair-1')
+  await user().click(screen.getByRole('radio', { name: 'Wait for NB-2' }))
+  expect(await screen.findByText(/waits for NB-2 · Fix the restart test to merge/)).toBeTruthy()
+  await user().click(screen.getByRole('button', { name: 'Confirm Wait for NB-2' }))
+  expect(answer).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.objectContaining({ action: 'answer', choice: 'Wait for NB-2' }),
+  )
 })
 
 test('historical failure request keeps its own assessment and decision', async () => {
@@ -2265,6 +2409,7 @@ test('Inbox right-click offers request actions, then Task or plan actions, and n
     'Snooze…',
     'Copy message text',
     'Stop Task',
+    'Priority ›',
     'Copy Task ID',
     'Archive…',
     'Delete…',

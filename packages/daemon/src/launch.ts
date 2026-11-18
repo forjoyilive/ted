@@ -81,11 +81,15 @@ async function ownProcessGroup(): Promise<number | undefined> {
 
 export async function stopTedProcesses(
   home: string,
-  { graceMs = 5_000, pollMs = 100 }: { graceMs?: number; pollMs?: number } = {},
+  {
+    graceMs = 5_000,
+    pollMs = 100,
+    extraLocks = [],
+  }: { graceMs?: number; pollMs?: number; extraLocks?: string[] } = {},
 ): Promise<void> {
   const { lockHolders } = await import('./lock.ts')
   const paths = tedPaths(home)
-  const locks: string[] = []
+  const locks: string[] = [...extraLocks]
   if (await plainEntry(paths.daemonLock, 'file')) locks.push(paths.daemonLock)
   if (await plainEntry(paths.runs, 'directory')) {
     for (const run of await readdir(paths.runs).catch(() => [])) {

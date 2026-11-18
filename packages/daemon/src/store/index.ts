@@ -96,6 +96,7 @@ import {
   type MachineSettings,
   type MemoryKillAsk,
   type MergeMethod,
+  namedRepairChoice,
   noBacklogStarts,
   type PermissionMode,
   type Priority,
@@ -356,7 +357,7 @@ export interface CheckWork {
 }
 
 export interface QueueActivity {
-  taskPlaces?: readonly { id: string; place: number }[]
+  taskPlaces?: readonly { id: string; place: number; skipsBusy?: true }[]
   queuedTasks: readonly string[]
   queuedRuns: readonly string[]
   startingRuns: readonly string[]
@@ -1794,7 +1795,6 @@ export async function openStore({
                 rank,
                 priority: task.priority as Priority,
                 factoryId: task.factoryId,
-                ...(isCleanup(task.stage) && { skipsBusy: true as const }),
               },
             ]
           : []
@@ -2261,14 +2261,14 @@ export async function openStore({
       (comment) => comment.answerHeld && comment.answerQueuedAt !== null,
     )
     const queuedContinuation = pendingMessages.some((message) => message.waitForSlot) || heldAnswer
+    const placed = queueActivity.taskPlaces?.find((entry) => entry.id === row.id)
     const skipsBusy =
-      isCleanup(stage) ||
+      placed?.skipsBusy === true ||
       heldAnswer ||
       pendingMessages.some((message) => message.waitForSlot && message.after !== undefined)
     const place =
       queued || queuedContinuation
-        ? (queueActivity.taskPlaces?.find((entry) => entry.id === row.id)?.place ??
-          (queued ? reads.queue().findIndex((q) => q.id === row.id) + 1 : 0))
+        ? (placed?.place ?? (queued ? reads.queue().findIndex((q) => q.id === row.id) + 1 : 0))
         : 0
     const pausedRuns = taskPauses({
       taskId: row.id,
@@ -4112,7 +4112,11 @@ export async function openStore({
           id: request.requestId,
           answer: JSON.stringify({
             kind: 'answered',
-            choice: 'Wait for a repair Task',
+            choice:
+              failure.decisions.find((d) => d.commentId === request.requestId)?.repairTask?.id ===
+                repair.id && request.repair?.kind === 'existing'
+                ? namedRepairChoice(repair.displayId)
+                : failureChoices.repair,
             text: [`Waiting for ${repair.displayId}: ${repair.title}`, request.reason]
               .filter(Boolean)
               .join('\n\n'),
@@ -4209,6 +4213,22 @@ export async function openStore({
       const at = new Date().toISOString()
       const assessment = value.assessments.at(-1)
       if (!assessment) throw new Error('a failure decision needs an assessment')
+      const stage = taskRow(value.taskId)?.stage ?? ''
+      const repairOffered = validates(stage) || mergesHere(stage)
+      const namedRow = assessment.repairTask ? taskRow(assessment.repairTask) : undefined
+      const named =
+        repairOffered &&
+        namedRow &&
+        namedRow.factoryId === taskRow(value.taskId)?.factoryId &&
+        namedRow.archivedAt === null &&
+        namedRow.stage !== 'done'
+          ? toTask(namedRow)
+          : undefined
+      const repairTask = named && {
+        id: named.id,
+        displayId: named.displayId,
+        title: named.title,
+      }
       const { id, event, attached } = commentPosted(
         {
           taskId: value.taskId,
@@ -4222,16 +4242,18 @@ export async function openStore({
             ...(value.validation && closable
               ? [failureChoices.fixed, failureChoices['no-longer-applicable']]
               : []),
-          ].filter(
-            (choice) =>
-              (canAccept || choice !== failureChoices.accepted) &&
-              (!value.validation ||
-                !handsOff(taskRow(value.taskId)?.stage ?? '') ||
-                choice === failureChoices.accepted) &&
-              (choice !== 'Wait for a repair Task' ||
-                validates(taskRow(value.taskId)?.stage ?? '') ||
-                mergesHere(taskRow(value.taskId)?.stage ?? '')),
-          ),
+          ]
+            .filter(
+              (choice) =>
+                (canAccept || choice !== failureChoices.accepted) &&
+                (!value.validation || !handsOff(stage) || choice === failureChoices.accepted) &&
+                (choice !== failureChoices.repair || repairOffered),
+            )
+            .flatMap((choice) =>
+              choice === failureChoices.repair && repairTask
+                ? [namedRepairChoice(repairTask.displayId), choice]
+                : [choice],
+            ),
           purpose: { kind: 'failure' },
           author: { kind: 'ted' },
         },
@@ -4246,6 +4268,7 @@ export async function openStore({
             commentId: id,
             assessmentId: assessment.id,
             ...(assessment.contextId && { contextId: assessment.contextId }),
+            ...(repairTask && { repairTask }),
           },
         ],
       }
@@ -4804,6 +4827,7 @@ export async function openStore({
       commit(
         ...guideEnd,
         ...(taskRow(taskId)?.snoozedUntil ? [events.taskSnoozeCleared({ taskId, at })] : []),
+        ...blockersRemovedUsed(taskId, at),
         why === undefined
           ? events.taskArchivedV2({ taskId, closing, branches, at })
           : events.taskArchivedV3({ taskId, closing, branches, why, at }),
@@ -7554,8 +7578,10 @@ export async function openStore({
     },
     requestSnoozesPending: () => store.query(queryDb(requestSnoozes.select())).length > 0,
     setQueueActivity(value) {
-      const before = new Map(queueActivity.taskPlaces?.map((entry) => [entry.id, entry.place]))
-      const after = new Map(value.taskPlaces?.map((entry) => [entry.id, entry.place]))
+      const placeOf = (entry: { place: number; skipsBusy?: true }) =>
+        `${entry.place}${entry.skipsBusy ? ' skips busy' : ''}`
+      const before = new Map(queueActivity.taskPlaces?.map((entry) => [entry.id, placeOf(entry)]))
+      const after = new Map(value.taskPlaces?.map((entry) => [entry.id, placeOf(entry)]))
       queueActivity = value
       const moved = [...new Set([...before.keys(), ...after.keys()])].filter(
         (id) => before.get(id) !== after.get(id),

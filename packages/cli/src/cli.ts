@@ -1895,6 +1895,19 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
       await seedDemoFromCli(demo, options.reset)
       console.log(`Demo ready in ${demo} (${Date.now() - started} ms)`)
     },
+    stopDemo: async () => {
+      if (
+        tedEnv('TED_RUN', env) ||
+        tedEnv('TED_TASK', env) ||
+        tedEnv('TED_PLAN', env) ||
+        runTokenFrom(env)
+      )
+        throw new UsageError('Stop the demo from a local terminal, outside a Run.')
+      const { demoHome, stopDemoFromCli } = await import('@ted/daemon/demo')
+      const demo = runtime.home ?? demoHome(env)
+      await stopDemoFromCli(demo)
+      console.log(`Demo stopped in ${demo}`)
+    },
     showMemory: async () => {
       console.log(formatMemoryUse(await withDaemon(home, (client) => client.getMemoryUse())))
     },

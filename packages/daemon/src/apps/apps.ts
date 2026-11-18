@@ -58,6 +58,7 @@ import {
   appLogBytes,
   parseAppRecords,
 } from './host-files.ts'
+import { logSize, type ReadyRead, readyFromLaunch, readyLineSince } from './ready-line.ts'
 import {
   createSimulators,
   createSimulatorTools,
@@ -175,6 +176,7 @@ interface Instance {
   waitingFor?: string
   readyAt?: string
   builtAt?: string
+  readyFrom?: number
   ended?: {
     at: string
     how: 'stopped' | 'exited' | 'failed'
@@ -283,7 +285,7 @@ export function createApps(options: AppsOptions): Apps {
     oneAtATime: () => store.settings().buildDeviceAppsOneAtATime,
     ...(options.buildTurnMs !== undefined && { turnMs: options.buildTurnMs }),
   })
-  const readyFrom = new Map<string, number>()
+  const readyFrom = new Map<string, ReadyRead>()
 
   const simulatorOptions = options.simulators ?? {
     dir: path.join(path.dirname(appsDir), 'simulators'),
@@ -662,6 +664,7 @@ export function createApps(options: AppsOptions): Apps {
       )
     }
     if (isDeviceApp(app)) {
+      await restored
       const got = await devicesFor(app.kind).acquire(
         simApp(taskId, task, repo.name, app),
         by,
@@ -722,7 +725,7 @@ export function createApps(options: AppsOptions): Apps {
   ): Promise<TaskApp> {
     if (isDeviceApp(app)) {
       const log = appFiles(dirOf(taskId, repo.name, app.name)).log
-      readyFrom.set(keyOf(taskId, repo.name, app.name), await logSize(log))
+      readyFrom.set(keyOf(taskId, repo.name, app.name), readyFromLaunch(await logSize(log)))
     }
     return withRunPermissions(store, { taskId }, async () => {
       task = await options.task(taskId)
@@ -734,6 +737,7 @@ export function createApps(options: AppsOptions): Apps {
       const electron = app.electron === true && port !== undefined
       const electronVars = electron ? electronEnv(port, by, scope !== undefined) : {}
       const driven = electron && by !== 'human'
+      const logFrom = readyFrom.get(key)?.floor
       const cpus = () =>
         checkCpus(os.availableParallelism(), pool.beginBuild(key), store.settings().checkCpuPercent)
       const launchVars = isDeviceApp(app) ? { ...extra, TED_APP_CPUS: String(cpus()) } : extra
@@ -773,6 +777,7 @@ export function createApps(options: AppsOptions): Apps {
         startedAt: new Date().toISOString(),
         startedBy: by,
         ...(sandboxed.shell !== undefined && { sandboxed: true }),
+        ...(logFrom !== undefined && { readyFrom: logFrom }),
       }
       try {
         await mkdir(dir, { recursive: true, mode: 0o700 })
@@ -892,21 +897,9 @@ export function createApps(options: AppsOptions): Apps {
   }
 
   async function saidReady(dir: string, key: string): Promise<boolean> {
-    const file = appFiles(dir).log
-    const size = await logSize(file)
-    const read = readyFrom.get(key) ?? 0
-    const from = read > size ? 0 : read
-    if (size === from) return false
-    const start = Math.max(0, from - readyLine.length - 2)
-    const length = Math.min(size - start, readyChunkBytes)
-    const handle = await open(file, 'r')
-    try {
-      const { buffer, bytesRead } = await handle.read(Buffer.alloc(length), 0, length, start)
-      readyFrom.set(key, start + bytesRead)
-      return readyPattern.test(buffer.subarray(0, bytesRead).toString('utf8'))
-    } finally {
-      await handle.close()
-    }
+    const said = await readyLineSince(appFiles(dir).log, readyFrom.get(key) ?? readyFromLaunch(0))
+    readyFrom.set(key, said.read)
+    return said.ready
   }
 
   async function settle(
@@ -956,6 +949,7 @@ export function createApps(options: AppsOptions): Apps {
     dir: string,
     instance: Instance & { waitingFor: string },
   ): Promise<'waiting' | 'launched' | 'ended'> {
+    await restored
     const found = await find(taskId, { repo: instance.repo, name: instance.name }).catch(
       () => undefined,
     )
@@ -977,6 +971,7 @@ export function createApps(options: AppsOptions): Apps {
       return end('stopped')
     }
     const { task, repo, app } = found
+    if (closed) return 'waiting'
     if (store.newWorkHold() !== undefined) {
       devicesFor(app.kind).list(instance.waitingFor, simApp(taskId, task, repo.name, app))
       return 'waiting'
@@ -987,7 +982,8 @@ export function createApps(options: AppsOptions): Apps {
     )
     if (got.state === 'pending') return 'waiting'
     const current = await readInstance(dir)
-    if (!current || current.ended || current.waitingFor !== instance.waitingFor) return 'ended'
+    if (!current || current.ended) return 'ended'
+    if (current.waitingFor !== instance.waitingFor) return 'waiting'
     if (got.state === 'denied') {
       return end(
         'failed',
@@ -1026,7 +1022,7 @@ export function createApps(options: AppsOptions): Apps {
       })
     } finally {
       marked?.unmark()
-      pool.endTurn(key)
+      if (!closed) pool.endTurn(key)
       readyFrom.delete(key)
     }
   }
@@ -1241,25 +1237,42 @@ export function createApps(options: AppsOptions): Apps {
     await removeInside(appsDir, taskId)
   }
 
-  void (async () => {
+  const restored = (async () => {
+    const reattach: { taskId: string; key: string; dir: string }[] = []
     for (const taskId of safeDirs(appsDir)) {
-      if (!options.keep(taskId)) {
-        await stopAll(taskId).catch(() => undefined)
-        await sims.remove(taskId).catch(() => undefined)
-        await emus.remove(taskId).catch(() => undefined)
-        await forget(taskId).catch(() => undefined)
-        continue
-      }
+      if (!options.keep(taskId)) continue
       const root = taskDir(taskId)
       for (const repoName of safeDirs(root)) {
         for (const appSlug of safeDirs(path.join(root, repoName))) {
           const dir = path.join(root, repoName, appSlug)
           const instance = await readInstance(dir)
-          if (instance && !instance.ended) {
-            watch(taskId, keyOf(taskId, repoName, instance.name), dir)
+          if (!instance || instance.ended) continue
+          const key = keyOf(taskId, repoName, instance.name)
+          if (isDeviceApp(instance) && instance.waitingFor === undefined && !instance.builtAt) {
+            readyFrom.set(key, readyFromLaunch(instance.readyFrom ?? 0))
+            pool.restoreTurn(
+              { key, displayId: store.getTask(taskId)?.displayId ?? taskId, app: instance.name },
+              Date.parse(instance.startedAt),
+            )
           }
+          reattach.push({ taskId, key, dir })
         }
       }
+    }
+    return reattach
+  })().catch((error: Error) => {
+    console.error('couldn’t restore the device build turn:', error)
+    return []
+  })
+
+  void (async () => {
+    for (const { taskId, key, dir } of await restored) watch(taskId, key, dir)
+    for (const taskId of safeDirs(appsDir)) {
+      if (options.keep(taskId)) continue
+      await stopAll(taskId).catch(() => undefined)
+      await sims.remove(taskId).catch(() => undefined)
+      await emus.remove(taskId).catch(() => undefined)
+      await forget(taskId).catch(() => undefined)
     }
     for (const taskId of emus.taskIds()) {
       if (!options.keep(taskId)) await emus.remove(taskId).catch(() => undefined)
@@ -1547,12 +1560,4 @@ function answers(url: string): Promise<Answer> {
       ),
     )
   })
-}
-
-const readyLine = 'TED_APP_READY'
-const readyPattern = /(?:^|\n)[ \t]*TED_APP_READY[ \t]*\r?\n/
-const readyChunkBytes = 1024 * 1024
-
-async function logSize(file: string): Promise<number> {
-  return (await stat(file).catch(() => undefined))?.size ?? 0
 }

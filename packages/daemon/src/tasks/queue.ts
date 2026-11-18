@@ -5,6 +5,8 @@ import {
   type QueuedForSlot,
   type SlotHolder,
 } from '@ted/protocol'
+import { defaultStagePriority, skipsBusyHoldByDefault } from '@ted/protocol/stage'
+import type { WorkflowSettings } from '../workflow/check.ts'
 
 export const queueKinds = [
   'setup-task',
@@ -28,6 +30,20 @@ export interface QueueEntry {
   factoryId?: string
   skipsBusy?: true
   recent?: true
+  stageRank?: number
+}
+
+export interface StageQueue {
+  rank: number
+  skipsBusy: boolean
+}
+
+export function stageQueue(stages: WorkflowSettings['stages'], stage: string): StageQueue {
+  const settings = stages[stage]
+  return {
+    rank: settings?.priority ?? defaultStagePriority(stage),
+    skipsBusy: settings?.skip_busy_hold ?? skipsBusyHoldByDefault(stage),
+  }
 }
 
 export const recentContinuationMs = 10 * 60_000
@@ -53,15 +69,22 @@ export interface SlotUse {
 
 function sortKind(e: QueueEntry): QueueKind {
   if (e.kind === 'coordinator' || e.kind === 'side-chat') return 'planning'
-  if (e.kind === 'task' && e.skipsBusy) return 'continuation'
   return e.kind
 }
 
+function sortGroup(e: QueueEntry): number {
+  const kind = sortKind(e)
+  return queueKinds.indexOf(kind === 'task' ? 'continuation' : kind)
+}
+
 export function queueOrder<T extends QueueEntry>(entries: readonly T[]): T[] {
-  const priorityRank = (e: QueueEntry) =>
-    e.kind === 'task' || e.kind === 'continuation' ? priorities.indexOf(e.priority ?? 'none') : 0
+  const ofTask = (e: QueueEntry) => e.kind === 'task' || e.kind === 'continuation'
+  const priorityRank = (e: QueueEntry) => (ofTask(e) ? priorities.indexOf(e.priority ?? 'none') : 0)
+  const stageRank = (e: QueueEntry) => (ofTask(e) ? (e.stageRank ?? 0) : 0)
   return [...entries].sort(
     (a, b) =>
+      sortGroup(a) - sortGroup(b) ||
+      stageRank(b) - stageRank(a) ||
       queueKinds.indexOf(sortKind(a)) - queueKinds.indexOf(sortKind(b)) ||
       Number(b.recent === true) - Number(a.recent === true) ||
       priorityRank(a) - priorityRank(b) ||

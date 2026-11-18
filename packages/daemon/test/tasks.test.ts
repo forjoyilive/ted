@@ -362,6 +362,7 @@ describe('Tasks', () => {
 
 describe('the Workflow', () => {
   test('a Task with no .ted/ runs every default Stage in order to Done', async () => {
+    await commitToOrigin(scratch, { '.gitignore': 'stub-*\n' })
     const client = await startWithStub()
     await addFactory(client)
     const briefFile = path.join(scratch, 'brief.md')
