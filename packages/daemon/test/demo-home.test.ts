@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
@@ -109,6 +110,28 @@ test('reset and stop refuse while the demo app is open', async () => {
   await expect(prepareDemo(folder, true)).rejects.toThrow('Quit the demo app')
   await expect(stopDemo(folder)).rejects.toThrow('Quit the demo app')
   expect(await readdir(folder)).toContain('demo.json')
+})
+
+test('stop never signals a recorded pid that holds none of the demo’s locks', async () => {
+  await markDemo(folder, { version: demoVersion, complete: true })
+  const stranger = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+    env: process.env,
+    stdio: 'ignore',
+  })
+  try {
+    const dir = path.join(folder, 'runs', '00000000-0000-4000-8000-000000000001')
+    await mkdir(dir, { recursive: true })
+    await writeFile(
+      path.join(dir, 'host.log'),
+      `${JSON.stringify({ t: 'start', hostPid: stranger.pid, agentPid: null })}\n`,
+    )
+    await stopDemo(folder)
+    expect(stranger.exitCode).toBeNull()
+    expect(stranger.signalCode).toBeNull()
+    expect(await readdir(folder)).toContain('quit-mark')
+  } finally {
+    stranger.kill('SIGKILL')
+  }
 })
 
 test('stop refuses a folder without a demo and leaves an idle demo quit', async () => {

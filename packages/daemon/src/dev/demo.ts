@@ -5,7 +5,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { DaemonClient, readDaemonInfo, tedEnv, tedPaths, tedVersion } from '@ted/protocol'
 import { isInteger, isObject, type Json, type JsonObject, parseJson } from '@ted/protocol/parse'
 import { clearQuit, markQuit, stopTedProcesses, withDaemon } from '../launch.ts'
-import { holdsLock } from '../lock.ts'
+import { holdsLock, lockHolders } from '../lock.ts'
 import { makeDemoOrigins, prepareDemoBinaries } from './fixtures.ts'
 import {
   checkDemoHome,
@@ -121,47 +121,79 @@ async function demoAppRunning(home: string): Promise<boolean> {
   return Number.isInteger(pid) && pid > 1 && processRunning(pid)
 }
 
+async function demoLocks(home: string): Promise<{ all: string[]; apps: string[] }> {
+  const paths = tedPaths(home)
+  const isPlainFile = async (file: string) => {
+    const stat = await lstat(file).catch(() => undefined)
+    return stat?.isFile() === true
+  }
+  const all: string[] = []
+  const apps: string[] = []
+  if (await isPlainFile(paths.daemonLock)) all.push(paths.daemonLock)
+  for (const run of await subfolders(paths.runs)) {
+    const lock = path.join(run, 'host.lock')
+    if (await isPlainFile(lock)) all.push(lock)
+  }
+  for (const task of await subfolders(paths.apps)) {
+    for (const repo of await subfolders(task)) {
+      for (const app of await subfolders(repo)) {
+        const lock = path.join(app, 'host.lock')
+        if (await isPlainFile(lock)) apps.push(lock)
+      }
+    }
+  }
+  return { all: [...all, ...apps], apps }
+}
+
+async function demoLockHolders(home: string): Promise<number[]> {
+  const { all } = await demoLocks(home)
+  return (await lockHolders(...all)).filter((pid) => pid > 1 && pid !== process.pid)
+}
+
 export async function stopDemo(home: string): Promise<void> {
   const known = await checkDemoHome(home)
   if (!known) throw new Error(`There is no demo in ${home}.`)
   if (await demoAppRunning(home)) throw new Error('Quit the demo app first.')
   const before = await demoPids(home)
-  const running = [...before.pids].some(processRunning)
-  if (!running) return markQuit(home)
-  await clearQuit(home)
-  await prepareDemoBinaries(home)
-  await withDaemon(
-    home,
-    async (client) => {
-      try {
-        for (const task of await client.listTasks()) {
-          for (const app of await client.listApps(task.id)) {
-            await client.stopApp(task.id, { repo: app.repo, name: app.name })
+  if ((await demoLockHolders(home)).length === 0) return markQuit(home)
+  try {
+    await clearQuit(home)
+    await prepareDemoBinaries(home)
+    await withDaemon(
+      home,
+      async (client) => {
+        try {
+          for (const task of await client.listTasks()) {
+            for (const app of await client.listApps(task.id)) {
+              await client.stopApp(task.id, { repo: app.repo, name: app.name })
+            }
           }
+        } finally {
+          await markQuit(home)
+          await client.shutdown()
         }
-      } finally {
-        await markQuit(home)
-        await client.shutdown()
-      }
-    },
-    { appToken: randomBytes(32).toString('hex') },
-  )
-  await until(async () => !(await readDaemonInfo(home)), 'the demo daemon to stop').catch(() => {})
-  const left = async () => {
-    const { pids } = await demoPids(home)
-    return [...before.pids, ...pids].filter(processRunning)
+      },
+      { appToken: randomBytes(32).toString('hex') },
+    )
+    await until(async () => !(await readDaemonInfo(home)), 'the demo daemon to stop')
+    await until(
+      async () => {
+        const { pids } = await demoPids(home)
+        return [...before.pids, ...pids].every((pid) => !processRunning(pid))
+      },
+      'demo processes to exit',
+      10_000,
+    ).catch(() => undefined)
+  } finally {
+    await markQuit(home)
+    await stopTedProcesses(home, { extraLocks: (await demoLocks(home)).apps })
+    await until(
+      async () => (await demoLockHolders(home)).length === 0,
+      'demo processes to exit',
+      5_000,
+    )
+    if (before.runs > 0 && known.complete) await markDemo(home, { ...known, complete: false })
   }
-  await until(async () => (await left()).length === 0, 'demo processes to exit', 10_000).catch(
-    () => {},
-  )
-  await stopTedProcesses(home)
-  for (const pid of await left()) {
-    try {
-      process.kill(pid, 'SIGKILL')
-    } catch {}
-  }
-  await until(async () => (await left()).length === 0, 'demo processes to exit', 5_000)
-  if (before.runs > 0 && known.complete) await markDemo(home, { ...known, complete: false })
 }
 
 export function stopDemoFromCli(home: string): Promise<void> {
