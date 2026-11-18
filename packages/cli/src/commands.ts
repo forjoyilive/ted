@@ -261,6 +261,15 @@ export const commands = [
     requires: ['file'],
   },
   {
+    name: 'failure fix',
+    handler: 'failureFix',
+    min: 2,
+    max: 2,
+    help: '  ted failure fix <id> "<why>"    Fix an assessed Validate failure in this Task without asking the human (twice at most)',
+    callers: 'Task Lead',
+    options: options('task'),
+  },
+  {
     name: 'failure ask',
     handler: 'failureAsk',
     min: 1,

@@ -33,7 +33,7 @@ There are no blocking findings and the note is posted. Then report the outcome w
 
 ## Send back when
 
-There is a blocking finding. Write each one, numbered, in a findings file and run `ted outcome back --to work --findings <file>`, with `--review fail` or `--visual fail` when that is where it came from. In a round where Ted says a new finding sends the Task back only if it is P1, say in the file which findings are P1 and which are earlier findings still not fixed, and add `--severity p1`, or `--severity unfixed` when the only blocking findings are earlier ones still not fixed; Ted refuses the send-back without one of them, and the other new findings go in your note. Every return to Work counts, failed checks included. From the third, Ted checks whether the rounds are converging and may ask the human instead; it tells you what happens.
+There is a blocking finding. Write each one, numbered, in a findings file and run `ted outcome back --to work --findings <file>`, with `--review fail` or `--visual fail` when that is where it came from. In a round where Ted says a new finding sends the Task back only if it is P1, say in the file which findings are P1 and which are earlier findings still not fixed, and add `--severity p1`, or `--severity unfixed` when the only blocking findings are earlier ones still not fixed; Ted refuses the send-back without one of them, and the other new findings go in your note. Every return to Work counts, failed checks included. From the fifth, Ted checks whether the rounds are converging and may ask the human instead; it tells you what happens.
 
 ## Never ask the human
 

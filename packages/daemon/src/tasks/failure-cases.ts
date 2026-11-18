@@ -120,7 +120,14 @@ export function leadClosesFailures(workflow: ResolvedWorkflow): boolean {
 }
 
 export const leadClosesRefusal =
-  'only the human closes a failure recorded outside Validate: assess it with a recommendation of Fixed and run `ted failure ask <id>`. A Factory lets the Task Lead close its own finding with passing evidence with `stages.work.lead_closes_failures: true` in its `.ted/workflow.yaml`; only the human changes that'
+  'only the human closes a failure recorded outside Validate here: assess it with a recommendation of Fixed and run `ted failure ask <id>`. This Factory’s Workflow sets `stages.work.lead_closes_failures: false`, which stops the Task Lead closing its own finding with passing evidence; only the human changes that'
+
+export const leadFixesPerFailure = 2
+
+export function leadFixed(value: FailureCase): boolean {
+  const assessment = currentAssessment(value)
+  return assessment !== undefined && value.leadFixes?.at(-1)?.assessmentId === assessment.id
+}
 
 export function acceptedResolution(value: FailureCase): boolean {
   const resolution = value.resolutions.at(-1)
@@ -308,6 +315,11 @@ export function createFailureCases(options: {
       ? (store.getCheckRun(value.source.checkRunId)?.checks[value.source.position] ??
         value.originalCheck)
       : value.originalCheck
+  function fixKey(value: FailureCase): string {
+    if (value.source.kind === 'finding') return `finding\n${value.source.finding}`
+    const check = sourceCheck(value)
+    return `check\n${check?.name ?? value.id}\n${check?.repo ?? ''}`
+  }
   function abandonedRepair(value: FailureCase): boolean {
     const decision = value.resolutions.at(-1)
     const repair = decision?.resolution === 'repair' ? decision.repairTask : undefined
@@ -798,6 +810,53 @@ export function createFailureCases(options: {
           ],
         },
         'assessed',
+      )
+    },
+    async chooseFix(task: Task, id: string, runId: string, reason: string) {
+      await obligations(task)
+      options.assertLead(task, runId)
+      const value = get(task, id)
+      if (
+        !validates(task.stage) ||
+        !value.validation ||
+        (value.source.kind !== 'finding' && value.source.kind !== 'factory-check')
+      )
+        throw new RequestError(409, 'choose Fix in this Task only for a Validate failure')
+      if (closed(value)) throw new RequestError(409, 'this case is closed; record a new failure')
+      if (value.resolutions.at(-1) !== undefined)
+        throw new RequestError(409, 'the human already decided this failure')
+      const assessment = currentAssessment(value)
+      if (!assessment)
+        throw new RequestError(409, 'assess this failure before choosing to fix it in this Task')
+      if (value.leadFixes?.at(-1)?.assessmentId === assessment.id)
+        throw new RequestError(409, 'you already chose to fix this failure in this Task')
+      const key = fixKey(value)
+      const earlier = store.failures
+        .list(task.id)
+        .filter((v) => fixKey(v) === key)
+        .reduce((n, v) => n + (v.leadFixes?.length ?? 0), 0)
+      if (earlier >= leadFixesPerFailure)
+        throw new RequestError(
+          409,
+          `you already tried to fix this failure ${leadFixesPerFailure} times in this Task; ask the human with \`ted failure ask ${shortReference(value.id)}\``,
+        )
+      const text = failureText(reason)
+      withdraw(value)
+      store.postComment({
+        taskId: task.id,
+        author: { kind: 'run', runId },
+        title: 'Fixing a failure in this Task',
+        body: `Failure ${shortReference(value.id)}\n\nAttempt ${earlier + 1} of ${leadFixesPerFailure}. ${text}`,
+      })
+      return store.failures.save(
+        {
+          ...value,
+          leadFixes: [
+            ...(value.leadFixes ?? []),
+            { assessmentId: assessment.id, reason: text, runId, at: new Date().toISOString() },
+          ],
+        },
+        'fix-chosen',
       )
     },
     async request(task: Task, id: string, runId: string) {

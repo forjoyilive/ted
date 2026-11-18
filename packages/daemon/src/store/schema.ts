@@ -1646,6 +1646,15 @@ export const events = {
       at: Schema.String,
     }),
   }),
+  failureFixChosen: Events.synced({
+    name: 'v1.FailureFixChosen',
+    schema: Schema.Struct({
+      id: Schema.String,
+      taskId: Schema.String,
+      data: Schema.String,
+      at: Schema.String,
+    }),
+  }),
   failureAcceptanceInvalidated: Events.synced({
     name: 'v1.FailureAcceptanceInvalidated',
     schema: Schema.Struct({
@@ -5435,6 +5444,7 @@ const materializers = counted(
       'v1.FailureDecisionRequested': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureRepairIncorporated': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureResolved': (row) => failureCases.insert(row).onConflict('id', 'replace'),
+      'v1.FailureFixChosen': (row) => failureCases.insert(row).onConflict('id', 'replace'),
       'v1.FailureAcceptanceInvalidated': (row) =>
         failureCases.insert(row).onConflict('id', 'replace'),
       'v1.CommentAnswered': ({ id, answer, at }) => [

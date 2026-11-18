@@ -19,7 +19,7 @@ test('a concise limit question keeps the complete Findings in history', async ()
   const origin = await makeOriginRepo(originDir)
   await commitToOrigin(originDir, {
     '.ted/workflow.yaml':
-      'version: 1\norder: [intake, work, validate, review]\nstages:\n  validate: { max_back: 1, loop_check: 1 }\n',
+      'version: 1\norder: [intake, work, validate, review]\nstages:\n  validate: { max_back: 1, loop_check: 1, p1_only_from: false }\n',
   })
   ctx.extraEnv.TED_CODEX_BIN = stubCodexPath
   const findings = path.join(ctx.home, 'findings.md')

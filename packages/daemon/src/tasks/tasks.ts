@@ -392,6 +392,7 @@ import {
   failureText,
   leadClosesFailures,
   leadClosesRefusal,
+  leadFixed,
 } from './failure-cases.ts'
 import { freshAfterFailure, retryChoice } from './failures.ts'
 import { listTaskFiles, readTaskFile } from './files.ts'
@@ -702,6 +703,7 @@ export interface Tasks {
     evidence: string,
     fixedBy?: string,
   ): Promise<FailureCase>
+  chooseFailureFix(ref: string, caller: Caller, id: string, reason: string): Promise<FailureCase>
   requestFailureDecision(ref: string, caller: Caller, id: string): Promise<FailureCase>
   resolveFailure(ref: string, id: string, input: ResolveFailureRequest): Promise<FailureCase>
   create(input: CreateTaskInput, caller?: Caller): Promise<CreatedTask>
@@ -12406,6 +12408,8 @@ export function createTasks(options: {
       ),
     assessFailure: (ref, caller, id, input) =>
       failureLead(ref, caller, (task, runId) => failures.assess(task, id, runId, input)),
+    chooseFailureFix: (ref, caller, id, reason) =>
+      failureLead(ref, caller, (task, runId) => failures.chooseFix(task, id, runId, reason)),
     verifyFailure: (ref, caller, id, evidence, fixedBy) =>
       failureLead(ref, caller, async (task) => {
         const value = failures.get(task, id)
@@ -12448,7 +12452,8 @@ export function createTasks(options: {
               ? ['repair']
               : []),
           ].includes(value.resolutions.at(-1)?.resolution ?? '') &&
-          value.assessments.at(-1)?.assessment !== 'regression'
+          value.assessments.at(-1)?.assessment !== 'regression' &&
+          !value.leadFixes?.length
         )
           throw new RequestError(
             409,
@@ -13338,12 +13343,13 @@ export function createTasks(options: {
                 const assessment = value.assessments.at(-1)
                 if (
                   value.resolutions.at(-1)?.resolution !== 'fix' &&
+                  !leadFixed(value) &&
                   (assessment?.assessment !== 'regression' ||
                     assessment.evidenceCount !== value.additions.length)
                 )
                   throw new RequestError(
                     409,
-                    'substantiate a regression assessment before sending back; unrelated or uncertain failures need the human’s decision',
+                    'substantiate a regression assessment before sending back. For an unrelated or uncertain failure, choose to fix it in this Task with `ted failure fix <id>`, or ask the human with `ted failure ask <id>`',
                   )
                 if (
                   value.source.kind === 'factory-check' ||

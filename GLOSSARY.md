@@ -236,7 +236,7 @@ _Avoid_: Worker, helper, child agent
 The sub-agent that reviews a Task’s diff at Validate with no Work context. Ted picks its Provider from the `reviewer` setting, by default the other Provider from the Task Lead’s. Each Validate visit gets one. From the second round Ted limits it to the earlier findings and the changes since the last reviewed commit, and after a send-back for a conflict with the base branch to the conflict resolution.
 
 **Loop check**:
-A sub-agent Ted starts itself at Validate’s third return to Work to read the rounds of findings and say whether they are converging or looping.
+A sub-agent Ted starts itself at Validate’s fifth return to Work (by default; `stages.validate.loop_check`) to read the rounds of findings and say whether they are converging or looping.
 
 **Run**:
 One agent conversation, on a Task (the Task Lead’s or a sub-agent’s), for an Automation, for planning, or for a Coordinator, from when Ted starts it until it is stopped. Ted may restart the Provider underneath it, for example onto a new Provider version, and it is still the same Run. A stopped Run is kept as history and never resumed; work continues in a fresh Run.

@@ -1179,6 +1179,8 @@ export async function runCli(argv: string[], runtime: CliRuntime = {}): Promise<
         client.verifyFailure(ref, args[0] ?? '', input.evidence, input.fixedBy),
       )
     },
+    failureFix: () =>
+      failureResult((client, ref) => client.chooseFailureFix(ref, args[0] ?? '', args[1] ?? '')),
     failureAsk: () =>
       failureResult((client, ref) => client.requestFailureDecision(ref, args[0] ?? '')),
     browserOpen: async () => {
