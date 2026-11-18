@@ -1,6 +1,6 @@
 # New work waits while the computer is busy
 
-Status: accepted (KRI-404). Replaces ADR 0101-new-work-waits-while-the-machine-is-busy.
+Status: accepted (KRI-404). Replaces ADR 0101-new-work-waits-while-the-machine-is-busy. “Showing it” amended by ADR 0195-queued-tasks-keep-their-place-and-the-sidebar-says-the-computer-is-busy: queued Tasks keep their place, and the resource figures appear on the sidebar strip and Limits line.
 
 Ted measured memory for Settings → Developer but never acted on it. On a Mac that ran out, Ted kept starting agents, simulators and Scheduled Checks, and macOS swapped and killed processes. A killed agent went through recovery; a killed Check looked like a real failure. ADR 0101 already held new starts for CPU load, but only behind a setting that was off by default, and it held them by a different rule from what Scheduled Checks used. This ADR makes one rule for both resources.
 
