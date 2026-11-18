@@ -160,8 +160,11 @@ export async function killRunHosts(
   }
 }
 
-export async function killAppHosts(home: string): Promise<void> {
+export async function appHostStarts(
+  home: string,
+): Promise<{ hostPid: number; pid: number | null }[]> {
   const root = path.join(home, 'apps')
+  const starts: { hostPid: number; pid: number | null }[] = []
   for (const task of await readdir(root).catch(() => [])) {
     for (const repo of await readdir(path.join(root, task)).catch(() => [])) {
       for (const app of await readdir(path.join(root, task, repo)).catch(() => [])) {
@@ -169,16 +172,22 @@ export async function killAppHosts(home: string): Promise<void> {
           () => '',
         )
         for (const line of text.split('\n').filter((l) => l.startsWith('{"t":"start"'))) {
-          const start = JSON.parse(line) as { hostPid: number; pid: number | null }
-          try {
-            signalGroup(start.pid, 'SIGKILL')
-          } catch {}
-          try {
-            signalProcess(start.hostPid, 'SIGKILL')
-          } catch {}
+          starts.push(JSON.parse(line) as { hostPid: number; pid: number | null })
         }
       }
     }
+  }
+  return starts
+}
+
+export async function killAppHosts(home: string): Promise<void> {
+  for (const start of await appHostStarts(home)) {
+    try {
+      signalGroup(start.pid, 'SIGKILL')
+    } catch {}
+    try {
+      signalProcess(start.hostPid, 'SIGKILL')
+    } catch {}
   }
 }
 

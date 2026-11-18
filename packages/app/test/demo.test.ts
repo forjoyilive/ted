@@ -6,6 +6,7 @@ import { DaemonClient, readDaemonInfo } from '@ted/protocol'
 import { type ElectronApplication, _electron as electron } from 'playwright'
 import { afterEach, expect, test, vi } from 'vitest'
 import {
+  appHostStarts,
   hostRecords,
   isAlive,
   killAppHosts,
@@ -75,6 +76,10 @@ test('opens the populated demo and reuses it when reopened', async () => {
   let nav = window.getByRole('navigation', { name: 'Sidebar' })
   await nav.waitFor({ timeout: 180_000 })
   await nav.getByRole('button', { name: 'Garden', exact: true }).click()
+  const gardenViews = nav
+    .getByRole('article', { name: 'Garden', exact: true })
+    .getByRole('button', { name: 'Views', exact: true })
+  if ((await gardenViews.getAttribute('aria-expanded')) !== 'true') await gardenViews.click()
   await nav.getByRole('button', { name: 'Task views' }).click()
   await nav.getByRole('button', { name: 'Board', exact: true }).click()
   await window
@@ -105,6 +110,9 @@ test('opens the populated demo and reuses it when reopened', async () => {
       if (record.t === 'start') pids.push(Number(record.hostPid), Number(record.agentPid))
     }
   }
+  const appStarts = await appHostStarts(home)
+  expect(appStarts.length).toBeGreaterThan(0)
+  for (const start of appStarts) pids.push(start.hostPid, start.pid ?? 0)
   expect(pids.filter((pid) => pid > 1 && isAlive(pid)).length).toBeGreaterThan(0)
   await stopDemoFromCli(home)
   expect(await readDaemonInfo(home)).toBeUndefined()
