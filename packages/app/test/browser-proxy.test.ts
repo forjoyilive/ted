@@ -237,7 +237,10 @@ test('the guest proxy forwards plain HTTP only to port 80 and tunnels only to po
 })
 
 test('the guest proxy tells only the page whose login asked when it refuses a private address', async () => {
-  const { proxy, guestProxy, refusals } = await proxyWithUpstreams()
+  const { proxy, guestProxy, refusals, looked } = await proxyWithUpstreams()
+  expect((await get(proxy, 'http://ted-guest-proxy.invalid/', { auth: false })).status).toBe(407)
+  expect((await get(proxy, 'http://ted-guest-proxy.invalid/')).status).toBe(204)
+  expect(looked).toEqual([])
   expect((await get(proxy, 'http://images.example/art.png')).status).toBe(200)
   expect((await get(proxy, 'http://images.example/missing')).status).toBe(404)
   expect((await get(proxy, 'http://broken.example/art.png')).status).toBe(502)

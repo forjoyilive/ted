@@ -1225,7 +1225,7 @@ async function start(): Promise<void> {
     },
     { session, WebContentsView },
     {},
-    guestProxyRules(app, browserHosts ? { lookup: fixedHosts(browserHosts) } : {}),
+    guestProxyRules(app, net, browserHosts ? { lookup: fixedHosts(browserHosts) } : {}),
   )
   servePrototypes((file) => supervised.client.readAttachment(file))
   traceStartup('initial-state-start')

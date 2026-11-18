@@ -10,7 +10,7 @@ import {
 } from 'node:http'
 import { type AddressInfo, BlockList, connect, isIP, isIPv4, type Socket } from 'node:net'
 import type { Duplex } from 'node:stream'
-import type { App, AuthInfo, WebContents } from 'electron'
+import type { App, AuthInfo, Net, WebContents } from 'electron'
 
 const local = new BlockList()
 for (const [address, prefix] of [
@@ -87,6 +87,7 @@ export function isOutsideHost(hostname: string): boolean {
 }
 
 const outsideTypes = new Set(['image', 'font', 'media'])
+const signInHost = 'ted-guest-proxy.invalid'
 
 export function isOutsideMedia(address: string, resourceType: string): boolean {
   if (!outsideTypes.has(resourceType)) return false
@@ -135,7 +136,7 @@ export interface GuestProxyOptions {
 }
 
 export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<GuestProxy> {
-  const logins = new Map<string, () => void>()
+  const logins = new Map<string, { refused(): void }>()
   const resolve = options.lookup ?? ((hostname) => lookup(hostname, { all: true }))
   const open = options.connect ?? ((port, address) => connect(port, address))
   const publicAddress = async (hostname: string) => {
@@ -156,8 +157,8 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
       if (!outgoing.headersSent) outgoing.writeHead(status, { 'content-length': 0 })
       outgoing.end()
     }
-    const refused = authorized(incoming)
-    if (!refused) {
+    const login = authorized(incoming)
+    if (!login) {
       outgoing.writeHead(407, { 'proxy-authenticate': 'Basic realm="Ted"', 'content-length': 0 })
       outgoing.end()
       return
@@ -168,6 +169,7 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
     } catch {
       return refuse(400)
     }
+    if (target.hostname === signInHost) return refuse(204)
     if (
       target.protocol !== 'http:' ||
       target.username ||
@@ -180,7 +182,7 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
     void publicAddress(target.hostname).then(
       (address) => {
         if (!address) {
-          refused()
+          login.refused()
           return refuse(403)
         }
         const headers: IncomingHttpHeaders = { ...incoming.headers, host: target.host }
@@ -207,8 +209,8 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
   })
   server.on('connect', (incoming: IncomingMessage, client: Duplex, head: Buffer) => {
     client.on('error', () => client.destroy())
-    const refused = authorized(incoming)
-    if (!refused) {
+    const login = authorized(incoming)
+    if (!login) {
       client.end(challenge)
       return
     }
@@ -230,7 +232,7 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
     void publicAddress(target.hostname).then(
       (address) => {
         if (!address) {
-          refused()
+          login.refused()
           client.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
           return
         }
@@ -263,7 +265,7 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
       const username = 'ted'
       const password = randomBytes(24).toString('hex')
       const header = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`
-      logins.set(header, onRefused)
+      logins.set(header, { refused: onRefused })
       return { username, password, release: () => logins.delete(header) }
     },
     close: () =>
@@ -274,10 +276,21 @@ export async function startGuestProxy(options: GuestProxyOptions = {}): Promise<
   }
 }
 
-export type GuestProxyRules = (contents: WebContents, refused: () => void) => Promise<string>
+export interface GuestProxyRoute {
+  rules: string
+  signIn(): Promise<void>
+}
 
+export type GuestProxyRules = (
+  contents: WebContents,
+  refused: () => void,
+) => Promise<GuestProxyRoute>
+
+// Chromium never asks for proxy credentials for a page's images, fonts or media; it only reuses
+// credentials its session already holds, so each page signs in from the main process first.
 export function guestProxyRules(
   electronApp: Pick<App, 'on'>,
+  electronNet: Pick<Net, 'request'>,
   options: GuestProxyOptions = {},
 ): GuestProxyRules {
   let started: Promise<GuestProxy> | undefined
@@ -305,6 +318,24 @@ export function guestProxyRules(
     const login = proxy.admit(refused)
     logins.set(contents, login)
     contents.once('destroyed', () => login.release())
-    return `http://127.0.0.1:${proxy.port}`
+    return {
+      rules: `http://127.0.0.1:${proxy.port}`,
+      signIn: () =>
+        new Promise<void>((resolve) => {
+          const request = electronNet.request({
+            url: `http://${signInHost}/`,
+            session: contents.session,
+            useSessionCookies: false,
+          })
+          request.on('login', (_authInfo, callback) => callback(login.username, login.password))
+          request.on('response', (response) => {
+            response.on('end', () => resolve())
+            response.on('error', () => resolve())
+            response.on('data', () => undefined)
+          })
+          request.on('error', () => resolve())
+          request.end()
+        }),
+    }
   }
 }

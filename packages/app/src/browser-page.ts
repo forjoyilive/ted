@@ -194,14 +194,14 @@ export async function openGuest(
     })
     check()
     // WebTransport bypasses webRequest but refuses proxied connections.
-    const proxyRules = options.proxy
-      ? await options.proxy(contents, () => page.blocked++)
-      : 'socks5://127.0.0.1:9'
+    const route = options.proxy ? await options.proxy(contents, () => page.blocked++) : undefined
     check()
     await ses.setProxy({
-      proxyRules,
+      proxyRules: route?.rules ?? 'socks5://127.0.0.1:9',
       proxyBypassRules: `<-loopback>,${origin},${origin.replace(/^http/, 'ws')}`,
     })
+    check()
+    await route?.signIn()
     check()
     ses.webRequest.onBeforeRequest((details, callback) => {
       const pass = allowed(details.url) || isOutsideMedia(details.url, details.resourceType)

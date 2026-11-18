@@ -305,7 +305,24 @@ export async function checkRefusedNames(
   url: string,
   reload: () => Promise<object>,
 ) {
+  const guestScript = (script: string) =>
+    app.evaluate(
+      async ({ webContents }, { url, script }) => {
+        const guest = webContents.getAllWebContents().find((c) => c.getURL() === url)
+        if (!guest) throw new Error('No guest')
+        return guest.executeJavaScript(script)
+      },
+      { url, script },
+    )
+  await guestScript('globalThis.beforeReload = true')
   await reload()
+  await expect
+    .poll(() =>
+      guestScript(`!globalThis.beforeReload && document.readyState === 'complete'`).catch(
+        () => false,
+      ),
+    )
+    .toBe(true)
   await expect.poll(() => panel.textContent()).not.toContain('Blocked')
   const images = ['http://private.example/art.png', 'https://private.example/art.png']
     .map(scriptLiteral)
@@ -313,14 +330,6 @@ export async function checkRefusedNames(
   const script = `Promise.all([${images}].map((src) => new Promise((resolve) => {
     const image = new Image(); image.onload = () => resolve('loaded'); image.onerror = () => resolve('refused'); image.src = src;
   })))`
-  const results = await app.evaluate(
-    async ({ webContents }, { url, script }) => {
-      const guest = webContents.getAllWebContents().find((c) => c.getURL() === url)
-      if (!guest) throw new Error('No guest')
-      return guest.executeJavaScript(script)
-    },
-    { url, script },
-  )
-  expect(results).toEqual(['refused', 'refused'])
+  expect(await guestScript(script)).toEqual(['refused', 'refused'])
   await expect.poll(() => panel.textContent()).toContain('Blocked 2 requests to other sites')
 }
