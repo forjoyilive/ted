@@ -176,6 +176,16 @@ try {
   throw error
 }
 
+function stopOnSignal(signal: NodeJS.Signals): void {
+  if (stopping) {
+    console.log(
+      `${signal} again while stopping: Ted’s daemon is exiting without finishing the stop`,
+    )
+    process.exit(1)
+  }
+  void shutdown()
+}
+
 watchExitWith(() => void shutdown())
-process.on('SIGTERM', shutdown)
-process.on('SIGINT', shutdown)
+process.on('SIGTERM', stopOnSignal)
+process.on('SIGINT', stopOnSignal)
