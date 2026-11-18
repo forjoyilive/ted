@@ -221,7 +221,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
   const member: PoolMember = {
     live: ownLive,
     async fresh() {
-      if (supported && records.size > 0) await fresh()
+      if (supported && !closed && records.size > 0) await fresh()
     },
     owns: (slotId) => recordAt(slotId) !== undefined,
     async shutDownFor(slotId, forTask) {
@@ -332,6 +332,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
   async function refresh(): Promise<void> {
     if (!supported || closed || records.size === 0) return
     refreshing ??= serial(async () => {
+      if (closed) return
       await fresh()
       await idleCheck()
     })
@@ -558,6 +559,7 @@ export function createDeviceSlots<R extends SlotRecord>(options: {
     async close() {
       closed = true
       if (timer) clearInterval(timer)
+      await serial(async () => undefined)
       await driver.close?.()
       await Promise.all(saving)
       releaseIdle?.()
