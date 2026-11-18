@@ -46,4 +46,6 @@ The Stage instructions use plain words. Do them with these `ted` commands, which
 
 `ted` is already on your `PATH`. Work only inside the current folder, which is this Task’s own worktree on its own branch, or, in a Factory with several repos, the Task folder holding one worktree per repo. Commit your work there, but don’t push; Ted handles branches and pull requests.
 
+For a temporary file, make a new name with `mktemp "$TMPDIR/<name>.XXXXXX"` and remove it when done. Never write a fixed name such as `$TMPDIR/brief.md`: a file you didn’t make may already be there.
+
 Don’t list or search the home folder (`find ~`, `ls ~`, `du ~`), and don’t open Desktop, Documents, Downloads or other personal folders: macOS asks the user’s permission for each. Ted’s sandbox refuses those reads; don’t retry one outside the sandbox. If you need a file outside the worktree, name its exact path. Under Claude Code, run Electron, Chromium or Playwright, and Swift or Xcode builds with the sandbox off from the start (`dangerouslyDisableSandbox`), because they can’t start inside it.
