@@ -1068,6 +1068,46 @@ test('a Factory with Inbox items off has its requests marked as not counted', as
   expect(onOpenNotifications).toHaveBeenCalledOnce()
 })
 
+test('an Inbox row shows its Task’s or chat’s title large, with the request’s headline in the line below', () => {
+  const props = inboxProps()
+  const view = render(
+    <Inbox
+      {...props}
+      items={[{ task: task(), request: comment({ id: 'q' }) }]}
+      confirmations={[
+        {
+          source: 'coordinator',
+          id: 'c1',
+          factoryId: 'f1',
+          createdAt,
+          headline: 'Archive NB-3?',
+          chatId: 'k1',
+          chatTitle: 'Plan the release',
+          agentName: 'Coordinator',
+          confirmationKind: 'archive',
+        },
+      ]}
+    />,
+  )
+  const row = (headline: string) => {
+    const line = [...view.container.querySelectorAll('[data-headline]')].find(
+      (el) => el.textContent === headline,
+    )
+    const button = line?.closest('button')
+    return {
+      title: button?.querySelector('[data-title]')?.textContent,
+      below: line?.parentElement?.textContent,
+    }
+  }
+  const taskRow = row('Use the default?')
+  expect(taskRow.title).toBe('Sync notes')
+  expect(taskRow.below).toMatch(/^NB-1 · Use the default\? · \S/)
+  expect(row('Archive NB-3?')).toEqual({
+    title: 'Plan the release',
+    below: 'Coordinator · Archive NB-3?',
+  })
+})
+
 test('Filter holds Group by, the order choices, the Factory chips and Answered; headings count, collapse and are remembered', async () => {
   const props = inboxProps()
   const question = {
