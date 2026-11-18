@@ -5,7 +5,13 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { DaemonClient, readDaemonInfo, tedEnv, tedVersion } from '@ted/protocol'
 import { withDaemon } from '../launch.ts'
 import { makeDemoOrigins, prepareDemoBinaries } from './fixtures.ts'
-import { checkDemoHome, type DemoManifest, demoVersion, markDemo } from './home.ts'
+import {
+  checkDemoHome,
+  type DemoManifest,
+  demoVersion,
+  markDemo,
+  withDemoEnvironment,
+} from './home.ts'
 import { seedScenarios, verifyDemo } from './scenarios.ts'
 
 export { checkDemoHome, demoEnvironment, demoHome } from './home.ts'
@@ -139,7 +145,11 @@ export async function seedDemo(home: string, client: DaemonClient): Promise<Demo
   return manifest
 }
 
-export async function seedDemoFromCli(home: string, reset = false): Promise<DemoManifest> {
+export function seedDemoFromCli(home: string, reset = false): Promise<DemoManifest> {
+  return withDemoEnvironment(home, () => seedInDemoEnvironment(home, reset))
+}
+
+async function seedInDemoEnvironment(home: string, reset: boolean): Promise<DemoManifest> {
   const prepared = await prepareDemo(home, reset)
   if (prepared.complete) return prepared
   const { startDaemon } = await import('../daemon.ts')

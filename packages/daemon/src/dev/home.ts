@@ -180,3 +180,16 @@ export function demoEnvironment(
     GIT_CONFIG_VALUE_1: 'always',
   }
 }
+
+export async function withDemoEnvironment<T>(home: string, work: () => Promise<T>): Promise<T> {
+  const original = { ...process.env }
+  const prepared = demoEnvironment(home, original)
+  for (const key of Object.keys(process.env)) delete process.env[key]
+  Object.assign(process.env, prepared)
+  try {
+    return await work()
+  } finally {
+    for (const key of Object.keys(process.env)) delete process.env[key]
+    Object.assign(process.env, original)
+  }
+}
