@@ -4661,7 +4661,11 @@ export function createTasks(options: {
         },
       )
     } catch (error) {
-      if (answered) postIdleQuestion(task.id, asked.body)
+      if (answered && liveLead(find(task.id))) postIdleQuestion(task.id, asked.body)
+      else if (answered) {
+        store.resumeTask(task.id, { waitForBlockers: unmergedBlockers(task.id).length > 0 })
+        void pump()
+      }
       throw error
     }
   }
