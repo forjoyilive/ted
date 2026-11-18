@@ -600,6 +600,7 @@ test('a Task whose App is being switched reports Opening until the new page is r
     url: 'http://localhost:3000/',
     text: 'Ready',
     size: 'desktop',
+    blocked: 0,
   })
   expect(await controller.state('two')).toEqual({ url: '', text: 'Open a running web App' })
 })
